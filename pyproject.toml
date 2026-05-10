@@ -1,0 +1,28 @@
+[project]
+name = "discord-clone"
+version = "0.1.0"
+description = "Discord clone monorepo - backend services + shared libs"
+requires-python = ">=3.13,<3.15"
+
+[tool.uv.workspace]
+members = [
+    "shared",
+    "services/auth",
+    "services/chat-gateway",
+    "services/voice-signaling",
+]
+
+[tool.uv.sources]
+dcc-shared = { workspace = true }
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "ASYNC"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
