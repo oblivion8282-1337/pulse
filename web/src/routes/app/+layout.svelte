@@ -3,6 +3,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
   import { logout } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
@@ -40,6 +41,8 @@
     }
     auth.signOut();
     gateway.disconnect();
+    guilds.clear();
+    messages.clear();
     await goto('/login', { replaceState: true });
   }
 </script>

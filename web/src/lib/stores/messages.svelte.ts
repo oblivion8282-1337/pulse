@@ -51,6 +51,11 @@ class MessageStore {
     const { [channelId]: __, ...restLoaded } = this.loadedChannels;
     this.loadedChannels = restLoaded;
   }
+
+  clear(): void {
+    this.byChannel = {};
+    this.loadedChannels = {};
+  }
 }
 
 export const messages = new MessageStore();

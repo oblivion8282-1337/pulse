@@ -20,7 +20,8 @@ export const chatApi = {
   addMember(guildId: string, userId: string): Promise<Member> {
     return request<Member>(`/guilds/${guildId}/members`, {
       method: 'POST',
-      body: { user_id: Number(userId) }
+      // Pass as string — snowflake IDs exceed 2^53 and Number() drops precision.
+      body: { user_id: userId }
     });
   },
   listMembers(guildId: string): Promise<Member[]> {

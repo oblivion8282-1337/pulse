@@ -36,6 +36,12 @@ class GuildStore {
       [channel.guild_id]: [...list, channel]
     };
   }
+
+  clear(): void {
+    this.byId = {};
+    this.channelsByGuild = {};
+    this.loaded = false;
+  }
 }
 
 export const guilds = new GuildStore();

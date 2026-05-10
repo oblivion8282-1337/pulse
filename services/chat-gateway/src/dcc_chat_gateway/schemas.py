@@ -5,11 +5,28 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_serializer
 
 
 def _id_str(value: int) -> str:
     return str(value)
+
+
+def _coerce_id(value: object) -> int:
+    """Accept snowflake IDs as int or string.
+
+    JavaScript clients must pass IDs as strings because Number can't
+    represent >2^53 without precision loss. We accept both forms so the
+    Python tests stay ergonomic.
+    """
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(f"expected int or string id, got {type(value).__name__}")
+
+
+SnowflakeId = Annotated[int, BeforeValidator(_coerce_id)]
 
 
 class GuildIn(BaseModel):
@@ -74,7 +91,7 @@ class MessageOut(BaseModel):
 
 
 class MemberIn(BaseModel):
-    user_id: int
+    user_id: SnowflakeId
 
 
 class MemberOut(BaseModel):

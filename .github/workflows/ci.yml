@@ -1,0 +1,91 @@
+# Discord-Clone CI — placeholder workflow.
+#
+# NOT YET ENABLED. The repository has no GitHub remote and we don't push.
+# This file is committed so the workflow is ready the moment somebody runs
+# `git remote add origin ...` + `git push`.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dcc
+          POSTGRES_PASSWORD: dcc-test
+          POSTGRES_DB: dcc
+        ports: ["5434:5432"]
+        options: >-
+          --health-cmd "pg_isready -U dcc"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6380:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      POSTGRES_USER: dcc
+      POSTGRES_PASSWORD: dcc-test
+      POSTGRES_DB: dcc
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5434"
+      REDIS_URL: redis://localhost:6380/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.13
+      - name: Install deps
+        run: uv sync --all-packages --all-extras
+      - name: Generate JWT keypair
+        run: |
+          mkdir -p secrets
+          openssl genpkey -algorithm RSA -out secrets/jwt_private.pem -pkeyopt rsa_keygen_bits:2048
+          openssl rsa -in secrets/jwt_private.pem -pubout -out secrets/jwt_public.pem
+      - name: Run all pytest
+        env:
+          JWT_PRIVATE_KEY_FILE: ./secrets/jwt_private.pem
+          JWT_PUBLIC_KEY_FILE: ./secrets/jwt_public.pem
+        run: uv run pytest -v
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Type-check
+        run: pnpm --filter @dcc/web check
+      - name: Build
+        run: pnpm --filter @dcc/web build
+
+  # E2E job is left as a stub — it needs both services + Postgres + Redis
+  # wired together and is too slow for default PR feedback. Run on demand:
+  # > pnpm --filter @dcc/web exec playwright test
+  e2e:
+    if: false
+    runs-on: ubuntu-24.04
+    needs: [backend, frontend]
+    steps:
+      - run: echo "enable when ready"
