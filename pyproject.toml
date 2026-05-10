@@ -25,4 +25,10 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --import-mode=importlib"
+testpaths = [
+    "shared/tests",
+    "services/auth/tests",
+    "services/chat-gateway/tests",
+    "services/voice-signaling/tests",
+]

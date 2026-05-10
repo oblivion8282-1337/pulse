@@ -1,0 +1,253 @@
+"""HTTP routes for the auth service."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import jwt
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
+
+from dcc_auth.config import get_settings
+from dcc_auth.db import SessionDep
+from dcc_auth.models import RefreshToken, User
+from dcc_auth.schemas import (
+    LoginIn,
+    MessageOut,
+    RefreshIn,
+    RegisterIn,
+    TokensOut,
+    UserPublic,
+)
+from dcc_auth.security import (
+    JwtSigner,
+    get_signer,
+    hash_password,
+    verify_password,
+)
+from dcc_auth.snowflake import next_id
+
+router = APIRouter()
+
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
+
+
+def _signer_dep() -> JwtSigner:
+    return get_signer()
+
+
+async def _issue_tokens(
+    session,
+    user: User,
+    *,
+    signer: JwtSigner,
+    user_agent: str | None,
+) -> TokensOut:
+    settings = get_settings()
+    access = signer.issue_access(user.id, user.username)
+    refresh, jti, exp_ts = signer.issue_refresh(user.id)
+    rt = RefreshToken(
+        jti=jti,
+        user_id=user.id,
+        expires_at=datetime.fromtimestamp(exp_ts, tz=UTC),
+        user_agent=(user_agent or None),
+    )
+    session.add(rt)
+    await session.flush()
+    _ = settings  # silence unused
+    return TokensOut(access_token=access, refresh_token=refresh)
+
+
+async def _get_current_user(
+    session: SessionDep,
+    authorization: str | None = Header(default=None),
+    signer: JwtSigner = Depends(_signer_dep),
+) -> User:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
+    token = authorization.split(" ", 1)[1].strip()
+    try:
+        payload = signer.decode(token, expected_type="access")
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=f"invalid token: {exc}") from exc
+    try:
+        user_id = int(payload["sub"])
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token payload") from exc
+    user = await session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    return user
+
+
+@router.post("/register", response_model=TokensOut, status_code=status.HTTP_201_CREATED)
+async def register(
+    payload: RegisterIn,
+    request: Request,
+    session: SessionDep,
+    signer: JwtSigner = Depends(_signer_dep),
+    user_agent: str | None = Header(default=None, alias="User-Agent"),
+):
+    settings = get_settings()
+    # Rate limit (per-IP) — applied via decorator-less manual call to avoid
+    # forcing slowapi state into every test.
+    await _check_rate(request, "register", settings.rate_limit_register)
+
+    user = User(
+        id=next_id(),
+        username=payload.username,
+        email=payload.email.lower(),
+        password_hash=hash_password(payload.password),
+        display_name=payload.display_name,
+    )
+    session.add(user)
+    try:
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail="username or email already taken"
+        ) from exc
+
+    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    await session.commit()
+    return tokens
+
+
+@router.post("/login", response_model=TokensOut)
+async def login(
+    payload: LoginIn,
+    request: Request,
+    session: SessionDep,
+    signer: JwtSigner = Depends(_signer_dep),
+    user_agent: str | None = Header(default=None, alias="User-Agent"),
+):
+    settings = get_settings()
+    await _check_rate(request, "login", settings.rate_limit_login)
+
+    needle = payload.email_or_username.strip()
+    stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
+    user = (await session.execute(stmt)).scalar_one_or_none()
+    if user is None or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+
+    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    await session.commit()
+    return tokens
+
+
+@router.post("/refresh", response_model=TokensOut)
+async def refresh(
+    payload: RefreshIn,
+    session: SessionDep,
+    signer: JwtSigner = Depends(_signer_dep),
+    user_agent: str | None = Header(default=None, alias="User-Agent"),
+):
+    try:
+        decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+
+    try:
+        jti = uuid.UUID(decoded["jti"])
+        user_id = int(decoded["sub"])
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token payload") from exc
+
+    rt = await session.get(RefreshToken, jti)
+    if rt is None or rt.revoked_at is not None or rt.user_id != user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
+    now = datetime.now(tz=UTC)
+    # SQLite returns naive datetimes; coerce to UTC for the comparison.
+    expires_at = rt.expires_at if rt.expires_at.tzinfo is not None else rt.expires_at.replace(tzinfo=UTC)
+    if expires_at <= now:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token expired")
+
+    user = await session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+
+    # Rotate: revoke old, issue new.
+    rt.revoked_at = now
+    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    await session.commit()
+    return tokens
+
+
+@router.post("/logout", response_model=MessageOut)
+async def logout(
+    payload: RefreshIn,
+    session: SessionDep,
+    signer: JwtSigner = Depends(_signer_dep),
+):
+    try:
+        decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+    except jwt.PyJWTError:
+        return MessageOut(detail="ok")  # idempotent
+
+    try:
+        jti = uuid.UUID(decoded["jti"])
+    except (KeyError, ValueError):
+        return MessageOut(detail="ok")
+
+    rt = await session.get(RefreshToken, jti)
+    if rt is not None and rt.revoked_at is None:
+        rt.revoked_at = datetime.now(tz=UTC)
+        await session.commit()
+    return MessageOut(detail="ok")
+
+
+@router.get("/me", response_model=UserPublic)
+async def me(current: User = Depends(_get_current_user)):
+    return current
+
+
+@router.get("/.well-known/jwks.json")
+async def jwks(signer: JwtSigner = Depends(_signer_dep)) -> dict:
+    return signer.jwks()
+
+
+# ---- internal helpers ---------------------------------------------------
+
+
+async def _check_rate(request: Request, key: str, rule: str) -> None:
+    """Lightweight slowapi-style rate-limit using a process-local counter.
+
+    `slowapi` is a fine library, but its Starlette middleware ties tightly
+    to the global limiter state and makes test isolation awkward. We keep
+    an in-process token bucket here keyed on (client, key). Production
+    deployments should swap to a Redis-backed limiter.
+    """
+    from time import monotonic
+
+    # Parse "N/period" — period in {second, minute, hour}.
+    n_str, period = rule.split("/")
+    n = int(n_str)
+    seconds = {"second": 1, "minute": 60, "hour": 3600}[period.rstrip("s")]
+
+    bucket = request.app.state.rate_buckets.setdefault(key, {})
+    ip = get_remote_address(request)
+    now = monotonic()
+    window = bucket.get(ip)
+    if window is None or now - window["start"] >= seconds:
+        bucket[ip] = {"start": now, "count": 1}
+        return
+    if window["count"] >= n:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"rate limit exceeded ({rule})",
+        )
+    window["count"] += 1
+
+
+# Re-export rate limiter accessor used by tests to flush state.
+def _reset_rate(app) -> None:
+    app.state.rate_buckets = {}
+
+
+# Dependency export for chat-gateway tests that import this module.
+get_current_user = _get_current_user

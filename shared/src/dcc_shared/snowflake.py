@@ -72,8 +72,8 @@ class SnowflakeGenerator:
         with self._lock:
             ts = self._now_ms()
             if ts < self._last_ts:
-                # Clock went backwards. Wait until last_ts to avoid duplicates.
-                ts = self._wait_next_ms(self._last_ts - 1)
+                # Clock went backwards. Wait until strictly after last_ts to avoid duplicates.
+                ts = self._wait_next_ms(self._last_ts)
             if ts == self._last_ts:
                 self._seq = (self._seq + 1) & MAX_SEQ
                 if self._seq == 0:

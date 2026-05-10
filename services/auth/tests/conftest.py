@@ -1,0 +1,108 @@
+"""Test fixtures for the auth service.
+
+Uses aiosqlite for fast isolated tests. Schema mapping is dropped (we treat
+"auth" as the default schema by stripping it on SQLite). This keeps tests
+hermetic — production migrations still target Postgres.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import AsyncIterator
+from pathlib import Path
+
+import pytest
+import pytest_asyncio
+
+# Ensure the auth service uses the test keys *before* importing the app.
+ROOT = Path(__file__).resolve().parents[3]
+SECRETS = ROOT / "secrets"
+os.environ.setdefault("JWT_PRIVATE_KEY_FILE", str(SECRETS / "jwt_private.pem"))
+os.environ.setdefault("JWT_PUBLIC_KEY_FILE", str(SECRETS / "jwt_public.pem"))
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://test")
+
+import httpx  # noqa: E402
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402
+
+from dcc_auth import models as _models  # noqa: F401,E402 - register metadata
+from dcc_auth.app import create_app  # noqa: E402
+from dcc_auth.config import Settings, get_settings  # noqa: E402
+from dcc_auth.db import Base, get_session  # noqa: E402
+from dcc_auth.routes import _reset_rate  # noqa: E402
+from dcc_auth.security import reset_signer  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings():
+    get_settings.cache_clear()
+    reset_signer()
+    # Force the test DB and small ttl so refresh-expired path is testable.
+    s = Settings(
+        database_url="sqlite+aiosqlite:///:memory:",
+        jwt_private_key_file=SECRETS / "jwt_private.pem",
+        jwt_public_key_file=SECRETS / "jwt_public.pem",
+        database_schema="main",  # sqlite default schema
+    )
+
+    def _provider() -> Settings:
+        return s
+
+    get_settings.cache_clear()
+    import dcc_auth.config as cfg
+
+    original = cfg.get_settings
+    cfg.get_settings = _provider  # type: ignore[assignment]
+    # Patch already-imported references in other modules.
+    import dcc_auth.security as security
+    import dcc_auth.snowflake as snowflake_mod
+    security.get_settings = _provider  # type: ignore[assignment]
+    snowflake_mod.get_settings = _provider  # type: ignore[assignment]
+    snowflake_mod._gen = None
+    reset_signer()
+
+    yield s
+
+    cfg.get_settings = original  # type: ignore[assignment]
+    get_settings.cache_clear()
+    reset_signer()
+
+
+@pytest_asyncio.fixture
+async def engine(_isolate_settings):
+    eng = create_async_engine(_isolate_settings.effective_database_url, future=True)
+    async with eng.begin() as conn:
+        # Strip schema for sqlite: copy tables into the default schema.
+        # Easiest path is to mutate metadata in place.
+        for table in Base.metadata.tables.values():
+            table.schema = None
+        await conn.run_sync(Base.metadata.create_all)
+    yield eng
+    await eng.dispose()
+
+
+@pytest_asyncio.fixture
+async def session_factory(engine):
+    return async_sessionmaker(engine, expire_on_commit=False)
+
+
+@pytest_asyncio.fixture
+async def app(session_factory):
+    application = create_app()
+    application.state.rate_buckets = {}
+
+    async def _override_get_session() -> AsyncIterator:
+        async with session_factory() as session:
+            yield session
+
+    application.dependency_overrides[get_session] = _override_get_session
+    yield application
+    application.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client(app) -> AsyncIterator[httpx.AsyncClient]:
+    _reset_rate(app)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+        yield c
