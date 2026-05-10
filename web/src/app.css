@@ -1,0 +1,86 @@
+@import 'tailwindcss';
+
+/* Discord-like dark palette */
+@theme {
+  --color-bg-base: #1e1f22;
+  --color-bg-sidebar: #2b2d31;
+  --color-bg-channels: #313338;
+  --color-bg-chat: #313338;
+  --color-bg-input: #383a40;
+  --color-bg-hover: #404249;
+  --color-accent: #5865f2;
+  --color-accent-hover: #4752c4;
+  --color-text-base: #dbdee1;
+  --color-text-muted: #949ba4;
+  --color-text-bright: #f2f3f5;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+    background: var(--color-bg-base);
+    color: var(--color-text-base);
+    font-family:
+      'gg sans',
+      -apple-system,
+      BlinkMacSystemFont,
+      'Segoe UI',
+      Roboto,
+      Helvetica,
+      Arial,
+      sans-serif;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  ::selection {
+    background: rgba(88, 101, 242, 0.4);
+  }
+
+  /* WebKit scrollbar in a soft grey */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #202225;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply rounded-md px-4 py-2 text-sm font-medium transition-colors;
+    background: var(--color-accent);
+    color: white;
+  }
+  .btn-primary:hover {
+    background: var(--color-accent-hover);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .input-base {
+    @apply w-full rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2;
+    background: var(--color-bg-input);
+    color: var(--color-text-bright);
+    border: 1px solid transparent;
+  }
+  .input-base:focus {
+    border-color: var(--color-accent);
+  }
+}

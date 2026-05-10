@@ -1,0 +1,55 @@
+export type Tokens = {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+};
+
+export type User = {
+  id: string;
+  username: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+};
+
+export type Guild = {
+  id: string;
+  name: string;
+  icon_url: string | null;
+  owner_id: string;
+  created_at: string;
+};
+
+export type Channel = {
+  id: string;
+  guild_id: string;
+  name: string;
+  type: number; // 0 = text, 1 = voice
+  position: number;
+  topic: string | null;
+  created_at: string;
+};
+
+export type Message = {
+  id: string;
+  channel_id: string;
+  author_id: string;
+  content: string;
+  nonce: string | null;
+  created_at: string;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+};
+
+export type Member = {
+  guild_id: string;
+  user_id: string;
+  nickname: string | null;
+  joined_at: string;
+};
+
+export type ApiError = {
+  detail: string;
+  status: number;
+};
