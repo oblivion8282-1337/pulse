@@ -4,6 +4,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { settings } from '$lib/stores/settings.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -19,6 +20,15 @@
       gateway.connect().catch((e) => console.error('gateway connect', e))
     ]);
     hydrated = true;
+
+    if (settings.audio.noiseSuppression === 'deepfilternet') {
+      const cb = () => import('$lib/voice/noiseFilter').then(({ preloadNoiseFilter }) => preloadNoiseFilter());
+      if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => { cb().catch(() => {}); }, { timeout: 5000 });
+      } else {
+        setTimeout(() => { cb().catch(() => {}); }, 0);
+      }
+    }
   });
 
   onDestroy(() => {

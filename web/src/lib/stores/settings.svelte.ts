@@ -58,7 +58,7 @@ const DEFAULTS: PersistedSettings = {
     outputDeviceLabel: '',
     echoCancellation: true,
     autoGainControl: true,
-    noiseSuppression: 'browser',
+    noiseSuppression: 'deepfilternet',
     voiceBitrateKbps: 48,
     stereo: false
   },

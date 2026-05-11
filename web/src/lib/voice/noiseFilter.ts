@@ -93,6 +93,15 @@ class RnnoiseTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
 }
 
 /**
+ * Warm the HTTP cache for DFN3 assets without touching AudioContext.
+ * Safe to call before any user gesture.
+ */
+export function preloadNoiseFilter(): void {
+  WebAssembly.compileStreaming(fetch('/deepfilternet3/v2/pkg/df_bg.wasm')).catch(() => {});
+  fetch('/deepfilternet3/v2/models/DeepFilterNet3_onnx.tar.gz', { priority: 'low' } as RequestInit).catch(() => {});
+}
+
+/**
  * Build the audio TrackProcessor for the requested mode.
  * `noiseReductionLevel` 0..100 controls DeepFilterNet3 strength (default 100).
  */
