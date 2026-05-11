@@ -35,7 +35,7 @@ function dfn3StaticPlugin() {
     res.writeHead(200, {
       'Content-Type': contentType,
       'Content-Length': stat.size,
-      'Cache-Control': 'no-store'
+      'Cache-Control': 'public, max-age=31536000, immutable'
     });
     fs.createReadStream(filePath).pipe(res);
   };
