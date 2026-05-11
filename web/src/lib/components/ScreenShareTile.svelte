@@ -17,10 +17,19 @@
     identity: string;
   } = $props();
 
+  let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
   let volume = $state(100);
   let audioBlocked = $state(false);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      containerEl?.requestFullscreen().catch(() => {});
+    }
+  }
 
   $effect(() => {
     const t = track;
@@ -57,6 +66,7 @@
 </script>
 
 <div
+  bind:this={containerEl}
   class="bg-bg-chat relative flex h-full flex-col overflow-hidden rounded-lg border border-white/10"
   data-testid="screen-share-tile"
   data-identity={identity}
@@ -68,8 +78,8 @@
     autoplay
     playsinline
     class="h-full w-full cursor-pointer object-contain"
-    onclick={() => videoEl?.requestFullscreen()}
-    title="Klicken für Vollbild"
+    onclick={toggleFullscreen}
+    title="Klicken für Vollbild / Esc zum Verlassen"
   ></video>
 
   <!-- hidden audio element for screen-share audio track -->
