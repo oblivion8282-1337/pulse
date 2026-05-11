@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { login, me } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -13,6 +14,13 @@
   let error = $state<string | null>(null);
   let busy = $state(false);
 
+  function safeRedirect(raw: string | null): string {
+    if (!raw) return '/app';
+    // Must start with "/" but not "//" — prevents open-redirect via //evil.com
+    if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+    return '/app';
+  }
+
   async function submit(e: Event) {
     e.preventDefault();
     error = null;
@@ -20,7 +28,8 @@
     try {
       await login(emailOrUsername.trim(), password);
       auth.setUser(await me());
-      await goto('/app');
+      const redirect = safeRedirect($page.url.searchParams.get('redirect'));
+      await goto(redirect);
     } catch (err) {
       error = (err as Error).message;
     } finally {

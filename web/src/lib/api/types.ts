@@ -49,6 +49,33 @@ export type Member = {
   joined_at: string;
 };
 
+export type GuildSummary = {
+  id: string;
+  name: string;
+  icon_url: string | null;
+};
+
+export type Invite = {
+  code: string;
+  guild_id: string;
+  channel_id: string | null;
+  max_uses: number | null;
+  uses: number;
+  expires_at: string | null;
+  created_at: string;
+};
+
+export type InvitePreview = {
+  guild: GuildSummary;
+  channel_id: string | null;
+  member_count: number;
+};
+
+export type AcceptInviteResult = {
+  guild: GuildSummary;
+  channel_id: string | null;
+};
+
 export type ApiError = {
   detail: string;
   status: number;

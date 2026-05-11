@@ -1,5 +1,5 @@
 import { request } from './client';
-import type { Channel, Guild, Member, Message } from './types';
+import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member, Message } from './types';
 
 export const chatApi = {
   // Guilds
@@ -60,5 +60,29 @@ export const chatApi = {
       method: 'POST',
       body: { content, nonce: nonce ?? null }
     });
+  },
+
+  // Invites
+  createInvite(
+    guildId: string,
+    opts: { expiresInSeconds?: number; maxUses?: number; channelId?: string } = {}
+  ): Promise<Invite> {
+    const body: Record<string, unknown> = {};
+    if (opts.expiresInSeconds !== undefined) body.expires_in_seconds = opts.expiresInSeconds;
+    if (opts.maxUses !== undefined) body.max_uses = opts.maxUses;
+    if (opts.channelId !== undefined) body.channel_id = opts.channelId;
+    return request<Invite>(`/guilds/${guildId}/invites`, { method: 'POST', body });
+  },
+  listInvites(guildId: string): Promise<Invite[]> {
+    return request<Invite[]>(`/guilds/${guildId}/invites`);
+  },
+  revokeInvite(code: string): Promise<void> {
+    return request<void>(`/invites/${code}`, { method: 'DELETE' });
+  },
+  getInvitePreview(code: string): Promise<InvitePreview> {
+    return request<InvitePreview>(`/invites/${code}`);
+  },
+  acceptInvite(code: string): Promise<AcceptInviteResult> {
+    return request<AcceptInviteResult>(`/invites/${code}/accept`, { method: 'POST' });
   }
 };

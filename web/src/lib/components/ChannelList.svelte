@@ -6,9 +6,11 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import { toast } from 'svelte-sonner';
   import { voiceState } from '$lib/voice/state.svelte';
   import type { Channel, Guild } from '$lib/api/types';
+  import InviteDialog from './InviteDialog.svelte';
 
   let {
     guild,
@@ -26,6 +28,8 @@
     canCreate?: boolean;
   } = $props();
 
+  let inviteOpen = $state(false);
+
   let textChannels = $derived(channels.filter((c) => c.type === 0));
   let voiceChannels = $derived(channels.filter((c) => c.type === 1));
 
@@ -39,19 +43,41 @@
 <aside class="bg-bg-sidebar text-text-base flex h-full w-60 flex-col" data-testid="channel-list">
   <header class="flex h-12 items-center justify-between border-b border-black/30 px-4 font-semibold text-text-bright shadow-sm">
     <span class="truncate">{guild?.name ?? '—'}</span>
-    {#if canCreate}
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        class="text-text-muted hover:text-white"
-        onclick={onCreateClick}
-        data-testid="channel-create"
-        aria-label="Kanal erstellen"
-      >
-        <PlusIcon />
-      </Button>
-    {/if}
+    <div class="flex items-center gap-0.5">
+      {#if guild}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="text-text-muted hover:text-white"
+          onclick={() => (inviteOpen = true)}
+          data-testid="invite-open-btn"
+          aria-label="Leute einladen"
+        >
+          <UserPlusIcon />
+        </Button>
+      {/if}
+      {#if canCreate}
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          class="text-text-muted hover:text-white"
+          onclick={onCreateClick}
+          data-testid="channel-create"
+          aria-label="Kanal erstellen"
+        >
+          <PlusIcon />
+        </Button>
+      {/if}
+    </div>
   </header>
+
+  {#if guild}
+    <InviteDialog
+      open={inviteOpen}
+      guildId={guild.id}
+      onClose={() => (inviteOpen = false)}
+    />
+  {/if}
 
   <nav class="flex-1 overflow-y-auto px-2 pb-3 pt-2">
     <div class="text-text-muted px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide">Text-Kanäle</div>
