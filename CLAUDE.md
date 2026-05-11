@@ -145,7 +145,7 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
 
 ## Wichtige Konventionen
 
-- **Kein `git push`, keine GitHub-CLI** ohne explizite Freigabe. Es gibt noch keinen Remote.
+- **Kein `git push`, keine GitHub-CLI** ohne explizite Freigabe. Remote existiert: `origin` → `github.com/oblivion8282-1337/pulse.git` (seit 2026-05-11; `main` + `night-team-2026-05-11` gepusht).
 - **Snowflake-IDs als Strings über die API-Grenze** (REST-Bodies, WS-Messages, Responses).
   JS `Number` kann 64-bit nicht exakt darstellen — IDs > 2^53 verlieren Low-Bits.
   Backend-Schemas haben einen `SnowflakeId`-`BeforeValidator` der int *oder* string akzeptiert;
