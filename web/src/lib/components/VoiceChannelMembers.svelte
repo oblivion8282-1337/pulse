@@ -2,7 +2,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { userCache } from '$lib/stores/users.svelte';
 
-  let { userIds }: { userIds: string[] } = $props();
+  let { userIds, streamingUserIds = [] }: { userIds: string[]; streamingUserIds?: string[] } = $props();
 
   $effect(() => {
     for (const id of userIds) userCache.queue(id);
@@ -28,5 +28,12 @@
       </Avatar.Fallback>
     </Avatar.Root>
     <span class="truncate">{name}</span>
+    {#if streamingUserIds.includes(uid)}
+      <span
+        class="ml-auto shrink-0 rounded bg-red-600 px-1 py-px text-[9px] font-bold leading-none text-white"
+        data-testid="user-streaming-badge"
+        title="teilt seinen Bildschirm"
+      >LIVE</span>
+    {/if}
   </div>
 {/each}

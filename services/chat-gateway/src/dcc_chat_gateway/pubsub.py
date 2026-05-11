@@ -177,6 +177,9 @@ class ConnectionManager:
                 if channel == VOICE_EVENTS_CHANNEL:
                     payload = self._decode_payload(msg["data"], VOICE_EVENTS_CHANNEL)
                     if not isinstance(payload, dict) or "channel_id" not in payload:
+                        log.warning(
+                            "voice:events malformed or missing channel_id: %r", payload
+                        )
                         continue
                     envelope = {
                         "op": "voice_state",
@@ -188,6 +191,13 @@ class ConnectionManager:
                     }
                     async with self._lock:
                         targets = list(self._connections)
+                    log.info(
+                        "voice:events broadcast channel=%s user_ids=%s streaming=%s targets=%d",
+                        envelope["channel_id"],
+                        envelope["user_ids"],
+                        envelope["streaming_user_ids"],
+                        len(targets),
+                    )
                     await self._fan_out(targets, envelope)
                     continue
 

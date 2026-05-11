@@ -190,9 +190,7 @@
             >
               <Volume2Icon class="text-text-muted size-4 shrink-0" />
               <span class="truncate">{c.name}</span>
-              {#if voicePresence.streamingIn(c.id).length > 0}
-                <span class="ml-auto shrink-0 rounded bg-red-600 px-1 py-0.5 text-[10px] font-bold leading-none text-white" title="Jemand teilt seinen Bildschirm" data-testid="live-badge">LIVE</span>
-              {:else if voiceState.channelId === c.id && voiceState.connected}
+              {#if voiceState.channelId === c.id && voiceState.connected}
                 <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title="verbunden"></span>
               {/if}
             </button>
@@ -215,7 +213,7 @@
       {@const members = voicePresence.usersIn(c.id)}
       {#if members.length > 0}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
-          <VoiceChannelMembers userIds={members} />
+          <VoiceChannelMembers userIds={members} streamingUserIds={voicePresence.streamingIn(c.id)} />
         </div>
       {/if}
     {/each}

@@ -116,6 +116,7 @@ export class GatewayConnection {
         } else if (evt.op === 'channel_updated') {
           guilds.updateChannel(evt.channel);
         } else if (evt.op === 'voice_state') {
+          console.debug('[ws] voice_state', evt.channel_id, 'users:', evt.user_ids, 'streaming:', evt.streaming_user_ids);
           voicePresence.apply(evt.channel_id, evt.user_ids, evt.streaming_user_ids);
         }
         for (const l of this.listeners) l(evt);

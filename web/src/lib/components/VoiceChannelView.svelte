@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
@@ -13,8 +13,9 @@
 
   let { channel }: { channel: Channel } = $props();
 
-  let autoConnectAttempted = false;
-
+  // Connecting must happen from a user gesture (click on "Beitreten") so the
+  // browser allows the AudioContext to start — auto-connect on mount would be
+  // blocked by autoplay policy.
   async function joinChannel() {
     try {
       await voice.connect(channel.id, channel.name);
@@ -24,18 +25,6 @@
       });
     }
   }
-
-  $effect(() => {
-    const cid = channel.id;
-    const alreadyHere = voice.channelId === cid;
-    const busy = voice.connecting;
-    untrack(() => {
-      if (!alreadyHere && !busy && !autoConnectAttempted) {
-        autoConnectAttempted = true;
-        void joinChannel();
-      }
-    });
-  });
 
   let isThisChannel = $derived(voice.channelId === channel.id);
   let statusLabel = $derived(
@@ -76,40 +65,61 @@
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) voice.pttRelease(); }}
 />
 
-<section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col" data-testid="voice-channel-view">
+<section class="bg-bg-chat relative flex h-full min-w-0 flex-1 flex-col" data-testid="voice-channel-view">
   <header class="flex h-12 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
     <Volume2Icon class="text-text-muted size-5" />
     <span class="text-text-bright font-semibold" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-3 text-sm">{statusLabel}</span>
   </header>
 
-  <div class="flex flex-1 flex-col items-center justify-center gap-8 p-8">
+  {#if voice.audioBlocked && isThisChannel}
+    <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm" data-testid="audio-blocked-overlay">
+      <div class="flex flex-col items-center gap-3 text-center">
+        <VolumeXIcon class="size-10 text-white/70" />
+        <p class="text-text-bright text-sm font-medium">Audio ist stummgeschaltet</p>
+        <p class="text-text-muted text-xs">Dein Browser blockiert die automatische Wiedergabe.</p>
+        <Button onclick={() => void voice.unblockAudio()} data-testid="audio-unblock-btn">
+          Audio aktivieren
+        </Button>
+      </div>
+    </div>
+  {/if}
+
+  <div class="flex min-h-0 flex-1 flex-col">
     {#if isThisChannel && (voice.connected || voice.connecting)}
       {#if voice.participants.length === 0}
-        <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
-      {:else}
-        {#if voice.screenTracks.length > 0}
-          <div class="w-full max-w-4xl" data-testid="screen-share-area">
-            {#each voice.screenTracks as st (st.identity)}
-              <ScreenShareTile track={st.track} name={st.name} identity={st.identity} />
+        <div class="flex flex-1 items-center justify-center">
+          <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
+        </div>
+      {:else if voice.screenTracks.length > 0}
+        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3" data-testid="screen-share-area">
+          {#each voice.screenTracks as st (st.identity)}
+            <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
+          {/each}
+          <div class="flex shrink-0 flex-wrap items-center justify-center gap-4 py-2" data-testid="voice-participants">
+            {#each voice.participants as p (p.identity)}
+              <VoiceParticipantTile {p} />
             {/each}
           </div>
-        {/if}
-        <div class="flex flex-wrap items-start justify-center gap-6" data-testid="voice-participants">
+        </div>
+      {:else}
+        <div class="flex flex-1 flex-wrap items-center justify-center gap-6 p-8" data-testid="voice-participants">
           {#each voice.participants as p (p.identity)}
             <VoiceParticipantTile {p} />
           {/each}
         </div>
       {/if}
     {:else}
-      <div class="text-center">
-        <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
-        <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
-        <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
-        {#if voice.error}
-          <p class="mt-2 text-sm text-red-400">{voice.error}</p>
-        {/if}
-        <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+      <div class="flex flex-1 items-center justify-center">
+        <div class="text-center">
+          <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
+          <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
+          <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
+          {#if voice.error}
+            <p class="mt-2 text-sm text-red-400">{voice.error}</p>
+          {/if}
+          <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+        </div>
       </div>
     {/if}
   </div>

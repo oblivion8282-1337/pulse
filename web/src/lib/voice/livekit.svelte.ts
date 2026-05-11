@@ -1,14 +1,3 @@
-/**
- * Thin Svelte 5 runes wrapper around the LiveKit JS SDK.
- *
- * We subscribe to the raw `Room`/`Participant` events and mirror the
- * pieces of state we render into `$state` fields. This keeps the
- * reactivity boundary in one place and avoids dragging in RxJS via
- * `@livekit/components-core` (its observables are shaped for React).
- *
- * One instance lives module-global (`voice` export) — only one active
- * voice connection at a time, like Discord.
- */
 
 import {
   ConnectionState,
@@ -27,7 +16,9 @@ import {
 import type { ScreenShareCaptureOptions, TrackPublishOptions, VideoResolution } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
+import { RemoteAudioElements } from './audioElements';
 import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
+import { nameFor, userIdFromIdentity } from './identity';
 import { toast } from 'svelte-sonner';
 
 export type VoiceParticipant = {
@@ -53,16 +44,9 @@ export type ScreenShareTrack = {
   /** Display name for the sharer. */
   name: string;
   track: RemoteVideoTrack;
+  /** Accompanying screen-share audio track, if published. */
+  audioTrack?: RemoteAudioTrack;
 };
-
-function userIdFromIdentity(identity: string): string | null {
-  const m = identity.match(/^user-(\d+)$/);
-  return m ? m[1] : null;
-}
-
-function nameFor(p: Participant): string {
-  return p.name && p.name.trim() ? p.name : p.identity;
-}
 
 class VoiceRoom {
   /** The id of the channel we are connected to (or connecting to). */
@@ -87,14 +71,18 @@ class VoiceRoom {
   /** Remote screen-share tracks currently active in the room. */
   screenTracks = $state<ScreenShareTrack[]>([]);
 
+  /** True when the browser blocked audio playback (autoplay policy). */
+  audioBlocked = $state(false);
+
   /** Available audio output devices for the device picker. */
   outputDevices = $state<MediaDeviceInfo[]>([]);
   selectedOutputDeviceId = $state<string>('');
 
   #room: Room | null = null;
-  /** Detached <audio> elements for remote tracks, keyed by track sid. */
-  #audioEls = new Map<string, HTMLMediaElement>();
+  #audioEls = new RemoteAudioElements();
   #levelTimer: ReturnType<typeof setInterval> | null = null;
+  /** Screen-share audio tracks subscribed before their video track — keyed by participant identity. */
+  #pendingScreenAudio = new Map<string, RemoteAudioTrack>();
 
   get connected(): boolean {
     return this.state === ConnectionState.Connected;
@@ -128,8 +116,6 @@ class VoiceRoom {
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
-      // Browser AEC / NS / AGC defaults — good enough for the MVP. A
-      // future polish step can layer @jitsi/rnnoise-wasm on top.
       audioCaptureDefaults: {
         autoGainControl: true,
         echoCancellation: true,
@@ -137,6 +123,8 @@ class VoiceRoom {
       }
     });
     this.#room = room;
+    this.#audioEls.deafened = this.deafened;
+    this.#audioEls.outputDeviceId = this.selectedOutputDeviceId;
     this.#wireEvents(room);
 
     try {
@@ -147,7 +135,16 @@ class VoiceRoom {
       throw e;
     }
 
+    // We're still inside the user gesture that triggered connect() — resume the
+    // AudioContext now so attached <audio> elements can play (autoplay policy).
+    try {
+      await room.startAudio();
+    } catch {
+      // startAudio rejects if already started — harmless.
+    }
+
     this.state = room.state;
+    this.audioBlocked = !room.canPlaybackAudio;
     voiceState.channelId = channelId;
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
@@ -211,12 +208,25 @@ class VoiceRoom {
 
   setDeafened(on: boolean): void {
     this.deafened = on;
-    for (const el of this.#audioEls.values()) {
-      el.muted = on;
-    }
+    this.#audioEls.setDeafened(on);
   }
   toggleDeafen(): void {
     this.setDeafened(!this.deafened);
+  }
+
+  /** Call from a synchronous click handler to unblock the browser AudioContext. */
+  async unblockAudio(): Promise<void> {
+    const room = this.#room;
+    if (!room) return;
+    try {
+      await room.startAudio();
+    } catch {
+      // startAudio can throw if already started — harmless.
+    }
+    // Nudge our detached <audio> elements; screen-share audio is handled at the
+    // track level by startAudio() above.
+    this.#audioEls.replayAll();
+    this.audioBlocked = !room.canPlaybackAudio;
   }
 
   async setScreenShare(on: boolean): Promise<void> {
@@ -280,16 +290,7 @@ class VoiceRoom {
         /* setSinkId not supported in some browsers — ignore */
       }
     }
-    for (const el of this.#audioEls.values()) {
-      const anyEl = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
-      if (typeof anyEl.setSinkId === 'function') {
-        try {
-          await anyEl.setSinkId(deviceId);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    await this.#audioEls.setOutputDevice(deviceId);
   }
 
   // --- internals -----------------------------------------------------
@@ -317,16 +318,27 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: RemoteParticipant) => {
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant) => {
         if (track.kind === Track.Kind.Audio) {
-          this.#attachAudio(track as RemoteAudioTrack);
-        } else if (track.kind === Track.Kind.Video && _pub.source === Track.Source.ScreenShare) {
+          if (pub.source === Track.Source.ScreenShareAudio) {
+            this.#attachScreenAudio(track as RemoteAudioTrack, p);
+          } else {
+            this.#audioEls.attach(track as RemoteAudioTrack, () => {
+              // Autoplay blocked — surface the overlay so the user can unblock.
+              this.audioBlocked = true;
+            });
+          }
+        } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#addScreenTrack(track as RemoteVideoTrack, p);
         }
         this.#refreshParticipants();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
-        this.#detachAudio(track.sid ?? '');
+        if (track.source === Track.Source.ScreenShareAudio) {
+          this.#detachScreenAudio(track as RemoteAudioTrack);
+        } else {
+          this.#audioEls.detach(track.sid ?? '');
+        }
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
           this.#removeScreenTrack(track.sid ?? '');
         }
@@ -334,48 +346,56 @@ class VoiceRoom {
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
         void this.#refreshOutputDevices();
+      })
+      .on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        this.audioBlocked = !this.#room?.canPlaybackAudio;
       });
-
-    // Per-tick speaking-level updates aren't an event; LiveKit exposes
-    // `audioLevel` on participants and fires ActiveSpeakersChanged, which
-    // we already listen to. For smooth glow we additionally poll lightly
-    // while connected.
   }
 
-  #attachAudio(track: RemoteAudioTrack): void {
-    const sid = track.sid ?? `t-${Math.random()}`;
-    const el = track.attach();
-    el.autoplay = true;
-    el.muted = this.deafened;
-    if (this.selectedOutputDeviceId) {
-      const anyEl = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
-      if (typeof anyEl.setSinkId === 'function') {
-        void anyEl.setSinkId(this.selectedOutputDeviceId).catch(() => undefined);
-      }
+  #attachScreenAudio(track: RemoteAudioTrack, p: RemoteParticipant): void {
+    const hasEntry = this.screenTracks.some((st) => st.identity === p.identity);
+    if (hasEntry) {
+      this.#pendingScreenAudio.delete(p.identity);
+      this.screenTracks = this.screenTracks.map((st) =>
+        st.identity === p.identity ? { ...st, audioTrack: track } : st
+      );
+    } else {
+      // Audio arrived before the video track — stash it until #addScreenTrack runs.
+      this.#pendingScreenAudio.set(p.identity, track);
     }
-    el.style.display = 'none';
-    document.body.appendChild(el);
-    this.#audioEls.set(sid, el);
   }
 
-  #detachAudio(sid: string): void {
-    const el = this.#audioEls.get(sid);
-    if (el) {
-      el.remove();
-      this.#audioEls.delete(sid);
+  #detachScreenAudio(track: RemoteAudioTrack): void {
+    for (const [identity, t] of this.#pendingScreenAudio) {
+      if (t.sid === track.sid) this.#pendingScreenAudio.delete(identity);
     }
+    this.screenTracks = this.screenTracks.map((st) =>
+      st.audioTrack?.sid === track.sid ? { ...st, audioTrack: undefined } : st
+    );
   }
 
   #addScreenTrack(track: RemoteVideoTrack, p: RemoteParticipant): void {
+    const pendingAudio = this.#pendingScreenAudio.get(p.identity);
+    this.#pendingScreenAudio.delete(p.identity);
     const existing = this.screenTracks.find((s) => s.identity === p.identity);
-    if (existing) return; // already tracked
+    if (existing) {
+      // Already tracked — only patch in an audio track we'd previously stashed.
+      if (pendingAudio && !existing.audioTrack) {
+        this.screenTracks = this.screenTracks.map((st) =>
+          st.identity === p.identity ? { ...st, audioTrack: pendingAudio } : st
+        );
+      }
+      return;
+    }
     this.screenTracks = [
       ...this.screenTracks,
-      { identity: p.identity, name: nameFor(p), track }
+      { identity: p.identity, name: nameFor(p), track, audioTrack: pendingAudio }
     ];
   }
 
   #removeScreenTrack(sid: string): void {
+    const gone = this.screenTracks.find((s) => s.track.sid === sid);
+    if (gone) this.#pendingScreenAudio.delete(gone.identity);
     this.screenTracks = this.screenTracks.filter((s) => s.track.sid !== sid);
   }
 
@@ -400,15 +420,12 @@ class VoiceRoom {
     for (const p of room.remoteParticipants.values()) {
       out.push(toVP(p, false));
     }
-    // Stable order: local first, then by name.
     out.sort((a, b) => (a.isLocal === b.isLocal ? a.name.localeCompare(b.name) : a.isLocal ? -1 : 1));
     this.participants = out;
   }
 
   #startLevelPolling(): void {
     this.#stopLevelPolling();
-    // 400ms poll: only update audioLevel/isSpeaking in-place to avoid
-    // rebuilding the full array every tick (which re-renders all tiles).
     this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 400);
   }
 
@@ -447,6 +464,7 @@ class VoiceRoom {
       this.outputDevices = devices;
       if (!this.selectedOutputDeviceId && devices[0]) {
         this.selectedOutputDeviceId = devices[0].deviceId;
+        this.#audioEls.outputDeviceId = devices[0].deviceId;
       }
     } catch {
       this.outputDevices = [];
@@ -455,7 +473,6 @@ class VoiceRoom {
 
   #teardown(): void {
     this.#stopLevelPolling();
-    for (const el of this.#audioEls.values()) el.remove();
     this.#audioEls.clear();
     this.#room = null;
     this.state = ConnectionState.Disconnected;
@@ -466,6 +483,8 @@ class VoiceRoom {
     this.deafened = false;
     this.isScreenSharing = false;
     this.screenTracks = [];
+    this.#pendingScreenAudio.clear();
+    this.audioBlocked = false;
     voiceState.channelId = null;
     voiceState.connected = false;
   }
