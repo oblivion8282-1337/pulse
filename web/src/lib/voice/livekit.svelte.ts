@@ -16,6 +16,7 @@ import {
 import type { ScreenShareCaptureOptions, TrackPublishOptions, VideoResolution } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
+import { RemoteAudioElements } from './audioElements';
 import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
 import { toast } from 'svelte-sonner';
 
@@ -86,8 +87,7 @@ class VoiceRoom {
   selectedOutputDeviceId = $state<string>('');
 
   #room: Room | null = null;
-  /** Detached <audio> elements for remote tracks, keyed by track sid. */
-  #audioEls = new Map<string, HTMLMediaElement>();
+  #audioEls = new RemoteAudioElements();
   #levelTimer: ReturnType<typeof setInterval> | null = null;
 
   get connected(): boolean {
@@ -129,6 +129,8 @@ class VoiceRoom {
       }
     });
     this.#room = room;
+    this.#audioEls.deafened = this.deafened;
+    this.#audioEls.outputDeviceId = this.selectedOutputDeviceId;
     this.#wireEvents(room);
 
     try {
@@ -212,9 +214,7 @@ class VoiceRoom {
 
   setDeafened(on: boolean): void {
     this.deafened = on;
-    for (const el of this.#audioEls.values()) {
-      el.muted = on;
-    }
+    this.#audioEls.setDeafened(on);
   }
   toggleDeafen(): void {
     this.setDeafened(!this.deafened);
@@ -231,9 +231,7 @@ class VoiceRoom {
     }
     // Nudge our detached <audio> elements; screen-share audio is handled at the
     // track level by startAudio() above.
-    for (const el of this.#audioEls.values()) {
-      void el.play().catch(() => undefined);
-    }
+    this.#audioEls.replayAll();
     this.audioBlocked = !room.canPlaybackAudio;
   }
 
@@ -298,16 +296,7 @@ class VoiceRoom {
         /* setSinkId not supported in some browsers — ignore */
       }
     }
-    for (const el of this.#audioEls.values()) {
-      const anyEl = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
-      if (typeof anyEl.setSinkId === 'function') {
-        try {
-          await anyEl.setSinkId(deviceId);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
+    await this.#audioEls.setOutputDevice(deviceId);
   }
 
   // --- internals -----------------------------------------------------
@@ -340,7 +329,10 @@ class VoiceRoom {
           if (pub.source === Track.Source.ScreenShareAudio) {
             this.#attachScreenAudio(track as RemoteAudioTrack, p);
           } else {
-            this.#attachAudio(track as RemoteAudioTrack);
+            this.#audioEls.attach(track as RemoteAudioTrack, () => {
+              // Autoplay blocked — surface the overlay so the user can unblock.
+              this.audioBlocked = true;
+            });
           }
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#addScreenTrack(track as RemoteVideoTrack, p);
@@ -351,7 +343,7 @@ class VoiceRoom {
         if (track.source === Track.Source.ScreenShareAudio) {
           this.#detachScreenAudio(track as RemoteAudioTrack);
         } else {
-          this.#detachAudio(track.sid ?? '');
+          this.#audioEls.detach(track.sid ?? '');
         }
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
           this.#removeScreenTrack(track.sid ?? '');
@@ -364,34 +356,6 @@ class VoiceRoom {
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         this.audioBlocked = !this.#room?.canPlaybackAudio;
       });
-  }
-
-  #attachAudio(track: RemoteAudioTrack): void {
-    const sid = track.sid ?? `t-${Math.random()}`;
-    const el = track.attach();
-    el.autoplay = true;
-    el.muted = this.deafened;
-    if (this.selectedOutputDeviceId) {
-      const anyEl = el as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> };
-      if (typeof anyEl.setSinkId === 'function') {
-        void anyEl.setSinkId(this.selectedOutputDeviceId).catch(() => undefined);
-      }
-    }
-    el.style.display = 'none';
-    document.body.appendChild(el);
-    this.#audioEls.set(sid, el);
-    void el.play().catch(() => {
-      // Autoplay blocked — surface the overlay so the user can unblock.
-      this.audioBlocked = true;
-    });
-  }
-
-  #detachAudio(sid: string): void {
-    const el = this.#audioEls.get(sid);
-    if (el) {
-      el.remove();
-      this.#audioEls.delete(sid);
-    }
   }
 
   #attachScreenAudio(track: RemoteAudioTrack, p: RemoteParticipant): void {
@@ -484,6 +448,7 @@ class VoiceRoom {
       this.outputDevices = devices;
       if (!this.selectedOutputDeviceId && devices[0]) {
         this.selectedOutputDeviceId = devices[0].deviceId;
+        this.#audioEls.outputDeviceId = devices[0].deviceId;
       }
     } catch {
       this.outputDevices = [];
@@ -492,7 +457,6 @@ class VoiceRoom {
 
   #teardown(): void {
     this.#stopLevelPolling();
-    for (const el of this.#audioEls.values()) el.remove();
     this.#audioEls.clear();
     this.#room = null;
     this.state = ConnectionState.Disconnected;
