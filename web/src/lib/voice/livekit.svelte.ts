@@ -1,4 +1,3 @@
-
 import {
   ConnectionState,
   ConnectionQuality,
@@ -13,14 +12,25 @@ import {
   RoomEvent,
   Track
 } from 'livekit-client';
-import type { ScreenShareCaptureOptions, TrackPublishOptions, VideoResolution } from 'livekit-client';
+import type {
+  AudioCaptureOptions,
+  RoomOptions,
+  ScreenShareCaptureOptions,
+  TrackPublishOptions,
+  VideoResolution
+} from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { RemoteAudioElements } from './audioElements';
-import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
+import { settings } from '$lib/stores/settings.svelte';
+import { AudioDevices } from './audioDevices.svelte';
+import { createNoiseProcessor } from './noiseFilter';
+import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
 import { toast } from 'svelte-sonner';
+
+export type { ScreenShareTrack };
 
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
@@ -38,17 +48,6 @@ export type VoiceParticipant = {
   connectionQuality: ConnectionQuality;
 };
 
-/** A remote screen-share track from one participant. */
-export type ScreenShareTrack = {
-  /** LiveKit participant identity. */
-  identity: string;
-  /** Display name for the sharer. */
-  name: string;
-  track: RemoteVideoTrack;
-  /** Accompanying screen-share audio track, if published. */
-  audioTrack?: RemoteAudioTrack;
-};
-
 class VoiceRoom {
   /** The id of the channel we are connected to (or connecting to). */
   channelId = $state<string | null>(null);
@@ -64,27 +63,48 @@ class VoiceRoom {
   micEnabled = $state(false);
   /** "Deafen": locally mute all remote audio. */
   deafened = $state(false);
-  /** Push-to-talk active (true = transmitting). When PTT mode is off, this stays true. */
-  pttMode = $state(false);
 
   /** Whether the local participant is currently sharing their screen. */
   isScreenSharing = $state(false);
-  /** Remote screen-share tracks currently active in the room. */
-  screenTracks = $state<ScreenShareTrack[]>([]);
 
   /** True when the browser blocked audio playback (autoplay policy). */
   audioBlocked = $state(false);
 
-  /** Available audio output devices for the device picker. */
-  outputDevices = $state<MediaDeviceInfo[]>([]);
-  selectedOutputDeviceId = $state<string>('');
+  /** 0..1 instantaneous level of the local microphone (for the meter). */
+  localMicLevel = $state(0);
 
+  #screenShare = new ScreenShareTracks();
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
+  #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
   #levelTimer: ReturnType<typeof setInterval> | null = null;
-  /** Screen-share audio tracks subscribed before their video track — keyed by participant identity. */
-  #pendingScreenAudio = new Map<string, RemoteAudioTrack>();
   #teardownDone = false;
+  /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
+  #noiseProcessorMode: string = 'off';
+
+  /** Remote screen-share tracks currently active in the room. */
+  get screenTracks(): ScreenShareTrack[] {
+    return this.#screenShare.list;
+  }
+
+  /** Available audio input/output devices + current selections (for the pickers). */
+  get inputDevices(): MediaDeviceInfo[] {
+    return this.#devices.inputs;
+  }
+  get outputDevices(): MediaDeviceInfo[] {
+    return this.#devices.outputs;
+  }
+  get selectedInputDeviceId(): string {
+    return this.#devices.selectedInputId;
+  }
+  get selectedOutputDeviceId(): string {
+    return this.#devices.selectedOutputId;
+  }
+
+  /** Push-to-talk active when settings.voice.pttMode is true. Mirrors the store. */
+  get pttMode(): boolean {
+    return settings.voice.pttMode;
+  }
 
   get connected(): boolean {
     return this.state === ConnectionState.Connected;
@@ -116,18 +136,10 @@ class VoiceRoom {
       throw e;
     }
 
-    const room = new Room({
-      adaptiveStream: true,
-      dynacast: true,
-      audioCaptureDefaults: {
-        autoGainControl: true,
-        echoCancellation: true,
-        noiseSuppression: true
-      }
-    });
+    const room = new Room(this.#roomOptions());
     this.#room = room;
     this.#audioEls.deafened = this.deafened;
-    this.#audioEls.outputDeviceId = this.selectedOutputDeviceId;
+    this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
     this.#wireEvents(room);
 
     try {
@@ -152,7 +164,7 @@ class VoiceRoom {
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
     this.#startLevelPolling();
-    await this.#refreshOutputDevices();
+    await this.#devices.refresh(room);
 
     // Publish the mic by default (Discord-style: you're live on join,
     // unless PTT mode is enabled — then it stays muted until you press).
@@ -177,8 +189,9 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     try {
-      await room.localParticipant.setMicrophoneEnabled(on);
+      await room.localParticipant.setMicrophoneEnabled(on, this.#audioCaptureDefaults());
       this.micEnabled = on;
+      if (on) await this.applyNoiseFilter();
     } catch (e) {
       this.error = e instanceof Error ? e.message : 'Mikrofon-Zugriff fehlgeschlagen';
     }
@@ -191,7 +204,7 @@ class VoiceRoom {
 
   /** Enable/disable push-to-talk mode. Entering PTT mode mutes the mic. */
   async setPttMode(on: boolean): Promise<void> {
-    this.pttMode = on;
+    settings.setPttMode(on);
     if (on) {
       await this.setMicEnabled(false);
     } else {
@@ -226,8 +239,6 @@ class VoiceRoom {
     } catch {
       // startAudio can throw if already started — harmless.
     }
-    // Nudge our detached <audio> elements; screen-share audio is handled at the
-    // track level by startAudio() above.
     this.#audioEls.replayAll();
     this.audioBlocked = !room.canPlaybackAudio;
   }
@@ -237,11 +248,8 @@ class VoiceRoom {
     if (!room) return;
     try {
       if (on) {
-        const s = screenShareSettings;
-        const captureOptions: ScreenShareCaptureOptions = {
-          audio: true,
-          contentHint: s.contentHint
-        };
+        const s = settings.screenShare;
+        const captureOptions: ScreenShareCaptureOptions = { audio: true, contentHint: s.contentHint };
         if (s.resolution !== 'native') {
           const resMap: Record<string, VideoResolution> = {
             '1080p': { width: 1920, height: 1080, frameRate: s.fps },
@@ -252,10 +260,7 @@ class VoiceRoom {
         }
         const publishOptions: TrackPublishOptions = {
           videoCodec: s.codec,
-          screenShareEncoding: {
-            maxBitrate: s.bitrateMbps * 1_000_000,
-            maxFramerate: s.fps
-          }
+          screenShareEncoding: { maxBitrate: s.bitrateMbps * 1_000_000, maxFramerate: s.fps }
         };
         await room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions);
         this.isScreenSharing = true;
@@ -268,10 +273,8 @@ class VoiceRoom {
       if (e instanceof Error) {
         const msg = e.message.toLowerCase();
         if (msg.includes('codec') || msg.includes('not supported') || msg.includes('encodingparameters')) {
-          toast.error(`Codec "${screenShareSettings.codec.toUpperCase()}" wird von deinem Browser nicht unterstützt — versuch VP9 oder H.264`);
+          toast.error(`Codec "${settings.screenShare.codec.toUpperCase()}" wird von deinem Browser nicht unterstützt — versuch VP9 oder H.264`);
         } else if (!msg.includes('cancel') && !msg.includes('abort') && !msg.includes('permission')) {
-          // User cancelled the browser picker — no toast needed.
-          // Only show error for unexpected failures.
           toast.error('Bildschirm teilen fehlgeschlagen', { description: e.message });
         }
       }
@@ -282,21 +285,70 @@ class VoiceRoom {
     void this.setScreenShare(!this.isScreenSharing);
   }
 
+  async setInputDevice(deviceId: string): Promise<void> {
+    await this.#devices.setInput(this.#room, deviceId);
+  }
+
   async setOutputDevice(deviceId: string): Promise<void> {
+    await this.#devices.setOutput(this.#room, deviceId);
+  }
+
+  /**
+   * (Re)apply the noise-suppression processor to the local mic track based on
+   * `settings.audio.noiseSuppression`. No-op when not connected / no mic track.
+   */
+  async applyNoiseFilter(): Promise<void> {
     const room = this.#room;
-    this.selectedOutputDeviceId = deviceId;
-    // Update already-attached elements + tell the room for future ones.
-    if (room) {
-      try {
-        await room.switchActiveDevice('audiooutput', deviceId);
-      } catch {
-        /* setSinkId not supported in some browsers — ignore */
+    if (!room) return;
+    const mode = settings.audio.noiseSuppression;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+    const audioTrack = pub?.audioTrack;
+    if (!audioTrack) return;
+    if (mode === this.#noiseProcessorMode) return;
+    try {
+      if (mode === 'rnnoise' || mode === 'deepfilternet') {
+        await audioTrack.setProcessor(createNoiseProcessor(mode));
+      } else {
+        await audioTrack.stopProcessor();
       }
+      this.#noiseProcessorMode = mode;
+    } catch (e) {
+      this.#noiseProcessorMode = 'off';
+      toast.error('Rauschunterdrückung konnte nicht aktiviert werden', {
+        description: e instanceof Error ? e.message : undefined
+      });
     }
-    await this.#audioEls.setOutputDevice(deviceId);
   }
 
   // --- internals -----------------------------------------------------
+
+  #roomOptions(): RoomOptions {
+    const a = settings.audio;
+    return {
+      adaptiveStream: true,
+      dynacast: true,
+      audioCaptureDefaults: this.#audioCaptureDefaults(),
+      publishDefaults: {
+        audioPreset: { maxBitrate: a.voiceBitrateKbps * 1000 },
+        forceStereo: a.stereo,
+        dtx: true,
+        red: true
+      }
+    };
+  }
+
+  #audioCaptureDefaults(): AudioCaptureOptions {
+    const a = settings.audio;
+    const opts: AudioCaptureOptions = {
+      autoGainControl: a.autoGainControl,
+      echoCancellation: a.echoCancellation,
+      // Only let the browser do NS when explicitly selected; otherwise we either
+      // run our own processor (rnnoise/deepfilternet) or nothing ('off').
+      noiseSuppression: a.noiseSuppression === 'browser'
+    };
+    if (a.inputDeviceId) opts.deviceId = a.inputDeviceId;
+    return opts;
+  }
 
   #wireEvents(room: Room): void {
     room
@@ -313,93 +365,49 @@ class VoiceRoom {
       .on(RoomEvent.ActiveSpeakersChanged, () => this.#refreshParticipants())
       .on(RoomEvent.TrackMuted, () => this.#refreshParticipants())
       .on(RoomEvent.TrackUnmuted, () => this.#refreshParticipants())
-      .on(RoomEvent.LocalTrackPublished, () => this.#refreshParticipants())
+      .on(RoomEvent.LocalTrackPublished, (pub) => {
+        if (pub.source === Track.Source.Microphone) void this.applyNoiseFilter();
+        this.#refreshParticipants();
+      })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (pub.source === Track.Source.ScreenShare) {
           this.isScreenSharing = false;
         }
+        if (pub.source === Track.Source.Microphone) this.#noiseProcessorMode = 'off';
         this.#refreshParticipants();
       })
       .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant) => {
         if (track.kind === Track.Kind.Audio) {
           if (pub.source === Track.Source.ScreenShareAudio) {
-            this.#attachScreenAudio(track as RemoteAudioTrack, p);
+            this.#screenShare.addAudio(track as RemoteAudioTrack, p);
           } else {
             this.#audioEls.attach(track as RemoteAudioTrack, () => {
-              // Autoplay blocked — surface the overlay so the user can unblock.
               this.audioBlocked = true;
             });
           }
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
-          this.#addScreenTrack(track as RemoteVideoTrack, p);
+          this.#screenShare.addVideo(track as RemoteVideoTrack, p);
         }
         this.#refreshParticipants();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
         if (track.source === Track.Source.ScreenShareAudio) {
-          this.#detachScreenAudio(track as RemoteAudioTrack);
+          this.#screenShare.removeAudio(track as RemoteAudioTrack);
         } else {
           this.#audioEls.detach(track.sid ?? '');
         }
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
-          this.#removeScreenTrack(track.sid ?? '');
+          this.#screenShare.removeVideo(track.sid ?? '');
         }
         this.#refreshParticipants();
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
-        void this.#refreshOutputDevices();
+        void this.#devices.refresh(this.#room);
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
         this.audioBlocked = !this.#room?.canPlaybackAudio;
       });
-  }
-
-  #attachScreenAudio(track: RemoteAudioTrack, p: RemoteParticipant): void {
-    const hasEntry = this.screenTracks.some((st) => st.identity === p.identity);
-    if (hasEntry) {
-      this.#pendingScreenAudio.delete(p.identity);
-      this.screenTracks = this.screenTracks.map((st) =>
-        st.identity === p.identity ? { ...st, audioTrack: track } : st
-      );
-    } else {
-      // Audio arrived before the video track — stash it until #addScreenTrack runs.
-      this.#pendingScreenAudio.set(p.identity, track);
-    }
-  }
-
-  #detachScreenAudio(track: RemoteAudioTrack): void {
-    for (const [identity, t] of this.#pendingScreenAudio) {
-      if (t.sid === track.sid) this.#pendingScreenAudio.delete(identity);
-    }
-    this.screenTracks = this.screenTracks.map((st) =>
-      st.audioTrack?.sid === track.sid ? { ...st, audioTrack: undefined } : st
-    );
-  }
-
-  #addScreenTrack(track: RemoteVideoTrack, p: RemoteParticipant): void {
-    const pendingAudio = this.#pendingScreenAudio.get(p.identity);
-    this.#pendingScreenAudio.delete(p.identity);
-    const existing = this.screenTracks.find((s) => s.identity === p.identity);
-    if (existing) {
-      // Already tracked — only patch in an audio track we'd previously stashed.
-      if (pendingAudio && !existing.audioTrack) {
-        this.screenTracks = this.screenTracks.map((st) =>
-          st.identity === p.identity ? { ...st, audioTrack: pendingAudio } : st
-        );
-      }
-      return;
-    }
-    this.screenTracks = [
-      ...this.screenTracks,
-      { identity: p.identity, name: nameFor(p), track, audioTrack: pendingAudio }
-    ];
-  }
-
-  #removeScreenTrack(sid: string): void {
-    const gone = this.screenTracks.find((s) => s.track.sid === sid);
-    if (gone) this.#pendingScreenAudio.delete(gone.identity);
-    this.screenTracks = this.screenTracks.filter((s) => s.track.sid !== sid);
   }
 
   #refreshParticipants(): void {
@@ -429,7 +437,7 @@ class VoiceRoom {
 
   #startLevelPolling(): void {
     this.#stopLevelPolling();
-    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 400);
+    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 200);
   }
 
   #patchAudioLevels(): void {
@@ -452,27 +460,17 @@ class VoiceRoom {
         changed = true;
       }
     }
-    // Trigger reactivity only when something actually changed.
     if (changed) this.participants = [...this.participants];
+    const localLevel = room.localParticipant.audioLevel ?? 0;
+    if (Math.abs(localLevel - this.localMicLevel) > 0.005) this.localMicLevel = localLevel;
   }
+
   #stopLevelPolling(): void {
     if (this.#levelTimer) {
       clearInterval(this.#levelTimer);
       this.#levelTimer = null;
     }
-  }
-
-  async #refreshOutputDevices(): Promise<void> {
-    try {
-      const devices = await Room.getLocalDevices('audiooutput');
-      this.outputDevices = devices;
-      if (!this.selectedOutputDeviceId && devices[0]) {
-        this.selectedOutputDeviceId = devices[0].deviceId;
-        this.#audioEls.outputDeviceId = devices[0].deviceId;
-      }
-    } catch {
-      this.outputDevices = [];
-    }
+    this.localMicLevel = 0;
   }
 
   #teardown(): void {
@@ -481,6 +479,7 @@ class VoiceRoom {
     this.#stopLevelPolling();
     this.#audioEls.clear();
     this.#room = null;
+    this.#noiseProcessorMode = 'off';
     this.state = ConnectionState.Disconnected;
     if (this.channelId) voicePresence.apply(this.channelId, []);
     this.channelId = null;
@@ -489,8 +488,7 @@ class VoiceRoom {
     this.micEnabled = false;
     this.deafened = false;
     this.isScreenSharing = false;
-    this.screenTracks = [];
-    this.#pendingScreenAudio.clear();
+    this.#screenShare.clear();
     this.audioBlocked = false;
     voiceState.channelId = null;
     voiceState.connected = false;

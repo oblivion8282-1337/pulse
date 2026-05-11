@@ -12,11 +12,14 @@
   import { deleteAvatar } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
   import AvatarUploadDialog from './AvatarUploadDialog.svelte';
+  import SettingsDialog from './SettingsDialog.svelte';
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import SettingsIcon from '@lucide/svelte/icons/settings';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
   let uploadOpen = $state(false);
+  let settingsOpen = $state(false);
 
   let displayName = $derived(
     auth.user ? (auth.user.display_name ?? auth.user.username) : ''
@@ -65,6 +68,7 @@
 </script>
 
 <AvatarUploadDialog bind:open={uploadOpen} />
+<SettingsDialog bind:open={settingsOpen} />
 
 <div
   class="bg-bg-sidebar flex h-14 shrink-0 items-center gap-2 border-t border-black/30 px-2"
@@ -108,6 +112,11 @@
           Profilbild entfernen
         </DropdownMenu.Item>
       {/if}
+      <DropdownMenu.Separator />
+      <DropdownMenu.Item onclick={() => (settingsOpen = true)} data-testid="open-settings">
+        <SettingsIcon class="size-4" />
+        Einstellungen
+      </DropdownMenu.Item>
       <DropdownMenu.Separator />
       <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
         <LogOutIcon class="size-4" />

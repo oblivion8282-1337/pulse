@@ -11,7 +11,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@sapphi-red/web-noise-suppressor": "^0.3.5",
     "@svelte-put/shortcut": "^4.1.0",
+    "deepfilternet3-noise-filter": "^1.2.1",
     "dompurify": "^3.4.2",
     "livekit-client": "^2.18.9",
     "marked": "^18.0.3",

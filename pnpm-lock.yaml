@@ -10,9 +10,15 @@ importers:
 
   web:
     dependencies:
+      '@sapphi-red/web-noise-suppressor':
+        specifier: ^0.3.5
+        version: 0.3.5
       '@svelte-put/shortcut':
         specifier: ^4.1.0
         version: 4.1.0(svelte@5.55.5)
+      deepfilternet3-noise-filter:
+        specifier: ^1.2.1
+        version: 1.2.1(livekit-client@2.18.9(@types/dom-mediacapture-record@1.0.22))
       dompurify:
         specifier: ^3.4.2
         version: 3.4.2
@@ -267,6 +273,9 @@ packages:
   '@rolldown/pluginutils@1.0.0-rc.18':
     resolution: {integrity: sha512-CUY5Mnhe64xQBGZEEXQ5WyZwsc1JU3vAZLIxtrsBt3LO6UOb+C8GunVKqe9sT8NeWb4lqSaoJtp2xo6GxT1MNw==}
 
+  '@sapphi-red/web-noise-suppressor@0.3.5':
+    resolution: {integrity: sha512-jh3+V9yM+zxLriQexoGm0GatoPaJWjs6ypFIbFYwQp+AoUb55eUXrjKtKQyuC5zShzzeAQUl0M5JzqB7SSrsRA==}
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -462,6 +471,12 @@ packages:
   cookie@0.6.0:
     resolution: {integrity: sha512-U71cyTamuh1CRNCfpGY6to28lxvNwPG4Guz/EVjgf3Jmzv0vlDp1atT9eS5dDjMYHucpHbWns6Lwf3BKz6svdw==}
     engines: {node: '>= 0.6'}
+
+  deepfilternet3-noise-filter@1.2.1:
+    resolution: {integrity: sha512-OAyrHTDlUHH+AhfpVNKYEOhVqb9cZpu0fdNThplA/tB/Ts4PF/UsI+abl2n1IbSxUkhiF0OqDejEhk1n42Oqpw==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      livekit-client: ^2.0.0
 
   deepmerge@4.3.1:
     resolution: {integrity: sha512-3sUqbMEc77XqpdNO7FRyRog+eW3ph+GYCbj+rK+uYyRMuwsVy0rMiVtPn+QJlKFvWP/1PYpapqYn0Me2knFn+A==}
@@ -1024,6 +1039,8 @@ snapshots:
 
   '@rolldown/pluginutils@1.0.0-rc.18': {}
 
+  '@sapphi-red/web-noise-suppressor@0.3.5': {}
+
   '@standard-schema/spec@1.1.0': {}
 
   '@svelte-put/shortcut@4.1.0(svelte@5.55.5)':
@@ -1188,6 +1205,10 @@ snapshots:
   commander@14.0.3: {}
 
   cookie@0.6.0: {}
+
+  deepfilternet3-noise-filter@1.2.1(livekit-client@2.18.9(@types/dom-mediacapture-record@1.0.22)):
+    dependencies:
+      livekit-client: 2.18.9(@types/dom-mediacapture-record@1.0.22)
 
   deepmerge@4.3.1: {}
 
