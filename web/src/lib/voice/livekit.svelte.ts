@@ -53,6 +53,8 @@ export type ScreenShareTrack = {
   /** Display name for the sharer. */
   name: string;
   track: RemoteVideoTrack;
+  /** Accompanying screen-share audio track, if published. */
+  audioTrack?: RemoteAudioTrack;
 };
 
 function userIdFromIdentity(identity: string): string | null {
@@ -317,16 +319,24 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: RemoteParticipant) => {
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant) => {
         if (track.kind === Track.Kind.Audio) {
-          this.#attachAudio(track as RemoteAudioTrack);
-        } else if (track.kind === Track.Kind.Video && _pub.source === Track.Source.ScreenShare) {
+          if (pub.source === Track.Source.ScreenShareAudio) {
+            this.#attachScreenAudio(track as RemoteAudioTrack, p);
+          } else {
+            this.#attachAudio(track as RemoteAudioTrack);
+          }
+        } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#addScreenTrack(track as RemoteVideoTrack, p);
         }
         this.#refreshParticipants();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
-        this.#detachAudio(track.sid ?? '');
+        if (track.source === Track.Source.ScreenShareAudio) {
+          this.#detachScreenAudio(track as RemoteAudioTrack);
+        } else {
+          this.#detachAudio(track.sid ?? '');
+        }
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
           this.#removeScreenTrack(track.sid ?? '');
         }
@@ -364,6 +374,18 @@ class VoiceRoom {
       el.remove();
       this.#audioEls.delete(sid);
     }
+  }
+
+  #attachScreenAudio(track: RemoteAudioTrack, p: RemoteParticipant): void {
+    this.screenTracks = this.screenTracks.map((st) =>
+      st.identity === p.identity ? { ...st, audioTrack: track } : st
+    );
+  }
+
+  #detachScreenAudio(track: RemoteAudioTrack): void {
+    this.screenTracks = this.screenTracks.map((st) =>
+      st.audioTrack?.sid === track.sid ? { ...st, audioTrack: undefined } : st
+    );
   }
 
   #addScreenTrack(track: RemoteVideoTrack, p: RemoteParticipant): void {

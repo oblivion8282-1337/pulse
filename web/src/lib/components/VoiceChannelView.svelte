@@ -83,33 +83,41 @@
     <span class="text-text-muted ml-3 text-sm">{statusLabel}</span>
   </header>
 
-  <div class="flex flex-1 flex-col items-center justify-center gap-8 p-8">
+  <div class="flex min-h-0 flex-1 flex-col">
     {#if isThisChannel && (voice.connected || voice.connecting)}
       {#if voice.participants.length === 0}
-        <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
-      {:else}
-        {#if voice.screenTracks.length > 0}
-          <div class="w-full max-w-4xl" data-testid="screen-share-area">
-            {#each voice.screenTracks as st (st.identity)}
-              <ScreenShareTile track={st.track} name={st.name} identity={st.identity} />
+        <div class="flex flex-1 items-center justify-center">
+          <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
+        </div>
+      {:else if voice.screenTracks.length > 0}
+        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3" data-testid="screen-share-area">
+          {#each voice.screenTracks as st (st.identity)}
+            <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
+          {/each}
+          <div class="flex shrink-0 flex-wrap items-center justify-center gap-4 py-2" data-testid="voice-participants">
+            {#each voice.participants as p (p.identity)}
+              <VoiceParticipantTile {p} />
             {/each}
           </div>
-        {/if}
-        <div class="flex flex-wrap items-start justify-center gap-6" data-testid="voice-participants">
+        </div>
+      {:else}
+        <div class="flex flex-1 flex-wrap items-center justify-center gap-6 p-8" data-testid="voice-participants">
           {#each voice.participants as p (p.identity)}
             <VoiceParticipantTile {p} />
           {/each}
         </div>
       {/if}
     {:else}
-      <div class="text-center">
-        <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
-        <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
-        <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
-        {#if voice.error}
-          <p class="mt-2 text-sm text-red-400">{voice.error}</p>
-        {/if}
-        <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+      <div class="flex flex-1 items-center justify-center">
+        <div class="text-center">
+          <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
+          <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
+          <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
+          {#if voice.error}
+            <p class="mt-2 text-sm text-red-400">{voice.error}</p>
+          {/if}
+          <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+        </div>
       </div>
     {/if}
   </div>
