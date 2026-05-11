@@ -230,11 +230,87 @@ Folgende Bereiche wurden im Audit untersucht und für sauber befunden:
 
 ---
 
-## Fix-Durchlauf — Backend-Commits
+## Zusammenfassung dieses Durchlaufs
 
-- `docs: audit findings` — diese Datei.
-- `fix: backend security + robustness (audit #1,#3,#4,#6,#10,#11,#14,#15,#16)`
+| Severity  | Findings | Gefixt | Deferred / offen |
+|-----------|----------|--------|------------------|
+| CRITICAL  | 1 (#1)   | 1      | 0 |
+| HIGH      | 6 (#2,#3,#4,#5,#6,#7) | 6 | 0 |
+| MEDIUM    | 14 (#8–#21, ohne die HIGH-Nummern) | 12 | #8 (Infra, bewusst), #21a (Backend-Teil von #21) |
+| LOW       | 10 (L1–L10) | 0 | 10 (bewusst, siehe oben) |
 
-## Fix-Durchlauf — Frontend-Commits
+**20 von 21 nummerierten Findings vollständig gefixt** (#1–#7, #9–#20, plus #21b/#21c).
+Bewusst **nicht** in diesem Durchlauf:
 
-- `fix: frontend bugs + perf + CSP (audit #2,#5,#7,#9,#12,#13,#17,#18,#19,#20,#21)`
+- **#8 (Infra)** — Service-Dockerfiles, LiveKit-Image-Pin statt `:latest`, LiveKit
+  nicht als root, Caddy-TLS: alles Prod-Readiness, gehört in Etappe 4+ (Hetzner-
+  Deployment). Kein Risiko im lokalen Dev-Setup.
+- **#21a (Backend)** — `add_member` ohne auth-DB-User-Existenz-Check. Bräuchte einen
+  Invite-Flow oder einen `GET /users/{id}`-Endpoint im auth-svc; das Anlegen neuer
+  Endpoints war in diesem Durchlauf ausgeschlossen. Durch #1 (nur der Owner kann
+  adden) deutlich entschärft. Folgeticket: "Invite-Flow / `/users/{id}`".
+- **L1–L10 (LOW/Cleanup)** — Kleinigkeiten ohne Sicherheits-Showstopper (Info-Leak in
+  JWT-Exception-Messages, fehlende `max_length`-Limits, toter `now()`-Fallback,
+  at-most-once-Publish-Semantik, UX-Details, JWKS-Inflight-Dedup, Partial-Index,
+  `localStorage`-Refresh-Token als Design-Entscheidung, Index-Coverage-Review).
+  Bewusst zurückgestellt; je als eigenes Cleanup-Ticket nachziehbar.
+
+Keine Test-Assertions wurden geschwächt oder entfernt. Verhaltensändernde Findings
+(#1: Self-Add → 403) wurden mit *neuen* Tests abgesichert, nicht durch Weglassen.
+
+---
+
+## Fix-Run-Report
+
+### Geänderte Dateien
+
+**Backend** (Commit `d3e37fd`):
+- `services/chat-gateway/src/dcc_chat_gateway/routes/guilds.py` — #1 (Self-Add raus,
+  Owner-only), #10 (`create_guild`-Rate-Limit).
+- `services/chat-gateway/src/dcc_chat_gateway/routes/ws.py` — #3 (`_channel_id()`-Parser,
+  nonce-Trim), #10 (`send`-Rate-Limit), #11 (16-KiB-Frame-Limit), #16 (subscribed-Set-
+  Fast-Path statt DB-Roundtrip).
+- `services/chat-gateway/src/dcc_chat_gateway/routes/messages.py` — #10 (`post_message`-
+  Rate-Limit).
+- `services/chat-gateway/src/dcc_chat_gateway/pubsub.py` — #14 (json.loads-try/except,
+  paralleler Fan-out mit per-Socket-Timeout, `_started`-Self-Heal).
+- `services/chat-gateway/src/dcc_chat_gateway/ratelimit.py` — **neu**: in-process
+  Token-Bucket (#10).
+- `services/auth/src/dcc_auth/routes.py` — #4 (`with_for_update`, Reuse-Detection mit
+  Familien-Revoke), #6 (argon2 via `asyncio.to_thread`), #15 (Bucket-Eviction,
+  `X-Forwarded-For`), Cleanup (ungenutzter `timedelta`-Import entfernt).
+
+**Frontend** (Commit `c04b665`, von `fix-frontend`): #2, #5, #7, #9, #12, #13, #17,
+#18, #19, #20, #21b, #21c — siehe die einzelnen Findings oben für Datei/Fix-Details.
+
+### Tests angepasst (und warum)
+
+- **`services/chat-gateway/tests/test_rest.py`** — 3 neue Tests: `test_self_add_to_guild_forbidden`
+  (Audit #1: Self-Add → 403), `test_owner_can_add_member` (Owner-Pfad bleibt 201),
+  `test_message_rate_limit` (Audit #10: 11. Message → 429). Bestehende `add_member`-
+  Tests blieben unverändert — sie addeten schon immer über den Owner-Token, also kein
+  Bruch durch #1.
+- **`services/chat-gateway/tests/test_ws.py`** — 4 neue Tests: `test_ws_non_numeric_channel_id_errors`
+  (Audit #3: kein ValueError-Crash, Error-Frame, Connection lebt weiter),
+  `test_ws_oversized_frame_rejected` (Audit #11: Error 4009 + Close),
+  `test_ws_long_nonce_trimmed` (Audit #3: langer nonce ≤ VARCHAR(64)).
+- **`services/chat-gateway/tests/conftest.py`** — `_isolate_chat_settings` ruft jetzt
+  `ratelimit.reset()` pro Test, damit der module-globale Bucket-State nicht zwischen
+  Tests durchschlägt.
+- **`services/auth/tests/test_auth_routes.py`** — 1 neuer Test: `test_refresh_reuse_revokes_family`
+  (Audit #4: Replay des alten Tokens nach Rotation → 401, *und* der frisch ausgestellte
+  Token ist danach auch tot).
+- **Frontend-Tests** (`fix-frontend`): siehe Commit `c04b665`. `pnpm check` / `pnpm build`
+  / Playwright-E2E grün ohne Regression.
+
+Backend: `REDIS_URL=redis://localhost:6380/0 uv run pytest` → **56/56 grün** (49 vorher
++ 7 neu). Verifiziert von `fix-verify` (Backend + Frontend je separat freigegeben).
+
+### git log der Fix-Commits
+
+```
+c04b665 fix: frontend bugs + perf + CSP (audit #2,#5,#7,#9,#12,#13,#17,#18,#19,#20,#21)
+d3e37fd fix: backend security + robustness (audit #1,#3,#4,#6,#10,#11,#14,#15,#16)
+cd57acd docs: audit findings
+```
+(plus `docs: finalize audit findings + fix report` für diese Datei.)
