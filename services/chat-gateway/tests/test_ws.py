@@ -156,3 +156,63 @@ async def test_ws_invalid_json(ws_app, _auth_signer):
                 assert resp["op"] == "error"
 
     await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_non_numeric_channel_id_errors(ws_app, _auth_signer):
+    # Audit #3: a non-numeric channel_id must produce an error frame, not crash
+    # the connection with a ValueError.
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, _, _ = _bootstrap_sync(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()
+                ws.send_json({"op": "subscribe", "channel_id": "not-a-number"})
+                resp = ws.receive_json()
+                assert resp["op"] == "error"
+                # connection still alive — another op still works
+                ws.send_json({"op": "subscribe", "channel_id": ""})
+                assert ws.receive_json()["op"] == "error"
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_oversized_frame_rejected(ws_app, _auth_signer):
+    # Audit #11: frames above the size cap get an error frame and the socket
+    # is closed (no unbounded buffering).
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()
+                huge = "x" * (32 * 1024)
+                ws.send_json({"op": "send", "channel_id": channel_id, "content": huge})
+                resp = ws.receive_json()
+                assert resp["op"] == "error"
+                assert resp["code"] == 4009
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_long_nonce_trimmed(ws_app, _auth_signer):
+    # Audit #3: a long nonce must not blow past the VARCHAR(64) column.
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()
+                ws.send_json({"op": "subscribe", "channel_id": channel_id})
+                ws.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": channel_id,
+                        "content": "hi",
+                        "nonce": "n" * 500,
+                    }
+                )
+                msgs = [ws.receive_json() for _ in range(2)]
+                assert "message_ack" in [m["op"] for m in msgs]
+
+    await asyncio.to_thread(_run)

@@ -156,6 +156,25 @@ async def test_refresh_rotation(client):
 
 
 @pytest.mark.asyncio
+async def test_refresh_reuse_revokes_family(client):
+    # Audit #4: replaying an already-rotated refresh token must invalidate the
+    # whole family (the new token issued by the legitimate rotation included).
+    tokens = (await client.post("/register", json=REG_PAYLOAD)).json()
+    old_refresh = tokens["refresh_token"]
+
+    rotated = (await client.post("/refresh", json={"refresh_token": old_refresh})).json()
+    new_refresh = rotated["refresh_token"]
+
+    # Replay the old (now revoked) token -> reuse detected.
+    r_replay = await client.post("/refresh", json={"refresh_token": old_refresh})
+    assert r_replay.status_code == 401
+
+    # The freshly-issued token must now also be dead.
+    r_new = await client.post("/refresh", json={"refresh_token": new_refresh})
+    assert r_new.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_refresh_rejects_access_token(client):
     tokens = (await client.post("/register", json=REG_PAYLOAD)).json()
     r = await client.post("/refresh", json={"refresh_token": tokens["access_token"]})

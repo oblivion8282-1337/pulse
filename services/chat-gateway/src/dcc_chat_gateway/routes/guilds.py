@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, GuildMember
 from dcc_chat_gateway.routes._deps import require_member
@@ -21,6 +22,10 @@ router = APIRouter()
 
 @router.post("/guilds", response_model=GuildOut, status_code=status.HTTP_201_CREATED)
 async def create_guild(payload: GuildIn, session: SessionDep, current: CurrentUser):
+    if not ratelimit.check("create_guild", current.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
     guild = Guild(
         id=next_id(),
         name=payload.name,
@@ -69,8 +74,11 @@ async def add_member(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
-    if guild.owner_id != current.id and current.id != payload.user_id:
-        # Only the owner can add others; users can add themselves (test seed).
+    # Only the guild owner may add members (later: a MANAGE_MEMBERS permission).
+    # Self-add is intentionally NOT allowed: guild IDs are enumerable, so a
+    # self-add path would let any authenticated user join any guild (IDOR over
+    # all channels/messages/voice tokens).
+    if guild.owner_id != current.id:
         raise HTTPException(403, detail="not allowed to add members")
     member = GuildMember(guild_id=guild_id, user_id=payload.user_id)
     session.add(member)

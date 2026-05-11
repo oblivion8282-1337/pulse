@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
 
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_TEXT, Channel, Message
 from dcc_chat_gateway.routes._deps import require_member
@@ -72,6 +73,10 @@ async def post_message(
     if channel is None or channel.type != CHANNEL_TYPE_TEXT:
         raise HTTPException(404, detail="text channel not found")
     await require_member(session, channel.guild_id, current.id)
+    if not ratelimit.check("message", current.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
     msg = Message(
         id=next_id(),
         channel_id=channel_id,

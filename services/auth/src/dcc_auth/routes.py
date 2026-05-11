@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
@@ -97,11 +98,14 @@ async def register(
     # forcing slowapi state into every test.
     await _check_rate(request, "register", settings.rate_limit_register)
 
+    # Argon2 is CPU-bound (~50-150ms at t=3/m=64MiB/p=4); run it off the event
+    # loop so it doesn't block other requests on this worker.
+    password_hash = await asyncio.to_thread(hash_password, payload.password)
     user = User(
         id=next_id(),
         username=payload.username,
         email=payload.email.lower(),
-        password_hash=hash_password(payload.password),
+        password_hash=password_hash,
         display_name=payload.display_name,
     )
     session.add(user)
@@ -132,7 +136,13 @@ async def login(
     needle = payload.email_or_username.strip()
     stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
     user = (await session.execute(stmt)).scalar_one_or_none()
-    if user is None or not verify_password(payload.password, user.password_hash):
+    # Run argon2 verification off the event loop (same reasoning as register).
+    pw_ok = (
+        await asyncio.to_thread(verify_password, payload.password, user.password_hash)
+        if user is not None
+        else False
+    )
+    if user is None or not pw_ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
@@ -158,10 +168,25 @@ async def refresh(
     except (KeyError, ValueError) as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token payload") from exc
 
-    rt = await session.get(RefreshToken, jti)
-    if rt is None or rt.revoked_at is not None or rt.user_id != user_id:
+    # Lock the row so two concurrent refreshes with the same token can't both
+    # pass the checks and fork the token tree. On Postgres this is a real row
+    # lock; on the SQLite test backend it's a no-op (single-writer anyway).
+    rt = await session.get(RefreshToken, jti, with_for_update=True)
+    if rt is None or rt.user_id != user_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
     now = datetime.now(tz=UTC)
+    if rt.revoked_at is not None:
+        # Reuse of an already-rotated token. Either the legitimate user's token
+        # was stolen and replayed, or vice versa — we can't tell, so revoke the
+        # whole family (all of the user's still-active refresh tokens). This is
+        # the standard OAuth refresh-token-reuse mitigation.
+        await session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+        await session.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
     # SQLite returns naive datetimes; coerce to UTC for the comparison.
     expires_at = rt.expires_at if rt.expires_at.tzinfo is not None else rt.expires_at.replace(tzinfo=UTC)
     if expires_at <= now:
@@ -171,7 +196,7 @@ async def refresh(
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
 
-    # Rotate: revoke old, issue new.
+    # Rotate: revoke old, issue new — only now that the row is locked.
     rt.revoked_at = now
     tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
     await session.commit()
@@ -214,6 +239,22 @@ async def jwks(signer: JwtSigner = Depends(_signer_dep)) -> dict:
 # ---- internal helpers ---------------------------------------------------
 
 
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP.
+
+    Behind a reverse proxy (Caddy in our deployment) `request.client.host` is
+    the proxy's address, so we prefer the first hop in `X-Forwarded-For` when
+    present. This is only trustworthy if the service is *always* fronted by a
+    proxy that sets/overwrites that header — never expose this service directly.
+    """
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
+    return get_remote_address(request)
+
+
 async def _check_rate(request: Request, key: str, rule: str) -> None:
     """Lightweight slowapi-style rate-limit using a process-local counter.
 
@@ -221,6 +262,9 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     to the global limiter state and makes test isolation awkward. We keep
     an in-process token bucket here keyed on (client, key). Production
     deployments should swap to a Redis-backed limiter.
+
+    Buckets are evicted lazily once their window has elapsed, so memory stays
+    bounded by the number of currently-active client IPs.
     """
     from time import monotonic
 
@@ -230,8 +274,14 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     seconds = {"second": 1, "minute": 60, "hour": 3600}[period.rstrip("s")]
 
     bucket = request.app.state.rate_buckets.setdefault(key, {})
-    ip = get_remote_address(request)
+    ip = _client_ip(request)
     now = monotonic()
+
+    # Lazy sweep: drop entries whose window has fully elapsed.
+    expired = [k for k, w in bucket.items() if now - w["start"] >= seconds]
+    for k in expired:
+        del bucket[k]
+
     window = bucket.get(ip)
     if window is None or now - window["start"] >= seconds:
         bucket[ip] = {"start": now, "count": 1}

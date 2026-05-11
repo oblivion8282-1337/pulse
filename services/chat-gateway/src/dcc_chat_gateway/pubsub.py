@@ -34,7 +34,11 @@ class ConnectionManager:
         self._started = False
 
     async def start(self) -> None:
-        if self._started:
+        # `_started` may be False either because we never started, or because a
+        # previous listener task died and reset it (see `_listen`). In both
+        # cases we (re)subscribe and spawn a fresh listener — this is what makes
+        # the manager self-heal after a fatal listener error.
+        if self._started and self._listener_task is not None and not self._listener_task.done():
             return
         # One pattern subscription covers all channels. Avoids subscribe()
         # races against the listener loop and removes the need for
@@ -83,6 +87,10 @@ class ConnectionManager:
             json.dumps(payload, separators=(",", ":")),
         )
 
+    # Per-socket send timeout during fan-out: a slow/stuck client must not hold
+    # up delivery to everyone else on the channel (head-of-line blocking).
+    _SEND_TIMEOUT_SECONDS = 5.0
+
     async def _listen(self) -> None:
         try:
             while True:
@@ -98,20 +106,44 @@ class ConnectionManager:
                     channel = channel.decode()
                 channel_id = channel.split(":")[-1]
                 data = msg["data"]
-                payload = json.loads(data) if isinstance(data, (str, bytes)) else data
+                if isinstance(data, (str, bytes)):
+                    try:
+                        payload = json.loads(data)
+                    except (ValueError, TypeError):
+                        # A malformed message on the bus must not kill the
+                        # listener (which serves *all* channels). Skip it.
+                        log.warning("skipping malformed pubsub message on %s", channel_id)
+                        continue
+                else:
+                    payload = data
                 envelope = {"op": "message", "data": payload}
                 async with self._lock:
                     targets = list(self._subs.get(channel_id, ()))
-                dead: list[WebSocket] = []
-                for ws in targets:
+                if not targets:
+                    continue
+
+                async def _send(ws: WebSocket, env: dict = envelope) -> WebSocket | None:
                     try:
-                        await ws.send_json(envelope)
-                    except Exception:  # noqa: BLE001
-                        dead.append(ws)
-                for ws in dead:
-                    await self.remove_socket(ws)
+                        await asyncio.wait_for(
+                            ws.send_json(env), timeout=self._SEND_TIMEOUT_SECONDS
+                        )
+                        return None
+                    except Exception:  # noqa: BLE001 — timeout, closed socket, etc.
+                        return ws
+
+                results = await asyncio.gather(
+                    *(_send(ws) for ws in targets), return_exceptions=True
+                )
+                for r in results:
+                    if isinstance(r, WebSocket):
+                        await self.remove_socket(r)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            log.exception("pubsub listener crashed")
+            # A fatal error here would otherwise leave `_started = True` with a
+            # dead task — no further `start()` would do anything. Reset the flag
+            # so the next `start()` (e.g. a health-check-triggered restart, or a
+            # fresh request path that calls start()) can bring it back.
+            log.exception("pubsub listener crashed; flagging for restart")
+            self._started = False
             raise

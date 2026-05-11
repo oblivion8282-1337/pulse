@@ -55,6 +55,9 @@ _TEST_SETTINGS = chat_cfg.Settings(
 
 @pytest.fixture(autouse=True)
 def _isolate_chat_settings():
+    import dcc_chat_gateway.ratelimit as chat_ratelimit
+
+    chat_ratelimit.reset()
     chat_cfg.get_settings.cache_clear()
 
     def _provider() -> chat_cfg.Settings:
