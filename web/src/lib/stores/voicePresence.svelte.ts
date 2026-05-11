@@ -44,6 +44,29 @@ class VoicePresenceStore {
     }
   }
 
+  /** Optimistically remove a single user from a channel's presence list. */
+  removeUser(channelId: string, userId: string): void {
+    const current = this.byChannel[channelId];
+    if (!current) return;
+    const next = current.filter((id) => id !== userId);
+    if (next.length === 0) {
+      const { [channelId]: _, ...rest } = this.byChannel;
+      this.byChannel = rest;
+    } else {
+      this.byChannel = { ...this.byChannel, [channelId]: next };
+    }
+    const currentStreaming = this.streamingByChannel[channelId];
+    if (currentStreaming) {
+      const nextStreaming = currentStreaming.filter((id) => id !== userId);
+      if (nextStreaming.length === 0) {
+        const { [channelId]: _, ...rest } = this.streamingByChannel;
+        this.streamingByChannel = rest;
+      } else {
+        this.streamingByChannel = { ...this.streamingByChannel, [channelId]: nextStreaming };
+      }
+    }
+  }
+
   usersIn(channelId: string): string[] {
     return this.byChannel[channelId] ?? [];
   }
