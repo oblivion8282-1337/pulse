@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Discord-Klon — Architektur &amp; Datenspeicherung</title>
+<style>
+  :root{
+    --bg:#1a1b1e; --bg2:#232428; --bg3:#2b2d31; --line:#3a3c41;
+    --txt:#dbdee1; --txt2:#a8abb0; --txt3:#80848e;
+    --frontend:#a78bfa; --service:#5b9dff; --postgres:#4ade80; --redis:#f87171; --livekit:#fbbf24; --browser:#e879f9;
+    --code:#0d0e10;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.65 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:980px;margin:0 auto;padding:32px 24px 96px;}
+  h1{font-size:30px;margin:0 0 4px;letter-spacing:-.01em;}
+  h1 + .sub{color:var(--txt3);margin:0 0 28px;font-size:15px;}
+  h2{font-size:23px;margin:48px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line);letter-spacing:-.01em;}
+  h3{font-size:18px;margin:28px 0 10px;color:var(--txt);}
+  p{margin:10px 0;}
+  a{color:var(--service);}
+  code{background:var(--code);padding:1.5px 6px;border-radius:4px;font:13.5px/1.4 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e5e7eb;}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:16px 18px;overflow-x:auto;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#cbd5e1;}
+  pre b{color:#fff;font-weight:600;}
+  table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14.5px;}
+  th,td{border:1px solid var(--line);padding:8px 11px;text-align:left;vertical-align:top;}
+  th{background:var(--bg3);font-weight:600;color:#fff;}
+  td code{font-size:12.5px;}
+  .toc{background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:16px 22px;margin:24px 0 8px;}
+  .toc ol{margin:6px 0;padding-left:22px;}
+  .toc li{margin:3px 0;}
+  .toc a{text-decoration:none;}
+  .toc a:hover{text-decoration:underline;}
+  .card{background:var(--bg2);border:1px solid var(--line);border-left-width:4px;border-radius:8px;padding:14px 18px;margin:12px 0;}
+  .card h4{margin:0 0 6px;font-size:16px;}
+  .card.frontend{border-left-color:var(--frontend);} .card.frontend h4{color:var(--frontend);}
+  .card.service{border-left-color:var(--service);} .card.service h4{color:var(--service);}
+  .card.postgres{border-left-color:var(--postgres);} .card.postgres h4{color:var(--postgres);}
+  .card.redis{border-left-color:var(--redis);} .card.redis h4{color:var(--redis);}
+  .card.livekit{border-left-color:var(--livekit);} .card.livekit h4{color:var(--livekit);}
+  .card.browser{border-left-color:var(--browser);} .card.browser h4{color:var(--browser);}
+  .pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;font-weight:600;vertical-align:middle;}
+  .p-pg{background:rgba(74,222,128,.16);color:var(--postgres);}
+  .p-rd{background:rgba(248,113,113,.16);color:var(--redis);}
+  .p-lk{background:rgba(251,191,36,.16);color:var(--livekit);}
+  .p-mem{background:rgba(168,171,176,.16);color:var(--txt2);}
+  .p-no{background:rgba(168,171,176,.1);color:var(--txt3);}
+  .flow{counter-reset:step;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:16px 20px 16px 20px;margin:14px 0;}
+  .flow ol{list-style:none;padding:0;margin:0;counter-reset:s;}
+  .flow li{position:relative;padding:6px 0 6px 38px;margin:2px 0;}
+  .flow li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:5px;width:24px;height:24px;background:var(--service);color:#fff;border-radius:50%;text-align:center;font-size:13px;font-weight:700;line-height:24px;}
+  .flow.f-pg li::before{background:var(--postgres);} .flow.f-rd li::before{background:var(--redis);} .flow.f-lk li::before{background:var(--livekit);}
+  .note{background:rgba(91,157,255,.08);border:1px solid rgba(91,157,255,.25);border-radius:8px;padding:10px 16px;margin:14px 0;font-size:14.5px;}
+  .warn{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.25);border-radius:8px;padding:10px 16px;margin:14px 0;font-size:14.5px;}
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0;font-size:13.5px;}
+  .legend span{display:flex;align-items:center;gap:6px;}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block;}
+  .muted{color:var(--txt3);}
+  .small{font-size:13.5px;color:var(--txt2);}
+  hr{border:0;border-top:1px solid var(--line);margin:36px 0;}
+  ul li{margin:4px 0;}
+  .check{color:var(--postgres);font-weight:700;} .cross{color:var(--redis);font-weight:700;} .soon{color:var(--livekit);font-weight:700;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Discord-Klon — Architektur &amp; Datenspeicherung</h1>
+<p class="sub">Wie alles aufgebaut ist und wo welche Daten landen. Stand: 11. Mai 2026.</p>
+
+<div class="toc">
+<strong>Inhalt</strong>
+<ol>
+  <li><a href="#bild">Das große Bild — drei Schichten</a></li>
+  <li><a href="#diagramm">Architektur-Diagramm</a></li>
+  <li><a href="#services">Die drei Backend-Services</a></li>
+  <li><a href="#postgres">Die Datenbank: PostgreSQL</a> — Tabellen, Beziehungen, IDs</li>
+  <li><a href="#redis">Der schnelle Zwischenspeicher: Redis</a></li>
+  <li><a href="#livekit">Der Echtzeit-Server: LiveKit</a></li>
+  <li><a href="#wo">Was wird WO gespeichert? — die Übersichtstabelle</a></li>
+  <li><a href="#flow">Wie Daten durch das System fließen — 4 Beispiele</a></li>
+  <li><a href="#warum">Warum diese Technologien?</a></li>
+  <li><a href="#stand">Aktueller Stand &amp; was noch kommt</a></li>
+</ol>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="bild">1 · Das große Bild — drei Schichten</h2>
+
+<p>Das System besteht aus drei Schichten. Eine Analogie:</p>
+
+<div class="card browser"><h4>① Das Schaufenster — die Web-App im Browser</h4>
+Eine Single-Page-App (SvelteKit 5 / TypeScript). Sie läuft im Browser des Nutzers — oder später, identisch, in einer Desktop-App (Tauri) oder als installierbare PWA auf dem Handy. Sie speichert <em>fast nichts</em> selbst (nur die Login-Tokens und ein paar UI-Einstellungen); alle echten Daten holt sie über das Internet von der mittleren Schicht.</div>
+
+<div class="card service"><h4>② Die Angestellten — drei kleine Server-Programme</h4>
+Drei getrennte „Services" (Python / FastAPI). Sie nehmen Anfragen entgegen, prüfen Berechtigungen, lesen/schreiben in der Datenbank und schicken Antworten zurück. Getrennt, damit man einen austauschen kann ohne die anderen anzufassen — und damit ein Fehler in einem nicht alles lahmlegt.</div>
+
+<div class="card postgres"><h4>③ Das Lager — wo die Daten liegen</h4>
+Drei verschiedene Speicher, jeder für einen anderen Zweck:
+<ul>
+<li><span class="pill p-pg">PostgreSQL</span> — das <strong>Archiv</strong>. Alles was dauerhaft bleiben soll: Benutzerkonten, Server, Kanäle, jede Chat-Nachricht, Einladungen. Bei einem Neustart bleibt alles erhalten.</li>
+<li><span class="pill p-rd">Redis</span> — der <strong>Notizzettel am Tresen</strong>. Was gerade los ist (wer sitzt in welchem Sprachkanal) und die Echtzeit-Weiterleitung von Nachrichten. Schnell, aber bei einem Neustart leer.</li>
+<li><span class="pill p-lk">LiveKit</span> — die <strong>Telefonzentrale</strong>. Verbindet die Sprach-/Bildschirm-Gespräche, hört aber nicht zu und speichert nichts. Die Audio-/Video-Daten gehen durch, werden nicht aufgezeichnet.</li>
+</ul>
+</div>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="diagramm">2 · Architektur-Diagramm</h2>
+
+<div class="legend">
+  <span><i class="dot" style="background:var(--browser)"></i> Browser / Client</span>
+  <span><i class="dot" style="background:var(--service)"></i> Backend-Service</span>
+  <span><i class="dot" style="background:var(--postgres)"></i> PostgreSQL (dauerhaft)</span>
+  <span><i class="dot" style="background:var(--redis)"></i> Redis (flüchtig)</span>
+  <span><i class="dot" style="background:var(--livekit)"></i> LiveKit (Echtzeit-Medien)</span>
+</div>
+
+<pre>
+   <b>WEB-APP im Browser</b>  (SvelteKit 5 — auch als Tauri-Desktop-App / PWA)
+   ───────────┬───────────────────────┬────────────────────┬──────────────
+              │ HTTPS / WebSocket      │ WebRTC (Audio/Video)│ WebRTC (Empfang)
+              │ (im Dev über Vite-     │                     │
+              │  Proxy; in Prod Caddy) │                     │
+   ┌──────────┴──────────┐  ┌──────────┴────────┐            │
+   │  <b>auth</b>      :8001    │  │ <b>voice-signaling</b> :8003│            │
+   │  Konten, Login, JWT │  │ LiveKit-Tickets,  │            │
+   │                     │  │ LiveKit-Webhook   │            │
+   └────────┬────────────┘  └───┬──────────┬────┘            │
+            │                   │          │ Webhook          │
+   ┌────────┴────────────────┐  │   ┌──────┴───────────────┐  │
+   │  <b>chat-gateway</b>   :8002    │  │   │ <b>LiveKit</b>           :7880│◀─┘
+   │  Server, Kanäle,        │  │   │ WebRTC-Verteiler      │
+   │  Nachrichten, WebSocket │  │   │ (Voice + Bildschirm)  │  speichert NICHTS
+   │  Voice-Anwesenheit      │  │   └───────────────────────┘
+   └───┬─────────────┬───────┘  │
+       │             │          │
+  ┌────┴──────┐  ┌───┴──────────┴────────────────┐
+  │<b>PostgreSQL</b> │  │ <b>Redis</b>                          │
+  │  :5434    │  │  :6380                        │
+  │           │  │  • Pub/Sub: chat:channel:*    │ ◀── Echtzeit-Nachrichten
+  │  dcc      │  │  • Pub/Sub: voice:events      │ ◀── "wer ist rein/raus"
+  │  (echt)   │  │  • Set: voice:room:channel-*  │ ◀── wer ist gerade im Sprachkanal
+  │  dcc_test │  │                               │     (mit 6h-Verfall, bei Neustart leer)
+  │  (Tests)  │  └───────────────────────────────┘
+  └───────────┘
+</pre>
+<p class="small">Ports gelten für das lokale Dev-Setup. In Produktion sitzt ein Reverse-Proxy (Caddy) mit TLS davor; Postgres läuft auf dem Standard-Port 5432 (lokal auf 5434, weil 5432 schon belegt ist), Redis lokal auf 6380.</p>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="services">3 · Die drei Backend-Services</h2>
+
+<p>Alle drei sind Python-Programme (FastAPI), liegen in einem gemeinsamen Code-Repo (uv-Workspace), laufen aber als eigenständige Prozesse. Sie reden miteinander <strong>nur</strong> über klar definierte Wege — HTTP-Aufrufe oder Redis-Pub/Sub — <strong>niemals</strong> direkt in die Datenbank-Tabellen eines anderen Service.</p>
+
+<table>
+<tr><th>Service</th><th>Port</th><th>Wofür zuständig</th><th>Spricht mit</th></tr>
+<tr>
+  <td><code>auth</code></td><td>8001</td>
+  <td>Benutzerkonten anlegen, Login, Passwörter prüfen, JWT-Tokens ausstellen, „eingeloggt bleiben" (Refresh-Tokens). Stellt auch den öffentlichen Schlüssel bereit (<code>/.well-known/jwks.json</code>), mit dem die anderen Services Tokens prüfen können.</td>
+  <td><span class="pill p-pg">Postgres</span> (Schema <code>auth</code>)</td>
+</tr>
+<tr>
+  <td><code>chat-gateway</code></td><td>8002</td>
+  <td>Server (Guilds), Kanäle, Nachrichten, Einladungen, Mitglieder. Hält die <strong>WebSocket-Verbindungen</strong> der Browser (für Echtzeit-Chat). Verteilt außerdem die „wer ist in welchem Sprachkanal"-Updates an die Clients.</td>
+  <td><span class="pill p-pg">Postgres</span> (Schema <code>chat</code>) · <span class="pill p-rd">Redis</span> (Pub/Sub) · <code>auth</code> (Token prüfen)</td>
+</tr>
+<tr>
+  <td><code>voice-signaling</code></td><td>8003</td>
+  <td>Stellt „Eintrittskarten" für LiveKit aus (signierte Tokens, 4 h gültig) — der Browser braucht so eine, um in einen Sprachkanal zu kommen. Empfängt LiveKit-Webhooks (<code>POST /webhook</code>): „User X ist Raum Y beigetreten/hat ihn verlassen" → schreibt das in Redis und benachrichtigt den chat-gateway.</td>
+  <td><span class="pill p-lk">LiveKit</span> · <span class="pill p-rd">Redis</span> · <code>auth</code> (Token prüfen)</td>
+</tr>
+</table>
+
+<div class="note"><strong>Warum getrennt statt ein großes Programm?</strong> Jeder Service hat seine eigenen Tabellen und seine eigene Verantwortung. Man kann den <code>auth</code>-Service später z.B. durch Keycloak ersetzen, ohne den Chat anzufassen — die anderen Services prüfen Tokens nur über den öffentlichen Schlüssel, es ist ihnen egal wer sie ausgestellt hat. Und ein Absturz des Voice-Teils legt den Chat nicht lahm.</div>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="postgres">4 · Die Datenbank: PostgreSQL</h2>
+
+<p>PostgreSQL ist eine <strong>relationale Datenbank</strong> — Daten liegen in Tabellen, die über Verweise (Fremdschlüssel) miteinander verbunden sind. Sie ist das „Archiv" des Systems: alles was dauerhaft bleiben soll, liegt hier. Sie garantiert außerdem, dass zusammengehörige Änderungen entweder ganz oder gar nicht passieren (Transaktionen / ACID) — es bleibt nie etwas halb-fertig.</p>
+
+<h3>Zwei Datenbanken im selben Server</h3>
+<ul>
+<li><code>dcc</code> — die <strong>echte</strong> Datenbank, mit der die App arbeitet.</li>
+<li><code>dcc_test</code> — eine <strong>separate</strong> Datenbank nur für die automatischen Tests. Die Tests leeren ihre Tabellen ständig, damit jeder Testlauf sauber startet — deshalb getrennt, damit das niemals die echten Daten anfasst.</li>
+</ul>
+
+<h3>Zwei „Schemas" (Namensräume)</h3>
+<p>Innerhalb der <code>dcc</code>-Datenbank gibt es zwei Bereiche: <code>auth.*</code> (gehört dem auth-Service) und <code>chat.*</code> (gehört dem chat-gateway). Das ist die Modularitäts-Regel auf Datenbank-Ebene: jeder Service hat seine Tabellen für sich, kein Service liest in den Tabellen eines anderen.</p>
+
+<h3>Die Tabellen im Detail</h3>
+
+<div class="card postgres"><h4><code>auth.users</code> — ein Eintrag pro Benutzerkonto</h4>
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>id</code></td><td>bigint (PK)</td><td>Snowflake-ID (siehe unten). Eindeutig, zeitlich sortiert.</td></tr>
+<tr><td><code>username</code></td><td>varchar(32), eindeutig</td><td>Login-Name.</td></tr>
+<tr><td><code>email</code></td><td>varchar(255), eindeutig</td><td>E-Mail-Adresse.</td></tr>
+<tr><td><code>password_hash</code></td><td>text</td><td><strong>Nicht</strong> das Passwort — ein <em>Argon2id-Hash</em> davon. Selbst wer die DB stiehlt, kann die Passwörter nicht auslesen.</td></tr>
+<tr><td><code>display_name</code></td><td>varchar(64), optional</td><td>Anzeigename (falls anders als der Username).</td></tr>
+<tr><td><code>avatar_url</code></td><td>text, optional</td><td>Profilbild-URL (Upload noch nicht implementiert).</td></tr>
+<tr><td><code>created_at</code> / <code>updated_at</code></td><td>timestamptz</td><td>Erstellt / zuletzt geändert.</td></tr>
+</table>
+</div>
+
+<div class="card postgres"><h4><code>auth.refresh_tokens</code> — die „eingeloggt bleiben"-Tokens</h4>
+Der kurzlebige Access-Token (15 Min) wird nirgends gespeichert. Aber der langlebige <em>Refresh-Token</em> (30 Tage) liegt hier — damit man ihn gezielt ungültig machen kann (Logout, „abgemeldet auf allen Geräten", Diebstahl erkannt).
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>jti</code></td><td>uuid (PK)</td><td>Eindeutige Token-ID.</td></tr>
+<tr><td><code>user_id</code></td><td>bigint → <code>auth.users.id</code></td><td>Zu welchem Konto gehört der Token.</td></tr>
+<tr><td><code>issued_at</code> / <code>expires_at</code></td><td>timestamptz</td><td>Ausgestellt / läuft ab (30 Tage).</td></tr>
+<tr><td><code>revoked_at</code></td><td>timestamptz, optional</td><td>Gesetzt, wenn der Token ungültig gemacht wurde. Wird ein bereits widerrufener Token nochmal benutzt, werden alle Tokens dieses Users widerrufen (Diebstahl-Erkennung).</td></tr>
+<tr><td><code>user_agent</code></td><td>text, optional</td><td>Browser/Gerät, das den Token bekommen hat.</td></tr>
+</table>
+</div>
+
+<div class="card postgres"><h4><code>chat.guilds</code> — ein Eintrag pro Server</h4>
+„Guild" ist Discords interner Name für einen Server.
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>id</code></td><td>bigint (PK)</td><td>Snowflake-ID.</td></tr>
+<tr><td><code>name</code></td><td>varchar(64)</td><td>Server-Name.</td></tr>
+<tr><td><code>icon_url</code></td><td>text, optional</td><td>Server-Icon.</td></tr>
+<tr><td><code>owner_id</code></td><td>bigint</td><td>Wer den Server erstellt hat (= User-ID; der Owner darf Kanäle löschen, Mitglieder hinzufügen usw.).</td></tr>
+<tr><td><code>created_at</code></td><td>timestamptz</td><td>Erstellt.</td></tr>
+</table>
+</div>
+
+<div class="card postgres"><h4><code>chat.channels</code> — ein Eintrag pro Kanal</h4>
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>id</code></td><td>bigint (PK)</td><td>Snowflake-ID.</td></tr>
+<tr><td><code>guild_id</code></td><td>bigint → <code>chat.guilds.id</code></td><td>Zu welchem Server gehört der Kanal. (Wird der Server gelöscht, werden seine Kanäle automatisch mitgelöscht — „ON DELETE CASCADE".)</td></tr>
+<tr><td><code>name</code></td><td>varchar(64)</td><td>Kanal-Name.</td></tr>
+<tr><td><code>type</code></td><td>smallint</td><td><code>0</code> = Textkanal, <code>1</code> = Sprachkanal.</td></tr>
+<tr><td><code>position</code></td><td>int</td><td>Reihenfolge in der Kanal-Liste.</td></tr>
+<tr><td><code>topic</code></td><td>text, optional</td><td>Kanal-Beschreibung.</td></tr>
+<tr><td><code>created_at</code></td><td>timestamptz</td><td>Erstellt.</td></tr>
+</table>
+</div>
+
+<div class="card postgres"><h4><code>chat.guild_members</code> — wer ist Mitglied welches Servers</h4>
+Eine „n:m"-Tabelle: ein User kann in vielen Servern sein, ein Server hat viele Mitglieder. Der Schlüssel ist das <em>Paar</em> (guild_id, user_id).
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>guild_id</code></td><td>bigint → <code>chat.guilds.id</code></td><td rowspan="2">Zusammen der Primärschlüssel — jede Kombination darf nur einmal vorkommen.</td></tr>
+<tr><td><code>user_id</code></td><td>bigint</td></tr>
+<tr><td><code>nickname</code></td><td>varchar(64), optional</td><td>Server-spezifischer Spitzname.</td></tr>
+<tr><td><code>joined_at</code></td><td>timestamptz</td><td>Wann beigetreten.</td></tr>
+</table>
+</div>
+
+<div class="card postgres"><h4><code>chat.messages</code> — jede einzelne Chat-Nachricht</h4>
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>id</code></td><td>bigint (PK)</td><td>Snowflake-ID — und gleichzeitig die <strong>Sortier-Reihenfolge</strong>. „Die 50 neuesten Nachrichten" = einfach <code>ORDER BY id DESC LIMIT 50</code>, keine extra Sortier-Spalte nötig.</td></tr>
+<tr><td><code>channel_id</code></td><td>bigint → <code>chat.channels.id</code></td><td>In welchem Kanal. (Wird der Kanal gelöscht, gehen alle seine Nachrichten mit.) Index auf <code>(channel_id, id)</code> für schnelles Blättern.</td></tr>
+<tr><td><code>author_id</code></td><td>bigint</td><td>Wer geschrieben hat.</td></tr>
+<tr><td><code>content</code></td><td>text</td><td>Der Nachrichtentext (max. 4000 Zeichen).</td></tr>
+<tr><td><code>nonce</code></td><td>varchar(64), optional</td><td>Eine vom Client mitgeschickte Kennung — damit eine Nachricht bei Wackel-Verbindungen nicht doppelt erscheint („at-least-once mit Client-Deduplizierung", so machen es Discord/Slack auch).</td></tr>
+<tr><td><code>edited_at</code></td><td>timestamptz, optional</td><td>Gesetzt, wenn die Nachricht bearbeitet wurde (UI dafür noch nicht gebaut).</td></tr>
+<tr><td><code>deleted_at</code></td><td>timestamptz, optional</td><td>„Soft-Delete": gelöschte Nachrichten werden markiert statt wirklich entfernt (UI dafür noch nicht gebaut).</td></tr>
+</table>
+</div>
+
+<div class="card postgres"><h4><code>chat.guild_invites</code> — Einladungs-Codes</h4>
+<table>
+<tr><th>Spalte</th><th>Typ</th><th>Bedeutung</th></tr>
+<tr><td><code>code</code></td><td>varchar(16) (PK)</td><td>Der 8-stellige Einladungs-Code (Teil des Links <code>/invite/&lt;code&gt;</code>).</td></tr>
+<tr><td><code>guild_id</code></td><td>bigint → <code>chat.guilds.id</code></td><td>Welcher Server.</td></tr>
+<tr><td><code>channel_id</code></td><td>bigint → <code>chat.channels.id</code>, optional</td><td>Optionaler Ziel-Kanal, in dem der Beitretende landet. (Wird der Kanal gelöscht, wird hier auf NULL gesetzt.)</td></tr>
+<tr><td><code>creator_id</code></td><td>bigint</td><td>Wer die Einladung erstellt hat (darf sie auch widerrufen — neben dem Owner).</td></tr>
+<tr><td><code>created_at</code></td><td>timestamptz</td><td>Erstellt.</td></tr>
+<tr><td><code>expires_at</code></td><td>timestamptz, optional</td><td>Läuft ab (oder NULL = nie).</td></tr>
+<tr><td><code>max_uses</code></td><td>int, optional</td><td>Maximale Nutzungen (oder NULL = unbegrenzt).</td></tr>
+<tr><td><code>uses</code></td><td>int</td><td>Wie oft schon benutzt.</td></tr>
+<tr><td><code>revoked_at</code></td><td>timestamptz, optional</td><td>Gesetzt, wenn manuell widerrufen.</td></tr>
+</table>
+</div>
+
+<h3>Wie die Tabellen zusammenhängen</h3>
+<pre>
+  <b>auth.users</b>
+     │ id
+     ├──────────────┐ (owner_id)        ┌─────────────────────────────┐
+     │              ▼                    ▼                             │
+     │         <b>chat.guilds</b> ──< <b>chat.channels</b> ──< <b>chat.messages</b>  │
+     │              │  id      guild_id   id        channel_id          │
+     │              │                      ▲                           │
+     │              ├──< <b>chat.guild_members</b> >─────────────────────────┘ (user_id)
+     │              │       guild_id  user_id
+     │              │
+     │              └──< <b>chat.guild_invites</b>  (guild_id, channel_id?)
+     │
+     └──< <b>auth.refresh_tokens</b>  (user_id)
+
+  Lesart:  A ──< B   heißt „ein A hat viele B"   ·   B >── A  heißt „viele B verweisen auf ein A"
+</pre>
+<p class="small">Hinweis: Es gibt <em>keine</em> Datenbank-Fremdschlüssel <strong>über Service-Grenzen hinweg</strong> — z.B. <code>chat.messages.author_id</code> verweist logisch auf <code>auth.users.id</code>, aber nicht als echter SQL-Constraint, weil <code>auth</code> und <code>chat</code> verschiedenen Services „gehören". Das ist Absicht (Modularität): der chat-gateway kennt die User nur als IDs und holt Namen/Avatare bei Bedarf per HTTP vom auth-Service (Endpoint <code>GET /users?ids=…</code>, mit einem kleinen Cache im Browser).</p>
+
+<h3>Wie werden die IDs vergeben? — Snowflake-IDs</h3>
+<p>Statt fortlaufender Nummern (1, 2, 3, …) oder zufälliger UUIDs nutzt das System <strong>Snowflake-IDs</strong> — eine 64-Bit-Zahl, aufgebaut aus drei Teilen:</p>
+<pre>
+  ┌──────────────────────────────┬────────────┬────────────┐
+  │  42 Bit: Millisekunden        │ 10 Bit:    │ 12 Bit:    │
+  │  seit dem 1. Januar 2026      │ Worker-Nr. │ Zähler     │
+  └──────────────────────────────┴────────────┴────────────┘
+   = Zeitstempel                   = welcher    = laufende Nr.
+                                     Service       innerhalb
+                                     (auth=1,      derselben
+                                      chat=2,      Millisekunde
+                                      voice=3)     (bis 4096)
+</pre>
+<p>Vorteile: <strong>(a)</strong> Die IDs sind zeitlich sortiert — eine neuere Nachricht hat zwangsläufig eine höhere ID, also kann man nach ID statt nach Datum sortieren. <strong>(b)</strong> Jeder Service vergibt seine eigenen IDs ohne sich mit den anderen abzustimmen (die Worker-Nummer macht sie eindeutig). <strong>(c)</strong> Discord macht es genauso.</p>
+<div class="warn"><strong>Wichtige Eigenheit:</strong> Diese IDs sind so groß, dass JavaScript sie nicht mehr exakt als Zahl darstellen kann (JS-Zahlen sind ab ca. 2⁵³ ungenau). Deshalb werden sie über die API immer als <strong>Text</strong> (String) übertragen — <code>"47245396304465920"</code>, nicht <code>47245396304465920</code>. Im Browser-Code wird nie mit ihnen gerechnet, nur verglichen/weitergereicht.</p></div>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="redis">5 · Der schnelle Zwischenspeicher: Redis</h2>
+
+<p>Redis ist ein <strong>In-Memory-Speicher</strong> — alles liegt im Arbeitsspeicher (RAM), daher blitzschnell, aber bei einem Neustart weg. Das System nutzt Redis für zwei Dinge:</p>
+
+<div class="card redis"><h4>① Pub/Sub — die Echtzeit-Weiterleitung</h4>
+„Publish/Subscribe" funktioniert wie eine Lautsprecher-Durchsage: ein Service „ruft" eine Nachricht auf einen Kanal, alle die diesen Kanal „abonniert" haben hören es sofort. Das brauchen wir, damit Echtzeit funktioniert, ohne dass die Browser ständig die Datenbank fragen müssen „gibt's was Neues?".
+<table>
+<tr><th>Redis-Kanal</th><th>Wer ruft rein</th><th>Wer hört</th><th>Wofür</th></tr>
+<tr><td><code>chat:channel:*</code> <span class="small">(ein Kanal pro Chat-Channel)</span></td><td>chat-gateway, wenn jemand eine Nachricht schreibt</td><td>alle chat-gateway-Instanzen</td><td>Neue Nachrichten an alle verbundenen Browser verteilen. Funktioniert auch wenn es später mehrere chat-gateway-Server gibt — jeder hört mit und verteilt an seine Browser.</td></tr>
+<tr><td><code>voice:events</code></td><td>voice-signaling, wenn jemand einen Sprachkanal betritt/verlässt</td><td>chat-gateway</td><td>„Die Teilnehmer-Liste von Sprachkanal X hat sich geändert" → der chat-gateway sagt es allen Browsern.</td></tr>
+</table>
+</div>
+
+<div class="card redis"><h4>② Kurzlebiger Zustand</h4>
+<table>
+<tr><th>Redis-Schlüssel</th><th>Typ</th><th>Inhalt</th></tr>
+<tr><td><code>voice:room:channel-&lt;id&gt;</code></td><td>Set (Menge)</td><td>Die User-IDs, die <em>gerade</em> in diesem Sprachkanal sind. Wird durch LiveKit-Webhooks gepflegt (Beitritt → hinzufügen, Verlassen → entfernen). Hat ein <strong>Verfallsdatum von 6 Stunden</strong> als Sicherheitsnetz, falls mal ein „Verlassen"-Signal verloren geht. Ist der Set leer → wird gelöscht. Bei einem Redis-Neustart sind alle weg — werden aber automatisch wieder aufgebaut, sobald LiveKit die nächsten Events schickt.</td></tr>
+</table>
+</div>
+
+<p><strong>Was NICHT in Redis liegt:</strong> alles Dauerhafte — das ist in Postgres. Redis ist der Notizzettel am Tresen, nicht das Archiv im Keller. Wenn morgen Redis komplett neu starten würde, gingen keine Nachrichten verloren (die sind in Postgres); es würde nur kurz „niemand ist in einem Sprachkanal" anzeigen, bis sich die Zustände neu aufbauen.</p>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="livekit">6 · Der Echtzeit-Server: LiveKit</h2>
+
+<p>LiveKit ist ein <strong>WebRTC-SFU</strong> — „Selective Forwarding Unit". Klingt kompliziert, ist aber einfach: Wenn 5 Leute in einem Sprachkanal sind, schickt nicht jeder direkt an jeden anderen (das wären 20 Verbindungen, langsam und unzuverlässig). Stattdessen schickt jeder sein Audio/Video <em>einmal</em> an LiveKit, und LiveKit verteilt es an alle anderen. Skaliert viel besser und läuft sauber über den Server.</p>
+
+<div class="card livekit"><h4>Was LiveKit speichert: <span class="pill p-no">nichts dauerhaft</span></h4>
+LiveKit hält nur den <em>aktuellen</em> Zustand der „Räume" im Arbeitsspeicher — wer ist gerade drin, welche Audio-/Video-Spuren laufen. Bei einem Neustart sind alle Räume weg. Die Audio- und Video-Daten selbst <strong>gehen durch LiveKit hindurch</strong> — sie werden weitergeleitet, aber nicht aufgezeichnet, nicht gespeichert, nirgends abgelegt.</div>
+
+<h3>Wie LiveKit mit dem Rest zusammenarbeitet</h3>
+<ul>
+<li><strong>Eintrittskarten:</strong> Der Browser kann nicht einfach so in einen LiveKit-Raum — er braucht ein signiertes Token. Das stellt der <code>voice-signaling</code>-Service aus (gültig 4 h), nachdem er geprüft hat, dass der Nutzer eingeloggt ist. Raum-Name ist <code>channel-&lt;Kanal-ID&gt;</code>, die „Identität" im Raum ist die User-ID — so weiß LiveKit, wer wer ist.</li>
+<li><strong>Webhooks:</strong> Wenn jemand einem Raum beitritt oder ihn verlässt, ruft LiveKit von sich aus den <code>voice-signaling</code>-Service an (<code>POST /webhook</code>) — signiert, damit niemand das fälschen kann. Der Service schreibt es nach Redis (<code>voice:room:*</code>) und ruft auf <code>voice:events</code> → der chat-gateway hört das → schickt allen Browsern das Update → in der Kanal-Liste erscheint/verschwindet der Teilnehmer.</li>
+</ul>
+
+<div class="note"><strong>Technisches Detail — warum LiveKit im „Host-Netzwerk-Modus" läuft:</strong> LiveKit läuft als Docker-Container. Normalerweise sind Container in einem eigenen Netz; der Container müsste über eine spezielle Adresse (<code>host.docker.internal</code>) zum voice-signaling-Service auf dem Host zurückfinden. Auf diesem Rechner blockt aber die System-Firewall (UFW) genau diesen Weg. Lösung: LiveKit läuft mit <code>network_mode: host</code> — der Container ist dann „direkt auf dem Rechner" und erreicht <code>127.0.0.1:8003</code> ohne Umweg. Nebeneffekt: das ist auch der von LiveKit selbst empfohlene Modus (wegen der vielen UDP-Ports, die WebRTC braucht).</div>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="wo">7 · Was wird WO gespeichert? — die Übersichtstabelle</h2>
+
+<table>
+<tr><th>Was</th><th>Wo</th><th>Bleibt bei Neustart?</th></tr>
+<tr><td>Benutzerkonten, Passwort-Hashes</td><td><span class="pill p-pg">Postgres</span> <code>auth.users</code></td><td><span class="check">✅ ja</span></td></tr>
+<tr><td>Refresh-Tokens (eingeloggt bleiben)</td><td><span class="pill p-pg">Postgres</span> <code>auth.refresh_tokens</code></td><td><span class="check">✅ ja</span></td></tr>
+<tr><td>Server, Kanäle, Mitgliedschaften</td><td><span class="pill p-pg">Postgres</span> <code>chat.guilds / channels / guild_members</code></td><td><span class="check">✅ ja</span></td></tr>
+<tr><td>Chat-Nachrichten</td><td><span class="pill p-pg">Postgres</span> <code>chat.messages</code></td><td><span class="check">✅ ja</span></td></tr>
+<tr><td>Einladungs-Codes</td><td><span class="pill p-pg">Postgres</span> <code>chat.guild_invites</code></td><td><span class="check">✅ ja</span></td></tr>
+<tr><td>Access-Token (kurzer Login-Beweis, 15 Min)</td><td><span class="pill p-no">nirgends serverseitig</span> — ein „stateless" JWT, der Browser hält ihn</td><td class="muted">entfällt</td></tr>
+<tr><td>Wer ist gerade in welchem Sprachkanal</td><td><span class="pill p-rd">Redis</span> <code>voice:room:*</code> (Set, 6h-Verfall)</td><td><span class="cross">✗ nein</span> — baut sich aus LiveKit-Events neu auf</td></tr>
+<tr><td>Echtzeit-Nachrichten-Verteilung</td><td><span class="pill p-rd">Redis</span> Pub/Sub (<code>chat:channel:*</code>, <code>voice:events</code>)</td><td><span class="cross">✗ flüchtig</span> — nur Durchleitung, nichts liegt da</td></tr>
+<tr><td>Rate-Limit-Zähler („zu viele Logins")</td><td><span class="pill p-mem">RAM des auth-Service</span></td><td><span class="cross">✗ nein</span></td></tr>
+<tr><td>Welche Browser sind per WebSocket verbunden</td><td><span class="pill p-mem">RAM des chat-gateway</span></td><td><span class="cross">✗ nein</span> — bei Reconnect neu</td></tr>
+<tr><td>Audio / Video / Bildschirm-Streams</td><td><span class="pill p-lk">LiveKit</span> — gehen durch, werden nicht aufgezeichnet</td><td class="muted">entfällt</td></tr>
+<tr><td>Profilbilder, Datei-Anhänge im Chat</td><td><span class="pill p-no">noch nicht implementiert</span> — geplant: MinIO (S3-kompatibler Datei-Speicher)</td><td><span class="soon">⬜ später ✅</span></td></tr>
+</table>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="flow">8 · Wie Daten durch das System fließen — 4 Beispiele</h2>
+
+<h3>Beispiel 1: Einloggen</h3>
+<div class="flow f-pg"><ol>
+<li>Browser schickt <code>{ email, passwort }</code> an den <code>auth</code>-Service.</li>
+<li>auth sucht den Benutzer in <span class="pill p-pg">Postgres</span> <code>auth.users</code> und prüft das Passwort gegen den Argon2id-Hash (das passiert in einem Hintergrund-Thread, damit der Server nicht blockiert).</li>
+<li>Passt → auth stellt zwei Tokens aus: einen <strong>Access-Token</strong> (15 Min, signiert mit dem privaten Schlüssel) und einen <strong>Refresh-Token</strong> (30 Tage). Den Refresh-Token schreibt es in <code>auth.refresh_tokens</code>.</li>
+<li>Browser bekommt beide zurück und speichert sie (im Browser: <code>localStorage</code>; in der Desktop-App später: ein verschlüsselter Speicher).</li>
+<li>Ab jetzt schickt der Browser bei jeder Anfrage den Access-Token mit. Läuft der ab (nach 15 Min), tauscht er ihn lautlos gegen einen neuen — mit dem Refresh-Token. Logout = Refresh-Token in der DB als „revoked" markieren.</li>
+</ol></div>
+
+<h3>Beispiel 2: Eine Nachricht senden</h3>
+<div class="flow f-rd"><ol>
+<li>Browser schickt die Nachricht über die offene <strong>WebSocket-Verbindung</strong> an den <code>chat-gateway</code> (<code>{ op:"send", channel_id, content, nonce }</code>).</li>
+<li>chat-gateway prüft: „Ist dieser User Mitglied des Kanals?" (gegen die Liste der abonnierten Kanäle dieser Verbindung — die wurde beim Beitreten geprüft).</li>
+<li>chat-gateway schreibt die Nachricht in <span class="pill p-pg">Postgres</span> <code>chat.messages</code> — mit einer neuen Snowflake-ID.</li>
+<li>chat-gateway ruft die Nachricht auf <span class="pill p-rd">Redis</span> <code>chat:channel:&lt;id&gt;</code>.</li>
+<li>Alle chat-gateway-Instanzen, die diesen Kanal „hören", bekommen sie — und schicken sie über WebSocket an alle Browser, die diesen Kanal geöffnet haben. Die Nachricht erscheint live bei allen. (Der Absender hatte sie schon vorab lokal angezeigt; die <code>nonce</code> sorgt dafür, dass sie nicht doppelt erscheint.)</li>
+</ol></div>
+
+<h3>Beispiel 3: Einen Sprachkanal betreten</h3>
+<div class="flow f-lk"><ol>
+<li>Browser fragt den <code>voice-signaling</code>-Service: „Gib mir eine Eintrittskarte für Kanal X."</li>
+<li>voice-signaling prüft den Login und erstellt ein signiertes <span class="pill p-lk">LiveKit</span>-Token (Raum <code>channel-X</code>, Identität = User-ID, 4 h gültig).</li>
+<li>Browser verbindet sich mit diesem Token zu LiveKit und beginnt Audio zu senden/empfangen.</li>
+<li>LiveKit ruft von sich aus den <code>voice-signaling</code>-Webhook an: „User X ist Raum channel-X beigetreten" (signiert).</li>
+<li>voice-signaling: <code>SADD voice:room:channel-X user-X</code> in <span class="pill p-rd">Redis</span> und ruft auf <code>voice:events</code>: „Kanal X hat jetzt [User X, …]".</li>
+<li>chat-gateway hört das und schickt allen verbundenen Browsern <code>{ op:"voice_state", channel_id:X, user_ids:[…] }</code>.</li>
+<li>In der Kanal-Liste aller Nutzer erscheint User X (Avatar + Name) unter dem Sprachkanal — auch bei denen, die selbst nicht drin sind. Verlässt jemand den Kanal, läuft alles rückwärts (LiveKit-Event → SREM → voice:events → WS-Update → verschwindet).</li>
+</ol></div>
+
+<h3>Beispiel 4: Einer Einladung folgen</h3>
+<div class="flow f-pg"><ol>
+<li>Jemand öffnet den Link <code>localhost:5173/invite/&lt;code&gt;</code> im Browser.</li>
+<li>Die App fragt den <code>chat-gateway</code>: „Ist dieser Code gültig?" → wenn ja, kommt eine Vorschau zurück (Server-Name, Mitglieder-Zahl).</li>
+<li>Der Nutzer sieht „Du wurdest eingeladen zu <em>Server X</em>" und klickt „Beitreten".</li>
+<li>chat-gateway prüft den Code in <span class="pill p-pg">Postgres</span> <code>chat.guild_invites</code> — nicht abgelaufen, nicht widerrufen, <code>max_uses</code> nicht erreicht — und das alles in <strong>einem atomaren Schritt</strong> (ein einziges UPDATE mit allen Bedingungen + Zähler-Erhöhung), damit zwei gleichzeitige Beitritte sich nicht in die Quere kommen.</li>
+<li>chat-gateway fügt einen Eintrag in <code>chat.guild_members</code> ein.</li>
+<li>Browser landet im Server, lädt die Server-Liste neu — der neue Server erscheint links in der Leiste.</li>
+</ol></div>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="warum">9 · Warum diese Technologien?</h2>
+
+<table>
+<tr><th>Technologie</th><th>Warum (statt der naheliegenden Alternative)</th></tr>
+<tr>
+  <td><strong>PostgreSQL</strong> (relationale DB)</td>
+  <td>Die Daten haben klare Beziehungen — ein Server hat Kanäle, ein Kanal hat Nachrichten, ein User ist in Servern. Genau dafür sind relationale DBs gemacht. Transaktionen (ACID) sorgen dafür, dass nie etwas halb-fertig stehen bleibt. <span class="muted">— Discord nutzt heute für die schiere Masse an <em>Nachrichten</em> eine spezialisierte DB (ScyllaDB); das brauchen wir die nächsten Jahre nicht, Postgres mit gutem Index reicht. Wenn das Skalierungs-Problem mal real wird, kann man <code>chat.messages</code> separat umziehen, ohne den Rest anzufassen.</span></td>
+</tr>
+<tr>
+  <td><strong>Redis</strong> (zusätzlich zur DB)</td>
+  <td>Echtzeit-Chat darf nicht so funktionieren, dass jeder Browser alle 2 Sekunden die Datenbank fragt „gibt's was Neues?" — das wäre langsam und würde die DB unter Last begraben. Redis Pub/Sub ist ein <em>Push</em>-System: sobald etwas passiert, wird es sofort weitergeleitet. Und der kurzlebige Voice-Zustand (wer ist gerade drin) muss blitzschnell les-/schreibbar sein und darf bei Neustart ruhig weg sein — perfekt für einen In-Memory-Speicher.</td>
+</tr>
+<tr>
+  <td><strong>LiveKit</strong> (WebRTC-SFU) für Sprache/Bildschirm</td>
+  <td>Man könnte Audio direkt zwischen Browsern schicken (Peer-to-Peer), aber das funktioniert nur gut bei 2 Leuten — bei 5+ wird es ein Chaos (jeder schickt an jeden). Ein SFU wie LiveKit ist die Standard-Lösung: alle schicken einmal hin, der Server verteilt. Außerdem bringt es Echo-Unterdrückung, Rausch-Filter und Verbindungs-Wiederherstellung fertig mit. <span class="muted">— Discord macht es intern genauso.</span></td>
+</tr>
+<tr>
+  <td><strong>JWT mit RS256</strong> (asymmetrisch) für den Login</td>
+  <td>Der Access-Token ist „self-contained" — die Services können ihn prüfen, ohne bei einer zentralen Stelle nachzufragen (sie haben nur den <em>öffentlichen</em> Schlüssel). RS256 statt eines geteilten Geheimnisses bedeutet: nur der auth-Service kann Tokens <em>ausstellen</em>, alle anderen können sie nur <em>prüfen</em>. Würde ein anderer Service gehackt, könnte der Angreifer trotzdem keine gültigen Tokens fälschen.</td>
+</tr>
+<tr>
+  <td><strong>Snowflake-IDs</strong> statt fortlaufender Nummern oder UUIDs</td>
+  <td>Zeitlich sortiert (man kann „die 50 neuesten Nachrichten" als simples <code>ORDER BY id</code> holen — keine extra Sortier-Spalte), und jeder Service vergibt seine eigenen ohne Koordination. Zufällige UUIDs wären schlecht für die DB-Index-Performance; fortlaufende Nummern bräuchten eine zentrale Vergabe-Stelle (= Flaschenhals).</td>
+</tr>
+<tr>
+  <td><strong>Drei getrennte Services</strong> statt eines Monolithen</td>
+  <td>Jeder Service hat seine eigenen Tabellen und seine eigene Verantwortung, redet mit den anderen nur über klar definierte Wege (HTTP, Redis-Pub/Sub) — nie direkt in deren DB. Vorteil: man kann einen Service austauschen oder neu schreiben, ohne die anderen anzufassen, und ein Fehler in einem legt nicht alles lahm.</td>
+</tr>
+<tr>
+  <td><strong>SvelteKit 5 + Tauri</strong> für das Frontend (statt nativer Apps pro Plattform)</td>
+  <td>Eine Web-App, die überall läuft (Browser, Desktop, Handy). Tauri verpackt sie als native Desktop-App (Windows/Mac/Linux) mit einem winzigen Bundle (~5–10 MB statt ~80 MB bei Electron), weil es den im Betriebssystem vorhandenen Browser-Kern nutzt. Eine Codebasis, alle Plattformen.</td>
+</tr>
+</table>
+
+<!-- ───────────────────────────────────────── -->
+<h2 id="stand">10 · Aktueller Stand &amp; was noch kommt</h2>
+
+<h3>Fertig &amp; getestet</h3>
+<ul>
+<li><span class="check">✅</span> <strong>Auth</strong> — Registrierung, Login, „eingeloggt bleiben", sichere Passwort-Speicherung, Token-Rotation mit Diebstahl-Erkennung</li>
+<li><span class="check">✅</span> <strong>Text-Chat in Echtzeit</strong> — Server, Kanäle, Nachrichten, Verlauf, WebSocket mit automatischer Wiederverbindung</li>
+<li><span class="check">✅</span> <strong>Sprach-Kanäle</strong> — Voice über LiveKit, Push-to-Talk, „spricht gerade"-Anzeige, Mute/Deafen, Geräte-Auswahl</li>
+<li><span class="check">✅</span> <strong>Server-Verwaltung</strong> — Server &amp; Kanäle anlegen, Kanäle umbenennen/löschen (per Rechtsklick), Mitglieder-Liste</li>
+<li><span class="check">✅</span> <strong>Einladungen</strong> — Einladungs-Links mit Ablaufzeit &amp; Nutzungs-Limit, „Server beitreten"-Seite</li>
+<li><span class="check">✅</span> <strong>Echte Benutzernamen</strong> &amp; Avatare in der UI (User-Cache im Browser)</li>
+<li><span class="check">✅</span> <strong>Voice-Anwesenheit</strong> — in der Kanal-Liste sieht man, wer gerade in welchem Sprachkanal ist (Discord-Style), live aktualisiert</li>
+<li><span class="check">✅</span> <strong>Sicherheits-Audit</strong> durchgeführt — alle kritischen &amp; wichtigen Befunde behoben (Auth-Lücke, WS-Robustheit, Rate-Limits, …); ~100 automatische Tests, alle grün; saubere Trennung von Test- und Echt-Datenbank</li>
+</ul>
+
+<h3>Geplant</h3>
+<ul>
+<li><span class="soon">⬜</span> <strong>Bildschirm-Teilen</strong> — über LiveKit (Browser-<code>getDisplayMedia</code>). Das ist eigentlich <em>das</em> Kern-Feature, wegen dem das Projekt gestartet wurde. <span class="muted">(Optional dazu: ein kleiner „GSR-Helper" für Linux, der über die Grafikkarte (NVENC) deutlich höhere Stream-Qualität liefert — nutzt das bereits existierende GPU-Screen-Recorder-Tool.)</span></li>
+<li><span class="soon">⬜</span> <strong>Datei-Anhänge &amp; Profilbild-Upload</strong> — über MinIO (S3-kompatibler Datei-Speicher)</li>
+<li><span class="soon">⬜</span> Reaktionen, Nachrichten bearbeiten/löschen (UI), „X tippt gerade…"-Anzeige</li>
+<li><span class="soon">⬜</span> Direktnachrichten, Rollen &amp; Rechte</li>
+<li><span class="soon">⬜</span> Desktop-App (Tauri) &amp; Mobile-PWA, Push-Benachrichtigungen</li>
+<li><span class="soon">⬜</span> Produktions-Härtung: Container für die Services, TLS via Caddy, LiveKit-Version pinnen</li>
+</ul>
+
+<hr>
+<p class="small muted">Diese Datei beschreibt den Stand vom 11. Mai 2026. Der Quellcode liegt unter <code>~/Dokumente/discord-clone/</code>; ausführlichere technische Notizen in <code>PLAN.md</code>, <code>CLAUDE.md</code>, <code>AUDIT_FINDINGS.md</code> und den <code>*_REPORT.md</code>-Dateien im selben Verzeichnis.</p>
+
+</div>
+</body>
+</html>
