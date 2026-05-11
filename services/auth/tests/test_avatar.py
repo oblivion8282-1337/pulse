@@ -48,7 +48,8 @@ async def test_upload_valid_png(client, tmp_path):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["avatar_url"] is not None
-    assert body["avatar_url"].endswith(f"{user_id}.webp")
+    # URL enthält den Dateipfad + einen Cache-Buster-Query (?v=...)
+    assert body["avatar_url"].startswith(f"/api/auth/avatars/{user_id}.webp?v=")
 
     saved = tmp_path / f"{user_id}.webp"
     assert saved.exists()

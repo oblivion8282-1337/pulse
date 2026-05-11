@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+import secrets
 from pathlib import Path
 
 import dcc_auth.config as _config
@@ -60,7 +61,10 @@ async def upload_avatar(
     dest = _avatar_path(current.id)
     img.save(dest, "WEBP", quality=85)
 
-    current.avatar_url = f"/api/auth/avatars/{current.id}.webp"
+    # Cache-Buster: der Dateiname bleibt gleich (<user_id>.webp), also würde der
+    # Browser das alte Bild aus dem Cache nehmen. Ein neuer ?v=-Token bei jedem
+    # Upload macht die URL eindeutig — der GET-Endpoint ignoriert Query-Params.
+    current.avatar_url = f"/api/auth/avatars/{current.id}.webp?v={secrets.token_urlsafe(6)}"
     session.add(current)
     await session.commit()
     await session.refresh(current)
