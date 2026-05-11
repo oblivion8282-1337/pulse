@@ -89,3 +89,25 @@ class Message(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("ix_messages_channel_id_desc", "channel_id", "id"),)
+
+
+class GuildInvite(Base):
+    __tablename__ = "guild_invites"
+
+    code: Mapped[str] = mapped_column(String(16), primary_key=True)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("channels.id", ondelete="SET NULL"), nullable=True
+    )
+    creator_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uses: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (Index("ix_guild_invites_guild", "guild_id"),)

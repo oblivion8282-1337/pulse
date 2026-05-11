@@ -104,3 +104,58 @@ class MemberOut(BaseModel):
     @field_serializer("guild_id", "user_id")
     def _ser_ids(self, v: int) -> str:
         return _id_str(v)
+
+
+# ---- Invites ---------------------------------------------------------------
+
+_MAX_INVITE_TTL = 30 * 24 * 3600  # 30 days
+
+
+class CreateInviteIn(BaseModel):
+    expires_in_seconds: Annotated[int | None, Field(default=None, ge=60, le=_MAX_INVITE_TTL)] = None
+    max_uses: Annotated[int | None, Field(default=None, ge=1, le=1000)] = None
+    channel_id: SnowflakeId | None = None
+
+
+class InviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    code: str
+    guild_id: int
+    channel_id: int | None
+    max_uses: int | None
+    uses: int
+    expires_at: datetime | None
+    created_at: datetime
+
+    @field_serializer("guild_id", "channel_id")
+    def _ser_ids(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
+
+
+class InviteGuildOut(BaseModel):
+    id: int
+    name: str
+    icon_url: str | None
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class InvitePreviewOut(BaseModel):
+    guild: InviteGuildOut
+    channel_id: int | None
+    member_count: int
+
+    @field_serializer("channel_id")
+    def _ser_channel(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
+
+
+class InviteAcceptOut(BaseModel):
+    guild: InviteGuildOut
+    channel_id: int | None
+
+    @field_serializer("channel_id")
+    def _ser_channel(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
