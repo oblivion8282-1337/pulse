@@ -28,6 +28,7 @@ import { AudioDevices } from './audioDevices.svelte';
 import { createNoiseProcessor } from './noiseFilter';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
+import { auth } from '$lib/stores/auth.svelte';
 import { toast } from 'svelte-sonner';
 
 export type { ScreenShareTrack };
@@ -483,7 +484,10 @@ class VoiceRoom {
     this.#room = null;
     this.#noiseProcessorMode = 'off';
     this.state = ConnectionState.Disconnected;
-    if (this.channelId) voicePresence.apply(this.channelId, []);
+    if (this.channelId) {
+      const myUserId = auth.user?.id;
+      if (myUserId) voicePresence.removeUser(this.channelId, myUserId);
+    }
     this.channelId = null;
     this.channelName = null;
     this.participants = [];
