@@ -1,0 +1,35 @@
+# MediaMTX als Streaming-Server auf dem Public-VPS
+# Version gepinnt damit Watchtower nichts kaputt-updatet
+#
+# Ports:
+#   1935 (TCP) - RTMP-Ingest mit Auth
+#   8888 (TCP) - HLS public read
+#   8189 (UDP) - WebRTC ICE
+#   9997 (TCP) - API, NUR localhost-bind
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.18.1
+    container_name: streaming-mediamtx
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    # network_mode: host weil WebRTC-ICE auf UDP sonst kompliziert wird mit Port-Mapping
+    # (das war auch eine deiner Memory-Regeln: bei Docker-Port-Range lieber host-Netzwerk)
+    labels:
+      # Watchtower-Hinweis: dieses Image NICHT auto-updaten
+      - "com.centurylinklabs.watchtower.enable=false"
+
+  # Static-File-Server für player.html (Stats-Browser-Player)
+  # Eigener Port 8000, kein Konflikt mit existierendem Caddy auf 80/443
+  player:
+    image: nginx:1.27-alpine
+    container_name: streaming-player
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./player.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"

@@ -1,0 +1,22 @@
+# Adds .flv to the Opus audio codec whitelist in select_audio_codec_with_fallback().
+# Required for AV1 + Opus via Enhanced RTMP — FFmpeg can mux Opus into FLV
+# (FourCC "Opus") since v6.1, but GSR upstream rejects it before FFmpeg ever
+# sees it. Two-line fix.
+#
+# Apply with: cd /tmp/gsr-analysis/gpu-screen-recorder && patch -p1 < /path/to/0001-opus-flv-whitelist.patch
+
+--- a/src/main.cpp	2026-05-10 20:02:13.854878642 +0200
++++ b/src/main.cpp
+@@ -3018,10 +3018,10 @@
+             break;
+         }
+         case GSR_AUDIO_CODEC_OPUS: {
+-            if(file_extension != "mp4" && file_extension != "mkv" && file_extension != "webm" && file_extension != "ts") {
++            if(file_extension != "mp4" && file_extension != "mkv" && file_extension != "webm" && file_extension != "ts" && file_extension != "flv") {
+                 //audio_codec_to_use = "aac";
+                 audio_codec = GSR_AUDIO_CODEC_AAC;
+-                fprintf(stderr, "gsr warning: opus audio codec is only supported by .mp4, .mkv, .webm and .ts files, falling back to aac instead\n");
++                fprintf(stderr, "gsr warning: opus audio codec is only supported by .mp4, .mkv, .webm, .ts and .flv files, falling back to aac instead\n");
+             }
+             break;
+         }

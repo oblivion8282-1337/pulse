@@ -1,0 +1,15 @@
+[project]
+name = "gsr-sidecar"
+version = "0.1.0"
+description = "stdio wrapper around gpu-screen-recorder for the Pulse Tauri app (vendored from GPU_Screen_Recorder/ui)"
+requires-python = ">=3.13,<3.15"
+# Pure stdlib. Keine Runtime-Dependencies — alle Module nutzen ausschließlich
+# subprocess / json / sys / os / threading / pathlib / dataclasses / re / time.
+dependencies = []
+
+# Virtual-Package: der Sidecar wird per `python streaming/gsr-sidecar/control.py`
+# (oder vom Tauri-Rust-Code als Subprozess) gestartet — er ist KEIN installierbares
+# Modul. Das `[tool.uv]`-`package = false` sorgt dafür, dass uv keinen Wheel-Build
+# versucht und das Verzeichnis nur als Workspace-Member trackt.
+[tool.uv]
+package = false

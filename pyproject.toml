@@ -10,6 +10,7 @@ members = [
     "services/auth",
     "services/chat-gateway",
     "services/voice-signaling",
+    "streaming",
 ]
 
 [tool.uv.sources]

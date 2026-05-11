@@ -60,3 +60,8 @@ uv.lock.backup
 # Avatar uploads (keep directory, ignore uploaded files)
 services/auth/uploads/avatars/*
 !services/auth/uploads/avatars/.gitkeep
+
+# Streaming (T2) — generierte MediaMTX-Config + Stream-Key. NIEMALS einchecken.
+# Das Template streaming/server/mediamtx.yml.template ist ok (Placeholder-Key).
+streaming/server/mediamtx.yml
+streaming/server/.stream-key

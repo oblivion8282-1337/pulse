@@ -1,0 +1,74 @@
+# MediaMTX-Config für Public-Server-Setup — TEMPLATE
+# Vor Deploy: STREAM_KEY_PLACEHOLDER ersetzen mit dem Key aus server/.stream-key
+#
+# Auth-Pattern: 3 User-Einträge nötig
+#   1) Publisher mit User+Pass für RTMP-Push
+#   2) Anonymous Reader für HLS-Public
+#   3) Localhost-Admin für API (sonst error bei API-Calls)
+
+logLevel: info
+logDestinations: [stdout]
+
+# RTMP-Ingest
+rtmp: yes
+rtmpAddress: :1935
+
+# HLS Low-Latency
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 200ms
+hlsPartDuration: 100ms
+
+# WebRTC (kein Audio wegen AAC-Limit)
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+
+# API NUR auf localhost
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Disable RTSP — RTMP + SRT reichen
+rtsp: no
+
+# SRT-Ingest für Opus-Audio-Pfad (RTMP/FLV kann nur AAC)
+# Auth: streamid=publish:STREAM:USER:PASS
+srt: yes
+srtAddress: :8890
+
+# === AUTH ===
+authMethod: internal
+authInternalUsers:
+  # 1) Publisher (Push via RTMP-URL: rtmp://server:1935/path?user=michael&pass=KEY)
+  - user: michael
+    pass: STREAM_KEY_PLACEHOLDER
+    ips: []
+    permissions:
+      - action: publish
+        path:
+
+  # 2) Anonymous Reader (HLS public)
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path:
+      - action: playback
+        path:
+
+  # 3) Localhost-Admin für API
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1']
+    permissions:
+      - action: api
+      - action: metrics
+      - action: pprof
+
+paths:
+  all_others:

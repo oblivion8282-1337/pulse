@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>GSR Stream — Player</title>
+<!-- Inline-Favicon (transparent 1px) damit Browser nicht 404 wirft -->
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkAAIAAAoAAv/lxKUAAAAASUVORK5CYII=">
+
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; color: #ddd;
+               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  body { display: flex; flex-direction: column; }
+
+  #stage { flex: 1; display: flex; align-items: center; justify-content: center;
+           position: relative; min-height: 0; }
+  video { max-width: 100%; max-height: 100%; background: #111; }
+
+  #stats {
+    position: fixed; top: 12px; left: 12px;
+    background: rgba(0,0,0,0.78); backdrop-filter: blur(6px);
+    padding: 10px 14px; border-radius: 8px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+    line-height: 1.55; min-width: 240px; pointer-events: none;
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+  #stats .row { display: flex; justify-content: space-between; gap: 16px; }
+  #stats .label { color: #888; }
+  #stats .value { color: #fff; }
+  #stats .section { margin-top: 6px; padding-top: 6px;
+                    border-top: 1px solid rgba(255,255,255,0.08); }
+  #stats .section:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+  #stats .state-live   { color: #2ec946; }
+  #stats .state-init   { color: #d4a000; }
+  #stats .state-error  { color: #d44; }
+
+  #controls { padding: 6px 12px; background: #181818; display: flex; gap: 12px;
+              align-items: center; border-top: 1px solid #222; font-size: 12px; }
+  #controls input { background: #222; color: #ddd; border: 1px solid #333;
+                    padding: 4px 8px; border-radius: 4px; flex: 1; min-width: 0;
+                    font-family: ui-monospace, monospace; font-size: 12px; }
+  #controls button { background: #2a2a2a; color: #ddd; border: 1px solid #444;
+                     padding: 4px 12px; border-radius: 4px; cursor: pointer;
+                     font-size: 12px; }
+  #controls button:hover { background: #333; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="vid" autoplay playsinline muted></video>
+  <div id="stats">
+    <div class="section">
+      <div class="row"><span class="label">State</span>
+                       <span class="value state-init" id="s-state">init…</span></div>
+      <div class="row"><span class="label">Stream</span>
+                       <span class="value" id="s-stream">—</span></div>
+    </div>
+    <div class="section">
+      <div class="row"><span class="label">Video</span>
+                       <span class="value" id="s-vcodec">—</span></div>
+      <div class="row"><span class="label">Auflösung</span>
+                       <span class="value" id="s-res">—</span></div>
+      <div class="row"><span class="label">FPS</span>
+                       <span class="value" id="s-fps">—</span></div>
+      <div class="row"><span class="label">Bitrate</span>
+                       <span class="value" id="s-bitrate">—</span></div>
+    </div>
+    <div class="section">
+      <div class="row"><span class="label">Audio</span>
+                       <span class="value" id="s-acodec">—</span></div>
+    </div>
+    <div class="section">
+      <div class="row"><span class="label">Jitter</span>
+                       <span class="value" id="s-jitter">—</span></div>
+      <div class="row"><span class="label">Frames lost</span>
+                       <span class="value" id="s-loss">—</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="controls">
+  <span class="label">WHEP-URL:</span>
+  <input id="url" type="text">
+  <button id="connect">Verbinden</button>
+  <button id="mute">Sound an</button>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = {
+  bytes: (b) => b > 1e6 ? (b/1e6).toFixed(2)+" MB/s"
+              : b > 1e3 ? (b/1e3).toFixed(1)+" kB/s"
+              :          b.toFixed(0)+" B/s",
+  bitrate: (bps) => bps > 1e6 ? (bps/1e6).toFixed(2)+" Mbps"
+                  : bps > 1e3 ? (bps/1e3).toFixed(1)+" kbps"
+                  :             bps.toFixed(0)+" bps",
+  codec: (mime) => (mime||"").replace("video/","").replace("audio/","").toUpperCase(),
+};
+
+let pc = null, statsTimer = null, lastBytes = 0, lastTs = 0;
+
+function setState(s, cls = "state-init") {
+  const el = $("s-state");
+  el.textContent = s;
+  el.className = "value " + cls;
+}
+
+async function connect() {
+  if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+  if (pc) { pc.close(); pc = null; }
+  if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+  lastBytes = 0; lastTs = 0;
+  ["s-vcodec","s-res","s-fps","s-bitrate","s-acodec","s-jitter","s-loss"]
+    .forEach(id => $(id).textContent = "—");
+
+  const whep = $("url").value.trim();
+  if (!whep) return;
+  $("s-stream").textContent = whep.replace(/^https?:\/\//,"");
+  setState("connecting…", "state-init");
+
+  pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+  pc.addTransceiver("video", { direction: "recvonly" });
+  pc.addTransceiver("audio", { direction: "recvonly" });
+
+  pc.ontrack = (e) => {
+    if (e.streams[0]) $("vid").srcObject = e.streams[0];
+  };
+  pc.oniceconnectionstatechange = () => {
+    const st = pc.iceConnectionState;
+    if (st === "connected" || st === "completed")
+      setState("live", "state-live");
+    else if (st === "disconnected" || st === "failed" || st === "closed")
+      setState(st, "state-error");
+  };
+
+  try {
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    let res;
+    try {
+      res = await fetch(whep, {
+        method: "POST",
+        headers: { "Content-Type": "application/sdp" },
+        body: offer.sdp,
+      });
+    } catch (netErr) {
+      setState("Server nicht erreichbar — auto-retry in 3s …", "state-error");
+      scheduleRetry();
+      return;
+    }
+    if (res.status === 404) {
+      setState("Stream offline — auto-retry in 3s …", "state-error");
+      scheduleRetry();
+      return;
+    }
+    if (!res.ok) {
+      setState(`HTTP ${res.status} ${res.statusText} — auto-retry in 3s …`, "state-error");
+      scheduleRetry();
+      return;
+    }
+    const answer = await res.text();
+    await pc.setRemoteDescription({ type: "answer", sdp: answer });
+    statsTimer = setInterval(updateStats, 1000);
+  } catch (err) {
+    setState("Fehler: " + err.message + " — auto-retry in 3s …", "state-error");
+    scheduleRetry();
+  }
+}
+
+let retryTimer = null;
+function scheduleRetry() {
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = setTimeout(() => { retryTimer = null; connect(); }, 3000);
+}
+
+async function updateStats() {
+  if (!pc) return;
+  const stats = await pc.getStats();
+  let videoIn, audioIn, vCodec, aCodec;
+  stats.forEach(r => {
+    if (r.type === "inbound-rtp" && r.kind === "video") videoIn = r;
+    if (r.type === "inbound-rtp" && r.kind === "audio") audioIn = r;
+    if (r.type === "codec" && videoIn && r.id === videoIn.codecId) vCodec = r;
+    if (r.type === "codec" && audioIn && r.id === audioIn.codecId) aCodec = r;
+  });
+
+  if (videoIn) {
+    $("s-vcodec").textContent = vCodec ? fmt.codec(vCodec.mimeType) : "—";
+    if (videoIn.frameWidth && videoIn.frameHeight)
+      $("s-res").textContent = `${videoIn.frameWidth}×${videoIn.frameHeight}`;
+    if (videoIn.framesPerSecond !== undefined)
+      $("s-fps").textContent = videoIn.framesPerSecond + " fps";
+
+    const now = videoIn.timestamp;
+    const bytes = videoIn.bytesReceived;
+    if (lastTs > 0) {
+      const dt = (now - lastTs) / 1000;
+      const dBytes = bytes - lastBytes;
+      if (dt > 0) $("s-bitrate").textContent = fmt.bitrate(dBytes * 8 / dt);
+    }
+    lastTs = now; lastBytes = bytes;
+
+    if (videoIn.framesDropped !== undefined && videoIn.framesReceived !== undefined) {
+      $("s-loss").textContent = `${videoIn.framesDropped} / ${videoIn.framesReceived}`;
+    }
+    if (videoIn.jitter !== undefined)
+      $("s-jitter").textContent = (videoIn.jitter * 1000).toFixed(1) + " ms";
+  }
+  if (audioIn && aCodec) {
+    const sr = aCodec.clockRate ? `${aCodec.clockRate/1000}kHz` : "";
+    const ch = aCodec.channels ? ` ${aCodec.channels}ch` : "";
+    $("s-acodec").textContent = `${fmt.codec(aCodec.mimeType)} ${sr}${ch}`.trim();
+  }
+}
+
+// Default-URL aus aktuellem Host bauen
+$("url").value = `http://${location.hostname || "77.42.71.166"}:8889/test/whep`;
+
+$("connect").addEventListener("click", connect);
+$("mute").addEventListener("click", () => {
+  const v = $("vid");
+  v.muted = !v.muted;
+  $("mute").textContent = v.muted ? "Sound an" : "Stumm";
+});
+
+// Auto-connect beim Laden
+connect();
+</script>
+</body>
+</html>

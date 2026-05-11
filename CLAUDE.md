@@ -140,6 +140,57 @@ Die JS-Seiten der Plugins (`@tauri-apps/api`, `@tauri-apps/plugin-{store,notific
 - GUI manuell starten (öffnet ein echtes Fenster): Vite-Dev-Server auf `:5173` muss laufen, dann `pnpm --filter @dcc/desktop dev` (= `tauri dev`). Für einen Release-Bundle: `pnpm --filter @dcc/desktop build` (= `tauri build`, baut vorher `web/build/`, erzeugt `.AppImage` + `.deb` unter `desktop/src-tauri/target/release/bundle/`).
 - Linux-Systemdeps für Tauri (Arch/CachyOS): `webkit2gtk-4.1`, `gtk3`, `libsoup3`, `librsvg`, `base-devel` — sind installiert.
 
+## Streaming-Paket (T2)
+
+`streaming/` ist eine **vendored Kopie** aus `~/Dokumente/GPU_Screen_Recorder/`
+(2026-05-11). Das **Original-Repo bleibt unangetastet** — Pulse modifiziert
+ausschließlich seine eigene Kopie. uv-Workspace-Member: `streaming` (Paket
+`gsr-sidecar`, `[tool.uv] package = false`, **pure-stdlib**, keine Runtime-Deps).
+
+```
+streaming/
+├── gsr-sidecar/             Python-Sidecar (pure stdlib, kein PySide6)
+│   ├── profiles.py          StreamProfile/ServerProfile + ServerProfile.from_channel()
+│   ├── stream_controller.py subprocess.Popen-Wrapper (QProcess raus) + stderr-Reader-Thread
+│   ├── config.py            Settings-Dataclasses (JSON-I/O nicht aktiv — Persistenz in T3 auf Tauri-store)
+│   ├── gsr_binary.py        Binary-Resolver + --info/--list-monitors-Parser
+│   └── control.py           stdio-Loop (newline-JSON, ersetzt main.py/stream_window.py)
+├── patches/                 GSR-C++-Patches (FLV-Opus-Whitelist + Vulkan-Stub) — verbatim
+├── server/                  MediaMTX-Setup (mediamtx.yml.template + docker-compose + player.html)
+├── scripts/                 start-stream*.fish — manuelle Test-Skripte als Referenz
+├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
+└── pyproject.toml
+```
+
+**Sidecar-Protokoll (stdio, newline-JSON):**
+- Request: `{"op": "...", "id": ...?, ...}` — Response: `{"id": ..., "ok": bool, ...}` (id gespiegelt). Async-Event: `{"ev": "...", ...}` (kein id/ok).
+- Ops: `health`, `gpu_info`, `list_monitors`, `list_profiles`, `list_application_audio`, `build_argv`, `start`, `stop`, `state`.
+- Events: `state` (`idle|starting|live|error|stopped`), `fps`, `log`, `error`, `stopped`.
+- `start`/`build_argv` akzeptieren entweder `server: "<name>"` (mit `stream_key`) oder `channel: {id, token, mediamtx_endpoint?, push_protocol?}` (Pulse-Pfad via `ServerProfile.from_channel()` — MediaMTX-Pfad `channel-<id>`).
+- Vollständige Protokoll-Doku: `streaming/README.md`.
+
+**GSR-Binary-Resolver (Reihenfolge):** `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder` wenn `/.flatpak-info` oder `$FLATPAK_ID`) → Custom-Build (`/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder`, gebaut von `bootstrap-gsr.fish`) → System-PATH. Fehlt alles → `health.gsr.available=false` (kein Crash).
+
+**Testen (non-invasiv, kein Portal-Dialog, kein realer Stream):**
+```bash
+# Mehrere Ops auf einmal:
+printf '%s\n' \
+  '{"op":"health","id":1}' \
+  '{"op":"list_monitors","id":2}' \
+  '{"op":"build_argv","id":3,"profile":"AV1 Effizient","server":"Hetzner","capture":"portal","audio":{"mode":"Desktop","excluded_apps":[]},"stream_key":"PLACEHOLDER"}' \
+  | python3 streaming/gsr-sidecar/control.py
+```
+`build_argv` baut die `gpu-screen-recorder`-Argumentliste **ohne den Prozess zu starten** — gleiche Argumente wie die `start-stream-server*.fish`-Skripte (nur ohne `-restore-portal-session yes`, exakt wie der Original-`stream_controller.py`). **KEIN `{"op":"start"}` im Test ausführen** — das öffnet den Wayland-Portal-Dialog und streamt tatsächlich an MediaMTX.
+
+**QProcess → subprocess (einzige echte Logik-Änderung):** `stream_controller.StreamController` nutzt `subprocess.Popen(..., start_new_session=True)` + zwei Daemon-Threads (stdout-Reader für FPS-Parse + Wait-Thread). Stop sendet `SIGINT` an die Prozessgruppe (`os.killpg`), mit `SIGTERM`/`SIGKILL`-Escalation falls 5 s nichts passiert. **GSR-Argument-Verhalten unverändert** — die `build_argv()`-Methode produziert dieselbe `-w/-f/-c/-k/-bm/-q/-ac/-a/-s/-o`-Folge wie zuvor.
+
+**Stream-Key / Secrets:**
+- `streaming/server/mediamtx.yml.template` enthält nur `STREAM_KEY_PLACEHOLDER` (commit-safe).
+- `streaming/server/mediamtx.yml` und `streaming/server/.stream-key` sind in `.gitignore` (Worktree-Root). Die Dateien werden im Pulse-Repo **nie** angelegt — der Stream-Key bleibt im Original-Repo (`~/Dokumente/GPU_Screen_Recorder/server/.stream-key`).
+- Sidecar nimmt den Token nur transient als Request-Field entgegen; er wird **nicht** persistiert, **nicht** geloggt.
+
+**Was bewusst NICHT mitkopiert wurde:** Qt-UI (`ui/main.py`, `ui/stream_window.py`), Binär-/Build-Artefakte (`mediamtx`-Binary 52 MB, `*.flatpak` 181 MB, `build/`, `.flatpak-builder/`, `*.log`), die generierte `server/mediamtx.yml`, `server/.stream-key`, `bootstrap.fish` (lädt nur MediaMTX-Binary für Lokal-Tests — brauchen wir hier nicht). `packaging/` (Flatpak-Manifest) folgt in T6 als kombiniertes Manifest.
+
 ## Test-Datenbank
 
 E2E-Tests (Playwright) laufen gegen `dcc_test` — eine separate DB im selben Postgres-Container.
