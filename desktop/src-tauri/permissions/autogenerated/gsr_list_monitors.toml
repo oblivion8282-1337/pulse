@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-gsr-list-monitors"
+description = "Enables the gsr_list_monitors command without any pre-configured scope."
+commands.allow = ["gsr_list_monitors"]
+
+[[permission]]
+identifier = "deny-gsr-list-monitors"
+description = "Denies the gsr_list_monitors command without any pre-configured scope."
+commands.deny = ["gsr_list_monitors"]

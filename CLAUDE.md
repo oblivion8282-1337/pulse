@@ -191,6 +191,53 @@ printf '%s\n' \
 
 **Was bewusst NICHT mitkopiert wurde:** Qt-UI (`ui/main.py`, `ui/stream_window.py`), Binär-/Build-Artefakte (`mediamtx`-Binary 52 MB, `*.flatpak` 181 MB, `build/`, `.flatpak-builder/`, `*.log`), die generierte `server/mediamtx.yml`, `server/.stream-key`, `bootstrap.fish` (lädt nur MediaMTX-Binary für Lokal-Tests — brauchen wir hier nicht). `packaging/` (Flatpak-Manifest) folgt in T6 als kombiniertes Manifest.
 
+## Desktop ↔ Sidecar-Bridge (T3a)
+
+Rust spawnt den Python-Sidecar als Kind-Prozess (`python3 streaming/gsr-sidecar/control.py`) und brückt das newline-JSON-Protokoll zwischen Svelte-Frontend und Sidecar. **Der Sidecar ist nicht beim App-Start aktiv** — der erste `gsr_*`-Invoke aus dem WebView spawnt ihn (lazy). Wer nie streamt, fährt nie Python hoch.
+
+```
+desktop/src-tauri/src/streaming/
+├── mod.rs        SidecarState (tokio::sync::Mutex<Option<Arc<Sidecar>>>), manage(), shutdown() für RunEvent::Exit
+├── sidecar.rs    Spawn (tokio::process::Command), Path-Resolver, Reader-/Writer-/Stderr-Tasks,
+│                 Request-/Reply-Routing via numerische IDs + oneshot::channel
+└── commands.rs   die 9 `#[tauri::command] async fn gsr_*` — alle delegieren an Sidecar::call()
+```
+
+**Path-Resolver-Reihenfolge** (`sidecar::resolve_script_path`): `$PULSE_SIDECAR_PY` → Walk-up vom `current_exe()` bis ein `<X>/streaming/gsr-sidecar/control.py` existiert (greift in `target/debug/` und `target/release/`) → Flatpak-Default `/app/share/pulse/gsr-sidecar/control.py` (T6 — TODO, wird beim Flatpak-Packaging konkretisiert).
+
+**Protokoll-Bridge:** Jeder Outbound-Request kriegt eine `id` (u64, monoton steigend), die `control.py` 1:1 in der Response spiegelt. Reader-Task liest `stdout` line-wise (`tokio::io::BufReader::lines()`), routet `{"id":..}`-Responses an wartende `oneshot::Receiver`, leitet `{"ev":..}`-Events als Tauri-Events auf den Channel `gsr://event` an alle Webviews weiter. Stderr wird zeilenweise als `log::warn!` durchgeschleift (Python-Tracebacks landen dort). Standard-Timeout 10 s; `gsr_start` 60 s (Wayland-Portal-Dialog), `gsr_stop` 15 s. Shutdown (`RunEvent::Exit`): SIGTERM an die Sidecar-Prozessgruppe → 2 s Grace → SIGKILL. Sidecar's eigener SIGTERM-Handler stoppt einen laufenden GSR vor dem Exit.
+
+**Tauri-Commands** (alle in `streaming::commands`, registriert in `lib.rs::run()` via `invoke_handler`, ACL-Permissions autogeneriert durch `tauri-build`s `AppManifest::commands(&[...])` in `build.rs`, allowlisted in `capabilities/default.json` als `allow-gsr-{health,gpu-info,list-monitors,list-profiles,list-application-audio,build-argv,start,stop,state}` — Hyphens, weil ACL-Identifier kein `_` erlauben):
+
+| `#[tauri::command]` | Args | Response (JSON, durchgereicht) |
+|---|---|---|
+| `gsr_health` | — | `{ok, gsr: {available, source, path?, version?, ...}}` |
+| `gsr_gpu_info` | — | `{ok, vendor?, video_codecs?, ...}` |
+| `gsr_list_monitors` | — | `{ok, monitors: [{name, resolution}]}` |
+| `gsr_list_profiles` | — | `{ok, profiles, servers, audio_modes, app_label_prefix}` |
+| `gsr_list_application_audio` | — | `{ok, applications}` |
+| `gsr_build_argv` | `args: {...}` | `{ok, binary, argv}` (kein Start!) |
+| `gsr_start` | `args: {profile, server?\|channel, capture, audio, ...}` | `{ok, argv}` — danach kommen Events auf `gsr://event` |
+| `gsr_stop` | — | `{ok}` |
+| `gsr_state` | — | `{ok, running, state, fps, uptime_s, argv}` |
+
+**Frontend-Bridge** (`web/src/lib/stream/`):
+
+- `gsr.ts` — typed Wrapper um `invoke()` + `listen('gsr://event')`. Alle Methoden returnen `null` außerhalb von Tauri (`!isTauri()`), nicht throwen — der Import ist im Browser sicher.
+- `state.svelte.ts` — `$state`-Object `stream = {available, running, state, fps, uptimeS, error, lastLog: string[]}`, gefüttert aus dem Event-Channel. `initStream()` ist idempotent.
+- `web/src/routes/+layout.svelte` ruft `initStream()` in `onMount` parallel zum bestehenden `initDesktopPtt()`. In Browser → No-Op.
+
+**Dev-Test-Route**: `web/src/routes/app/dev/stream/+page.svelte` (nur per URL `/app/dev/stream` erreichbar — nicht im Menü). Zeigt Health/Monitors/Profiles als JSON, Profil-/Server-/Capture-/Audio-Picker, Buttons für `build_argv` (kein Start!), `Start` (öffnet Portal!) und `Stop`. Dient als E2E-Check für die Bridge — die produktive Streaming-UI baut T3b auf einer richtigen Komponenten-Hierarchie.
+
+**Sidecar-Status nach T3a unverändert:** `control.py` musste **nicht** angepasst werden — Request-IDs (`id`-Echo) sind seit T2 abwärtskompatibel implementiert; `SIGTERM`/`SIGINT`/stdin-EOF-Shutdown auch. Die Bridge in `sidecar.rs` baut nur drauf auf.
+
+**Verifikation T3a:**
+- `cd desktop/src-tauri && cargo build` — keine Warnings.
+- `cd web && pnpm check && pnpm build` — 0 Errors.
+- Sidecar-E2E (ohne GSR-Start): `printf '%s\n' '{"op":"health","id":1}' '{"op":"state","id":7}' '{"op":"health"}' | uv run --project streaming python streaming/gsr-sidecar/control.py` — IDs werden gespiegelt, fehlende ID → `id:null` in Response, unbekannte Op → `ok:false`.
+- `uv run pytest` — 134/134 grün (Etappe-1/2-Suites unangefasst).
+- **Nicht verifiziert in T3a**: tatsächlicher `gsr_start` (würde Portal-Dialog öffnen + an Hetzner pushen). T3b-Aufgabe für den User.
+
 ## Test-Datenbank
 
 E2E-Tests (Playwright) laufen gegen `dcc_test` — eine separate DB im selben Postgres-Container.

@@ -13,6 +13,7 @@ use tauri::Manager;
 
 #[cfg(desktop)]
 mod ptt;
+mod streaming;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -52,16 +53,39 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_notification::init())
+        .invoke_handler(tauri::generate_handler![
+            streaming::commands::gsr_health,
+            streaming::commands::gsr_gpu_info,
+            streaming::commands::gsr_list_monitors,
+            streaming::commands::gsr_list_profiles,
+            streaming::commands::gsr_list_application_audio,
+            streaming::commands::gsr_build_argv,
+            streaming::commands::gsr_start,
+            streaming::commands::gsr_stop,
+            streaming::commands::gsr_state,
+        ])
         .setup(|app| {
             #[cfg(desktop)]
             ptt::setup(app.handle())?;
+            // GSR sidecar bridge (T3a) — lazy spawn on first `gsr_*` call.
+            streaming::manage(app.handle());
             // On Linux, make the store file owner-only (settings may hold tokens).
             #[cfg(target_os = "linux")]
             harden_config_dir(app.handle());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Tear the sidecar down before the runtime goes away. Best
+                // effort — if Python is stuck, we'll fall through and the OS
+                // cleans up.
+                if let Some(state) = app.try_state::<streaming::SidecarState>() {
+                    tauri::async_runtime::block_on(state.shutdown());
+                }
+            }
+        });
 }
 
 /// Best-effort `chmod 700` of the per-app config dir + `chmod 600` of any store
