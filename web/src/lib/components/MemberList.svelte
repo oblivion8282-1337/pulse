@@ -45,7 +45,7 @@
 </script>
 
 <aside
-  class="bg-bg-sidebar flex h-full w-52 shrink-0 flex-col"
+  class="border-border flex h-full w-52 shrink-0 flex-col border-l"
   data-testid="member-list"
 >
   <header class="flex h-14 items-center px-4">

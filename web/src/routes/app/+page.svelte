@@ -34,22 +34,21 @@
   }
 </script>
 
-<GuildList
-  guilds={guilds.list}
-  activeGuildId={null}
-  onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
-  onCreateClick={() => (creating = true)}
-/>
-
-<div class="bg-bg-sidebar flex h-full w-60 flex-col" data-testid="channel-list-placeholder">
+<aside class="glass-panel flex h-full w-64 flex-col overflow-hidden rounded-2xl" data-testid="channel-list-placeholder">
+  <GuildList
+    guilds={guilds.list}
+    activeGuildId={null}
+    onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
+    onCreateClick={() => (creating = true)}
+  />
   <div class="flex-1"></div>
   <UserFooter />
-</div>
+</aside>
 
-<div class="text-text-muted flex flex-1 items-center justify-center text-sm">
+<div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-2xl text-sm">
   {#if guilds.list.length === 0}
     <div class="text-center">
-      <p class="text-text-bright mb-2 text-lg">Noch keine Server</p>
+      <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Server</p>
       <Button onclick={() => (creating = true)} data-testid="empty-create-guild">Server erstellen</Button>
     </div>
   {:else}

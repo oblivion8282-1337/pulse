@@ -105,7 +105,7 @@
   }
 </script>
 
-<section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col">
+<section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
   <header class="flex h-14 items-center gap-2.5 px-5">
     {#if channel}
       <HashIcon class="text-primary size-5" />

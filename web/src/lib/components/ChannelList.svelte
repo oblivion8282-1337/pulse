@@ -21,6 +21,7 @@
   import RenameChannelDialog from './RenameChannelDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
   import UserFooter from './UserFooter.svelte';
+  import GuildList from './GuildList.svelte';
 
   let {
     guild,
@@ -29,7 +30,11 @@
     onSelect,
     onCreateClick,
     onChannelDeleted,
-    canCreate = false
+    canCreate = false,
+    guildList,
+    activeGuildId = null,
+    onSelectGuild,
+    onCreateGuildClick
   }: {
     guild: Guild | null;
     channels: Channel[];
@@ -38,6 +43,10 @@
     onCreateClick: () => void;
     onChannelDeleted?: (channelId: string) => void;
     canCreate?: boolean;
+    guildList: Guild[];
+    activeGuildId?: string | null;
+    onSelectGuild: (g: Guild) => void;
+    onCreateGuildClick: () => void;
   } = $props();
 
   let inviteOpen = $state(false);
@@ -93,8 +102,14 @@
   }
 </script>
 
-<aside class="bg-bg-sidebar text-text-base flex h-full w-60 flex-col overflow-hidden" data-testid="channel-list">
-  <header class="flex h-14 items-center justify-between px-4 text-text-bright">
+<aside class="glass-panel text-text-base flex h-full w-64 flex-col overflow-hidden rounded-2xl" data-testid="channel-list">
+  <GuildList
+    guilds={guildList}
+    {activeGuildId}
+    onSelect={onSelectGuild}
+    onCreateClick={onCreateGuildClick}
+  />
+  <header class="flex h-12 items-center justify-between px-4 text-text-bright">
     <span class="truncate text-base font-bold tracking-tight">{guild?.name ?? '—'}</span>
     <div class="flex items-center gap-0.5">
       {#if guild}

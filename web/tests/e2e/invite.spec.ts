@@ -75,6 +75,9 @@ test.describe.serial('Invite Flow E2E', () => {
 
     const linkInput = alicePage.getByTestId('invite-link-input');
     await expect(linkInput).toBeVisible({ timeout: 10_000 });
+    // The link only appears once the createInvite POST resolves — wait for it
+    // rather than reading the (briefly empty) value synchronously.
+    await expect(linkInput).toHaveValue(/\/invite\/[A-Za-z0-9]{8}/, { timeout: 10_000 });
 
     const link = await linkInput.inputValue();
     expect(link).toMatch(/\/invite\/[A-Za-z0-9]{8}/);

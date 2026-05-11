@@ -2,7 +2,6 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import GuildList from '$lib/components/GuildList.svelte';
   import ChannelList from '$lib/components/ChannelList.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
@@ -202,13 +201,6 @@
   }
 </script>
 
-<GuildList
-  guilds={guilds.list}
-  activeGuildId={guildId}
-  onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={() => (creatingGuild = true)}
-/>
-
 <ChannelList
   guild={activeGuild ?? null}
   channels={channelsForGuild}
@@ -217,6 +209,10 @@
   onCreateClick={() => (creatingChannel = true)}
   {onChannelDeleted}
   canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
+  guildList={guilds.list}
+  activeGuildId={guildId}
+  onSelectGuild={(g) => selectGuild(g.id)}
+  onCreateGuildClick={() => (creatingGuild = true)}
 />
 
 {#if isVoiceChannel && activeChannel}
@@ -224,7 +220,7 @@
     <VoiceChannelView channel={activeChannel} />
   {/key}
 {:else if loadError}
-  <section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 p-8">
+  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl p-8">
     <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
     <Button
       onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}

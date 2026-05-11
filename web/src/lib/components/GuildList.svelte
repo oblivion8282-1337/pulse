@@ -1,6 +1,5 @@
 <script lang="ts">
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import * as Avatar from '$lib/components/ui/avatar/index.js';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import type { Guild } from '$lib/api/types';
 
@@ -25,10 +24,8 @@
   }
 </script>
 
-<aside
-  class="bg-bg-base flex h-full w-[72px] flex-col items-center gap-2 py-3"
-  data-testid="guild-list"
->
+<!-- Horizontale Pill-/Avatar-Reihe der Server, oben in der Sidebar-Karte. -->
+<div class="flex items-center gap-1.5 overflow-x-auto px-3 py-3" data-testid="guild-list">
   <Tooltip.Provider delayDuration={200}>
     {#each guilds as g (g.id)}
       <Tooltip.Root>
@@ -36,24 +33,21 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="group bg-bg-channels text-text-bright hover:bg-primary relative flex h-12 w-12 items-center justify-center overflow-hidden rounded-3xl text-sm font-semibold transition-all hover:rounded-xl data-[active=true]:rounded-xl"
+              class="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-[11px] font-bold text-white transition-transform hover:scale-110 data-[active=true]:ring-2 data-[active=true]:ring-primary data-[active=true]:ring-offset-2 data-[active=true]:ring-offset-[color:var(--panel)]"
+              style={g.icon_url?.startsWith('https://') ? '' : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
               data-active={activeGuildId === g.id}
               onclick={() => onSelect(g)}
               data-testid={`guild-${g.id}`}
             >
               {#if g.icon_url?.startsWith('https://')}
-                <img src={g.icon_url} alt={g.name} class="h-full w-full object-cover" />
+                <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
               {:else}
                 {initials(g.name)}
               {/if}
-              <span
-                class="absolute -left-1 top-1/2 h-2 w-1 -translate-y-1/2 rounded-r bg-white opacity-0 transition-all group-hover:h-5 group-hover:opacity-100"
-                class:always-visible={activeGuildId === g.id}
-              ></span>
             </button>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content side="right">{g.name}</Tooltip.Content>
+        <Tooltip.Content side="bottom">{g.name}</Tooltip.Content>
       </Tooltip.Root>
     {/each}
 
@@ -62,22 +56,16 @@
         {#snippet child({ props })}
           <button
             {...props}
-            class="bg-bg-channels flex h-12 w-12 items-center justify-center rounded-3xl text-green-400 transition-all hover:rounded-xl hover:bg-green-600 hover:text-white"
+            class="border-primary/30 text-primary flex size-8 shrink-0 items-center justify-center rounded-full border border-dashed bg-bg-input transition-colors hover:bg-bg-hover"
             onclick={onCreateClick}
             data-testid="guild-create"
+            aria-label="Server erstellen"
           >
-            <PlusIcon class="size-6" />
+            <PlusIcon class="size-4" />
           </button>
         {/snippet}
       </Tooltip.Trigger>
-      <Tooltip.Content side="right">Server erstellen</Tooltip.Content>
+      <Tooltip.Content side="bottom">Server erstellen</Tooltip.Content>
     </Tooltip.Root>
   </Tooltip.Provider>
-</aside>
-
-<style>
-  .always-visible {
-    height: 1.5rem;
-    opacity: 1;
-  }
-</style>
+</div>

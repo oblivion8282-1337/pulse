@@ -66,7 +66,7 @@
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) voice.pttRelease(); }}
 />
 
-<section class="bg-bg-chat relative flex h-full min-w-0 flex-1 flex-col" data-testid="voice-channel-view">
+<section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl" data-testid="voice-channel-view">
   <header class="flex h-14 items-center gap-2.5 px-5">
     <Volume2Icon class="text-primary size-5" />
     <span class="text-text-bright text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
