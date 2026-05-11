@@ -7,6 +7,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { chatApi } from '$lib/api/chat';
+  import UserFooter from '$lib/components/UserFooter.svelte';
 
   let creating = $state(false);
 
@@ -39,6 +40,11 @@
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
   onCreateClick={() => (creating = true)}
 />
+
+<div class="bg-bg-sidebar flex h-full w-60 flex-col" data-testid="channel-list-placeholder">
+  <div class="flex-1"></div>
+  <UserFooter />
+</div>
 
 <div class="text-text-muted flex flex-1 items-center justify-center text-sm">
   {#if guilds.list.length === 0}

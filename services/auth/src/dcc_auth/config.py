@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # CORS
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Avatar upload
+    avatar_upload_dir: str = "./uploads/avatars"
+
     # Rate limiting
     rate_limit_register: str = "5/minute"
     rate_limit_login: str = "20/minute"

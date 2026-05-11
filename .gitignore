@@ -59,3 +59,7 @@ uv.lock.backup
 
 # Local worktrees + team state (Claude Code)
 .claude/
+
+# Avatar uploads (keep directory, ignore uploaded files)
+services/auth/uploads/avatars/*
+!services/auth/uploads/avatars/.gitkeep
