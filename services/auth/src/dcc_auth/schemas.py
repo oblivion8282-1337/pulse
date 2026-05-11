@@ -49,5 +49,20 @@ class UserPublic(BaseModel):
         return str(value)
 
 
+class UserSummary(BaseModel):
+    """Public user info without email — safe to return to any authenticated caller."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    display_name: str | None = None
+    avatar_url: str | None = None
+
+    @field_serializer("id")
+    def _id_to_str(self, value: int) -> str:
+        return str(value)
+
+
 class MessageOut(BaseModel):
     detail: str

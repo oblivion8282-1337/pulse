@@ -69,6 +69,11 @@ class ChannelOut(BaseModel):
         return _id_str(v)
 
 
+class ChannelPatchIn(BaseModel):
+    name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
+    topic: Annotated[str | None, Field(default=None, max_length=1024)] = None
+
+
 class MessageIn(BaseModel):
     content: Annotated[str, Field(min_length=1, max_length=4000)]
     nonce: Annotated[str | None, Field(default=None, max_length=64)] = None

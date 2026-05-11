@@ -231,3 +231,115 @@ async def test_post_empty_message_rejected(client, _auth_signer):
         headers=auth(t1),
     )
     assert r.status_code == 422
+
+
+# ---- Channel DELETE/PATCH ---------------------------------------------------
+
+
+async def _setup_guild_and_channel(client, _auth_signer):
+    """Helper: creates owner+guild+channel, returns (owner_token, other_token, guild, channel)."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_other, uid_other = await _register_user(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
+    c = (await client.post(
+        f"/guilds/{g['id']}/channels",
+        json={"name": "general"},
+        headers=auth(t_owner),
+    )).json()
+    # Add other user as member so they have access (but not ownership)
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(uid_other)},
+        headers=auth(t_owner),
+    )
+    return t_owner, t_other, g, c
+
+
+@pytest.mark.asyncio
+async def test_delete_channel_as_owner(client, _auth_signer):
+    t_owner, _, g, c = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.delete(f"/channels/{c['id']}", headers=auth(t_owner))
+    assert r.status_code == 204
+    # Channel no longer accessible
+    r2 = await client.get(f"/channels/{c['id']}", headers=auth(t_owner))
+    assert r2.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_channel_cascades_messages(client, _auth_signer):
+    t_owner, _, g, c = await _setup_guild_and_channel(client, _auth_signer)
+    # Post a message first
+    await client.post(
+        f"/channels/{c['id']}/messages",
+        json={"content": "bye"},
+        headers=auth(t_owner),
+    )
+    r = await client.delete(f"/channels/{c['id']}", headers=auth(t_owner))
+    assert r.status_code == 204
+    # Channel (and messages via CASCADE) gone
+    r2 = await client.get(f"/channels/{c['id']}", headers=auth(t_owner))
+    assert r2.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_channel_non_owner_forbidden(client, _auth_signer):
+    _, t_other, _, c = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.delete(f"/channels/{c['id']}", headers=auth(t_other))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_channel_not_found(client, _auth_signer):
+    t_owner, _, _, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.delete("/channels/999999999", headers=auth(t_owner))
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_rename(client, _auth_signer):
+    t_owner, _, g, c = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name": "renamed"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "renamed"
+    assert body["id"] == c["id"]
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_non_owner_forbidden(client, _auth_signer):
+    _, t_other, _, c = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name": "hacked"},
+        headers=auth(t_other),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_name_too_long(client, _auth_signer):
+    t_owner, _, _, c = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name": "x" * 65},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_topic(client, _auth_signer):
+    t_owner, _, _, c = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"topic": "welcome channel"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200
+    assert r.json()["topic"] == "welcome channel"
+    # name must be unchanged
+    assert r.json()["name"] == "general"

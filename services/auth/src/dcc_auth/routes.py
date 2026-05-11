@@ -23,6 +23,7 @@ from dcc_auth.schemas import (
     RegisterIn,
     TokensOut,
     UserPublic,
+    UserSummary,
 )
 from dcc_auth.security import (
     JwtSigner,
@@ -234,6 +235,33 @@ async def me(current: User = Depends(_get_current_user)):
 @router.get("/.well-known/jwks.json")
 async def jwks(signer: JwtSigner = Depends(_signer_dep)) -> dict:
     return signer.jwks()
+
+
+@router.get("/users", response_model=list[UserSummary])
+async def batch_users(
+    ids: str,
+    session: SessionDep,
+    current: User = Depends(_get_current_user),
+):
+    """Batch-lookup users by Snowflake IDs (comma-separated, max 100).
+
+    Returns only id/username/display_name/avatar_url — no email exposed.
+    Unknown IDs are silently omitted.
+    """
+    raw_ids = [s.strip() for s in ids.split(",") if s.strip()]
+    if len(raw_ids) > 100:
+        raise HTTPException(400, detail="too many ids (max 100)")
+    int_ids: list[int] = []
+    for s in raw_ids:
+        try:
+            int_ids.append(int(s))
+        except ValueError:
+            pass  # skip non-numeric ids silently
+    if not int_ids:
+        return []
+    stmt = select(User).where(User.id.in_(int_ids))
+    rows = (await session.execute(stmt)).scalars().all()
+    return list(rows)
 
 
 # ---- internal helpers ---------------------------------------------------
