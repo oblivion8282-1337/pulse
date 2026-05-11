@@ -16,6 +16,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "structlog>=24.4",
     "python-multipart>=0.0.9",
+    "pillow>=11.0",
     "email-validator>=2.2",
     "dcc-shared",
 ]

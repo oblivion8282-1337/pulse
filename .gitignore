@@ -56,3 +56,7 @@ playwright/.cache/
 
 # uv lock backup
 uv.lock.backup
+
+# Avatar uploads (keep directory, ignore uploaded files)
+services/auth/uploads/avatars/*
+!services/auth/uploads/avatars/.gitkeep
