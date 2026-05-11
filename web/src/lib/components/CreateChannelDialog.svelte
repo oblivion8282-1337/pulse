@@ -1,4 +1,9 @@
 <script lang="ts">
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+
   let {
     open = false,
     onClose,
@@ -11,6 +16,13 @@
 
   let name = $state('');
 
+  function handleOpenChange(next: boolean) {
+    if (!next) {
+      name = '';
+      onClose();
+    }
+  }
+
   function submit(e: SubmitEvent) {
     e.preventDefault();
     const trimmed = name.trim().replace(/\s+/g, '-').toLowerCase();
@@ -20,48 +32,31 @@
   }
 </script>
 
-{#if open}
-  <div
-    role="presentation"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}
-    onkeydown={(e) => {
-      if (e.key === 'Escape') onClose();
-    }}
-  >
-    <form
-      role="dialog"
-      aria-modal="true"
-      aria-label="Kanal erstellen"
-      class="w-full max-w-md space-y-4 rounded-xl bg-[var(--color-bg-channels)] p-6 shadow-2xl"
-      onsubmit={submit}
-      data-testid="create-channel-dialog"
-    >
-      <h2 class="text-xl font-semibold text-[var(--color-text-bright)]">Kanal erstellen</h2>
-      <label class="block">
-        <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+<Dialog.Root {open} onOpenChange={handleOpenChange}>
+  <Dialog.Content data-testid="create-channel-dialog">
+    <Dialog.Header>
+      <Dialog.Title>Kanal erstellen</Dialog.Title>
+      <Dialog.Description>Erstelle einen neuen Text-Kanal.</Dialog.Description>
+    </Dialog.Header>
+    <form class="space-y-4" onsubmit={submit}>
+      <div class="space-y-1.5">
+        <Label for="create-channel-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
           Kanal-Name
-        </span>
-        <input
+        </Label>
+        <Input
+          id="create-channel-name"
           type="text"
           bind:value={name}
-          class="input-base"
           required
-          minlength="1"
-          maxlength="64"
+          minlength={1}
+          maxlength={64}
           data-testid="create-channel-name"
         />
-      </label>
-      <div class="flex justify-end gap-2">
-        <button type="button" class="rounded px-4 py-2 text-sm hover:underline" onclick={onClose}>
-          Abbrechen
-        </button>
-        <button type="submit" class="btn-primary" data-testid="create-channel-submit">
-          Erstellen
-        </button>
       </div>
+      <Dialog.Footer>
+        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)}>Abbrechen</Button>
+        <Button type="submit" data-testid="create-channel-submit">Erstellen</Button>
+      </Dialog.Footer>
     </form>
-  </div>
-{/if}
+  </Dialog.Content>
+</Dialog.Root>

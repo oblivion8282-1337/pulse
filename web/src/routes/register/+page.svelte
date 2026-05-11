@@ -2,6 +2,11 @@
   import { goto } from '$app/navigation';
   import { register, me } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import * as Alert from '$lib/components/ui/alert/index.js';
+  import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
 
   let username = $state('');
   let email = $state('');
@@ -33,90 +38,80 @@
 
 <div class="flex min-h-screen items-center justify-center p-4">
   <form
-    class="w-full max-w-md space-y-4 rounded-xl bg-[var(--color-bg-channels)] p-8 shadow-2xl"
+    class="bg-card w-full max-w-md space-y-4 rounded-xl p-8 shadow-2xl"
     onsubmit={submit}
     aria-label="register form"
   >
     <header class="space-y-1 text-center">
-      <h1 class="text-2xl font-semibold text-[var(--color-text-bright)]">Konto erstellen</h1>
+      <h1 class="text-card-foreground text-2xl font-semibold">Konto erstellen</h1>
     </header>
 
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+    <div class="space-y-1.5">
+      <Label for="reg-username" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
         Benutzername
-      </span>
-      <input
+      </Label>
+      <Input
+        id="reg-username"
         type="text"
         bind:value={username}
-        class="input-base"
         required
-        minlength="3"
-        maxlength="32"
+        minlength={3}
+        maxlength={32}
         pattern="[A-Za-z0-9_.\-]+"
         data-testid="reg-username"
       />
-    </label>
+    </div>
 
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+    <div class="space-y-1.5">
+      <Label for="reg-email" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
         E-Mail
-      </span>
-      <input
+      </Label>
+      <Input
+        id="reg-email"
         type="email"
         autocomplete="email"
         bind:value={email}
-        class="input-base"
         required
         data-testid="reg-email"
       />
-    </label>
+    </div>
 
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+    <div class="space-y-1.5">
+      <Label for="reg-display" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
         Anzeigename (optional)
-      </span>
-      <input
-        type="text"
-        bind:value={displayName}
-        class="input-base"
-        maxlength="64"
-        data-testid="reg-display"
-      />
-    </label>
+      </Label>
+      <Input id="reg-display" type="text" bind:value={displayName} maxlength={64} data-testid="reg-display" />
+    </div>
 
-    <label class="block">
-      <span class="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">
+    <div class="space-y-1.5">
+      <Label for="reg-password" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
         Passwort
-      </span>
-      <input
+      </Label>
+      <Input
+        id="reg-password"
         type="password"
         autocomplete="new-password"
         bind:value={password}
-        class="input-base"
         required
-        minlength="8"
+        minlength={8}
         data-testid="reg-password"
       />
-    </label>
+    </div>
 
     {#if error}
-      <p class="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-400" data-testid="reg-error">
-        {error}
-      </p>
+      <Alert.Root variant="destructive" data-testid="reg-error">
+        <OctagonXIcon />
+        <Alert.Description>{error}</Alert.Description>
+      </Alert.Root>
     {/if}
 
-    <button
-      type="submit"
-      class="btn-primary w-full"
-      disabled={busy}
-      data-testid="reg-submit"
-    >
+    <Button type="submit" class="w-full" disabled={busy} data-testid="reg-submit">
       {busy ? 'Registrieren…' : 'Konto erstellen'}
-    </button>
+    </Button>
 
-    <p class="text-center text-sm text-[var(--color-text-muted)]">
+    <p class="text-muted-foreground text-center text-sm">
       Schon ein Konto?
-      <a class="text-[var(--color-accent)] hover:underline" href="/login">Anmelden</a>
+      <a class="text-primary hover:underline" href="/login">Anmelden</a>
     </p>
   </form>
 </div>

@@ -2,9 +2,8 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import GuildList from '$lib/components/GuildList.svelte';
-  import ChannelList from '$lib/components/ChannelList.svelte';
-  import ChatView from '$lib/components/ChatView.svelte';
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -12,7 +11,6 @@
   let creating = $state(false);
 
   onMount(() => {
-    // If the user already has a guild + channel, jump to the first one.
     const first = guilds.list[0];
     if (first) {
       void (async () => {
@@ -42,24 +40,18 @@
   onCreateClick={() => (creating = true)}
 />
 
-<div class="flex flex-1 items-center justify-center text-sm text-[var(--color-text-muted)]">
+<div class="text-text-muted flex flex-1 items-center justify-center text-sm">
   {#if guilds.list.length === 0}
     <div class="text-center">
-      <p class="mb-2 text-lg text-[var(--color-text-bright)]">Noch keine Server</p>
-      <button class="btn-primary" onclick={() => (creating = true)} data-testid="empty-create-guild">
-        Server erstellen
-      </button>
+      <p class="text-text-bright mb-2 text-lg">Noch keine Server</p>
+      <Button onclick={() => (creating = true)} data-testid="empty-create-guild">Server erstellen</Button>
     </div>
   {:else}
     Wähle einen Server.
   {/if}
 </div>
 
-<CreateGuildDialog
-  open={creating}
-  onClose={() => (creating = false)}
-  onCreate={createGuild}
-/>
+<CreateGuildDialog open={creating} onClose={() => (creating = false)} onCreate={createGuild} />
 
 {#if auth.user}
   <div class="hidden" data-testid="current-user-id">{auth.user.id}</div>

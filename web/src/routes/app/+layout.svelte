@@ -7,6 +7,8 @@
   import { gateway } from '$lib/ws/connection';
   import { logout } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import LogOutIcon from '@lucide/svelte/icons/log-out';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -47,19 +49,20 @@
   }
 </script>
 
-<div class="flex h-screen w-screen bg-[var(--color-bg-base)] text-[var(--color-text-base)]" data-testid="app-shell">
+<div class="bg-bg-base text-text-base flex h-screen w-screen" data-testid="app-shell">
   {#if !hydrated}
-    <div class="flex flex-1 items-center justify-center text-sm text-[var(--color-text-muted)]">
-      loading…
-    </div>
+    <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
   {:else}
     {@render children?.()}
-    <button
-      class="fixed bottom-4 right-4 rounded-md bg-neutral-800 px-3 py-1 text-xs text-[var(--color-text-muted)] hover:bg-neutral-700"
+    <Button
+      variant="secondary"
+      size="sm"
+      class="fixed bottom-4 right-4 gap-1.5"
       onclick={onSignOut}
       data-testid="sign-out"
     >
+      <LogOutIcon class="size-3.5" />
       Abmelden
-    </button>
+    </Button>
   {/if}
 </div>
