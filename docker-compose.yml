@@ -37,23 +37,25 @@ services:
       start_period: 3s
     restart: unless-stopped
 
-  # LiveKit (Phase E voice backend skeleton). Start with:
+  # LiveKit (voice backend). Start with:
   #   docker compose --profile voice up -d
   # Profile gate keeps Phase A-D runs fast.
+  #
+  # network_mode: host — required so LiveKit can reach the voice-signaling
+  # service for webhook delivery. voice-signaling listens on 127.0.0.1:8003;
+  # the host's UFW DROP policy blocks traffic from a bridged container, so a
+  # bridge + host.docker.internal does not work on this setup. Host networking
+  # also avoids per-port iptables rules for the RTC UDP range (see
+  # memory/feedback_docker_ports.md). LiveKit binds 7880 (HTTP/signalling),
+  # 7881 (TCP fallback) and 7882-7892/UDP directly on the host.
   livekit:
     image: livekit/livekit-server:latest
     container_name: dcc_night_livekit
     profiles: ["voice"]
+    network_mode: host
     command: ["--config", "/etc/livekit/livekit.yaml"]
     volumes:
       - ./infra/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
-    # 11 UDP ports - small enough to keep iptables manageable. Do not
-    # expand without switching to network_mode: host (see
-    # memory/feedback_docker_ports.md).
-    ports:
-      - "7880:7880"
-      - "7881:7881"
-      - "7882-7892:7882-7892/udp"
     restart: unless-stopped
 
 volumes:

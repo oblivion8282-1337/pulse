@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -11,16 +10,14 @@ ROOT = Path(__file__).resolve().parents[3]
 SECRETS = ROOT / "secrets"
 os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://test")
 
+import dcc_voice_signaling.config as voice_cfg  # noqa: E402
+import dcc_voice_signaling.security as voice_security  # noqa: E402
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
-
-import dcc_voice_signaling.config as voice_cfg  # noqa: E402
-import dcc_voice_signaling.security as voice_security  # noqa: E402
 from dcc_auth.config import Settings as AuthSettings  # noqa: E402
 from dcc_auth.security import JwtSigner, reset_signer  # noqa: E402
 from dcc_voice_signaling.app import create_app  # noqa: E402
-
 
 _TEST_SETTINGS = voice_cfg.Settings(
     livekit_api_key="testkey",
@@ -40,8 +37,10 @@ def _isolate_voice_settings():
     voice_cfg.get_settings = _provider  # type: ignore[assignment]
     voice_security.get_settings = _provider  # type: ignore[assignment]
     import dcc_voice_signaling.routes as voice_routes
+    import dcc_voice_signaling.webhook as voice_webhook
 
     voice_routes.get_settings = _provider  # type: ignore[assignment]
+    voice_webhook.get_settings = _provider  # type: ignore[assignment]
     voice_security.reset_cache()
     yield _TEST_SETTINGS
     voice_cfg.get_settings = original  # type: ignore[assignment]

@@ -24,6 +24,19 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
   Etappe 2 (Voice-Frontend mit LiveKit) sind implementiert. Architektur-
   Details in `NIGHT_RUN_REPORT.md` (Etappe 1, Phasen A–E) und
   `ETAPPE_2_REPORT.md` (Etappe 1.5 + 2).
+- **Voice-Presence-Backend** (alle Server-Mitglieder sehen wer im Voice-Channel ist):
+  LiveKit schickt Webhooks (`webhook:`-Block in `infra/livekit/livekit.yaml`,
+  signiert mit `devkey`) an voice-signaling `POST /webhook` (Signatur-Verify via
+  `livekit.api.WebhookReceiver`). voice-signaling pflegt Redis-Sets
+  `voice:room:channel-<id>` (TTL 6h, Self-Heal) und published den vollen State auf
+  `voice:events`. chat-gateway abonniert `voice:events` und broadcastet
+  `{"op":"voice_state","channel_id":..,"user_ids":[..]}` an alle WS-Clients; der
+  `ready`-Payload trägt `voice_states: [...]`; REST `GET /guilds/{id}/voice-state`
+  fürs Re-Sync nach Reconnect. **`docker compose --profile voice up -d` startet
+  LiveKit mit `network_mode: host`** — nötig weil die Host-UFW (`INPUT DROP`)
+  Container→Host-Traffic über die Bridge blockt; so erreicht LiveKit
+  `127.0.0.1:8003`. voice-signaling braucht jetzt `REDIS_URL` (Stack:
+  `redis://localhost:6380/0`).
 - chat-gateway-Routes sind seit `chore: split chat-gateway routes`
   als APIRouter-Module unter `services/chat-gateway/src/dcc_chat_gateway/routes/`.
 
@@ -79,7 +92,7 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 ### Infra (`docker-compose.yml`, Container-Images)
 - **PostgreSQL** `postgres:16-alpine` — Container `dcc_night_postgres`, Schemas `auth` + `chat` (eigenes Schema pro Service)
 - **Redis** `redis:7-alpine` — Container `dcc_night_redis`
-- **LiveKit** `livekit/livekit-server:latest` — Container `dcc_night_livekit`, hinter `docker compose --profile voice up -d`, Config `infra/livekit/livekit.yaml`
+- **LiveKit** `livekit/livekit-server:latest` — Container `dcc_night_livekit`, hinter `docker compose --profile voice up -d`, Config `infra/livekit/livekit.yaml`. Läuft mit `network_mode: host` (siehe Voice-Presence-Abschnitt) — bindet 7880/7881 + 7882–7892/UDP direkt auf dem Host, keine Port-Mappings.
 
 ## Test-Datenbank
 
@@ -98,7 +111,7 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
 | chat-gateway | 8002 | `uvicorn dcc_chat_gateway.app:app` |
 | voice-signaling | 8003 | `uvicorn dcc_voice_signaling.app:app` |
 | web (Vite dev) | 5173 | `http://127.0.0.1:5173` |
-| LiveKit | 7880 | HTTP/Signalling; 7881 + 7882–7892/UDP für RTC |
+| LiveKit | 7880 | HTTP/Signalling; 7881 + 7882–7892/UDP für RTC. `network_mode: host`, direkt auf Host-Interfaces |
 
 ### Service-Start (Env aus `.env`)
 - chat-gateway / auth: `POSTGRES_PASSWORD`, `JWT_PRIVATE_KEY_FILE` + `JWT_PUBLIC_KEY_FILE`
@@ -114,13 +127,18 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
     > /tmp/dcc-chat.log 2>&1 < /dev/null & disown
   ```
 - **voice-signaling MUSS dieselben LiveKit-Keys wie `infra/livekit/livekit.yaml` / `.env` bekommen**,
-  sonst lehnt LiveKit alle Tokens ab ("invalid token: error in cryptographic primitive"):
+  sonst lehnt LiveKit alle Tokens ab ("invalid token: error in cryptographic primitive") und
+  die Webhook-Signatur-Verifikation schlägt fehl. Braucht außerdem `REDIS_URL` für den
+  Voice-Presence-State:
   ```
   LIVEKIT_API_KEY=devkey
   LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret
   LIVEKIT_URL=ws://localhost:7880
+  REDIS_URL=redis://localhost:6380/0
   AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json
   ```
+  Start (detached, überlebt Agent-Shutdown): aus `services/voice-signaling/`
+  `setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 > /tmp/dcc-voice.log 2>&1 < /dev/null & disown`.
   `.env` + `livekit.yaml` sind die Single Source of Truth für diese Keys (Dev-Werte, kein Geheimnis).
 
 ## Wichtige Konventionen
