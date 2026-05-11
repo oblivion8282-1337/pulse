@@ -86,6 +86,8 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 | @svelte-put/shortcut | 4.1.0 | PTT-Hotkey "V" |
 | svelte-sonner | 1.1.1 | Toasts |
 | @lucide/svelte | 1.14.0 | Icons |
+| @fontsource-variable/plus-jakarta-sans | 5.2.8 | UI-Font ("Glasshouse"-Redesign); `@fontsource-variable/inter` bleibt als Fallback |
+| mode-watcher | 1.1.0 | Light/Dark/System-Theme: `<ModeWatcher disableHeadScriptInjection track>` in `routes/+layout.svelte` setzt die `.dark`-Klasse; `setMode()` aus `settings.svelte.ts` (`settings.appearance.theme`, persistiert in `dcc.settings`); FOUC-Inline-Script in `app.html` liest `dcc.settings` |
 | @playwright/test | 1.59.1 | E2E (`web/tests/e2e/`); globalSetup startet auth+chat als child-procs |
 | svelte-check | 4.4.8 | `pnpm check` |
 
