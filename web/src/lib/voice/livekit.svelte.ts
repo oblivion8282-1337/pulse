@@ -166,8 +166,7 @@ class VoiceRoom {
     this.#startLevelPolling();
     await this.#devices.refresh(room);
 
-    // Publish the mic by default (Discord-style: you're live on join,
-    // unless PTT mode is enabled — then it stays muted until you press).
+    // Live on join (Discord-style), unless PTT mode keeps the mic muted.
     if (!this.pttMode) {
       await this.setMicEnabled(true);
     } else {
@@ -342,9 +341,12 @@ class VoiceRoom {
     const opts: AudioCaptureOptions = {
       autoGainControl: a.autoGainControl,
       echoCancellation: a.echoCancellation,
-      // Only let the browser do NS when explicitly selected; otherwise we either
-      // run our own processor (rnnoise/deepfilternet) or nothing ('off').
-      noiseSuppression: a.noiseSuppression === 'browser'
+      // Browser NS only when explicitly selected — otherwise our own processor
+      // (rnnoise/deepfilternet) handles it, or nothing ('off').
+      noiseSuppression: a.noiseSuppression === 'browser',
+      // forceStereo only signals stereo in the SDP — the capture needs 2 real
+      // channels for stereo audio to actually be transmitted.
+      channelCount: a.stereo ? 2 : 1
     };
     if (a.inputDeviceId) opts.deviceId = a.inputDeviceId;
     return opts;
