@@ -14,7 +14,13 @@ from dcc_chat_gateway.config import get_settings
 
 _settings = get_settings()
 
-engine = create_async_engine(_settings.effective_database_url, echo=False, pool_pre_ping=True)
+_db_url = _settings.effective_database_url
+_pool_kwargs: dict = (
+    {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True}
+    if "asyncpg" in _db_url
+    else {}
+)
+engine = create_async_engine(_db_url, echo=False, **_pool_kwargs)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 metadata = MetaData(schema=_settings.database_schema)
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -70,6 +70,7 @@ async def add_member(
     payload: MemberIn,
     session: SessionDep,
     current: CurrentUser,
+    request: Request,
 ):
     guild = await session.get(Guild, guild_id)
     if guild is None:
@@ -90,12 +91,31 @@ async def add_member(
         member = await session.get(GuildMember, (guild_id, payload.user_id))
         return member  # type: ignore[return-value]
     await session.refresh(member)
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(
+            {
+                "op": "guild_member_added",
+                "guild_id": str(guild_id),
+                "user_id": str(payload.user_id),
+            }
+        )
     return member
 
 
 @router.get("/guilds/{guild_id}/members", response_model=list[MemberOut])
-async def list_members(guild_id: int, session: SessionDep, current: CurrentUser):
+async def list_members(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    limit: int = Query(100, ge=1, le=500),
+):
     await require_member(session, guild_id, current.id)
-    stmt = select(GuildMember).where(GuildMember.guild_id == guild_id).order_by(GuildMember.user_id)
+    stmt = (
+        select(GuildMember)
+        .where(GuildMember.guild_id == guild_id)
+        .order_by(GuildMember.user_id)
+        .limit(limit)
+    )
     rows = (await session.execute(stmt)).scalars().all()
     return list(rows)

@@ -397,6 +397,36 @@ async def test_webhook_screen_share_int_source(webhook_client, redis):
         await redis.delete(streaming_key(room))
 
 
+@pytest.mark.asyncio
+async def test_webhook_join_does_not_extend_ttl_for_existing_member(webhook_client, redis):
+    """Fix 3: repeated joins must not refresh the TTL — ghost presence self-heals."""
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    try:
+        # First join sets TTL.
+        body = _event_body("participant_joined", room, "user-99")
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        ttl_after_first = await redis.ttl(room_key(room))
+        assert ttl_after_first > 0
+
+        # Manually trim the TTL to a small value to simulate near-expiry.
+        await redis.expire(room_key(room), 30)
+        ttl_trimmed = await redis.ttl(room_key(room))
+        assert ttl_trimmed <= 30
+
+        # Second join of the same user — TTL must NOT be extended (NX semantics).
+        body = _event_body("participant_joined", room, "user-99")
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        ttl_after_second = await redis.ttl(room_key(room))
+        assert ttl_after_second <= 30, (
+            f"TTL was extended on re-join ({ttl_after_second}s) — ghost-presence bug still present"
+        )
+    finally:
+        await redis.delete(room_key(room))
+
+
 async def _drain_one(pubsub, attempts: int = 50):
     """Poll the pubsub for one message (subscribe confirmation already skipped)."""
     import asyncio

@@ -29,6 +29,14 @@ CHANNEL_PATTERN = "chat:channel:*"
 # WebSocket as {"op": "voice_state", ...}; clients filter by their guilds.
 VOICE_EVENTS_CHANNEL = "voice:events"
 
+# Guild-lifecycle events (channel created/updated/deleted, member added).
+# Published by the REST routes; each payload is a complete envelope with its
+# own `op` field which we forward verbatim to *every* connected WebSocket
+# (clients filter by their guild membership). These must NOT travel on
+# `chat:channel:<id>` — that channel carries only chat `message` payloads,
+# which `_listen` wraps as `{"op": "message", ...}`.
+GUILD_EVENTS_CHANNEL = "guild:events"
+
 
 class ConnectionManager:
     def __init__(self, redis: Redis) -> None:
@@ -53,8 +61,9 @@ class ConnectionManager:
         # races against the listener loop and removes the need for
         # per-channel Redis subscriptions.
         await self._pubsub.psubscribe(CHANNEL_PATTERN)
-        # Plus the single voice-presence event channel.
-        await self._pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+        # Plus the single voice-presence event channel and the guild-lifecycle
+        # event channel.
+        await self._pubsub.subscribe(VOICE_EVENTS_CHANNEL, GUILD_EVENTS_CHANNEL)
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
 
@@ -103,6 +112,23 @@ class ConnectionManager:
             json.dumps(payload, separators=(",", ":")),
         )
 
+    async def publish_guild_event(self, envelope: dict[str, Any]) -> None:
+        """Publish a guild-lifecycle envelope (with its own `op`) for fan-out
+        to every connected WebSocket. See ``GUILD_EVENTS_CHANNEL``."""
+        await self._redis.publish(
+            GUILD_EVENTS_CHANNEL,
+            json.dumps(envelope, separators=(",", ":")),
+        )
+
+    def listener_alive(self) -> bool:
+        """True iff the background listener task is running. The lifespan
+        supervisor polls this to restart a crashed manager."""
+        return (
+            self._started
+            and self._listener_task is not None
+            and not self._listener_task.done()
+        )
+
     async def voice_state_for(self, channel_id: str) -> dict[str, list[str]]:
         """Current presence + streaming sets for a voice channel, read from Redis."""
         key = f"voice:room:channel-{channel_id}"
@@ -117,9 +143,11 @@ class ConnectionManager:
         }
 
     async def voice_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
+        if not channel_ids:
+            return []
+        states = await asyncio.gather(*(self.voice_state_for(cid) for cid in channel_ids))
         out: list[dict[str, Any]] = []
-        for cid in channel_ids:
-            state = await self.voice_state_for(cid)
+        for cid, state in zip(channel_ids, states):
             if state["user_ids"] or state["streaming_user_ids"]:
                 out.append({"channel_id": cid, **state})
         return out
@@ -199,6 +227,19 @@ class ConnectionManager:
                         len(targets),
                     )
                     await self._fan_out(targets, envelope)
+                    continue
+
+                if channel == GUILD_EVENTS_CHANNEL:
+                    payload = self._decode_payload(msg["data"], GUILD_EVENTS_CHANNEL)
+                    if not isinstance(payload, dict) or "op" not in payload:
+                        log.warning("guild:events malformed or missing op: %r", payload)
+                        continue
+                    async with self._lock:
+                        targets = list(self._connections)
+                    log.info(
+                        "guild:events broadcast op=%s targets=%d", payload.get("op"), len(targets)
+                    )
+                    await self._fan_out(targets, payload)
                     continue
 
                 channel_id = channel.split(":")[-1]

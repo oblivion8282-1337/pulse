@@ -39,9 +39,15 @@
   $effect(() => {
     const count = messages.length;
     if (count !== lastCount) {
+      const isInitialLoad = lastCount === 0;
       lastCount = count;
       void tick().then(() => {
-        if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        const el = scrollContainer;
+        if (!el) return;
+        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+        if (isInitialLoad || nearBottom) {
+          el.scrollTop = el.scrollHeight;
+        }
       });
     }
   });

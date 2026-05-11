@@ -4,6 +4,8 @@
 
   let { userIds, streamingUserIds = [] }: { userIds: string[]; streamingUserIds?: string[] } = $props();
 
+  const streamingSet = $derived(new Set(streamingUserIds));
+
   $effect(() => {
     for (const id of userIds) userCache.queue(id);
   });
@@ -28,7 +30,7 @@
       </Avatar.Fallback>
     </Avatar.Root>
     <span class="truncate">{name}</span>
-    {#if streamingUserIds.includes(uid)}
+    {#if streamingSet.has(uid)}
       <span
         class="ml-auto shrink-0 rounded bg-red-600 px-1 py-px text-[9px] font-bold leading-none text-white"
         data-testid="user-streaming-badge"

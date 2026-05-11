@@ -11,8 +11,10 @@ Server→client ops, in addition to the chat ops in PLAN.md §5.2:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -41,9 +43,27 @@ router = APIRouter()
 # check is the application-level backstop against a memory-DoS via huge frames.
 _MAX_WS_FRAME_BYTES = 16 * 1024
 
+# A single oversized frame is more likely a client bug (a long paste, a runaway
+# loop) than an attack — answer with an error frame and keep the session. Only
+# repeated abuse closes it.
+_MAX_OVERSIZE_FRAMES = 5
+
 # nonce column is VARCHAR(64); trim defensively so a long client nonce can't
 # trigger a Postgres StringDataRightTruncation.
 _MAX_NONCE_LEN = 64
+
+
+async def _close_when_token_expires(websocket: WebSocket, exp: float) -> None:
+    """Close the socket with 4001 once the access token's `exp` passes, so a
+    WS connection never outlives the credential that authorised it. Cancelled
+    by the endpoint on disconnect."""
+    delay = exp - time.time()
+    if delay > 0:
+        await asyncio.sleep(delay)
+    try:
+        await websocket.close(code=4001, reason="token expired")
+    except Exception:  # noqa: BLE001 — already closed
+        pass
 
 
 def _channel_id(value: object) -> int | None:
@@ -68,11 +88,28 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4001, reason="unauthorized")
         return
 
+    # Reject already-expired tokens before accepting — avoids sending `ready`
+    # followed immediately by a 4001 close (inconsistent client state).
+    exp = payload.get("exp")
+    if isinstance(exp, (int, float)) and float(exp) < time.time():
+        await websocket.close(code=4001, reason="token expired")
+        return
+
     await websocket.accept()
     app = websocket.app
     manager = app.state.connection_manager
     await manager.register(websocket)
     subscribed: set[str] = set()
+    oversize_frames = 0
+
+    # Tie the connection's lifetime to the token's `exp`: when it passes, the
+    # background task closes the socket with 4001 (the client then refreshes +
+    # reconnects).
+    expiry_task: asyncio.Task | None = None
+    if isinstance(exp, (int, float)):
+        expiry_task = asyncio.create_task(
+            _close_when_token_expires(websocket, float(exp)), name="dcc-ws-token-expiry"
+        )
 
     # Send "ready" with the user's guild list + the current voice-channel
     # presence state for those guilds.
@@ -111,10 +148,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             except WebSocketDisconnect:
                 break
             if len(raw) > _MAX_WS_FRAME_BYTES:
+                oversize_frames += 1
                 await websocket.send_json(
                     {"op": "error", "code": 4009, "msg": "frame too large"}
                 )
-                break
+                if oversize_frames >= _MAX_OVERSIZE_FRAMES:
+                    break
+                continue
+            oversize_frames = max(0, oversize_frames - 1)
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
@@ -201,6 +242,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             else:
                 await websocket.send_json({"op": "error", "code": 4007, "msg": f"unknown op: {op}"})
     finally:
+        if expiry_task is not None:
+            expiry_task.cancel()
+            try:
+                await expiry_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await manager.remove_socket(websocket)
         # Try to close cleanly. Already-closed sockets raise.
         try:

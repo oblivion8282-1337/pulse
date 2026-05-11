@@ -16,6 +16,7 @@ import {
 import type { ScreenShareCaptureOptions, TrackPublishOptions, VideoResolution } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
+import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
@@ -83,6 +84,7 @@ class VoiceRoom {
   #levelTimer: ReturnType<typeof setInterval> | null = null;
   /** Screen-share audio tracks subscribed before their video track — keyed by participant identity. */
   #pendingScreenAudio = new Map<string, RemoteAudioTrack>();
+  #teardownDone = false;
 
   get connected(): boolean {
     return this.state === ConnectionState.Connected;
@@ -102,6 +104,7 @@ class VoiceRoom {
     this.channelName = channelName;
     this.state = ConnectionState.Connecting;
 
+    this.#teardownDone = false;
     let resp;
     try {
       resp = await getVoiceToken(channelId, 'voice');
@@ -437,8 +440,9 @@ class VoiceRoom {
       room.localParticipant as LocalParticipant,
       ...room.remoteParticipants.values()
     ];
+    const participantMap = new Map<string, Participant>(allParticipants.map((p) => [p.identity, p]));
     for (const vp of this.participants) {
-      const p = allParticipants.find((x) => x.identity === vp.identity);
+      const p = participantMap.get(vp.identity);
       if (!p) continue;
       const newLevel = p.audioLevel ?? 0;
       const newSpeaking = p.isSpeaking;
@@ -472,10 +476,13 @@ class VoiceRoom {
   }
 
   #teardown(): void {
+    if (this.#teardownDone) return;
+    this.#teardownDone = true;
     this.#stopLevelPolling();
     this.#audioEls.clear();
     this.#room = null;
     this.state = ConnectionState.Disconnected;
+    if (this.channelId) voicePresence.apply(this.channelId, []);
     this.channelId = null;
     this.channelName = null;
     this.participants = [];

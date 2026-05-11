@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
 
 from dcc_chat_gateway.db import SessionDep
@@ -15,6 +15,26 @@ from dcc_chat_gateway.snowflake import next_id
 router = APIRouter()
 
 
+def _channel_dict(channel: Channel) -> dict[str, object]:
+    """Wire representation of a channel for guild:events envelopes — snowflake
+    IDs as strings, same field names as ChannelOut (minus created_at, which
+    lifecycle consumers don't need)."""
+    return {
+        "id": str(channel.id),
+        "guild_id": str(channel.guild_id),
+        "name": channel.name,
+        "type": channel.type,
+        "position": channel.position,
+        "topic": channel.topic,
+    }
+
+
+async def _publish_guild_event(request: Request, envelope: dict[str, object]) -> None:
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(envelope)
+
+
 @router.post(
     "/guilds/{guild_id}/channels",
     response_model=ChannelOut,
@@ -25,6 +45,7 @@ async def create_channel(
     payload: ChannelIn,
     session: SessionDep,
     current: CurrentUser,
+    request: Request,
 ):
     guild = await session.get(Guild, guild_id)
     if guild is None:
@@ -42,16 +63,25 @@ async def create_channel(
     session.add(channel)
     await session.commit()
     await session.refresh(channel)
+    await _publish_guild_event(
+        request, {"op": "channel_created", "channel": _channel_dict(channel)}
+    )
     return channel
 
 
 @router.get("/guilds/{guild_id}/channels", response_model=list[ChannelOut])
-async def list_channels(guild_id: int, session: SessionDep, current: CurrentUser):
+async def list_channels(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    limit: int = Query(200, ge=1, le=500),
+):
     await require_member(session, guild_id, current.id)
     stmt = (
         select(Channel)
         .where(Channel.guild_id == guild_id)
         .order_by(Channel.position, Channel.id)
+        .limit(limit)
     )
     rows = (await session.execute(stmt)).scalars().all()
     return list(rows)
@@ -100,7 +130,7 @@ async def delete_channel(
     """Delete a channel. Only the guild owner may do this.
 
     Messages cascade-delete via ON DELETE CASCADE in the DB migration.
-    Broadcasts op:channel_deleted to any currently-subscribed WS clients.
+    Broadcasts op:channel_deleted on guild:events to every connected client.
     """
     channel = await session.get(Channel, channel_id)
     if channel is None:
@@ -108,11 +138,17 @@ async def delete_channel(
     guild = await session.get(Guild, channel.guild_id)
     if guild is None or guild.owner_id != current.id:
         raise HTTPException(403, detail="only the guild owner can delete channels")
+    guild_id = channel.guild_id
     await session.delete(channel)
     await session.commit()
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish(str(channel_id), {"op": "channel_deleted", "channel_id": str(channel_id)})
+    await _publish_guild_event(
+        request,
+        {
+            "op": "channel_deleted",
+            "guild_id": str(guild_id),
+            "channel_id": str(channel_id),
+        },
+    )
 
 
 @router.patch("/channels/{channel_id}", response_model=ChannelOut)
@@ -125,7 +161,7 @@ async def patch_channel(
 ):
     """Rename/update a channel. Only the guild owner may do this.
 
-    Broadcasts op:channel_updated to any currently-subscribed WS clients.
+    Broadcasts op:channel_updated on guild:events to every connected client.
     """
     channel = await session.get(Channel, channel_id)
     if channel is None:
@@ -139,15 +175,7 @@ async def patch_channel(
         channel.topic = payload.topic
     await session.commit()
     await session.refresh(channel)
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        ch_dict = {
-            "id": str(channel.id),
-            "guild_id": str(channel.guild_id),
-            "name": channel.name,
-            "type": channel.type,
-            "position": channel.position,
-            "topic": channel.topic,
-        }
-        await mgr.publish(str(channel_id), {"op": "channel_updated", "channel": ch_dict})
+    await _publish_guild_event(
+        request, {"op": "channel_updated", "channel": _channel_dict(channel)}
+    )
     return channel

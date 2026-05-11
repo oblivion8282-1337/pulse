@@ -59,6 +59,21 @@ class MessageStore {
     }
   }
 
+  /** Mark a channel as not loaded so the next visit re-fetches messages. */
+  invalidateLoaded(channelId: string): void {
+    delete this.loadedChannels[channelId];
+  }
+
+  /** Returns true if a message with the given nonce has been confirmed by the server (id not tmp-). */
+  isConfirmed(nonce: string): boolean {
+    for (const list of Object.values(this.byChannel)) {
+      for (const m of list) {
+        if (m.nonce === nonce && !m.id.startsWith('tmp-')) return true;
+      }
+    }
+    return false;
+  }
+
   clearChannel(channelId: string): void {
     const { [channelId]: _, ...rest } = this.byChannel;
     this.byChannel = rest;

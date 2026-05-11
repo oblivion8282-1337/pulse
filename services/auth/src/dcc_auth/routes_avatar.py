@@ -12,6 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from PIL import Image, UnidentifiedImageError
 
+# Guard against decompression-bomb DoS: a highly compressed 5 MB PNG can
+# expand to >1 GB in RAM. 16 MP is more than enough for profile pictures.
+Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
+
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.routes import _get_current_user

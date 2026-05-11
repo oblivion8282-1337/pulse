@@ -34,16 +34,14 @@ class UserCacheStore {
   private async _flush(): Promise<void> {
     if (this.pending.size === 0) return;
     const ids = [...this.pending].slice(0, 100);
-    this.pending.clear();
+    ids.forEach((id) => this.pending.delete(id));
     this.debounceTimer = null;
     try {
       const result = await request<UserSummary[]>(
         `/users?ids=${ids.join(',')}`,
         { endpoint: 'auth' }
       );
-      const next = { ...this.byId };
-      for (const u of result) next[u.id] = u;
-      this.byId = next;
+      for (const u of result) this.byId[u.id] = u;
     } catch {
       // silent — display fallback until next attempt
     }
