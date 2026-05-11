@@ -56,3 +56,6 @@ playwright/.cache/
 
 # uv lock backup
 uv.lock.backup
+
+# Local worktrees + team state (Claude Code)
+.claude/
