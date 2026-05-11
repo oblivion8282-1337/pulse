@@ -18,6 +18,7 @@ import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
+import { nameFor, userIdFromIdentity } from './identity';
 import { toast } from 'svelte-sonner';
 
 export type VoiceParticipant = {
@@ -46,15 +47,6 @@ export type ScreenShareTrack = {
   /** Accompanying screen-share audio track, if published. */
   audioTrack?: RemoteAudioTrack;
 };
-
-function userIdFromIdentity(identity: string): string | null {
-  const m = identity.match(/^user-(\d+)$/);
-  return m ? m[1] : null;
-}
-
-function nameFor(p: Participant): string {
-  return p.name && p.name.trim() ? p.name : p.identity;
-}
 
 class VoiceRoom {
   /** The id of the channel we are connected to (or connecting to). */
@@ -89,6 +81,8 @@ class VoiceRoom {
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #levelTimer: ReturnType<typeof setInterval> | null = null;
+  /** Screen-share audio tracks subscribed before their video track — keyed by participant identity. */
+  #pendingScreenAudio = new Map<string, RemoteAudioTrack>();
 
   get connected(): boolean {
     return this.state === ConnectionState.Connected;
@@ -359,27 +353,49 @@ class VoiceRoom {
   }
 
   #attachScreenAudio(track: RemoteAudioTrack, p: RemoteParticipant): void {
-    this.screenTracks = this.screenTracks.map((st) =>
-      st.identity === p.identity ? { ...st, audioTrack: track } : st
-    );
+    const hasEntry = this.screenTracks.some((st) => st.identity === p.identity);
+    if (hasEntry) {
+      this.#pendingScreenAudio.delete(p.identity);
+      this.screenTracks = this.screenTracks.map((st) =>
+        st.identity === p.identity ? { ...st, audioTrack: track } : st
+      );
+    } else {
+      // Audio arrived before the video track — stash it until #addScreenTrack runs.
+      this.#pendingScreenAudio.set(p.identity, track);
+    }
   }
 
   #detachScreenAudio(track: RemoteAudioTrack): void {
+    for (const [identity, t] of this.#pendingScreenAudio) {
+      if (t.sid === track.sid) this.#pendingScreenAudio.delete(identity);
+    }
     this.screenTracks = this.screenTracks.map((st) =>
       st.audioTrack?.sid === track.sid ? { ...st, audioTrack: undefined } : st
     );
   }
 
   #addScreenTrack(track: RemoteVideoTrack, p: RemoteParticipant): void {
+    const pendingAudio = this.#pendingScreenAudio.get(p.identity);
+    this.#pendingScreenAudio.delete(p.identity);
     const existing = this.screenTracks.find((s) => s.identity === p.identity);
-    if (existing) return; // already tracked
+    if (existing) {
+      // Already tracked — only patch in an audio track we'd previously stashed.
+      if (pendingAudio && !existing.audioTrack) {
+        this.screenTracks = this.screenTracks.map((st) =>
+          st.identity === p.identity ? { ...st, audioTrack: pendingAudio } : st
+        );
+      }
+      return;
+    }
     this.screenTracks = [
       ...this.screenTracks,
-      { identity: p.identity, name: nameFor(p), track }
+      { identity: p.identity, name: nameFor(p), track, audioTrack: pendingAudio }
     ];
   }
 
   #removeScreenTrack(sid: string): void {
+    const gone = this.screenTracks.find((s) => s.track.sid === sid);
+    if (gone) this.#pendingScreenAudio.delete(gone.identity);
     this.screenTracks = this.screenTracks.filter((s) => s.track.sid !== sid);
   }
 
@@ -467,6 +483,7 @@ class VoiceRoom {
     this.deafened = false;
     this.isScreenSharing = false;
     this.screenTracks = [];
+    this.#pendingScreenAudio.clear();
     this.audioBlocked = false;
     voiceState.channelId = null;
     voiceState.connected = false;

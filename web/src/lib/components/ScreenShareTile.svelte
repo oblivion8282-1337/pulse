@@ -3,6 +3,7 @@
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
+  import { voice } from '$lib/voice/livekit.svelte';
 
   let {
     track,
@@ -19,6 +20,7 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
   let volume = $state(100);
+  let audioBlocked = $state(false);
 
   $effect(() => {
     const t = track;
@@ -33,12 +35,24 @@
     const el = audioEl;
     if (!at || !el) return;
     at.attach(el);
+    at.setVolume(volume / 100);
+    el.play().then(() => { audioBlocked = false; }).catch(() => { audioBlocked = true; });
     return () => { at.detach(el); };
   });
 
   function handleVolume(e: Event) {
     volume = Number((e.currentTarget as HTMLInputElement).value);
     audioTrack?.setVolume(volume / 100);
+  }
+
+  async function enableAudio() {
+    await voice.unblockAudio();
+    try {
+      await audioEl?.play();
+      audioBlocked = false;
+    } catch {
+      /* still blocked — leave the button visible */
+    }
   }
 </script>
 
@@ -66,6 +80,15 @@
     <MonitorIcon class="size-3" />
     <span class="max-w-32 truncate">{name}</span>
   </div>
+
+  {#if audioTrack && audioBlocked}
+    <button
+      type="button"
+      onclick={enableAudio}
+      class="absolute right-2 top-2 rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500"
+      data-testid="screen-share-unblock-audio"
+    >Ton aktivieren</button>
+  {/if}
 
   {#if audioTrack}
     <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-1">
