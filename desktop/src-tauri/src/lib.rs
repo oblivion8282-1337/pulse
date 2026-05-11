@@ -16,6 +16,16 @@ mod ptt;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // NVIDIA + Wayland: WebKitGTK's DMABUF renderer trips a Wayland protocol
+    // error ("Error 71") on the proprietary driver, so the window never comes
+    // up. Disable the DMABUF fast path (harmless on Mesa/AMD/Intel). Respect an
+    // existing override so users/distros can opt back in. Must run before the
+    // WebView is created.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     let mut builder = tauri::Builder::default();
 
     // The single-instance plugin must be registered first so a second launch
