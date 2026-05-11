@@ -169,35 +169,44 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
 
 ---
 
-## LOW / Cleanup — bewusst NICHT in diesem Durchlauf
+## LOW / Cleanup — Tech-Debt-Runde 2026-05-11
 
-Alle als offen (`[ ]`) markiert, niedrige Priorität, kein Sicherheits-Showstopper:
-
-- [ ] **L1** JWT-Exception-Messages werden 1:1 an den Client durchgereicht
+- [x] **L1** JWT-Exception-Messages werden 1:1 an den Client durchgereicht
   (`auth/routes.py` `detail=str(exc)` bzw. `f"invalid token: {exc}"`) — minimaler
-  Info-Leak (Library-Versions-Hinweise). Cleanup: generische Messages, Details ins Log.
-- [ ] **L2** `RefreshIn` (`auth/schemas.py`) ohne `max_length` auf `refresh_token` —
-  ein riesiger String läuft erst beim JWT-Decode auf; harmlos, aber sauberer mit Limit.
-- [ ] **L3** `serialize_message` (`chat-gateway/routes/messages.py`) hat einen toten
-  `datetime.now()`-Fallback für `created_at` — `Message.created_at` hat ein
-  Server-Default, kann nach `refresh()` nie `None` sein. Cleanup: Fallback entfernen.
-- [ ] **L4** `publish` nach `commit` ohne Kompensation — fällt Redis zwischen Commit
-  und Publish aus, ist die Message persistiert, aber andere WS-Subscriber sehen sie
-  nicht (sie holen sie beim nächsten History-Load). Bewusste „at-most-once"-Semantik
-  (PLAN.md: kein exactly-once anstreben). Dokumentiert.
-- [ ] **L5** `pttMode` persistiert über Channel-Wechsel (Frontend) — UX-Detail.
-- [ ] **L6** Doppelter `/me`-Call beim Erststart (Frontend) — kleiner Init-Overhead.
-- [ ] **L7** JWKS-Cache ohne Inflight-Dedup (`chat-gateway/security.py`,
-  `voice-signaling/security.py`) — bei kaltem Cache + N parallelen Requests N
-  JWKS-Fetches statt 1. Cleanup: single-flight um den Fetch.
-- [ ] **L8** `messages.deleted_at IS NULL`-Filter ohne Partial-Index — bei vielen
-  gelöschten Messages langsamer Scan. Cleanup: `CREATE INDEX ... WHERE deleted_at IS NULL`.
+  Info-Leak (Library-Versions-Hinweise). **Fix (tech-debt):** generische Messages
+  `"invalid token"` in `auth/routes.py`, `chat-gateway/security.py`,
+  `voice-signaling/security.py`.
+- [x] **L2** `RefreshIn` (`auth/schemas.py`) ohne `max_length` auf `refresh_token` —
+  ein riesiger String läuft erst beim JWT-Decode auf. **Fix:** `max_length=4096`.
+- [x] **L3** `serialize_message` (`chat-gateway/routes/messages.py`) toter
+  `datetime.now()`-Fallback für `created_at`. **Fix:** Fallback entfernt
+  (`msg.created_at.isoformat()` direkt).
+- [x] **L4** `publish` nach `commit` ohne Kompensation — fällt Redis aus, war die
+  Message persistiert aber 500. **Fix:** `mgr.publish` / `manager.publish` in
+  `try/except` (best-effort, Logging bei Fehler) in `messages.py` und `ws.py`.
+- [-] **L5** `pttMode` persistiert über Channel-Wechsel (Frontend) — **bewusst beibehalten**: `pttMode` ist eine User-Preference, nicht Channel-State (Discord-Verhalten). Ein Reset würde den User überraschen.
+- [x] **L6** Doppelter `/me`-Call beim Erststart (Frontend) — **Fix:** Guard `if (this.user || this.loading) return;` am Anfang von `auth.hydrate()` in `web/src/lib/stores/auth.svelte.ts`.
+- [x] **L7** JWKS-Cache ohne Inflight-Dedup (`chat-gateway/security.py`,
+  `voice-signaling/security.py`) — **Fix:** `asyncio.Lock` um den Fetch-Block
+  (double-checked locking). Nur ein Fetch pro Key-Rollover-Event statt N parallele.
+- [x] **L8** `messages.deleted_at IS NULL`-Filter ohne Partial-Index. **Fix:**
+  Migration `0003_messages_active_idx` — `CREATE INDEX ix_messages_channel_active ON
+  chat.messages (channel_id, id) WHERE deleted_at IS NULL`. Angewendet auf dcc + dcc_test.
 - [ ] **L9** Refresh-Token im `localStorage` (Frontend, Design-Entscheidung aus
   PLAN.md Section 6.6) — XSS-Exposure. Bewusst akzeptiert für die Bearer-Auth-API;
   Tauri-Bundle nutzt den Plugin-Store. Dokumentiert.
 - [ ] **L10** Index-Coverage generell prüfen — `guild_members(user_id)`,
   `channels(guild_id, position)`, `messages(channel_id, id DESC)` sind da; ein
   Review gegen die tatsächlichen Query-Pläne steht aus.
+- [-] **#21a** `add_member` ohne User-Existenz-Check — **DEFERRED (bewertet im
+  tech-debt run):** `GET /api/auth/users?ids=...` braucht einen Bearer-Token. Das
+  chat-gateway hat keinen eigenen Service-Account-Token und müsste den User-Token des
+  Callers weiterleiten — das ist architektonisch unsauber. Mitigation durch #1 (nur
+  Owner kann adden). Folgeticket: Service-to-Service-Auth oder Invite-Flow.
+- [-] **E2E-Teardown (globalTeardown-Fix):** `_globalTeardown.ts` nutzte
+  `process.env.__DCC_TEST_PIDS` (nicht über Playwright-Worker-Grenzen geteilt).
+  **Fix:** PIDs in `/node_modules/.dcc-e2e-pids.json` persistieren; Teardown liest
+  nur diese PIDs und killt nur die Child-Prozesse des Setups — nicht per Pattern.
 
 ---
 

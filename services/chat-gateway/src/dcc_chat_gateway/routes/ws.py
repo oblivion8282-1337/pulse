@@ -192,7 +192,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 await websocket.send_json(
                     {"op": "message_ack", "nonce": nonce, "id": str(persisted.id)}
                 )
-                await manager.publish(cid, serialize_message(persisted))
+                # Publish is best-effort: message is already persisted, so a Redis
+                # failure must not kill the WS connection.
+                try:
+                    await manager.publish(cid, serialize_message(persisted))
+                except Exception:
+                    log.exception("ws publish failed for channel %s (message persisted)", cid)
             else:
                 await websocket.send_json({"op": "error", "code": 4007, "msg": f"unknown op: {op}"})
     finally:

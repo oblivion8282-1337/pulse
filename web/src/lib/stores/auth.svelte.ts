@@ -11,6 +11,7 @@ class AuthStore {
   }
 
   async hydrate(): Promise<void> {
+    if (this.user || this.loading) return;
     if (!loadTokens()) {
       this.user = null;
       return;

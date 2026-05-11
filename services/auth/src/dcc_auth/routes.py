@@ -75,7 +75,7 @@ async def _get_current_user(
     try:
         payload = signer.decode(token, expected_type="access")
     except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=f"invalid token: {exc}") from exc
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     try:
         user_id = int(payload["sub"])
     except (KeyError, ValueError) as exc:
@@ -161,7 +161,7 @@ async def refresh(
     try:
         decoded = signer.decode(payload.refresh_token, expected_type="refresh")
     except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
 
     try:
         jti = uuid.UUID(decoded["jti"])

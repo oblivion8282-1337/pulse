@@ -24,7 +24,7 @@ class LoginIn(BaseModel):
 
 
 class RefreshIn(BaseModel):
-    refresh_token: str
+    refresh_token: Annotated[str, Field(max_length=4096)]
 
 
 class TokensOut(BaseModel):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass
 from typing import Annotated, Any
@@ -22,6 +23,14 @@ class _JwksEntry:
 
 _cache: _JwksEntry | None = None
 _static_jwks: dict[str, Any] | None = None
+_fetch_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    global _fetch_lock
+    if _fetch_lock is None:
+        _fetch_lock = asyncio.Lock()
+    return _fetch_lock
 
 
 def install_static_jwks(jwks: dict[str, Any]) -> None:
@@ -32,9 +41,10 @@ def install_static_jwks(jwks: dict[str, Any]) -> None:
 
 
 def reset_cache() -> None:
-    global _cache, _static_jwks
+    global _cache, _static_jwks, _fetch_lock
     _cache = None
     _static_jwks = None
+    _fetch_lock = None
 
 
 def _build_keys(jwks: dict[str, Any]) -> dict[str, Any]:
@@ -56,16 +66,23 @@ async def _get_keys() -> dict[str, Any]:
     if _cache and _cache.expires_at > now:
         return _cache.keys_by_kid
 
-    if _static_jwks is not None:
-        jwks = _static_jwks
-    else:
-        async with httpx.AsyncClient(timeout=5.0) as http:
-            resp = await http.get(settings.auth_jwks_url)
-            resp.raise_for_status()
-            jwks = resp.json()
-    keys = _build_keys(jwks)
-    _cache = _JwksEntry(keys_by_kid=keys, expires_at=now + settings.jwks_cache_seconds)
-    return keys
+    # Single-flight: serialize concurrent cache misses so only one JWKS fetch
+    # fires per key-rollover event instead of N parallel fetches.
+    async with _get_lock():
+        now = time.monotonic()
+        if _cache and _cache.expires_at > now:
+            return _cache.keys_by_kid
+
+        if _static_jwks is not None:
+            jwks = _static_jwks
+        else:
+            async with httpx.AsyncClient(timeout=5.0) as http:
+                resp = await http.get(settings.auth_jwks_url)
+                resp.raise_for_status()
+                jwks = resp.json()
+        keys = _build_keys(jwks)
+        _cache = _JwksEntry(keys_by_kid=keys, expires_at=now + settings.jwks_cache_seconds)
+        return keys
 
 
 async def decode_token(token: str) -> dict[str, Any]:
@@ -73,7 +90,7 @@ async def decode_token(token: str) -> dict[str, Any]:
     try:
         header = jwt.get_unverified_header(token)
     except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     kid = header.get("kid")
     keys = await _get_keys()
     if not kid or kid not in keys:
@@ -93,7 +110,7 @@ async def decode_token(token: str) -> dict[str, Any]:
             issuer=settings.jwt_issuer,
         )
     except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     if payload.get("typ") != "access":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="not an access token")
     return payload
