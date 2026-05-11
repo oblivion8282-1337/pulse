@@ -11,12 +11,50 @@
   let previewUrl = $state<string | null>(null);
   let busy = $state(false);
 
-  function onFileChange(e: Event) {
+  // Client-seitige Vorab-Verkleinerung: spart Upload-Bandbreite. Der Server
+  // verkleinert anschliessend nochmal auf 256px / WebP — aber wir wollen kein
+  // 5-MB-Foto durchs Netz schicken nur damit der Server es klein macht.
+  const MAX_DIM = 512;
+
+  async function downscale(f: File): Promise<File> {
+    if (f.size <= 256 * 1024) return f; // schon klein genug — Re-Encode lohnt nicht
+    let bitmap: ImageBitmap;
+    try {
+      bitmap = await createImageBitmap(f, { imageOrientation: 'from-image' });
+    } catch {
+      return f; // Browser kann das Format nicht decoden — Server resized es eh
+    }
+    const scale = Math.min(1, MAX_DIM / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bitmap.close(); return f; }
+    ctx.fillStyle = '#36393f'; // grauer statt schwarzer Hintergrund bei Transparenz
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.9));
+    if (!blob || blob.size >= f.size) return f; // hat nichts gebracht — Original behalten
+    const name = f.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([blob], name, { type: 'image/jpeg' });
+  }
+
+  async function onFileChange(e: Event) {
     const input = e.currentTarget as HTMLInputElement;
-    const f = input.files?.[0] ?? null;
-    file = f;
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    previewUrl = f ? URL.createObjectURL(f) : null;
+    const raw = input.files?.[0] ?? null;
+    if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
+    if (!raw) { file = null; return; }
+    try {
+      const processed = await downscale(raw);
+      file = processed;
+      previewUrl = URL.createObjectURL(processed);
+    } catch (err) {
+      file = null;
+      toast.error('Bild konnte nicht verarbeitet werden', { description: (err as Error).message });
+    }
   }
 
   async function upload() {
