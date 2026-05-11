@@ -8,7 +8,7 @@
  * from the repo root); we do not manage them here.
  */
 
-import { ChildProcess, spawn } from 'node:child_process';
+import { ChildProcess, spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -80,6 +80,42 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
   });
 }
 
+function ensureTestDb(postgresUser: string) {
+  const cwd = resolve(__dirname, '../../..');
+  // CREATE DATABASE has no IF NOT EXISTS — check first, then create.
+  const check = execSync(
+    `docker compose exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='dcc_test'"`,
+    { cwd }
+  )
+    .toString()
+    .trim();
+  if (check !== '1') {
+    execSync(
+      `docker compose exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE dcc_test"`,
+      { cwd }
+    );
+  }
+  // Alembic stores alembic_version in the service schema, so the schemas
+  // must exist before the first migration run.
+  execSync(
+    `docker compose exec -T postgres psql -U ${postgresUser} -d dcc_test -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
+    { cwd }
+  );
+}
+
+function killPort(port: number) {
+  try {
+    // Only kill processes that are *listening* on the port, not clients.
+    // lsof -sTCP:LISTEN filters to servers only.
+    const pids = execSync(`lsof -ti :${port} -sTCP:LISTEN`, { stdio: ['pipe', 'pipe', 'ignore'] })
+      .toString()
+      .trim();
+    for (const pid of pids.split(/\s+/).filter(Boolean)) {
+      try { process.kill(Number(pid)); } catch { /* already gone */ }
+    }
+  } catch { /* lsof exits 1 when nothing found */ }
+}
+
 const procs: ChildProcess[] = [];
 
 function startService(name: string, env: NodeJS.ProcessEnv, port: number, cwd: string) {
@@ -105,13 +141,21 @@ function startService(name: string, env: NodeJS.ProcessEnv, port: number, cwd: s
 
 export default async function globalSetup() {
   const dotenv = loadDotenv(resolve(ROOT, '.env'));
+  const pgUser = dotenv.POSTGRES_USER ?? 'dcc';
+  const pgPort = dotenv.POSTGRES_PORT ?? '5434';
+  const pgPassword = dotenv.POSTGRES_PASSWORD ?? '';
+
+  // Ensure the dedicated test database exists (never touches dcc).
+  ensureTestDb(pgUser);
+
   const baseEnv = {
     ...process.env,
     ...dotenv,
     POSTGRES_HOST: 'localhost',
-    POSTGRES_PORT: dotenv.POSTGRES_PORT ?? '5434',
-    DATABASE_URL: `postgresql+asyncpg://${dotenv.POSTGRES_USER ?? 'dcc'}:${dotenv.POSTGRES_PASSWORD ?? ''}@localhost:${dotenv.POSTGRES_PORT ?? '5434'}/${dotenv.POSTGRES_DB ?? 'dcc'}`,
-    REDIS_URL: dotenv.REDIS_URL ?? 'redis://localhost:6380/0',
+    POSTGRES_PORT: pgPort,
+    POSTGRES_DB: 'dcc_test',
+    DATABASE_URL: `postgresql+asyncpg://${pgUser}:${pgPassword}@localhost:${pgPort}/dcc_test`,
+    REDIS_URL: 'redis://localhost:6380/1',
     AUTH_JWKS_URL: 'http://127.0.0.1:8001/.well-known/jwks.json',
     JWT_PRIVATE_KEY_FILE: resolve(ROOT, 'secrets/jwt_private.pem'),
     JWT_PUBLIC_KEY_FILE: resolve(ROOT, 'secrets/jwt_public.pem'),
@@ -122,6 +166,12 @@ export default async function globalSetup() {
   await applyMigrations(baseEnv, 'dcc-auth', resolve(ROOT, 'services/auth'));
   await applyMigrations(baseEnv, 'dcc-chat-gateway', resolve(ROOT, 'services/chat-gateway'));
   await truncateDb(baseEnv);
+
+  // Stop any pre-existing services on these ports (e.g. dev-mode services
+  // the user may have running) so the test services can bind.
+  killPort(8001);
+  killPort(8002);
+  await new Promise((r) => setTimeout(r, 500)); // brief settle after kill
 
   startService('dcc-auth', baseEnv, 8001, resolve(ROOT, 'services/auth'));
   startService('dcc-chat-gateway', baseEnv, 8002, resolve(ROOT, 'services/chat-gateway'));

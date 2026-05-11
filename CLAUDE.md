@@ -81,6 +81,13 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 - **Redis** `redis:7-alpine` — Container `dcc_night_redis`
 - **LiveKit** `livekit/livekit-server:latest` — Container `dcc_night_livekit`, hinter `docker compose --profile voice up -d`, Config `infra/livekit/livekit.yaml`
 
+## Test-Datenbank
+
+E2E-Tests (Playwright) laufen gegen `dcc_test` — eine separate DB im selben Postgres-Container.
+Die `dcc`-DB ist die Dev-DB und wird von Tests **niemals** angefasst (kein TRUNCATE, kein DROP).
+`_globalSetup.ts` legt `dcc_test` automatisch an falls nicht vorhanden, läuft Alembic-Migrationen
+dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/Sub-Isolation.
+
 ## Port-Mapping (lokales Dev)
 
 | Dienst | Port | Notiz |
