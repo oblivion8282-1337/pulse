@@ -4,6 +4,7 @@
   import { Separator } from '$lib/components/ui/separator/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
+  import ScreenShareTile from './ScreenShareTile.svelte';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
@@ -11,6 +12,8 @@
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import RadioIcon from '@lucide/svelte/icons/radio';
+  import MonitorIcon from '@lucide/svelte/icons/monitor';
+  import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
@@ -30,6 +33,14 @@
       toast.error('Voice-Verbindung fehlgeschlagen', {
         description: e instanceof Error ? e.message : String(e)
       });
+    }
+  }
+
+  async function handleScreenShare() {
+    try {
+      await voice.setScreenShare(!voice.isScreenSharing);
+    } catch {
+      toast.info('Bildschirm teilen abgebrochen');
     }
   }
 
@@ -96,6 +107,13 @@
       {#if voice.participants.length === 0}
         <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
       {:else}
+        {#if voice.screenTracks.length > 0}
+          <div class="w-full max-w-4xl" data-testid="screen-share-area">
+            {#each voice.screenTracks as st (st.identity)}
+              <ScreenShareTile track={st.track} name={st.name} identity={st.identity} />
+            {/each}
+          </div>
+        {/if}
         <div class="flex flex-wrap items-start justify-center gap-6" data-testid="voice-participants">
           {#each voice.participants as p (p.identity)}
             <VoiceParticipantTile {p} />
@@ -106,7 +124,7 @@
       <div class="text-center">
         <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
         <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
-        <p class="text-text-muted text-sm">Klicke „Beitreten“, um dem Sprach-Kanal beizutreten.</p>
+        <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
         {#if voice.error}
           <p class="mt-2 text-sm text-red-400">{voice.error}</p>
         {/if}
@@ -160,7 +178,7 @@
                 <Button
                   {...props}
                   variant={voice.pttMode ? 'default' : 'ghost'}
-                  size="icon"
+                  size={'icon' as const}
                   onclick={() => voice.setPttMode(!voice.pttMode)}
                   data-testid="voice-ptt-toggle"
                   aria-label="Push-to-Talk umschalten"
@@ -170,7 +188,26 @@
               {/snippet}
             </Tooltip.Trigger>
             <Tooltip.Content>
-              {voice.pttMode ? 'Push-to-Talk an (Taste „V“ halten)' : 'Push-to-Talk aus (offenes Mikro)'}
+              {voice.pttMode ? 'Push-to-Talk an (Taste "V" halten)' : 'Push-to-Talk aus (offenes Mikro)'}
+            </Tooltip.Content>
+          </Tooltip.Root>
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant={voice.isScreenSharing ? 'default' : 'ghost'}
+                  size={'icon' as const}
+                  onclick={handleScreenShare}
+                  data-testid="voice-screenshare-toggle"
+                  aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
+                >
+                  {#if voice.isScreenSharing}<MonitorOffIcon />{:else}<MonitorIcon />{/if}
+                </Button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>
+              {voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}
             </Tooltip.Content>
           </Tooltip.Root>
         </Tooltip.Provider>
