@@ -39,6 +39,23 @@ class GuildStore {
     };
   }
 
+  removeChannel(channelId: string): void {
+    const next: Record<string, Channel[]> = {};
+    for (const [gid, list] of Object.entries(this.channelsByGuild)) {
+      next[gid] = list.filter((c) => c.id !== channelId);
+    }
+    this.channelsByGuild = next;
+  }
+
+  updateChannel(channel: Channel): void {
+    const list = this.channelsByGuild[channel.guild_id];
+    if (!list) return;
+    this.channelsByGuild = {
+      ...this.channelsByGuild,
+      [channel.guild_id]: list.map((c) => (c.id === channel.id ? channel : c))
+    };
+  }
+
   clear(): void {
     this.byId = {};
     this.channelsByGuild = {};

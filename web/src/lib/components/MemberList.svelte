@@ -1,0 +1,87 @@
+<script lang="ts">
+  import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { chatApi } from '$lib/api/chat';
+  import { userCache } from '$lib/stores/users.svelte';
+  import type { Member } from '$lib/api/types';
+
+  let { guildId }: { guildId: string } = $props();
+
+  let members = $state<Member[]>([]);
+  let loading = $state(false);
+  let error = $state<string | null>(null);
+
+  $effect(() => {
+    if (!guildId) return;
+    void load(guildId);
+  });
+
+  async function load(id: string) {
+    loading = true;
+    error = null;
+    try {
+      members = await chatApi.listMembers(id);
+      for (const m of members) userCache.queue(m.user_id);
+    } catch (e) {
+      error = (e as Error).message;
+    } finally {
+      loading = false;
+    }
+  }
+
+  function displayName(m: Member): string {
+    if (m.nickname) return m.nickname;
+    return userCache.displayName(m.user_id);
+  }
+
+  function avatarUrl(m: Member): string | null {
+    const u = userCache.get(m.user_id);
+    const url = u?.avatar_url ?? null;
+    return url?.startsWith('https://') ? url : null;
+  }
+
+  function initials(m: Member): string {
+    return displayName(m).slice(0, 1).toUpperCase();
+  }
+</script>
+
+<aside
+  class="bg-bg-sidebar flex h-full w-52 shrink-0 flex-col border-l border-black/30"
+  data-testid="member-list"
+>
+  <header class="flex h-12 items-center border-b border-black/30 px-4">
+    <span class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+      Mitglieder — {members.length}
+    </span>
+  </header>
+
+  <div class="flex-1 overflow-y-auto px-2 py-2">
+    {#if loading}
+      <p class="text-text-muted px-2 py-4 text-xs">Lädt…</p>
+    {:else if error}
+      <p class="px-2 py-4 text-xs text-red-400">{error}</p>
+    {:else}
+      {#each members as m (m.user_id)}
+        {@const name = displayName(m)}
+        {@const url = avatarUrl(m)}
+        <div
+          class="hover:bg-bg-hover flex items-center gap-2 rounded px-2 py-1.5"
+          data-testid="member-item"
+          data-user-id={m.user_id}
+        >
+          <Avatar.Root class="size-8 shrink-0">
+            {#if url}
+              <Avatar.Image src={url} alt={name} />
+            {/if}
+            <Avatar.Fallback class="bg-primary text-primary-foreground text-xs font-semibold">
+              {initials(m)}
+            </Avatar.Fallback>
+          </Avatar.Root>
+          <span class="text-text-base truncate text-sm">{name}</span>
+        </div>
+      {/each}
+      {#if members.length === 0}
+        <p class="text-text-muted px-2 py-4 text-xs">Keine Mitglieder.</p>
+      {/if}
+    {/if}
+  </div>
+</aside>

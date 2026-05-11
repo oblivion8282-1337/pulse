@@ -2,9 +2,18 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Message } from '$lib/api/types';
 
-  let { message, authorName }: { message: Message; authorName: string } = $props();
+  let {
+    message,
+    authorName,
+    avatarUrl = () => null
+  }: {
+    message: Message;
+    authorName: string;
+    avatarUrl?: (m: Message) => string | null;
+  } = $props();
 
   const time = $derived(formatTime(message.created_at));
+  const url = $derived(avatarUrl(message));
 
   function formatTime(iso: string): string {
     const d = new Date(iso);
@@ -21,6 +30,9 @@
   data-message-id={message.id}
 >
   <Avatar.Root class="size-10 shrink-0">
+    {#if url}
+      <Avatar.Image src={url} alt={authorName} />
+    {/if}
     <Avatar.Fallback class="bg-primary text-primary-foreground text-sm font-semibold">
       {authorName.slice(0, 1).toUpperCase()}
     </Avatar.Fallback>

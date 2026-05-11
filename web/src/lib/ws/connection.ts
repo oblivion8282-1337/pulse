@@ -9,12 +9,25 @@
 import { currentAccessToken } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { messages } from '$lib/stores/messages.svelte';
+import { guilds } from '$lib/stores/guilds.svelte';
 import type { Message } from '$lib/api/types';
+
+export type ChannelPayload = {
+  id: string;
+  guild_id: string;
+  name: string;
+  type: number;
+  position: number;
+  topic: string | null;
+  created_at: string;
+};
 
 type ServerEvent =
   | { op: 'ready'; user_id: string; guilds: { id: string; name: string }[] }
   | { op: 'message'; data: Message }
   | { op: 'message_ack'; nonce: string | null; id: string }
+  | { op: 'channel_deleted'; channel_id: string }
+  | { op: 'channel_updated'; channel: ChannelPayload }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -94,6 +107,10 @@ export class GatewayConnection {
         }
         if (evt.op === 'message') {
           messages.upsert(evt.data);
+        } else if (evt.op === 'channel_deleted') {
+          guilds.removeChannel(evt.channel_id);
+        } else if (evt.op === 'channel_updated') {
+          guilds.updateChannel(evt.channel);
         }
         for (const l of this.listeners) l(evt);
       });
