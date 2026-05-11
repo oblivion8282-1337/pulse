@@ -61,6 +61,9 @@ export class GatewayConnection {
   // True until the next connect attempt forces a token refresh — set after a
   // 4001 close so the reconnect uses a fresh credential.
   private forceRefreshNext = false;
+  // Buffer for events that arrive before the `ready` handler has run.
+  private _readyDone = false;
+  private _preReadyBuffer: ServerEvent[] = [];
 
   on(listener: WsListener): () => void {
     this.listeners.add(listener);
@@ -95,6 +98,11 @@ export class GatewayConnection {
       try {
         await request<{ id: string }>('/me', { endpoint: 'auth' });
       } catch {
+        // Refresh failed — token is dead. Sign out and stop reconnecting.
+        if (!loadTokens()) {
+          this.wantConnected = false;
+          auth.signOut();
+        }
         return;
       }
     }
@@ -111,9 +119,15 @@ export class GatewayConnection {
       ws.addEventListener('open', () => {
         opened = true;
         this.attempt = 0;
+        this._readyDone = false;
+        this._preReadyBuffer = [];
         // Restore subscriptions on reconnect.
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
+        }
+        // Invalidate loaded channels so reconnect fetches missed messages.
+        for (const cid of this.subs) {
+          messages.invalidateLoaded(cid);
         }
         resolve();
       });
@@ -141,9 +155,21 @@ export class GatewayConnection {
   }
 
   private _handle(evt: ServerEvent): void {
+    // Buffer lifecycle events that arrive before `ready` has populated guilds.byId.
+    if (!this._readyDone && evt.op !== 'ready' && evt.op !== 'message' && evt.op !== 'message_ack' && evt.op !== 'voice_state' && evt.op !== 'error') {
+      this._preReadyBuffer.push(evt);
+      return;
+    }
+
     switch (evt.op) {
       case 'ready':
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
+        this._readyDone = true;
+        // Replay buffered lifecycle events now that guilds.byId is populated.
+        for (const buffered of this._preReadyBuffer) {
+          this._handle(buffered);
+        }
+        this._preReadyBuffer = [];
         break;
       case 'message':
         messages.upsert(evt.data);
