@@ -6,6 +6,7 @@
   import ChannelList from '$lib/components/ChannelList.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import CreateChannelDialog from '$lib/components/CreateChannelDialog.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -225,11 +226,10 @@
 {:else if loadError}
   <section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 p-8">
     <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
-    <button
-      class="rounded bg-neutral-700 px-4 py-2 text-sm text-white hover:bg-neutral-600"
+    <Button
       onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
       data-testid="load-retry"
-    >Erneut versuchen</button>
+    >Erneut versuchen</Button>
   </section>
 {:else}
   <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} />

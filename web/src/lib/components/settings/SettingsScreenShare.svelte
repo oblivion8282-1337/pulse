@@ -37,7 +37,7 @@
     <span class="text-text-bright text-sm font-medium">Codec</span>
     <div class="flex flex-col gap-1.5">
       {#each codecs as c (c.value)}
-        <label class="flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors hover:bg-white/5">
+        <label class="flex cursor-pointer items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
           <input
             type="radio"
             name="sss-codec"
@@ -59,7 +59,7 @@
     <span class="text-text-bright text-sm font-medium">Auflösung</span>
     <div class="grid grid-cols-2 gap-1.5">
       {#each resolutions as r (r.value)}
-        <label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-white/5">
+        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
           <input
             type="radio"
             name="sss-resolution"
@@ -78,7 +78,7 @@
     <span class="text-text-bright text-sm font-medium">Framerate</span>
     <div class="flex gap-3">
       {#each fpsOptions as f (f.value)}
-        <label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-white/5">
+        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
           <input
             type="radio"
             name="sss-fps"
@@ -114,7 +114,7 @@
   <div class="flex flex-col gap-2">
     <span class="text-text-bright text-sm font-medium">Inhaltstyp</span>
     <div class="flex gap-3">
-      <label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-white/5">
+      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
         <input
           type="radio"
           name="sss-hint"
@@ -125,7 +125,7 @@
         />
         <span class="text-text-base text-sm">Video / Gaming</span>
       </label>
-      <label class="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-white/5">
+      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
         <input
           type="radio"
           name="sss-hint"

@@ -32,22 +32,20 @@
   }
 </script>
 
-<form class="px-4 pb-6 pt-2" onsubmit={submit}>
-  <div class="bg-bg-input flex items-end gap-2 rounded-lg px-4 py-2.5">
+<form class="px-4 pb-5 pt-2" onsubmit={submit}>
+  <div class="bg-bg-input flex items-end gap-3 rounded-2xl border border-border px-4 py-3 backdrop-blur-sm">
     <textarea
       rows="1"
       bind:value={text}
       onkeydown={onKeydown}
       {placeholder}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[1.5rem] flex-1 resize-none border-0 bg-transparent text-sm outline-none"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[1.5rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none"
       data-testid="message-input"
     ></textarea>
     <Button
       type="submit"
-      variant="ghost"
       size="icon-sm"
       disabled={!text.trim()}
-      class="text-primary hover:text-primary"
       data-testid="message-send"
       aria-label="Senden"
     >

@@ -94,14 +94,14 @@
 </script>
 
 <aside class="bg-bg-sidebar text-text-base flex h-full w-60 flex-col overflow-hidden" data-testid="channel-list">
-  <header class="flex h-12 items-center justify-between border-b border-black/30 px-4 font-semibold text-text-bright shadow-sm">
-    <span class="truncate">{guild?.name ?? '—'}</span>
+  <header class="flex h-14 items-center justify-between px-4 text-text-bright">
+    <span class="truncate text-base font-bold tracking-tight">{guild?.name ?? '—'}</span>
     <div class="flex items-center gap-0.5">
       {#if guild}
         <Button
           variant="ghost"
-          size="icon-xs"
-          class="text-text-muted hover:text-white"
+          size="icon-sm"
+          class="text-text-muted hover:text-primary"
           onclick={() => (inviteOpen = true)}
           data-testid="invite-open-btn"
           aria-label="Leute einladen"
@@ -112,8 +112,8 @@
       {#if canCreate}
         <Button
           variant="ghost"
-          size="icon-xs"
-          class="text-text-muted hover:text-white"
+          size="icon-sm"
+          class="text-text-muted hover:text-primary"
           onclick={onCreateClick}
           data-testid="channel-create"
           aria-label="Kanal erstellen"
@@ -159,20 +159,20 @@
     </AlertDialog.Content>
   </AlertDialog.Root>
 
-  <nav class="flex-1 overflow-y-auto px-2 pb-3 pt-2">
-    <div class="text-text-muted px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide">Text-Kanäle</div>
+  <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
+    <div class="text-text-muted px-2.5 pb-1 pt-3 text-xs font-bold">Text-Kanäle</div>
     {#each textChannels as c (c.id)}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
             <button
               {...props}
-              class="hover:bg-bg-hover flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors data-[active=true]:bg-bg-hover data-[active=true]:text-text-bright"
+              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
               data-active={activeChannelId === c.id}
               onclick={() => onSelect(c)}
               data-testid={`channel-${c.id}`}
             >
-              <HashIcon class="text-text-muted size-4 shrink-0" />
+              <HashIcon class="text-text-muted size-[17px] shrink-0 group-data-[active=true]:text-primary" />
               <span class="truncate">{c.name}</span>
             </button>
           {/snippet}
@@ -193,22 +193,22 @@
       </ContextMenu.Root>
     {/each}
     {#if textChannels.length === 0}
-      <p class="text-text-muted px-2 py-2 text-xs">Noch keine Text-Kanäle.</p>
+      <p class="text-text-muted px-3 py-2 text-xs">Noch keine Text-Kanäle.</p>
     {/if}
 
-    <div class="text-text-muted px-2 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide">Sprach-Kanäle</div>
+    <div class="text-text-muted px-2.5 pb-1 pt-4 text-xs font-bold">Sprach-Kanäle</div>
     {#each voiceChannels as c (c.id)}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
             <button
               {...props}
-              class="hover:bg-bg-hover flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors data-[active=true]:bg-bg-hover data-[active=true]:text-text-bright"
+              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
               data-active={activeChannelId === c.id}
               onclick={() => selectChannel(c)}
               data-testid={`channel-${c.id}`}
             >
-              <Volume2Icon class="text-text-muted size-4 shrink-0" />
+              <Volume2Icon class="text-text-muted size-[17px] shrink-0 group-data-[active=true]:text-primary" />
               <span class="truncate">{c.name}</span>
               {#if voiceState.channelId === c.id && voiceState.connected}
                 <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title="verbunden"></span>
@@ -238,7 +238,7 @@
       {/if}
     {/each}
     {#if voiceChannels.length === 0}
-      <p class="text-text-muted px-2 py-2 text-xs">Noch keine Sprach-Kanäle.</p>
+      <p class="text-text-muted px-3 py-2 text-xs">Noch keine Sprach-Kanäle.</p>
     {/if}
   </nav>
 

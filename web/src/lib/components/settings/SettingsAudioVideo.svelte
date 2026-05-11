@@ -107,9 +107,9 @@
       {#each nsOptions as o (o.value)}
         {@const off = o.value === 'deepfilternet' && !dfnEnabled}
         <label
-          class="flex items-start gap-2.5 rounded-md px-2 py-1.5 transition-colors {off
+          class="flex items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors {off
             ? 'cursor-not-allowed opacity-50'
-            : 'cursor-pointer hover:bg-white/5'}"
+            : 'cursor-pointer hover:bg-bg-hover'}"
         >
           <input
             type="radio"
@@ -199,7 +199,7 @@
       <button
         type="button"
         onclick={startPttCapture}
-        class="bg-bg-input text-text-bright hover:bg-white/10 rounded-md px-3 py-1.5 text-sm uppercase transition-colors"
+        class="bg-bg-input text-text-bright hover:bg-bg-hover rounded-full border border-border px-3 py-1.5 text-sm uppercase transition-colors"
         data-testid="settings-ptt-key"
       >
         {listeningForPttKey ? 'Taste drücken…' : settings.voice.pttKey}

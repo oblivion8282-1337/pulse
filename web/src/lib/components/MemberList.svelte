@@ -45,26 +45,26 @@
 </script>
 
 <aside
-  class="bg-bg-sidebar flex h-full w-52 shrink-0 flex-col border-l border-black/30"
+  class="bg-bg-sidebar flex h-full w-52 shrink-0 flex-col"
   data-testid="member-list"
 >
-  <header class="flex h-12 items-center border-b border-black/30 px-4">
-    <span class="text-text-muted text-xs font-semibold uppercase tracking-wide">
+  <header class="flex h-14 items-center px-4">
+    <span class="text-text-muted text-xs font-bold">
       Mitglieder — {members.length}
     </span>
   </header>
 
-  <div class="flex-1 overflow-y-auto px-2 py-2">
+  <div class="flex-1 overflow-y-auto px-2.5 py-1">
     {#if loading}
-      <p class="text-text-muted px-2 py-4 text-xs">Lädt…</p>
+      <p class="text-text-muted px-3 py-4 text-xs">Lädt…</p>
     {:else if error}
-      <p class="px-2 py-4 text-xs text-red-400">{error}</p>
+      <p class="px-3 py-4 text-xs text-red-400">{error}</p>
     {:else}
       {#each members as m (m.user_id)}
         {@const name = displayName(m)}
         {@const url = avatarUrl(m)}
         <div
-          class="hover:bg-bg-hover flex items-center gap-2 rounded px-2 py-1.5"
+          class="hover:bg-bg-hover flex items-center gap-2.5 rounded-xl px-3 py-2"
           data-testid="member-item"
           data-user-id={m.user_id}
         >
@@ -72,15 +72,15 @@
             {#if url}
               <Avatar.Image src={url} alt={name} />
             {/if}
-            <Avatar.Fallback class="bg-primary text-primary-foreground text-xs font-semibold">
+            <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
               {initials(m)}
             </Avatar.Fallback>
           </Avatar.Root>
-          <span class="text-text-base truncate text-sm">{name}</span>
+          <span class="text-text-base truncate text-sm font-medium">{name}</span>
         </div>
       {/each}
       {#if members.length === 0}
-        <p class="text-text-muted px-2 py-4 text-xs">Keine Mitglieder.</p>
+        <p class="text-text-muted px-3 py-4 text-xs">Keine Mitglieder.</p>
       {/if}
     {/if}
   </div>

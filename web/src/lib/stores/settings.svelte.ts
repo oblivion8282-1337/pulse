@@ -1,4 +1,5 @@
 import type { VideoCodec } from 'livekit-client';
+import { setMode } from 'mode-watcher';
 
 // --- screen-share types (kept identical to the previous screenShareSettings) ---
 
@@ -7,6 +8,8 @@ export type ScreenShareResolution = 'native' | '1080p' | '720p' | '480p';
 export type ScreenShareFps = 15 | 30 | 60;
 
 export type NoiseSuppressionMode = 'off' | 'browser' | 'rnnoise' | 'deepfilternet';
+
+export type ThemePreference = 'light' | 'dark' | 'system';
 
 const STORAGE_KEY = 'dcc.settings';
 const LEGACY_SCREENSHARE_KEY = 'dcc.screenShareSettings';
@@ -18,6 +21,7 @@ const VALID_CODECS: ScreenShareCodec[] = ['vp8', 'vp9', 'h264', 'av1'];
 const VALID_RESOLUTIONS: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
 const VALID_FPS: ScreenShareFps[] = [15, 30, 60];
 const VALID_NS: NoiseSuppressionMode[] = ['off', 'browser', 'rnnoise', 'deepfilternet'];
+const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
 type AudioSettings = {
   inputDeviceId: string;
@@ -36,6 +40,10 @@ type VoiceSettings = {
   pttKey: string;
 };
 
+type AppearanceSettings = {
+  theme: ThemePreference;
+};
+
 type ScreenShareSettings = {
   codec: ScreenShareCodec;
   resolution: ScreenShareResolution;
@@ -48,6 +56,7 @@ type PersistedSettings = {
   audio: AudioSettings;
   voice: VoiceSettings;
   screenShare: ScreenShareSettings;
+  appearance: AppearanceSettings;
 };
 
 const DEFAULTS: PersistedSettings = {
@@ -72,6 +81,9 @@ const DEFAULTS: PersistedSettings = {
     fps: 30,
     bitrateMbps: 4,
     contentHint: 'motion'
+  },
+  appearance: {
+    theme: 'system'
   }
 };
 
@@ -82,6 +94,10 @@ function clampBitrate(v: unknown): number {
 
 function str(v: unknown, fallback: string): string {
   return typeof v === 'string' ? v : fallback;
+}
+
+function parseTheme(v: unknown): ThemePreference {
+  return VALID_THEMES.includes(v as ThemePreference) ? (v as ThemePreference) : DEFAULTS.appearance.theme;
 }
 
 function bool(v: unknown, fallback: boolean): boolean {
@@ -122,12 +138,14 @@ function load(): PersistedSettings {
       return {
         audio: { ...DEFAULTS.audio },
         voice: { ...DEFAULTS.voice },
-        screenShare: parseScreenShare(legacy)
+        screenShare: parseScreenShare(legacy),
+        appearance: { ...DEFAULTS.appearance }
       };
     }
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
     const a = (parsed.audio ?? {}) as Partial<AudioSettings>;
     const v = (parsed.voice ?? {}) as Partial<VoiceSettings>;
+    const ap = (parsed.appearance ?? {}) as Partial<AppearanceSettings>;
     const da = DEFAULTS.audio;
     const dv = DEFAULTS.voice;
     return {
@@ -148,13 +166,15 @@ function load(): PersistedSettings {
         pttMode: bool(v.pttMode, dv.pttMode),
         pttKey: typeof v.pttKey === 'string' && v.pttKey.length > 0 ? v.pttKey.toLowerCase() : dv.pttKey
       },
-      screenShare: parseScreenShare(parsed.screenShare)
+      screenShare: parseScreenShare(parsed.screenShare),
+      appearance: { theme: parseTheme(ap.theme) }
     };
   } catch {
     return {
       audio: { ...DEFAULTS.audio },
       voice: { ...DEFAULTS.voice },
-      screenShare: { ...DEFAULTS.screenShare }
+      screenShare: { ...DEFAULTS.screenShare },
+      appearance: { ...DEFAULTS.appearance }
     };
   }
 }
@@ -163,6 +183,7 @@ class SettingsStore {
   audio = $state<AudioSettings>({ ...DEFAULTS.audio });
   voice = $state<VoiceSettings>({ ...DEFAULTS.voice });
   screenShare = $state<ScreenShareSettings>({ ...DEFAULTS.screenShare });
+  appearance = $state<AppearanceSettings>({ ...DEFAULTS.appearance });
 
   /** True if a legacy `dcc.screenShareSettings` key was migrated and can be cleared. */
   #legacyMigrated = false;
@@ -172,17 +193,30 @@ class SettingsStore {
     this.audio = s.audio;
     this.voice = s.voice;
     this.screenShare = s.screenShare;
+    this.appearance = s.appearance;
     if (typeof localStorage !== 'undefined') {
       this.#legacyMigrated =
         localStorage.getItem(STORAGE_KEY) === null && localStorage.getItem(LEGACY_SCREENSHARE_KEY) !== null;
     }
   }
 
+  /** Pushes the persisted theme preference into mode-watcher (sets the `.dark`
+      class on <html>; `system` follows + tracks `prefers-color-scheme`). Call
+      once early on app start. */
+  applyTheme(): void {
+    setMode(this.appearance.theme);
+  }
+
   #persist(): void {
     try {
       localStorage.setItem(
         STORAGE_KEY,
-        JSON.stringify({ audio: this.audio, voice: this.voice, screenShare: this.screenShare })
+        JSON.stringify({
+          audio: this.audio,
+          voice: this.voice,
+          screenShare: this.screenShare,
+          appearance: this.appearance
+        })
       );
       if (this.#legacyMigrated) {
         localStorage.removeItem(LEGACY_SCREENSHARE_KEY);
@@ -191,6 +225,14 @@ class SettingsStore {
     } catch {
       /* ignore quota errors */
     }
+  }
+
+  // --- appearance setters ---
+
+  setTheme(v: ThemePreference): void {
+    this.appearance.theme = v;
+    setMode(v);
+    this.#persist();
   }
 
   // --- audio setters ---
