@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, Guild
+from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
 from dcc_chat_gateway.security import CurrentUser
@@ -55,6 +55,30 @@ async def list_channels(guild_id: int, session: SessionDep, current: CurrentUser
     )
     rows = (await session.execute(stmt)).scalars().all()
     return list(rows)
+
+
+@router.get("/guilds/{guild_id}/voice-state")
+async def guild_voice_state(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+) -> dict[str, list[dict[str, object]]]:
+    """Current voice-presence for every voice channel in the guild.
+
+    Returns ``{"voice_states": [{"channel_id": "<id>", "user_ids": [...]}, ...]}``
+    — only channels with at least one participant are listed. Lets a client
+    re-sync after a reconnect without waiting for the next push.
+    """
+    await require_member(session, guild_id, current.id)
+    stmt = select(Channel.id).where(
+        Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
+    )
+    channel_ids = [str(cid) for cid in (await session.execute(stmt)).scalars()]
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is None:
+        return {"voice_states": []}
+    return {"voice_states": await mgr.voice_states_for(channel_ids)}
 
 
 @router.get("/channels/{channel_id}", response_model=ChannelOut)

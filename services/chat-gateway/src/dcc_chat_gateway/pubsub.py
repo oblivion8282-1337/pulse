@@ -23,6 +23,12 @@ log = logging.getLogger(__name__)
 CHANNEL_KEY = "chat:channel:{channel_id}"
 CHANNEL_PATTERN = "chat:channel:*"
 
+# Voice-presence events published by the voice-signaling service. Payload:
+# {"channel_id": "<id>", "user_ids": ["<id>", ...]} — the *full* current
+# member set of that voice channel. We rebroadcast it to every connected
+# WebSocket as {"op": "voice_state", ...}; clients filter by their guilds.
+VOICE_EVENTS_CHANNEL = "voice:events"
+
 
 class ConnectionManager:
     def __init__(self, redis: Redis) -> None:
@@ -30,6 +36,9 @@ class ConnectionManager:
         self._pubsub = redis.pubsub(ignore_subscribe_messages=True)
         self._listener_task: asyncio.Task | None = None
         self._subs: dict[str, set[WebSocket]] = defaultdict(set)
+        # Every connected WebSocket, regardless of channel subscriptions —
+        # used to fan out global events like voice-presence updates.
+        self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -44,6 +53,8 @@ class ConnectionManager:
         # races against the listener loop and removes the need for
         # per-channel Redis subscriptions.
         await self._pubsub.psubscribe(CHANNEL_PATTERN)
+        # Plus the single voice-presence event channel.
+        await self._pubsub.subscribe(VOICE_EVENTS_CHANNEL)
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
 
@@ -61,6 +72,10 @@ class ConnectionManager:
             pass
         self._started = False
 
+    async def register(self, ws: WebSocket) -> None:
+        async with self._lock:
+            self._connections.add(ws)
+
     async def subscribe(self, ws: WebSocket, channel_id: str) -> None:
         async with self._lock:
             self._subs[channel_id].add(ws)
@@ -76,6 +91,7 @@ class ConnectionManager:
 
     async def remove_socket(self, ws: WebSocket) -> None:
         async with self._lock:
+            self._connections.discard(ws)
             for cid in list(self._subs):
                 self._subs[cid].discard(ws)
                 if not self._subs[cid]:
@@ -87,9 +103,55 @@ class ConnectionManager:
             json.dumps(payload, separators=(",", ":")),
         )
 
+    async def voice_state_for(self, channel_id: str) -> list[str]:
+        """Current member set of a voice channel, read from Redis."""
+        key = f"voice:room:channel-{channel_id}"
+        members = await self._redis.smembers(key)
+        return sorted(m.decode() if isinstance(m, bytes) else m for m in members)
+
+    async def voice_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for cid in channel_ids:
+            user_ids = await self.voice_state_for(cid)
+            if user_ids:
+                out.append({"channel_id": cid, "user_ids": user_ids})
+        return out
+
     # Per-socket send timeout during fan-out: a slow/stuck client must not hold
     # up delivery to everyone else on the channel (head-of-line blocking).
     _SEND_TIMEOUT_SECONDS = 5.0
+
+    async def _fan_out(self, targets: list[WebSocket], envelope: dict) -> None:
+        if not targets:
+            return
+
+        async def _send(ws: WebSocket, env: dict = envelope) -> WebSocket | None:
+            try:
+                await asyncio.wait_for(
+                    ws.send_json(env), timeout=self._SEND_TIMEOUT_SECONDS
+                )
+                return None
+            except Exception:  # noqa: BLE001 — timeout, closed socket, etc.
+                return ws
+
+        results = await asyncio.gather(
+            *(_send(ws) for ws in targets), return_exceptions=True
+        )
+        for r in results:
+            if isinstance(r, WebSocket):
+                await self.remove_socket(r)
+
+    @staticmethod
+    def _decode_payload(data: object, where: str) -> Any | None:
+        if isinstance(data, (str, bytes)):
+            try:
+                return json.loads(data)
+            except (ValueError, TypeError):
+                # A malformed message must not kill the listener (it serves
+                # *all* channels). Skip it.
+                log.warning("skipping malformed pubsub message on %s", where)
+                return None
+        return data
 
     async def _listen(self) -> None:
         try:
@@ -104,39 +166,29 @@ class ConnectionManager:
                 channel = msg.get("channel")
                 if isinstance(channel, bytes):
                     channel = channel.decode()
-                channel_id = channel.split(":")[-1]
-                data = msg["data"]
-                if isinstance(data, (str, bytes)):
-                    try:
-                        payload = json.loads(data)
-                    except (ValueError, TypeError):
-                        # A malformed message on the bus must not kill the
-                        # listener (which serves *all* channels). Skip it.
-                        log.warning("skipping malformed pubsub message on %s", channel_id)
+
+                if channel == VOICE_EVENTS_CHANNEL:
+                    payload = self._decode_payload(msg["data"], VOICE_EVENTS_CHANNEL)
+                    if not isinstance(payload, dict) or "channel_id" not in payload:
                         continue
-                else:
-                    payload = data
+                    envelope = {
+                        "op": "voice_state",
+                        "channel_id": str(payload.get("channel_id")),
+                        "user_ids": [str(u) for u in payload.get("user_ids", [])],
+                    }
+                    async with self._lock:
+                        targets = list(self._connections)
+                    await self._fan_out(targets, envelope)
+                    continue
+
+                channel_id = channel.split(":")[-1]
+                payload = self._decode_payload(msg["data"], channel_id)
+                if payload is None:
+                    continue
                 envelope = {"op": "message", "data": payload}
                 async with self._lock:
                     targets = list(self._subs.get(channel_id, ()))
-                if not targets:
-                    continue
-
-                async def _send(ws: WebSocket, env: dict = envelope) -> WebSocket | None:
-                    try:
-                        await asyncio.wait_for(
-                            ws.send_json(env), timeout=self._SEND_TIMEOUT_SECONDS
-                        )
-                        return None
-                    except Exception:  # noqa: BLE001 — timeout, closed socket, etc.
-                        return ws
-
-                results = await asyncio.gather(
-                    *(_send(ws) for ws in targets), return_exceptions=True
-                )
-                for r in results:
-                    if isinstance(r, WebSocket):
-                        await self.remove_socket(r)
+                await self._fan_out(targets, envelope)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

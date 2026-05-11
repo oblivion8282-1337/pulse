@@ -21,6 +21,15 @@ rtc:
 keys:
   devkey: devsecretdevsecretdevsecretdevsecret
 
+# Voice-presence: LiveKit signs each webhook POST with a JWT issued from the
+# `api_key` below (verified by voice-signaling via livekit.api.WebhookReceiver).
+# The container runs with network_mode: host, so 127.0.0.1 is the host — this
+# reaches the voice-signaling service directly. See docker-compose.yml.
+webhook:
+  api_key: devkey
+  urls:
+    - http://127.0.0.1:8003/webhook
+
 log_level: info
 
 room:

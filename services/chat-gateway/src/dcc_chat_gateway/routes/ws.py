@@ -1,4 +1,13 @@
-"""WebSocket endpoint: subscribe / unsubscribe / send fan-out."""
+"""WebSocket endpoint: subscribe / unsubscribe / send fan-out.
+
+Server→client ops, in addition to the chat ops in PLAN.md §5.2:
+  - ``{"op": "voice_state", "channel_id": "<id>", "user_ids": ["<id>", ...]}``
+    — pushed whenever a voice channel's membership changes (relayed from the
+    voice-signaling service over Redis ``voice:events``). Clients filter by
+    their own guild membership. The ``ready`` payload additionally carries
+    ``voice_states: [{"channel_id": ..., "user_ids": [...]}, ...]`` with the
+    current state of every voice channel in the user's guilds.
+"""
 
 from __future__ import annotations
 
@@ -10,7 +19,14 @@ from sqlalchemy import select
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionLocal
-from dcc_chat_gateway.models import CHANNEL_TYPE_TEXT, Guild, GuildMember, Message
+from dcc_chat_gateway.models import (
+    CHANNEL_TYPE_TEXT,
+    CHANNEL_TYPE_VOICE,
+    Channel,
+    Guild,
+    GuildMember,
+    Message,
+)
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
@@ -55,19 +71,38 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     app = websocket.app
     manager = app.state.connection_manager
+    await manager.register(websocket)
     subscribed: set[str] = set()
 
-    # Send "ready" with the user's guild list.
+    # Send "ready" with the user's guild list + the current voice-channel
+    # presence state for those guilds.
     async with SessionLocal() as session:
-        stmt = (
+        guild_stmt = (
             select(Guild)
             .join(GuildMember, GuildMember.guild_id == Guild.id)
             .where(GuildMember.user_id == user.id)
             .order_by(Guild.id)
         )
-        guilds = [{"id": str(g.id), "name": g.name} for g in (await session.execute(stmt)).scalars()]
+        guild_rows = list((await session.execute(guild_stmt)).scalars())
+        guilds = [{"id": str(g.id), "name": g.name} for g in guild_rows]
+        guild_ids = [g.id for g in guild_rows]
+        voice_channel_ids: list[str] = []
+        if guild_ids:
+            vc_stmt = select(Channel.id).where(
+                Channel.guild_id.in_(guild_ids), Channel.type == CHANNEL_TYPE_VOICE
+            )
+            voice_channel_ids = [str(cid) for cid in (await session.execute(vc_stmt)).scalars()]
 
-    await websocket.send_json({"op": "ready", "user_id": str(user.id), "guilds": guilds})
+    voice_states = await manager.voice_states_for(voice_channel_ids)
+
+    await websocket.send_json(
+        {
+            "op": "ready",
+            "user_id": str(user.id),
+            "guilds": guilds,
+            "voice_states": voice_states,
+        }
+    )
 
     try:
         while True:
