@@ -125,6 +125,19 @@
     await goto(`/app/guilds/${activeGuild.id}/channels/${ch.id}`);
   }
 
+  async function onChannelDeleted(deletedId: string) {
+    if (deletedId === channelId) {
+      // Navigate away from the deleted channel.
+      const remaining = (guilds.channelsByGuild[guildId] ?? []).filter((c) => c.id !== deletedId);
+      const next = remaining.find((c) => c.type === 0) ?? remaining[0];
+      if (next) {
+        await goto(`/app/guilds/${guildId}/channels/${next.id}`, { replaceState: true });
+      } else {
+        await goto(`/app/guilds/${guildId}/channels/_`, { replaceState: true });
+      }
+    }
+  }
+
   function sendMessage(text: string) {
     if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
@@ -159,6 +172,7 @@
   activeChannelId={activeChannel?.id ?? null}
   onSelect={selectChannel}
   onCreateClick={() => (creatingChannel = true)}
+  {onChannelDeleted}
   canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
 />
 

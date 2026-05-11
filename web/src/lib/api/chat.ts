@@ -44,6 +44,15 @@ export const chatApi = {
   getChannel(channelId: string): Promise<Channel> {
     return request<Channel>(`/channels/${channelId}`);
   },
+  deleteChannel(channelId: string): Promise<void> {
+    return request<void>(`/channels/${channelId}`, { method: 'DELETE' });
+  },
+  patchChannel(
+    channelId: string,
+    payload: { name?: string; topic?: string }
+  ): Promise<Channel> {
+    return request<Channel>(`/channels/${channelId}`, { method: 'PATCH', body: payload });
+  },
 
   // Messages
   listMessages(

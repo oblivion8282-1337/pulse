@@ -207,3 +207,68 @@ async def test_rate_limit_register(client):
     over = {**REG_PAYLOAD, "username": "alice5", "email": "a5@ex.com"}
     r = await client.post("/register", json=over)
     assert r.status_code == 429
+
+
+# ---- GET /users (batch lookup) -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_batch_users_requires_auth(client):
+    r = await client.get("/users?ids=123")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_batch_users_returns_known_ids(client):
+    reg = (await client.post("/register", json=REG_PAYLOAD)).json()
+    token = reg["access_token"]
+    # /me to get our own id
+    me = (await client.get("/me", headers={"Authorization": f"Bearer {token}"})).json()
+    own_id = me["id"]
+
+    r = await client.get(f"/users?ids={own_id}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["id"] == own_id
+    assert body[0]["username"] == REG_PAYLOAD["username"]
+    # email must NOT appear in UserSummary
+    assert "email" not in body[0]
+
+
+@pytest.mark.asyncio
+async def test_batch_users_unknown_id_omitted(client):
+    reg = (await client.post("/register", json=REG_PAYLOAD)).json()
+    token = reg["access_token"]
+    r = await client.get("/users?ids=999999999999", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_batch_users_too_many_ids(client):
+    reg = (await client.post("/register", json=REG_PAYLOAD)).json()
+    token = reg["access_token"]
+    ids = ",".join(str(i) for i in range(101))
+    r = await client.get(f"/users?ids={ids}", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_batch_users_no_email_in_response(client):
+    # Register two users, look up the second from the first's perspective.
+    r1 = (await client.post("/register", json=REG_PAYLOAD)).json()
+    r2 = (await client.post(
+        "/register",
+        json={**REG_PAYLOAD, "username": "bob", "email": "bob@dcc-test.example.com"},
+    )).json()
+    token1 = r1["access_token"]
+    token2 = r2["access_token"]
+    me2 = (await client.get("/me", headers={"Authorization": f"Bearer {token2}"})).json()
+    id2 = me2["id"]
+
+    r = await client.get(f"/users?ids={id2}", headers={"Authorization": f"Bearer {token1}"})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert "email" not in body[0]

@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import HashIcon from '@lucide/svelte/icons/hash';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -9,8 +10,11 @@
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import { toast } from 'svelte-sonner';
   import { voiceState } from '$lib/voice/state.svelte';
+  import { chatApi } from '$lib/api/chat';
+  import { guilds } from '$lib/stores/guilds.svelte';
   import type { Channel, Guild } from '$lib/api/types';
   import InviteDialog from './InviteDialog.svelte';
+  import RenameChannelDialog from './RenameChannelDialog.svelte';
 
   let {
     guild,
@@ -18,6 +22,7 @@
     activeChannelId = null,
     onSelect,
     onCreateClick,
+    onChannelDeleted,
     canCreate = false
   }: {
     guild: Guild | null;
@@ -25,18 +30,43 @@
     activeChannelId?: string | null;
     onSelect: (c: Channel) => void;
     onCreateClick: () => void;
+    onChannelDeleted?: (channelId: string) => void;
     canCreate?: boolean;
   } = $props();
 
   let inviteOpen = $state(false);
+  let renameChannel = $state<Channel | null>(null);
+  let deleteTarget = $state<Channel | null>(null);
+  let deleteConfirmOpen = $state(false);
+  let deleteBusy = $state(false);
 
   let textChannels = $derived(channels.filter((c) => c.type === 0));
   let voiceChannels = $derived(channels.filter((c) => c.type === 1));
 
-  function notImplemented(action: string, c: Channel) {
-    toast.info(`„${action}“ für ${c.type === 1 ? '' : '#'}${c.name} ist noch nicht verfügbar.`, {
-      description: 'Die entsprechende Backend-Route fehlt noch.'
-    });
+  function openRename(c: Channel) {
+    renameChannel = c;
+  }
+
+  function openDelete(c: Channel) {
+    deleteTarget = c;
+    deleteConfirmOpen = true;
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    deleteBusy = true;
+    try {
+      await chatApi.deleteChannel(id);
+      guilds.removeChannel(id);
+      onChannelDeleted?.(id);
+      deleteConfirmOpen = false;
+      deleteTarget = null;
+    } catch (err) {
+      toast.error('Kanal löschen fehlgeschlagen', { description: (err as Error).message });
+    } finally {
+      deleteBusy = false;
+    }
   }
 </script>
 
@@ -79,6 +109,33 @@
     />
   {/if}
 
+  <RenameChannelDialog
+    open={renameChannel !== null}
+    channel={renameChannel}
+    onClose={() => (renameChannel = null)}
+  />
+
+  <AlertDialog.Root bind:open={deleteConfirmOpen}>
+    <AlertDialog.Content data-testid="delete-channel-dialog">
+      <AlertDialog.Header>
+        <AlertDialog.Title>Kanal löschen?</AlertDialog.Title>
+        <AlertDialog.Description>
+          #{deleteTarget?.name} wird dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+        </AlertDialog.Description>
+      </AlertDialog.Header>
+      <AlertDialog.Footer>
+        <AlertDialog.Cancel disabled={deleteBusy}>Abbrechen</AlertDialog.Cancel>
+        <AlertDialog.Action
+          onclick={confirmDelete}
+          disabled={deleteBusy}
+          data-testid="delete-channel-confirm"
+        >
+          {deleteBusy ? 'Löschen…' : 'Löschen'}
+        </AlertDialog.Action>
+      </AlertDialog.Footer>
+    </AlertDialog.Content>
+  </AlertDialog.Root>
+
   <nav class="flex-1 overflow-y-auto px-2 pb-3 pt-2">
     <div class="text-text-muted px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide">Text-Kanäle</div>
     {#each textChannels as c (c.id)}
@@ -97,17 +154,19 @@
             </button>
           {/snippet}
         </ContextMenu.Trigger>
-        <ContextMenu.Content>
-          <ContextMenu.Item onSelect={() => notImplemented('Kanal umbenennen', c)}>
-            <PencilIcon />
-            Kanal umbenennen
-          </ContextMenu.Item>
-          <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => notImplemented('Kanal löschen', c)}>
-            <Trash2Icon />
-            Kanal löschen
-          </ContextMenu.Item>
-        </ContextMenu.Content>
+        {#if canCreate}
+          <ContextMenu.Content>
+            <ContextMenu.Item onSelect={() => openRename(c)}>
+              <PencilIcon />
+              Kanal umbenennen
+            </ContextMenu.Item>
+            <ContextMenu.Separator />
+            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+              <Trash2Icon />
+              Kanal löschen
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        {/if}
       </ContextMenu.Root>
     {/each}
     {#if textChannels.length === 0}
@@ -134,17 +193,19 @@
             </button>
           {/snippet}
         </ContextMenu.Trigger>
-        <ContextMenu.Content>
-          <ContextMenu.Item onSelect={() => notImplemented('Kanal umbenennen', c)}>
-            <PencilIcon />
-            Kanal umbenennen
-          </ContextMenu.Item>
-          <ContextMenu.Separator />
-          <ContextMenu.Item variant="destructive" onSelect={() => notImplemented('Kanal löschen', c)}>
-            <Trash2Icon />
-            Kanal löschen
-          </ContextMenu.Item>
-        </ContextMenu.Content>
+        {#if canCreate}
+          <ContextMenu.Content>
+            <ContextMenu.Item onSelect={() => openRename(c)}>
+              <PencilIcon />
+              Kanal umbenennen
+            </ContextMenu.Item>
+            <ContextMenu.Separator />
+            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+              <Trash2Icon />
+              Kanal löschen
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        {/if}
       </ContextMenu.Root>
     {/each}
     {#if voiceChannels.length === 0}
