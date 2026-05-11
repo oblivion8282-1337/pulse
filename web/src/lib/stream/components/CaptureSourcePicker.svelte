@@ -10,7 +10,12 @@
 <script lang="ts">
   import { Label } from '$lib/components/ui/label/index.js';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
-  import { streamSettings, isHdrCodec, currentProfile } from '../settings.svelte';
+  import { streamSettings, isHdrCodec, currentProfile, persistSettings } from '../settings.svelte';
+
+  function onChange(e: Event) {
+    streamSettings.capture_source = (e.currentTarget as HTMLSelectElement).value;
+    persistSettings();
+  }
 
   let effectiveCodec = $derived.by(() => {
     if (streamSettings.use_overrides && streamSettings.overrides.codec) {
@@ -29,7 +34,7 @@
     id="stream-capture-select"
     class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
     value={streamSettings.capture_source}
-    onchange={(e) => (streamSettings.capture_source = (e.currentTarget as HTMLSelectElement).value)}
+    onchange={onChange}
     data-testid="stream-capture-select"
   >
     <option value="portal">Portal — Wayland fragt beim Start (universell)</option>

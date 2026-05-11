@@ -122,7 +122,13 @@ def _server_to_dict(s: ServerProfile) -> dict[str, Any]:
 
 
 def _resolve_server(body: dict[str, Any]) -> tuple[ServerProfile, str | None]:
-    """Liefert (server, stream_key). ``channel`` hat Vorrang."""
+    """Liefert (server, stream_key).
+
+    Vorrang:
+    1. ``channel`` (Pulse-Channel-Pfad — ``ServerProfile.from_channel``),
+    2. ``custom_server`` (Inline-Spec aus dem T3c-Frontend-Dialog),
+    3. ``server`` (Katalog-Name aus ``SERVERS``).
+    """
     channel = body.get("channel")
     if channel:
         channel_id = str(channel.get("id") or channel.get("channel_id") or "")
@@ -139,9 +145,39 @@ def _resolve_server(body: dict[str, Any]) -> tuple[ServerProfile, str | None]:
         )
         return sp, token
 
+    custom = body.get("custom_server")
+    if custom:
+        # T3c: User-defined transient server. Validation kept minimal — the
+        # frontend dialog already covers required-field/port-range checks.
+        name = str(custom.get("name") or "").strip()
+        host = str(custom.get("push_host") or "").strip()
+        if not name or not host:
+            raise ValueError("custom_server.name + custom_server.push_host sind Pflicht")
+        try:
+            port = int(custom.get("push_port") or 0)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"custom_server.push_port: {e}") from e
+        if not (1 <= port <= 65535):
+            raise ValueError(f"custom_server.push_port ungültig: {port}")
+        push_protocol = str(custom.get("push_protocol") or "rtmp")
+        push_path = str(custom.get("push_path") or "test")
+        needs_auth = bool(custom.get("needs_auth", True))
+        auth_user = str(custom.get("auth_user") or "publisher")
+        sp = ServerProfile(
+            name=name,
+            push_protocol=push_protocol,
+            push_host=host,
+            push_port=port,
+            push_path=push_path,
+            needs_auth=needs_auth,
+            auth_user=auth_user,
+        )
+        key = body.get("stream_key")
+        return sp, str(key) if key is not None else None
+
     server_name = body.get("server")
     if not server_name:
-        raise ValueError("server (Name) oder channel ist Pflicht")
+        raise ValueError("server (Name), channel oder custom_server ist Pflicht")
     sp = server_by_name(str(server_name))
     key = body.get("stream_key")
     return sp, str(key) if key is not None else None

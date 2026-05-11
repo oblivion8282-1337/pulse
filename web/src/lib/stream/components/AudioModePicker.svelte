@@ -23,6 +23,7 @@
     removeExcludedApp,
     refreshAudioApps,
     audioModeUsesDesktop,
+    persistSettings,
     type AudioMode,
   } from '../settings.svelte';
 
@@ -38,6 +39,7 @@
 
   function onModeChange(mode: AudioMode) {
     streamSettings.audio_mode = mode;
+    persistSettings();
   }
 
   async function onRefresh() {

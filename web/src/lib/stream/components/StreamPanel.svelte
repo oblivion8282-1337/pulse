@@ -23,7 +23,7 @@
 
   import { gsr, type GsrHealth } from '../gsr';
   import { stream } from '../state.svelte';
-  import { loadCatalogs, streamSettings, isCustomProfile } from '../settings.svelte';
+  import { loadCatalogs, streamSettings, isCustomProfile, persistSettings } from '../settings.svelte';
 
   import ProfilePicker from './ProfilePicker.svelte';
   import ServerPicker from './ServerPicker.svelte';
@@ -61,6 +61,7 @@
 
   function toggleOverrides() {
     streamSettings.use_overrides = !streamSettings.use_overrides;
+    persistSettings();
   }
 </script>
 

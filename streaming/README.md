@@ -64,13 +64,18 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 | `list_profiles` | — | `profiles, servers, audio_modes, app_label_prefix` |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
-| `start` | `profile, server?\|channel, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}, stream_key?` | `argv` (die gleiche Liste) — danach kommen Events |
+| `start` | `profile, server?\|channel?\|custom_server?, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}, stream_key?` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
 
-`start`/`build_argv` akzeptieren entweder einen benannten `server` aus
-`list_profiles().servers` **oder** ein `channel: {id, token, mediamtx_endpoint?, push_protocol?}`-Objekt
-für den Pulse-Fall (`ServerProfile.from_channel()`).
+`start`/`build_argv` akzeptieren genau einen von drei Server-Pfaden:
+
+1. `server: "<name>"` — benannter Eintrag aus `list_profiles().servers`.
+2. `channel: {id, token, mediamtx_endpoint?, push_protocol?}` — Pulse-Channel-Pfad
+   (`ServerProfile.from_channel()`).
+3. `custom_server: {name, push_protocol, push_host, push_port, push_path?, needs_auth?, auth_user?}`
+   — Inline-Spec für nutzer-definierte Server (T3c). Wird im Sidecar zu einem
+   transienten `ServerProfile` gewrappt; `stream_key` separat im Top-Level.
 
 ### Events (`{"ev": "..."}`)
 

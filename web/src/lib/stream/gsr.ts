@@ -95,10 +95,27 @@ export interface GsrBuildArgv {
   error?: string;
 }
 
+/** Inline server-spec for ad-hoc user-defined targets (Custom-Server-Dialog, T3c).
+ *  Sent instead of `server: <name>` when the catalog doesn't know the server.
+ *  The sidecar wraps it into a transient `ServerProfile` in `_resolve_server`. */
+export interface GsrCustomServerSpec {
+  name: string;
+  push_protocol: 'rtmp' | 'srt' | string;
+  push_host: string;
+  push_port: number;
+  push_path?: string;
+  needs_auth?: boolean;
+  auth_user?: string;
+}
+
 export interface GsrStartArgs {
   profile: string;
+  /** Catalog server name. Mutually exclusive with `channel`/`custom_server`. */
   server?: string;
+  /** Pulse-channel pathway: server profile built via `ServerProfile.from_channel`. */
   channel?: { id: string; token: string; mediamtx_endpoint?: string; push_protocol?: string };
+  /** Custom server pathway (T3c): inline spec, persisted in the Tauri-store. */
+  custom_server?: GsrCustomServerSpec;
   capture: string;
   audio: { mode: string; excluded_apps?: string[] };
   overrides?: { codec?: string; bitrate_kbps?: number; fps?: number; resolution?: string };

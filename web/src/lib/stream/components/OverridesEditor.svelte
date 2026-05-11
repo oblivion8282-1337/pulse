@@ -19,6 +19,7 @@
     CODEC_VALUES,
     RESOLUTION_VALUES,
     isCustomProfile,
+    persistSettings,
   } from '../settings.svelte';
 
   function markCustom() {
@@ -30,6 +31,7 @@
     ) {
       streamSettings.profile_name = 'Custom';
     }
+    persistSettings();
   }
 
   function onCodec(e: Event) {

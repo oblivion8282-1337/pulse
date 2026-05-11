@@ -1,0 +1,30 @@
+<!--
+  HqStreamDialog — wrappt StreamPanel in einen shadcn-svelte Dialog (T3c).
+
+  Wird vom HqStreamButton im VoiceControlBar geöffnet. shadcn-svelte hat
+  kein Sheet/Drawer-Primitive im Repo (siehe ui/), deshalb nutzen wir den
+  Standard-Dialog mit etwas größerer Max-Breite — der dimmt zwar den
+  Hintergrund, aber `closeOnOutsideClick` (Default) lässt den User mit
+  einem Klick auf den Backdrop zurück in den Channel.
+-->
+<script lang="ts">
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import StreamPanel from './StreamPanel.svelte';
+
+  let { open = $bindable(false) }: { open?: boolean } = $props();
+</script>
+
+<Dialog.Root bind:open>
+  <Dialog.Content
+    class="max-h-[85vh] max-w-2xl overflow-y-auto"
+    data-testid="hq-stream-dialog"
+  >
+    <Dialog.Header class="sr-only">
+      <Dialog.Title>HQ-Stream</Dialog.Title>
+      <Dialog.Description>
+        GPU-Screen-Recorder-basierter Stream über MediaMTX (Pulse-T3).
+      </Dialog.Description>
+    </Dialog.Header>
+    <StreamPanel />
+  </Dialog.Content>
+</Dialog.Root>

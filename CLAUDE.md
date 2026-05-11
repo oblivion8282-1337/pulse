@@ -238,6 +238,59 @@ desktop/src-tauri/src/streaming/
 - `uv run pytest` — 134/134 grün (Etappe-1/2-Suites unangefasst).
 - **Nicht verifiziert in T3a**: tatsächlicher `gsr_start` (würde Portal-Dialog öffnen + an Hetzner pushen). T3b-Aufgabe für den User.
 
+## Streaming-UI + Voice-View-Integration (T3b/T3c)
+
+Die Pulse-Streaming-UI lebt unter `web/src/lib/stream/`:
+
+- `gsr.ts` — typed Wrapper um die Tauri-Bridge (T3a). `GsrStartArgs` trägt
+  seit T3c zusätzlich `custom_server: {…}` für die nutzer-definierten Server-Targets.
+- `state.svelte.ts` — Live-Stream-State (`running/fps/uptime/log/error`).
+- `settings.svelte.ts` — User-Picker-Selections + Catalog + GPU-Info-Cache,
+  alle Mutations rufen `persistSettings()` (debouncede 300ms-Save).
+- `persistence.ts` (T3c) — Wrapper über `@tauri-apps/plugin-store`-`LazyStore`
+  (`pulse-stream.json` im app-config-dir) mit `localStorage`-Fallback (`pulse.stream`-Key)
+  für den Browser-Pfad. Persistiert: `profile_name`, `server_name`, `capture_source`,
+  `audio_mode`, `excluded_apps`, `overrides`, `use_overrides`, `custom_servers`.
+- `components/` — `StreamPanel` (Composite) + die einzelnen Picker
+  (`ProfilePicker`, `ServerPicker`, `CaptureSourcePicker`, `AudioModePicker`,
+  `OverridesEditor`), `StreamControls`, `StreamLog`, plus T3c-Add-Ons:
+  `AddServerDialog`, `HqStreamButton`, `HqStreamDialog`.
+
+**GPU-Detection-Default (T3c, `defaultProfileForGpu`):** `loadCatalogs()` ruft
+`gsr.gpuInfo()` parallel zu den Katalogen ab und cachet das Result in
+`streamSettings.gpu_info`. Aus `gpu_info.video_codecs` leiten wir den Default-
+Profilnamen ab — AV1-Encoder vorhanden → "AV1 Effizient", sonst "H.264 Standard"
+(Fallback: erstes Profil). **Wichtig:** Persistenz wird *vor* den Defaults
+geladen — gespeicherte Werte überschreiben die Heuristik, der Default greift
+nur beim allerersten Start ohne gespeicherte Wahl. AV1-Warnung in
+`ProfilePicker` (`av1Mismatch()` — Profil nutzt AV1, GPU listet kein AV1-Encode).
+
+**Custom-Server (T3c, `AddServerDialog`):** legt einen `CustomServer`
+({name, host, port, protocol, path, auth-user, stream_key, is_custom: true})
+in `streamSettings.custom_servers` ab, persistiert via Tauri-store + merged in
+`available_servers`. `ServerPicker` zeigt Custom-Einträge mit `(custom)`-Tag und
+einem Löschen-Knopf. Beim `gsr_start` schickt der Frontend die volle Inline-Spec
+als `custom_server: {...}` + `stream_key` — der Sidecar (`control.py::_resolve_server`)
+wrappt das zu einem transienten `ServerProfile`. **Stream-Key landet im Klartext
+im Tauri-Store** (`chmod 600` via `harden_config_dir()` ist die einzige
+Hardening-Maßnahme — auf shared Boxen reicht das, ist aber *kein* Secret-Vault).
+**Niemals `console.log(...)` mit Stream-Key oder Token.**
+
+**Voice-View-Integration (T3c):** `VoiceControlBar` rendert `<HqStreamButton />`
+zwischen Screenshare-Toggle und Verlassen-Button. Der Button rendert *nur*
+wenn `isTauri() && isLinux() && stream.available` — im Browser und auf anderen
+OSs unsichtbar. Click → öffnet `HqStreamDialog` mit dem ganzen `StreamPanel`
+drin (shadcn-svelte-`Dialog`, `max-w-2xl`, `closeOnOutsideClick`-Default). Bei
+laufendem Stream (`stream.running`) zeigt der Button-Icon einen roten Live-Dot.
+Neue `data-testid`s: `voice-hq-stream-btn`, `voice-hq-stream-live-dot`,
+`hq-stream-dialog`, `add-server-dialog`, `stream-server-add`, `stream-server-delete`,
+`stream-profile-av1-warning`.
+
+**Test-Befehl Dev-Route:** Vite-Dev `:5173` läuft, dann
+`http://127.0.0.1:5173/app/dev/stream` öffnen — die T3a-Diagnose-Page mit
+allen Sidecar-Ops als Buttons. Im *normalen* Pulse-Flow ist die Streaming-UI
+nur im Voice-Channel über den Stream-Button erreichbar (und nur unter Tauri+Linux).
+
 ## Test-Datenbank
 
 E2E-Tests (Playwright) laufen gegen `dcc_test` — eine separate DB im selben Postgres-Container.

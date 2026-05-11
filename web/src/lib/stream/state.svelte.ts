@@ -14,7 +14,14 @@ import { gsr, type GsrEvent } from './gsr';
 const MAX_LOG_LINES = 50;
 
 export const stream = $state({
+  /** True iff the Tauri bridge can be reached (i.e. we're inside Tauri AND
+   *  the sidecar replied to `health`). Pre-T3c this was just `isTauri()`. */
   available: false,
+  /** True iff the sidecar's health probe says `gsr.available === true` —
+   *  i.e. a `gpu-screen-recorder` binary was located. Added in T3c so the
+   *  voice-view HQ-Stream button can gate on real availability, not just
+   *  "Tauri-bridge works". */
+  gsrAvailable: false,
   running: false,
   state: 'idle' as 'idle' | 'starting' | 'live' | 'error' | 'stopped',
   fps: null as number | null,
@@ -43,14 +50,16 @@ export async function initStream(): Promise<() => void> {
   try {
     const h = await gsr.health();
     // If the sidecar can't be reached the invoke throws (caught below); a
-    // successful response just means the binding works. We don't try to
-    // expose the full health payload through `stream` — the dev UI calls
-    // `gsr.health()` directly for that.
-    if (h && !h.ok) {
-      stream.error = 'sidecar health probe failed';
+    // successful response just means the binding works. We expose the
+    // `gsr.available` flag through `stream.gsrAvailable` so the voice-view
+    // HQ-Stream button can gate on whether the binary is actually present.
+    if (h) {
+      if (!h.ok) stream.error = 'sidecar health probe failed';
+      stream.gsrAvailable = !!h.gsr?.available;
     }
   } catch (e) {
     stream.available = false;
+    stream.gsrAvailable = false;
     stream.error = String(e);
     return () => {};
   }
