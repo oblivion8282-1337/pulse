@@ -11,7 +11,7 @@
 import { ChildProcess, spawn, execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '../../..');
@@ -179,6 +179,8 @@ export default async function globalSetup() {
   await waitFor('http://127.0.0.1:8001/health');
   await waitFor('http://127.0.0.1:8002/health');
 
-  // Stash pids in env so teardown can stop them even across process boundaries.
-  process.env.__DCC_TEST_PIDS = procs.map((p) => p.pid).join(',');
+  // Write pids to a temp file so teardown can stop only these child processes.
+  // process.env is not shared across Playwright worker boundaries, but a file is.
+  const pidFile = resolve(ROOT, 'node_modules/.dcc-e2e-pids.json');
+  writeFileSync(pidFile, JSON.stringify(procs.map((p) => p.pid).filter(Boolean)));
 }

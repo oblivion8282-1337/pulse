@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Annotated
+
+import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import select
+
+log = logging.getLogger(__name__)
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
@@ -26,7 +29,7 @@ def serialize_message(msg: Message) -> dict:
         "author_id": str(msg.author_id),
         "content": msg.content,
         "nonce": msg.nonce,
-        "created_at": (msg.created_at or datetime.now(tz=UTC)).isoformat(),
+        "created_at": msg.created_at.isoformat(),
     }
 
 
@@ -88,7 +91,12 @@ async def post_message(
     await session.commit()
     await session.refresh(msg)
     # Fan out via the connection manager (if present in app state).
+    # Publish is best-effort: the message is already committed, so a Redis
+    # failure here must not turn a 201 into a 500.
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
-        await mgr.publish(str(channel_id), serialize_message(msg))
+        try:
+            await mgr.publish(str(channel_id), serialize_message(msg))
+        except Exception:
+            log.exception("publish failed for channel %s (message persisted)", channel_id)
     return msg
