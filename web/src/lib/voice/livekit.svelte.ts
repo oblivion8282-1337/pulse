@@ -24,8 +24,11 @@ import {
   RoomEvent,
   Track
 } from 'livekit-client';
+import type { ScreenShareCaptureOptions, TrackPublishOptions, VideoResolution } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
+import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
+import { toast } from 'svelte-sonner';
 
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
@@ -220,13 +223,45 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     try {
-      await room.localParticipant.setScreenShareEnabled(on, { audio: true });
-      this.isScreenSharing = on;
-      // When the browser's own "stop sharing" bar fires the track ends,
-      // the TrackUnpublished event will call #refreshScreenState.
+      if (on) {
+        const s = screenShareSettings;
+        const captureOptions: ScreenShareCaptureOptions = {
+          audio: true,
+          contentHint: s.contentHint
+        };
+        if (s.resolution !== 'native') {
+          const resMap: Record<string, VideoResolution> = {
+            '1080p': { width: 1920, height: 1080, frameRate: s.fps },
+            '720p': { width: 1280, height: 720, frameRate: s.fps },
+            '480p': { width: 854, height: 480, frameRate: s.fps }
+          };
+          captureOptions.resolution = resMap[s.resolution];
+        }
+        const publishOptions: TrackPublishOptions = {
+          videoCodec: s.codec,
+          screenShareEncoding: {
+            maxBitrate: s.bitrateMbps * 1_000_000,
+            maxFramerate: s.fps
+          }
+        };
+        await room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions);
+        this.isScreenSharing = true;
+      } else {
+        await room.localParticipant.setScreenShareEnabled(false);
+        this.isScreenSharing = false;
+      }
     } catch (e) {
-      // User cancelled the browser picker or permissions denied.
       this.isScreenSharing = false;
+      if (e instanceof Error) {
+        const msg = e.message.toLowerCase();
+        if (msg.includes('codec') || msg.includes('not supported') || msg.includes('encodingparameters')) {
+          toast.error(`Codec "${screenShareSettings.codec.toUpperCase()}" wird von deinem Browser nicht unterstützt — versuch VP9 oder H.264`);
+        } else if (!msg.includes('cancel') && !msg.includes('abort') && !msg.includes('permission')) {
+          // User cancelled the browser picker — no toast needed.
+          // Only show error for unexpected failures.
+          toast.error('Bildschirm teilen fehlgeschlagen', { description: e.message });
+        }
+      }
     }
   }
 
