@@ -1,14 +1,18 @@
 """LiveKit webhook receiver — keeps the voice-presence state in Redis.
 
 LiveKit (running in a container) POSTs `participant_joined` / `participant_left`
-/ `room_finished` events here. We verify the signature with the same API
-key/secret pair the token endpoint uses, then maintain a per-channel Redis set
-of user-ids and publish the full new state on the `voice:events` pub/sub
-channel so chat-gateway can fan it out to WebSocket clients.
+/ `room_finished` / `track_published` / `track_unpublished` events here. We
+verify the signature with the same API key/secret pair the token endpoint uses,
+then maintain per-channel Redis sets and publish the full new state on the
+`voice:events` pub/sub channel so chat-gateway can fan it out to WebSocket
+clients.
 
 Key layout (shared with chat-gateway, which only reads):
-  - ``voice:room:channel-<channel_id>`` → Redis SET of user-id strings
-  - publish on ``voice:events`` → ``{"channel_id": "<id>", "user_ids": [...]}``
+  - ``voice:room:channel-<channel_id>``           → Redis SET of user-id strings
+  - ``voice:room:channel-<channel_id>:streaming`` → Redis SET of user-id strings
+                                                     (users currently sharing screen)
+  - publish on ``voice:events`` →
+      ``{"channel_id": "<id>", "user_ids": [...], "streaming_user_ids": [...]}``
 
 Room name / participant identity mapping mirrors ``routes.py``:
   - room   = ``channel-<channel_id>``           (``_room_for_channel``)
@@ -22,6 +26,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request, status
 from livekit.api import TokenVerifier, WebhookReceiver
+from livekit.protocol.models import TrackSource
 from redis.asyncio import Redis
 
 from dcc_voice_signaling.config import get_settings
@@ -32,12 +37,18 @@ router = APIRouter()
 
 VOICE_EVENTS_CHANNEL = "voice:events"
 VOICE_ROOM_KEY = "voice:room:{room}"
+VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
 _ROOM_PREFIX = "channel-"
 _IDENTITY_PREFIX = "user-"
+_SCREEN_SHARE_SOURCE = TrackSource.SCREEN_SHARE
 
 
 def room_key(room_name: str) -> str:
     return VOICE_ROOM_KEY.format(room=room_name)
+
+
+def streaming_key(room_name: str) -> str:
+    return VOICE_STREAMING_KEY.format(room=room_name)
 
 
 def channel_id_from_room(room_name: str) -> str | None:
@@ -73,10 +84,16 @@ def _receiver() -> WebhookReceiver:
 async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     members = await redis.smembers(room_key(room_name))
     user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members)
+    streamers = await redis.smembers(streaming_key(room_name))
+    streaming_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in streamers)
     await redis.publish(
         VOICE_EVENTS_CHANNEL,
         json.dumps(
-            {"channel_id": channel_id, "user_ids": user_ids},
+            {
+                "channel_id": channel_id,
+                "user_ids": user_ids,
+                "streaming_user_ids": streaming_user_ids,
+            },
             separators=(",", ":"),
         ),
     )
@@ -94,10 +111,30 @@ async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     await redis.srem(key, user_id)
     if await redis.scard(key) == 0:
         await redis.delete(key)
+    # Also remove from streaming set on leave (handles missed track_unpublished).
+    sk = streaming_key(room_name)
+    await redis.srem(sk, user_id)
+    if await redis.scard(sk) == 0:
+        await redis.delete(sk)
 
 
 async def _apply_room_finished(redis: Redis, room_name: str) -> None:
     await redis.delete(room_key(room_name))
+    await redis.delete(streaming_key(room_name))
+
+
+async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) -> None:
+    settings = get_settings()
+    sk = streaming_key(room_name)
+    await redis.sadd(sk, user_id)
+    await redis.expire(sk, settings.voice_state_ttl_seconds)
+
+
+async def _apply_screen_share_stop(redis: Redis, room_name: str, user_id: str) -> None:
+    sk = streaming_key(room_name)
+    await redis.srem(sk, user_id)
+    if await redis.scard(sk) == 0:
+        await redis.delete(sk)
 
 
 @router.post("/webhook", status_code=status.HTTP_204_NO_CONTENT)
@@ -143,4 +180,17 @@ async def livekit_webhook(request: Request) -> None:
         await _publish_state(redis, room_name, channel_id)
         return
 
-    # Other events (track_published, etc.) don't change presence.
+    if kind in ("track_published", "track_unpublished"):
+        if not event.HasField("participant") or not event.HasField("track"):
+            return
+        if event.track.source != _SCREEN_SHARE_SOURCE:
+            return
+        user_id = user_id_from_identity(event.participant.identity)
+        if user_id is None:
+            return
+        if kind == "track_published":
+            await _apply_screen_share_start(redis, room_name, user_id)
+        else:
+            await _apply_screen_share_stop(redis, room_name, user_id)
+        await _publish_state(redis, room_name, channel_id)
+        return

@@ -103,18 +103,25 @@ class ConnectionManager:
             json.dumps(payload, separators=(",", ":")),
         )
 
-    async def voice_state_for(self, channel_id: str) -> list[str]:
-        """Current member set of a voice channel, read from Redis."""
+    async def voice_state_for(self, channel_id: str) -> dict[str, list[str]]:
+        """Current presence + streaming sets for a voice channel, read from Redis."""
         key = f"voice:room:channel-{channel_id}"
+        sk = f"voice:room:channel-{channel_id}:streaming"
         members = await self._redis.smembers(key)
-        return sorted(m.decode() if isinstance(m, bytes) else m for m in members)
+        streamers = await self._redis.smembers(sk)
+        return {
+            "user_ids": sorted(m.decode() if isinstance(m, bytes) else m for m in members),
+            "streaming_user_ids": sorted(
+                m.decode() if isinstance(m, bytes) else m for m in streamers
+            ),
+        }
 
     async def voice_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for cid in channel_ids:
-            user_ids = await self.voice_state_for(cid)
-            if user_ids:
-                out.append({"channel_id": cid, "user_ids": user_ids})
+            state = await self.voice_state_for(cid)
+            if state["user_ids"] or state["streaming_user_ids"]:
+                out.append({"channel_id": cid, **state})
         return out
 
     # Per-socket send timeout during fan-out: a slow/stuck client must not hold
@@ -175,6 +182,9 @@ class ConnectionManager:
                         "op": "voice_state",
                         "channel_id": str(payload.get("channel_id")),
                         "user_ids": [str(u) for u in payload.get("user_ids", [])],
+                        "streaming_user_ids": [
+                            str(u) for u in payload.get("streaming_user_ids", [])
+                        ],
                     }
                     async with self._lock:
                         targets = list(self._connections)
