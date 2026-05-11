@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import ScreenShareSettingsDialog from './ScreenShareSettingsDialog.svelte';
+  import SettingsDialog from './SettingsDialog.svelte';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
@@ -10,9 +10,10 @@
   import RadioIcon from '@lucide/svelte/icons/radio';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
-  import Settings2Icon from '@lucide/svelte/icons/settings-2';
+  import SettingsIcon from '@lucide/svelte/icons/settings';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
 
   let settingsOpen = $state(false);
 
@@ -78,7 +79,9 @@
           {/snippet}
         </Tooltip.Trigger>
         <Tooltip.Content>
-          {voice.pttMode ? 'Push-to-Talk an (Taste "V" halten)' : 'Push-to-Talk aus (offenes Mikro)'}
+          {voice.pttMode
+            ? `Push-to-Talk an (Taste „${settings.voice.pttKey.toUpperCase()}" halten)`
+            : 'Push-to-Talk aus (offenes Mikro)'}
         </Tooltip.Content>
       </Tooltip.Root>
       <Tooltip.Root>
@@ -109,29 +112,15 @@
               size={'icon' as const}
               onclick={() => (settingsOpen = true)}
               data-testid="voice-screenshare-settings"
-              aria-label="Bildschirm-Teilen Einstellungen"
+              aria-label="Einstellungen"
             >
-              <Settings2Icon />
+              <SettingsIcon />
             </Button>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content>Bildschirm-Teilen Einstellungen</Tooltip.Content>
+        <Tooltip.Content>Einstellungen</Tooltip.Content>
       </Tooltip.Root>
     </Tooltip.Provider>
-
-    {#if voice.outputDevices.length > 1}
-      <select
-        class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
-        value={voice.selectedOutputDeviceId}
-        onchange={(e) => voice.setOutputDevice((e.currentTarget as HTMLSelectElement).value)}
-        data-testid="voice-output-device"
-        aria-label="Audio-Ausgabegerät"
-      >
-        {#each voice.outputDevices as d (d.deviceId)}
-          <option value={d.deviceId}>{d.label || `Ausgabegerät ${d.deviceId.slice(0, 6)}`}</option>
-        {/each}
-      </select>
-    {/if}
   </div>
 
   <Button
@@ -146,4 +135,4 @@
   </Button>
 </div>
 
-<ScreenShareSettingsDialog bind:open={settingsOpen} />
+<SettingsDialog bind:open={settingsOpen} initialTab="audio-video" />

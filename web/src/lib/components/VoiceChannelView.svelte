@@ -8,6 +8,7 @@
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import type { Channel } from '$lib/api/types';
 
@@ -49,7 +50,7 @@
     voice.pttPress();
   }
   function handlePttKeyup(e: KeyboardEvent) {
-    if (!voice.pttMode || (e.key !== 'v' && e.key !== 'V')) return;
+    if (!voice.pttMode || e.key.toLowerCase() !== settings.voice.pttKey) return;
     if (isTypingTarget(e.target)) return;
     voice.pttRelease();
   }
@@ -58,7 +59,7 @@
 <svelte:window
   use:shortcut={{
     type: 'keydown',
-    trigger: { key: 'v', modifier: false, callback: handlePttKeydown }
+    trigger: { key: settings.voice.pttKey, modifier: false, callback: handlePttKeydown }
   }}
   onkeyup={handlePttKeyup}
   onblur={() => { if (voice.pttMode) voice.pttRelease(); }}
