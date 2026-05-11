@@ -5,6 +5,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { voice } from '$lib/voice/livekit.svelte';
   import { logout } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -30,6 +31,7 @@
 
   onDestroy(() => {
     gateway.disconnect();
+    void voice.disconnect();
   });
 
   async function onSignOut() {
@@ -43,6 +45,7 @@
     }
     auth.signOut();
     gateway.disconnect();
+    void voice.disconnect();
     guilds.clear();
     messages.clear();
     await goto('/login', { replaceState: true });

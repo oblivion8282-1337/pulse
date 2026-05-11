@@ -1,0 +1,32 @@
+<script lang="ts">
+  import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import MicOffIcon from '@lucide/svelte/icons/mic-off';
+  import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
+
+  let { p }: { p: VoiceParticipant } = $props();
+
+  // Glow intensity from audioLevel while speaking; clamps to a visible range.
+  let glow = $derived(p.isSpeaking ? Math.min(1, 0.35 + p.audioLevel * 2) : 0);
+  let initial = $derived((p.name.trim()[0] ?? '?').toUpperCase());
+</script>
+
+<div class="flex flex-col items-center gap-1.5" data-testid="voice-participant" data-identity={p.identity}>
+  <div
+    class="rounded-full transition-shadow"
+    style={glow > 0 ? `box-shadow: 0 0 0 ${2 + glow * 4}px rgba(59,165,93,${0.25 + glow * 0.5});` : ''}
+  >
+    <Avatar.Root class="size-16">
+      <Avatar.Fallback class="bg-primary text-primary-foreground text-lg font-semibold">
+        {initial}
+      </Avatar.Fallback>
+    </Avatar.Root>
+  </div>
+  <div class="flex items-center gap-1 text-xs">
+    <span class="text-text-bright max-w-28 truncate" title={p.name}>
+      {p.name}{p.isLocal ? ' (du)' : ''}
+    </span>
+    {#if p.micMuted}
+      <MicOffIcon class="size-3 text-red-400" />
+    {/if}
+  </div>
+</div>

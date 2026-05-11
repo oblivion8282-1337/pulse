@@ -19,13 +19,16 @@ export class ApiError extends Error {
   }
 }
 
-export type ApiEndpoint = 'auth' | 'chat';
+export type ApiEndpoint = 'auth' | 'chat' | 'voice';
 
 export const AUTH_BASE = '/api/auth';
 export const CHAT_BASE = '/api/chat';
+export const VOICE_BASE = '/api/voice';
 
 function base(endpoint: ApiEndpoint): string {
-  return endpoint === 'auth' ? AUTH_BASE : CHAT_BASE;
+  if (endpoint === 'auth') return AUTH_BASE;
+  if (endpoint === 'voice') return VOICE_BASE;
+  return CHAT_BASE;
 }
 
 let _refreshInflight: Promise<Tokens | null> | null = null;
