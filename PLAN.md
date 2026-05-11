@@ -645,6 +645,36 @@ volumes:
 
 ---
 
+## 12.1 Code-Größen-Policy
+
+Damit Module review-freundlich, modular und für autonome Agent-Läufe effizient
+editierbar bleiben:
+
+| Datei-Typ | Ziel | Harte Grenze | Bei Überschreitung |
+|---|---|---|---|
+| Source-Dateien (Routes, Services, Stores, Lib-Module) | ≤ 350 Zeilen | 500 Zeilen | In APIRouter-Module / Sub-Module aufteilen |
+| Svelte-Components (`.svelte`) | ≤ 250 Zeilen | — | Sub-Component rausziehen |
+
+**Ausgenommen** (keine Grenze):
+- Tests (`tests/`, `*.spec.ts`, `test_*.py`)
+- Alembic-Migrationen (`alembic/versions/`)
+- Generierter / Vendor-Code (`web/src/lib/components/ui/` — shadcn-svelte-Copy-Paste)
+- Lockfiles, generierte Schemas
+
+**Regeln:**
+- Bei autonomen Agent-Läufen ist die Policy einzuhalten — im Zweifel **splitten statt wachsen lassen**.
+- Eine neue Route-Gruppe bekommt ein eigenes Modul unter `routes/`, nicht einen Anhang an ein bestehendes.
+- Geteilte Helper kommen in ein `_deps.py` / `_helpers.ts`, nicht dupliziert.
+
+**Grund:** Modularität, Review-Freundlichkeit, effizientes Agent-Editing (kleine Dateien =
+weniger Kontext pro Edit, weniger Merge-Konflikte).
+
+Referenz-Umsetzung: `services/chat-gateway/src/dcc_chat_gateway/routes/` ist in
+`guilds.py` / `channels.py` / `messages.py` / `ws.py` / `_deps.py` aufgeteilt
+(vorher eine 373-Zeilen-`routes.py`).
+
+---
+
 ## 13. Offene Punkte vor Implementierungsstart
 
 1. **Projektname final?** `discord-clone` ist Platzhalter. Vorschläge: `comlink`, `voxhub`, `kanal`, `zwiegespraech`, `kollektiv`.
