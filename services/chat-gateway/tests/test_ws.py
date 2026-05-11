@@ -178,9 +178,9 @@ async def test_ws_non_numeric_channel_id_errors(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_ws_oversized_frame_rejected(ws_app, _auth_signer):
-    # Audit #11: frames above the size cap get an error frame and the socket
-    # is closed (no unbounded buffering).
+async def test_ws_oversized_frame_rejected_but_survives(ws_app, _auth_signer):
+    # Audit #11 (revised): a single oversized frame gets an error frame but the
+    # session stays open — only repeated abuse closes it.
     def _run():
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
@@ -191,6 +191,64 @@ async def test_ws_oversized_frame_rejected(ws_app, _auth_signer):
                 resp = ws.receive_json()
                 assert resp["op"] == "error"
                 assert resp["code"] == 4009
+                # Connection still alive — a normal op still works.
+                ws.send_json({"op": "subscribe", "channel_id": channel_id})
+                ws.send_json(
+                    {"op": "send", "channel_id": channel_id, "content": "ok", "nonce": "n"}
+                )
+                ops = [ws.receive_json()["op"] for _ in range(2)]
+                assert "message_ack" in ops
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_repeated_oversized_frames_close(ws_app, _auth_signer):
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
+            with pytest.raises(Exception):
+                with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                    ws.receive_json()
+                    huge = "x" * (32 * 1024)
+                    for _ in range(6):
+                        ws.send_json(
+                            {"op": "send", "channel_id": channel_id, "content": huge}
+                        )
+                        ws.receive_json()  # 4009 error frame, until the socket closes
+                    ws.receive_text()  # should raise: socket closed
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_closes_when_token_expires(ws_app, _auth_signer):
+    # The WS connection must not outlive its access token: a 4001 close fires
+    # once `exp` passes. We mint a token whose `exp` is ~1s out.
+    import time as _time
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, _, guild_id, _ = _bootstrap_sync(tc, _auth_signer)
+            uid = 424242
+            now = int(_time.time())
+            short_token = _auth_signer._sign(
+                {
+                    "iss": "dcc-auth",
+                    "aud": "dcc",
+                    "sub": str(uid),
+                    "username": "shortlived",
+                    "iat": now,
+                    "exp": now + 1,
+                    "typ": "access",
+                }
+            )
+            with pytest.raises(Exception):
+                with tc.websocket_connect(f"/ws?token={short_token}") as ws:
+                    ws.receive_json()  # ready
+                    # Block on a read; the server closes us within ~1s.
+                    while True:
+                        ws.receive_json()
 
     await asyncio.to_thread(_run)
 

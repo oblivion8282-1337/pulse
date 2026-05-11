@@ -5,7 +5,7 @@ from __future__ import annotations
 import secrets
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -70,6 +70,17 @@ async def _first_text_channel_id(session, guild_id: int) -> int | None:
 async def _member_count(session, guild_id: int) -> int:
     stmt = select(func.count()).select_from(GuildMember).where(GuildMember.guild_id == guild_id)
     return int((await session.execute(stmt)).scalar_one())
+
+
+async def _publish_member_added(request: Request, guild_id: int, user_id: int) -> None:
+    """Tell every connected client that a user joined a guild. A client whose
+    own id matches re-hydrates so its WS session starts tracking the new guild
+    (voice presence, channel-lifecycle events)."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(
+            {"op": "guild_member_added", "guild_id": str(guild_id), "user_id": str(user_id)}
+        )
 
 
 # ---- Create / list ---------------------------------------------------------
@@ -175,20 +186,21 @@ async def get_invite(code: str, session: SessionDep, current: CurrentUser):
 
 
 @router.post("/invites/{code}/accept", response_model=InviteAcceptOut)
-async def accept_invite(code: str, session: SessionDep, current: CurrentUser):
+async def accept_invite(code: str, session: SessionDep, current: CurrentUser, request: Request):
     invite = await session.get(GuildInvite, code)
     if invite is None:
         raise HTTPException(404, detail=_INVITE_INVALID)
     guild = await session.get(Guild, invite.guild_id)
     if guild is None:
         raise HTTPException(404, detail=_INVITE_INVALID)
+    guild_name, guild_icon = guild.name, guild.icon_url
 
     existing = await session.get(GuildMember, (invite.guild_id, current.id))
     if existing is not None:
         # Already a member: idempotent, do not consume a use.
         channel_id = invite.channel_id or await _first_text_channel_id(session, guild.id)
         return InviteAcceptOut(
-            guild=InviteGuildOut(id=guild.id, name=guild.name, icon_url=guild.icon_url),
+            guild=InviteGuildOut(id=guild.id, name=guild_name, icon_url=guild_icon),
             channel_id=channel_id,
         )
 
@@ -212,6 +224,8 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser):
     if result is None:
         await session.rollback()
         raise HTTPException(404, detail=_INVITE_INVALID)
+    # Read the resolved guild/channel id from the RETURNING row — NOT from the
+    # `invite` ORM object, which would be expired after a possible rollback.
     guild_id, invite_channel_id = result
 
     session.add(GuildMember(guild_id=guild_id, user_id=current.id))
@@ -223,7 +237,8 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser):
         await session.rollback()
 
     channel_id = invite_channel_id or await _first_text_channel_id(session, guild_id)
+    await _publish_member_added(request, guild_id, current.id)
     return InviteAcceptOut(
-        guild=InviteGuildOut(id=guild.id, name=guild.name, icon_url=guild.icon_url),
+        guild=InviteGuildOut(id=guild.id, name=guild_name, icon_url=guild_icon),
         channel_id=channel_id,
     )
