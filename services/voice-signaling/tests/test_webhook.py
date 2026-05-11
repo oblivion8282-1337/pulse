@@ -287,6 +287,116 @@ async def test_webhook_room_finished_clears_streaming(webhook_client, redis):
         await redis.delete(streaming_key(room))
 
 
+@pytest.mark.asyncio
+async def test_is_screen_share_int_source():
+    """_is_screen_share must accept raw int source values (3 and 4)."""
+    from dcc_voice_signaling.webhook import _is_screen_share
+
+    class FakeTrack:
+        def __init__(self, source, track_type=1, name=""):
+            self.source = source
+            self.type = track_type
+            self.name = name
+
+    assert _is_screen_share(FakeTrack(source=3))   # SCREEN_SHARE int
+    assert _is_screen_share(FakeTrack(source=4))   # SCREEN_SHARE_AUDIO int
+    assert not _is_screen_share(FakeTrack(source=1, track_type=1))  # CAMERA video
+    assert not _is_screen_share(FakeTrack(source=2, track_type=0))  # MICROPHONE audio
+
+
+@pytest.mark.asyncio
+async def test_is_screen_share_string_source():
+    """_is_screen_share must accept string source values like 'SCREEN_SHARE'."""
+    from dcc_voice_signaling.webhook import _is_screen_share
+
+    class FakeTrack:
+        def __init__(self, source, track_type=1, name=""):
+            self.source = source
+            self.type = track_type
+            self.name = name
+
+    assert _is_screen_share(FakeTrack(source="SCREEN_SHARE"))
+    assert _is_screen_share(FakeTrack(source="SCREEN_SHARE_AUDIO"))
+    assert _is_screen_share(FakeTrack(source="screen_share"))  # lowercase
+    assert not _is_screen_share(FakeTrack(source="CAMERA", track_type=1))
+
+
+@pytest.mark.asyncio
+async def test_is_screen_share_name_fallback():
+    """_is_screen_share must detect screen-share by track name if source is UNKNOWN."""
+    from dcc_voice_signaling.webhook import _is_screen_share
+
+    class FakeTrack:
+        def __init__(self, source, track_type=1, name=""):
+            self.source = source
+            self.type = track_type
+            self.name = name
+
+    assert _is_screen_share(FakeTrack(source=0, track_type=1, name="screenshare"))
+    assert _is_screen_share(FakeTrack(source=0, track_type=1, name="screen_share_v0"))
+    assert not _is_screen_share(FakeTrack(source=0, track_type=0, name="mic"))
+
+
+@pytest.mark.asyncio
+async def test_is_screen_share_video_fallback():
+    """VIDEO track with unknown/0 source but not CAMERA → fallback screen-share."""
+    from dcc_voice_signaling.webhook import _is_screen_share
+
+    class FakeTrack:
+        def __init__(self, source, track_type, name=""):
+            self.source = source
+            self.type = track_type
+            self.name = name
+
+    # source=0 (UNKNOWN), type=1 (VIDEO) → screen-share
+    assert _is_screen_share(FakeTrack(source=0, track_type=1))
+    # source=1 (CAMERA), type=1 (VIDEO) → NOT screen-share
+    assert not _is_screen_share(FakeTrack(source=1, track_type=1))
+
+
+@pytest.mark.asyncio
+async def test_webhook_screen_share_audio_track(webhook_client, redis):
+    """track_published with SCREEN_SHARE_AUDIO source must also set the streaming badge."""
+    from dcc_voice_signaling.webhook import streaming_key
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    try:
+        body = _event_body("participant_joined", room, "user-20")
+        await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+
+        # SCREEN_SHARE_AUDIO = source 4
+        body = _event_body("track_published", room, "user-20", track_source=4)
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        members = await redis.smembers(streaming_key(room))
+        assert {m.decode() for m in members} == {"20"}
+    finally:
+        await redis.delete(room_key(room))
+        await redis.delete(streaming_key(room))
+
+
+@pytest.mark.asyncio
+async def test_webhook_screen_share_int_source(webhook_client, redis):
+    """track_published with raw int source=3 (SCREEN_SHARE) must set the streaming badge."""
+    from dcc_voice_signaling.webhook import streaming_key
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    try:
+        body = _event_body("participant_joined", room, "user-30")
+        await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+
+        body = _event_body("track_published", room, "user-30", track_source=3)
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        members = await redis.smembers(streaming_key(room))
+        assert {m.decode() for m in members} == {"30"}
+    finally:
+        await redis.delete(room_key(room))
+        await redis.delete(streaming_key(room))
+
+
 async def _drain_one(pubsub, attempts: int = 50):
     """Poll the pubsub for one message (subscribe confirmation already skipped)."""
     import asyncio

@@ -22,16 +22,16 @@ Room name / participant identity mapping mirrors ``routes.py``:
 from __future__ import annotations
 
 import json
-import logging
 
+import structlog
 from fastapi import APIRouter, HTTPException, Request, status
 from livekit.api import TokenVerifier, WebhookReceiver
-from livekit.protocol.models import TrackSource
+from livekit.protocol.models import TrackSource, TrackType
 from redis.asyncio import Redis
 
 from dcc_voice_signaling.config import get_settings
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -40,7 +40,51 @@ VOICE_ROOM_KEY = "voice:room:{room}"
 VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
 _ROOM_PREFIX = "channel-"
 _IDENTITY_PREFIX = "user-"
-_SCREEN_SHARE_SOURCE = TrackSource.SCREEN_SHARE
+
+# Int values for screen-share sources (Protobuf enum — both video+audio tracks).
+_SCREEN_SHARE_SOURCES = frozenset({int(TrackSource.SCREEN_SHARE), int(TrackSource.SCREEN_SHARE_AUDIO)})
+
+
+def _is_screen_share(track) -> bool:  # noqa: ANN001
+    """Return True if this TrackInfo represents a screen-share (or its audio companion).
+
+    LiveKit delivers `track.source` as a Protobuf-int-enum.  We defend against
+    every representation the wire may carry: raw int, enum member, upper/lower-case
+    string name.  The final fallback covers the case where source is missing or
+    UNKNOWN (0): any VIDEO track that is NOT a camera is treated as a screen-share,
+    because this app never publishes camera video into voice channels.
+    """
+    source_str = str(track.source).upper()
+
+    # Int-based check first (covers Protobuf int-enum, Python int, "3"/"4" strings).
+    try:
+        source_int = int(track.source)
+        if source_int in _SCREEN_SHARE_SOURCES:
+            return True
+    except (TypeError, ValueError):
+        source_int = None
+
+    # String name check ("SCREEN_SHARE" or "SCREEN_SHARE_AUDIO").
+    if "SCREEN_SHARE" in source_str:
+        return True
+
+    # Track-name fallback (LiveKit sometimes names the track "screenshare").
+    name = (track.name or "").lower()
+    if "screen" in name:
+        return True
+
+    # Final pragmatic fallback: only when source is explicitly 0/UNKNOWN (not a
+    # string like "CAMERA").  A VIDEO track with UNKNOWN source → screen-share,
+    # because camera video is never published in this app's voice channels.
+    if source_int == 0:
+        try:
+            is_video = int(track.type) == int(TrackType.VIDEO)
+            if is_video:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    return False
 
 
 def room_key(room_name: str) -> str:
@@ -148,7 +192,7 @@ async def livekit_webhook(request: Request) -> None:
     try:
         event = _receiver().receive(body, auth_header)
     except Exception as exc:  # noqa: BLE001 — any verify error is a 401
-        log.warning("rejected webhook: %s", exc)
+        log.warning("webhook_rejected", error=str(exc))
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="bad signature") from exc
 
     room_name = event.room.name if event.HasField("room") else ""
@@ -161,6 +205,8 @@ async def livekit_webhook(request: Request) -> None:
 
     redis = _get_redis(request)
     kind = event.event
+
+    log.info("webhook_event", kind=kind, room=room_name, channel_id=channel_id)
 
     if kind == "room_finished":
         await _apply_room_finished(redis, room_name)
@@ -181,13 +227,26 @@ async def livekit_webhook(request: Request) -> None:
         return
 
     if kind in ("track_published", "track_unpublished"):
-        if not event.HasField("participant") or not event.HasField("track"):
+        has_track = event.HasField("track")
+        has_participant = event.HasField("participant")
+        log.info(
+            "track_event",
+            kind=kind,
+            has_track=has_track,
+            has_participant=has_participant,
+            track_source=int(event.track.source) if has_track else None,
+            track_type=int(event.track.type) if has_track else None,
+            track_name=event.track.name if has_track else None,
+            track_sid=event.track.sid if has_track else None,
+        )
+        if not has_participant or not has_track:
             return
-        if event.track.source != _SCREEN_SHARE_SOURCE:
+        if not _is_screen_share(event.track):
             return
         user_id = user_id_from_identity(event.participant.identity)
         if user_id is None:
             return
+        log.info("screen_share_event", kind=kind, user_id=user_id, room=room_name)
         if kind == "track_published":
             await _apply_screen_share_start(redis, room_name, user_id)
         else:
