@@ -4,6 +4,7 @@
   import { toast } from 'svelte-sonner';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
@@ -46,7 +47,17 @@
     try {
       const { deleteAvatar: del } = await import('$lib/api/auth');
       await del();
-      if (auth.user) auth.setUser({ ...auth.user, avatar_url: null });
+      if (auth.user) {
+        auth.setUser({ ...auth.user, avatar_url: null });
+        userCache.seed([
+          {
+            id: auth.user.id,
+            username: auth.user.username,
+            display_name: auth.user.display_name ?? null,
+            avatar_url: null
+          }
+        ]);
+      }
       toast.success('Profilbild entfernt');
     } catch (e) {
       toast.error('Fehler beim Entfernen', { description: (e as Error).message });
@@ -68,14 +79,16 @@
           class="hover:bg-bg-hover flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 transition-colors"
           data-testid="user-footer-trigger"
         >
-          <Avatar.Root class="size-8 shrink-0">
-            {#if avatarUrl}
-              <Avatar.Image src={avatarUrl} alt={displayName} />
-            {/if}
-            <Avatar.Fallback class="bg-primary text-primary-foreground text-xs font-semibold">
-              {initial}
-            </Avatar.Fallback>
-          </Avatar.Root>
+          {#key avatarUrl}
+            <Avatar.Root class="size-8 shrink-0">
+              {#if avatarUrl}
+                <Avatar.Image src={avatarUrl} alt={displayName} />
+              {/if}
+              <Avatar.Fallback class="bg-primary text-primary-foreground text-xs font-semibold">
+                {initial}
+              </Avatar.Fallback>
+            </Avatar.Root>
+          {/key}
           <div class="min-w-0 text-left">
             <p class="text-text-bright truncate text-sm font-medium">{displayName}</p>
             {#if displayName !== username}

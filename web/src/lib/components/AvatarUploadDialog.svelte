@@ -4,6 +4,7 @@
   import { toast } from 'svelte-sonner';
   import { uploadAvatar } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -62,7 +63,19 @@
     busy = true;
     try {
       const updated = await uploadAvatar(file);
-      if (auth.user) auth.setUser({ ...auth.user, avatar_url: updated.avatar_url });
+      if (auth.user) {
+        auth.setUser({ ...auth.user, avatar_url: updated.avatar_url });
+        // auch den User-Cache aktualisieren, damit der Avatar in Nachrichten /
+        // Mitgliederliste / Voice-Tiles sofort neu erscheint (nicht erst nach Reload)
+        userCache.seed([
+          {
+            id: auth.user.id,
+            username: auth.user.username,
+            display_name: auth.user.display_name ?? null,
+            avatar_url: updated.avatar_url
+          }
+        ]);
+      }
       toast.success('Profilbild aktualisiert');
       open = false;
       file = null;

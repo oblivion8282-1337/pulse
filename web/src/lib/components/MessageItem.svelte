@@ -74,14 +74,16 @@
     data-testid="message-item"
     data-message-id={message.id}
   >
-    <Avatar.Root class="size-10 shrink-0">
-      {#if url}
-        <Avatar.Image src={url} alt={authorName} />
-      {/if}
-      <Avatar.Fallback class="bg-primary text-primary-foreground text-sm font-semibold">
-        {authorName.slice(0, 1).toUpperCase()}
-      </Avatar.Fallback>
-    </Avatar.Root>
+    {#key url}
+      <Avatar.Root class="size-10 shrink-0">
+        {#if url}
+          <Avatar.Image src={url} alt={authorName} />
+        {/if}
+        <Avatar.Fallback class="bg-primary text-primary-foreground text-sm font-semibold">
+          {authorName.slice(0, 1).toUpperCase()}
+        </Avatar.Fallback>
+      </Avatar.Root>
+    {/key}
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline gap-2">
         <span class="text-text-bright font-medium" data-testid="message-author">{authorName}</span>
