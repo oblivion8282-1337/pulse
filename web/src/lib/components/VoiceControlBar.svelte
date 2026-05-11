@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import SettingsDialog from './SettingsDialog.svelte';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
@@ -10,12 +9,9 @@
   import RadioIcon from '@lucide/svelte/icons/radio';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
-  import SettingsIcon from '@lucide/svelte/icons/settings';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
-
-  let settingsOpen = $state(false);
 
   async function handleScreenShare() {
     try {
@@ -103,23 +99,6 @@
           {voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}
         </Tooltip.Content>
       </Tooltip.Root>
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              variant="ghost"
-              size={'icon' as const}
-              onclick={() => (settingsOpen = true)}
-              data-testid="voice-screenshare-settings"
-              aria-label="Einstellungen"
-            >
-              <SettingsIcon />
-            </Button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>Einstellungen</Tooltip.Content>
-      </Tooltip.Root>
     </Tooltip.Provider>
   </div>
 
@@ -134,5 +113,3 @@
     Verlassen
   </Button>
 </div>
-
-<SettingsDialog bind:open={settingsOpen} initialTab="audio-video" />
