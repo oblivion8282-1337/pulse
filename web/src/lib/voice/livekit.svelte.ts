@@ -344,7 +344,11 @@ class VoiceRoom {
       echoCancellation: a.echoCancellation,
       // Only let the browser do NS when explicitly selected; otherwise we either
       // run our own processor (rnnoise/deepfilternet) or nothing ('off').
-      noiseSuppression: a.noiseSuppression === 'browser'
+      noiseSuppression: a.noiseSuppression === 'browser',
+      // forceStereo on the publish side only signals stereo in the SDP — the
+      // captured track has to actually have 2 channels for stereo audio to be
+      // transmitted, so ask getUserMedia for them.
+      channelCount: a.stereo ? 2 : 1
     };
     if (a.inputDeviceId) opts.deviceId = a.inputDeviceId;
     return opts;
