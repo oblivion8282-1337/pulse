@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
@@ -14,8 +13,9 @@
 
   let { channel }: { channel: Channel } = $props();
 
-  let autoConnectAttempted = false;
-
+  // Connecting must happen from a user gesture (click on "Beitreten") so the
+  // browser allows the AudioContext to start — auto-connect on mount would be
+  // blocked by autoplay policy.
   async function joinChannel() {
     try {
       await voice.connect(channel.id, channel.name);
@@ -25,18 +25,6 @@
       });
     }
   }
-
-  $effect(() => {
-    const cid = channel.id;
-    const alreadyHere = voice.channelId === cid;
-    const busy = voice.connecting;
-    untrack(() => {
-      if (!alreadyHere && !busy && !autoConnectAttempted) {
-        autoConnectAttempted = true;
-        void joinChannel();
-      }
-    });
-  });
 
   let isThisChannel = $derived(voice.channelId === channel.id);
   let statusLabel = $derived(

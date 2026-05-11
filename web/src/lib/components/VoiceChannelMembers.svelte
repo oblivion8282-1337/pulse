@@ -1,8 +1,9 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import MonitorIcon from '@lucide/svelte/icons/monitor';
   import { userCache } from '$lib/stores/users.svelte';
 
-  let { userIds }: { userIds: string[] } = $props();
+  let { userIds, streamingUserIds = [] }: { userIds: string[]; streamingUserIds?: string[] } = $props();
 
   $effect(() => {
     for (const id of userIds) userCache.queue(id);
@@ -28,5 +29,12 @@
       </Avatar.Fallback>
     </Avatar.Root>
     <span class="truncate">{name}</span>
+    {#if streamingUserIds.includes(uid)}
+      <MonitorIcon
+        class="ml-auto size-3 shrink-0 text-red-500"
+        data-testid="user-streaming-badge"
+        aria-label="teilt seinen Bildschirm"
+      />
+    {/if}
   </div>
 {/each}

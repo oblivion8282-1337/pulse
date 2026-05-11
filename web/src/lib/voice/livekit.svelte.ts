@@ -139,6 +139,14 @@ class VoiceRoom {
       throw e;
     }
 
+    // We're still inside the user gesture that triggered connect() — resume the
+    // AudioContext now so attached <audio> elements can play (autoplay policy).
+    try {
+      await room.startAudio();
+    } catch {
+      // startAudio rejects if already started — harmless.
+    }
+
     this.state = room.state;
     this.audioBlocked = !room.canPlaybackAudio;
     voiceState.channelId = channelId;
@@ -221,6 +229,12 @@ class VoiceRoom {
     } catch {
       // startAudio can throw if already started — harmless.
     }
+    // Nudge our detached <audio> elements; screen-share audio is handled at the
+    // track level by startAudio() above.
+    for (const el of this.#audioEls.values()) {
+      void el.play().catch(() => undefined);
+    }
+    this.audioBlocked = !room.canPlaybackAudio;
   }
 
   async setScreenShare(on: boolean): Promise<void> {
@@ -366,6 +380,10 @@ class VoiceRoom {
     el.style.display = 'none';
     document.body.appendChild(el);
     this.#audioEls.set(sid, el);
+    void el.play().catch(() => {
+      // Autoplay blocked — surface the overlay so the user can unblock.
+      this.audioBlocked = true;
+    });
   }
 
   #detachAudio(sid: string): void {
