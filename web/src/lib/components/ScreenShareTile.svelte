@@ -31,12 +31,15 @@
   data-identity={identity}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
   <video
     bind:this={videoEl}
     autoplay
     playsinline
-    class="w-full object-contain"
+    class="w-full cursor-pointer object-contain"
     style="aspect-ratio: 16/9;"
+    onclick={() => videoEl?.requestFullscreen()}
+    title="Klicken für Vollbild"
   ></video>
   <div class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-1 text-xs text-white">
     <MonitorIcon class="size-3" />

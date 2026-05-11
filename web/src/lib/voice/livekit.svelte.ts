@@ -220,7 +220,7 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     try {
-      await room.localParticipant.setScreenShareEnabled(on);
+      await room.localParticipant.setScreenShareEnabled(on, { audio: true });
       this.isScreenSharing = on;
       // When the browser's own "stop sharing" bar fires the track ends,
       // the TrackUnpublished event will call #refreshScreenState.
@@ -275,7 +275,12 @@ class VoiceRoom {
       .on(RoomEvent.TrackMuted, () => this.#refreshParticipants())
       .on(RoomEvent.TrackUnmuted, () => this.#refreshParticipants())
       .on(RoomEvent.LocalTrackPublished, () => this.#refreshParticipants())
-      .on(RoomEvent.LocalTrackUnpublished, () => this.#refreshParticipants())
+      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        if (pub.source === Track.Source.ScreenShare) {
+          this.isScreenSharing = false;
+        }
+        this.#refreshParticipants();
+      })
       .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: RemoteParticipant) => {
         if (track.kind === Track.Kind.Audio) {
@@ -289,12 +294,6 @@ class VoiceRoom {
         this.#detachAudio(track.sid ?? '');
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
           this.#removeScreenTrack(track.sid ?? '');
-        }
-        this.#refreshParticipants();
-      })
-      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
-        if (pub.source === Track.Source.ScreenShare) {
-          this.isScreenSharing = false;
         }
         this.#refreshParticipants();
       })
