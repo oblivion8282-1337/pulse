@@ -388,6 +388,8 @@ Wenn Channel mehr als ~100 Messages: `svelte-virtual` für scrollable Liste. Son
 
 ## 7. Tauri 2 Desktop-Wrapper (Etappe 4, aber schon mitgedacht)
 
+> **Revision 2026-05-11:** Der konkrete, beschlossene Etappenplan für Tauri + GSR-Integration steht in **§17**. Was hier in §7/§8 steht ist der ursprüngliche Entwurf — §17 hat Vorrang wo es abweicht (insb.: Auslieferung als *Flatpak*, GSR komplett gebundled, kein Localhost-Daemon).
+
 ### Build-Flow
 1. `pnpm build` in `/web` erzeugt `web/build/` (statisches Asset-Verzeichnis)
 2. `tauri.conf.json` zeigt `frontendDist` auf `../web/build`
@@ -424,6 +426,8 @@ Striktes Permission-Model. Standard-Capability erlaubt nur was wir brauchen:
 ---
 
 ## 8. GSR-Helper-Daemon (Etappe 3)
+
+> **Revision 2026-05-11 — überholt durch §17.** Statt eines eigenständigen Localhost-FastAPI-Daemons (der für den *reinen-Browser*-Fall gedacht war) wird die GSR-Funktionalität direkt in die Tauri-App integriert: Rust spawnt einen Python-Sidecar (`gsr-sidecar`, reused `profiles.py`/`stream_controller.py`), Kommunikation per stdio. Das ganze GSR-Build-Paket (Custom-FFmpeg mit NVENC+VAAPI+QSV, gepatchter GSR) wird in *eine* Flatpak gebundled. Details: §17. Der Abschnitt unten bleibt als Referenz für die Daemon-Variante, falls reiner-Browser-Support später doch gewünscht ist.
 
 **Zweck:** Linux-User mit installiertem GSR + diesem Helper bekommen einen "Stream in HQ via GPU"-Button in der Web-App, der einen NVENC/VAAPI-Stream startet. Alle anderen User nutzen `getDisplayMedia` via Browser.
 
@@ -787,3 +791,87 @@ Drei Open-Source-Projekte, die wir vor den jeweiligen Etappen lesen:
 | Vor Etappe 2 | Stoatchat `crates/api/src/routes/voice/` | ~30 Min |
 | Vor Etappe 2 | `issam-seghir/discord-clone` UI-Patterns | ~30 Min |
 | Vor Etappe 4 (Roles) | Mattermost-Permission-Doc | ~20 Min |
+
+---
+
+## 17. GSR↔Tauri-Integration — Etappenplan T1–T6 (beschlossen 2026-05-11)
+
+Ersetzt den Entwurf in §7/§8 wo abweichend. Kontext: der GSR-Streamer (`~/Dokumente/GPU_Screen_Recorder/`) existiert und funktioniert end-to-end. Statt ihn als externen Daemon anzusprechen, ziehen wir die Funktionalität in die Pulse-Tauri-App und liefern am Ende **eine Flatpak** aus, die das komplette GSR-Build-Paket mitbringt.
+
+### Beschlossene Entscheidungen
+- **Q1 — GSR-Binary:** komplett ins Flatpak gebundled (Custom-FFmpeg n8.1.1 mit NVENC/CUDA + VAAPI/QSV → NVIDIA, AMD, Intel; gepatchter GSR ≥5.13.5; GL.nvidia + GL.default-Extensions). **Keine** Detection-Kette, **kein** System-GSR-Voraussetzen. Bundle-Größe ~300 MB ist explizit ok. (Variante "d" aus der Diskussion — funktioniert weil Flatpak, nicht AppImage.)
+- **Q2 — Sidecar:** long-running **Python**-Prozess (`gsr-sidecar`), wiederverwendet `profiles.py` + `stream_controller.py` + `config.py` aus dem GSR-`ui/`-Ordner ~verbatim. Einzige echte Logik-Änderung: `QProcess` → `subprocess.Popen` + stderr-Reader-Thread. Tauri (Rust) spawnt+managed den Sidecar, Kommunikation per stdio (newline-JSON: Requests rein, Events raus). In der Flatpak schlicht als `.py` + python3 — kein PyInstaller nötig.
+- **Q3 — Code-Übernahme:** **Vendored Copy** nach `discord-clone/streaming/`. `~/Dokumente/GPU_Screen_Recorder/` bleibt **komplett am Leben und unangetastet** — bewährte Referenz + Zuhause des Standalone-GSR-Flatpaks. Kein Submodule/Subtree (Wrapper ändert sich nicht, wir divergieren eh). Stream-Key (`server/.stream-key`, generierte `server/mediamtx.yml`) wird **nicht** mitkopiert; Pulse-`.gitignore` deckt `streaming/server/{mediamtx.yml,.stream-key}` ab.
+
+### Leitplanken
+1. GSR-Original-Repo unangetastet — wird kopiert, nicht modifiziert/gelöscht.
+2. Qt-UI (`stream_window.py`, `main.py`) fällt weg; Funktionalität wird in Svelte neu gebaut, läuft in der Tauri-App.
+3. GSR-Streaming = Linux-only + optional: nur sichtbar wenn `isTauri() && isLinux() && gsrAvailable()`. Sonst (Win/Mac, reiner Browser) → `getDisplayMedia` → LiveKit-Screen-Track.
+4. Kein Localhost-Daemon mit CORS/JWT — Rust spawnt den Sidecar direkt, stdio.
+5. Primäres Auslieferungs-Artefakt = die Flatpak. Win/Mac/non-Flatpak-Linux-Bundles (ohne Streaming, nur Chat/Voice) sind Kür, nicht Teil des Hauptziels.
+
+### Architektur (Tauri-Fall)
+```
+Svelte-Streaming-UI (in Pulse, im Tauri-WebView)
+   │  Tauri invoke / events
+Rust (src-tauri): spawnt+managed Sidecar, registriert PTT-Global-Shortcut
+   │  stdin/stdout, newline-JSON
+gsr-sidecar (Python — profiles.py/stream_controller.py, Qt gestrippt)
+   │  subprocess
+gpu-screen-recorder (aus /app/bin der Flatpak) ──RTMP/SRT──▶ MediaMTX (Hetzner, existiert) ──WHEP──▶ andere Pulse-User (whep-Player im Voice-View)
+```
+
+### Monorepo-Layout (Ergänzung zu §3)
+```
+discord-clone/
+├── web/                       (exists) — src/lib/stream/ NEU: whep.ts · gsr.ts (Tauri-Bridge) · components/
+├── desktop/                   NEU — Tauri 2: src-tauri/{src, tauri.conf.json, capabilities/, binaries/}
+├── streaming/                 NEU — vendored aus GPU_Screen_Recorder/ (Kopie, dann angepasst)
+│   ├── gsr-sidecar/           profiles.py · stream_controller.py · config.py + control.py (stdio-Loop, ersetzt main.py/stream_window.py)
+│   ├── patches/               GSR-C++-Patches — verbatim (0001-opus-flv-whitelist, 0002-stub-vulkan-encoder)
+│   ├── bootstrap-gsr.fish     Custom-GSR-Build — verbatim (läuft im Flatpak-Build)
+│   ├── server/                MediaMTX docker-compose + mediamtx.yml.template + player.html — verbatim (NICHT die generierte yml/.stream-key)
+│   ├── scripts/               start-stream*.fish — manuelle Test-Skripte, optional
+│   └── pyproject.toml
+├── packaging/                 NEU — kombiniertes Flatpak-Manifest (Basis: das GSR-Manifest, PySide6-Module raus, Tauri+Sidecar+web-build rein)
+└── services/{…, media-svc/, mediamtx-auth-hook/}   die letzten zwei = NEU (T5)
+```
+Was NICHT mitkopiert wird: Binär-/Build-Artefakte (`mediamtx`-Binary, `*.flatpak`, `build/`, `.flatpak-builder/`, `*.log`), die Qt-UI-Dateien.
+
+### Etappen
+
+**T1 — Tauri-Shell** (kein Streaming)
+- `desktop/src-tauri/` anlegen. `frontendDist` → `../web/build`. `tauri dev` startet `pnpm dev`. Tauri-CLI + Rust-Version vorher pinnen, in CLAUDE.md festhalten.
+- Plugins: `single-instance`, `store` (Token-/Settings-Persistenz, Linux chmod 600), `notification` (Ping-Toasts), `global-shortcut` (PTT: Rust registriert → emittet `ptt-down`/`ptt-up` → Svelte → LiveKit `setMicrophoneEnabled`), `autostart` (optional). Capabilities strikt (`core:default`, `notification:default`, `global-shortcut:default`, `store:default`; keine Shell-/FS-Permissions außer Settings-Pfad).
+- `web/src/lib/platform/runtime.ts`: `isTauri()` (`'__TAURI_INTERNALS__' in window`), `isLinux()`. Cross-Build-CI (Linux .AppImage/.deb erstmal; Flatpak kommt in T6).
+- *Liefert:* installierbare Desktop-App = aktuelle Web-App + PTT-Global-Shortcut + Notifications.
+
+**T2 — GSR-Paket rüberkopieren + Sidecar**
+- `streaming/` = Kopie der relevanten GSR-Teile (s. Layout). Qt-Dateien raus.
+- `gsr-sidecar/control.py`: stdio-Loop — Requests von stdin (`{"op":"start","profile":…,"server":…,"capture":…,"audio":…}`, `"stop"`, `"state"`, `"health"`, `"list_monitors"`, `"gpu_info"`), ruft den Controller (QProcess → `subprocess.Popen` + stderr-Reader-Thread), Events auf stdout (`{"ev":"state","running":true,"fps":59,"uptime":12}`, `{"ev":"error",…}`, `{"ev":"log","line":…}`). + `ServerProfile.from_channel(channel_id, token, mediamtx_endpoint)` in `profiles.py` — jetzt vollwertig implementierbar (Pulse-Pfad `channel-<id>`, Stream-Token statt fixem Key).
+- GSR-Binary-Resolver im Sidecar: in der Flatpak schlicht `/app/bin/gpu-screen-recorder`; in Dev: Custom-Build wenn vorhanden, sonst System-`gpu-screen-recorder` (= wie die bestehenden Skripte).
+- *Liefert:* `gsr-sidecar` lokal per stdin/stdout testbar; Tauri kann ihn starten/stoppen/abfragen.
+
+**T3 — Svelte-Streaming-UI**
+- Components in `web/src/lib/stream/components/`: Profil-Picker, Server-Picker, Capture-Quelle (Portal / Monitor-Liste via Sidecar-`list_monitors`), Audio-Mode + persistente App-Exclude-Liste, Codec/Bitrate/FPS/Auflösung (die "Custom"-Overrides aus `config.py`), Start/Stop, Live-FPS+Uptime, ausklappbares Log — 1:1 die PySide6-Features.
+- Plus die zwei GSR-Pending-Tasks: GPU-Detection (Sidecar-`gpu_info`) → Default-Profil je Hardware (NVIDIA→AV1, AMD pre-RDNA3→H.264) + Warning bei AV1-auf-inkompatibel; Custom-Server-Profile via Dialog (persistiert, neuer Settings-Field).
+- Nur sichtbar wenn `isTauri() && isLinux() && gsrAvailable()` (Sidecar-`health`). Sonst bestehender Browser-Screen-Share-Pfad. Settings via Tauri-`store` statt `~/.config/gsr-stream-ui/`.
+- *Liefert:* GSR-HQ-Streaming komplett aus der Pulse-Tauri-App.
+
+**T4 — WHEP-Playback in Pulse**
+- `web/src/lib/stream/whep.ts` — WHEP-Client (`RTCPeerConnection` + Lib), Player-Component im Voice-Channel-View, Stats-Overlay optional (wie `server/player.html`).
+- *Interim:* feste MediaMTX-URL (`http://77.42.71.166:8889/<name>` in Dev). Andere Channel-Member sehen den Stream wenn jemand "HQ" streamt.
+- *Liefert:* GSR-Stream *in* Pulse sichtbar, nicht nur via externem Player.
+
+**T5 — Server-Seite** (eigener großer Block)
+- `mediamtx-auth-hook` (FastAPI, MediaMTX `authHTTP`-Delegation): Publish nur mit gültigem Stream-Token für `channel-<id>`, Read nur für Channel-Member.
+- `media-svc`: vergibt Stream-Tokens, koppelt Channel ↔ MediaMTX-Pfad, published Stream-State auf Redis → chat-gateway broadcastet "X streamt in #channel".
+- VPS: `mediamtx.yml` umstellen (per-Channel-Pfade + authHTTP), MediaMTX hinter Caddy mit TLS (`stream.unicutmedia.com` → :8888/:8889), Caddy-Block für `pulse.unicutmedia.com` + Pulse-Backend-Deploy auf den VPS (SSH `michael@77.42.71.166` — vorhanden, busy shared VPS, MediaMTX in `~/streaming/`).
+
+**T6 — Flatpak-Packaging**
+- `packaging/` = das GSR-Manifest als Basis. *Behalten:* Custom-FFmpeg n8.1.1 (NVENC/CUDA/VAAPI), nv-codec-headers n13, GSR-Build mit den 2 Patches, `--device=all`, GL-Extensions. *Raus:* PySide6 + Qt-UI-Module. *Dazu:* SvelteKit-Static-Build, Tauri-Rust-App, `gsr-sidecar` (Python).
+- **Offener Knoten:** Base-Runtime. GSR-Manifest nutzt `org.kde.Platform//6.9`; Tauri braucht `webkit2gtk-4.1` → `org.gnome.Platform` (hat webkit2gtk + Mesa/VAAPI). Voraussichtlich Umstieg auf `org.gnome.Platform//47` (o.ä. aktuell) — beim Bauen verifizieren dass das Custom-FFmpeg-NVENC dagegen baut (sollte; FFmpeg-NVENC ist weitgehend self-contained, CUDA-Stubs).
+- Der Standalone-GSR-Flatpak im Original-Repo bleibt unberührt.
+
+### Reihenfolge / Status
+T1 ist unblocked und Voraussetzung für alles → Start hier. T1–T4 sind die "Pulse-Tauri-App mit Streaming"-Strecke; T5 (Multi-User-Auth + Deploy) und T6 (Flatpak) folgen. Pro Code-Etappe gilt die Verifikations-Regel (§15): Team mit Plan/Umsetzung + Verify.
