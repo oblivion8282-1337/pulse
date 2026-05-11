@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import GuildList from '$lib/components/GuildList.svelte';
@@ -32,7 +33,10 @@
 
   let prevGuild = $state('');
   let prevChannel = $state('');
-  let switchGen = 0;
+  // $state so the writes below don't re-trigger the effect (they're wrapped in
+  // untrack regardless, but a plain `let` would also break gen-comparison in
+  // a reactive context).
+  let switchGen = $state(0);
 
   $effect(() => {
     const g = guildId;
@@ -40,39 +44,45 @@
     void switchTo(g, c);
   });
 
+  onMount(() => gateway.onChannelDeleted(handleRemoteChannelDeleted));
+
   async function switchTo(g: string, c: string) {
     if (!g) return;
-    const gen = ++switchGen;
+    // All access to switchGen/prevGuild/prevChannel goes through untrack so the
+    // surrounding $effect never re-triggers on our own writes.
+    const isStale = () => untrack(() => switchGen) !== gen;
+    const gen = untrack(() => (switchGen += 1));
+    const prevG = untrack(() => prevGuild);
+    const prevC = untrack(() => prevChannel);
 
-    if (g !== prevGuild) {
+    if (g !== prevG) {
       resolving = true;
       loadError = null;
       try {
         await guilds.loadChannels(g);
       } catch (err) {
-        if (gen !== switchGen) return;
+        if (isStale()) return;
         loadError = err instanceof Error ? err.message : 'Kanäle konnten nicht geladen werden';
         resolving = false;
         return;
       }
-      if (gen !== switchGen) return;
-      prevGuild = g;
+      if (isStale()) return;
+      untrack(() => (prevGuild = g));
     }
     const list = guilds.channelsByGuild[g] ?? [];
     let target: string | null = c;
     if (c === '_' || !list.find((ch) => ch.id === c)) {
       const first = list.find((ch) => ch.type === 0) ?? list[0];
       if (first) {
-        target = first.id;
         await goto(`/app/guilds/${g}/channels/${first.id}`, { replaceState: true, noScroll: true });
         return;
       }
       target = null;
     }
 
-    if (target && target !== prevChannel) {
+    if (target && target !== prevC) {
       // Leave the previous text channel's WS subscription.
-      if (prevChannel) gateway.unsubscribe(prevChannel);
+      if (prevC) gateway.unsubscribe(prevC);
       const ch = list.find((x) => x.id === target);
       // Only text channels have message history + WS subscriptions.
       // Voice channels are handled entirely by VoiceChannelView/LiveKit.
@@ -80,22 +90,34 @@
         try {
           if (!messages.loadedChannels[target]) {
             const history = await chatApi.listMessages(target);
-            if (gen !== switchGen) return;
+            if (isStale()) return;
             messages.setInitial(target, history);
           }
-          gateway.subscribe(target);
         } catch (err) {
-          if (gen !== switchGen) return;
+          if (isStale()) return;
           loadError = err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden';
           resolving = false;
           return;
         }
+        // Only subscribe once this switch is still the active one — otherwise
+        // a faster switch already moved on and we'd leak a subscription.
+        if (isStale()) return;
+        gateway.subscribe(target);
       }
-      prevChannel = target;
+      // Record prevChannel only after the whole operation succeeded.
+      untrack(() => (prevChannel = target!));
     }
-    if (gen !== switchGen) return;
+    if (isStale()) return;
     loadError = null;
     resolving = false;
+  }
+
+  function handleRemoteChannelDeleted(gId: string, cId: string) {
+    if (gId === guildId && cId === channelId) {
+      // The connection.ts handler already pruned the store + subscription; we
+      // just navigate away from the now-gone channel.
+      void onChannelDeleted(cId);
+    }
   }
 
   async function selectGuild(id: string) {

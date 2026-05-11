@@ -30,12 +30,15 @@ class GuildStore {
     this.byId = { ...this.byId, [guild.id]: guild };
   }
 
-  addChannel(channel: Channel): void {
+  addChannel(channel: Partial<Channel> & Omit<Channel, 'created_at'>): void {
     const list = this.channelsByGuild[channel.guild_id] ?? [];
     if (list.some((c) => c.id === channel.id)) return;
+    // WS lifecycle events omit created_at; it's not surfaced in the channel
+    // list, so fall back to "now" rather than carrying it through the wire.
+    const full: Channel = { created_at: new Date().toISOString(), ...channel };
     this.channelsByGuild = {
       ...this.channelsByGuild,
-      [channel.guild_id]: [...list, channel]
+      [channel.guild_id]: [...list, full]
     };
   }
 
@@ -47,12 +50,13 @@ class GuildStore {
     this.channelsByGuild = next;
   }
 
-  updateChannel(channel: Channel): void {
+  updateChannel(channel: Partial<Channel> & Pick<Channel, 'id' | 'guild_id'>): void {
     const list = this.channelsByGuild[channel.guild_id];
     if (!list) return;
     this.channelsByGuild = {
       ...this.channelsByGuild,
-      [channel.guild_id]: list.map((c) => (c.id === channel.id ? channel : c))
+      // Merge so fields the event omits (e.g. created_at) keep their values.
+      [channel.guild_id]: list.map((c) => (c.id === channel.id ? { ...c, ...channel } : c))
     };
   }
 

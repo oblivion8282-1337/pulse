@@ -13,6 +13,8 @@
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { messages } from '$lib/stores/messages.svelte';
+  import { gateway } from '$lib/ws/connection';
   import type { Channel, Guild } from '$lib/api/types';
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
@@ -61,7 +63,11 @@
     deleteBusy = true;
     try {
       await chatApi.deleteChannel(id);
+      // Eager local cleanup — the channel_deleted WS broadcast does the same
+      // for every other client (and us again, harmlessly).
       guilds.removeChannel(id);
+      gateway.unsubscribe(id);
+      messages.clearChannel(id);
       onChannelDeleted?.(id);
       deleteConfirmOpen = false;
       deleteTarget = null;
