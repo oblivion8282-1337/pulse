@@ -1,14 +1,3 @@
-/**
- * Thin Svelte 5 runes wrapper around the LiveKit JS SDK.
- *
- * We subscribe to the raw `Room`/`Participant` events and mirror the
- * pieces of state we render into `$state` fields. This keeps the
- * reactivity boundary in one place and avoids dragging in RxJS via
- * `@livekit/components-core` (its observables are shaped for React).
- *
- * One instance lives module-global (`voice` export) — only one active
- * voice connection at a time, like Discord.
- */
 
 import {
   ConnectionState,
@@ -89,6 +78,9 @@ class VoiceRoom {
   /** Remote screen-share tracks currently active in the room. */
   screenTracks = $state<ScreenShareTrack[]>([]);
 
+  /** True when the browser blocked audio playback (autoplay policy). */
+  audioBlocked = $state(false);
+
   /** Available audio output devices for the device picker. */
   outputDevices = $state<MediaDeviceInfo[]>([]);
   selectedOutputDeviceId = $state<string>('');
@@ -130,8 +122,6 @@ class VoiceRoom {
     const room = new Room({
       adaptiveStream: true,
       dynacast: true,
-      // Browser AEC / NS / AGC defaults — good enough for the MVP. A
-      // future polish step can layer @jitsi/rnnoise-wasm on top.
       audioCaptureDefaults: {
         autoGainControl: true,
         echoCancellation: true,
@@ -150,6 +140,7 @@ class VoiceRoom {
     }
 
     this.state = room.state;
+    this.audioBlocked = !room.canPlaybackAudio;
     voiceState.channelId = channelId;
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
@@ -219,6 +210,17 @@ class VoiceRoom {
   }
   toggleDeafen(): void {
     this.setDeafened(!this.deafened);
+  }
+
+  /** Call from a synchronous click handler to unblock the browser AudioContext. */
+  async unblockAudio(): Promise<void> {
+    const room = this.#room;
+    if (!room) return;
+    try {
+      await room.startAudio();
+    } catch {
+      // startAudio can throw if already started — harmless.
+    }
   }
 
   async setScreenShare(on: boolean): Promise<void> {
@@ -344,12 +346,10 @@ class VoiceRoom {
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
         void this.#refreshOutputDevices();
+      })
+      .on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        this.audioBlocked = !this.#room?.canPlaybackAudio;
       });
-
-    // Per-tick speaking-level updates aren't an event; LiveKit exposes
-    // `audioLevel` on participants and fires ActiveSpeakersChanged, which
-    // we already listen to. For smooth glow we additionally poll lightly
-    // while connected.
   }
 
   #attachAudio(track: RemoteAudioTrack): void {
@@ -422,15 +422,12 @@ class VoiceRoom {
     for (const p of room.remoteParticipants.values()) {
       out.push(toVP(p, false));
     }
-    // Stable order: local first, then by name.
     out.sort((a, b) => (a.isLocal === b.isLocal ? a.name.localeCompare(b.name) : a.isLocal ? -1 : 1));
     this.participants = out;
   }
 
   #startLevelPolling(): void {
     this.#stopLevelPolling();
-    // 400ms poll: only update audioLevel/isSpeaking in-place to avoid
-    // rebuilding the full array every tick (which re-renders all tiles).
     this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 400);
   }
 
@@ -488,6 +485,7 @@ class VoiceRoom {
     this.deafened = false;
     this.isScreenSharing = false;
     this.screenTracks = [];
+    this.audioBlocked = false;
     voiceState.channelId = null;
     voiceState.connected = false;
   }

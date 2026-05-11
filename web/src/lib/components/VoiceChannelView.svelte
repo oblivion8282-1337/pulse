@@ -6,6 +6,7 @@
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
@@ -76,12 +77,25 @@
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) voice.pttRelease(); }}
 />
 
-<section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col" data-testid="voice-channel-view">
+<section class="bg-bg-chat relative flex h-full min-w-0 flex-1 flex-col" data-testid="voice-channel-view">
   <header class="flex h-12 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
     <Volume2Icon class="text-text-muted size-5" />
     <span class="text-text-bright font-semibold" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-3 text-sm">{statusLabel}</span>
   </header>
+
+  {#if voice.audioBlocked && isThisChannel}
+    <div class="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm" data-testid="audio-blocked-overlay">
+      <div class="flex flex-col items-center gap-3 text-center">
+        <VolumeXIcon class="size-10 text-white/70" />
+        <p class="text-text-bright text-sm font-medium">Audio ist stummgeschaltet</p>
+        <p class="text-text-muted text-xs">Dein Browser blockiert die automatische Wiedergabe.</p>
+        <Button onclick={() => void voice.unblockAudio()} data-testid="audio-unblock-btn">
+          Audio aktivieren
+        </Button>
+      </div>
+    </div>
+  {/if}
 
   <div class="flex min-h-0 flex-1 flex-col">
     {#if isThisChannel && (voice.connected || voice.connecting)}
