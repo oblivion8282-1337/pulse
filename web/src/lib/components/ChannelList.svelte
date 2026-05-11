@@ -17,6 +17,7 @@
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
+  import UserFooter from './UserFooter.svelte';
 
   let {
     guild,
@@ -72,7 +73,7 @@
   }
 </script>
 
-<aside class="bg-bg-sidebar text-text-base flex h-full w-60 flex-col" data-testid="channel-list">
+<aside class="bg-bg-sidebar text-text-base flex h-full w-60 flex-col overflow-hidden" data-testid="channel-list">
   <header class="flex h-12 items-center justify-between border-b border-black/30 px-4 font-semibold text-text-bright shadow-sm">
     <span class="truncate">{guild?.name ?? '—'}</span>
     <div class="flex items-center gap-0.5">
@@ -220,4 +221,6 @@
       <p class="text-text-muted px-2 py-2 text-xs">Noch keine Sprach-Kanäle.</p>
     {/if}
   </nav>
+
+  <UserFooter />
 </aside>

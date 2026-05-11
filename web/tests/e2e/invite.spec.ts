@@ -53,6 +53,7 @@ test.describe.serial('Invite Flow E2E', () => {
     await register(alicePage, ALICE);
     await register(bobPage, BOB);
     // Bob logs out so we can test unauthenticated invite flow
+    await bobPage.getByTestId('user-footer-trigger').click();
     await bobPage.getByTestId('sign-out').click();
     await bobPage.waitForURL(/\/login/);
   });

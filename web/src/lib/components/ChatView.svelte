@@ -9,6 +9,10 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
 
+  type ChatItem =
+    | { kind: 'divider'; label: string; key: string }
+    | { kind: 'message'; message: Message; isContinuation: boolean; key: string };
+
   let {
     channel,
     messages,
@@ -23,8 +27,6 @@
   let lastCount = $state(0);
   let memberListOpen = $state(false);
 
-  // Queue unknown author IDs for batch fetch; use untrack to avoid re-runs
-  // caused by userCache.byId writes from the same flush.
   $effect(() => {
     const toQueue = messages
       .filter((m) => !auth.user || m.author_id !== auth.user.id)
@@ -44,6 +46,43 @@
     }
   });
 
+  function formatDividerLabel(date: Date): string {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    if (d.getTime() === today.getTime()) return 'Heute';
+    if (d.getTime() === yesterday.getTime()) return 'Gestern';
+    return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
+
+  let items = $derived<ChatItem[]>(buildItems(messages));
+
+  function buildItems(msgs: Message[]): ChatItem[] {
+    const result: ChatItem[] = [];
+    for (let i = 0; i < msgs.length; i++) {
+      const m = msgs[i];
+      const prev = msgs[i - 1];
+      const mDate = new Date(m.created_at);
+      const prevDate = prev ? new Date(prev.created_at) : null;
+
+      // Date divider when day changes
+      if (!prevDate || mDate.toDateString() !== prevDate.toDateString()) {
+        result.push({ kind: 'divider', label: formatDividerLabel(mDate), key: `div-${m.id}` });
+      }
+
+      // Continuation: same author, within 7 min, no divider separating them
+      const isContinuation =
+        !!prev &&
+        m.author_id === prev.author_id &&
+        mDate.getTime() - new Date(prev.created_at).getTime() < 7 * 60 * 1000 &&
+        mDate.toDateString() === new Date(prev.created_at).toDateString();
+
+      result.push({ kind: 'message', message: m, isContinuation, key: m.id });
+    }
+    return result;
+  }
+
   function authorName(m: Message): string {
     if (auth.user && m.author_id === auth.user.id) {
       return auth.user.display_name ?? auth.user.username;
@@ -52,13 +91,11 @@
   }
 
   function avatarUrl(m: Message): string | null {
-    if (auth.user && m.author_id === auth.user.id) {
-      const url = auth.user.avatar_url;
-      return url?.startsWith('https://') ? url : null;
-    }
-    const u = userCache.get(m.author_id);
-    const url = u?.avatar_url ?? null;
-    return url?.startsWith('https://') ? url : null;
+    const raw = auth.user && m.author_id === auth.user.id
+      ? auth.user.avatar_url
+      : (userCache.get(m.author_id)?.avatar_url ?? null);
+    if (!raw) return null;
+    return raw.startsWith('/') || raw.startsWith('https://') ? raw : null;
   }
 </script>
 
@@ -91,8 +128,21 @@
             Noch keine Nachrichten in <strong class="text-text-bright">#{channel.name}</strong>. Sei der/die erste!
           </p>
         {:else}
-          {#each messages as m (m.id)}
-            <MessageItem message={m} authorName={authorName(m)} {avatarUrl} />
+          {#each items as item (item.key)}
+            {#if item.kind === 'divider'}
+              <div class="mx-4 my-3 flex items-center gap-3" data-testid="date-divider">
+                <div class="h-px flex-1 bg-neutral-700"></div>
+                <span class="text-text-muted text-xs font-medium">{item.label}</span>
+                <div class="h-px flex-1 bg-neutral-700"></div>
+              </div>
+            {:else}
+              <MessageItem
+                message={item.message}
+                authorName={authorName(item.message)}
+                avatarUrl={avatarUrl}
+                isContinuation={item.isContinuation}
+              />
+            {/if}
           {/each}
         {/if}
       {/if}

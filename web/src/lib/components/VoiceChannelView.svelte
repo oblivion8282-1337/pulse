@@ -117,8 +117,7 @@
 
   {#if isThisChannel && (voice.connected || voice.connecting)}
     <Separator />
-    <!-- pr-28: keep clear of the fixed sign-out button in the bottom-right. -->
-    <div class="flex items-center justify-between gap-3 px-4 py-3 pr-28">
+    <div class="flex items-center justify-between gap-3 px-4 py-3">
       <div class="flex items-center gap-2">
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
