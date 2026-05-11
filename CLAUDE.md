@@ -1,6 +1,6 @@
 # Claude-Notizen für dieses Projekt
 
-Projekt: **Discord-Klon — Web-First Chat + Voice + Streaming**.
+Projekt: **Pulse — Web-First Chat + Voice + Streaming**.
 Monorepo (uv-Workspace + pnpm-Workspace).
 
 ## Was das Projekt macht

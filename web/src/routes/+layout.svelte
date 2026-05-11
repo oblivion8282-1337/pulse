@@ -6,7 +6,7 @@
 </script>
 
 <svelte:head>
-  <title>Discord Clone</title>
+  <title>Pulse</title>
 </svelte:head>
 
 <div class="min-h-screen">

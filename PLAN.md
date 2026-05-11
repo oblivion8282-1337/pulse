@@ -1,4 +1,4 @@
-# Discord-Klon — Implementierungsplan
+# Pulse — Implementierungsplan
 
 **Stand:** 2026-05-11 (revidiert nach Web-First-Entscheidung)
 **Arbeitsname:** `discord-clone` (Platzhalter, am Ende von Etappe 1 finalisieren)
