@@ -105,16 +105,16 @@
   }
 </script>
 
-<section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col">
-  <header class="flex h-12 items-center gap-2 border-b border-black/30 px-4 shadow-sm">
+<section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
+  <header class="flex h-14 items-center gap-2.5 px-5">
     {#if channel}
-      <HashIcon class="text-text-muted size-5" />
-      <span class="text-text-bright font-semibold" data-testid="active-channel-name">{channel.name}</span>
+      <HashIcon class="text-primary size-5" />
+      <span class="text-text-bright text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
       {#if channel.topic}
-        <span class="text-text-muted ml-3 border-l border-neutral-700 pl-3 text-sm">{channel.topic}</span>
+        <span class="text-text-muted ml-2 truncate text-sm">· {channel.topic}</span>
       {/if}
       <button
-        class="ml-auto rounded p-1.5 hover:bg-neutral-700"
+        class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
         onclick={() => (memberListOpen = !memberListOpen)}
         aria-label="Mitgliederliste umschalten"
         data-testid="member-list-toggle"
@@ -136,10 +136,10 @@
         {:else}
           {#each items as item (item.key)}
             {#if item.kind === 'divider'}
-              <div class="mx-4 my-3 flex items-center gap-3" data-testid="date-divider">
-                <div class="h-px flex-1 bg-neutral-700"></div>
-                <span class="text-text-muted text-xs font-medium">{item.label}</span>
-                <div class="h-px flex-1 bg-neutral-700"></div>
+              <div class="mx-5 my-4 flex items-center gap-3" data-testid="date-divider">
+                <div class="h-px flex-1 bg-border"></div>
+                <span class="bg-bg-input text-text-muted rounded-full px-3 py-0.5 text-xs font-semibold">{item.label}</span>
+                <div class="h-px flex-1 bg-border"></div>
               </div>
             {:else}
               <MessageItem

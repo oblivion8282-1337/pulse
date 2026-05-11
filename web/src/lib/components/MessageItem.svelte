@@ -55,7 +55,7 @@
 
 {#if isContinuation}
   <div
-    class="group flex gap-3 px-4 py-0.5 hover:bg-black/10"
+    class="group mx-2 flex gap-3 rounded-2xl px-3 py-0.5 transition-colors hover:bg-bg-hover"
     data-testid="message-item"
     data-message-id={message.id}
   >
@@ -63,14 +63,14 @@
       <span class="text-text-muted hidden text-[10px] group-hover:block">{time}</span>
     </div>
     <div class="min-w-0 flex-1">
-      <div class="text-text-base prose-chat break-words text-sm" data-testid="message-content">
+      <div class="text-text-base break-words text-[15px]" data-testid="message-content">
         {@html html}
       </div>
     </div>
   </div>
 {:else}
   <div
-    class="group flex gap-3 px-4 py-1 hover:bg-black/10"
+    class="group mx-2 flex gap-3 rounded-2xl px-3 py-1.5 transition-colors hover:bg-bg-hover"
     data-testid="message-item"
     data-message-id={message.id}
   >
@@ -79,17 +79,17 @@
         {#if url}
           <Avatar.Image src={url} alt={authorName} />
         {/if}
-        <Avatar.Fallback class="bg-primary text-primary-foreground text-sm font-semibold">
+        <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
           {authorName.slice(0, 1).toUpperCase()}
         </Avatar.Fallback>
       </Avatar.Root>
     {/key}
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline gap-2">
-        <span class="text-text-bright font-medium" data-testid="message-author">{authorName}</span>
+        <span class="text-text-bright font-semibold" data-testid="message-author">{authorName}</span>
         <span class="text-text-muted text-xs">{time}</span>
       </div>
-      <div class="text-text-base prose-chat break-words text-sm" data-testid="message-content">
+      <div class="text-text-base break-words text-[15px]" data-testid="message-content">
         {@html html}
       </div>
     </div>

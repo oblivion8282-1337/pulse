@@ -68,7 +68,7 @@
 
 <div
   bind:this={containerEl}
-  class="bg-bg-chat relative flex h-full flex-col overflow-hidden rounded-lg border border-white/10"
+  class="bg-bg-chat relative flex h-full flex-col overflow-hidden rounded-2xl border border-border"
   data-testid="screen-share-tile"
   data-identity={identity}
 >
@@ -87,7 +87,7 @@
   <!-- svelte-ignore a11y_media_has_caption -->
   <audio bind:this={audioEl} autoplay style="display:none"></audio>
 
-  <div class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-1 text-xs text-white">
+  <div class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
     <MonitorIcon class="size-3" />
     <span class="max-w-32 truncate">{name}</span>
   </div>
@@ -96,13 +96,13 @@
     <button
       type="button"
       onclick={enableAudio}
-      class="absolute right-2 top-2 rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500"
+      class="absolute right-2 top-2 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
       data-testid="screen-share-unblock-audio"
     >Ton aktivieren</button>
   {/if}
 
   {#if audioTrack}
-    <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded bg-black/60 px-2 py-1">
+    <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
       {#if volume === 0}
         <VolumeXIcon class="size-3 text-white" />
       {:else}

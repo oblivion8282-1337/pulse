@@ -13,6 +13,6 @@
   });
 </script>
 
-<div class="flex min-h-screen items-center justify-center text-sm text-neutral-500">
+<div class="text-text-muted flex min-h-screen items-center justify-center text-sm">
   loading…
 </div>

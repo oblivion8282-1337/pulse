@@ -1,10 +1,30 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- FOUC-Schutz: liest die gespeicherte Erscheinungsbild-Einstellung
+         (settings.appearance.theme aus dcc.settings) und setzt die .dark-Klasse
+         vor dem ersten Paint. 'system' folgt prefers-color-scheme. -->
+    <script>
+      (function () {
+        try {
+          var raw = localStorage.getItem('dcc.settings');
+          var theme = raw ? (JSON.parse(raw).appearance || {}).theme : null;
+          if (theme !== 'light' && theme !== 'dark' && theme !== 'system') theme = 'system';
+          var dark =
+            theme === 'dark' ||
+            (theme === 'system' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
     <!--
       CSP for dev/SPA. In production, set this via Caddy response headers instead
       (more flexible and not bypassable by meta-tag injection).
@@ -18,7 +38,7 @@
     <title>Pulse</title>
     %sveltekit.head%
   </head>
-  <body data-sveltekit-preload-data="hover" class="bg-neutral-950 text-neutral-100">
+  <body data-sveltekit-preload-data="hover">
     <div style="display: contents">%sveltekit.body%</div>
   </body>
 </html>

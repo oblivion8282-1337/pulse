@@ -71,7 +71,7 @@
 <SettingsDialog bind:open={settingsOpen} />
 
 <div
-  class="bg-bg-sidebar flex h-14 shrink-0 items-center gap-2 border-t border-black/30 px-2"
+  class="bg-bg-input m-2 flex shrink-0 items-center gap-2.5 rounded-2xl border border-border p-2"
   data-testid="user-footer"
 >
   <DropdownMenu.Root>
@@ -79,7 +79,7 @@
       {#snippet child({ props })}
         <button
           {...props}
-          class="hover:bg-bg-hover flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 transition-colors"
+          class="hover:bg-bg-hover flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors"
           data-testid="user-footer-trigger"
         >
           {#key avatarUrl}
@@ -87,13 +87,13 @@
               {#if avatarUrl}
                 <Avatar.Image src={avatarUrl} alt={displayName} />
               {/if}
-              <Avatar.Fallback class="bg-primary text-primary-foreground text-xs font-semibold">
+              <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
                 {initial}
               </Avatar.Fallback>
             </Avatar.Root>
           {/key}
           <div class="min-w-0 text-left">
-            <p class="text-text-bright truncate text-sm font-medium">{displayName}</p>
+            <p class="text-text-bright truncate text-sm font-semibold">{displayName}</p>
             {#if displayName !== username}
               <p class="text-text-muted truncate text-xs">{username}</p>
             {/if}

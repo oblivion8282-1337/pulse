@@ -2,10 +2,10 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import GuildList from '$lib/components/GuildList.svelte';
   import ChannelList from '$lib/components/ChannelList.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import CreateChannelDialog from '$lib/components/CreateChannelDialog.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -201,13 +201,6 @@
   }
 </script>
 
-<GuildList
-  guilds={guilds.list}
-  activeGuildId={guildId}
-  onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={() => (creatingGuild = true)}
-/>
-
 <ChannelList
   guild={activeGuild ?? null}
   channels={channelsForGuild}
@@ -216,6 +209,10 @@
   onCreateClick={() => (creatingChannel = true)}
   {onChannelDeleted}
   canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
+  guildList={guilds.list}
+  activeGuildId={guildId}
+  onSelectGuild={(g) => selectGuild(g.id)}
+  onCreateGuildClick={() => (creatingGuild = true)}
 />
 
 {#if isVoiceChannel && activeChannel}
@@ -223,13 +220,12 @@
     <VoiceChannelView channel={activeChannel} />
   {/key}
 {:else if loadError}
-  <section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 p-8">
+  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl p-8">
     <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
-    <button
-      class="rounded bg-neutral-700 px-4 py-2 text-sm text-white hover:bg-neutral-600"
+    <Button
       onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
       data-testid="load-retry"
-    >Erneut versuchen</button>
+    >Erneut versuchen</Button>
   </section>
 {:else}
   <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} />
