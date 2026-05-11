@@ -184,8 +184,8 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
 - [x] **L4** `publish` nach `commit` ohne Kompensation — fällt Redis aus, war die
   Message persistiert aber 500. **Fix:** `mgr.publish` / `manager.publish` in
   `try/except` (best-effort, Logging bei Fehler) in `messages.py` und `ws.py`.
-- [ ] **L5** `pttMode` persistiert über Channel-Wechsel (Frontend) — UX-Detail.
-- [ ] **L6** Doppelter `/me`-Call beim Erststart (Frontend) — kleiner Init-Overhead.
+- [-] **L5** `pttMode` persistiert über Channel-Wechsel (Frontend) — **bewusst beibehalten**: `pttMode` ist eine User-Preference, nicht Channel-State (Discord-Verhalten). Ein Reset würde den User überraschen.
+- [x] **L6** Doppelter `/me`-Call beim Erststart (Frontend) — **Fix:** Guard `if (this.user || this.loading) return;` am Anfang von `auth.hydrate()` in `web/src/lib/stores/auth.svelte.ts`.
 - [x] **L7** JWKS-Cache ohne Inflight-Dedup (`chat-gateway/security.py`,
   `voice-signaling/security.py`) — **Fix:** `asyncio.Lock` um den Fetch-Block
   (double-checked locking). Nur ein Fetch pro Key-Rollover-Event statt N parallele.
