@@ -45,8 +45,25 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 ### Tooling / Runtimes
 - **Python** 3.14.4 (Workspace verlangt `>=3.13,<3.15`)
 - **uv** 0.11.11 (Backend-Workspace, `[tool.uv.workspace]` in `pyproject.toml`)
-- **Node** v25.9.0 · **pnpm** 10.33.0 (Frontend-Workspace, `pnpm-workspace.yaml`)
+- **Node** v25.9.0 · **pnpm** 10.33.0 (Frontend-Workspace, `pnpm-workspace.yaml` — Members `web`, `desktop`)
+- **Rust** 1.93.1 (rustup 1.28.2) — für `desktop/src-tauri/`
 - Ruff `line-length=100`, `target-version=py313`, `ignore=["E501"]`
+
+### Desktop (`desktop/`, Tauri 2 — T1)
+| Lib | Version (gepinnt) | Notiz |
+|---|---|---|
+| @tauri-apps/cli | 2.11.1 | devDep in `desktop/package.json`; Scripts `dev`/`build` → `tauri dev`/`tauri build` |
+| @tauri-apps/api | 2.11.0 | Dep in `web/package.json` — Frontend importiert `@tauri-apps/api/event` für PTT-Events |
+| @tauri-apps/plugin-store | 2.4.3 | JS-Seite in `web/package.json` (Settings-/Token-Persistenz) |
+| @tauri-apps/plugin-notification | 2.3.3 | JS-Seite in `web/package.json` (Ping-Toasts) |
+| @tauri-apps/plugin-global-shortcut | 2.3.1 | JS-Seite in `web/package.json` (PTT — z.Z. nur Rust-seitig genutzt) |
+| `tauri` (Rust-Crate) | 2.11.1 | `desktop/src-tauri/Cargo.toml` |
+| `tauri-build` | 2.6.1 | build-dep |
+| `tauri-plugin-single-instance` | 2.4.2 | target-gated (nicht mobile); MUSS als erstes Plugin registriert sein |
+| `tauri-plugin-store` | 2.4.3 | |
+| `tauri-plugin-notification` | 2.3.3 | |
+| `tauri-plugin-global-shortcut` | 2.3.1 | target-gated; registriert `Alt+Space` → emittet `ptt-down`/`ptt-up` |
+| `tauri-plugin-autostart` | 2.5.1 | target-gated; **registriert aber nicht aktiviert** — keine `autostart:*`-Capability in T1 |
 
 ### Backend (Python, `services/*` + `shared/`)
 | Lib | Version (uv.lock) | Notiz |
@@ -95,6 +112,33 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 - **PostgreSQL** `postgres:16-alpine` — Container `dcc_night_postgres`, Schemas `auth` + `chat` (eigenes Schema pro Service)
 - **Redis** `redis:7-alpine` — Container `dcc_night_redis`
 - **LiveKit** `livekit/livekit-server:latest` — Container `dcc_night_livekit`, hinter `docker compose --profile voice up -d`, Config `infra/livekit/livekit.yaml`. Läuft mit `network_mode: host` (siehe Voice-Presence-Abschnitt) — bindet 7880/7881 + 7882–7892/UDP direkt auf dem Host, keine Port-Mappings.
+
+## Desktop-Wrapper (T1)
+
+`desktop/` ist ein pnpm-Workspace-Package (`@dcc/desktop`) und enthält die Tauri-2-App:
+```
+desktop/
+├── package.json            @dcc/desktop — devDep @tauri-apps/cli, Scripts dev/build → tauri dev/build
+└── src-tauri/              Rust-Crate "pulse-desktop" (lib "pulse_desktop_lib")
+    ├── Cargo.toml          tauri 2 + die 5 Plugins (single-instance/global-shortcut/autostart target-gated)
+    ├── build.rs            tauri_build::build()
+    ├── tauri.conf.json     productName "Pulse", identifier com.unicutmedia.pulse, frontendDist ../../web/build,
+    │                       devUrl http://localhost:5173, bundle.targets ["appimage","deb"] (Flatpak erst T6)
+    ├── src/main.rs · src/lib.rs · src/ptt.rs   Plugin-Registration + PTT-Wiring
+    ├── capabilities/default.json   strikt: core:default, notification:default, global-shortcut:default, store:default
+    │                               — KEINE shell:/fs:-Permissions, autostart bewusst weggelassen
+    └── icons/              aus web/static/favicon.svg via `tauri icon` (nur Desktop-Icons, kein android/ios)
+```
+Die JS-Seiten der Plugins (`@tauri-apps/api`, `@tauri-apps/plugin-{store,notification,global-shortcut}`) sind Deps von **`web/`** (Frontend importiert sie). `single-instance` und `autostart` haben keine JS-Seite die wir nutzen.
+
+**PTT-Pfad:** `src/ptt.rs::setup()` registriert beim App-Start einen globalen Shortcut (`Alt+Space`, hardcoded in T1 — `default_ptt_shortcut()` + die `register`-Stelle in `setup()` sind der Seam für "konfigurierbar" später). On-Press → `app.emit("ptt-down", ())`, On-Release → `app.emit("ptt-up", ())`. Frontend: `web/src/lib/platform/ptt.ts` (`initDesktopPtt()`, aufgerufen aus `routes/+layout.svelte` onMount) hört unter Tauri via `@tauri-apps/api/event` `listen('ptt-down'/'ptt-up')` und ruft `voice.pttPress()`/`voice.pttRelease()` aus `lib/voice/livekit.svelte.ts`. Im reinen Browser ist `initDesktopPtt()` ein No-Op — der bestehende In-Window-Keyboard-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`, Taste aus `settings.voice.pttKey`) bleibt unverändert. `web/src/lib/platform/runtime.ts`: `isTauri()` (`'__TAURI_INTERNALS__' in window`) + `isLinux()` (UA-basiert, TODO: `@tauri-apps/plugin-os` falls T3 das braucht).
+
+**`beforeDevCommand` ist leer** — Grund: der Vite-Dev-Server läuft im Dev-Setup eh schon auf `:5173` (`/tmp/dcc-vite.log`), ein zweiter Start würde am Port kollidieren. `tauri dev` erwartet also, dass `web` schon läuft (`pnpm --filter @dcc/web dev` separat starten falls nicht). `beforeBuildCommand` = `pnpm --filter @dcc/web build` (baut `web/build/` für den Release-Bundle).
+
+**Testen / Bauen:**
+- `cd desktop/src-tauri && cargo build` — kompiliert die Rust-App (erster Build ~10–20 Min, danach inkrementell).
+- GUI manuell starten (öffnet ein echtes Fenster): Vite-Dev-Server auf `:5173` muss laufen, dann `pnpm --filter @dcc/desktop dev` (= `tauri dev`). Für einen Release-Bundle: `pnpm --filter @dcc/desktop build` (= `tauri build`, baut vorher `web/build/`, erzeugt `.AppImage` + `.deb` unter `desktop/src-tauri/target/release/bundle/`).
+- Linux-Systemdeps für Tauri (Arch/CachyOS): `webkit2gtk-4.1`, `gtk3`, `libsoup3`, `librsvg`, `base-devel` — sind installiert.
 
 ## Test-Datenbank
 

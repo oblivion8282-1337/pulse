@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities the Pulse web app needs in the desktop shell — kept deliberately minimal: core defaults, native notifications, the global push-to-talk shortcut and the key/value store. No shell, no filesystem.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "global-shortcut:default",
+    "store:default"
+  ]
+}
