@@ -12,6 +12,7 @@
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
   import { gateway } from '$lib/ws/connection';
+  import { toast } from 'svelte-sonner';
   import type { Channel } from '$lib/api/types';
 
   let guildId = $derived(page.params.guildId ?? '');
@@ -27,9 +28,11 @@
   let creatingGuild = $state(false);
   let creatingChannel = $state(false);
   let resolving = $state(true);
+  let loadError = $state<string | null>(null);
 
   let prevGuild = $state('');
   let prevChannel = $state('');
+  let switchGen = 0;
 
   $effect(() => {
     const g = guildId;
@@ -39,13 +42,20 @@
 
   async function switchTo(g: string, c: string) {
     if (!g) return;
+    const gen = ++switchGen;
+
     if (g !== prevGuild) {
       resolving = true;
+      loadError = null;
       try {
         await guilds.loadChannels(g);
       } catch (err) {
-        console.error('loadChannels', err);
+        if (gen !== switchGen) return;
+        loadError = err instanceof Error ? err.message : 'Kanäle konnten nicht geladen werden';
+        resolving = false;
+        return;
       }
+      if (gen !== switchGen) return;
       prevGuild = g;
     }
     const list = guilds.channelsByGuild[g] ?? [];
@@ -70,15 +80,21 @@
         try {
           if (!messages.loadedChannels[target]) {
             const history = await chatApi.listMessages(target);
+            if (gen !== switchGen) return;
             messages.setInitial(target, history);
           }
           gateway.subscribe(target);
         } catch (err) {
-          console.error('load channel', err);
+          if (gen !== switchGen) return;
+          loadError = err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden';
+          resolving = false;
+          return;
         }
       }
       prevChannel = target;
     }
+    if (gen !== switchGen) return;
+    loadError = null;
     resolving = false;
   }
 
@@ -112,15 +128,21 @@
   function sendMessage(text: string) {
     if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
+    const tmpId = `tmp-${nonce}`;
     messages.addOptimistic({
-      id: `tmp-${nonce}`,
+      id: tmpId,
       channel_id: activeChannel.id,
       author_id: auth.user.id,
       content: text,
       nonce,
       created_at: new Date().toISOString()
     });
-    gateway.send(activeChannel.id, text, nonce);
+    const queued = gateway.send(activeChannel.id, text, nonce);
+    if (!queued) {
+      // WS not open — roll back the optimistic message and inform the user.
+      messages.removeOptimistic(activeChannel.id, tmpId);
+      toast.error('Keine Verbindung — bitte erneut senden');
+    }
   }
 </script>
 
@@ -144,6 +166,15 @@
   {#key activeChannel.id}
     <VoiceChannelView channel={activeChannel} />
   {/key}
+{:else if loadError}
+  <section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 p-8">
+    <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
+    <button
+      class="rounded bg-neutral-700 px-4 py-2 text-sm text-white hover:bg-neutral-600"
+      onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
+      data-testid="load-retry"
+    >Erneut versuchen</button>
+  </section>
 {:else}
   <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} />
 {/if}

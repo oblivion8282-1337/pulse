@@ -24,6 +24,7 @@ import {
   Track
 } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
+import { voiceState } from './state.svelte';
 
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
@@ -129,6 +130,8 @@ class VoiceRoom {
     }
 
     this.state = room.state;
+    voiceState.channelId = channelId;
+    voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
     this.#startLevelPolling();
     await this.#refreshOutputDevices();
@@ -227,6 +230,7 @@ class VoiceRoom {
     room
       .on(RoomEvent.ConnectionStateChanged, (s: ConnectionState) => {
         this.state = s;
+        voiceState.connected = s === ConnectionState.Connected;
         if (s === ConnectionState.Disconnected) this.#teardown();
       })
       .on(RoomEvent.Disconnected, () => {
@@ -312,9 +316,32 @@ class VoiceRoom {
 
   #startLevelPolling(): void {
     this.#stopLevelPolling();
-    // Cheap 200ms refresh so the speaking-glow tracks audio level
-    // smoothly instead of only flipping on ActiveSpeakersChanged.
-    this.#levelTimer = setInterval(() => this.#refreshParticipants(), 200);
+    // 400ms poll: only update audioLevel/isSpeaking in-place to avoid
+    // rebuilding the full array every tick (which re-renders all tiles).
+    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 400);
+  }
+
+  #patchAudioLevels(): void {
+    const room = this.#room;
+    if (!room) return;
+    let changed = false;
+    const allParticipants: Participant[] = [
+      room.localParticipant as LocalParticipant,
+      ...room.remoteParticipants.values()
+    ];
+    for (const vp of this.participants) {
+      const p = allParticipants.find((x) => x.identity === vp.identity);
+      if (!p) continue;
+      const newLevel = p.audioLevel ?? 0;
+      const newSpeaking = p.isSpeaking;
+      if (vp.audioLevel !== newLevel || vp.isSpeaking !== newSpeaking) {
+        vp.audioLevel = newLevel;
+        vp.isSpeaking = newSpeaking;
+        changed = true;
+      }
+    }
+    // Trigger reactivity only when something actually changed.
+    if (changed) this.participants = [...this.participants];
   }
   #stopLevelPolling(): void {
     if (this.#levelTimer) {
@@ -346,6 +373,8 @@ class VoiceRoom {
     this.participants = [];
     this.micEnabled = false;
     this.deafened = false;
+    voiceState.channelId = null;
+    voiceState.connected = false;
   }
 }
 

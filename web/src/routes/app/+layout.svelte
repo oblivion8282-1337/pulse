@@ -5,7 +5,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
-  import { voice } from '$lib/voice/livekit.svelte';
+  // livekit.svelte is lazy-loaded below to keep it out of the main bundle.
   import { logout } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -20,18 +20,16 @@
       await goto('/login', { replaceState: true });
       return;
     }
-    try {
-      await guilds.hydrate();
-    } catch (err) {
-      console.error('guilds.hydrate failed', err);
-    }
-    void gateway.connect().catch((e) => console.error('gateway connect', e));
+    await Promise.all([
+      guilds.hydrate().catch((e) => console.error('guilds.hydrate failed', e)),
+      gateway.connect().catch((e) => console.error('gateway connect', e))
+    ]);
     hydrated = true;
   });
 
   onDestroy(() => {
     gateway.disconnect();
-    void voice.disconnect();
+    void import('$lib/voice/livekit.svelte').then(({ voice }) => voice.disconnect());
   });
 
   async function onSignOut() {
@@ -45,7 +43,7 @@
     }
     auth.signOut();
     gateway.disconnect();
-    void voice.disconnect();
+    void import('$lib/voice/livekit.svelte').then(({ voice }) => voice.disconnect());
     guilds.clear();
     messages.clear();
     await goto('/login', { replaceState: true });

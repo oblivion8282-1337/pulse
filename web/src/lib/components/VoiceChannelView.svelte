@@ -80,6 +80,8 @@
     trigger: { key: 'v', modifier: false, callback: handlePttKeydown }
   }}
   onkeyup={handlePttKeyup}
+  onblur={() => { if (voice.pttMode) voice.pttRelease(); }}
+  onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) voice.pttRelease(); }}
 />
 
 <section class="bg-bg-chat flex h-full min-w-0 flex-1 flex-col" data-testid="voice-channel-view">

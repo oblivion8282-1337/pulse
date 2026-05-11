@@ -41,7 +41,7 @@
               onclick={() => onSelect(g)}
               data-testid={`guild-${g.id}`}
             >
-              {#if g.icon_url}
+              {#if g.icon_url?.startsWith('https://')}
                 <img src={g.icon_url} alt={g.name} class="h-full w-full object-cover" />
               {:else}
                 {initials(g.name)}

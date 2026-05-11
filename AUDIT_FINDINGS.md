@@ -27,7 +27,7 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
 
 ## HIGH
 
-- [-] **#2 — [Frontend] Optimistic Message bleibt für immer bei WS-Disconnect vor ACK**
+- [x] **#2 — [Frontend] Optimistic Message bleibt für immer bei WS-Disconnect vor ACK**
   `web/src/lib/ws/connection.ts:148` + `.../channels/[channelId]/+page.svelte:112`
   — wird von `fix-frontend` behandelt.
 
@@ -52,7 +52,7 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
   Users werden revoket** (Reuse-Detection, Discord-/OAuth-Best-Practice). Tokens
   werden erst nach erfolgreichem Lock/Revoke ausgestellt.
 
-- [-] **#5 — [Frontend] `$effect` ruft async `switchTo` ohne Generations-Guard**
+- [x] **#5 — [Frontend] `$effect` ruft async `switchTo` ohne Generations-Guard**
   `.../channels/[channelId]/+page.svelte:34` — wird von `fix-frontend` behandelt.
 
 - [x] **#6 — [Backend] Argon2-Hashing synchron im Event-Loop**
@@ -64,7 +64,7 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
   ist CPU-gebunden; `to_thread` gibt den Loop frei (GIL wird während des nativen
   argon2-cffi-Calls freigegeben).
 
-- [-] **#7 — [Frontend] `livekit-client` statisch im Main-Bundle (~500–800 KB)**
+- [x] **#7 — [Frontend] `livekit-client` statisch im Main-Bundle (~500–800 KB)**
   `app/+layout.svelte:8` + `ChannelList.svelte:10` — wird von `fix-frontend` behandelt.
 
 - [-] **#8 — [Infra] Keine Service-Dockerfiles, LiveKit `:latest`, LiveKit als root**
@@ -76,7 +76,7 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
 ## MEDIUM
 
 - [x] **#9 — [Frontend] PTT bleibt aktiv bei Tab-Fokus-Verlust → Mikro offen**
-  ⇒ wird von `fix-frontend` behandelt. *(Backend nicht betroffen.)*
+  `VoiceChannelView.svelte` — `<svelte:window onblur=... onvisibilitychange=...>` ergänzt: beide rufen `voice.pttRelease()` wenn PTT-Mode aktiv. *(Backend nicht betroffen.)*
 
 - [x] **#10 — [Backend] Kein Rate-Limit im chat-gateway**
   `services/chat-gateway/...` — weder Guild-Create noch Message-POST noch
@@ -93,10 +93,10 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
   **Fix:** `len(raw) > 16 KiB` → Error-Frame 4009 + Connection-Close. Kommentar:
   zusätzlich `uvicorn --ws-max-size` in Prod setzen (Defense-in-Depth).
 
-- [-] **#12 — [Frontend] Guild-Sort mit `Number()` → 64-bit-Precision-Loss**
+- [x] **#12 — [Frontend] Guild-Sort mit `Number()` → 64-bit-Precision-Loss**
   `web/src/lib/stores/guilds.svelte.ts:10` — wird von `fix-frontend` behandelt.
 
-- [-] **#13 — [Frontend] Message-Store wächst unbegrenzt**
+- [x] **#13 — [Frontend] Message-Store wächst unbegrenzt**
   `web/src/lib/stores/messages.svelte.ts` — wird von `fix-frontend` behandelt.
 
 - [x] **#14 — [Backend] pubsub Fanout-Head-of-Line-Blocking + malformed Redis-Message killt Listener**
@@ -139,16 +139,16 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
   senden — bekanntes, akzeptiertes MVP-Verhalten; periodische Re-Validierung wäre
   die saubere Lösung (Kommentar im Code).
 
-- [-] **#17 — [Frontend] Lade-Fehler nur `console.error` → irreführende leere UI**
+- [x] **#17 — [Frontend] Lade-Fehler nur `console.error` → irreführende leere UI**
   `.../channels/[channelId]/+page.svelte:46,76` — wird von `fix-frontend` behandelt.
 
-- [-] **#18 — [Frontend] Keine CSP**
+- [x] **#18 — [Frontend] Keine CSP**
   `web/src/app.html` — wird von `fix-frontend` behandelt.
 
-- [-] **#19 — [Frontend] audioLevel-Polling baut alle 200 ms das ganze Participants-Array neu**
+- [x] **#19 — [Frontend] audioLevel-Polling baut alle 200 ms das ganze Participants-Array neu**
   `web/src/lib/voice/livekit.svelte.ts:313` — wird von `fix-frontend` behandelt.
 
-- [-] **#20 — [Frontend] Init-Waterfall (auth→guilds→gateway sequentiell)**
+- [x] **#20 — [Frontend] Init-Waterfall (auth→guilds→gateway sequentiell)**
   `web/src/routes/app/+layout.svelte:17` — wird von `fix-frontend` behandelt.
 
 - [x] **#21 — [Backend+Frontend] gemischtes Finding**
@@ -161,10 +161,11 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
     bleibt offen. Mitigation durch #1 (nur der Owner kann adden — er kennt die
     gültigen IDs ohnehin). Folgeticket: "Invite-Flow oder `/users/{id}` für
     Membership-Validierung".
-  - **#21b [Frontend] `guilds.list` re-sortiert bei jedem Zugriff** — wird von
-    `fix-frontend` behandelt.
-  - **#21c [Frontend] Guild-Icon-URL ohne https-Whitelist** — wird von
-    `fix-frontend` behandelt.
+  - **#21b [Frontend] `guilds.list` re-sortiert bei jedem Zugriff** — `list` ist jetzt
+    `$derived` (cached, nur bei `byId`-Änderung neu berechnet). Lexikografischer Sort
+    statt `Number()`.
+  - **#21c [Frontend] Guild-Icon-URL ohne https-Whitelist** — `GuildList.svelte`:
+    `img` nur wenn `icon_url?.startsWith('https://')`, sonst Initials-Fallback.
 
 ---
 
@@ -233,3 +234,7 @@ Folgende Bereiche wurden im Audit untersucht und für sauber befunden:
 
 - `docs: audit findings` — diese Datei.
 - `fix: backend security + robustness (audit #1,#3,#4,#6,#10,#11,#14,#15,#16)`
+
+## Fix-Durchlauf — Frontend-Commits
+
+- `fix: frontend bugs + perf + CSP (audit #2,#5,#7,#9,#12,#13,#17,#18,#19,#20,#21)`

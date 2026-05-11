@@ -141,14 +141,17 @@ export class GatewayConnection {
     this._sendRaw({ op: 'unsubscribe', channel_id: channelId });
   }
 
-  send(channelId: string, content: string, nonce: string): void {
-    this._sendRaw({ op: 'send', channel_id: channelId, content, nonce });
+  /** Returns true when the frame was queued, false when the socket was not open. */
+  send(channelId: string, content: string, nonce: string): boolean {
+    return this._sendRaw({ op: 'send', channel_id: channelId, content, nonce });
   }
 
-  private _sendRaw(evt: ClientEvent): void {
+  private _sendRaw(evt: ClientEvent): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(evt));
+      return true;
     }
+    return false;
   }
 }
 

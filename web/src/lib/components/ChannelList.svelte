@@ -7,7 +7,7 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import { toast } from 'svelte-sonner';
-  import { voice } from '$lib/voice/livekit.svelte';
+  import { voiceState } from '$lib/voice/state.svelte';
   import type { Channel, Guild } from '$lib/api/types';
 
   let {
@@ -102,7 +102,7 @@
             >
               <Volume2Icon class="text-text-muted size-4 shrink-0" />
               <span class="truncate">{c.name}</span>
-              {#if voice.channelId === c.id && voice.connected}
+              {#if voiceState.channelId === c.id && voiceState.connected}
                 <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title="verbunden"></span>
               {/if}
             </button>

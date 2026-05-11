@@ -6,9 +6,11 @@ class GuildStore {
   channelsByGuild = $state<Record<string, Channel[]>>({});
   loaded = $state(false);
 
-  get list(): Guild[] {
-    return Object.values(this.byId).sort((a, b) => Number(a.id) - Number(b.id));
-  }
+  // Snowflake IDs have the same length, so lexicographic order == numeric order.
+  // Avoids Number() precision loss for IDs > 2^53.
+  list = $derived(
+    Object.values(this.byId).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  );
 
   async hydrate(): Promise<void> {
     const guilds = await chatApi.listGuilds();

@@ -5,6 +5,14 @@
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
+    <!--
+      CSP for dev/SPA. In production, set this via Caddy response headers instead
+      (more flexible and not bypassable by meta-tag injection).
+      style-src unsafe-inline: required by Tailwind v4 + shadcn-svelte inline styles.
+      script-src unsafe-inline + unsafe-eval: required by Vite dev HMR and SvelteKit SSR bootstrap.
+      In production, tighten via Caddy response headers (add nonce or hash, drop unsafe-*)
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws: wss: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
     <title>Discord Clone</title>
     %sveltekit.head%
   </head>

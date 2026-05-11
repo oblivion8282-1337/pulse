@@ -9,9 +9,12 @@ class MessageStore {
     return this.byChannel[channelId] ?? [];
   }
 
+  private static readonly CAP = 500;
+
   setInitial(channelId: string, msgs: Message[]): void {
     // Backend returns descending; flip for chat-bottom display.
-    const sorted = [...msgs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    let sorted = [...msgs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (sorted.length > MessageStore.CAP) sorted = sorted.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [channelId]: sorted };
     this.loadedChannels = { ...this.loadedChannels, [channelId]: true };
   }
@@ -37,12 +40,23 @@ class MessageStore {
     } else {
       next = [...list, msg].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     }
+    if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
   }
 
   /** Add an optimistic outgoing message — replaced by upsert on echo. */
   addOptimistic(msg: Message): void {
     this.upsert(msg);
+  }
+
+  /** Remove an optimistic message by id (rollback on WS-disconnect). */
+  removeOptimistic(channelId: string, tmpId: string): void {
+    const list = this.byChannel[channelId];
+    if (!list) return;
+    const next = list.filter((m) => m.id !== tmpId);
+    if (next.length !== list.length) {
+      this.byChannel = { ...this.byChannel, [channelId]: next };
+    }
   }
 
   clearChannel(channelId: string): void {
