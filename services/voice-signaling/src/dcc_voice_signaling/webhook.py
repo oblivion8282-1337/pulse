@@ -150,7 +150,10 @@ async def _apply_join(redis: Redis, room_name: str, user_id: str) -> None:
     key = room_key(room_name)
     pipe = redis.pipeline(transaction=False)
     pipe.sadd(key, user_id)
-    pipe.expire(key, settings.voice_state_ttl_seconds)
+    # NX: only set TTL when the key is new (sadd=1 first time). This prevents
+    # a ghost presence (missed participant_left) from having its TTL refreshed
+    # on every subsequent join, keeping the self-heal window intact.
+    pipe.expire(key, settings.voice_state_ttl_seconds, nx=True)
     await pipe.execute()
 
 
@@ -181,7 +184,8 @@ async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) 
     sk = streaming_key(room_name)
     pipe = redis.pipeline(transaction=False)
     pipe.sadd(sk, user_id)
-    pipe.expire(sk, settings.voice_state_ttl_seconds)
+    # NX: same ghost-prevention logic as _apply_join.
+    pipe.expire(sk, settings.voice_state_ttl_seconds, nx=True)
     await pipe.execute()
 
 

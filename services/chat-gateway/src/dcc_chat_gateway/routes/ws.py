@@ -88,6 +88,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4001, reason="unauthorized")
         return
 
+    # Reject already-expired tokens before accepting — avoids sending `ready`
+    # followed immediately by a 4001 close (inconsistent client state).
+    exp = payload.get("exp")
+    if isinstance(exp, (int, float)) and float(exp) < time.time():
+        await websocket.close(code=4001, reason="token expired")
+        return
+
     await websocket.accept()
     app = websocket.app
     manager = app.state.connection_manager
@@ -99,7 +106,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # background task closes the socket with 4001 (the client then refreshes +
     # reconnects).
     expiry_task: asyncio.Task | None = None
-    exp = payload.get("exp")
     if isinstance(exp, (int, float)):
         expiry_task = asyncio.create_task(
             _close_when_token_expires(websocket, float(exp)), name="dcc-ws-token-expiry"
@@ -149,6 +155,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 if oversize_frames >= _MAX_OVERSIZE_FRAMES:
                     break
                 continue
+            oversize_frames = max(0, oversize_frames - 1)
             try:
                 msg = json.loads(raw)
             except json.JSONDecodeError:
