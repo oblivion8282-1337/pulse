@@ -10,6 +10,7 @@ import { currentAccessToken } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { messages } from '$lib/stores/messages.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { voicePresence, type VoiceChannelState } from '$lib/stores/voicePresence.svelte';
 import type { Message } from '$lib/api/types';
 
 export type ChannelPayload = {
@@ -23,11 +24,12 @@ export type ChannelPayload = {
 };
 
 type ServerEvent =
-  | { op: 'ready'; user_id: string; guilds: { id: string; name: string }[] }
+  | { op: 'ready'; user_id: string; guilds: { id: string; name: string }[]; voice_states?: VoiceChannelState[] }
   | { op: 'message'; data: Message }
   | { op: 'message_ack'; nonce: string | null; id: string }
   | { op: 'channel_deleted'; channel_id: string }
   | { op: 'channel_updated'; channel: ChannelPayload }
+  | { op: 'voice_state'; channel_id: string; user_ids: string[] }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -105,12 +107,16 @@ export class GatewayConnection {
         } catch {
           return;
         }
-        if (evt.op === 'message') {
+        if (evt.op === 'ready') {
+          if (evt.voice_states) voicePresence.seed(evt.voice_states);
+        } else if (evt.op === 'message') {
           messages.upsert(evt.data);
         } else if (evt.op === 'channel_deleted') {
           guilds.removeChannel(evt.channel_id);
         } else if (evt.op === 'channel_updated') {
           guilds.updateChannel(evt.channel);
+        } else if (evt.op === 'voice_state') {
+          voicePresence.apply(evt.channel_id, evt.user_ids);
         }
         for (const l of this.listeners) l(evt);
       });

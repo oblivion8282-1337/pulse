@@ -10,11 +10,13 @@
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import { toast } from 'svelte-sonner';
   import { voiceState } from '$lib/voice/state.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import type { Channel, Guild } from '$lib/api/types';
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
+  import VoiceChannelMembers from './VoiceChannelMembers.svelte';
 
   let {
     guild,
@@ -207,6 +209,12 @@
           </ContextMenu.Content>
         {/if}
       </ContextMenu.Root>
+      {@const members = voicePresence.usersIn(c.id)}
+      {#if members.length > 0}
+        <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
+          <VoiceChannelMembers userIds={members} />
+        </div>
+      {/if}
     {/each}
     {#if voiceChannels.length === 0}
       <p class="text-text-muted px-2 py-2 text-xs">Noch keine Sprach-Kanäle.</p>
