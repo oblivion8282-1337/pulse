@@ -9,6 +9,7 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import { toast } from 'svelte-sonner';
+  import { voice } from '$lib/voice/livekit.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -50,6 +51,19 @@
 
   function openRename(c: Channel) {
     renameChannel = c;
+  }
+
+  // Discord-style: clicking a voice channel joins it. connect() must run from
+  // this user gesture so the browser allows the AudioContext to start.
+  function selectChannel(c: Channel) {
+    if (c.type === 1 && voice.channelId !== c.id) {
+      voice.connect(c.id, c.name).catch((e) => {
+        toast.error('Voice-Verbindung fehlgeschlagen', {
+          description: e instanceof Error ? e.message : String(e)
+        });
+      });
+    }
+    onSelect(c);
   }
 
   function openDelete(c: Channel) {
@@ -191,7 +205,7 @@
               {...props}
               class="hover:bg-bg-hover flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors data-[active=true]:bg-bg-hover data-[active=true]:text-text-bright"
               data-active={activeChannelId === c.id}
-              onclick={() => onSelect(c)}
+              onclick={() => selectChannel(c)}
               data-testid={`channel-${c.id}`}
             >
               <Volume2Icon class="text-text-muted size-4 shrink-0" />
