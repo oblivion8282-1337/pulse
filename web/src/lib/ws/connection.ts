@@ -29,7 +29,7 @@ type ServerEvent =
   | { op: 'message_ack'; nonce: string | null; id: string }
   | { op: 'channel_deleted'; channel_id: string }
   | { op: 'channel_updated'; channel: ChannelPayload }
-  | { op: 'voice_state'; channel_id: string; user_ids: string[] }
+  | { op: 'voice_state'; channel_id: string; user_ids: string[]; streaming_user_ids?: string[] }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -116,7 +116,7 @@ export class GatewayConnection {
         } else if (evt.op === 'channel_updated') {
           guilds.updateChannel(evt.channel);
         } else if (evt.op === 'voice_state') {
-          voicePresence.apply(evt.channel_id, evt.user_ids);
+          voicePresence.apply(evt.channel_id, evt.user_ids, evt.streaming_user_ids);
         }
         for (const l of this.listeners) l(evt);
       });

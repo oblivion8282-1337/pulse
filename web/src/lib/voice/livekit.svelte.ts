@@ -19,6 +19,7 @@ import {
   RemoteParticipant,
   RemoteTrack,
   RemoteTrackPublication,
+  RemoteVideoTrack,
   Room,
   RoomEvent,
   Track
@@ -40,6 +41,15 @@ export type VoiceParticipant = {
   /** Whether the participant's microphone track is muted. */
   micMuted: boolean;
   connectionQuality: ConnectionQuality;
+};
+
+/** A remote screen-share track from one participant. */
+export type ScreenShareTrack = {
+  /** LiveKit participant identity. */
+  identity: string;
+  /** Display name for the sharer. */
+  name: string;
+  track: RemoteVideoTrack;
 };
 
 function userIdFromIdentity(identity: string): string | null {
@@ -68,6 +78,11 @@ class VoiceRoom {
   deafened = $state(false);
   /** Push-to-talk active (true = transmitting). When PTT mode is off, this stays true. */
   pttMode = $state(false);
+
+  /** Whether the local participant is currently sharing their screen. */
+  isScreenSharing = $state(false);
+  /** Remote screen-share tracks currently active in the room. */
+  screenTracks = $state<ScreenShareTrack[]>([]);
 
   /** Available audio output devices for the device picker. */
   outputDevices = $state<MediaDeviceInfo[]>([]);
@@ -201,6 +216,24 @@ class VoiceRoom {
     this.setDeafened(!this.deafened);
   }
 
+  async setScreenShare(on: boolean): Promise<void> {
+    const room = this.#room;
+    if (!room) return;
+    try {
+      await room.localParticipant.setScreenShareEnabled(on, { audio: true });
+      this.isScreenSharing = on;
+      // When the browser's own "stop sharing" bar fires the track ends,
+      // the TrackUnpublished event will call #refreshScreenState.
+    } catch (e) {
+      // User cancelled the browser picker or permissions denied.
+      this.isScreenSharing = false;
+    }
+  }
+
+  toggleScreenShare(): void {
+    void this.setScreenShare(!this.isScreenSharing);
+  }
+
   async setOutputDevice(deviceId: string): Promise<void> {
     const room = this.#room;
     this.selectedOutputDeviceId = deviceId;
@@ -242,16 +275,26 @@ class VoiceRoom {
       .on(RoomEvent.TrackMuted, () => this.#refreshParticipants())
       .on(RoomEvent.TrackUnmuted, () => this.#refreshParticipants())
       .on(RoomEvent.LocalTrackPublished, () => this.#refreshParticipants())
-      .on(RoomEvent.LocalTrackUnpublished, () => this.#refreshParticipants())
+      .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        if (pub.source === Track.Source.ScreenShare) {
+          this.isScreenSharing = false;
+        }
+        this.#refreshParticipants();
+      })
       .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
-      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, _p: RemoteParticipant) => {
+      .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, _pub: RemoteTrackPublication, p: RemoteParticipant) => {
         if (track.kind === Track.Kind.Audio) {
           this.#attachAudio(track as RemoteAudioTrack);
+        } else if (track.kind === Track.Kind.Video && _pub.source === Track.Source.ScreenShare) {
+          this.#addScreenTrack(track as RemoteVideoTrack, p);
         }
         this.#refreshParticipants();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
         this.#detachAudio(track.sid ?? '');
+        if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
+          this.#removeScreenTrack(track.sid ?? '');
+        }
         this.#refreshParticipants();
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
@@ -286,6 +329,19 @@ class VoiceRoom {
       el.remove();
       this.#audioEls.delete(sid);
     }
+  }
+
+  #addScreenTrack(track: RemoteVideoTrack, p: RemoteParticipant): void {
+    const existing = this.screenTracks.find((s) => s.identity === p.identity);
+    if (existing) return; // already tracked
+    this.screenTracks = [
+      ...this.screenTracks,
+      { identity: p.identity, name: nameFor(p), track }
+    ];
+  }
+
+  #removeScreenTrack(sid: string): void {
+    this.screenTracks = this.screenTracks.filter((s) => s.track.sid !== sid);
   }
 
   #refreshParticipants(): void {
@@ -373,6 +429,8 @@ class VoiceRoom {
     this.participants = [];
     this.micEnabled = false;
     this.deafened = false;
+    this.isScreenSharing = false;
+    this.screenTracks = [];
     voiceState.channelId = null;
     voiceState.connected = false;
   }

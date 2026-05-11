@@ -41,20 +41,23 @@ async def test_ready_carries_voice_states(ws_app, _auth_signer, redis):
             return token, g["id"], vc["id"]
 
     token, gid, cid = await asyncio.to_thread(_run)
-    # Seed the voice-state key.
+    # Seed voice-state + streaming keys.
     await redis.sadd(f"voice:room:channel-{cid}", "777")
+    await redis.sadd(f"voice:room:channel-{cid}:streaming", "777")
     try:
         def _connect():
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
                     payload = ws.receive_json()
                     assert payload["op"] == "ready"
-                    states = {s["channel_id"]: s["user_ids"] for s in payload["voice_states"]}
-                    assert states.get(cid) == ["777"]
+                    states = {s["channel_id"]: s for s in payload["voice_states"]}
+                    assert states[cid]["user_ids"] == ["777"]
+                    assert states[cid]["streaming_user_ids"] == ["777"]
 
         await asyncio.to_thread(_connect)
     finally:
         await redis.delete(f"voice:room:channel-{cid}")
+        await redis.delete(f"voice:room:channel-{cid}:streaming")
 
 
 @pytest.mark.asyncio
@@ -79,7 +82,11 @@ async def test_voice_state_pushed_to_connected_client(ws_app, _auth_signer, redi
                 try:
                     r.publish(
                         "voice:events",
-                        json.dumps({"channel_id": cid, "user_ids": [123, 456]}),
+                        json.dumps({
+                            "channel_id": cid,
+                            "user_ids": [123, 456],
+                            "streaming_user_ids": [123],
+                        }),
                     )
                 finally:
                     r.close()
@@ -87,6 +94,7 @@ async def test_voice_state_pushed_to_connected_client(ws_app, _auth_signer, redi
                 assert got["op"] == "voice_state"
                 assert got["channel_id"] == cid
                 assert got["user_ids"] == ["123", "456"]
+                assert got["streaming_user_ids"] == ["123"]
 
     await asyncio.to_thread(_run)
 
@@ -107,14 +115,17 @@ async def test_guild_voice_state_rest_endpoint(ws_app, _auth_signer, redis):
 
     token, gid, cid = await asyncio.to_thread(_run)
     await redis.sadd(f"voice:room:channel-{cid}", "55")
+    await redis.sadd(f"voice:room:channel-{cid}:streaming", "55")
     try:
         def _check():
             with TestClient(ws_app) as tc:
                 r = tc.get(f"/guilds/{gid}/voice-state", headers=_auth(token))
                 assert r.status_code == 200
-                states = {s["channel_id"]: s["user_ids"] for s in r.json()["voice_states"]}
-                assert states.get(cid) == ["55"]
+                states = {s["channel_id"]: s for s in r.json()["voice_states"]}
+                assert states[cid]["user_ids"] == ["55"]
+                assert states[cid]["streaming_user_ids"] == ["55"]
 
         await asyncio.to_thread(_check)
     finally:
         await redis.delete(f"voice:room:channel-{cid}")
+        await redis.delete(f"voice:room:channel-{cid}:streaming")
