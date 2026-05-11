@@ -34,7 +34,7 @@ class UserCacheStore {
   private async _flush(): Promise<void> {
     if (this.pending.size === 0) return;
     const ids = [...this.pending].slice(0, 100);
-    this.pending.clear();
+    ids.forEach((id) => this.pending.delete(id));
     this.debounceTimer = null;
     try {
       const result = await request<UserSummary[]>(

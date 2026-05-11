@@ -21,7 +21,8 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
   let volume = $state(100);
-  let audioBlocked = $state(false);
+  let localBlocked = $state(false);
+  const audioBlocked = $derived(localBlocked || voice.audioBlocked);
 
   function toggleFullscreen() {
     if (document.fullscreenElement) {
@@ -45,7 +46,7 @@
     if (!at || !el) return;
     at.attach(el);
     at.setVolume(volume / 100);
-    el.play().then(() => { audioBlocked = false; }).catch(() => { audioBlocked = true; });
+    el.play().then(() => { localBlocked = false; }).catch(() => { localBlocked = true; });
     return () => { at.detach(el); };
   });
 
@@ -58,7 +59,7 @@
     await voice.unblockAudio();
     try {
       await audioEl?.play();
-      audioBlocked = false;
+      localBlocked = false;
     } catch {
       /* still blocked — leave the button visible */
     }

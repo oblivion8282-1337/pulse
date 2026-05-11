@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -11,7 +11,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
 
-  let code = $derived($page.params.code ?? '');
+  let code = $derived(page.params.code ?? '');
   let preview = $state<InvitePreview | null>(null);
   let invalid = $state(false);
   let busy = $state(false);

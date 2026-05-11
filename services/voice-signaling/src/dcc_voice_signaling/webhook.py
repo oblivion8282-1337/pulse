@@ -126,10 +126,12 @@ def _receiver() -> WebhookReceiver:
 
 
 async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
-    members = await redis.smembers(room_key(room_name))
-    user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members)
-    streamers = await redis.smembers(streaming_key(room_name))
-    streaming_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in streamers)
+    pipe = redis.pipeline(transaction=False)
+    pipe.smembers(room_key(room_name))
+    pipe.smembers(streaming_key(room_name))
+    members_raw, streamers_raw = await pipe.execute()
+    user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members_raw)
+    streaming_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in streamers_raw)
     await redis.publish(
         VOICE_EVENTS_CHANNEL,
         json.dumps(
@@ -146,19 +148,26 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
 async def _apply_join(redis: Redis, room_name: str, user_id: str) -> None:
     settings = get_settings()
     key = room_key(room_name)
-    await redis.sadd(key, user_id)
-    await redis.expire(key, settings.voice_state_ttl_seconds)
+    pipe = redis.pipeline(transaction=False)
+    pipe.sadd(key, user_id)
+    pipe.expire(key, settings.voice_state_ttl_seconds)
+    await pipe.execute()
 
 
 async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     key = room_key(room_name)
-    await redis.srem(key, user_id)
-    if await redis.scard(key) == 0:
-        await redis.delete(key)
-    # Also remove from streaming set on leave (handles missed track_unpublished).
     sk = streaming_key(room_name)
-    await redis.srem(sk, user_id)
-    if await redis.scard(sk) == 0:
+    # Pipeline: srem + scard for both sets in two round-trips instead of up to 6.
+    pipe = redis.pipeline(transaction=False)
+    pipe.srem(key, user_id)
+    pipe.scard(key)
+    pipe.srem(sk, user_id)
+    pipe.scard(sk)
+    _, members_left, _, streamers_left = await pipe.execute()
+    # Conditional deletes — only two extra round-trips in the rare empty-set case.
+    if members_left == 0:
+        await redis.delete(key)
+    if streamers_left == 0:
         await redis.delete(sk)
 
 
@@ -170,14 +179,19 @@ async def _apply_room_finished(redis: Redis, room_name: str) -> None:
 async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) -> None:
     settings = get_settings()
     sk = streaming_key(room_name)
-    await redis.sadd(sk, user_id)
-    await redis.expire(sk, settings.voice_state_ttl_seconds)
+    pipe = redis.pipeline(transaction=False)
+    pipe.sadd(sk, user_id)
+    pipe.expire(sk, settings.voice_state_ttl_seconds)
+    await pipe.execute()
 
 
 async def _apply_screen_share_stop(redis: Redis, room_name: str, user_id: str) -> None:
     sk = streaming_key(room_name)
-    await redis.srem(sk, user_id)
-    if await redis.scard(sk) == 0:
+    pipe = redis.pipeline(transaction=False)
+    pipe.srem(sk, user_id)
+    pipe.scard(sk)
+    _, streamers_left = await pipe.execute()
+    if streamers_left == 0:
         await redis.delete(sk)
 
 
@@ -188,7 +202,11 @@ async def livekit_webhook(request: Request) -> None:
     )
     if not auth_header:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing signature")
-    body = (await request.body()).decode("utf-8", errors="replace")
+    raw_body = await request.body()
+    try:
+        body = raw_body.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid request body encoding") from exc
     try:
         event = _receiver().receive(body, auth_header)
     except Exception as exc:  # noqa: BLE001 — any verify error is a 401

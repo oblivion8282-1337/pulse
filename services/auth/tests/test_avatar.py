@@ -201,3 +201,21 @@ async def test_delete_avatar_idempotent(client):
     # Delete when no avatar set — should not error
     r = await client.delete("/me/avatar", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_upload_decompression_bomb_rejected(client, monkeypatch):
+    """A PNG whose decoded size exceeds MAX_IMAGE_PIXELS must be rejected with 400."""
+    from PIL import Image as PilImage
+
+    monkeypatch.setattr(PilImage, "MAX_IMAGE_PIXELS", 100 * 100)
+
+    token, _ = await _register_and_token(client)
+    # 200x200 PNG → 40 000 pixels, which exceeds the patched limit of 10 000.
+    png_data = _make_png(200, 200)
+    r = await client.post(
+        "/me/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("bomb.png", io.BytesIO(png_data), "image/png")},
+    )
+    assert r.status_code == 400

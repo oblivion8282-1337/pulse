@@ -4,11 +4,17 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
 from dcc_voice_signaling.config import get_settings
+
+log = structlog.get_logger(__name__)
+
+_DEV_KEY = "devkey"
+_DEV_SECRET = "devsecretdevsecretdevsecretdevsecret"
 from dcc_voice_signaling.routes import router
 from dcc_voice_signaling.webhook import router as webhook_router
 
@@ -16,6 +22,8 @@ from dcc_voice_signaling.webhook import router as webhook_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    if settings.livekit_api_key == _DEV_KEY or settings.livekit_api_secret == _DEV_SECRET:
+        log.warning("livekit_dev_credentials", msg="using LiveKit dev credentials — set LIVEKIT_API_KEY/SECRET in production")
     redis: Redis | None = None
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire `app.state.redis` themselves.

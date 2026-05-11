@@ -16,6 +16,7 @@ import {
 import type { ScreenShareCaptureOptions, TrackPublishOptions, VideoResolution } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
+import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { screenShareSettings } from '$lib/stores/screenShareSettings.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
@@ -437,8 +438,9 @@ class VoiceRoom {
       room.localParticipant as LocalParticipant,
       ...room.remoteParticipants.values()
     ];
+    const participantMap = new Map<string, Participant>(allParticipants.map((p) => [p.identity, p]));
     for (const vp of this.participants) {
-      const p = allParticipants.find((x) => x.identity === vp.identity);
+      const p = participantMap.get(vp.identity);
       if (!p) continue;
       const newLevel = p.audioLevel ?? 0;
       const newSpeaking = p.isSpeaking;
@@ -476,6 +478,7 @@ class VoiceRoom {
     this.#audioEls.clear();
     this.#room = null;
     this.state = ConnectionState.Disconnected;
+    if (this.channelId) voicePresence.apply(this.channelId, []);
     this.channelId = null;
     this.channelName = null;
     this.participants = [];

@@ -10,7 +10,14 @@
     'a', 'ul', 'ol', 'li', 'br', 'p', 'blockquote'];
   const ALLOWED_ATTR = ['href', 'title', 'target', 'rel'];
 
-  function renderMarkdown(text: string): string {
+  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
+  });
+
+  function renderSafe(text: string): string {
     const html = marked.parse(text) as string;
     return DOMPurify.sanitize(html, {
       ALLOWED_TAGS,
@@ -18,14 +25,6 @@
       FORCE_BODY: true,
       ALLOW_DATA_ATTR: false
     });
-  }
-
-  // Add target/rel to links after sanitize via a second pass
-  function renderSafe(text: string): string {
-    return renderMarkdown(text).replace(
-      /<a\s/g,
-      '<a target="_blank" rel="noopener noreferrer" '
-    );
   }
 
   let {

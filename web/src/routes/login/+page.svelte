@@ -1,6 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { page } from '$app/state';
   import { login, me } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -28,7 +28,7 @@
     try {
       await login(emailOrUsername.trim(), password);
       auth.setUser(await me());
-      const redirect = safeRedirect($page.url.searchParams.get('redirect'));
+      const redirect = safeRedirect(page.url.searchParams.get('redirect'));
       await goto(redirect);
     } catch (err) {
       error = (err as Error).message;

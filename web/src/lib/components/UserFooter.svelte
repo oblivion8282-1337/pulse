@@ -45,8 +45,7 @@
 
   async function onRemoveAvatar() {
     try {
-      const { deleteAvatar: del } = await import('$lib/api/auth');
-      await del();
+      await deleteAvatar();
       if (auth.user) {
         auth.setUser({ ...auth.user, avatar_url: null });
         userCache.seed([
