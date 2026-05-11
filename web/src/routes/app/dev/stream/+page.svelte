@@ -1,209 +1,153 @@
 <!--
-  T3a debug page — bring the GSR sidecar bridge to life from the WebView.
+  Dev-Route für die T3b-Streaming-UI.
 
-  Not linked from any menu; reach it via URL only. The proper streaming UI
-  lands in T3b — this page exists purely to exercise the Rust↔sidecar bridge
-  end-to-end without us building production chrome around it.
-
-  Pressing "Start" hands the sidecar a real `gpu-screen-recorder` argv and
-  opens the Wayland portal — only do that when you actually want to stream.
+  Nicht im Menü verlinkt — direkt via `/app/dev/stream` aufzurufen. Rendert
+  den produktiven `<StreamPanel />` (gleicher Code wie später im Voice-View)
+  plus einen Debug-Block am Fuß mit Raw-Health/buildArgv-Output für E2E-
+  Checks. Start öffnet den Wayland-Portal-Dialog — Vorsicht.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { gsr, type GsrHealth, type GsrListMonitors, type GsrListProfiles, type GsrStartArgs } from '$lib/stream/gsr';
+  import { gsr, type GsrHealth, type GsrBuildArgv } from '$lib/stream/gsr';
   import { stream } from '$lib/stream/state.svelte';
+  import { buildStartArgs, streamSettings } from '$lib/stream/settings.svelte';
+  import StreamPanel from '$lib/stream/components/StreamPanel.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
 
   let health = $state<GsrHealth | null>(null);
-  let monitors = $state<GsrListMonitors | null>(null);
-  let profiles = $state<GsrListProfiles | null>(null);
-  let probeError = $state<string | null>(null);
-  let starting = $state(false);
-  let stopping = $state(false);
+  let argvProbe = $state<GsrBuildArgv | null>(null);
+  let argvError = $state<string | null>(null);
 
-  // Form selection
-  let profileName = $state('AV1 Effizient');
-  let serverName = $state('Hetzner');
-  let captureSource = $state('portal');
-  let audioMode = $state('Desktop');
-
-  async function refresh() {
-    probeError = null;
+  async function refreshHealth() {
     try {
       health = await gsr.health();
-      monitors = await gsr.listMonitors();
-      profiles = await gsr.listProfiles();
-      if (profiles && profiles.profiles.length > 0) {
-        // Pick a sane default if the current selection isn't valid.
-        if (!profiles.profiles.find((p) => p.name === profileName)) {
-          profileName = profiles.profiles[0].name;
-        }
-        if (profiles.servers.length > 0 && !profiles.servers.find((s) => s.name === serverName)) {
-          serverName = profiles.servers[0].name;
-        }
-      }
     } catch (e) {
-      probeError = String(e);
+      argvError = `health: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  async function probeBuildArgv() {
+    argvError = null;
+    argvProbe = null;
+    try {
+      const r = await gsr.buildArgv(buildStartArgs());
+      argvProbe = r;
+      if (r && !r.ok) argvError = r.error ?? 'build_argv returned ok=false';
+    } catch (e) {
+      argvError = e instanceof Error ? e.message : String(e);
     }
   }
 
   onMount(() => {
-    if (!gsr.available()) {
-      probeError = 'Not running under Tauri — the GSR bridge is disabled.';
-      return;
-    }
-    void refresh();
+    if (gsr.available()) void refreshHealth();
   });
-
-  function startArgs(): GsrStartArgs {
-    return {
-      profile: profileName,
-      server: serverName,
-      capture: captureSource,
-      audio: { mode: audioMode, excluded_apps: [] },
-      stream_key: 'PLACEHOLDER',
-    };
-  }
-
-  async function doStart() {
-    starting = true;
-    try {
-      const r = await gsr.start(startArgs());
-      if (r && !r.ok) probeError = r.error ?? 'start returned ok=false';
-    } catch (e) {
-      probeError = String(e);
-    } finally {
-      starting = false;
-    }
-  }
-
-  async function doStop() {
-    stopping = true;
-    try {
-      await gsr.stop();
-    } catch (e) {
-      probeError = String(e);
-    } finally {
-      stopping = false;
-    }
-  }
-
-  async function doBuildArgv() {
-    try {
-      const r = await gsr.buildArgv(startArgs());
-      probeError = r ? null : 'no response';
-      // Display via the log channel so the user sees the assembled argv.
-      if (r?.argv) {
-        // eslint-disable-next-line no-console
-        console.log('build_argv →', r.argv.join(' '));
-      }
-      // also stash it into the in-page error field for visibility when
-      // devtools aren't open
-      if (r?.argv) probeError = `(build_argv) ${r.argv.join(' ')}`;
-      else if (r?.error) probeError = `(build_argv) ${r.error}`;
-    } catch (e) {
-      probeError = String(e);
-    }
-  }
 </script>
 
-<svelte:head><title>Pulse — T3a Stream Debug</title></svelte:head>
+<svelte:head><title>Pulse — T3b Stream Dev</title></svelte:head>
 
-<div class="text-text-base flex-1 overflow-y-auto p-6" data-testid="t3a-stream-debug">
+<div
+  class="text-text-base flex-1 overflow-y-auto p-6"
+  data-testid="t3b-stream-dev"
+>
   <header class="mb-4">
-    <h1 class="text-xl font-semibold">T3a Stream Debug</h1>
+    <h1 class="text-xl font-semibold">T3b Stream Dev</h1>
     <p class="text-text-muted text-sm">
-      Direkter Draht zum <code class="rounded bg-black/20 px-1">gsr-sidecar</code> via Tauri.
-      <strong class="text-amber-300">Start</strong> öffnet den Wayland-Portal-Dialog und kann
-      tatsächlich an MediaMTX pushen — nicht aus Versehen klicken.
+      Live-Vorschau der Streaming-Components (gleiches Panel wie später im
+      Voice-View). <strong class="text-amber-300">Start</strong> öffnet den
+      Wayland-Portal-Dialog — nicht aus Versehen klicken.
     </p>
   </header>
 
-  {#if probeError}
-    <div class="mb-4 rounded border border-amber-700 bg-amber-950/40 p-3 font-mono text-sm">
-      {probeError}
+  {#if !gsr.available()}
+    <div
+      class="mb-4 rounded border border-amber-700 bg-amber-950/40 p-3 text-sm"
+      data-testid="t3b-stream-dev-browser-notice"
+    >
+      Keine Tauri-Umgebung — Streaming-Panel ist hier ausgeblendet.
     </div>
   {/if}
 
-  <section class="mb-6">
-    <h2 class="mb-2 text-lg font-medium">Status</h2>
-    <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono text-sm">
-      <dt>available</dt><dd>{stream.available}</dd>
-      <dt>state</dt><dd>{stream.state}</dd>
-      <dt>running</dt><dd>{stream.running}</dd>
-      <dt>fps</dt><dd>{stream.fps ?? '—'}</dd>
-      <dt>uptime_s</dt><dd>{stream.uptimeS ?? '—'}</dd>
-      <dt>error</dt><dd class:text-red-400={stream.error}>{stream.error ?? '—'}</dd>
-    </dl>
-  </section>
+  <div class="max-w-2xl">
+    <StreamPanel />
+  </div>
 
-  <section class="mb-6">
-    <h2 class="mb-2 text-lg font-medium">Auswahl</h2>
-    <div class="grid grid-cols-[max-content_1fr] items-center gap-x-3 gap-y-2 text-sm">
-      <label for="profile">Profil</label>
-      <select id="profile" bind:value={profileName} class="rounded bg-black/30 px-2 py-1">
-        {#each profiles?.profiles ?? [] as p}
-          <option value={p.name}>{p.name} ({p.codec}, {p.bitrate_kbps}k, {p.fps}fps)</option>
-        {/each}
-      </select>
-
-      <label for="server">Server</label>
-      <select id="server" bind:value={serverName} class="rounded bg-black/30 px-2 py-1">
-        {#each profiles?.servers ?? [] as s}
-          <option value={s.name}>{s.name} ({s.push_protocol}://{s.push_host}:{s.push_port})</option>
-        {/each}
-      </select>
-
-      <label for="capture">Capture</label>
-      <select id="capture" bind:value={captureSource} class="rounded bg-black/30 px-2 py-1">
-        <option value="portal">portal (Wayland-Portal — interaktive Auswahl)</option>
-        {#each monitors?.monitors ?? [] as m}
-          <option value={m.name}>{m.name} ({m.resolution})</option>
-        {/each}
-      </select>
-
-      <label for="audio">Audio-Modus</label>
-      <select id="audio" bind:value={audioMode} class="rounded bg-black/30 px-2 py-1">
-        {#each profiles?.audio_modes ?? ['Aus', 'Desktop'] as a}
-          <option value={a}>{a}</option>
-        {/each}
-      </select>
+  <section class="mt-8 max-w-2xl border-t border-border pt-4">
+    <h2 class="text-text-bright mb-2 text-sm font-semibold">Debug</h2>
+    <div class="mb-2 flex gap-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        onclick={probeBuildArgv}
+        data-testid="t3b-build-argv"
+      >
+        build_argv (kein Start)
+      </Button>
+      <Button
+        type="button"
+        size="sm"
+        variant="ghost"
+        onclick={refreshHealth}
+        data-testid="t3b-refresh-health"
+      >
+        health refresh
+      </Button>
     </div>
-  </section>
 
-  <section class="mb-6 flex gap-2">
-    <button type="button" onclick={refresh} class="rounded bg-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-600">
-      Reload health/monitors/profiles
-    </button>
-    <button type="button" onclick={doBuildArgv} class="rounded bg-zinc-700 px-3 py-1.5 text-sm hover:bg-zinc-600">
-      build_argv (kein Start)
-    </button>
-    <button
-      type="button"
-      onclick={doStart}
-      disabled={starting || stream.running}
-      class="rounded bg-emerald-700 px-3 py-1.5 text-sm hover:bg-emerald-600 disabled:opacity-50"
-    >
-      {starting ? 'Starting…' : 'Start'}
-    </button>
-    <button
-      type="button"
-      onclick={doStop}
-      disabled={stopping || !stream.running}
-      class="rounded bg-red-700 px-3 py-1.5 text-sm hover:bg-red-600 disabled:opacity-50"
-    >
-      {stopping ? 'Stopping…' : 'Stop'}
-    </button>
-  </section>
+    {#if argvError}
+      <pre
+        class="mb-2 max-h-32 overflow-y-auto rounded bg-red-950/40 p-2 text-[11px] text-red-200">{argvError}</pre>
+    {/if}
 
-  <section class="mb-6">
-    <h2 class="mb-2 text-lg font-medium">Log (letzte 10)</h2>
-    <pre class="max-h-64 overflow-y-auto rounded bg-black/40 p-2 text-xs">{stream.lastLog
-        .slice(-10)
-        .join('\n') || '(noch nichts)'}</pre>
-  </section>
+    <details class="mb-2">
+      <summary class="text-text-muted cursor-pointer text-xs">Selections (settings)</summary>
+      <pre
+        class="mt-1 max-h-64 overflow-y-auto rounded bg-black/40 p-2 text-[11px]">{JSON.stringify(
+          {
+            profile_name: streamSettings.profile_name,
+            server_name: streamSettings.server_name,
+            capture_source: streamSettings.capture_source,
+            audio_mode: streamSettings.audio_mode,
+            excluded_apps: streamSettings.excluded_apps,
+            use_overrides: streamSettings.use_overrides,
+            overrides: streamSettings.overrides,
+          },
+          null,
+          2,
+        )}</pre>
+    </details>
 
-  <section>
-    <h2 class="mb-2 text-lg font-medium">Health-Response (raw)</h2>
-    <pre class="max-h-96 overflow-y-auto rounded bg-black/40 p-2 text-xs">{health ? JSON.stringify(health, null, 2) : '(noch nicht abgefragt — Tauri nötig)'}</pre>
+    <details class="mb-2">
+      <summary class="text-text-muted cursor-pointer text-xs">Last build_argv</summary>
+      <pre
+        class="mt-1 max-h-64 overflow-y-auto rounded bg-black/40 p-2 text-[11px]">{argvProbe
+          ? JSON.stringify(argvProbe, null, 2)
+          : '(noch nichts)'}</pre>
+    </details>
+
+    <details class="mb-2">
+      <summary class="text-text-muted cursor-pointer text-xs">Live state</summary>
+      <pre
+        class="mt-1 max-h-32 overflow-y-auto rounded bg-black/40 p-2 text-[11px]">{JSON.stringify(
+          {
+            available: stream.available,
+            running: stream.running,
+            state: stream.state,
+            fps: stream.fps,
+            uptimeS: stream.uptimeS,
+            error: stream.error,
+          },
+          null,
+          2,
+        )}</pre>
+    </details>
+
+    <details>
+      <summary class="text-text-muted cursor-pointer text-xs">Health (raw)</summary>
+      <pre
+        class="mt-1 max-h-96 overflow-y-auto rounded bg-black/40 p-2 text-[11px]">{health
+          ? JSON.stringify(health, null, 2)
+          : '(noch nichts abgefragt)'}</pre>
+    </details>
   </section>
 </div>
