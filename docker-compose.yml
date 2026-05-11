@@ -37,6 +37,25 @@ services:
       start_period: 3s
     restart: unless-stopped
 
+  # LiveKit (Phase E voice backend skeleton). Start with:
+  #   docker compose --profile voice up -d
+  # Profile gate keeps Phase A-D runs fast.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: dcc_night_livekit
+    profiles: ["voice"]
+    command: ["--config", "/etc/livekit/livekit.yaml"]
+    volumes:
+      - ./infra/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
+    # 11 UDP ports - small enough to keep iptables manageable. Do not
+    # expand without switching to network_mode: host (see
+    # memory/feedback_docker_ports.md).
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882-7892:7882-7892/udp"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:

@@ -1,0 +1,28 @@
+# LiveKit development configuration.
+#
+# Dev-only keys! Generated with `openssl rand -hex 16` style values. The
+# matching API key/secret pair must also be set in services/voice-signaling
+# (LIVEKIT_API_KEY / LIVEKIT_API_SECRET in .env).
+#
+# Production deployments will need TLS termination via Caddy and proper
+# secrets stored outside the repo.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  # Use a small UDP port range to keep iptables rules manageable. See
+  # memory/feedback_docker_ports.md — never expand this without switching
+  # to network_mode: host.
+  port_range_start: 7882
+  port_range_end: 7892
+  use_external_ip: false
+
+keys:
+  devkey: devsecretdevsecretdevsecretdevsecret
+
+log_level: info
+
+room:
+  enable_remote_unmute: true
+  max_participants: 50
