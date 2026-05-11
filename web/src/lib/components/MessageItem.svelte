@@ -10,6 +10,7 @@
     'a', 'ul', 'ol', 'li', 'br', 'p', 'blockquote'];
   const ALLOWED_ATTR = ['href', 'title', 'target', 'rel'];
 
+  DOMPurify.removeHook('afterSanitizeAttributes');
   DOMPurify.addHook('afterSanitizeAttributes', (node) => {
     if (node.tagName === 'A') {
       node.setAttribute('target', '_blank');

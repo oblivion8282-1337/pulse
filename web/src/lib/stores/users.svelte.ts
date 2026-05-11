@@ -41,9 +41,7 @@ class UserCacheStore {
         `/users?ids=${ids.join(',')}`,
         { endpoint: 'auth' }
       );
-      const next = { ...this.byId };
-      for (const u of result) next[u.id] = u;
-      this.byId = next;
+      for (const u of result) this.byId[u.id] = u;
     } catch {
       // silent — display fallback until next attempt
     }

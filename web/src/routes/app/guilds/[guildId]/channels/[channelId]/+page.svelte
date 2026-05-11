@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import GuildList from '$lib/components/GuildList.svelte';
@@ -37,6 +37,8 @@
   // untrack regardless, but a plain `let` would also break gen-comparison in
   // a reactive context).
   let switchGen = $state(0);
+  // Tracks pending optimistic-message timeout handles; cancelled on nav/destroy.
+  const pendingOptimisticTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   $effect(() => {
     const g = guildId;
@@ -44,7 +46,15 @@
     void switchTo(g, c);
   });
 
-  onMount(() => gateway.onChannelDeleted(handleRemoteChannelDeleted));
+  onMount(() => {
+    const off = gateway.onChannelDeleted(handleRemoteChannelDeleted);
+    return off;
+  });
+
+  onDestroy(() => {
+    for (const handle of pendingOptimisticTimeouts.values()) clearTimeout(handle);
+    pendingOptimisticTimeouts.clear();
+  });
 
   async function switchTo(g: string, c: string) {
     if (!g) return;
@@ -164,20 +174,30 @@
     if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     const tmpId = `tmp-${nonce}`;
+    const cid = activeChannel.id;
     messages.addOptimistic({
       id: tmpId,
-      channel_id: activeChannel.id,
+      channel_id: cid,
       author_id: auth.user.id,
       content: text,
       nonce,
       created_at: new Date().toISOString()
     });
-    const queued = gateway.send(activeChannel.id, text, nonce);
+    const queued = gateway.send(cid, text, nonce);
     if (!queued) {
       // WS not open — roll back the optimistic message and inform the user.
-      messages.removeOptimistic(activeChannel.id, tmpId);
+      messages.removeOptimistic(cid, tmpId);
       toast.error('Keine Verbindung — bitte erneut senden');
+      return;
     }
+    const handle = setTimeout(() => {
+      pendingOptimisticTimeouts.delete(nonce);
+      if (!messages.isConfirmed(nonce)) {
+        messages.removeOptimistic(cid, tmpId);
+        toast.error('Nachricht konnte nicht gesendet werden');
+      }
+    }, 10_000);
+    pendingOptimisticTimeouts.set(nonce, handle);
   }
 </script>
 

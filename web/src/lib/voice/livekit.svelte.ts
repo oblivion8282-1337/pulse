@@ -84,6 +84,7 @@ class VoiceRoom {
   #levelTimer: ReturnType<typeof setInterval> | null = null;
   /** Screen-share audio tracks subscribed before their video track — keyed by participant identity. */
   #pendingScreenAudio = new Map<string, RemoteAudioTrack>();
+  #teardownDone = false;
 
   get connected(): boolean {
     return this.state === ConnectionState.Connected;
@@ -103,6 +104,7 @@ class VoiceRoom {
     this.channelName = channelName;
     this.state = ConnectionState.Connecting;
 
+    this.#teardownDone = false;
     let resp;
     try {
       resp = await getVoiceToken(channelId, 'voice');
@@ -474,6 +476,8 @@ class VoiceRoom {
   }
 
   #teardown(): void {
+    if (this.#teardownDone) return;
+    this.#teardownDone = true;
     this.#stopLevelPolling();
     this.#audioEls.clear();
     this.#room = null;
