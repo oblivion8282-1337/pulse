@@ -10,9 +10,11 @@
       (more flexible and not bypassable by meta-tag injection).
       style-src unsafe-inline: required by Tailwind v4 + shadcn-svelte inline styles.
       script-src unsafe-inline + unsafe-eval: required by Vite dev HMR and SvelteKit SSR bootstrap.
+      script-src blob:: the DeepFilterNet3 noise-suppression AudioWorklet is loaded from a blob: URL
+      (AudioWorklet module loading falls back to script-src/script-src-elem in Chrome).
       In production, tighten via Caddy response headers (add nonce or hash, drop unsafe-*)
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
     <title>Discord Clone</title>
     %sveltekit.head%
   </head>
