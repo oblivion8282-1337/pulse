@@ -42,13 +42,16 @@
           ? 'grid-cols-3'
           : 'grid-cols-4',
   );
-  let hqLabel = $derived(
-    iAmHqStreaming
-      ? 'Du streamst (HQ)'
-      : hqStreamersOther.length === 1
-        ? `${userCache.displayName(hqStreamersOther[0])} streamt (HQ)`
-        : `${hqStreamersOther.length} Leute streamen (HQ)`,
-  );
+  let hqLabel = $derived.by(() => {
+    const others = hqStreamersOther.length;
+    if (iAmHqStreaming) {
+      if (others === 0) return 'Du streamst (HQ)';
+      if (others === 1) return `Du und ${userCache.displayName(hqStreamersOther[0])} streamen (HQ)`;
+      return `Du und ${others} weitere streamen (HQ)`;
+    }
+    if (others === 1) return `${userCache.displayName(hqStreamersOther[0])} streamt (HQ)`;
+    return `${others} Leute streamen (HQ)`;
+  });
 
   $effect(() => {
     for (const uid of hqStreamers) userCache.queue(uid);
