@@ -34,9 +34,13 @@ class ServerProfile:
     push_protocol: str       # rtmp | srt
     push_host: str           # ip oder dns
     push_port: int
-    push_path: str = "test"  # stream-name (z.B. "channel-<id>")
+    push_path: str = "test"  # stream-name (z.B. "channel-<id>-<uid>")
     needs_auth: bool = True
     auth_user: str = "michael"
+    # If set, this exact URL is handed to GSR's `-o` verbatim — used by the
+    # Pulse channel pathway, where media-svc already built the full rtmps://… /
+    # srt://… URL (token included), so we don't reconstruct it here.
+    push_url: str | None = None
     webrtc_url_template: str = "http://{host}:8889/{path}"
     hls_url_template: str = "http://{host}:8888/{path}"
     player_url_template: str = "http://{host}:8000/"  # Custom HTML-Player mit Stats
@@ -52,6 +56,7 @@ class ServerProfile:
         push_port: int | None = None,
         auth_user: str | None = None,
         name: str | None = None,
+        push_url: str | None = None,
     ) -> "ServerProfile":
         """Erzeugt ein ServerProfile für einen Pulse-Channel.
 
@@ -109,6 +114,9 @@ class ServerProfile:
         if auth_user is None:
             auth_user = token[:16] if token else "publisher"
 
+        # Path only matters when we reconstruct the URL ourselves; when media-svc
+        # gave us a full `push_url`, that's authoritative (it already has the
+        # `channel-<cid>-<uid>` path + token in it).
         channel_path = f"channel-{channel_id}"
         display_name = name if name is not None else channel_path
 
@@ -120,6 +128,7 @@ class ServerProfile:
             push_path=channel_path,
             needs_auth=True,
             auth_user=auth_user,
+            push_url=push_url,
             # Receiver-URLs zeigen — gleicher Pfad
             webrtc_url_template="http://{host}:8889/{path}",
             hls_url_template="http://{host}:8888/{path}",

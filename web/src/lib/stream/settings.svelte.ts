@@ -399,12 +399,16 @@ export function removeCustomServer(name: string): void {
 
 // ── Mapping helpers ─────────────────────────────────────────────────────────
 
-/** Args for the per-channel pathway: the chat-gateway-minted publish token +
- *  the MediaMTX ingest host:port (derived from the `push_url`). */
+/** Args for the per-channel pathway: the chat-gateway-minted publish token and
+ *  — the authoritative bit — the full `push_url` from media-svc (rtmps://… /
+ *  srt://… with the token in it, per-(channel,user) path). The host:port /
+ *  protocol fields are a fallback only. */
 export interface ChannelStreamArg {
   channelId: string;
   token: string;
-  /** Host or `host:port` (no scheme) of the MediaMTX ingest endpoint. */
+  /** Full push URL from media-svc; handed to GSR's `-o` verbatim. */
+  pushUrl?: string;
+  /** Host or `host:port` (no scheme) of the MediaMTX ingest endpoint. (fallback) */
   mediamtxEndpoint?: string;
   pushProtocol?: string;
 }
@@ -470,6 +474,7 @@ export function buildStartArgs(
     args.channel = {
       id: channelArg.channelId,
       token: channelArg.token,
+      ...(channelArg.pushUrl ? { push_url: channelArg.pushUrl } : {}),
       ...(channelArg.mediamtxEndpoint ? { mediamtx_endpoint: channelArg.mediamtxEndpoint } : {}),
       ...(channelArg.pushProtocol ? { push_protocol: channelArg.pushProtocol } : {}),
     };

@@ -116,7 +116,14 @@ export interface GsrStartArgs {
   /** Catalog server name. Mutually exclusive with `channel`/`custom_server`. */
   server?: string;
   /** Pulse-channel pathway: server profile built via `ServerProfile.from_channel`. */
-  channel?: { id: string; token: string; mediamtx_endpoint?: string; push_protocol?: string };
+  channel?: {
+    id: string;
+    token: string;
+    /** Full push URL from media-svc — handed to GSR's `-o` verbatim if present. */
+    push_url?: string;
+    mediamtx_endpoint?: string;
+    push_protocol?: string;
+  };
   /** Custom server pathway (T3c): inline spec, persisted in the Tauri-store. */
   custom_server?: GsrCustomServerSpec;
   capture: string;

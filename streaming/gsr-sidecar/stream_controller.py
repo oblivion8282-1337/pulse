@@ -184,7 +184,11 @@ class StreamController:
 
     @staticmethod
     def build_push_url(server: ServerProfile, key: str | None) -> str:
-        """Baut die Push-URL — identisch zum Original-Verhalten."""
+        """Baut die Push-URL — bzw. nutzt `server.push_url` verbatim, wenn gesetzt
+        (Pulse-Channel-Pfad: media-svc liefert die fertige rtmps://… / srt://…-URL
+        inkl. Token, kein Neuzusammenbauen)."""
+        if server.push_url:
+            return server.push_url
         if server.push_protocol == "rtmp":
             base = f"rtmp://{server.push_host}:{server.push_port}/{server.push_path}"
             if server.needs_auth and key:

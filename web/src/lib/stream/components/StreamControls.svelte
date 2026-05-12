@@ -120,6 +120,7 @@
         args = buildStartArgs(undefined, {
           channelId,
           token: tok.token,
+          pushUrl: tok.push_url,
           mediamtxEndpoint: mediamtxEndpointFromPushUrl(tok.push_url),
           pushProtocol: tok.push_protocol,
         });

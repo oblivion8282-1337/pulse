@@ -115,6 +115,7 @@ def _server_to_dict(s: ServerProfile) -> dict[str, Any]:
         "push_path": s.push_path,
         "needs_auth": s.needs_auth,
         "auth_user": s.auth_user,
+        "push_url": s.push_url,
     }
 
 
@@ -135,6 +136,8 @@ def _resolve_server(body: dict[str, Any]) -> tuple[ServerProfile, str | None]:
         token = str(channel.get("token", ""))
         endpoint = str(channel.get("mediamtx_endpoint", "77.42.71.166"))
         push_protocol = str(channel.get("push_protocol", "rtmp"))
+        push_url = channel.get("push_url")
+        push_url = str(push_url) if push_url else None
         if not channel_id:
             raise ValueError("channel.id (oder channel_id) ist Pflicht")
         sp = ServerProfile.from_channel(
@@ -142,6 +145,7 @@ def _resolve_server(body: dict[str, Any]) -> tuple[ServerProfile, str | None]:
             token=token,
             mediamtx_endpoint=endpoint,
             push_protocol=push_protocol,
+            push_url=push_url,
         )
         return sp, token
 
