@@ -33,12 +33,16 @@ const APP_VERSION: string = pkg.version ?? '0.0.0';
 // the package.json itself once bundled).
 process.env.PULSE_APP_VERSION = APP_VERSION;
 
-// Dev: load the running Vite server. Packaged: load the live deployed web app
-// (a web-side fix is then visible immediately, no Electron re-release needed —
-// the GSR streaming bridge stays local via the preload's `window.pulse`).
-const isDev = !app.isPackaged || !!process.env.PULSE_DEV_URL;
-const DEV_URL = process.env.PULSE_DEV_URL ?? 'http://localhost:5173';
+// Which web app to load: the local Vite dev server only when PULSE_DEV_URL is
+// explicitly set (frontend development) — otherwise the live deployed app, so a
+// web-side fix is visible immediately, no Electron re-release needed (the GSR
+// streaming bridge stays local via the preload's `window.pulse`).
+const DEV_URL = process.env.PULSE_DEV_URL ?? null;
 const PROD_URL = process.env.PULSE_URL ?? 'https://pulse.unicutmedia.com';
+const TARGET_URL = DEV_URL ?? PROD_URL;
+// DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
+// (detached); otherwise the standard accelerator (Ctrl+Shift+I) still toggles them.
+const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -65,12 +69,8 @@ function createWindow(): void {
     mainWindow = null;
   });
 
-  if (isDev) {
-    void mainWindow.loadURL(DEV_URL);
-    mainWindow.webContents.openDevTools({ mode: 'detach' });
-  } else {
-    void mainWindow.loadURL(PROD_URL);
-  }
+  void mainWindow.loadURL(TARGET_URL);
+  if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
 }
 
 // ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────

@@ -115,7 +115,7 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 |---|---|---|
 | @sveltejs/kit | 2.59.1 | |
 | svelte | 5.55.5 | Runes-API (`$state`/`$derived`) |
-| @sveltejs/adapter-static | 3.0.10 | statischer Build-Output (`web/build/`) — vom Electron-Main in Prod via `loadFile` geladen |
+| @sveltejs/adapter-static | 3.0.10 | statischer Build-Output (`web/build/`) → landet im `pulse_web`-nginx-Image (Prod-Web). Die Electron-App lädt die *deployte* Web-App remote (`loadURL`), nicht `web/build/` |
 | @sveltejs/vite-plugin-svelte | 7.1.2 | |
 | vite | 8.0.11 | Dev-Proxy: `/api/auth`→:8001 · `/api/chat`→:8002 · `/api/ws`→:8002 · `/api/voice`→:8003 |
 | typescript | 5.9.3 | strict |
@@ -157,15 +157,18 @@ desktop/
 ├── package.json            @dcc/desktop — main: electron/dist/main.cjs;
 │                           devDeps: electron 42.0.1 (gepinnt), esbuild 0.28.0, @types/node ^22.7.5;
 │                           Scripts: build:electron (esbuild bundlet main+preload → electron/dist/*.cjs),
-│                                    dev (= build:electron && PULSE_DEV_URL=:5173 electron .), start (electron .)
+│                                    dev (= build:electron && PULSE_DEV_URL=:5173 electron .) — Vite-Dev-Server,
+│                                    prod (= build:electron && electron .) — gegen die deployte Web-App, ohne DevTools,
+│                                    start (electron . ohne Rebuild)
 ├── tsconfig.json           für die Electron-TS-Files (target ES2022, module CommonJS, strict, skipLibCheck, noEmit)
 ├── .gitignore              dist/, node_modules/
 ├── electron/
 │   ├── main.ts             Main-Process: requestSingleInstanceLock + second-instance→focus, createWindow
 │   │                       (BrowserWindow 1280×832, minWidth 940 / minHeight 600, show:false →ready-to-show,
 │   │                        Titel "Pulse", webPreferences: preload + contextIsolation:true + nodeIntegration:false + sandbox:true),
-│   │                       Dev (!app.isPackaged || PULSE_DEV_URL) → loadURL(:5173) + openDevTools({mode:'detach'}),
-│   │                       Prod → loadFile(../../../web/build/index.html) [TODO T6: Pfad beim Packaging verifizieren],
+│   │                       loadURL(PULSE_DEV_URL ?? PULSE_URL ?? https://pulse.unicutmedia.com) — also default die
+│   │                       deployte Web-App (auch unpackaged); nur mit gesetztem PULSE_DEV_URL → Vite :5173.
+│   │                       DevTools öffnen NICHT mehr automatisch — nur bei PULSE_DEVTOOLS=1 (sonst Strg+Shift+I).
 │   │                       window-all-closed (außer darwin → quit), activate → createWindow.
 │   │                       whenReady: initStore() → wireStore() (store:* IPC) → wireSidecar() (gsr:* IPC) → createWindow.
 │   │                       before-quit → getSidecar().shutdown() (3 s-Backstop).
@@ -179,12 +182,15 @@ desktop/
 
 **Electron-Binary:** Electron 42 hat **kein** `postinstall` mehr — das Binary wird beim ersten `require('electron')` lazy heruntergeladen (`node_modules/.pnpm/electron@42.0.1/.../dist/electron`). `pnpm install` ist also "clean"; root-`package.json` hat `pnpm.onlyBuiltDependencies: ["esbuild"]` nur damit esbuilds Binary-Fetch-Postinstall ohne Prompt läuft.
 
-**Dev starten (Electron-Fenster):** Vite-Dev-Server muss auf `:5173` laufen
-(`pnpm --filter @dcc/web dev`), dann `pnpm --filter @dcc/desktop dev` (= `build:electron`
-+ `electron .` mit `PULSE_DEV_URL=http://localhost:5173`). Electron lädt im Dev von `:5173`,
-DevTools öffnen detached. Build-only-Check ohne GUI: `cd desktop && pnpm run build:electron`
-(esbuild) + `pnpm exec electron --version`. Voice funktioniert im Electron-Fenster
-(Chromium-WebRTC) — das war der Grund für den Pivot.
+**Starten:**
+- *Gegen die deployte Web-App* (der Normalfall, kein Vite nötig): `pnpm --filter @dcc/desktop prod`
+  (= `build:electron` + `electron .` ohne Env-Vars → lädt `https://pulse.unicutmedia.com`, keine DevTools).
+- *Gegen den Vite-Dev-Server* (Frontend-Entwicklung): Vite auf `:5173` laufen lassen
+  (`pnpm --filter @dcc/web dev`), dann `pnpm --filter @dcc/desktop dev` (setzt `PULSE_DEV_URL=:5173`).
+- DevTools bei Bedarf: `PULSE_DEVTOOLS=1 pnpm --filter @dcc/desktop prod` (öffnet sie detached), oder im
+  Fenster `Strg+Shift+I`. Eine "Konsole" poppt nicht mehr von selbst auf.
+- Build-only-Check ohne GUI: `cd desktop && pnpm run build:electron` (esbuild) + `pnpm exec electron --version`.
+- Voice funktioniert im Electron-Fenster (Chromium-WebRTC) — das war der Grund für den Pivot.
 
 **Settings-Persistenz (E1c) — `electron/store.ts` + `web/src/lib/stream/persistence.ts`:**
 Hand-rolled (bewusst **kein** `electron-store` — das ist in neueren Versionen ESM-only
@@ -210,9 +216,10 @@ Modul (z.B. `uiohook-napi`) → eigener Schritt später. `web/src/lib/platform/p
 **No-op-Stub** (`// TODO: global PTT for Electron needs a native key-listener (uiohook-napi)`).
 Der In-Window-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`, Taste aus
 `settings.voice.pttKey`) ist der aktive PTT-Pfad und funktioniert unverändert. Notifications
-(TODO in main.ts — kleiner `notify(title, body)`-IPC-Handler später). Prod-`loadFile`-Pfad
-ist als TODO markiert (Dev ist der getestete Pfad). `electron-builder` (Packaging = T6) ist
-**nicht** als Dep drin.
+(TODO in main.ts — kleiner `notify(title, body)`-IPC-Handler später). Die App läuft bisher
+nur über `pnpm --filter @dcc/desktop prod`/`dev` (kein gepacktes Binary → es bleibt ein Terminal
+offen, von dem aus man sie startet) — `electron-builder` (Packaging = T6, dann ein normales
+klickbares App-Bündel ohne Terminal) ist **nicht** als Dep drin.
 
 **Frontend-Glue:** `web/src/lib/platform/runtime.ts` hat `isElectron()`
 (`window.pulse?.platform === 'electron'`), `isDesktop()` (= `isElectron()`, Alias) und
