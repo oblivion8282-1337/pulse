@@ -26,6 +26,21 @@
   let hqStreamerId = $derived(streamPresence.streamingUser(channel.id));
   let hqIsSelf = $derived(!!hqStreamerId && hqStreamerId === auth.user?.id);
   let hqStreamerName = $derived(hqStreamerId ? userCache.displayName(hqStreamerId) : 'Jemand');
+
+  // Stream layout: the HQ stream (if not our own) plus every browser screen-share
+  // go into one responsive grid; participant avatars become a compact row below.
+  let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
+  let videoTileCount = $derived((hqStreaming && !hqIsSelf ? 1 : 0) + voice.screenTracks.length);
+  let streamGridCols = $derived(
+    videoTileCount <= 1
+      ? 'grid-cols-1'
+      : videoTileCount <= 4
+        ? 'grid-cols-2'
+        : videoTileCount <= 9
+          ? 'grid-cols-3'
+          : 'grid-cols-4',
+  );
+
   $effect(() => {
     if (hqStreamerId) userCache.queue(hqStreamerId);
   });
@@ -116,56 +131,48 @@
         <div class="flex flex-1 items-center justify-center">
           <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
         </div>
-      {:else if hqStreaming}
-        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3" data-testid="hq-stream-area">
-          <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
-            <RadioTowerIcon class="size-4 text-red-500" />
-            {#if hqIsSelf}
-              <span class="text-text-bright font-medium">Du streamst (HQ)</span>
-              <Button
-                variant="destructive"
-                size="sm"
-                class="ml-auto gap-1.5"
-                onclick={stopHqStream}
-                data-testid="hq-stream-stop-btn"
-              >
-                <SquareIcon class="size-3.5" />
-                Stream beenden
-              </Button>
-            {:else}
-              <span class="text-text-bright"><span class="font-medium">{hqStreamerName}</span> streamt (HQ)</span>
-            {/if}
-          </div>
-          {#if hqIsSelf}
+      {:else if hasStreams}
+        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3" data-testid="stream-area">
+          {#if hqStreaming}
+            <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
+              <RadioTowerIcon class="size-4 text-red-500" />
+              {#if hqIsSelf}
+                <span class="text-text-bright font-medium">Du streamst (HQ)</span>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  class="ml-auto gap-1.5"
+                  onclick={stopHqStream}
+                  data-testid="hq-stream-stop-btn"
+                >
+                  <SquareIcon class="size-3.5" />
+                  Stream beenden
+                </Button>
+              {:else}
+                <span class="text-text-bright"><span class="font-medium">{hqStreamerName}</span> streamt (HQ)</span>
+              {/if}
+            </div>
+          {/if}
+
+          {#if videoTileCount === 0}
+            <!-- our own HQ stream, nothing else to show — just the "you're streaming" notice -->
             <div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-bg-chat text-center" data-testid="hq-stream-self-indicator">
               <RadioTowerIcon class="size-10 text-red-500" />
               <p class="text-text-bright text-sm font-medium">Du streamst in diesen Kanal</p>
               <p class="text-text-muted text-xs">Deine eigene Wiedergabe wird hier nicht angezeigt.</p>
             </div>
           {:else}
-            <div class="min-h-0 flex-1">
-              <WhepPlayer channelId={channel.id} />
+            <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 {streamGridCols}" data-testid="stream-grid">
+              {#if hqStreaming && !hqIsSelf}
+                <WhepPlayer channelId={channel.id} />
+              {/if}
+              {#each voice.screenTracks as st (st.identity)}
+                <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
+              {/each}
             </div>
           {/if}
-          {#if voice.screenTracks.length > 0}
-            {#each voice.screenTracks as st (st.identity)}
-              <div class="h-40 shrink-0">
-                <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
-              </div>
-            {/each}
-          {/if}
-          <div class="flex shrink-0 flex-wrap items-center justify-center gap-4 py-2" data-testid="voice-participants">
-            {#each voice.participants as p (p.identity)}
-              <VoiceParticipantTile {p} />
-            {/each}
-          </div>
-        </div>
-      {:else if voice.screenTracks.length > 0}
-        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3" data-testid="screen-share-area">
-          {#each voice.screenTracks as st (st.identity)}
-            <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
-          {/each}
-          <div class="flex shrink-0 flex-wrap items-center justify-center gap-4 py-2" data-testid="voice-participants">
+
+          <div class="flex shrink-0 flex-wrap items-center justify-center gap-3 py-1" data-testid="voice-participants">
             {#each voice.participants as p (p.identity)}
               <VoiceParticipantTile {p} />
             {/each}
