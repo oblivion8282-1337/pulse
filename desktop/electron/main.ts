@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, session, desktopCapturer } from 'electron';
 import * as path from 'node:path';
 // Bundled by esbuild at build time (resolveJsonModule); `../package.json` is
 // `desktop/package.json` relative to this source file.
@@ -125,6 +125,27 @@ function wireStore(): void {
   });
 }
 
+// ── Screen capture (browser screen-share via LiveKit/WebRTC) ────────────────
+// Electron has no built-in screen picker — without a display-media request
+// handler, navigator.mediaDevices.getDisplayMedia() in the renderer throws
+// "Not supported". We hand back the first available screen source. On a Wayland
+// host this routes through xdg-desktop-portal (the compositor shows its own
+// picker); on X11 it grabs the primary screen with no prompt. (A proper in-app
+// source picker is a follow-up — the GSR HQ-stream path covers richer capture.)
+function wireScreenShare(): void {
+  session.defaultSession.setDisplayMediaRequestHandler(
+    (_request, callback) => {
+      desktopCapturer
+        .getSources({ types: ['screen', 'window'] })
+        .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
+        .catch(() => callback({}));
+    },
+    // OS-native picker where available (Windows/macOS); ignored on Linux, where
+    // our handler above runs instead.
+    { useSystemPicker: true }
+  );
+}
+
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Second launch hands focus to the running window instead of starting a 2nd one.
 if (!app.requestSingleInstanceLock()) {
@@ -150,6 +171,7 @@ app.whenReady().then(() => {
   initStore();
   wireStore();
   wireSidecar();
+  wireScreenShare();
   createWindow();
 });
 

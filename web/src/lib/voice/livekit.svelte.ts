@@ -272,9 +272,22 @@ class VoiceRoom {
       this.isScreenSharing = false;
       if (e instanceof Error) {
         const msg = e.message.toLowerCase();
-        if (msg.includes('codec') || msg.includes('not supported') || msg.includes('encodingparameters')) {
-          toast.error(`Codec "${settings.screenShare.codec.toUpperCase()}" wird von deinem Browser nicht unterstützt — versuch VP9 oder H.264`);
-        } else if (!msg.includes('cancel') && !msg.includes('abort') && !msg.includes('permission')) {
+        if (msg.includes('codec') || msg.includes('encodingparameters') || msg.includes('unsupportederror')) {
+          // A real codec/encoding rejection from the publish step — e.g. H.264 or
+          // AV1 in the desktop client (Electron's Chromium can't encode those for
+          // WebRTC). VP8/VP9 always work.
+          toast.error(
+            `Codec ${settings.screenShare.codec.toUpperCase()} wird hier nicht unterstützt — stell ihn in den Einstellungen auf VP9 um.`
+          );
+        } else if (msg.includes('not supported') || msg.includes('failed to start')) {
+          // getDisplayMedia couldn't acquire a source.
+          toast.error('Bildschirm teilen ist hier nicht verfügbar.', { description: e.message });
+        } else if (
+          !msg.includes('cancel') &&
+          !msg.includes('abort') &&
+          !msg.includes('permission') &&
+          !msg.includes('denied')
+        ) {
           toast.error('Bildschirm teilen fehlgeschlagen', { description: e.message });
         }
       }
