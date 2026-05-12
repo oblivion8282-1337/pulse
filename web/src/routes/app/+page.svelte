@@ -7,6 +7,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import UserFooter from '$lib/components/UserFooter.svelte';
 
   let creating = $state(false);
@@ -32,6 +33,11 @@
     guilds.addChannel(c);
     await goto(`/app/guilds/${g.id}/channels/${c.id}`);
   }
+
+  async function joinGuild(linkOrCode: string) {
+    await joinGuildByInvite(linkOrCode);
+    creating = false;
+  }
 </script>
 
 <aside class="glass-panel flex h-full w-64 flex-col overflow-hidden rounded-2xl" data-testid="channel-list-placeholder">
@@ -56,7 +62,12 @@
   {/if}
 </div>
 
-<CreateGuildDialog open={creating} onClose={() => (creating = false)} onCreate={createGuild} />
+<CreateGuildDialog
+  open={creating}
+  onClose={() => (creating = false)}
+  onCreate={createGuild}
+  onJoin={joinGuild}
+/>
 
 {#if auth.user}
   <div class="hidden" data-testid="current-user-id">{auth.user.id}</div>

@@ -11,6 +11,11 @@ const BOB = {
   email: `inv_bob_${ts}@dcc-test.example.com`,
   password: 'inv-secret-pass'
 };
+const CARA = {
+  username: `inv_cara_${ts}`,
+  email: `inv_cara_${ts}@dcc-test.example.com`,
+  password: 'inv-secret-pass'
+};
 
 async function register(page: Page, u: { username: string; email: string; password: string }) {
   await page.goto('/register');
@@ -34,19 +39,24 @@ test.describe.serial('Invite Flow E2E', () => {
   let alicePage: Page;
   let bobCtx: BrowserContext;
   let bobPage: Page;
+  let caraCtx: BrowserContext;
+  let caraPage: Page;
   let inviteCode = '';
   let inviteLink = '';
 
   test.beforeAll(async ({ browser }) => {
     aliceCtx = await browser.newContext();
     bobCtx = await browser.newContext();
+    caraCtx = await browser.newContext();
     alicePage = await aliceCtx.newPage();
     bobPage = await bobCtx.newPage();
+    caraPage = await caraCtx.newPage();
   });
 
   test.afterAll(async () => {
     await aliceCtx.close();
     await bobCtx.close();
+    await caraCtx.close();
   });
 
   test('Alice and Bob register', async () => {
@@ -61,6 +71,7 @@ test.describe.serial('Invite Flow E2E', () => {
   test('Alice creates a guild', async () => {
     await expect(alicePage.getByTestId('empty-create-guild')).toBeVisible();
     await alicePage.getByTestId('empty-create-guild').click();
+    await alicePage.getByTestId('create-guild-choice').click();
     await alicePage.getByTestId('create-guild-name').fill('Invite Test Guild');
     await alicePage.getByTestId('create-guild-submit').click();
     await alicePage.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/);
@@ -85,6 +96,23 @@ test.describe.serial('Invite Flow E2E', () => {
     inviteCode = link.split('/invite/')[1];
 
     await alicePage.keyboard.press('Escape');
+  });
+
+  test('Cara joins via the "+" dialog — bad code shows an error, the real code joins', async () => {
+    await register(caraPage, CARA);
+    // open the add-server dialog from the "+" button, pick "join via invite"
+    await caraPage.getByTestId('guild-create').click();
+    await expect(caraPage.getByTestId('create-guild-dialog')).toBeVisible();
+    await caraPage.getByTestId('join-guild-choice').click();
+    // a bogus code surfaces an inline error and keeps the dialog open
+    await caraPage.getByTestId('join-guild-input').fill('INVALID0');
+    await caraPage.getByTestId('join-guild-submit').click();
+    await expect(caraPage.getByTestId('join-guild-error')).toBeVisible({ timeout: 10_000 });
+    // the real code (bare, not a full link) joins and navigates into the guild
+    await caraPage.getByTestId('join-guild-input').fill(inviteCode);
+    await caraPage.getByTestId('join-guild-submit').click();
+    await caraPage.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/, { timeout: 15_000 });
+    await expect(caraPage.getByTestId('active-channel-name')).toBeVisible({ timeout: 10_000 });
   });
 
   test('Bob visits the invite link without being logged in — sees preview, then redirected to login', async () => {

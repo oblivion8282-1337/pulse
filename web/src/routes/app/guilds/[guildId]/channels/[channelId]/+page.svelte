@@ -12,6 +12,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
   import { toast } from 'svelte-sonner';
   import type { Channel } from '$lib/api/types';
@@ -149,6 +150,11 @@
     await goto(`/app/guilds/${g.id}/channels/${ch.id}`);
   }
 
+  async function joinGuild(linkOrCode: string) {
+    await joinGuildByInvite(linkOrCode);
+    creatingGuild = false;
+  }
+
   async function createChannel(name: string, type: number) {
     if (!activeGuild) return;
     const ch = await chatApi.createChannel(activeGuild.id, { name, type });
@@ -231,6 +237,11 @@
   <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} />
 {/if}
 
-<CreateGuildDialog open={creatingGuild} onClose={() => (creatingGuild = false)} onCreate={createGuild} />
+<CreateGuildDialog
+  open={creatingGuild}
+  onClose={() => (creatingGuild = false)}
+  onCreate={createGuild}
+  onJoin={joinGuild}
+/>
 
 <CreateChannelDialog open={creatingChannel} onClose={() => (creatingChannel = false)} onCreate={createChannel} />

@@ -98,6 +98,7 @@ test.describe.serial('Discord-Clone E2E', () => {
     // Empty state shows "create guild" button.
     await expect(alicePage.getByTestId('empty-create-guild')).toBeVisible();
     await alicePage.getByTestId('empty-create-guild').click();
+    await alicePage.getByTestId('create-guild-choice').click();
     await alicePage.getByTestId('create-guild-name').fill('Night Team');
     await alicePage.getByTestId('create-guild-submit').click();
 

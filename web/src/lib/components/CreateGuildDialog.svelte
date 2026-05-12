@@ -3,60 +3,188 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import * as Alert from '$lib/components/ui/alert/index.js';
+  import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
 
   let {
     open = false,
     onClose,
-    onCreate
+    onCreate,
+    onJoin
   }: {
     open?: boolean;
     onClose: () => void;
-    onCreate: (name: string) => void;
+    /** Create a new server with this name. May throw — the dialog shows the error. */
+    onCreate: (name: string) => void | Promise<void>;
+    /** Join via a pasted invite link or a bare code. May throw — the dialog shows the error. */
+    onJoin: (linkOrCode: string) => void | Promise<void>;
   } = $props();
 
+  type Mode = 'choose' | 'create' | 'join';
+  let mode = $state<Mode>('choose');
   let name = $state('');
+  let inviteInput = $state('');
+  let busy = $state(false);
+  let error = $state<string | null>(null);
+
+  function reset() {
+    mode = 'choose';
+    name = '';
+    inviteInput = '';
+    busy = false;
+    error = null;
+  }
 
   function handleOpenChange(next: boolean) {
     if (!next) {
-      name = '';
+      reset();
       onClose();
     }
   }
 
-  function submit(e: SubmitEvent) {
+  function back() {
+    mode = 'choose';
+    error = null;
+  }
+
+  async function submitCreate(e: SubmitEvent) {
     e.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed) return;
-    onCreate(trimmed);
-    name = '';
+    if (!trimmed || busy) return;
+    busy = true;
+    error = null;
+    try {
+      await onCreate(trimmed);
+      // success → the parent navigates to the new guild and this dialog unmounts.
+    } catch (err) {
+      error = (err as Error)?.message || 'Server erstellen fehlgeschlagen.';
+      busy = false;
+    }
+  }
+
+  async function submitJoin(e: SubmitEvent) {
+    e.preventDefault();
+    const trimmed = inviteInput.trim();
+    if (!trimmed || busy) return;
+    busy = true;
+    error = null;
+    try {
+      await onJoin(trimmed);
+    } catch (err) {
+      error =
+        (err as { status?: number })?.status === 404
+          ? 'Diese Einladung ist ungültig oder abgelaufen.'
+          : (err as Error)?.message || 'Beitreten fehlgeschlagen.';
+      busy = false;
+    }
   }
 </script>
 
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="create-guild-dialog">
-    <Dialog.Header>
-      <Dialog.Title>Server erstellen</Dialog.Title>
-      <Dialog.Description>Gib deinem Server einen Namen.</Dialog.Description>
-    </Dialog.Header>
-    <form class="space-y-4" onsubmit={submit}>
-      <div class="space-y-1.5">
-        <Label for="create-guild-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Server-Name
-        </Label>
-        <Input
-          id="create-guild-name"
-          type="text"
-          bind:value={name}
-          required
-          minlength={1}
-          maxlength={64}
-          data-testid="create-guild-name"
-        />
+    {#if mode === 'choose'}
+      <Dialog.Header>
+        <Dialog.Title>Server hinzufügen</Dialog.Title>
+        <Dialog.Description>
+          Erstelle einen eigenen Server oder tritt einem über eine Einladung bei.
+        </Dialog.Description>
+      </Dialog.Header>
+      <div class="space-y-2">
+        <button
+          type="button"
+          class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
+          onclick={() => (mode = 'create')}
+          data-testid="create-guild-choice"
+        >
+          <div>
+            <div class="text-text-bright font-semibold">Eigenen Server erstellen</div>
+            <div class="text-text-muted text-xs">Du wirst der Owner.</div>
+          </div>
+        </button>
+        <button
+          type="button"
+          class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
+          onclick={() => (mode = 'join')}
+          data-testid="join-guild-choice"
+        >
+          <div>
+            <div class="text-text-bright font-semibold">Einem Server beitreten</div>
+            <div class="text-text-muted text-xs">Mit einem Einladungslink oder -code.</div>
+          </div>
+        </button>
       </div>
-      <Dialog.Footer>
-        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)}>Abbrechen</Button>
-        <Button type="submit" data-testid="create-guild-submit">Erstellen</Button>
-      </Dialog.Footer>
-    </form>
+    {:else if mode === 'create'}
+      <Dialog.Header>
+        <Dialog.Title>Server erstellen</Dialog.Title>
+        <Dialog.Description>Gib deinem Server einen Namen.</Dialog.Description>
+      </Dialog.Header>
+      <form class="space-y-4" onsubmit={submitCreate}>
+        <div class="space-y-1.5">
+          <Label
+            for="create-guild-name"
+            class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
+          >
+            Server-Name
+          </Label>
+          <Input
+            id="create-guild-name"
+            type="text"
+            bind:value={name}
+            required
+            minlength={1}
+            maxlength={64}
+            data-testid="create-guild-name"
+          />
+        </div>
+        {#if error}
+          <Alert.Root variant="destructive">
+            <OctagonXIcon />
+            <Alert.Description>{error}</Alert.Description>
+          </Alert.Root>
+        {/if}
+        <Dialog.Footer>
+          <Button type="button" variant="ghost" onclick={back} disabled={busy}>Zurück</Button>
+          <Button type="submit" disabled={busy} data-testid="create-guild-submit">
+            {busy ? 'Erstellen…' : 'Erstellen'}
+          </Button>
+        </Dialog.Footer>
+      </form>
+    {:else}
+      <Dialog.Header>
+        <Dialog.Title>Server beitreten</Dialog.Title>
+        <Dialog.Description>Füge den Einladungslink oder den Code ein.</Dialog.Description>
+      </Dialog.Header>
+      <form class="space-y-4" onsubmit={submitJoin}>
+        <div class="space-y-1.5">
+          <Label
+            for="join-guild-input"
+            class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
+          >
+            Einladungslink oder -code
+          </Label>
+          <Input
+            id="join-guild-input"
+            type="text"
+            bind:value={inviteInput}
+            required
+            autocomplete="off"
+            placeholder="https://pulse.unicutmedia.com/invite/… oder abcd1234"
+            data-testid="join-guild-input"
+          />
+        </div>
+        {#if error}
+          <Alert.Root variant="destructive" data-testid="join-guild-error">
+            <OctagonXIcon />
+            <Alert.Description>{error}</Alert.Description>
+          </Alert.Root>
+        {/if}
+        <Dialog.Footer>
+          <Button type="button" variant="ghost" onclick={back} disabled={busy}>Zurück</Button>
+          <Button type="submit" disabled={busy} data-testid="join-guild-submit">
+            {busy ? 'Beitreten…' : 'Beitreten'}
+          </Button>
+        </Dialog.Footer>
+      </form>
+    {/if}
   </Dialog.Content>
 </Dialog.Root>
