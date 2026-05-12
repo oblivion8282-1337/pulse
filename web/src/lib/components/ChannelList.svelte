@@ -103,7 +103,7 @@
   }
 </script>
 
-<aside class="glass-panel text-text-base flex h-full w-64 flex-col overflow-hidden rounded-2xl" data-testid="channel-list">
+<aside class="glass-panel text-text-base flex h-full w-72 flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list">
   <GuildList
     guilds={guildList}
     {activeGuildId}

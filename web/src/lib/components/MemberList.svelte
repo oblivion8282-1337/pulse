@@ -1,10 +1,17 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import XIcon from '@lucide/svelte/icons/x';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
   import type { Member } from '$lib/api/types';
 
-  let { guildId }: { guildId: string } = $props();
+  let {
+    guildId,
+    onClose
+  }: {
+    guildId: string;
+    onClose?: () => void;
+  } = $props();
 
   let members = $state<Member[]>([]);
   let loading = $state(false);
@@ -45,13 +52,22 @@
 </script>
 
 <aside
-  class="border-border flex h-full w-52 shrink-0 flex-col border-l"
+  class="border-border bg-bg-chat flex h-full w-full flex-col border-l md:w-44 md:bg-transparent lg:w-52"
   data-testid="member-list"
 >
-  <header class="flex h-14 items-center px-4">
+  <header class="flex h-14 items-center justify-between px-4">
     <span class="text-text-muted text-xs font-bold">
       Mitglieder — {members.length}
     </span>
+    {#if onClose}
+      <button
+        class="rounded-full p-1.5 transition-colors hover:bg-bg-hover md:hidden"
+        onclick={onClose}
+        aria-label="Schließen"
+      >
+        <XIcon class="text-text-muted size-4" />
+      </button>
+    {/if}
   </header>
 
   <div class="flex-1 overflow-y-auto px-2.5 py-1">

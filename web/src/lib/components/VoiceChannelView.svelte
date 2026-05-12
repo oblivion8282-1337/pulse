@@ -17,9 +17,16 @@
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { gsr } from '$lib/stream/gsr';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
+  import MenuIcon from '@lucide/svelte/icons/menu';
   import type { Channel } from '$lib/api/types';
 
-  let { channel }: { channel: Channel } = $props();
+  let {
+    channel,
+    onMenuClick
+  }: {
+    channel: Channel;
+    onMenuClick?: () => void;
+  } = $props();
 
   // HQ stream presence for this channel (from the WS `stream_state` broadcast) —
   // a set of streamers, since several people can HQ-stream into one channel.
@@ -117,11 +124,21 @@
   onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) voice.pttRelease(); }}
 />
 
-<section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl" data-testid="voice-channel-view">
-  <header class="flex h-14 items-center gap-2.5 px-5">
-    <Volume2Icon class="text-primary size-5" />
-    <span class="text-text-bright text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
-    <span class="text-text-muted ml-2 text-sm">· {statusLabel}</span>
+<section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
+  <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
+    {#if onMenuClick}
+      <button
+        class="mr-1 rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary md:hidden"
+        onclick={onMenuClick}
+        aria-label="Menü"
+        data-testid="mobile-menu-toggle"
+      >
+        <MenuIcon class="text-text-muted size-4" />
+      </button>
+    {/if}
+    <Volume2Icon class="text-primary size-5 shrink-0" />
+    <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
+    <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
   </header>
 
   {#if voice.audioBlocked && isThisChannel}
@@ -144,7 +161,7 @@
           <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
         </div>
       {:else if hasStreams}
-        <div class="flex min-h-0 flex-1 flex-col gap-2 p-3" data-testid="stream-area">
+        <div class="flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
           {#if hqStreaming}
             <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
               <RadioTowerIcon class="size-4 text-red-500" />
@@ -189,7 +206,7 @@
           </div>
         </div>
       {:else}
-        <div class="flex flex-1 flex-wrap items-center justify-center gap-6 p-8" data-testid="voice-participants">
+        <div class="flex flex-1 flex-wrap items-center justify-center gap-4 p-3 md:gap-6 md:p-8" data-testid="voice-participants">
           {#each voice.participants as p (p.identity)}
             <VoiceParticipantTile {p} />
           {/each}

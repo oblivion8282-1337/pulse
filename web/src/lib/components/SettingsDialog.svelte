@@ -6,8 +6,10 @@
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
+  import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 
   type SettingsTab = 'appearance' | 'audio-video' | 'screen-share';
+  type MobileView = 'list' | 'detail';
 
   let {
     open = $bindable(false),
@@ -15,32 +17,53 @@
   }: { open?: boolean; initialTab?: SettingsTab } = $props();
 
   let activeTab = $state<SettingsTab>('audio-video');
+  let mobileView = $state<MobileView>('list');
 
   // Jump to the requested tab whenever the dialog is (re)opened.
   $effect(() => {
-    if (open) activeTab = initialTab;
+    if (open) {
+      activeTab = initialTab;
+      mobileView = 'list';
+    }
   });
+
+  function selectTab(id: SettingsTab) {
+    activeTab = id;
+    mobileView = 'detail';
+  }
 
   const tabs: { id: SettingsTab; label: string; icon: typeof MicIcon }[] = [
     { id: 'appearance', label: 'Erscheinungsbild', icon: PaletteIcon },
     { id: 'audio-video', label: 'Sprache & Video', icon: MicIcon },
     { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon }
   ];
+
+  let activeLabel = $derived(tabs.find((t) => t.id === activeTab)?.label ?? '');
 </script>
 
 <Dialog.Root bind:open>
   <Dialog.Content
-    class="flex max-h-[85vh] min-h-[28rem] w-full max-w-3xl gap-0 overflow-hidden p-0 sm:max-w-3xl"
+    class="flex max-h-[85vh] min-h-[28rem] w-full max-w-3xl gap-0 overflow-hidden p-0 sm:max-w-3xl max-sm:h-screen max-sm:max-h-screen max-sm:max-w-none max-sm:rounded-none"
     data-testid="settings-dialog"
   >
-    <nav class="bg-bg-input flex w-48 shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3">
-      <Dialog.Title class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
+    <!-- Zugänglicher Dialog-Titel — immer im DOM (auf Mobil wird die <nav> mit
+         dem sichtbaren Titel ggf. ausgeblendet, daher hier separat als sr-only). -->
+    <Dialog.Title class="sr-only">
+      Einstellungen{mobileView === 'detail' && activeLabel ? ` — ${activeLabel}` : ''}
+    </Dialog.Title>
+
+    <!-- Nav-Liste: immer sichtbar auf sm+; auf mobile nur wenn mobileView=list -->
+    <nav
+      class="bg-bg-input flex shrink-0 flex-col gap-0.5 overflow-y-auto rounded-l-2xl p-3 max-sm:w-full max-sm:rounded-none sm:w-48
+        {mobileView === 'detail' ? 'max-sm:hidden' : ''}"
+    >
+      <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
         Einstellungen
-      </Dialog.Title>
+      </p>
       {#each tabs as t (t.id)}
         <button
           type="button"
-          onclick={() => (activeTab = t.id)}
+          onclick={() => selectTab(t.id)}
           class="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors {activeTab ===
           t.id
             ? 'bg-bg-hover text-text-bright'
@@ -52,14 +75,35 @@
         </button>
       {/each}
     </nav>
-    <div class="min-h-0 min-w-0 flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14">
-      {#if activeTab === 'appearance'}
-        <SettingsAppearance />
-      {:else if activeTab === 'audio-video'}
-        <SettingsAudioVideo />
-      {:else}
-        <SettingsScreenShare />
-      {/if}
+
+    <!-- Inhaltsbereich: auf sm+ inline; auf mobile nur wenn mobileView=detail -->
+    <div
+      class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden
+        {mobileView === 'list' ? 'max-sm:hidden' : ''}"
+    >
+      <!-- Zurück-Button auf Mobile -->
+      <div class="flex h-12 shrink-0 items-center gap-2 border-b border-border px-4 sm:hidden">
+        <button
+          type="button"
+          onclick={() => (mobileView = 'list')}
+          class="flex items-center gap-1 rounded-lg p-1 text-sm transition-colors hover:bg-bg-hover"
+          aria-label="Zurück"
+        >
+          <ChevronLeftIcon class="text-text-muted size-4" />
+          <span class="text-text-muted text-sm">Einstellungen</span>
+        </button>
+        <span class="text-text-bright ml-1 text-sm font-semibold">{activeLabel}</span>
+      </div>
+
+      <div class="flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14 max-sm:pt-6">
+        {#if activeTab === 'appearance'}
+          <SettingsAppearance />
+        {:else if activeTab === 'audio-video'}
+          <SettingsAudioVideo />
+        {:else}
+          <SettingsScreenShare />
+        {/if}
+      </div>
     </div>
   </Dialog.Content>
 </Dialog.Root>

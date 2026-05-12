@@ -2,12 +2,14 @@
   import { tick, untrack } from 'svelte';
   import HashIcon from '@lucide/svelte/icons/hash';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import MenuIcon from '@lucide/svelte/icons/menu';
   import MessageItem from './MessageItem.svelte';
   import MessageInput from './MessageInput.svelte';
   import MemberList from './MemberList.svelte';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
 
   type ChatItem =
     | { kind: 'divider'; label: string; key: string }
@@ -16,11 +18,13 @@
   let {
     channel,
     messages,
-    onSend
+    onSend,
+    onMenuClick
   }: {
     channel: Channel | null;
     messages: Message[];
     onSend: (text: string) => void;
+    onMenuClick?: () => void;
   } = $props();
 
   let scrollContainer = $state<HTMLDivElement | null>(null);
@@ -103,15 +107,29 @@
     if (!raw) return null;
     return raw.startsWith('/') || raw.startsWith('https://') ? raw : null;
   }
+
+  // Mitgliederliste: auf Mobil als Sheet von rechts, auf Desktop als Spalte
+  let showMemberOverlay = $derived(memberListOpen && viewport.isMobile);
+  let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
 </script>
 
-<section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-2xl">
-  <header class="flex h-14 items-center gap-2.5 px-5">
+<section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl">
+  <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
+    {#if onMenuClick}
+      <button
+        class="mr-1 rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary md:hidden"
+        onclick={onMenuClick}
+        aria-label="Menü"
+        data-testid="mobile-menu-toggle"
+      >
+        <MenuIcon class="text-text-muted size-4" />
+      </button>
+    {/if}
     {#if channel}
-      <HashIcon class="text-primary size-5" />
-      <span class="text-text-bright text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
+      <HashIcon class="text-primary size-5 shrink-0" />
+      <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
       {#if channel.topic}
-        <span class="text-text-muted ml-2 truncate text-sm">· {channel.topic}</span>
+        <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {channel.topic}</span>
       {/if}
       <button
         class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
@@ -126,7 +144,7 @@
     {/if}
   </header>
 
-  <div class="flex min-h-0 flex-1">
+  <div class="relative flex min-h-0 flex-1">
     <div bind:this={scrollContainer} class="flex-1 overflow-y-auto py-4" data-testid="message-list">
       {#if channel}
         {#if messages.length === 0}
@@ -154,8 +172,21 @@
       {/if}
     </div>
 
-    {#if channel && memberListOpen}
+    <!-- Inline auf md+ -->
+    {#if channel && showMemberInline}
       <MemberList guildId={channel.guild_id} />
+    {/if}
+
+    <!-- Sheet von rechts auf Mobil -->
+    {#if channel && showMemberOverlay}
+      <div
+        class="fixed inset-0 z-30 bg-black/40"
+        role="presentation"
+        onclick={() => (memberListOpen = false)}
+      ></div>
+      <div class="fixed inset-y-0 right-0 z-40 flex w-4/5 max-w-xs flex-col">
+        <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
+      </div>
     {/if}
   </div>
 

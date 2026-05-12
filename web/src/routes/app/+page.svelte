@@ -40,7 +40,7 @@
   }
 </script>
 
-<aside class="glass-panel flex h-full w-64 flex-col overflow-hidden rounded-2xl" data-testid="channel-list-placeholder">
+<aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list-placeholder">
   <GuildList
     guilds={guilds.list}
     activeGuildId={null}
@@ -51,7 +51,7 @@
   <UserFooter />
 </aside>
 
-<div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-2xl text-sm">
+<div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
   {#if guilds.list.length === 0}
     <div class="text-center">
       <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Server</p>

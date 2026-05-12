@@ -25,7 +25,7 @@
   }
 </script>
 
-<div class="flex items-center justify-between gap-3 px-4 py-3">
+<div class="flex items-center justify-between gap-2 px-3 py-2 md:gap-3 md:px-4 md:py-3">
   <div class="flex items-center gap-2">
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
@@ -112,8 +112,9 @@
     class="gap-1.5"
     onclick={() => voice.disconnect()}
     data-testid="voice-disconnect"
+    aria-label="Verlassen"
   >
     <PhoneOffIcon class="size-4" />
-    Verlassen
+    <span class="hidden md:inline">Verlassen</span>
   </Button>
 </div>

@@ -31,6 +31,7 @@
   let creatingChannel = $state(false);
   let resolving = $state(true);
   let loadError = $state<string | null>(null);
+  let sidebarOpen = $state(false);
 
   let prevGuild = $state('');
   let prevChannel = $state('');
@@ -49,7 +50,17 @@
 
   onMount(() => {
     const off = gateway.onChannelDeleted(handleRemoteChannelDeleted);
-    return off;
+
+    // Escape schließt Drawer auf Mobil
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === 'Escape' && sidebarOpen) sidebarOpen = false;
+    }
+    window.addEventListener('keydown', onKeydown);
+
+    return () => {
+      off();
+      window.removeEventListener('keydown', onKeydown);
+    };
   });
 
   onDestroy(() => {
@@ -132,11 +143,13 @@
   }
 
   async function selectGuild(id: string) {
+    sidebarOpen = false;
     if (id === guildId) return;
     await goto(`/app/guilds/${id}/channels/_`);
   }
 
   async function selectChannel(c: Channel) {
+    sidebarOpen = false;
     if (c.id === channelId) return;
     await goto(`/app/guilds/${guildId}/channels/${c.id}`);
   }
@@ -207,26 +220,44 @@
   }
 </script>
 
-<ChannelList
-  guild={activeGuild ?? null}
-  channels={channelsForGuild}
-  activeChannelId={activeChannel?.id ?? null}
-  onSelect={selectChannel}
-  onCreateClick={() => (creatingChannel = true)}
-  {onChannelDeleted}
-  canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
-  guildList={guilds.list}
-  activeGuildId={guildId}
-  onSelectGuild={(g) => selectGuild(g.id)}
-  onCreateGuildClick={() => (creatingGuild = true)}
-/>
+<!-- Mobile Drawer Backdrop -->
+{#if sidebarOpen}
+  <div
+    class="fixed inset-0 z-30 bg-black/40 md:hidden"
+    role="presentation"
+    onclick={() => (sidebarOpen = false)}
+  ></div>
+{/if}
+
+<!-- Sidebar: inline auf md+, Drawer auf Mobil -->
+<div
+  class="
+    fixed inset-y-0 left-0 z-40 w-72 transition-transform duration-300 ease-out
+    {sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+    md:relative md:inset-auto md:z-auto md:w-auto md:translate-x-0 md:transition-none
+  "
+>
+  <ChannelList
+    guild={activeGuild ?? null}
+    channels={channelsForGuild}
+    activeChannelId={activeChannel?.id ?? null}
+    onSelect={selectChannel}
+    onCreateClick={() => (creatingChannel = true)}
+    {onChannelDeleted}
+    canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
+    guildList={guilds.list}
+    activeGuildId={guildId}
+    onSelectGuild={(g) => selectGuild(g.id)}
+    onCreateGuildClick={() => (creatingGuild = true)}
+  />
+</div>
 
 {#if isVoiceChannel && activeChannel}
   {#key activeChannel.id}
-    <VoiceChannelView channel={activeChannel} />
+    <VoiceChannelView channel={activeChannel} onMenuClick={() => (sidebarOpen = true)} />
   {/key}
 {:else if loadError}
-  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-2xl p-8">
+  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
     <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
     <Button
       onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
@@ -234,7 +265,7 @@
     >Erneut versuchen</Button>
   </section>
 {:else}
-  <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} />
+  <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} onMenuClick={() => (sidebarOpen = true)} />
 {/if}
 
 <CreateGuildDialog
