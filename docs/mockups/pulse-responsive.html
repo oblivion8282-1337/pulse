@@ -1,0 +1,1087 @@
+<!doctype html>
+<html lang="de" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Mobile &amp; Tablet Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;1,500&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   Pulse — responsive mockups (mobile + tablet)
+   Static HTML/CSS prototype of the "Glasshouse / Graphite" UI.
+   - One markup, adapts via @container queries on the device frame
+   - Toolbar switches view / device size / theme / sub-states
+   No build step, no framework — just open in a browser.
+   ============================================================ */
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --shell-bg:#0a0a0c;
+  --shell-bg-2:#121214;
+  --shell-line:rgba(255,255,255,.09);
+  --shell-text:#e7e8ea;
+  --shell-dim:#8b8d93;
+  --shell-accent:#3b82f6;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+  --sans:'Plus Jakarta Sans','Plus Jakarta Sans Variable',system-ui,sans-serif;
+}
+html,body{height:100%}
+body{
+  font-family:var(--sans);
+  background:
+    radial-gradient(900px 600px at 12% -5%, rgba(59,130,246,.12), transparent 60%),
+    radial-gradient(900px 600px at 105% 110%, rgba(16,185,129,.08), transparent 60%),
+    var(--shell-bg);
+  color:var(--shell-text);
+  -webkit-font-smoothing:antialiased;
+  display:flex;flex-direction:column;
+  min-height:100%;
+  overflow-x:hidden;
+}
+
+/* ---------- top toolbar (the mockup chrome, not the app) ---------- */
+.bar{
+  position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:12px 20px;
+  background:rgba(10,10,12,.78);
+  backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--shell-line);
+}
+.bar .brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.02em;font-size:15px}
+.bar .brand svg{width:26px;height:26px;border-radius:8px;display:block}
+.bar .brand small{font-weight:600;color:var(--shell-dim);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase}
+.seg{display:inline-flex;background:var(--shell-bg-2);border:1px solid var(--shell-line);border-radius:11px;padding:3px;gap:2px}
+.seg button{
+  appearance:none;border:0;background:transparent;color:var(--shell-dim);
+  font:600 12.5px/1 var(--sans);padding:7px 12px;border-radius:8px;cursor:pointer;
+  display:inline-flex;align-items:center;gap:7px;transition:.15s;
+}
+.seg button svg{width:14px;height:14px}
+.seg button:hover{color:var(--shell-text)}
+.seg button[aria-pressed="true"]{background:rgba(59,130,246,.16);color:#bcd6ff;box-shadow:inset 0 0 0 1px rgba(59,130,246,.28)}
+.bar .label{font-size:11px;color:var(--shell-dim);text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-right:-8px}
+.bar .spacer{flex:1}
+.bar .hint{font-size:12px;color:var(--shell-dim)}
+.bar .hint b{color:var(--shell-text);font-weight:700}
+
+/* ---------- stage + device frames ---------- */
+.stage{
+  flex:1;display:flex;gap:48px;align-items:flex-start;justify-content:center;flex-wrap:wrap;
+  padding:42px 24px 70px;
+}
+.devwrap{display:flex;flex-direction:column;align-items:center;gap:14px}
+.devwrap > .cap{font-size:12px;color:var(--shell-dim);font-weight:600;letter-spacing:.02em}
+.devwrap > .cap b{color:var(--shell-text)}
+
+.device{
+  position:relative;border-radius:46px;
+  background:linear-gradient(150deg,#1c1d22,#0c0c0e);
+  padding:13px;
+  box-shadow:
+    0 2px 0 rgba(255,255,255,.05) inset,
+    0 40px 90px -20px rgba(0,0,0,.7),
+    0 0 0 1px rgba(255,255,255,.04);
+}
+.device.phone{width:386px}
+.device.tablet{width:760px;border-radius:34px;padding:16px}
+.device .notch{
+  position:absolute;left:50%;top:13px;transform:translateX(-50%);
+  width:128px;height:26px;background:#0c0c0e;border-radius:0 0 16px 16px;z-index:6;
+}
+.device.tablet .notch{display:none}
+.device .screen{
+  position:relative;overflow:hidden;border-radius:34px;
+  height:780px;contain:layout;
+  container-type:inline-size;container-name:screen;
+  /* Glasshouse background (dark) */
+  background:
+    radial-gradient(440px 340px at 8% 12%, rgba(37,99,235,.16), transparent 70%),
+    radial-gradient(480px 360px at 100% 100%, rgba(16,185,129,.10), transparent 70%),
+    linear-gradient(150deg,#0b0b0c,#0d0d0f 30%,#111113 65%,#161618);
+  color:#f0f1f3;
+  font-size:14px;
+  isolation:isolate;
+}
+.device.tablet .screen{height:560px;border-radius:24px}
+/* subtle grain */
+.device .screen::after{
+  content:'';position:absolute;inset:0;z-index:0;pointer-events:none;opacity:.05;mix-blend-mode:soft-light;
+  background-image:url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+/* fake iOS status bar inside the screen */
+.statusbar{
+  position:relative;z-index:5;display:flex;align-items:center;justify-content:space-between;
+  height:34px;padding:0 22px;font-size:12px;font-weight:700;letter-spacing:.02em;color:#f0f1f3;
+  pointer-events:none;
+}
+.device.tablet .statusbar{padding:0 16px;height:24px;font-size:11px}
+.statusbar .right{display:flex;align-items:center;gap:6px}
+.statusbar .bat{width:22px;height:11px;border:1.4px solid currentColor;border-radius:3px;position:relative;opacity:.85}
+.statusbar .bat::after{content:'';position:absolute;left:1.5px;top:1.5px;bottom:1.5px;width:13px;background:currentColor;border-radius:1px}
+.statusbar .bat::before{content:'';position:absolute;right:-3.5px;top:3px;bottom:3px;width:2px;background:currentColor;border-radius:0 1px 1px 0}
+
+/* the actual app viewport (below the status bar) */
+.app{
+  position:absolute;left:0;right:0;top:34px;bottom:0;z-index:2;
+  display:flex;flex-direction:column;overflow:hidden;
+}
+.device.tablet .app{top:24px}
+
+/* glass panel helper (matches .glass-panel) */
+.glass{
+  background:rgba(20,20,24,.86);
+  border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 10px 40px rgba(0,0,0,.3);
+}
+
+/* light-mode override for screens with .light on .screen */
+.screen.light{
+  background:
+    radial-gradient(440px 340px at 8% 12%, rgba(37,99,235,.10), transparent 70%),
+    radial-gradient(480px 360px at 100% 100%, rgba(16,185,129,.07), transparent 70%),
+    linear-gradient(150deg,#fcfcfd,#f6f7f9 40%,#f0f1f3);
+  color:#111827;
+}
+.screen.light .statusbar{color:#111827}
+.screen.light .app{color:#111827}
+.screen.light .glass{background:rgba(255,255,255,.9);border-color:rgba(255,255,255,.6);box-shadow:0 10px 30px rgba(30,40,60,.08),0 1px 3px rgba(30,40,60,.05)}
+
+/* ============================================================
+   shared app primitives
+   ============================================================ */
+.row{display:flex;align-items:center}
+.col{display:flex;flex-direction:column}
+.dim{color:#9ca3af}
+.screen.light .dim{color:#6b7280}
+.faint{color:#6b7280}
+.ic{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.ic.sm{width:16px;height:16px}
+.ic.lg{width:24px;height:24px}
+.ic.fill{fill:currentColor;stroke:none}
+.iconbtn{
+  appearance:none;border:0;background:transparent;color:#c8cad0;cursor:pointer;
+  width:38px;height:38px;border-radius:11px;display:inline-flex;align-items:center;justify-content:center;transition:.15s;
+}
+.screen.light .iconbtn{color:#4b5563}
+.iconbtn:hover{background:rgba(255,255,255,.06);color:#fff}
+.screen.light .iconbtn:hover{background:rgba(37,99,235,.08);color:#111827}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600}
+.pill.glasschip{background:rgba(0,0,0,.45);color:#e7e8ea;backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12)}
+.pill.live{background:rgba(239,68,68,.16);color:#fca5a5;border:1px solid rgba(239,68,68,.3)}
+.pill.ok{background:rgba(34,197,94,.16);color:#86efac;border:1px solid rgba(34,197,94,.28)}
+.dot{width:7px;height:7px;border-radius:50%;background:#22c55e;flex:none}
+.dot.red{background:#ef4444;animation:blink 1.6s infinite}
+@keyframes blink{50%{opacity:.35}}
+.btn{
+  appearance:none;border:0;cursor:pointer;font:600 14px/1 var(--sans);
+  padding:11px 16px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:.15s;
+  background:rgba(255,255,255,.06);color:#f0f1f3;border:1px solid rgba(255,255,255,.08);
+}
+.screen.light .btn{background:rgba(255,255,255,.6);color:#111827;border-color:rgba(255,255,255,.6)}
+.btn:hover{background:rgba(255,255,255,.1)}
+.btn.primary{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff;border-color:transparent;box-shadow:0 6px 18px -6px rgba(37,99,235,.7)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.danger{background:rgba(239,68,68,.14);color:#fca5a5;border-color:rgba(239,68,68,.28)}
+.btn.danger:hover{background:rgba(239,68,68,.2)}
+.btn.block{width:100%}
+.field{
+  width:100%;font:500 14px/1.3 var(--sans);color:inherit;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:11px;
+  padding:11px 13px;outline:none;transition:.15s;
+}
+.screen.light .field{background:rgba(17,24,39,.04);border-color:rgba(17,24,39,.12)}
+.field:focus{border-color:rgba(59,130,246,.6);box-shadow:0 0 0 3px rgba(59,130,246,.18)}
+.lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9ca3af;margin-bottom:6px;display:block}
+.avatar{border-radius:50%;background:linear-gradient(135deg,#2563eb,#22c55e);display:grid;place-items:center;color:#fff;font-weight:700;flex:none;overflow:hidden;font-size:.86em}
+.avatar.ring{box-shadow:0 0 0 2px rgba(34,197,94,.9),0 0 0 5px rgba(34,197,94,.22)}
+.toggle{width:40px;height:23px;border-radius:999px;background:rgba(255,255,255,.14);position:relative;flex:none;cursor:pointer;transition:.18s}
+.toggle::after{content:'';position:absolute;top:2.5px;left:2.5px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.4)}
+.toggle.on{background:linear-gradient(135deg,#2563eb,#3b82f6)}
+.toggle.on::after{transform:translateX(17px)}
+.slider{height:6px;border-radius:999px;background:rgba(255,255,255,.12);position:relative}
+.slider > i{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:linear-gradient(135deg,#2563eb,#3b82f6)}
+.slider > b{position:absolute;top:50%;width:16px;height:16px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.segline{display:inline-flex;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:3px;gap:2px}
+.screen.light .segline{background:rgba(17,24,39,.05);border-color:rgba(17,24,39,.1)}
+.segline span{font-size:12px;font-weight:600;padding:6px 11px;border-radius:7px;color:#9ca3af;cursor:pointer}
+.segline span.active{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff}
+hr.sep{border:0;border-top:1px solid rgba(255,255,255,.07);margin:0}
+.screen.light hr.sep{border-color:rgba(17,24,39,.08)}
+
+/* the view system: only the active view is shown */
+.view{display:none;flex:1;min-height:0}
+.screen[data-view="chat"]     .view-chat{display:flex}
+.screen[data-view="voice"]    .view-voice{display:flex}
+.screen[data-view="login"]    .view-login{display:flex}
+.screen[data-view="register"] .view-register{display:flex}
+.screen[data-view="settings"] .view-settings{display:flex}
+
+/* ============================================================
+   CHAT VIEW
+   ============================================================ */
+.view-chat{flex-direction:row;position:relative}
+
+/* mobile: top bar + messages + composer; tablet: 3-pane */
+.chat-rails{display:none}
+.chat-topbar{
+  display:flex;align-items:center;gap:6px;padding:8px 8px 8px 6px;
+  border-bottom:1px solid rgba(255,255,255,.07);
+}
+.screen.light .chat-topbar{border-color:rgba(17,24,39,.08)}
+.chat-topbar .title{display:flex;flex-direction:column;min-width:0;line-height:1.15;margin-left:2px}
+.chat-topbar .title b{font-size:15px;font-weight:700;display:flex;align-items:center;gap:5px}
+.chat-topbar .title b .ic{width:15px;height:15px;opacity:.55;stroke-width:2.4}
+.chat-topbar .title small{font-size:11px;color:#9ca3af}
+.chat-main{flex:1;display:flex;flex-direction:column;min-width:0}
+.chat-msgs{flex:1;overflow:auto;padding:14px 14px 6px;display:flex;flex-direction:column;gap:14px}
+.daydiv{display:flex;align-items:center;gap:12px;color:#6b7280;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+.daydiv::before,.daydiv::after{content:'';flex:1;height:1px;background:rgba(255,255,255,.08)}
+.screen.light .daydiv::before,.screen.light .daydiv::after{background:rgba(17,24,39,.1)}
+.msg{display:flex;gap:11px}
+.msg .avatar{width:38px;height:38px}
+.msg .body{min-width:0;flex:1}
+.msg .meta{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.msg .meta b{font-size:14px;font-weight:700}
+.msg .meta time{font-size:11px;color:#6b7280}
+.msg .txt{font-size:14px;line-height:1.5;color:#d6d8dd;overflow-wrap:anywhere}
+.screen.light .msg .txt{color:#374151}
+.msg .txt code{font-family:var(--mono);font-size:.85em;background:rgba(37,99,235,.18);color:#93c5fd;padding:.1em .4em;border-radius:5px}
+.screen.light .msg .txt code{color:#1d4ed8;background:rgba(37,99,235,.12)}
+.msg.cont{margin-top:-9px;padding-left:49px}
+.msg.cont .txt{position:relative}
+.msg.cont:hover .stamp{opacity:1}
+.msg.cont .stamp{position:absolute;left:-44px;top:3px;font-size:10px;color:#6b7280;opacity:0;width:34px;text-align:right}
+.msg .embed{margin-top:7px;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.09);max-width:340px}
+.msg .embed .ph{aspect-ratio:16/10;background:linear-gradient(135deg,#1e293b,#0f172a);display:grid;place-items:center;color:#475569}
+.msg .reacts{display:flex;gap:6px;margin-top:7px}
+.msg .react{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:600;background:rgba(59,130,246,.12);border:1px solid rgba(59,130,246,.25);color:#bcd6ff}
+.unread{align-self:stretch;display:flex;align-items:center;gap:10px;font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#ef4444}
+.unread::before{content:'';flex:1;height:1px;background:#ef4444;opacity:.5}
+.unread::after{content:'NEU';padding:1px 6px;border-radius:5px;background:#ef4444;color:#fff}
+.typing{padding:0 16px 4px;font-size:12px;color:#9ca3af;display:flex;align-items:center;gap:7px}
+.typing i{width:5px;height:5px;border-radius:50%;background:#9ca3af;animation:tb 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes tb{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-3px);opacity:1}}
+.composer{
+  margin:8px;padding:6px 6px 6px 10px;border-radius:16px;display:flex;align-items:center;gap:6px;
+}
+.composer input{flex:1;background:transparent;border:0;outline:none;color:inherit;font:500 14px/1 var(--sans);padding:9px 4px}
+.composer input::placeholder{color:#6b7280}
+.composer .send{background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff}
+.composer .send:hover{filter:brightness(1.08);background:linear-gradient(135deg,#2563eb,#3b82f6)}
+
+/* sliding drawer (mobile only) */
+.drawer{
+  position:absolute;inset:0 30% 0 0;z-index:9;display:flex;
+  transform:translateX(-104%);transition:transform .28s cubic-bezier(.3,.8,.3,1);
+  pointer-events:none;
+}
+.screen[data-chat="drawer"] .drawer{transform:translateX(0);pointer-events:auto}
+.screen[data-chat="drawer"] .chat-main::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:8}
+.drawer .guildrail{
+  width:62px;flex:none;display:flex;flex-direction:column;align-items:center;gap:9px;padding:12px 0;
+  background:rgba(0,0,0,.35);border-right:1px solid rgba(255,255,255,.06);
+}
+.drawer .channels{flex:1;display:flex;flex-direction:column;background:rgba(14,14,16,.96);border-right:1px solid rgba(255,255,255,.06)}
+.screen.light .drawer .guildrail{background:rgba(0,0,0,.06)}
+.screen.light .drawer .channels{background:rgba(255,255,255,.96)}
+.guildicon{
+  width:44px;height:44px;border-radius:15px;display:grid;place-items:center;font-weight:800;color:#fff;cursor:pointer;
+  background:rgba(255,255,255,.07);position:relative;transition:.18s;font-size:13px;
+}
+.guildicon.active{border-radius:14px}
+.guildicon.active::before{content:'';position:absolute;left:-13px;top:50%;transform:translateY(-50%);width:5px;height:24px;border-radius:0 4px 4px 0;background:#fff}
+.guildicon.brandG{background:linear-gradient(135deg,#2563eb,#22c55e)}
+.guildicon.addG{background:rgba(34,197,94,.14);color:#4ade80;font-size:20px}
+.channels .ghead{
+  padding:14px 14px 12px;font-weight:800;font-size:15px;border-bottom:1px solid rgba(255,255,255,.06);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.channels .ghead .ic{opacity:.5}
+.channels .list{flex:1;overflow:auto;padding:8px 8px 12px}
+.channels .cat{padding:14px 8px 6px;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#6b7280;display:flex;align-items:center;justify-content:space-between}
+.chitem{
+  display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:9px;color:#9ca3af;cursor:pointer;font-size:14.5px;font-weight:500;
+  margin-bottom:2px;
+}
+.chitem .ic{width:18px;height:18px;opacity:.6;flex:none}
+.chitem:hover{background:rgba(255,255,255,.05);color:#d6d8dd}
+.chitem.active{background:rgba(59,130,246,.16);color:#fff}
+.chitem.active .ic{opacity:.9}
+.chitem .badge{margin-left:auto;background:#ef4444;color:#fff;font-size:10px;font-weight:800;border-radius:999px;min-width:18px;height:18px;display:grid;place-items:center;padding:0 5px}
+.chitem .who{margin-left:auto;font-size:11px;color:#6b7280}
+.voicemember{display:flex;align-items:center;gap:8px;padding:4px 9px 4px 30px;font-size:13px;color:#9ca3af}
+.voicemember .avatar{width:22px;height:22px}
+.userfooter{
+  display:flex;align-items:center;gap:9px;padding:9px 10px;border-top:1px solid rgba(255,255,255,.07);background:rgba(0,0,0,.25);
+}
+.userfooter .avatar{width:30px;height:30px}
+.userfooter .nm{flex:1;min-width:0;line-height:1.1}
+.userfooter .nm b{font-size:13px;font-weight:700;display:block}
+.userfooter .nm small{font-size:11px;color:#86efac}
+
+/* member list overlay (mobile) — reachable via 👥 */
+.memsheet{
+  position:absolute;inset:0 0 0 28%;z-index:9;background:rgba(14,14,16,.97);border-left:1px solid rgba(255,255,255,.07);
+  transform:translateX(104%);transition:transform .28s cubic-bezier(.3,.8,.3,1);display:flex;flex-direction:column;
+}
+.screen.light .memsheet{background:rgba(255,255,255,.97)}
+.screen[data-chat="members"] .memsheet{transform:translateX(0)}
+.screen[data-chat="members"] .chat-main::before{content:'';position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:8}
+.memsheet .mhead{padding:14px 16px;font-weight:800;font-size:14px;border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between}
+.memsheet .mlist{flex:1;overflow:auto;padding:10px}
+.memsheet .mcat{padding:10px 8px 6px;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6b7280}
+.memrow{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:9px;font-size:14px}
+.memrow:hover{background:rgba(255,255,255,.05)}
+.memrow .avatar{width:32px;height:32px;position:relative}
+.memrow .avatar::after{content:'';position:absolute;right:-2px;bottom:-2px;width:11px;height:11px;border-radius:50%;background:#22c55e;border:2.5px solid #0e0e10}
+.screen.light .memrow .avatar::after{border-color:#fff}
+.memrow.off .avatar{filter:grayscale(1) brightness(.6)}
+.memrow.off .avatar::after{background:#6b7280}
+.memrow.off{color:#6b7280}
+
+/* ============================================================
+   VOICE / HQ-STREAM VIEW
+   ============================================================ */
+.view-voice{flex-direction:column}
+.voice-rails{display:none}
+.voice-main{flex:1;display:flex;flex-direction:column;min-width:0}
+.voice-topbar{display:flex;align-items:center;gap:6px;padding:8px 8px 8px 6px;border-bottom:1px solid rgba(255,255,255,.07)}
+.screen.light .voice-topbar{border-color:rgba(17,24,39,.08)}
+.voice-topbar .title{display:flex;flex-direction:column;min-width:0;margin-left:2px;line-height:1.15}
+.voice-topbar .title b{font-size:15px;font-weight:700;display:flex;align-items:center;gap:5px}
+.voice-topbar .title b .ic{width:16px;height:16px;opacity:.6}
+.voice-topbar .title small{font-size:11px;color:#9ca3af}
+.voice-stagewrap{flex:1;display:flex;flex-direction:column;gap:10px;padding:10px;min-height:0}
+/* big HQ stream surface */
+.hqstage{
+  position:relative;flex:1;min-height:0;border-radius:18px;overflow:hidden;
+  background:
+    radial-gradient(120% 120% at 30% 20%, #1f3a5f, transparent 60%),
+    linear-gradient(160deg,#0c1726,#060a12);
+  border:1px solid rgba(255,255,255,.08);
+  display:grid;place-items:center;
+}
+.hqstage .play{width:64px;height:64px;border-radius:50%;background:rgba(255,255,255,.1);backdrop-filter:blur(6px);display:grid;place-items:center;border:1px solid rgba(255,255,255,.18)}
+.hqstage .play .ic{width:26px;height:26px;margin-left:3px;fill:#fff;stroke:none}
+.hqstage .tl{position:absolute;left:12px;top:12px;display:flex;gap:8px;align-items:center}
+.hqstage .tr{position:absolute;right:12px;top:12px}
+.hqstage .br{position:absolute;right:12px;bottom:12px;display:flex;gap:8px}
+.hqstage .bl{position:absolute;left:12px;bottom:12px}
+.hqstage .scanline{position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,.18) 3px,rgba(0,0,0,.18) 4px);opacity:.35;mix-blend-mode:multiply;pointer-events:none}
+/* participant tiles strip */
+.tiles{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;flex:none}
+.tile{
+  flex:none;width:108px;aspect-ratio:1/.92;border-radius:14px;position:relative;overflow:hidden;
+  background:linear-gradient(150deg,rgba(255,255,255,.06),rgba(255,255,255,.02));border:1px solid rgba(255,255,255,.08);
+  display:grid;place-items:center;
+}
+.screen.light .tile{background:rgba(255,255,255,.55);border-color:rgba(255,255,255,.6)}
+.tile .avatar{width:46px;height:46px}
+.tile.speaking{border-color:rgba(34,197,94,.7);box-shadow:0 0 0 1px rgba(34,197,94,.4),0 0 22px -4px rgba(34,197,94,.5) inset}
+.tile .nm{position:absolute;left:6px;bottom:5px;font-size:11px;font-weight:700;background:rgba(0,0,0,.45);padding:2px 7px;border-radius:7px;display:flex;align-items:center;gap:4px;max-width:88%}
+.tile .nm .ic{width:11px;height:11px}
+.tile .nm.muted{color:#fca5a5}
+.tile.me{background:linear-gradient(150deg,rgba(37,99,235,.18),rgba(34,197,94,.1));border-color:rgba(59,130,246,.4)}
+.tile.screenshare{aspect-ratio:1/.62;background:linear-gradient(150deg,#1e293b,#0b1220)}
+.tile.screenshare .miniplay{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.12);display:grid;place-items:center}
+.tile.screenshare .miniplay .ic{width:14px;height:14px;fill:#fff;stroke:none;margin-left:2px}
+/* control bar */
+.controlbar{
+  margin:8px;border-radius:18px;padding:9px 10px;display:flex;align-items:center;justify-content:center;gap:8px;flex:none;
+}
+.cbtn{
+  appearance:none;border:0;cursor:pointer;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;transition:.15s;
+  background:rgba(255,255,255,.07);color:#e7e8ea;border:1px solid rgba(255,255,255,.08);position:relative;
+}
+.screen.light .cbtn{background:rgba(255,255,255,.6);color:#374151;border-color:rgba(255,255,255,.6)}
+.cbtn:hover{background:rgba(255,255,255,.12)}
+.cbtn .ic{width:21px;height:21px}
+.cbtn.on{background:rgba(59,130,246,.18);color:#bcd6ff;border-color:rgba(59,130,246,.35)}
+.cbtn.danger{background:rgba(239,68,68,.16);color:#fca5a5;border-color:rgba(239,68,68,.3)}
+.cbtn.danger:hover{background:rgba(239,68,68,.24)}
+.cbtn.muted{background:rgba(239,68,68,.16);color:#fca5a5;border-color:rgba(239,68,68,.3)}
+.cbtn .reddot{position:absolute;top:-3px;right:-3px;width:11px;height:11px;border-radius:50%;background:#ef4444;border:2px solid #141416;animation:blink 1.6s infinite}
+.screen.light .cbtn .reddot{border-color:#fff}
+.cbtn .lbl-t{display:none}
+
+/* ============================================================
+   AUTH (login / register)
+   ============================================================ */
+.view-login,.view-register{align-items:stretch;justify-content:center}
+.authsplit{display:flex;flex:1;min-width:0}
+.authbrand{display:none}
+.authpane{flex:1;display:flex;align-items:center;justify-content:center;padding:22px;overflow:auto}
+.authcard{
+  width:100%;max-width:380px;border-radius:22px;padding:26px 22px;display:flex;flex-direction:column;gap:14px;
+}
+.authcard .logo{width:54px;height:54px;border-radius:16px;align-self:center}
+.authcard h1{font-size:21px;font-weight:800;text-align:center;letter-spacing:-.02em}
+.authcard .sub{text-align:center;font-size:13px;color:#9ca3af;margin-top:-8px}
+.authcard .grp{display:flex;flex-direction:column;gap:6px}
+.authcard .fineprint{font-size:11px;color:#6b7280;line-height:1.4;margin-top:-4px}
+.authcard .alt{text-align:center;font-size:13px;color:#9ca3af}
+.authcard .alt a{color:#60a5fa;font-weight:600;text-decoration:none}
+.authcard .alt a:hover{text-decoration:underline}
+.authcard .strength{display:flex;gap:4px;margin-top:2px}
+.authcard .strength i{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.12)}
+.authcard .strength i.s1{background:#22c55e}
+.pwrow{position:relative}
+.pwrow .eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px}
+/* tablet brand panel */
+.authbrand-inner{display:flex;flex-direction:column;justify-content:center;gap:18px;padding:42px;height:100%}
+.authbrand-inner .bigmark{position:relative;width:120px;height:120px}
+.authbrand-inner .bigmark .ring{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,.18)}
+.authbrand-inner .bigmark .ring.r2{inset:18px;border-color:rgba(255,255,255,.32)}
+.authbrand-inner .bigmark .ring.r3{inset:40px;border-color:rgba(255,255,255,.7);animation:ping 2.6s ease-out infinite}
+.authbrand-inner .bigmark .core{position:absolute;inset:52px;border-radius:50%;background:#fff}
+@keyframes ping{0%{transform:scale(.7);opacity:1}80%,100%{transform:scale(1.6);opacity:0}}
+.authbrand-inner h2{font-size:28px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.authbrand-inner p{font-size:14px;color:#9ca3af;max-width:34ch;line-height:1.55}
+.authbrand-inner .feats{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+.authbrand-inner .feats div{display:flex;align-items:center;gap:9px;font-size:13.5px;color:#c8cad0}
+.authbrand-inner .feats .ic{width:16px;height:16px;color:#4ade80}
+
+/* ============================================================
+   SETTINGS
+   ============================================================ */
+.view-settings{flex-direction:row}
+.set-list{flex:1;display:flex;flex-direction:column;min-width:0}
+.set-topbar{display:flex;align-items:center;gap:4px;padding:8px 8px 8px 4px;border-bottom:1px solid rgba(255,255,255,.07)}
+.screen.light .set-topbar{border-color:rgba(17,24,39,.08)}
+.set-topbar b{font-size:16px;font-weight:800;margin-left:4px}
+.set-scroll{flex:1;overflow:auto;padding:10px 12px 20px}
+.set-userblock{display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;margin-bottom:14px}
+.set-userblock .avatar{width:52px;height:52px}
+.set-userblock .nm b{font-size:15px;font-weight:800;display:block}
+.set-userblock .nm small{font-size:12px;color:#9ca3af}
+.set-userblock .edit{margin-left:auto}
+.set-cat{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;padding:14px 6px 7px}
+.set-group{border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.07)}
+.screen.light .set-group{border-color:rgba(17,24,39,.08)}
+.set-item{display:flex;align-items:center;gap:12px;padding:13px 14px;background:rgba(255,255,255,.03);cursor:pointer;font-size:14.5px;font-weight:600;transition:.12s}
+.screen.light .set-item{background:rgba(255,255,255,.45)}
+.set-item + .set-item{border-top:1px solid rgba(255,255,255,.06)}
+.screen.light .set-item + .set-item{border-color:rgba(17,24,39,.07)}
+.set-item:hover{background:rgba(255,255,255,.06)}
+.set-item .ic.lead{width:19px;height:19px;color:#9ca3af}
+.set-item .arrow{margin-left:auto;color:#6b7280}
+.set-item .val{margin-left:auto;color:#9ca3af;font-weight:500;font-size:13px;display:flex;align-items:center;gap:6px}
+.set-item.locked{opacity:.6;cursor:not-allowed}
+.set-item .lockbadge{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.04em;background:rgba(255,255,255,.08);color:#9ca3af;padding:3px 7px;border-radius:6px}
+.set-foot{display:flex;flex-direction:column;gap:12px;margin-top:16px}
+.set-ver{text-align:center;font-size:11px;color:#6b7280}
+/* detail pane */
+.set-detail{flex:1;display:flex;flex-direction:column;min-width:0;border-left:1px solid rgba(255,255,255,.07)}
+.screen.light .set-detail{border-color:rgba(17,24,39,.08)}
+.set-detail .dhead{display:flex;align-items:center;gap:4px;padding:8px 8px 8px 4px;border-bottom:1px solid rgba(255,255,255,.07)}
+.screen.light .set-detail .dhead{border-color:rgba(17,24,39,.08)}
+.set-detail .dhead b{font-size:16px;font-weight:800;margin-left:4px}
+.set-detail .dscroll{flex:1;overflow:auto;padding:16px}
+.set-row{display:flex;align-items:center;gap:14px;padding:14px 0}
+.set-row + .set-row{border-top:1px solid rgba(255,255,255,.07)}
+.screen.light .set-row + .set-row{border-color:rgba(17,24,39,.07)}
+.set-row .txt{flex:1;min-width:0}
+.set-row .txt b{font-size:14px;font-weight:700;display:block}
+.set-row .txt small{font-size:12px;color:#9ca3af;display:block;margin-top:2px;line-height:1.4}
+.set-row.stacked{flex-direction:column;align-items:stretch;gap:9px}
+.set-row .selectfake{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);font-size:13.5px;font-weight:600}
+.screen.light .set-row .selectfake{background:rgba(17,24,39,.04);border-color:rgba(17,24,39,.12)}
+.set-row .keycap{font-family:var(--mono);font-size:11px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);border-bottom-width:2px;border-radius:6px;padding:3px 8px;font-weight:700}
+.set-dgroup-title{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#6b7280;margin:6px 0 -4px}
+
+/* ============================================================
+   container queries — TABLET layout (≥ 600 cqi)
+   ============================================================ */
+@container screen (min-width: 600px){
+  /* CHAT → 3 panes */
+  .view-chat .drawer{display:none}
+  .chat-rails{display:flex;flex:none}
+  .chat-rails .guildrail{width:64px;display:flex;flex-direction:column;align-items:center;gap:9px;padding:12px 0;background:rgba(0,0,0,.28);border-right:1px solid rgba(255,255,255,.06)}
+  .screen.light .chat-rails .guildrail{background:rgba(0,0,0,.05)}
+  .chat-rails .channels{width:206px;display:flex;flex-direction:column;background:rgba(255,255,255,.03);border-right:1px solid rgba(255,255,255,.06)}
+  .screen.light .chat-rails .channels{background:rgba(255,255,255,.4)}
+  .chat-topbar .menutoggle{display:none}
+  .chat-topbar .draweronly{display:none}
+  .view-chat .memsheet{position:static;transform:none;width:194px;flex:none;background:rgba(255,255,255,.025)}
+  .screen.light .view-chat .memsheet{background:rgba(255,255,255,.35)}
+  .view-chat .memsheet .mhead .iconbtn{display:none}
+  .screen[data-chat] .chat-main::before{display:none!important}
+
+  /* VOICE → rail + bigger stage + grid tiles */
+  .voice-rails{display:flex;flex:none}
+  .voice-rails .guildrail{width:64px;display:flex;flex-direction:column;align-items:center;gap:9px;padding:12px 0;background:rgba(0,0,0,.28);border-right:1px solid rgba(255,255,255,.06)}
+  .screen.light .voice-rails .guildrail{background:rgba(0,0,0,.05)}
+  .voice-rails .channels{width:206px;display:flex;flex-direction:column;background:rgba(255,255,255,.03);border-right:1px solid rgba(255,255,255,.06)}
+  .screen.light .voice-rails .channels{background:rgba(255,255,255,.4)}
+  .voice-topbar .menutoggle{display:none}
+  .voice-stagewrap{flex-direction:row}
+  .voice-stagewrap .hqcol{flex:1;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .voice-stagewrap .tiles{flex-direction:column;width:128px;overflow-y:auto;overflow-x:hidden}
+  .voice-stagewrap .tiles .tile{width:auto}
+  .controlbar{justify-content:center}
+  .cbtn{width:auto;height:42px;padding:0 14px;border-radius:13px;gap:8px}
+  .cbtn .lbl-t{display:inline;font-size:13px;font-weight:600}
+
+  /* AUTH → split brand + form */
+  .authbrand{display:block;flex:1;background:linear-gradient(150deg,#0e1f3a,#0a1525 60%,#08130c);position:relative;overflow:hidden}
+  .authbrand::after{content:'';position:absolute;inset:0;background:radial-gradient(420px 320px at 75% 18%,rgba(59,130,246,.25),transparent 60%),radial-gradient(420px 320px at 20% 95%,rgba(16,185,129,.18),transparent 60%)}
+  .authbrand-inner{position:relative;z-index:1}
+  .authpane{flex:0 0 46%}
+  .authcard{box-shadow:none;background:transparent!important;border:0!important;padding:18px 6px}
+  .screen.light .authbrand{background:linear-gradient(150deg,#1e3a8a,#155e3b)}
+
+  /* SETTINGS → list + detail side by side */
+  .set-topbar .menutoggle{display:none}
+  .set-list{flex:0 0 270px}
+  .set-detail{display:flex!important}
+  .set-detail .dhead .iconbtn.back{display:none}
+  /* on tablet, the open list item is highlighted */
+  .set-item.opened{background:rgba(59,130,246,.14)!important;color:#bcd6ff}
+}
+
+/* phone-only: settings detail is a separate screen */
+@container screen (max-width: 599.98px){
+  .set-detail{position:absolute;inset:0;z-index:8;background:inherit;transform:translateX(101%);transition:transform .26s cubic-bezier(.3,.8,.3,1);border-left:0}
+  .screen[data-set="detail"] .set-detail{transform:translateX(0)}
+  .screen[data-set="detail"] .set-detail{background:
+    radial-gradient(440px 340px at 8% 12%, rgba(37,99,235,.16), transparent 70%),
+    linear-gradient(150deg,#0b0b0c,#0d0d0f 30%,#111113 65%,#161618)}
+  .screen.light[data-set="detail"] .set-detail{background:linear-gradient(150deg,#fcfcfd,#f6f7f9 40%,#f0f1f3)}
+  .set-detail .dhead .iconbtn.back{display:inline-flex}
+}
+</style>
+</head>
+<body>
+
+<!-- icon defs -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-menu" viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></symbol>
+<symbol id="i-hash" viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></symbol>
+<symbol id="i-vol" viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></symbol>
+<symbol id="i-users" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+<symbol id="i-smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></symbol>
+<symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></symbol>
+<symbol id="i-micoff" viewBox="0 0 24 24"><line x1="1" y1="1" x2="23" y2="23"/><path d="M9 9v3a3 3 0 0 0 5.12 2.12M15 9.34V4a3 3 0 0 0-5.94-.6"/><path d="M17 16.95A7 7 0 0 1 5 12v-2m14 0v2a7 7 0 0 1-.11 1.23"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></symbol>
+<symbol id="i-head" viewBox="0 0 24 24"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></symbol>
+<symbol id="i-monitor" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></symbol>
+<symbol id="i-monitorup" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 16 21"/><line x1="12" y1="17" x2="12" y2="21"/><polyline points="9 9 12 6 15 9"/><line x1="12" y1="6" x2="12" y2="13"/></symbol>
+<symbol id="i-phoneoff" viewBox="0 0 24 24"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7 2 2 0 0 1 1.72 2v3a2 2 0 0 1-2.18 2A19.79 19.79 0 0 1 3.05 9.16 2 2 0 0 1 5 7h3a2 2 0 0 1 2 1.72c.13.91.4 1.79.78 2.6"/><line x1="23" y1="1" x2="1" y2="23"/></symbol>
+<symbol id="i-play" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></symbol>
+<symbol id="i-max" viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></symbol>
+<symbol id="i-chevr" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></symbol>
+<symbol id="i-chevl" viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></symbol>
+<symbol id="i-chevd" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></symbol>
+<symbol id="i-cog" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6 1.65 1.65 0 0 0 10 3.09V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+<symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="1.5"/><circle cx="17.5" cy="10.5" r="1.5"/><circle cx="8.5" cy="7.5" r="1.5"/><circle cx="6.5" cy="12.5" r="1.5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></symbol>
+<symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></symbol>
+<symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="i-video" viewBox="0 0 24 24"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+<symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+<symbol id="i-pin" viewBox="0 0 24 24"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14l-1.7-2.55a2 2 0 0 1-.3-1.05V6a1 1 0 0 1 1-1 1 1 0 0 0 0-2H7a1 1 0 0 0 0 2 1 1 0 0 1 1 1v7.4a2 2 0 0 1-.3 1.05L6 17z"/></symbol>
+<symbol id="i-camera" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></symbol>
+<symbol id="i-edit" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="18.4" y1="18.4" x2="19.8" y2="19.8"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.2" y1="19.8" x2="5.6" y2="18.4"/><line x1="18.4" y1="5.6" x2="19.8" y2="4.2"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+<symbol id="i-phoneic" viewBox="0 0 24 24"><rect x="7" y="2" width="10" height="20" rx="2.5"/><line x1="11" y1="18" x2="13" y2="18"/></symbol>
+<symbol id="i-tabletic" viewBox="0 0 24 24"><rect x="3" y="2" width="18" height="20" rx="2.5"/><line x1="11" y1="18" x2="13" y2="18"/></symbol>
+<symbol id="i-signal" viewBox="0 0 24 24"><path d="M2 20h.01M7 20v-4M12 20v-8M17 20V8M22 4v16"/></symbol>
+<symbol id="i-dev" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></symbol>
+</defs></svg>
+
+<!-- ===================== TOOLBAR (mockup chrome) ===================== -->
+<div class="bar">
+  <div class="brand">
+    <svg viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#10B981"/><circle cx="256" cy="256" r="205" fill="none" stroke="#fff" stroke-width="9" opacity=".28"/><circle cx="256" cy="256" r="140" fill="none" stroke="#fff" stroke-width="12" opacity=".55"/><circle cx="256" cy="256" r="74" fill="none" stroke="#fff" stroke-width="14" opacity=".92"/><circle cx="256" cy="256" r="28" fill="#fff"/></svg>
+    Pulse <small>Mockup&nbsp;· mobile + tablet</small>
+  </div>
+
+  <span class="label">View</span>
+  <div class="seg" id="viewSeg">
+    <button data-view="chat" aria-pressed="true"><svg class="ic sm"><use href="#i-hash"/></svg>Chat</button>
+    <button data-view="voice"><svg class="ic sm"><use href="#i-vol"/></svg>Voice / HQ-Stream</button>
+    <button data-view="login"><svg class="ic sm"><use href="#i-user"/></svg>Login</button>
+    <button data-view="register"><svg class="ic sm"><use href="#i-edit"/></svg>Register</button>
+    <button data-view="settings"><svg class="ic sm"><use href="#i-cog"/></svg>Einstellungen</button>
+  </div>
+
+  <span class="label">Gerät</span>
+  <div class="seg" id="devSeg">
+    <button data-dev="phone" aria-pressed="true"><svg class="ic sm"><use href="#i-phoneic"/></svg>Phone</button>
+    <button data-dev="tablet"><svg class="ic sm"><use href="#i-tabletic"/></svg>Tablet</button>
+    <button data-dev="both"><svg class="ic sm"><use href="#i-dev"/></svg>Beide</button>
+  </div>
+
+  <div class="seg" id="themeSeg">
+    <button data-theme="dark" aria-pressed="true"><svg class="ic sm"><use href="#i-moon"/></svg>Dark</button>
+    <button data-theme="light"><svg class="ic sm"><use href="#i-sun"/></svg>Light</button>
+  </div>
+
+  <div class="spacer"></div>
+  <div class="hint" id="ctxHint"></div>
+</div>
+
+<div class="stage" id="stage"></div>
+
+<!-- ===================== TEMPLATE: one full device screen ===================== -->
+<template id="screenTpl">
+<div class="screen" data-view="chat" data-chat="closed" data-set="list">
+  <div class="statusbar"><span>9:41</span><span class="right"><svg class="ic sm"><use href="#i-signal"/></svg><span style="font-weight:800;font-size:11px">Pulse</span><span class="bat"></span></span></div>
+  <div class="app">
+
+    <!-- ================= CHAT ================= -->
+    <div class="view view-chat">
+
+      <!-- tablet rails -->
+      <div class="chat-rails">
+        <div class="guildrail">
+          <div class="guildicon brandG active">P</div>
+          <div class="guildicon" style="background:linear-gradient(135deg,#f97316,#ef4444)">DG</div>
+          <div class="guildicon" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">⚡</div>
+          <hr class="sep" style="width:24px;margin:2px 0"/>
+          <div class="guildicon addG">+</div>
+        </div>
+        <div class="channels">
+          <div class="ghead">Pulse HQ <svg class="ic sm"><use href="#i-chevd"/></svg></div>
+          <div class="list">
+            <div class="cat">Text-Kanäle <svg class="ic sm"><use href="#i-plus"/></svg></div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>willkommen</div>
+            <div class="chitem active"><svg class="ic"><use href="#i-hash"/></svg>general</div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>design <span class="badge">3</span></div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>backend</div>
+            <div class="cat">Sprach-Kanäle <svg class="ic sm"><use href="#i-plus"/></svg></div>
+            <div class="chitem"><svg class="ic"><use href="#i-vol"/></svg>Lounge <span class="who">4</span></div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>mxchael</div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">L</span>lena <svg class="ic sm" style="margin-left:auto;opacity:.5"><use href="#i-monitor"/></svg></div>
+            <div class="chitem"><svg class="ic"><use href="#i-vol"/></svg>Fokus</div>
+          </div>
+          <div class="userfooter"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span><span class="nm"><b>mxchael</b><small>Online</small></span><button class="iconbtn"><svg class="ic sm"><use href="#i-cog"/></svg></button></div>
+        </div>
+      </div>
+
+      <!-- mobile sliding drawer -->
+      <div class="drawer">
+        <div class="guildrail">
+          <div class="guildicon brandG active">P</div>
+          <div class="guildicon" style="background:linear-gradient(135deg,#f97316,#ef4444)">DG</div>
+          <div class="guildicon" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">⚡</div>
+          <hr class="sep" style="width:24px;margin:2px 0"/>
+          <div class="guildicon addG">+</div>
+        </div>
+        <div class="channels">
+          <div class="ghead">Pulse HQ <svg class="ic sm"><use href="#i-chevd"/></svg></div>
+          <div class="list">
+            <div class="cat">Text-Kanäle <svg class="ic sm"><use href="#i-plus"/></svg></div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>willkommen</div>
+            <div class="chitem active"><svg class="ic"><use href="#i-hash"/></svg>general</div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>design <span class="badge">3</span></div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>backend</div>
+            <div class="cat">Sprach-Kanäle <svg class="ic sm"><use href="#i-plus"/></svg></div>
+            <div class="chitem"><svg class="ic"><use href="#i-vol"/></svg>Lounge <span class="who">4</span></div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>mxchael</div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">L</span>lena <svg class="ic sm" style="margin-left:auto;opacity:.5"><use href="#i-monitor"/></svg></div>
+            <div class="chitem"><svg class="ic"><use href="#i-vol"/></svg>Fokus</div>
+          </div>
+          <div class="userfooter"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span><span class="nm"><b>mxchael</b><small>Online</small></span><button class="iconbtn"><svg class="ic sm"><use href="#i-cog"/></svg></button></div>
+        </div>
+      </div>
+
+      <!-- chat main -->
+      <div class="chat-main">
+        <div class="chat-topbar glass" style="background:transparent;border:0;box-shadow:none">
+          <button class="iconbtn menutoggle" data-act="open-drawer"><svg class="ic"><use href="#i-menu"/></svg></button>
+          <div class="title"><b><svg class="ic"><use href="#i-hash"/></svg>general</b><small>Pulse HQ · 12 Mitglieder</small></div>
+          <div class="row" style="margin-left:auto;gap:0">
+            <button class="iconbtn draweronly"><svg class="ic"><use href="#i-pin"/></svg></button>
+            <button class="iconbtn"><svg class="ic"><use href="#i-search"/></svg></button>
+            <button class="iconbtn" data-act="open-members"><svg class="ic"><use href="#i-users"/></svg></button>
+          </div>
+        </div>
+
+        <div class="chat-msgs">
+          <div class="daydiv">Heute</div>
+
+          <div class="msg">
+            <span class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">L</span>
+            <div class="body">
+              <div class="meta"><b style="color:#fca5a5">lena</b><time>10:02</time></div>
+              <div class="txt">push: <code>feat(stream)</code> per-User-HQ-Pfade sind durch — mehrere können jetzt gleichzeitig in denselben Voice-Channel streamen 🎉</div>
+              <div class="reacts"><span class="react">🎉 4</span><span class="react">🚀 2</span></div>
+            </div>
+          </div>
+
+          <div class="msg">
+            <span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>
+            <div class="body">
+              <div class="meta"><b style="color:#93c5fd">mxchael</b><time>10:04</time></div>
+              <div class="txt">stark. teste ich gleich von zwei clients</div>
+            </div>
+          </div>
+          <div class="msg cont"><div class="body"><div class="txt"><span class="stamp">10:05</span>screenshot vom WHEP-Player im Grid:</div>
+            <div class="embed"><div class="ph"><svg class="ic lg"><use href="#i-camera"/></svg></div></div></div></div>
+
+          <div class="unread"></div>
+
+          <div class="msg">
+            <span class="avatar" style="background:linear-gradient(135deg,#22c55e,#10b981)">J</span>
+            <div class="body">
+              <div class="meta"><b style="color:#86efac">jas</b><time>10:11</time></div>
+              <div class="txt">Mobile-Layout-Frage: faltet sich die Member-Liste auf'm Handy in ein Sheet? oder fliegt sie ganz raus?</div>
+            </div>
+          </div>
+          <div class="msg cont"><div class="body"><div class="txt"><span class="stamp">10:12</span>→ Sheet von rechts, über 👥 im Topbar. Auf Tablet bleibt sie als dritte Spalte.</div></div></div>
+        </div>
+
+        <div class="typing"><i></i><i></i><i></i> lena schreibt …</div>
+
+        <div class="composer glass">
+          <button class="iconbtn"><svg class="ic"><use href="#i-plus"/></svg></button>
+          <input placeholder="Nachricht an #general" />
+          <button class="iconbtn"><svg class="ic"><use href="#i-smile"/></svg></button>
+          <button class="iconbtn send"><svg class="ic"><use href="#i-send"/></svg></button>
+        </div>
+      </div>
+
+      <!-- members sheet / 3rd column -->
+      <div class="memsheet">
+        <div class="mhead">Mitglieder — 12<button class="iconbtn" data-act="close-members"><svg class="ic sm"><use href="#i-x"/></svg></button></div>
+        <div class="mlist">
+          <div class="mcat">Online — 5</div>
+          <div class="memrow"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>mxchael</div>
+          <div class="memrow"><span class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">L</span><span>lena</span><svg class="ic sm dim" style="margin-left:auto"><use href="#i-monitor"/></svg></div>
+          <div class="memrow"><span class="avatar" style="background:linear-gradient(135deg,#22c55e,#10b981)">J</span>jas</div>
+          <div class="memrow"><span class="avatar" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">R</span>robin</div>
+          <div class="memrow"><span class="avatar" style="background:linear-gradient(135deg,#ec4899,#f43f5e)">T</span>tay</div>
+          <div class="mcat">Offline — 7</div>
+          <div class="memrow off"><span class="avatar">A</span>ada</div>
+          <div class="memrow off"><span class="avatar">N</span>noor</div>
+          <div class="memrow off"><span class="avatar">K</span>kit</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= VOICE / HQ-STREAM ================= -->
+    <div class="view view-voice">
+      <!-- tablet rails -->
+      <div class="voice-rails">
+        <div class="guildrail">
+          <div class="guildicon brandG active">P</div>
+          <div class="guildicon" style="background:linear-gradient(135deg,#f97316,#ef4444)">DG</div>
+          <div class="guildicon" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">⚡</div>
+          <hr class="sep" style="width:24px;margin:2px 0"/>
+          <div class="guildicon addG">+</div>
+        </div>
+        <div class="channels">
+          <div class="ghead">Pulse HQ <svg class="ic sm"><use href="#i-chevd"/></svg></div>
+          <div class="list">
+            <div class="cat">Text-Kanäle</div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>general</div>
+            <div class="chitem"><svg class="ic"><use href="#i-hash"/></svg>design</div>
+            <div class="cat">Sprach-Kanäle</div>
+            <div class="chitem active"><svg class="ic"><use href="#i-vol"/></svg>Lounge <span class="who">4</span></div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>mxchael</div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">L</span>lena <svg class="ic sm" style="margin-left:auto;opacity:.6;color:#ef4444"><use href="#i-monitorup"/></svg></div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#22c55e,#10b981)">J</span>jas</div>
+            <div class="voicemember"><span class="avatar" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">R</span>robin</div>
+            <div class="chitem"><svg class="ic"><use href="#i-vol"/></svg>Fokus</div>
+          </div>
+          <div class="userfooter"><span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span><span class="nm"><b>mxchael</b><small>🔊 Lounge</small></span><button class="iconbtn"><svg class="ic sm"><use href="#i-cog"/></svg></button></div>
+        </div>
+      </div>
+
+      <div class="voice-main">
+        <div class="voice-topbar">
+          <button class="iconbtn menutoggle" data-act="open-drawer"><svg class="ic"><use href="#i-chevl"/></svg></button>
+          <div class="title"><b><svg class="ic"><use href="#i-vol"/></svg>Lounge</b><small>4 verbunden · Pulse HQ</small></div>
+          <span class="pill ok" style="margin-left:auto"><span class="dot"></span>stabil</span>
+          <button class="iconbtn"><svg class="ic"><use href="#i-users"/></svg></button>
+        </div>
+
+        <div class="voice-stagewrap">
+          <div class="hqcol">
+            <div class="hqstage">
+              <div class="scanline"></div>
+              <div class="play"><svg class="ic"><use href="#i-play"/></svg></div>
+              <div class="tl">
+                <span class="pill live"><span class="dot red"></span>lena streamt (HQ)</span>
+              </div>
+              <div class="tr"><span class="pill glasschip">1080p · 60 fps · 6,4 Mbit/s</span></div>
+              <div class="bl"><span class="pill glasschip"><svg class="ic sm" style="stroke-width:2.4"><use href="#i-zap"/></svg>WHEP · H.264</span></div>
+              <div class="br"><button class="cbtn" style="width:36px;height:36px"><svg class="ic sm"><use href="#i-max"/></svg></button></div>
+            </div>
+          </div>
+
+          <div class="tiles">
+            <div class="tile speaking">
+              <span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>
+              <span class="nm">mxchael <svg class="ic"><use href="#i-mic"/></svg></span>
+            </div>
+            <div class="tile">
+              <span class="avatar" style="background:linear-gradient(135deg,#f59e0b,#ef4444)">L</span>
+              <span class="nm">lena</span>
+            </div>
+            <div class="tile">
+              <span class="avatar" style="background:linear-gradient(135deg,#22c55e,#10b981)">J</span>
+              <span class="nm muted">jas <svg class="ic"><use href="#i-micoff"/></svg></span>
+            </div>
+            <div class="tile me">
+              <span class="avatar" style="background:linear-gradient(135deg,#8b5cf6,#6366f1)">R</span>
+              <span class="nm">robin (du)</span>
+            </div>
+            <div class="tile screenshare">
+              <span class="miniplay"><svg class="ic"><use href="#i-play"/></svg></span>
+              <span class="nm"><svg class="ic"><use href="#i-monitor"/></svg> jas teilt Bildschirm</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="controlbar glass">
+          <button class="cbtn on" title="Stummschalten"><svg class="ic"><use href="#i-mic"/></svg><span class="lbl-t">Mic</span></button>
+          <button class="cbtn" title="Ton aus"><svg class="ic"><use href="#i-head"/></svg><span class="lbl-t">Ton</span></button>
+          <button class="cbtn" title="Bildschirm teilen"><svg class="ic"><use href="#i-monitor"/></svg><span class="lbl-t">Teilen</span></button>
+          <button class="cbtn" title="HQ-Stream (Desktop)"><svg class="ic"><use href="#i-monitorup"/></svg><span class="reddot"></span><span class="lbl-t">HQ</span></button>
+          <button class="cbtn danger" title="Verlassen"><svg class="ic"><use href="#i-phoneoff"/></svg><span class="lbl-t">Verlassen</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= LOGIN ================= -->
+    <div class="view view-login">
+      <div class="authsplit">
+        <div class="authbrand"><div class="authbrand-inner">
+          <div class="bigmark"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div><div class="core"></div></div>
+          <h2>Bleib im Takt.<br/>Chat · Voice · HQ-Streams.</h2>
+          <p>Pulse läuft im Browser, als PWA und als Desktop-App — überall dieselbe Session, derselbe Stream.</p>
+          <div class="feats">
+            <div><svg class="ic sm"><use href="#i-check"/></svg>Kristallklarer Voice-Chat über LiveKit</div>
+            <div><svg class="ic sm"><use href="#i-check"/></svg>HQ-Screen-Streaming mit dem GPU&nbsp;Screen&nbsp;Recorder</div>
+            <div><svg class="ic sm"><use href="#i-check"/></svg>Web-first — kein Download nötig</div>
+          </div>
+        </div></div>
+        <div class="authpane">
+          <form class="authcard glass">
+            <svg class="logo" viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#10B981"/><circle cx="256" cy="256" r="205" fill="none" stroke="#fff" stroke-width="9" opacity=".28"/><circle cx="256" cy="256" r="140" fill="none" stroke="#fff" stroke-width="12" opacity=".55"/><circle cx="256" cy="256" r="74" fill="none" stroke="#fff" stroke-width="14" opacity=".92"/><circle cx="256" cy="256" r="28" fill="#fff"/></svg>
+            <h1>Willkommen zurück!</h1>
+            <p class="sub">Wir freuen uns, dich wiederzusehen.</p>
+            <div class="grp"><label class="lbl">E-Mail oder Benutzername</label><input class="field" value="mxchael" /></div>
+            <div class="grp"><label class="lbl">Passwort</label>
+              <div class="pwrow"><input class="field" type="password" value="········" /><button type="button" class="iconbtn eye"><svg class="ic sm"><use href="#i-eye"/></svg></button></div>
+            </div>
+            <button type="button" class="btn primary block">Anmelden</button>
+            <p class="alt">Brauchst du ein Konto? <a href="#">Registrieren</a></p>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= REGISTER ================= -->
+    <div class="view view-register">
+      <div class="authsplit">
+        <div class="authbrand"><div class="authbrand-inner">
+          <div class="bigmark"><div class="ring"></div><div class="ring r2"></div><div class="ring r3"></div><div class="core"></div></div>
+          <h2>Werd Teil von Pulse.</h2>
+          <p>In 30 Sekunden eingerichtet. Erstell einen Server, lade Freunde ein, starte einen Voice-Channel.</p>
+          <div class="feats">
+            <div><svg class="ic sm"><use href="#i-check"/></svg>Kostenlos, keine Karte nötig</div>
+            <div><svg class="ic sm"><use href="#i-check"/></svg>Argon2id-Passwörter, RS256-Tokens</div>
+            <div><svg class="ic sm"><use href="#i-check"/></svg>Sofort einsatzbereit auf jedem Gerät</div>
+          </div>
+        </div></div>
+        <div class="authpane">
+          <form class="authcard glass">
+            <svg class="logo" viewBox="0 0 512 512"><rect width="512" height="512" rx="120" fill="#10B981"/><circle cx="256" cy="256" r="205" fill="none" stroke="#fff" stroke-width="9" opacity=".28"/><circle cx="256" cy="256" r="140" fill="none" stroke="#fff" stroke-width="12" opacity=".55"/><circle cx="256" cy="256" r="74" fill="none" stroke="#fff" stroke-width="14" opacity=".92"/><circle cx="256" cy="256" r="28" fill="#fff"/></svg>
+            <h1>Konto erstellen</h1>
+            <p class="sub">Schön, dich an Bord zu haben.</p>
+            <div class="grp"><label class="lbl">Benutzername</label><input class="field" value="robin" /></div>
+            <div class="grp"><label class="lbl">E-Mail</label><input class="field" value="robin@example.com" /></div>
+            <div class="grp"><label class="lbl">Passwort</label>
+              <div class="pwrow"><input class="field" type="password" value="············" /><button type="button" class="iconbtn eye"><svg class="ic sm"><use href="#i-eye"/></svg></button></div>
+              <div class="strength"><i class="s1"></i><i class="s1"></i><i class="s1"></i><i></i></div>
+              <div class="fineprint">Mindestens 8 Zeichen. Mit der Registrierung akzeptierst du die Nutzungsbedingungen.</div>
+            </div>
+            <button type="button" class="btn primary block">Konto erstellen</button>
+            <p class="alt">Schon dabei? <a href="#">Anmelden</a></p>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= SETTINGS ================= -->
+    <div class="view view-settings">
+      <div class="set-list">
+        <div class="set-topbar">
+          <button class="iconbtn menutoggle" data-act="open-drawer"><svg class="ic"><use href="#i-chevl"/></svg></button>
+          <b>Einstellungen</b>
+        </div>
+        <div class="set-scroll">
+          <div class="set-userblock glass">
+            <span class="avatar" style="background:linear-gradient(135deg,#06b6d4,#3b82f6)">m</span>
+            <div class="nm"><b>mxchael</b><small>mxchael@example.com</small></div>
+            <button class="btn edit"><svg class="ic sm"><use href="#i-edit"/></svg>Bearbeiten</button>
+          </div>
+
+          <div class="set-cat">Benutzereinstellungen</div>
+          <div class="set-group">
+            <div class="set-item" data-detail="account"><svg class="ic lead"><use href="#i-user"/></svg>Mein Konto<svg class="ic sm arrow"><use href="#i-chevr"/></svg></div>
+            <div class="set-item" data-detail="account"><svg class="ic lead"><use href="#i-edit"/></svg>Profil bearbeiten<svg class="ic sm arrow"><use href="#i-chevr"/></svg></div>
+            <div class="set-item" data-detail="account"><svg class="ic lead"><use href="#i-shield"/></svg>Datenschutz &amp; Sicherheit<svg class="ic sm arrow"><use href="#i-chevr"/></svg></div>
+          </div>
+
+          <div class="set-cat">App-Einstellungen</div>
+          <div class="set-group">
+            <div class="set-item" data-detail="appearance"><svg class="ic lead"><use href="#i-palette"/></svg>Erscheinungsbild<span class="val">System <svg class="ic sm"><use href="#i-chevr"/></svg></span></div>
+            <div class="set-item opened" data-detail="voice"><svg class="ic lead"><use href="#i-mic"/></svg>Stimme &amp; Video<span class="val">Push-to-Talk <svg class="ic sm"><use href="#i-chevr"/></svg></span></div>
+            <div class="set-item" data-detail="notif"><svg class="ic lead"><use href="#i-bell"/></svg>Benachrichtigungen<span class="val">An <svg class="ic sm"><use href="#i-chevr"/></svg></span></div>
+            <div class="set-item" data-detail="lang"><svg class="ic lead"><use href="#i-globe"/></svg>Sprache<span class="val">Deutsch <svg class="ic sm"><use href="#i-chevr"/></svg></span></div>
+          </div>
+
+          <div class="set-cat">Streaming</div>
+          <div class="set-group">
+            <div class="set-item locked"><svg class="ic lead"><use href="#i-monitorup"/></svg>HQ-Stream / GPU&nbsp;Screen&nbsp;Recorder<span class="lockbadge">NUR DESKTOP · LINUX</span></div>
+          </div>
+
+          <div class="set-foot">
+            <button class="btn danger block"><svg class="ic sm"><use href="#i-logout"/></svg>Abmelden</button>
+            <div class="set-ver">Pulse · Glasshouse-Build · Web-first</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- detail pane (Stimme & Video) -->
+      <div class="set-detail">
+        <div class="dhead">
+          <button class="iconbtn back" data-act="close-detail"><svg class="ic"><use href="#i-chevl"/></svg></button>
+          <b>Stimme &amp; Video</b>
+        </div>
+        <div class="dscroll">
+          <div class="set-dgroup-title">Eingabe</div>
+          <div class="set-row stacked">
+            <div class="txt"><b>Eingabegerät</b></div>
+            <div class="selectfake">Standard — Mikrofon (Yeti X)<svg class="ic sm dim"><use href="#i-chevd"/></svg></div>
+          </div>
+          <div class="set-row stacked">
+            <div class="txt"><b>Eingabe-Lautstärke</b></div>
+            <div class="slider"><i style="width:72%"></i><b style="left:72%"></b></div>
+          </div>
+
+          <div class="set-dgroup-title" style="margin-top:14px">Eingabemodus</div>
+          <div class="set-row">
+            <div class="txt"><b>Push-to-Talk</b><small>Sprich nur, solange die Taste gehalten wird.</small></div>
+            <div class="toggle on"></div>
+          </div>
+          <div class="set-row">
+            <div class="txt"><b>PTT-Taste</b><small>Im Browser/Fenster aktiv. Globaler Shortcut folgt (braucht nativen Key-Listener).</small></div>
+            <span class="keycap">Leertaste</span>
+          </div>
+
+          <div class="set-dgroup-title" style="margin-top:14px">Verarbeitung</div>
+          <div class="set-row stacked">
+            <div class="txt"><b>Rauschunterdrückung</b><small>DeepFilterNet&nbsp;3 läuft lokal im AudioWorklet.</small></div>
+            <div class="segline"><span>Aus</span><span>Standard</span><span class="active">DeepFilterNet 3</span></div>
+          </div>
+          <div class="set-row">
+            <div class="txt"><b>Echo-Unterdrückung</b></div>
+            <div class="toggle on"></div>
+          </div>
+          <div class="set-row">
+            <div class="txt"><b>Automatische Verstärkung</b></div>
+            <div class="toggle"></div>
+          </div>
+
+          <div class="set-dgroup-title" style="margin-top:14px">Video</div>
+          <div class="set-row stacked">
+            <div class="txt"><b>Kamera</b></div>
+            <div class="selectfake">Keine Kamera erkannt<svg class="ic sm dim"><use href="#i-chevd"/></svg></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</template>
+
+<script>
+const stage   = document.getElementById('stage');
+const tpl     = document.getElementById('screenTpl');
+const ctxHint = document.getElementById('ctxHint');
+const state   = { view:'chat', dev:'phone', theme:'dark' };
+
+const VIEW_LABEL = {chat:'Haupt-Chat-View', voice:'Voice / HQ-Stream', login:'Login', register:'Registrierung', settings:'Einstellungen'};
+const HINTS = {
+  chat:'Phone: ☰ öffnet den Server/Kanal-Drawer · 👥 das Mitglieder-Sheet. Tablet: 3 Spalten (Server-Rail · Kanäle · Chat · Mitglieder).',
+  voice:'Ein fremder HQ-Stream füllt die große Fläche; Teilnehmer-Kacheln als Streifen. Tablet: Stream + Kachel-Spalte + Steuerleiste mit Labels.',
+  login:'Phone: zentrierte Glas-Karte. Tablet: Split — Brand-Panel mit Sonar-Ping links, Formular rechts.',
+  register:'Wie Login; zusätzlich Benutzername + Passwort-Stärke + Hinweistext.',
+  settings:'Phone: Kategorie-Liste → tippt in eine Kategorie (eigener Screen). Tablet: Liste + Detail nebeneinander. Gezeigt: „Stimme & Video".'
+};
+
+function buildScreen(devKind){
+  const node = tpl.content.firstElementChild.cloneNode(true);
+  node.dataset.view = state.view;
+  node.classList.toggle('light', state.theme==='light');
+  // reset sub-states
+  node.dataset.chat = 'closed';
+  node.dataset.set  = 'list';
+  // sub-state interactions
+  node.addEventListener('click', (e)=>{
+    const act = e.target.closest('[data-act]')?.dataset.act;
+    if (act==='open-drawer')  node.dataset.chat='drawer';
+    if (act==='open-members') node.dataset.chat='members';
+    if (act==='close-members')node.dataset.chat='closed';
+    if (e.target.closest('.chat-main') && !e.target.closest('.drawer') && !e.target.closest('.memsheet') && (node.dataset.chat==='drawer'||node.dataset.chat==='members') && !act) node.dataset.chat='closed';
+    const detail = e.target.closest('[data-detail]');
+    if (detail) node.dataset.set='detail';
+    if (act==='close-detail') node.dataset.set='list';
+  });
+  const frame = document.createElement('div');
+  frame.className = 'device ' + devKind;
+  frame.innerHTML = '<div class="notch"></div>';
+  frame.appendChild(node);
+  const wrap = document.createElement('div');
+  wrap.className = 'devwrap';
+  const cap = document.createElement('div');
+  cap.className = 'cap';
+  cap.innerHTML = devKind==='phone' ? 'Phone · <b>~390 dp</b> · iPhone-Klasse' : 'Tablet · <b>~820 dp</b> · iPad-Klasse';
+  wrap.appendChild(frame);
+  wrap.appendChild(cap);
+  return wrap;
+}
+
+function render(){
+  stage.innerHTML='';
+  if (state.dev==='both'){ stage.appendChild(buildScreen('phone')); stage.appendChild(buildScreen('tablet')); }
+  else stage.appendChild(buildScreen(state.dev));
+  ctxHint.innerHTML = '<b>'+VIEW_LABEL[state.view]+'</b> — '+HINTS[state.view];
+}
+
+function wireSeg(id, key, after){
+  const seg = document.getElementById(id);
+  seg.addEventListener('click', e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    [...seg.children].forEach(c=>c.setAttribute('aria-pressed', c===b));
+    state[key] = b.dataset[key];
+    if (after) after();
+    render();
+  });
+}
+wireSeg('viewSeg','view');
+wireSeg('devSeg','dev');
+wireSeg('themeSeg','theme', ()=>{ /* theme is per-screen via .light */ });
+
+render();
+</script>
+</body>
+</html>
