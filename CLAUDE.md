@@ -6,7 +6,8 @@ Monorepo (uv-Workspace + pnpm-Workspace).
 ## Was das Projekt macht
 
 Discord-ähnlicher Chat/Voice-Client, **Web-First** (alle Browser),
-Desktop via Tauri 2, PWA-installierbar. Backend = mehrere kleine
+Desktop via Electron (Pivot 2026-05-12 von Tauri 2 weg — siehe §17 / "Desktop-Wrapper (Electron — E1a)"),
+PWA-installierbar. Backend = mehrere kleine
 FastAPI-Services; Voice über LiveKit (WebRTC/Opus); HQ-Screen-Streaming
 (Etappe 3) bindet den existierenden GPU Screen Recorder als **Library**
 ein (`~/Dokumente/GPU_Screen_Recorder/` bleibt unangetastet außer einer
@@ -49,10 +50,13 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 - **Rust** 1.93.1 (rustup 1.28.2) — für `desktop/src-tauri/`
 - Ruff `line-length=100`, `target-version=py313`, `ignore=["E501"]`
 
-### Desktop (`desktop/`, Tauri 2 — T1)
+### Desktop (`desktop/`, Electron — E1a; Tauri 2 — T1, wird in E1c entfernt)
 | Lib | Version (gepinnt) | Notiz |
 |---|---|---|
-| @tauri-apps/cli | 2.11.1 | devDep in `desktop/package.json`; Scripts `dev`/`build` → `tauri dev`/`tauri build` |
+| electron | 42.0.1 | devDep in `desktop/package.json` (Electron-Shell, ersetzt Tauri). Kein `postinstall` — Binary wird beim ersten `require('electron')` lazy gezogen |
+| esbuild | 0.28.0 | devDep in `desktop/package.json` — bundlet `electron/main.ts`+`preload.ts` → `electron/dist/*.cjs` (`build:electron`). In root-`pnpm.onlyBuiltDependencies` |
+| @types/node | ^22.7.5 | devDep in `desktop/package.json` (Electron 42 bundlet Node 22.x) |
+| @tauri-apps/cli | 2.11.1 | (T1, historisch — raus in E1c) devDep in `desktop/package.json`; Scripts `tauri`/`tauri:dev`/`tauri:build` (war `dev`/`build`, jetzt von der Electron-App belegt) |
 | @tauri-apps/api | 2.11.0 | Dep in `web/package.json` — Frontend importiert `@tauri-apps/api/event` für PTT-Events |
 | @tauri-apps/plugin-store | 2.4.3 | JS-Seite in `web/package.json` (Settings-/Token-Persistenz) |
 | @tauri-apps/plugin-notification | 2.3.3 | JS-Seite in `web/package.json` (Ping-Toasts) |
@@ -113,12 +117,78 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 - **Redis** `redis:7-alpine` — Container `dcc_night_redis`
 - **LiveKit** `livekit/livekit-server:latest` — Container `dcc_night_livekit`, hinter `docker compose --profile voice up -d`, Config `infra/livekit/livekit.yaml`. Läuft mit `network_mode: host` (siehe Voice-Presence-Abschnitt) — bindet 7880/7881 + 7882–7892/UDP direkt auf dem Host, keine Port-Mappings.
 
+## Desktop-Wrapper (Electron — E1a)
+
+> **Wrapper-Pivot 2026-05-12 (PLAN.md §17).** Der Desktop-Wrapper wird von Tauri 2
+> auf **Electron** umgestellt — Tauri nutzt auf Linux WebKitGTK, dessen WebRTC ist
+> für LiveKit-Voice zu unzuverlässig. Electron liefert Chromium auf allen OS,
+> WebRTC out-of-the-box. Migration = Etappe **E1** (E1a Electron-Shell · E1b
+> Sidecar-Bridge in Node · E1c Persistenz + Tauri-Cleanup). **E1a fügt nur hinzu
+> — `desktop/src-tauri/` bleibt vorerst unangetastet** (Tauri wird erst in E1c
+> entfernt), damit der Build nie kaputtgeht. Der "Desktop-Wrapper (T1)"-Abschnitt
+> unten ist die Tauri-Variante die durch E1 abgelöst wird.
+
+`desktop/` ist (zusätzlich zum noch vorhandenen `src-tauri/`) jetzt eine Electron-App.
+`@dcc/desktop` bleibt pnpm-Workspace-Member; `"main": "electron/dist/main.cjs"`,
+`package.json` **ohne** `"type": "module"` (Electron-Main als CJS — am unkompliziertesten).
+
+```
+desktop/
+├── package.json            @dcc/desktop — main: electron/dist/main.cjs;
+│                           devDeps: electron 42.0.1 (gepinnt), esbuild 0.28.0, @types/node ^22.7.5;
+│                           Scripts: build:electron (esbuild bundlet main+preload → electron/dist/*.cjs),
+│                                    dev (= build:electron && PULSE_DEV_URL=:5173 electron .), start (electron .)
+├── tsconfig.json           für die Electron-TS-Files (target ES2022, module CommonJS, strict, skipLibCheck, noEmit)
+├── .gitignore              dist/, node_modules/
+├── electron/
+│   ├── main.ts             Main-Process: requestSingleInstanceLock + second-instance→focus, createWindow
+│   │                       (BrowserWindow 1280×832, minWidth 940 / minHeight 600, show:false →ready-to-show,
+│   │                        Titel "Pulse", webPreferences: preload + contextIsolation:true + nodeIntegration:false + sandbox:true),
+│   │                       Dev (!app.isPackaged || PULSE_DEV_URL) → loadURL(:5173) + openDevTools({mode:'detach'}),
+│   │                       Prod → loadFile(../../../web/build/index.html) [TODO T6: Pfad beim Packaging verifizieren],
+│   │                       window-all-closed (außer darwin → quit), activate → createWindow
+│   ├── preload.ts          contextBridge.exposeInMainWorld('pulse', { platform:'electron', appVersion })
+│   │                       — mehr braucht E1a nicht; E1b ergänzt pulse.gsr.*, E1c pulse.store.*, später onPttDown/Up
+│   └── dist/               esbuild-Output (gitignored): main.cjs, preload.cjs
+└── src-tauri/              (unverändert, wird in E1c entfernt — siehe "Desktop-Wrapper (T1)" unten)
+```
+
+**Build-Flow:** esbuild (`build:electron` — `--bundle --platform=node --format=cjs --target=node22 --external:electron --outdir=electron/dist --out-extension:.js=.cjs`) bundlet `electron/main.ts`+`electron/preload.ts` → `electron/dist/{main,preload}.cjs`. `__dirname` und JSON-Imports (`../package.json` → `appVersion`) werden von esbuild eingebacken.
+
+**Electron-Binary:** Electron 42 hat **kein** `postinstall` mehr — das Binary wird beim ersten `require('electron')` lazy heruntergeladen (`node_modules/.pnpm/electron@42.0.1/.../dist/electron`). `pnpm install` ist also "clean"; root-`package.json` hat `pnpm.onlyBuiltDependencies: ["esbuild"]` nur damit esbuilds Binary-Fetch-Postinstall ohne Prompt läuft.
+
+**Dev starten (Electron-Fenster):** Vite-Dev-Server muss auf `:5173` laufen
+(`pnpm --filter @dcc/web dev`), dann `pnpm --filter @dcc/desktop dev` (= `build:electron`
++ `electron .` mit `PULSE_DEV_URL=http://localhost:5173`). Electron lädt im Dev von `:5173`,
+DevTools öffnen detached. Build-only-Check ohne GUI: `cd desktop && pnpm run build:electron`
+(esbuild) + `pnpm exec electron --version`.
+
+**Was in E1a bewusst fehlt:** globaler PTT-Shortcut (Electrons `globalShortcut` kann
+nur Press, nicht Press+Release → taugt nicht für Hold-to-Talk; braucht ein natives
+Key-Listener-Modul wie `uiohook-napi` — eigener Schritt später; **TODO-Kommentar in
+main.ts**). Der In-Window-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`)
+funktioniert weiter. Notifications (E1c/später — TODO in main.ts). Prod-`loadFile`-Pfad
+ist als TODO markiert (Dev ist der getestete Pfad in E1a). `electron-builder` (Packaging =
+T6) und `electron-store` (E1c) sind **nicht** als Dep drin.
+
+**Frontend-Glue:** `web/src/lib/platform/runtime.ts` hat jetzt `isElectron()`
+(`window.pulse?.platform === 'electron'`) und `isDesktop()` (`isElectron() || isTauri()`).
+`isTauri()` bleibt vorerst (raus in E1c). `ptt.ts` ist unverändert (unter Electron ist
+`isTauri()` false → der Tauri-PTT-Pfad ist eh ein No-Op). `gsr.ts`/`state.svelte.ts`/
+`persistence.ts`/die Stream-Components/`VoiceControlBar.svelte` sind unverändert — sie
+gaten auf `isTauri()` und zeigen unter Electron "GSR nicht verfügbar"; die echte
+Electron-Sidecar-Bridge kommt in E1b.
+
 ## Desktop-Wrapper (T1)
+
+> **Abgelöst durch E1 (Electron-Migration, 2026-05-12).** Siehe "Desktop-Wrapper
+> (Electron — E1a)" oben. Dieser Abschnitt beschreibt die Tauri-2-Variante; sie
+> bleibt in E1a unangetastet und wird erst in E1c entfernt.
 
 `desktop/` ist ein pnpm-Workspace-Package (`@dcc/desktop`) und enthält die Tauri-2-App:
 ```
 desktop/
-├── package.json            @dcc/desktop — devDep @tauri-apps/cli, Scripts dev/build → tauri dev/build
+├── package.json            @dcc/desktop — devDep @tauri-apps/cli; Scripts (seit E1a) tauri / tauri:dev / tauri:build → tauri / tauri dev / tauri build
 └── src-tauri/              Rust-Crate "pulse-desktop" (lib "pulse_desktop_lib")
     ├── Cargo.toml          tauri 2 + die 5 Plugins (single-instance/global-shortcut/autostart target-gated)
     ├── build.rs            tauri_build::build()
@@ -135,9 +205,9 @@ Die JS-Seiten der Plugins (`@tauri-apps/api`, `@tauri-apps/plugin-{store,notific
 
 **`beforeDevCommand` ist leer** — Grund: der Vite-Dev-Server läuft im Dev-Setup eh schon auf `:5173` (`/tmp/dcc-vite.log`), ein zweiter Start würde am Port kollidieren. `tauri dev` erwartet also, dass `web` schon läuft (`pnpm --filter @dcc/web dev` separat starten falls nicht). `beforeBuildCommand` = `pnpm --filter @dcc/web build` (baut `web/build/` für den Release-Bundle).
 
-**Testen / Bauen:**
-- `cd desktop/src-tauri && cargo build` — kompiliert die Rust-App (erster Build ~10–20 Min, danach inkrementell).
-- GUI manuell starten (öffnet ein echtes Fenster): Vite-Dev-Server auf `:5173` muss laufen, dann `pnpm --filter @dcc/desktop dev` (= `tauri dev`). Für einen Release-Bundle: `pnpm --filter @dcc/desktop build` (= `tauri build`, baut vorher `web/build/`, erzeugt `.AppImage` + `.deb` unter `desktop/src-tauri/target/release/bundle/`).
+**Testen / Bauen (Tauri — historisch):**
+- `cd desktop/src-tauri && cargo build` — kompiliert die Rust-App (erster Build ~10–20 Min, danach inkrementell). Bleibt in E1a grün (`src-tauri/` unangetastet).
+- GUI manuell starten (öffnet ein echtes Fenster): Vite-Dev-Server auf `:5173` muss laufen, dann `pnpm --filter @dcc/desktop tauri:dev` (= `tauri dev`). Für einen Release-Bundle: `pnpm --filter @dcc/desktop tauri:build` (= `tauri build`, baut vorher `web/build/`, erzeugt `.AppImage` + `.deb` unter `desktop/src-tauri/target/release/bundle/`).
 - Linux-Systemdeps für Tauri (Arch/CachyOS): `webkit2gtk-4.1`, `gtk3`, `libsoup3`, `librsvg`, `base-devel` — sind installiert.
 
 ## Streaming-Paket (T2)
