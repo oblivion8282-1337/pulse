@@ -31,9 +31,10 @@ from profiles import ServerProfile, StreamProfile, build_audio_arg
 
 FPS_RE = re.compile(r"update fps:\s*(\d+)")
 
-# Auflösungs-Map (Downscale-Ziele). "1440p" bleibt drin, damit eine alte
-# persistierte Auswahl noch funktioniert; die UI bietet es nicht mehr an.
+# Auflösungs-Ziele (GSR `-s WxH`). "Native" ist nicht hier — dann wird `-s`
+# weggelassen und GSR nimmt die Monitor-Auflösung.
 _RESOLUTION_MAP = {
+    "4K":    "3840x2160",
     "1440p": "2560x1440",
     "1080p": "1920x1080",
     "720p":  "1280x720",

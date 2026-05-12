@@ -18,7 +18,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import VideoIcon from '@lucide/svelte/icons/video';
+  import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
   import { isElectron, isLinux } from '$lib/platform/runtime';
   import { stream } from '../state.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -52,7 +52,7 @@
             aria-label="HQ-Stream öffnen"
             data-testid="voice-hq-stream-btn"
           >
-            <VideoIcon />
+            <RadioTowerIcon />
             {#if running}
               <span
                 class="absolute right-1 top-1 size-2 rounded-full bg-red-500 ring-2 ring-bg-input"

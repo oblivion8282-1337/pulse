@@ -57,11 +57,17 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'av1', label: 'AV1' },
 ];
 
-// Downscale targets only — GSR scales to exactly the chosen size, so offering
-// something bigger than the monitor would just upscale (more bandwidth, no
-// detail). 'Native' means "don't scale". The sidecar still understands a
-// persisted '1440p' from before this change.
-export const RESOLUTION_VALUES: ReadonlyArray<string> = ['Native', '1080p', '720p', '480p'];
+// GSR scales to exactly the chosen size. 'Native' means "don't scale" — the
+// safe default (no upscaling). 4K/1440p are offered for high-res monitors; on a
+// smaller monitor picking them just upscales (more bandwidth, no detail).
+export const RESOLUTION_VALUES: ReadonlyArray<string> = [
+  'Native',
+  '4K',
+  '1440p',
+  '1080p',
+  '720p',
+  '480p',
+];
 
 export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
   'Aus',
