@@ -28,7 +28,13 @@
   import { ApiError } from '$lib/api/client';
   import { gsr } from '../gsr';
   import { stream } from '../state.svelte';
-  import { buildStartArgs, streamSettings, mediamtxEndpointFromPushUrl } from '../settings.svelte';
+  import {
+    buildStartArgs,
+    streamSettings,
+    mediamtxEndpointFromPushUrl,
+    isAppAudioMode,
+    appFromAudioMode,
+  } from '../settings.svelte';
 
   let { channelId = null }: { channelId?: string | null } = $props();
 
@@ -37,11 +43,16 @@
 
   let channelMode = $derived(streamSettings.target === 'channel' && !!channelId);
   let bridgeReady = $derived(gsr.available() && stream.available);
+  // "Bestimmte App" without an app picked yet → can't start (GSR `-a "app:"` fails).
+  let appAudioReady = $derived(
+    !isAppAudioMode(streamSettings.audio_mode) || !!appFromAudioMode(streamSettings.audio_mode),
+  );
   let canStart = $derived(
     bridgeReady &&
       !stream.running &&
       !busy &&
       !!streamSettings.profile_name &&
+      appAudioReady &&
       (channelMode || !!streamSettings.server_name),
   );
   let canStop = $derived(bridgeReady && stream.running && !busy);

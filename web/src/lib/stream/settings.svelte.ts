@@ -202,7 +202,13 @@ function applyPersisted(data: Record<string, unknown>): void {
     streamSettings.excluded_apps = data.excluded_apps.filter((x): x is string => typeof x === 'string');
   }
   if (data.overrides && typeof data.overrides === 'object') {
-    streamSettings.overrides = { ...(data.overrides as OverrideSet) };
+    const o = { ...(data.overrides as OverrideSet) };
+    // Normalise a resolution that the dropdown no longer offers (e.g. an old
+    // persisted '1440p') so the UI doesn't show "Native" while streaming bigger.
+    if (o.resolution && !(RESOLUTION_VALUES as ReadonlyArray<string>).includes(o.resolution)) {
+      o.resolution = 'Native';
+    }
+    streamSettings.overrides = o;
   }
   if (typeof data.use_overrides === 'boolean') {
     streamSettings.use_overrides = data.use_overrides;
