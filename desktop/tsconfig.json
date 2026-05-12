@@ -1,0 +1,18 @@
+{
+  // TypeScript config for the Electron main + preload scripts under `electron/`.
+  // Separate from `web/`'s tsconfig — this code runs in Node (Electron), not the browser.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["electron/**/*.ts"]
+}

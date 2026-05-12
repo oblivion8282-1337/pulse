@@ -7,6 +7,12 @@ Server→client ops, in addition to the chat ops in PLAN.md §5.2:
     their own guild membership. The ``ready`` payload additionally carries
     ``voice_states: [{"channel_id": ..., "user_ids": [...]}, ...]`` with the
     current state of every voice channel in the user's guilds.
+  - ``{"op": "stream_state", "channel_id": "<id>", "user_id": "<id>"|null,
+    "active": true|false}`` — pushed whenever a channel's HQ stream starts or
+    stops (relayed from media-svc over Redis ``stream:events``; T5b). Mirrors
+    the voice_state mechanism. The ``ready`` payload additionally carries
+    ``stream_states: [{"channel_id": ..., "user_id": ...}, ...]`` listing every
+    channel in the user's guilds that currently has an active HQ stream.
 """
 
 from __future__ import annotations
@@ -112,7 +118,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         )
 
     # Send "ready" with the user's guild list + the current voice-channel
-    # presence state for those guilds.
+    # presence state + the current HQ-stream state for those guilds.
     async with SessionLocal() as session:
         guild_stmt = (
             select(Guild)
@@ -131,6 +137,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             voice_channel_ids = [str(cid) for cid in (await session.execute(vc_stmt)).scalars()]
 
     voice_states = await manager.voice_states_for(voice_channel_ids)
+    # HQ streaming only happens in voice channels (same path naming as LiveKit
+    # rooms), so the relevant channel set is the same one.
+    stream_states = await manager.stream_states_for(voice_channel_ids)
 
     await websocket.send_json(
         {
@@ -138,6 +147,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "user_id": str(user.id),
             "guilds": guilds,
             "voice_states": voice_states,
+            "stream_states": stream_states,
         }
     )
 

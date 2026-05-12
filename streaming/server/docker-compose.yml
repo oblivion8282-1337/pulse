@@ -1,0 +1,44 @@
+# MediaMTX als Streaming-Server (Dev: lokal; Prod: VPS — T5c)
+# Version gepinnt damit Watchtower nichts kaputt-updatet
+#
+# Ports:
+#   1935 (TCP) - RTMP-Ingest  (Auth: authHTTP → Pulse mediamtx-auth-hook, Token als ?pass=…)
+#   1935        … bzw. SRT 8890 (Auth via streamid=publish:<path>:pulse:<token>)
+#   8888 (TCP) - HLS read     (Auth: authHTTP — T5a: anonym für channel-*; T5b: Member-Token)
+#   8889 (TCP) - WebRTC/WHEP read
+#   8189 (UDP) - WebRTC ICE
+#   9997 (TCP) - API, NUR localhost-bind  (media-svc pollt /v3/paths/list darüber)
+#
+# `authHTTPAddress: http://localhost:8005/` in mediamtx.yml zeigt auf den
+# mediamtx-auth-hook. Funktioniert dank `network_mode: host`: localhost:8005 im
+# Container = Host-localhost = wo der Hook via `uvicorn dcc_mediamtx_auth_hook.app:app`
+# lauscht. Im Dev müssen also media-svc (8004) + auth-hook (8005) lokal laufen,
+# wenn man den authHTTP-Flow live testen will.
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.18.1
+    container_name: streaming-mediamtx
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    # network_mode: host weil WebRTC-ICE auf UDP sonst kompliziert wird mit Port-Mapping
+    # (Memory-Regel: bei Docker-Port-Range lieber host-Netzwerk) — und es macht den
+    # auth-hook auf dem Host (localhost:8005) für MediaMTX direkt erreichbar.
+    labels:
+      # Watchtower-Hinweis: dieses Image NICHT auto-updaten
+      - "com.centurylinklabs.watchtower.enable=false"
+
+  # Static-File-Server für player.html (Stats-Browser-Player)
+  # Eigener Port 8000, kein Konflikt mit existierendem Caddy auf 80/443
+  player:
+    image: nginx:1.27-alpine
+    container_name: streaming-player
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./player.html:/usr/share/nginx/html/index.html:ro
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"

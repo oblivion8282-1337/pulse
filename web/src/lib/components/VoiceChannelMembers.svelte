@@ -16,23 +16,23 @@
   {@const name = user?.display_name ?? user?.username ?? '…'}
   {@const initial = (name.trim()[0] ?? '?').toUpperCase()}
   <div
-    class="flex items-center gap-1.5 rounded px-2 py-0.5 text-xs text-text-muted hover:bg-bg-hover hover:text-text-base"
+    class="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-text-muted hover:bg-bg-hover hover:text-text-base"
     data-testid="voice-presence-member"
     data-user-id={uid}
     title={name}
   >
-    <Avatar.Root class="size-4 shrink-0">
+    <Avatar.Root class="size-7 shrink-0">
       {#if user?.avatar_url?.startsWith('https://')}
         <Avatar.Image src={user.avatar_url} alt={name} />
       {/if}
-      <Avatar.Fallback class="bg-primary text-primary-foreground text-[8px]">
+      <Avatar.Fallback class="bg-primary text-primary-foreground text-[11px]">
         {initial}
       </Avatar.Fallback>
     </Avatar.Root>
     <span class="truncate">{name}</span>
     {#if streamingSet.has(uid)}
       <span
-        class="ml-auto shrink-0 rounded bg-red-600 px-1 py-px text-[9px] font-bold leading-none text-white"
+        class="ml-auto shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
         data-testid="user-streaming-badge"
         title="teilt seinen Bildschirm"
       >LIVE</span>

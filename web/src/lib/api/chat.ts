@@ -1,5 +1,16 @@
 import { request } from './client';
 import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member, Message } from './types';
+import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
+
+/** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
+export type StreamTokenResponse = {
+  token: string;
+  mediamtx_path: string;
+  push_protocol: string;
+  /** Full push URL including the token, ready for the GSR sidecar. */
+  push_url: string;
+  expires_in_s: number;
+};
 
 export const chatApi = {
   // Guilds
@@ -93,5 +104,27 @@ export const chatApi = {
   },
   acceptInvite(code: string): Promise<AcceptInviteResult> {
     return request<AcceptInviteResult>(`/invites/${code}/accept`, { method: 'POST' });
+  },
+
+  // HQ streaming (T4) — chat-gateway is the membership-gated front door for media-svc.
+  /**
+   * Mint a short-lived publish token for the channel's HQ stream. The caller
+   * must be a member of the channel's guild and the channel must be a voice
+   * channel. The returned `push_url` already carries the token.
+   */
+  getStreamToken(channelId: string, protocol: 'rtmp' | 'srt' = 'rtmp'): Promise<StreamTokenResponse> {
+    return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
+      method: 'POST',
+      body: { protocol }
+    });
+  },
+  /** Anonymous WHEP playback URL for the channel's HQ stream. */
+  getWhepUrl(channelId: string): Promise<{ whep_url: string }> {
+    return request<{ whep_url: string }>(`/channels/${channelId}/whep`);
+  },
+  /** Channels in the guild that currently have an active HQ stream — re-sync helper. */
+  async getGuildStreamState(guildId: string): Promise<StreamChannelState[]> {
+    const r = await request<{ stream_states: StreamChannelState[] }>(`/guilds/${guildId}/stream-state`);
+    return r.stream_states ?? [];
   }
 };

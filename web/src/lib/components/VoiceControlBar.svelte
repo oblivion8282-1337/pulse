@@ -12,6 +12,9 @@
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
+  import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
+
+  let hqStreamOpen = $state(false);
 
   async function handleScreenShare() {
     try {
@@ -100,6 +103,7 @@
         </Tooltip.Content>
       </Tooltip.Root>
     </Tooltip.Provider>
+    <HqStreamButton bind:open={hqStreamOpen} />
   </div>
 
   <Button

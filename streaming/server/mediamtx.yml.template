@@ -1,0 +1,70 @@
+# MediaMTX-Config für Pulse — TEMPLATE  (MediaMTX 1.18.1)
+#
+# Auth: per-Channel-HQ-Streaming via `authMethod: http` (T5a).
+#   MediaMTX delegiert *jede* Connection an den Pulse `mediamtx-auth-hook`
+#   (FastAPI, Dev: http://localhost:8005/ — siehe services/mediamtx-auth-hook/).
+#   Der Hook erlaubt:
+#     - publish nur mit gültigem Stream-Token (von media-svc ausgegeben) für den
+#       Pfad `channel-<channel_id>`,
+#     - read/playback (WHEP/HLS) anonym für `channel-*`-Pfade
+#       (T5a; T5b ergänzt einen Pulse-Member-Token-Check für Reads),
+#     - api/metrics/pprof (wird hier zusätzlich via authHTTPExclude ausgeschlossen).
+#   → Es gibt keine internen User mehr, keinen festen Stream-Key. Der GSR-Sidecar
+#     bekommt seine Push-URL (inkl. Token als `?pass=…` bzw.
+#     `streamid=publish:<path>:pulse:<token>`) von media-svc
+#     (`POST /channels/{id}/stream-token`).
+#
+# Vor Deploy (T5c): nur `authHTTPAddress` auf den erreichbaren Hook-Endpunkt
+#   zeigen lassen (Dev: localhost:8005 — MediaMTX läuft mit network_mode: host,
+#   localhost:8005 vom Container = Host-localhost = wo der auth-hook via uvicorn
+#   lauscht). Sonst ist hier nichts mehr zu ersetzen.
+
+logLevel: info
+logDestinations: [stdout]
+
+# RTMP-Ingest
+rtmp: yes
+rtmpAddress: :1935
+
+# HLS Low-Latency
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 200ms
+hlsPartDuration: 100ms
+
+# WebRTC / WHEP (kein Audio auf dem RTMP/FLV-Pfad wegen AAC-Limit; SRT trägt Opus)
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+
+# API NUR auf localhost (media-svc pollt /v3/paths/list darüber)
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# Disable RTSP — RTMP + SRT reichen
+rtsp: no
+
+# SRT-Ingest für Opus-Audio-Pfad (RTMP/FLV kann nur AAC)
+# Push-streamid: publish:<path>:pulse:<stream-token>
+srt: yes
+srtAddress: :8890
+
+# === AUTH ===
+# HTTP-delegierte Authentifizierung an den Pulse mediamtx-auth-hook.
+authMethod: http
+authHTTPAddress: http://localhost:8005/
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+paths:
+  # Pulse HQ-Channel-Streams heißen `channel-<snowflake>`. Erlaubt/abgelehnt
+  # wird jede Connection vom auth-hook — hier reicht der Default-Eintrag, damit
+  # MediaMTX die (dynamischen) Pfade überhaupt akzeptiert. Nicht-`channel-*`-
+  # Pfade lehnt der Hook ab.
+  all_others:

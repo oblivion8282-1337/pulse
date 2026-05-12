@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     jwt_issuer: str = "dcc-auth"
     jwks_cache_seconds: int = 3600
 
+    # media-svc — issues per-channel HQ-stream publish tokens and exposes the
+    # WHEP playback URL. chat-gateway is the membership-gated proxy in front of
+    # it (T5b): it checks the user is a member of the channel's guild, then
+    # forwards the user's access token to media-svc.
+    media_svc_url: str = "http://127.0.0.1:8004"
+    media_svc_timeout_s: float = 10.0
+
     snowflake_worker_id_chat: int = Field(default=2, ge=0, le=1023)
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

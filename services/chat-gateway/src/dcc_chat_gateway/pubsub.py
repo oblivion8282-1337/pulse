@@ -37,6 +37,20 @@ VOICE_EVENTS_CHANNEL = "voice:events"
 # which `_listen` wraps as `{"op": "message", ...}`.
 GUILD_EVENTS_CHANNEL = "guild:events"
 
+# Per-channel HQ-stream state changes published by media-svc (T5a/T5b).
+# Payload: {"channel_id": "<id>", "active": true|false, "user_id": "<id>"|null}
+# — one event per state change. We rebroadcast as {"op": "stream_state", ...}
+# to every connected WebSocket; clients filter by their guilds. The mirror of
+# the voice-presence mechanism, just for the MediaMTX/GSR HQ stream.
+STREAM_EVENTS_CHANNEL = "stream:events"
+
+# Public per-channel stream state, written by the media-svc poller. We read
+# these keys directly from Redis when building the `ready` payload / the
+# `GET /guilds/{id}/stream-state` re-sync response — the same way voice
+# presence is read straight off `voice:room:*`. (media-svc has no guild→channel
+# map; chat-gateway does, so it does the per-channel lookup.)
+STREAM_CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
+
 
 class ConnectionManager:
     def __init__(self, redis: Redis) -> None:
@@ -61,9 +75,11 @@ class ConnectionManager:
         # races against the listener loop and removes the need for
         # per-channel Redis subscriptions.
         await self._pubsub.psubscribe(CHANNEL_PATTERN)
-        # Plus the single voice-presence event channel and the guild-lifecycle
-        # event channel.
-        await self._pubsub.subscribe(VOICE_EVENTS_CHANNEL, GUILD_EVENTS_CHANNEL)
+        # Plus the single voice-presence event channel, the guild-lifecycle
+        # event channel, and the HQ-stream-state event channel.
+        await self._pubsub.subscribe(
+            VOICE_EVENTS_CHANNEL, GUILD_EVENTS_CHANNEL, STREAM_EVENTS_CHANNEL
+        )
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
 
@@ -152,6 +168,31 @@ class ConnectionManager:
                 out.append({"channel_id": cid, **state})
         return out
 
+    async def stream_state_for(self, channel_id: str) -> dict[str, Any] | None:
+        """Active HQ-stream state for a channel, read straight off Redis.
+
+        Returns ``{"channel_id": ..., "user_id": ...|None}`` if a stream is
+        currently active, else ``None``. The poller in media-svc owns
+        ``stream:channel:<id>``; we only read it (mirroring how voice presence
+        reads ``voice:room:*``)."""
+        raw = await self._redis.get(STREAM_CHANNEL_STATE_KEY.format(channel_id=channel_id))
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        if not isinstance(data, dict) or not data.get("active"):
+            return None
+        uid = data.get("user_id")
+        return {"channel_id": channel_id, "user_id": str(uid) if uid else None}
+
+    async def stream_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
+        if not channel_ids:
+            return []
+        states = await asyncio.gather(*(self.stream_state_for(cid) for cid in channel_ids))
+        return [s for s in states if s is not None]
+
     # Per-socket send timeout during fan-out: a slow/stuck client must not hold
     # up delivery to everyone else on the channel (head-of-line blocking).
     _SEND_TIMEOUT_SECONDS = 5.0
@@ -224,6 +265,32 @@ class ConnectionManager:
                         envelope["channel_id"],
                         envelope["user_ids"],
                         envelope["streaming_user_ids"],
+                        len(targets),
+                    )
+                    await self._fan_out(targets, envelope)
+                    continue
+
+                if channel == STREAM_EVENTS_CHANNEL:
+                    payload = self._decode_payload(msg["data"], STREAM_EVENTS_CHANNEL)
+                    if not isinstance(payload, dict) or "channel_id" not in payload:
+                        log.warning(
+                            "stream:events malformed or missing channel_id: %r", payload
+                        )
+                        continue
+                    uid = payload.get("user_id")
+                    envelope = {
+                        "op": "stream_state",
+                        "channel_id": str(payload.get("channel_id")),
+                        "user_id": str(uid) if uid else None,
+                        "active": bool(payload.get("active")),
+                    }
+                    async with self._lock:
+                        targets = list(self._connections)
+                    log.info(
+                        "stream:events broadcast channel=%s user_id=%s active=%s targets=%d",
+                        envelope["channel_id"],
+                        envelope["user_id"],
+                        envelope["active"],
                         len(targets),
                     )
                     await self._fan_out(targets, envelope)
