@@ -569,8 +569,12 @@ Volumes — nichts geteilt), `pulse_auth`/`pulse_chat_gateway`/`pulse_voice_sign
 - **Secrets:** nur auf dem Server in `~/pulse/infra/prod/.env` (gitignored, aus `.env.example`) + `~/pulse/infra/prod/secrets/jwt_*.pem`.
   Die PEM-Files **müssen `chmod 0644`** sein (Container laufen als uid 10001). LiveKit-Keys: Name `pulse-prod`
   (fix in `livekit.yaml` + `LIVEKIT_API_KEY`), Secret via `LIVEKIT_KEYS` env aus `.env`.
-- **Firewall:** offen sein müssen `1935/tcp` (RTMP), `8890/udp` (SRT), `8189/udp` (MediaMTX-ICE), `7881/tcp` +
-  `7882:7892/udp` (LiveKit-RTC). 80/443 sind schon offen (Caddy). `sudo ufw allow ...` braucht das User-Passwort.
+- **Firewall (UFW):** öffentlich offen: `1935/tcp` (RTMP), `8890/udp` (SRT), `8189/udp` (MediaMTX-ICE), `7881/tcp` +
+  `7882:7892/udp` (LiveKit-RTC). 80/443 schon offen (Caddy), 8888/8889 schon offen (alter Streaming-Test). Plus
+  **nur vom Docker-Bridge** (`ufw allow from 10.0.0.0/8 to any port <p> proto tcp`): `7880` (LiveKit-Signaling) +
+  `9997` (MediaMTX-API) — sonst blockt UFWs `INPUT DROP` den Bridge→Host-Weg, den `pulse_web` (nginx) und `pulse_media_svc`
+  brauchen. (Diese Routen in `web-nginx.conf` nutzen **statisches `proxy_pass http://host.docker.internal:PORT/`**, nicht
+  das Variable+Resolver-Muster — Dockers `127.0.0.11` kennt `host.docker.internal` nicht, das wäre 502.) Alle UFW-Regeln sind gesetzt (2026-05-12).
 - **Electron-App:** der gepackte Build lädt `https://pulse.unicutmedia.com` (remote — Web-Fixes sofort sichtbar);
   der GSR-Sidecar läuft lokal über die `window.pulse`-Bridge.
 - Vollständige Schritte + Operating-Befehle: `infra/prod/DEPLOY.md`. Caddyfile auf dem Server wurde angepasst (Backup `~/caddy/Caddyfile.bak.*`).
