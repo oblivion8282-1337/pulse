@@ -44,7 +44,8 @@
     onsubmit={submit}
     aria-label="login form"
   >
-    <header class="space-y-1 text-center">
+    <header class="space-y-2 text-center">
+      <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
       <h1 class="text-card-foreground text-2xl font-semibold">Willkommen zurück!</h1>
       <p class="text-muted-foreground text-sm">Wir freuen uns, dich wiederzusehen!</p>
     </header>

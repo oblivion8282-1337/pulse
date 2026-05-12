@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 450 160" width="450" height="160">
+  <title>Pulse logo</title>
+  <desc>Pulse logo — horizontal lockup with sonar mark and wordmark.</desc>
+
+  <!-- Mark -->
+  <g transform="translate(16, 16)">
+    <rect width="128" height="128" rx="30" ry="30" fill="#10B981"/>
+    <circle cx="64" cy="64" r="51" fill="none" stroke="#FFFFFF" stroke-width="2.3" opacity="0.28"/>
+    <circle cx="64" cy="64" r="35" fill="none" stroke="#FFFFFF" stroke-width="3" opacity="0.55"/>
+    <circle cx="64" cy="64" r="18.5" fill="none" stroke="#FFFFFF" stroke-width="3.5" opacity="0.92"/>
+    <circle cx="64" cy="64" r="7" fill="#FFFFFF"/>
+  </g>
+
+  <!-- Wordmark — convert to outlines in Figma/Illustrator for true font-independence -->
+  <text x="170" y="113"
+        font-family="Inter, -apple-system, 'Helvetica Neue', Arial, sans-serif"
+        font-size="92"
+        font-weight="700"
+        letter-spacing="-2.5"
+        fill="#0A0A0A">Pulse</text>
+</svg>

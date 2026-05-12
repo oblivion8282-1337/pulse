@@ -50,6 +50,8 @@ function createWindow(): void {
     minHeight: 600,
     show: false,
     title: 'Pulse',
+    // `dist/main.cjs` lives one level below `electron/`, where icon.png sits.
+    icon: path.join(__dirname, '..', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

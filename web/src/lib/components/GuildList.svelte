@@ -27,6 +27,18 @@
 <!-- Horizontale Pill-/Avatar-Reihe der Server, oben in der Sidebar-Karte. -->
 <div class="flex items-center gap-1.5 overflow-x-auto px-3 py-3" data-testid="guild-list">
   <Tooltip.Provider delayDuration={200}>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <a {...props} href="/app" class="shrink-0" aria-label="Pulse" data-testid="guild-home">
+            <img src="/pulse-mark.svg" alt="" width="28" height="28" class="size-7 rounded-md" />
+          </a>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content side="bottom">Pulse</Tooltip.Content>
+    </Tooltip.Root>
+    <div class="bg-border h-6 w-px shrink-0" aria-hidden="true"></div>
+
     {#each guilds as g (g.id)}
       <Tooltip.Root>
         <Tooltip.Trigger>

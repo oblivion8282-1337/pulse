@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" width="640" height="640">
+  <title>Pulse — animated</title>
+  <desc>Pulse app mark with continuous sonar ping animation. Loops indefinitely.</desc>
+
+  <!-- Echo rings emanating outward (animated) -->
+  <circle cx="320" cy="320" r="205" fill="none" stroke="#10B981" stroke-width="8">
+    <animate attributeName="r" values="205;305" dur="2.8s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0" dur="2.8s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-width" values="8;3" dur="2.8s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="320" cy="320" r="205" fill="none" stroke="#10B981" stroke-width="8">
+    <animate attributeName="r" values="205;305" dur="2.8s" begin="0.93s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0" dur="2.8s" begin="0.93s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-width" values="8;3" dur="2.8s" begin="0.93s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="320" cy="320" r="205" fill="none" stroke="#10B981" stroke-width="8">
+    <animate attributeName="r" values="205;305" dur="2.8s" begin="1.86s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0" dur="2.8s" begin="1.86s" repeatCount="indefinite"/>
+    <animate attributeName="stroke-width" values="8;3" dur="2.8s" begin="1.86s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- Static badge with sonar rings -->
+  <rect x="64" y="64" width="512" height="512" rx="120" ry="120" fill="#10B981"/>
+  <circle cx="320" cy="320" r="205" fill="none" stroke="#FFFFFF" stroke-width="9" opacity="0.28"/>
+  <circle cx="320" cy="320" r="140" fill="none" stroke="#FFFFFF" stroke-width="12" opacity="0.55"/>
+  <circle cx="320" cy="320" r="74" fill="none" stroke="#FFFFFF" stroke-width="14" opacity="0.92"/>
+  <circle cx="320" cy="320" r="28" fill="#FFFFFF"/>
+</svg>

@@ -42,7 +42,8 @@
     onsubmit={submit}
     aria-label="register form"
   >
-    <header class="space-y-1 text-center">
+    <header class="space-y-2 text-center">
+      <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
       <h1 class="text-card-foreground text-2xl font-semibold">Konto erstellen</h1>
     </header>
 
