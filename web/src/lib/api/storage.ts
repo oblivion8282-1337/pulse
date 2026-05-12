@@ -1,7 +1,8 @@
 /**
- * Token storage abstraction. For Etappe 1 we keep both tokens in
- * localStorage; later Tauri builds will swap this for the Tauri Store
- * plugin via the platform/runtime module.
+ * Token storage abstraction. We keep both tokens in localStorage; under the
+ * Electron shell this could later be swapped for `window.pulse.store.*` (see
+ * `$lib/platform/runtime.ts` / `$lib/stream/persistence.ts`), but localStorage
+ * works fine for both the browser and the Electron renderer today.
  */
 
 import type { Tokens } from './types';

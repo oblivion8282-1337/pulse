@@ -6,16 +6,17 @@
  * (running/fps/uptime/log) coming back over `gsr://event`.
  *
  * **T3c additions:**
- * - Tauri-`store`-backed persistence (Browser-Fallback: `localStorage`) for
- *   the user's picker selections and any custom server definitions. Persisted
- *   values *win over* the GPU-Detection-Defaults — see `loadCatalogs()`.
+ * - Persistence (via `persistence.ts`: `window.pulse.store.*` under Electron,
+ *   `localStorage` fallback in a plain browser) for the user's picker
+ *   selections and any custom server definitions. Persisted values *win over*
+ *   the GPU-Detection-Defaults — see `loadCatalogs()`.
  * - GPU-detection: after the sidecar's `gpu_info` response is in, we pick a
  *   sensible default profile name (NVIDIA-AV1 → "AV1 Effizient", everything
  *   else → "H.264 Standard"), but only if nothing was persisted yet.
  * - Custom servers: user-defined `GsrServer`-shaped entries that get merged
  *   into `available_servers`. The full server-spec (host/ports/auth-user) +
  *   the *cleartext* stream key live in the persistence layer — see
- *   `persistence.ts` for the security note (Tauri-store file is chmod 600).
+ *   `persistence.ts` for the security note (store file is chmod 600 on Linux).
  *
  * Field shapes mirror what the sidecar's `gsr_start` body expects (see
  * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
@@ -323,9 +324,10 @@ export function isCurrentServerCustom(): boolean {
 
 /**
  * Add a user-defined server. Returns `null` on success, an error message
- * string on failure (validation issue / name conflict). Persists to the
- * Tauri-store (or `localStorage` fallback). The `stream_key` is stored in
- * cleartext — see persistence.ts for the security note.
+ * string on failure (validation issue / name conflict). Persists via the
+ * persistence layer (`window.pulse.store.*` under Electron, `localStorage`
+ * fallback). The `stream_key` is stored in cleartext — see persistence.ts for
+ * the security note.
  */
 export function addCustomServer(s: CustomServer): string | null {
   const name = s.name.trim();

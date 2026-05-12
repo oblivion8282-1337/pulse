@@ -6,7 +6,7 @@ Monorepo (uv-Workspace + pnpm-Workspace).
 ## Was das Projekt macht
 
 Discord-ähnlicher Chat/Voice-Client, **Web-First** (alle Browser),
-Desktop via Electron (Pivot 2026-05-12 von Tauri 2 weg — siehe §17 / "Desktop-Wrapper (Electron — E1a)"),
+Desktop via Electron (Pivot 2026-05-12 von Tauri 2 weg — siehe §17 / "Desktop-App (Electron)"),
 PWA-installierbar. Backend = mehrere kleine
 FastAPI-Services; Voice über LiveKit (WebRTC/Opus); HQ-Screen-Streaming
 (Etappe 3) bindet den existierenden GPU Screen Recorder als **Library**
@@ -47,27 +47,16 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 - **Python** 3.14.4 (Workspace verlangt `>=3.13,<3.15`)
 - **uv** 0.11.11 (Backend-Workspace, `[tool.uv.workspace]` in `pyproject.toml`)
 - **Node** v25.9.0 · **pnpm** 10.33.0 (Frontend-Workspace, `pnpm-workspace.yaml` — Members `web`, `desktop`)
-- **Rust** 1.93.1 (rustup 1.28.2) — für `desktop/src-tauri/`
 - Ruff `line-length=100`, `target-version=py313`, `ignore=["E501"]`
 
-### Desktop (`desktop/`, Electron — E1a; Tauri 2 — T1, wird in E1c entfernt)
+### Desktop (`desktop/`, Electron)
 | Lib | Version (gepinnt) | Notiz |
 |---|---|---|
-| electron | 42.0.1 | devDep in `desktop/package.json` (Electron-Shell, ersetzt Tauri). Kein `postinstall` — Binary wird beim ersten `require('electron')` lazy gezogen |
-| esbuild | 0.28.0 | devDep in `desktop/package.json` — bundlet `electron/main.ts`+`preload.ts` → `electron/dist/*.cjs` (`build:electron`). In root-`pnpm.onlyBuiltDependencies` |
+| electron | 42.0.1 | devDep in `desktop/package.json` (Electron-Shell). Kein `postinstall` — Binary wird beim ersten `require('electron')` lazy gezogen |
+| esbuild | 0.28.0 | devDep in `desktop/package.json` — bundlet `electron/{main,preload}.ts` (+ `sidecar.ts` + `store.ts`, beide via Import gezogen) → `electron/dist/*.cjs` (`build:electron`). In root-`pnpm.onlyBuiltDependencies` |
 | @types/node | ^22.7.5 | devDep in `desktop/package.json` (Electron 42 bundlet Node 22.x) |
-| @tauri-apps/cli | 2.11.1 | (T1, historisch — raus in E1c) devDep in `desktop/package.json`; Scripts `tauri`/`tauri:dev`/`tauri:build` (war `dev`/`build`, jetzt von der Electron-App belegt) |
-| @tauri-apps/api | 2.11.0 | Dep in `web/package.json` — Frontend importiert `@tauri-apps/api/event` für PTT-Events |
-| @tauri-apps/plugin-store | 2.4.3 | JS-Seite in `web/package.json` (Settings-/Token-Persistenz) |
-| @tauri-apps/plugin-notification | 2.3.3 | JS-Seite in `web/package.json` (Ping-Toasts) |
-| @tauri-apps/plugin-global-shortcut | 2.3.1 | JS-Seite in `web/package.json` (PTT — z.Z. nur Rust-seitig genutzt) |
-| `tauri` (Rust-Crate) | 2.11.1 | `desktop/src-tauri/Cargo.toml` |
-| `tauri-build` | 2.6.1 | build-dep |
-| `tauri-plugin-single-instance` | 2.4.2 | target-gated (nicht mobile); MUSS als erstes Plugin registriert sein |
-| `tauri-plugin-store` | 2.4.3 | |
-| `tauri-plugin-notification` | 2.3.3 | |
-| `tauri-plugin-global-shortcut` | 2.3.1 | target-gated; registriert `Alt+Space` → emittet `ptt-down`/`ptt-up` |
-| `tauri-plugin-autostart` | 2.5.1 | target-gated; **registriert aber nicht aktiviert** — keine `autostart:*`-Capability in T1 |
+
+> Tauri 2 (T1/T3a) war der ursprüngliche Desktop-Wrapper; am 2026-05-12 auf Electron migriert (E1) — siehe PLAN.md §17. `desktop/src-tauri/` + alle `@tauri-apps/*`-Deps wurden in E1c entfernt; es wird **kein** Rust mehr gebraucht.
 
 ### Backend (Python, `services/*` + `shared/`)
 | Lib | Version (uv.lock) | Notiz |
@@ -94,7 +83,7 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 |---|---|---|
 | @sveltejs/kit | 2.59.1 | |
 | svelte | 5.55.5 | Runes-API (`$state`/`$derived`) |
-| @sveltejs/adapter-static | 3.0.10 | Tauri-ready Build-Output |
+| @sveltejs/adapter-static | 3.0.10 | statischer Build-Output (`web/build/`) — vom Electron-Main in Prod via `loadFile` geladen |
 | @sveltejs/vite-plugin-svelte | 7.1.2 | |
 | vite | 8.0.11 | Dev-Proxy: `/api/auth`→:8001 · `/api/chat`→:8002 · `/api/ws`→:8002 · `/api/voice`→:8003 |
 | typescript | 5.9.3 | strict |
@@ -117,20 +106,19 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
 - **Redis** `redis:7-alpine` — Container `dcc_night_redis`
 - **LiveKit** `livekit/livekit-server:latest` — Container `dcc_night_livekit`, hinter `docker compose --profile voice up -d`, Config `infra/livekit/livekit.yaml`. Läuft mit `network_mode: host` (siehe Voice-Presence-Abschnitt) — bindet 7880/7881 + 7882–7892/UDP direkt auf dem Host, keine Port-Mappings.
 
-## Desktop-Wrapper (Electron — E1a)
+## Desktop-App (Electron)
 
-> **Wrapper-Pivot 2026-05-12 (PLAN.md §17).** Der Desktop-Wrapper wird von Tauri 2
-> auf **Electron** umgestellt — Tauri nutzt auf Linux WebKitGTK, dessen WebRTC ist
-> für LiveKit-Voice zu unzuverlässig. Electron liefert Chromium auf allen OS,
-> WebRTC out-of-the-box. Migration = Etappe **E1** (E1a Electron-Shell · E1b
-> Sidecar-Bridge in Node · E1c Persistenz + Tauri-Cleanup). **E1a fügt nur hinzu
-> — `desktop/src-tauri/` bleibt vorerst unangetastet** (Tauri wird erst in E1c
-> entfernt), damit der Build nie kaputtgeht. Der "Desktop-Wrapper (T1)"-Abschnitt
-> unten ist die Tauri-Variante die durch E1 abgelöst wird.
+> **Wrapper-Pivot 2026-05-12 (PLAN.md §17).** Der Desktop-Wrapper war ursprünglich
+> Tauri 2 (T1/T3a). Tauri nutzt auf Linux WebKitGTK, dessen WebRTC ist für
+> LiveKit-Voice zu unzuverlässig (Voice lief im Tauri-Fenster nicht). → Migration
+> auf **Electron** (Chromium auf allen OS, WebRTC out-of-the-box) = Etappe **E1**:
+> E1a Electron-Shell · E1b Sidecar-Bridge in Node · E1c Settings-Persistenz +
+> Tauri-Cleanup + Docs. `desktop/src-tauri/` + alle `@tauri-apps/*`-Deps sind seit
+> E1c **entfernt**; kein Rust mehr.
 
-`desktop/` ist (zusätzlich zum noch vorhandenen `src-tauri/`) jetzt eine Electron-App.
-`@dcc/desktop` bleibt pnpm-Workspace-Member; `"main": "electron/dist/main.cjs"`,
-`package.json` **ohne** `"type": "module"` (Electron-Main als CJS — am unkompliziertesten).
+`desktop/` ist eine Electron-App (`@dcc/desktop`, pnpm-Workspace-Member).
+`"main": "electron/dist/main.cjs"`, `package.json` **ohne** `"type": "module"`
+(Electron-Main als CJS — am unkompliziertesten mit unserem esbuild-CJS-Bundle).
 
 ```
 desktop/
@@ -146,14 +134,16 @@ desktop/
 │   │                        Titel "Pulse", webPreferences: preload + contextIsolation:true + nodeIntegration:false + sandbox:true),
 │   │                       Dev (!app.isPackaged || PULSE_DEV_URL) → loadURL(:5173) + openDevTools({mode:'detach'}),
 │   │                       Prod → loadFile(../../../web/build/index.html) [TODO T6: Pfad beim Packaging verifizieren],
-│   │                       window-all-closed (außer darwin → quit), activate → createWindow
-│   ├── preload.ts          contextBridge.exposeInMainWorld('pulse', { platform:'electron', appVersion })
-│   │                       — mehr braucht E1a nicht; E1b ergänzt pulse.gsr.*, E1c pulse.store.*, später onPttDown/Up
-│   └── dist/               esbuild-Output (gitignored): main.cjs, preload.cjs
-└── src-tauri/              (unverändert, wird in E1c entfernt — siehe "Desktop-Wrapper (T1)" unten)
+│   │                       window-all-closed (außer darwin → quit), activate → createWindow.
+│   │                       whenReady: initStore() → wireStore() (store:* IPC) → wireSidecar() (gsr:* IPC) → createWindow.
+│   │                       before-quit → getSidecar().shutdown() (3 s-Backstop).
+│   ├── preload.ts          contextBridge.exposeInMainWorld('pulse', { platform:'electron', appVersion, store:{get,getAll,set}, gsr:{...} })
+│   ├── sidecar.ts          SidecarManager — Python-GSR-Sidecar (siehe "Desktop ↔ Sidecar-Bridge (E1b)")
+│   ├── store.ts            Hand-rolled Key-Value-Store (Settings-Persistenz, E1c — siehe unten)
+│   └── dist/               esbuild-Output (gitignored): main.cjs, preload.cjs (sidecar.ts + store.ts werden mitgebundlet)
 ```
 
-**Build-Flow:** esbuild (`build:electron` — `--bundle --platform=node --format=cjs --target=node22 --external:electron --outdir=electron/dist --out-extension:.js=.cjs`) bundlet `electron/main.ts`+`electron/preload.ts` → `electron/dist/{main,preload}.cjs`. `__dirname` und JSON-Imports (`../package.json` → `appVersion`) werden von esbuild eingebacken.
+**Build-Flow:** esbuild (`build:electron` — `--bundle --platform=node --format=cjs --target=node22 --external:electron --outdir=electron/dist --out-extension:.js=.cjs`) bundlet `electron/main.ts`+`electron/preload.ts` → `electron/dist/{main,preload}.cjs`. `sidecar.ts` und `store.ts` werden automatisch reingezogen (von `main.ts` importiert). `__dirname` und JSON-Imports (`../package.json` → `appVersion`) werden von esbuild eingebacken.
 
 **Electron-Binary:** Electron 42 hat **kein** `postinstall` mehr — das Binary wird beim ersten `require('electron')` lazy heruntergeladen (`node_modules/.pnpm/electron@42.0.1/.../dist/electron`). `pnpm install` ist also "clean"; root-`package.json` hat `pnpm.onlyBuiltDependencies: ["esbuild"]` nur damit esbuilds Binary-Fetch-Postinstall ohne Prompt läuft.
 
@@ -161,54 +151,44 @@ desktop/
 (`pnpm --filter @dcc/web dev`), dann `pnpm --filter @dcc/desktop dev` (= `build:electron`
 + `electron .` mit `PULSE_DEV_URL=http://localhost:5173`). Electron lädt im Dev von `:5173`,
 DevTools öffnen detached. Build-only-Check ohne GUI: `cd desktop && pnpm run build:electron`
-(esbuild) + `pnpm exec electron --version`.
+(esbuild) + `pnpm exec electron --version`. Voice funktioniert im Electron-Fenster
+(Chromium-WebRTC) — das war der Grund für den Pivot.
 
-**Was in E1a bewusst fehlt:** globaler PTT-Shortcut (Electrons `globalShortcut` kann
-nur Press, nicht Press+Release → taugt nicht für Hold-to-Talk; braucht ein natives
-Key-Listener-Modul wie `uiohook-napi` — eigener Schritt später; **TODO-Kommentar in
-main.ts**). Der In-Window-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`)
-funktioniert weiter. Notifications (E1c/später — TODO in main.ts). Prod-`loadFile`-Pfad
-ist als TODO markiert (Dev ist der getestete Pfad in E1a). `electron-builder` (Packaging =
-T6) und `electron-store` (E1c) sind **nicht** als Dep drin.
+**Settings-Persistenz (E1c) — `electron/store.ts` + `web/src/lib/stream/persistence.ts`:**
+Hand-rolled (bewusst **kein** `electron-store` — das ist in neueren Versionen ESM-only
+und gibt CJS/ESM-Friktion mit unserem esbuild-CJS-Bundle; wir brauchen nur get/set/getAll).
+Main-Seite (`store.ts`): `<userData>/pulse-stream.json` — beim App-Start (`initStore()` in
+`app.whenReady()`) einmal `fs.readFileSync` in ein in-memory-Objekt; jeder `set` schreibt das
+Objekt synchron als JSON zurück (`fs.writeFileSync(..., { mode: 0o600 })`). **Linux-Hardening**
+(übernimmt die alte Tauri-`harden_config_dir()`-Posture): `chmod 700` aufs `userData`-Dir +
+`chmod 600` aufs JSON-File (Settings können Custom-Server-Stream-Keys im Klartext enthalten).
+IPC: `ipcMain.handle('store:get'|'store:getAll'|'store:set')` — Errors werden geloggt, nicht
+gecrasht. Preload: `window.pulse.store = { get, getAll, set }`. Renderer (`persistence.ts`):
+`loadAll`/`loadKey`/`saveAll` → `window.pulse.store.*` wenn `isElectron() && window.pulse?.store`,
+sonst `localStorage`-Fallback (`pulse.stream`-Key — für die Dev-Route `/app/dev/stream` /
+SvelteKit-App ohne Electron). Die `persistence.ts`-API ist signatur-identisch zu vorher;
+nur der Transport hat sich geändert (`@tauri-apps/plugin-store` → `window.pulse.store`).
+Persistiert: `profile_name`, `server_name`, `capture_source`, `audio_mode`, `excluded_apps`,
+`overrides`, `use_overrides`, `custom_servers`. **Niemals Stream-Keys/Tokens loggen.**
 
-**Frontend-Glue:** `web/src/lib/platform/runtime.ts` hat jetzt `isElectron()`
-(`window.pulse?.platform === 'electron'`) und `isDesktop()` (`isElectron() || isTauri()`).
-`isTauri()` bleibt vorerst (raus in E1c). `ptt.ts` ist unverändert (unter Electron ist
-`isTauri()` false → der Tauri-PTT-Pfad ist eh ein No-Op). `gsr.ts`/`state.svelte.ts`/
-`persistence.ts`/die Stream-Components/`VoiceControlBar.svelte` sind unverändert — sie
-gaten auf `isTauri()` und zeigen unter Electron "GSR nicht verfügbar"; die echte
-Electron-Sidecar-Bridge kommt in E1b.
+**Was bewusst (noch) fehlt:** globaler PTT-Shortcut — Electrons `globalShortcut` kann nur
+Press, nicht Press+Release → taugt nicht für Hold-to-Talk; braucht ein natives Key-Listener-
+Modul (z.B. `uiohook-napi`) → eigener Schritt später. `web/src/lib/platform/ptt.ts`
+(`initDesktopPtt()`, aus `routes/+layout.svelte` onMount aufgerufen) ist daher aktuell ein
+**No-op-Stub** (`// TODO: global PTT for Electron needs a native key-listener (uiohook-napi)`).
+Der In-Window-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`, Taste aus
+`settings.voice.pttKey`) ist der aktive PTT-Pfad und funktioniert unverändert. Notifications
+(TODO in main.ts — kleiner `notify(title, body)`-IPC-Handler später). Prod-`loadFile`-Pfad
+ist als TODO markiert (Dev ist der getestete Pfad). `electron-builder` (Packaging = T6) ist
+**nicht** als Dep drin.
 
-## Desktop-Wrapper (T1)
-
-> **Abgelöst durch E1 (Electron-Migration, 2026-05-12).** Siehe "Desktop-Wrapper
-> (Electron — E1a)" oben. Dieser Abschnitt beschreibt die Tauri-2-Variante; sie
-> bleibt in E1a unangetastet und wird erst in E1c entfernt.
-
-`desktop/` ist ein pnpm-Workspace-Package (`@dcc/desktop`) und enthält die Tauri-2-App:
-```
-desktop/
-├── package.json            @dcc/desktop — devDep @tauri-apps/cli; Scripts (seit E1a) tauri / tauri:dev / tauri:build → tauri / tauri dev / tauri build
-└── src-tauri/              Rust-Crate "pulse-desktop" (lib "pulse_desktop_lib")
-    ├── Cargo.toml          tauri 2 + die 5 Plugins (single-instance/global-shortcut/autostart target-gated)
-    ├── build.rs            tauri_build::build()
-    ├── tauri.conf.json     productName "Pulse", identifier com.unicutmedia.pulse, frontendDist ../../web/build,
-    │                       devUrl http://localhost:5173, bundle.targets ["appimage","deb"] (Flatpak erst T6)
-    ├── src/main.rs · src/lib.rs · src/ptt.rs   Plugin-Registration + PTT-Wiring
-    ├── capabilities/default.json   strikt: core:default, notification:default, global-shortcut:default, store:default
-    │                               — KEINE shell:/fs:-Permissions, autostart bewusst weggelassen
-    └── icons/              aus web/static/favicon.svg via `tauri icon` (nur Desktop-Icons, kein android/ios)
-```
-Die JS-Seiten der Plugins (`@tauri-apps/api`, `@tauri-apps/plugin-{store,notification,global-shortcut}`) sind Deps von **`web/`** (Frontend importiert sie). `single-instance` und `autostart` haben keine JS-Seite die wir nutzen.
-
-**PTT-Pfad:** `src/ptt.rs::setup()` registriert beim App-Start einen globalen Shortcut (`Alt+Space`, hardcoded in T1 — `default_ptt_shortcut()` + die `register`-Stelle in `setup()` sind der Seam für "konfigurierbar" später). On-Press → `app.emit("ptt-down", ())`, On-Release → `app.emit("ptt-up", ())`. Frontend: `web/src/lib/platform/ptt.ts` (`initDesktopPtt()`, aufgerufen aus `routes/+layout.svelte` onMount) hört unter Tauri via `@tauri-apps/api/event` `listen('ptt-down'/'ptt-up')` und ruft `voice.pttPress()`/`voice.pttRelease()` aus `lib/voice/livekit.svelte.ts`. Im reinen Browser ist `initDesktopPtt()` ein No-Op — der bestehende In-Window-Keyboard-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`, Taste aus `settings.voice.pttKey`) bleibt unverändert. `web/src/lib/platform/runtime.ts`: `isTauri()` (`'__TAURI_INTERNALS__' in window`) + `isLinux()` (UA-basiert, TODO: `@tauri-apps/plugin-os` falls T3 das braucht).
-
-**`beforeDevCommand` ist leer** — Grund: der Vite-Dev-Server läuft im Dev-Setup eh schon auf `:5173` (`/tmp/dcc-vite.log`), ein zweiter Start würde am Port kollidieren. `tauri dev` erwartet also, dass `web` schon läuft (`pnpm --filter @dcc/web dev` separat starten falls nicht). `beforeBuildCommand` = `pnpm --filter @dcc/web build` (baut `web/build/` für den Release-Bundle).
-
-**Testen / Bauen (Tauri — historisch):**
-- `cd desktop/src-tauri && cargo build` — kompiliert die Rust-App (erster Build ~10–20 Min, danach inkrementell). Bleibt in E1a grün (`src-tauri/` unangetastet).
-- GUI manuell starten (öffnet ein echtes Fenster): Vite-Dev-Server auf `:5173` muss laufen, dann `pnpm --filter @dcc/desktop tauri:dev` (= `tauri dev`). Für einen Release-Bundle: `pnpm --filter @dcc/desktop tauri:build` (= `tauri build`, baut vorher `web/build/`, erzeugt `.AppImage` + `.deb` unter `desktop/src-tauri/target/release/bundle/`).
-- Linux-Systemdeps für Tauri (Arch/CachyOS): `webkit2gtk-4.1`, `gtk3`, `libsoup3`, `librsvg`, `base-devel` — sind installiert.
+**Frontend-Glue:** `web/src/lib/platform/runtime.ts` hat `isElectron()`
+(`window.pulse?.platform === 'electron'`), `isDesktop()` (= `isElectron()`, Alias) und
+`isLinux()` (UA-basiert). Kein `isTauri()` mehr. `gsr.ts`/`state.svelte.ts`/`persistence.ts`/
+die Stream-Components/`VoiceControlBar.svelte` gaten alle auf `isElectron()` (+ ggf.
+`isLinux()` + Sidecar-Health). Die `window.pulse`-Shape ist als `Window`-Augmentation in
+`web/src/lib/platform/pulse.d.ts` deklariert (`PulseApi`/`PulseStoreApi`/`PulseGsrApi`) —
+mit `preload.ts` synchron halten.
 
 ## Streaming-Paket (T2)
 
@@ -222,7 +202,7 @@ streaming/
 ├── gsr-sidecar/             Python-Sidecar (pure stdlib, kein PySide6)
 │   ├── profiles.py          StreamProfile/ServerProfile + ServerProfile.from_channel()
 │   ├── stream_controller.py subprocess.Popen-Wrapper (QProcess raus) + stderr-Reader-Thread
-│   ├── config.py            Settings-Dataclasses (JSON-I/O nicht aktiv — Persistenz in T3 auf Tauri-store)
+│   ├── config.py            Settings-Dataclasses (JSON-I/O nicht aktiv — Persistenz im Frontend, siehe persistence.ts)
 │   ├── gsr_binary.py        Binary-Resolver + --info/--list-monitors-Parser
 │   └── control.py           stdio-Loop (newline-JSON, ersetzt main.py/stream_window.py)
 ├── patches/                 GSR-C++-Patches (FLV-Opus-Whitelist + Vulkan-Stub) — verbatim
@@ -301,41 +281,39 @@ Die `window.pulse`-Shape ist als `Window`-Augmentation in `web/src/lib/platform/
 
 **Frontend-Bridge** (`web/src/lib/stream/`):
 
-- `gsr.ts` — typed Wrapper um `window.pulse.gsr.*`. `gsr.available()` = `isElectron() && window.pulse?.gsr != null` (war `isTauri()`). Alle Methoden returnen `null` außerhalb von Electron (`!gsr.available()`), nicht throwen — der Import ist im Browser sicher. Die exportierte API (`health/gpuInfo/listMonitors/listProfiles/listApplicationAudio/buildArgv/start/stop/state/onEvent/available`) ist **signatur-identisch** zur Tauri-Variante; nur der Transport (`@tauri-apps/api` → `window.pulse`) hat sich geändert.
+- `gsr.ts` — typed Wrapper um `window.pulse.gsr.*`. `gsr.available()` = `isElectron() && window.pulse?.gsr != null`. Alle Methoden returnen `null` außerhalb von Electron (`!gsr.available()`), nicht throwen — der Import ist im Browser sicher. Die exportierte API: `health/gpuInfo/listMonitors/listProfiles/listApplicationAudio/buildArgv/start/stop/state/onEvent/available`.
 - `state.svelte.ts` — `$state`-Object `stream = {available, gsrAvailable, running, state, fps, uptimeS, error, lastLog}`, gefüttert aus `gsr.onEvent`. `initStream()` ist idempotent. Event-Format (`{ev:..,...}`) unverändert.
 - `web/src/routes/+layout.svelte` ruft `initStream()` in `onMount`. In Browser → No-Op.
 - Streaming-Gating: `HqStreamButton.svelte` zeigt sich nur bei `isElectron() && isLinux() && stream.gsrAvailable`; `StreamPanel.svelte` und die Dev-Route gaten auf `gsr.available()`.
 
 **Dev-Test-Route**: `web/src/routes/app/dev/stream/+page.svelte` (`/app/dev/stream` — nicht im Menü). `<StreamPanel />` + Debug-Block (Raw-Health, `build_argv` ohne Start, Live-State). E2E-Check für die Bridge in der Electron-App.
 
-**`@tauri-apps/api` jetzt ungenutzt:** `gsr.ts`/`state.svelte.ts` importieren `@tauri-apps/api` nicht mehr; `ptt.ts` + `persistence.ts` nutzen es noch (Tauri-Pfad, unter Electron tot — Cleanup in E1c, dann fliegen die `@tauri-apps/*`-Deps aus `web/package.json`). `desktop/src-tauri/` ist in E1b unangetastet.
-
 **Sidecar selbst unverändert:** `control.py` musste **nicht** angepasst werden — Request-IDs (`id`-Echo) + `SIGTERM`/`SIGINT`/stdin-EOF-Shutdown sind seit T2 da. `sidecar.ts` baut nur drauf auf.
 
-**Verifikation E1b:**
-- `cd desktop && pnpm run build:electron` — esbuild bundlet `electron/dist/{main,preload}.cjs` (mit `sidecar.ts`) ohne Fehler.
-- `cd web && pnpm check && pnpm build` — 0 Errors / 0 Warnings.
+**Verifikation (E1b/E1c):**
+- `cd desktop && pnpm run build:electron` — esbuild bundlet `electron/dist/{main,preload}.cjs` (mit `sidecar.ts` + `store.ts`) ohne Fehler.
+- `cd web && pnpm check && pnpm build` — 0 Errors / 0 Warnings (kein `@tauri-apps/*`-Import mehr).
 - `REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q` — 134/134 grün.
-- `cd desktop/src-tauri && cargo build` — unverändert grün (nichts angefasst).
-- Node-Sidecar-Standalone: `sidecar.ts` via esbuild → temp-`.cjs` gebundlet, `getSidecar()` lädt, `call('health')` + `call('state')` → IDs gespiegelt (1, 2), `ok:true`, GSR-Binary gemeldet; `shutdown()` → Exit-Code 0, kein Traceback.
-- **Nicht verifiziert in E1b**: tatsächlicher `start` (würde Portal-Dialog öffnen + an Hetzner pushen) + der visuelle Test der Electron-GUI — macht der User/Parent.
+- Node-Sidecar-Standalone: `sidecar.ts` via esbuild → temp-`.cjs` gebundlet, `getSidecar()` lädt, `call('health')` + `call('state')` → IDs gespiegelt, `ok:true`, GSR-Binary gemeldet; `shutdown()` → Exit-Code 0, kein Traceback.
+- **Nicht automatisiert verifiziert**: tatsächlicher `start` (würde Portal-Dialog öffnen + an Hetzner pushen), der visuelle Test der Electron-GUI (inkl. Voice + Settings-Persistenz round-trip) — macht der User/Parent.
 
-> **Historisch (abgelöst durch E1b):** Vor der Electron-Migration lief diese Bridge in Rust (`desktop/src-tauri/src/streaming/{mod,sidecar,commands}.rs`, neun `#[tauri::command] gsr_*`, Event-Channel `gsr://event`, ACL-allowlisted in `capabilities/default.json`). Gleiche Idee (lazy spawn, numerische Request-IDs, oneshot-Routing, Event-Forwarding) — wird in E1c mit dem Rest von `src-tauri/` entfernt.
+> **Historisch (abgelöst durch E1b):** Vor der Electron-Migration lief diese Bridge in Rust (`desktop/src-tauri/src/streaming/{mod,sidecar,commands}.rs`, neun `#[tauri::command] gsr_*`, Event-Channel `gsr://event`, ACL-allowlisted in `capabilities/default.json`). Gleiche Idee (lazy spawn, numerische Request-IDs, oneshot-Routing, Event-Forwarding) — wurde in E1c mit dem Rest von `src-tauri/` entfernt.
 
 ## Streaming-UI + Voice-View-Integration (T3b/T3c)
 
 Die Pulse-Streaming-UI lebt unter `web/src/lib/stream/`:
 
-- `gsr.ts` — typed Wrapper um die Sidecar-Bridge (seit E1b `window.pulse.gsr.*`,
-  vorher Tauri — siehe "Desktop ↔ Sidecar-Bridge (Electron — E1b)"). `GsrStartArgs`
-  trägt seit T3c zusätzlich `custom_server: {…}` für die nutzer-definierten Server-Targets.
+- `gsr.ts` — typed Wrapper um die Sidecar-Bridge (`window.pulse.gsr.*` — siehe
+  "Desktop ↔ Sidecar-Bridge (Electron — E1b)"). `GsrStartArgs` trägt seit T3c
+  zusätzlich `custom_server: {…}` für die nutzer-definierten Server-Targets.
 - `state.svelte.ts` — Live-Stream-State (`running/fps/uptime/log/error`).
 - `settings.svelte.ts` — User-Picker-Selections + Catalog + GPU-Info-Cache,
   alle Mutations rufen `persistSettings()` (debouncede 300ms-Save).
-- `persistence.ts` (T3c) — Wrapper über `@tauri-apps/plugin-store`-`LazyStore`
-  (`pulse-stream.json` im app-config-dir) mit `localStorage`-Fallback (`pulse.stream`-Key)
-  für den Browser-Pfad. Persistiert: `profile_name`, `server_name`, `capture_source`,
-  `audio_mode`, `excluded_apps`, `overrides`, `use_overrides`, `custom_servers`.
+- `persistence.ts` (T3c; Electron-Pfad seit E1c) — `window.pulse.store.{get,getAll,set}`
+  unter Electron (Main-Seite: hand-rolled JSON-Store `<userData>/pulse-stream.json`,
+  Linux chmod 700/600 — siehe `desktop/electron/store.ts`) mit `localStorage`-Fallback
+  (`pulse.stream`-Key) für den Browser-Pfad. Persistiert: `profile_name`, `server_name`,
+  `capture_source`, `audio_mode`, `excluded_apps`, `overrides`, `use_overrides`, `custom_servers`.
 - `components/` — `StreamPanel` (Composite) + die einzelnen Picker
   (`ProfilePicker`, `ServerPicker`, `CaptureSourcePicker`, `AudioModePicker`,
   `OverridesEditor`), `StreamControls`, `StreamLog`, plus T3c-Add-Ons:
@@ -352,18 +330,19 @@ nur beim allerersten Start ohne gespeicherte Wahl. AV1-Warnung in
 
 **Custom-Server (T3c, `AddServerDialog`):** legt einen `CustomServer`
 ({name, host, port, protocol, path, auth-user, stream_key, is_custom: true})
-in `streamSettings.custom_servers` ab, persistiert via Tauri-store + merged in
+in `streamSettings.custom_servers` ab, persistiert via die Persistenz-Schicht
+(`window.pulse.store.*` unter Electron, `localStorage`-Fallback) + merged in
 `available_servers`. `ServerPicker` zeigt Custom-Einträge mit `(custom)`-Tag und
 einem Löschen-Knopf. Beim `gsr_start` schickt der Frontend die volle Inline-Spec
 als `custom_server: {...}` + `stream_key` — der Sidecar (`control.py::_resolve_server`)
 wrappt das zu einem transienten `ServerProfile`. **Stream-Key landet im Klartext
-im Tauri-Store** (`chmod 600` via `harden_config_dir()` ist die einzige
-Hardening-Maßnahme — auf shared Boxen reicht das, ist aber *kein* Secret-Vault).
-**Niemals `console.log(...)` mit Stream-Key oder Token.**
+im Store** (`chmod 600` der Store-Datei auf Linux — `desktop/electron/store.ts` —
+ist die einzige Hardening-Maßnahme; auf shared Boxen reicht das, ist aber *kein*
+Secret-Vault). **Niemals `console.log(...)` mit Stream-Key oder Token.**
 
 **Voice-View-Integration (T3c):** `VoiceControlBar` rendert `<HqStreamButton />`
 zwischen Screenshare-Toggle und Verlassen-Button. Der Button rendert *nur*
-wenn `isElectron() && isLinux() && stream.gsrAvailable` (seit E1b — war `isTauri()`)
+wenn `isElectron() && isLinux() && stream.gsrAvailable`
 — im Browser und auf anderen OSs unsichtbar. Click → öffnet `HqStreamDialog` mit dem ganzen `StreamPanel`
 drin (shadcn-svelte-`Dialog`, `max-w-2xl`, `closeOnOutsideClick`-Default). Bei
 laufendem Stream (`stream.running`) zeigt der Button-Icon einen roten Live-Dot.
@@ -449,7 +428,7 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
 - ❌ Shared DB-Tabellen zwischen Services · ❌ HS256 JWT
 - ❌ `fastapi-users` / `broadcaster` / `fastapi-socketio` / `fastapi_websocket_pubsub` als Dependency (alle archiviert/Maintenance-Mode → Eigenbau, Source nur als Referenz)
 - ❌ State-Library (Redux/Zustand/Pinia) neben Svelte-Runes · ❌ CSS-in-JS (Tailwind reicht)
-- ❌ Tauri für den Desktop-Wrapper (Pivot 2026-05-12 → Electron, §17 / E1 — WebKitGTK-WebRTC zu unzuverlässig für LiveKit) · ❌ React-Bridge in SvelteKit für LiveKit-React-Components
+- ❌ Tauri für den Desktop-Wrapper (Pivot 2026-05-12 → Electron, §17 / E1 — WebKitGTK-WebRTC zu unzuverlässig für LiveKit) · ❌ `electron-store` als Dep (ESM-only in neueren Versionen → CJS/ESM-Friktion mit dem esbuild-Bundle; der hand-rolled Store in `desktop/electron/store.ts` reicht) · ❌ React-Bridge in SvelteKit für LiveKit-React-Components
 - ❌ `@livekit/krisp-noise-filter` (kostenpflichtig seit 2026-05-01) · ❌ `svelte-french-toast` (Sv5-inaktiv) · ❌ `svelte-markdown` blind (kein Sanitizer)
 - ❌ Exactly-once-Delivery anstreben · ❌ Re-Publishing MediaMTX→LiveKit (Transcoding zu teuer)
 - ❌ Routes-/Service-Dateien über die Größen-Grenze wachsen lassen statt zu splitten

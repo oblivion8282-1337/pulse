@@ -1,14 +1,17 @@
 /**
  * Pulse desktop shell — Electron main process (E1a).
  *
- * Replaces the Tauri shell (`desktop/src-tauri/`, still present, removed in E1c)
- * because Tauri uses WebKitGTK on Linux and its WebRTC is too unreliable for
- * LiveKit voice. Electron ships Chromium on every OS → WebRTC works out of the box.
+ * The Tauri shell this replaced (`desktop/src-tauri/`, removed in E1c) used
+ * WebKitGTK on Linux and its WebRTC was too unreliable for LiveKit voice.
+ * Electron ships Chromium on every OS → WebRTC works out of the box.
  *
- * E1a scope: a window that loads the SvelteKit app (the Vite dev server at
- * `:5173` in dev, the static build in prod). Single-instance lock.
- * E1b adds the GSR sidecar bridge (`sidecar.ts` + the `gsr:*` IPC channels);
- * persistence (`electron-store`) is still E1c.
+ * Scope:
+ *   E1a — a window that loads the SvelteKit app (the Vite dev server at `:5173`
+ *         in dev, the static build in prod) + a single-instance lock.
+ *   E1b — the GSR sidecar bridge (`sidecar.ts` + the `gsr:*` IPC channels).
+ *   E1c — settings persistence: a tiny hand-rolled key-value store in `store.ts`
+ *         (`<userData>/pulse-stream.json`, chmod 600 on Linux) exposed over the
+ *         `store:*` IPC channels (renderer side: `window.pulse.store.*`).
  *
  * Wayland/NVIDIA note: Electron runs on Wayland via XWayland (X11 backend) by
  * default and that works robustly here. We deliberately set NO Ozone/Wayland
@@ -23,6 +26,7 @@ import * as path from 'node:path';
 // `desktop/package.json` relative to this source file.
 import pkg from '../package.json';
 import { getSidecar } from './sidecar';
+import { initStore, storeGet, storeGetAll, storeSet } from './store';
 
 const APP_VERSION: string = pkg.version ?? '0.0.0';
 // Expose to the preload script (it runs in a separate process and can't import
@@ -90,6 +94,38 @@ function wireSidecar(): void {
   });
 }
 
+// ── Settings persistence (E1c) ──────────────────────────────────────────────
+// A tiny key-value store backed by `<userData>/pulse-stream.json` (see store.ts).
+// `initStore()` loads it on app-ready; the renderer talks to it via `store:*`.
+// Handlers catch everything so a bad write surfaces as a logged error, not a
+// crash / unhandled rejection in the renderer.
+
+function wireStore(): void {
+  ipcMain.handle('store:get', (_e, key: string) => {
+    try {
+      return storeGet(key);
+    } catch (e) {
+      console.error('[store] store:get failed:', e);
+      return undefined;
+    }
+  });
+  ipcMain.handle('store:getAll', () => {
+    try {
+      return storeGetAll();
+    } catch (e) {
+      console.error('[store] store:getAll failed:', e);
+      return {};
+    }
+  });
+  ipcMain.handle('store:set', (_e, key: string, value: unknown) => {
+    try {
+      storeSet(key, value);
+    } catch (e) {
+      console.error('[store] store:set failed:', e);
+    }
+  });
+}
+
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Second launch hands focus to the running window instead of starting a 2nd one.
 if (!app.requestSingleInstanceLock()) {
@@ -112,6 +148,8 @@ app.on('second-instance', () => {
 // IPC handler doing `new Notification(...).show()` — left out of E1a).
 
 app.whenReady().then(() => {
+  initStore();
+  wireStore();
   wireSidecar();
   createWindow();
 });

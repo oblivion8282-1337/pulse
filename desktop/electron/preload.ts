@@ -9,7 +9,8 @@
  *   E1b: `pulse.gsr.*`        — sidecar bridge (health, gpuInfo, listMonitors,
  *                               listProfiles, listApplicationAudio, buildArgv,
  *                               start, stop, state, onEvent) — implemented below
- *   E1c: `pulse.store.*`      — settings/token persistence (electron-store in main)
+ *   E1c: `pulse.store.*`      — settings/token persistence (`get`/`getAll`/`set`),
+ *                               backed by the hand-rolled store in `store.ts`
  *   later: `pulse.onPttDown` / `pulse.onPttUp` — once a native key-listener exists
  *
  * The renderer detects us via `window.pulse?.platform === 'electron'`
@@ -32,6 +33,15 @@ const gsrCall = (op: string, params: unknown = {}): Promise<unknown> =>
 contextBridge.exposeInMainWorld('pulse', {
   platform: 'electron' as const,
   appVersion: process.env.PULSE_APP_VERSION ?? '0.0.0',
+
+  // Settings persistence (E1c) — thin wrappers over the `store:*` IPC channels
+  // (main-side store in `store.ts`). The renderer side lives in
+  // `web/src/lib/stream/persistence.ts`.
+  store: {
+    get: (key: string): Promise<unknown> => ipcRenderer.invoke('store:get', key),
+    getAll: (): Promise<Record<string, unknown>> => ipcRenderer.invoke('store:getAll'),
+    set: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store:set', key, value),
+  },
 
   gsr: {
     health: () => gsrCall('health'),

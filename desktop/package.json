@@ -2,18 +2,14 @@
   "name": "@dcc/desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Pulse desktop wrapper (Electron — E1a; legacy Tauri shell in src-tauri/, removed in E1c)",
+  "description": "Pulse desktop wrapper (Electron)",
   "main": "electron/dist/main.cjs",
   "scripts": {
     "build:electron": "esbuild electron/main.ts electron/preload.ts --bundle --platform=node --format=cjs --target=node22 --external:electron --outdir=electron/dist --out-extension:.js=.cjs",
     "dev": "pnpm run build:electron && PULSE_DEV_URL=${PULSE_DEV_URL:-http://localhost:5173} electron .",
-    "start": "electron .",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "start": "electron ."
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.11.1",
     "@types/node": "^22.7.5",
     "electron": "42.0.1",
     "esbuild": "0.28.0"

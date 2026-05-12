@@ -15,6 +15,16 @@
  *  `$lib/stream/gsr.ts` (`GsrEvent`); here it's just "some object". */
 export type PulseGsrEvent = Record<string, unknown>;
 
+/** Persistent key-value store (E1c) — backed by `<userData>/pulse-stream.json`
+ *  in the Electron main process (`desktop/electron/store.ts`). Used by
+ *  `$lib/stream/persistence.ts`. Values are JSON-serialisable; reads return
+ *  `unknown` and the caller casts. */
+export interface PulseStoreApi {
+  get(key: string): Promise<unknown>;
+  getAll(): Promise<Record<string, unknown>>;
+  set(key: string, value: unknown): Promise<void>;
+}
+
 export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
@@ -32,6 +42,7 @@ export interface PulseGsrApi {
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
+  store: PulseStoreApi;
   gsr: PulseGsrApi;
 }
 

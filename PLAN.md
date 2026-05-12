@@ -98,19 +98,22 @@
 | `lucide-svelte` | aktuell | Icon-Library (MIT, schön + leicht) |
 | `@floating-ui/dom` | aktuell | Tooltip-/Mention-Positioning |
 
-**Starter-Template:** [`alysonhower/tauri2-svelte5-shadcn`](https://github.com/alysonhower/tauri2-svelte5-shadcn) forken — bringt Tauri 2 + Svelte 5 + shadcn-svelte + CI für Win/Linux/Mac fertig konfiguriert. Tailwind v4 + `@vite-pwa/sveltekit` manuell nachziehen.
+**Starter-Template:** ursprünglich war ein Tauri-Starter geplant — entfällt (Desktop-Wrapper ist Electron, §17). Die SvelteKit-App wurde manuell aufgesetzt (Tailwind v4, shadcn-svelte).
 
 **LiveKit-Svelte-Wrapper:** Offizielles Paket existiert nicht. Dünner Eigenbau (~200-300 LOC) über `@livekit/components-core`-Observables in `lib/voice/livekit.svelte.ts` — Observables direkt in `$state`/`$derived`-Runes wrappen.
 
 ### Desktop-Wrapper
+> **Hinweis:** Ursprünglich war hier Tauri 2 vorgesehen; seit dem Wrapper-Pivot
+> (2026-05-12, siehe §17 / E1) ist der Desktop-Wrapper **Electron**. Aktueller
+> Stand siehe §17.
+
 | Lib | Min-Version | Wofür |
 |---|---|---|
-| **Tauri 2** | 2.x | System-WebView + Rust-Backend |
-| `@tauri-apps/api` | aktuell | JS-Bridge |
-| `@tauri-apps/plugin-global-shortcut` | aktuell | PTT-Hotkeys |
-| `@tauri-apps/plugin-notification` | aktuell | OS-Notifications |
-| `@tauri-apps/plugin-autostart` | aktuell | Start mit OS |
-| `@tauri-apps/plugin-store` | aktuell | Settings-Persistenz |
+| **Electron** | 42.x (gepinnt) | Chromium-WebView + Node-Main-Process (WebRTC out-of-the-box → LiveKit-Voice) |
+| esbuild | aktuell | bundlet `electron/{main,preload}.ts` (+ `sidecar.ts`, `store.ts`) → `electron/dist/*.cjs` |
+| electron-builder | (T6) | Packaging — Electron-Flatpak |
+| — Settings-Persistenz | hand-rolled | kleiner JSON-Store in `desktop/electron/store.ts` (kein `electron-store`-Dep — ESM-only-Friktion) |
+| — globaler PTT | (später) | braucht ein natives Key-Listener-Modul (z.B. `uiohook-napi`) — Electrons `globalShortcut` kann kein Press+Release |
 
 ### GSR-Helper-Daemon (Linux-only)
 | Lib | Min-Version | Wofür |
@@ -189,19 +192,16 @@
 │   ├── static/
 │   └── tests/                   # Playwright E2E
 │
-├── desktop/                     # Tauri-Wrapper
-│   ├── package.json
-│   ├── src-tauri/
-│   │   ├── Cargo.toml
-│   │   ├── tauri.conf.json
-│   │   ├── src/
-│   │   │   ├── main.rs
-│   │   │   ├── shortcuts.rs     # PTT-Hotkey-Handler
-│   │   │   └── tray.rs          # System-Tray
-│   │   ├── icons/
-│   │   └── capabilities/        # Tauri 2 Permissions
-│   │       └── default.json
-│   └── (build-output → web/build wird embedded)
+├── desktop/                     # Electron-Wrapper (war Tauri — §17/E1)
+│   ├── package.json             # @dcc/desktop — main: electron/dist/main.cjs; devDeps: electron, esbuild, @types/node
+│   ├── tsconfig.json
+│   └── electron/
+│       ├── main.ts              # Main-Process: BrowserWindow, single-instance, store:* + gsr:* IPC
+│       ├── preload.ts           # contextBridge → window.pulse.{platform,appVersion,store,gsr}
+│       ├── sidecar.ts           # Python-GSR-Sidecar-Manager (child_process, newline-JSON)
+│       ├── store.ts             # hand-rolled Settings-Store (<userData>/pulse-stream.json, chmod 600 auf Linux)
+│       └── dist/                # esbuild-Output (gitignored): main.cjs, preload.cjs
+│   # Prod: web/build/ wird via loadFile geladen (statischer SvelteKit-Build)
 │
 ├── gsr-helper/                  # Python-Daemon, Linux-only
 │   ├── pyproject.toml
@@ -381,14 +381,17 @@ Wenn Channel mehr als ~100 Messages: `svelte-virtual` für scrollable Liste. Son
 
 ### 6.6 Token-Storage
 - **Im Browser:** `localStorage` für Access (kurzlebig, OK), `httpOnly`-Cookie wäre besser für Refresh, aber dann braucht's Server-rendered Auth-Routes — pragmatisch: Refresh auch in `localStorage` + CSRF-Schutz nicht relevant für API mit Bearer-Auth
-- **Im Tauri-Bundle:** Tauri-Plugin-Store auf `~/.config/discord-clone/tokens.json` (chmod 600 auf Linux), nicht im Browser-Storage
-- `platform/runtime.ts` abstrahiert das
+- **In der Electron-App:** aktuell ebenfalls `localStorage` (funktioniert im Renderer); könnte später auf `window.pulse.store.*` (Settings-Store, `<userData>/pulse-stream.json`, chmod 600 auf Linux) umgestellt werden — siehe `web/src/lib/api/storage.ts` + §17/E1c
+- `web/src/lib/api/storage.ts` + `platform/runtime.ts` abstrahieren das
 
 ---
 
-## 7. Tauri 2 Desktop-Wrapper (Etappe 4, aber schon mitgedacht)
+## 7. Desktop-Wrapper — ursprünglicher Tauri-Entwurf (obsolet)
 
-> **Revision 2026-05-11:** Der konkrete, beschlossene Etappenplan für Tauri + GSR-Integration steht in **§17**. Was hier in §7/§8 steht ist der ursprüngliche Entwurf — §17 hat Vorrang wo es abweicht (insb.: Auslieferung als *Flatpak*, GSR komplett gebundled, kein Localhost-Daemon).
+> **→ Obsolet (2026-05-12).** Der Desktop-Wrapper ist **Electron**, nicht Tauri —
+> siehe §17 ("Wrapper-Pivot"). Tauris Linux-WebKitGTK-WebRTC war zu unzuverlässig
+> für LiveKit-Voice. `desktop/src-tauri/` + alle `@tauri-apps/*`-Deps wurden in E1c
+> entfernt. Der Abschnitt unten bleibt nur als historischer Entwurf stehen.
 
 ### Build-Flow
 1. `pnpm build` in `/web` erzeugt `web/build/` (statisches Asset-Verzeichnis)
@@ -427,7 +430,7 @@ Striktes Permission-Model. Standard-Capability erlaubt nur was wir brauchen:
 
 ## 8. GSR-Helper-Daemon (Etappe 3)
 
-> **Revision 2026-05-11 — überholt durch §17.** Statt eines eigenständigen Localhost-FastAPI-Daemons (der für den *reinen-Browser*-Fall gedacht war) wird die GSR-Funktionalität direkt in die Tauri-App integriert: Rust spawnt einen Python-Sidecar (`gsr-sidecar`, reused `profiles.py`/`stream_controller.py`), Kommunikation per stdio. Das ganze GSR-Build-Paket (Custom-FFmpeg mit NVENC+VAAPI+QSV, gepatchter GSR) wird in *eine* Flatpak gebundled. Details: §17. Der Abschnitt unten bleibt als Referenz für die Daemon-Variante, falls reiner-Browser-Support später doch gewünscht ist.
+> **Überholt durch §17 (2026-05-11, Wrapper-Pivot 2026-05-12).** Statt eines eigenständigen Localhost-FastAPI-Daemons (der für den *reinen-Browser*-Fall gedacht war) wird die GSR-Funktionalität direkt in die Desktop-App integriert: der Electron-Main spawnt einen Python-Sidecar (`gsr-sidecar`, reused `profiles.py`/`stream_controller.py`), Kommunikation per stdio (newline-JSON). Das ganze GSR-Build-Paket (Custom-FFmpeg mit NVENC+VAAPI+QSV, gepatchter GSR) wird in *eine* Electron-Flatpak gebundled. Details: §17. Der Abschnitt unten bleibt als Referenz für die Daemon-Variante, falls reiner-Browser-Support später doch gewünscht ist.
 
 **Zweck:** Linux-User mit installiertem GSR + diesem Helper bekommen einen "Stream in HQ via GPU"-Button in der Web-App, der einen NVENC/VAAPI-Stream startet. Alle anderen User nutzen `getDisplayMedia` via Browser.
 
@@ -589,10 +592,11 @@ volumes:
 - Verify: Linux-User mit GSR-Helper streamt HQ, Windows-User streamt Browser, beide werden von einem dritten User in gleichem Voice-Channel gesehen
 
 ### Etappe 4 — Polish + Desktop-Bundle (Tag 11-13)
-- **Tauri-Wrapper:** `desktop/` anlegen, `src-tauri/` mit Cargo.toml, Capabilities
-- PTT-Plugin: `global-shortcut` für system-weiten Hotkey (Linux/Wayland: XDG-Portal via Tauri-Plugin)
+> Desktop-Wrapper-Details siehe §17 (E1 = Electron-Migration, T6 = Electron-Flatpak).
+- **Desktop-Wrapper:** `desktop/` als Electron-App (`electron/{main,preload,sidecar,store}.ts`) — siehe §17/E1
+- Globaler PTT (system-weiter Hotkey) — braucht ein natives Key-Listener-Modul (z.B. `uiohook-napi`); Electrons `globalShortcut` kann kein Press+Release. In-Window-PTT ist da.
 - Notifications + Tray-Icon
-- **Bundle-Build:** für Linux (AppImage), Windows (MSI), macOS (DMG)
+- **Bundle-Build:** primär Linux-Flatpak (`electron-builder`, §17/T6); Windows/macOS-Bundles sind Kür
 - **media-svc + MinIO:** Presigned-URLs, File-Upload im Web-Client (Drag&Drop)
 - Reactions, Mentions, Edits/Deletes
 - Presence (online/offline/idle/speaking/streaming) — Redis-basiert
@@ -615,9 +619,9 @@ volumes:
 - **Rate-Limiting:** `slowapi` in auth-svc, pro-WS-Connection in chat-gateway
 - **CORS:** Strikt — nur Discord-Backend-Origin in Production, `localhost:5173` zusätzlich in Dev
 - **Stream-Keys:** kurzlebige JWTs pro Channel, NIE im Repo
-- **GSR-Helper-Sicherheit:** JWT-Pflicht + User-Binding + strikte CORS (siehe Section 8)
-- **Tauri-Capabilities:** Default-deny, nur expliziertes erlauben
-- **Content Security Policy:** strikt in Tauri (`csp` in `tauri.conf.json`), strikt im Web (Caddy-Header)
+- **GSR-Helper-Sicherheit:** entfällt (kein Localhost-Daemon — der Electron-Main spawnt den Sidecar direkt, stdio; siehe §17)
+- **Electron-Hardening:** `contextIsolation: true`, `nodeIntegration: false`, `sandbox: true`; Renderer↔Main nur über das Preload-`contextBridge` (`window.pulse.*`); Settings-Store-Datei auf Linux `chmod 600`
+- **Content Security Policy:** strikt im Web (Caddy-Header); in der Electron-App lädt der Renderer nur unsere eigenen Assets (`web/build/` bzw. Vite-Dev)
 - **Secrets:** `secrets/`-Verzeichnis in `.gitignore`, `.env.example` als Template
 
 ---
@@ -627,7 +631,8 @@ volumes:
 - ❌ Matrix/Revolt-als-Backend (Datenmodell-Mismatch). **Revolt heißt seit Okt 2025 Stoatchat** — als Mining-Quelle ja, als Dependency nein.
 - ❌ Spacebar/Fosscord (lockt an Discord-API-Wire-Format)
 - ❌ Supabase/Pocketbase als Backend-Ersatz (Stack-Bruch, kein Python)
-- ❌ Electron statt Tauri (Bundle 10× größer)
+- ❌ **Zurück zu Tauri** für den Desktop-Wrapper (WebKitGTK-WebRTC auf Linux zu unzuverlässig für LiveKit-Voice — Pivot 2026-05-12 → Electron, §17). Größeres Bundle ist der akzeptierte Trade-off.
+- ❌ `electron-store` als Dep (ESM-only in neueren Versionen → CJS/ESM-Friktion mit dem esbuild-CJS-Bundle; der hand-rolled Store in `desktop/electron/store.ts` reicht)
 - ❌ React Native für Mobile (Web-PWA reicht)
 - ❌ Existierende GSR-Files anfassen außer `ui/profiles.py`
 - ❌ Shared DB-Tabellen zwischen Services
@@ -794,46 +799,50 @@ Drei Open-Source-Projekte, die wir vor den jeweiligen Etappen lesen:
 
 ---
 
-## 17. GSR↔Desktop-Integration — Etappenplan (beschlossen 2026-05-11, **Wrapper-Pivot 2026-05-12**)
-
-> **Revision 2026-05-12 — Tauri → Electron.** Das Projekt wird ein kommerzielles Produkt; Voice ist Kern-Feature. Tauri nutzt auf Linux WebKitGTK, dessen WebRTC ist zu unzuverlässig für LiveKit (Voice lief im Tauri-Fenster nicht). → Desktop-Wrapper wird **Electron** (Chromium auf allen OS, WebRTC out-of-the-box, LiveKit-Support). Migration = Etappe **E1** (siehe unten unter "E1 — Electron-Migration"). **T1** (Tauri-Shell) und **T3a** (Tauri↔Sidecar-Bridge in Rust) werden durch E1 ersetzt; **T2** (Python-Sidecar), **T3b** (UI-Components, Svelte), **T4/T5** und das **T6**-Flatpak (jetzt Electron-Flatpak) bleiben im Kern gültig. Die T1/T3a-Beschreibungen unten gelten als historisch.
+## 17. GSR↔Desktop-Integration — Etappenplan (beschlossen 2026-05-11, Desktop-Wrapper auf Electron 2026-05-12)
 
 Kontext: der GSR-Streamer (`~/Dokumente/GPU_Screen_Recorder/`) existiert und funktioniert end-to-end. Statt ihn als externen Daemon anzusprechen, ziehen wir die Funktionalität in die Pulse-Desktop-App und liefern am Ende **eine Flatpak** aus, die das komplette GSR-Build-Paket mitbringt.
 
-### E1 — Electron-Migration (2026-05-12)
-- **E1a — Electron-Shell:** `desktop/` als Electron-App neu: `main.ts` (BrowserWindow lädt den SvelteKit-Build bzw. `:5173` in Dev; `requestSingleInstanceLock`; `globalShortcut` für PTT `Alt+Space`; `Notification`), `preload.ts` (`contextBridge.exposeInMainWorld('pulse', {...})`), Build via esbuild/tsc für main+preload, `electron-builder`-Config (AppImage/deb erstmal; Flatpak = T6). Frontend: `web/src/lib/platform/runtime.ts` → `isElectron()`, `ptt.ts` → preload-PTT-Events statt `@tauri-apps/api/event`.
-- **E1b — Sidecar-Bridge in Node:** `desktop/src/sidecar.ts` — `child_process.spawn('python3', ['streaming/gsr-sidecar/control.py'])`, zeilenweises `readline` auf stdout, `{"id":..}`-Responses an wartende Promises routen, `{"ev":..}`-Events via IPC weiterleiten. Preload exponiert `window.pulse.gsr.{health,gpuInfo,listMonitors,listProfiles,listApplicationAudio,buildArgv,start,stop,state,onEvent}`. Frontend `web/src/lib/stream/gsr.ts` + `state.svelte.ts` auf `window.pulse.gsr.*` umverdrahtet (gleiche Signatur wie heute, nur anderer Transport). Dev-Route `/app/dev/stream` muss E2E gehen. Der Python-Sidecar selbst ist **unverändert** — er spricht nur newline-JSON auf stdio, egal wer ihn spawnt.
-- **E1c — Persistenz + Tauri-Cleanup + Docs:** `web/src/lib/stream/persistence.ts` → `window.pulse.store.{get,set}` (im main via `electron-store`, Config-Dir chmod 700 / Key-File chmod 600 — gleiche Sicherheits-Posture wie der bisherige Tauri-store). `desktop/src-tauri/` löschen, Tauri-JS-Deps (`@tauri-apps/api`, `@tauri-apps/plugin-*`) aus `web/package.json` raus, Tauri-Capabilities/Permissions-Dateien weg. CLAUDE.md + diese §17 entsprechend bereinigen. Verifikation: `pnpm check`/`pnpm build` grün, Electron-App startet, **Voice funktioniert** (kein "not supported" mehr), GSR-Sidecar antwortet.
-- *Was unangetastet bleibt:* `streaming/gsr-sidecar/*`, `streaming/{patches,server,scripts,bootstrap-gsr.fish}`, die T3b-UI-Components, `web/src/lib/stream/settings.svelte.ts` (nur die Persistenz-Calls darin tauschen), `web/src/lib/components/{HqStreamButton,HqStreamDialog}.svelte` + `VoiceControlBar.svelte` (nur `isTauri()` → `isElectron()`), das ganze Backend, die SvelteKit-App.
+**Desktop-Wrapper = Electron** (entschieden 2026-05-12). Das Projekt wird ein kommerzielles Produkt; Voice ist Kern-Feature. Tauri nutzt auf Linux WebKitGTK, dessen WebRTC ist zu unzuverlässig für LiveKit — Voice lief im Tauri-Fenster nicht. Electron liefert Chromium auf allen OS, WebRTC out-of-the-box. Die ursprünglich geplanten Etappen **T1** (Tauri-Shell) und **T3a** (Tauri↔Sidecar-Bridge in Rust) wurden durch **E1** ersetzt; **T2** (Python-Sidecar), **T3b** (Streaming-UI-Components in Svelte), **T4/T5** und **T6** (jetzt Electron-Flatpak statt Tauri-Bundle) bleiben gültig. Die alten T1/T3a-Beschreibungen sind gestrichen.
+
+### E1 — Electron-Migration (kanonischer Stand)
+- **E1a — Electron-Shell:** `desktop/` ist eine Electron-App: `electron/main.ts` (BrowserWindow lädt den SvelteKit-Build via `loadFile` bzw. `:5173` in Dev via `loadURL`; `requestSingleInstanceLock` + `second-instance`→focus; `whenReady`: `initStore()`→`wireStore()`→`wireSidecar()`→`createWindow()`; `before-quit`→Sidecar-Shutdown; `webPreferences`: `preload` + `contextIsolation:true` + `nodeIntegration:false` + `sandbox:true`), `electron/preload.ts` (`contextBridge.exposeInMainWorld('pulse', { platform:'electron', appVersion, store:{get,getAll,set}, gsr:{...} })`), Build via **esbuild** (`build:electron` — `--bundle --platform=node --format=cjs --target=node22 --external:electron`; zieht `sidecar.ts` + `store.ts` automatisch mit rein) → `electron/dist/{main,preload}.cjs`. `package.json` ohne `"type":"module"` (Main als CJS). Packaging = T6 (`electron-builder`). Frontend: `web/src/lib/platform/runtime.ts` → `isElectron()` (`window.pulse?.platform === 'electron'`).
+- **E1b — Sidecar-Bridge in Node:** `desktop/electron/sidecar.ts` — `SidecarManager` (Singleton): `child_process.spawn('python3', ['streaming/gsr-sidecar/control.py'])` **lazy** beim ersten `call()`, Path-Resolver (`$PULSE_SIDECAR_PY` → walk-up nach `streaming/gsr-sidecar/control.py` → Flatpak-Default), zeilenweises `readline` auf stdout, `{"id":..}`-Responses an wartende Promises routen (numerische IDs, Map id→{resolve,reject,timer}), `{"ev":..}`-Events an den von `main.ts` registrierten Callback (→ `webContents.send('gsr:event', ev)`), stderr→`console.error` mit `[gsr-sidecar]`-Prefix, `shutdown()` (stdin schließen → 1,5 s Grace → SIGTERM → 2 s → SIGKILL). `main.ts` registriert `ipcMain.handle('gsr:call', (op, params) → getSidecar().call(op, params))` (catch-all → `{ok:false,error}`). Preload exponiert `window.pulse.gsr.{health,gpuInfo,listMonitors,listProfiles,listApplicationAudio,buildArgv,start,stop,state,onEvent}` (jedes ein dünner `ipcRenderer.invoke('gsr:call', op, params)`; `onEvent` registriert `ipcRenderer.on('gsr:event', …)` und gibt eine Unsubscribe-Fn zurück). Frontend `web/src/lib/stream/gsr.ts` + `state.svelte.ts` reden über `window.pulse.gsr.*` (signatur-identisch zu früher, nur anderer Transport). Dev-Route `/app/dev/stream` ist der E2E-Check. Der Python-Sidecar selbst ist **unverändert** — er spricht nur newline-JSON auf stdio, egal wer ihn spawnt.
+- **E1c — Settings-Persistenz + Tauri-Cleanup + Docs (erledigt):**
+  - **Persistenz:** `desktop/electron/store.ts` — hand-rolled Key-Value-Store (bewusst **kein** `electron-store`-Dep: das ist in neueren Versionen ESM-only und gibt CJS/ESM-Friktion mit unserem esbuild-CJS-Bundle; wir brauchen nur get/set/getAll). Datei: `<userData>/pulse-stream.json`. `initStore()` in `app.whenReady()` liest sie einmal in ein in-memory-Objekt; jeder `set` schreibt synchron als JSON zurück (`fs.writeFileSync(..., { mode: 0o600 })`). **Linux-Hardening** (übernimmt die alte Tauri-`harden_config_dir()`-Posture): `chmod 700` aufs `userData`-Dir + `chmod 600` aufs JSON-File (Settings können Custom-Server-Stream-Keys im Klartext enthalten). IPC: `ipcMain.handle('store:get'|'store:getAll'|'store:set')` — Errors werden geloggt, nicht gecrasht. Preload: `window.pulse.store = { get, getAll, set }`. Renderer `web/src/lib/stream/persistence.ts`: `loadAll`/`loadKey`/`saveAll` → `window.pulse.store.*` wenn `isElectron() && window.pulse?.store`, sonst `localStorage`-Fallback (`pulse.stream`-Key — für die Dev-Route / SvelteKit-App ohne Electron). Signatur unverändert; Persistiert: `profile_name`, `server_name`, `capture_source`, `audio_mode`, `excluded_apps`, `overrides`, `use_overrides`, `custom_servers`.
+  - **Cleanup:** `desktop/src-tauri/` gelöscht; `@tauri-apps/cli` + die `tauri`/`tauri:dev`/`tauri:build`-Scripts aus `desktop/package.json` raus; `@tauri-apps/api`, `@tauri-apps/plugin-{store,notification,global-shortcut}` aus `web/package.json` raus; `pnpm-lock.yaml` aktualisiert. `web/src/lib/platform/runtime.ts`: `isTauri()` entfernt, `isDesktop()` = `isElectron()`-Alias. `web/src/lib/platform/ptt.ts`: der Tauri-PTT-Branch (`@tauri-apps/api/event`, `listen('ptt-down'/'ptt-up')`) raus → `initDesktopPtt()` ist ein **No-op-Stub** (`// TODO: global PTT for Electron needs a native key-listener (uiohook-napi); the in-window PTT in VoiceChannelView still works`); der Aufruf in `routes/+layout.svelte` bleibt (no-op). **Der In-Window-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`, Taste aus `settings.voice.pttKey`) ist der aktive PTT-Pfad und blieb unangetastet.** CLAUDE.md + diese §17 bereinigt.
+  - **Verifikation:** `pnpm install` sauber · `cd desktop && pnpm run build:electron` Exit 0 (`electron/dist/{main,preload}.cjs` mit Store-Code) · `cd web && pnpm check` 0/0 · `cd web && pnpm build` Exit 0 · `pytest -q` 134/134 grün · `grep -rn '@tauri-apps\|__TAURI\|isTauri\|src-tauri' web/src/ desktop/` leer (nur harmlose "war mal Tauri"-Kommentare).
+- *Was unangetastet bleibt:* `streaming/gsr-sidecar/*`, `streaming/{patches,server,scripts,bootstrap-gsr.fish}`, die T3b-UI-Components, `web/src/lib/stream/settings.svelte.ts` (nur die Persistenz-Calls darin), das ganze Backend, die SvelteKit-App, `VoiceChannelView.svelte`.
 
 ### Beschlossene Entscheidungen
 - **Q1 — GSR-Binary:** komplett ins Flatpak gebundled (Custom-FFmpeg n8.1.1 mit NVENC/CUDA + VAAPI/QSV → NVIDIA, AMD, Intel; gepatchter GSR ≥5.13.5; GL.nvidia + GL.default-Extensions). **Keine** Detection-Kette, **kein** System-GSR-Voraussetzen. Bundle-Größe ~300 MB ist explizit ok. (Variante "d" aus der Diskussion — funktioniert weil Flatpak, nicht AppImage.)
-- **Q2 — Sidecar:** long-running **Python**-Prozess (`gsr-sidecar`), wiederverwendet `profiles.py` + `stream_controller.py` + `config.py` aus dem GSR-`ui/`-Ordner ~verbatim. Einzige echte Logik-Änderung: `QProcess` → `subprocess.Popen` + stderr-Reader-Thread. Tauri (Rust) spawnt+managed den Sidecar, Kommunikation per stdio (newline-JSON: Requests rein, Events raus). In der Flatpak schlicht als `.py` + python3 — kein PyInstaller nötig.
+- **Q2 — Sidecar:** long-running **Python**-Prozess (`gsr-sidecar`), wiederverwendet `profiles.py` + `stream_controller.py` + `config.py` aus dem GSR-`ui/`-Ordner ~verbatim. Einzige echte Logik-Änderung: `QProcess` → `subprocess.Popen` + stderr-Reader-Thread. Der Electron-Main spawnt+managed den Sidecar (`sidecar.ts`), Kommunikation per stdio (newline-JSON: Requests rein, Events raus). In der Flatpak schlicht als `.py` + python3 — kein PyInstaller nötig.
 - **Q3 — Code-Übernahme:** **Vendored Copy** nach `discord-clone/streaming/`. `~/Dokumente/GPU_Screen_Recorder/` bleibt **komplett am Leben und unangetastet** — bewährte Referenz + Zuhause des Standalone-GSR-Flatpaks. Kein Submodule/Subtree (Wrapper ändert sich nicht, wir divergieren eh). Stream-Key (`server/.stream-key`, generierte `server/mediamtx.yml`) wird **nicht** mitkopiert; Pulse-`.gitignore` deckt `streaming/server/{mediamtx.yml,.stream-key}` ab.
 
 ### Leitplanken
 1. GSR-Original-Repo unangetastet — wird kopiert, nicht modifiziert/gelöscht.
-2. Qt-UI (`stream_window.py`, `main.py`) fällt weg; Funktionalität wird in Svelte neu gebaut, läuft in der Tauri-App.
-3. GSR-Streaming = Linux-only + optional: nur sichtbar wenn `isTauri() && isLinux() && gsrAvailable()`. Sonst (Win/Mac, reiner Browser) → `getDisplayMedia` → LiveKit-Screen-Track.
-4. Kein Localhost-Daemon mit CORS/JWT — Rust spawnt den Sidecar direkt, stdio.
-5. Primäres Auslieferungs-Artefakt = die Flatpak. Win/Mac/non-Flatpak-Linux-Bundles (ohne Streaming, nur Chat/Voice) sind Kür, nicht Teil des Hauptziels.
+2. Qt-UI (`stream_window.py`, `main.py`) fällt weg; Funktionalität wird in Svelte neu gebaut, läuft in der Electron-App.
+3. GSR-Streaming = Linux-only + optional: nur sichtbar wenn `isElectron() && isLinux() && gsrAvailable()` (Sidecar-`health`). Sonst (Win/Mac, reiner Browser) → `getDisplayMedia` → LiveKit-Screen-Track.
+4. Kein Localhost-Daemon mit CORS/JWT — der Electron-Main spawnt den Sidecar direkt, stdio.
+5. Primäres Auslieferungs-Artefakt = die Electron-Flatpak. Win/Mac/non-Flatpak-Linux-Bundles (ohne Streaming, nur Chat/Voice) sind Kür, nicht Teil des Hauptziels.
 
-### Architektur (Tauri-Fall)
+### Architektur
 ```
-Svelte-Streaming-UI (in Pulse, im Tauri-WebView)
-   │  Tauri invoke / events
-Rust (src-tauri): spawnt+managed Sidecar, registriert PTT-Global-Shortcut
+Svelte-Streaming-UI (in Pulse, im Electron-Renderer/Chromium)
+   │  ipcRenderer.invoke('gsr:call', op, params)  /  ipcRenderer.on('gsr:event')
+Electron-Main (electron/{main,sidecar,store}.ts): spawnt+managed Sidecar, store:* IPC
    │  stdin/stdout, newline-JSON
 gsr-sidecar (Python — profiles.py/stream_controller.py, Qt gestrippt)
    │  subprocess
 gpu-screen-recorder (aus /app/bin der Flatpak) ──RTMP/SRT──▶ MediaMTX (Hetzner, existiert) ──WHEP──▶ andere Pulse-User (whep-Player im Voice-View)
 ```
+Globaler PTT (system-weiter Hotkey) ist noch nicht da — braucht ein natives Key-Listener-Modul (z.B. `uiohook-napi`), Electrons `globalShortcut` kann kein Press+Release. Der In-Window-PTT in `VoiceChannelView.svelte` deckt den aktiven Bedarf ab.
 
 ### Monorepo-Layout (Ergänzung zu §3)
 ```
 discord-clone/
-├── web/                       (exists) — src/lib/stream/ NEU: whep.ts · gsr.ts (Tauri-Bridge) · components/
-├── desktop/                   NEU — Tauri 2: src-tauri/{src, tauri.conf.json, capabilities/, binaries/}
+├── web/                       (exists) — src/lib/stream/ NEU: whep.ts · gsr.ts · persistence.ts · components/
+├── desktop/                   Electron-App: electron/{main,preload,sidecar,store}.ts → electron/dist/*.cjs (esbuild)
 ├── streaming/                 NEU — vendored aus GPU_Screen_Recorder/ (Kopie, dann angepasst)
 │   ├── gsr-sidecar/           profiles.py · stream_controller.py · config.py + control.py (stdio-Loop, ersetzt main.py/stream_window.py)
 │   ├── patches/               GSR-C++-Patches — verbatim (0001-opus-flv-whitelist, 0002-stub-vulkan-encoder)
@@ -841,30 +850,26 @@ discord-clone/
 │   ├── server/                MediaMTX docker-compose + mediamtx.yml.template + player.html — verbatim (NICHT die generierte yml/.stream-key)
 │   ├── scripts/               start-stream*.fish — manuelle Test-Skripte, optional
 │   └── pyproject.toml
-├── packaging/                 NEU — kombiniertes Flatpak-Manifest (Basis: das GSR-Manifest, PySide6-Module raus, Tauri+Sidecar+web-build rein)
+├── packaging/                 NEU — kombiniertes Flatpak-Manifest (Basis: das GSR-Manifest, PySide6-Module raus, Electron+Sidecar+web-build rein)
 └── services/{…, media-svc/, mediamtx-auth-hook/}   die letzten zwei = NEU (T5)
 ```
 Was NICHT mitkopiert wird: Binär-/Build-Artefakte (`mediamtx`-Binary, `*.flatpak`, `build/`, `.flatpak-builder/`, `*.log`), die Qt-UI-Dateien.
 
 ### Etappen
 
-**T1 — Tauri-Shell** (kein Streaming)
-- `desktop/src-tauri/` anlegen. `frontendDist` → `../web/build`. `tauri dev` startet `pnpm dev`. Tauri-CLI + Rust-Version vorher pinnen, in CLAUDE.md festhalten.
-- Plugins: `single-instance`, `store` (Token-/Settings-Persistenz, Linux chmod 600), `notification` (Ping-Toasts), `global-shortcut` (PTT: Rust registriert → emittet `ptt-down`/`ptt-up` → Svelte → LiveKit `setMicrophoneEnabled`), `autostart` (optional). Capabilities strikt (`core:default`, `notification:default`, `global-shortcut:default`, `store:default`; keine Shell-/FS-Permissions außer Settings-Pfad).
-- `web/src/lib/platform/runtime.ts`: `isTauri()` (`'__TAURI_INTERNALS__' in window`), `isLinux()`. Cross-Build-CI (Linux .AppImage/.deb erstmal; Flatpak kommt in T6).
-- *Liefert:* installierbare Desktop-App = aktuelle Web-App + PTT-Global-Shortcut + Notifications.
+**E1 — Electron-Migration** (E1a/E1b/E1c) — siehe oben. Erledigt: liefert eine installierbare Electron-Desktop-App = aktuelle Web-App, Voice funktioniert im Fenster (Chromium-WebRTC), GSR-Sidecar-Bridge + Settings-Persistenz stehen. Offen: globaler PTT-Shortcut, Notifications, Packaging (T6).
 
-**T2 — GSR-Paket rüberkopieren + Sidecar**
+**T2 — GSR-Paket rüberkopieren + Sidecar** (erledigt)
 - `streaming/` = Kopie der relevanten GSR-Teile (s. Layout). Qt-Dateien raus.
-- `gsr-sidecar/control.py`: stdio-Loop — Requests von stdin (`{"op":"start","profile":…,"server":…,"capture":…,"audio":…}`, `"stop"`, `"state"`, `"health"`, `"list_monitors"`, `"gpu_info"`), ruft den Controller (QProcess → `subprocess.Popen` + stderr-Reader-Thread), Events auf stdout (`{"ev":"state","running":true,"fps":59,"uptime":12}`, `{"ev":"error",…}`, `{"ev":"log","line":…}`). + `ServerProfile.from_channel(channel_id, token, mediamtx_endpoint)` in `profiles.py` — jetzt vollwertig implementierbar (Pulse-Pfad `channel-<id>`, Stream-Token statt fixem Key).
-- GSR-Binary-Resolver im Sidecar: in der Flatpak schlicht `/app/bin/gpu-screen-recorder`; in Dev: Custom-Build wenn vorhanden, sonst System-`gpu-screen-recorder` (= wie die bestehenden Skripte).
-- *Liefert:* `gsr-sidecar` lokal per stdin/stdout testbar; Tauri kann ihn starten/stoppen/abfragen.
+- `gsr-sidecar/control.py`: stdio-Loop — Requests von stdin (`{"op":"start","profile":…,"server":…,"capture":…,"audio":…}`, `"stop"`, `"state"`, `"health"`, `"list_monitors"`, `"gpu_info"`, `"list_profiles"`, `"list_application_audio"`, `"build_argv"`), ruft den Controller (QProcess → `subprocess.Popen` + stderr-Reader-Thread), Events auf stdout (`{"ev":"state","running":true,"fps":59,"uptime":12}`, `{"ev":"error",…}`, `{"ev":"log","line":…}`). + `ServerProfile.from_channel(channel_id, token, mediamtx_endpoint)` in `profiles.py` (Pulse-Pfad `channel-<id>`, Stream-Token statt fixem Key).
+- GSR-Binary-Resolver im Sidecar: `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder`) → Custom-Build (`/tmp/gsr-analysis/...`) → System-PATH.
+- *Liefert:* `gsr-sidecar` lokal per stdin/stdout testbar; der Electron-Main spawnt/stoppt/abfragt ihn (E1b).
 
-**T3 — Svelte-Streaming-UI**
-- Components in `web/src/lib/stream/components/`: Profil-Picker, Server-Picker, Capture-Quelle (Portal / Monitor-Liste via Sidecar-`list_monitors`), Audio-Mode + persistente App-Exclude-Liste, Codec/Bitrate/FPS/Auflösung (die "Custom"-Overrides aus `config.py`), Start/Stop, Live-FPS+Uptime, ausklappbares Log — 1:1 die PySide6-Features.
-- Plus die zwei GSR-Pending-Tasks: GPU-Detection (Sidecar-`gpu_info`) → Default-Profil je Hardware (NVIDIA→AV1, AMD pre-RDNA3→H.264) + Warning bei AV1-auf-inkompatibel; Custom-Server-Profile via Dialog (persistiert, neuer Settings-Field).
-- Nur sichtbar wenn `isTauri() && isLinux() && gsrAvailable()` (Sidecar-`health`). Sonst bestehender Browser-Screen-Share-Pfad. Settings via Tauri-`store` statt `~/.config/gsr-stream-ui/`.
-- *Liefert:* GSR-HQ-Streaming komplett aus der Pulse-Tauri-App.
+**T3 — Svelte-Streaming-UI** (T3a obsolet — durch E1b ersetzt; T3b/T3c erledigt)
+- Components in `web/src/lib/stream/components/`: Profil-Picker, Server-Picker, Capture-Quelle (Portal / Monitor-Liste via Sidecar-`list_monitors`), Audio-Mode + persistente App-Exclude-Liste, Codec/Bitrate/FPS/Auflösung-Overrides, Start/Stop, Live-FPS+Uptime, ausklappbares Log — 1:1 die PySide6-Features.
+- Plus die zwei GSR-Pending-Tasks: GPU-Detection (Sidecar-`gpu_info`) → Default-Profil je Hardware (NVIDIA→AV1, AMD pre-RDNA3→H.264) + Warning bei AV1-auf-inkompatibel; Custom-Server-Profile via Dialog (persistiert).
+- Nur sichtbar wenn `isElectron() && isLinux() && gsrAvailable()`. Sonst bestehender Browser-Screen-Share-Pfad. Settings via `window.pulse.store.*` (E1c) statt `~/.config/gsr-stream-ui/`.
+- *Liefert:* GSR-HQ-Streaming komplett aus der Pulse-Electron-App.
 
 **T4 — WHEP-Playback in Pulse**
 - `web/src/lib/stream/whep.ts` — WHEP-Client (`RTCPeerConnection` + Lib), Player-Component im Voice-Channel-View, Stats-Overlay optional (wie `server/player.html`).
@@ -876,10 +881,10 @@ Was NICHT mitkopiert wird: Binär-/Build-Artefakte (`mediamtx`-Binary, `*.flatpa
 - `media-svc`: vergibt Stream-Tokens, koppelt Channel ↔ MediaMTX-Pfad, published Stream-State auf Redis → chat-gateway broadcastet "X streamt in #channel".
 - VPS: `mediamtx.yml` umstellen (per-Channel-Pfade + authHTTP), MediaMTX hinter Caddy mit TLS (`stream.unicutmedia.com` → :8888/:8889), Caddy-Block für `pulse.unicutmedia.com` + Pulse-Backend-Deploy auf den VPS (SSH `michael@77.42.71.166` — vorhanden, busy shared VPS, MediaMTX in `~/streaming/`).
 
-**T6 — Flatpak-Packaging**
-- `packaging/` = das GSR-Manifest als Basis. *Behalten:* Custom-FFmpeg n8.1.1 (NVENC/CUDA/VAAPI), nv-codec-headers n13, GSR-Build mit den 2 Patches, `--device=all`, GL-Extensions. *Raus:* PySide6 + Qt-UI-Module. *Dazu:* SvelteKit-Static-Build, Tauri-Rust-App, `gsr-sidecar` (Python).
-- **Offener Knoten:** Base-Runtime. GSR-Manifest nutzt `org.kde.Platform//6.9`; Tauri braucht `webkit2gtk-4.1` → `org.gnome.Platform` (hat webkit2gtk + Mesa/VAAPI). Voraussichtlich Umstieg auf `org.gnome.Platform//47` (o.ä. aktuell) — beim Bauen verifizieren dass das Custom-FFmpeg-NVENC dagegen baut (sollte; FFmpeg-NVENC ist weitgehend self-contained, CUDA-Stubs).
+**T6 — Electron-Flatpak-Packaging**
+- `packaging/` = das GSR-Manifest als Basis. *Behalten:* Custom-FFmpeg n8.1.1 (NVENC/CUDA/VAAPI), nv-codec-headers n13, GSR-Build mit den 2 Patches, `--device=all`, GL-Extensions. *Raus:* PySide6 + Qt-UI-Module. *Dazu:* SvelteKit-Static-Build (`web/build/`), die Electron-App (`desktop/` — `electron-builder` mit Flatpak-Target, oder das Electron-Binary + `electron/dist/*.cjs` manuell ins Manifest), `gsr-sidecar` (Python `.py` + python3). Der Prod-`loadFile`-Pfad in `main.ts` (`../../../web/build/index.html`) muss beim Packaging verifiziert/angepasst werden.
+- **Base-Runtime:** Electron bringt Chromium selbst mit — die WebKitGTK-Frage von früher entfällt. Wahrscheinlich `org.freedesktop.Platform` (oder die `org.electronjs.Electron2.BaseApp` als Basis) + die GL/VAAPI-Extensions; beim Bauen verifizieren dass das Custom-FFmpeg-NVENC dagegen baut (sollte; FFmpeg-NVENC ist weitgehend self-contained, CUDA-Stubs).
 - Der Standalone-GSR-Flatpak im Original-Repo bleibt unberührt.
 
 ### Reihenfolge / Status
-T1 ist unblocked und Voraussetzung für alles → Start hier. T1–T4 sind die "Pulse-Tauri-App mit Streaming"-Strecke; T5 (Multi-User-Auth + Deploy) und T6 (Flatpak) folgen. Pro Code-Etappe gilt die Verifikations-Regel (§15): Team mit Plan/Umsetzung + Verify.
+E1 (Electron-Migration, E1a→E1b→E1c) ist erledigt — die "Pulse-Electron-App mit Streaming"-Basis steht. Offen davon: globaler PTT, Notifications. T4 (WHEP-Playback), T5 (Multi-User-Auth + Deploy), T6 (Electron-Flatpak) folgen. Pro Code-Etappe gilt die Verifikations-Regel (§15): Team mit Plan/Umsetzung + Verify.

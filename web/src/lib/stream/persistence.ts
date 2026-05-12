@@ -1,63 +1,46 @@
 /**
- * Streaming-Settings-Persistenz (T3c).
+ * Streaming-Settings-Persistenz (T3c; Electron-Pfad seit E1c).
  *
- * Zwei-Wege-Wrapper: unter Tauri schreibt/liest das `@tauri-apps/plugin-store`-
- * Plugin in eine JSON-Datei im app-config-dir (Linux: `~/.config/com.unicutmedia.pulse/`
- * — durch `harden_config_dir()` in `desktop/src-tauri/src/lib.rs` auf chmod 700
- * gesetzt, einzelne `.json` auf chmod 600). Im reinen Browser fällt der Code auf
- * `localStorage` zurück (gleiche Keys, gleiche JSON-Form), damit die Dev-Route
- * `/app/dev/stream` auch ohne Tauri sinnvoll funktioniert.
+ * Zwei-Wege-Wrapper: in der Electron-App schreibt/liest `window.pulse.store.*`
+ * (im Main-Prozess: ein hand-rolled JSON-Store, `<userData>/pulse-stream.json`,
+ * auf Linux chmod 700 fürs Dir / chmod 600 fürs File — siehe
+ * `desktop/electron/store.ts`; das war früher die Tauri-`plugin-store`- +
+ * `harden_config_dir()`-Logik). Im reinen Browser (Dev-Route `/app/dev/stream`,
+ * oder die SvelteKit-App ohne Electron-Shell) fällt der Code auf `localStorage`
+ * zurück (gleiche Keys, gleiche JSON-Form).
  *
- * Wir nutzen `LazyStore`: er lädt das File erst beim ersten Zugriff und auto-
- * saved jeden `set()` mit 100ms-Debounce (Default). Für unseren Persistenz-
- * Pfad ist das genau richtig — wir mutieren nie atomar mehrere Keys, alle
- * Writes laufen über eine debouncede `save()`-Funktion im Settings-Modul.
+ * Schreibverhalten: alle Mutations im Settings-Modul laufen über eine debouncede
+ * `saveAll()` (300 ms — siehe `settings.svelte.ts`). Unter Electron wird jeder
+ * Key einzeln per `store.set()` geschrieben (der Main-Store persistiert das File
+ * synchron bei jedem `set`); im Browser-Fallback re-serialisieren wir den ganzen
+ * Blob einmal.
  *
  * **Sicherheits-Hinweis:** Custom-Server-Stream-Keys landen hier im Klartext.
- * Auf Linux ist das durch chmod 600 (Tauri-Store-File) bzw. den Browser-Origin
+ * Auf Linux ist das durch chmod 600 (Electron-Store-File) bzw. den Browser-Origin
  * (localStorage) abgesichert; auf shared Boxen ist das *kein* Secret-Vault.
- * Wer mehr braucht: Tauri-Secret-Store-Plugin oder OS-Keyring — für den lokalen
- * Dev-Stream-Pfad reicht das hier. Niemals in `console.log` schreiben.
+ * Wer mehr braucht: OS-Keyring — für den lokalen Dev-Stream-Pfad reicht das hier.
+ * Niemals in `console.log` schreiben.
  */
 
-import { isTauri } from '$lib/platform/runtime';
-import type { LazyStore } from '@tauri-apps/plugin-store';
-
-/** Name der Tauri-Store-Datei im app-config-dir. */
-const STORE_FILE = 'pulse-stream.json';
+import { isElectron } from '$lib/platform/runtime';
+import type { PulseStoreApi } from '$lib/platform/pulse';
 
 /** localStorage-Key für den Browser-Fallback (single blob mit derselben Form). */
 const LS_KEY = 'pulse.stream';
 
-let _store: LazyStore | null = null;
-let _storePromise: Promise<LazyStore | null> | null = null;
-
-async function getTauriStore(): Promise<LazyStore | null> {
-  if (!isTauri()) return null;
-  if (_store) return _store;
-  if (_storePromise) return _storePromise;
-  _storePromise = (async () => {
-    try {
-      const { LazyStore } = await import('@tauri-apps/plugin-store');
-      // `autoSave` default = 100ms debounce — passt zu unseren Settings-Writes.
-      _store = new LazyStore(STORE_FILE);
-      await _store.init();
-      return _store;
-    } catch {
-      _store = null;
-      return null;
-    }
-  })();
-  return _storePromise;
+/** The Electron-side store, or `null` in a plain browser. */
+function electronStore(): PulseStoreApi | null {
+  if (!isElectron()) return null;
+  return (typeof window !== 'undefined' && window.pulse?.store) || null;
 }
 
 /** Read all persisted keys as a record (or `{}` when nothing persisted/usable). */
 export async function loadAll(): Promise<Record<string, unknown>> {
-  const store = await getTauriStore();
+  const store = electronStore();
   if (store) {
     try {
-      const entries = await store.entries<unknown>();
-      return Object.fromEntries(entries);
+      const all = await store.getAll();
+      return all && typeof all === 'object' ? all : {};
     } catch {
       return {};
     }
@@ -76,10 +59,11 @@ export async function loadAll(): Promise<Record<string, unknown>> {
 
 /** Read one key. */
 export async function loadKey<T>(key: string): Promise<T | undefined> {
-  const store = await getTauriStore();
+  const store = electronStore();
   if (store) {
     try {
-      return await store.get<T>(key);
+      const v = await store.get(key);
+      return v as T | undefined;
     } catch {
       return undefined;
     }
@@ -99,20 +83,17 @@ export async function loadKey<T>(key: string): Promise<T | undefined> {
 }
 
 /**
- * Write a batch of keys. Under Tauri this triggers individual `set()` calls
- * (auto-saved via the debounce); under the browser-fallback we re-serialise the
- * whole blob once. Failures are swallowed (the UI keeps the in-memory state
- * regardless of whether persistence succeeded).
+ * Write a batch of keys. Under Electron this triggers individual `store.set()`
+ * calls (the main-side store persists synchronously); under the browser-fallback
+ * we re-serialise the whole blob once. Failures are swallowed (the UI keeps the
+ * in-memory state regardless of whether persistence succeeded).
  */
 export async function saveAll(values: Record<string, unknown>): Promise<void> {
-  const store = await getTauriStore();
+  const store = electronStore();
   if (store) {
     try {
       // Update only the provided keys; leave others untouched.
       await Promise.all(Object.entries(values).map(([k, v]) => store.set(k, v)));
-      // `autoSave` debounces, but call `save()` to make the write deterministic
-      // in case the app exits before the debounce timer fires.
-      await store.save();
     } catch {
       // tolerate — settings stay in memory
     }

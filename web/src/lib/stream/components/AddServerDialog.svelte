@@ -1,9 +1,10 @@
 <!--
   AddServerDialog — Dialog zum Anlegen eines eigenen Push-Servers (T3c).
   Pattern wie CreateChannelDialog. On submit landet das Profil + Stream-Key in
-  der Settings-Persistenz (Tauri-`store` unter Linux, `localStorage` im Browser-
-  Fallback). Stream-Key wird im Klartext gespeichert; Schutz = chmod 600 der
-  Store-Datei (`harden_config_dir()` in `lib.rs`). Niemals in `console.log`.
+  der Settings-Persistenz (`window.pulse.store.*` unter Electron, `localStorage`
+  im Browser-Fallback). Stream-Key wird im Klartext gespeichert; Schutz = chmod
+  600 der Store-Datei auf Linux (siehe desktop/electron/store.ts). Niemals in
+  `console.log`.
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';

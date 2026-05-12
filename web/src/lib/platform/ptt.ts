@@ -1,44 +1,28 @@
 /**
- * Desktop push-to-talk bridge.
+ * Desktop push-to-talk bridge — currently a no-op stub.
  *
- * Under Tauri, the Rust side registers a global shortcut (default `Alt+Space`,
- * see `desktop/src-tauri/src/ptt.rs`) and emits `ptt-down` / `ptt-up` events.
- * This module forwards those to the LiveKit voice room — the same hooks the
- * in-window keyboard PTT in `VoiceChannelView.svelte` uses (`voice.pttPress()`
- * / `voice.pttRelease()`), which are no-ops unless PTT mode is on and we're
- * connected.
+ * Global (system-wide) push-to-talk needs a native key-listener: Electron's
+ * `globalShortcut` only fires on press, not press+release, so it can't do
+ * hold-to-talk. Until we add a native module for this (e.g. `uiohook-napi`),
+ * there is no global PTT — `initDesktopPtt()` returns a no-op disposer.
  *
- * In a plain browser this module does nothing: `initDesktopPtt()` returns a
- * no-op disposer, so the existing browser PTT path is completely untouched.
+ * The in-window keyboard PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`,
+ * key from `settings.voice.pttKey`) is the active PTT path and is unaffected.
+ *
+ * (Historic: under the old Tauri shell the Rust side registered a global
+ * shortcut and emitted `ptt-down` / `ptt-up` events which this module forwarded
+ * to the LiveKit voice room. That shell was removed in E1c.)
  */
-
-import { isTauri } from './runtime';
 
 type Disposer = () => void;
 
 /**
- * Wire the Tauri global-shortcut PTT events to the voice room. Idempotent in
- * spirit (callers should still avoid registering twice). Returns a disposer
- * that detaches the listeners. No-op (returns immediately) outside Tauri.
+ * Wire up the global push-to-talk shortcut to the voice room.
+ *
+ * Currently a no-op: returns immediately with a no-op disposer.
+ * TODO: global PTT for Electron needs a native key-listener (e.g. uiohook-napi);
+ * the in-window PTT in VoiceChannelView still works.
  */
 export async function initDesktopPtt(): Promise<Disposer> {
-  if (!isTauri()) return () => {};
-
-  const { listen } = await import('@tauri-apps/api/event');
-
-  // Lazily pull in the voice module on first use so the browser bundle doesn't
-  // eagerly load livekit-client just because this ran.
-  const voiceMod = () => import('$lib/voice/livekit.svelte');
-
-  const unlistenDown = await listen('ptt-down', () => {
-    void voiceMod().then(({ voice }) => voice.pttPress());
-  });
-  const unlistenUp = await listen('ptt-up', () => {
-    void voiceMod().then(({ voice }) => voice.pttRelease());
-  });
-
-  return () => {
-    unlistenDown();
-    unlistenUp();
-  };
+  return () => {};
 }
