@@ -21,12 +21,20 @@
   import VideoIcon from '@lucide/svelte/icons/video';
   import { isElectron, isLinux } from '$lib/platform/runtime';
   import { stream } from '../state.svelte';
+  import { voice } from '$lib/voice/livekit.svelte';
+  import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import HqStreamDialog from './HqStreamDialog.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
   let visible = $derived(isElectron() && isLinux() && stream.gsrAvailable);
-  let running = $derived(stream.running);
+  // The voice channel we're connected to — passed to the StreamPanel so the
+  // "Dieser Channel" target is available and the start flow can mint a token.
+  let channelId = $derived(voice.channelId);
+  // Live dot: our local sidecar is running, OR the WS broadcast says this
+  // channel currently has an active HQ stream (could be us, could be someone
+  // who started before we joined).
+  let running = $derived(stream.running || (!!channelId && streamPresence.isStreaming(channelId)));
 </script>
 
 {#if visible}
@@ -61,5 +69,5 @@
     </Tooltip.Root>
   </Tooltip.Provider>
 
-  <HqStreamDialog bind:open />
+  <HqStreamDialog bind:open {channelId} />
 {/if}

@@ -2,8 +2,16 @@
   StreamControls — der Start/Stop-Button + Live-Status-Block.
 
   Liest `stream` aus `state.svelte.ts` (running, state, fps, uptimeS, error).
-  Beim Start: ruft `gsr.start(buildStartArgs())`. Stop: `gsr.stop()`.
-  Disable wenn Bridge nicht verfügbar.
+  Beim Start:
+  - Channel-Modus (`streamSettings.target === 'channel'` + `channelId` prop):
+    erst `chatApi.getStreamToken(channelId)` (chat-gateway → media-svc proxy),
+    dann `gsr.start(buildStartArgs(_, {channelId, token, mediamtxEndpoint,
+    pushProtocol}))`. Fehler (403 nicht-Member, 400 kein Voice-Channel, 502
+    media-svc down …) → `toast.error`. Der Stream-Indikator (auch beim Streamer
+    selbst) kommt danach über den WS-`stream_state`-Broadcast — media-svc's
+    Poller erkennt den Publisher; wir müssen chat-gateway nichts melden.
+  - Server-Modus: wie gehabt `gsr.start(buildStartArgs())`.
+  Stop: `gsr.stop()`. Disable wenn Bridge nicht verfügbar.
 
   Uptime-Anzeige: Wir rechnen `mm:ss` selbst aus `stream.uptimeS`. Der
   Sidecar feuert FPS-Events nur alle ~1 s, also reicht das als Trigger für
@@ -15,20 +23,26 @@
   import SquareIcon from '@lucide/svelte/icons/square';
   import CircleIcon from '@lucide/svelte/icons/circle';
   import AlertCircleIcon from '@lucide/svelte/icons/circle-alert';
+  import { toast } from 'svelte-sonner';
+  import { chatApi } from '$lib/api/chat';
+  import { ApiError } from '$lib/api/client';
   import { gsr } from '../gsr';
   import { stream } from '../state.svelte';
-  import { buildStartArgs, streamSettings } from '../settings.svelte';
+  import { buildStartArgs, streamSettings, mediamtxEndpointFromPushUrl } from '../settings.svelte';
+
+  let { channelId = null }: { channelId?: string | null } = $props();
 
   let busy = $state(false);
   let localError = $state<string | null>(null);
 
+  let channelMode = $derived(streamSettings.target === 'channel' && !!channelId);
   let bridgeReady = $derived(gsr.available() && stream.available);
   let canStart = $derived(
     bridgeReady &&
       !stream.running &&
       !busy &&
       !!streamSettings.profile_name &&
-      !!streamSettings.server_name,
+      (channelMode || !!streamSettings.server_name),
   );
   let canStop = $derived(bridgeReady && stream.running && !busy);
 
@@ -71,8 +85,39 @@
     busy = true;
     localError = null;
     try {
-      const r = await gsr.start(buildStartArgs());
-      if (r && !r.ok) localError = r.error ?? 'Start fehlgeschlagen.';
+      let args = buildStartArgs();
+      if (channelMode && channelId) {
+        let tok;
+        try {
+          tok = await chatApi.getStreamToken(channelId, 'rtmp');
+        } catch (e) {
+          const msg =
+            e instanceof ApiError
+              ? e.status === 403
+                ? 'Du bist kein Mitglied dieses Kanals.'
+                : e.status === 400
+                  ? 'HQ-Streaming geht nur in Sprach-Kanälen.'
+                  : e.status === 502 || e.status === 503
+                    ? 'Der Media-Dienst ist nicht erreichbar.'
+                    : (e.message ?? 'Stream-Token konnte nicht geholt werden.')
+              : e instanceof Error
+                ? e.message
+                : String(e);
+          toast.error('Stream konnte nicht gestartet werden', { description: msg });
+          return;
+        }
+        args = buildStartArgs(undefined, {
+          channelId,
+          token: tok.token,
+          mediamtxEndpoint: mediamtxEndpointFromPushUrl(tok.push_url),
+          pushProtocol: tok.push_protocol,
+        });
+      }
+      const r = await gsr.start(args);
+      if (r && !r.ok) {
+        localError = r.error ?? 'Start fehlgeschlagen.';
+        if (channelMode) toast.error('Stream konnte nicht gestartet werden', { description: localError });
+      }
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);
     } finally {

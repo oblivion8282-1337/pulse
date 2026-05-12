@@ -480,6 +480,76 @@ Neue `data-testid`s: `voice-hq-stream-btn`, `voice-hq-stream-live-dot`,
 allen Sidecar-Ops als Buttons. Im *normalen* Pulse-Flow ist die Streaming-UI
 nur im Voice-Channel über den Stream-Button erreichbar (und nur unter Electron+Linux mit gefundenem GSR-Binary).
 
+## HQ-Stream im Frontend (T4)
+
+Die Frontend-Seite des per-Channel-HQ-Streamings (Backend = T5a media-svc/auth-hook,
+T5b chat-gateway — fertig; T4 *konsumiert* deren API):
+
+- **`web/src/lib/stores/streamPresence.svelte.ts`** — analog zum Voice-Presence-Store,
+  `$state`-Map `channelId → { active, userId }` (nur aktive Streams). Methoden:
+  `streamingUser(channelId)` (Snowflake des Publishers oder null),
+  `isStreaming(channelId)`. Gefüttert aus: dem `ready`-Payload-Feld
+  `stream_states: [{channel_id, user_id}, ...]` → `seed()` (ersetzt die ganze Map;
+  kommt bei *jedem* (Re)connect, deckt also den Reconnect-Re-Sync ab), dem WS-Push
+  `{op:"stream_state", channel_id, user_id, active}` → `apply()`, und optional
+  `GET /api/chat/guilds/{id}/stream-state` (`chatApi.getGuildStreamState`) für einen
+  expliziten Re-Sync. Distinkt von `voicePresence.streamingByChannel` (das ist der
+  LiveKit-*Screenshare*-Track im Call, nicht der GSR/WHEP-Stream). `ws/connection.ts`
+  seedet im `ready`-Handler + dispatcht `stream_state` an den Store (genau wie
+  `voice_state`).
+- **`web/src/lib/api/chat.ts`** — drei neue Calls (`fetch`-Wrapper mit Auth-Header,
+  wie der Rest): `getStreamToken(channelId, protocol='rtmp')` →
+  `{token, mediamtx_path, push_protocol, push_url, expires_in_s}` (chat-gateway
+  `POST /channels/{id}/stream-token`, membership-gated → media-svc), `getWhepUrl(channelId)`
+  → `{whep_url}` (anonymer Read), `getGuildStreamState(guildId)` → `StreamChannelState[]`.
+- **`web/src/lib/stream/whep.ts`** — hand-rolled WHEP-Client (~120 Z., keine neue Dep):
+  `RTCPeerConnection` + `addTransceiver('video'|'audio', recvonly)` → `createOffer` →
+  `setLocalDescription` → ICE-Gathering abwarten (non-trickle, 2 s-Timeout-Fallback) →
+  `POST <whepUrl>` mit `Content-Type: application/sdp` (Body = Offer-SDP) → Response-Body
+  = Answer-SDP, `Location`-Header = Resource-URL → `setRemoteDescription`. `close()` →
+  `pc.close()` + best-effort `DELETE <resourceUrl>`. Public-STUN als Default (harmlos bei
+  MediaMTX-host-Networking). Pattern aus `~/Dokumente/GPU_Screen_Recorder/server/player.html`
+  (READ-ONLY, funktioniert gegen genau diese MediaMTX 1.18) — übernommen, nicht kopiert.
+- **`web/src/lib/stream/components/WhepPlayer.svelte`** (≤250 Z.) — Props `{ channelId }`,
+  holt die WHEP-URL selbst (`chatApi.getWhepUrl`), spielt sie ab. `<video autoplay playsinline>`
+  *nicht* gemuted (Stream-Viewer will Ton) → bei Autoplay-Block ein "Ton aktivieren"-Overlay
+  (wie das LiveKit-`audioBlocked`-Overlay). Retry mit Backoff bei 404 (Publisher noch nicht da)
+  / Netzfehler / `connectionState === 'failed'`. Cleanup bei Unmount/Channel-Wechsel
+  (`teardown()` + `runChannelId`-Guard gegen stale async). Kleines Stats-Overlay
+  (Auflösung/FPS/Bitrate via `getStats()`).
+- **`web/src/lib/components/VoiceChannelView.svelte`** — wenn `streamPresence.isStreaming(channel.id)`
+  und man im Channel verbunden ist: bekommt der HQ-Block den großen Content-Bereich (wo sonst
+  die Participant-Tiles / `ScreenShareTile` sind), Tiles rutschen als schmaler Streifen nach unten.
+  Streamer ist **jemand anderes** → `<WhepPlayer channelId={channel.id} />` + Label
+  "🔴 {Username} streamt (HQ)". Streamer bin **ich selbst** → kein WHEP-Playback (kein Selbst-Echo),
+  nur ein Indikator "🔴 Du streamst (HQ)" + ein "Stream beenden"-Button (`gsr.stop()`). `data-testid`s:
+  `hq-stream-area`, `hq-stream-label`, `hq-stream-player`, `hq-stream-self-indicator`, `hq-stream-stop-btn`,
+  `hq-stream-unblock-audio`, `hq-stream-stats`. `HqStreamButton`-Live-Dot geht auch an wenn der
+  WS-Broadcast einen aktiven Stream im aktuellen Channel meldet (nicht nur bei `stream.running`).
+- **Channel-Modus im StreamPanel:** `streamSettings.target: 'channel' | 'server'` (neu, *nicht*
+  persistiert — kontextabhängig; `StreamPanel` setzt's beim Mount auf `'channel'` wenn ein
+  `channelId` durchgereicht wurde, sonst `'server'`). `StreamPanel` kriegt `channelId` als Prop
+  (`VoiceControlBar` → `HqStreamButton` (= `voice.channelId`) → `HqStreamDialog` → `StreamPanel`).
+  Neue `StreamTargetPicker.svelte`: Segment "Stream-Ziel: [Dieser Channel] | [Eigener Server]" —
+  "Dieser Channel" nur sichtbar wenn `channelId` da ist. Im Channel-Modus ist der `ServerPicker`
+  ausgeblendet (kein Server-Picker nötig). `buildStartArgs(streamKey?, channelArg?)` hat einen
+  `channel`-Branch: bei `target==='channel'` + `channelArg` → `channel: {id, token,
+  mediamtx_endpoint?, push_protocol?}` (statt `server`/`custom_server`). `StreamControls`
+  (Prop `channelId`): im Channel-Modus holt der Start-Klick erst `chatApi.getStreamToken(channelId)`,
+  extrahiert das `host[:port]` aus `push_url` (`mediamtxEndpointFromPushUrl`) als
+  `channel.mediamtx_endpoint`, dann `gsr.start(buildStartArgs(undefined, {channelId, token,
+  mediamtxEndpoint, pushProtocol}))`. Fehler (403 nicht-Member, 400 kein Voice-Channel, 502/503
+  media-svc down …) → `toast.error` (svelte-sonner). Der Streamer meldet chat-gateway **nichts** —
+  media-svc's Poller erkennt den Publisher und broadcastet `stream_state`; der Stream-Indikator
+  (auch beim Streamer selbst) kommt über den WS. Der Sidecar (`streaming/gsr-sidecar`) versteht
+  den `channel`-Modus seit T2; `gsr.ts::GsrStartArgs.channel` + `pulse.d.ts`/preload reichen ihn
+  generisch durch — keine Electron-Änderung nötig.
+- **Tests:** Backend unverändert (`pytest -q` 177/177). Frontend hat keine Vitest-/Unit-Tests
+  (nur Playwright-E2E) → `pnpm check` (0/0) + `pnpm build` + Code-Review. **Der E2E-Test
+  (echter Stream → anderer User sieht den WHEP-Player) muss manuell gemacht werden** — braucht
+  laufende media-svc + mediamtx-auth-hook + lokale/Prod-MediaMTX + zwei eingeloggte Clients +
+  einen echten GSR-Push (Portal-Dialog).
+
 ## Test-Datenbank
 
 E2E-Tests (Playwright) laufen gegen `dcc_test` — eine separate DB im selben Postgres-Container.

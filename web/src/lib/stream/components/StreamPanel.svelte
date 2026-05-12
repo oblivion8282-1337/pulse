@@ -2,8 +2,14 @@
   StreamPanel — die ganze Streaming-UI als Composite.
 
   Wird in T3c im Voice-Channel-View eingebettet. Hier in T3b: in der
-  Dev-Route nutzbar. Layout: Profil/Server/Capture/Audio → Overrides
-  (collapsible) → Controls → Log.
+  Dev-Route nutzbar. Layout: Stream-Ziel-Toggle → Profil → (Server, nur im
+  Server-Modus) → Capture/Audio → Overrides (collapsible) → Controls → Log.
+
+  Prop `channelId` (T4): wenn gesetzt (= aus einem Voice-Channel geöffnet),
+  erscheint das "Dieser Channel | Eigener Server"-Segment und `target` defaultet
+  auf `'channel'`; im Channel-Modus braucht's keinen Server-Picker — der Start
+  holt sich das Token vom chat-gateway. Ohne `channelId` ist es wie bisher
+  (`target = 'server'`, der volle Profil/Server-Picker-Flow).
 
   Gating:
   - `gsr.available()` false → komplett ausblenden (reiner Browser, kein
@@ -25,6 +31,7 @@
   import { stream } from '../state.svelte';
   import { loadCatalogs, streamSettings, isCustomProfile, persistSettings } from '../settings.svelte';
 
+  import StreamTargetPicker from './StreamTargetPicker.svelte';
   import ProfilePicker from './ProfilePicker.svelte';
   import ServerPicker from './ServerPicker.svelte';
   import CaptureSourcePicker from './CaptureSourcePicker.svelte';
@@ -33,10 +40,13 @@
   import StreamControls from './StreamControls.svelte';
   import StreamLog from './StreamLog.svelte';
 
+  let { channelId = null }: { channelId?: string | null } = $props();
+
   let health = $state<GsrHealth | null>(null);
   let healthError = $state<string | null>(null);
   let healthChecking = $state(false);
   let overridesOpen = $derived(streamSettings.use_overrides || isCustomProfile());
+  let channelMode = $derived(streamSettings.target === 'channel' && !!channelId);
 
   async function checkHealth() {
     healthChecking = true;
@@ -51,6 +61,9 @@
   }
 
   onMount(() => {
+    // Default the target to the current channel when opened from a voice
+    // channel; otherwise force 'server' (no channel context to stream into).
+    streamSettings.target = channelId ? 'channel' : 'server';
     if (!gsr.available()) return;
     void checkHealth();
     void loadCatalogs();
@@ -118,8 +131,11 @@
       </div>
     {:else}
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">
+        <StreamTargetPicker {channelId} />
         <ProfilePicker />
-        <ServerPicker />
+        {#if !channelMode}
+          <ServerPicker />
+        {/if}
         <CaptureSourcePicker />
         <AudioModePicker />
 
@@ -149,7 +165,7 @@
         </div>
 
         <Separator />
-        <StreamControls />
+        <StreamControls {channelId} />
         <StreamLog />
       </div>
     {/if}

@@ -13,6 +13,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { voicePresence, type VoiceChannelState } from '$lib/stores/voicePresence.svelte';
+import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import type { Message } from '$lib/api/types';
 
 export type ChannelPayload = {
@@ -26,7 +27,13 @@ export type ChannelPayload = {
 };
 
 type ServerEvent =
-  | { op: 'ready'; user_id: string; guilds: { id: string; name: string }[]; voice_states?: VoiceChannelState[] }
+  | {
+      op: 'ready';
+      user_id: string;
+      guilds: { id: string; name: string }[];
+      voice_states?: VoiceChannelState[];
+      stream_states?: StreamChannelState[];
+    }
   | { op: 'message'; data: Message }
   | { op: 'message_ack'; nonce: string | null; id: string }
   | { op: 'channel_created'; channel: ChannelPayload }
@@ -34,6 +41,7 @@ type ServerEvent =
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
   | { op: 'voice_state'; channel_id: string; user_ids: string[]; streaming_user_ids?: string[] }
+  | { op: 'stream_state'; channel_id: string; user_id: string | null; active: boolean }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -156,7 +164,15 @@ export class GatewayConnection {
 
   private _handle(evt: ServerEvent): void {
     // Buffer lifecycle events that arrive before `ready` has populated guilds.byId.
-    if (!this._readyDone && evt.op !== 'ready' && evt.op !== 'message' && evt.op !== 'message_ack' && evt.op !== 'voice_state' && evt.op !== 'error') {
+    if (
+      !this._readyDone &&
+      evt.op !== 'ready' &&
+      evt.op !== 'message' &&
+      evt.op !== 'message_ack' &&
+      evt.op !== 'voice_state' &&
+      evt.op !== 'stream_state' &&
+      evt.op !== 'error'
+    ) {
       this._preReadyBuffer.push(evt);
       return;
     }
@@ -164,6 +180,7 @@ export class GatewayConnection {
     switch (evt.op) {
       case 'ready':
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
+        streamPresence.seed(evt.stream_states ?? []);
         this._readyDone = true;
         // Replay buffered lifecycle events now that guilds.byId is populated.
         for (const buffered of this._preReadyBuffer) {
@@ -198,6 +215,9 @@ export class GatewayConnection {
         break;
       case 'voice_state':
         voicePresence.apply(evt.channel_id, evt.user_ids, evt.streaming_user_ids);
+        break;
+      case 'stream_state':
+        streamPresence.apply(evt.channel_id, evt.user_id, evt.active);
         break;
     }
   }

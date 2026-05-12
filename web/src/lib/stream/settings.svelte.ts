@@ -79,6 +79,13 @@ export function audioModeUsesDesktop(mode: AudioMode): boolean {
 
 // ── Reactive state ──────────────────────────────────────────────────────────
 
+/** Where the HQ stream is pushed: into the current Pulse voice channel
+ *  (the per-channel MediaMTX path `channel-<id>`, token from chat-gateway), or
+ *  to a server profile picked from the catalog / a custom server (the T3c
+ *  pathway). `'channel'` is only meaningful when the user is in a voice channel
+ *  — the picker hides it otherwise. Not persisted: it depends on context. */
+export type StreamTarget = 'channel' | 'server';
+
 export const streamSettings = $state({
   // Selections (persisted)
   profile_name: '',
@@ -88,6 +95,10 @@ export const streamSettings = $state({
   excluded_apps: [] as string[],
   overrides: {} as OverrideSet,
   use_overrides: false,
+
+  // Stream target (not persisted — context-dependent). Defaults to `'channel'`
+  // when opened from a voice channel; the StreamPanel sets this on mount.
+  target: 'channel' as StreamTarget,
 
   // Custom servers (persisted)
   custom_servers: [] as CustomServer[],
@@ -358,10 +369,48 @@ export function removeCustomServer(name: string): void {
 
 // ── Mapping helpers ─────────────────────────────────────────────────────────
 
+/** Args for the per-channel pathway: the chat-gateway-minted publish token +
+ *  the MediaMTX ingest host:port (derived from the `push_url`). */
+export interface ChannelStreamArg {
+  channelId: string;
+  token: string;
+  /** Host or `host:port` (no scheme) of the MediaMTX ingest endpoint. */
+  mediamtxEndpoint?: string;
+  pushProtocol?: string;
+}
+
+/**
+ * Pull the `host[:port]` (no scheme) out of a `push_url` returned by
+ * `chatApi.getStreamToken()` so it can be handed to the sidecar as
+ * `channel.mediamtx_endpoint`. The sidecar rebuilds the full push URL itself
+ * from `endpoint` + `token` (`ServerProfile.from_channel`); we just give it the
+ * host (+ ingest port if the URL carried one). Returns `undefined` on a URL we
+ * can't parse — the sidecar then falls back to its default endpoint.
+ *
+ * Examples:
+ *   `rtmp://stream.example.com:1935/channel-7?user=pulse&pass=…` → `stream.example.com:1935`
+ *   `srt://1.2.3.4:8890?streamid=publish:channel-7:pulse:…`      → `1.2.3.4:8890`
+ */
+export function mediamtxEndpointFromPushUrl(pushUrl: string): string | undefined {
+  try {
+    // The URL API doesn't know `rtmp:`/`srt:`; swap to `http:` just for parsing.
+    const u = new URL(pushUrl.replace(/^[a-z]+:\/\//i, 'http://'));
+    if (!u.hostname) return undefined;
+    return u.port ? `${u.hostname}:${u.port}` : u.hostname;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Translate the in-memory `streamSettings` into the body shape that
  * `gsr.start()` / `gsr.buildArgv()` expect. Overrides are only included when
  * `use_overrides` is set (or the user picked the synthetic "Custom" profile).
+ *
+ * **Channel pathway** (`streamSettings.target === 'channel'` and `channelArg`
+ * given): emit `channel: {id, token, mediamtx_endpoint?, push_protocol?}` —
+ * the sidecar builds a `ServerProfile.from_channel(...)` from it (MediaMTX path
+ * `channel-<id>`, the token used like a stream key). No `server`/`custom_server`.
  *
  * **Custom-server pathway:** when the currently selected server is a user-
  * defined entry, we don't send `server: <name>` (the sidecar's catalog
@@ -369,9 +418,14 @@ export function removeCustomServer(name: string): void {
  * plus the persisted `stream_key`. The sidecar's `_resolve_server()` was
  * extended in T3c to accept that.
  */
-export function buildStartArgs(streamKey: string = 'PLACEHOLDER'): GsrStartArgs {
+export function buildStartArgs(
+  streamKey: string = 'PLACEHOLDER',
+  channelArg?: ChannelStreamArg,
+): GsrStartArgs {
   const apply = streamSettings.use_overrides || isCustomProfile();
-  const custom = isCurrentServerCustom() ? (currentServer() as CustomServer | undefined) : undefined;
+  const useChannel = streamSettings.target === 'channel' && channelArg != null;
+  const custom =
+    !useChannel && isCurrentServerCustom() ? (currentServer() as CustomServer | undefined) : undefined;
 
   const args: GsrStartArgs = {
     profile: streamSettings.profile_name,
@@ -382,7 +436,14 @@ export function buildStartArgs(streamKey: string = 'PLACEHOLDER'): GsrStartArgs 
     },
   };
 
-  if (custom) {
+  if (useChannel && channelArg) {
+    args.channel = {
+      id: channelArg.channelId,
+      token: channelArg.token,
+      ...(channelArg.mediamtxEndpoint ? { mediamtx_endpoint: channelArg.mediamtxEndpoint } : {}),
+      ...(channelArg.pushProtocol ? { push_protocol: channelArg.pushProtocol } : {}),
+    };
+  } else if (custom) {
     args.custom_server = {
       name: custom.name,
       push_protocol: custom.push_protocol,

@@ -11,7 +11,8 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import StreamPanel from './StreamPanel.svelte';
 
-  let { open = $bindable(false) }: { open?: boolean } = $props();
+  let { open = $bindable(false), channelId = null }: { open?: boolean; channelId?: string | null } =
+    $props();
 </script>
 
 <Dialog.Root bind:open>
@@ -22,9 +23,9 @@
     <Dialog.Header class="sr-only">
       <Dialog.Title>HQ-Stream</Dialog.Title>
       <Dialog.Description>
-        GPU-Screen-Recorder-basierter Stream über MediaMTX (Pulse-T3).
+        GPU-Screen-Recorder-basierter Stream über MediaMTX (Pulse-T3/T4).
       </Dialog.Description>
     </Dialog.Header>
-    <StreamPanel />
+    <StreamPanel {channelId} />
   </Dialog.Content>
 </Dialog.Root>
