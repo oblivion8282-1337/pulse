@@ -258,8 +258,11 @@ raus und der Electron-Shell + dem Python-Sidecar rein.
   danach `flatpak update` (bzw. GNOME Software / KDE Discover automatisch). `build-update-repo --generate-static-deltas --prune
   --prune-depth=3` → kleine inkrementelle Updates. Signing-Key: `packaging/.gpg/` (gitignored, passwortlos, `packaging/gen-signing-key.fish`
   einmalig — **muss separat gebackupt werden**, Verlust = der Empfänger lehnt künftige Updates ab). **Web-Änderungen brauchen keinen
-  Republish** (App lädt `pulse.unicutmedia.com` remote); nur native Änderungen (`electron/main|preload`, Sidecar, GSR-Binary). Lässt sich
-  später in CI gießen (build → `--repo` → `build-update-repo` → rsync), analog zu den Docker-Images.
+  Republish** (App lädt `pulse.unicutmedia.com` remote); nur native Änderungen (`electron/main|preload`, Sidecar, GSR-Binary).
+  **Automatik:** `.githooks/pre-push` (aktiviert via `git config core.hooksPath .githooks`) ruft `publish.fish` bei jedem Push, der
+  native Flatpak-Inhalte ändert (`desktop/electron/`, `desktop/package.json`, `streaming/gsr-sidecar/`, `streaming/patches/`, die
+  `packaging/`-Manifest/Launcher/Desktop-Files) — Web/Backend/Docs-only-Pushes überspringen's; non-blocking; `git push --no-verify`
+  überspringt. Lässt sich später in CI gießen (build → `--repo` → `build-update-repo` → rsync), analog zu den Docker-Images.
 - **Falls die gepackte App nicht startet** (Electron-Prozess endet sofort, Exit 1, kaum Output): erst `flatpak run --command=sh
   com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'` — fehlen die, ist's wieder das
   `strip-components`-Thema. Sonst meist GPU/Wayland auf NVIDIA → `PULSE_OZONE=x11 flatpak run …` (XWayland), oder

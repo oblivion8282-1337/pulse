@@ -52,6 +52,13 @@ cache — fast after the first time) → `flatpak build-update-repo --generate-s
 --prune` (small incremental updates) → regenerates `com.unicutmedia.Pulse.flatpakref`
 → `rsync build/repo/ → VPS:~/pulse/flatpak-repo/`.
 
+**Automatic on push:** the `.githooks/pre-push` hook runs `publish.fish` for you
+whenever a push touches anything bundled into the Flatpak (`desktop/electron/`,
+`desktop/package.json`, `streaming/gsr-sidecar/`, `streaming/patches/`, the
+`packaging/` manifest/launcher/desktop files). Web/backend/docs-only pushes skip
+it. Needs the signing key + `fish`; non-blocking (a failure warns, push proceeds);
+`git push --no-verify` skips it. Enable once per clone: `git config core.hooksPath .githooks`.
+
 ### The friend
 ```fish
 flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref

@@ -1,0 +1,62 @@
+#!/bin/sh
+# pre-push hook — auto-republish the Pulse Flatpak when native content changes.
+#
+# If a push includes changes to anything that's *bundled into* the Flatpak — the
+# Electron shell (desktop/electron/), desktop/package.json (→ appVersion), the
+# Python GSR sidecar (streaming/gsr-sidecar/), the GSR build patches
+# (streaming/patches/), the manifest / launcher / .desktop / .metainfo / .svg
+# (packaging/) — this runs packaging/publish.fish, which builds the signed OSTree
+# repo and rsyncs it to the VPS so installed clients pick it up via `flatpak update`.
+#
+# Web-only / backend-only / docs-only pushes are skipped instantly — the packaged
+# app loads pulse.unicutmedia.com remotely, so those need no new Flatpak.
+#
+# NON-BLOCKING: a republish failure (VPS down, no signing key, fish missing, …) is
+# loud but does NOT abort the push — the push to GitHub and the Flatpak republish
+# are independent. To skip this hook entirely for one push: `git push --no-verify`.
+#
+# Enabled via `git config core.hooksPath .githooks` (see .githooks/README.md).
+
+repo_root=$(git rev-parse --show-toplevel)
+
+# Paths whose change means the Flatpak must be rebuilt + republished.
+native_paths='desktop/electron/ desktop/package.json streaming/gsr-sidecar/ streaming/patches/ packaging/com.unicutmedia.Pulse.yml packaging/launcher.sh packaging/com.unicutmedia.Pulse.desktop packaging/com.unicutmedia.Pulse.metainfo.xml packaging/com.unicutmedia.Pulse.svg'
+
+is_zero() { [ -z "$(printf '%s' "$1" | tr -d 0)" ]; }   # all-zero OID = ref create/delete
+
+need_publish=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    is_zero "$local_sha" && continue                       # branch deletion — nothing to do
+    if is_zero "$remote_sha"; then
+        range="$local_sha"                                 # new branch — inspect the whole commit
+    else
+        range="$remote_sha..$local_sha"
+    fi
+    # shellcheck disable=SC2086  # native_paths is intentionally word-split into pathspecs
+    if [ -n "$(git diff --name-only "$range" -- $native_paths 2>/dev/null)" ]; then
+        need_publish=1
+    fi
+done
+
+[ "$need_publish" -eq 0 ] && exit 0
+
+echo ""
+echo "→ pre-push: native Flatpak content changed — republishing (packaging/publish.fish)."
+echo "  (web/backend/docs-only pushes skip this; 'git push --no-verify' skips it too.)"
+
+if [ ! -d "$repo_root/packaging/.gpg" ]; then
+    echo "  ⚠ no signing key at packaging/.gpg/ on this machine — SKIPPED."
+    echo "    Run packaging/publish.fish from a box that has the key (or restore the backup)."
+    exit 0
+fi
+if ! command -v fish >/dev/null 2>&1; then
+    echo "  ⚠ fish not found — can't run packaging/publish.fish. SKIPPED. (run it manually)"
+    exit 0
+fi
+
+if ( cd "$repo_root" && fish packaging/publish.fish ); then
+    echo "✓ pre-push: Flatpak repo republished."
+else
+    echo "  ⚠ packaging/publish.fish FAILED — re-run it manually once the cause is fixed."
+fi
+exit 0
