@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Pulse
+GenericName=Chat & Voice
+Comment=Web-first chat, voice and high-quality screen streaming
+Exec=pulse
+Icon=com.unicutmedia.Pulse
+Terminal=false
+Categories=Network;Chat;InstantMessaging;AudioVideo;
+Keywords=chat;voice;voip;stream;screen share;discord;
+StartupNotify=true
+StartupWMClass=Pulse

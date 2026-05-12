@@ -1,0 +1,183 @@
+# Flatpak manifest for the Pulse desktop app (T6).
+#
+# What's inside the Flatpak:
+#   - the Electron 42 runtime (bundled binary from the GitHub release)
+#   - electron/dist/{main,preload}.cjs  (esbuild-bundled — run `pnpm --filter @dcc/desktop build:electron` first)
+#   - the pure-stdlib Python GSR sidecar (streaming/gsr-sidecar/*.py) → /app/share/pulse/gsr-sidecar/
+#   - a custom-built `gpu-screen-recorder` (FFmpeg-with-NVENC + GSR-from-source + the FLV-Opus / Vulkan-stub patches),
+#     the FFmpeg/GSR module stack lifted verbatim from the proven gsr-streamer manifest.
+#
+# What's NOT inside: the web frontend. The packaged app loads https://pulse.unicutmedia.com remotely
+# (electron/main.ts → PROD_URL, since no PULSE_DEV_URL is set), so web-side fixes are live without a new
+# Flatpak — only native changes (Electron main/preload, the sidecar, the GSR binary) need a rebuild.
+#
+# Local build/install (user scope, no sudo):  packaging/build.fish
+# (or:  pnpm --filter @dcc/desktop build:electron
+#       flatpak-builder --user --install-deps-from=flathub --force-clean --install build/flatpak packaging/com.unicutmedia.Pulse.yml )
+app-id: com.unicutmedia.Pulse
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+# zypak: replaces Chromium's setuid sandbox (which can't work inside a Flatpak)
+# with a bubblewrap-based one. The launcher runs Electron via `zypak-wrapper`.
+base: org.electronjs.Electron2.BaseApp
+base-version: '24.08'
+command: pulse
+
+finish-args:
+  # Display. We mount both X11 (XWayland) and Wayland sockets and let Electron use
+  # its default X11 backend — that's the robust path here (the non-Flatpak dev app
+  # does the same on this Wayland+NVIDIA setup; native Ozone-Wayland trips over the
+  # NVIDIA DRM render-node detection). `--socket=x11` (not `fallback-x11`) so the
+  # XWayland socket is actually mounted when running on a Wayland session. To opt
+  # into native Wayland: `ELECTRON_OZONE_PLATFORM_HINT=auto flatpak run …`.
+  - --socket=x11
+  - --socket=wayland
+  - --share=ipc
+  # Network: the remote web app, REST/WSS to the Pulse services, LiveKit (voice/WebRTC),
+  # WHEP playback, and the RTMPS push from GSR.
+  - --share=network
+  # Audio: voice + GSR desktop/app audio capture
+  - --socket=pulseaudio
+  - --filesystem=xdg-run/pipewire-0:ro
+  # GPU for NVENC / VAAPI. NVIDIA's /dev/nvidia* sit outside /dev/dri → need --device=all.
+  - --device=all
+  # Wayland screencast portal — GSR `-w portal` capture + Chromium's getDisplayMedia (browser screen share)
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.ScreenCast
+  # The sidecar's stderr is read line-by-line by the Electron bridge — flush promptly
+  - --env=PYTHONUNBUFFERED=1
+
+# NB: do NOT add an `add-extensions` block for org.freedesktop.Platform.GL — the
+# org.freedesktop.Platform//24.08 runtime already declares it (with the right
+# directory/merge-dirs). Overriding it breaks EGL on Mesa. (Same as the official
+# GSR Flathub manifest — it inherits GL from the runtime.)
+
+modules:
+  # ── FFmpeg with NVENC + CUDA + VAAPI + Vulkan ───────────────────────────────
+  # The runtime's FFmpeg has no NVENC, so GSR would fail with "h264 not supported
+  # by hardware". Build our own. Spec lifted from the official GSR Flathub manifest.
+  - name: ffmpeg
+    config-opts:
+      - --enable-gpl
+      - --enable-version3
+      - --enable-shared
+      - --disable-static
+      - --disable-debug
+      - --disable-doc
+      - --disable-programs
+      - --disable-decoders
+      - --disable-indevs
+      - --disable-vdpau
+      - --disable-filters
+      - --disable-amf
+      - --disable-audiotoolbox
+      - --disable-videotoolbox
+      - --disable-sdl2
+      - --disable-autodetect
+      - --disable-avdevice
+      - --disable-dwt
+      - --disable-lsp
+      - --disable-faan
+      - --disable-iamf
+      - --disable-alsa
+      - --disable-iconv
+      - --disable-sndio
+      - --disable-xlib
+      - --disable-cuda-llvm
+      - --enable-filter=amix
+      - --enable-nvenc
+      - --enable-ffnvcodec
+      - --enable-libopus
+      - --enable-vaapi
+      - --enable-vulkan
+      - --enable-libx264
+      - --enable-openssl
+    cleanup:
+      - /share/ffmpeg/examples
+    sources:
+      - type: git
+        url: https://github.com/FFmpeg/FFmpeg.git
+        tag: n8.1.1
+        commit: 239f2c733de417201d7ad3b3b8b0d9b63285b2b1
+    modules:
+      - name: ffnvcodec
+        no-autogen: true
+        make-install-args:
+          - PREFIX=${FLATPAK_DEST}
+        cleanup:
+          - '*'
+        sources:
+          - type: git
+            url: https://github.com/FFmpeg/nv-codec-headers.git
+            tag: n13.0.19.0
+            commit: e844e5b26f46bb77479f063029595293aa8f812d
+      - name: libx264
+        config-opts:
+          - --disable-cli
+          - --enable-shared
+          - --disable-opencl
+          - --disable-bashcompletion
+          - --enable-strip
+        no-autogen: true
+        make-install-args:
+          - PREFIX=${FLATPAK_DEST}
+        sources:
+          - type: git
+            url: https://code.videolan.org/videolan/x264.git
+            commit: b35605ace3ddf7c1a5d67a2eb553f034aef41d55
+
+  # ── gpu-screen-recorder (custom build: FLV-Opus whitelist + Vulkan-encoder stub) ──
+  # The Vulkan-encoder stub is harmless — Pulse uses NVENC/VAAPI, never Vulkan encode.
+  # GSR source is left at master HEAD for now; pin a commit before distributing widely.
+  - name: gpu-screen-recorder
+    buildsystem: meson
+    config-opts:
+      - --buildtype=release
+    sources:
+      - type: git
+        url: https://repo.dec05eba.com/gpu-screen-recorder
+      - type: patch
+        path: ../streaming/patches/0001-opus-flv-whitelist.patch
+      - type: patch
+        path: ../streaming/patches/0002-stub-vulkan-encoder.patch
+
+  # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
+  - name: pulse
+    buildsystem: simple
+    build-commands:
+      # Electron 42 runtime (bundled binary). chrome-sandbox is useless in a Flatpak
+      # (setuid won't stick) — zypak handles sandboxing, so drop it.
+      - install -d /app/electron
+      - cp -a electron/. /app/electron/
+      - rm -f /app/electron/chrome-sandbox
+      # The Electron app (esbuild bundle). main.ts reads icon.png at ../icon.png
+      # relative to its own dir → install it at /app/icon.png.
+      - install -d /app/pulse
+      - install -m644 app-dist/main.cjs /app/pulse/main.cjs
+      - install -m644 app-dist/preload.cjs /app/pulse/preload.cjs
+      - install -Dm644 icon.png /app/icon.png
+      # The pure-stdlib Python GSR sidecar — path matches sidecar.ts's Flatpak default.
+      - install -d /app/share/pulse/gsr-sidecar
+      - install -m644 gsr-sidecar/control.py gsr-sidecar/profiles.py gsr-sidecar/stream_controller.py gsr-sidecar/gsr_binary.py gsr-sidecar/__init__.py /app/share/pulse/gsr-sidecar/
+      # Launcher + desktop integration
+      - install -Dm755 packaging/launcher.sh /app/bin/pulse
+      - install -Dm644 packaging/com.unicutmedia.Pulse.desktop /app/share/applications/com.unicutmedia.Pulse.desktop
+      - install -Dm644 packaging/com.unicutmedia.Pulse.svg /app/share/icons/hicolor/scalable/apps/com.unicutmedia.Pulse.svg
+      - install -Dm644 packaging/com.unicutmedia.Pulse.metainfo.xml /app/share/metainfo/com.unicutmedia.Pulse.metainfo.xml
+    sources:
+      - type: archive
+        url: https://github.com/electron/electron/releases/download/v42.0.1/electron-v42.0.1-linux-x64.zip
+        sha256: e1b8b5b86d3fff69e2b3502586363d384085ee0578bd041fa5915fd0b557c4f1
+        dest: electron
+      - type: dir
+        path: ../desktop/electron/dist
+        dest: app-dist
+      - type: dir
+        path: ../streaming/gsr-sidecar
+        dest: gsr-sidecar
+      - type: dir
+        path: ../packaging
+        dest: packaging
+      - type: file
+        path: ../desktop/electron/icon.png

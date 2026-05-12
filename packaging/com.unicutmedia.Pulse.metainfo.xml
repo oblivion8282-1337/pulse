@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.unicutmedia.Pulse</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <name>Pulse</name>
+  <summary>Web-first chat, voice and high-quality screen streaming</summary>
+  <description>
+    <p>
+      Pulse is a Discord-like chat, voice and streaming client. The desktop app
+      is a thin Electron shell over the web app at pulse.unicutmedia.com; on
+      Linux it adds high-quality, GPU-encoded screen streaming via a bundled
+      gpu-screen-recorder.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.unicutmedia.Pulse.desktop</launchable>
+  <categories>
+    <category>Network</category>
+    <category>Chat</category>
+    <category>AudioVideo</category>
+  </categories>
+  <url type="homepage">https://pulse.unicutmedia.com</url>
+  <provides>
+    <binary>pulse</binary>
+  </provides>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">intense</content_attribute>
+    <content_attribute id="social-audio">intense</content_attribute>
+  </content_rating>
+  <releases>
+    <release version="0.1.0" date="2026-05-12">
+      <description>
+        <p>First packaged build: Electron shell loading the deployed web app, plus the local GSR streaming bridge.</p>
+      </description>
+    </release>
+  </releases>
+</component>

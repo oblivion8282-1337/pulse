@@ -216,10 +216,41 @@ Modul (z.B. `uiohook-napi`) → eigener Schritt später. `web/src/lib/platform/p
 **No-op-Stub** (`// TODO: global PTT for Electron needs a native key-listener (uiohook-napi)`).
 Der In-Window-PTT in `VoiceChannelView.svelte` (`@svelte-put/shortcut`, Taste aus
 `settings.voice.pttKey`) ist der aktive PTT-Pfad und funktioniert unverändert. Notifications
-(TODO in main.ts — kleiner `notify(title, body)`-IPC-Handler später). Die App läuft bisher
-nur über `pnpm --filter @dcc/desktop prod`/`dev` (kein gepacktes Binary → es bleibt ein Terminal
-offen, von dem aus man sie startet) — `electron-builder` (Packaging = T6, dann ein normales
-klickbares App-Bündel ohne Terminal) ist **nicht** als Dep drin.
+(TODO in main.ts — kleiner `notify(title, body)`-IPC-Handler später). Aus dem Repo heraus läuft die
+App über `pnpm --filter @dcc/desktop prod`/`dev`; gepackt wird sie als **Flatpak** (`packaging/`, siehe unten) —
+`electron-builder` ist **nicht** als Dep drin (das Flatpak-Manifest bündelt das Electron-Binary direkt).
+
+## Flatpak-Packaging (T6) — `packaging/`
+
+`com.unicutmedia.Pulse` — `flatpak-builder`-Manifest unter `packaging/com.unicutmedia.Pulse.yml`. Baut auf dem
+bewährten Referenz-Manifest des GSR-Streamers auf (`~/Dokumente/GPU_Screen_Recorder/packaging/…yml`), mit Qt/PySide6
+raus und der Electron-Shell + dem Python-Sidecar rein.
+
+- **Runtime:** `org.freedesktop.Platform//24.08` + `sdk org.freedesktop.Sdk//24.08`, `base: org.electronjs.Electron2.BaseApp//24.08`
+  (liefert `zypak-wrapper` — Chromiums setuid-Sandbox geht im Flatpak nicht, zypak ersetzt sie durch eine bwrap-basierte).
+- **Module:** (1) `ffmpeg` n8.1.1 mit `--enable-nvenc/--ffnvcodec/--vaapi/--vulkan/--libx264/--libopus` + die `ffnvcodec`/`libx264`-
+  Submodule (verbatim aus dem GSR-Manifest — die Runtime-FFmpeg hat kein NVENC); (2) `gpu-screen-recorder` aus
+  `repo.dec05eba.com` (HEAD, sollte für Distribution gepinnt werden) + die zwei `streaming/patches/` (FLV-Opus-Whitelist,
+  Vulkan-Encoder-Stub — letzterer harmlos, wir nutzen NVENC/VAAPI); (3) `pulse` (`buildsystem: simple`): das
+  Electron-42-Binary aus dem GitHub-Release als `archive`-Source → `/app/electron/`, `desktop/electron/dist/{main,preload}.cjs`
+  → `/app/pulse/`, die Sidecar-`.py` → `/app/share/pulse/gsr-sidecar/` (= der Flatpak-Default-Pfad in `sidecar.ts`),
+  `desktop/electron/icon.png` → `/app/icon.png` (`main.ts` lädt's von `../icon.png` rel. zu `/app/pulse/`), Launcher +
+  `.desktop`/`.metainfo.xml`/`.svg`.
+- **Web wird NICHT mitgepackt** — die gepackte App lädt `https://pulse.unicutmedia.com` remote (`main.ts` → `PROD_URL`,
+  kein `PULSE_DEV_URL`). Web-Fixes sind sofort live; nur native Änderungen (Electron-main/preload, Sidecar, GSR-Binary)
+  brauchen einen Flatpak-Rebuild.
+- **Launcher** (`/app/bin/pulse`): setzt `GSR_BINARY=/app/bin/gpu-screen-recorder` + `PULSE_SIDECAR_PY` + `PULSE_PYTHON=python3`,
+  dann `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`. **Kein `ELECTRON_OZONE_PLATFORM_HINT`** — Electron
+  nimmt den X11-Backend (über XWayland; Manifest mountet `--socket=x11`), weil natives Ozone-Wayland auf NVIDIA an der
+  DRM-Render-Node-Erkennung scheitert (genau wie die Nicht-Flatpak-Dev-App XWayland nutzt). Override: `ELECTRON_OZONE_PLATFORM_HINT=auto`.
+- **Bauen/installieren (User-Scope, kein sudo):** `packaging/build.fish` (`build:electron` → `flatpak-builder --user --install`).
+  Erster Build ~15–30 min (FFmpeg + GSR aus Source). Danach `flatpak run com.unicutmedia.Pulse`.
+- **Distribution (Folge-Schritt):** `flatpak-builder --repo=<dir> …` → OSTree-Repo → über HTTPS hosten (z.B.
+  `flatpak.unicutmedia.com` hinter dem Caddy auf dem VPS) → `.flatpakref` verteilen → `flatpak update` zieht neue Builds.
+  Kann in CI (build → `build-export` → `rsync` auf den VPS), analog zu den Docker-Images.
+- **Falls die gepackte App nicht startet** (Electron-Prozess endet sofort): meist ein GPU/Wayland-Problem auf NVIDIA →
+  Fallbacks in `launcher.sh`/Manifest: `ELECTRON_OZONE_PLATFORM_HINT=x11` (XWayland, ist schon der Default), oder
+  `--disable-gpu` an die `zypak-wrapper`-Zeile, oder `--disable-gpu-sandbox`.
 
 **Frontend-Glue:** `web/src/lib/platform/runtime.ts` hat `isElectron()`
 (`window.pulse?.platform === 'electron'`), `isDesktop()` (= `isElectron()`, Alias) und
