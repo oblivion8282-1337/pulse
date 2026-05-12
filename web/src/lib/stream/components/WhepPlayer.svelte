@@ -16,15 +16,18 @@
   overlay (same idea as the LiveKit `audioBlocked` overlay in VoiceChannelView).
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import MaximizeIcon from '@lucide/svelte/icons/maximize';
+  import MinimizeIcon from '@lucide/svelte/icons/minimize';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, type StreamStats } from '../whep-stats';
+  import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
 
   let {
     channelId,
@@ -35,17 +38,27 @@
   let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let volume = $state(100);
+  // Remembers last non-zero volume so the mute toggle can restore it.
+  let prevVolume = $state(100);
+  let isFullscreen = $state(false);
 
-  function toggleFullscreen() {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      containerEl?.requestFullscreen().catch(() => {});
-    }
+  function handleToggleFullscreen() {
+    toggleFullscreen(containerEl, videoEl);
   }
 
   function handleVolume(e: Event) {
     volume = Number((e.currentTarget as HTMLInputElement).value);
+    if (volume > 0) prevVolume = volume;
+    if (videoEl) videoEl.volume = volume / 100;
+  }
+
+  function toggleMute() {
+    if (volume > 0) {
+      prevVolume = volume;
+      volume = 0;
+    } else {
+      volume = prevVolume > 0 ? prevVolume : 100;
+    }
     if (videoEl) videoEl.volume = volume / 100;
   }
 
@@ -175,6 +188,14 @@
     void start();
   });
 
+  onMount(() => {
+    function onFsChange() {
+      isFullscreen = isDocFullscreen();
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  });
+
   onDestroy(() => {
     disposed = true;
     void teardown();
@@ -194,7 +215,7 @@
     autoplay
     playsinline
     class="h-full w-full cursor-pointer bg-black object-contain"
-    onclick={toggleFullscreen}
+    onclick={handleToggleFullscreen}
     title="Klicken für Vollbild / Esc zum Verlassen"
   ></video>
 
@@ -214,17 +235,39 @@
     </div>
   {/if}
 
-  {#if audioBlocked}
+  <!--
+    Top-right corner: Maximize button always visible, "Ton aktivieren" below it
+    when audioBlocked. Stacking them vertically avoids overlap — both remain
+    individually tappable on touch screens.
+  -->
+  <div class="absolute right-2 top-2 flex flex-col items-end gap-1.5">
     <button
       type="button"
-      onclick={enableAudio}
-      class="absolute right-2 top-2 flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
-      data-testid="hq-stream-unblock-audio"
+      onclick={handleToggleFullscreen}
+      class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
+      aria-label={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
+      title={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
+      data-testid="hq-stream-fullscreen"
     >
-      <VolumeXIcon class="size-3" />
-      Ton aktivieren
+      {#if isFullscreen}
+        <MinimizeIcon class="size-3.5" />
+      {:else}
+        <MaximizeIcon class="size-3.5" />
+      {/if}
     </button>
-  {/if}
+
+    {#if audioBlocked}
+      <button
+        type="button"
+        onclick={enableAudio}
+        class="flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
+        data-testid="hq-stream-unblock-audio"
+      >
+        <VolumeXIcon class="size-3" />
+        Ton aktivieren
+      </button>
+    {/if}
+  </div>
 
   {#if name}
     <div
@@ -238,18 +281,26 @@
 
   {#if phase === 'playing'}
     <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
-      {#if volume === 0}
-        <VolumeXIcon class="size-3 text-white" />
-      {:else}
-        <Volume2Icon class="size-3 text-white" />
-      {/if}
+      <button
+        type="button"
+        onclick={toggleMute}
+        class="flex items-center text-white hover:text-white/70"
+        aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
+        data-testid="hq-stream-mute"
+      >
+        {#if volume === 0}
+          <VolumeXIcon class="size-3" />
+        {:else}
+          <Volume2Icon class="size-3" />
+        {/if}
+      </button>
       <input
         type="range"
         min="0"
         max="100"
         value={volume}
         oninput={handleVolume}
-        class="w-20 accent-white"
+        class="w-24 accent-white sm:w-20"
         aria-label="Lautstärke des Streams"
         data-testid="hq-stream-volume"
       />

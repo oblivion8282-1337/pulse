@@ -1,9 +1,13 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
+  import MaximizeIcon from '@lucide/svelte/icons/maximize';
+  import MinimizeIcon from '@lucide/svelte/icons/minimize';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { toggleFullscreen, isDocFullscreen } from '$lib/stream/fullscreen';
 
   let {
     track,
@@ -21,15 +25,14 @@
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
   let volume = $state(100);
+  // Remembers last non-zero volume so the mute toggle can restore it.
+  let prevVolume = $state(100);
   let localBlocked = $state(false);
+  let isFullscreen = $state(false);
   const audioBlocked = $derived(localBlocked || voice.audioBlocked);
 
-  function toggleFullscreen() {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-    } else {
-      containerEl?.requestFullscreen().catch(() => {});
-    }
+  function handleToggleFullscreen() {
+    toggleFullscreen(containerEl, videoEl);
   }
 
   $effect(() => {
@@ -52,6 +55,17 @@
 
   function handleVolume(e: Event) {
     volume = Number((e.currentTarget as HTMLInputElement).value);
+    if (volume > 0) prevVolume = volume;
+    audioTrack?.setVolume(volume / 100);
+  }
+
+  function toggleMute() {
+    if (volume > 0) {
+      prevVolume = volume;
+      volume = 0;
+    } else {
+      volume = prevVolume > 0 ? prevVolume : 100;
+    }
     audioTrack?.setVolume(volume / 100);
   }
 
@@ -64,6 +78,14 @@
       /* still blocked — leave the button visible */
     }
   }
+
+  onMount(() => {
+    function onFsChange() {
+      isFullscreen = isDocFullscreen();
+    }
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  });
 </script>
 
 <div
@@ -79,7 +101,7 @@
     autoplay
     playsinline
     class="h-full w-full cursor-pointer object-contain"
-    onclick={toggleFullscreen}
+    onclick={handleToggleFullscreen}
     title="Klicken für Vollbild / Esc zum Verlassen"
   ></video>
 
@@ -92,29 +114,59 @@
     <span class="max-w-32 truncate">{name}</span>
   </div>
 
-  {#if audioTrack && audioBlocked}
+  <!--
+    Top-right corner: Maximize button always visible, "Ton aktivieren" below it
+    when audioBlocked (and only when there is an audioTrack at all).
+    Vertical stacking keeps both tappable simultaneously on touch screens.
+  -->
+  <div class="absolute right-2 top-2 flex flex-col items-end gap-1.5">
     <button
       type="button"
-      onclick={enableAudio}
-      class="absolute right-2 top-2 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
-      data-testid="screen-share-unblock-audio"
-    >Ton aktivieren</button>
-  {/if}
+      onclick={handleToggleFullscreen}
+      class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
+      aria-label={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
+      title={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
+      data-testid="screen-share-fullscreen"
+    >
+      {#if isFullscreen}
+        <MinimizeIcon class="size-3.5" />
+      {:else}
+        <MaximizeIcon class="size-3.5" />
+      {/if}
+    </button>
+
+    {#if audioTrack && audioBlocked}
+      <button
+        type="button"
+        onclick={enableAudio}
+        class="rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
+        data-testid="screen-share-unblock-audio"
+      >Ton aktivieren</button>
+    {/if}
+  </div>
 
   {#if audioTrack}
     <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
-      {#if volume === 0}
-        <VolumeXIcon class="size-3 text-white" />
-      {:else}
-        <Volume2Icon class="size-3 text-white" />
-      {/if}
+      <button
+        type="button"
+        onclick={toggleMute}
+        class="flex items-center text-white hover:text-white/70"
+        aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
+        data-testid="screen-share-mute"
+      >
+        {#if volume === 0}
+          <VolumeXIcon class="size-3" />
+        {:else}
+          <Volume2Icon class="size-3" />
+        {/if}
+      </button>
       <input
         type="range"
         min="0"
         max="100"
         value={volume}
         oninput={handleVolume}
-        class="w-20 accent-white"
+        class="w-24 accent-white sm:w-20"
         aria-label="Lautstärke des geteilten Bildschirms"
         data-testid="screen-share-volume"
       />
