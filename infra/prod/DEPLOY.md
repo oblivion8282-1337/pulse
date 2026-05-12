@@ -29,12 +29,19 @@ openssl rsa -in secrets/jwt_private.pem -pubout -out secrets/jwt_public.pem
 # the app containers run as uid 10001 → the mounted pem files must be world-readable
 chmod 0644 secrets/jwt_private.pem secrets/jwt_public.pem
 
-# 3. firewall — RTMP/SRT/ICE for HQ streaming, UDP range + TCP fallback for LiveKit
+# 3. firewall
+#    public ingest/egress + LiveKit RTC:
 sudo ufw allow 1935/tcp        # RTMP ingest (GSR push)
 sudo ufw allow 8890/udp        # SRT ingest (GSR push, Opus audio)
 sudo ufw allow 8189/udp        # MediaMTX WebRTC ICE
 sudo ufw allow 7881/tcp        # LiveKit TCP fallback
 sudo ufw allow 7882:7892/udp   # LiveKit RTC
+#    docker-bridge → host (the pulse_web nginx + pulse_media_svc reach the
+#    host-network MediaMTX/LiveKit; UFW's INPUT DROP blocks bridge→host
+#    otherwise; 8888/8889 are already open to Anywhere from the old streaming
+#    setup, so only these two need a rule):
+sudo ufw allow from 10.0.0.0/8 to any port 7880 proto tcp   # LiveKit signaling
+sudo ufw allow from 10.0.0.0/8 to any port 9997 proto tcp   # MediaMTX API
 
 # 4. pull + start (must run from infra/prod/ so docker compose finds .env)
 cd ~/pulse/infra/prod
