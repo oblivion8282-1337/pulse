@@ -12,6 +12,7 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
@@ -247,8 +248,11 @@
       </ContextMenu.Root>
       {@const members = voicePresence.usersIn(c.id)}
       {#if members.length > 0}
+        {@const streamers = [
+          ...new Set([...voicePresence.streamingIn(c.id), ...streamPresence.streamersIn(c.id)]),
+        ]}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
-          <VoiceChannelMembers userIds={members} streamingUserIds={voicePresence.streamingIn(c.id)} />
+          <VoiceChannelMembers userIds={members} streamingUserIds={streamers} />
         </div>
       {/if}
     {/each}

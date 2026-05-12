@@ -18,11 +18,13 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
+  import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
+  import { WhepStatsReader, type StreamStats } from '../whep-stats';
 
   let {
     channelId,
@@ -30,11 +32,27 @@
     name
   }: { channelId: string; userId: string; name?: string } = $props();
 
+  let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
+  let volume = $state(100);
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      containerEl?.requestFullscreen().catch(() => {});
+    }
+  }
+
+  function handleVolume(e: Event) {
+    volume = Number((e.currentTarget as HTMLInputElement).value);
+    if (videoEl) videoEl.volume = volume / 100;
+  }
+
   let phase = $state<'connecting' | 'playing' | 'retrying' | 'error'>('connecting');
   let detail = $state<string>('');
   let audioBlocked = $state(false);
-  let stats = $state<{ res: string; fps: string; bitrate: string } | null>(null);
+  let stats = $state<StreamStats | null>(null);
 
   // Retry backoff: publisher may not be online yet (404) or transient net loss.
   const RETRY_MS = [2000, 3000, 5000, 8000, 8000];
@@ -42,12 +60,11 @@
   let session: WhepSession | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let statsTimer: ReturnType<typeof setInterval> | null = null;
+  const statsReader = new WhepStatsReader();
   let disposed = false;
   // Track which channel the current run is for, so a late async result from a
   // previous channel doesn't clobber a newer connection.
   let runChannelId = '';
-  let lastBytes = 0;
-  let lastTs = 0;
 
   function clearTimers() {
     if (retryTimer) {
@@ -90,7 +107,10 @@
       const { whep_url } = await chatApi.getWhepUrl(cid, userId);
       if (disposed || runChannelId !== cid) return;
       const s = await connectWhep(whep_url, (stream) => {
-        if (videoEl) videoEl.srcObject = stream;
+        if (videoEl) {
+          videoEl.srcObject = stream;
+          videoEl.volume = volume / 100;
+        }
       });
       if (disposed || runChannelId !== cid) {
         await s.close();
@@ -110,8 +130,7 @@
         }
       });
       // Best-effort autoplay-with-sound; if blocked, show the overlay.
-      lastBytes = 0;
-      lastTs = 0;
+      statsReader.reset();
       void videoEl
         ?.play()
         .then(() => {
@@ -120,7 +139,10 @@
         .catch(() => {
           audioBlocked = true;
         });
-      statsTimer = setInterval(updateStats, 1000);
+      statsTimer = setInterval(async () => {
+        const cur = session;
+        if (cur) stats = await statsReader.read(cur.pc);
+      }, 1000);
     } catch (e) {
       if (disposed || runChannelId !== cid) return;
       const status = e instanceof WhepError ? e.status : 0;
@@ -132,39 +154,6 @@
         phase = 'error';
       }
     }
-  }
-
-  async function updateStats() {
-    const s = session;
-    if (!s) return;
-    let videoIn: RTCInboundRtpStreamStats | undefined;
-    try {
-      (await s.pc.getStats()).forEach((r) => {
-        if (r.type === 'inbound-rtp' && (r as RTCInboundRtpStreamStats).kind === 'video') {
-          videoIn = r as RTCInboundRtpStreamStats;
-        }
-      });
-    } catch {
-      return;
-    }
-    if (!videoIn) return;
-    const w = (videoIn as { frameWidth?: number }).frameWidth;
-    const h = (videoIn as { frameHeight?: number }).frameHeight;
-    const fps = (videoIn as { framesPerSecond?: number }).framesPerSecond;
-    const bytes = (videoIn as { bytesReceived?: number }).bytesReceived ?? 0;
-    const ts = videoIn.timestamp ?? 0;
-    let bitrate = '—';
-    if (lastTs > 0 && ts > lastTs) {
-      const kbps = ((bytes - lastBytes) * 8) / ((ts - lastTs) / 1000) / 1000;
-      bitrate = kbps >= 1000 ? `${(kbps / 1000).toFixed(1)} Mbit/s` : `${Math.round(kbps)} kbit/s`;
-    }
-    lastTs = ts;
-    lastBytes = bytes;
-    stats = {
-      res: w && h ? `${w}×${h}` : '—',
-      fps: fps !== undefined ? `${Math.round(fps)} fps` : '—',
-      bitrate
-    };
   }
 
   async function enableAudio() {
@@ -193,16 +182,20 @@
 </script>
 
 <div
+  bind:this={containerEl}
   class="bg-bg-chat relative flex h-full flex-col overflow-hidden rounded-2xl border border-border"
   data-testid="hq-stream-player"
   data-channel-id={channelId}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
   <video
     bind:this={videoEl}
     autoplay
     playsinline
-    class="h-full w-full bg-black object-contain"
+    class="h-full w-full cursor-pointer bg-black object-contain"
+    onclick={toggleFullscreen}
+    title="Klicken für Vollbild / Esc zum Verlassen"
   ></video>
 
   {#if phase === 'connecting' || phase === 'retrying'}
@@ -243,9 +236,29 @@
     </div>
   {/if}
 
+  {#if phase === 'playing'}
+    <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
+      {#if volume === 0}
+        <VolumeXIcon class="size-3 text-white" />
+      {:else}
+        <Volume2Icon class="size-3 text-white" />
+      {/if}
+      <input
+        type="range"
+        min="0"
+        max="100"
+        value={volume}
+        oninput={handleVolume}
+        class="w-20 accent-white"
+        aria-label="Lautstärke des Streams"
+        data-testid="hq-stream-volume"
+      />
+    </div>
+  {/if}
+
   {#if phase === 'playing' && stats}
     <div
-      class="absolute bottom-2 right-2 flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm"
+      class="absolute left-2 top-2 flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm"
       data-testid="hq-stream-stats"
     >
       <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span>
