@@ -10,6 +10,8 @@ members = [
     "services/auth",
     "services/chat-gateway",
     "services/voice-signaling",
+    "services/media-svc",
+    "services/mediamtx-auth-hook",
     "streaming",
 ]
 
@@ -32,6 +34,8 @@ testpaths = [
     "services/auth/tests",
     "services/chat-gateway/tests",
     "services/voice-signaling/tests",
+    "services/media-svc/tests",
+    "services/mediamtx-auth-hook/tests",
 ]
 
 [dependency-groups]

@@ -40,6 +40,13 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
   `redis://localhost:6380/0`).
 - chat-gateway-Routes sind seit `chore: split chat-gateway routes`
   als APIRouter-Module unter `services/chat-gateway/src/dcc_chat_gateway/routes/`.
+- **HQ-Streaming-Backend (T5a)**: zwei neue Services — `media-svc` (8004) gibt
+  per-Channel-Stream-Tokens aus + hält den Stream-State, `mediamtx-auth-hook`
+  (8005) ist MediaMTX' `authHTTP`-Delegation. MediaMTX läuft im Dev über
+  `streaming/server/docker-compose.yml` (separat, `network_mode: host`), jetzt
+  mit `authMethod: http` → `http://localhost:8005/`. Details siehe Abschnitt
+  "HQ-Streaming-Backend (T5a)" unten. (T5b = chat-gateway konsumiert
+  `stream:events`; T5c = VPS-Deploy — beide noch offen.)
 
 ## Tech-Stack (verifiziert aus uv.lock / pnpm-lock.yaml / package.json — kein Raten)
 
@@ -235,11 +242,116 @@ printf '%s\n' \
 **QProcess → subprocess (einzige echte Logik-Änderung):** `stream_controller.StreamController` nutzt `subprocess.Popen(..., start_new_session=True)` + zwei Daemon-Threads (stdout-Reader für FPS-Parse + Wait-Thread). Stop sendet `SIGINT` an die Prozessgruppe (`os.killpg`), mit `SIGTERM`/`SIGKILL`-Escalation falls 5 s nichts passiert. **GSR-Argument-Verhalten unverändert** — die `build_argv()`-Methode produziert dieselbe `-w/-f/-c/-k/-bm/-q/-ac/-a/-s/-o`-Folge wie zuvor.
 
 **Stream-Key / Secrets:**
-- `streaming/server/mediamtx.yml.template` enthält nur `STREAM_KEY_PLACEHOLDER` (commit-safe).
-- `streaming/server/mediamtx.yml` und `streaming/server/.stream-key` sind in `.gitignore` (Worktree-Root). Die Dateien werden im Pulse-Repo **nie** angelegt — der Stream-Key bleibt im Original-Repo (`~/Dokumente/GPU_Screen_Recorder/server/.stream-key`).
-- Sidecar nimmt den Token nur transient als Request-Field entgegen; er wird **nicht** persistiert, **nicht** geloggt.
+- `streaming/server/mediamtx.yml.template` ist seit **T5a** auf `authMethod: http`
+  umgestellt (kein fester Stream-Key mehr, kein `STREAM_KEY_PLACEHOLDER`) — siehe
+  "HQ-Streaming-Backend (T5a)". Commit-safe.
+- `streaming/server/mediamtx.yml` und `streaming/server/.stream-key` sind in `.gitignore` (Worktree-Root). Im Dev wird die `mediamtx.yml` aus dem Template generiert (bzw. fürs lokale Testen das Template selbst gemountet); der alte feste Stream-Key entfällt.
+- Sidecar nimmt den Stream-Token nur transient als Request-Field entgegen; er wird **nicht** persistiert, **nicht** geloggt.
 
 **Was bewusst NICHT mitkopiert wurde:** Qt-UI (`ui/main.py`, `ui/stream_window.py`), Binär-/Build-Artefakte (`mediamtx`-Binary 52 MB, `*.flatpak` 181 MB, `build/`, `.flatpak-builder/`, `*.log`), die generierte `server/mediamtx.yml`, `server/.stream-key`, `bootstrap.fish` (lädt nur MediaMTX-Binary für Lokal-Tests — brauchen wir hier nicht). `packaging/` (Flatpak-Manifest) folgt in T6 als kombiniertes Manifest.
+
+## HQ-Streaming-Backend (T5a)
+
+Per-Channel-HQ-Streaming via MediaMTX. Zwei neue FastAPI-Services (Struktur wie
+`voice-signaling`), beide laufen im Dev lokal via `uvicorn` (**nicht** in Docker;
+MediaMTX selbst läuft im Dev über `streaming/server/docker-compose.yml`, separat,
+`network_mode: host`):
+
+- **`services/media-svc/`** (`dcc-media-svc`, Port **8004**) — vergibt Stream-Tokens,
+  hält das Channel↔MediaMTX-Pfad-Mapping (`channel-<channel_id>`, gleiche Konvention
+  wie LiveKit-Rooms), pflegt den per-Channel-Stream-State in Redis, published Änderungen
+  auf `stream:events`. Hat einen Background-Task (Poller).
+  - `POST /channels/{channel_id}/stream-token` — Auth: **Pulse-Access-JWT** (RS256, JWKS
+    via `AUTH_JWKS_URL` — wie voice-signaling/chat-gateway). Aufrufer = chat-gateway
+    (Service-zu-Service: chat-gateway prüft die Channel-Membership, leitet den User-
+    Access-Token weiter; media-svc verifiziert ihn und nimmt `sub` als `user_id`). Body
+    optional `{protocol: "rtmp"|"srt"}` (Default rtmp). Response:
+    `{token, mediamtx_path: "channel-<id>", push_protocol, push_url, expires_in_s}`.
+    `push_url` ist die volle Push-URL inkl. Token:
+    RTMP `rtmp://<host>:1935/channel-<id>?user=pulse&pass=<token>`,
+    SRT `srt://<host>:8890?streamid=publish:channel-<id>:pulse:<token>`.
+    Token = `secrets.token_urlsafe(32)`, TTL `TOKEN_TTL_S` (Default 4 h).
+  - `GET /channels/{channel_id}/stream` — `{channel_id, active, user_id?, since?}` aus
+    `stream:channel:<id>`.
+  - `GET /channels/{channel_id}/whep` — `{whep_url: "<MEDIAMTX_PUBLIC_BASE>/channel-<id>/whep"}`
+    (Read ist aktuell anonym, kein Token in der URL).
+  - **Poller** (`POLL_INTERVAL_S`, Default 3 s): GET `MEDIAMTX_API_URL`
+    (Default `http://localhost:9997/v3/paths/list` — localhost-only, in Dev+Prod
+    erreichbar weil media-svc + MediaMTX co-located). Filtert Pfade `channel-<id>` mit
+    aktivem Publisher (`source != null` **und** eines von `ready`/`available`/`online`
+    True — MediaMTX 1.18 hat `ready` deprecated zugunsten `available`/`online`, wir
+    akzeptieren alle). Reconciliation: neuer/laufender Stream → `stream:channel:<id>`
+    setzen (`active:true`, `user_id` aus `stream:active:channel-<id>`, `since` ISO8601),
+    bei Änderung Event auf `stream:events`; verschwundener Stream → `stream:channel:<id>`
+    + `stream:active:channel-<id>` löschen, `active:false`-Event (Self-Heal). Robust
+    gegen unerreichbare MediaMTX-API (loggt `mediamtx_poll_failed`, kein Crash).
+
+- **`services/mediamtx-auth-hook/`** (`dcc-mediamtx-auth-hook`, Port **8005**) —
+  MediaMTX' `authMethod: http` ruft bei *jeder* Connection `POST /` (auch `POST /auth`)
+  hier auf. Body (MediaMTX-1.18-`authHTTP`-Format):
+  `{user, password, token, ip, action, path, protocol, id, query}`. Kein DB, kein JWT
+  (der Stream-Token ist opak) — nur Redis. Logik:
+  - `action in ("api","metrics","pprof")` → 200 (zusätzlich via `authHTTPExclude`
+    ausgeschlossen, hier defensiv erlaubt).
+  - `action == "publish"`: `path` muss `^channel-\d+$` sein; `password` (fallback `token`)
+    = Stream-Token → `stream:token:<token>` in Redis muss existieren, `scope == "publish"`,
+    `channel_id` muss zum Pfad passen → 200 (bare 200, kein JSON-Body nötig) **und**
+    schreibt `stream:active:channel-<id>` → `{user_id, started_at}` (TTL `PUBLISHER_TTL_SECONDS`,
+    Default 6 h, vom Poller gepflegt) damit der Poller den Stream einem User zuordnen kann.
+    Sonst → 401.
+  - `action in ("read","playback")`: `path` muss `^channel-\d+$` sein → 200 (anonymer Read,
+    wie bisher). `# TODO(T5b/later)`: Pulse-Member-Token verlangen + Channel-Membership via
+    chat-gateway prüfen.
+  - Alles andere / Nicht-`channel-*`-Pfade → 401.
+
+**Redis-Schema (für T5b relevant):**
+- `stream:token:<token>` → JSON `{channel_id, user_id, scope:"publish", protocol, created_at}` —
+  von media-svc geschrieben (`EX TOKEN_TTL_S`), vom auth-hook gelesen.
+- `stream:active:channel-<channel_id>` → JSON `{user_id, started_at}` — vom auth-hook beim
+  erfolgreichen publish-OK geschrieben (`EX PUBLISHER_TTL_SECONDS`), vom Poller gelesen/geräumt.
+- `stream:channel:<channel_id>` → JSON `{active: bool, user_id?: str, since?: iso8601}` —
+  vom Poller gepflegt (`EX CHANNEL_STATE_TTL_S`, Default 6 h Self-Heal). Das ist der
+  öffentliche Stream-State (`GET /channels/{id}/stream`).
+- **`stream:events`** Pub/Sub → ein Event pro State-Change:
+  `{"channel_id": "<id>", "active": true|false, "user_id": "<id>"|null}` —
+  analog zu `voice:events`. **T5b**: chat-gateway abonniert das (wie `voice:events` in
+  `ConnectionManager._listen`) und broadcastet z.B. `{"op":"stream_state", channel_id, active, user_id}`
+  an alle WS-Clients; analog dazu eine `GET /guilds/{id}/stream-state`-Re-Sync-Route
+  (media-svc kennt keine Guild→Channel-Map → chat-gateway fragt media-svc pro Voice-Channel
+  oder liest `stream:channel:*` direkt — beim Implementieren entscheiden).
+
+Die Redis-Key-Namen sind in `dcc_media_svc/streamkeys.py` und `dcc_mediamtx_auth_hook/shared.py`
+**dupliziert** (die zwei Services teilen keinen Code/keine DB — nur diese Namen; synchron halten).
+
+**MediaMTX-Config (`streaming/server/mediamtx.yml.template`):** seit T5a `authMethod: http`,
+`authHTTPAddress: http://localhost:8005/`, `authHTTPExclude: [{action: api},{action: metrics},{action: pprof}]`,
+`paths: { all_others: }` (auth-hook lehnt Nicht-`channel-*` ab). Keine internen User mehr,
+kein fester Stream-Key. Funktioniert dank MediaMTX `network_mode: host` (localhost:8005 vom
+Container = Host-localhost, wo der auth-hook via uvicorn lauscht). Die T2-`streaming/server/`-
+Doku gilt sonst unverändert — nur die Auth hat sich geändert.
+
+**Service-Start (Dev, Env aus `.env`):**
+```bash
+# media-svc (8004)
+cd services/media-svc && \
+REDIS_URL=redis://localhost:6380/0 \
+AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json \
+MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list \
+setsid nohup uv run uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 \
+  > /tmp/dcc-media.log 2>&1 < /dev/null & disown
+
+# mediamtx-auth-hook (8005)
+cd services/mediamtx-auth-hook && \
+REDIS_URL=redis://localhost:6380/0 \
+setsid nohup uv run uvicorn dcc_mediamtx_auth_hook.app:app --host 127.0.0.1 --port 8005 \
+  > /tmp/dcc-authhook.log 2>&1 < /dev/null & disown
+```
+Wenn MediaMTX nicht läuft, loggt der media-svc-Poller nur `mediamtx_poll_failed` und macht
+weiter (kein Crash). Den `authHTTP`-Flow live sieht man nur mit laufender lokaler MediaMTX
+(`docker compose -f streaming/server/docker-compose.yml up -d`).
+
+**Tests:** `services/media-svc/tests/` (Routes + Poller — MediaMTX wird gemockt, **kein** echter
+MediaMTX nötig; Redis-Index `/1`), `services/mediamtx-auth-hook/tests/` (Redis-Index `/1`).
 
 ## Desktop ↔ Sidecar-Bridge (Electron — E1b)
 
@@ -371,8 +483,11 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
 | auth-svc | 8001 | `uvicorn dcc_auth.app:app` |
 | chat-gateway | 8002 | `uvicorn dcc_chat_gateway.app:app` |
 | voice-signaling | 8003 | `uvicorn dcc_voice_signaling.app:app` |
+| media-svc | 8004 | `uvicorn dcc_media_svc.app:app` (T5a — Stream-Tokens + Stream-State + Poller) |
+| mediamtx-auth-hook | 8005 | `uvicorn dcc_mediamtx_auth_hook.app:app` (T5a — MediaMTX `authHTTP`-Delegation) |
 | web (Vite dev) | 5173 | `http://127.0.0.1:5173` |
 | LiveKit | 7880 | HTTP/Signalling; 7881 + 7882–7892/UDP für RTC. `network_mode: host`, direkt auf Host-Interfaces |
+| MediaMTX | 1935/8888/8889/8890/8189/9997 | RTMP/HLS/WebRTC-WHEP/SRT/WebRTC-ICE/API — `streaming/server/docker-compose.yml`, `network_mode: host`. API (9997) nur localhost. Auth → `authHTTP` → mediamtx-auth-hook (8005) |
 
 ### Service-Start (Env aus `.env`)
 - chat-gateway / auth: `POSTGRES_PASSWORD`, `JWT_PRIVATE_KEY_FILE` + `JWT_PUBLIC_KEY_FILE`
