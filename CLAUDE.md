@@ -232,7 +232,11 @@ raus und der Electron-Shell + dem Python-Sidecar rein.
   Submodule (verbatim aus dem GSR-Manifest — die Runtime-FFmpeg hat kein NVENC); (2) `gpu-screen-recorder` aus
   `repo.dec05eba.com` (HEAD, sollte für Distribution gepinnt werden) + die zwei `streaming/patches/` (FLV-Opus-Whitelist,
   Vulkan-Encoder-Stub — letzterer harmlos, wir nutzen NVENC/VAAPI); (3) `pulse` (`buildsystem: simple`): das
-  Electron-42-Binary aus dem GitHub-Release als `archive`-Source → `/app/electron/`, `desktop/electron/dist/{main,preload}.cjs`
+  Electron-42-Binary aus dem GitHub-Release als `archive`-Source **mit `strip-components: 0`** (das Release-Zip ist ein
+  flacher Baum mit `locales/` + `resources/` drin — flatpak-builders Default `strip-components: 1` würde die zwei
+  Verzeichnisse plattmachen → `resources/default_app.asar` + `locales/*.pak` lägen im Top-Level → Electron findet sie
+  nicht und beendet sich mit Code 1 *bevor `main.cjs` läuft*; das war der T6-„startet nicht"-Bug, gefixt 2026-05-12)
+  → `/app/electron/`, `desktop/electron/dist/{main,preload}.cjs`
   → `/app/pulse/`, die Sidecar-`.py` → `/app/share/pulse/gsr-sidecar/` (= der Flatpak-Default-Pfad in `sidecar.ts`),
   `desktop/electron/icon.png` → `/app/icon.png` (`main.ts` lädt's von `../icon.png` rel. zu `/app/pulse/`), Launcher +
   `.desktop`/`.metainfo.xml`/`.svg`.
@@ -240,17 +244,20 @@ raus und der Electron-Shell + dem Python-Sidecar rein.
   kein `PULSE_DEV_URL`). Web-Fixes sind sofort live; nur native Änderungen (Electron-main/preload, Sidecar, GSR-Binary)
   brauchen einen Flatpak-Rebuild.
 - **Launcher** (`/app/bin/pulse`): setzt `GSR_BINARY=/app/bin/gpu-screen-recorder` + `PULSE_SIDECAR_PY` + `PULSE_PYTHON=python3`,
-  dann `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`. **Kein `ELECTRON_OZONE_PLATFORM_HINT`** — Electron
-  nimmt den X11-Backend (über XWayland; Manifest mountet `--socket=x11`), weil natives Ozone-Wayland auf NVIDIA an der
-  DRM-Render-Node-Erkennung scheitert (genau wie die Nicht-Flatpak-Dev-App XWayland nutzt). Override: `ELECTRON_OZONE_PLATFORM_HINT=auto`.
+  hängt `--ozone-platform-hint=auto` an (Electron wählt selbst: natives Wayland wenn da, sonst X11/XWayland — Manifest
+  mountet `--socket=wayland` *und* `--socket=x11`), dann `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`.
+  Override: `PULSE_OZONE=x11` (erzwingt XWayland — falls natives Wayland mal zickt) bzw. `PULSE_OZONE=wayland`. *(Vor dem
+  2026-05-12-Fix erzwang der Launcher `--ozone-platform=x11` — das war eine Fehldiagnose des „startet nicht"-Bugs, der
+  in Wahrheit am `strip-components`-Manifest-Problem oben lag; die Nicht-Flatpak-Dev-App läuft auch auf nativem Wayland.)*
 - **Bauen/installieren (User-Scope, kein sudo):** `packaging/build.fish` (`build:electron` → `flatpak-builder --user --install`).
   Erster Build ~15–30 min (FFmpeg + GSR aus Source). Danach `flatpak run com.unicutmedia.Pulse`.
 - **Distribution (Folge-Schritt):** `flatpak-builder --repo=<dir> …` → OSTree-Repo → über HTTPS hosten (z.B.
   `flatpak.unicutmedia.com` hinter dem Caddy auf dem VPS) → `.flatpakref` verteilen → `flatpak update` zieht neue Builds.
   Kann in CI (build → `build-export` → `rsync` auf den VPS), analog zu den Docker-Images.
-- **Falls die gepackte App nicht startet** (Electron-Prozess endet sofort): meist ein GPU/Wayland-Problem auf NVIDIA →
-  Fallbacks in `launcher.sh`/Manifest: `ELECTRON_OZONE_PLATFORM_HINT=x11` (XWayland, ist schon der Default), oder
-  `--disable-gpu` an die `zypak-wrapper`-Zeile, oder `--disable-gpu-sandbox`.
+- **Falls die gepackte App nicht startet** (Electron-Prozess endet sofort, Exit 1, kaum Output): erst `flatpak run --command=sh
+  com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'` — fehlen die, ist's wieder das
+  `strip-components`-Thema. Sonst meist GPU/Wayland auf NVIDIA → `PULSE_OZONE=x11 flatpak run …` (XWayland), oder
+  `--disable-gpu` an die `zypak-wrapper`-Zeile im Launcher, oder `--disable-gpu-sandbox`.
 
 **Frontend-Glue:** `web/src/lib/platform/runtime.ts` hat `isElectron()`
 (`window.pulse?.platform === 'electron'`), `isDesktop()` (= `isElectron()`, Alias) und

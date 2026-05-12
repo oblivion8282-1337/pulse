@@ -16,12 +16,18 @@ set -e
 export GSR_BINARY="${GSR_BINARY:-/app/bin/gpu-screen-recorder}"
 export PULSE_SIDECAR_PY="${PULSE_SIDECAR_PY:-/app/share/pulse/gsr-sidecar/control.py}"
 export PULSE_PYTHON="${PULSE_PYTHON:-python3}"
-# Force the X11 Ozone backend (over XWayland on a Wayland session; the manifest
-# mounts --socket=x11). Recent Electron defaults to native Ozone-Wayland when
-# WAYLAND_DISPLAY is set, but that trips over NVIDIA's DRM render-node detection
-# here — same reason the non-Flatpak dev app sticks with XWayland. Override:
-#   PULSE_OZONE=auto flatpak run com.unicutmedia.Pulse   (→ --ozone-platform-hint=auto, native Wayland)
-PULSE_OZONE="${PULSE_OZONE:-x11}"
-if [ "$PULSE_OZONE" = "auto" ]; then set -- "$@" --ozone-platform-hint=auto; else set -- "$@" --ozone-platform=x11; fi
+
+# Display backend: let Electron pick it (`--ozone-platform-hint=auto` → native
+# Wayland when a Wayland session is available, X11/XWayland otherwise). The manifest
+# mounts both --socket=wayland and --socket=x11, so either works. If native Wayland
+# ever misbehaves (e.g. NVIDIA quirks), force XWayland:
+#   PULSE_OZONE=x11 flatpak run com.unicutmedia.Pulse
+# (PULSE_OZONE=wayland forces native Wayland.)
+PULSE_OZONE="${PULSE_OZONE:-auto}"
+if [ "$PULSE_OZONE" = "auto" ]; then
+  set -- "$@" --ozone-platform-hint=auto
+else
+  set -- "$@" --ozone-platform="$PULSE_OZONE"
+fi
 
 exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs "$@"

@@ -26,6 +26,6 @@ Host `build/repo/` over HTTPS (e.g. `flatpak.unicutmedia.com` behind the existin
 
 ## Files
 - `com.unicutmedia.Pulse.yml` — the manifest
-- `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`
+- `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`
 - `com.unicutmedia.Pulse.desktop` / `.metainfo.xml` / `.svg` — desktop integration (the `.svg` is `web/static/pulse-mark.svg`)
 - `build.fish` — the local build helper

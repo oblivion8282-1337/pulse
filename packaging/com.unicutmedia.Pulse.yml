@@ -25,12 +25,11 @@ base-version: '24.08'
 command: pulse
 
 finish-args:
-  # Display. We mount both X11 (XWayland) and Wayland sockets and let Electron use
-  # its default X11 backend — that's the robust path here (the non-Flatpak dev app
-  # does the same on this Wayland+NVIDIA setup; native Ozone-Wayland trips over the
-  # NVIDIA DRM render-node detection). `--socket=x11` (not `fallback-x11`) so the
-  # XWayland socket is actually mounted when running on a Wayland session. To opt
-  # into native Wayland: `ELECTRON_OZONE_PLATFORM_HINT=auto flatpak run …`.
+  # Display. Mount both the X11 (XWayland) and the Wayland socket; the launcher
+  # passes `--ozone-platform-hint=auto` so Electron picks native Wayland when a
+  # Wayland session is available and falls back to X11/XWayland otherwise.
+  # `--socket=x11` (not `fallback-x11`) so XWayland is reachable on a Wayland
+  # session too — used as the fallback and by the `PULSE_OZONE=x11` override.
   - --socket=x11
   - --socket=wayland
   - --share=ipc
@@ -170,6 +169,13 @@ modules:
         url: https://github.com/electron/electron/releases/download/v42.0.1/electron-v42.0.1-linux-x64.zip
         sha256: e1b8b5b86d3fff69e2b3502586363d384085ee0578bd041fa5915fd0b557c4f1
         dest: electron
+        # The Electron release zip is a *flat* tree (electron, locales/, resources/,
+        # *.pak, *.so, …). flatpak-builder defaults `strip-components` to 1 for
+        # `type: archive` — that strips the leading `locales/` and `resources/` from
+        # those entries, flattening default_app.asar and the locale .pak files into
+        # the top level. Electron then can't find resources/default_app.asar or
+        # locales/<locale>.pak and exits (code 1) before running main.cjs. Keep 0.
+        strip-components: 0
       - type: dir
         path: ../desktop/electron/dist
         dest: app-dist
