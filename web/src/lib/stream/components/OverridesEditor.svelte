@@ -80,9 +80,13 @@
       data-testid="stream-overrides-resolution"
     >
       {#each RESOLUTION_VALUES as r (r)}
-        <option value={r}>{r}</option>
+        <option value={r}>{r === 'Native' ? 'Native (Bildschirm)' : r}</option>
       {/each}
     </select>
+    <p class="text-text-muted text-[11px]">
+      Nichts über deiner Monitorauflösung wählen — GSR skaliert dann nur hoch (mehr
+      Bandbreite, kein Detailgewinn).
+    </p>
   </div>
 
   <div class="flex flex-col gap-1.5">

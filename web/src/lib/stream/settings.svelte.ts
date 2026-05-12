@@ -57,7 +57,11 @@ export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'av1', label: 'AV1' },
 ];
 
-export const RESOLUTION_VALUES: ReadonlyArray<string> = ['Native', '1440p', '1080p', '720p'];
+// Downscale targets only — GSR scales to exactly the chosen size, so offering
+// something bigger than the monitor would just upscale (more bandwidth, no
+// detail). 'Native' means "don't scale". The sidecar still understands a
+// persisted '1440p' from before this change.
+export const RESOLUTION_VALUES: ReadonlyArray<string> = ['Native', '1080p', '720p', '480p'];
 
 export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
   'Aus',
@@ -66,11 +70,25 @@ export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
   'Desktop + Mikrofon',
 ];
 
+/** Prefix the sidecar uses to recognise "capture this app's audio" — the
+ *  on-the-wire `audio.mode` for app capture is `"App: <name>"`, which the
+ *  sidecar maps to GSR's `-a "app:<name>"`. (Mirrors `APP_LABEL_PREFIX` in
+ *  `streaming/gsr-sidecar/profiles.py`.) */
+export const APP_AUDIO_PREFIX = 'App: ';
+
+export function isAppAudioMode(mode: string): boolean {
+  return mode.startsWith(APP_AUDIO_PREFIX);
+}
+
+export function appFromAudioMode(mode: string): string {
+  return isAppAudioMode(mode) ? mode.slice(APP_AUDIO_PREFIX.length) : '';
+}
+
 export function isHdrCodec(codec: string | undefined): boolean {
   return !!codec && codec.endsWith('_hdr');
 }
 
-export function audioModeUsesDesktop(mode: AudioMode): boolean {
+export function audioModeUsesDesktop(mode: string): boolean {
   return mode === 'Desktop' || mode === 'Desktop + Mikrofon';
 }
 
@@ -88,7 +106,11 @@ export const streamSettings = $state({
   profile_name: '',
   server_name: '',
   capture_source: 'portal' as 'portal' | string,
-  audio_mode: 'Desktop' as AudioMode,
+  // One of AUDIO_MODES, or `"App: <name>"` (capture a specific running app).
+  audio_mode: 'Desktop' as string,
+  // Remembers the last app picked for the "App: …" mode, so toggling away and
+  // back keeps the selection.
+  audio_app: '' as string,
   excluded_apps: [] as string[],
   overrides: {} as OverrideSet,
   use_overrides: false,
@@ -123,6 +145,7 @@ const PERSIST_KEYS = [
   'server_name',
   'capture_source',
   'audio_mode',
+  'audio_app',
   'excluded_apps',
   'overrides',
   'use_overrides',
@@ -137,6 +160,7 @@ function snapshotPersisted(): Record<PersistKey, unknown> {
     server_name: streamSettings.server_name,
     capture_source: streamSettings.capture_source,
     audio_mode: streamSettings.audio_mode,
+    audio_app: streamSettings.audio_app,
     excluded_apps: streamSettings.excluded_apps.slice(),
     overrides: { ...streamSettings.overrides },
     use_overrides: streamSettings.use_overrides,
@@ -168,10 +192,12 @@ function applyPersisted(data: Record<string, unknown>): void {
   if (typeof data.capture_source === 'string') streamSettings.capture_source = data.capture_source;
   if (
     typeof data.audio_mode === 'string' &&
-    (AUDIO_MODES as ReadonlyArray<string>).includes(data.audio_mode)
+    ((AUDIO_MODES as ReadonlyArray<string>).includes(data.audio_mode) ||
+      data.audio_mode.startsWith(APP_AUDIO_PREFIX))
   ) {
-    streamSettings.audio_mode = data.audio_mode as AudioMode;
+    streamSettings.audio_mode = data.audio_mode;
   }
+  if (typeof data.audio_app === 'string') streamSettings.audio_app = data.audio_app;
   if (Array.isArray(data.excluded_apps)) {
     streamSettings.excluded_apps = data.excluded_apps.filter((x): x is string => typeof x === 'string');
   }
