@@ -12,6 +12,7 @@
    bestehenden Components automatisch umfärben. */
 @theme {
   --color-bg-base: transparent;
+  --animate-auth-ping: auth-ping 2.6s ease-out infinite;
   --color-bg-sidebar: var(--panel);
   --color-bg-channels: var(--panel);
   --color-bg-chat: var(--panel);
@@ -137,6 +138,11 @@
   html {
     @apply font-sans;
   }
+}
+
+@keyframes auth-ping {
+  0%   { transform: scale(0.7); opacity: 1; }
+  80%, 100% { transform: scale(1.6); opacity: 0; }
 }
 
 @layer components {
