@@ -1,11 +1,11 @@
 <!--
   HqStreamButton — der Button im VoiceControlBar der das StreamPanel öffnet (T3c).
 
-  Gating: nur sichtbar wenn `isTauri() && isLinux() && stream.gsrAvailable`
-  (= die Bridge antwortet und das `gpu-screen-recorder`-Binary wurde gefunden).
-  In jedem anderen Pfad rendert sich der Button nicht — der normale
-  WebRTC-Screenshare-Button im Control-Bar bleibt der einzige Streaming-Pfad
-  im Browser/Mac/Windows.
+  Gating: nur sichtbar wenn `isElectron() && isLinux() && stream.gsrAvailable`
+  (= die Electron-Sidecar-Bridge antwortet und das `gpu-screen-recorder`-Binary
+  wurde gefunden). In jedem anderen Pfad rendert sich der Button nicht — der
+  normale WebRTC-Screenshare-Button im Control-Bar bleibt der einzige
+  Streaming-Pfad im Browser/Mac/Windows.
 
   UI: regulärer ghost/default-Button mit Tooltip. Wenn ein Stream läuft
   (`stream.running` true), bekommt das Icon einen kleinen Live-Indikator
@@ -19,13 +19,13 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import VideoIcon from '@lucide/svelte/icons/video';
-  import { isTauri, isLinux } from '$lib/platform/runtime';
+  import { isElectron, isLinux } from '$lib/platform/runtime';
   import { stream } from '../state.svelte';
   import HqStreamDialog from './HqStreamDialog.svelte';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
-  let visible = $derived(isTauri() && isLinux() && stream.gsrAvailable);
+  let visible = $derived(isElectron() && isLinux() && stream.gsrAvailable);
   let running = $derived(stream.running);
 </script>
 

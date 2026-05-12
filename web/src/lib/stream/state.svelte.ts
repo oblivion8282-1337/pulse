@@ -14,13 +14,14 @@ import { gsr, type GsrEvent } from './gsr';
 const MAX_LOG_LINES = 50;
 
 export const stream = $state({
-  /** True iff the Tauri bridge can be reached (i.e. we're inside Tauri AND
-   *  the sidecar replied to `health`). Pre-T3c this was just `isTauri()`. */
+  /** True iff the desktop sidecar bridge can be reached (i.e. we're inside the
+   *  Electron shell AND the sidecar replied to `health`). Since E1b this is
+   *  `isElectron()` + a successful health probe (was `isTauri()` pre-E1b). */
   available: false,
   /** True iff the sidecar's health probe says `gsr.available === true` —
    *  i.e. a `gpu-screen-recorder` binary was located. Added in T3c so the
    *  voice-view HQ-Stream button can gate on real availability, not just
-   *  "Tauri-bridge works". */
+   *  "the bridge works". */
   gsrAvailable: false,
   running: false,
   state: 'idle' as 'idle' | 'starting' | 'live' | 'error' | 'stopped',

@@ -261,59 +261,74 @@ printf '%s\n' \
 
 **Was bewusst NICHT mitkopiert wurde:** Qt-UI (`ui/main.py`, `ui/stream_window.py`), Binär-/Build-Artefakte (`mediamtx`-Binary 52 MB, `*.flatpak` 181 MB, `build/`, `.flatpak-builder/`, `*.log`), die generierte `server/mediamtx.yml`, `server/.stream-key`, `bootstrap.fish` (lädt nur MediaMTX-Binary für Lokal-Tests — brauchen wir hier nicht). `packaging/` (Flatpak-Manifest) folgt in T6 als kombiniertes Manifest.
 
-## Desktop ↔ Sidecar-Bridge (T3a)
+## Desktop ↔ Sidecar-Bridge (Electron — E1b)
 
-Rust spawnt den Python-Sidecar als Kind-Prozess (`python3 streaming/gsr-sidecar/control.py`) und brückt das newline-JSON-Protokoll zwischen Svelte-Frontend und Sidecar. **Der Sidecar ist nicht beim App-Start aktiv** — der erste `gsr_*`-Invoke aus dem WebView spawnt ihn (lazy). Wer nie streamt, fährt nie Python hoch.
+Der Electron-Main-Prozess spawnt den Python-Sidecar (`python3 streaming/gsr-sidecar/control.py`) als Kind-Prozess und brückt das newline-JSON-Protokoll per IPC zum Renderer (= der SvelteKit-App). **Der Sidecar startet nicht beim App-Start** — der erste `gsr:call`-Invoke aus dem Renderer spawnt ihn (lazy). Wer nie streamt, fährt nie Python hoch.
 
 ```
-desktop/src-tauri/src/streaming/
-├── mod.rs        SidecarState (tokio::sync::Mutex<Option<Arc<Sidecar>>>), manage(), shutdown() für RunEvent::Exit
-├── sidecar.rs    Spawn (tokio::process::Command), Path-Resolver, Reader-/Writer-/Stderr-Tasks,
-│                 Request-/Reply-Routing via numerische IDs + oneshot::channel
-└── commands.rs   die 9 `#[tauri::command] async fn gsr_*` — alle delegieren an Sidecar::call()
+desktop/electron/
+├── sidecar.ts    SidecarManager (Singleton via getSidecar()): child_process.spawn,
+│                 Path-Resolver, readline-Reader auf stdout, Request/Reply-Routing
+│                 via numerische IDs (Map id → {resolve,reject,timer}), stderr→console.error
+│                 mit Prefix `[gsr-sidecar]`, onEvent(cb), shutdown(). Wird von esbuild
+│                 automatisch in main.cjs gebundlet (main.ts importiert es).
+├── main.ts       wireSidecar(): getSidecar().onEvent(ev → webContents.send('gsr:event', ev))
+│                 + ipcMain.handle('gsr:call', (op, params) → getSidecar().call(op, params))
+│                 (catch-all → {ok:false,error}). before-quit → getSidecar().shutdown() (3 s-Backstop).
+└── preload.ts    contextBridge.exposeInMainWorld('pulse', { platform, appVersion, gsr: {...} })
 ```
 
-**Path-Resolver-Reihenfolge** (`sidecar::resolve_script_path`): `$PULSE_SIDECAR_PY` → Walk-up vom `current_exe()` bis ein `<X>/streaming/gsr-sidecar/control.py` existiert (greift in `target/debug/` und `target/release/`) → Flatpak-Default `/app/share/pulse/gsr-sidecar/control.py` (T6 — TODO, wird beim Flatpak-Packaging konkretisiert).
+**Path-Resolver-Reihenfolge** (`sidecar.ts::resolveScriptPath`): `$PULSE_SIDECAR_PY` (absoluter Pfad zu `control.py`, sonst Fehler wenn die Datei fehlt) → Walk-up vom `__dirname` des gebundleten `main.cjs` (`desktop/electron/dist/`) bis ein `<X>/streaming/gsr-sidecar/control.py` existiert (greift im Dev von `dist/` aus über `../../../streaming/...`) → Flatpak-Default `/app/share/pulse/gsr-sidecar/control.py` (T6 — TODO, beim Flatpak-Packaging konkretisieren).
 
-**Protokoll-Bridge:** Jeder Outbound-Request kriegt eine `id` (u64, monoton steigend), die `control.py` 1:1 in der Response spiegelt. Reader-Task liest `stdout` line-wise (`tokio::io::BufReader::lines()`), routet `{"id":..}`-Responses an wartende `oneshot::Receiver`, leitet `{"ev":..}`-Events als Tauri-Events auf den Channel `gsr://event` an alle Webviews weiter. Stderr wird zeilenweise als `log::warn!` durchgeschleift (Python-Tracebacks landen dort). Standard-Timeout 10 s; `gsr_start` 60 s (Wayland-Portal-Dialog), `gsr_stop` 15 s. Shutdown (`RunEvent::Exit`): SIGTERM an die Sidecar-Prozessgruppe → 2 s Grace → SIGKILL. Sidecar's eigener SIGTERM-Handler stoppt einen laufenden GSR vor dem Exit.
+**Protokoll-Bridge:** Jeder Outbound-Request kriegt eine `id` (number, monoton steigend), die `control.py` 1:1 in der Response spiegelt. `readline.createInterface({input: child.stdout})` liest stdout zeilenweise → JSON parsen: hat `"id"` (number) → an die wartende Promise; hat `"ev"` (string, kein `id`) → an den von `main.ts` gesetzten Event-Callback (→ `webContents.send('gsr:event', ev)`). Kaputte Zeile → `console.error`, kein Crash. Stirbt der Sidecar / `error`-Event → alle pending Requests werden rejected. Standard-Timeout 10 s; `start` 60 s (Wayland-Portal-Dialog), `stop` 15 s. `shutdown()`: stdin schließen (Sidecar-Loop endet auf EOF und stoppt einen laufenden GSR) → 1,5 s Grace → `SIGTERM` → 2 s Grace → `SIGKILL`. (stdin-zuerst-schließen vermeidet, dass der Python-Signalhandler ein reentrantes `sys.stdin.close()` macht während er auf stdin blockt.) `pythonBin` = `$PULSE_PYTHON ?? 'python3'`.
 
-**Tauri-Commands** (alle in `streaming::commands`, registriert in `lib.rs::run()` via `invoke_handler`, ACL-Permissions autogeneriert durch `tauri-build`s `AppManifest::commands(&[...])` in `build.rs`, allowlisted in `capabilities/default.json` als `allow-gsr-{health,gpu-info,list-monitors,list-profiles,list-application-audio,build-argv,start,stop,state}` — Hyphens, weil ACL-Identifier kein `_` erlauben):
+**Renderer-API — `window.pulse.gsr.*`** (vom Preload exponiert, alle Methoden async, geben das rohe Response-JSON zurück bzw. werfen bei `ok:false`/Timeout — die `gsr:call`-IPC läuft generisch über `ipcRenderer.invoke('gsr:call', op, params)`):
 
-| `#[tauri::command]` | Args | Response (JSON, durchgereicht) |
+| Methode | op | Response (JSON, durchgereicht) |
 |---|---|---|
-| `gsr_health` | — | `{ok, gsr: {available, source, path?, version?, ...}}` |
-| `gsr_gpu_info` | — | `{ok, vendor?, video_codecs?, ...}` |
-| `gsr_list_monitors` | — | `{ok, monitors: [{name, resolution}]}` |
-| `gsr_list_profiles` | — | `{ok, profiles, servers, audio_modes, app_label_prefix}` |
-| `gsr_list_application_audio` | — | `{ok, applications}` |
-| `gsr_build_argv` | `args: {...}` | `{ok, binary, argv}` (kein Start!) |
-| `gsr_start` | `args: {profile, server?\|channel, capture, audio, ...}` | `{ok, argv}` — danach kommen Events auf `gsr://event` |
-| `gsr_stop` | — | `{ok}` |
-| `gsr_state` | — | `{ok, running, state, fps, uptime_s, argv}` |
+| `health()` | `health` | `{ok, gsr: {available, source, path?, version?, vendor?, video_codecs?, ...}}` |
+| `gpuInfo()` | `gpu_info` | `{ok, vendor?, video_codecs?, ...}` |
+| `listMonitors()` | `list_monitors` | `{ok, monitors: [{name, resolution}]}` |
+| `listProfiles()` | `list_profiles` | `{ok, profiles, servers, audio_modes, app_label_prefix}` |
+| `listApplicationAudio()` | `list_application_audio` | `{ok, applications}` |
+| `buildArgv(args)` | `build_argv` | `{ok, binary, argv}` (kein Start!) |
+| `start(args)` | `start` | `{ok, argv}` — danach kommen Events auf `gsr:event` |
+| `stop()` | `stop` | `{ok}` |
+| `state()` | `state` | `{ok, running, state, fps, uptime_s, argv}` |
+| `onEvent(cb)` | — | registriert `ipcRenderer.on('gsr:event', …)`, gibt eine Unsubscribe-Fn zurück. **Callbacks gehen nicht direkt über contextBridge** — der Wrapper läuft im Preload, ruft die vom Renderer übergebene `cb` von dort auf. |
+
+Die `window.pulse`-Shape ist als `Window`-Augmentation in `web/src/lib/platform/pulse.d.ts` deklariert (`PulseApi`/`PulseGsrApi`) — mit `preload.ts` synchron halten.
 
 **Frontend-Bridge** (`web/src/lib/stream/`):
 
-- `gsr.ts` — typed Wrapper um `invoke()` + `listen('gsr://event')`. Alle Methoden returnen `null` außerhalb von Tauri (`!isTauri()`), nicht throwen — der Import ist im Browser sicher.
-- `state.svelte.ts` — `$state`-Object `stream = {available, running, state, fps, uptimeS, error, lastLog: string[]}`, gefüttert aus dem Event-Channel. `initStream()` ist idempotent.
-- `web/src/routes/+layout.svelte` ruft `initStream()` in `onMount` parallel zum bestehenden `initDesktopPtt()`. In Browser → No-Op.
+- `gsr.ts` — typed Wrapper um `window.pulse.gsr.*`. `gsr.available()` = `isElectron() && window.pulse?.gsr != null` (war `isTauri()`). Alle Methoden returnen `null` außerhalb von Electron (`!gsr.available()`), nicht throwen — der Import ist im Browser sicher. Die exportierte API (`health/gpuInfo/listMonitors/listProfiles/listApplicationAudio/buildArgv/start/stop/state/onEvent/available`) ist **signatur-identisch** zur Tauri-Variante; nur der Transport (`@tauri-apps/api` → `window.pulse`) hat sich geändert.
+- `state.svelte.ts` — `$state`-Object `stream = {available, gsrAvailable, running, state, fps, uptimeS, error, lastLog}`, gefüttert aus `gsr.onEvent`. `initStream()` ist idempotent. Event-Format (`{ev:..,...}`) unverändert.
+- `web/src/routes/+layout.svelte` ruft `initStream()` in `onMount`. In Browser → No-Op.
+- Streaming-Gating: `HqStreamButton.svelte` zeigt sich nur bei `isElectron() && isLinux() && stream.gsrAvailable`; `StreamPanel.svelte` und die Dev-Route gaten auf `gsr.available()`.
 
-**Dev-Test-Route**: `web/src/routes/app/dev/stream/+page.svelte` (nur per URL `/app/dev/stream` erreichbar — nicht im Menü). Zeigt Health/Monitors/Profiles als JSON, Profil-/Server-/Capture-/Audio-Picker, Buttons für `build_argv` (kein Start!), `Start` (öffnet Portal!) und `Stop`. Dient als E2E-Check für die Bridge — die produktive Streaming-UI baut T3b auf einer richtigen Komponenten-Hierarchie.
+**Dev-Test-Route**: `web/src/routes/app/dev/stream/+page.svelte` (`/app/dev/stream` — nicht im Menü). `<StreamPanel />` + Debug-Block (Raw-Health, `build_argv` ohne Start, Live-State). E2E-Check für die Bridge in der Electron-App.
 
-**Sidecar-Status nach T3a unverändert:** `control.py` musste **nicht** angepasst werden — Request-IDs (`id`-Echo) sind seit T2 abwärtskompatibel implementiert; `SIGTERM`/`SIGINT`/stdin-EOF-Shutdown auch. Die Bridge in `sidecar.rs` baut nur drauf auf.
+**`@tauri-apps/api` jetzt ungenutzt:** `gsr.ts`/`state.svelte.ts` importieren `@tauri-apps/api` nicht mehr; `ptt.ts` + `persistence.ts` nutzen es noch (Tauri-Pfad, unter Electron tot — Cleanup in E1c, dann fliegen die `@tauri-apps/*`-Deps aus `web/package.json`). `desktop/src-tauri/` ist in E1b unangetastet.
 
-**Verifikation T3a:**
-- `cd desktop/src-tauri && cargo build` — keine Warnings.
-- `cd web && pnpm check && pnpm build` — 0 Errors.
-- Sidecar-E2E (ohne GSR-Start): `printf '%s\n' '{"op":"health","id":1}' '{"op":"state","id":7}' '{"op":"health"}' | uv run --project streaming python streaming/gsr-sidecar/control.py` — IDs werden gespiegelt, fehlende ID → `id:null` in Response, unbekannte Op → `ok:false`.
-- `uv run pytest` — 134/134 grün (Etappe-1/2-Suites unangefasst).
-- **Nicht verifiziert in T3a**: tatsächlicher `gsr_start` (würde Portal-Dialog öffnen + an Hetzner pushen). T3b-Aufgabe für den User.
+**Sidecar selbst unverändert:** `control.py` musste **nicht** angepasst werden — Request-IDs (`id`-Echo) + `SIGTERM`/`SIGINT`/stdin-EOF-Shutdown sind seit T2 da. `sidecar.ts` baut nur drauf auf.
+
+**Verifikation E1b:**
+- `cd desktop && pnpm run build:electron` — esbuild bundlet `electron/dist/{main,preload}.cjs` (mit `sidecar.ts`) ohne Fehler.
+- `cd web && pnpm check && pnpm build` — 0 Errors / 0 Warnings.
+- `REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q` — 134/134 grün.
+- `cd desktop/src-tauri && cargo build` — unverändert grün (nichts angefasst).
+- Node-Sidecar-Standalone: `sidecar.ts` via esbuild → temp-`.cjs` gebundlet, `getSidecar()` lädt, `call('health')` + `call('state')` → IDs gespiegelt (1, 2), `ok:true`, GSR-Binary gemeldet; `shutdown()` → Exit-Code 0, kein Traceback.
+- **Nicht verifiziert in E1b**: tatsächlicher `start` (würde Portal-Dialog öffnen + an Hetzner pushen) + der visuelle Test der Electron-GUI — macht der User/Parent.
+
+> **Historisch (abgelöst durch E1b):** Vor der Electron-Migration lief diese Bridge in Rust (`desktop/src-tauri/src/streaming/{mod,sidecar,commands}.rs`, neun `#[tauri::command] gsr_*`, Event-Channel `gsr://event`, ACL-allowlisted in `capabilities/default.json`). Gleiche Idee (lazy spawn, numerische Request-IDs, oneshot-Routing, Event-Forwarding) — wird in E1c mit dem Rest von `src-tauri/` entfernt.
 
 ## Streaming-UI + Voice-View-Integration (T3b/T3c)
 
 Die Pulse-Streaming-UI lebt unter `web/src/lib/stream/`:
 
-- `gsr.ts` — typed Wrapper um die Tauri-Bridge (T3a). `GsrStartArgs` trägt
-  seit T3c zusätzlich `custom_server: {…}` für die nutzer-definierten Server-Targets.
+- `gsr.ts` — typed Wrapper um die Sidecar-Bridge (seit E1b `window.pulse.gsr.*`,
+  vorher Tauri — siehe "Desktop ↔ Sidecar-Bridge (Electron — E1b)"). `GsrStartArgs`
+  trägt seit T3c zusätzlich `custom_server: {…}` für die nutzer-definierten Server-Targets.
 - `state.svelte.ts` — Live-Stream-State (`running/fps/uptime/log/error`).
 - `settings.svelte.ts` — User-Picker-Selections + Catalog + GPU-Info-Cache,
   alle Mutations rufen `persistSettings()` (debouncede 300ms-Save).
@@ -348,8 +363,8 @@ Hardening-Maßnahme — auf shared Boxen reicht das, ist aber *kein* Secret-Vaul
 
 **Voice-View-Integration (T3c):** `VoiceControlBar` rendert `<HqStreamButton />`
 zwischen Screenshare-Toggle und Verlassen-Button. Der Button rendert *nur*
-wenn `isTauri() && isLinux() && stream.available` — im Browser und auf anderen
-OSs unsichtbar. Click → öffnet `HqStreamDialog` mit dem ganzen `StreamPanel`
+wenn `isElectron() && isLinux() && stream.gsrAvailable` (seit E1b — war `isTauri()`)
+— im Browser und auf anderen OSs unsichtbar. Click → öffnet `HqStreamDialog` mit dem ganzen `StreamPanel`
 drin (shadcn-svelte-`Dialog`, `max-w-2xl`, `closeOnOutsideClick`-Default). Bei
 laufendem Stream (`stream.running`) zeigt der Button-Icon einen roten Live-Dot.
 Neue `data-testid`s: `voice-hq-stream-btn`, `voice-hq-stream-live-dot`,
@@ -357,9 +372,9 @@ Neue `data-testid`s: `voice-hq-stream-btn`, `voice-hq-stream-live-dot`,
 `stream-profile-av1-warning`.
 
 **Test-Befehl Dev-Route:** Vite-Dev `:5173` läuft, dann
-`http://127.0.0.1:5173/app/dev/stream` öffnen — die T3a-Diagnose-Page mit
+`http://127.0.0.1:5173/app/dev/stream` öffnen — die Diagnose-Page mit
 allen Sidecar-Ops als Buttons. Im *normalen* Pulse-Flow ist die Streaming-UI
-nur im Voice-Channel über den Stream-Button erreichbar (und nur unter Tauri+Linux).
+nur im Voice-Channel über den Stream-Button erreichbar (und nur unter Electron+Linux mit gefundenem GSR-Binary).
 
 ## Test-Datenbank
 
@@ -434,7 +449,7 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
 - ❌ Shared DB-Tabellen zwischen Services · ❌ HS256 JWT
 - ❌ `fastapi-users` / `broadcaster` / `fastapi-socketio` / `fastapi_websocket_pubsub` als Dependency (alle archiviert/Maintenance-Mode → Eigenbau, Source nur als Referenz)
 - ❌ State-Library (Redux/Zustand/Pinia) neben Svelte-Runes · ❌ CSS-in-JS (Tailwind reicht)
-- ❌ Electron statt Tauri · ❌ React-Bridge in SvelteKit für LiveKit-React-Components
+- ❌ Tauri für den Desktop-Wrapper (Pivot 2026-05-12 → Electron, §17 / E1 — WebKitGTK-WebRTC zu unzuverlässig für LiveKit) · ❌ React-Bridge in SvelteKit für LiveKit-React-Components
 - ❌ `@livekit/krisp-noise-filter` (kostenpflichtig seit 2026-05-01) · ❌ `svelte-french-toast` (Sv5-inaktiv) · ❌ `svelte-markdown` blind (kein Sanitizer)
 - ❌ Exactly-once-Delivery anstreben · ❌ Re-Publishing MediaMTX→LiveKit (Transcoding zu teuer)
 - ❌ Routes-/Service-Dateien über die Größen-Grenze wachsen lassen statt zu splitten

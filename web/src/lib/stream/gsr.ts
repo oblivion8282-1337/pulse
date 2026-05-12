@@ -1,12 +1,15 @@
 /**
- * Typed bridge to the Rust-side GSR sidecar (T3a).
+ * Typed bridge to the GSR sidecar.
  *
- * The Tauri layer exposes nine `gsr_*` commands and a single event channel
- * `gsr://event`. This module wraps both in a small typed API so the rest of
- * the web app doesn't deal with raw `invoke()` calls.
+ * Since E1b the sidecar is a Python child process owned by the Electron main
+ * process (`desktop/electron/sidecar.ts`); the renderer talks to it through the
+ * `window.pulse.gsr.*` API the preload exposes (each method is an
+ * `ipcRenderer.invoke('gsr:call', op, params)` under the hood, events arrive on
+ * `gsr:event`). Before E1b this wrapped the Tauri `gsr_*` commands +
+ * `gsr://event` — the exported API here is unchanged; only the transport moved.
  *
- * In a plain browser (`!isTauri()`) every method returns `null`/`false` and
- * never throws — the streaming UI is hidden in that case anyway, but it's
+ * In a plain browser (`!gsr.available()`) every method returns `null`/`false`
+ * and never throws — the streaming UI is hidden in that case anyway, but it's
  * useful that the module is import-safe everywhere.
  *
  * Wire protocol: see `streaming/README.md`. We surface the raw JSON the
@@ -15,7 +18,7 @@
  * forcing a frontend update for every new health field.
  */
 
-import { isTauri } from '$lib/platform/runtime';
+import { isElectron } from '$lib/platform/runtime';
 
 // ── Response types ──────────────────────────────────────────────────────────
 
@@ -151,59 +154,71 @@ export type GsrEvent =
   | { ev: 'error'; message: string }
   | { ev: 'stopped'; code?: number };
 
-// ── Invoke helpers ──────────────────────────────────────────────────────────
+// ── Bridge helpers ──────────────────────────────────────────────────────────
 
 type Unlisten = () => void;
 
-async function invokeOrNull<T>(cmd: string, args?: Record<string, unknown>): Promise<T | null> {
-  if (!isTauri()) return null;
-  const { invoke } = await import('@tauri-apps/api/core');
-  return (await invoke(cmd, args)) as T;
+/** The `window.pulse.gsr` bridge, or `null` when not running inside Electron. */
+function bridge(): NonNullable<Window['pulse']>['gsr'] | null {
+  if (typeof window === 'undefined') return null;
+  return window.pulse?.gsr ?? null;
 }
 
 export const gsr = {
-  /** True iff we're inside Tauri and the bridge can be reached. (Cheap — does
-   *  not actually call the sidecar; use `health()` for that.) */
+  /** True iff we're inside the Electron shell and the sidecar bridge is present.
+   *  (Cheap — does not actually call the sidecar; use `health()` for that.) */
   available(): boolean {
-    return isTauri();
+    return isElectron() && bridge() !== null;
   },
 
   async health(): Promise<GsrHealth | null> {
-    return invokeOrNull<GsrHealth>('gsr_health');
+    const b = bridge();
+    return b ? ((await b.health()) as GsrHealth) : null;
   },
   async gpuInfo(): Promise<GsrGpuInfo | null> {
-    return invokeOrNull<GsrGpuInfo>('gsr_gpu_info');
+    const b = bridge();
+    return b ? ((await b.gpuInfo()) as GsrGpuInfo) : null;
   },
   async listMonitors(): Promise<GsrListMonitors | null> {
-    return invokeOrNull<GsrListMonitors>('gsr_list_monitors');
+    const b = bridge();
+    return b ? ((await b.listMonitors()) as GsrListMonitors) : null;
   },
   async listProfiles(): Promise<GsrListProfiles | null> {
-    return invokeOrNull<GsrListProfiles>('gsr_list_profiles');
+    const b = bridge();
+    return b ? ((await b.listProfiles()) as GsrListProfiles) : null;
   },
   async listApplicationAudio(): Promise<GsrListApplicationAudio | null> {
-    return invokeOrNull<GsrListApplicationAudio>('gsr_list_application_audio');
+    const b = bridge();
+    return b ? ((await b.listApplicationAudio()) as GsrListApplicationAudio) : null;
   },
   async buildArgv(args: GsrStartArgs): Promise<GsrBuildArgv | null> {
-    return invokeOrNull<GsrBuildArgv>('gsr_build_argv', { args });
+    const b = bridge();
+    return b ? ((await b.buildArgv(args)) as GsrBuildArgv) : null;
   },
   async start(args: GsrStartArgs): Promise<GsrStartResult | null> {
-    return invokeOrNull<GsrStartResult>('gsr_start', { args });
+    const b = bridge();
+    return b ? ((await b.start(args)) as GsrStartResult) : null;
   },
   async stop(): Promise<GsrStopResult | null> {
-    return invokeOrNull<GsrStopResult>('gsr_stop');
+    const b = bridge();
+    return b ? ((await b.stop()) as GsrStopResult) : null;
   },
   async state(): Promise<GsrState | null> {
-    return invokeOrNull<GsrState>('gsr_state');
+    const b = bridge();
+    return b ? ((await b.state()) as GsrState) : null;
   },
 
   /**
-   * Subscribe to `gsr://event` events from the sidecar. Returns a disposer.
-   * No-op in a plain browser.
+   * Subscribe to sidecar events (the `gsr:event` IPC channel). Returns a
+   * disposer. No-op (returns immediately) in a plain browser.
+   *
+   * Stays `async` for signature compatibility with the previous Tauri-based
+   * implementation (callers `await` it) — the underlying preload `onEvent` is
+   * synchronous and returns the unsubscribe function directly.
    */
   async onEvent(cb: (ev: GsrEvent) => void): Promise<Unlisten> {
-    if (!isTauri()) return () => {};
-    const { listen } = await import('@tauri-apps/api/event');
-    const unlisten = await listen<GsrEvent>('gsr://event', (e) => cb(e.payload));
-    return unlisten;
+    const b = bridge();
+    if (!b) return () => {};
+    return b.onEvent((ev) => cb(ev as GsrEvent));
   },
 };

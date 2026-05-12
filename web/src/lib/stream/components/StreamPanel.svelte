@@ -6,10 +6,10 @@
   (collapsible) → Controls → Log.
 
   Gating:
-  - `gsr.available()` false → komplett ausblenden (Browser ohne Tauri).
-  - `stream.available` true aber `health.gsr.available` false →
-    "GSR nicht verfügbar"-Banner statt Controls. Wir prüfen das beim Mount
-    einmalig via `gsr.health()`.
+  - `gsr.available()` false → komplett ausblenden (reiner Browser, kein
+    Electron-Sidecar-Bridge).
+  - Bridge da aber `health.gsr.available` false → "GSR nicht verfügbar"-Banner
+    statt Controls. Wir prüfen das beim Mount einmalig via `gsr.health()`.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';

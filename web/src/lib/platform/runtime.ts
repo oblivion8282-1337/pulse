@@ -3,12 +3,14 @@
  *
  * The web app ships in a few shapes: a plain browser SPA, and the same SPA
  * inside a desktop shell. The desktop wrapper is migrating from Tauri 2 (see
- * `desktop/src-tauri/`, still present) to Electron (`desktop/electron/`, E1a) —
+ * `desktop/src-tauri/`, still present) to Electron (`desktop/electron/`, E1a/E1b) —
  * Tauri's Linux WebKitGTK WebRTC is too unreliable for LiveKit voice. A few
  * features (global push-to-talk, native notifications, the GSR streaming UI)
  * only make sense in a desktop shell, some additionally only on Linux. Gate on
  * these helpers, never on a hand-rolled `navigator.userAgent` sniff scattered
  * around the codebase.
+ *
+ * The `window.pulse` shape is declared in `./pulse.d.ts`.
  */
 
 /**
@@ -25,8 +27,7 @@ export const isTauri = (): boolean =>
  * via contextBridge before any app code runs.
  */
 export const isElectron = (): boolean =>
-  typeof window !== 'undefined' &&
-  (window as { pulse?: { platform?: string } }).pulse?.platform === 'electron';
+  typeof window !== 'undefined' && window.pulse?.platform === 'electron';
 
 /** True in any desktop shell (Electron or — for now — Tauri). */
 export const isDesktop = (): boolean => isElectron() || isTauri();

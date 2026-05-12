@@ -63,7 +63,7 @@
       class="mb-4 rounded border border-amber-700 bg-amber-950/40 p-3 text-sm"
       data-testid="t3b-stream-dev-browser-notice"
     >
-      Keine Tauri-Umgebung — Streaming-Panel ist hier ausgeblendet.
+      Kein Electron-Sidecar — Streaming-Panel ist hier ausgeblendet (reiner Browser).
     </div>
   {/if}
 
