@@ -589,6 +589,11 @@ Volumes — nichts geteilt), `pulse_auth`/`pulse_chat_gateway`/`pulse_voice_sign
 - **Secrets:** nur auf dem Server in `~/pulse/infra/prod/.env` (gitignored, aus `.env.example`) + `~/pulse/infra/prod/secrets/jwt_*.pem`.
   Die PEM-Files **müssen `chmod 0644`** sein (Container laufen als uid 10001). LiveKit-Keys: Name `pulse-prod`
   (fix in `livekit.yaml` + `LIVEKIT_API_KEY`), Secret via `LIVEKIT_KEYS` env aus `.env`.
+- **Avatar-Volume:** `pulse_avatars` ist auf `pulse_auth:/app/services/auth/uploads` gemountet. `services/*/uploads` ist
+  in `.dockerignore` → nicht im Image; `Dockerfile.service` legt `uploads/avatars` aber nach `USER app` an, damit ein
+  *frisches* leeres Named-Volume beim Seed aus dem Image `app`-Ownership erbt (sonst `root:root` → uid 10001 kann nicht
+  schreiben → Avatar-Upload 500 `PermissionError`). Bei einem Fresh-Deploy auf einer neuen Box: prüfen, dass das Volume
+  `app:app` ist, sonst `docker exec -u root pulse_auth chown -R 10001:10001 /app/services/auth/uploads`.
 - **Firewall (UFW):** öffentlich offen: `1935/tcp` (RTMP), `8890/udp` (SRT), `8189/udp` (MediaMTX-ICE), `7881/tcp` +
   `7882:7892/udp` (LiveKit-RTC). 80/443 schon offen (Caddy), 8888/8889 schon offen (alter Streaming-Test). Plus
   **nur vom Docker-Bridge** (`ufw allow from 10.0.0.0/8 to any port <p> proto tcp`): `7880` (LiveKit-Signaling) +
