@@ -128,20 +128,33 @@ function wireStore(): void {
 // ── Screen capture (browser screen-share via LiveKit/WebRTC) ────────────────
 // Electron has no built-in screen picker — without a display-media request
 // handler, navigator.mediaDevices.getDisplayMedia() in the renderer throws
-// "Not supported". We hand back the first available screen source. On a Wayland
-// host this routes through xdg-desktop-portal (the compositor shows its own
-// picker); on X11 it grabs the primary screen with no prompt. (A proper in-app
-// source picker is a follow-up — the GSR HQ-stream path covers richer capture.)
+// "Not supported".
+//
+// On Linux/Wayland we must NOT call desktopCapturer.getSources() here: that
+// opens its own xdg-desktop-portal session/picker, and the subsequent capture
+// opens a *second* one — the dialog flickers open/closed/open. Instead we hand
+// Chromium a synthetic "whole screen" source; Chromium then drives the portal
+// picker itself, exactly once, during the actual capture (and the portal lets
+// the user pick which monitor/window regardless of the synthetic id).
+// On Windows/macOS `useSystemPicker: true` makes Electron use the OS picker and
+// our handler isn't invoked. (A proper in-app source picker is a follow-up —
+// the GSR HQ-stream path covers richer capture.)
 function wireScreenShare(): void {
   session.defaultSession.setDisplayMediaRequestHandler(
     (_request, callback) => {
+      if (process.platform === 'linux') {
+        // Synthetic "whole screen" stream id — Chromium maps this to its portal
+        // ScreenCast flow on Wayland (the portal picker still lets the user
+        // choose a specific monitor/window) and to the primary X screen on X11.
+        callback({ video: { id: 'screen:0:0', name: 'Bildschirm' } });
+        return;
+      }
+      // Non-Linux without a system picker: fall back to enumerating sources.
       desktopCapturer
         .getSources({ types: ['screen', 'window'] })
         .then((sources) => callback(sources[0] ? { video: sources[0] } : {}))
         .catch(() => callback({}));
     },
-    // OS-native picker where available (Windows/macOS); ignored on Linux, where
-    // our handler above runs instead.
     { useSystemPicker: true }
   );
 }
