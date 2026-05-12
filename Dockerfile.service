@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:1
+#
+# Parametrized image for the five FastAPI workspace services
+# (auth · chat-gateway · voice-signaling · media-svc · mediamtx-auth-hook).
+#
+# Build from the repo root, e.g.:
+#   docker build -f Dockerfile.service \
+#     --build-arg SVC_DIR=auth --build-arg SVC_PKG=dcc_auth -t pulse-auth .
+#   docker build -f Dockerfile.service \
+#     --build-arg SVC_DIR=chat-gateway --build-arg SVC_PKG=dcc_chat_gateway -t pulse-chat-gateway .
+#
+# SVC_DIR = directory under services/ (also the package name with `dcc-` prefix → dcc-${SVC_DIR})
+# SVC_PKG = importable Python module under services/${SVC_DIR}/src/
+#
+# All services listen on :8000 inside the container; the prod compose maps host
+# ports where a host-network peer (MediaMTX/LiveKit) needs to reach one.
+
+ARG PYTHON_VERSION=3.13
+
+# ── builder ──────────────────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /bin/uv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never
+WORKDIR /app
+ARG SVC_DIR
+
+# 1) workspace metadata only → dependency layer is cached across source changes
+COPY pyproject.toml uv.lock ./
+COPY shared/pyproject.toml shared/pyproject.toml
+COPY services/auth/pyproject.toml services/auth/pyproject.toml
+COPY services/chat-gateway/pyproject.toml services/chat-gateway/pyproject.toml
+COPY services/voice-signaling/pyproject.toml services/voice-signaling/pyproject.toml
+COPY services/media-svc/pyproject.toml services/media-svc/pyproject.toml
+COPY services/mediamtx-auth-hook/pyproject.toml services/mediamtx-auth-hook/pyproject.toml
+COPY streaming/pyproject.toml streaming/pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --package "dcc-${SVC_DIR}"
+
+# 2) project source → install dcc-${SVC_DIR} + dcc-shared (editable)
+COPY shared/ shared/
+COPY services/${SVC_DIR}/ services/${SVC_DIR}/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --package "dcc-${SVC_DIR}"
+
+# ── runtime ──────────────────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS runtime
+ARG SVC_DIR
+ARG SVC_PKG
+RUN useradd --create-home --uid 10001 app
+WORKDIR /app/services/${SVC_DIR}
+COPY --from=builder --chown=app:app /app /app
+ENV PATH="/app/.venv/bin:${PATH}" \
+    PYTHONUNBUFFERED=1 \
+    SVC_PKG=${SVC_PKG}
+USER app
+EXPOSE 8000
+# shell form so ${SVC_PKG} expands; exec so uvicorn is PID 1 (clean signals)
+CMD exec uvicorn "${SVC_PKG}.app:app" --host 0.0.0.0 --port 8000

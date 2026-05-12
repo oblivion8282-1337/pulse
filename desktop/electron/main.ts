@@ -33,9 +33,12 @@ const APP_VERSION: string = pkg.version ?? '0.0.0';
 // the package.json itself once bundled).
 process.env.PULSE_APP_VERSION = APP_VERSION;
 
-// In dev we load the running Vite server; in a packaged app we load the static build.
+// Dev: load the running Vite server. Packaged: load the live deployed web app
+// (a web-side fix is then visible immediately, no Electron re-release needed —
+// the GSR streaming bridge stays local via the preload's `window.pulse`).
 const isDev = !app.isPackaged || !!process.env.PULSE_DEV_URL;
 const DEV_URL = process.env.PULSE_DEV_URL ?? 'http://localhost:5173';
+const PROD_URL = process.env.PULSE_URL ?? 'https://pulse.unicutmedia.com';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -64,11 +67,7 @@ function createWindow(): void {
     void mainWindow.loadURL(DEV_URL);
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
-    // Prod layout: this file is `desktop/electron/dist/main.cjs`, the SvelteKit
-    // static build lives at `web/build/`. TODO(T6): verify/adjust once the
-    // Electron packaging (electron-builder) lays the files out — in E1a the dev
-    // path is the tested one.
-    void mainWindow.loadFile(path.join(__dirname, '../../../web/build/index.html'));
+    void mainWindow.loadURL(PROD_URL);
   }
 }
 

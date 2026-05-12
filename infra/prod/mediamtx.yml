@@ -1,0 +1,69 @@
+# MediaMTX config — Pulse production (MediaMTX 1.18.1).
+#
+# Derived from streaming/server/mediamtx.yml.template. Mounted read-only into
+# the `pulse_mediamtx` container (network_mode: host), so the addresses below
+# bind the host's interfaces directly.
+#
+# Auth: per-channel HQ streaming via `authMethod: http` → the Pulse
+# mediamtx-auth-hook (published on the host at 127.0.0.1:8005). The hook allows:
+#   - publish only with a valid stream-token (issued by media-svc) for the path
+#     `channel-<channel_id>`,
+#   - read/playback (WHEP/HLS) for `channel-*` paths,
+#   - api/metrics/pprof (also excluded here via authHTTPExclude).
+# No internal users, no fixed stream key — the GSR sidecar gets its push URL
+# (token in `?pass=…` or `streamid=publish:<path>:pulse:<token>`) from media-svc.
+#
+# Public ingest/egress ports must be open in UFW: 1935/tcp (RTMP), 8890/udp
+# (SRT), 8189/udp (WebRTC ICE). 8889/tcp (WHEP) and 8888/tcp (HLS) are reached
+# via the pulse_web nginx (host.docker.internal) → not exposed directly. The API
+# (:9997) is bound on all interfaces so media-svc (on pulse-net) can poll it via
+# host.docker.internal; UFW's default INPUT DROP keeps it private.
+
+logLevel: info
+logDestinations: [stdout]
+
+# RTMP ingest
+rtmp: yes
+rtmpAddress: :1935
+
+# Low-latency HLS (reached via pulse_web → /hls/*)
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 200ms
+hlsPartDuration: 100ms
+
+# WebRTC / WHEP (reached via pulse_web → /whep/*; ICE on :8189/udp direct)
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: yes
+
+# Control API — bound on all interfaces; media-svc polls /v3/paths/list via
+# host.docker.internal:9997. Kept private by UFW (INPUT DROP).
+api: yes
+apiAddress: :9997
+
+# RTSP not needed — RTMP + SRT cover ingest
+rtsp: no
+
+# SRT ingest for the Opus-audio path (RTMP/FLV can only carry AAC)
+# push streamid: publish:<path>:pulse:<stream-token>
+srt: yes
+srtAddress: :8890
+
+# === AUTH ===
+authMethod: http
+authHTTPAddress: http://127.0.0.1:8005/
+authHTTPExclude:
+  - action: api
+  - action: metrics
+  - action: pprof
+
+paths:
+  # Pulse HQ channel streams are named `channel-<snowflake>`. Every connection is
+  # allowed/denied by the auth hook; this default entry just lets MediaMTX accept
+  # the (dynamic) paths at all. Non-`channel-*` paths are rejected by the hook.
+  all_others:

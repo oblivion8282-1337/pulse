@@ -1,0 +1,33 @@
+# Build context exclusions for all Pulse images (Dockerfile.service + web/Dockerfile).
+# Keep this lean — the context is the repo root for every build.
+
+.git
+.github
+.gitignore
+.claude
+.venv
+**/.venv
+**/__pycache__
+**/*.pyc
+node_modules
+**/node_modules
+web/build
+web/.svelte-kit
+web/test-results
+web/playwright-report
+desktop/electron/dist
+secrets
+**/secrets
+.env
+.env.*
+!.env.example
+infra/prod/.env.production
+infra/prod/secrets
+streaming/patches
+streaming/server/mediamtx.yml
+streaming/server/.stream-key
+Logo
+*.md
+!README.md
+services/*/uploads
+.plans

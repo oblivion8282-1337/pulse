@@ -68,3 +68,10 @@ services/auth/uploads/avatars/*
 # Das Template streaming/server/mediamtx.yml.template ist ok (Placeholder-Key).
 streaming/server/mediamtx.yml
 streaming/server/.stream-key
+
+# Production deploy — server-side secrets. NIEMALS einchecken.
+# infra/prod/.env is also matched by the global `.env` rule above; explicit here.
+# Committed: infra/prod/.env.example, docker-compose.yml, mediamtx.yml,
+# livekit.yaml, web-nginx.conf, Caddyfile.pulse.snippet.
+infra/prod/.env
+infra/prod/secrets/

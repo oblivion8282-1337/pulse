@@ -1,8 +1,6 @@
-# Discord-Clone CI — placeholder workflow.
-#
-# NOT YET ENABLED. The repository has no GitHub remote and we don't push.
-# This file is committed so the workflow is ready the moment somebody runs
-# `git remote add origin ...` + `git push`.
+# Pulse CI: test on every push/PR; on push to main also build & publish the
+# production images to GHCR (consumed on the VPS by the `pulse_watchtower`
+# container — same GHCR → Watchtower pattern as the other apps on that box).
 
 name: ci
 
@@ -80,12 +78,67 @@ jobs:
       - name: Build
         run: pnpm --filter @dcc/web build
 
-  # E2E job is left as a stub — it needs both services + Postgres + Redis
-  # wired together and is too slow for default PR feedback. Run on demand:
-  # > pnpm --filter @dcc/web exec playwright test
-  e2e:
-    if: false
+  # Build & push the 6 production images. Only on push to main, only after the
+  # test jobs pass. Watchtower on the VPS follows the `:latest` tags.
+  images:
+    name: build & push images (${{ matrix.name }})
     runs-on: ubuntu-24.04
     needs: [backend, frontend]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: web
+            file: web/Dockerfile
+            args: ""
+          - name: auth
+            file: Dockerfile.service
+            args: |
+              SVC_DIR=auth
+              SVC_PKG=dcc_auth
+          - name: chat-gateway
+            file: Dockerfile.service
+            args: |
+              SVC_DIR=chat-gateway
+              SVC_PKG=dcc_chat_gateway
+          - name: voice-signaling
+            file: Dockerfile.service
+            args: |
+              SVC_DIR=voice-signaling
+              SVC_PKG=dcc_voice_signaling
+          - name: media-svc
+            file: Dockerfile.service
+            args: |
+              SVC_DIR=media-svc
+              SVC_PKG=dcc_media_svc
+          - name: mediamtx-auth-hook
+            file: Dockerfile.service
+            args: |
+              SVC_DIR=mediamtx-auth-hook
+              SVC_PKG=dcc_mediamtx_auth_hook
     steps:
-      - run: echo "enable when ready"
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          build-args: ${{ matrix.args }}
+          push: true
+          tags: |
+            ghcr.io/oblivion8282-1337/pulse-${{ matrix.name }}:latest
+            ghcr.io/oblivion8282-1337/pulse-${{ matrix.name }}:sha-${{ steps.sha.outputs.short }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

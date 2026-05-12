@@ -1,0 +1,19 @@
+# Add this block to the existing ~/caddy/Caddyfile on the VPS, then reload:
+#
+#   cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
+#   $EDITOR ~/caddy/Caddyfile        # paste the block below
+#   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+#
+# The pulse_web nginx container (port 8100 on the host, see infra/prod/docker-
+# compose.yml) handles all of /, /api/*, /whep/*, /hls/* and /livekit/* itself —
+# Caddy just terminates TLS and forwards everything. Caddy reaches it via
+# host.docker.internal (Caddy's compose already sets that extra_host); UFW's
+# default INPUT DROP keeps :8100 off the public internet.
+#
+# Alternative if host.docker.internal:8100 doesn't work: add the external
+# `pulse-net` network to caddy's docker-compose.yml `networks:` list, recreate
+# caddy, and use `reverse_proxy pulse_web:80` instead.
+
+pulse.unicutmedia.com {
+	reverse_proxy host.docker.internal:8100
+}

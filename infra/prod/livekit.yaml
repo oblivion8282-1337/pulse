@@ -1,0 +1,33 @@
+# LiveKit server config — Pulse production.
+#
+# Mounted read-only into `pulse_livekit` (network_mode: host). No secrets here:
+# the API key/secret pair is injected via the LIVEKIT_KEYS env var from
+# .env.production (key name "pulse-prod" + the secret). voice-signaling must get
+# the same pair (LIVEKIT_API_KEY=pulse-prod, LIVEKIT_API_SECRET=<same secret>).
+#
+# Reached by browsers at wss://pulse.unicutmedia.com/livekit (Caddy → pulse_web
+# nginx → host.docker.internal:7880). RTC media flows over UDP 7882-7892 direct
+# to the VPS public IP — those ports + 7881/tcp must be open in UFW.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 7882
+  port_range_end: 7892
+  # Advertise the VPS public IP in ICE candidates (LiveKit auto-detects it).
+  # If detection misbehaves on this host, set `node_ip: 77.42.71.166` instead.
+  use_external_ip: true
+
+# `keys` is supplied at runtime via the LIVEKIT_KEYS env var (see compose) —
+# kept out of git. The key *name* below must match the one in LIVEKIT_KEYS.
+webhook:
+  api_key: pulse-prod
+  urls:
+    - http://127.0.0.1:8003/webhook   # voice-signaling, published on the host
+
+log_level: info
+
+room:
+  enable_remote_unmute: true
+  max_participants: 50
