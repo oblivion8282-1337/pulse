@@ -1,42 +1,29 @@
 <!--
-  StreamPanel — die ganze Streaming-UI als Composite.
-
-  Wird in T3c im Voice-Channel-View eingebettet. Hier in T3b: in der
-  Dev-Route nutzbar. Layout: Stream-Ziel-Toggle → Profil → (Server, nur im
-  Server-Modus) → Capture/Audio → Overrides (collapsible) → Controls → Log.
-
-  Prop `channelId` (T4): wenn gesetzt (= aus einem Voice-Channel geöffnet),
-  erscheint das "Dieser Channel | Eigener Server"-Segment und `target` defaultet
-  auf `'channel'`; im Channel-Modus braucht's keinen Server-Picker — der Start
-  holt sich das Token vom chat-gateway. Ohne `channelId` ist es wie bisher
-  (`target = 'server'`, der volle Profil/Server-Picker-Flow).
+  StreamPanel — die HQ-Stream-UI (GSR), eingebettet im Voice-Channel-View
+  (HqStreamDialog → StreamPanel). Immer Channel-Modus: gestreamt wird in den
+  aktuellen Voice-Channel (per-Channel MediaMTX-Pfad `channel-<id>`, Token vom
+  chat-gateway), Capture immer über das Wayland-Portal. Kein Server-/Profil-/
+  Capture-Picker mehr — nur Codec/Auflösung/Bitrate/FPS + Audio.
 
   Gating:
-  - `gsr.available()` false → komplett ausblenden (reiner Browser, kein
+  - `gsr.available()` false → komplett ausblenden (reiner Browser, keine
     Electron-Sidecar-Bridge).
   - Bridge da aber `health.gsr.available` false → "GSR nicht verfügbar"-Banner
-    statt Controls. Wir prüfen das beim Mount einmalig via `gsr.health()`.
+    statt Controls (einmalig via `gsr.health()` beim Mount geprüft).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
-  import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
 
   import { gsr, type GsrHealth } from '../gsr';
-  import { stream } from '../state.svelte';
-  import { loadCatalogs, streamSettings, isCustomProfile, persistSettings } from '../settings.svelte';
+  import { loadCatalogs, streamSettings } from '../settings.svelte';
 
-  import StreamTargetPicker from './StreamTargetPicker.svelte';
-  import ProfilePicker from './ProfilePicker.svelte';
-  import ServerPicker from './ServerPicker.svelte';
-  import CaptureSourcePicker from './CaptureSourcePicker.svelte';
-  import AudioModePicker from './AudioModePicker.svelte';
   import OverridesEditor from './OverridesEditor.svelte';
+  import AudioModePicker from './AudioModePicker.svelte';
   import StreamControls from './StreamControls.svelte';
   import StreamLog from './StreamLog.svelte';
 
@@ -45,8 +32,6 @@
   let health = $state<GsrHealth | null>(null);
   let healthError = $state<string | null>(null);
   let healthChecking = $state(false);
-  let overridesOpen = $derived(streamSettings.use_overrides || isCustomProfile());
-  let channelMode = $derived(streamSettings.target === 'channel' && !!channelId);
 
   async function checkHealth() {
     healthChecking = true;
@@ -61,34 +46,27 @@
   }
 
   onMount(() => {
-    // Default the target to the current channel when opened from a voice
-    // channel; otherwise force 'server' (no channel context to stream into).
-    streamSettings.target = channelId ? 'channel' : 'server';
+    // Always stream into the current voice channel via the portal; the
+    // codec/resolution/bitrate/fps come straight from the editor below
+    // ("Custom" profile = use the explicit values).
+    streamSettings.target = 'channel';
+    streamSettings.capture_source = 'portal';
+    streamSettings.profile_name = 'Custom';
+    streamSettings.use_overrides = true;
     if (!gsr.available()) return;
     void checkHealth();
     void loadCatalogs();
   });
 
   let gsrAvailable = $derived(!!health?.gsr?.available);
-  let codecCount = $derived(health?.gsr?.video_codecs?.length ?? null);
-
-  function toggleOverrides() {
-    streamSettings.use_overrides = !streamSettings.use_overrides;
-    persistSettings();
-  }
 </script>
 
 {#if gsr.available()}
-  <section
-    class="glass-panel flex flex-col gap-4 rounded-2xl p-4"
-    data-testid="stream-panel"
-  >
+  <section class="glass-panel flex flex-col gap-4 rounded-2xl p-4" data-testid="stream-panel">
     <header class="flex items-center justify-between gap-2">
       <div class="flex items-center gap-2">
         <RadioTowerIcon class="text-primary size-5" />
-        <h2 class="text-text-bright text-base font-semibold tracking-tight">
-          HQ-Stream
-        </h2>
+        <h2 class="text-text-bright text-base font-semibold tracking-tight">HQ-Stream</h2>
       </div>
       <Button
         type="button"
@@ -99,7 +77,8 @@
           void loadCatalogs();
         }}
         disabled={healthChecking}
-        aria-label="Neu prüfen"
+        aria-label="GSR neu erkennen"
+        title="GSR neu erkennen + Optionen neu laden"
         data-testid="stream-panel-refresh"
       >
         <RefreshIcon class="size-3.5 {healthChecking ? 'animate-spin' : ''}" />
@@ -129,51 +108,21 @@
           <span>Installiere das Binary oder setze <code>GSR_BINARY</code>.</span>
         </div>
       </div>
+    {:else if !channelId}
+      <p class="text-text-muted text-xs">
+        Öffne den HQ-Stream aus einem Sprach-Kanal — dorthin wird gestreamt.
+      </p>
     {:else}
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">
-        <StreamTargetPicker {channelId} />
-        <ProfilePicker />
-        {#if !channelMode}
-          <ServerPicker />
-        {/if}
-        <CaptureSourcePicker />
-        <AudioModePicker />
+        <OverridesEditor />
 
         <Separator />
-
-        <div class="flex flex-col gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            class="w-fit gap-1.5"
-            onclick={toggleOverrides}
-            aria-expanded={overridesOpen}
-            disabled={isCustomProfile()}
-            data-testid="stream-panel-overrides-toggle"
-          >
-            {#if overridesOpen}<ChevronDownIcon class="size-3.5" />
-            {:else}<ChevronRightIcon class="size-3.5" />{/if}
-            Manuelle Overrides
-            {#if isCustomProfile()}
-              <span class="text-text-muted text-xs">(Custom-Profil aktiv)</span>
-            {/if}
-          </Button>
-          {#if overridesOpen}
-            <OverridesEditor />
-          {/if}
-        </div>
+        <AudioModePicker />
 
         <Separator />
         <StreamControls {channelId} />
         <StreamLog />
       </div>
-    {/if}
-
-    {#if codecCount}
-      <p class="text-text-muted -mt-2 text-[11px]" data-testid="stream-panel-codecs">
-        Hardware-Codecs: {health?.gsr?.video_codecs?.join(', ')}
-      </p>
     {/if}
   </section>
 {/if}

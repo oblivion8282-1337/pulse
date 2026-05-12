@@ -48,16 +48,13 @@ export interface CustomServer extends GsrServer {
   stream_key: string;
 }
 
-// The seven codec values the GSR `-k` flag accepts (mirrors
-// `streaming/gsr-sidecar/profiles.py::VIDEO_CODECS_ALL`).
+// Codec values the GSR `-k` flag accepts. The UI only offers H.264 (universal
+// browser compat) and AV1 (~half the bitrate at the same quality); the sidecar
+// still understands the HEVC / 10-bit / HDR variants, we just don't surface
+// them (this also matches the Flatpak GSR build, which only ships h264 + av1).
 export const CODEC_VALUES: ReadonlyArray<{ value: string; label: string }> = [
   { value: 'h264', label: 'H.264' },
-  { value: 'hevc', label: 'HEVC' },
-  { value: 'hevc_10bit', label: 'HEVC 10-bit' },
-  { value: 'hevc_hdr', label: 'HEVC HDR' },
   { value: 'av1', label: 'AV1' },
-  { value: 'av1_10bit', label: 'AV1 10-bit' },
-  { value: 'av1_hdr', label: 'AV1 HDR' },
 ];
 
 export const RESOLUTION_VALUES: ReadonlyArray<string> = ['Native', '1440p', '1080p', '720p'];
@@ -272,17 +269,18 @@ export async function loadCatalogs(): Promise<void> {
       streamSettings.gpu_info = gpuInfo;
     }
 
-    // Now apply GPU defaults — but only where persistence didn't already pin
-    // a value. (`profile_name` and `server_name` are the two that get a real
-    // default here; the others have sensible literals in `$state(...)`.)
-    if (!streamSettings.profile_name && streamSettings.available_profiles.length > 0) {
-      streamSettings.profile_name = defaultProfileForGpu(
-        streamSettings.gpu_info,
-        streamSettings.available_profiles,
-      );
-    }
-    if (!streamSettings.server_name && streamSettings.available_servers.length > 0) {
-      streamSettings.server_name = streamSettings.available_servers[0].name;
+    // The HQ-stream panel is channel-mode only now (push into the current voice
+    // channel via the portal, explicit codec/res/bitrate/fps). Force those —
+    // overriding anything `loadPersisted()` restored from an older config.
+    streamSettings.target = 'channel';
+    streamSettings.capture_source = 'portal';
+    streamSettings.profile_name = 'Custom';
+    streamSettings.use_overrides = true;
+    // Default the codec from the GPU (AV1 if it can encode it, else H.264) —
+    // only if the user hasn't already picked one.
+    if (!streamSettings.overrides.codec) {
+      const hasAv1 = (streamSettings.gpu_info?.video_codecs ?? []).some((c) => /av1/i.test(c));
+      streamSettings.overrides = { ...streamSettings.overrides, codec: hasAv1 ? 'av1' : 'h264' };
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
