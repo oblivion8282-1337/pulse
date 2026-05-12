@@ -15,9 +15,10 @@ rtc:
   tcp_port: 7881
   port_range_start: 7882
   port_range_end: 7892
-  # Advertise the VPS public IP in ICE candidates (LiveKit auto-detects it).
-  # If detection misbehaves on this host, set `node_ip: 77.42.71.166` instead.
-  use_external_ip: true
+  # Advertise the VPS public IP in ICE candidates. Pinned explicitly because the
+  # host has several docker bridge IPs (10.0.x.x) that LiveKit would otherwise
+  # also advertise as (unreachable) candidates. Change this if the VPS IP changes.
+  node_ip: 77.42.71.166
 
 # `keys` is supplied at runtime via the LIVEKIT_KEYS env var (see compose) —
 # kept out of git. The key *name* below must match the one in LIVEKIT_KEYS.

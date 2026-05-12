@@ -550,6 +550,31 @@ T5b chat-gateway — fertig; T4 *konsumiert* deren API):
   laufende media-svc + mediamtx-auth-hook + lokale/Prod-MediaMTX + zwei eingeloggte Clients +
   einen echten GSR-Push (Portal-Dialog).
 
+## Produktiv-Deployment (Hetzner-VPS)
+
+Läuft seit 2026-05-12 auf `michael@77.42.71.166` (neben Caddy + den anderen Apps), erreichbar
+unter **https://pulse.unicutmedia.com**. Ein einziger Compose-Stack (`name: pulse`) in
+`~/pulse/infra/prod/` auf dem Server: `pulse_postgres` + `pulse_redis` (eigene DB/Cache, eigene
+Volumes — nichts geteilt), `pulse_auth`/`pulse_chat_gateway`/`pulse_voice_signaling`/
+`pulse_media_svc`/`pulse_mediamtx_auth_hook`/`pulse_web` (GHCR-Images `ghcr.io/oblivion8282-1337/pulse-*:latest`),
+`pulse_migrate_auth`/`pulse_migrate_chat` (Init-Container `alembic upgrade head`), `pulse_mediamtx` +
+`pulse_livekit` (`network_mode: host`, gepinnt), `pulse_watchtower` (`--scope pulse`, 5-Min-Intervall).
+- **Routing:** Caddy (`~/caddy/Caddyfile`, Block `pulse.unicutmedia.com { reverse_proxy host.docker.internal:8100 }`,
+  LE-Cert) → `pulse_web` nginx (`infra/prod/web-nginx.conf`, im Image gebacken) → `/api/auth|chat|ws|voice/*`
+  an die Services, `/whep/*`+`/hls/*` an MediaMTX (`host.docker.internal:8889/8888`), `/livekit/*` an LiveKit
+  (`:7880`, WS), sonst die SvelteKit-SPA.
+- **Auto-Update:** push → `main` → `.github/workflows/ci.yml` baut+pusht die 6 Images nach GHCR (`:latest`+`:sha`,
+  nach grünen Tests) → `pulse_watchtower` zieht `:latest` ≤5 min später. Struktur-Änderungen (neuer Service, neue
+  Env-Var, Compose-/nginx-/MediaMTX-/LiveKit-Config): `rsync infra/ → ~/pulse/infra/` + `cd ~/pulse/infra/prod && docker compose up -d`.
+- **Secrets:** nur auf dem Server in `~/pulse/infra/prod/.env` (gitignored, aus `.env.example`) + `~/pulse/infra/prod/secrets/jwt_*.pem`.
+  Die PEM-Files **müssen `chmod 0644`** sein (Container laufen als uid 10001). LiveKit-Keys: Name `pulse-prod`
+  (fix in `livekit.yaml` + `LIVEKIT_API_KEY`), Secret via `LIVEKIT_KEYS` env aus `.env`.
+- **Firewall:** offen sein müssen `1935/tcp` (RTMP), `8890/udp` (SRT), `8189/udp` (MediaMTX-ICE), `7881/tcp` +
+  `7882:7892/udp` (LiveKit-RTC). 80/443 sind schon offen (Caddy). `sudo ufw allow ...` braucht das User-Passwort.
+- **Electron-App:** der gepackte Build lädt `https://pulse.unicutmedia.com` (remote — Web-Fixes sofort sichtbar);
+  der GSR-Sidecar läuft lokal über die `window.pulse`-Bridge.
+- Vollständige Schritte + Operating-Befehle: `infra/prod/DEPLOY.md`. Caddyfile auf dem Server wurde angepasst (Backup `~/caddy/Caddyfile.bak.*`).
+
 ## Test-Datenbank
 
 E2E-Tests (Playwright) laufen gegen `dcc_test` — eine separate DB im selben Postgres-Container.
