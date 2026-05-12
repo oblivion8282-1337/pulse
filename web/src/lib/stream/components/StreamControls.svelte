@@ -2,16 +2,14 @@
   StreamControls — der Start/Stop-Button + Live-Status-Block.
 
   Liest `stream` aus `state.svelte.ts` (running, state, fps, uptimeS, error).
-  Beim Start:
-  - Channel-Modus (`streamSettings.target === 'channel'` + `channelId` prop):
-    erst `chatApi.getStreamToken(channelId)` (chat-gateway → media-svc proxy),
-    dann `gsr.start(buildStartArgs(_, {channelId, token, mediamtxEndpoint,
-    pushProtocol}))`. Fehler (403 nicht-Member, 400 kein Voice-Channel, 502
-    media-svc down …) → `toast.error`. Der Stream-Indikator (auch beim Streamer
-    selbst) kommt danach über den WS-`stream_state`-Broadcast — media-svc's
-    Poller erkennt den Publisher; wir müssen chat-gateway nichts melden.
-  - Server-Modus: wie gehabt `gsr.start(buildStartArgs())`.
-  Stop: `gsr.stop()`. Disable wenn Bridge nicht verfügbar.
+  Beim Start (immer Channel-Modus — Pulse streamt in den aktuellen Voice-Channel):
+  erst `chatApi.getStreamToken(channelId)` (chat-gateway → media-svc proxy),
+  dann `gsr.start(buildStartArgs({channelId, token, pushUrl}))`. Fehler
+  (403 nicht-Member, 400 kein Voice-Channel, 502 media-svc down …) → `toast.error`.
+  Der Stream-Indikator (auch beim Streamer selbst) kommt danach über den
+  WS-`stream_state`-Broadcast — media-svc's Poller erkennt den Publisher;
+  wir müssen chat-gateway nichts melden. Stop: `gsr.stop()`. Disable wenn
+  Bridge nicht verfügbar.
 
   Uptime-Anzeige: Wir rechnen `mm:ss` selbst aus `stream.uptimeS`. Der
   Sidecar feuert FPS-Events nur alle ~1 s, also reicht das als Trigger für
@@ -31,7 +29,6 @@
   import {
     buildStartArgs,
     streamSettings,
-    mediamtxEndpointFromPushUrl,
     isAppAudioMode,
     appFromAudioMode,
   } from '../settings.svelte';
@@ -41,7 +38,6 @@
   let busy = $state(false);
   let localError = $state<string | null>(null);
 
-  let channelMode = $derived(streamSettings.target === 'channel' && !!channelId);
   let bridgeReady = $derived(gsr.available() && stream.available);
   // "Bestimmte App" without an app picked yet → can't start (GSR `-a "app:"` fails).
   let appAudioReady = $derived(
@@ -53,7 +49,7 @@
       !busy &&
       !!streamSettings.profile_name &&
       appAudioReady &&
-      (channelMode || !!streamSettings.server_name),
+      !!channelId,
   );
   let canStop = $derived(bridgeReady && stream.running && !busy);
 
@@ -93,42 +89,38 @@
   });
 
   async function onStart() {
+    if (!channelId) return;
     busy = true;
     localError = null;
     try {
-      let args = buildStartArgs();
-      if (channelMode && channelId) {
-        let tok;
-        try {
-          tok = await chatApi.getStreamToken(channelId, 'rtmp');
-        } catch (e) {
-          const msg =
-            e instanceof ApiError
-              ? e.status === 403
-                ? 'Du bist kein Mitglied dieses Kanals.'
-                : e.status === 400
-                  ? 'HQ-Streaming geht nur in Sprach-Kanälen.'
-                  : e.status === 502 || e.status === 503
-                    ? 'Der Media-Dienst ist nicht erreichbar.'
-                    : (e.message ?? 'Stream-Token konnte nicht geholt werden.')
-              : e instanceof Error
-                ? e.message
-                : String(e);
-          toast.error('Stream konnte nicht gestartet werden', { description: msg });
-          return;
-        }
-        args = buildStartArgs(undefined, {
-          channelId,
-          token: tok.token,
-          pushUrl: tok.push_url,
-          mediamtxEndpoint: mediamtxEndpointFromPushUrl(tok.push_url),
-          pushProtocol: tok.push_protocol,
-        });
+      let tok;
+      try {
+        tok = await chatApi.getStreamToken(channelId, 'rtmp');
+      } catch (e) {
+        const msg =
+          e instanceof ApiError
+            ? e.status === 403
+              ? 'Du bist kein Mitglied dieses Kanals.'
+              : e.status === 400
+                ? 'HQ-Streaming geht nur in Sprach-Kanälen.'
+                : e.status === 502 || e.status === 503
+                  ? 'Der Media-Dienst ist nicht erreichbar.'
+                  : (e.message ?? 'Stream-Token konnte nicht geholt werden.')
+            : e instanceof Error
+              ? e.message
+              : String(e);
+        toast.error('Stream konnte nicht gestartet werden', { description: msg });
+        return;
       }
+      const args = buildStartArgs({
+        channelId,
+        token: tok.token,
+        pushUrl: tok.push_url,
+      });
       const r = await gsr.start(args);
       if (r && !r.ok) {
         localError = r.error ?? 'Start fehlgeschlagen.';
-        if (channelMode) toast.error('Stream konnte nicht gestartet werden', { description: localError });
+        toast.error('Stream konnte nicht gestartet werden', { description: localError });
       }
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);

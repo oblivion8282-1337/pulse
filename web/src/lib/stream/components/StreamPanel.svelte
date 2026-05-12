@@ -49,7 +49,6 @@
     // Always stream into the current voice channel via the portal; the
     // codec/resolution/bitrate/fps come straight from the editor below
     // ("Custom" profile = use the explicit values).
-    streamSettings.target = 'channel';
     streamSettings.capture_source = 'portal';
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;

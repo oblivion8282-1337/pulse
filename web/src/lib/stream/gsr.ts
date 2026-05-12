@@ -48,16 +48,6 @@ export interface GsrGpuInfo {
   error?: string;
 }
 
-export interface GsrMonitor {
-  name: string;
-  resolution: string;
-}
-export interface GsrListMonitors {
-  ok: boolean;
-  monitors?: GsrMonitor[];
-  error?: string;
-}
-
 export interface GsrProfile {
   name: string;
   codec: string;
@@ -68,19 +58,12 @@ export interface GsrProfile {
   needs_custom_build: boolean;
   notes: string;
 }
-export interface GsrServer {
-  name: string;
-  push_protocol: string;
-  push_host: string;
-  push_port: number;
-  push_path: string;
-  needs_auth: boolean;
-  auth_user: string;
-}
 export interface GsrListProfiles {
   ok: boolean;
   profiles: GsrProfile[];
-  servers: GsrServer[];
+  /** Always `[]` — Pulse streams into a voice channel, there's no server
+   *  catalog. Kept for shape-compat with the sidecar response. */
+  servers: unknown[];
   audio_modes: string[];
   app_label_prefix: string;
 }
@@ -98,38 +81,19 @@ export interface GsrBuildArgv {
   error?: string;
 }
 
-/** Inline server-spec for ad-hoc user-defined targets (Custom-Server-Dialog, T3c).
- *  Sent instead of `server: <name>` when the catalog doesn't know the server.
- *  The sidecar wraps it into a transient `ServerProfile` in `_resolve_server`. */
-export interface GsrCustomServerSpec {
-  name: string;
-  push_protocol: 'rtmp' | 'srt' | string;
-  push_host: string;
-  push_port: number;
-  push_path?: string;
-  needs_auth?: boolean;
-  auth_user?: string;
-}
-
 export interface GsrStartArgs {
   profile: string;
-  /** Catalog server name. Mutually exclusive with `channel`/`custom_server`. */
-  server?: string;
-  /** Pulse-channel pathway: server profile built via `ServerProfile.from_channel`. */
-  channel?: {
+  /** Pulse-channel pathway: server profile built via `ServerProfile.from_channel`.
+   *  This is the only pathway — Pulse always streams into a voice channel. */
+  channel: {
     id: string;
     token: string;
-    /** Full push URL from media-svc — handed to GSR's `-o` verbatim if present. */
+    /** Full push URL from media-svc — handed to GSR's `-o` verbatim. */
     push_url?: string;
-    mediamtx_endpoint?: string;
-    push_protocol?: string;
   };
-  /** Custom server pathway (T3c): inline spec, persisted in the Tauri-store. */
-  custom_server?: GsrCustomServerSpec;
   capture: string;
   audio: { mode: string; excluded_apps?: string[] };
   overrides?: { codec?: string; bitrate_kbps?: number; fps?: number; resolution?: string };
-  stream_key?: string;
 }
 
 export interface GsrStartResult {
@@ -185,10 +149,6 @@ export const gsr = {
   async gpuInfo(): Promise<GsrGpuInfo | null> {
     const b = bridge();
     return b ? ((await b.gpuInfo()) as GsrGpuInfo) : null;
-  },
-  async listMonitors(): Promise<GsrListMonitors | null> {
-    const b = bridge();
-    return b ? ((await b.listMonitors()) as GsrListMonitors) : null;
   },
   async listProfiles(): Promise<GsrListProfiles | null> {
     const b = bridge();
