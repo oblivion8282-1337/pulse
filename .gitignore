@@ -69,6 +69,10 @@ services/auth/uploads/avatars/*
 streaming/server/mediamtx.yml
 streaming/server/.stream-key
 
+# Flatpak repo signing key (packaging/publish.fish). Private key — NIEMALS einchecken.
+# Back it up separately: losing it means the friend's installed app rejects updates.
+packaging/.gpg/
+
 # Production deploy — server-side secrets. NIEMALS einchecken.
 # infra/prod/.env is also matched by the global `.env` rule above; explicit here.
 # Committed: infra/prod/.env.example, docker-compose.yml, mediamtx.yml,

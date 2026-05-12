@@ -251,9 +251,15 @@ raus und der Electron-Shell + dem Python-Sidecar rein.
   in Wahrheit am `strip-components`-Manifest-Problem oben lag; die Nicht-Flatpak-Dev-App läuft auch auf nativem Wayland.)*
 - **Bauen/installieren (User-Scope, kein sudo):** `packaging/build.fish` (`build:electron` → `flatpak-builder --user --install`).
   Erster Build ~15–30 min (FFmpeg + GSR aus Source). Danach `flatpak run com.unicutmedia.Pulse`.
-- **Distribution (Folge-Schritt):** `flatpak-builder --repo=<dir> …` → OSTree-Repo → über HTTPS hosten (z.B.
-  `flatpak.unicutmedia.com` hinter dem Caddy auf dem VPS) → `.flatpakref` verteilen → `flatpak update` zieht neue Builds.
-  Kann in CI (build → `build-export` → `rsync` auf den VPS), analog zu den Docker-Images.
+- **Distribution / Auto-Update (`packaging/publish.fish`):** signiertes OSTree-Repo (`build/repo`, archive-z2) → per `rsync`
+  auf den VPS nach `~/pulse/flatpak-repo/` → `pulse_web`-nginx served das unter `https://pulse.unicutmedia.com/flatpak/`
+  (`infra/prod/web-nginx.conf` `location /flatpak/ { alias /srv/flatpak-repo/; }` + Bind-Mount in der `web:`-Service
+  von `infra/prod/docker-compose.yml`). Empfänger: einmal `flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref`,
+  danach `flatpak update` (bzw. GNOME Software / KDE Discover automatisch). `build-update-repo --generate-static-deltas --prune
+  --prune-depth=3` → kleine inkrementelle Updates. Signing-Key: `packaging/.gpg/` (gitignored, passwortlos, `packaging/gen-signing-key.fish`
+  einmalig — **muss separat gebackupt werden**, Verlust = der Empfänger lehnt künftige Updates ab). **Web-Änderungen brauchen keinen
+  Republish** (App lädt `pulse.unicutmedia.com` remote); nur native Änderungen (`electron/main|preload`, Sidecar, GSR-Binary). Lässt sich
+  später in CI gießen (build → `--repo` → `build-update-repo` → rsync), analog zu den Docker-Images.
 - **Falls die gepackte App nicht startet** (Electron-Prozess endet sofort, Exit 1, kaum Output): erst `flatpak run --command=sh
   com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'` — fehlen die, ist's wieder das
   `strip-components`-Thema. Sonst meist GPU/Wayland auf NVIDIA → `PULSE_OZONE=x11 flatpak run …` (XWayland), oder

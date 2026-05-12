@@ -200,6 +200,12 @@ services:
     # networks, then `reverse_proxy pulse_web:80`.
     ports:
       - "8100:80"
+    volumes:
+      # Pulse Flatpak repo (the desktop app's update channel). packaging/publish.fish
+      # rsyncs the OSTree repo into this host dir; web-nginx.conf serves it under
+      # /flatpak/. Read-only; if the host dir doesn't exist Docker creates it empty
+      # (=> /flatpak/* just 404s, harmless). Keep in sync with publish.fish's VPS_REPO_PATH.
+      - /home/michael/pulse/flatpak-repo:/srv/flatpak-repo:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 30s

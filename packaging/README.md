@@ -17,15 +17,60 @@ flatpak run com.unicutmedia.Pulse
 ```
 First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electronjs.Electron2.BaseApp//24.08`) and builds FFmpeg + GSR from source — ~15-30 min.
 
-## Distribution (later)
-Build into an OSTree repo instead of `--install`:
+## Distribution — self-updating Flatpak repo
+
+The packaged app is published to a signed OSTree repo served at
+`https://pulse.unicutmedia.com/flatpak/` (on the Hetzner VPS, behind the existing
+Caddy → `pulse_web` nginx). A friend installs once from there and gets new builds
+via `flatpak update` (GNOME Software / KDE Discover also auto-update Flatpaks in the
+background). Remember: **web-only changes need no new Flatpak** — the app loads
+`pulse.unicutmedia.com` remotely; only native changes (electron `main`/`preload`,
+the Python sidecar, the GSR binary) need a rebuild + republish.
+
+### One-time setup
+1. **Signing key** (so the friend doesn't need `--no-gpg-verify`):
+   ```fish
+   packaging/gen-signing-key.fish      # creates packaging/.gpg/ (gitignored)
+   ```
+   ⚠ Back up `packaging/.gpg/`. If you lose it, the friend's app rejects future updates.
+2. **VPS — serve the repo dir.** `infra/prod/docker-compose.yml` already bind-mounts
+   `/home/michael/pulse/flatpak-repo` into `pulse_web` at `/srv/flatpak-repo`, and
+   `infra/prod/web-nginx.conf` serves it under `/flatpak/`. So after pushing the
+   updated `infra/`:
+   ```fish
+   ssh michael@77.42.71.166 'mkdir -p ~/pulse/flatpak-repo'
+   # rsync infra/ → ~/pulse/infra/  (if you haven't already), then on the VPS:
+   #   cd ~/pulse/infra/prod && docker compose up -d
+   ```
+
+### Each release
 ```fish
-flatpak-builder --repo=build/repo --force-clean build/flatpak packaging/com.unicutmedia.Pulse.yml
+packaging/publish.fish
 ```
-Host `build/repo/` over HTTPS (e.g. `flatpak.unicutmedia.com` behind the existing Caddy on the Hetzner VPS), hand out a `.flatpakref`. Then `flatpak update` (manual or the desktop's background updater) picks up new builds. Can be wired into CI (build → `build-export` → `rsync` to the VPS) like the Docker images.
+→ `flatpak-builder --repo=build/repo` (FFmpeg/GSR come from the `.flatpak-builder`
+cache — fast after the first time) → `flatpak build-update-repo --generate-static-deltas
+--prune` (small incremental updates) → regenerates `com.unicutmedia.Pulse.flatpakref`
+→ `rsync build/repo/ → VPS:~/pulse/flatpak-repo/`.
+
+### The friend
+```fish
+flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref
+flatpak run com.unicutmedia.Pulse
+# later:
+flatpak update                       # or GNOME Software / KDE Discover, automatically
+```
+(`RuntimeRepo=…flathub…` in the `.flatpakref` makes Flatpak auto-add Flathub if
+needed, to pull the freedesktop runtime + the Electron BaseApp.)
+
+### Later: CI
+The build → `--repo` → `build-update-repo` → `rsync` flow can move into a GitHub
+Action (like the Docker images) — the slow part is FFmpeg+GSR-from-source (~15-30 min,
+but cacheable). Not needed to start.
 
 ## Files
 - `com.unicutmedia.Pulse.yml` — the manifest
 - `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`
 - `com.unicutmedia.Pulse.desktop` / `.metainfo.xml` / `.svg` — desktop integration (the `.svg` is `web/static/pulse-mark.svg`)
-- `build.fish` — the local build helper
+- `build.fish` — local build + `--user --install` (dev box)
+- `gen-signing-key.fish` — one-time: create the repo signing key in `packaging/.gpg/`
+- `publish.fish` — build into the signed OSTree repo + push it to the VPS (release flow)
