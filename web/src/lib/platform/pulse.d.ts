@@ -28,7 +28,6 @@ export interface PulseStoreApi {
 export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
-  listMonitors(): Promise<unknown>;
   listProfiles(): Promise<unknown>;
   listApplicationAudio(): Promise<unknown>;
   buildArgv(args: unknown): Promise<unknown>;

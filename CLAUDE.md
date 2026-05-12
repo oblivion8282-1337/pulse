@@ -239,17 +239,24 @@ ausschließlich seine eigene Kopie. uv-Workspace-Member: `streaming` (Paket
 ```
 streaming/
 ├── gsr-sidecar/             Python-Sidecar (pure stdlib, kein PySide6)
-│   ├── profiles.py          StreamProfile/ServerProfile + ServerProfile.from_channel()
+│   ├── profiles.py          StreamProfile/ServerProfile + ServerProfile.from_channel() (Channel-Pfad, push_url)
 │   ├── stream_controller.py subprocess.Popen-Wrapper (QProcess raus) + stderr-Reader-Thread
-│   ├── config.py            Settings-Dataclasses (JSON-I/O nicht aktiv — Persistenz im Frontend, siehe persistence.ts)
-│   ├── gsr_binary.py        Binary-Resolver + --info/--list-monitors-Parser
+│   ├── gsr_binary.py        Binary-Resolver + --info-Parser + FLV-Opus-Patch-Check
 │   └── control.py           stdio-Loop (newline-JSON, ersetzt main.py/stream_window.py)
 ├── patches/                 GSR-C++-Patches (FLV-Opus-Whitelist + Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (mediamtx.yml.template + docker-compose + player.html)
-├── scripts/                 start-stream*.fish — manuelle Test-Skripte als Referenz
 ├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
 └── pyproject.toml
 ```
+> Aufgeräumt 2026-05-12 (`refactor(stream)…` / `refactor(web)…`): der vendored GSR-Sidecar trug noch die
+> komplette „streame zu beliebigem RTMP/SRT-Server, wähle Monitor/Profil, persistiere in einer Config-Datei"-
+> Maschinerie der Original-Qt-GUI mit — alles dead-via-UI. Raus: `config.py`, `streaming/scripts/`, der `SERVERS`-
+> Katalog + `server_by_name`, die `ServerProfile`-Receiver-URL-Templates, die HDR/10-bit-Codec-Label-Helfer
+> (`get_video_codecs`/`is_hdr_codec`/…), `gsr_binary.list_monitors`, der `op_list_monitors`-Op + die
+> `server:`/`custom_server:`-Branches von `_resolve_server` (jetzt channel-only); im Frontend `available_servers`/
+> `available_monitors`/`custom_servers`/`mergeServers`/`mediamtxEndpointFromPushUrl` etc. **Verhalten unverändert** —
+> die HDR/10-bit-Fähigkeit liegt im GSR-Binary (`-k hevc_hdr`), nicht in den gelöschten Helfern, und der Codec geht
+> ungefiltert an `-k`; zum Reaktivieren reicht das `CODEC_VALUES`-Array (Frontend) + ggf. die Labels aus der History.
 
 **Sidecar-Protokoll (stdio, newline-JSON):**
 - Request: `{"op": "...", "id": ...?, ...}` — Response: `{"id": ..., "ok": bool, ...}` (id gespiegelt). Async-Event: `{"ev": "...", ...}` (kein id/ok).

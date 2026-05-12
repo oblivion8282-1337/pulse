@@ -38,13 +38,11 @@ Robustheit:
 """
 from __future__ import annotations
 import json
-import os
 import queue
 import signal
 import sys
 import threading
 from collections.abc import Iterable
-from dataclasses import asdict
 from typing import Any
 
 import gsr_binary
