@@ -214,6 +214,7 @@ services:
     network_mode: host
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./certs:/certs:ro          # self-signed RTMPS cert (server.crt / server.key)
     labels: *pinned-labels
 
   livekit:

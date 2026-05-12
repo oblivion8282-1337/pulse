@@ -22,9 +22,16 @@
 logLevel: info
 logDestinations: [stdout]
 
-# RTMP ingest
+# RTMP ingest — RTMPS (TLS) on :1936 so the per-channel publish token isn't on
+# the wire in cleartext. `optional` keeps plain :1935 working too; media-svc
+# hands out rtmps:// URLs. Self-signed cert (FFmpeg's rtmps client doesn't
+# verify by default) — see infra/prod/DEPLOY.md.
 rtmp: yes
 rtmpAddress: :1935
+rtmpEncryption: optional
+rtmpsAddress: :1936
+rtmpServerCert: /certs/server.crt
+rtmpServerKey: /certs/server.key
 
 # Low-latency HLS (reached via pulse_web → /hls/*)
 hls: yes

@@ -44,7 +44,7 @@ async def test_stream_token_happy_path_rtmp(client, auth_signer, redis):
     body = r.json()
     assert body["mediamtx_path"] == f"channel-{cid}"
     assert body["push_protocol"] == "rtmp"
-    assert body["push_url"].startswith(f"rtmp://ingest.test:1935/channel-{cid}?user=pulse&pass=")
+    assert body["push_url"].startswith(f"rtmps://ingest.test:1936/channel-{cid}?user=pulse&pass=")
     assert body["expires_in_s"] == 4 * 60 * 60
     token = body["token"]
     assert body["push_url"].endswith(token)

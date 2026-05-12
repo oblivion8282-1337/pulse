@@ -32,8 +32,11 @@ class Settings(BaseSettings):
     poll_interval_s: float = 3.0
 
     # Ingest endpoint for building the publish push-URL handed to the GSR sidecar.
+    # The "rtmp" protocol is served over TLS (rtmps://) so the token isn't on the
+    # wire in cleartext — RTMPS lives on its own port (1936 in prod).
     mediamtx_ingest_host: str = "localhost"
     mediamtx_rtmp_port: int = 1935
+    mediamtx_rtmps_port: int = 1936
     mediamtx_srt_port: int = 8890
 
     # Public WebRTC base for the WHEP playback URL (dev: local MediaMTX webrtc;

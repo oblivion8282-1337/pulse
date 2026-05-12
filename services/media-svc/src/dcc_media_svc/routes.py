@@ -67,8 +67,9 @@ def _get_redis(request: Request) -> Redis:
 def _push_url(channel_id: str, protocol: str, token: str) -> str:
     """Full push URL including the stream-token, ready for the GSR sidecar.
 
-    RTMP: ``rtmp://host:port/channel-<id>?user=pulse&pass=<token>`` — MediaMTX
-          maps the query ``user``/``pass`` onto the authHTTP body.
+    RTMP: ``rtmps://host:port/channel-<id>?user=pulse&pass=<token>`` — over TLS
+          so the token isn't on the wire in cleartext; MediaMTX maps the query
+          ``user``/``pass`` onto the authHTTP body.
     SRT:  ``srt://host:port?streamid=publish:channel-<id>:pulse:<token>`` —
           MediaMTX parses ``streamid=publish:<path>:<user>:<pass>``.
     """
@@ -79,7 +80,10 @@ def _push_url(channel_id: str, protocol: str, token: str) -> str:
             f"srt://{s.mediamtx_ingest_host}:{s.mediamtx_srt_port}"
             f"?streamid=publish:{path}:pulse:{token}"
         )
-    return f"rtmp://{s.mediamtx_ingest_host}:{s.mediamtx_rtmp_port}/{path}?user=pulse&pass={token}"
+    return (
+        f"rtmps://{s.mediamtx_ingest_host}:{s.mediamtx_rtmps_port}"
+        f"/{path}?user=pulse&pass={token}"
+    )
 
 
 @router.post("/channels/{channel_id}/stream-token", response_model=StreamTokenOut)

@@ -75,3 +75,4 @@ streaming/server/.stream-key
 # livekit.yaml, web-nginx.conf, Caddyfile.pulse.snippet.
 infra/prod/.env
 infra/prod/secrets/
+infra/prod/certs/

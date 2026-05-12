@@ -28,10 +28,18 @@ openssl genrsa -out secrets/jwt_private.pem 2048
 openssl rsa -in secrets/jwt_private.pem -pubout -out secrets/jwt_public.pem
 # the app containers run as uid 10001 → the mounted pem files must be world-readable
 chmod 0644 secrets/jwt_private.pem secrets/jwt_public.pem
+# self-signed cert for MediaMTX RTMPS (port 1936) — FFmpeg's rtmps client
+# doesn't verify the cert, so self-signed is fine; long validity to avoid churn
+mkdir -p certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+  -subj "/CN=pulse.unicutmedia.com" \
+  -keyout certs/server.key -out certs/server.crt
+chmod 0644 certs/server.crt certs/server.key
 
 # 3. firewall
 #    public ingest/egress + LiveKit RTC:
-sudo ufw allow 1935/tcp        # RTMP ingest (GSR push)
+sudo ufw allow 1935/tcp        # RTMP ingest (plain — kept for `optional` encryption)
+sudo ufw allow 1936/tcp        # RTMPS ingest (GSR push — TLS, token not in cleartext)
 sudo ufw allow 8890/udp        # SRT ingest (GSR push, Opus audio)
 sudo ufw allow 8189/udp        # MediaMTX WebRTC ICE
 sudo ufw allow 7881/tcp        # LiveKit TCP fallback
