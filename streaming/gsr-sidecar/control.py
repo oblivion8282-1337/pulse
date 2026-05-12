@@ -13,10 +13,10 @@ Operationen (siehe ``streaming/README.md`` für die volle Tabelle):
 
 - ``{"op": "health"}``
 - ``{"op": "gpu_info"}``
-- ``{"op": "list_monitors"}``
 - ``{"op": "list_profiles"}``
-- ``{"op": "build_argv", "profile": ..., "server": ..., "capture": ...,
-       "audio": {...}, "channel": {...}?, "overrides": {...}?}``
+- ``{"op": "list_application_audio"}``
+- ``{"op": "build_argv", "profile": ..., "channel": {...}, "capture": ...,
+       "audio": {...}, "overrides": {...}?}``
 - ``{"op": "start", ...}`` (gleicher Body wie ``build_argv``)
 - ``{"op": "stop"}``
 - ``{"op": "state"}``
@@ -50,14 +50,12 @@ from typing import Any
 import gsr_binary
 from profiles import (
     PROFILES,
-    SERVERS,
     AUDIO_MODES,
     APP_LABEL_PREFIX,
     ServerProfile,
     StreamProfile,
     list_audio_applications,
     profile_by_name,
-    server_by_name,
 )
 from stream_controller import StreamController
 
@@ -90,7 +88,7 @@ def _emit(payload: dict[str, Any]) -> None:
     _output_queue.put(payload)
 
 
-# ── Profile/Server-Serialisierung ──────────────────────────────────
+# ── Profil-Serialisierung ──────────────────────────────────────────
 
 
 def _profile_to_dict(p: StreamProfile) -> dict[str, Any]:
@@ -106,85 +104,36 @@ def _profile_to_dict(p: StreamProfile) -> dict[str, Any]:
     }
 
 
-def _server_to_dict(s: ServerProfile) -> dict[str, Any]:
-    return {
-        "name": s.name,
-        "push_protocol": s.push_protocol,
-        "push_host": s.push_host,
-        "push_port": s.push_port,
-        "push_path": s.push_path,
-        "needs_auth": s.needs_auth,
-        "auth_user": s.auth_user,
-        "push_url": s.push_url,
-    }
-
-
 # ── Body-Parsing für start / build_argv ────────────────────────────
 
 
 def _resolve_server(body: dict[str, Any]) -> tuple[ServerProfile, str | None]:
-    """Liefert (server, stream_key).
+    """Liefert (server, stream_key) aus dem ``channel``-Block.
 
-    Vorrang:
-    1. ``channel`` (Pulse-Channel-Pfad — ``ServerProfile.from_channel``),
-    2. ``custom_server`` (Inline-Spec aus dem T3c-Frontend-Dialog),
-    3. ``server`` (Katalog-Name aus ``SERVERS``).
+    Pulse streamt immer in einen Voice-Channel — ``ServerProfile.from_channel``
+    baut das Server-Profil aus ``{id, token, push_url?, mediamtx_endpoint?,
+    push_protocol?}``. ``push_url`` (von media-svc) ist autoritativ wenn gesetzt;
+    sonst werden Endpoint/Protokoll als Fallback genutzt.
     """
     channel = body.get("channel")
-    if channel:
-        channel_id = str(channel.get("id") or channel.get("channel_id") or "")
-        token = str(channel.get("token", ""))
-        endpoint = str(channel.get("mediamtx_endpoint", "77.42.71.166"))
-        push_protocol = str(channel.get("push_protocol", "rtmp"))
-        push_url = channel.get("push_url")
-        push_url = str(push_url) if push_url else None
-        if not channel_id:
-            raise ValueError("channel.id (oder channel_id) ist Pflicht")
-        sp = ServerProfile.from_channel(
-            channel_id=channel_id,
-            token=token,
-            mediamtx_endpoint=endpoint,
-            push_protocol=push_protocol,
-            push_url=push_url,
-        )
-        return sp, token
-
-    custom = body.get("custom_server")
-    if custom:
-        # T3c: User-defined transient server. Validation kept minimal — the
-        # frontend dialog already covers required-field/port-range checks.
-        name = str(custom.get("name") or "").strip()
-        host = str(custom.get("push_host") or "").strip()
-        if not name or not host:
-            raise ValueError("custom_server.name + custom_server.push_host sind Pflicht")
-        try:
-            port = int(custom.get("push_port") or 0)
-        except (TypeError, ValueError) as e:
-            raise ValueError(f"custom_server.push_port: {e}") from e
-        if not (1 <= port <= 65535):
-            raise ValueError(f"custom_server.push_port ungültig: {port}")
-        push_protocol = str(custom.get("push_protocol") or "rtmp")
-        push_path = str(custom.get("push_path") or "test")
-        needs_auth = bool(custom.get("needs_auth", True))
-        auth_user = str(custom.get("auth_user") or "publisher")
-        sp = ServerProfile(
-            name=name,
-            push_protocol=push_protocol,
-            push_host=host,
-            push_port=port,
-            push_path=push_path,
-            needs_auth=needs_auth,
-            auth_user=auth_user,
-        )
-        key = body.get("stream_key")
-        return sp, str(key) if key is not None else None
-
-    server_name = body.get("server")
-    if not server_name:
-        raise ValueError("server (Name), channel oder custom_server ist Pflicht")
-    sp = server_by_name(str(server_name))
-    key = body.get("stream_key")
-    return sp, str(key) if key is not None else None
+    if not channel:
+        raise ValueError("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")
+    channel_id = str(channel.get("id") or channel.get("channel_id") or "")
+    token = str(channel.get("token", ""))
+    endpoint = str(channel.get("mediamtx_endpoint", "77.42.71.166"))
+    push_protocol = str(channel.get("push_protocol", "rtmp"))
+    push_url = channel.get("push_url")
+    push_url = str(push_url) if push_url else None
+    if not channel_id:
+        raise ValueError("channel.id (oder channel_id) ist Pflicht")
+    sp = ServerProfile.from_channel(
+        channel_id=channel_id,
+        token=token,
+        mediamtx_endpoint=endpoint,
+        push_protocol=push_protocol,
+        push_url=push_url,
+    )
+    return sp, token
 
 
 def _resolve_profile(body: dict[str, Any]) -> StreamProfile:
@@ -296,17 +245,14 @@ class Sidecar:
             "video_codecs": info.video_codecs,
         }
 
-    def op_list_monitors(self, _body: dict[str, Any]) -> dict[str, Any]:
-        if not self._binary.available:
-            return {"ok": False, "error": "gpu-screen-recorder binary not available"}
-        monitors = gsr_binary.list_monitors(self._binary)
-        return {"ok": True, "monitors": monitors}
-
     def op_list_profiles(self, _body: dict[str, Any]) -> dict[str, Any]:
+        # `servers` stays in the response (empty now) for shape-compat with the
+        # frontend's `GsrListProfiles` — Pulse only ever streams into a voice
+        # channel, so there's no server catalog any more.
         return {
             "ok": True,
             "profiles": [_profile_to_dict(p) for p in PROFILES],
-            "servers": [_server_to_dict(s) for s in SERVERS],
+            "servers": [],
             "audio_modes": list(AUDIO_MODES.keys()),
             "app_label_prefix": APP_LABEL_PREFIX,
         }
@@ -387,7 +333,6 @@ class Sidecar:
 _OP_TABLE = {
     "health": "op_health",
     "gpu_info": "op_gpu_info",
-    "list_monitors": "op_list_monitors",
     "list_profiles": "op_list_profiles",
     "list_application_audio": "op_list_application_audio",
     "build_argv": "op_build_argv",

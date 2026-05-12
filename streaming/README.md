@@ -12,13 +12,11 @@ streaming/
 ├── gsr-sidecar/             pure-stdlib Python-Sidecar
 │   ├── profiles.py          Stream-/ServerProfile (+ ServerProfile.from_channel)
 │   ├── stream_controller.py subprocess.Popen-Wrapper für GSR (statt QProcess)
-│   ├── config.py            Settings-Dataclasses (JSON-I/O nicht aktiv genutzt)
-│   ├── gsr_binary.py        Binary-Resolver + --info-/--list-monitors-Parser
+│   ├── gsr_binary.py        Binary-Resolver + --info-Parser
 │   ├── control.py           stdio-Loop, JSON-RPC-Protokoll
 │   └── __init__.py
 ├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (Template + docker-compose + Player)
-├── scripts/                 manuelle Test-Skripte (start-stream*.fish) — Referenz
 ├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
 ├── pyproject.toml           uv-Workspace-Member "gsr-sidecar" (package=false)
 └── README.md                hier
@@ -60,22 +58,20 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 |---|---|---|
 | `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ...}` |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
-| `list_monitors` | — | `monitors: [{name, resolution}, ...]` |
-| `list_profiles` | — | `profiles, servers, audio_modes, app_label_prefix` |
+| `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
-| `start` | `profile, server?\|channel?\|custom_server?, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}, stream_key?` | `argv` (die gleiche Liste) — danach kommen Events |
+| `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}` | `argv` (die gleiche Liste) — danach kommen Events |
 | `stop` | — | `ok` |
 | `state` | — | `running, state, fps, uptime_s, argv` |
 
-`start`/`build_argv` akzeptieren genau einen von drei Server-Pfaden:
+`start`/`build_argv` brauchen den Channel-Block — Pulse streamt immer in einen
+Voice-Channel:
 
-1. `server: "<name>"` — benannter Eintrag aus `list_profiles().servers`.
-2. `channel: {id, token, mediamtx_endpoint?, push_protocol?}` — Pulse-Channel-Pfad
-   (`ServerProfile.from_channel()`).
-3. `custom_server: {name, push_protocol, push_host, push_port, push_path?, needs_auth?, auth_user?}`
-   — Inline-Spec für nutzer-definierte Server (T3c). Wird im Sidecar zu einem
-   transienten `ServerProfile` gewrappt; `stream_key` separat im Top-Level.
+- `channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}` — Pulse-
+  Channel-Pfad (`ServerProfile.from_channel()`). `push_url` (von media-svc, mit
+  Token drin) wird wenn gesetzt verbatim an GSR `-o` gereicht; sonst werden
+  `mediamtx_endpoint` + `push_protocol` als Fallback genutzt.
 
 ### Events (`{"ev": "..."}`)
 
@@ -96,29 +92,29 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 // → stdin
 {"op": "build_argv", "id": 2,
  "profile": "AV1 Effizient",
- "server": "Hetzner",
+ "channel": {"id": "123", "token": "TOKEN",
+             "push_url": "rtmps://stream.example.com:1936/channel-123-9?user=pulse&pass=TOKEN"},
  "capture": "portal",
  "audio": {"mode": "Desktop", "excluded_apps": []},
- "stream_key": "PLACEHOLDER"}
+ "overrides": {"codec": "av1", "resolution": "1080p", "bitrate_kbps": 4000, "fps": 60}}
 // ← stdout
-{"id":2,"ok":true,"binary":"/usr/bin/gpu-screen-recorder","argv":["/usr/bin/gpu-screen-recorder","-w","portal","-f","60","-c","flv","-k","av1","-bm","cbr","-q","4000","-ac","opus","-a","default_output","-o","rtmp://77.42.71.166:1935/test?user=michael&pass=PLACEHOLDER"]}
+{"id":2,"ok":true,"binary":"/usr/bin/gpu-screen-recorder","argv":["/usr/bin/gpu-screen-recorder","-w","portal","-f","60","-c","flv","-k","av1","-bm","cbr","-q","4000","-ac","opus","-a","default_output","-s","1920x1080","-o","rtmps://stream.example.com:1936/channel-123-9?user=pulse&pass=TOKEN"]}
 ```
 
-## Sidecar standalone testen (ohne Tauri)
+## Sidecar standalone testen
 
 ```bash
 # Im Worktree-Root:
 python streaming/gsr-sidecar/control.py < <(printf '%s\n' \
   '{"op":"health","id":1}' \
   '{"op":"gpu_info","id":2}' \
-  '{"op":"list_monitors","id":3}' \
-  '{"op":"list_profiles","id":4}' \
-  '{"op":"build_argv","id":5,"profile":"AV1 Effizient","server":"Hetzner","capture":"portal","audio":{"mode":"Desktop","excluded_apps":[]},"stream_key":"TESTKEY"}')
+  '{"op":"list_profiles","id":3}' \
+  '{"op":"build_argv","id":4,"profile":"AV1 Effizient","channel":{"id":"123","token":"TESTKEY","push_url":"rtmps://stream.example.com:1936/channel-123-9?user=pulse&pass=TESTKEY"},"capture":"portal","audio":{"mode":"Desktop","excluded_apps":[]},"overrides":{"codec":"av1","resolution":"1080p","bitrate_kbps":4000,"fps":60}}')
 ```
 
 Antworten kommen als JSON-Lines auf stdout. **Kein `start` im Test** —
 das würde den Wayland-Portal-Capture-Dialog öffnen und tatsächlich an
-den Hetzner-Server pushen. Das macht der User selbst.
+MediaMTX pushen. Das macht der User selbst.
 
 ## GSR-Binary-Resolver
 

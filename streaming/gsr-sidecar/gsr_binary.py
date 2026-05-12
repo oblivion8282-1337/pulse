@@ -17,6 +17,9 @@ Parst ausserdem die ``--info``-Ausgabe (sectioned ``key|value`` Format)
 und gibt ``vendor`` + verfügbare ``video_codecs`` zurück. Das Format
 ist vom GSR-Source dokumentiert (``main.cpp``: ``section=...``,
 dann je Sektion ``key|value`` oder ``token``-Zeilen).
+
+(Capture-Quelle ist im Pulse-Pfad immer das Wayland-Portal — der
+frühere ``--list-monitors``-Parser ist entfernt.)
 """
 from __future__ import annotations
 import os
@@ -26,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-# Pfade aus den bestehenden start-stream-server*.fish-Skripten.
+# Bekannte Binary-Pfade (Flatpak-Default + Custom-Build aus bootstrap-gsr.fish).
 _FLATPAK_PATH = Path("/app/bin/gpu-screen-recorder")
 _CUSTOM_BUILD_PATH = Path("/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder")
 
@@ -183,24 +186,3 @@ def _has_flv_opus_patch(binary_path: str) -> bool | None:
     except (subprocess.SubprocessError, FileNotFoundError, OSError):
         return None
     return ".ts and .flv files" in result.stdout
-
-
-def list_monitors(binary: GsrBinary, timeout: float = 5.0) -> list[dict[str, str]]:
-    """Ruft ``--list-monitors`` und parst ``NAME|WxH`` pro Zeile."""
-    if not binary.available or binary.path is None:
-        return []
-    try:
-        result = subprocess.run(
-            [binary.path, "--list-monitors"],
-            capture_output=True, text=True, timeout=timeout,
-        )
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
-        return []
-    monitors: list[dict[str, str]] = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line or "|" not in line:
-            continue
-        name, _, geom = line.partition("|")
-        monitors.append({"name": name.strip(), "resolution": geom.strip()})
-    return monitors

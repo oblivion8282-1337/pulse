@@ -3,15 +3,16 @@
 Stream-Profile bestimmen Codec, Bitrate, Audio-Codec, Container,
 und welches GSR-Binary genutzt wird.
 
-Server-Profile bestimmen Push-URL-Template, ob Auth nötig ist und
-auf welchem Endpunkt Empfänger zuschauen.
+Server-Profile bestimmen Push-URL (bzw. Push-Host/Port/Pfad), ob Auth
+nötig ist und welcher User-Teil verwendet wird.
 
 Vendored aus ``~/Dokumente/GPU_Screen_Recorder/ui/profiles.py`` (2026-05-11).
 GSR-Binary-Resolver wandert in ``gsr_binary.py``. Neu hier:
-``ServerProfile.from_channel()`` für Pulse-spezifische Channel-Pfade.
+``ServerProfile.from_channel()`` für Pulse-spezifische Channel-Pfade —
+das ist mittlerweile der *einzige* Pfad den der Sidecar nutzt (Pulse
+streamt immer in einen Voice-Channel).
 """
 from __future__ import annotations
-import os
 import subprocess
 from dataclasses import dataclass
 
@@ -41,9 +42,6 @@ class ServerProfile:
     # Pulse channel pathway, where media-svc already built the full rtmps://… /
     # srt://… URL (token included), so we don't reconstruct it here.
     push_url: str | None = None
-    webrtc_url_template: str = "http://{host}:8889/{path}"
-    hls_url_template: str = "http://{host}:8888/{path}"
-    player_url_template: str = "http://{host}:8000/"  # Custom HTML-Player mit Stats
 
     @classmethod
     def from_channel(
@@ -129,10 +127,6 @@ class ServerProfile:
             needs_auth=True,
             auth_user=auth_user,
             push_url=push_url,
-            # Receiver-URLs zeigen — gleicher Pfad
-            webrtc_url_template="http://{host}:8889/{path}",
-            hls_url_template="http://{host}:8888/{path}",
-            player_url_template="http://{host}:8000/",
         )
 
 
@@ -186,83 +180,6 @@ def profile_by_name(name: str) -> StreamProfile:
         if p.name == name:
             return p
     raise KeyError(f"Unknown stream profile: {name}")
-
-
-# ── Server-Profile ──────────────────────────────────────────────────
-SERVERS: list[ServerProfile] = [
-    ServerProfile(
-        name="Hetzner",
-        push_protocol="rtmp",
-        push_host="77.42.71.166",
-        push_port=1935,
-        needs_auth=True,
-    ),
-    ServerProfile(
-        name="Lokal",
-        push_protocol="rtmp",
-        push_host="localhost",
-        push_port=1935,
-        needs_auth=False,
-    ),
-]
-
-
-def server_by_name(name: str) -> ServerProfile:
-    for s in SERVERS:
-        if s.name == name:
-            return s
-    raise KeyError(f"Unknown server profile: {name}")
-
-
-# ── Video-Codecs ────────────────────────────────────────────────────
-# Mapping UI-Label → GSR-Argument für `-k`.
-VIDEO_CODECS_ALL: dict[str, str] = {
-    "H.264":            "h264",
-    "HEVC":             "hevc",
-    "HEVC 10-bit":      "hevc_10bit",
-    "HEVC HDR":         "hevc_hdr",
-    "AV1":              "av1",
-    "AV1 10-bit":       "av1_10bit",
-    "AV1 HDR":          "av1_hdr",
-}
-
-# Im Flatpak nur H.264 + AV1 — HEVC ist im Browser-WebRTC unzuverlässig
-# (Linux-Decoder-Lottery), 10-bit hat Player-Kompat-Issues, HDR braucht
-# direkten Monitor (im Sandbox unmöglich, dort ist nur Portal verfügbar).
-VIDEO_CODECS_FLATPAK: dict[str, str] = {
-    "H.264": "h264",
-    "AV1":   "av1",
-}
-
-
-def is_flatpak() -> bool:
-    """True wenn der Sidecar im Flatpak-Sandbox läuft."""
-    return os.path.exists("/.flatpak-info") or "FLATPAK_ID" in os.environ
-
-
-def get_video_codecs() -> dict[str, str]:
-    """Codec-Liste je nach Umgebung."""
-    return VIDEO_CODECS_FLATPAK if is_flatpak() else VIDEO_CODECS_ALL
-
-
-def codec_label_for(codec_value: str) -> str:
-    """Reverse lookup: 'av1_hdr' → 'AV1 HDR'."""
-    codecs = get_video_codecs()
-    for label, val in codecs.items():
-        if val == codec_value:
-            return label
-    for label, val in codecs.items():
-        if codec_value.startswith(val):
-            return label
-    return next(iter(codecs.keys()))
-
-
-def is_hdr_codec(codec_value: str) -> bool:
-    return codec_value.endswith("_hdr")
-
-
-def is_10bit_codec(codec_value: str) -> bool:
-    return codec_value.endswith("_10bit") or codec_value.endswith("_hdr")
 
 
 # ── Audio-Modi (statisch) ───────────────────────────────────────────
