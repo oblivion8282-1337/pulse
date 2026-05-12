@@ -169,12 +169,12 @@ class ConnectionManager:
         return out
 
     async def stream_state_for(self, channel_id: str) -> dict[str, Any] | None:
-        """Active HQ-stream state for a channel, read straight off Redis.
+        """Current HQ streamers for a channel, read straight off Redis.
 
-        Returns ``{"channel_id": ..., "user_id": ...|None}`` if a stream is
-        currently active, else ``None``. The poller in media-svc owns
-        ``stream:channel:<id>``; we only read it (mirroring how voice presence
-        reads ``voice:room:*``)."""
+        Returns ``{"channel_id": ..., "user_ids": [...]}`` if anyone is
+        streaming, else ``None``. The poller in media-svc owns
+        ``stream:channel:<id>`` (→ ``{user_ids: [...], since}``); we only read
+        it (mirroring how voice presence reads ``voice:room:*``)."""
         raw = await self._redis.get(STREAM_CHANNEL_STATE_KEY.format(channel_id=channel_id))
         if raw is None:
             return None
@@ -182,10 +182,12 @@ class ConnectionManager:
             data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
         except (ValueError, TypeError, AttributeError):
             return None
-        if not isinstance(data, dict) or not data.get("active"):
+        if not isinstance(data, dict):
             return None
-        uid = data.get("user_id")
-        return {"channel_id": channel_id, "user_id": str(uid) if uid else None}
+        uids = [str(u) for u in (data.get("user_ids") or []) if u]
+        if not uids:
+            return None
+        return {"channel_id": channel_id, "user_ids": uids}
 
     async def stream_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
         if not channel_ids:
@@ -277,20 +279,17 @@ class ConnectionManager:
                             "stream:events malformed or missing channel_id: %r", payload
                         )
                         continue
-                    uid = payload.get("user_id")
                     envelope = {
                         "op": "stream_state",
                         "channel_id": str(payload.get("channel_id")),
-                        "user_id": str(uid) if uid else None,
-                        "active": bool(payload.get("active")),
+                        "user_ids": [str(u) for u in payload.get("user_ids", [])],
                     }
                     async with self._lock:
                         targets = list(self._connections)
                     log.info(
-                        "stream:events broadcast channel=%s user_id=%s active=%s targets=%d",
+                        "stream:events broadcast channel=%s user_ids=%s targets=%d",
                         envelope["channel_id"],
-                        envelope["user_id"],
-                        envelope["active"],
+                        envelope["user_ids"],
                         len(targets),
                     )
                     await self._fan_out(targets, envelope)

@@ -46,45 +46,61 @@ async def test_health(client):
 
 
 @pytest.mark.asyncio
-async def test_publish_valid_token_for_right_channel(client, redis):
+async def test_publish_valid_token_for_right_channel_user(client, redis):
     cid = _unique_cid()
+    uid = "42"
     token = "tok-" + uuid.uuid4().hex
-    await _put_token(redis, token, channel_id=cid, user_id="42")
+    await _put_token(redis, token, channel_id=cid, user_id=uid)
     try:
-        r = await client.post("/", json=_body("publish", f"channel-{cid}", password=token))
+        r = await client.post("/", json=_body("publish", f"channel-{cid}-{uid}", password=token))
         assert r.status_code == 200, r.text
-        # The hook recorded who is publishing.
-        raw = await redis.get(ACTIVE_KEY.format(channel_id=cid))
+        raw = await redis.get(ACTIVE_KEY.format(channel_id=cid, user_id=uid))
         assert raw is not None
         rec = json.loads(raw.decode())
-        assert rec["user_id"] == "42"
+        assert rec["user_id"] == uid
         assert "started_at" in rec
     finally:
-        await redis.delete(TOKEN_KEY.format(token=token), ACTIVE_KEY.format(channel_id=cid))
+        await redis.delete(TOKEN_KEY.format(token=token), ACTIVE_KEY.format(channel_id=cid, user_id=uid))
 
 
 @pytest.mark.asyncio
 async def test_publish_token_in_token_field_also_works(client, redis):
     cid = _unique_cid()
+    uid = "7"
     token = "tok-" + uuid.uuid4().hex
-    await _put_token(redis, token, channel_id=cid, user_id="7")
+    await _put_token(redis, token, channel_id=cid, user_id=uid)
     try:
-        r = await client.post("/", json=_body("publish", f"channel-{cid}", token=token))
+        r = await client.post("/", json=_body("publish", f"channel-{cid}-{uid}", token=token))
         assert r.status_code == 200, r.text
     finally:
-        await redis.delete(TOKEN_KEY.format(token=token), ACTIVE_KEY.format(channel_id=cid))
+        await redis.delete(TOKEN_KEY.format(token=token), ACTIVE_KEY.format(channel_id=cid, user_id=uid))
 
 
 @pytest.mark.asyncio
 async def test_publish_valid_token_wrong_channel_denied(client, redis):
     cid = _unique_cid()
     other = _unique_cid()
+    uid = "42"
+    token = "tok-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id=uid)
+    try:
+        r = await client.post("/", json=_body("publish", f"channel-{other}-{uid}", password=token))
+        assert r.status_code == 401
+        assert await redis.exists(ACTIVE_KEY.format(channel_id=other, user_id=uid)) == 0
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_publish_valid_token_wrong_user_denied(client, redis):
+    cid = _unique_cid()
     token = "tok-" + uuid.uuid4().hex
     await _put_token(redis, token, channel_id=cid, user_id="42")
     try:
-        r = await client.post("/", json=_body("publish", f"channel-{other}", password=token))
+        # Token says user 42, but the path claims user 99 → denied.
+        r = await client.post("/", json=_body("publish", f"channel-{cid}-99", password=token))
         assert r.status_code == 401
-        assert await redis.exists(ACTIVE_KEY.format(channel_id=other)) == 0
+        assert await redis.exists(ACTIVE_KEY.format(channel_id=cid, user_id="99")) == 0
     finally:
         await redis.delete(TOKEN_KEY.format(token=token))
 
@@ -92,19 +108,17 @@ async def test_publish_valid_token_wrong_channel_denied(client, redis):
 @pytest.mark.asyncio
 async def test_publish_unknown_token_denied(client):
     cid = _unique_cid()
-    r = await client.post("/", json=_body("publish", f"channel-{cid}", password="nope-" + uuid.uuid4().hex))
+    r = await client.post("/", json=_body("publish", f"channel-{cid}-1", password="nope-" + uuid.uuid4().hex))
     assert r.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_publish_expired_token_denied(client, redis):
-    # "expired" == simply not present in Redis (TTL elapsed).
     cid = _unique_cid()
     token = "tok-" + uuid.uuid4().hex
-    # Write then immediately delete to simulate expiry.
     await _put_token(redis, token, channel_id=cid, user_id="1")
     await redis.delete(TOKEN_KEY.format(token=token))
-    r = await client.post("/", json=_body("publish", f"channel-{cid}", password=token))
+    r = await client.post("/", json=_body("publish", f"channel-{cid}-1", password=token))
     assert r.status_code == 401
 
 
@@ -114,7 +128,7 @@ async def test_publish_wrong_scope_denied(client, redis):
     token = "tok-" + uuid.uuid4().hex
     await _put_token(redis, token, channel_id=cid, user_id="1", scope="read")
     try:
-        r = await client.post("/", json=_body("publish", f"channel-{cid}", password=token))
+        r = await client.post("/", json=_body("publish", f"channel-{cid}-1", password=token))
         assert r.status_code == 401
     finally:
         await redis.delete(TOKEN_KEY.format(token=token))
@@ -127,7 +141,10 @@ async def test_publish_non_channel_path_denied(client, redis):
     try:
         r = await client.post("/", json=_body("publish", "some-random-path", password=token))
         assert r.status_code == 401
-        r = await client.post("/", json=_body("publish", "channel-abc", password=token))
+        # `channel-abc-1` (non-numeric channel), `channel-123` (no `-uid`) → both invalid.
+        r = await client.post("/", json=_body("publish", "channel-abc-1", password=token))
+        assert r.status_code == 401
+        r = await client.post("/", json=_body("publish", "channel-123", password=token))
         assert r.status_code == 401
     finally:
         await redis.delete(TOKEN_KEY.format(token=token))
@@ -136,15 +153,17 @@ async def test_publish_non_channel_path_denied(client, redis):
 @pytest.mark.asyncio
 async def test_read_on_channel_allowed_anonymously(client):
     cid = _unique_cid()
-    r = await client.post("/", json=_body("read", f"channel-{cid}"))
+    r = await client.post("/", json=_body("read", f"channel-{cid}-1"))
     assert r.status_code == 200
-    r = await client.post("/", json=_body("playback", f"channel-{cid}"))
+    r = await client.post("/", json=_body("playback", f"channel-{cid}-1"))
     assert r.status_code == 200
 
 
 @pytest.mark.asyncio
 async def test_read_on_non_channel_path_denied(client):
     r = await client.post("/", json=_body("read", "all_others"))
+    assert r.status_code == 401
+    r = await client.post("/", json=_body("read", "channel-123"))  # no `-uid`
     assert r.status_code == 401
 
 
@@ -158,7 +177,7 @@ async def test_api_metrics_pprof_allowed(client):
 @pytest.mark.asyncio
 async def test_unknown_action_denied(client):
     cid = _unique_cid()
-    r = await client.post("/", json=_body("teleport", f"channel-{cid}"))
+    r = await client.post("/", json=_body("teleport", f"channel-{cid}-1"))
     assert r.status_code == 401
 
 
@@ -170,7 +189,6 @@ async def test_auth_alias_path_works(client):
 
 @pytest.mark.asyncio
 async def test_extra_fields_tolerated(client):
-    # MediaMTX builds vary — an unknown extra field must not 422.
     body = _body("api", "")
     body["someNewField"] = "x"
     r = await client.post("/", json=body)

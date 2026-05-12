@@ -41,7 +41,7 @@ type ServerEvent =
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
   | { op: 'voice_state'; channel_id: string; user_ids: string[]; streaming_user_ids?: string[] }
-  | { op: 'stream_state'; channel_id: string; user_id: string | null; active: boolean }
+  | { op: 'stream_state'; channel_id: string; user_ids: string[] }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -217,7 +217,7 @@ export class GatewayConnection {
         voicePresence.apply(evt.channel_id, evt.user_ids, evt.streaming_user_ids);
         break;
       case 'stream_state':
-        streamPresence.apply(evt.channel_id, evt.user_id, evt.active);
+        streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
         break;
     }
   }

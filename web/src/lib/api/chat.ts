@@ -118,9 +118,11 @@ export const chatApi = {
       body: { protocol }
     });
   },
-  /** Anonymous WHEP playback URL for the channel's HQ stream. */
-  getWhepUrl(channelId: string): Promise<{ whep_url: string }> {
-    return request<{ whep_url: string }>(`/channels/${channelId}/whep`);
+  /** WHEP playback URL for `userId`'s HQ stream in `channelId`. */
+  getWhepUrl(channelId: string, userId: string): Promise<{ whep_url: string }> {
+    return request<{ whep_url: string }>(
+      `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}`
+    );
   },
   /** Channels in the guild that currently have an active HQ stream — re-sync helper. */
   async getGuildStreamState(guildId: string): Promise<StreamChannelState[]> {

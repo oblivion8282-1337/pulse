@@ -21,16 +21,18 @@
 
   let { channel }: { channel: Channel } = $props();
 
-  // HQ stream presence for this channel (from the WS `stream_state` broadcast).
-  let hqStreaming = $derived(streamPresence.isStreaming(channel.id));
-  let hqStreamerId = $derived(streamPresence.streamingUser(channel.id));
-  let hqIsSelf = $derived(!!hqStreamerId && hqStreamerId === auth.user?.id);
-  let hqStreamerName = $derived(hqStreamerId ? userCache.displayName(hqStreamerId) : 'Jemand');
+  // HQ stream presence for this channel (from the WS `stream_state` broadcast) —
+  // a set of streamers, since several people can HQ-stream into one channel.
+  let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
+  let iAmHqStreaming = $derived(!!auth.user && hqStreamers.includes(auth.user.id));
+  // The streams whose video we can actually watch (everyone but ourselves).
+  let hqStreamersOther = $derived(hqStreamers.filter((id) => id !== auth.user?.id));
+  let hqStreaming = $derived(hqStreamers.length > 0);
 
-  // Stream layout: the HQ stream (if not our own) plus every browser screen-share
-  // go into one responsive grid; participant avatars become a compact row below.
+  // Stream layout: every watchable HQ stream + every browser screen-share go
+  // into one responsive grid; participant avatars become a compact row below.
   let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
-  let videoTileCount = $derived((hqStreaming && !hqIsSelf ? 1 : 0) + voice.screenTracks.length);
+  let videoTileCount = $derived(hqStreamersOther.length + voice.screenTracks.length);
   let streamGridCols = $derived(
     videoTileCount <= 1
       ? 'grid-cols-1'
@@ -40,9 +42,16 @@
           ? 'grid-cols-3'
           : 'grid-cols-4',
   );
+  let hqLabel = $derived(
+    iAmHqStreaming
+      ? 'Du streamst (HQ)'
+      : hqStreamersOther.length === 1
+        ? `${userCache.displayName(hqStreamersOther[0])} streamt (HQ)`
+        : `${hqStreamersOther.length} Leute streamen (HQ)`,
+  );
 
   $effect(() => {
-    if (hqStreamerId) userCache.queue(hqStreamerId);
+    for (const uid of hqStreamers) userCache.queue(uid);
   });
 
   async function stopHqStream() {
@@ -136,8 +145,8 @@
           {#if hqStreaming}
             <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
               <RadioTowerIcon class="size-4 text-red-500" />
-              {#if hqIsSelf}
-                <span class="text-text-bright font-medium">Du streamst (HQ)</span>
+              <span class="text-text-bright">{hqLabel}</span>
+              {#if iAmHqStreaming}
                 <Button
                   variant="destructive"
                   size="sm"
@@ -148,8 +157,6 @@
                   <SquareIcon class="size-3.5" />
                   Stream beenden
                 </Button>
-              {:else}
-                <span class="text-text-bright"><span class="font-medium">{hqStreamerName}</span> streamt (HQ)</span>
               {/if}
             </div>
           {/if}
@@ -163,9 +170,9 @@
             </div>
           {:else}
             <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 {streamGridCols}" data-testid="stream-grid">
-              {#if hqStreaming && !hqIsSelf}
-                <WhepPlayer channelId={channel.id} />
-              {/if}
+              {#each hqStreamersOther as uid (uid)}
+                <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
+              {/each}
               {#each voice.screenTracks as st (st.identity)}
                 <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
               {/each}

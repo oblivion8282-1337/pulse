@@ -42,7 +42,7 @@ from dcc_mediamtx_auth_hook.config import get_settings
 from dcc_mediamtx_auth_hook.shared import (
     ACTIVE_KEY,
     TOKEN_KEY,
-    channel_id_from_path,
+    parse_channel_user_path,
 )
 
 log = structlog.get_logger(__name__)
@@ -106,9 +106,12 @@ async def _mark_publisher_active(redis: Redis, channel_id: str, user_id: str) ->
         {"user_id": user_id, "started_at": datetime.now(UTC).isoformat()},
         separators=(",", ":"),
     )
-    # Use SET EX (not EXPIRE NX) — a re-publish of the same channel should
-    # refresh both the value (in case the user changed) and the TTL.
-    await redis.set(ACTIVE_KEY.format(channel_id=channel_id), payload, ex=settings.publisher_ttl_seconds)
+    # SET EX — a re-publish refreshes the TTL (self-heal window stays bounded).
+    await redis.set(
+        ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id),
+        payload,
+        ex=settings.publisher_ttl_seconds,
+    )
 
 
 async def _handle(req: AuthRequest, redis: Redis) -> None:
@@ -117,11 +120,12 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
     if action in _EXCLUDED_ACTIONS:
         return  # 200
 
-    channel_id = channel_id_from_path(req.path)
+    cu = parse_channel_user_path(req.path)  # (channel_id, user_id) or None
 
     if action == "publish":
-        if channel_id is None:
+        if cu is None:
             raise _deny("publish_non_channel_path", path=req.path)
+        channel_id, path_user_id = cu
         rec = await _load_token_record(redis, req.credential)
         if rec is None:
             raise _deny("publish_unknown_token", path=req.path)
@@ -133,17 +137,22 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
                 path=req.path,
                 token_channel=rec.get("channel_id"),
             )
-        user_id = str(rec.get("user_id") or "")
-        await _mark_publisher_active(redis, channel_id, user_id)
-        log.info("auth_publish_ok", channel_id=channel_id, user_id=user_id, protocol=req.protocol)
+        if str(rec.get("user_id") or "") != path_user_id:
+            raise _deny(
+                "publish_user_mismatch",
+                path=req.path,
+                token_user=rec.get("user_id"),
+            )
+        await _mark_publisher_active(redis, channel_id, path_user_id)
+        log.info("auth_publish_ok", channel_id=channel_id, user_id=path_user_id, protocol=req.protocol)
         return  # 200
 
     if action in _READ_ACTIONS:
-        if channel_id is None:
+        if cu is None:
             raise _deny("read_non_channel_path", path=req.path)
-        # TODO(T5b/later): require a Pulse member-token here and check channel
-        # membership via chat-gateway before allowing reads. For T5a reads are
-        # anonymous, exactly like the previous `michael`-user config allowed.
+        # TODO(later): require a Pulse member-token here and check channel
+        # membership via chat-gateway before allowing reads. For now reads are
+        # anonymous.
         return  # 200
 
     raise _deny("unknown_action", action=action, path=req.path)

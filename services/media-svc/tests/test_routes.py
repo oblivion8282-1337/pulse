@@ -42,13 +42,15 @@ async def test_stream_token_happy_path_rtmp(client, auth_signer, redis):
     r = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["mediamtx_path"] == f"channel-{cid}"
+    # Per-(channel, user) path now.
+    assert body["mediamtx_path"] == f"channel-{cid}-4242"
     assert body["push_protocol"] == "rtmp"
-    assert body["push_url"].startswith(f"rtmps://ingest.test:1936/channel-{cid}?user=pulse&pass=")
+    assert body["push_url"].startswith(
+        f"rtmps://ingest.test:1936/channel-{cid}-4242?user=pulse&pass="
+    )
     assert body["expires_in_s"] == 4 * 60 * 60
     token = body["token"]
     assert body["push_url"].endswith(token)
-    # The token landed in Redis with the right record.
     raw = await redis.get(TOKEN_KEY.format(token=token))
     assert raw is not None
     rec = json.loads(raw.decode())
@@ -74,7 +76,7 @@ async def test_stream_token_srt_protocol(client, auth_signer, redis):
     body = r.json()
     assert body["push_protocol"] == "srt"
     assert body["push_url"].startswith(
-        f"srt://ingest.test:8890?streamid=publish:channel-{cid}:pulse:"
+        f"srt://ingest.test:8890?streamid=publish:channel-{cid}-7:pulse:"
     )
     await redis.delete(TOKEN_KEY.format(token=body["token"]))
 
@@ -94,11 +96,11 @@ async def test_stream_token_rejects_non_numeric_channel(client, auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_get_stream_state_inactive_by_default(client):
+async def test_get_stream_state_empty_by_default(client):
     cid = _unique_cid()
     r = await client.get(f"/channels/{cid}/stream")
     assert r.status_code == 200
-    assert r.json() == {"channel_id": cid, "active": False, "user_id": None, "since": None}
+    assert r.json() == {"channel_id": cid, "user_ids": [], "since": None}
 
 
 @pytest.mark.asyncio
@@ -106,15 +108,14 @@ async def test_get_stream_state_reflects_redis(client, redis):
     cid = _unique_cid()
     await redis.set(
         CHANNEL_STATE_KEY.format(channel_id=cid),
-        json.dumps({"active": True, "user_id": "99", "since": "2026-05-12T00:00:00+00:00"}),
+        json.dumps({"user_ids": ["99", "100"], "since": "2026-05-12T00:00:00+00:00"}),
     )
     try:
         r = await client.get(f"/channels/{cid}/stream")
         assert r.status_code == 200
         assert r.json() == {
             "channel_id": cid,
-            "active": True,
-            "user_id": "99",
+            "user_ids": ["99", "100"],
             "since": "2026-05-12T00:00:00+00:00",
         }
     finally:
@@ -124,6 +125,13 @@ async def test_get_stream_state_reflects_redis(client, redis):
 @pytest.mark.asyncio
 async def test_get_whep_url(client):
     cid = _unique_cid()
-    r = await client.get(f"/channels/{cid}/whep")
+    r = await client.get(f"/channels/{cid}/whep?user_id=42")
     assert r.status_code == 200
-    assert r.json() == {"whep_url": f"http://stream.test:8889/channel-{cid}/whep"}
+    assert r.json() == {"whep_url": f"http://stream.test:8889/channel-{cid}-42/whep"}
+
+
+@pytest.mark.asyncio
+async def test_get_whep_url_requires_user_id(client):
+    cid = _unique_cid()
+    r = await client.get(f"/channels/{cid}/whep")
+    assert r.status_code == 422

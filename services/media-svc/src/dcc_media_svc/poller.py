@@ -1,18 +1,19 @@
 """MediaMTX stream-presence poller.
 
 Every ``POLL_INTERVAL_S`` seconds we hit the MediaMTX control API
-(``/v3/paths/list``) and look for paths named ``channel-<id>`` that currently
-have an active publisher. From that we reconcile the per-channel stream state in
-Redis (``stream:channel:<id>``) and publish any change on ``stream:events``.
+(``/v3/paths/list``) and look for paths named ``channel-<cid>-<uid>`` that
+currently have an active publisher. From that we reconcile the per-channel
+*set* of HQ streamers in Redis (``stream:channel:<cid>`` →
+``{user_ids: [...], since}``) and publish any change on ``stream:events``.
 
-Who is publishing? The auth hook wrote ``stream:active:channel-<id>`` →
-``{user_id, started_at}`` when it approved the publish, so we look the user up
-there. (If that record is missing for some reason — e.g. the hook restarted —
-we still report ``active: true`` with ``user_id: null``.)
+The publisher's user-id is right there in the path, so no ``stream:active:``
+lookup is needed for attribution (the auth hook still writes those records;
+they self-heal via TTL and are useful for debugging).
 
-Self-heal: any channel Redis still marks ``active`` but MediaMTX no longer lists
-with a publisher → flip to ``active: false`` and emit the event. Tolerant of a
-dead/unreachable MediaMTX API (logs + retries, never crashes).
+Self-heal: any channel Redis still marks as having streamers but MediaMTX no
+longer lists any ``channel-<cid>-*`` publisher → drop the key + emit an empty
+event. Tolerant of a dead/unreachable MediaMTX API (logs + retries, never
+crashes).
 """
 
 from __future__ import annotations
@@ -28,10 +29,9 @@ from redis.asyncio import Redis
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.streamkeys import (
-    ACTIVE_KEY,
     CHANNEL_STATE_KEY,
     STREAM_EVENTS_CHANNEL,
-    channel_id_from_path,
+    parse_channel_user_path,
 )
 
 log = structlog.get_logger(__name__)
@@ -44,37 +44,33 @@ def _path_has_publisher(path_obj: dict[str, Any]) -> bool:
 
     MediaMTX 1.18 renamed ``ready`` → ``available``/``online`` (``ready`` is
     kept as a deprecated alias). We accept any of them, and additionally require
-    a non-null ``source`` (a path with only readers and no publisher has
-    ``source: null``)."""
+    a non-null ``source`` (a path with only readers has ``source: null``)."""
     source = path_obj.get("source")
     if not source:
         return False
     for flag in ("ready", "available", "online"):
         if path_obj.get(flag) is True:
             return True
-    # Some builds omit the boolean but still expose a populated source for an
-    # active publisher — treat a present source as "live" as a last resort.
-    return True
+    return True  # source present but no boolean flag — treat as live
 
 
-async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict[str, bool]:
-    """Return {channel_id: True} for every ``channel-<id>`` path with a publisher.
-
-    Raises on transport/HTTP error — the caller handles it.
-    """
+async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict[str, set[str]]:
+    """``{channel_id: {user_id, ...}}`` for every ``channel-<cid>-<uid>`` path
+    that has a publisher. Raises on transport/HTTP error — the caller handles it."""
     resp = await client.get(url, params={"itemsPerPage": 1000, "page": 0})
     resp.raise_for_status()
     data = resp.json()
     items = data.get("items", []) if isinstance(data, dict) else []
-    out: dict[str, bool] = {}
+    out: dict[str, set[str]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
-        cid = channel_id_from_path(item.get("name", ""))
-        if cid is None:
+        cu = parse_channel_user_path(item.get("name", ""))
+        if cu is None:
             continue
         if _path_has_publisher(item):
-            out[cid] = True
+            cid, uid = cu
+            out.setdefault(cid, set()).add(uid)
     return out
 
 
@@ -89,78 +85,50 @@ async def _read_state(redis: Redis, channel_id: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-async def _publisher_user_id(redis: Redis, channel_id: str) -> str | None:
-    raw = await redis.get(ACTIVE_KEY.format(channel_id=channel_id))
-    if raw is None:
-        return None
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, TypeError, AttributeError):
-        return None
-    uid = data.get("user_id") if isinstance(data, dict) else None
-    return str(uid) if uid else None
-
-
-async def _list_known_active_channels(redis: Redis) -> set[str]:
-    """Channel ids currently marked ``active: true`` in Redis."""
-    active: set[str] = set()
+async def _list_known_channels(redis: Redis) -> set[str]:
+    """Channel ids that currently have a ``stream:channel:<cid>`` key."""
+    out: set[str] = set()
     async for key in redis.scan_iter(match=_CHANNEL_STATE_SCAN_MATCH):
         key_s = key.decode() if isinstance(key, bytes) else key
-        cid = key_s.rsplit(":", 1)[-1]
-        state = await _read_state(redis, cid)
-        if state and state.get("active"):
-            active.add(cid)
-    return active
+        out.add(key_s.rsplit(":", 1)[-1])
+    return out
 
 
-async def _publish_event(redis: Redis, channel_id: str, active: bool, user_id: str | None) -> None:
+async def _publish_event(redis: Redis, channel_id: str, user_ids: list[str]) -> None:
     await redis.publish(
         STREAM_EVENTS_CHANNEL,
-        json.dumps(
-            {"channel_id": channel_id, "active": active, "user_id": user_id},
-            separators=(",", ":"),
-        ),
+        json.dumps({"channel_id": channel_id, "user_ids": user_ids}, separators=(",", ":")),
     )
 
 
 async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
-    """One reconciliation pass. Safe to call repeatedly; raises only on a
-    MediaMTX-API failure (the loop swallows that)."""
+    """One reconciliation pass. Raises only on a MediaMTX-API failure (the loop
+    swallows that)."""
     settings = get_settings()
     publishers = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
-    known_active = await _list_known_active_channels(redis)
+    known = await _list_known_channels(redis)
 
-    # New / continuing streams.
-    for cid in publishers:
-        user_id = await _publisher_user_id(redis, cid)
+    for cid, uids in publishers.items():
+        new_uids = sorted(uids)
         prev = await _read_state(redis, cid)
-        new_state = {
-            "active": True,
-            "user_id": user_id,
-            "since": (prev or {}).get("since") or datetime.now(UTC).isoformat(),
-        }
-        if prev == new_state:
-            # Refresh the TTL so the self-heal window stays bounded but the
-            # value doesn't churn.
-            await redis.expire(
-                CHANNEL_STATE_KEY.format(channel_id=cid), settings.channel_state_ttl_s
-            )
+        prev_uids = sorted(str(u) for u in (prev or {}).get("user_ids", []) if u)
+        if prev is not None and prev_uids == new_uids:
+            await redis.expire(CHANNEL_STATE_KEY.format(channel_id=cid), settings.channel_state_ttl_s)
             continue
+        new_state = {"user_ids": new_uids, "since": (prev or {}).get("since") or datetime.now(UTC).isoformat()}
         await redis.set(
             CHANNEL_STATE_KEY.format(channel_id=cid),
             json.dumps(new_state, separators=(",", ":")),
             ex=settings.channel_state_ttl_s,
         )
-        await _publish_event(redis, cid, True, user_id)
-        log.info("stream_state_change", channel_id=cid, active=True, user_id=user_id)
+        await _publish_event(redis, cid, new_uids)
+        log.info("stream_state_change", channel_id=cid, user_ids=new_uids)
 
-    # Streams that went away → self-heal to inactive + event.
-    for cid in known_active - set(publishers):
-        await redis.delete(
-            CHANNEL_STATE_KEY.format(channel_id=cid), ACTIVE_KEY.format(channel_id=cid)
-        )
-        await _publish_event(redis, cid, False, None)
-        log.info("stream_state_change", channel_id=cid, active=False, user_id=None)
+    # Channels that no longer have any publisher → self-heal to empty + event.
+    for cid in known - set(publishers):
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+        await _publish_event(redis, cid, [])
+        log.info("stream_state_change", channel_id=cid, user_ids=[])
 
 
 async def run_poller(redis: Redis, *, stop_event: asyncio.Event | None = None) -> None:

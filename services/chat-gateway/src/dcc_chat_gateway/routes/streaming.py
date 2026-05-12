@@ -130,14 +130,20 @@ async def issue_stream_token(
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
 async def get_whep_url(
     channel_id: int,
+    user_id: int,
     session: SessionDep,
     current: CurrentUser,
     authorization: Annotated[str | None, Header()] = None,
 ) -> WhepOut:
+    """WHEP playback URL for `user_id`'s HQ stream in `channel_id`. The caller
+    just has to be a member of the channel's guild (they're watching, not the
+    streamer)."""
     await _require_voice_channel_member(session, channel_id, current.id)
     bearer = _bearer_from_header(authorization)
     try:
-        resp = await _media_svc_request("GET", f"/channels/{channel_id}/whep", bearer=bearer)
+        resp = await _media_svc_request(
+            "GET", f"/channels/{channel_id}/whep?user_id={user_id}", bearer=bearer
+        )
     except httpx.HTTPError as exc:
         raise _media_svc_unavailable(exc) from exc
     if resp.status_code >= 400:
@@ -152,13 +158,13 @@ async def guild_stream_state(
     current: CurrentUser,
     request: Request,
 ) -> dict[str, list[dict[str, object]]]:
-    """Channels in the guild that currently have an active HQ stream.
+    """Channels in the guild that currently have HQ streamers.
 
-    Returns ``{"stream_states": [{"channel_id": "<id>", "user_id": "<id>"|null},
-    ...]}`` — only active streams are listed. Mirrors ``GET /guilds/{id}/voice-state``;
-    lets a client re-sync after a reconnect without waiting for the next push.
-    Read straight off Redis (``stream:channel:*``), the same way voice presence
-    is read off ``voice:room:*``.
+    Returns ``{"stream_states": [{"channel_id": "<id>", "user_ids": ["<id>", ...]},
+    ...]}`` — only channels with at least one streamer are listed. Mirrors
+    ``GET /guilds/{id}/voice-state``; lets a client re-sync after a reconnect
+    without waiting for the next push. Read straight off Redis
+    (``stream:channel:*``), the same way voice presence reads ``voice:room:*``.
     """
     await require_member(session, guild_id, current.id)
     stmt = select(Channel.id).where(

@@ -20,10 +20,15 @@
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
+  import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
 
-  let { channelId }: { channelId: string } = $props();
+  let {
+    channelId,
+    userId,
+    name
+  }: { channelId: string; userId: string; name?: string } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
   let phase = $state<'connecting' | 'playing' | 'retrying' | 'error'>('connecting');
@@ -82,7 +87,7 @@
     if (disposed || runChannelId !== cid) return;
     if (attempt === 0) phase = 'connecting';
     try {
-      const { whep_url } = await chatApi.getWhepUrl(cid);
+      const { whep_url } = await chatApi.getWhepUrl(cid, userId);
       if (disposed || runChannelId !== cid) return;
       const s = await connectWhep(whep_url, (stream) => {
         if (videoEl) videoEl.srcObject = stream;
@@ -228,9 +233,19 @@
     </button>
   {/if}
 
+  {#if name}
+    <div
+      class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
+      data-testid="hq-stream-streamer-name"
+    >
+      <RadioTowerIcon class="size-3 text-red-400" />
+      <span class="max-w-32 truncate">{name}</span>
+    </div>
+  {/if}
+
   {#if phase === 'playing' && stats}
     <div
-      class="absolute bottom-2 left-2 flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm"
+      class="absolute bottom-2 right-2 flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm"
       data-testid="hq-stream-stats"
     >
       <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span>

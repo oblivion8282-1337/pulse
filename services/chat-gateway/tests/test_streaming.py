@@ -83,9 +83,9 @@ async def test_stream_token_member_proxies_media_svc(client, _auth_signer, mock_
             200,
             {
                 "token": "tok123",
-                "mediamtx_path": f"channel-{vc['id']}",
+                "mediamtx_path": f"channel-{vc['id']}-1",
                 "push_protocol": "rtmp",
-                "push_url": f"rtmp://localhost:1935/channel-{vc['id']}?user=pulse&pass=tok123",
+                "push_url": f"rtmps://localhost:1936/channel-{vc['id']}-1?user=pulse&pass=tok123",
                 "expires_in_s": 14400,
             },
         )
@@ -94,7 +94,7 @@ async def test_stream_token_member_proxies_media_svc(client, _auth_signer, mock_
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["token"] == "tok123"
-    assert body["mediamtx_path"] == f"channel-{vc['id']}"
+    assert body["mediamtx_path"] == f"channel-{vc['id']}-1"
     assert body["push_protocol"] == "rtmp"
     # The user's bearer token was forwarded to media-svc.
     method, path, bearer, json_body = mock_media_svc.calls[0]
@@ -118,9 +118,9 @@ async def test_stream_token_protocol_forwarded(client, _auth_signer, mock_media_
             200,
             {
                 "token": "t",
-                "mediamtx_path": f"channel-{vc['id']}",
+                "mediamtx_path": f"channel-{vc['id']}-1",
                 "push_protocol": "srt",
-                "push_url": f"srt://localhost:8890?streamid=publish:channel-{vc['id']}:pulse:t",
+                "push_url": f"srt://localhost:8890?streamid=publish:channel-{vc['id']}-1:pulse:t",
                 "expires_in_s": 14400,
             },
         )
@@ -216,11 +216,11 @@ async def test_whep_proxy(client, _auth_signer, mock_media_svc):
         )
     ).json()
     mock_media_svc.responses.append(
-        _resp(200, {"whep_url": f"http://localhost:8889/channel-{vc['id']}/whep"})
+        _resp(200, {"whep_url": f"http://localhost:8889/channel-{vc['id']}-1/whep"})
     )
-    r = await client.get(f"/channels/{vc['id']}/whep", headers=_auth(token))
+    r = await client.get(f"/channels/{vc['id']}/whep?user_id=1", headers=_auth(token))
     assert r.status_code == 200, r.text
-    assert r.json()["whep_url"].endswith(f"channel-{vc['id']}/whep")
+    assert r.json()["whep_url"].endswith(f"channel-{vc['id']}-1/whep")
     assert mock_media_svc.calls[0][0] == "GET"
 
 
@@ -234,7 +234,7 @@ async def test_whep_non_member_403(client, _auth_signer, mock_media_svc):
             f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
         )
     ).json()
-    r = await client.get(f"/channels/{vc['id']}/whep", headers=_auth(outsider))
+    r = await client.get(f"/channels/{vc['id']}/whep?user_id=1", headers=_auth(outsider))
     assert r.status_code == 403
     assert mock_media_svc.calls == []
 
@@ -253,13 +253,13 @@ async def test_guild_stream_state_reflects_redis(client, _auth_signer, redis):
     ).json()
     await redis.set(
         f"stream:channel:{vc['id']}",
-        json.dumps({"active": True, "user_id": "808", "since": "2026-05-12T00:00:00+00:00"}),
+        json.dumps({"user_ids": ["808", "809"], "since": "2026-05-12T00:00:00+00:00"}),
     )
     try:
         r = await client.get(f"/guilds/{g['id']}/stream-state", headers=_auth(token))
         assert r.status_code == 200, r.text
         states = {s["channel_id"]: s for s in r.json()["stream_states"]}
-        assert states[vc["id"]]["user_id"] == "808"
+        assert states[vc["id"]]["user_ids"] == ["808", "809"]
     finally:
         await redis.delete(f"stream:channel:{vc['id']}")
 
@@ -273,7 +273,7 @@ async def test_guild_stream_state_empty_when_inactive(client, _auth_signer, redi
             f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
         )
     ).json()
-    await redis.set(f"stream:channel:{vc['id']}", json.dumps({"active": False}))
+    await redis.set(f"stream:channel:{vc['id']}", json.dumps({"user_ids": []}))
     try:
         r = await client.get(f"/guilds/{g['id']}/stream-state", headers=_auth(token))
         assert r.status_code == 200
@@ -309,7 +309,7 @@ async def test_ready_carries_stream_states(ws_app, _auth_signer, redis):
             return token, vc["id"]
 
     token, cid = await asyncio.to_thread(_run)
-    await redis.set(f"stream:channel:{cid}", json.dumps({"active": True, "user_id": "777"}))
+    await redis.set(f"stream:channel:{cid}", json.dumps({"user_ids": ["777"]}))
     try:
         def _connect():
             with TestClient(ws_app) as tc:
@@ -317,7 +317,7 @@ async def test_ready_carries_stream_states(ws_app, _auth_signer, redis):
                     payload = ws.receive_json()
                     assert payload["op"] == "ready"
                     states = {s["channel_id"]: s for s in payload["stream_states"]}
-                    assert states[cid]["user_id"] == "777"
+                    assert states[cid]["user_ids"] == ["777"]
 
         await asyncio.to_thread(_connect)
     finally:
@@ -346,14 +346,13 @@ async def test_stream_state_pushed_to_connected_client(ws_app, _auth_signer):
                 try:
                     r.publish(
                         "stream:events",
-                        json.dumps({"channel_id": cid, "active": True, "user_id": 999}),
+                        json.dumps({"channel_id": cid, "user_ids": [999]}),
                     )
                 finally:
                     r.close()
                 got = ws.receive_json()
                 assert got["op"] == "stream_state"
                 assert got["channel_id"] == cid
-                assert got["user_id"] == "999"
-                assert got["active"] is True
+                assert got["user_ids"] == ["999"]
 
     await asyncio.to_thread(_run)
