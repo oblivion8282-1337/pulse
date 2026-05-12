@@ -32,7 +32,7 @@
   }
 </script>
 
-<form class="px-4 pb-5 pt-2" onsubmit={submit}>
+<form class="px-4 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:pb-5" onsubmit={submit}>
   <div class="bg-bg-input flex items-end gap-3 rounded-2xl border border-border px-4 py-3 backdrop-blur-sm">
     <textarea
       rows="1"

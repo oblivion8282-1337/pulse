@@ -39,7 +39,7 @@
   });
 </script>
 
-<div class="text-text-base flex h-screen w-screen gap-0 p-0 md:gap-3 md:p-3" data-testid="app-shell">
+<div class="text-text-base flex h-dvh w-screen gap-0 p-0 md:gap-3 md:p-3" data-testid="app-shell">
   {#if !hydrated}
     <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
   {:else}

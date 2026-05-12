@@ -40,7 +40,7 @@
 
 <ModeWatcher defaultMode="system" track disableHeadScriptInjection />
 
-<div class="min-h-screen">
+<div class="min-h-dvh">
   {@render children?.()}
 </div>
 

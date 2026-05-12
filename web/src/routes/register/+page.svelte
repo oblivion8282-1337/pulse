@@ -37,7 +37,7 @@
   }
 </script>
 
-<div class="flex min-h-screen">
+<div class="flex min-h-dvh">
   <AuthBrandPanel
     headline="Werd Teil von Pulse."
     description="In 30 Sekunden eingerichtet. Erstell einen Server, lade Freunde ein, starte einen Voice-Channel."

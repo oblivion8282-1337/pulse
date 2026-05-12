@@ -39,7 +39,7 @@
   }
 </script>
 
-<div class="flex min-h-screen">
+<div class="flex min-h-dvh">
   <AuthBrandPanel
     headline="Bleib im Takt."
     headlineSub="Chat · Voice · HQ-Streams."

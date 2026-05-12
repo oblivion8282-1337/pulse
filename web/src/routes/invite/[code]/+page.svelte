@@ -62,7 +62,7 @@
   }
 </script>
 
-<div class="flex min-h-screen items-center justify-center p-4">
+<div class="flex min-h-dvh items-center justify-center p-4">
   <div class="bg-card w-full max-w-sm space-y-6 rounded-xl p-8 shadow-2xl text-center">
     {#if invalid}
       <Alert.Root variant="destructive" data-testid="invite-invalid">
