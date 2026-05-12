@@ -58,7 +58,20 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
   User ist Member der Guild, Channel ist ein Voice-Channel → leitet das
   Pulse-Access-JWT an `media-svc POST /channels/{id}/stream-token` weiter) und
   `GET /channels/{id}/whep` (gleicher Check → `media-svc GET /channels/{id}/whep`).
-  Braucht `MEDIA_SVC_URL` (Dev `http://127.0.0.1:8004`). (T5c = VPS-Deploy — noch offen.)
+  Braucht `MEDIA_SVC_URL` (Dev `http://127.0.0.1:8004`).
+- **HQ-Streaming-Refactor (2026-05-12, Commits `feat(stream): …`)** — die T5a/T5b-Beschreibungen weiter unten
+  sind teils überholt; aktueller Stand: (1) **per-User-Pfade** — MediaMTX-Pfad ist `channel-<cid>-<uid>`
+  (mehrere können in denselben Voice-Channel HQ-streamen), Regex `^channel-(\d+)-(\d+)$`, Key `stream:active:channel-<cid>-<uid>`,
+  `stream:channel:<cid>` → `{user_ids:[...], since}` (Set statt einzelner User); der `stream_state`-WS-Broadcast +
+  `ready.stream_states` + `GET /guilds/{id}/stream-state` tragen `user_ids:[...]`; `GET /channels/{id}/whep?user_id=<uid>`.
+  Der auth-hook prüft beim publish zusätzlich `token.user_id == path.uid`. Frontend: `streamPresence.byChannel` =
+  `channelId → string[]`, `streamPresence.streamersIn()/isStreaming()`; `WhepPlayer` nimmt `userId`+`name`; im
+  Voice-View ein `WhepPlayer` pro fremdem Streamer im Stream-Grid. (2) **RTMPS** — der GSR-Push geht über
+  `rtmps://<host>:1936/...` (TLS, Token nicht im Klartext); MediaMTX `rtmpEncryption: optional` + self-signed Cert
+  unter `infra/prod/certs/`, UFW `1936/tcp`. (3) **HQ-Panel abgespeckt** — nur noch Codec(H.264/AV1)/Auflösung
+  (Native/1080p/720p/480p, downscale-only)/Bitrate/FPS oben + Audio (inkl. „Bestimmte App" → `audio_mode="App: <name>"`
+  → GSR `-a app:<name>`) + Start/Stop + Log; kein Stream-Ziel/Profil/Capture-Picker mehr; Pfad/Modus immer Channel/Portal.
+  (4) Voice-View: mehrere gleichzeitige Screenshares (HQ + Browser) in einem responsiven Grid statt vertikalem Stapel.
 
 ## Tech-Stack (verifiziert aus uv.lock / pnpm-lock.yaml / package.json — kein Raten)
 
