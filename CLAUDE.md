@@ -45,8 +45,20 @@ GSR-HQ-Streams). Details in `PLAN.md` Section 1.
   (8005) ist MediaMTX' `authHTTP`-Delegation. MediaMTX läuft im Dev über
   `streaming/server/docker-compose.yml` (separat, `network_mode: host`), jetzt
   mit `authMethod: http` → `http://localhost:8005/`. Details siehe Abschnitt
-  "HQ-Streaming-Backend (T5a)" unten. (T5b = chat-gateway konsumiert
-  `stream:events`; T5c = VPS-Deploy — beide noch offen.)
+  "HQ-Streaming-Backend (T5a)" unten.
+- **HQ-Stream-Presence (T5b)** — chat-gateway-Integration, exakt nach dem
+  Voice-Presence-Muster: chat-gateway abonniert `stream:events` (im
+  `ConnectionManager` neben `voice:events`) und broadcastet
+  `{"op":"stream_state","channel_id":..,"user_id":..|null,"active":bool}` an alle
+  WS-Clients; der `ready`-Payload trägt zusätzlich `stream_states: [{channel_id,
+  user_id}, ...]` (aktive HQ-Streams in den Guilds des Users, direkt aus den
+  `stream:channel:*`-Redis-Keys gelesen — wie Voice-Presence aus `voice:room:*`);
+  REST `GET /guilds/{id}/stream-state` fürs Re-Sync. Plus zwei Membership-gateete
+  media-svc-Proxies: `POST /channels/{id}/stream-token` (prüft: Channel existiert,
+  User ist Member der Guild, Channel ist ein Voice-Channel → leitet das
+  Pulse-Access-JWT an `media-svc POST /channels/{id}/stream-token` weiter) und
+  `GET /channels/{id}/whep` (gleicher Check → `media-svc GET /channels/{id}/whep`).
+  Braucht `MEDIA_SVC_URL` (Dev `http://127.0.0.1:8004`). (T5c = VPS-Deploy — noch offen.)
 
 ## Tech-Stack (verifiziert aus uv.lock / pnpm-lock.yaml / package.json — kein Raten)
 
@@ -314,11 +326,12 @@ MediaMTX selbst läuft im Dev über `streaming/server/docker-compose.yml`, separ
   öffentliche Stream-State (`GET /channels/{id}/stream`).
 - **`stream:events`** Pub/Sub → ein Event pro State-Change:
   `{"channel_id": "<id>", "active": true|false, "user_id": "<id>"|null}` —
-  analog zu `voice:events`. **T5b**: chat-gateway abonniert das (wie `voice:events` in
-  `ConnectionManager._listen`) und broadcastet z.B. `{"op":"stream_state", channel_id, active, user_id}`
-  an alle WS-Clients; analog dazu eine `GET /guilds/{id}/stream-state`-Re-Sync-Route
-  (media-svc kennt keine Guild→Channel-Map → chat-gateway fragt media-svc pro Voice-Channel
-  oder liest `stream:channel:*` direkt — beim Implementieren entscheiden).
+  analog zu `voice:events`. **T5b** (umgesetzt): chat-gateway abonniert das (wie
+  `voice:events` in `ConnectionManager._listen`) und broadcastet
+  `{"op":"stream_state", channel_id, user_id, active}` an alle WS-Clients;
+  `ready.stream_states` + `GET /guilds/{id}/stream-state` lesen `stream:channel:*`
+  direkt aus Redis (media-svc kennt keine Guild→Channel-Map; chat-gateway schon).
+  Siehe Abschnitt "HQ-Stream-Presence (T5b)" oben.
 
 Die Redis-Key-Namen sind in `dcc_media_svc/streamkeys.py` und `dcc_mediamtx_auth_hook/shared.py`
 **dupliziert** (die zwei Services teilen keinen Code/keine DB — nur diese Namen; synchron halten).
@@ -492,13 +505,17 @@ dagegen und truncated nur diese DB. Redis-Index `/1` (statt `/0`) für Test-Pub/
 ### Service-Start (Env aus `.env`)
 - chat-gateway / auth: `POSTGRES_PASSWORD`, `JWT_PRIVATE_KEY_FILE` + `JWT_PUBLIC_KEY_FILE`
   (absolute Pfade zu `secrets/jwt_*.pem`), `REDIS_URL=redis://localhost:6380/0`,
-  `AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json`
+  `AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json`. chat-gateway zusätzlich
+  `MEDIA_SVC_URL=http://127.0.0.1:8004` (T5b — der media-svc-Proxy für Stream-Tokens/WHEP;
+  fehlt der, defaultet's eh auf genau das; läuft media-svc nicht, gibt `POST /channels/{id}/stream-token`
+  ein 502, der Rest läuft normal weiter).
 - **chat-gateway neu starten** (überlebt Agent-Shutdown):
   ```bash
   pkill -f "uvicorn dcc_chat_gateway"
   cd services/chat-gateway && \
   POSTGRES_PASSWORD=... REDIS_URL=redis://localhost:6380/0 \
   AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json \
+  MEDIA_SVC_URL=http://127.0.0.1:8004 \
   setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 \
     > /tmp/dcc-chat.log 2>&1 < /dev/null & disown
   ```

@@ -1,0 +1,359 @@
+"""HQ-streaming proxy + presence tests (T5b).
+
+Covers:
+  * ``POST /channels/{id}/stream-token`` — member → proxies media-svc (mocked);
+    non-member → 403; non-existent channel → 404; text channel → 400;
+    media-svc down → 502.
+  * ``GET /channels/{id}/whep`` — member → proxies media-svc (mocked).
+  * ``GET /guilds/{id}/stream-state`` — reflects the Redis ``stream:channel:*``
+    state; non-member → 403.
+  * the ``stream:events`` → ``stream_state`` WebSocket broadcast (mirrors the
+    voice:events test) + ``ready.stream_states``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import random
+
+import dcc_chat_gateway.routes.streaming as streaming_routes
+import httpx
+import pytest
+import pytest_asyncio
+from redis.asyncio import Redis
+from starlette.testclient import TestClient
+
+_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
+
+
+def _auth(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def _register(_auth_signer, uid: int | None = None) -> tuple[str, int]:
+    uid = uid or random.randint(1, 1_000_000)
+    return _auth_signer.issue_access(uid, f"u{uid}"), uid
+
+
+@pytest_asyncio.fixture
+async def redis() -> Redis:
+    r = Redis.from_url(_REDIS_URL, decode_responses=False)
+    yield r
+    await r.aclose()
+
+
+@pytest.fixture
+def mock_media_svc(monkeypatch):
+    """Replace ``_media_svc_request`` with a recording stub. Returns a list the
+    test can append fake ``httpx.Response`` objects to (FIFO) plus a `.calls`
+    log of ``(method, path, bearer, json_body)`` tuples."""
+    calls: list[tuple] = []
+    responses: list[httpx.Response] = []
+
+    async def _fake(method, path, *, bearer, json_body=None):
+        calls.append((method, path, bearer, json_body))
+        if not responses:
+            raise AssertionError("no fake media-svc response queued")
+        return responses.pop(0)
+
+    monkeypatch.setattr(streaming_routes, "_media_svc_request", _fake)
+    return type("MockMedia", (), {"calls": calls, "responses": responses})()
+
+
+def _resp(status: int, body: dict) -> httpx.Response:
+    return httpx.Response(status, json=body, request=httpx.Request("GET", "http://media-svc/x"))
+
+
+# --- POST /channels/{id}/stream-token --------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_stream_token_member_proxies_media_svc(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(
+            200,
+            {
+                "token": "tok123",
+                "mediamtx_path": f"channel-{vc['id']}",
+                "push_protocol": "rtmp",
+                "push_url": f"rtmp://localhost:1935/channel-{vc['id']}?user=pulse&pass=tok123",
+                "expires_in_s": 14400,
+            },
+        )
+    )
+    r = await client.post(f"/channels/{vc['id']}/stream-token", json={}, headers=_auth(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["token"] == "tok123"
+    assert body["mediamtx_path"] == f"channel-{vc['id']}"
+    assert body["push_protocol"] == "rtmp"
+    # The user's bearer token was forwarded to media-svc.
+    method, path, bearer, json_body = mock_media_svc.calls[0]
+    assert method == "POST"
+    assert path == f"/channels/{vc['id']}/stream-token"
+    assert bearer == token
+    assert json_body == {"protocol": "rtmp"}
+
+
+@pytest.mark.asyncio
+async def test_stream_token_protocol_forwarded(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(
+            200,
+            {
+                "token": "t",
+                "mediamtx_path": f"channel-{vc['id']}",
+                "push_protocol": "srt",
+                "push_url": f"srt://localhost:8890?streamid=publish:channel-{vc['id']}:pulse:t",
+                "expires_in_s": 14400,
+            },
+        )
+    )
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={"protocol": "srt"}, headers=_auth(token)
+    )
+    assert r.status_code == 200, r.text
+    assert mock_media_svc.calls[0][3] == {"protocol": "srt"}
+
+
+@pytest.mark.asyncio
+async def test_stream_token_non_member_403(client, _auth_signer, mock_media_svc):
+    owner, _ = await _register(_auth_signer)
+    outsider, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
+        )
+    ).json()
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={}, headers=_auth(outsider)
+    )
+    assert r.status_code == 403
+    assert mock_media_svc.calls == []  # never reached media-svc
+
+
+@pytest.mark.asyncio
+async def test_stream_token_unknown_channel_404(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    r = await client.post("/channels/999999999/stream-token", json={}, headers=_auth(token))
+    assert r.status_code == 404
+    assert mock_media_svc.calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_token_text_channel_400(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    tc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "general", "type": 0}, headers=_auth(token)
+        )
+    ).json()
+    r = await client.post(f"/channels/{tc['id']}/stream-token", json={}, headers=_auth(token))
+    assert r.status_code == 400
+    assert mock_media_svc.calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_token_media_svc_down_502(client, _auth_signer, monkeypatch):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+
+    async def _boom(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(streaming_routes, "_media_svc_request", _boom)
+    r = await client.post(f"/channels/{vc['id']}/stream-token", json={}, headers=_auth(token))
+    assert r.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_stream_token_media_svc_4xx_surfaced(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(_resp(401, {"detail": "nope"}))
+    r = await client.post(f"/channels/{vc['id']}/stream-token", json={}, headers=_auth(token))
+    assert r.status_code == 401
+
+
+# --- GET /channels/{id}/whep ------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_whep_proxy(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(200, {"whep_url": f"http://localhost:8889/channel-{vc['id']}/whep"})
+    )
+    r = await client.get(f"/channels/{vc['id']}/whep", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["whep_url"].endswith(f"channel-{vc['id']}/whep")
+    assert mock_media_svc.calls[0][0] == "GET"
+
+
+@pytest.mark.asyncio
+async def test_whep_non_member_403(client, _auth_signer, mock_media_svc):
+    owner, _ = await _register(_auth_signer)
+    outsider, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
+        )
+    ).json()
+    r = await client.get(f"/channels/{vc['id']}/whep", headers=_auth(outsider))
+    assert r.status_code == 403
+    assert mock_media_svc.calls == []
+
+
+# --- GET /guilds/{id}/stream-state ------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_guild_stream_state_reflects_redis(client, _auth_signer, redis):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    await redis.set(
+        f"stream:channel:{vc['id']}",
+        json.dumps({"active": True, "user_id": "808", "since": "2026-05-12T00:00:00+00:00"}),
+    )
+    try:
+        r = await client.get(f"/guilds/{g['id']}/stream-state", headers=_auth(token))
+        assert r.status_code == 200, r.text
+        states = {s["channel_id"]: s for s in r.json()["stream_states"]}
+        assert states[vc["id"]]["user_id"] == "808"
+    finally:
+        await redis.delete(f"stream:channel:{vc['id']}")
+
+
+@pytest.mark.asyncio
+async def test_guild_stream_state_empty_when_inactive(client, _auth_signer, redis):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    await redis.set(f"stream:channel:{vc['id']}", json.dumps({"active": False}))
+    try:
+        r = await client.get(f"/guilds/{g['id']}/stream-state", headers=_auth(token))
+        assert r.status_code == 200
+        assert r.json()["stream_states"] == []
+    finally:
+        await redis.delete(f"stream:channel:{vc['id']}")
+
+
+@pytest.mark.asyncio
+async def test_guild_stream_state_non_member_403(client, _auth_signer):
+    owner, _ = await _register(_auth_signer)
+    outsider, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    r = await client.get(f"/guilds/{g['id']}/stream-state", headers=_auth(outsider))
+    assert r.status_code == 403
+
+
+# --- WebSocket: ready.stream_states + stream:events broadcast ---------------
+
+
+@pytest.mark.asyncio
+async def test_ready_carries_stream_states(ws_app, _auth_signer, redis):
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(token),
+            ).json()
+            return token, vc["id"]
+
+    token, cid = await asyncio.to_thread(_run)
+    await redis.set(f"stream:channel:{cid}", json.dumps({"active": True, "user_id": "777"}))
+    try:
+        def _connect():
+            with TestClient(ws_app) as tc:
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    payload = ws.receive_json()
+                    assert payload["op"] == "ready"
+                    states = {s["channel_id"]: s for s in payload["stream_states"]}
+                    assert states[cid]["user_id"] == "777"
+
+        await asyncio.to_thread(_connect)
+    finally:
+        await redis.delete(f"stream:channel:{cid}")
+
+
+@pytest.mark.asyncio
+async def test_stream_state_pushed_to_connected_client(ws_app, _auth_signer):
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(token),
+            ).json()
+            cid = vc["id"]
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                ws.receive_json()  # ready
+                # Simulate media-svc publishing a stream-state change.
+                import redis as sync_redis
+
+                r = sync_redis.Redis.from_url(_REDIS_URL)
+                try:
+                    r.publish(
+                        "stream:events",
+                        json.dumps({"channel_id": cid, "active": True, "user_id": 999}),
+                    )
+                finally:
+                    r.close()
+                got = ws.receive_json()
+                assert got["op"] == "stream_state"
+                assert got["channel_id"] == cid
+                assert got["user_id"] == "999"
+                assert got["active"] is True
+
+    await asyncio.to_thread(_run)
