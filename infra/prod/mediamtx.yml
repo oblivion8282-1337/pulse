@@ -46,7 +46,15 @@ hlsPartDuration: 100ms
 webrtc: yes
 webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
-webrtcIPsFromInterfaces: yes
+# With network_mode: host MediaMTX sees every host interface — loopback,
+# docker bridges, link-local IPv6 — and used to advertise them all as ICE
+# candidates. Remote clients then probed each one in turn and waited 5-10s
+# per unreachable address, making WHEP playback feel slow to start. Restrict
+# ICE to just our two public addresses (Hetzner v4 + native v6).
+webrtcIPsFromInterfaces: no
+webrtcAdditionalHosts:
+  - 77.42.71.166
+  - "2a01:4f9:c012:e3db::1"
 
 # Control API — bound on all interfaces; media-svc polls /v3/paths/list via
 # host.docker.internal:9997. Kept private by UFW (INPUT DROP).
