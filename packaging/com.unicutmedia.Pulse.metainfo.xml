@@ -5,6 +5,9 @@
   <project_license>LicenseRef-proprietary</project_license>
   <name>Pulse</name>
   <summary>Web-first chat, voice and high-quality screen streaming</summary>
+  <developer id="com.unicutmedia">
+    <name>Unicut Media</name>
+  </developer>
   <description>
     <p>
       Pulse is a Discord-like chat, voice and streaming client. The desktop app
