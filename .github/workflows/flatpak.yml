@@ -81,19 +81,21 @@ jobs:
             flathub https://flathub.org/repo/flathub.flatpakrepo
 
       # ── Caches (huge speedup: FFmpeg + GSR built from source) ──
-      # flatpak-builder writes downloaded tarballs + ccache + intermediate
-      # objects under .flatpak-builder/, and the org.freedesktop.Platform/Sdk
-      # runtimes land in ~/.local/share/flatpak. Cache both, keyed on the
-      # manifest so a real change to FFmpeg/GSR versions invalidates correctly.
-      - name: Cache flatpak runtimes
-        uses: actions/cache@v4
+      # Two-step pattern (separate restore + save with if: always()) so cache
+      # gets saved even when a later step fails. With actions/cache@v4 (single
+      # action) the save would be skipped on job failure → every failed retry
+      # would have to rebuild FFmpeg+GSR from scratch (~15 min).
+      - name: Restore flatpak runtimes cache
+        id: cache-runtimes
+        uses: actions/cache/restore@v4
         with:
           path: ~/.local/share/flatpak
           key: flatpak-runtimes-${{ runner.os }}-${{ hashFiles('packaging/com.unicutmedia.Pulse.yml') }}
           restore-keys: |
             flatpak-runtimes-${{ runner.os }}-
-      - name: Cache flatpak-builder downloads/build
-        uses: actions/cache@v4
+      - name: Restore flatpak-builder cache
+        id: cache-builder
+        uses: actions/cache/restore@v4
         with:
           path: .flatpak-builder
           key: flatpak-builder-${{ runner.os }}-${{ hashFiles('packaging/com.unicutmedia.Pulse.yml', 'streaming/patches/**') }}
@@ -157,6 +159,24 @@ jobs:
           Homepage=https://pulse.unicutmedia.com
           GPGKey=$PUBKEY_B64
           EOF
+
+      # ── Save caches (always, even on later failure) ──
+      # The save happens BEFORE the rsync/publish steps so a network failure
+      # later doesn't prevent us from keeping the expensive FFmpeg+GSR build.
+      # `if: always()` makes save run even if Build & sign Flatpak partially
+      # populated .flatpak-builder/ccache before crashing.
+      - name: Save flatpak runtimes cache
+        if: always() && steps.cache-runtimes.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: ${{ steps.cache-runtimes.outputs.cache-primary-key }}
+      - name: Save flatpak-builder cache
+        if: always() && steps.cache-builder.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .flatpak-builder
+          key: ${{ steps.cache-builder.outputs.cache-primary-key }}
 
       # ── Publish ──
       - name: Set up SSH for rsync
