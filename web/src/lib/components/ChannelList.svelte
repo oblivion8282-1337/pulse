@@ -272,11 +272,13 @@
           voice.connected && voice.channelId === c.id
             ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
             : []}
+        {@const memberStates = voicePresence.userStatesIn(c.id)}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}
             streamingUserIds={streamers}
             speakingUserIds={speakers}
+            userStates={memberStates}
           />
         </div>
       {/if}

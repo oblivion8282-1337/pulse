@@ -12,7 +12,11 @@ import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { messages } from '$lib/stores/messages.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
-import { voicePresence, type VoiceChannelState } from '$lib/stores/voicePresence.svelte';
+import {
+  voicePresence,
+  type UserVoiceState,
+  type VoiceChannelState
+} from '$lib/stores/voicePresence.svelte';
 import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import type { Message } from '$lib/api/types';
@@ -68,14 +72,26 @@ type ServerEvent =
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
-  | { op: 'voice_state'; channel_id: string; user_ids: string[]; streaming_user_ids?: string[] }
+  | {
+      op: 'voice_state';
+      channel_id: string;
+      user_ids: string[];
+      streaming_user_ids?: string[];
+      user_states?: Record<string, UserVoiceState>;
+    }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
   | { op: 'subscribe'; channel_id: string }
   | { op: 'unsubscribe'; channel_id: string }
-  | { op: 'send'; channel_id: string; content: string; nonce: string; reply_to_id?: string | null };
+  | { op: 'send'; channel_id: string; content: string; nonce: string; reply_to_id?: string | null }
+  | {
+      op: 'voice_self_state';
+      channel_id: string | null;
+      mic_muted: boolean;
+      deafened: boolean;
+    };
 
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 
@@ -302,7 +318,12 @@ export class GatewayConnection {
         }
         break;
       case 'voice_state':
-        voicePresence.apply(evt.channel_id, evt.user_ids, evt.streaming_user_ids);
+        voicePresence.apply(
+          evt.channel_id,
+          evt.user_ids,
+          evt.streaming_user_ids,
+          evt.user_states
+        );
         break;
       case 'stream_state':
         streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
@@ -356,6 +377,18 @@ export class GatewayConnection {
       content,
       nonce,
       reply_to_id: replyToId ?? null
+    });
+  }
+
+  /** Report the local user's mute/deafen state to the gateway so it can fan
+   * it out to every other connected client. `channelId` is the voice channel
+   * the user is currently in, or `null` to clear state on disconnect. */
+  sendVoiceSelfState(channelId: string | null, micMuted: boolean, deafened: boolean): boolean {
+    return this._sendRaw({
+      op: 'voice_self_state',
+      channel_id: channelId,
+      mic_muted: micMuted,
+      deafened: deafened
     });
   }
 

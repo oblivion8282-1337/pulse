@@ -13,6 +13,15 @@ Server→client ops, in addition to the chat ops in PLAN.md §5.2:
     the voice_state mechanism. The ``ready`` payload additionally carries
     ``stream_states: [{"channel_id": ..., "user_id": ...}, ...]`` listing every
     channel in the user's guilds that currently has an active HQ stream.
+
+Client→server ops, in addition to ``subscribe``/``unsubscribe``/``send``:
+  - ``{"op": "voice_self_state", "channel_id": "<id>"|null,
+       "mic_muted": bool, "deafened": bool}`` — the user reports their own
+    mute/deafen state to the gateway. ``channel_id`` is the voice channel they
+    are currently in (or ``null`` to clear state on disconnect). The gateway
+    persists the state in Redis and republishes the channel's voice snapshot
+    so other clients re-render their member list. Both flags off + a channel
+    id deletes the Redis key (absence == default-off).
 """
 
 from __future__ import annotations
@@ -297,6 +306,37 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         )
                     except Exception:
                         log.exception("ws guild_event publish failed for channel %s", cid)
+            elif op == "voice_self_state":
+                cid_raw = msg.get("channel_id")
+                cid_int: int | None = None
+                if cid_raw is not None:
+                    cid_int = _channel_id(cid_raw)
+                    if cid_int is None:
+                        await websocket.send_json(
+                            {"op": "error", "code": 4011, "msg": "invalid channel_id"}
+                        )
+                        continue
+                mic_muted = bool(msg.get("mic_muted"))
+                deafened = bool(msg.get("deafened"))
+                cid_str: str | None = None
+                if cid_int is not None:
+                    # Validate membership only when a channel id is given. We
+                    # require the channel to be a voice channel — text channels
+                    # have no voice state.
+                    async with SessionLocal() as session:
+                        channel = await channel_membership(session, cid_int, user.id)
+                    if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+                        await websocket.send_json(
+                            {"op": "error", "code": 4004, "msg": "channel not accessible"}
+                        )
+                        continue
+                    cid_str = str(cid_int)
+                try:
+                    await manager.set_user_voice_state(
+                        str(user.id), mic_muted, deafened, cid_str
+                    )
+                except Exception:
+                    log.exception("voice_self_state write failed for user=%s", user.id)
             else:
                 await websocket.send_json({"op": "error", "code": 4007, "msg": f"unknown op: {op}"})
     finally:

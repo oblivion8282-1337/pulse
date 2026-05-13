@@ -51,6 +51,13 @@ STREAM_EVENTS_CHANNEL = "stream:events"
 # map; chat-gateway does, so it does the per-channel lookup.)
 STREAM_CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
 
+# Per-user self-reported voice state (mic_muted / deafened). Written by the
+# WS `voice_self_state` op (chat-gateway owns this key — voice-signaling never
+# touches it). Absent key == both flags false. TTL matches voice-presence's
+# 6h self-heal window; cleared explicitly on disconnect.
+VOICE_USER_STATE_KEY = "voice:user_state:{user_id}"
+VOICE_USER_STATE_TTL_SECONDS = 6 * 3600
+
 
 class ConnectionManager:
     def __init__(self, redis: Redis) -> None:
@@ -145,17 +152,20 @@ class ConnectionManager:
             and not self._listener_task.done()
         )
 
-    async def voice_state_for(self, channel_id: str) -> dict[str, list[str]]:
-        """Current presence + streaming sets for a voice channel, read from Redis."""
+    async def voice_state_for(self, channel_id: str) -> dict[str, Any]:
+        """Current presence + streaming sets + per-user states for a voice channel."""
         key = f"voice:room:channel-{channel_id}"
         sk = f"voice:room:channel-{channel_id}:streaming"
         members = await self._redis.smembers(key)
         streamers = await self._redis.smembers(sk)
+        user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members)
+        user_states = await self.user_voice_states_for(user_ids)
         return {
-            "user_ids": sorted(m.decode() if isinstance(m, bytes) else m for m in members),
+            "user_ids": user_ids,
             "streaming_user_ids": sorted(
                 m.decode() if isinstance(m, bytes) else m for m in streamers
             ),
+            "user_states": user_states,
         }
 
     async def voice_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
@@ -167,6 +177,66 @@ class ConnectionManager:
             if state["user_ids"] or state["streaming_user_ids"]:
                 out.append({"channel_id": cid, **state})
         return out
+
+    async def user_voice_states_for(self, user_ids: list[str]) -> dict[str, dict[str, bool]]:
+        """Read per-user mute/deafen state for the given user_ids. Missing keys
+        are omitted — clients treat absence as ``{mic_muted: false, deafened: false}``."""
+        if not user_ids:
+            return {}
+        keys = [VOICE_USER_STATE_KEY.format(user_id=u) for u in user_ids]
+        raws = await self._redis.mget(*keys)
+        out: dict[str, dict[str, bool]] = {}
+        for uid, raw in zip(user_ids, raws):
+            if raw is None:
+                continue
+            try:
+                data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            mic_muted = bool(data.get("mic_muted"))
+            deafened = bool(data.get("deafened"))
+            if mic_muted or deafened:
+                out[uid] = {"mic_muted": mic_muted, "deafened": deafened}
+        return out
+
+    async def set_user_voice_state(
+        self,
+        user_id: str,
+        mic_muted: bool,
+        deafened: bool,
+        channel_id: str | None,
+    ) -> None:
+        """Persist a user's mute/deafen state and republish the affected
+        channel's snapshot so all clients re-render. When both flags are False
+        we drop the key (absence == default-off, keeps Redis tidy)."""
+        key = VOICE_USER_STATE_KEY.format(user_id=user_id)
+        if mic_muted or deafened:
+            await self._redis.set(
+                key,
+                json.dumps({"mic_muted": mic_muted, "deafened": deafened}),
+                ex=VOICE_USER_STATE_TTL_SECONDS,
+            )
+        else:
+            await self._redis.delete(key)
+        if channel_id is not None:
+            await self._republish_voice_channel(channel_id)
+
+    async def clear_user_voice_state(self, user_id: str, channel_id: str | None = None) -> None:
+        await self._redis.delete(VOICE_USER_STATE_KEY.format(user_id=user_id))
+        if channel_id is not None:
+            await self._republish_voice_channel(channel_id)
+
+    async def _republish_voice_channel(self, channel_id: str) -> None:
+        """Publish a fresh voice:events snapshot for the given channel. Used
+        after writing per-user state — voice-signaling owns membership-driven
+        publishes; we own state-driven ones."""
+        state = await self.voice_state_for(channel_id)
+        await self._redis.publish(
+            VOICE_EVENTS_CHANNEL,
+            json.dumps({"channel_id": channel_id, **state}, separators=(",", ":")),
+        )
 
     async def stream_state_for(self, channel_id: str) -> dict[str, Any] | None:
         """Current HQ streamers for a channel, read straight off Redis.
@@ -252,21 +322,41 @@ class ConnectionManager:
                             "voice:events malformed or missing channel_id: %r", payload
                         )
                         continue
+                    user_ids = [str(u) for u in payload.get("user_ids", [])]
+                    raw_states = payload.get("user_states")
+                    # voice-signaling publishes without user_states (it owns
+                    # membership, not mute/deafen) — enrich here so clients always
+                    # get a complete snapshot. Our own _republish path includes
+                    # the field already; trust it then to avoid a second mget.
+                    if isinstance(raw_states, dict):
+                        user_states = {
+                            str(uid): {
+                                "mic_muted": bool(s.get("mic_muted")),
+                                "deafened": bool(s.get("deafened")),
+                            }
+                            for uid, s in raw_states.items()
+                            if isinstance(s, dict)
+                            and (s.get("mic_muted") or s.get("deafened"))
+                        }
+                    else:
+                        user_states = await self.user_voice_states_for(user_ids)
                     envelope = {
                         "op": "voice_state",
                         "channel_id": str(payload.get("channel_id")),
-                        "user_ids": [str(u) for u in payload.get("user_ids", [])],
+                        "user_ids": user_ids,
                         "streaming_user_ids": [
                             str(u) for u in payload.get("streaming_user_ids", [])
                         ],
+                        "user_states": user_states,
                     }
                     async with self._lock:
                         targets = list(self._connections)
                     log.info(
-                        "voice:events broadcast channel=%s user_ids=%s streaming=%s targets=%d",
+                        "voice:events broadcast channel=%s user_ids=%s streaming=%s states=%d targets=%d",
                         envelope["channel_id"],
                         envelope["user_ids"],
                         envelope["streaming_user_ids"],
+                        len(envelope["user_states"]),
                         len(targets),
                     )
                     await self._fan_out(targets, envelope)

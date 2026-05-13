@@ -29,6 +29,7 @@ import { createNoiseProcessor } from './noiseFilter';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
 import { auth } from '$lib/stores/auth.svelte';
+import { gateway } from '$lib/ws/connection';
 import { toast } from 'svelte-sonner';
 
 export type { ScreenShareTrack };
@@ -174,6 +175,10 @@ class VoiceRoom {
     } else {
       this.micEnabled = false;
     }
+    // Make sure the gateway has our state even if neither setMicEnabled nor
+    // setDeafened ran (PTT mode + not deafened = both false → no setter fired,
+    // but we still want to clear any stale state from a previous session).
+    this.#publishSelfState();
   }
 
   async disconnect(): Promise<void> {
@@ -197,6 +202,7 @@ class VoiceRoom {
       this.error = e instanceof Error ? e.message : 'Mikrofon-Zugriff fehlgeschlagen';
     }
     this.#refreshParticipants();
+    this.#publishSelfState();
   }
 
   toggleMic(): void {
@@ -226,6 +232,7 @@ class VoiceRoom {
   setDeafened(on: boolean): void {
     this.deafened = on;
     this.#audioEls.setDeafened(on);
+    this.#publishSelfState();
   }
   toggleDeafen(): void {
     this.setDeafened(!this.deafened);
@@ -516,6 +523,14 @@ class VoiceRoom {
     if (this.channelId) {
       const myUserId = auth.user?.id;
       if (myUserId) voicePresence.removeUser(this.channelId, myUserId);
+      // Tell the gateway we're no longer in a voice channel so it drops our
+      // mute/deafen state and republishes the channel snapshot to peers.
+      try {
+        gateway.sendVoiceSelfState(null, false, false);
+      } catch {
+        // The gateway connection might be down — state will time-out via the
+        // server-side TTL.
+      }
     }
     this.channelId = null;
     this.channelName = null;
@@ -527,6 +542,19 @@ class VoiceRoom {
     this.audioBlocked = false;
     voiceState.channelId = null;
     voiceState.connected = false;
+  }
+
+  /** Push the local mute/deafen state to the chat-gateway so peers see it.
+   * No-op when we are not currently connected to a voice channel — the
+   * gateway only accepts state for a valid voice channel id. */
+  #publishSelfState(): void {
+    if (!this.channelId) return;
+    try {
+      gateway.sendVoiceSelfState(this.channelId, !this.micEnabled, this.deafened);
+    } catch {
+      // Best effort — drop the update if the WS is not open. The next state
+      // change (or a manual re-emit on reconnect) will catch up.
+    }
   }
 }
 

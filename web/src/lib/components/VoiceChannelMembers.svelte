@@ -5,12 +5,16 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import MicOffIcon from '@lucide/svelte/icons/mic-off';
+  import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
+  import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import UserVolumeMenu from './UserVolumeMenu.svelte';
 
   let {
     userIds,
     streamingUserIds = [],
-    speakingUserIds = []
+    speakingUserIds = [],
+    userStates = {}
   }: {
     userIds: string[];
     streamingUserIds?: string[];
@@ -18,6 +22,8 @@
      * threshold. Only the channel the local user is connected to has live
      * data; everything else is an empty list and renders no rings. */
     speakingUserIds?: string[];
+    /** Per-user self-reported mute/deafen flags. Missing entries == default off. */
+    userStates?: Record<string, UserVoiceState>;
   } = $props();
 
   const streamingSet = $derived(new Set(streamingUserIds));
@@ -37,6 +43,9 @@
   {@const isSpeaking = speakingSet.has(uid)}
   {@const volumePct = Math.round(settings.getUserVolume(uid) * 100)}
   {@const avatarSrc = safeAvatarUrl(user?.avatar_url)}
+  {@const state = userStates[uid]}
+  {@const isMicMuted = state?.mic_muted === true}
+  {@const isDeafened = state?.deafened === true}
   <ContextMenu.Root>
     <ContextMenu.Trigger>
       {#snippet child({ props })}
@@ -77,13 +86,29 @@
               data-testid="voice-presence-volume-badge"
             >{volumePct}%</span>
           {/if}
-          {#if streamingSet.has(uid)}
-            <span
-              class="ml-auto shrink-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
-              data-testid="user-streaming-badge"
-              title="teilt seinen Bildschirm"
-            >LIVE</span>
-          {/if}
+          <span class="ml-auto flex shrink-0 items-center gap-1">
+            {#if isMicMuted}
+              <MicOffIcon
+                class="size-3.5 text-red-400"
+                aria-label="Mikrofon stumm"
+                data-testid="voice-presence-mic-muted"
+              />
+            {/if}
+            {#if isDeafened}
+              <HeadphoneOffIcon
+                class="size-3.5 text-red-400"
+                aria-label="Stummschaltung"
+                data-testid="voice-presence-deafened"
+              />
+            {/if}
+            {#if streamingSet.has(uid)}
+              <span
+                class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                data-testid="user-streaming-badge"
+                title="teilt seinen Bildschirm"
+              >LIVE</span>
+            {/if}
+          </span>
         </button>
       {/snippet}
     </ContextMenu.Trigger>
