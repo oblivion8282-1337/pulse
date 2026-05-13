@@ -10,6 +10,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { safeAvatarUrl } from '$lib/avatar';
 
   type ChatItem =
     | { kind: 'divider'; label: string; key: string }
@@ -104,8 +105,7 @@
     const raw = auth.user && m.author_id === auth.user.id
       ? auth.user.avatar_url
       : (userCache.get(m.author_id)?.avatar_url ?? null);
-    if (!raw) return null;
-    return raw.startsWith('/') || raw.startsWith('https://') ? raw : null;
+    return safeAvatarUrl(raw);
   }
 
   // Mitgliederliste: auf Mobil als Sheet von rechts, auf Desktop als Spalte

@@ -4,6 +4,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { settings } from '$lib/stores/settings.svelte';
+  import { safeAvatarUrl } from '$lib/avatar';
   import UserVolumeMenu from './UserVolumeMenu.svelte';
 
   let { userIds, streamingUserIds = [] }: { userIds: string[]; streamingUserIds?: string[] } = $props();
@@ -22,6 +23,7 @@
   {@const initial = (name.trim()[0] ?? '?').toUpperCase()}
   {@const isSelf = uid === selfId}
   {@const volumePct = Math.round(settings.getUserVolume(uid) * 100)}
+  {@const avatarSrc = safeAvatarUrl(user?.avatar_url)}
   <ContextMenu.Root>
     <ContextMenu.Trigger>
       {#snippet child({ props })}
@@ -34,8 +36,8 @@
           title={name}
         >
           <Avatar.Root class="size-7 shrink-0">
-            {#if user?.avatar_url?.startsWith('https://')}
-              <Avatar.Image src={user.avatar_url} alt={name} />
+            {#if avatarSrc}
+              <Avatar.Image src={avatarSrc} alt={name} />
             {/if}
             <Avatar.Fallback class="bg-primary text-primary-foreground text-[11px]">
               {initial}

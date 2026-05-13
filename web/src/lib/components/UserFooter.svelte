@@ -11,6 +11,7 @@
   import { logout } from '$lib/api/auth';
   import { deleteAvatar } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
+  import { safeAvatarUrl } from '$lib/avatar';
   import AvatarUploadDialog from './AvatarUploadDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
@@ -27,10 +28,6 @@
   let username = $derived(auth.user?.username ?? '');
   let initial = $derived(displayName.slice(0, 1).toUpperCase());
 
-  function safeAvatarUrl(url: string | null | undefined): string | null {
-    if (!url) return null;
-    return url.startsWith('/') || url.startsWith('https://') ? url : null;
-  }
   let avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
 
   async function onSignOut() {

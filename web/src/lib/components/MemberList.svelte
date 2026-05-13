@@ -3,6 +3,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
+  import { safeAvatarUrl } from '$lib/avatar';
   import type { Member } from '$lib/api/types';
 
   let {
@@ -41,9 +42,7 @@
   }
 
   function avatarUrl(m: Member): string | null {
-    const u = userCache.get(m.user_id);
-    const url = u?.avatar_url ?? null;
-    return url?.startsWith('https://') ? url : null;
+    return safeAvatarUrl(userCache.get(m.user_id)?.avatar_url);
   }
 
   function initials(m: Member): string {

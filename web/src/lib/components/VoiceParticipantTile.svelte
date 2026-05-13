@@ -4,12 +4,19 @@
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
+  import { safeAvatarUrl } from '$lib/avatar';
   import UserVolumeMenu from './UserVolumeMenu.svelte';
 
   let { p }: { p: VoiceParticipant } = $props();
 
+  $effect(() => {
+    if (p.userId) userCache.queue(p.userId);
+  });
+
   let glow = $derived(p.isSpeaking ? Math.min(1, 0.35 + p.audioLevel * 2) : 0);
   let initial = $derived((p.name.trim()[0] ?? '?').toUpperCase());
+  let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
 
   let volumePct = $derived(
     p.userId ? Math.round(settings.getUserVolume(p.userId) * 100) : 100
@@ -35,6 +42,9 @@
             ></div>
           {/if}
           <Avatar.Root class="relative size-20">
+            {#if avatarSrc}
+              <Avatar.Image src={avatarSrc} alt={p.name} />
+            {/if}
             <Avatar.Fallback class="accent-gradient text-primary-foreground text-xl font-semibold">
               {initial}
             </Avatar.Fallback>
