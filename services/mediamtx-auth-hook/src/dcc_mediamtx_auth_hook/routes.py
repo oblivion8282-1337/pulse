@@ -35,7 +35,7 @@ from typing import Any
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from redis.asyncio import Redis
 
 from dcc_mediamtx_auth_hook.config import get_settings
@@ -56,6 +56,9 @@ _READ_ACTIONS = frozenset({"read", "playback"})
 class AuthRequest(BaseModel):
     # MediaMTX sends all of these; treat them all as optional so a slightly
     # different build (extra/missing field) never 422s the auth call.
+    # MediaMTX <=1.17 emits JSON `null` for fields it doesn't set (e.g. `id`
+    # on WHEP OPTIONS preflights); 1.18+ emits `""`. The _none_to_empty
+    # validator normalises both to a string so downstream code never sees None.
     user: str = ""
     password: str = ""
     token: str = ""
@@ -67,6 +70,14 @@ class AuthRequest(BaseModel):
     query: str = ""
 
     model_config = {"extra": "ignore"}
+
+    @field_validator(
+        "user", "password", "token", "ip", "action", "path", "protocol", "id", "query",
+        mode="before",
+    )
+    @classmethod
+    def _none_to_empty(cls, v: Any) -> Any:
+        return "" if v is None else v
 
     @property
     def credential(self) -> str:

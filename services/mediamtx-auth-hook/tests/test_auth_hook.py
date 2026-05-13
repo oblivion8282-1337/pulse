@@ -193,3 +193,16 @@ async def test_extra_fields_tolerated(client):
     body["someNewField"] = "x"
     r = await client.post("/", json=body)
     assert r.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_null_string_fields_tolerated(client):
+    # MediaMTX 1.17 emits JSON `null` for fields it doesn't set (e.g. `id` on
+    # WHEP OPTIONS preflights). Older clients used to send "" here; both must
+    # parse without 422 so the auth chain never breaks across MediaMTX builds.
+    body = _body("read", "channel-1-2", protocol="webrtc")
+    body["id"] = None
+    body["user"] = None
+    body["query"] = None
+    r = await client.post("/", json=body)
+    assert r.status_code == 200
