@@ -20,13 +20,23 @@
     channel,
     messages,
     onSend,
-    onMenuClick
+    onMenuClick,
+    isOwner = false,
+    onEditMessage,
+    onDeleteMessage,
+    onToggleReaction
   }: {
     channel: Channel | null;
     messages: Message[];
-    onSend: (text: string) => void;
+    onSend: (text: string, replyToId: string | null) => void;
     onMenuClick?: () => void;
+    isOwner?: boolean;
+    onEditMessage: (m: Message, newContent: string) => void;
+    onDeleteMessage: (m: Message) => void;
+    onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
+
+  let replyTarget = $state<Message | null>(null);
 
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
@@ -111,6 +121,55 @@
   // Mitgliederliste: auf Mobil als Sheet von rechts, auf Desktop als Spalte
   let showMemberOverlay = $derived(memberListOpen && viewport.isMobile);
   let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
+
+  function snippet(text: string): string {
+    const t = text.replace(/\s+/g, ' ').trim();
+    return t.length > 80 ? t.slice(0, 77) + '…' : t;
+  }
+
+  function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
+    if (!m.reply_to_id) return null;
+    const parent = messages.find((x) => x.id === m.reply_to_id);
+    if (!parent) {
+      // Parent isn't loaded (older than our window or deleted) — show a stub.
+      return { id: m.reply_to_id, author: '…', snippet: '(ältere Nachricht)' };
+    }
+    return { id: parent.id, author: authorName(parent), snippet: snippet(parent.content) };
+  }
+
+  const replyBanner = $derived(
+    replyTarget ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(replyTarget.content) } : null
+  );
+
+  function startReply(m: Message) {
+    replyTarget = m;
+  }
+  function cancelReply() {
+    replyTarget = null;
+  }
+  function jumpToReply(parentId: string) {
+    const el = scrollContainer?.querySelector(`[data-message-id="${parentId}"]`);
+    if (el instanceof HTMLElement) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 1500);
+    }
+  }
+
+  function handleSend(text: string) {
+    const target = replyTarget;
+    onSend(text, target?.id ?? null);
+    replyTarget = null;
+  }
+
+  function canEditMessage(m: Message): boolean {
+    return !!auth.user && m.author_id === auth.user.id && !m.id.startsWith('tmp-') && !m.deleted_at;
+  }
+  function canDeleteMessage(m: Message): boolean {
+    if (!auth.user) return false;
+    if (m.id.startsWith('tmp-')) return false;
+    return m.author_id === auth.user.id || isOwner;
+  }
 </script>
 
 <section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl">
@@ -163,8 +222,16 @@
               <MessageItem
                 message={item.message}
                 authorName={authorName(item.message)}
+                replyTo={replyMetaFor(item.message)}
                 avatarUrl={avatarUrl}
                 isContinuation={item.isContinuation}
+                canEdit={canEditMessage(item.message)}
+                canDelete={canDeleteMessage(item.message)}
+                onReply={startReply}
+                onEditSubmit={onEditMessage}
+                onDelete={onDeleteMessage}
+                onToggleReaction={onToggleReaction}
+                onJumpToReply={jumpToReply}
               />
             {/if}
           {/each}
@@ -191,6 +258,11 @@
   </div>
 
   {#if channel}
-    <MessageInput placeholder={`Nachricht in #${channel.name}`} {onSend} />
+    <MessageInput
+      placeholder={`Nachricht in #${channel.name}`}
+      onSend={handleSend}
+      replyTo={replyBanner}
+      onCancelReply={cancelReply}
+    />
   {/if}
 </section>

@@ -15,7 +15,7 @@
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
   import { toast } from 'svelte-sonner';
-  import type { Channel } from '$lib/api/types';
+  import type { Channel, Message } from '$lib/api/types';
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
@@ -189,7 +189,7 @@
     }
   }
 
-  function sendMessage(text: string) {
+  function sendMessage(text: string, replyToId: string | null) {
     if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     const tmpId = `tmp-${nonce}`;
@@ -200,9 +200,10 @@
       author_id: auth.user.id,
       content: text,
       nonce,
+      reply_to_id: replyToId,
       created_at: new Date().toISOString()
     });
-    const queued = gateway.send(cid, text, nonce);
+    const queued = gateway.send(cid, text, nonce, replyToId);
     if (!queued) {
       // WS not open — roll back the optimistic message and inform the user.
       messages.removeOptimistic(cid, tmpId);
@@ -217,6 +218,41 @@
       }
     }, 10_000);
     pendingOptimisticTimeouts.set(nonce, handle);
+  }
+
+  async function editMessage(m: Message, content: string) {
+    try {
+      await chatApi.editMessage(m.id, content);
+      // WS broadcasts `message_update` to update local store.
+    } catch (e) {
+      toast.error('Bearbeiten fehlgeschlagen');
+      console.error(e);
+    }
+  }
+
+  async function deleteMessage(m: Message) {
+    if (!confirm('Nachricht wirklich löschen?')) return;
+    try {
+      await chatApi.deleteMessage(m.id);
+      // WS broadcasts `message_delete`.
+    } catch (e) {
+      toast.error('Löschen fehlgeschlagen');
+      console.error(e);
+    }
+  }
+
+  async function toggleReaction(m: Message, emoji: string, currentlyMine: boolean) {
+    try {
+      if (currentlyMine) {
+        await chatApi.removeReaction(m.id, emoji);
+      } else {
+        await chatApi.addReaction(m.id, emoji);
+      }
+      // WS broadcasts reaction_add/reaction_remove.
+    } catch (e) {
+      toast.error('Reaktion fehlgeschlagen');
+      console.error(e);
+    }
   }
 </script>
 
@@ -265,7 +301,16 @@
     >Erneut versuchen</Button>
   </section>
 {:else}
-  <ChatView channel={activeChannel} messages={visibleMessages} onSend={sendMessage} onMenuClick={() => (sidebarOpen = true)} />
+  <ChatView
+    channel={activeChannel}
+    messages={visibleMessages}
+    onSend={sendMessage}
+    onMenuClick={() => (sidebarOpen = true)}
+    isOwner={!!activeGuild && auth.user?.id === activeGuild.owner_id}
+    onEditMessage={editMessage}
+    onDeleteMessage={deleteMessage}
+    onToggleReaction={toggleReaction}
+  />
 {/if}
 
 <CreateGuildDialog

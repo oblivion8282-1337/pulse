@@ -75,11 +75,40 @@ export const chatApi = {
     params.set('limit', String(opts.limit ?? 50));
     return request<Message[]>(`/channels/${channelId}/messages?${params.toString()}`);
   },
-  postMessage(channelId: string, content: string, nonce?: string): Promise<Message> {
+  postMessage(
+    channelId: string,
+    content: string,
+    opts: { nonce?: string; replyToId?: string | null } = {}
+  ): Promise<Message> {
     return request<Message>(`/channels/${channelId}/messages`, {
       method: 'POST',
-      body: { content, nonce: nonce ?? null }
+      body: {
+        content,
+        nonce: opts.nonce ?? null,
+        reply_to_id: opts.replyToId ?? null
+      }
     });
+  },
+  editMessage(messageId: string, content: string): Promise<Message> {
+    return request<Message>(`/messages/${messageId}`, {
+      method: 'PATCH',
+      body: { content }
+    });
+  },
+  deleteMessage(messageId: string): Promise<void> {
+    return request<void>(`/messages/${messageId}`, { method: 'DELETE' });
+  },
+  addReaction(messageId: string, emoji: string): Promise<void> {
+    return request<void>(
+      `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      { method: 'PUT' }
+    );
+  },
+  removeReaction(messageId: string, emoji: string): Promise<void> {
+    return request<void>(
+      `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      { method: 'DELETE' }
+    );
   },
 
   // Invites

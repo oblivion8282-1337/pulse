@@ -31,15 +31,23 @@ export type Channel = {
   created_at: string;
 };
 
+export type ReactionAggregate = {
+  emoji: string;
+  count: number;
+  me: boolean;
+};
+
 export type Message = {
   id: string;
   channel_id: string;
   author_id: string;
   content: string;
   nonce: string | null;
+  reply_to_id?: string | null;
   created_at: string;
   edited_at?: string | null;
   deleted_at?: string | null;
+  reactions?: ReactionAggregate[];
 };
 
 export type Member = {

@@ -26,6 +26,13 @@ export type ChannelPayload = {
   created_at?: string;
 };
 
+type ReactionEvent = {
+  message_id: string;
+  channel_id: string;
+  user_id: string;
+  emoji: string;
+};
+
 type ServerEvent =
   | {
       op: 'ready';
@@ -35,6 +42,10 @@ type ServerEvent =
       stream_states?: StreamChannelState[];
     }
   | { op: 'message'; data: Message }
+  | { op: 'message_update'; data: Message }
+  | { op: 'message_delete'; data: { id: string; channel_id: string } }
+  | { op: 'reaction_add'; data: ReactionEvent }
+  | { op: 'reaction_remove'; data: ReactionEvent }
   | { op: 'message_ack'; nonce: string | null; id: string }
   | { op: 'channel_created'; channel: ChannelPayload }
   | { op: 'channel_updated'; channel: ChannelPayload }
@@ -47,7 +58,7 @@ type ServerEvent =
 type ClientEvent =
   | { op: 'subscribe'; channel_id: string }
   | { op: 'unsubscribe'; channel_id: string }
-  | { op: 'send'; channel_id: string; content: string; nonce: string };
+  | { op: 'send'; channel_id: string; content: string; nonce: string; reply_to_id?: string | null };
 
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 
@@ -168,6 +179,10 @@ export class GatewayConnection {
       !this._readyDone &&
       evt.op !== 'ready' &&
       evt.op !== 'message' &&
+      evt.op !== 'message_update' &&
+      evt.op !== 'message_delete' &&
+      evt.op !== 'reaction_add' &&
+      evt.op !== 'reaction_remove' &&
       evt.op !== 'message_ack' &&
       evt.op !== 'voice_state' &&
       evt.op !== 'stream_state' &&
@@ -190,6 +205,18 @@ export class GatewayConnection {
         break;
       case 'message':
         messages.upsert(evt.data);
+        break;
+      case 'message_update':
+        messages.update(evt.data);
+        break;
+      case 'message_delete':
+        messages.remove(evt.data.channel_id, evt.data.id);
+        break;
+      case 'reaction_add':
+        messages.applyReaction(evt.data, +1);
+        break;
+      case 'reaction_remove':
+        messages.applyReaction(evt.data, -1);
         break;
       case 'channel_created':
         if (guilds.byId[evt.channel.guild_id]) guilds.addChannel(evt.channel);
@@ -256,8 +283,19 @@ export class GatewayConnection {
   }
 
   /** Returns true when the frame was queued, false when the socket was not open. */
-  send(channelId: string, content: string, nonce: string): boolean {
-    return this._sendRaw({ op: 'send', channel_id: channelId, content, nonce });
+  send(
+    channelId: string,
+    content: string,
+    nonce: string,
+    replyToId?: string | null
+  ): boolean {
+    return this._sendRaw({
+      op: 'send',
+      channel_id: channelId,
+      content,
+      nonce,
+      reply_to_id: replyToId ?? null
+    });
   }
 
   private _sendRaw(evt: ClientEvent): boolean {

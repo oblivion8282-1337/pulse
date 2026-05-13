@@ -77,6 +77,20 @@ class ChannelPatchIn(BaseModel):
 class MessageIn(BaseModel):
     content: Annotated[str, Field(min_length=1, max_length=4000)]
     nonce: Annotated[str | None, Field(default=None, max_length=64)] = None
+    reply_to_id: SnowflakeId | None = None
+
+
+class MessageEditIn(BaseModel):
+    content: Annotated[str, Field(min_length=1, max_length=4000)]
+
+
+class ReactionAggregate(BaseModel):
+    """One row per (message, emoji); `count` aggregates users, `me` is whether
+    the current caller is one of them."""
+
+    emoji: str
+    count: int
+    me: bool
 
 
 class MessageOut(BaseModel):
@@ -86,13 +100,15 @@ class MessageOut(BaseModel):
     author_id: int
     content: str
     nonce: str | None
+    reply_to_id: int | None = None
     created_at: datetime
     edited_at: datetime | None = None
     deleted_at: datetime | None = None
+    reactions: list[ReactionAggregate] = []
 
-    @field_serializer("id", "channel_id", "author_id")
-    def _ser_ids(self, v: int) -> str:
-        return _id_str(v)
+    @field_serializer("id", "channel_id", "author_id", "reply_to_id")
+    def _ser_ids(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
 
 
 class MemberIn(BaseModel):

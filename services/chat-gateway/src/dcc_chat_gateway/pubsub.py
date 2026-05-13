@@ -312,7 +312,14 @@ class ConnectionManager:
                 payload = self._decode_payload(msg["data"], channel_id)
                 if payload is None:
                     continue
-                envelope = {"op": "message", "data": payload}
+                # Publishers may submit either a bare message dict (legacy,
+                # auto-wrapped as `op: "message"`) or a full envelope already
+                # carrying its own `op` (used for message_update /
+                # message_delete / reaction_add / reaction_remove).
+                if isinstance(payload, dict) and "op" in payload:
+                    envelope = payload
+                else:
+                    envelope = {"op": "message", "data": payload}
                 async with self._lock:
                     targets = list(self._subs.get(channel_id, ()))
                 await self._fan_out(targets, envelope)

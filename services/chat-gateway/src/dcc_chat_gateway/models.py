@@ -82,6 +82,9 @@ class Message(Base):
     author_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reply_to_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -89,6 +92,24 @@ class Message(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("ix_messages_channel_id_desc", "channel_id", "id"),)
+
+
+class MessageReaction(Base):
+    __tablename__ = "message_reactions"
+
+    message_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    emoji: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("message_id", "user_id", "emoji"),
+        Index("ix_message_reactions_message", "message_id"),
+    )
 
 
 class GuildInvite(Base):

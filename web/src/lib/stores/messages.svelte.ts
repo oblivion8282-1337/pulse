@@ -1,4 +1,5 @@
-import type { Message } from '$lib/api/types';
+import type { Message, ReactionAggregate } from '$lib/api/types';
+import { auth } from './auth.svelte';
 
 class MessageStore {
   // Newest at the end. We dedupe on `id` and merge `nonce` echoes.
@@ -57,6 +58,62 @@ class MessageStore {
     if (next.length !== list.length) {
       this.byChannel = { ...this.byChannel, [channelId]: next };
     }
+  }
+
+  /** Replace an existing message in place (edit). The server's reactions
+   *  list is authoritative once present; if missing on the update payload
+   *  we preserve the cached one so the UI doesn't blink. */
+  update(msg: Message): void {
+    const list = this.byChannel[msg.channel_id];
+    if (!list) return;
+    const idx = list.findIndex((m) => m.id === msg.id);
+    if (idx < 0) return;
+    const merged: Message = { ...msg, reactions: msg.reactions ?? list[idx].reactions };
+    const next = list.slice();
+    next[idx] = merged;
+    this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
+  }
+
+  /** Hard-remove a deleted message from the local list. */
+  remove(channelId: string, id: string): void {
+    const list = this.byChannel[channelId];
+    if (!list) return;
+    const next = list.filter((m) => m.id !== id);
+    if (next.length !== list.length) {
+      this.byChannel = { ...this.byChannel, [channelId]: next };
+    }
+  }
+
+  /** Apply a delta to a message's reactions list. `delta` is +1 for add, -1
+   *  for remove. `me` is computed from auth.user.id so the optimistic and
+   *  remote paths converge on the same shape. */
+  applyReaction(
+    evt: { message_id: string; channel_id: string; user_id: string; emoji: string },
+    delta: 1 | -1
+  ): void {
+    const list = this.byChannel[evt.channel_id];
+    if (!list) return;
+    const idx = list.findIndex((m) => m.id === evt.message_id);
+    if (idx < 0) return;
+    const msg = list[idx];
+    const reactions: ReactionAggregate[] = msg.reactions ? msg.reactions.map((r) => ({ ...r })) : [];
+    const isMe = !!auth.user && evt.user_id === auth.user.id;
+    const rIdx = reactions.findIndex((r) => r.emoji === evt.emoji);
+    if (delta === 1) {
+      if (rIdx < 0) reactions.push({ emoji: evt.emoji, count: 1, me: isMe });
+      else {
+        reactions[rIdx].count += 1;
+        if (isMe) reactions[rIdx].me = true;
+      }
+    } else {
+      if (rIdx < 0) return;
+      reactions[rIdx].count -= 1;
+      if (isMe) reactions[rIdx].me = false;
+      if (reactions[rIdx].count <= 0) reactions.splice(rIdx, 1);
+    }
+    const next = list.slice();
+    next[idx] = { ...msg, reactions };
+    this.byChannel = { ...this.byChannel, [evt.channel_id]: next };
   }
 
   /** Mark a channel as not loaded so the next visit re-fetches messages. */

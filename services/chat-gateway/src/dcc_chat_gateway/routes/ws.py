@@ -202,6 +202,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 cid_int = _channel_id(msg.get("channel_id"))
                 content = msg.get("content")
                 nonce = msg.get("nonce")
+                reply_to_raw = msg.get("reply_to_id")
                 if cid_int is None or not isinstance(content, str) or not content:
                     await websocket.send_json(
                         {"op": "error", "code": 4005, "msg": "invalid send payload"}
@@ -213,6 +214,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         {"op": "error", "code": 4290, "msg": "rate limit exceeded"}
                     )
                     continue
+                # Reply target is optional; accept int or numeric string from JS clients.
+                reply_to_int: int | None = None
+                if reply_to_raw is not None:
+                    try:
+                        reply_to_int = int(reply_to_raw)
+                    except (TypeError, ValueError):
+                        await websocket.send_json(
+                            {"op": "error", "code": 4005, "msg": "invalid reply_to_id"}
+                        )
+                        continue
                 async with SessionLocal() as session:
                     # Fast path: if this socket already subscribed, membership +
                     # text-channel-ness were validated then — skip the DB lookup.
@@ -230,12 +241,28 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                             {"op": "error", "code": 4006, "msg": "channel not accessible"}
                         )
                         continue
+                    if reply_to_int is not None:
+                        parent = await session.get(Message, reply_to_int)
+                        if (
+                            parent is None
+                            or parent.channel_id != cid_int
+                            or parent.deleted_at is not None
+                        ):
+                            await websocket.send_json(
+                                {
+                                    "op": "error",
+                                    "code": 4008,
+                                    "msg": "reply target not found in this channel",
+                                }
+                            )
+                            continue
                     persisted = Message(
                         id=next_id(),
                         channel_id=cid_int,
                         author_id=user.id,
                         content=content[:4000],
                         nonce=nonce[:_MAX_NONCE_LEN] if isinstance(nonce, str) else None,
+                        reply_to_id=reply_to_int,
                     )
                     session.add(persisted)
                     await session.commit()
