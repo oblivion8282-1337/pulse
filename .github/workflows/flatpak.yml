@@ -131,6 +131,38 @@ jobs:
             --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
             build/flatpak packaging/com.unicutmedia.Pulse.yml
 
+      # Dump appstreamcli's YAML issue report on failure so we can see the
+      # actual file/path that failed (the bare "file-read-error" line in the
+      # build log doesn't include the path).
+      - name: Diagnose appstreamcli failure
+        if: failure()
+        run: |
+          echo "=== Looking for appstream issue reports / metainfo state ==="
+          find .flatpak-builder -name "*.yml" -path "*appstream*" 2>/dev/null | head -20
+          find .flatpak-builder -name "issues*.yml" 2>/dev/null | head -20
+          echo ""
+          echo "=== installed metainfo + icons + desktop files in the rofiles tree ==="
+          find .flatpak-builder/rofiles -path "*/share/metainfo*" -o -path "*/share/icons/hicolor*" -o -path "*/share/applications*" 2>/dev/null | head -40
+          echo ""
+          echo "=== first matching issue report yml (if any) ==="
+          REPORT=$(find .flatpak-builder -name "*.yml" -path "*appstream*" 2>/dev/null | head -1)
+          [ -n "$REPORT" ] && cat "$REPORT" || echo "(no appstream YAML found)"
+          echo ""
+          echo "=== rerun appstreamcli compose manually with verbose output ==="
+          ROFILES=$(find .flatpak-builder/rofiles -maxdepth 1 -name "rofiles-*" | head -1)
+          if [ -n "$ROFILES" ] && [ -d "$ROFILES/files" ]; then
+            appstreamcli compose \
+              --verbose \
+              --components=com.unicutmedia.Pulse,com.unicutmedia.Pulse.desktop \
+              --prefix=/ \
+              --result-root=/tmp/asc-diag-result \
+              --data-dir=/tmp/asc-diag-data \
+              --icons-dir=/tmp/asc-diag-icons \
+              "$ROFILES/files" 2>&1 || true
+          else
+            echo "(no rofiles tree found — build failed before install)"
+          fi
+
       - name: Generate static deltas + prune old commits
         run: |
           flatpak build-update-repo \
