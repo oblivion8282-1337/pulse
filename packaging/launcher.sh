@@ -17,13 +17,6 @@ export GSR_BINARY="${GSR_BINARY:-/app/bin/gpu-screen-recorder}"
 export PULSE_SIDECAR_PY="${PULSE_SIDECAR_PY:-/app/share/pulse/gsr-sidecar/control.py}"
 export PULSE_PYTHON="${PULSE_PYTHON:-python3}"
 
-# Override Chromium's hardcoded PulseAudio application.name="Chromium" so GSR's
-# `-a app-inverse:Pulse` filters our voice audio out of desktop captures without
-# also catching the user's Chromium browser. main.ts sets the same env var, but
-# setting it here too ensures it's in place from the very first moment of the
-# process — before any Chromium audio service can spawn.
-export PULSE_PROP_OVERRIDE="${PULSE_PROP_OVERRIDE:-application.name=Pulse}"
-
 # Display backend: let Electron pick it (`--ozone-platform-hint=auto` → native
 # Wayland when a Wayland session is available, X11/XWayland otherwise). The manifest
 # mounts both --socket=wayland and --socket=x11, so either works. If native Wayland

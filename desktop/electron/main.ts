@@ -28,13 +28,6 @@ import pkg from '../package.json';
 import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet } from './store';
 
-// Tell PulseAudio/PipeWire to identify us as "Pulse" instead of Chromium's
-// hardcoded "Chromium" (media/audio/pulse/pulse_util.cc sets PA_PROP_APPLICATION_NAME).
-// _OVERRIDE puts libpulse in PA_UPDATE_REPLACE mode so Chromium's set property
-// is overwritten when the audio service connects. Needed so GSR's `-a app-inverse:`
-// can filter out *our* voice audio without also catching a Chromium browser.
-process.env.PULSE_PROP_OVERRIDE = 'application.name=Pulse';
-
 const APP_VERSION: string = pkg.version ?? '0.0.0';
 // Expose to the preload script (it runs in a separate process and can't import
 // the package.json itself once bundled).
