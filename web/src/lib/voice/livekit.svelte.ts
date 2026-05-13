@@ -351,7 +351,12 @@ class VoiceRoom {
       publishDefaults: {
         audioPreset: { maxBitrate: a.voiceBitrateKbps * 1000 },
         forceStereo: a.stereo,
-        dtx: true,
+        // DTX off: keep a constant Opus stream even in speech gaps so the
+        // listener gets real room tone (and any noise-suppressor-fed near-
+        // silent signal still flows through). Costs ~+50 % audio bandwidth
+        // per user; acceptable for small Pulse channels. RED stays on for
+        // packet-loss resilience.
+        dtx: false,
         red: true
       }
     };
