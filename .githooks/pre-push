@@ -1,21 +1,17 @@
 #!/bin/sh
 # pre-push hook — auto-republish the Pulse Flatpak when native content changes.
 #
-# If a push includes changes to anything that's *bundled into* the Flatpak — the
-# Electron shell (desktop/electron/), desktop/package.json (→ appVersion), the
-# Python GSR sidecar (streaming/gsr-sidecar/), the GSR build patches
-# (streaming/patches/), the manifest / launcher / .desktop / .metainfo / .svg
-# (packaging/) — this runs packaging/publish.fish, which builds the signed OSTree
-# repo and rsyncs it to the VPS so installed clients pick it up via `flatpak update`.
+# SUPERSEDED by `.github/workflows/flatpak.yml`: CI now builds + signs + rsyncs
+# the Flatpak in the cloud (no local GPG key or VPS SSH key needed). Running
+# BOTH would mean two builds race to rsync the same path, so this hook is now
+# opt-in via `PULSE_FORCE_LOCAL_PUBLISH=1 git push …`. Without that env var, the
+# hook just prints a hint and exits.
 #
-# Web-only / backend-only / docs-only pushes are skipped instantly — the packaged
-# app loads pulse.unicutmedia.com remotely, so those need no new Flatpak.
+# Kept around as a fallback for emergencies (CI down, key rotation, hotfix when
+# you don't want to push to GitHub first).
 #
-# NON-BLOCKING: a republish failure (VPS down, no signing key, fish missing, …) is
-# loud but does NOT abort the push — the push to GitHub and the Flatpak republish
-# are independent. To skip this hook entirely for one push: `git push --no-verify`.
-#
-# Enabled via `git config core.hooksPath .githooks` (see .githooks/README.md).
+# Trigger paths (same set as the workflow): everything bundled into the Flatpak.
+# Web/backend/docs-only pushes are skipped instantly.
 
 repo_root=$(git rev-parse --show-toplevel)
 
@@ -40,9 +36,16 @@ done
 
 [ "$need_publish" -eq 0 ] && exit 0
 
+if [ "$PULSE_FORCE_LOCAL_PUBLISH" != "1" ]; then
+    echo ""
+    echo "→ pre-push: native Flatpak content changed — CI will republish (.github/workflows/flatpak.yml)."
+    echo "  Run locally instead?  PULSE_FORCE_LOCAL_PUBLISH=1 git push …"
+    exit 0
+fi
+
 echo ""
-echo "→ pre-push: native Flatpak content changed — republishing (packaging/publish.fish)."
-echo "  (web/backend/docs-only pushes skip this; 'git push --no-verify' skips it too.)"
+echo "→ pre-push: PULSE_FORCE_LOCAL_PUBLISH=1 set — running packaging/publish.fish locally."
+echo "  (Make sure CI isn't also publishing the same push, or both will race on rsync.)"
 
 if [ ! -d "$repo_root/packaging/.gpg" ]; then
     echo "  ⚠ no signing key at packaging/.gpg/ on this machine — SKIPPED."

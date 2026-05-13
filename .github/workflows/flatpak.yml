@@ -1,0 +1,180 @@
+# Build, sign, and publish the Pulse Flatpak whenever a push to main changes
+# anything that's bundled into it. Mirrors what `packaging/publish.fish` does
+# locally (and what the legacy `.githooks/pre-push` hook used to run), but
+# without needing the GPG key or VPS SSH key on the developer's machine.
+#
+# Trigger: only paths that actually end up inside the Flatpak. Web/backend-only
+# changes are skipped — the packaged app loads the live web app remotely.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   FLATPAK_GPG_PRIVATE_KEY  ASCII-armored export of the passwordless signing
+#                            key (`gpg --homedir packaging/.gpg --armor
+#                            --export-secret-keys <KEYID>` on a box that has
+#                            the original key). Must be the SAME key clients
+#                            already pinned via the .flatpakref — losing it +
+#                            generating a new one breaks `flatpak update` for
+#                            existing installs.
+#   VPS_SSH_PRIVATE_KEY      Private key for `michael@77.42.71.166`. Generate a
+#                            dedicated CI keypair (`ssh-keygen -t ed25519 -f
+#                            ci-deploy -N ""`) and append the .pub to the VPS's
+#                            ~/.ssh/authorized_keys so this isn't tangled with
+#                            personal keys.
+#   VPS_KNOWN_HOSTS          Output of `ssh-keyscan 77.42.71.166` (one or more
+#                            lines). Pins the host key — without it, rsync's
+#                            host-key prompt would either hang or accept a MITM.
+#
+# Concurrency: at most one publish runs at a time per branch, so back-to-back
+# pushes don't race on the rsync target.
+
+name: flatpak
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/electron/**'
+      - 'desktop/package.json'
+      - 'streaming/gsr-sidecar/**'
+      - 'streaming/patches/**'
+      - 'packaging/com.unicutmedia.Pulse.yml'
+      - 'packaging/launcher.sh'
+      - 'packaging/com.unicutmedia.Pulse.desktop'
+      - 'packaging/com.unicutmedia.Pulse.metainfo.xml'
+      - 'packaging/com.unicutmedia.Pulse.svg'
+      - '.github/workflows/flatpak.yml'
+  workflow_dispatch:    # also allow manual republish from the Actions tab
+
+concurrency:
+  group: flatpak-publish
+  cancel-in-progress: false   # let an in-flight rsync finish
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60        # first run ~30min; cached runs ~5min
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Electron bundle (esbuild) ──
+      # The manifest copies `desktop/electron/dist/*.cjs` (gitignored, only
+      # produced by build:electron). Same script as publish.fish runs locally.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - name: pnpm install (desktop only)
+        run: pnpm install --frozen-lockfile --filter @dcc/desktop...
+      - name: build:electron
+        run: pnpm --filter @dcc/desktop build:electron
+
+      # ── flatpak tooling ──
+      - name: Install flatpak + flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            flatpak flatpak-builder ostree rsync
+          flatpak remote-add --user --if-not-exists \
+            flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      # ── Caches (huge speedup: FFmpeg + GSR built from source) ──
+      # flatpak-builder writes downloaded tarballs + ccache + intermediate
+      # objects under .flatpak-builder/, and the org.freedesktop.Platform/Sdk
+      # runtimes land in ~/.local/share/flatpak. Cache both, keyed on the
+      # manifest so a real change to FFmpeg/GSR versions invalidates correctly.
+      - name: Cache flatpak runtimes
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-runtimes-${{ runner.os }}-${{ hashFiles('packaging/com.unicutmedia.Pulse.yml') }}
+          restore-keys: |
+            flatpak-runtimes-${{ runner.os }}-
+      - name: Cache flatpak-builder downloads/build
+        uses: actions/cache@v4
+        with:
+          path: .flatpak-builder
+          key: flatpak-builder-${{ runner.os }}-${{ hashFiles('packaging/com.unicutmedia.Pulse.yml', 'streaming/patches/**') }}
+          restore-keys: |
+            flatpak-builder-${{ runner.os }}-
+
+      # ── GPG signing key ──
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.FLATPAK_GPG_PRIVATE_KEY }}
+        run: |
+          mkdir -p packaging/.gpg
+          chmod 700 packaging/.gpg
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --homedir packaging/.gpg --batch --import
+          KEYID=$(gpg --homedir packaging/.gpg --list-keys --with-colons \
+                  | awk -F: '/^fpr:/ {print $10; exit}')
+          if [ -z "$KEYID" ]; then
+            echo "::error::no GPG key fingerprint after import — check FLATPAK_GPG_PRIVATE_KEY secret"
+            exit 1
+          fi
+          echo "FLATPAK_KEYID=$KEYID" >> "$GITHUB_ENV"
+          echo "→ signing with $KEYID"
+
+      # ── Build + sign + delta + prune ──
+      # Same commands publish.fish runs. The `--user` + `--install-deps-from`
+      # makes flatpak-builder pull the runtimes itself if cache missed.
+      - name: Build & sign Flatpak
+        run: |
+          mkdir -p build/repo
+          flatpak-builder --force-clean \
+            --user --install-deps-from=flathub \
+            --repo=build/repo \
+            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
+            build/flatpak packaging/com.unicutmedia.Pulse.yml
+
+      - name: Generate static deltas + prune old commits
+        run: |
+          flatpak build-update-repo \
+            --generate-static-deltas --prune --prune-depth=3 \
+            --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
+            build/repo
+
+      - name: Write .flatpakref + .flatpakrepo
+        run: |
+          PUBKEY_B64=$(gpg --homedir packaging/.gpg --export "$FLATPAK_KEYID" | base64 -w0)
+          cat > build/repo/com.unicutmedia.Pulse.flatpakref <<EOF
+          [Flatpak Ref]
+          Title=Pulse
+          Name=com.unicutmedia.Pulse
+          Branch=master
+          Url=https://pulse.unicutmedia.com/flatpak/
+          Homepage=https://pulse.unicutmedia.com
+          RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          IsRuntime=false
+          GPGKey=$PUBKEY_B64
+          EOF
+          cat > build/repo/pulse.flatpakrepo <<EOF
+          [Flatpak Repo]
+          Title=Pulse
+          Url=https://pulse.unicutmedia.com/flatpak/
+          Homepage=https://pulse.unicutmedia.com
+          GPGKey=$PUBKEY_B64
+          EOF
+
+      # ── Publish ──
+      - name: Set up SSH for rsync
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Rsync repo to VPS
+        run: |
+          rsync -a --delete -e "ssh -i ~/.ssh/id_ed25519" \
+            build/repo/ michael@77.42.71.166:pulse/flatpak-repo/
+
+      - name: Summary
+        run: |
+          echo "✓ Flatpak republished to https://pulse.unicutmedia.com/flatpak/" >> "$GITHUB_STEP_SUMMARY"
+          echo "  Install:  \`flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "  Update:   \`flatpak update\`" >> "$GITHUB_STEP_SUMMARY"

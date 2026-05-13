@@ -184,14 +184,17 @@ Sidecar-Ops als Buttons.
 - Launcher `/app/bin/pulse`: setzt `GSR_BINARY`/`PULSE_SIDECAR_PY`/`PULSE_PYTHON`, hängt `--ozone-platform-hint=auto`
   an (Manifest mountet `--socket=wayland` *und* `--socket=x11` — Electron wählt selbst), `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`. Override `PULSE_OZONE=x11|wayland`.
 - Bauen (User-Scope, kein sudo): `packaging/build.fish`. Erster Build ~15–30 min (FFmpeg + GSR aus Source). Danach `flatpak run com.unicutmedia.Pulse`.
-- Distribution / Auto-Update: `packaging/publish.fish` → signiertes OSTree-Repo (`build/repo`, archive-z2,
-  `build-update-repo --generate-static-deltas --prune --prune-depth=3`) → `rsync` → VPS `~/pulse/flatpak-repo/` →
-  `pulse_web`-nginx served `https://pulse.unicutmedia.com/flatpak/`. Empfänger: einmal `flatpak install --user
-  …/com.unicutmedia.Pulse.flatpakref`, danach `flatpak update`. Signing-Key `packaging/.gpg/` (gitignored, passwortlos,
-  `packaging/gen-signing-key.fish` einmalig — **muss separat gebackupt werden**, Verlust = Empfänger lehnt künftige Updates
-  ab). **Automatik:** `.githooks/pre-push` (aktiv via `git config core.hooksPath .githooks`) ruft `publish.fish` bei Pushes
-  die native Flatpak-Inhalte ändern (`desktop/electron/`, `desktop/package.json`, `streaming/gsr-sidecar/`, `streaming/patches/`,
-  `packaging/`-Manifest/Launcher/Desktop-Files); Web/Backend/Docs-only-Pushes überspringen's; non-blocking; `git push --no-verify` überspringt.
+- Distribution / Auto-Update: signiertes OSTree-Repo (archive-z2, `build-update-repo --generate-static-deltas --prune
+  --prune-depth=3`) → rsync → VPS `~/pulse/flatpak-repo/` → `pulse_web`-nginx served `https://pulse.unicutmedia.com/flatpak/`.
+  Empfänger: einmal `flatpak install --user …/com.unicutmedia.Pulse.flatpakref`, danach `flatpak update`. Signing-Key
+  passwortlos, derselbe Key auf Empfänger-Seite via `.flatpakref` gepinned — Verlust = Empfänger lehnt künftige Updates ab.
+- **Automatik:** `.github/workflows/flatpak.yml` baut + signiert + rsynct bei Pushes auf `main` die native Flatpak-Inhalte
+  ändern (gleicher Pfad-Filter wie der alte pre-push-Hook). Erstinvest ~30 min (FFmpeg+GSR-from-source), gecached ~5 min.
+  Braucht 3 Repo-Secrets: `FLATPAK_GPG_PRIVATE_KEY` (ASCII-armored Export des Signing-Keys), `VPS_SSH_PRIVATE_KEY`
+  (CI-dedizierter SSH-Key auf der VPS in `authorized_keys`), `VPS_KNOWN_HOSTS` (`ssh-keyscan 77.42.71.166`). Setup-Details
+  `packaging/README.md`. `.githooks/pre-push` ist als Notfall-Fallback umgestellt: nur noch aktiv mit `PULSE_FORCE_LOCAL_PUBLISH=1`,
+  sonst hint-und-skip (sonst racen Hook + CI auf den gleichen rsync-Pfad). `packaging/publish.fish` läuft unverändert und ist
+  was der CI-Workflow nachbildet — zum lokalen Bauen weiterhin nutzbar wenn der Key vorhanden ist.
 - **App startet nicht (Exit 1, kaum Output):** erst `flatpak run --command=sh com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'`
   — fehlen die, ist's wieder `strip-components`. Sonst meist GPU/Wayland auf NVIDIA → `PULSE_OZONE=x11 flatpak run …`, oder `--disable-gpu`/`--disable-gpu-sandbox` an die `zypak-wrapper`-Zeile.
 

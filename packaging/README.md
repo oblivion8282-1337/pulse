@@ -69,10 +69,30 @@ flatpak update                       # or GNOME Software / KDE Discover, automat
 (`RuntimeRepo=…flathub…` in the `.flatpakref` makes Flatpak auto-add Flathub if
 needed, to pull the freedesktop runtime + the Electron BaseApp.)
 
-### Later: CI
-The build → `--repo` → `build-update-repo` → `rsync` flow can move into a GitHub
-Action (like the Docker images) — the slow part is FFmpeg+GSR-from-source (~15-30 min,
-but cacheable). Not needed to start.
+### CI (the normal path)
+`.github/workflows/flatpak.yml` runs the build → sign → `build-update-repo` → rsync
+flow in the cloud whenever a push to `main` touches a path that's bundled into the
+Flatpak (mirrors the legacy `.githooks/pre-push` trigger filter). First run ~30 min,
+cached runs ~5 min (the workflow caches `~/.local/share/flatpak` + `.flatpak-builder/`).
+
+**Required repo secrets** (Settings → Secrets and variables → Actions):
+- `FLATPAK_GPG_PRIVATE_KEY` — the **same** passwordless key the friends already
+  pinned. Export with:
+  ```fish
+  gpg --homedir packaging/.gpg --armor --export-secret-keys $KEYID
+  ```
+  (Lose it and existing installs stop updating. Don't regenerate "to be safe.")
+- `VPS_SSH_PRIVATE_KEY` — a CI-only key. Generate fresh, don't reuse a personal one:
+  ```fish
+  ssh-keygen -t ed25519 -f /tmp/pulse-ci-deploy -N ""
+  ssh-copy-id -i /tmp/pulse-ci-deploy.pub michael@77.42.71.166
+  cat /tmp/pulse-ci-deploy                     # → paste into the secret
+  shred -u /tmp/pulse-ci-deploy /tmp/pulse-ci-deploy.pub
+  ```
+- `VPS_KNOWN_HOSTS` — output of `ssh-keyscan 77.42.71.166` (pins the host key).
+
+The legacy pre-push hook still works as an emergency fallback (CI down, hotfix
+without pushing to GitHub) — opt in with `PULSE_FORCE_LOCAL_PUBLISH=1 git push …`.
 
 ## Files
 - `com.unicutmedia.Pulse.yml` — the manifest
