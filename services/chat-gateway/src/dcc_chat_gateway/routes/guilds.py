@@ -10,11 +10,28 @@ from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, GuildMember
 from dcc_chat_gateway.routes._deps import require_member
-from dcc_chat_gateway.schemas import GuildIn, GuildOut, MemberIn, MemberOut
+from dcc_chat_gateway.schemas import GuildIn, GuildOut, GuildPatchIn, MemberIn, MemberOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
 router = APIRouter()
+
+
+def _guild_dict(guild: Guild) -> dict[str, object]:
+    """Wire shape for guild:events envelopes — same field names as GuildOut
+    (minus created_at, which lifecycle consumers don't need)."""
+    return {
+        "id": str(guild.id),
+        "name": guild.name,
+        "icon_url": guild.icon_url,
+        "owner_id": str(guild.owner_id),
+    }
+
+
+async def _publish_guild_event(request: Request, envelope: dict[str, object]) -> None:
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(envelope)
 
 
 # ---- Guilds ----------------------------------------------------------------
@@ -59,6 +76,61 @@ async def get_guild(guild_id: int, session: SessionDep, current: CurrentUser):
     if guild is None:
         raise HTTPException(404, detail="guild not found")
     return guild
+
+
+@router.patch("/guilds/{guild_id}", response_model=GuildOut)
+async def patch_guild(
+    guild_id: int,
+    payload: GuildPatchIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Rename / update guild metadata. Owner-only.
+
+    Broadcasts ``op:guild_updated`` on guild:events so every connected client
+    can refresh its sidebar without a refetch.
+    """
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    if guild.owner_id != current.id:
+        raise HTTPException(403, detail="only the owner can update the guild")
+    if payload.name is not None:
+        guild.name = payload.name
+    if payload.icon_url is not None:
+        guild.icon_url = payload.icon_url
+    await session.commit()
+    await session.refresh(guild)
+    await _publish_guild_event(
+        request, {"op": "guild_updated", "guild": _guild_dict(guild)}
+    )
+    return guild
+
+
+@router.delete("/guilds/{guild_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_guild(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Delete a guild and everything inside it. Owner-only.
+
+    Channels / messages / members / invites cascade via ON DELETE CASCADE in
+    the DB schema. Broadcasts ``op:guild_deleted`` so clients can navigate
+    away and prune their local stores.
+    """
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    if guild.owner_id != current.id:
+        raise HTTPException(403, detail="only the owner can delete the guild")
+    await session.delete(guild)
+    await session.commit()
+    await _publish_guild_event(
+        request, {"op": "guild_deleted", "guild_id": str(guild_id)}
+    )
 
 
 # ---- Members (lightweight invite-by-id) ------------------------------------

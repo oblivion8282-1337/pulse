@@ -26,6 +26,13 @@ export type ChannelPayload = {
   created_at?: string;
 };
 
+export type GuildPayload = {
+  id: string;
+  name: string;
+  icon_url: string | null;
+  owner_id: string;
+};
+
 type ReactionEvent = {
   message_id: string;
   channel_id: string;
@@ -50,6 +57,8 @@ type ServerEvent =
   | { op: 'channel_created'; channel: ChannelPayload }
   | { op: 'channel_updated'; channel: ChannelPayload }
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
+  | { op: 'guild_updated'; guild: GuildPayload }
+  | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
   | { op: 'voice_state'; channel_id: string; user_ids: string[]; streaming_user_ids?: string[] }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
@@ -67,12 +76,16 @@ export type WsListener = (evt: ServerEvent) => void;
 /** Optional hook fired when the channel the user is viewing gets deleted. */
 export type ChannelDeletedHook = (guildId: string, channelId: string) => void;
 
+/** Optional hook fired when the guild the user is viewing gets deleted. */
+export type GuildDeletedHook = (guildId: string) => void;
+
 export class GatewayConnection {
   private ws: WebSocket | null = null;
   private attempt = 0;
   private subs = new Set<string>();
   private listeners = new Set<WsListener>();
   private channelDeletedHooks = new Set<ChannelDeletedHook>();
+  private guildDeletedHooks = new Set<GuildDeletedHook>();
   private wantConnected = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private wsPath = '/api/ws/ws';
@@ -92,6 +105,11 @@ export class GatewayConnection {
   onChannelDeleted(hook: ChannelDeletedHook): () => void {
     this.channelDeletedHooks.add(hook);
     return () => this.channelDeletedHooks.delete(hook);
+  }
+
+  onGuildDeleted(hook: GuildDeletedHook): () => void {
+    this.guildDeletedHooks.add(hook);
+    return () => this.guildDeletedHooks.delete(hook);
   }
 
   async connect(): Promise<void> {
@@ -230,6 +248,21 @@ export class GatewayConnection {
           this.unsubscribe(evt.channel_id);
           messages.clearChannel(evt.channel_id);
           for (const h of this.channelDeletedHooks) h(evt.guild_id, evt.channel_id);
+        }
+        break;
+      case 'guild_updated':
+        if (guilds.byId[evt.guild.id]) guilds.updateGuild(evt.guild);
+        break;
+      case 'guild_deleted':
+        if (guilds.byId[evt.guild_id]) {
+          // Drop every WS subscription for channels in that guild — they're
+          // gone server-side and would otherwise leak in `this.subs`.
+          for (const c of guilds.channelsByGuild[evt.guild_id] ?? []) {
+            this.unsubscribe(c.id);
+            messages.clearChannel(c.id);
+          }
+          guilds.remove(evt.guild_id);
+          for (const h of this.guildDeletedHooks) h(evt.guild_id);
         }
         break;
       case 'guild_member_added':

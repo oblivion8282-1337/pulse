@@ -47,6 +47,11 @@ class GuildOut(BaseModel):
         return _id_str(v)
 
 
+class GuildPatchIn(BaseModel):
+    name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
+    icon_url: Annotated[str | None, Field(default=None, max_length=512)] = None
+
+
 class ChannelIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=64)]
     type: Annotated[int, Field(ge=0, le=1)] = 0

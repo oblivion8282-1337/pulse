@@ -152,3 +152,44 @@ async def test_guild_member_added_broadcast_via_add_member(ws_app, _auth_signer)
                 assert evt["user_id"] == str(joiner_uid)
 
     await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_guild_updated_broadcast(ws_app, _auth_signer):
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            g = tc.post("/guilds", json={"name": "old"}, headers=_auth(owner_token)).json()
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()  # ready
+                r = tc.patch(
+                    f"/guilds/{g['id']}",
+                    json={"name": "new"},
+                    headers=_auth(owner_token),
+                )
+                assert r.status_code == 200, r.text
+                evt = _drain_until(ws, "guild_updated")
+                assert evt["guild"]["id"] == g["id"]
+                assert evt["guild"]["name"] == "new"
+                assert evt["guild"]["owner_id"] == str(owner_uid)
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_guild_deleted_broadcast(ws_app, _auth_signer):
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            g = tc.post("/guilds", json={"name": "doomed"}, headers=_auth(owner_token)).json()
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()  # ready
+                r = tc.delete(f"/guilds/{g['id']}", headers=_auth(owner_token))
+                assert r.status_code == 204
+                evt = _drain_until(ws, "guild_deleted")
+                assert evt["op"] == "guild_deleted"
+                assert evt["guild_id"] == g["id"]
+
+    await asyncio.to_thread(_run)

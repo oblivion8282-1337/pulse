@@ -30,6 +30,23 @@ class GuildStore {
     this.byId = { ...this.byId, [guild.id]: guild };
   }
 
+  updateGuild(guild: Partial<Guild> & Pick<Guild, 'id'>): void {
+    const existing = this.byId[guild.id];
+    if (!existing) return;
+    // Merge so fields the lifecycle envelope omits (e.g. created_at) survive.
+    this.byId = { ...this.byId, [guild.id]: { ...existing, ...guild } };
+  }
+
+  remove(guildId: string): void {
+    if (!this.byId[guildId]) return;
+    const nextById = { ...this.byId };
+    delete nextById[guildId];
+    this.byId = nextById;
+    const nextChannels = { ...this.channelsByGuild };
+    delete nextChannels[guildId];
+    this.channelsByGuild = nextChannels;
+  }
+
   addChannel(channel: Partial<Channel> & Omit<Channel, 'created_at'>): void {
     const list = this.channelsByGuild[channel.guild_id] ?? [];
     if (list.some((c) => c.id === channel.id)) return;

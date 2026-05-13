@@ -14,6 +14,7 @@
   import { chatApi } from '$lib/api/chat';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
+  import { voice } from '$lib/voice/livekit.svelte';
   import { toast } from 'svelte-sonner';
   import type { Channel, Message } from '$lib/api/types';
 
@@ -49,7 +50,8 @@
   });
 
   onMount(() => {
-    const off = gateway.onChannelDeleted(handleRemoteChannelDeleted);
+    const offChan = gateway.onChannelDeleted(handleRemoteChannelDeleted);
+    const offGuild = gateway.onGuildDeleted(handleRemoteGuildDeleted);
 
     // Escape schließt Drawer auf Mobil
     function onKeydown(e: KeyboardEvent) {
@@ -58,7 +60,8 @@
     window.addEventListener('keydown', onKeydown);
 
     return () => {
-      off();
+      offChan();
+      offGuild();
       window.removeEventListener('keydown', onKeydown);
     };
   });
@@ -139,6 +142,23 @@
       // The connection.ts handler already pruned the store + subscription; we
       // just navigate away from the now-gone channel.
       void onChannelDeleted(cId);
+    }
+  }
+
+  async function handleRemoteGuildDeleted(gId: string) {
+    if (gId !== guildId) return;
+    // Store was already pruned in connection.ts. If we were in a voice
+    // channel in this guild, disconnect — channels are gone.
+    if (voice.connected || voice.connecting) await voice.disconnect().catch(() => undefined);
+    await navigateAfterGuildGone();
+  }
+
+  async function navigateAfterGuildGone() {
+    const remaining = guilds.list;
+    if (remaining.length > 0) {
+      await goto(`/app/guilds/${remaining[0].id}/channels/_`, { replaceState: true });
+    } else {
+      await goto('/app', { replaceState: true });
     }
   }
 
@@ -283,8 +303,10 @@
     canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
     guildList={guilds.list}
     activeGuildId={guildId}
+    currentUserId={auth.user?.id ?? null}
     onSelectGuild={(g) => selectGuild(g.id)}
     onCreateGuildClick={() => (creatingGuild = true)}
+    onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
   />
 </div>
 

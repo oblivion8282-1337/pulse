@@ -26,6 +26,12 @@ export const chatApi = {
   getGuild(id: string): Promise<Guild> {
     return request<Guild>(`/guilds/${id}`);
   },
+  patchGuild(id: string, payload: { name?: string; icon_url?: string | null }): Promise<Guild> {
+    return request<Guild>(`/guilds/${id}`, { method: 'PATCH', body: payload });
+  },
+  deleteGuild(id: string): Promise<void> {
+    return request<void>(`/guilds/${id}`, { method: 'DELETE' });
+  },
 
   // Members
   addMember(guildId: string, userId: string): Promise<Member> {

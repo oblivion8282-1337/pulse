@@ -44,6 +44,7 @@
   <GuildList
     guilds={guilds.list}
     activeGuildId={null}
+    currentUserId={auth.user?.id ?? null}
     onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
     onCreateClick={() => (creating = true)}
   />

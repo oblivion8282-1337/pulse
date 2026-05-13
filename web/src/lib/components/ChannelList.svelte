@@ -35,8 +35,10 @@
     canCreate = false,
     guildList,
     activeGuildId = null,
+    currentUserId = null,
     onSelectGuild,
-    onCreateGuildClick
+    onCreateGuildClick,
+    onGuildDeleted
   }: {
     guild: Guild | null;
     channels: Channel[];
@@ -47,8 +49,10 @@
     canCreate?: boolean;
     guildList: Guild[];
     activeGuildId?: string | null;
+    currentUserId?: string | null;
     onSelectGuild: (g: Guild) => void;
     onCreateGuildClick: () => void;
+    onGuildDeleted?: (guildId: string) => void;
   } = $props();
 
   let inviteOpen = $state(false);
@@ -108,8 +112,10 @@
   <GuildList
     guilds={guildList}
     {activeGuildId}
+    {currentUserId}
     onSelect={onSelectGuild}
     onCreateClick={onCreateGuildClick}
+    {onGuildDeleted}
   />
   <header class="flex h-12 items-center justify-between px-4 text-text-bright">
     <span class="truncate text-base font-bold tracking-tight">{guild?.name ?? '—'}</span>

@@ -343,3 +343,71 @@ async def test_patch_channel_topic(client, _auth_signer):
     assert r.json()["topic"] == "welcome channel"
     # name must be unchanged
     assert r.json()["name"] == "general"
+
+
+# ---- Guild PATCH/DELETE ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_rename(client, _auth_signer):
+    t_owner, _, g, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(f"/guilds/{g['id']}", json={"name": "Renamed"}, headers=auth(t_owner))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name"] == "Renamed"
+    assert body["id"] == g["id"]
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_non_owner_forbidden(client, _auth_signer):
+    _, t_other, g, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(f"/guilds/{g['id']}", json={"name": "hacked"}, headers=auth(t_other))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_name_too_long(client, _auth_signer):
+    t_owner, _, g, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(f"/guilds/{g['id']}", json={"name": "x" * 65}, headers=auth(t_owner))
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_guild_not_found(client, _auth_signer):
+    t_owner, _, _, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch("/guilds/999999999", json={"name": "x"}, headers=auth(t_owner))
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_guild_as_owner(client, _auth_signer):
+    """Owner can delete the guild. Channel cascade (ON DELETE CASCADE) is
+    asserted only indirectly via getGuild; SQLite in tests doesn't enforce
+    FKs by default — Postgres in prod does."""
+    t_owner, _, g, c = await _setup_guild_and_channel(client, _auth_signer)
+    # Post a message just so we hit the same code path as the real flow.
+    await client.post(
+        f"/channels/{c['id']}/messages", json={"content": "bye"}, headers=auth(t_owner)
+    )
+    r = await client.delete(f"/guilds/{g['id']}", headers=auth(t_owner))
+    assert r.status_code == 204
+    # Guild gone — listGuilds no longer returns it for the owner, and getGuild
+    # 403s because the member row is also gone.
+    r2 = await client.get("/guilds", headers=auth(t_owner))
+    assert all(gg["id"] != g["id"] for gg in r2.json())
+    r3 = await client.get(f"/guilds/{g['id']}", headers=auth(t_owner))
+    assert r3.status_code in (403, 404)
+
+
+@pytest.mark.asyncio
+async def test_delete_guild_non_owner_forbidden(client, _auth_signer):
+    _, t_other, g, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.delete(f"/guilds/{g['id']}", headers=auth(t_other))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_guild_not_found(client, _auth_signer):
+    t_owner, _, _, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.delete("/guilds/999999999", headers=auth(t_owner))
+    assert r.status_code == 404
