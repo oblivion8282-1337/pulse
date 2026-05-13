@@ -9,7 +9,7 @@
   const grouped = $derived.by(() => {
     const q = query.trim().toLowerCase();
     const byCat: Record<EmojiCategory, typeof EMOJIS> = {
-      smileys: [], gestures: [], hearts: [], nature: [], food: [], objects: []
+      smileys: [], gestures: [], hearts: [], nature: [], food: [], travel: [], objects: [], flags: []
     };
     for (const e of EMOJIS) {
       if (q && !e.name.includes(q) && !(e.aliases ?? []).some((a) => a.includes(q))) continue;
@@ -53,7 +53,7 @@
     </div>
   {/if}
 
-  <div class="max-h-56 overflow-y-auto">
+  <div class="max-h-72 overflow-y-auto">
     {#if isSearching}
       {#if searchHits.length === 0}
         <p class="text-text-muted px-1 py-3 text-center text-xs">Keine Treffer</p>

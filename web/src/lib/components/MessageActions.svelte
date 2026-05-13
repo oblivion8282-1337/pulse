@@ -50,7 +50,12 @@
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content side="top" align="end" class="p-0 border-0 bg-transparent shadow-none">
+    <DropdownMenu.Content
+      side="top"
+      align="end"
+      sideOffset={6}
+      class="w-auto max-w-[calc(100vw-1rem)] overflow-visible border-0 bg-transparent p-0 shadow-none"
+    >
       <EmojiPicker onPick={pick} />
     </DropdownMenu.Content>
   </DropdownMenu.Root>
