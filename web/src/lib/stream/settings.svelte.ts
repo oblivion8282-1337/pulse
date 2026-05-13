@@ -223,15 +223,19 @@ export async function loadCatalogs(): Promise<void> {
   loading = true;
   streamSettings.catalog_error = null;
   try {
-    // Pull persisted first so the GPU-default branch below can check whether
-    // the user already has a stored selection.
-    await loadPersisted();
-
-    const [profiles, audioApps, gpuInfo] = await Promise.all([
+    // Parallelise persistence load + sidecar calls.
+    const [rawData, profiles, audioApps, gpuInfo] = await Promise.all([
+      loadAll(),
       gsr.listProfiles(),
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
     ]);
+
+    // Apply persisted settings (idempotent guard via persisted_loaded).
+    if (!streamSettings.persisted_loaded) {
+      applyPersisted(rawData);
+      streamSettings.persisted_loaded = true;
+    }
 
     if (profiles?.ok) {
       streamSettings.available_profiles = profiles.profiles ?? [];
@@ -245,7 +249,7 @@ export async function loadCatalogs(): Promise<void> {
 
     // The HQ-stream panel is channel-mode only (push into the current voice
     // channel via the portal, explicit codec/res/bitrate/fps). Force those —
-    // overriding anything `loadPersisted()` restored from an older config.
+    // overriding anything loadPersisted restored from an older config.
     streamSettings.capture_source = 'portal';
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
@@ -257,6 +261,18 @@ export async function loadCatalogs(): Promise<void> {
     if (streamSettings.overrides.fps === undefined) defaults.fps = 60;
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
+    }
+    // On first launch (excluded_apps never persisted), auto-exclude Pulse itself
+    // so voice-channel audio isn't fed back into the desktop capture.
+    // Electron is reported as "Chromium" by PipeWire; fall back to "Electron"
+    // in case a future runtime changes the name.
+    // If the user later removes this exclusion, rawData.excluded_apps is saved
+    // as [] and we never re-add it.
+    if (!Array.isArray(rawData.excluded_apps) && streamSettings.excluded_apps.length === 0) {
+      const selfName = (audioApps?.applications ?? []).find(
+        (a) => a === 'Chromium' || a === 'Electron',
+      );
+      if (selfName) streamSettings.excluded_apps = [selfName];
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
