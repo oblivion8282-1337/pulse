@@ -69,7 +69,7 @@ async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict
         if cu is None:
             continue
         if _path_has_publisher(item):
-            cid, uid = cu
+            cid, uid, _nonce = cu  # nonce is per-publish; presence not state
             out.setdefault(cid, set()).add(uid)
     return out
 

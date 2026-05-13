@@ -64,7 +64,7 @@ async def pubsub(redis):
 async def test_new_stream_sets_state_and_publishes(redis, pubsub):
     cid = _unique_cid()
     client = _FakeMediaMtxClient(
-        _paths((f"channel-{cid}-55", True), ("all_others", False), ("egress-x", True))
+        _paths((f"channel-{cid}-55-deadbeef", True), ("all_others", False), ("egress-x", True))
     )
     try:
         await reconcile_once(redis, client)
@@ -82,7 +82,7 @@ async def test_new_stream_sets_state_and_publishes(redis, pubsub):
 @pytest.mark.asyncio
 async def test_multiple_streamers_in_one_channel(redis, pubsub):
     cid = _unique_cid()
-    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-10", True), (f"channel-{cid}-20", True)))
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-10-aabbccdd", True), (f"channel-{cid}-20-11223344", True)))
     try:
         await reconcile_once(redis, client)
         state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
@@ -97,7 +97,7 @@ async def test_multiple_streamers_in_one_channel(redis, pubsub):
 @pytest.mark.asyncio
 async def test_idempotent_no_duplicate_events(redis, pubsub):
     cid = _unique_cid()
-    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-1", True)))
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-cafebabe", True)))
     try:
         await reconcile_once(redis, client)
         assert await _drain_one(pubsub) is not None
@@ -110,7 +110,7 @@ async def test_idempotent_no_duplicate_events(redis, pubsub):
 @pytest.mark.asyncio
 async def test_vanished_stream_self_heals(redis, pubsub):
     cid = _unique_cid()
-    live = _FakeMediaMtxClient(_paths((f"channel-{cid}-1", True)))
+    live = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-cafebabe", True)))
     gone = _FakeMediaMtxClient(_paths(("all_others", False)))
     try:
         await reconcile_once(redis, live)
@@ -126,8 +126,8 @@ async def test_vanished_stream_self_heals(redis, pubsub):
 @pytest.mark.asyncio
 async def test_one_streamer_leaves_others_stay(redis, pubsub):
     cid = _unique_cid()
-    both = _FakeMediaMtxClient(_paths((f"channel-{cid}-1", True), (f"channel-{cid}-2", True)))
-    one = _FakeMediaMtxClient(_paths((f"channel-{cid}-1", True)))
+    both = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-cafebabe", True), (f"channel-{cid}-2-d00fcafe", True)))
+    one = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-cafebabe", True)))
     try:
         await reconcile_once(redis, both)
         await _drain_one(pubsub)
@@ -142,10 +142,17 @@ async def test_one_streamer_leaves_others_stay(redis, pubsub):
 
 @pytest.mark.asyncio
 async def test_non_channel_paths_ignored(redis, pubsub):
-    # `channel-5` (no `-uid`), `channel-x-1` (non-numeric channel) and plain
-    # names are all ignored — the path must be `channel-<digits>-<digits>`.
+    # Paths missing any segment (uid, nonce) or with non-numeric channel are
+    # all ignored — must be `channel-<digits>-<digits>-<8 hex>`.
     client = _FakeMediaMtxClient(
-        _paths(("all_others", True), ("channel-5", True), ("channel-x-1", True), ("egress", True))
+        _paths(
+            ("all_others", True),
+            ("channel-5", True),
+            ("channel-x-1-deadbeef", True),
+            ("channel-5-1", True),  # missing nonce
+            ("channel-5-1-NOTHEX!!", True),
+            ("egress", True),
+        )
     )
     await reconcile_once(redis, client)
     assert await _drain_one(pubsub, attempts=10) is None

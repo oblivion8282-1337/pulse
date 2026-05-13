@@ -4,12 +4,13 @@ Endpoints:
   * ``POST /channels/{channel_id}/stream-token`` — issue a short-lived publish
     token (called by chat-gateway after it has checked the user's channel
     membership; the Pulse access token it forwards is verified here and the
-    `sub` becomes the token's user_id). The push URL targets the per-user path
-    ``channel-<cid>-<uid>``.
+    `sub` becomes the token's user_id). The push URL targets a fresh path
+    ``channel-<cid>-<uid>-<nonce>`` (nonce = 8 hex per issue, see ``streamkeys``).
   * ``GET /channels/{channel_id}/stream`` — current set of HQ streamers in the
     channel (``{channel_id, user_ids: [...], since?}``).
   * ``GET /channels/{channel_id}/whep?user_id=<uid>`` — the WHEP playback URL
-    for that user's stream in the channel.
+    for that user's *current* stream (reads ``stream:active:*`` to find the
+    live path with its nonce). 404 if the user isn't streaming.
 """
 
 from __future__ import annotations
@@ -26,7 +27,12 @@ from redis.asyncio import Redis
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.security import CurrentUser
-from dcc_media_svc.streamkeys import CHANNEL_STATE_KEY, TOKEN_KEY, path_for_channel_user
+from dcc_media_svc.streamkeys import (
+    ACTIVE_KEY,
+    CHANNEL_STATE_KEY,
+    TOKEN_KEY,
+    path_for_channel_user,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -67,16 +73,15 @@ def _get_redis(request: Request) -> Redis:
     return redis
 
 
-def _push_url(channel_id: str, user_id: str, protocol: str, token: str) -> str:
+def _push_url(path: str, protocol: str, token: str) -> str:
     """Full push URL incl. the stream-token, ready for the GSR sidecar.
 
-    RTMP: ``rtmps://host:port/channel-<cid>-<uid>?user=pulse&pass=<token>`` —
+    RTMP: ``rtmps://host:port/<path>?user=pulse&pass=<token>`` —
           over TLS so the token isn't on the wire in cleartext; MediaMTX maps
           the query ``user``/``pass`` onto the authHTTP body.
-    SRT:  ``srt://host:port?streamid=publish:channel-<cid>-<uid>:pulse:<token>``.
+    SRT:  ``srt://host:port?streamid=publish:<path>:pulse:<token>``.
     """
     s = get_settings()
-    path = path_for_channel_user(channel_id, user_id)
     if protocol == "srt":
         return (
             f"srt://{s.mediamtx_ingest_host}:{s.mediamtx_srt_port}"
@@ -99,9 +104,14 @@ async def issue_stream_token(
     redis = _get_redis(request)
     user_id = str(user.id)
     token = secrets.token_urlsafe(32)
+    # Fresh nonce per token → fresh MediaMTX path per publish (see
+    # ``streamkeys.py`` for why). 8 hex = 32 bits = collision-safe at our scale.
+    nonce = secrets.token_hex(4)
+    path = path_for_channel_user(channel_id, user_id, nonce)
     record = {
         "channel_id": channel_id,
         "user_id": user_id,
+        "nonce": nonce,
         "scope": "publish",
         "protocol": payload.protocol,
         "created_at": int(time.time()),
@@ -114,9 +124,9 @@ async def issue_stream_token(
     log.info("stream_token_issued", channel_id=channel_id, user_id=user.id, protocol=payload.protocol)
     return StreamTokenOut(
         token=token,
-        mediamtx_path=path_for_channel_user(channel_id, user_id),
+        mediamtx_path=path,
         push_protocol=payload.protocol,
-        push_url=_push_url(channel_id, user_id, payload.protocol, token),
+        push_url=_push_url(path, payload.protocol, token),
         expires_in_s=settings.token_ttl_s,
     )
 
@@ -138,7 +148,25 @@ async def get_stream_state(channel_id: ChannelId, request: Request) -> StreamSta
 
 
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
-async def get_whep_url(channel_id: ChannelId, user_id: UserIdQuery) -> WhepOut:
-    s = get_settings()
-    base = s.mediamtx_public_base.rstrip("/")
-    return WhepOut(whep_url=f"{base}/{path_for_channel_user(channel_id, user_id)}/whep")
+async def get_whep_url(channel_id: ChannelId, user_id: UserIdQuery, request: Request) -> WhepOut:
+    """WHEP URL for ``user_id``'s live stream in ``channel_id``.
+
+    The MediaMTX path now carries a per-publish nonce, so we can't compute it
+    from (cid, uid) alone — we read ``stream:active:channel-<cid>-<uid>`` which
+    the auth-hook updates on every successful publish-auth. 404 if there's no
+    live publisher for that user; the WhepPlayer treats that the same as a
+    publisher-not-up situation and keeps retrying.
+    """
+    redis = _get_redis(request)
+    raw = await redis.get(ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id))
+    if raw is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    try:
+        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    path = data.get("path") if isinstance(data, dict) else None
+    if not isinstance(path, str) or not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
+    base = get_settings().mediamtx_public_base.rstrip("/")
+    return WhepOut(whep_url=f"{base}/{path}/whep")

@@ -111,13 +111,17 @@ async def _load_token_record(redis: Redis, token: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-async def _mark_publisher_active(redis: Redis, channel_id: str, user_id: str) -> None:
+async def _mark_publisher_active(
+    redis: Redis, channel_id: str, user_id: str, path: str
+) -> None:
     settings = get_settings()
     payload = json.dumps(
-        {"user_id": user_id, "started_at": datetime.now(UTC).isoformat()},
+        {"user_id": user_id, "started_at": datetime.now(UTC).isoformat(), "path": path},
         separators=(",", ":"),
     )
-    # SET EX — a re-publish refreshes the TTL (self-heal window stays bounded).
+    # SET EX — a re-publish refreshes the TTL (self-heal window stays bounded)
+    # and overwrites ``path`` so media-svc's WHEP-URL lookup always returns the
+    # latest publish's path (with its per-session nonce).
     await redis.set(
         ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id),
         payload,
@@ -131,12 +135,12 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
     if action in _EXCLUDED_ACTIONS:
         return  # 200
 
-    cu = parse_channel_user_path(req.path)  # (channel_id, user_id) or None
+    cu = parse_channel_user_path(req.path)  # (channel_id, user_id, nonce) or None
 
     if action == "publish":
         if cu is None:
             raise _deny("publish_non_channel_path", path=req.path)
-        channel_id, path_user_id = cu
+        channel_id, path_user_id, path_nonce = cu
         rec = await _load_token_record(redis, req.credential)
         if rec is None:
             raise _deny("publish_unknown_token", path=req.path)
@@ -154,7 +158,13 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
                 path=req.path,
                 token_user=rec.get("user_id"),
             )
-        await _mark_publisher_active(redis, channel_id, path_user_id)
+        if str(rec.get("nonce") or "") != path_nonce:
+            raise _deny(
+                "publish_nonce_mismatch",
+                path=req.path,
+                token_nonce=rec.get("nonce"),
+            )
+        await _mark_publisher_active(redis, channel_id, path_user_id, req.path)
         log.info("auth_publish_ok", channel_id=channel_id, user_id=path_user_id, protocol=req.protocol)
         return  # 200
 
