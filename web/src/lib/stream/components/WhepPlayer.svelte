@@ -68,7 +68,7 @@
   let stats = $state<StreamStats | null>(null);
 
   // Retry backoff: publisher may not be online yet (404) or transient net loss.
-  const RETRY_MS = [2000, 3000, 5000, 8000, 8000];
+  const RETRY_MS = [1000, 2000, 3000, 5000, 5000];
   let attempt = 0;
   let session: WhepSession | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -136,7 +136,10 @@
       s.pc.addEventListener('connectionstatechange', () => {
         if (disposed || session !== s) return;
         const st = s.pc.connectionState;
-        if (st === 'failed' || st === 'disconnected' || st === 'closed') {
+        // `disconnected` is transient — Chromium recovers it back to `connected`
+        // most of the time. Only retry on the definitive states; otherwise we
+        // tear down every micro-glitch on the UDP path and loop for ~18s.
+        if (st === 'failed' || st === 'closed') {
           void teardown().then(() => {
             if (!disposed && runChannelId === cid) scheduleRetry();
           });
