@@ -75,8 +75,12 @@ jobs:
           # elfutils provides `eu-strip` + `eu-elfcompress` — flatpak-builder
           # uses them to strip debug symbols from built binaries (e.g. the GSR
           # binary). Without them, the build fails after the compile step.
+          # librsvg2-common ships the gdk-pixbuf SVG loader that flatpak-builder
+          # invokes when it validates exported app icons (`hicolor/scalable/…
+          # .svg`). With --no-install-recommends it's not pulled in, and the
+          # export step bails with "is not a valid icon: Format not recognized".
           sudo apt-get install -y --no-install-recommends \
-            flatpak flatpak-builder ostree rsync elfutils
+            flatpak flatpak-builder ostree rsync elfutils librsvg2-common
           flatpak remote-add --user --if-not-exists \
             flathub https://flathub.org/repo/flathub.flatpakrepo
 
