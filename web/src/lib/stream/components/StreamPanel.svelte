@@ -13,9 +13,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Button } from '$lib/components/ui/button/index.js';
   import { Separator } from '$lib/components/ui/separator/index.js';
-  import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
 
@@ -31,19 +29,6 @@
 
   let health = $state<GsrHealth | null>(null);
   let healthError = $state<string | null>(null);
-  let healthChecking = $state(false);
-
-  async function checkHealth() {
-    healthChecking = true;
-    healthError = null;
-    try {
-      health = await gsr.health();
-    } catch (e) {
-      healthError = e instanceof Error ? e.message : String(e);
-    } finally {
-      healthChecking = false;
-    }
-  }
 
   onMount(() => {
     // Always stream into the current voice channel via the portal; the
@@ -53,7 +38,7 @@
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     if (!gsr.available()) return;
-    void checkHealth();
+    void gsr.health().then((h) => { health = h; }).catch((e) => { healthError = String(e); });
     void loadCatalogs();
   });
 
@@ -62,26 +47,9 @@
 
 {#if gsr.available()}
   <section class="glass-panel flex flex-col gap-4 rounded-2xl p-4" data-testid="stream-panel">
-    <header class="flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2">
-        <RadioTowerIcon class="text-primary size-5" />
-        <h2 class="text-text-bright text-base font-semibold tracking-tight">HQ-Stream</h2>
-      </div>
-      <Button
-        type="button"
-        size="icon-sm"
-        variant="ghost"
-        onclick={() => {
-          void checkHealth();
-          void loadCatalogs();
-        }}
-        disabled={healthChecking}
-        aria-label="GSR neu erkennen"
-        title="GSR neu erkennen + Optionen neu laden"
-        data-testid="stream-panel-refresh"
-      >
-        <RefreshIcon class="size-3.5 {healthChecking ? 'animate-spin' : ''}" />
-      </Button>
+    <header class="flex items-center gap-2">
+      <RadioTowerIcon class="text-primary size-5" />
+      <h2 class="text-text-bright text-base font-semibold tracking-tight">HQ-Stream</h2>
     </header>
 
     {#if healthError}
