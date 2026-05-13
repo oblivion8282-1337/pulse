@@ -14,6 +14,7 @@ import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { voicePresence, type VoiceChannelState } from '$lib/stores/voicePresence.svelte';
 import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
+import { readState } from '$lib/stores/readState.svelte';
 import type { Message } from '$lib/api/types';
 
 export type ChannelPayload = {
@@ -57,6 +58,13 @@ type ServerEvent =
   | { op: 'channel_created'; channel: ChannelPayload }
   | { op: 'channel_updated'; channel: ChannelPayload }
   | { op: 'channel_deleted'; guild_id: string; channel_id: string }
+  | {
+      op: 'channel_bump';
+      guild_id: string;
+      channel_id: string;
+      message_id: string;
+      author_id: string;
+    }
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
@@ -223,6 +231,15 @@ export class GatewayConnection {
         break;
       case 'message':
         messages.upsert(evt.data);
+        // Own messages don't make a channel unread for ourselves.
+        if (evt.data.author_id !== auth.user?.id) {
+          readState.recordSeen(evt.data.channel_id, evt.data.id);
+          // We only get this op for channels we're subscribed to — i.e. the
+          // one we're currently viewing — so it's safe to also mark it read.
+          if (this.subs.has(evt.data.channel_id)) {
+            readState.markRead(evt.data.channel_id, evt.data.id);
+          }
+        }
         break;
       case 'message_update':
         messages.update(evt.data);
@@ -248,6 +265,17 @@ export class GatewayConnection {
           this.unsubscribe(evt.channel_id);
           messages.clearChannel(evt.channel_id);
           for (const h of this.channelDeletedHooks) h(evt.guild_id, evt.channel_id);
+        }
+        break;
+      case 'channel_bump':
+        if (evt.author_id !== auth.user?.id && guilds.byId[evt.guild_id]) {
+          readState.recordSeen(evt.channel_id, evt.message_id);
+          // If we're currently viewing this channel the message op already
+          // ran the markRead — but in case the bump arrived first, do it
+          // again here. markRead is idempotent.
+          if (this.subs.has(evt.channel_id)) {
+            readState.markRead(evt.channel_id, evt.message_id);
+          }
         }
         break;
       case 'guild_updated':

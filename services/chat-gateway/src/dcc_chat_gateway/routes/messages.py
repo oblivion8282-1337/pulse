@@ -158,6 +158,21 @@ async def post_message(
 
     # Bare payload — the pubsub listener auto-wraps as {"op": "message", "data": ...}.
     await _broadcast(request, channel_id, serialize_message(msg))
+    # Plus a global "channel had activity" envelope on guild:events, so
+    # clients NOT subscribed to this channel (i.e. everyone except whoever
+    # is currently viewing it) can flag the channel as unread in the
+    # sidebar. Payload is intentionally minimal — no content.
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(
+            {
+                "op": "channel_bump",
+                "guild_id": str(channel.guild_id),
+                "channel_id": str(channel_id),
+                "message_id": str(msg.id),
+                "author_id": str(current.id),
+            }
+        )
     msg.reactions = []  # type: ignore[attr-defined]
     return msg
 

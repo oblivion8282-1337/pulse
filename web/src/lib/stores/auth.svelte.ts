@@ -1,5 +1,6 @@
 import { me } from '$lib/api/auth';
 import { clearTokens, loadTokens } from '$lib/api/storage';
+import { readState } from './readState.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -39,6 +40,7 @@ class AuthStore {
     this.loading = true;
     try {
       this.user = await me();
+      if (this.user) readState.hydrateForUser(this.user.id);
     } catch {
       clearTokens();
       this.user = null;
@@ -50,11 +52,13 @@ class AuthStore {
 
   setUser(user: User): void {
     this.user = user;
+    readState.hydrateForUser(user.id);
   }
 
   signOut(): void {
     clearTokens();
     this.user = null;
+    readState.clear();
     void goto('/login');
   }
 }

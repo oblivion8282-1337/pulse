@@ -15,6 +15,7 @@
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { readState } from '$lib/stores/readState.svelte';
   import { toast } from 'svelte-sonner';
   import type { Channel, Message } from '$lib/api/types';
 
@@ -128,6 +129,13 @@
         // a faster switch already moved on and we'd leak a subscription.
         if (isStale()) return;
         gateway.subscribe(target);
+        // Acknowledge unread state: the user is now looking at this channel.
+        const loaded = messages.for(target);
+        const latestSeen = loaded[loaded.length - 1]?.id;
+        if (latestSeen) {
+          readState.recordSeen(target, latestSeen);
+          readState.markRead(target, latestSeen);
+        }
       }
       // Record prevChannel only after the whole operation succeeded.
       untrack(() => (prevChannel = target!));
