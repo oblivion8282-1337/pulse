@@ -249,11 +249,14 @@ export async function loadCatalogs(): Promise<void> {
     streamSettings.capture_source = 'portal';
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
-    // Default the codec from the GPU (AV1 if it can encode it, else H.264) —
-    // only if the user hasn't already picked one.
-    if (!streamSettings.overrides.codec) {
-      const hasAv1 = (streamSettings.gpu_info?.video_codecs ?? []).some((c) => /av1/i.test(c));
-      streamSettings.overrides = { ...streamSettings.overrides, codec: hasAv1 ? 'av1' : 'h264' };
+    // Default codec/bitrate/fps — only if the user hasn't already saved a value.
+    const hasAv1 = (streamSettings.gpu_info?.video_codecs ?? []).some((c) => /av1/i.test(c));
+    const defaults: OverrideSet = {};
+    if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
+    if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
+    if (streamSettings.overrides.fps === undefined) defaults.fps = 60;
+    if (Object.keys(defaults).length > 0) {
+      streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
