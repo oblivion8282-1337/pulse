@@ -97,6 +97,9 @@ export const streamSettings = $state({
   // back keeps the selection.
   audio_app: '' as string,
   excluded_apps: [] as string[],
+  // One-shot migration marker: once true, we never auto-add "Pulse" to
+  // excluded_apps again — respects the user's choice if they removed it.
+  excluded_apps_pulse_seeded: false,
   overrides: {} as OverrideSet,
   use_overrides: false,
 
@@ -122,6 +125,7 @@ const PERSIST_KEYS = [
   'audio_mode',
   'audio_app',
   'excluded_apps',
+  'excluded_apps_pulse_seeded',
   'overrides',
   'use_overrides',
 ] as const;
@@ -135,6 +139,7 @@ function snapshotPersisted(): Record<PersistKey, unknown> {
     audio_mode: streamSettings.audio_mode,
     audio_app: streamSettings.audio_app,
     excluded_apps: streamSettings.excluded_apps.slice(),
+    excluded_apps_pulse_seeded: streamSettings.excluded_apps_pulse_seeded,
     overrides: { ...streamSettings.overrides },
     use_overrides: streamSettings.use_overrides,
   };
@@ -171,6 +176,9 @@ function applyPersisted(data: Record<string, unknown>): void {
   if (typeof data.audio_app === 'string') streamSettings.audio_app = data.audio_app;
   if (Array.isArray(data.excluded_apps)) {
     streamSettings.excluded_apps = data.excluded_apps.filter((x): x is string => typeof x === 'string');
+  }
+  if (typeof data.excluded_apps_pulse_seeded === 'boolean') {
+    streamSettings.excluded_apps_pulse_seeded = data.excluded_apps_pulse_seeded;
   }
   if (data.overrides && typeof data.overrides === 'object') {
     const o = { ...(data.overrides as OverrideSet) };
@@ -262,15 +270,18 @@ export async function loadCatalogs(): Promise<void> {
     if (Object.keys(defaults).length > 0) {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
     }
-    // On first launch (excluded_apps never persisted), auto-exclude Pulse itself
-    // so voice-channel audio isn't fed back into the desktop capture. main.ts
-    // sets PULSE_PROP_OVERRIDE so we register as "Pulse" in PipeWire — that name
-    // is unique to us and won't accidentally exclude a Chromium browser.
-    // If the user later removes this exclusion, rawData.excluded_apps is saved
-    // as [] and we never re-add it.
-    if (!Array.isArray(rawData.excluded_apps) && streamSettings.excluded_apps.length === 0) {
-      const selfName = (audioApps?.applications ?? []).find((a) => a === 'Pulse');
-      if (selfName) streamSettings.excluded_apps = [selfName];
+    // Seed "Pulse" into excluded_apps once. main.ts sets PULSE_PROP_OVERRIDE so we
+    // appear as "Pulse" in PipeWire, which is what GSR matches against. Hard-code
+    // the name instead of looking it up in available_audio_apps — the audio
+    // service registers lazily, so on a fresh launch the list can still be empty.
+    // The seeded flag persists, so if the user later removes the exclusion we
+    // don't re-add it on the next launch.
+    if (!streamSettings.excluded_apps_pulse_seeded) {
+      if (!streamSettings.excluded_apps.includes('Pulse')) {
+        streamSettings.excluded_apps = [...streamSettings.excluded_apps, 'Pulse'];
+      }
+      streamSettings.excluded_apps_pulse_seeded = true;
+      persistSettings();
     }
     streamSettings.catalogs_loaded = true;
   } catch (e) {
