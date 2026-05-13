@@ -31,7 +31,8 @@
 </script>
 
 <div
-  class="bg-bg-input absolute -top-3 right-3 hidden items-center gap-0.5 rounded-lg border border-border p-0.5 shadow-sm group-hover:flex"
+  class="bg-bg-input absolute -top-3 right-3 items-center gap-0.5 rounded-lg border border-border p-0.5 shadow-sm
+         {pickerOpen ? 'flex' : 'hidden group-hover:flex'}"
   data-testid="message-actions"
 >
   <DropdownMenu.Root bind:open={pickerOpen}>
