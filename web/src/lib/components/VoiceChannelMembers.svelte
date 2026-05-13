@@ -7,9 +7,21 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import UserVolumeMenu from './UserVolumeMenu.svelte';
 
-  let { userIds, streamingUserIds = [] }: { userIds: string[]; streamingUserIds?: string[] } = $props();
+  let {
+    userIds,
+    streamingUserIds = [],
+    speakingUserIds = []
+  }: {
+    userIds: string[];
+    streamingUserIds?: string[];
+    /** Subset of userIds currently emitting audio above the speaking
+     * threshold. Only the channel the local user is connected to has live
+     * data; everything else is an empty list and renders no rings. */
+    speakingUserIds?: string[];
+  } = $props();
 
   const streamingSet = $derived(new Set(streamingUserIds));
+  const speakingSet = $derived(new Set(speakingUserIds));
   const selfId = $derived(auth.user?.id ?? null);
 
   $effect(() => {
@@ -22,6 +34,7 @@
   {@const name = user?.display_name ?? user?.username ?? '…'}
   {@const initial = (name.trim()[0] ?? '?').toUpperCase()}
   {@const isSelf = uid === selfId}
+  {@const isSpeaking = speakingSet.has(uid)}
   {@const volumePct = Math.round(settings.getUserVolume(uid) * 100)}
   {@const avatarSrc = safeAvatarUrl(user?.avatar_url)}
   <ContextMenu.Root>
@@ -35,15 +48,29 @@
           data-user-id={uid}
           title={name}
         >
-          <Avatar.Root class="size-7 shrink-0">
-            {#if avatarSrc}
-              <Avatar.Image src={avatarSrc} alt={name} />
+          <span class="relative size-7 shrink-0" data-speaking={isSpeaking}>
+            {#if isSpeaking}
+              <!-- Two staggered rings build the sonar "ping" — mirrors the logo. -->
+              <span
+                class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping"
+                aria-hidden="true"
+                data-testid="voice-presence-speaking-ring"
+              ></span>
+              <span
+                class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping [animation-delay:0.7s]"
+                aria-hidden="true"
+              ></span>
             {/if}
-            <Avatar.Fallback class="bg-primary text-primary-foreground text-[11px]">
-              {initial}
-            </Avatar.Fallback>
-          </Avatar.Root>
-          <span class="truncate">{name}</span>
+            <Avatar.Root class="relative size-7">
+              {#if avatarSrc}
+                <Avatar.Image src={avatarSrc} alt={name} />
+              {/if}
+              <Avatar.Fallback class="bg-primary text-primary-foreground text-[11px]">
+                {initial}
+              </Avatar.Fallback>
+            </Avatar.Root>
+          </span>
+          <span class="truncate {isSpeaking ? 'font-semibold text-text-bright' : ''}">{name}</span>
           {#if !isSelf && volumePct !== 100}
             <span
               class="text-text-muted ml-1 shrink-0 font-mono text-[10px]"

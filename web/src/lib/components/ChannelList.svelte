@@ -258,8 +258,16 @@
         {@const streamers = [
           ...new Set([...voicePresence.streamingIn(c.id), ...streamPresence.streamersIn(c.id)]),
         ]}
+        {@const speakers =
+          voice.connected && voice.channelId === c.id
+            ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
+            : []}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
-          <VoiceChannelMembers userIds={members} streamingUserIds={streamers} />
+          <VoiceChannelMembers
+            userIds={members}
+            streamingUserIds={streamers}
+            speakingUserIds={speakers}
+          />
         </div>
       {/if}
     {/each}
