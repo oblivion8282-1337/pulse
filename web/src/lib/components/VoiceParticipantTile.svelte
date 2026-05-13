@@ -36,9 +36,10 @@
 <ContextMenu.Root>
   <ContextMenu.Trigger>
     {#snippet child({ props })}
-      <div
+      <button
         {...props}
-        class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 transition-colors"
+        type="button"
+        class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors"
         data-testid="voice-participant"
         data-identity={p.identity}
       >
@@ -72,7 +73,7 @@
             </span>
           {/if}
         </div>
-      </div>
+      </button>
     {/snippet}
   </ContextMenu.Trigger>
 
