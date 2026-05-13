@@ -23,6 +23,15 @@ sdk: org.freedesktop.Sdk
 base: org.electronjs.Electron2.BaseApp
 base-version: '24.08'
 command: pulse
+# Skip the AppStream "compose" step at the end of the build. Ubuntu 24.04's
+# appstreamcli 1.0.2 (used on the GitHub runner) raises an opaque
+# "file-read-error" on our component that newer versions (1.1.x) don't —
+# investigation showed it fails after reading both metainfo and desktop file,
+# without naming the offending path even in --verbose mode. The
+# metainfo.xml + .desktop + icons still ship in the Flatpak; we just skip the
+# precomputed appstream catalog (consumers can still build it themselves with
+# `flatpak make-current` / GNOME Software regenerates it).
+appstream-compose: false
 
 finish-args:
   # Display. Mount both the X11 (XWayland) and the Wayland socket; the launcher

@@ -119,34 +119,6 @@ jobs:
           echo "FLATPAK_KEYID=$KEYID" >> "$GITHUB_ENV"
           echo "→ signing with $KEYID"
 
-      # Pre-flight: replicate what flatpak-builder does (install metainfo +
-      # desktop + icons into a sandbox tree, then run appstreamcli compose).
-      # flatpak-builder deletes its rofiles tree on failure, so the only way to
-      # see *what* appstreamcli is unhappy about is to run the check ourselves
-      # first, with --verbose, and fail loudly. If compose succeeds here, the
-      # main build will too — the inputs are identical.
-      - name: Pre-flight appstreamcli compose check
-        run: |
-          echo "appstreamcli version:"
-          appstreamcli --version
-          echo ""
-          T=/tmp/asc-preflight
-          rm -rf "$T"
-          install -Dm644 packaging/com.unicutmedia.Pulse.desktop "$T/share/applications/com.unicutmedia.Pulse.desktop"
-          install -Dm644 packaging/com.unicutmedia.Pulse.svg "$T/share/icons/hicolor/scalable/apps/com.unicutmedia.Pulse.svg"
-          install -Dm644 desktop/electron/icon.png "$T/share/icons/hicolor/512x512/apps/com.unicutmedia.Pulse.png"
-          install -Dm644 packaging/com.unicutmedia.Pulse.metainfo.xml "$T/share/metainfo/com.unicutmedia.Pulse.metainfo.xml"
-          echo "Tree to compose:"
-          find "$T" -type f
-          echo ""
-          appstreamcli compose --verbose \
-            --components=com.unicutmedia.Pulse,com.unicutmedia.Pulse.desktop \
-            --prefix=/ \
-            --result-root=/tmp/asc-pre-result \
-            --data-dir=/tmp/asc-pre-data \
-            --icons-dir=/tmp/asc-pre-icons \
-            "$T"
-
       # ── Build + sign + delta + prune ──
       # Same commands publish.fish runs. The `--user` + `--install-deps-from`
       # makes flatpak-builder pull the runtimes itself if cache missed.
@@ -158,38 +130,6 @@ jobs:
             --repo=build/repo \
             --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
             build/flatpak packaging/com.unicutmedia.Pulse.yml
-
-      # Dump appstreamcli's YAML issue report on failure so we can see the
-      # actual file/path that failed (the bare "file-read-error" line in the
-      # build log doesn't include the path).
-      - name: Diagnose appstreamcli failure
-        if: failure()
-        run: |
-          echo "=== Looking for appstream issue reports / metainfo state ==="
-          find .flatpak-builder -name "*.yml" -path "*appstream*" 2>/dev/null | head -20
-          find .flatpak-builder -name "issues*.yml" 2>/dev/null | head -20
-          echo ""
-          echo "=== installed metainfo + icons + desktop files in the rofiles tree ==="
-          find .flatpak-builder/rofiles -path "*/share/metainfo*" -o -path "*/share/icons/hicolor*" -o -path "*/share/applications*" 2>/dev/null | head -40
-          echo ""
-          echo "=== first matching issue report yml (if any) ==="
-          REPORT=$(find .flatpak-builder -name "*.yml" -path "*appstream*" 2>/dev/null | head -1)
-          [ -n "$REPORT" ] && cat "$REPORT" || echo "(no appstream YAML found)"
-          echo ""
-          echo "=== rerun appstreamcli compose manually with verbose output ==="
-          ROFILES=$(find .flatpak-builder/rofiles -maxdepth 1 -name "rofiles-*" | head -1)
-          if [ -n "$ROFILES" ] && [ -d "$ROFILES/files" ]; then
-            appstreamcli compose \
-              --verbose \
-              --components=com.unicutmedia.Pulse,com.unicutmedia.Pulse.desktop \
-              --prefix=/ \
-              --result-root=/tmp/asc-diag-result \
-              --data-dir=/tmp/asc-diag-data \
-              --icons-dir=/tmp/asc-diag-icons \
-              "$ROFILES/files" 2>&1 || true
-          else
-            echo "(no rofiles tree found — build failed before install)"
-          fi
 
       - name: Generate static deltas + prune old commits
         run: |
