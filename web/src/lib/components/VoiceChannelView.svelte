@@ -1,9 +1,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
-  import { Separator } from '$lib/components/ui/separator/index.js';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
-  import VoiceControlBar from './VoiceControlBar.svelte';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
@@ -227,8 +225,4 @@
     {/if}
   </div>
 
-  {#if isThisChannel && (voice.connected || voice.connecting)}
-    <Separator />
-    <VoiceControlBar />
-  {/if}
 </section>

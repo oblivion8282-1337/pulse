@@ -25,8 +25,26 @@
   }
 </script>
 
-<div class="flex items-center justify-between gap-2 px-3 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))] md:gap-3 md:px-4 md:py-3 md:pb-3">
-  <div class="flex items-center gap-2">
+<div
+  class="border-border mx-2 mt-1 rounded-2xl border bg-bg-input/60 p-2"
+  data-testid="voice-control-bar"
+>
+  <div class="flex items-center gap-1.5 px-1 pb-1.5 text-xs">
+    <span
+      class="size-2 shrink-0 rounded-full {voice.connecting ? 'bg-yellow-400' : 'bg-green-500'}"
+      aria-hidden="true"
+    ></span>
+    <span class="text-text-muted shrink-0">
+      {voice.connecting ? 'Verbinden' : 'Voice'}
+    </span>
+    {#if voice.channelName}
+      <span class="text-text-bright truncate font-semibold" title={voice.channelName}>
+        · {voice.channelName}
+      </span>
+    {/if}
+  </div>
+
+  <div class="flex items-center gap-0.5">
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger>
@@ -34,67 +52,70 @@
             <Button
               {...props}
               variant={voice.micEnabled ? 'secondary' : 'destructive'}
-              size="icon"
+              size="icon-sm"
               onclick={() => voice.toggleMic()}
               data-testid="voice-mic-toggle"
               aria-label={voice.micEnabled ? 'Mikrofon stummschalten' : 'Mikrofon aktivieren'}
             >
-              {#if voice.micEnabled}<MicIcon />{:else}<MicOffIcon />{/if}
+              {#if voice.micEnabled}<MicIcon class="size-4" />{:else}<MicOffIcon class="size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
         <Tooltip.Content>{voice.micEnabled ? 'Mikrofon stumm' : 'Mikrofon an'}</Tooltip.Content>
       </Tooltip.Root>
+
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
             <Button
               {...props}
               variant={voice.deafened ? 'destructive' : 'secondary'}
-              size="icon"
+              size="icon-sm"
               onclick={() => voice.toggleDeafen()}
               data-testid="voice-deafen-toggle"
               aria-label={voice.deafened ? 'Ton aktivieren' : 'Ton stummschalten'}
             >
-              {#if voice.deafened}<HeadphoneOffIcon />{:else}<HeadphonesIcon />{/if}
+              {#if voice.deafened}<HeadphoneOffIcon class="size-4" />{:else}<HeadphonesIcon class="size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
         <Tooltip.Content>{voice.deafened ? 'Taub (alle stumm)' : 'Ton an'}</Tooltip.Content>
       </Tooltip.Root>
+
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
             <Button
               {...props}
               variant={voice.pttMode ? 'default' : 'ghost'}
-              size={'icon' as const}
+              size="icon-sm"
               onclick={() => voice.setPttMode(!voice.pttMode)}
               data-testid="voice-ptt-toggle"
               aria-label="Push-to-Talk umschalten"
             >
-              <RadioIcon />
+              <RadioIcon class="size-4" />
             </Button>
           {/snippet}
         </Tooltip.Trigger>
         <Tooltip.Content>
           {voice.pttMode
             ? `Push-to-Talk an (Taste „${settings.voice.pttKey.toUpperCase()}" halten)`
-            : 'Push-to-Talk aus (offenes Mikro)'}
+            : 'Push-to-Talk aus'}
         </Tooltip.Content>
       </Tooltip.Root>
+
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
             <Button
               {...props}
               variant={voice.isScreenSharing ? 'default' : 'ghost'}
-              size={'icon' as const}
+              size="icon-sm"
               onclick={handleScreenShare}
               data-testid="voice-screenshare-toggle"
               aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
             >
-              {#if voice.isScreenSharing}<MonitorOffIcon />{:else}<MonitorIcon />{/if}
+              {#if voice.isScreenSharing}<MonitorOffIcon class="size-4" />{:else}<MonitorIcon class="size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
@@ -102,19 +123,27 @@
           {voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}
         </Tooltip.Content>
       </Tooltip.Root>
-    </Tooltip.Provider>
-    <HqStreamButton bind:open={hqStreamOpen} />
-  </div>
 
-  <Button
-    variant="destructive"
-    size="sm"
-    class="gap-1.5"
-    onclick={() => voice.disconnect()}
-    data-testid="voice-disconnect"
-    aria-label="Verlassen"
-  >
-    <PhoneOffIcon class="size-4" />
-    <span class="hidden md:inline">Verlassen</span>
-  </Button>
+      <HqStreamButton bind:open={hqStreamOpen} compact />
+
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              variant="destructive"
+              size="icon-sm"
+              class="ml-auto"
+              onclick={() => voice.disconnect()}
+              data-testid="voice-disconnect"
+              aria-label="Voice verlassen"
+            >
+              <PhoneOffIcon class="size-4" />
+            </Button>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content>Voice verlassen</Tooltip.Content>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  </div>
 </div>

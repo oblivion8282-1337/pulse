@@ -25,7 +25,7 @@
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import HqStreamDialog from './HqStreamDialog.svelte';
 
-  let { open = $bindable(false) }: { open?: boolean } = $props();
+  let { open = $bindable(false), compact = false }: { open?: boolean; compact?: boolean } = $props();
 
   let visible = $derived(isElectron() && isLinux() && stream.gsrAvailable);
   // The voice channel we're connected to — passed to the StreamPanel so the
@@ -46,13 +46,13 @@
             {...props}
             type="button"
             variant={running ? 'default' : 'ghost'}
-            size="icon"
+            size={compact ? 'icon-sm' : 'icon'}
             class="relative"
             onclick={() => (open = true)}
             aria-label="HQ-Stream öffnen"
             data-testid="voice-hq-stream-btn"
           >
-            <RadioTowerIcon />
+            <RadioTowerIcon class={compact ? 'size-4' : ''} />
             {#if running}
               <span
                 class="absolute right-1 top-1 size-2 rounded-full bg-red-500 ring-2 ring-bg-input"
