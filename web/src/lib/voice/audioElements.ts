@@ -6,6 +6,11 @@ interface AudioNodeBundle {
   source: MediaStreamAudioSourceNode;
   compressor: DynamicsCompressorNode;
   gain: GainNode;
+  /** Muted <audio> sink that keeps Chromium's WebRTC decoder running. Without
+   *  it, MediaStreamAudioSourceNode produces no output for RTCPeerConnection
+   *  tracks — known Chromium bug. We never hear this element (muted=true);
+   *  the audible path is source → compressor → gain → ctx.destination. */
+  anchor: HTMLAudioElement;
   userId: string;
 }
 
@@ -53,8 +58,17 @@ export class RemoteAudioElements {
     const mst = track.mediaStreamTrack;
     if (!mst) return;
     const ctx = this.#ensureContext();
+    const stream = new MediaStream([mst]);
 
-    const source = ctx.createMediaStreamSource(new MediaStream([mst]));
+    const anchor = document.createElement('audio');
+    anchor.autoplay = true;
+    anchor.muted = true;
+    anchor.srcObject = stream;
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    void anchor.play().catch(() => undefined);
+
+    const source = ctx.createMediaStreamSource(stream);
     const compressor = ctx.createDynamicsCompressor();
     const c = RemoteAudioElements.COMPRESSOR;
     compressor.threshold.value = c.threshold;
@@ -68,7 +82,7 @@ export class RemoteAudioElements {
 
     source.connect(compressor).connect(gain).connect(ctx.destination);
 
-    this.#nodes.set(sid, { source, compressor, gain, userId });
+    this.#nodes.set(sid, { source, compressor, gain, anchor, userId });
 
     if (ctx.state === 'suspended') void ctx.resume().catch(onBlocked);
   }
@@ -79,6 +93,8 @@ export class RemoteAudioElements {
     try { node.source.disconnect(); } catch { /* already gone */ }
     try { node.compressor.disconnect(); } catch { /* already gone */ }
     try { node.gain.disconnect(); } catch { /* already gone */ }
+    node.anchor.srcObject = null;
+    node.anchor.remove();
     this.#nodes.delete(sid);
   }
 
@@ -116,10 +132,14 @@ export class RemoteAudioElements {
     if (this.#ctx) await this.#applySink(this.#ctx, deviceId);
   }
 
-  /** Re-trigger playback (resume the AudioContext) after a user gesture. */
+  /** Re-trigger playback (resume the AudioContext + replay any anchor audio
+   *  elements that autoplay refused) after a user gesture. */
   replayAll(): void {
     const ctx = this.#ctx;
     if (ctx && ctx.state === 'suspended') void ctx.resume().catch(() => undefined);
+    for (const node of this.#nodes.values()) {
+      void node.anchor.play().catch(() => undefined);
+    }
   }
 
   clear(): void {
