@@ -263,15 +263,13 @@ export async function loadCatalogs(): Promise<void> {
       streamSettings.overrides = { ...streamSettings.overrides, ...defaults };
     }
     // On first launch (excluded_apps never persisted), auto-exclude Pulse itself
-    // so voice-channel audio isn't fed back into the desktop capture.
-    // Electron is reported as "Chromium" by PipeWire; fall back to "Electron"
-    // in case a future runtime changes the name.
+    // so voice-channel audio isn't fed back into the desktop capture. main.ts
+    // sets PULSE_PROP_OVERRIDE so we register as "Pulse" in PipeWire — that name
+    // is unique to us and won't accidentally exclude a Chromium browser.
     // If the user later removes this exclusion, rawData.excluded_apps is saved
     // as [] and we never re-add it.
     if (!Array.isArray(rawData.excluded_apps) && streamSettings.excluded_apps.length === 0) {
-      const selfName = (audioApps?.applications ?? []).find(
-        (a) => a === 'Chromium' || a === 'Electron',
-      );
+      const selfName = (audioApps?.applications ?? []).find((a) => a === 'Pulse');
       if (selfName) streamSettings.excluded_apps = [selfName];
     }
     streamSettings.catalogs_loaded = true;
