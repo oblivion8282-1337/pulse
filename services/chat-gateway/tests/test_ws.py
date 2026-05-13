@@ -303,11 +303,14 @@ async def test_ws_oversize_leaky_bucket_resets(ws_app, _auth_signer):
                     resp = ws.receive_json()
                     assert resp["op"] == "error"
                     assert resp["code"] == 4009
-                    # valid frame — should decrement oversize_frames
+                    # valid frame — should decrement oversize_frames.
+                    # A successful send emits 3 frames: message_ack +
+                    # message + channel_bump (the bump goes to guild:events
+                    # and is delivered to every WS, including this one).
                     ws.send_json(
                         {"op": "send", "channel_id": channel_id, "content": "ok", "nonce": "n"}
                     )
-                    ops = [ws.receive_json()["op"] for _ in range(2)]
+                    ops = [ws.receive_json()["op"] for _ in range(3)]
                     assert "message_ack" in ops
                 # After 4 oversized / 4 valid pairs the net counter is 0 or low —
                 # send 4 more oversized frames; connection must still survive.
@@ -320,7 +323,7 @@ async def test_ws_oversize_leaky_bucket_resets(ws_app, _auth_signer):
                     assert resp["code"] == 4009
                 # Connection still alive.
                 ws.send_json({"op": "send", "channel_id": channel_id, "content": "alive", "nonce": "fin"})
-                ops = [ws.receive_json()["op"] for _ in range(2)]
+                ops = [ws.receive_json()["op"] for _ in range(3)]
                 assert "message_ack" in ops
 
     await asyncio.to_thread(_run)

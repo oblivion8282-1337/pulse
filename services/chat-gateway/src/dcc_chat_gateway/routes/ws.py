@@ -105,7 +105,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     app = websocket.app
     manager = app.state.connection_manager
     await manager.register(websocket)
-    subscribed: set[str] = set()
+    # cid → guild_id. We cache the guild_id when a subscribe succeeds so the
+    # `send` fast path can stamp the channel_bump envelope without another DB
+    # round-trip per message.
+    subscribed: dict[str, int] = {}
     oversize_frames = 0
 
     # Tie the connection's lifetime to the token's `exp`: when it passes, the
@@ -191,13 +194,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     )
                     continue
                 await manager.subscribe(websocket, cid)
-                subscribed.add(cid)
+                subscribed[cid] = channel.guild_id
             elif op == "unsubscribe":
                 cid_int = _channel_id(msg.get("channel_id"))
                 if cid_int is not None:
                     cid = str(cid_int)
                     await manager.unsubscribe(websocket, cid)
-                    subscribed.discard(cid)
+                    subscribed.pop(cid, None)
             elif op == "send":
                 cid_int = _channel_id(msg.get("channel_id"))
                 content = msg.get("content")
@@ -276,6 +279,24 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     await manager.publish(cid, serialize_message(persisted))
                 except Exception:
                     log.exception("ws publish failed for channel %s (message persisted)", cid)
+                # Mirror routes/messages.py: lightweight global bump so clients
+                # NOT subscribed to this channel can flag it as unread. The
+                # guild_id is either cached (subscribed fast path) or fresh
+                # from the membership lookup above.
+                guild_id = subscribed.get(cid) or (channel.guild_id if channel is not None else None)
+                if guild_id is not None:
+                    try:
+                        await manager.publish_guild_event(
+                            {
+                                "op": "channel_bump",
+                                "guild_id": str(guild_id),
+                                "channel_id": cid,
+                                "message_id": str(persisted.id),
+                                "author_id": str(user.id),
+                            }
+                        )
+                    except Exception:
+                        log.exception("ws guild_event publish failed for channel %s", cid)
             else:
                 await websocket.send_json({"op": "error", "code": 4007, "msg": f"unknown op: {op}"})
     finally:

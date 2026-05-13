@@ -210,6 +210,37 @@ async def test_channel_bump_broadcast(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_channel_bump_broadcast_via_ws_send(ws_app, _auth_signer):
+    """The real client sends via WS `op:send`, not REST. That path must also
+    publish a channel_bump on guild:events (regression: only routes/messages.py
+    had the broadcast in v1, so unread never lit up in production)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_token)).json()
+            c = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "general"},
+                headers=_auth(owner_token),
+            ).json()
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()  # ready
+                ws.send_json({"op": "subscribe", "channel_id": c["id"]})
+                ws.send_json(
+                    {"op": "send", "channel_id": c["id"], "content": "hi-ws", "nonce": "n1"}
+                )
+                evt = _drain_until(ws, "channel_bump", limit=12)
+                assert evt["channel_id"] == c["id"]
+                assert evt["guild_id"] == g["id"]
+                assert evt["author_id"] == str(owner_uid)
+                assert evt["message_id"]  # is set
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_guild_deleted_broadcast(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:
