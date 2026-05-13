@@ -38,7 +38,14 @@ type AudioSettings = {
 type VoiceSettings = {
   pttMode: boolean;
   pttKey: string;
+  /** Per-remote-user output gain. Key = Snowflake user ID (string). Value =
+   *  linear gain factor 0..4 (0 = mute, 1.0 = unchanged, 4.0 = +12 dB before
+   *  the compressor catches it). Default (1.0) entries are not persisted. */
+  userVolumes: Record<string, number>;
 };
+
+const USER_VOLUME_MIN = 0;
+const USER_VOLUME_MAX = 4;
 
 type AppearanceSettings = {
   theme: ThemePreference;
@@ -73,7 +80,8 @@ const DEFAULTS: PersistedSettings = {
   },
   voice: {
     pttMode: false,
-    pttKey: 'v'
+    pttKey: 'v',
+    userVolumes: {}
   },
   screenShare: {
     codec: 'vp9',
@@ -102,6 +110,22 @@ function parseTheme(v: unknown): ThemePreference {
 
 function bool(v: unknown, fallback: boolean): boolean {
   return typeof v === 'boolean' ? v : fallback;
+}
+
+function clampUserVolume(v: number): number {
+  return Math.min(USER_VOLUME_MAX, Math.max(USER_VOLUME_MIN, v));
+}
+
+function parseUserVolumes(raw: unknown): Record<string, number> {
+  if (raw === null || typeof raw !== 'object') return {};
+  const out: Record<string, number> = {};
+  for (const [k, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof k !== 'string' || k.length === 0) continue;
+    if (typeof val !== 'number' || !Number.isFinite(val)) continue;
+    const clamped = clampUserVolume(val);
+    if (clamped !== 1) out[k] = clamped;
+  }
+  return out;
 }
 
 function readLegacyScreenShare(): Partial<ScreenShareSettings> | null {
@@ -164,7 +188,8 @@ function load(): PersistedSettings {
       },
       voice: {
         pttMode: bool(v.pttMode, dv.pttMode),
-        pttKey: typeof v.pttKey === 'string' && v.pttKey.length > 0 ? v.pttKey.toLowerCase() : dv.pttKey
+        pttKey: typeof v.pttKey === 'string' && v.pttKey.length > 0 ? v.pttKey.toLowerCase() : dv.pttKey,
+        userVolumes: parseUserVolumes(v.userVolumes)
       },
       screenShare: parseScreenShare(parsed.screenShare),
       appearance: { theme: parseTheme(ap.theme) }
@@ -288,6 +313,23 @@ class SettingsStore {
     this.#persist();
   }
 
+  /** Set per-user output gain (0..4). 1.0 is removed from storage (default). */
+  setUserVolume(userId: string, v: number): void {
+    if (typeof userId !== 'string' || userId.length === 0) return;
+    const clamped = clampUserVolume(v);
+    // Reassign the whole object so Svelte runes pick up the change. Without
+    // this, mutations on a $state-tracked Record aren't reactive.
+    const next = { ...this.voice.userVolumes };
+    if (clamped === 1) delete next[userId];
+    else next[userId] = clamped;
+    this.voice.userVolumes = next;
+    this.#persist();
+  }
+
+  getUserVolume(userId: string): number {
+    return this.voice.userVolumes[userId] ?? 1;
+  }
+
   // --- screen-share setters ---
 
   setScreenShareCodec(v: ScreenShareCodec): void {
@@ -317,4 +359,4 @@ class SettingsStore {
 }
 
 export const settings = new SettingsStore();
-export { VOICE_BITRATE_MIN, VOICE_BITRATE_MAX };
+export { VOICE_BITRATE_MIN, VOICE_BITRATE_MAX, USER_VOLUME_MIN, USER_VOLUME_MAX };

@@ -141,6 +141,7 @@ class VoiceRoom {
     this.#room = room;
     this.#audioEls.deafened = this.deafened;
     this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
+    this.#audioEls.setUserVolumes(settings.voice.userVolumes);
     this.#wireEvents(room);
 
     try {
@@ -306,6 +307,12 @@ class VoiceRoom {
     await this.#devices.setOutput(this.#room, deviceId);
   }
 
+  /** Live-apply a per-user gain change to any currently-subscribed track for
+   *  that user. Persisting happens in `settings.setUserVolume` — call both. */
+  setUserVolume(userId: string, volume: number): void {
+    this.#audioEls.setUserVolume(userId, volume);
+  }
+
   /**
    * (Re)apply the noise-suppression processor to the local mic track based on
    * `settings.audio.noiseSuppression`. No-op when not connected / no mic track.
@@ -398,9 +405,13 @@ class VoiceRoom {
           if (pub.source === Track.Source.ScreenShareAudio) {
             this.#screenShare.addAudio(track as RemoteAudioTrack, p);
           } else {
-            this.#audioEls.attach(track as RemoteAudioTrack, () => {
-              this.audioBlocked = true;
-            });
+            this.#audioEls.attach(
+              track as RemoteAudioTrack,
+              userIdFromIdentity(p.identity) ?? p.identity,
+              () => {
+                this.audioBlocked = true;
+              }
+            );
           }
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#screenShare.addVideo(track as RemoteVideoTrack, p);
