@@ -163,6 +163,11 @@ modules:
       - install -Dm755 packaging/launcher.sh /app/bin/pulse
       - install -Dm644 packaging/com.unicutmedia.Pulse.desktop /app/share/applications/com.unicutmedia.Pulse.desktop
       - install -Dm644 packaging/com.unicutmedia.Pulse.svg /app/share/icons/hicolor/scalable/apps/com.unicutmedia.Pulse.svg
+      # Also install the PNG icon at a hicolor size — appstreamcli compose on
+      # older Ubuntu (24.04: appstream 0.16.x) raises file-read-error when only
+      # an SVG icon is present. Newer 1.x is happy with SVG alone, but the CI
+      # runner is on the older version.
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.unicutmedia.Pulse.png
       - install -Dm644 packaging/com.unicutmedia.Pulse.metainfo.xml /app/share/metainfo/com.unicutmedia.Pulse.metainfo.xml
     sources:
       - type: archive
