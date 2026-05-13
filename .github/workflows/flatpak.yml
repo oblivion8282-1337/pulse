@@ -119,6 +119,34 @@ jobs:
           echo "FLATPAK_KEYID=$KEYID" >> "$GITHUB_ENV"
           echo "→ signing with $KEYID"
 
+      # Pre-flight: replicate what flatpak-builder does (install metainfo +
+      # desktop + icons into a sandbox tree, then run appstreamcli compose).
+      # flatpak-builder deletes its rofiles tree on failure, so the only way to
+      # see *what* appstreamcli is unhappy about is to run the check ourselves
+      # first, with --verbose, and fail loudly. If compose succeeds here, the
+      # main build will too — the inputs are identical.
+      - name: Pre-flight appstreamcli compose check
+        run: |
+          echo "appstreamcli version:"
+          appstreamcli --version
+          echo ""
+          T=/tmp/asc-preflight
+          rm -rf "$T"
+          install -Dm644 packaging/com.unicutmedia.Pulse.desktop "$T/share/applications/com.unicutmedia.Pulse.desktop"
+          install -Dm644 packaging/com.unicutmedia.Pulse.svg "$T/share/icons/hicolor/scalable/apps/com.unicutmedia.Pulse.svg"
+          install -Dm644 desktop/electron/icon.png "$T/share/icons/hicolor/512x512/apps/com.unicutmedia.Pulse.png"
+          install -Dm644 packaging/com.unicutmedia.Pulse.metainfo.xml "$T/share/metainfo/com.unicutmedia.Pulse.metainfo.xml"
+          echo "Tree to compose:"
+          find "$T" -type f
+          echo ""
+          appstreamcli compose --verbose \
+            --components=com.unicutmedia.Pulse,com.unicutmedia.Pulse.desktop \
+            --prefix=/ \
+            --result-root=/tmp/asc-pre-result \
+            --data-dir=/tmp/asc-pre-data \
+            --icons-dir=/tmp/asc-pre-icons \
+            "$T"
+
       # ── Build + sign + delta + prune ──
       # Same commands publish.fish runs. The `--user` + `--install-deps-from`
       # makes flatpak-builder pull the runtimes itself if cache missed.
