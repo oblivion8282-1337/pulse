@@ -32,6 +32,16 @@ command: pulse
 # precomputed appstream catalog (consumers can still build it themselves with
 # `flatpak make-current` / GNOME Software regenerates it).
 appstream-compose: false
+# Don't split locales into a separate `.Locale` extension. flatpak-builder
+# would auto-generate one from `/app/share/locale/<lang>/…`, but Electron's
+# translations live as `/app/electron/locales/<lang>.pak` — outside that path
+# — so the extension always ends up empty. build-update-repo's prune then
+# drops the empty ref from the published repo, while clients that grabbed it
+# on first install keep referencing it and warn `No such ref … in remote` on
+# every update. Skipping the split makes the warning disappear for new
+# installs; existing installs need a one-time `flatpak uninstall --user
+# com.unicutmedia.Pulse.Locale` to clear the orphan.
+separate-locales: false
 
 finish-args:
   # Display. Mount both the X11 (XWayland) and the Wayland socket; the launcher
