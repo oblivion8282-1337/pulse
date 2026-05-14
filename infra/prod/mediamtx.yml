@@ -48,13 +48,19 @@ webrtcAddress: :8889
 webrtcLocalUDPAddress: :8189
 # With network_mode: host MediaMTX sees every host interface — loopback,
 # docker bridges, link-local IPv6 — and used to advertise them all as ICE
-# candidates. Remote clients then probed each one in turn and waited 5-10s
-# per unreachable address, making WHEP playback feel slow to start. Restrict
-# ICE to just our two public addresses (Hetzner v4 + native v6).
+# candidates. `webrtcIPsFromInterfaces: no` was supposed to gate that, but
+# MediaMTX 1.17.1 still leaks the docker-bridge `fe80::...` link-local v6
+# into the SDP whenever an IPv6 address sits in webrtcAdditionalHosts
+# (pion/ice picks the bridge as outbound source for that family). Remote
+# viewers then waste their first 1-3 ICE-probe rounds on the unreachable
+# fe80:: candidate — `deadline exceeded` for ~10s each, so WHEP playback
+# took up to a minute to start. Dropping the public IPv6 here forces
+# IPv4-only candidates and the leak disappears. Confirmed via lokal repro
+# (see git log d88644c / 2dc753f): with IPv6 absent, no fe80:: appears in
+# the SDP and republish reconnects in <100ms.
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts:
   - 77.42.71.166
-  - "2a01:4f9:c012:e3db::1"
 
 # Control API — bound on all interfaces; media-svc polls /v3/paths/list via
 # host.docker.internal:9997. Kept private by UFW (INPUT DROP).
