@@ -1,44 +1,81 @@
-# Prepend an OBU_TEMPORAL_DELIMITER to every AV1 temporal unit coming in
-# over RTMP if one isn't already there. AMD VAAPI's av1_vaapi encoder
-# does not emit Temporal Delimiter OBUs (spec-permitted in low-overhead
-# bitstream form), while NVENC does — and Chromium's libwebrtc-side AV1
-# RTP receiver relies on them for frame-boundary detection, so AV1 over
-# WHEP silently freezes after a few seconds for AMD publishers while
-# NVIDIA works.
+# Normalize AV1 temporal units coming in over RTMP, so that Chromium's
+# libwebrtc-side AV1 RTP receiver can decode them reliably for the AMD
+# VAAPI publisher case.
+#
+# Two complementary edits, isolated to the RTMP→stream callback:
+#
+# 1. Inject an OBU_TEMPORAL_DELIMITER (type 2) if the temporal unit
+#    doesn't start with one. AMD VAAPI's av1_vaapi encoder omits them
+#    (spec-permitted in low-overhead bitstream form), while NVENC emits
+#    one per frame. libwebrtc relies on TempDelim presence for frame-
+#    boundary detection — without it, ~96 % of frames silently fail to
+#    decode on the receiver.
+#
+# 2. Strip OBU_PADDING (type 15) OBUs. Mesa's av1_vaapi pads the
+#    bitstream with multi-KB padding OBUs to meet the CBR bitrate target
+#    on low-motion content. Spec says decoders ignore padding, but in
+#    practice libwebrtc's RTP-AV1 reassembly chokes when fragmenting
+#    8 KB padding OBUs across ~6 RTP packets and the reference-frame
+#    chain breaks ~20 frames into each GOP. NVENC emits no padding;
+#    parity with that input shape is the cheapest reliable fix.
 #
 # OBU layout (AV1 spec 5.3.2):
 #   obu_forbidden_bit          : 1 bit  = 0
-#   obu_type                   : 4 bits = 2 (OBU_TEMPORAL_DELIMITER)
+#   obu_type                   : 4 bits = 2 (TempDelim) or 15 (Padding)
 #   obu_extension_flag         : 1 bit  = 0
 #   obu_has_size_field         : 1 bit  = 0 (mediamtx stores OBUs with this masked off)
 #   obu_reserved_1bit          : 1 bit  = 0
-# → header byte = 0b00010000 = 0x10. Payload is empty.
+# → TempDelim header byte = 0b00010000 = 0x10, empty payload.
+# → Padding header byte =  0b01111000 = 0x78 (variable-size payload).
 #
-# `av1.Bitstream.Unmarshal` (in mediacommon) clears the has_size bit when
-# producing its slice form, so the stored OBU is the single byte 0x10.
-# `av1.Bitstream.Marshal` re-injects has_size + LEB128(0) on the way out,
-# yielding the standard 2-byte 0x12 0x00 on the wire.
+# `av1.Bitstream.Unmarshal` (mediacommon) clears the has_size bit when
+# building its slice form, so type extraction is just `(b[0] >> 3) & 0xF`.
+# `av1.Bitstream.Marshal` re-injects has_size + LEB128(size) on the way
+# out, yielding the standard 2-byte 0x12 0x00 TempDelim on the wire.
 #
-# Test:  ffmpeg -bsf:v av1_metadata=td=insert reproduces the same effect
-# on a captured FLV (verified: AMD-VAAPI bitstream goes from 0 TempDelim
-# OBUs to one per frame, dav1d still decodes cleanly).
+# Verified via `ffmpeg -bsf:v "av1_metadata=td=insert:delete_padding=1"`
+# on a captured AMD-VAAPI FLV: output has one TempDelim per frame, zero
+# Padding OBUs, dav1d still decodes cleanly. Structure now matches NVENC's
+# byte for byte (apart from frame count).
 #
 # Remove once one of:
-#   (a) MediaMTX upstream applies a similar workaround or the AV1-RTP
-#       receiver/encoder relaxes its TempDelim requirement.
-#   (b) AMD's Mesa VAAPI AV1 encoder starts emitting TempDelim by default.
+#   (a) MediaMTX upstream applies a similar workaround.
+#   (b) AMD's Mesa VAAPI AV1 encoder stops padding and starts emitting
+#       TempDelim by default.
+#   (c) libwebrtc's AV1 RTP receiver becomes robust to TempDelim-less
+#       streams and large fragmented Padding OBUs.
 
 diff --git a/internal/protocols/rtmp/to_stream.go b/internal/protocols/rtmp/to_stream.go
 --- a/internal/protocols/rtmp/to_stream.go
 +++ b/internal/protocols/rtmp/to_stream.go
-@@ -50,6 +50,12 @@ func ToStream(
+@@ -51,6 +51,32 @@ func ToStream(
  			medias = append(medias, medi)
 
  			r.OnDataAV1(track, func(pts time.Duration, tu [][]byte) {
-+				// Inject an OBU_TEMPORAL_DELIMITER if missing (Pulse fork —
-+				// see infra/mediamtx-fork/patches/ for the rationale).
-+				if len(tu) == 0 || len(tu[0]) == 0 || (tu[0][0]>>3)&0xF != 2 {
-+					tu = append([][]byte{{0x10}}, tu...)
++				// Pulse fork — see infra/mediamtx-fork/patches/ for rationale.
++				// Normalize the temporal unit for libwebrtc's AV1 RTP receiver:
++				//   * prepend OBU_TEMPORAL_DELIMITER if missing
++				//   * strip OBU_PADDING (spec-permitted no-ops, but they break
++				//     RTP reassembly when AMD-VAAPI emits multi-KB ones)
++				needTD := len(tu) == 0 || len(tu[0]) == 0 || (tu[0][0]>>3)&0xF != 2
++				hasPadding := false
++				for _, obu := range tu {
++					if len(obu) > 0 && (obu[0]>>3)&0xF == 15 {
++						hasPadding = true
++						break
++					}
++				}
++				if needTD || hasPadding {
++					out := make([][]byte, 0, len(tu)+1)
++					if needTD {
++						out = append(out, []byte{0x10})
++					}
++					for _, obu := range tu {
++						if len(obu) == 0 || (obu[0]>>3)&0xF != 15 {
++							out = append(out, obu)
++						}
++					}
++					tu = out
 +				}
 +
  				(*subStream).WriteUnit(medi, forma, &unit.Unit{
