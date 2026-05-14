@@ -9,6 +9,7 @@
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import UsersIcon from '@lucide/svelte/icons/users';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import PlayIcon from '@lucide/svelte/icons/play';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -17,7 +18,9 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
+  import { untrack } from 'svelte';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import type { Channel } from '$lib/api/types';
 
@@ -51,6 +54,47 @@
   // Stream layout: every watchable HQ stream + every browser screen-share go
   // into one responsive grid; participant avatars become a compact row below.
   let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
+
+  // Live-Streamer-Namen für den Banner (HQ + Browser-Screenshare, ohne self).
+  // `liveStreamersOther` ist die kanonische User-ID-Liste — `voice.screenTracks`
+  // wäre identity-basiert und kann während Subscribe-Sync abweichen.
+  let othersStreaming = $derived(liveStreamersOther.length > 0);
+  let streamBannerLabel = $derived.by(() => {
+    const ids = liveStreamersOther;
+    if (ids.length === 0) return '';
+    if (ids.length === 1) return `${userCache.displayName(ids[0])} streamt`;
+    if (ids.length === 2)
+      return `${userCache.displayName(ids[0])} und ${userCache.displayName(ids[1])} streamen`;
+    return `${userCache.displayName(ids[0])} und ${ids.length - 1} weitere streamen`;
+  });
+
+  // Stream-Grid wird nur explizit auf Klick gemountet — Default ist die
+  // Teilnehmer-Ansicht. Verhindert dass WHEP-Handshakes (Bandbreite!) und der
+  // Player automatisch starten nur weil jemand im Channel pusht.
+  let streamViewOpen = $state(false);
+
+  // Reset auf collapsed bei Channel-Wechsel.
+  $effect(() => {
+    void channel.id;
+    streamViewOpen = false;
+  });
+
+  // Sidebar-LIVE-Badge: setzt streamOpenRequest.pendingChannelId. Effekt
+  // tracked das + channel.id, sodass beides Quellen für ein Re-Run sind
+  // (Klick auf LIVE im aktuellen Channel = pending ändert sich ohne Navigation).
+  // Consume in untrack, damit das Clearen des #pending nicht denselben Effekt
+  // sofort wieder triggert.
+  $effect(() => {
+    void streamOpenRequest.pendingChannelId;
+    const cid = channel.id;
+    if (untrack(() => streamOpenRequest.consume(cid))) {
+      streamViewOpen = true;
+    }
+  });
+
+  $effect(() => {
+    if (!othersStreaming) streamViewOpen = false;
+  });
 
   let memberListOpen = $state(false);
   let chatPanelOpen = $state(settings.streamChat.panelOpen);
@@ -200,13 +244,32 @@
         <div class="flex flex-1 items-center justify-center">
           <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
         </div>
-      {:else if hasStreams}
-        <StreamGrid {channel} {hqStreaming} {hqStreamersOther} {hqLabel} />
+      {:else if streamViewOpen && othersStreaming}
+        <StreamGrid
+          {channel}
+          {hqStreaming}
+          {hqStreamersOther}
+          {hqLabel}
+          onClose={() => (streamViewOpen = false)}
+        />
       {:else}
-        <div class="flex flex-1 flex-wrap items-center justify-center gap-4 p-3 md:gap-6 md:p-8" data-testid="voice-participants">
-          {#each voice.participants as p (p.identity)}
-            <VoiceParticipantTile {p} />
-          {/each}
+        <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 md:gap-6 md:p-8">
+          {#if othersStreaming}
+            <button
+              type="button"
+              class="bg-primary/15 text-primary hover:bg-primary/25 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors"
+              onclick={() => (streamViewOpen = true)}
+              data-testid="voice-stream-open-banner"
+            >
+              <PlayIcon class="size-4" />
+              <span>{streamBannerLabel} — ansehen</span>
+            </button>
+          {/if}
+          <div class="flex flex-wrap items-center justify-center gap-4 md:gap-6" data-testid="voice-participants">
+            {#each voice.participants as p (p.identity)}
+              <VoiceParticipantTile {p} />
+            {/each}
+          </div>
         </div>
       {/if}
     {:else}

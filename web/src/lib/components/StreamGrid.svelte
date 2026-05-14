@@ -11,6 +11,7 @@
 -->
 <script lang="ts">
   import RocketIcon from '@lucide/svelte/icons/rocket';
+  import XIcon from '@lucide/svelte/icons/x';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
@@ -23,12 +24,17 @@
     channel,
     hqStreaming,
     hqStreamersOther,
-    hqLabel
+    hqLabel,
+    onClose
   }: {
     channel: Channel;
     hqStreaming: boolean;
     hqStreamersOther: string[];
     hqLabel: string;
+    /** Wenn gesetzt: kleiner Schließen-Button oben rechts, der zur Teilnehmer-
+     *  Ansicht zurückkehrt. Ohne diesen Hook ist das Grid permanent (z.B. wenn
+     *  in einem anderen Layout-Kontext gemountet). */
+    onClose?: () => void;
   } = $props();
 
   let videoTileCount = $derived(hqStreamersOther.length + voice.screenTracks.length);
@@ -43,7 +49,20 @@
   );
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
+<div class="relative flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
+  {#if onClose}
+    <button
+      type="button"
+      onclick={onClose}
+      class="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/55 px-3 py-1 text-xs text-white backdrop-blur-sm hover:bg-black/75"
+      aria-label="Stream beenden"
+      title="Stream beenden"
+      data-testid="stream-grid-close"
+    >
+      <XIcon class="size-3.5" />
+      <span class="hidden sm:inline">Stream beenden</span>
+    </button>
+  {/if}
   {#if hqStreaming}
     <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
       <RocketIcon class="size-4 text-red-500" />

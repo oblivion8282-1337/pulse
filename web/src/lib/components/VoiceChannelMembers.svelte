@@ -14,7 +14,8 @@
     userIds,
     streamingUserIds = [],
     speakingUserIds = [],
-    userStates = {}
+    userStates = {},
+    onStreamClick
   }: {
     userIds: string[];
     streamingUserIds?: string[];
@@ -24,6 +25,9 @@
     speakingUserIds?: string[];
     /** Per-user self-reported mute/deafen flags. Missing entries == default off. */
     userStates?: Record<string, UserVoiceState>;
+    /** Click handler for the LIVE-badge — opens that user's stream in the
+     *  channel view. Without it the badge stays a passive label. */
+    onStreamClick?: (userId: string) => void;
   } = $props();
 
   const streamingSet = $derived(new Set(streamingUserIds));
@@ -102,11 +106,31 @@
               />
             {/if}
             {#if streamingSet.has(uid)}
-              <span
-                class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
-                data-testid="user-streaming-badge"
-                title="teilt seinen Bildschirm"
-              >LIVE</span>
+              {#if onStreamClick}
+                <!-- role=button (not <button>) — `<button>` inside the outer
+                     context-menu trigger button would be invalid HTML. -->
+                <span
+                  role="button"
+                  tabindex="0"
+                  class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white hover:bg-red-500"
+                  data-testid="user-streaming-badge"
+                  title="Stream öffnen"
+                  aria-label="{name}s Stream öffnen"
+                  onclick={(e) => { e.stopPropagation(); onStreamClick(uid); }}
+                  onkeydown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onStreamClick(uid);
+                  }}
+                >LIVE</span>
+              {:else}
+                <span
+                  class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
+                  data-testid="user-streaming-badge"
+                  title="teilt seinen Bildschirm"
+                >LIVE</span>
+              {/if}
             {/if}
           </span>
         </button>

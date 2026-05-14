@@ -13,6 +13,7 @@
   import { voiceState } from '$lib/voice/state.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -258,6 +259,12 @@
             streamingUserIds={streamers}
             speakingUserIds={speakers}
             userStates={memberStates}
+            onStreamClick={() => {
+              // The badge passes the streamer's uid but v1 just opens the
+              // channel's stream view (auto-focuses the first streamer).
+              streamOpenRequest.request(c.id);
+              onSelect(c);
+            }}
           />
         </div>
       {/if}
