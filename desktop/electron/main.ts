@@ -22,11 +22,40 @@
 
 import { app, BrowserWindow, ipcMain, session, desktopCapturer } from 'electron';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 // Bundled by esbuild at build time (resolveJsonModule); `../package.json` is
 // `desktop/package.json` relative to this source file.
 import pkg from '../package.json';
 import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet } from './store';
+import { createTray } from './tray';
+
+// Override the user-visible app name BEFORE any other Electron API touches it.
+// `app.getName()` falls back to package.json `name`, which is `@dcc/desktop` —
+// KDE/Plasma's StatusNotifier surfaces that as "@dcc/desktop status icon" in
+// the tray. Set it to "Pulse" instead. `getName()` also drives `userData`, so
+// migrate the existing config dir on first run (else `pulse-stream.json` with
+// the user's HQ-stream settings would silently appear empty).
+(function setupAppName(): void {
+  const newName = 'Pulse';
+  const configHome = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
+  const oldDir = path.join(configHome, '@dcc', 'desktop');
+  const newDir = path.join(configHome, newName);
+  if (fs.existsSync(oldDir) && !fs.existsSync(newDir)) {
+    try {
+      fs.renameSync(oldDir, newDir);
+      try {
+        fs.rmdirSync(path.join(configHome, '@dcc'));
+      } catch {
+        // parent not empty / already gone — fine
+      }
+    } catch (e) {
+      console.error('[migration] userData rename failed:', e);
+    }
+  }
+  app.setName(newName);
+})();
 
 const APP_VERSION: string = pkg.version ?? '0.0.0';
 // Expose to the preload script (it runs in a separate process and can't import
@@ -45,6 +74,10 @@ const TARGET_URL = DEV_URL ?? PROD_URL;
 const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1';
 
 let mainWindow: BrowserWindow | null = null;
+// Discord-style: closing the window hides it (the tray stays). The only path
+// that actually quits is the tray's "Beenden" entry, which sets this flag
+// before calling `app.quit()`. The window's `close` handler honours it.
+let isQuitting = false;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -65,6 +98,11 @@ function createWindow(): void {
   });
 
   mainWindow.once('ready-to-show', () => mainWindow?.show());
+  mainWindow.on('close', (e) => {
+    if (isQuitting) return;
+    e.preventDefault();
+    mainWindow?.hide();
+  });
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -171,6 +209,7 @@ if (!app.requestSingleInstanceLock()) {
 app.on('second-instance', () => {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
+  // The window may be hidden in the tray — show() un-hides AND focuses.
   mainWindow.show();
   mainWindow.focus();
 });
@@ -188,8 +227,18 @@ app.whenReady().then(() => {
   wireSidecar();
   wireScreenShare();
   createWindow();
+  createTray(
+    () => mainWindow,
+    () => {
+      isQuitting = true;
+      app.quit();
+    }
+  );
 });
 
+// With close-to-tray, `window-all-closed` only fires after a real quit (when
+// `isQuitting` is set and the window is destroyed). On non-darwin we still want
+// to follow through and exit then.
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
@@ -201,8 +250,12 @@ app.on('activate', () => {
 // Best-effort sidecar shutdown on quit. Bounded so a stuck child can't hang the
 // quit indefinitely — `shutdown()` itself escalates SIGTERM→SIGKILL after a
 // short grace, so this outer timeout is just a backstop.
+//
+// Also flips `isQuitting` so the window's close-to-hide handler steps aside
+// for any quit path (tray menu, OS logout, programmatic `app.quit()`).
 let didShutdownSidecar = false;
 app.on('before-quit', (event) => {
+  isQuitting = true;
   if (didShutdownSidecar) return;
   event.preventDefault();
   didShutdownSidecar = true;

@@ -53,6 +53,11 @@ finish-args:
   # Wayland screencast portal — GSR `-w portal` capture + Chromium's getDisplayMedia (browser screen share)
   - --talk-name=org.freedesktop.portal.Desktop
   - --talk-name=org.freedesktop.portal.ScreenCast
+  # System tray (Discord-style close-to-tray). KDE/Plasma/Hyprland use the
+  # StatusNotifier protocol; without this bus name Electron's Tray silently
+  # falls back to nothing on Wayland sessions. Notifications use the same
+  # portal that's already mounted above.
+  - --talk-name=org.kde.StatusNotifierWatcher
   # The sidecar's stderr is read line-by-line by the Electron bridge — flush promptly
   - --env=PYTHONUNBUFFERED=1
 
