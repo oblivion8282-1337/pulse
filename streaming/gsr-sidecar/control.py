@@ -46,7 +46,6 @@ from collections.abc import Iterable
 from typing import Any
 
 import gsr_binary
-from diagnostic_runner import run_diagnostic
 from profiles import (
     PROFILES,
     AUDIO_MODES,
@@ -305,14 +304,6 @@ class Sidecar:
             return {"ok": False, "error": "Start fehlgeschlagen — siehe error-Event."}
         return {"ok": True, "argv": self.controller.last_argv}
 
-    def op_record_diagnostic(self, body: dict[str, Any]) -> dict[str, Any]:
-        """Record N seconds of AV1 (default) to a local file and upload it
-        to the Pulse chat-gateway. Returns immediately; final result lands
-        as a ``diagnostic_done`` event."""
-        if not self._binary.available:
-            return {"ok": False, "error": "gpu-screen-recorder binary not available"}
-        return run_diagnostic(self.controller, _emit, body)
-
     def op_stop(self, _body: dict[str, Any]) -> dict[str, Any]:
         if not self.controller.running:
             return {"ok": True, "running": False, "note": "kein laufender Stream"}
@@ -346,7 +337,6 @@ _OP_TABLE = {
     "start": "op_start",
     "stop": "op_stop",
     "state": "op_state",
-    "record_diagnostic": "op_record_diagnostic",
 }
 
 

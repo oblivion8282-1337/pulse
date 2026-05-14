@@ -52,16 +52,6 @@ contextBridge.exposeInMainWorld('pulse', {
     start: (args: unknown) => gsrCall('start', args),
     stop: () => gsrCall('stop'),
     state: () => gsrCall('state'),
-    /** Kick off a short AV1 diagnostic recording → upload to chat-gateway.
-     *  Returns immediately; final result lands as a `diagnostic_done` event
-     *  on `onEvent` (with `ok: bool, error?, size_bytes?, filename?`). */
-    recordDiagnostic: (args: {
-      duration_s?: number;
-      upload_url: string;
-      access_token: string;
-      codec?: string;
-      metadata?: Record<string, unknown>;
-    }) => gsrCall('record_diagnostic', args),
 
     /** Subscribe to sidecar events (`{ev:..,...}`). Returns an unsubscribe fn.
      *  The renderer-supplied `cb` is invoked from inside this bridge function —

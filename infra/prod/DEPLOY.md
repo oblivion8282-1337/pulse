@@ -89,18 +89,3 @@ docker logs pulse_watchtower            # see what Watchtower is doing
 Backups: `pulse_pg` (Postgres data), `pulse_redis` (AOF), `pulse_avatars`
 (uploaded avatars) are Docker named volumes — back them up with the rest of the
 VPS volume backups.
-
-User-triggered diagnostic recordings (`POST /api/chat/diagnostics/upload` from
-the desktop app) land in a **host bind-mount** at `~/pulse/diagnostics/<user-id>/`
-so they can be `scp`'d off without going through Docker. One-time setup the
-first time chat-gateway runs against this compose file:
-
-```sh
-mkdir -p ~/pulse/diagnostics
-sudo chown -R 10001:1000 ~/pulse/diagnostics       # app uid : michael's gid
-sudo chmod -R g+rwX,o+rX ~/pulse/diagnostics
-```
-
-Container writes as `10001`, michael reads via group + other. Files are not
-served back over HTTP — pickup is SSH-only. No automatic cleanup yet; expect
-~5 MB per 10-second AV1 capture and prune by hand when the dir grows.

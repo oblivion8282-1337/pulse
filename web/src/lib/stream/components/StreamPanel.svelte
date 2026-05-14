@@ -24,7 +24,6 @@
   import AudioModePicker from './AudioModePicker.svelte';
   import StreamControls from './StreamControls.svelte';
   import StreamLog from './StreamLog.svelte';
-  import DiagnosticButton from './DiagnosticButton.svelte';
 
   let {
     channelId = null,
@@ -91,9 +90,6 @@
         <Separator />
         <StreamControls {channelId} {onStarted} />
         <StreamLog />
-
-        <Separator />
-        <DiagnosticButton />
       </div>
     {/if}
   </section>
