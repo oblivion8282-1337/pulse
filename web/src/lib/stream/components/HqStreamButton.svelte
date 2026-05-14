@@ -18,7 +18,7 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
-  import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
+  import RocketIcon from '@lucide/svelte/icons/rocket';
   import { isElectron, isLinux } from '$lib/platform/runtime';
   import { stream } from '../state.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -52,7 +52,7 @@
             aria-label="HQ-Stream öffnen"
             data-testid="voice-hq-stream-btn"
           >
-            <RadioTowerIcon class={compact ? 'size-4' : ''} />
+            <RocketIcon class={compact ? 'size-4' : ''} />
             {#if running}
               <span
                 class="absolute right-1 top-1 size-2 rounded-full bg-red-500 ring-2 ring-bg-input"
@@ -64,7 +64,7 @@
         {/snippet}
       </Tooltip.Trigger>
       <Tooltip.Content>
-        {running ? 'HQ-Stream läuft — Panel öffnen' : 'HQ-Stream (GSR)'}
+        {running ? 'HQ-Stream läuft — Panel öffnen' : 'HQ-Stream'}
       </Tooltip.Content>
     </Tooltip.Root>
   </Tooltip.Provider>

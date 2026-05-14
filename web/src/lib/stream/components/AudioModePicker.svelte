@@ -215,8 +215,7 @@
         </Button>
       </div>
       <p class="text-text-muted text-xs">
-        Greift nur bei Desktop-Audio. App-spezifische Quellen ignorieren die Liste
-        (GSR-Limitierung).
+        Greift nur bei Desktop-Audio. App-spezifische Quellen ignorieren die Liste.
       </p>
     </div>
   {/if}

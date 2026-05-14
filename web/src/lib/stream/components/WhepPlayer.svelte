@@ -23,7 +23,7 @@
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
-  import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
+  import RocketIcon from '@lucide/svelte/icons/rocket';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, type StreamStats } from '../whep-stats';
@@ -277,7 +277,7 @@
       class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
       data-testid="hq-stream-streamer-name"
     >
-      <RadioTowerIcon class="size-3 text-red-400" />
+      <RocketIcon class="size-3 text-red-400" />
       <span class="max-w-32 truncate">{name}</span>
     </div>
   {/if}

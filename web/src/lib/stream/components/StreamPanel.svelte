@@ -15,7 +15,7 @@
   import { onMount } from 'svelte';
   import { Separator } from '$lib/components/ui/separator/index.js';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
-  import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
+  import RocketIcon from '@lucide/svelte/icons/rocket';
 
   import { gsr, type GsrHealth } from '../gsr';
   import { loadCatalogs, streamSettings } from '../settings.svelte';
@@ -48,7 +48,7 @@
 {#if gsr.available()}
   <section class="glass-panel flex flex-col gap-4 rounded-2xl p-4" data-testid="stream-panel">
     <header class="flex items-center gap-2">
-      <RadioTowerIcon class="text-primary size-5" />
+      <RocketIcon class="text-primary size-5" />
       <h2 class="text-text-bright text-base font-semibold tracking-tight">HQ-Stream</h2>
     </header>
 
@@ -69,10 +69,8 @@
       >
         <AlertTriangleIcon class="mt-0.5 size-4 shrink-0" />
         <div class="flex flex-col gap-0.5">
-          <span class="font-medium">
-            <code class="bg-bg-input rounded px-1">gpu-screen-recorder</code> nicht verfügbar.
-          </span>
-          <span>Installiere das Binary oder setze <code>GSR_BINARY</code>.</span>
+          <span class="font-medium">Streaming-Binary nicht verfügbar.</span>
+          <span>Die Pulse-Desktop-App konnte den Encoder nicht finden.</span>
         </div>
       </div>
     {:else if !channelId}

@@ -5,7 +5,7 @@
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
-  import RadioTowerIcon from '@lucide/svelte/icons/radio-tower';
+  import RocketIcon from '@lucide/svelte/icons/rocket';
   import SquareIcon from '@lucide/svelte/icons/square';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -162,7 +162,7 @@
         <div class="flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
           {#if hqStreaming}
             <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
-              <RadioTowerIcon class="size-4 text-red-500" />
+              <RocketIcon class="size-4 text-red-500" />
               <span class="text-text-bright">{hqLabel}</span>
               {#if iAmHqStreaming}
                 <Button
@@ -182,7 +182,7 @@
           {#if videoTileCount === 0}
             <!-- our own HQ stream, nothing else to show — just the "you're streaming" notice -->
             <div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-bg-chat text-center" data-testid="hq-stream-self-indicator">
-              <RadioTowerIcon class="size-10 text-red-500" />
+              <RocketIcon class="size-10 text-red-500" />
               <p class="text-text-bright text-sm font-medium">Du streamst in diesen Kanal</p>
               <p class="text-text-muted text-xs">Deine eigene Wiedergabe wird hier nicht angezeigt.</p>
             </div>
