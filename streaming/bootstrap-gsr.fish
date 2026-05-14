@@ -1,11 +1,28 @@
 #!/usr/bin/env fish
-# Baut GSR aus dem git-master Source (Version 5.13.5+).
-# Nötig für SRT-Push mit Opus-Audio (System-AUR ist auf 5.13.4 — kein ts-Opus).
+# Baut GSR aus dem git-Source mit unseren beiden Patches angewendet —
+# das lokale Binary-Pendant zum Flatpak-`gpu-screen-recorder`.
 #
 # Custom-Binary landet in /tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder
-# start-stream-server-srt.fish nutzt diesen Pfad automatisch (mit Fallback auf System-Binary).
+# und wird vom Sidecar-Resolver (gsr_binary.py) vor dem System-Binary bevorzugt.
+
+# ── Pinned upstream commit ─────────────────────────────────────────────────
+# Muss exakt mit `packaging/com.unicutmedia.Pulse.yml` (gpu-screen-recorder
+# Source-`commit:`) übereinstimmen, sonst baut der lokale Dev-Build was anderes
+# als der ausgelieferte Flatpak. Die Patches sind zeilenanker-anhängig — gegen
+# einen verschobenen HEAD schlagen sie still fehl. Wenn du bumpst, beide
+# Stellen + ggf. die Patches refreshen (`patch -p1 --dry-run` gegen den neuen
+# Commit prüfen).
+set gsr_pinned_commit 0349083cfe4578dbc8bc600e31187e8e09318add
 
 set source_dir /tmp/gsr-analysis/gpu-screen-recorder
+
+# ── repo_dir VOR dem cd auflösen ───────────────────────────────────────────
+# `status -f` kann ein relativer Pfad sein, wenn das Skript via `fish
+# streaming/bootstrap-gsr.fish` (relativ) gestartet wird. Nach dem späteren
+# `cd $source_dir` würde der relative Pfad ins Leere zeigen → die Patches-
+# Glob matcht 0 Files → Patches werden still nie angewendet. `realpath` fixt
+# das einmal hier oben.
+set repo_dir (realpath (dirname (status -f)))
 
 # Build-Tools sicherstellen
 for tool in meson ninja gcc pkg-config git
@@ -15,37 +32,55 @@ for tool in meson ninja gcc pkg-config git
     end
 end
 
-# Source holen falls nicht da
+# Source holen falls nicht da. Kein --depth=1: wir checken gleich einen
+# spezifischen Commit aus, und das ist mit shallow clone unzuverlässig.
 if not test -d $source_dir
     echo "→ Clone Source nach $source_dir"
     mkdir -p (dirname $source_dir)
-    git clone --depth=1 https://repo.dec05eba.com/gpu-screen-recorder $source_dir
+    git clone https://repo.dec05eba.com/gpu-screen-recorder $source_dir
+    or begin
+        echo "✗ git clone fehlgeschlagen"
+        exit 1
+    end
 end
 
 cd $source_dir
 
-# Update auf neuesten master
-echo "→ Update Source auf neuesten master ..."
-git pull 2>/dev/null
-
-# Version-Check
-set version (grep '^version' project.conf | cut -d'"' -f2)
-echo "→ Source-Version: $version"
-if test "$version" = "5.13.4" -o "$version" = "5.13.3" -o "$version" = "5.13.2"
-    echo "⚠️  Source-Version ist nicht ≥ 5.13.5 — Opus-für-ts wahrscheinlich noch nicht drin"
-    echo "    Build trotzdem fortsetzen? (y/N)"
-    read confirm
-    test "$confirm" = "y" -o "$confirm" = "Y"; or exit 1
+# Pinned Commit holen + hart auschecken (verwirft eventuelle alte Patch-
+# Modifikationen aus früheren bootstrap-Runs)
+echo "→ Pin auf $gsr_pinned_commit ..."
+git fetch --quiet origin $gsr_pinned_commit
+or begin
+    echo "✗ git fetch fehlgeschlagen — Commit existiert nicht im Remote?"
+    exit 1
+end
+git reset --hard --quiet $gsr_pinned_commit
+or begin
+    echo "✗ git reset --hard fehlgeschlagen"
+    exit 1
 end
 
-# Patches anwenden (idempotent, --forward = überspringt wenn schon drin)
+# Version-Echo (zur Info, kein Abbruch). `gsr_version` — NICHT `version`,
+# letzteres ist eine read-only fish-builtin und würde mit `set` fehlschlagen.
+set gsr_version (grep '^version' project.conf | cut -d'"' -f2)
+echo "→ Source-Version: $gsr_version"
+
+# Patches anwenden — laut scheitern statt still, sonst entsteht ein
+# unpatched-Binary das funktioniert (sieht erfolgreich aus) aber ohne
+# unsere Codec-/Whitelist-Erweiterungen läuft.
 echo ""
 echo "→ Patches anwenden ..."
-set repo_dir (dirname (status -f))
 for patch_file in $repo_dir/patches/*.patch
     if test -f $patch_file
         echo "  → "(basename $patch_file)
-        patch -p1 -N --forward --silent < $patch_file 2>&1 | grep -v "Reversed\|Skipping" | head -3
+        patch -p1 < $patch_file
+        or begin
+            echo ""
+            echo "✗ Patch fehlgeschlagen: "(basename $patch_file)
+            echo "  Möglicherweise gegen den gepinnten Commit ($gsr_pinned_commit)"
+            echo "  rebasen oder im Flatpak-Manifest synchron bumpen."
+            exit 1
+        end
     end
 end
 
@@ -63,13 +98,14 @@ if test -x build/gpu-screen-recorder
     echo "  $source_dir/build/gpu-screen-recorder"
     ./build/gpu-screen-recorder --version | head -1 | xargs -I {} echo "  Version: {}"
 
-    # Whitelist-Checks
-    if strings build/gpu-screen-recorder | grep -q "and .ts and .flv"
-        echo "  ✓ Opus-Whitelist mit .ts UND .flv — AV1+RTMP und SRT+Opus beide ok"
-    else if strings build/gpu-screen-recorder | grep -q "and .ts files"
-        echo "  ⚠ Opus-für-ts ja, aber .flv-Patch fehlt — AV1+Enhanced-RTMP fällt auf AAC"
+    # Verifizieren dass die Patches im finalen Binary gelandet sind.
+    # Suchstring `.ts and .flv` matcht ausschließlich den gepatchten
+    # Warntext aus 0001-opus-flv-whitelist.patch.
+    if strings build/gpu-screen-recorder | grep -q ".ts and .flv"
+        echo "  ✓ FLV-Opus-Patch drin — AV1+Enhanced-RTMP mit Opus-Audio aktiv"
     else
-        echo "  ✗ Opus-Whitelist hat weder .ts noch .flv — Source-Version zu alt"
+        echo "  ✗ FLV-Opus-Patch FEHLT im Binary — etwas ist beim Patchen schief gegangen"
+        exit 1
     end
 else
     echo "✗ Build fehlgeschlagen"
