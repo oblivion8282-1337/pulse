@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_register: str = "5/minute"
     rate_limit_login: str = "20/minute"
+    # IPs / CIDRs whose ``X-Forwarded-For`` header we trust. Anything else and
+    # the rate-limiter falls back to the peer address — a malicious client
+    # cannot then spoof its bucket. Default = loopback + RFC1918 + the typical
+    # Docker bridge range so the auth service works in the standard Pulse
+    # deployment (Caddy / pulse_web → auth on pulse-net). Tighten in
+    # production if a more specific subnet is known.
+    trusted_proxies: str = "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
     @property
     def effective_database_url(self) -> str:

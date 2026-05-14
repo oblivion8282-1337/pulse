@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, resetRefreshLock } from './client';
 import { saveTokens } from './storage';
 import type { Tokens, User } from './types';
 
@@ -15,6 +15,7 @@ export async function register(payload: {
     endpoint: 'auth'
   });
   saveTokens(tokens);
+  resetRefreshLock();
   return tokens;
 }
 
@@ -26,6 +27,7 @@ export async function login(emailOrUsername: string, password: string): Promise<
     endpoint: 'auth'
   });
   saveTokens(tokens);
+  resetRefreshLock();
   return tokens;
 }
 

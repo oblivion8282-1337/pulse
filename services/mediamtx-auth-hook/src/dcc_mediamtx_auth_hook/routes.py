@@ -165,6 +165,11 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
                 token_nonce=rec.get("nonce"),
             )
         await _mark_publisher_active(redis, channel_id, path_user_id, req.path)
+        # Single-use publish token: delete it as soon as it succeeded so the
+        # 4h TTL window can't be replayed (a stolen RTMPS URL could otherwise
+        # be re-published until expiry). Each new GSR session obtains a fresh
+        # token from media-svc anyway.
+        await redis.delete(TOKEN_KEY.format(token=req.credential))
         log.info("auth_publish_ok", channel_id=channel_id, user_id=path_user_id, protocol=req.protocol)
         return  # 200
 

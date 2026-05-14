@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import IO
 
 from profiles import ServerProfile, StreamProfile, build_audio_arg
+from redact import redact_token_string
 
 FPS_RE = re.compile(r"update fps:\s*(\d+)")
 
@@ -357,7 +358,9 @@ class StreamController:
                     if self._state == "starting":
                         self._set_state("live")
                 elif self._on_log:
-                    self._on_log(line)
+                    # GSR prints the full push URL (incl. `?pass=<token>` /
+                    # `streamid=…:<token>`) on connect. Redact before forwarding.
+                    self._on_log(redact_token_string(line))
         except (OSError, ValueError):
             # Stream closed during read — normal beim Beenden
             return

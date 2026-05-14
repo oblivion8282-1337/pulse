@@ -270,17 +270,48 @@ async def batch_users(
 def _client_ip(request: Request) -> str:
     """Best-effort client IP.
 
-    Behind a reverse proxy (Caddy in our deployment) `request.client.host` is
-    the proxy's address, so we prefer the first hop in `X-Forwarded-For` when
-    present. This is only trustworthy if the service is *always* fronted by a
-    proxy that sets/overwrites that header — never expose this service directly.
+    Behind a reverse proxy (Caddy in our deployment) ``request.client.host`` is
+    the proxy's address, so we prefer the first hop in ``X-Forwarded-For``.
+    But the header is client-controlled — if the request comes from an
+    *untrusted* peer we ignore XFF entirely; otherwise anyone could spoof their
+    bucket by sending ``X-Forwarded-For: 1.2.3.4``.
+
+    The trust list comes from ``Settings.trusted_proxies`` (CSV of IPs / CIDRs).
     """
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        first = xff.split(",")[0].strip()
-        if first:
-            return first
-    return get_remote_address(request)
+    peer = get_remote_address(request)
+    if _peer_is_trusted(peer):
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            first = xff.split(",")[0].strip()
+            if first:
+                return first
+    return peer
+
+
+_trusted_networks_cache: tuple[str, list] | None = None
+
+
+def _peer_is_trusted(peer: str) -> bool:
+    """Whether ``peer`` matches any entry in ``Settings.trusted_proxies``."""
+    import ipaddress
+
+    global _trusted_networks_cache
+    settings = get_settings()
+    raw = settings.trusted_proxies or ""
+    if _trusted_networks_cache is None or _trusted_networks_cache[0] != raw:
+        nets: list[ipaddress._BaseNetwork] = []
+        for entry in (e.strip() for e in raw.split(",") if e.strip()):
+            try:
+                # Accept both single IPs ("127.0.0.1") and CIDRs ("10.0.0.0/8").
+                nets.append(ipaddress.ip_network(entry, strict=False))
+            except ValueError:
+                continue
+        _trusted_networks_cache = (raw, nets)
+    try:
+        addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return False
+    return any(addr in n for n in _trusted_networks_cache[1])
 
 
 async def _check_rate(request: Request, key: str, rule: str) -> None:

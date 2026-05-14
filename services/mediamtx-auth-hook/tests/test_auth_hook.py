@@ -99,6 +99,26 @@ async def test_publish_token_in_token_field_also_works(client, redis):
 
 
 @pytest.mark.asyncio
+async def test_publish_token_consumed_after_success(client, redis):
+    """A successful publish must invalidate the token immediately so the 4h TTL
+    window can't be replayed (stolen-URL replay-protection)."""
+    cid = _unique_cid()
+    uid = "42"
+    token = "tok-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id=uid)
+    try:
+        r = await client.post("/", json=_body("publish", _ch_path(cid, uid), password=token))
+        assert r.status_code == 200
+        # Token must no longer be in Redis.
+        assert await redis.exists(TOKEN_KEY.format(token=token)) == 0
+        # A second publish with the same token must be denied.
+        r2 = await client.post("/", json=_body("publish", _ch_path(cid, uid), password=token))
+        assert r2.status_code == 401
+    finally:
+        await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id=uid))
+
+
+@pytest.mark.asyncio
 async def test_publish_valid_token_wrong_channel_denied(client, redis):
     cid = _unique_cid()
     other = _unique_cid()

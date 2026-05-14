@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import httpx
 import jwt
 import pytest
+
+import dcc_voice_signaling.routes as voice_routes
 
 
 def auth(token: str) -> dict[str, str]:
@@ -68,3 +71,59 @@ async def test_token_rejects_unknown_field(client, auth_signer):
         headers=auth(access),
     )
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_token_requires_channel_membership(client, auth_signer, monkeypatch):
+    """With ``CHAT_GATEWAY_URL`` configured, the route must consult chat-gateway
+    and reject non-members. We monkeypatch ``_chat_gateway_request`` to avoid
+    actually hitting the network."""
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+
+    async def _forbidden(method, path, *, bearer):
+        return httpx.Response(403, json={"detail": "not a member"})
+
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _forbidden)
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(access),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_token_rejects_non_voice_channel(client, auth_signer, monkeypatch):
+    """chat-gateway returns 200 for a text channel — the route must reject it."""
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+
+    async def _text_channel(method, path, *, bearer):
+        return httpx.Response(200, json={"id": "1", "guild_id": "1", "type": 0})
+
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _text_channel)
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/token",
+        json={"channel_id": "1"},
+        headers=auth(access),
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_token_passes_with_voice_channel(client, auth_signer, monkeypatch):
+    """Happy path: chat-gateway confirms voice channel membership."""
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+
+    async def _voice_channel(method, path, *, bearer):
+        return httpx.Response(200, json={"id": "987654321", "guild_id": "1", "type": 1})
+
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _voice_channel)
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(access),
+    )
+    assert r.status_code == 200, r.text

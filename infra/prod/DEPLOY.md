@@ -26,15 +26,23 @@ sed -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$PGPW|" \
     .env.example > .env && chmod 600 .env
 openssl genrsa -out secrets/jwt_private.pem 2048
 openssl rsa -in secrets/jwt_private.pem -pubout -out secrets/jwt_public.pem
-# the app containers run as uid 10001 → the mounted pem files must be world-readable
-chmod 0644 secrets/jwt_private.pem secrets/jwt_public.pem
+# Auth/chat containers run as uid 10001 — chown so we don't need world-readable
+# permissions on the private key (any other host user could otherwise read it
+# and forge JWTs).
+sudo chown 10001:10001 secrets/jwt_private.pem secrets/jwt_public.pem
+chmod 0600 secrets/jwt_private.pem
+chmod 0644 secrets/jwt_public.pem   # public key is fine readable
 # self-signed cert for MediaMTX RTMPS (port 1936) — FFmpeg's rtmps client
 # doesn't verify the cert, so self-signed is fine; long validity to avoid churn
 mkdir -p certs
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
   -subj "/CN=pulse.unicutmedia.com" \
   -keyout certs/server.key -out certs/server.crt
-chmod 0644 certs/server.crt certs/server.key
+# MediaMTX (containerised from scratch) runs as root → root-owned + 0600 is
+# enough to keep the TLS private key away from other host users.
+sudo chown root:root certs/server.key certs/server.crt
+chmod 0600 certs/server.key
+chmod 0644 certs/server.crt
 
 # 3. firewall
 #    public ingest/egress + LiveKit RTC:
@@ -56,9 +64,20 @@ cd ~/pulse/infra/prod
 docker compose pull
 docker compose up -d
 
-# 5. Caddy: add the pulse vhost (see Caddyfile.pulse.snippet), then reload
+# 5. Caddy: add the pulse vhost (see Caddyfile.pulse.snippet), then reload.
+#    pulse_web binds 8100 on loopback only (Docker's DNAT bypasses UFW, so
+#    `0.0.0.0:8100` would be publicly reachable). Two ways to let Caddy in:
+#
+#      a) Caddy as a Docker container → join it to pulse-net and proxy to
+#         the service name. This is the recommended setup:
+#           docker network connect pulse-net caddy
+#           upstream:  reverse_proxy pulse_web:80
+#
+#      b) Caddy as a host process → it can reach 127.0.0.1:8100 directly:
+#           upstream:  reverse_proxy 127.0.0.1:8100
 cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
-printf '\npulse.unicutmedia.com {\n\treverse_proxy host.docker.internal:8100\n}\n' >> ~/caddy/Caddyfile
+printf '\npulse.unicutmedia.com {\n\treverse_proxy pulse_web:80\n}\n' >> ~/caddy/Caddyfile
+docker network connect pulse-net caddy 2>/dev/null || true   # idempotent
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 

@@ -193,9 +193,13 @@ export class GatewayConnection {
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
-        // Invalidate loaded channels so reconnect fetches missed messages.
+        // Drop loaded messages so the next channel-switch hits the REST
+        // endpoint and pulls everything that arrived during the disconnect.
+        // (invalidateLoaded only flips a flag — messages already in the store
+        //  would be merged with the next push, leaving gaps if any history
+        //  was missed.)
         for (const cid of this.subs) {
-          messages.invalidateLoaded(cid);
+          messages.clearChannel(cid);
         }
         resolve();
       });

@@ -55,6 +55,7 @@ from profiles import (
     list_audio_applications,
     profile_by_name,
 )
+from redact import redact_argv
 from stream_controller import StreamController
 
 
@@ -277,8 +278,14 @@ class Sidecar:
             fps_override=fps, resolution_override=resolution,
         )
         # argv[0]-Platz: Binary-Pfad (kann None sein); für Diagnose ausgeben.
+        # Token in der `-o`-URL wird redaktiert — die Response geht via IPC
+        # in den Renderer und darf den Stream-Key nicht durchreichen.
         binary_path = self._binary.path or "gpu-screen-recorder"
-        return {"ok": True, "binary": binary_path, "argv": [binary_path, *argv]}
+        return {
+            "ok": True,
+            "binary": binary_path,
+            "argv": redact_argv([binary_path, *argv]),
+        }
 
     def op_start(self, body: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -302,7 +309,8 @@ class Sidecar:
         )
         if not ok:
             return {"ok": False, "error": "Start fehlgeschlagen — siehe error-Event."}
-        return {"ok": True, "argv": self.controller.last_argv}
+        argv = self.controller.last_argv or []
+        return {"ok": True, "argv": redact_argv(argv)}
 
     def op_stop(self, _body: dict[str, Any]) -> dict[str, Any]:
         if not self.controller.running:
@@ -311,13 +319,14 @@ class Sidecar:
         return {"ok": True}
 
     def op_state(self, _body: dict[str, Any]) -> dict[str, Any]:
+        argv = self.controller.last_argv
         return {
             "ok": True,
             "running": self.controller.running,
             "state": self.controller.state,
             "fps": self.controller.last_fps,
             "uptime_s": self.controller.uptime_seconds,
-            "argv": self.controller.last_argv,
+            "argv": redact_argv(argv) if argv is not None else None,
         }
 
     def shutdown(self) -> None:

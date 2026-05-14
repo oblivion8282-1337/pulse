@@ -32,8 +32,14 @@ function base(endpoint: ApiEndpoint): string {
 }
 
 let _refreshInflight: Promise<Tokens | null> | null = null;
+// Once a refresh has actually failed and the user has been signed out, lock
+// the door: any further refreshIfNeeded call returns null without making a
+// second network round-trip. The flag is cleared automatically when fresh
+// tokens are saved again (login / new session).
+let _refreshLocked = false;
 
 async function refreshIfNeeded(force = false): Promise<Tokens | null> {
+  if (_refreshLocked) return null;
   const tokens = loadTokens();
   if (!tokens) return null;
   if (!force && !isAccessExpired(tokens.access_token)) return tokens;
@@ -48,19 +54,28 @@ async function refreshIfNeeded(force = false): Promise<Tokens | null> {
       });
       if (!resp.ok) {
         clearTokens();
+        _refreshLocked = true;
         return null;
       }
       const data = (await resp.json()) as Tokens;
       saveTokens(data);
+      _refreshLocked = false;
       return data;
     } catch {
       clearTokens();
+      _refreshLocked = true;
       return null;
     } finally {
       _refreshInflight = null;
     }
   })();
   return _refreshInflight;
+}
+
+/** Reset the refresh-lock so a fresh login can re-enable refreshes. Called
+ * from the auth store after a successful sign-in. */
+export function resetRefreshLock(): void {
+  _refreshLocked = false;
 }
 
 export type RequestOpts = {

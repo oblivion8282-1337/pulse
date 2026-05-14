@@ -29,6 +29,14 @@ class Settings(BaseSettings):
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # chat-gateway is the source of truth for guild/channel membership. Token
+    # issue verifies the caller is a member of the requested voice channel by
+    # calling ``GET /channels/{id}``. Unset → no check (dev/test convenience;
+    # NEVER leave unset in production — anyone with a valid Pulse access token
+    # could otherwise join arbitrary voice channels).
+    chat_gateway_url: str | None = None
+    chat_gateway_timeout_s: float = 3.0
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
