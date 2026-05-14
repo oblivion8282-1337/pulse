@@ -90,12 +90,18 @@ async def decode_token(token: str) -> dict[str, Any]:
     except jwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     kid = header.get("kid")
+    # Reject tokens without a kid *before* touching the cache. Otherwise an
+    # attacker could flood the endpoint with kid-less self-signed JWTs and
+    # force one JWKS-fetch per request (the cache invalidation below would
+    # otherwise fire on every miss).
+    if not kid:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
     keys = await _get_keys()
-    if not kid or kid not in keys:
+    if kid not in keys:
         global _cache
         _cache = None
         keys = await _get_keys()
-        if not kid or kid not in keys:
+        if kid not in keys:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="unknown signing key")
     try:
         payload = jwt.decode(

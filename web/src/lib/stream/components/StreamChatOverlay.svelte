@@ -8,6 +8,7 @@
   abgefangen werden — die Eingabe übernimmt das separate `StreamChatInlineInput`.
 -->
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { streamChat } from '$lib/stores/streamChat.svelte';
   import { userCache } from '$lib/stores/users.svelte';
 
@@ -65,6 +66,13 @@
   });
 
   let shown = $derived(history.filter((m) => visibleIds.has(m.id)).slice(-MAX_VISIBLE));
+
+  // Unmount cleanup: clear every pending fade-out timer so the callbacks
+  // can't run after the component is gone and write into stale state.
+  onDestroy(() => {
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+  });
 </script>
 
 {#if shown.length > 0}

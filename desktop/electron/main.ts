@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, ipcMain, session, desktopCapturer } from 'electron';
+import { app, BrowserWindow, ipcMain, session, desktopCapturer, shell } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -107,8 +107,34 @@ function createWindow(): void {
     mainWindow = null;
   });
 
+  // Lock navigation + popups to the configured target origin. Without these
+  // guards a (hypothetical) XSS on pulse.unicutmedia.com — or a manipulated
+  // PULSE_URL env override — could navigate the BrowserWindow to a third-party
+  // page that inherits the contextBridge (`window.pulse.gsr.start()` etc.).
+  mainWindow.webContents.on('will-navigate', (e, url) => {
+    if (!_isAllowedOrigin(url)) {
+      e.preventDefault();
+      void shell.openExternal(url);
+    }
+  });
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (_isAllowedOrigin(url)) return { action: 'allow' };
+    void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
   void mainWindow.loadURL(TARGET_URL);
   if (OPEN_DEVTOOLS) mainWindow.webContents.openDevTools({ mode: 'detach' });
+}
+
+function _isAllowedOrigin(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const t = new URL(TARGET_URL);
+    return u.origin === t.origin;
+  } catch {
+    return false;
+  }
 }
 
 // ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────

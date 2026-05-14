@@ -226,7 +226,10 @@ async def delete_message(
     channel = await session.get(Channel, msg.channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
-    # Author may always delete; guild owner may delete anything in their guild.
+    # Caller must still be a member of the channel's guild — a kicked author
+    # mustn't be able to keep deleting their old messages.
+    await require_member(session, channel.guild_id, current.id)
+    # Author may delete their own; guild owner may delete anything in the guild.
     if msg.author_id != current.id:
         from dcc_chat_gateway.models import Guild  # local to avoid top-level cycle
         guild = await session.get(Guild, channel.guild_id)

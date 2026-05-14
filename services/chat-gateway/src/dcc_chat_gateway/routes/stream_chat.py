@@ -40,7 +40,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from dcc_chat_gateway import ratelimit
@@ -184,13 +184,9 @@ async def get_stream_chat(
     session: SessionDep,
     current: CurrentUser,
     request: Request,
-    limit: int = DEFAULT_LIMIT,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> list[StreamChatMessage]:
     await _require_voice_channel_member(session, channel_id, current.id)
-    if limit < 1:
-        limit = 1
-    elif limit > MAX_LIMIT:
-        limit = MAX_LIMIT
 
     redis = getattr(request.app.state, "redis", None)
     if redis is None:

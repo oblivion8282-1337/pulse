@@ -7,8 +7,6 @@
   import MessageActions from './MessageActions.svelte';
   import MessageReactions from './MessageReactions.svelte';
 
-  marked.use({ breaks: true });
-
   const ALLOWED_TAGS = ['b', 'i', 'em', 'strong', 'code', 'pre', 'del', 's',
     'a', 'ul', 'ol', 'li', 'br', 'p', 'blockquote'];
   const ALLOWED_ATTR = ['href', 'title', 'target', 'rel'];
@@ -22,7 +20,10 @@
   });
 
   function renderSafe(text: string): string {
-    const html = marked.parse(text) as string;
+    // Pass options per-call instead of `marked.use({...})` so we don't mutate
+    // the global parser config — other code (tests, HMR, future imports) won't
+    // unexpectedly inherit `breaks: true`.
+    const html = marked.parse(text, { breaks: true }) as string;
     return DOMPurify.sanitize(html, {
       ALLOWED_TAGS,
       ALLOWED_ATTR,

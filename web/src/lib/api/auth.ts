@@ -1,4 +1,4 @@
-import { request, resetRefreshLock } from './client';
+import { request, requestForm, resetRefreshLock } from './client';
 import { saveTokens } from './storage';
 import type { Tokens, User } from './types';
 
@@ -44,32 +44,12 @@ export async function logout(refreshToken: string): Promise<void> {
   });
 }
 
-export async function uploadAvatar(file: File): Promise<User> {
-  const { loadTokens } = await import('./storage');
-  const tokens = loadTokens();
+export function uploadAvatar(file: File): Promise<User> {
   const form = new FormData();
   form.append('file', file);
-  const res = await fetch('/api/auth/me/avatar', {
-    method: 'POST',
-    headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {},
-    body: form
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail ?? res.statusText);
-  }
-  return res.json() as Promise<User>;
+  return requestForm<User>('/me/avatar', form, { endpoint: 'auth' });
 }
 
-export async function deleteAvatar(): Promise<void> {
-  const { loadTokens } = await import('./storage');
-  const tokens = loadTokens();
-  const res = await fetch('/api/auth/me/avatar', {
-    method: 'DELETE',
-    headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {}
-  });
-  if (!res.ok && res.status !== 204) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail ?? res.statusText);
-  }
+export function deleteAvatar(): Promise<void> {
+  return request<void>('/me/avatar', { method: 'DELETE', endpoint: 'auth' });
 }

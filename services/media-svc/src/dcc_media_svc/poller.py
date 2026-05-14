@@ -51,7 +51,11 @@ def _path_has_publisher(path_obj: dict[str, Any]) -> bool:
     for flag in ("ready", "available", "online"):
         if path_obj.get(flag) is True:
             return True
-    return True  # source present but no boolean flag — treat as live
+    # ``source`` is set but no readiness flag fired. That happens during the
+    # RTMP handshake (TCP up, no keyframe yet) — MediaMTX won't actually serve
+    # the path to WHEP readers in this state, so treat it as not-live to avoid
+    # publishing flapping presence events.
+    return False
 
 
 async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict[str, set[str]]:

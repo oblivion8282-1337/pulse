@@ -113,7 +113,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     app = websocket.app
     manager = app.state.connection_manager
-    await manager.register(websocket)
+    if not await manager.register(websocket, user.id):
+        # Connection cap reached — close before the client has done any work.
+        await websocket.close(code=4009, reason="too many connections")
+        return
     # cid → guild_id. We cache the guild_id when a subscribe succeeds so the
     # `send` fast path can stamp the channel_bump envelope without another DB
     # round-trip per message.
@@ -220,6 +223,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         {"op": "error", "code": 4005, "msg": "invalid send payload"}
                     )
                     continue
+                # Reject over-long content explicitly instead of silently
+                # truncating to 4000 — the REST endpoint also rejects with 422,
+                # so the WS path matches that semantics.
+                if len(content) > 4000:
+                    await websocket.send_json(
+                        {"op": "error", "code": 4005, "msg": "content too long (max 4000)"}
+                    )
+                    continue
                 cid = str(cid_int)
                 if not ratelimit.check("message", user.id):
                     await websocket.send_json(
@@ -272,7 +283,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         id=next_id(),
                         channel_id=cid_int,
                         author_id=user.id,
-                        content=content[:4000],
+                        content=content,
                         nonce=nonce[:_MAX_NONCE_LEN] if isinstance(nonce, str) else None,
                         reply_to_id=reply_to_int,
                     )

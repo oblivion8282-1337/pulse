@@ -148,3 +148,36 @@ function extractDetail(data: unknown): string | null {
 export function currentAccessToken(): string | null {
   return loadTokens()?.access_token ?? null;
 }
+
+/** Same auth + refresh + 401-retry handling as `request`, but for
+ * multipart/form-data uploads (avatar, guild icon, etc.). Letting the browser
+ * pick the boundary requires *not* setting Content-Type. */
+export async function requestForm<T>(
+  path: string,
+  form: FormData,
+  opts: { endpoint?: ApiEndpoint; method?: string } = {},
+): Promise<T> {
+  const { endpoint = 'chat', method = 'POST' } = opts;
+  const url = `${base(endpoint)}${path}`;
+
+  let tokens = await refreshIfNeeded();
+  if (!tokens) throw new ApiError(401, null, 'not authenticated');
+
+  const make = (t: Tokens): RequestInit => ({
+    method,
+    headers: { Authorization: `Bearer ${t.access_token}` },
+    body: form,
+  });
+
+  let resp = await fetch(url, make(tokens));
+  if (resp.status === 401) {
+    tokens = await refreshIfNeeded(true);
+    if (!tokens) throw new ApiError(401, null, 'refresh failed');
+    resp = await fetch(url, make(tokens));
+  }
+  if (resp.status === 204) return undefined as T;
+  const text = await resp.text();
+  const data = text ? safeParse(text) : null;
+  if (!resp.ok) throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
+  return data as T;
+}

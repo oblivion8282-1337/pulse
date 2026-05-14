@@ -180,7 +180,13 @@ class Sidecar:
 
     def __init__(self) -> None:
         self._binary = gsr_binary.resolve()
-        self._info = gsr_binary.probe_info(self._binary)
+        # ``probe_info`` shells out to ``gpu-screen-recorder --info`` plus
+        # ``--version`` plus ``strings``. On a cold start (no compositor up
+        # yet, slow NVIDIA init) that whole chain can block up to ~20s — and
+        # the Electron sidecar's first ``health`` call has only a 10s timeout.
+        # Probe lazily on the first health/gpu_info request instead.
+        self._info: gsr_binary.GsrInfo | None = None
+        self._info_probed = False
         self.controller = StreamController(
             gsr_binary=self._binary.path,
             on_state=self._on_state,
@@ -188,6 +194,12 @@ class Sidecar:
             on_log=self._on_log,
             on_error=self._on_error,
         )
+
+    def _ensure_info(self) -> gsr_binary.GsrInfo | None:
+        if not self._info_probed:
+            self._info = gsr_binary.probe_info(self._binary)
+            self._info_probed = True
+        return self._info
 
     # ── Callbacks aus dem Controller → Events ─────────────────────
     def _on_state(self, state: str) -> None:
@@ -198,7 +210,15 @@ class Sidecar:
             "uptime_s": self.controller.uptime_seconds,
         })
         if state == "stopped":
-            _emit({"ev": "stopped"})
+            # Protocol contract (streaming/README.md): stopped events MAY carry
+            # an ``code`` field with the subprocess exit code. The controller
+            # writes ``last_exit_code`` before transitioning, so we can read it
+            # here. None when the process never ran.
+            code = self.controller.last_exit_code
+            event: dict[str, Any] = {"ev": "stopped"}
+            if code is not None:
+                event["code"] = code
+            _emit(event)
 
     def _on_fps(self, fps: int) -> None:
         _emit({"ev": "fps", "fps": fps, "uptime_s": self.controller.uptime_seconds})
@@ -211,6 +231,7 @@ class Sidecar:
 
     # ── Ops ───────────────────────────────────────────────────────
     def op_health(self, _body: dict[str, Any]) -> dict[str, Any]:
+        info = self._ensure_info()
         gsr: dict[str, Any] = {
             "available": self._binary.available,
             "source": self._binary.source,
@@ -218,14 +239,14 @@ class Sidecar:
         }
         if self._binary.path:
             gsr["path"] = self._binary.path
-        if self._info is not None:
+        if info is not None:
             gsr.update({
-                "version": self._info.version,
-                "vendor": self._info.vendor,
-                "display_server": self._info.display_server,
-                "video_codecs": self._info.video_codecs,
-                "capture_options": self._info.capture_options,
-                "has_flv_patch": self._info.has_flv_opus_patch,
+                "version": info.version,
+                "vendor": info.vendor,
+                "display_server": info.display_server,
+                "video_codecs": info.video_codecs,
+                "capture_options": info.capture_options,
+                "has_flv_patch": info.has_flv_opus_patch,
             })
         return {"ok": True, "gsr": gsr}
 
@@ -233,7 +254,7 @@ class Sidecar:
         if not self._binary.available:
             return {"ok": False, "error": "gpu-screen-recorder binary not available"}
         # Re-probe falls beim ersten Aufruf (z.B. ohne laufenden compositor) gescheitert.
-        info = self._info if self._info else gsr_binary.probe_info(self._binary)
+        info = self._ensure_info() or gsr_binary.probe_info(self._binary)
         if info is None:
             return {"ok": False, "error": "gpu-screen-recorder --info failed"}
         return {

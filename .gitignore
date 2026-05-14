@@ -79,3 +79,7 @@ packaging/.gpg/
 infra/prod/.env
 infra/prod/secrets/
 infra/prod/certs/
+
+# Local-dev MediaMTX TLS material — same shape as the prod certs/ above,
+# self-signed key generated on-host. Never commit the private key.
+streaming/server/certs/

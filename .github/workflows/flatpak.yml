@@ -205,3 +205,12 @@ jobs:
           echo "✓ Flatpak republished to https://pulse.unicutmedia.com/flatpak/" >> "$GITHUB_STEP_SUMMARY"
           echo "  Install:  \`flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
           echo "  Update:   \`flatpak update\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Tear down the imported signing key ──────────────────────────────
+      # GitHub-hosted runners are ephemeral, so the key would die with the VM
+      # anyway. This cleanup matters when someone moves to a self-hosted
+      # runner: otherwise the decrypted private key would linger on the host
+      # filesystem after the job ends.
+      - name: Wipe imported GPG key
+        if: always()
+        run: rm -rf packaging/.gpg ~/.ssh/id_ed25519

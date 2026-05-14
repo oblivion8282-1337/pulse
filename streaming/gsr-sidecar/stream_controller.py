@@ -95,6 +95,7 @@ class StreamController:
         self._last_fps: int | None = None
         self._last_argv: list[str] | None = None
         self._last_config: StreamConfig | None = None
+        self._last_exit_code: int | None = None
         self._lock = threading.Lock()
 
     # ── State ──────────────────────────────────────────────────────
@@ -119,6 +120,11 @@ class StreamController:
     @property
     def last_argv(self) -> list[str] | None:
         return self._last_argv
+
+    @property
+    def last_exit_code(self) -> int | None:
+        """Exit-Code des letzten GSR-Subprocess (None falls noch nicht gelaufen)."""
+        return self._last_exit_code
 
     def set_gsr_binary(self, path: str | None) -> None:
         """Erlaubt dem Sidecar das Binary nach health-Probe zu setzen."""
@@ -376,14 +382,15 @@ class StreamController:
             exit_code = proc.wait()
         except OSError:
             exit_code = -1
-        # State setzen
+        # Exit-Code merken *bevor* das stopped-Event feuert, damit control.py
+        # ihn in das IPC-Event packen kann (Protokoll-Vertrag aus streaming/README.md).
+        self._last_exit_code = exit_code
         if self._state != "error":
             self._set_state("idle")
         self._set_state("stopped")  # extra event-Signal an Aufrufer
         with self._lock:
             self._proc = None
             self._start_time = None
-        # Optional: exit_code via on_log emitten
         if self._on_log:
             self._on_log(f"[gsr] exited with code {exit_code}")
 

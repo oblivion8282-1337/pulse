@@ -196,10 +196,13 @@ services:
       voice-signaling: { condition: service_started }
     extra_hosts:
       - "host.docker.internal:host-gateway"   # → MediaMTX (:8889/:8888) + LiveKit (:7880) on the host
-    # Caddy on the host reaches this via host.docker.internal:8100. Bind to
-    # loopback only: Docker's DNAT rules sit *before* UFW's INPUT DROP in
-    # iptables, so a plain `8100:80` would expose nginx publicly even though
-    # `ufw status` says otherwise.
+    # Loopback bind for the host-Caddy fallback path. Docker's DNAT sits
+    # *before* UFW's INPUT DROP in iptables, so a plain `8100:80` would expose
+    # nginx publicly even though `ufw status` says otherwise — hence the
+    # explicit `127.0.0.1` prefix.
+    # The recommended setup (DEPLOY.md + Caddyfile.pulse.snippet) is to run
+    # Caddy as a container, join it to pulse-net, and proxy directly to
+    # `pulse_web:80` — that path ignores this binding entirely.
     ports:
       - "127.0.0.1:8100:80"
     volumes:
@@ -207,7 +210,9 @@ services:
       # rsyncs the OSTree repo into this host dir; web-nginx.conf serves it under
       # /flatpak/. Read-only; if the host dir doesn't exist Docker creates it empty
       # (=> /flatpak/* just 404s, harmless). Keep in sync with publish.fish's VPS_REPO_PATH.
-      - /home/michael/pulse/flatpak-repo:/srv/flatpak-repo:ro
+      # `${HOME}` so future VPS-user changes (e.g. dedicated `pulse` user) don't
+      # require editing this file.
+      - ${HOME}/pulse/flatpak-repo:/srv/flatpak-repo:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 30s

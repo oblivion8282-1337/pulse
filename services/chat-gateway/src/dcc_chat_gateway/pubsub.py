@@ -60,6 +60,11 @@ VOICE_USER_STATE_TTL_SECONDS = 6 * 3600
 
 
 class ConnectionManager:
+    # Max parallel WebSocket connections per user. Each connection multiplies
+    # the fan-out cost of every pub/sub event; a single user with N sockets
+    # turns one event into N `send_json` calls (with 5s timeouts each).
+    MAX_CONNECTIONS_PER_USER = 10
+
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
         self._pubsub = redis.pubsub(ignore_subscribe_messages=True)
@@ -68,6 +73,10 @@ class ConnectionManager:
         # Every connected WebSocket, regardless of channel subscriptions —
         # used to fan out global events like voice-presence updates.
         self._connections: set[WebSocket] = set()
+        # user_id → set of that user's open sockets. Used to cap one user's
+        # concurrent connections (DoS mitigation).
+        self._user_conns: dict[int, set[WebSocket]] = defaultdict(set)
+        self._ws_user: dict[WebSocket, int] = {}
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -104,9 +113,18 @@ class ConnectionManager:
             pass
         self._started = False
 
-    async def register(self, ws: WebSocket) -> None:
+    async def register(self, ws: WebSocket, user_id: int) -> bool:
+        """Add ``ws`` to the connection set. Returns False when ``user_id``
+        already has ``MAX_CONNECTIONS_PER_USER`` open sockets — the caller
+        must close the websocket in that case."""
         async with self._lock:
+            user_set = self._user_conns[user_id]
+            if len(user_set) >= self.MAX_CONNECTIONS_PER_USER:
+                return False
+            user_set.add(ws)
+            self._ws_user[ws] = user_id
             self._connections.add(ws)
+            return True
 
     async def subscribe(self, ws: WebSocket, channel_id: str) -> None:
         async with self._lock:
@@ -124,6 +142,11 @@ class ConnectionManager:
     async def remove_socket(self, ws: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(ws)
+            uid = self._ws_user.pop(ws, None)
+            if uid is not None:
+                self._user_conns[uid].discard(ws)
+                if not self._user_conns[uid]:
+                    del self._user_conns[uid]
             for cid in list(self._subs):
                 self._subs[cid].discard(ws)
                 if not self._subs[cid]:

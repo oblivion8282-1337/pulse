@@ -51,6 +51,16 @@
     });
   });
 
+  // Reset the auto-scroll counter when the channel changes — otherwise the
+  // first WS push into a freshly switched channel doesn't look like an
+  // "initial load" and we miss the scroll-to-bottom.
+  $effect(() => {
+    void channel?.id;
+    untrack(() => {
+      lastCount = 0;
+    });
+  });
+
   $effect(() => {
     const count = messages.length;
     if (count !== lastCount) {

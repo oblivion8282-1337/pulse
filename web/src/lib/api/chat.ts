@@ -1,4 +1,4 @@
-import { request } from './client';
+import { request, requestForm } from './client';
 import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member, Message } from './types';
 import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
@@ -33,21 +33,10 @@ export const chatApi = {
   deleteGuild(id: string): Promise<void> {
     return request<void>(`/guilds/${id}`, { method: 'DELETE' });
   },
-  async uploadGuildIcon(id: string, file: File): Promise<Guild> {
-    const { loadTokens } = await import('./storage');
-    const tokens = loadTokens();
+  uploadGuildIcon(id: string, file: File): Promise<Guild> {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch(`/api/chat/guilds/${id}/icon`, {
-      method: 'POST',
-      headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {},
-      body: form,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error((err as { detail?: string }).detail ?? res.statusText);
-    }
-    return res.json() as Promise<Guild>;
+    return requestForm<Guild>(`/guilds/${id}/icon`, form);
   },
   deleteGuildIcon(id: string): Promise<void> {
     return request<void>(`/guilds/${id}/icon`, { method: 'DELETE' });

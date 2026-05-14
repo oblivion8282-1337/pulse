@@ -47,11 +47,13 @@ class Settings(BaseSettings):
     rate_limit_login: str = "20/minute"
     # IPs / CIDRs whose ``X-Forwarded-For`` header we trust. Anything else and
     # the rate-limiter falls back to the peer address — a malicious client
-    # cannot then spoof its bucket. Default = loopback + RFC1918 + the typical
-    # Docker bridge range so the auth service works in the standard Pulse
-    # deployment (Caddy / pulse_web → auth on pulse-net). Tighten in
-    # production if a more specific subnet is known.
-    trusted_proxies: str = "127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    # cannot then spoof its bucket. **Default is loopback only**: in the Pulse
+    # production deployment the auth service sits behind pulse_web (nginx) on
+    # the pulse-net bridge, and the operator MUST set ``TRUSTED_PROXIES`` to
+    # the concrete pulse_web container IP (or its /32). Defaulting to the
+    # whole 172.16/12 + 10/8 would let any container on the host's docker
+    # bridge spoof XFF and bypass the rate limit entirely.
+    trusted_proxies: str = "127.0.0.1,::1"
 
     @property
     def effective_database_url(self) -> str:

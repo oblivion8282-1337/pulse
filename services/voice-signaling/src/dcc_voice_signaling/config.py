@@ -22,7 +22,9 @@ class Settings(BaseSettings):
 
     # Redis is used for the voice-presence state (which users are in which
     # voice channel). The webhook handler writes here; chat-gateway reads it.
-    redis_url: str = "redis://localhost:6379/0"
+    # Default port 6380 matches the Pulse dev compose (see CLAUDE.md "Port-
+    # Mapping (lokales Dev)") — auth-hook and media-svc default the same way.
+    redis_url: str = "redis://localhost:6380/0"
     # Self-heal TTL on voice:room:* keys — a lost `participant_left` webhook
     # would otherwise leave a ghost participant forever.
     voice_state_ttl_seconds: int = 60 * 60 * 6  # 6h

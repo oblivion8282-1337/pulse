@@ -69,8 +69,10 @@ def _is_screen_share(track) -> bool:  # noqa: ANN001
         return True
 
     # Track-name fallback (LiveKit sometimes names the track "screenshare").
+    # Match the exact known names rather than a "screen" substring so future
+    # tracks like "fullscreen_audio" aren't accidentally counted as a share.
     name = (track.name or "").lower()
-    if "screen" in name:
+    if name in ("screen", "screenshare", "screen_share"):
         return True
 
     # Final pragmatic fallback: only when source is explicitly 0/UNKNOWN (not a
