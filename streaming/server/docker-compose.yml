@@ -17,14 +17,17 @@
 
 services:
   mediamtx:
-    # Pinned to 1.17.1: v1.18.0 broke AV1 over Enhanced RTMP → WebRTC for AMD
-    # VAAPI (MediaMTX #5728, still open). Re-evaluate once that's fixed upstream.
-    image: bluenviron/mediamtx:1.17.1
+    # Pinned to 1.17.1 (Pulse fork): v1.18.0 broke AV1-over-Enhanced-RTMP→WebRTC
+    # for AMD VAAPI (MediaMTX #5728); 1.17.1 fixes that but has its own
+    # AMD-only freeze due to missing OBU_TEMPORAL_DELIMITER. The Pulse fork
+    # injects them in the RTMP→stream path — see infra/mediamtx-fork/README.md.
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.17.1-pulse
     container_name: streaming-mediamtx
     restart: unless-stopped
     network_mode: host
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./certs:/certs:ro
     # network_mode: host weil WebRTC-ICE auf UDP sonst kompliziert wird mit Port-Mapping
     # (Memory-Regel: bei Docker-Port-Range lieber host-Netzwerk) — und es macht den
     # auth-hook auf dem Host (localhost:8005) für MediaMTX direkt erreichbar.
