@@ -11,11 +11,31 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+  import CopyIcon from '@lucide/svelte/icons/copy';
+  import CheckIcon from '@lucide/svelte/icons/check';
   import { stream } from '../state.svelte';
 
   let expanded = $state(false);
   let viewport = $state<HTMLDivElement | null>(null);
   let stickToBottom = $state(true);
+  let copied = $state(false);
+  let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function copyLog(event: MouseEvent) {
+    // Toggle-Button drumherum nicht mit-aktivieren
+    event.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(stream.lastLog.join('\n'));
+      copied = true;
+      if (copyResetTimer) clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => {
+        copied = false;
+        copyResetTimer = null;
+      }, 1500);
+    } catch {
+      /* clipboard API kann in non-secure-Contexts failen — kein UI-Geräusch nötig */
+    }
+  }
 
   function onScroll() {
     if (!viewport) return;
@@ -49,20 +69,42 @@
 </script>
 
 <div class="flex flex-col gap-1.5" data-testid="stream-log">
-  <Button
-    type="button"
-    variant="ghost"
-    size="sm"
-    class="w-fit gap-1.5"
-    onclick={() => (expanded = !expanded)}
-    data-testid="stream-log-toggle"
-    aria-expanded={expanded}
-  >
-    {#if expanded}<ChevronDownIcon class="size-3.5" />
-    {:else}<ChevronRightIcon class="size-3.5" />{/if}
-    Log
-    <span class="text-text-muted ml-1 text-xs">({stream.lastLog.length})</span>
-  </Button>
+  <div class="flex items-center gap-1">
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      class="w-fit gap-1.5"
+      onclick={() => (expanded = !expanded)}
+      data-testid="stream-log-toggle"
+      aria-expanded={expanded}
+    >
+      {#if expanded}<ChevronDownIcon class="size-3.5" />
+      {:else}<ChevronRightIcon class="size-3.5" />{/if}
+      Log
+      <span class="text-text-muted ml-1 text-xs">({stream.lastLog.length})</span>
+    </Button>
+
+    {#if expanded && stream.lastLog.length > 0}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        class="gap-1.5"
+        onclick={copyLog}
+        data-testid="stream-log-copy"
+        aria-label="Log in die Zwischenablage kopieren"
+      >
+        {#if copied}
+          <CheckIcon class="size-3.5" />
+          Kopiert
+        {:else}
+          <CopyIcon class="size-3.5" />
+          Kopieren
+        {/if}
+      </Button>
+    {/if}
+  </div>
 
   {#if expanded}
     <div
