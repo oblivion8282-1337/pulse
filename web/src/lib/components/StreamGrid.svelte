@@ -15,6 +15,7 @@
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
   import type { Channel } from '$lib/api/types';
 
@@ -63,7 +64,14 @@
         <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
       {/each}
       {#each voice.screenTracks as st (st.identity)}
-        <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
+        <ScreenShareTile
+          channelId={channel.id}
+          streamerId={userIdFromIdentity(st.identity)}
+          track={st.track}
+          audioTrack={st.audioTrack}
+          name={st.name}
+          identity={st.identity}
+        />
       {/each}
     </div>
   {/if}

@@ -6,20 +6,33 @@
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import MaximizeIcon from '@lucide/svelte/icons/maximize';
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
+  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import { voice } from '$lib/voice/livekit.svelte';
   import { toggleFullscreen, isDocFullscreen } from '$lib/stream/fullscreen';
+  import StreamChatOverlay from '$lib/stream/components/StreamChatOverlay.svelte';
+  import StreamChatInlineInput from '$lib/stream/components/StreamChatInlineInput.svelte';
 
   let {
+    channelId,
+    streamerId,
     track,
     audioTrack,
     name,
     identity
   }: {
+    /** Voice channel this share lives in — needed for the per-streamer chat. */
+    channelId: string;
+    /** User id parsed from the LiveKit identity. Null = unknown publisher (no chat). */
+    streamerId: string | null;
     track: RemoteVideoTrack;
     audioTrack?: RemoteAudioTrack;
     name: string;
     identity: string;
   } = $props();
+
+  // Twitch-style in-tile chat — mirrors WhepPlayer's chatOpen flow so the
+  // overlay + inline input come along into fullscreen.
+  let chatOpen = $state(false);
 
   let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -120,6 +133,20 @@
     Vertical stacking keeps both tappable simultaneously on touch screens.
   -->
   <div class="absolute right-2 top-2 flex flex-col items-end gap-1.5">
+    {#if streamerId}
+      <button
+        type="button"
+        onclick={() => (chatOpen = !chatOpen)}
+        class="flex items-center justify-center rounded-full p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'bg-primary/80' : 'bg-black/55'}"
+        aria-label="Live-Chat"
+        aria-pressed={chatOpen}
+        title="Live-Chat"
+        data-testid="screen-share-chat-toggle"
+      >
+        <MessageSquareIcon class="size-3.5" />
+      </button>
+    {/if}
+
     <button
       type="button"
       onclick={handleToggleFullscreen}
@@ -144,6 +171,11 @@
       >Ton aktivieren</button>
     {/if}
   </div>
+
+  {#if chatOpen && streamerId}
+    <StreamChatOverlay {channelId} {streamerId} />
+    <StreamChatInlineInput {channelId} {streamerId} />
+  {/if}
 
   {#if audioTrack}
     <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">

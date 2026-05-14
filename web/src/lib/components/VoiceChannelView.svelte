@@ -16,6 +16,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import type { Channel } from '$lib/api/types';
@@ -36,14 +37,26 @@
   let hqStreamersOther = $derived(hqStreamers.filter((id) => id !== auth.user?.id));
   let hqStreaming = $derived(hqStreamers.length > 0);
 
+  // Browser screen-share publishers for this channel (from LiveKit webhooks via
+  // voice:events) — same chat-eligibility as HQ streamers (backend gates on
+  // EITHER source). HQ goes first in the combined list so it wins focus when
+  // both are present in the same channel.
+  let screenSharers = $derived(voicePresence.streamingIn(channel.id));
+  let liveStreamers = $derived([
+    ...hqStreamers,
+    ...screenSharers.filter((id) => !hqStreamers.includes(id))
+  ]);
+  let liveStreamersOther = $derived(liveStreamers.filter((id) => id !== auth.user?.id));
+
   // Stream layout: every watchable HQ stream + every browser screen-share go
   // into one responsive grid; participant avatars become a compact row below.
   let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
 
   let memberListOpen = $state(false);
   let chatPanelOpen = $state(settings.streamChat.panelOpen);
-  // v1: kein Streamer-Switch im Panel — der erste fremde Streamer fokussiert sich.
-  let focusedStreamerId = $derived(hqStreamersOther[0] ?? null);
+  // v1: kein Streamer-Switch im Panel — der erste fremde Streamer fokussiert sich
+  // (HQ bevorzugt, sonst der erste Browser-Screenshare-Publisher).
+  let focusedStreamerId = $derived(liveStreamersOther[0] ?? null);
   let canShowStreamChat = $derived(chatPanelOpen && focusedStreamerId !== null);
   // Mutex zwischen Mitglieder- und Chat-Panel (gleicher rechter Slot).
   let showMember = $derived(memberListOpen && !canShowStreamChat);
@@ -76,7 +89,7 @@
   });
 
   $effect(() => {
-    for (const uid of hqStreamers) userCache.queue(uid);
+    for (const uid of liveStreamers) userCache.queue(uid);
   });
 
   // Connecting must happen from a user gesture (click on "Beitreten") so the
@@ -153,7 +166,7 @@
       aria-label="Live-Chat umschalten"
       aria-pressed={canShowStreamChat}
       data-testid="stream-chat-toggle"
-      title={focusedStreamerId === null ? 'Kein aktiver HQ-Stream' : 'Live-Chat'}
+      title={focusedStreamerId === null ? 'Kein aktiver Stream' : 'Live-Chat'}
     >
       <MessageSquareIcon class="text-text-muted size-4" />
     </button>

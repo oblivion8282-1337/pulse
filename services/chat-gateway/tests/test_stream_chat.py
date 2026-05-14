@@ -58,6 +58,13 @@ async def _set_active(redis: Redis, channel_id: str, user_id: int) -> str:
     return key
 
 
+async def _set_screen_share(redis: Redis, channel_id: str, user_id: int) -> str:
+    """Mirror of voice-signaling's VOICE_STREAMING_KEY (browser screen-share)."""
+    key = f"voice:room:channel-{channel_id}:streaming"
+    await redis.sadd(key, str(user_id))
+    return key
+
+
 # --- POST happy path -------------------------------------------------------
 
 
@@ -101,6 +108,66 @@ async def test_post_stream_chat_410_without_active_stream(client, _auth_signer):
         headers=_auth(token),
     )
     assert r.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_post_stream_chat_accepts_browser_screen_share(client, _auth_signer, redis):
+    """LiveKit screen-share publishers count as 'live' even without an HQ stream."""
+    token, uid = await _register(_auth_signer)
+    _, cid = await _setup_voice_channel(client, token)
+    ss_key = await _set_screen_share(redis, cid, uid)
+    try:
+        r = await client.post(
+            f"/channels/{cid}/streams/{uid}/chat",
+            json={"content": "hi from screen-share"},
+            headers=_auth(token),
+        )
+        assert r.status_code == 201, r.text
+        raw = await redis.lrange(f"stream:chat:channel-{cid}-{uid}", 0, -1)
+        assert len(raw) == 1
+        assert json.loads(raw[0])["content"] == "hi from screen-share"
+    finally:
+        await redis.delete(ss_key, f"stream:chat:channel-{cid}-{uid}")
+
+
+@pytest.mark.asyncio
+async def test_post_stream_chat_410_when_other_user_screen_shares(
+    client, _auth_signer, redis
+):
+    """SET membership is per-user — only the matching uid unlocks the gate."""
+    token, uid = await _register(_auth_signer)
+    _, cid = await _setup_voice_channel(client, token)
+    # Someone *else* (a different uid) is screen-sharing; the target streamer is not.
+    other_uid = uid + 1
+    ss_key = await _set_screen_share(redis, cid, other_uid)
+    try:
+        r = await client.post(
+            f"/channels/{cid}/streams/{uid}/chat",
+            json={"content": "should fail"},
+            headers=_auth(token),
+        )
+        assert r.status_code == 410
+    finally:
+        await redis.delete(ss_key)
+
+
+@pytest.mark.asyncio
+async def test_post_stream_chat_accepts_hq_without_screen_share(
+    client, _auth_signer, redis
+):
+    """Regression: HQ-only path still works after the screen-share branch was added."""
+    token, uid = await _register(_auth_signer)
+    _, cid = await _setup_voice_channel(client, token)
+    active_key = await _set_active(redis, cid, uid)
+    try:
+        r = await client.post(
+            f"/channels/{cid}/streams/{uid}/chat",
+            json={"content": "hq only"},
+            headers=_auth(token),
+        )
+        assert r.status_code == 201, r.text
+    finally:
+        await redis.delete(active_key, f"stream:chat:channel-{cid}-{uid}")
 
 
 @pytest.mark.asyncio
