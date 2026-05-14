@@ -123,7 +123,25 @@ export type GsrEvent =
   | { ev: 'fps'; fps: number; uptime_s: number }
   | { ev: 'log'; line: string }
   | { ev: 'error'; message: string }
-  | { ev: 'stopped'; code?: number };
+  | { ev: 'stopped'; code?: number }
+  | { ev: 'diagnostic_done'; ok: true; size_bytes: number; filename: string; user_id: number }
+  | { ev: 'diagnostic_done'; ok: false; error: string };
+
+export interface GsrRecordDiagnosticArgs {
+  duration_s?: number;
+  upload_url: string;
+  access_token: string;
+  codec?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface GsrRecordDiagnosticResult {
+  ok: boolean;
+  error?: string;
+  duration_s?: number;
+  codec?: string;
+  port?: number;
+}
 
 // ── Bridge helpers ──────────────────────────────────────────────────────────
 
@@ -173,6 +191,10 @@ export const gsr = {
   async state(): Promise<GsrState | null> {
     const b = bridge();
     return b ? ((await b.state()) as GsrState) : null;
+  },
+  async recordDiagnostic(args: GsrRecordDiagnosticArgs): Promise<GsrRecordDiagnosticResult | null> {
+    const b = bridge();
+    return b ? ((await b.recordDiagnostic(args)) as GsrRecordDiagnosticResult) : null;
   },
 
   /**

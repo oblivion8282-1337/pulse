@@ -25,6 +25,19 @@ export interface PulseStoreApi {
   set(key: string, value: unknown): Promise<void>;
 }
 
+export interface PulseRecordDiagnosticArgs {
+  /** Recording length in seconds; clamped to 3..30 server-side. Default 10. */
+  duration_s?: number;
+  /** Absolute URL to the chat-gateway diagnostics endpoint. */
+  upload_url: string;
+  /** Pulse access JWT — forwarded as `Authorization: Bearer …`. */
+  access_token: string;
+  /** GSR `-k` value (default `"av1"`, override e.g. for a control run). */
+  codec?: string;
+  /** Optional metadata blob; stored next to the file as a JSON sidecar. */
+  metadata?: Record<string, unknown>;
+}
+
 export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
@@ -34,6 +47,9 @@ export interface PulseGsrApi {
   start(args: unknown): Promise<unknown>;
   stop(): Promise<unknown>;
   state(): Promise<unknown>;
+  /** Start a short diagnostic recording → upload cycle. Returns immediately;
+   *  final result arrives as a `diagnostic_done` event via `onEvent`. */
+  recordDiagnostic(args: PulseRecordDiagnosticArgs): Promise<unknown>;
   /** Subscribe to sidecar events. Returns an unsubscribe function. */
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
 }

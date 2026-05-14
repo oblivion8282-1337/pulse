@@ -125,6 +125,16 @@ services:
     volumes:
       - ./secrets:/secrets:ro
       - pulse_guild_icons:/app/services/chat-gateway/uploads
+      # Host bind-mount for the user-triggered diagnostic uploads (e.g. the
+      # AMD-VAAPI-AV1 freeze investigation). Nests inside the uploads/ named
+      # volume; Docker resolves nested mounts in path-depth order so the
+      # bind takes precedence on this subtree without disturbing
+      # guild-icons/. SSH-pickup: /home/michael/pulse/diagnostics/<uid>/.
+      # One-time setup on the VPS:
+      #   mkdir -p ~/pulse/diagnostics
+      #   sudo chown -R 10001:1000 ~/pulse/diagnostics    # app:michael
+      #   sudo chmod -R g+rwX,o+rX ~/pulse/diagnostics
+      - /home/michael/pulse/diagnostics:/app/services/chat-gateway/uploads/diagnostics
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s

@@ -39,6 +39,13 @@ class Settings(BaseSettings):
     # /api/chat/guild-icons/<guild_id>.webp (cache-buster ?v=… in icon_url).
     guild_icon_upload_dir: str = "./uploads/guild-icons"
 
+    # Diagnostic recordings — short user-triggered captures from the desktop
+    # sidecar (e.g. for the AMD-VAAPI-AV1 freeze investigation). Stored as
+    # raw bitstreams in a per-user subdir for admin SSH pickup. NOT served
+    # back over HTTP — write-only-from-client, read-only-via-shell.
+    diagnostics_upload_dir: str = "./uploads/diagnostics"
+    diagnostics_max_bytes: int = 60 * 1024 * 1024
+
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     @property

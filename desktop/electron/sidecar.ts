@@ -34,6 +34,11 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const OP_TIMEOUT_MS: Record<string, number> = {
   start: 60_000,
   stop: 15_000,
+  // `record_diagnostic` opens the same portal dialog as `start` and additionally
+  // schedules a background record-stop-upload cycle. The op-call itself returns
+  // immediately once GSR is spawned (final result lands as a `diagnostic_done`
+  // event), but the portal handshake still has to fit before this timeout.
+  record_diagnostic: 60_000,
 };
 
 /** How long to wait for the sidecar to exit naturally after we close its stdin
