@@ -60,7 +60,7 @@ USER app
 # is mounted here: Docker seeds it from the image → it inherits `app` ownership,
 # so the service (uid 10001) can actually write avatars into it. Harmless for the
 # non-auth services (just an empty dir).
-RUN mkdir -p uploads/avatars
+RUN mkdir -p uploads/avatars uploads/guild-icons
 EXPOSE 8000
 # shell form so ${SVC_PKG} expands; exec so uvicorn is PID 1 (clean signals)
 CMD exec uvicorn "${SVC_PKG}.app:app" --host 0.0.0.0 --port 8000

@@ -32,6 +32,25 @@ export const chatApi = {
   deleteGuild(id: string): Promise<void> {
     return request<void>(`/guilds/${id}`, { method: 'DELETE' });
   },
+  async uploadGuildIcon(id: string, file: File): Promise<Guild> {
+    const { loadTokens } = await import('./storage');
+    const tokens = loadTokens();
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch(`/api/chat/guilds/${id}/icon`, {
+      method: 'POST',
+      headers: tokens ? { Authorization: `Bearer ${tokens.access_token}` } : {},
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error((err as { detail?: string }).detail ?? res.statusText);
+    }
+    return res.json() as Promise<Guild>;
+  },
+  deleteGuildIcon(id: string): Promise<void> {
+    return request<void>(`/guilds/${id}/icon`, { method: 'DELETE' });
+  },
 
   // Members
   addMember(guildId: string, userId: string): Promise<Member> {

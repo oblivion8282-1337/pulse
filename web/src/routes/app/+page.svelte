@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import GuildList from '$lib/components/GuildList.svelte';
+  import GuildRail from '$lib/components/GuildRail.svelte';
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { auth } from '$lib/stores/auth.svelte';
@@ -40,14 +40,15 @@
   }
 </script>
 
+<GuildRail
+  guilds={guilds.list}
+  activeGuildId={null}
+  currentUserId={auth.user?.id ?? null}
+  onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
+  onCreateClick={() => (creating = true)}
+/>
+
 <aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list-placeholder">
-  <GuildList
-    guilds={guilds.list}
-    activeGuildId={null}
-    currentUserId={auth.user?.id ?? null}
-    onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
-    onCreateClick={() => (creating = true)}
-  />
   <div class="flex-1"></div>
   <UserFooter />
 </aside>

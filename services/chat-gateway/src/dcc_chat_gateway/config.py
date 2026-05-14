@@ -35,6 +35,10 @@ class Settings(BaseSettings):
 
     snowflake_worker_id_chat: int = Field(default=2, ge=0, le=1023)
 
+    # Guild-icon uploads (owner-only). Resized to 256px webp, served via
+    # /api/chat/guild-icons/<guild_id>.webp (cache-buster ?v=… in icon_url).
+    guild_icon_upload_dir: str = "./uploads/guild-icons"
+
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     @property

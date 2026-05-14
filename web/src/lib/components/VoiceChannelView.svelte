@@ -3,9 +3,12 @@
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
+  import MemberList from './MemberList.svelte';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import RocketIcon from '@lucide/svelte/icons/rocket';
+  import UsersIcon from '@lucide/svelte/icons/users';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
@@ -36,6 +39,10 @@
   // into one responsive grid; participant avatars become a compact row below.
   let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
   let videoTileCount = $derived(hqStreamersOther.length + voice.screenTracks.length);
+
+  let memberListOpen = $state(false);
+  let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
+  let showMemberOverlay = $derived(memberListOpen && viewport.isMobile);
   let streamGridCols = $derived(
     videoTileCount <= 1
       ? 'grid-cols-1'
@@ -127,6 +134,14 @@
     <Volume2Icon class="text-primary size-5 shrink-0" />
     <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
+    <button
+      class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+      onclick={() => (memberListOpen = !memberListOpen)}
+      aria-label="Mitgliederliste umschalten"
+      data-testid="member-list-toggle"
+    >
+      <UsersIcon class="text-text-muted size-4" />
+    </button>
   </header>
 
   {#if voice.audioBlocked && isThisChannel}
@@ -142,7 +157,8 @@
     </div>
   {/if}
 
-  <div class="flex min-h-0 flex-1 flex-col">
+  <div class="relative flex min-h-0 flex-1">
+   <div class="flex min-h-0 flex-1 flex-col">
     {#if isThisChannel && (voice.connected || voice.connecting)}
       {#if voice.participants.length === 0}
         <div class="flex flex-1 items-center justify-center">
@@ -201,6 +217,24 @@
         </div>
       </div>
     {/if}
+   </div>
+
+    <!-- Mitgliederliste: inline auf md+ -->
+    {#if showMemberInline}
+      <MemberList guildId={channel.guild_id} />
+    {/if}
   </div>
+
+  <!-- Sheet von rechts auf Mobil -->
+  {#if showMemberOverlay}
+    <div
+      class="fixed inset-0 z-30 bg-black/40"
+      role="presentation"
+      onclick={() => (memberListOpen = false)}
+    ></div>
+    <div class="fixed inset-y-0 right-0 z-40 flex w-4/5 max-w-xs flex-col">
+      <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
+    </div>
+  {/if}
 
 </section>

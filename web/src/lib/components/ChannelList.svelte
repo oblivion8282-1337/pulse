@@ -24,7 +24,6 @@
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import UserFooter from './UserFooter.svelte';
-  import GuildList from './GuildList.svelte';
 
   let {
     guild,
@@ -33,13 +32,7 @@
     onSelect,
     onCreateClick,
     onChannelDeleted,
-    canCreate = false,
-    guildList,
-    activeGuildId = null,
-    currentUserId = null,
-    onSelectGuild,
-    onCreateGuildClick,
-    onGuildDeleted
+    canCreate = false
   }: {
     guild: Guild | null;
     channels: Channel[];
@@ -48,12 +41,6 @@
     onCreateClick: () => void;
     onChannelDeleted?: (channelId: string) => void;
     canCreate?: boolean;
-    guildList: Guild[];
-    activeGuildId?: string | null;
-    currentUserId?: string | null;
-    onSelectGuild: (g: Guild) => void;
-    onCreateGuildClick: () => void;
-    onGuildDeleted?: (guildId: string) => void;
   } = $props();
 
   let inviteOpen = $state(false);
@@ -110,15 +97,7 @@
 </script>
 
 <aside class="glass-panel text-text-base flex h-full w-72 flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list">
-  <GuildList
-    guilds={guildList}
-    {activeGuildId}
-    {currentUserId}
-    onSelect={onSelectGuild}
-    onCreateClick={onCreateGuildClick}
-    {onGuildDeleted}
-  />
-  <header class="flex h-12 items-center justify-between px-4 text-text-bright">
+  <header class="flex h-12 items-center justify-between px-4 pt-3 text-text-bright">
     <span class="truncate text-base font-bold tracking-tight">{guild?.name ?? '—'}</span>
     <div class="flex items-center gap-0.5">
       {#if guild}

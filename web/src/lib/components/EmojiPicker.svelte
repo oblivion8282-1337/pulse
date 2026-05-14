@@ -23,7 +23,7 @@
 </script>
 
 <div
-  class="bg-bg-input flex w-72 flex-col gap-2 rounded-2xl border border-border p-3 shadow-lg"
+  class="bg-popover text-popover-foreground flex w-72 flex-col gap-2 rounded-2xl border border-border p-3 shadow-xl backdrop-blur-xl"
   data-testid="emoji-picker"
   role="dialog"
   aria-label="Emoji wählen"

@@ -60,9 +60,8 @@ uv.lock.backup
 # Local worktrees + team state (Claude Code)
 .claude/
 
-# Avatar uploads (keep directory, ignore uploaded files)
-services/auth/uploads/avatars/*
-!services/auth/uploads/avatars/.gitkeep
+# Uploaded files (avatars, guild icons, …) — never check in user content.
+services/*/uploads/
 
 # Streaming (T2) — generierte MediaMTX-Config + Stream-Key. NIEMALS einchecken.
 # Das Template streaming/server/mediamtx.yml.template ist ok (Placeholder-Key).

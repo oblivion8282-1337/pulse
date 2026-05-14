@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import ChannelList from '$lib/components/ChannelList.svelte';
+  import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -293,12 +294,22 @@
   ></div>
 {/if}
 
-<!-- Sidebar: inline auf md+, Drawer auf Mobil -->
+<!-- Guild-Rail: immer sichtbar (auch Mobil), Discord-Style. -->
+<GuildRail
+  guilds={guilds.list}
+  activeGuildId={guildId}
+  currentUserId={auth.user?.id ?? null}
+  onSelect={(g) => selectGuild(g.id)}
+  onCreateClick={() => (creatingGuild = true)}
+  onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
+/>
+
+<!-- Channel-Sidebar: inline auf md+, Drawer auf Mobil -->
 <div
   class="
-    fixed inset-y-0 left-0 z-40 w-72 transition-transform duration-300 ease-out
+    fixed inset-y-0 left-16 z-40 w-72 transition-transform duration-300 ease-out
     {sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-    md:relative md:inset-auto md:z-auto md:w-auto md:translate-x-0 md:transition-none
+    md:relative md:inset-auto md:left-auto md:z-auto md:w-auto md:translate-x-0 md:transition-none
   "
 >
   <ChannelList
@@ -309,12 +320,6 @@
     onCreateClick={() => (creatingChannel = true)}
     {onChannelDeleted}
     canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
-    guildList={guilds.list}
-    activeGuildId={guildId}
-    currentUserId={auth.user?.id ?? null}
-    onSelectGuild={(g) => selectGuild(g.id)}
-    onCreateGuildClick={() => (creatingGuild = true)}
-    onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
   />
 </div>
 
