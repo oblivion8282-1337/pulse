@@ -1,6 +1,7 @@
 import { request } from './client';
 import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member, Message } from './types';
 import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
+import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 
 /** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
 export type StreamTokenResponse = {
@@ -182,5 +183,29 @@ export const chatApi = {
   async getGuildStreamState(guildId: string): Promise<StreamChannelState[]> {
     const r = await request<{ stream_states: StreamChannelState[] }>(`/guilds/${guildId}/stream-state`);
     return r.stream_states ?? [];
+  },
+
+  // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State
+  // pro Streamer in `streamChat.svelte.ts`).
+  /** Post a message into a streamer's live chat. 410 if the stream isn't active. */
+  postStreamChat(
+    channelId: string,
+    streamerId: string,
+    content: string
+  ): Promise<{ id: string; created_at: string }> {
+    return request<{ id: string; created_at: string }>(
+      `/channels/${channelId}/streams/${streamerId}/chat`,
+      { method: 'POST', body: { content } }
+    );
+  },
+  /** Backfill the live chat (chronological order, oldest first). */
+  getStreamChat(
+    channelId: string,
+    streamerId: string,
+    limit = 100
+  ): Promise<StreamChatMessage[]> {
+    return request<StreamChatMessage[]>(
+      `/channels/${channelId}/streams/${streamerId}/chat?limit=${limit}`
+    );
   }
 };

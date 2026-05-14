@@ -65,10 +65,18 @@ type ScreenShareSettings = {
   contentHint: 'motion' | 'detail';
 };
 
+type StreamChatSettings = {
+  /** Seitliches Stream-Chat-Panel offen (User-Toggle, default desktop).
+   *  Fullscreen-Overlay über dem Video ist nicht persistiert — pro Player
+   *  per Toggle-Button, defaultet immer auf aus. */
+  panelOpen: boolean;
+};
+
 type PersistedSettings = {
   audio: AudioSettings;
   voice: VoiceSettings;
   screenShare: ScreenShareSettings;
+  streamChat: StreamChatSettings;
   appearance: AppearanceSettings;
 };
 
@@ -95,6 +103,9 @@ const DEFAULTS: PersistedSettings = {
     fps: 30,
     bitrateMbps: 4,
     contentHint: 'motion'
+  },
+  streamChat: {
+    panelOpen: true
   },
   appearance: {
     theme: 'system'
@@ -163,6 +174,12 @@ function parseScreenShare(raw: Partial<ScreenShareSettings> | undefined | null):
   };
 }
 
+function parseStreamChat(raw: Partial<StreamChatSettings> | undefined | null): StreamChatSettings {
+  const d = DEFAULTS.streamChat;
+  const p = raw ?? {};
+  return { panelOpen: bool(p.panelOpen, d.panelOpen) };
+}
+
 function load(): PersistedSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -173,6 +190,7 @@ function load(): PersistedSettings {
         audio: { ...DEFAULTS.audio },
         voice: { ...DEFAULTS.voice },
         screenShare: parseScreenShare(legacy),
+        streamChat: { ...DEFAULTS.streamChat },
         appearance: { ...DEFAULTS.appearance }
       };
     }
@@ -202,6 +220,7 @@ function load(): PersistedSettings {
         userVolumes: parseUserVolumes(v.userVolumes)
       },
       screenShare: parseScreenShare(parsed.screenShare),
+      streamChat: parseStreamChat(parsed.streamChat),
       appearance: { theme: parseTheme(ap.theme) }
     };
   } catch {
@@ -209,6 +228,7 @@ function load(): PersistedSettings {
       audio: { ...DEFAULTS.audio },
       voice: { ...DEFAULTS.voice },
       screenShare: { ...DEFAULTS.screenShare },
+      streamChat: { ...DEFAULTS.streamChat },
       appearance: { ...DEFAULTS.appearance }
     };
   }
@@ -218,6 +238,7 @@ class SettingsStore {
   audio = $state<AudioSettings>({ ...DEFAULTS.audio });
   voice = $state<VoiceSettings>({ ...DEFAULTS.voice });
   screenShare = $state<ScreenShareSettings>({ ...DEFAULTS.screenShare });
+  streamChat = $state<StreamChatSettings>({ ...DEFAULTS.streamChat });
   appearance = $state<AppearanceSettings>({ ...DEFAULTS.appearance });
 
   /** True if a legacy `dcc.screenShareSettings` key was migrated and can be cleared. */
@@ -228,6 +249,7 @@ class SettingsStore {
     this.audio = s.audio;
     this.voice = s.voice;
     this.screenShare = s.screenShare;
+    this.streamChat = s.streamChat;
     this.appearance = s.appearance;
     if (typeof localStorage !== 'undefined') {
       this.#legacyMigrated =
@@ -250,6 +272,7 @@ class SettingsStore {
           audio: this.audio,
           voice: this.voice,
           screenShare: this.screenShare,
+          streamChat: this.streamChat,
           appearance: this.appearance
         })
       );
@@ -367,6 +390,13 @@ class SettingsStore {
 
   setScreenShareContentHint(v: 'motion' | 'detail'): void {
     this.screenShare.contentHint = v;
+    this.#persist();
+  }
+
+  // --- stream-chat setters ---
+
+  setStreamChatPanelOpen(v: boolean): void {
+    this.streamChat.panelOpen = v;
     this.#persist();
   }
 }

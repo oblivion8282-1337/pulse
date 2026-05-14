@@ -11,6 +11,7 @@ from dcc_chat_gateway.routes import (
     invites,
     messages,
     reactions,
+    stream_chat,
     streaming,
     ws,
 )
@@ -23,6 +24,7 @@ router.include_router(invites.router)
 router.include_router(messages.router)
 router.include_router(reactions.router)
 router.include_router(streaming.router)
+router.include_router(stream_chat.router)
 router.include_router(ws.router)
 
 __all__ = ["router"]

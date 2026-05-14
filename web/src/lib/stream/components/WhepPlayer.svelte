@@ -17,17 +17,13 @@
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import VolumeXIcon from '@lucide/svelte/icons/volume-x';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import MaximizeIcon from '@lucide/svelte/icons/maximize';
-  import MinimizeIcon from '@lucide/svelte/icons/minimize';
-  import LoaderIcon from '@lucide/svelte/icons/loader-circle';
-  import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
-  import RocketIcon from '@lucide/svelte/icons/rocket';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, type StreamStats } from '../whep-stats';
   import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
+  import StreamChatOverlay from './StreamChatOverlay.svelte';
+  import StreamChatInlineInput from './StreamChatInlineInput.svelte';
+  import WhepHud from './WhepHud.svelte';
 
   let {
     channelId,
@@ -41,6 +37,8 @@
   // Remembers last non-zero volume so the mute toggle can restore it.
   let prevVolume = $state(100);
   let isFullscreen = $state(false);
+  // Im-Player-Chat (Twitch-Style) — Sibling im containerEl, geht mit in den Fullscreen.
+  let chatOpen = $state(false);
 
   function handleToggleFullscreen() {
     toggleFullscreen(containerEl, videoEl);
@@ -222,100 +220,24 @@
     title="Klicken für Vollbild / Esc zum Verlassen"
   ></video>
 
-  {#if phase === 'connecting' || phase === 'retrying'}
-    <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 text-white">
-      <LoaderIcon class="size-7 animate-spin" />
-      <p class="text-sm">{phase === 'retrying' ? 'Warte auf den Stream…' : 'Verbinde mit dem Stream…'}</p>
-      {#if detail && phase === 'retrying'}
-        <p class="max-w-sm text-center text-[11px] text-white/60">{detail}</p>
-      {/if}
-    </div>
-  {:else if phase === 'error'}
-    <div class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/65 text-red-200">
-      <AlertTriangleIcon class="size-7" />
-      <p class="text-sm">Stream konnte nicht geladen werden</p>
-      {#if detail}<p class="max-w-sm text-center text-[11px] text-red-200/70">{detail}</p>{/if}
-    </div>
-  {/if}
+  <WhepHud
+    {phase}
+    {detail}
+    {name}
+    {stats}
+    {volume}
+    {audioBlocked}
+    {isFullscreen}
+    {chatOpen}
+    onToggleFullscreen={handleToggleFullscreen}
+    onToggleChat={() => (chatOpen = !chatOpen)}
+    onToggleMute={toggleMute}
+    onVolumeChange={handleVolume}
+    onEnableAudio={enableAudio}
+  />
 
-  <!--
-    Top-right corner: Maximize button always visible, "Ton aktivieren" below it
-    when audioBlocked. Stacking them vertically avoids overlap — both remain
-    individually tappable on touch screens.
-  -->
-  <div class="absolute right-2 top-2 flex flex-col items-end gap-1.5">
-    <button
-      type="button"
-      onclick={handleToggleFullscreen}
-      class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
-      aria-label={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
-      title={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
-      data-testid="hq-stream-fullscreen"
-    >
-      {#if isFullscreen}
-        <MinimizeIcon class="size-3.5" />
-      {:else}
-        <MaximizeIcon class="size-3.5" />
-      {/if}
-    </button>
-
-    {#if audioBlocked}
-      <button
-        type="button"
-        onclick={enableAudio}
-        class="flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
-        data-testid="hq-stream-unblock-audio"
-      >
-        <VolumeXIcon class="size-3" />
-        Ton aktivieren
-      </button>
-    {/if}
-  </div>
-
-  {#if name}
-    <div
-      class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
-      data-testid="hq-stream-streamer-name"
-    >
-      <RocketIcon class="size-3 text-red-400" />
-      <span class="max-w-32 truncate">{name}</span>
-    </div>
-  {/if}
-
-  {#if phase === 'playing'}
-    <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
-      <button
-        type="button"
-        onclick={toggleMute}
-        class="flex items-center text-white hover:text-white/70"
-        aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
-        data-testid="hq-stream-mute"
-      >
-        {#if volume === 0}
-          <VolumeXIcon class="size-3" />
-        {:else}
-          <Volume2Icon class="size-3" />
-        {/if}
-      </button>
-      <input
-        type="range"
-        min="0"
-        max="100"
-        value={volume}
-        oninput={handleVolume}
-        class="w-24 accent-white sm:w-20"
-        aria-label="Lautstärke des Streams"
-        data-testid="hq-stream-volume"
-      />
-    </div>
-  {/if}
-
-  {#if phase === 'playing' && stats}
-    <div
-      class="absolute left-2 top-2 flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm"
-      data-testid="hq-stream-stats"
-    >
-      <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span>
-    </div>
+  {#if isFullscreen && chatOpen}
+    <StreamChatOverlay {channelId} streamerId={userId} />
+    <StreamChatInlineInput {channelId} streamerId={userId} />
   {/if}
 </div>

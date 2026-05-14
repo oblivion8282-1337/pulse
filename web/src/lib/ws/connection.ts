@@ -18,6 +18,7 @@ import {
   type VoiceChannelState
 } from '$lib/stores/voicePresence.svelte';
 import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
+import { streamChat, type StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import type { Message } from '$lib/api/types';
 
@@ -80,6 +81,12 @@ type ServerEvent =
       user_states?: Record<string, UserVoiceState>;
     }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
+  | {
+      op: 'stream_chat_message';
+      channel_id: string;
+      streamer_id: string;
+      message: StreamChatMessage;
+    }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -228,6 +235,7 @@ export class GatewayConnection {
       evt.op !== 'message_ack' &&
       evt.op !== 'voice_state' &&
       evt.op !== 'stream_state' &&
+      evt.op !== 'stream_chat_message' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -327,6 +335,13 @@ export class GatewayConnection {
         break;
       case 'stream_state':
         streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
+        // Stream gone → lokaler Chat-State für absente Streamer auch raus
+        // (ephemer pro Plan; Server-Liste lebt noch 6h via TTL, aber UX-seitig
+        // verschwindet der Chat sofort mit dem Stream).
+        streamChat.pruneAbsent(evt.channel_id, evt.user_ids ?? []);
+        break;
+      case 'stream_chat_message':
+        streamChat.apply(evt.channel_id, evt.streamer_id, evt.message);
         break;
     }
   }

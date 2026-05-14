@@ -1,13 +1,14 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
-  import ScreenShareTile from './ScreenShareTile.svelte';
-  import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import MemberList from './MemberList.svelte';
+  import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
+  import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
-  import RocketIcon from '@lucide/svelte/icons/rocket';
   import UsersIcon from '@lucide/svelte/icons/users';
+  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -38,20 +39,31 @@
   // Stream layout: every watchable HQ stream + every browser screen-share go
   // into one responsive grid; participant avatars become a compact row below.
   let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
-  let videoTileCount = $derived(hqStreamersOther.length + voice.screenTracks.length);
 
   let memberListOpen = $state(false);
-  let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
-  let showMemberOverlay = $derived(memberListOpen && viewport.isMobile);
-  let streamGridCols = $derived(
-    videoTileCount <= 1
-      ? 'grid-cols-1'
-      : videoTileCount <= 4
-        ? 'grid-cols-2'
-        : videoTileCount <= 9
-          ? 'grid-cols-3'
-          : 'grid-cols-4',
-  );
+  let chatPanelOpen = $state(settings.streamChat.panelOpen);
+  // v1: kein Streamer-Switch im Panel — der erste fremde Streamer fokussiert sich.
+  let focusedStreamerId = $derived(hqStreamersOther[0] ?? null);
+  let canShowStreamChat = $derived(chatPanelOpen && focusedStreamerId !== null);
+  // Mutex zwischen Mitglieder- und Chat-Panel (gleicher rechter Slot).
+  let showMember = $derived(memberListOpen && !canShowStreamChat);
+  function toggleChatPanel(): void {
+    chatPanelOpen = !chatPanelOpen;
+    settings.setStreamChatPanelOpen(chatPanelOpen);
+    if (chatPanelOpen) memberListOpen = false;
+  }
+  function toggleMemberList(): void {
+    memberListOpen = !memberListOpen;
+    if (memberListOpen) chatPanelOpen = false;
+  }
+
+  // Subscription auf chat:channel:<cid>, damit `stream_chat_message`-Events
+  // (per-Channel via `_subs` gefiltert) hier ankommen.
+  $effect(() => {
+    const cid = channel.id;
+    gateway.subscribe(cid);
+    return () => gateway.unsubscribe(cid);
+  });
   let hqLabel = $derived.by(() => {
     const others = hqStreamersOther.length;
     if (iAmHqStreaming) {
@@ -135,8 +147,19 @@
     <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <button
-      class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
-      onclick={() => (memberListOpen = !memberListOpen)}
+      class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+      onclick={toggleChatPanel}
+      disabled={focusedStreamerId === null}
+      aria-label="Live-Chat umschalten"
+      aria-pressed={canShowStreamChat}
+      data-testid="stream-chat-toggle"
+      title={focusedStreamerId === null ? 'Kein aktiver HQ-Stream' : 'Live-Chat'}
+    >
+      <MessageSquareIcon class="text-text-muted size-4" />
+    </button>
+    <button
+      class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+      onclick={toggleMemberList}
       aria-label="Mitgliederliste umschalten"
       data-testid="member-list-toggle"
     >
@@ -165,38 +188,7 @@
           <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
         </div>
       {:else if hasStreams}
-        <div class="flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
-          {#if hqStreaming}
-            <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
-              <RocketIcon class="size-4 text-red-500" />
-              <span class="text-text-bright">{hqLabel}</span>
-            </div>
-          {/if}
-
-          {#if videoTileCount === 0}
-            <!-- our own HQ stream, nothing else to show — just the "you're streaming" notice -->
-            <div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-bg-chat text-center" data-testid="hq-stream-self-indicator">
-              <RocketIcon class="size-10 text-red-500" />
-              <p class="text-text-bright text-sm font-medium">Du streamst in diesen Kanal</p>
-              <p class="text-text-muted text-xs">Deine eigene Wiedergabe wird hier nicht angezeigt.</p>
-            </div>
-          {:else}
-            <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 {streamGridCols}" data-testid="stream-grid">
-              {#each hqStreamersOther as uid (uid)}
-                <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
-              {/each}
-              {#each voice.screenTracks as st (st.identity)}
-                <ScreenShareTile track={st.track} audioTrack={st.audioTrack} name={st.name} identity={st.identity} />
-              {/each}
-            </div>
-          {/if}
-
-          <div class="flex shrink-0 flex-wrap items-center justify-center gap-3 py-1" data-testid="voice-participants">
-            {#each voice.participants as p (p.identity)}
-              <VoiceParticipantTile {p} />
-            {/each}
-          </div>
-        </div>
+        <StreamGrid {channel} {hqStreaming} {hqStreamersOther} {hqLabel} />
       {:else}
         <div class="flex flex-1 flex-wrap items-center justify-center gap-4 p-3 md:gap-6 md:p-8" data-testid="voice-participants">
           {#each voice.participants as p (p.identity)}
@@ -219,21 +211,26 @@
     {/if}
    </div>
 
-    <!-- Mitgliederliste: inline auf md+ -->
-    {#if showMemberInline}
-      <MemberList guildId={channel.guild_id} />
+    <!-- Rechter Slot inline (md+) — Mitgliederliste ODER Live-Chat. -->
+    {#if !viewport.isMobile}
+      {#if showMember}
+        <MemberList guildId={channel.guild_id} />
+      {:else if canShowStreamChat && focusedStreamerId}
+        <StreamChatPanel channelId={channel.id} streamerId={focusedStreamerId} onClose={toggleChatPanel} />
+      {/if}
     {/if}
   </div>
 
-  <!-- Sheet von rechts auf Mobil -->
-  {#if showMemberOverlay}
-    <div
-      class="fixed inset-0 z-30 bg-black/40"
-      role="presentation"
-      onclick={() => (memberListOpen = false)}
-    ></div>
+  <!-- Sheet von rechts auf Mobil — gleicher mutex-Slot. -->
+  {#if viewport.isMobile && (showMember || canShowStreamChat)}
+    <div class="fixed inset-0 z-30 bg-black/40" role="presentation"
+      onclick={() => { memberListOpen = false; if (chatPanelOpen) toggleChatPanel(); }}></div>
     <div class="fixed inset-y-0 right-0 z-40 flex w-4/5 max-w-xs flex-col">
-      <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
+      {#if canShowStreamChat && focusedStreamerId}
+        <StreamChatPanel channelId={channel.id} streamerId={focusedStreamerId} onClose={toggleChatPanel} />
+      {:else}
+        <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
+      {/if}
     </div>
   {/if}
 
