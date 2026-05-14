@@ -6,14 +6,12 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import RocketIcon from '@lucide/svelte/icons/rocket';
-  import SquareIcon from '@lucide/svelte/icons/square';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
-  import { gsr } from '$lib/stream/gsr';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import type { Channel } from '$lib/api/types';
@@ -61,14 +59,6 @@
   $effect(() => {
     for (const uid of hqStreamers) userCache.queue(uid);
   });
-
-  async function stopHqStream() {
-    try {
-      await gsr.stop();
-    } catch {
-      /* the WS broadcast will reflect the real state either way */
-    }
-  }
 
   // Connecting must happen from a user gesture (click on "Beitreten") so the
   // browser allows the AudioContext to start — auto-connect on mount would be
@@ -164,18 +154,6 @@
             <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
               <RocketIcon class="size-4 text-red-500" />
               <span class="text-text-bright">{hqLabel}</span>
-              {#if iAmHqStreaming}
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  class="ml-auto gap-1.5"
-                  onclick={stopHqStream}
-                  data-testid="hq-stream-stop-btn"
-                >
-                  <SquareIcon class="size-3.5" />
-                  Stream beenden
-                </Button>
-              {/if}
             </div>
           {/if}
 
