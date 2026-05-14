@@ -13,7 +13,9 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
-  import type { StreamStats } from '../whep-stats';
+  import ClipboardIcon from '@lucide/svelte/icons/clipboard';
+  import CheckIcon from '@lucide/svelte/icons/check';
+  import { formatDiagnostic, type StreamStats } from '../whep-stats';
 
   let {
     phase,
@@ -44,6 +46,24 @@
     onVolumeChange: (e: Event) => void;
     onEnableAudio: () => void;
   } = $props();
+
+  let copied = $state(false);
+  let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function copyDiagnostic() {
+    if (!stats) return;
+    try {
+      await navigator.clipboard.writeText(formatDiagnostic(stats.diagnostic, { name }));
+      copied = true;
+      if (copyResetTimer) clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => {
+        copied = false;
+        copyResetTimer = null;
+      }, 1500);
+    } catch {
+      /* clipboard API kann in non-secure-Contexts failen — silent */
+    }
+  }
 </script>
 
 {#if phase === 'connecting' || phase === 'retrying'}
@@ -74,10 +94,24 @@
 
 {#if phase === 'playing' && stats}
   <div
-    class="absolute left-2 top-2 flex items-center gap-2 rounded-full bg-black/55 px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm"
+    class="absolute left-2 top-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm {stats.frozen ? 'bg-red-700/80 animate-pulse' : 'bg-black/55'}"
     data-testid="hq-stream-stats"
+    data-frozen={stats.frozen}
   >
     <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span>
+    {#if stats.frozen}
+      <span class="ml-1 font-sans font-semibold uppercase tracking-wide">freeze {stats.freezeSeconds.toFixed(0)}s</span>
+    {/if}
+    <button
+      type="button"
+      onclick={copyDiagnostic}
+      class="ml-1 -mr-0.5 flex size-4 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+      aria-label="Stream-Diagnose in die Zwischenablage kopieren"
+      title={copied ? 'Diagnose kopiert' : 'Diagnose kopieren'}
+      data-testid="hq-stream-stats-copy"
+    >
+      {#if copied}<CheckIcon class="size-3" />{:else}<ClipboardIcon class="size-3" />{/if}
+    </button>
   </div>
 {/if}
 
