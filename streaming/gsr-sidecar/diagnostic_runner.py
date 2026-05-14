@@ -33,9 +33,10 @@ from profiles import ServerProfile, profile_by_name
 from stream_controller import StreamController
 
 # Conservative limits — guard against a user-script that asks for a
-# silly duration or never-stop scenarios.
+# silly duration or never-stop scenarios. 60s × 4 Mbit AV1 ≈ 30 MB, well
+# inside the server's 60 MB cap; bump deliberately if you raise either.
 _MIN_DURATION_S = 3.0
-_MAX_DURATION_S = 30.0
+_MAX_DURATION_S = 60.0
 # How long to wait, after stop, for GSR to actually flush + exit. GSR's
 # normal SIGINT shutdown takes ~1s; 10s is plenty.
 _STOP_TIMEOUT_S = 10.0

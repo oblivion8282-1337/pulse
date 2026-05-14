@@ -90,7 +90,7 @@
     try {
       const metadata = await buildMetadata();
       const r = await gsr.recordDiagnostic({
-        duration_s: 10,
+        duration_s: 40,
         upload_url: buildUploadUrl(),
         access_token: token,
         codec: 'av1',
@@ -141,7 +141,7 @@
     </Button>
     {#if !stream.running}
       <p class="text-text-muted text-[11px]">
-        Erzeugt eine ~10 s AV1-Aufnahme + GSR-Log und schickt sie zur Bug-Analyse an Pulse.
+        Erzeugt eine ~40 s AV1-Aufnahme + GSR-Log und schickt sie zur Bug-Analyse an Pulse.
       </p>
     {/if}
   </div>
@@ -152,14 +152,15 @@
         <AlertDialog.Title>Diagnose-Aufnahme senden?</AlertDialog.Title>
         <AlertDialog.Description>
           <span class="block">
-            Es wird gleich eine etwa <strong>10-sekündige Bildschirm-Aufnahme</strong> mit
+            Es wird gleich eine etwa <strong>40-sekündige Bildschirm-Aufnahme</strong> mit
             dem AV1-Encoder gemacht. Die Aufnahme + dein aktueller GSR-Log + Browser-Info
             werden direkt an den Pulse-Server geschickt zur Analyse des AMD-AV1-Freeze-Bugs.
           </span>
           <span class="text-text-muted mt-2 block text-xs">
             Pflicht: gleich erscheint der Wayland-Bildschirm-Auswahldialog (wie beim normalen Stream).
-            Es lohnt sich, in den 10 s etwas auf dem Bildschirm zu bewegen (Maus, Scrollen) —
-            ruhiger Inhalt liefert weniger aussagekräftige Daten.
+            Es lohnt sich, in den 40 s etwas auf dem Bildschirm zu bewegen (Maus, Scrollen) —
+            ruhiger Inhalt liefert weniger aussagekräftige Daten. Lang genug damit der Freeze
+            zuverlässig drin landet.
           </span>
         </AlertDialog.Description>
       </AlertDialog.Header>
