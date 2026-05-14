@@ -142,7 +142,10 @@ modules:
 
   # ── gpu-screen-recorder (custom build: FLV-Opus whitelist + Vulkan-encoder stub) ──
   # The Vulkan-encoder stub is harmless — Pulse uses NVENC/VAAPI, never Vulkan encode.
-  # GSR source is left at master HEAD for now; pin a commit before distributing widely.
+  # Pinned: upstream force-pushes master and our patches are line-anchored, so a
+  # moving HEAD breaks the Flatpak CI. Bump deliberately when refreshing GSR;
+  # re-run `patch -p1 --dry-run < streaming/patches/0002*.patch` against the new
+  # tree first and rewrite the patch if upstream rearranged the encoder source.
   - name: gpu-screen-recorder
     buildsystem: meson
     config-opts:
@@ -150,6 +153,7 @@ modules:
     sources:
       - type: git
         url: https://repo.dec05eba.com/gpu-screen-recorder
+        commit: 0349083cfe4578dbc8bc600e31187e8e09318add
       - type: patch
         path: ../streaming/patches/0001-opus-flv-whitelist.patch
       - type: patch
