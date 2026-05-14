@@ -1,10 +1,17 @@
 <!--
-  AudioModePicker — Audio-Quelle für den HQ-Stream:
-    Aus · Desktop · Mikrofon · Desktop + Mikrofon · Bestimmte App
+  AudioModePicker — Audio-Quelle für den HQ-Stream.
 
-  Bei "Desktop"/"Desktop + Mikrofon": darunter die `excluded_apps`-Liste
-  (Desktop-Audio minus diese Apps; GSR `app-inverse:`).
-  Bei "Bestimmte App": ein Dropdown der laufenden Audio-Apps (live aus
+  Layout: drei Haupt-Optionen als Pills (Aus · System · Spezifische App) +
+  ein Chevron-Button daneben, dessen Popover die selteneren Mikro-Optionen
+  enthält (Nur Mikrofon · System + Mikrofon).
+
+  Interne Modus-Werte bleiben unverändert (`Desktop`, `Mikrofon`,
+  `Desktop + Mikrofon`) — der Sidecar (`profiles.py::_AUDIO_LABEL_TO_BASE`)
+  erwartet genau diese Strings. Die UI mappt sie nur in lesbarere Labels.
+
+  Bei "System"/"System + Mikrofon": darunter die `excluded_apps`-Liste
+  (System-Audio minus diese Apps; GSR `app-inverse:`).
+  Bei "Spezifische App": Pills der laufenden Audio-Apps (live aus
   `gpu-screen-recorder --list-application-audio`) — Auswahl wird als
   `audio_mode = "App: <name>"` gespeichert → Sidecar macht `-a "app:<name>"`.
 
@@ -13,12 +20,13 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
   import XIcon from '@lucide/svelte/icons/x';
   import PlusIcon from '@lucide/svelte/icons/plus';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import {
     streamSettings,
-    AUDIO_MODES,
     APP_AUDIO_PREFIX,
     isAppAudioMode,
     appFromAudioMode,
@@ -33,8 +41,25 @@
   let pickedToAdd = $state('');
   let refreshing = $state(false);
 
+  // Internal value → UI-Label.
+  function label(mode: AudioMode): string {
+    if (mode === 'Desktop') return 'System';
+    if (mode === 'Desktop + Mikrofon') return 'System + Mikrofon';
+    if (mode === 'Mikrofon') return 'Nur Mikrofon';
+    return mode;
+  }
+
+  const MAIN_MODES: AudioMode[] = ['Aus', 'Desktop'];
+  const SECONDARY_MODES: AudioMode[] = ['Mikrofon', 'Desktop + Mikrofon'];
+
   let appMode = $derived(isAppAudioMode(streamSettings.audio_mode));
   let usesDesktop = $derived(audioModeUsesDesktop(streamSettings.audio_mode));
+  let secondaryActive = $derived(
+    SECONDARY_MODES.includes(streamSettings.audio_mode as AudioMode),
+  );
+  let secondaryLabel = $derived(
+    secondaryActive ? label(streamSettings.audio_mode as AudioMode) : '',
+  );
   let selectedApp = $derived(appFromAudioMode(streamSettings.audio_mode) || streamSettings.audio_app);
   let availableForAdd = $derived(
     streamSettings.available_audio_apps.filter((a) => !streamSettings.excluded_apps.includes(a)),
@@ -52,8 +77,7 @@
     persistSettings();
   }
 
-  function onAppPick(e: Event) {
-    const app = (e.currentTarget as HTMLSelectElement).value;
+  function onAppPick(app: string) {
     if (!app) return;
     streamSettings.audio_app = app;
     streamSettings.audio_mode = APP_AUDIO_PREFIX + app;
@@ -78,8 +102,8 @@
 
 <div class="flex flex-col gap-2" data-testid="stream-audio-picker">
   <Label>Audio</Label>
-  <div class="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Audio-Modus">
-    {#each AUDIO_MODES as mode (mode)}
+  <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Audio-Modus">
+    {#each MAIN_MODES as mode (mode)}
       <Button
         type="button"
         role="radio"
@@ -89,7 +113,7 @@
         onclick={() => onModeChange(mode)}
         data-testid="stream-audio-mode-{mode.toLowerCase().replace(/[ +]+/g, '-')}"
       >
-        {mode}
+        {label(mode)}
       </Button>
     {/each}
     <Button
@@ -101,8 +125,39 @@
       onclick={onAppModeClick}
       data-testid="stream-audio-mode-app"
     >
-      Bestimmte App
+      Spezifische App
     </Button>
+
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <Button
+            {...props}
+            type="button"
+            size="xs"
+            variant={secondaryActive ? 'default' : 'ghost'}
+            aria-label="Weitere Audio-Optionen"
+            title={secondaryLabel || 'Weitere Audio-Optionen'}
+            data-testid="stream-audio-secondary-trigger"
+          >
+            <ChevronDownIcon class="size-3.5" />
+          </Button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content align="start" sideOffset={4}>
+        {#each SECONDARY_MODES as mode (mode)}
+          <DropdownMenu.Item
+            onclick={() => onModeChange(mode)}
+            data-testid="stream-audio-mode-{mode.toLowerCase().replace(/[ +]+/g, '-')}"
+          >
+            {#if streamSettings.audio_mode === mode}
+              <span aria-hidden="true">✓</span>
+            {/if}
+            {label(mode)}
+          </DropdownMenu.Item>
+        {/each}
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   </div>
 
   {#if appMode}
@@ -122,22 +177,25 @@
           Refresh
         </Button>
       </div>
-      <select
-        class="bg-bg-chat text-text-base h-8 rounded-md px-2 text-xs outline-none"
-        value={selectedApp}
-        onchange={onAppPick}
-        disabled={streamSettings.available_audio_apps.length === 0}
-        data-testid="stream-audio-app-pick"
-      >
-        <option value="">
-          {streamSettings.available_audio_apps.length === 0
-            ? '(keine laufenden Audio-Apps — Refresh klicken)'
-            : 'App auswählen…'}
-        </option>
-        {#each streamSettings.available_audio_apps as a (a)}
-          <option value={a}>{a}</option>
-        {/each}
-      </select>
+      {#if streamSettings.available_audio_apps.length === 0}
+        <p class="text-text-muted text-xs italic">
+          (keine laufenden Audio-Apps — Refresh klicken)
+        </p>
+      {:else}
+        <div class="flex flex-wrap gap-1.5" data-testid="stream-audio-app-pills">
+          {#each streamSettings.available_audio_apps as app (app)}
+            <Button
+              type="button"
+              size="xs"
+              variant={selectedApp === app ? 'default' : 'secondary'}
+              onclick={() => onAppPick(app)}
+              data-testid="stream-audio-app-pill"
+            >
+              {app}
+            </Button>
+          {/each}
+        </div>
+      {/if}
       {#if !selectedApp}
         <p class="text-amber-400/90 text-xs">Wähle eine App, bevor du den Stream startest.</p>
       {/if}
@@ -215,7 +273,7 @@
         </Button>
       </div>
       <p class="text-text-muted text-xs">
-        Greift nur bei Desktop-Audio. App-spezifische Quellen ignorieren die Liste.
+        Greift nur bei System-Audio. App-spezifische Quellen ignorieren die Liste.
       </p>
     </div>
   {/if}

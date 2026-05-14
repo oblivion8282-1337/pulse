@@ -84,8 +84,8 @@
       {/each}
     </select>
     <p class="text-text-muted text-[11px]">
-      Nichts über deiner Monitorauflösung wählen — GSR skaliert dann nur hoch (mehr
-      Bandbreite, kein Detailgewinn).
+      Nichts über deiner Monitorauflösung wählen — der Encoder skaliert dann nur
+      hoch (mehr Bandbreite, kein Detailgewinn).
     </p>
   </div>
 

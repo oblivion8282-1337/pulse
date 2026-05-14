@@ -33,7 +33,10 @@
     appFromAudioMode,
   } from '../settings.svelte';
 
-  let { channelId = null }: { channelId?: string | null } = $props();
+  let {
+    channelId = null,
+    onStarted,
+  }: { channelId?: string | null; onStarted?: () => void } = $props();
 
   let busy = $state(false);
   let localError = $state<string | null>(null);
@@ -121,6 +124,8 @@
       if (r && !r.ok) {
         localError = r.error ?? 'Start fehlgeschlagen.';
         toast.error('Stream konnte nicht gestartet werden', { description: localError });
+      } else {
+        onStarted?.();
       }
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);

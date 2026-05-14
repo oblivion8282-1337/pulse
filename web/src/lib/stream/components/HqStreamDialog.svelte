@@ -26,6 +26,6 @@
         GPU-Screen-Recorder-basierter Stream über MediaMTX (Pulse-T3/T4).
       </Dialog.Description>
     </Dialog.Header>
-    <StreamPanel {channelId} />
+    <StreamPanel {channelId} onStarted={() => (open = false)} />
   </Dialog.Content>
 </Dialog.Root>

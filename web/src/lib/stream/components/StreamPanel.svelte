@@ -25,7 +25,10 @@
   import StreamControls from './StreamControls.svelte';
   import StreamLog from './StreamLog.svelte';
 
-  let { channelId = null }: { channelId?: string | null } = $props();
+  let {
+    channelId = null,
+    onStarted,
+  }: { channelId?: string | null; onStarted?: () => void } = $props();
 
   let health = $state<GsrHealth | null>(null);
   let healthError = $state<string | null>(null);
@@ -85,7 +88,7 @@
         <AudioModePicker />
 
         <Separator />
-        <StreamControls {channelId} />
+        <StreamControls {channelId} {onStarted} />
         <StreamLog />
       </div>
     {/if}
