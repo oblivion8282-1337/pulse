@@ -51,6 +51,27 @@
     void switchTo(g, c);
   });
 
+  // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every
+  // subscribed channel on `open`, which empties byChannel + loadedChannels.
+  // switchTo only fires on URL change — so without this effect the user would
+  // see an empty chat until they navigate away. We watch for the load flag
+  // disappearing *after* we already switched to the channel and re-fetch.
+  $effect(() => {
+    const cid = channelId;
+    if (!cid || messages.loadedChannels[cid]) return;
+    if (prevChannel !== cid) return; // initial switchTo path handles its own fetch
+    const ch = guilds.channelsByGuild[guildId]?.find((c) => c.id === cid);
+    if (!ch || ch.type !== 0) return;
+    void chatApi
+      .listMessages(cid)
+      .then((history) => {
+        if (untrack(() => prevChannel) === cid) messages.setInitial(cid, history);
+      })
+      .catch(() => {
+        // Best-effort: the user can navigate to retry.
+      });
+  });
+
   onMount(() => {
     const offChan = gateway.onChannelDeleted(handleRemoteChannelDeleted);
     const offGuild = gateway.onGuildDeleted(handleRemoteGuildDeleted);

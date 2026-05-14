@@ -109,10 +109,21 @@ async def _require_voice_channel_member(channel_id: str, bearer: str) -> None:
             status.HTTP_403_FORBIDDEN, detail="not a member of this channel"
         )
     if resp.status_code >= 400:
-        raise HTTPException(resp.status_code, detail="membership check rejected")
+        # chat-gateway is an upstream; map anything we didn't explicitly handle
+        # (500s, 429s, 401s when chat-gateway itself rejects the bearer, …) to
+        # 502 so we don't leak its internal status to the client.
+        log.warning(
+            "chat-gateway membership check returned unexpected status %s",
+            resp.status_code,
+        )
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
+        )
     try:
         channel_type = int(resp.json().get("type", -1))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
+        # ``resp.json()`` can raise on a non-JSON body too; treat that the same
+        # way as a missing/invalid type field.
         channel_type = -1
     if channel_type != _CHAT_GW_CHANNEL_TYPE_VOICE:
         raise HTTPException(

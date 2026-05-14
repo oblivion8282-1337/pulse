@@ -2,18 +2,27 @@
 #
 #   cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
 #   $EDITOR ~/caddy/Caddyfile        # paste the block below
+#   docker network connect pulse-net caddy 2>/dev/null || true   # idempotent
 #   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 #
-# The pulse_web nginx container (port 8100 on the host, see infra/prod/docker-
-# compose.yml) handles all of /, /api/*, /whep/*, /hls/* and /livekit/* itself —
-# Caddy just terminates TLS and forwards everything. Caddy reaches it via
-# host.docker.internal (Caddy's compose already sets that extra_host); UFW's
-# default INPUT DROP keeps :8100 off the public internet.
+# Editing tip: when you change the Caddyfile, *overwrite* the file in place
+# (`cat new > ~/caddy/Caddyfile` or `$EDITOR`), don't `sed -i`. The latter
+# does an atomic-rename and the Caddy container keeps seeing the old inode
+# until a `docker restart caddy`.
 #
-# Alternative if host.docker.internal:8100 doesn't work: add the external
-# `pulse-net` network to caddy's docker-compose.yml `networks:` list, recreate
-# caddy, and use `reverse_proxy pulse_web:80` instead.
+# The pulse_web nginx container handles all of /, /api/*, /whep/*, /hls/* and
+# /livekit/* itself — Caddy just terminates TLS and forwards everything.
+#
+# Caddy needs to be on Pulse's docker network (`pulse-net`) so it can resolve
+# `pulse_web` by container name. pulse_web binds 8100 to 127.0.0.1 only
+# (Docker's DNAT bypasses UFW, so `0.0.0.0:8100` would be publicly reachable
+# even when `ufw status` says it's blocked), so the older
+# `host.docker.internal:8100` upstream no longer works for a containerised
+# Caddy.
+#
+# Alternative if Caddy runs as a *host* process (not a container): use
+# `reverse_proxy 127.0.0.1:8100` and skip the `docker network connect` step.
 
 pulse.unicutmedia.com {
-	reverse_proxy host.docker.internal:8100
+	reverse_proxy pulse_web:80
 }
