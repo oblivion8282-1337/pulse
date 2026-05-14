@@ -42,6 +42,16 @@ RUN set -e; \
       patch -p1 < "$p"; \
     done
 
+# Two generators have to run before `go build`:
+#   * internal/servers/hls/hlsjsdownloader  — fetches hls.min.js (embedded into the binary)
+#   * internal/core/versiongetter           — writes internal/core/VERSION (embedded too)
+# Both are referenced via `//go:embed` directives, so a missing file is
+# a hard compile error. The third generator (rpicamera/mtxrpicamdownloader)
+# pulls ARM-only binaries we don't need — skip it explicitly by listing
+# the two we want instead of running `go generate ./...`.
+RUN go generate ./internal/servers/hls/... \
+                ./internal/core/...
+
 # Standard MediaMTX build settings — matches what their `binaries.mk`
 # uses for the official linux/amd64 binary, minus the cross-compile bits.
 RUN CGO_ENABLED=0 \
