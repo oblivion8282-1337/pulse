@@ -35,6 +35,11 @@ export interface OverrideSet {
   resolution?: string;
 }
 
+// Hard caps for the HQ-stream bitrate. MediaMTX fans out WHEP copies to every
+// viewer, so an unbounded value can saturate the VPS uplink very fast.
+export const HQ_BITRATE_MIN_KBPS = 1000;
+export const HQ_BITRATE_MAX_KBPS = 10_000;
+
 // Codec values the GSR `-k` flag accepts. The UI only offers H.264 (universal
 // browser compat) and AV1 (~half the bitrate at the same quality); the sidecar
 // still understands the HEVC / 10-bit / HDR variants, we just don't surface
@@ -343,7 +348,7 @@ export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
     const cleaned: OverrideSet = {};
     if (o.codec) cleaned.codec = o.codec;
     if (typeof o.bitrate_kbps === 'number' && o.bitrate_kbps > 0)
-      cleaned.bitrate_kbps = o.bitrate_kbps;
+      cleaned.bitrate_kbps = Math.min(HQ_BITRATE_MAX_KBPS, o.bitrate_kbps);
     if (typeof o.fps === 'number' && o.fps > 0) cleaned.fps = o.fps;
     if (o.resolution) cleaned.resolution = o.resolution;
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;

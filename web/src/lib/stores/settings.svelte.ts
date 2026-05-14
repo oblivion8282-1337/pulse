@@ -15,7 +15,13 @@ const STORAGE_KEY = 'dcc.settings';
 const LEGACY_SCREENSHARE_KEY = 'dcc.screenShareSettings';
 
 const VOICE_BITRATE_MIN = 8;
-const VOICE_BITRATE_MAX = 512;
+const VOICE_BITRATE_MAX = 256;
+
+// Cap for the LiveKit screen-share bitrate. Fan-out via SFU means the server
+// pays N×bitrate egress per channel — keep this low even when raising the HQ
+// cap, since voice channels regularly have multiple listeners.
+const SCREEN_SHARE_BITRATE_MIN = 1;
+const SCREEN_SHARE_BITRATE_MAX = 10;
 
 const VALID_CODECS: ScreenShareCodec[] = ['vp8', 'vp9', 'h264', 'av1'];
 const VALID_RESOLUTIONS: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
@@ -75,7 +81,7 @@ const DEFAULTS: PersistedSettings = {
     echoCancellation: true,
     autoGainControl: true,
     noiseSuppression: 'deepfilternet',
-    voiceBitrateKbps: 48,
+    voiceBitrateKbps: 128,
     stereo: false
   },
   voice: {
@@ -148,7 +154,11 @@ function parseScreenShare(raw: Partial<ScreenShareSettings> | undefined | null):
       : d.resolution,
     fps: VALID_FPS.includes(p.fps as ScreenShareFps) ? (p.fps as ScreenShareFps) : d.fps,
     bitrateMbps:
-      typeof p.bitrateMbps === 'number' && p.bitrateMbps >= 1 && p.bitrateMbps <= 15 ? p.bitrateMbps : d.bitrateMbps,
+      typeof p.bitrateMbps === 'number' &&
+      p.bitrateMbps >= SCREEN_SHARE_BITRATE_MIN &&
+      p.bitrateMbps <= SCREEN_SHARE_BITRATE_MAX
+        ? p.bitrateMbps
+        : d.bitrateMbps,
     contentHint: p.contentHint === 'detail' || p.contentHint === 'motion' ? p.contentHint : d.contentHint
   };
 }
@@ -348,7 +358,10 @@ class SettingsStore {
   }
 
   setScreenShareBitrateMbps(v: number): void {
-    this.screenShare.bitrateMbps = Math.min(15, Math.max(1, v));
+    this.screenShare.bitrateMbps = Math.min(
+      SCREEN_SHARE_BITRATE_MAX,
+      Math.max(SCREEN_SHARE_BITRATE_MIN, v),
+    );
     this.#persist();
   }
 
@@ -359,4 +372,11 @@ class SettingsStore {
 }
 
 export const settings = new SettingsStore();
-export { VOICE_BITRATE_MIN, VOICE_BITRATE_MAX, USER_VOLUME_MIN, USER_VOLUME_MAX };
+export {
+  VOICE_BITRATE_MIN,
+  VOICE_BITRATE_MAX,
+  SCREEN_SHARE_BITRATE_MIN,
+  SCREEN_SHARE_BITRATE_MAX,
+  USER_VOLUME_MIN,
+  USER_VOLUME_MAX,
+};

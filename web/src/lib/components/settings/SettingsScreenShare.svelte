@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { settings } from '$lib/stores/settings.svelte';
+  import { settings, SCREEN_SHARE_BITRATE_MIN, SCREEN_SHARE_BITRATE_MAX } from '$lib/stores/settings.svelte';
   import type { ScreenShareCodec, ScreenShareFps, ScreenShareResolution } from '$lib/stores/settings.svelte';
 
   const codecs: { value: ScreenShareCodec; label: string; hint: string }[] = [
@@ -100,8 +100,8 @@
     </div>
     <input
       type="range"
-      min="1"
-      max="15"
+      min={SCREEN_SHARE_BITRATE_MIN}
+      max={SCREEN_SHARE_BITRATE_MAX}
       step="1"
       value={settings.screenShare.bitrateMbps}
       oninput={onBitrateInput}

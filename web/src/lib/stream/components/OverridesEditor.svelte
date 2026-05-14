@@ -1,10 +1,11 @@
 <!--
   OverridesEditor — die zentralen Stream-Einstellungen: Codec, Auflösung,
   Bitrate, FPS. (Hieß historisch "Overrides", weil es früher Profile gab; die
-  sind raus — diese vier Werte gehen jetzt direkt an GSR.)
+  sind raus — diese vier Werte gehen jetzt direkt an den Encoder.)
 
-  Validierung minimal: Bitrate 1000–50000 kbps, FPS 1–360, Auflösung aus dem
-  festen Set, Codec aus `CODEC_VALUES` (H.264 / AV1).
+  Validierung: Bitrate `HQ_BITRATE_MIN_KBPS`–`HQ_BITRATE_MAX_KBPS` (Cap gegen
+  VPS-Bandbreiten-Saturation), FPS 1–360, Auflösung aus dem festen Set,
+  Codec aus `CODEC_VALUES`.
 -->
 <script lang="ts">
   import { Input } from '$lib/components/ui/input/index.js';
@@ -13,6 +14,8 @@
     streamSettings,
     CODEC_VALUES,
     RESOLUTION_VALUES,
+    HQ_BITRATE_MIN_KBPS,
+    HQ_BITRATE_MAX_KBPS,
     persistSettings,
   } from '../settings.svelte';
 
@@ -27,7 +30,7 @@
     const n = parseInt(raw, 10);
     streamSettings.overrides = {
       ...streamSettings.overrides,
-      bitrate_kbps: isNaN(n) ? undefined : Math.max(0, n),
+      bitrate_kbps: isNaN(n) ? undefined : Math.min(HQ_BITRATE_MAX_KBPS, Math.max(0, n)),
     };
     persistSettings();
   }
@@ -94,10 +97,10 @@
     <Input
       id="ov-bitrate"
       type="number"
-      min="1000"
-      max="50000"
+      min={HQ_BITRATE_MIN_KBPS}
+      max={HQ_BITRATE_MAX_KBPS}
       step="500"
-      placeholder="z.B. 8000"
+      placeholder="z.B. 6000"
       value={bitrateValue}
       oninput={onBitrate}
       data-testid="stream-overrides-bitrate"
