@@ -335,14 +335,19 @@ class StreamController:
 
     # ── Reader / Wait Threads ──────────────────────────────────────
     def _reader_loop(self, stream: IO[bytes]) -> None:
-        """Liest stdout (=merged stderr) zeilenweise, parst FPS und forwarded."""
+        """Liest stdout (=merged stderr) zeilenweise, parst FPS und forwarded.
+
+        Die FPS-Status-Zeile (``update fps: N, damage fps: N``) kommt 1×/s und
+        spammt sonst das UI-Log voll — der Wert geht ohnehin strukturiert via
+        ``on_fps`` raus. Daher: bei FPS-Match nur das Event feuern, die Zeile
+        selbst nicht ans Log-Pane weiterreichen. Alle anderen Zeilen (Errors,
+        PipeWire-State-Transitions, Exit-Notices) gehen durch.
+        """
         try:
             for raw in iter(stream.readline, b""):
                 if not raw:
                     break
                 line = raw.decode(errors="replace").rstrip("\r\n")
-                if self._on_log:
-                    self._on_log(line)
                 m = FPS_RE.search(line)
                 if m:
                     fps = int(m.group(1))
@@ -351,6 +356,8 @@ class StreamController:
                         self._on_fps(fps)
                     if self._state == "starting":
                         self._set_state("live")
+                elif self._on_log:
+                    self._on_log(line)
         except (OSError, ValueError):
             # Stream closed during read — normal beim Beenden
             return
