@@ -33,6 +33,12 @@
       script-src unsafe-inline + unsafe-eval: required by Vite dev HMR and SvelteKit SSR bootstrap.
       script-src blob:: the DeepFilterNet3 noise-suppression AudioWorklet is loaded from a blob: URL
       (AudioWorklet module loading falls back to script-src/script-src-elem in Chrome).
+      script-src + frame-src youtube.com / twitch.tv: watch-party players load
+      https://www.youtube.com/iframe_api and https://embed.twitch.tv/embed/v1.js
+      on the parent page and embed iframes from the same origins (Twitch sandboxes
+      its player on https://player.twitch.tv).
+      media-src https:: NativeVideoPlayer attaches cross-origin mp4/webm/m3u8 URLs
+      to <video src>.
       connect-src http://localhost:* http://127.0.0.1:*: the HQ-stream WHEP player POSTs its
       SDP offer to the local MediaMTX (dev: http://localhost:8889/channel-<id>/whep). In prod
       that endpoint is https://stream.unicutmedia.com (already covered by https:), so these
@@ -40,7 +46,7 @@
       connect-src stun:/turn:: WebRTC ICE servers for the WHEP RTCPeerConnection.
       In production, tighten via Caddy response headers (nonce/hash, drop unsafe-* and the http://localhost:* dev entries).
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:* stun: turn:; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: http://localhost:* http://127.0.0.1:* stun: turn:; font-src 'self' data:; media-src 'self' blob: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self';" />
     <title>Pulse</title>
     %sveltekit.head%
   </head>
