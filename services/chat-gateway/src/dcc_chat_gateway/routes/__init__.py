@@ -14,6 +14,7 @@ from dcc_chat_gateway.routes import (
     stream_chat,
     streaming,
     watch,
+    watch_chat,
     ws,
 )
 
@@ -26,6 +27,7 @@ router.include_router(messages.router)
 router.include_router(reactions.router)
 router.include_router(streaming.router)
 router.include_router(stream_chat.router)
+router.include_router(watch_chat.router)
 router.include_router(watch.router)
 router.include_router(ws.router)
 

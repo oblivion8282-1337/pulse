@@ -1,10 +1,11 @@
 """Watch-Party tests.
 
-Three sections:
+Four sections:
   1. ``watch_source.parse_source`` — pure unit tests, no fixtures.
   2. ``GET /guilds/{id}/watch-state`` — REST re-sync endpoint.
   3. WebSocket ops — happy + negative paths against ``ws_app`` via TestClient
      (same harness as test_streaming::stream:events).
+  4. Watch-Chat REST endpoints — ``POST`` + ``GET /channels/{id}/watch-party/chat``.
 """
 
 from __future__ import annotations
@@ -631,3 +632,151 @@ async def test_cleanup_skips_when_user_has_other_sockets(redis):
         assert await redis.get(f"watch:channel-{cid}") is not None
     finally:
         await redis.delete(f"watch:channel-{cid}")
+
+
+# =============================================================================
+# 4. Watch-Chat REST endpoints
+# =============================================================================
+
+
+def _make_party_state(host_uid: int) -> dict:
+    ts = watchkeys.now_ms()
+    return {
+        "source": {"type": "youtube", "embed_id": "abc12345678"},
+        "host_user_id": str(host_uid),
+        "position": 0.0,
+        "is_playing": True,
+        "updated_at": ts,
+        "started_at": ts,
+    }
+
+
+@pytest.mark.asyncio
+async def test_post_watch_chat_201_with_active_party(client, _auth_signer, redis):
+    token, uid = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    cid = vc["id"]
+    await redis.set(f"watch:channel-{cid}", json.dumps(_make_party_state(uid)), ex=600)
+    try:
+        r = await client.post(
+            f"/channels/{cid}/watch-party/chat",
+            json={"content": "hello watch party"},
+            headers=_auth(token),
+        )
+        assert r.status_code == 201, r.text
+        data = r.json()
+        assert "id" in data
+        assert "created_at" in data
+        # Message stored in Redis list.
+        raw = await redis.lrange(f"watch:chat:channel-{cid}", 0, -1)
+        assert len(raw) == 1
+        entry = json.loads(raw[0])
+        assert entry["content"] == "hello watch party"
+        assert entry["author_id"] == str(uid)
+    finally:
+        await redis.delete(f"watch:channel-{cid}", f"watch:chat:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_post_watch_chat_410_no_active_party(client, _auth_signer):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    r = await client.post(
+        f"/channels/{vc['id']}/watch-party/chat",
+        json={"content": "hello"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 410
+
+
+@pytest.mark.asyncio
+async def test_post_watch_chat_403_non_member(client, _auth_signer, redis):
+    owner, owner_uid = await _register(_auth_signer)
+    outsider, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
+        )
+    ).json()
+    cid = vc["id"]
+    await redis.set(f"watch:channel-{cid}", json.dumps(_make_party_state(owner_uid)), ex=600)
+    try:
+        r = await client.post(
+            f"/channels/{cid}/watch-party/chat",
+            json={"content": "hello"},
+            headers=_auth(outsider),
+        )
+        assert r.status_code == 403
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_post_watch_chat_400_text_channel(client, _auth_signer):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    tc2 = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "general", "type": 0}, headers=_auth(token)
+        )
+    ).json()
+    r = await client.post(
+        f"/channels/{tc2['id']}/watch-party/chat",
+        json={"content": "hello"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_watch_chat_returns_chronological(client, _auth_signer, redis):
+    token, uid = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    cid = vc["id"]
+    # Pre-seed Redis chat list (newest first, like LPUSH).
+    chat_key = f"watch:chat:channel-{cid}"
+    entries = [
+        json.dumps({"id": str(i), "author_id": str(uid), "content": f"msg{i}", "created_at": "2026-01-01T00:00:00"})
+        for i in range(3)
+    ]
+    for e in entries:  # lpush newest-first: push 0→1→2 so msg2 sits at list head
+        await redis.lpush(chat_key, e)
+    await redis.expire(chat_key, 600)
+    try:
+        r = await client.get(f"/channels/{cid}/watch-party/chat", headers=_auth(token))
+        assert r.status_code == 200, r.text
+        msgs = r.json()
+        assert len(msgs) == 3
+        assert [m["content"] for m in msgs] == ["msg0", "msg1", "msg2"]
+    finally:
+        await redis.delete(chat_key)
+
+
+@pytest.mark.asyncio
+async def test_get_watch_chat_non_member_403(client, _auth_signer):
+    owner, _ = await _register(_auth_signer)
+    outsider, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
+        )
+    ).json()
+    r = await client.get(f"/channels/{vc['id']}/watch-party/chat", headers=_auth(outsider))
+    assert r.status_code == 403

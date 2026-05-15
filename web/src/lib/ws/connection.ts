@@ -19,6 +19,7 @@ import {
 } from '$lib/stores/voicePresence.svelte';
 import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import { streamChat, type StreamChatMessage } from '$lib/stores/streamChat.svelte';
+import { watchChat, type WatchChatMessage } from '$lib/stores/watchChat.svelte';
 import {
   watchPartyPresence,
   type WatchChannelEntry,
@@ -94,6 +95,7 @@ type ServerEvent =
       message: StreamChatMessage;
     }
   | { op: 'watch_state'; channel_id: string; state: WatchPartyState | null }
+  | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -257,6 +259,7 @@ export class GatewayConnection {
       evt.op !== 'stream_state' &&
       evt.op !== 'stream_chat_message' &&
       evt.op !== 'watch_state' &&
+      evt.op !== 'watch_chat_message' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -372,6 +375,10 @@ export class GatewayConnection {
         break;
       case 'watch_state':
         watchPartyPresence.apply(evt.channel_id, evt.state);
+        if (evt.state === null) watchChat.clear(evt.channel_id);
+        break;
+      case 'watch_chat_message':
+        watchChat.apply(evt.channel_id, evt.message);
         break;
     }
   }

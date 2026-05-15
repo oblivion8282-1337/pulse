@@ -3,6 +3,7 @@ import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member,
 import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChannelEntry } from '$lib/stores/watchPartyPresence.svelte';
+import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 
 /** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
 export type StreamTokenResponse = {
@@ -201,6 +202,21 @@ export const chatApi = {
   ): Promise<StreamChatMessage[]> {
     return request<StreamChatMessage[]>(
       `/channels/${channelId}/streams/${streamerId}/chat?limit=${limit}`
+    );
+  },
+
+  // Watch-Party chat (one chat per channel, ephemeral, 6h TTL).
+  /** Post a message into the active watch-party chat. 410 if no party is running. */
+  postWatchChat(channelId: string, content: string): Promise<{ id: string; created_at: string }> {
+    return request<{ id: string; created_at: string }>(
+      `/channels/${channelId}/watch-party/chat`,
+      { method: 'POST', body: { content } }
+    );
+  },
+  /** Backfill the watch-party chat (chronological order, oldest first). */
+  getWatchChat(channelId: string, limit = 100): Promise<WatchChatMessage[]> {
+    return request<WatchChatMessage[]>(
+      `/channels/${channelId}/watch-party/chat?limit=${limit}`
     );
   }
 };

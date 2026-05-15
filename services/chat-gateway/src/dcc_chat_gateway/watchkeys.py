@@ -31,6 +31,10 @@ WATCH_STATE_KEY = "watch:channel-{channel_id}"
 WATCH_EVENTS_CHANNEL = "watch:events"
 WATCH_TTL_SECONDS = 6 * 3600
 
+WATCH_CHAT_KEY = "watch:chat:channel-{channel_id}"
+WATCH_CHAT_TTL_S = 6 * 3600
+WATCH_CHAT_MAX = 200
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
