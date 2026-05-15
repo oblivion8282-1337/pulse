@@ -134,9 +134,12 @@
         type="range" min="0" max={VOLUME_BOOST_MAX} value={volume} oninput={onVolumeChange}
         class="w-24 accent-white sm:w-20"
         aria-label="Lautstärke des Streams"
-        title="{volume}%"
         data-testid="hq-stream-volume"
       />
+      <span
+        class="w-9 text-right font-mono text-[11px] tabular-nums text-white/85"
+        data-testid="hq-stream-volume-percent"
+      >{volume}%</span>
     </div>
   {/if}
   {#if audioBlocked}

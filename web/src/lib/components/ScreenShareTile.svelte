@@ -227,9 +227,12 @@
         oninput={handleVolume}
         class="w-24 accent-white sm:w-20"
         aria-label="Lautstärke des geteilten Bildschirms"
-        title="{volume}%"
         data-testid="screen-share-volume"
       />
+      <span
+        class="w-9 text-right font-mono text-[11px] tabular-nums text-white/85"
+        data-testid="screen-share-volume-percent"
+      >{volume}%</span>
     </div>
   {/if}
 </div>
