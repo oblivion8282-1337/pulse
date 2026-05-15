@@ -19,6 +19,11 @@ import {
 } from '$lib/stores/voicePresence.svelte';
 import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import { streamChat, type StreamChatMessage } from '$lib/stores/streamChat.svelte';
+import {
+  watchPartyPresence,
+  type WatchChannelEntry,
+  type WatchPartyState
+} from '$lib/stores/watchPartyPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import type { Message } from '$lib/api/types';
 
@@ -53,6 +58,7 @@ type ServerEvent =
       guilds: { id: string; name: string }[];
       voice_states?: VoiceChannelState[];
       stream_states?: StreamChannelState[];
+      watch_states?: WatchChannelEntry[];
     }
   | { op: 'message'; data: Message }
   | { op: 'message_update'; data: Message }
@@ -87,6 +93,7 @@ type ServerEvent =
       streamer_id: string;
       message: StreamChatMessage;
     }
+  | { op: 'watch_state'; channel_id: string; state: WatchPartyState | null }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -98,7 +105,16 @@ type ClientEvent =
       channel_id: string | null;
       mic_muted: boolean;
       deafened: boolean;
-    };
+    }
+  | { op: 'watch_start'; channel_id: string; source_url: string }
+  | { op: 'watch_stop'; channel_id: string }
+  | {
+      op: 'watch_control';
+      channel_id: string;
+      action: 'play' | 'pause' | 'seek';
+      position: number;
+    }
+  | { op: 'watch_heartbeat'; channel_id: string; position: number };
 
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 
@@ -240,6 +256,7 @@ export class GatewayConnection {
       evt.op !== 'voice_state' &&
       evt.op !== 'stream_state' &&
       evt.op !== 'stream_chat_message' &&
+      evt.op !== 'watch_state' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -250,6 +267,7 @@ export class GatewayConnection {
       case 'ready':
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
         streamPresence.seed(evt.stream_states ?? []);
+        watchPartyPresence.seed(evt.watch_states ?? []);
         this._readyDone = true;
         // Replay buffered lifecycle events now that guilds.byId is populated.
         for (const buffered of this._preReadyBuffer) {
@@ -352,6 +370,9 @@ export class GatewayConnection {
       case 'stream_chat_message':
         streamChat.apply(evt.channel_id, evt.streamer_id, evt.message);
         break;
+      case 'watch_state':
+        watchPartyPresence.apply(evt.channel_id, evt.state);
+        break;
     }
   }
 
@@ -414,6 +435,33 @@ export class GatewayConnection {
       mic_muted: micMuted,
       deafened: deafened
     });
+  }
+
+  /** Kick off a watch party in this voice channel. Server validates `sourceUrl`
+   * and rejects with `{op:"error", code: 4013}` if it's an unsupported source,
+   * `4014` if a party is already active in the channel. */
+  startWatchParty(channelId: string, sourceUrl: string): boolean {
+    return this._sendRaw({ op: 'watch_start', channel_id: channelId, source_url: sourceUrl });
+  }
+
+  /** Host-only stop. Server replies with `{op:"watch_state", state: null}`. */
+  stopWatchParty(channelId: string): boolean {
+    return this._sendRaw({ op: 'watch_stop', channel_id: channelId });
+  }
+
+  /** Host-only play/pause/seek. Server broadcasts the resulting `watch_state`. */
+  sendWatchControl(
+    channelId: string,
+    action: 'play' | 'pause' | 'seek',
+    position: number
+  ): boolean {
+    return this._sendRaw({ op: 'watch_control', channel_id: channelId, action, position });
+  }
+
+  /** Host emits this every ~3s so viewers can correct drift. Server debounces
+   * the write to ≤1 / 2s; sending faster is harmless but wasteful. */
+  sendWatchHeartbeat(channelId: string, position: number): boolean {
+    return this._sendRaw({ op: 'watch_heartbeat', channel_id: channelId, position });
   }
 
   private _sendRaw(evt: ClientEvent): boolean {

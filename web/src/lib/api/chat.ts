@@ -2,6 +2,7 @@ import { request, requestForm } from './client';
 import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member, Message } from './types';
 import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
+import type { WatchChannelEntry } from '$lib/stores/watchPartyPresence.svelte';
 
 /** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
 export type StreamTokenResponse = {
@@ -172,6 +173,11 @@ export const chatApi = {
   async getGuildStreamState(guildId: string): Promise<StreamChannelState[]> {
     const r = await request<{ stream_states: StreamChannelState[] }>(`/guilds/${guildId}/stream-state`);
     return r.stream_states ?? [];
+  },
+  /** Channels in the guild with an active watch party — re-sync helper. */
+  async getGuildWatchState(guildId: string): Promise<WatchChannelEntry[]> {
+    const r = await request<{ watch_states: WatchChannelEntry[] }>(`/guilds/${guildId}/watch-state`);
+    return r.watch_states ?? [];
   },
 
   // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State

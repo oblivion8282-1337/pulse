@@ -18,6 +18,8 @@ from typing import Any
 from fastapi import WebSocket
 from redis.asyncio import Redis
 
+from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, read_states_for
+
 log = logging.getLogger(__name__)
 
 CHANNEL_KEY = "chat:channel:{channel_id}"
@@ -92,9 +94,13 @@ class ConnectionManager:
         # per-channel Redis subscriptions.
         await self._pubsub.psubscribe(CHANNEL_PATTERN)
         # Plus the single voice-presence event channel, the guild-lifecycle
-        # event channel, and the HQ-stream-state event channel.
+        # event channel, the HQ-stream-state event channel, and the watch-party
+        # event channel.
         await self._pubsub.subscribe(
-            VOICE_EVENTS_CHANNEL, GUILD_EVENTS_CHANNEL, STREAM_EVENTS_CHANNEL
+            VOICE_EVENTS_CHANNEL,
+            GUILD_EVENTS_CHANNEL,
+            STREAM_EVENTS_CHANNEL,
+            WATCH_EVENTS_CHANNEL,
         )
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
@@ -288,6 +294,18 @@ class ConnectionManager:
         states = await asyncio.gather(*(self.stream_state_for(cid) for cid in channel_ids))
         return [s for s in states if s is not None]
 
+    async def watch_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
+        """Active watch parties for the given voice channels. Returns
+        ``[{"channel_id": ..., "state": {...}}, ...]``; channels without an
+        active party are omitted. See ``watchkeys.py`` for the state shape."""
+        return await read_states_for(self._redis, channel_ids)
+
+    def user_socket_count(self, user_id: int) -> int:
+        """How many open sockets the given user currently has. Used by the WS
+        endpoint to decide whether ending one socket should end that user's
+        hosted watch parties (only true if this was their last socket)."""
+        return len(self._user_conns.get(user_id, ()))
+
     # Per-socket send timeout during fan-out: a slow/stuck client must not hold
     # up delivery to everyone else on the channel (head-of-line blocking).
     _SEND_TIMEOUT_SECONDS = 5.0
@@ -380,6 +398,29 @@ class ConnectionManager:
                         envelope["user_ids"],
                         envelope["streaming_user_ids"],
                         len(envelope["user_states"]),
+                        len(targets),
+                    )
+                    await self._fan_out(targets, envelope)
+                    continue
+
+                if channel == WATCH_EVENTS_CHANNEL:
+                    payload = self._decode_payload(msg["data"], WATCH_EVENTS_CHANNEL)
+                    if not isinstance(payload, dict) or "channel_id" not in payload:
+                        log.warning(
+                            "watch:events malformed or missing channel_id: %r", payload
+                        )
+                        continue
+                    envelope = {
+                        "op": "watch_state",
+                        "channel_id": str(payload.get("channel_id")),
+                        "state": payload.get("state"),
+                    }
+                    async with self._lock:
+                        targets = list(self._connections)
+                    log.info(
+                        "watch:events broadcast channel=%s active=%s targets=%d",
+                        envelope["channel_id"],
+                        envelope["state"] is not None,
                         len(targets),
                     )
                     await self._fan_out(targets, envelope)

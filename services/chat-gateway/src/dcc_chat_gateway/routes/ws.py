@@ -22,6 +22,23 @@ Client→server ops, in addition to ``subscribe``/``unsubscribe``/``send``:
     persists the state in Redis and republishes the channel's voice snapshot
     so other clients re-render their member list. Both flags off + a channel
     id deletes the Redis key (absence == default-off).
+  - ``{"op": "watch_start", "channel_id": "<id>", "source_url": "<url>"}`` —
+    start a synchronised watch party in a voice channel. URL is validated via
+    ``watch_source.parse_source``; caller becomes host. Rejected if a party is
+    already active.
+  - ``{"op": "watch_stop", "channel_id": "<id>"}`` — host-only; deletes state.
+  - ``{"op": "watch_control", "channel_id": "<id>", "action":
+       "play"|"pause"|"seek", "position": <seconds>}`` — host-only; updates
+    state + broadcasts ``watch_state``.
+  - ``{"op": "watch_heartbeat", "channel_id": "<id>", "position": <seconds>}``
+    — host-only; updates ``position`` + ``updated_at`` so viewers can correct
+    drift. Debounced server-side to ≤1 write / 2s.
+
+The ``ready`` payload additionally carries
+``watch_states: [{"channel_id": ..., "state": {...}}, ...]`` for every voice
+channel in the user's guilds that has an active watch party. Server pushes
+``{"op": "watch_state", "channel_id": ..., "state": {...}|null}`` whenever
+state changes (null = party ended).
 """
 
 from __future__ import annotations
@@ -44,6 +61,7 @@ from dcc_chat_gateway.models import (
     GuildMember,
     Message,
 )
+from dcc_chat_gateway.routes import ws_watch
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
@@ -121,6 +139,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # `send` fast path can stamp the channel_bump envelope without another DB
     # round-trip per message.
     subscribed: dict[str, int] = {}
+    # Channel ids of watch parties this socket has started. Used at disconnect
+    # time to end parties when the host's last socket goes away.
+    hosted_parties: set[str] = set()
     oversize_frames = 0
 
     # Tie the connection's lifetime to the token's `exp`: when it passes, the
@@ -152,9 +173,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             voice_channel_ids = [str(cid) for cid in (await session.execute(vc_stmt)).scalars()]
 
     voice_states = await manager.voice_states_for(voice_channel_ids)
-    # HQ streaming only happens in voice channels (same path naming as LiveKit
-    # rooms), so the relevant channel set is the same one.
+    # HQ streaming + watch parties only happen in voice channels, so the
+    # relevant channel set is the same one.
     stream_states = await manager.stream_states_for(voice_channel_ids)
+    watch_states = await manager.watch_states_for(voice_channel_ids)
 
     await websocket.send_json(
         {
@@ -163,6 +185,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "guilds": guilds,
             "voice_states": voice_states,
             "stream_states": stream_states,
+            "watch_states": watch_states,
         }
     )
 
@@ -348,6 +371,22 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     )
                 except Exception:
                     log.exception("voice_self_state write failed for user=%s", user.id)
+            elif op == "watch_start":
+                await ws_watch.handle_start(
+                    websocket,
+                    user,
+                    msg,
+                    session_factory=SessionLocal,
+                    hosted_parties=hosted_parties,
+                )
+            elif op == "watch_stop":
+                await ws_watch.handle_stop(
+                    websocket, user, msg, hosted_parties=hosted_parties
+                )
+            elif op == "watch_control":
+                await ws_watch.handle_control(websocket, user, msg)
+            elif op == "watch_heartbeat":
+                await ws_watch.handle_heartbeat(websocket, user, msg)
             else:
                 await websocket.send_json({"op": "error", "code": 4007, "msg": f"unknown op: {op}"})
     finally:
@@ -357,6 +396,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 await expiry_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
+        await ws_watch.cleanup_on_disconnect(websocket, user, manager, hosted_parties)
         await manager.remove_socket(websocket)
         # Try to close cleanly. Already-closed sockets raise.
         try:

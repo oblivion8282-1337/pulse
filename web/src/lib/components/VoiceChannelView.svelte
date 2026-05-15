@@ -3,6 +3,7 @@
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import MemberList from './MemberList.svelte';
+  import WatchPartyStartButton from './WatchPartyStartButton.svelte';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -19,6 +20,7 @@
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
+  import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import { untrack } from 'svelte';
   import MenuIcon from '@lucide/svelte/icons/menu';
@@ -51,17 +53,26 @@
   ]);
   let liveStreamersOther = $derived(liveStreamers.filter((id) => id !== auth.user?.id));
 
-  // Stream layout: every watchable HQ stream + every browser screen-share go
-  // into one responsive grid; participant avatars become a compact row below.
+  // Watch-Party (max 1 pro Channel, parallel zu HQ/Screenshare). Quelle ist
+  // ein gemeinsam synchronisiertes Video (YouTube/Twitch-VOD/Direct-Link).
+  let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
+  let hasWatchParty = $derived(watchPartyState !== undefined);
+
+  // Stream layout: every watchable HQ stream + every browser screen-share + any
+  // watch-party go into one responsive grid; participant avatars become a
+  // compact row below.
   let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
 
   // Live-Streamer-Namen für den Banner (HQ + Browser-Screenshare, ohne self).
   // `liveStreamersOther` ist die kanonische User-ID-Liste — `voice.screenTracks`
   // wäre identity-basiert und kann während Subscribe-Sync abweichen.
-  let othersStreaming = $derived(liveStreamersOther.length > 0);
+  // Banner + auto-open trigger: any of HQ-others, screen-share-others, or a
+  // watch-party in this channel counts as "etwas Sehenswertes läuft".
+  let othersStreaming = $derived(liveStreamersOther.length > 0 || hasWatchParty);
   let streamBannerLabel = $derived.by(() => {
+    if (hasWatchParty && liveStreamersOther.length === 0) return 'Watch Party läuft';
+    if (hasWatchParty && liveStreamersOther.length > 0) return 'Watch Party + Streams laufen';
     const ids = liveStreamersOther;
-    if (ids.length === 0) return '';
     if (ids.length === 1) return `${userCache.displayName(ids[0])} streamt`;
     if (ids.length === 2)
       return `${userCache.displayName(ids[0])} und ${userCache.displayName(ids[1])} streamen`;
@@ -209,8 +220,11 @@
     <Volume2Icon class="text-primary size-5 shrink-0" />
     <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
+    <div class="ml-auto">
+      <WatchPartyStartButton channelId={channel.id} />
+    </div>
     <button
-      class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+      class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent"
       onclick={toggleChatPanel}
       disabled={focusedStreamerId === null}
       aria-label="Live-Chat umschalten"
@@ -256,6 +270,7 @@
           {hqStreaming}
           {hqStreamersOther}
           {hqLabel}
+          {watchPartyState}
           onClose={() => (streamViewOpen = false)}
         />
       {:else}

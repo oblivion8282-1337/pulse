@@ -15,29 +15,36 @@
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
+  import WatchPartyTile from './WatchPartyTile.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
   import type { Channel } from '$lib/api/types';
+  import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
 
   let {
     channel,
     hqStreaming,
     hqStreamersOther,
     hqLabel,
+    watchPartyState,
     onClose
   }: {
     channel: Channel;
     hqStreaming: boolean;
     hqStreamersOther: string[];
     hqLabel: string;
+    /** Aktive Watch-Party im selben Channel (parallel zu HQ/Screenshare). */
+    watchPartyState?: WatchPartyState;
     /** Wenn gesetzt: kleiner Schließen-Button oben rechts, der zur Teilnehmer-
      *  Ansicht zurückkehrt. Ohne diesen Hook ist das Grid permanent (z.B. wenn
      *  in einem anderen Layout-Kontext gemountet). */
     onClose?: () => void;
   } = $props();
 
-  let videoTileCount = $derived(hqStreamersOther.length + voice.screenTracks.length);
+  let videoTileCount = $derived(
+    hqStreamersOther.length + voice.screenTracks.length + (watchPartyState ? 1 : 0)
+  );
   let streamGridCols = $derived(
     videoTileCount <= 1
       ? 'grid-cols-1'
@@ -79,6 +86,9 @@
     </div>
   {:else}
     <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 {streamGridCols}" data-testid="stream-grid">
+      {#if watchPartyState}
+        <WatchPartyTile channelId={channel.id} party={watchPartyState} />
+      {/if}
       {#each hqStreamersOther as uid (uid)}
         <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
       {/each}

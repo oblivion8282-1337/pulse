@@ -1,0 +1,129 @@
+<!--
+  YouTube IFrame Player API wrapper.
+
+  Loads https://www.youtube.com/iframe_api once per session (module-level
+  promise); subsequent instances reuse the loaded `window.YT`. Each component
+  instance mounts its own `YT.Player`; the host's tile binds to play/pause
+  events, viewers ignore them (controlsEnabled=false also hides the chrome).
+
+  YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
+  via heartbeat drift correction instead.
+-->
+<script lang="ts">
+  import type { WatchSourceYouTube } from '$lib/stores/watchPartyPresence.svelte';
+  import type { PlayerEvent, PlayerHandle } from '../sync';
+
+  // Ambient YT types we touch — too narrow a slice to pull in @types/youtube.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  type YTPlayer = any;
+
+  interface Props {
+    source: WatchSourceYouTube;
+    controlsEnabled: boolean;
+    onReady?: (handle: PlayerHandle) => void;
+    onEvent?: (e: PlayerEvent) => void;
+  }
+
+  let { source, controlsEnabled, onReady, onEvent }: Props = $props();
+
+  let mount = $state<HTMLDivElement | undefined>();
+
+  // Module-level singleton load of the IFrame API. Re-entries return the
+  // existing promise so we never inject the script twice.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let apiPromise: Promise<any> | undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function loadApi(): Promise<any> {
+    if (apiPromise) return apiPromise;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    if (w.YT?.Player) {
+      apiPromise = Promise.resolve(w.YT);
+      return apiPromise;
+    }
+    apiPromise = new Promise((resolve) => {
+      const prev = w.onYouTubeIframeAPIReady;
+      w.onYouTubeIframeAPIReady = () => {
+        try {
+          prev?.();
+        } catch {
+          // chained init failed; not our problem
+        }
+        resolve(w.YT);
+      };
+      const s = document.createElement('script');
+      s.src = 'https://www.youtube.com/iframe_api';
+      s.async = true;
+      document.head.appendChild(s);
+    });
+    return apiPromise;
+  }
+
+  $effect(() => {
+    if (!mount) return;
+    let player: YTPlayer | undefined;
+    let disposed = false;
+
+    void loadApi().then((YT) => {
+      if (disposed || !mount) return;
+      player = new YT.Player(mount, {
+        videoId: source.embed_id,
+        playerVars: {
+          autoplay: 0,
+          controls: controlsEnabled ? 1 : 0,
+          disablekb: controlsEnabled ? 0 : 1,
+          modestbranding: 1,
+          rel: 0,
+          start: source.start_seconds ?? 0,
+          playsinline: 1
+        },
+        events: {
+          onReady: () => {
+            const handle: PlayerHandle = {
+              play: () => player?.playVideo(),
+              pause: () => player?.pauseVideo(),
+              seek: (t: number) => player?.seekTo(t, true),
+              getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
+              setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
+              destroy: () => {
+                try {
+                  player?.destroy();
+                } catch {
+                  // already destroyed
+                }
+              }
+            };
+            onReady?.(handle);
+            onEvent?.({ type: 'ready' });
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onStateChange: (e: any) => {
+            const t = Number(player?.getCurrentTime() ?? 0);
+            if (e.data === YT.PlayerState.PLAYING) onEvent?.({ type: 'play', position: t });
+            else if (e.data === YT.PlayerState.PAUSED) onEvent?.({ type: 'pause', position: t });
+          },
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          onError: (e: any) => {
+            onEvent?.({ type: 'error', reason: `YouTube error ${e?.data}` });
+          }
+        }
+      });
+    });
+
+    return () => {
+      disposed = true;
+      try {
+        player?.destroy();
+      } catch {
+        // already destroyed
+      }
+    };
+  });
+</script>
+
+<div
+  bind:this={mount}
+  class="h-full w-full"
+  style:pointer-events={controlsEnabled ? undefined : 'none'}
+></div>
