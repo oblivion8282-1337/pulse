@@ -109,7 +109,7 @@ export function createNoiseProcessor(mode: ProcessorMode): AudioTrackProcessor {
   if (mode === 'deepfilternet') {
     const filter = new DeepFilterNoiseFilterProcessor({
       sampleRate: 48000,
-      noiseReductionLevel: 100,
+      noiseReductionLevel: 80,
       enabled: true,
       assetConfig: {
         cdnUrl: '/deepfilternet3'
