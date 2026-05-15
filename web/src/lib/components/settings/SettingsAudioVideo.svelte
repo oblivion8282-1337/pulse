@@ -44,6 +44,7 @@
   }
 
   let micLevelPct = $derived(Math.min(100, Math.round(voice.localMicLevel * 140)));
+  let agcForced = $derived(settings.audio.noiseSuppression === 'deepfilternet' || settings.audio.noiseSuppression === 'rnnoise');
   let bitrateLabel = $derived(
     settings.audio.voiceBitrateKbps <= 32
       ? 'sparsam'
@@ -141,19 +142,21 @@
         data-testid="settings-echo-cancellation"
       />
     </label>
-    <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={settings.audio.noiseSuppression === 'deepfilternet'}>
+    <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={agcForced}>
       <div>
         <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
         {#if settings.audio.noiseSuppression === 'deepfilternet'}
           <p class="text-text-muted text-xs">Von DeepFilterNet3 übernommen — deaktiviert</p>
+        {:else if settings.audio.noiseSuppression === 'rnnoise'}
+          <p class="text-text-muted text-xs">Von RNNoise übernommen — deaktiviert</p>
         {/if}
       </div>
       <input
         type="checkbox"
-        checked={settings.audio.noiseSuppression === 'deepfilternet' ? false : settings.audio.autoGainControl}
+        checked={agcForced ? false : settings.audio.autoGainControl}
         onchange={(e) => settings.setAutoGainControl((e.currentTarget as HTMLInputElement).checked)}
         class="accent-primary size-4"
-        disabled={settings.audio.noiseSuppression === 'deepfilternet'}
+        disabled={agcForced}
         data-testid="settings-auto-gain"
       />
     </label>
