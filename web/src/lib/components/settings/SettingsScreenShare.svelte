@@ -23,7 +23,7 @@
   ];
 
   function onBitrateInput(e: Event) {
-    const val = parseFloat((e.currentTarget as HTMLInputElement).value);
+    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
     if (!isNaN(val)) settings.setScreenShareBitrateMbps(val);
   }
 </script>

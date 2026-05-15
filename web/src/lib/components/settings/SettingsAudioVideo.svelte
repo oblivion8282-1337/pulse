@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { settings, VOICE_BITRATE_MIN, VOICE_BITRATE_MAX } from '$lib/stores/settings.svelte';
+  import { settings, VOICE_BITRATE_MIN, VOICE_BITRATE_MAX, VOICE_BITRATE_STEREO_MIN } from '$lib/stores/settings.svelte';
+  import InfoIcon from '@lucide/svelte/icons/info';
   import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
@@ -26,7 +27,17 @@
     if (voice.connected) void voice.applyNoiseFilter();
   }
 
+  // Live-display the slider value during drag (oninput), but only persist the
+  // final value on release (onchange) so we don't hammer localStorage per pixel.
+  let bitrateDisplay = $state(settings.audio.voiceBitrateKbps);
+  $effect(() => {
+    bitrateDisplay = settings.audio.voiceBitrateKbps;
+  });
   function onBitrateInput(e: Event) {
+    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+    if (!isNaN(val)) bitrateDisplay = val;
+  }
+  function onBitrateChange(e: Event) {
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
     if (!isNaN(val)) settings.setVoiceBitrateKbps(val);
   }
@@ -45,14 +56,18 @@
 
   let micLevelPct = $derived(Math.min(100, Math.round(voice.localMicLevel * 140)));
   let processorActive = $derived(settings.audio.noiseSuppression !== 'off' && settings.audio.noiseSuppression !== 'browser');
+  let bitrateTooLowForStereo = $derived(settings.audio.voiceBitrateKbps < VOICE_BITRATE_STEREO_MIN);
+  let stereoForced = $derived(processorActive || bitrateTooLowForStereo);
   let bitrateLabel = $derived(
-    settings.audio.voiceBitrateKbps <= 32
-      ? 'sparsam'
-      : settings.audio.voiceBitrateKbps <= 64
-        ? 'Standard / Discord-Niveau'
-        : settings.audio.voiceBitrateKbps <= 128
-          ? 'hoch'
-          : 'sehr hoch (Musik)'
+    bitrateDisplay < 24
+      ? 'sehr niedrig — Roboter-Sprache'
+      : bitrateDisplay < 32
+        ? 'sparsam'
+        : bitrateDisplay <= 64
+          ? 'Standard / Discord-Niveau'
+          : bitrateDisplay <= 128
+            ? 'hoch'
+            : 'sehr hoch (Musik)'
   );
 </script>
 
@@ -166,7 +181,7 @@
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between">
       <span class="text-text-bright text-sm font-medium">Sprachqualität</span>
-      <span class="text-text-muted text-sm">{settings.audio.voiceBitrateKbps} kbit/s · {bitrateLabel}</span>
+      <span class="text-text-muted text-sm">{bitrateDisplay} kbit/s · {bitrateLabel}</span>
     </div>
     <input
       type="range"
@@ -175,22 +190,25 @@
       step="8"
       value={settings.audio.voiceBitrateKbps}
       oninput={onBitrateInput}
+      onchange={onBitrateChange}
       class="accent-primary w-full"
       data-testid="settings-voice-bitrate"
     />
-    <label class="mt-1 flex cursor-pointer items-center justify-between gap-3" class:opacity-50={processorActive}>
+    <label class="mt-1 flex cursor-pointer items-center justify-between gap-3" class:opacity-50={stereoForced}>
       <div>
-        <span class="text-text-base text-sm">Stereo <span class="text-text-muted text-xs">{processorActive ? '' : '(nur ab ~64 kbit/s sinnvoll, v.a. für Musik)'}</span></span>
+        <span class="text-text-base text-sm">Stereo <span class="text-text-muted text-xs">{stereoForced ? '' : '(v.a. für Musik sinnvoll)'}</span></span>
         {#if processorActive}
           <p class="text-text-muted text-xs">Noise-Filter ist mono — Stereo hätte keinen Effekt</p>
+        {:else if bitrateTooLowForStereo}
+          <p class="text-text-muted text-xs">Bitrate zu niedrig — min. {VOICE_BITRATE_STEREO_MIN} kbit/s für Stereo</p>
         {/if}
       </div>
       <input
         type="checkbox"
-        checked={processorActive ? false : settings.audio.stereo}
+        checked={stereoForced ? false : settings.audio.stereo}
         onchange={(e) => settings.setStereo((e.currentTarget as HTMLInputElement).checked)}
         class="accent-primary size-4"
-        disabled={processorActive}
+        disabled={stereoForced}
         data-testid="settings-stereo"
       />
     </label>
@@ -222,8 +240,12 @@
     </div>
   </div>
 
-  <p class="text-text-muted text-xs">
-    Einige Änderungen (Bitrate, Stereo, Echo/Auto-Gain, Rauschunterdrückung auf „Browser-Standard") greifen erst,
-    wenn du das nächste Mal einem Sprach-Kanal beitrittst.
-  </p>
+  <div class="border-primary/30 bg-primary/5 mt-2 flex items-start gap-2 rounded-lg border-l-2 px-3 py-2">
+    <InfoIcon class="text-primary/80 mt-0.5 size-3.5 shrink-0" />
+    <p class="text-text-muted text-xs leading-relaxed">
+      <span class="text-text-base">Bitrate, Stereo und Echo/Auto-Gain</span> greifen erst, wenn du das nächste Mal
+      einem Sprach-Kanal beitrittst. <span class="text-text-base">Rauschunterdrückung</span> und
+      <span class="text-text-base">Ein-/Ausgabegerät</span> wirken sofort.
+    </p>
+  </div>
 </div>

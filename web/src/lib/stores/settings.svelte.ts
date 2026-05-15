@@ -14,8 +14,9 @@ export type ThemePreference = 'light' | 'dark' | 'system';
 const STORAGE_KEY = 'dcc.settings';
 const LEGACY_SCREENSHARE_KEY = 'dcc.screenShareSettings';
 
-const VOICE_BITRATE_MIN = 8;
+const VOICE_BITRATE_MIN = 16;
 const VOICE_BITRATE_MAX = 256;
+const VOICE_BITRATE_STEREO_MIN = 32;
 
 // Cap for the LiveKit screen-share bitrate. Fan-out via SFU means the server
 // pays N×bitrate egress per channel — keep this low even when raising the HQ
@@ -52,6 +53,10 @@ type VoiceSettings = {
 
 const USER_VOLUME_MIN = 0;
 const USER_VOLUME_MAX = 4;
+/** Hard cap to keep the persisted record bounded — entries beyond this are
+ *  FIFO-dropped at write time. Tuned for "you'll never adjust this many
+ *  unique users on purpose" rather than a precise LRU. */
+const MAX_USER_VOLUMES = 256;
 
 type AppearanceSettings = {
   theme: ThemePreference;
@@ -142,7 +147,15 @@ function parseUserVolumes(raw: unknown): Record<string, number> {
     const clamped = clampUserVolume(val);
     if (clamped !== 1) out[k] = clamped;
   }
-  return out;
+  return capUserVolumes(out);
+}
+
+function capUserVolumes(map: Record<string, number>): Record<string, number> {
+  const keys = Object.keys(map);
+  if (keys.length <= MAX_USER_VOLUMES) return map;
+  const drop = keys.length - MAX_USER_VOLUMES;
+  for (let i = 0; i < drop; i++) delete map[keys[i]];
+  return map;
 }
 
 function readLegacyScreenShare(): Partial<ScreenShareSettings> | null {
@@ -354,8 +367,13 @@ class SettingsStore {
     // this, mutations on a $state-tracked Record aren't reactive.
     const next = { ...this.voice.userVolumes };
     if (clamped === 1) delete next[userId];
-    else next[userId] = clamped;
-    this.voice.userVolumes = next;
+    else {
+      // Re-insert so the most-recently-touched key is at the end — gives FIFO
+      // eviction a rough recency bias.
+      delete next[userId];
+      next[userId] = clamped;
+    }
+    this.voice.userVolumes = capUserVolumes(next);
     this.#persist();
   }
 
@@ -405,6 +423,7 @@ export const settings = new SettingsStore();
 export {
   VOICE_BITRATE_MIN,
   VOICE_BITRATE_MAX,
+  VOICE_BITRATE_STEREO_MIN,
   SCREEN_SHARE_BITRATE_MIN,
   SCREEN_SHARE_BITRATE_MAX,
   USER_VOLUME_MIN,
