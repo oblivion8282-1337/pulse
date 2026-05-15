@@ -82,7 +82,7 @@
   >
     {#each shown as msg (msg.id)}
       <div
-        class="max-w-full rounded-lg bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
+        class="max-w-full rounded-lg bg-black/65 px-2.5 py-1 text-xs text-white ring-1 ring-white/15 backdrop-blur-md [text-shadow:0_1px_2px_rgb(0_0_0/0.9)]"
       >
         <span class="font-semibold text-primary">{userCache.displayName(msg.author_id)}</span>
         <span class="ml-1.5">{msg.content}</span>
