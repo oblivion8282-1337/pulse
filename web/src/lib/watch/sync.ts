@@ -39,6 +39,8 @@ export interface PlayerHandle {
   /** Optional — Twitch's Embed API doesn't expose this. Implementations
    * that can't honour it should make this a no-op. */
   setPlaybackRate(rate: number): void;
+  /** Set output volume, 0-100. Each player normalises internally. */
+  setVolume(percent: number): void;
   destroy(): void;
 }
 

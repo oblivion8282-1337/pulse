@@ -2,11 +2,11 @@
   YouTube IFrame Player API wrapper.
 
   Loads https://www.youtube.com/iframe_api once per session (module-level
-  promise); subsequent instances reuse the loaded `window.YT`. Each component
-  instance mounts its own `YT.Player` with native controls enabled so viewers
-  get the standard volume / quality / fullscreen UI. The host's tile binds to
-  play/pause events; viewer events are ignored by WatchPartyTile so local
-  playback fiddling doesn't propagate.
+  promise); subsequent instances reuse the loaded `window.YT`. Native player
+  chrome (play/pause/seek/volume/quality/fullscreen) is only shown when
+  `interactive` is true — i.e. for the host. Viewers get a clean video
+  surface; the tile renders its own volume + fullscreen overlay so the
+  viewer can't accidentally pause/seek and desync the party.
 
   YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
   via heartbeat drift correction instead.
@@ -21,11 +21,14 @@
 
   interface Props {
     source: WatchSourceYouTube;
+    /** Host: native chrome + clickable. Viewer: no chrome, pointer-events
+     * blocked, custom overlay handles volume/fullscreen. */
+    interactive?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, onReady, onEvent }: Props = $props();
+  let { source, interactive = true, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
 
@@ -72,7 +75,8 @@
         videoId: source.embed_id,
         playerVars: {
           autoplay: 0,
-          controls: 1,
+          controls: interactive ? 1 : 0,
+          disablekb: interactive ? 0 : 1,
           modestbranding: 1,
           rel: 0,
           start: source.start_seconds ?? 0,
@@ -86,6 +90,7 @@
               seek: (t: number) => player?.seekTo(t, true),
               getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
               setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
+              setVolume: (p: number) => player?.setVolume(Math.max(0, Math.min(100, p))),
               destroy: () => {
                 try {
                   player?.destroy();
@@ -122,4 +127,8 @@
   });
 </script>
 
-<div bind:this={mount} class="h-full w-full"></div>
+<div
+  bind:this={mount}
+  class="h-full w-full"
+  style:pointer-events={interactive ? undefined : 'none'}
+></div>
