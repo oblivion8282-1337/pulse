@@ -20,6 +20,15 @@
     * Sonst (reiner Heartbeat) → applySoft (nur Drift, kein play/pause).
     * Viewer hat lokal pausiert → keine Drift-Korrektur, bis er wieder
       selbst auf Play drückt.
+
+  Programmatic-Sync-Guard:
+    YT.seekTo() und Twitch.seek() triggern intern wieder PLAYING-State-
+    Changes → unser `play`-Event-Handler würde applyHard rekursiv aufrufen,
+    der seekt erneut, der Player feuert wieder PLAYING, … = sub-Sekunden-
+    Endlosschleife im Viewer. `syncingUntil` blendet play/pause-Events
+    aus, die innerhalb von SYNC_QUIET_MS nach einer eigenen Sync-Operation
+    eintreffen. Manuelles Pausieren/Play durch den User (außerhalb des
+    Fensters) bleibt voll funktional.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
@@ -64,6 +73,21 @@
   // update as a host seek (and applyHard) instead of a heartbeat.
   const SEEK_DETECTION_THRESHOLD_S = 2.0;
 
+  // Window during which player-emitted play/pause events are ignored as the
+  // echo of our own programmatic seek/play/pause. 750ms covers a slow YT
+  // seek round-trip (BUFFERING → PLAYING typically lands within 200-500ms).
+  const SYNC_QUIET_MS = 750;
+  let syncingUntil = 0;
+
+  function syncHard(p: PlayerHandle, s: WatchPartyState): void {
+    syncingUntil = Date.now() + SYNC_QUIET_MS;
+    corrector.applyHard(p, s);
+  }
+  function syncSoft(p: PlayerHandle, s: WatchPartyState): void {
+    syncingUntil = Date.now() + SYNC_QUIET_MS;
+    corrector.applySoft(p, s);
+  }
+
   // Trailing-debounce window for host control broadcasts. YouTube fires
   // multiple PLAYING/PAUSED events in rapid succession during ad breaks and
   // buffer recovery — without this, viewers would ping-pong between play
@@ -92,7 +116,7 @@
     prevParty = cur;
     if (!prev) {
       viewerPaused = !cur.is_playing;
-      corrector.applyHard(p, cur);
+      syncHard(p, cur);
       return;
     }
     const playingFlipped = prev.is_playing !== cur.is_playing;
@@ -101,10 +125,10 @@
       Math.abs(cur.position - expectedFromPrev) > SEEK_DETECTION_THRESHOLD_S;
     if (playingFlipped || positionJumped) {
       viewerPaused = !cur.is_playing;
-      corrector.applyHard(p, cur);
+      syncHard(p, cur);
       return;
     }
-    if (!viewerPaused) corrector.applySoft(p, cur);
+    if (!viewerPaused) syncSoft(p, cur);
   });
 
   $effect(() => {
@@ -147,11 +171,15 @@
     }
     // Viewer events don't broadcast. We track them locally so a manual pause
     // sticks (next heartbeat won't undo it) and a manual play re-engages
-    // drift correction.
+    // drift correction. Suppress the echo of our own programmatic
+    // seek/play/pause — siehe SYNC_QUIET_MS-Block oben.
+    if ((e.type === 'play' || e.type === 'pause') && Date.now() < syncingUntil) {
+      return;
+    }
     if (e.type === 'pause') viewerPaused = true;
     else if (e.type === 'play') {
       viewerPaused = false;
-      if (player) corrector.applyHard(player, party);
+      if (player) syncHard(player, party);
     }
   }
 
