@@ -186,7 +186,7 @@ modules:
       - install -Dm644 icon.png /app/icon.png
       # The pure-stdlib Python GSR sidecar — path matches sidecar.ts's Flatpak default.
       - install -d /app/share/pulse/gsr-sidecar
-      - install -m644 gsr-sidecar/control.py gsr-sidecar/profiles.py gsr-sidecar/stream_controller.py gsr-sidecar/gsr_binary.py gsr-sidecar/__init__.py /app/share/pulse/gsr-sidecar/
+      - install -m644 gsr-sidecar/control.py gsr-sidecar/profiles.py gsr-sidecar/stream_controller.py gsr-sidecar/gsr_binary.py gsr-sidecar/redact.py gsr-sidecar/__init__.py /app/share/pulse/gsr-sidecar/
       # Launcher + desktop integration
       - install -Dm755 packaging/launcher.sh /app/bin/pulse
       - install -Dm644 packaging/com.unicutmedia.Pulse.desktop /app/share/applications/com.unicutmedia.Pulse.desktop
