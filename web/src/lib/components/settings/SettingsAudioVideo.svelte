@@ -75,7 +75,7 @@
     </select>
     <div class="bg-bg-input h-2 w-full overflow-hidden rounded-full" data-testid="settings-mic-level">
       <div
-        class="bg-primary h-full rounded-full transition-[width] duration-100"
+        class="bg-primary h-full rounded-full transition-[width] duration-50"
         style:width="{micLevelPct}%"
       ></div>
     </div>

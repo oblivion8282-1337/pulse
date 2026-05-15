@@ -495,7 +495,7 @@ class VoiceRoom {
 
   #startLevelPolling(): void {
     this.#stopLevelPolling();
-    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 200);
+    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 50);
   }
 
   #patchAudioLevels(): void {
