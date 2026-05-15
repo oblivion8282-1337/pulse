@@ -370,13 +370,14 @@ class VoiceRoom {
 
   #roomOptions(): RoomOptions {
     const a = settings.audio;
+    const customProcessor = a.noiseSuppression !== 'off' && a.noiseSuppression !== 'browser';
     return {
       adaptiveStream: true,
       dynacast: true,
       audioCaptureDefaults: this.#audioCaptureDefaults(),
       publishDefaults: {
         audioPreset: { maxBitrate: a.voiceBitrateKbps * 1000 },
-        forceStereo: a.stereo,
+        forceStereo: a.stereo && !customProcessor,
         // DTX off: keep a constant Opus stream even in speech gaps so the
         // listener gets real room tone (and any noise-suppressor-fed near-
         // silent signal still flows through). Costs ~+50 % audio bandwidth
@@ -390,15 +391,15 @@ class VoiceRoom {
 
   #audioCaptureDefaults(): AudioCaptureOptions {
     const a = settings.audio;
+    const customProcessor = a.noiseSuppression !== 'off' && a.noiseSuppression !== 'browser';
     const opts: AudioCaptureOptions = {
-      autoGainControl: (a.noiseSuppression === 'deepfilternet' || a.noiseSuppression === 'rnnoise') ? false : a.autoGainControl,
+      autoGainControl: customProcessor ? false : a.autoGainControl,
       echoCancellation: a.echoCancellation,
       // Browser NS only when explicitly selected — otherwise our own processor
       // (rnnoise/deepfilternet) handles it, or nothing ('off').
       noiseSuppression: a.noiseSuppression === 'browser',
-      // forceStereo only signals stereo in the SDP — the capture needs 2 real
-      // channels for stereo audio to actually be transmitted.
-      channelCount: a.stereo ? 2 : 1
+      // Custom processors (rnnoise/dfn3) are mono — stereo capture yields nothing.
+      channelCount: a.stereo && !customProcessor ? 2 : 1
     };
     if (a.inputDeviceId) opts.deviceId = a.inputDeviceId;
     return opts;

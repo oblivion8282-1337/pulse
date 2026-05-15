@@ -44,7 +44,7 @@
   }
 
   let micLevelPct = $derived(Math.min(100, Math.round(voice.localMicLevel * 140)));
-  let agcForced = $derived(settings.audio.noiseSuppression === 'deepfilternet' || settings.audio.noiseSuppression === 'rnnoise');
+  let processorActive = $derived(settings.audio.noiseSuppression !== 'off' && settings.audio.noiseSuppression !== 'browser');
   let bitrateLabel = $derived(
     settings.audio.voiceBitrateKbps <= 32
       ? 'sparsam'
@@ -142,7 +142,7 @@
         data-testid="settings-echo-cancellation"
       />
     </label>
-    <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={agcForced}>
+    <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={processorActive}>
       <div>
         <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
         {#if settings.audio.noiseSuppression === 'deepfilternet'}
@@ -153,10 +153,10 @@
       </div>
       <input
         type="checkbox"
-        checked={agcForced ? false : settings.audio.autoGainControl}
+        checked={processorActive ? false : settings.audio.autoGainControl}
         onchange={(e) => settings.setAutoGainControl((e.currentTarget as HTMLInputElement).checked)}
         class="accent-primary size-4"
-        disabled={agcForced}
+        disabled={processorActive}
         data-testid="settings-auto-gain"
       />
     </label>
@@ -178,13 +178,19 @@
       class="accent-primary w-full"
       data-testid="settings-voice-bitrate"
     />
-    <label class="mt-1 flex cursor-pointer items-center justify-between gap-3">
-      <span class="text-text-base text-sm">Stereo <span class="text-text-muted text-xs">(nur ab ~64 kbit/s sinnvoll, v.a. für Musik)</span></span>
+    <label class="mt-1 flex cursor-pointer items-center justify-between gap-3" class:opacity-50={processorActive}>
+      <div>
+        <span class="text-text-base text-sm">Stereo <span class="text-text-muted text-xs">{processorActive ? '' : '(nur ab ~64 kbit/s sinnvoll, v.a. für Musik)'}</span></span>
+        {#if processorActive}
+          <p class="text-text-muted text-xs">Noise-Filter ist mono — Stereo hätte keinen Effekt</p>
+        {/if}
+      </div>
       <input
         type="checkbox"
-        checked={settings.audio.stereo}
+        checked={processorActive ? false : settings.audio.stereo}
         onchange={(e) => settings.setStereo((e.currentTarget as HTMLInputElement).checked)}
         class="accent-primary size-4"
+        disabled={processorActive}
         data-testid="settings-stereo"
       />
     </label>
