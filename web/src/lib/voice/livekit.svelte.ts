@@ -22,6 +22,7 @@ import type {
 import { getVoiceToken } from '$lib/api/voice';
 import { voiceState } from './state.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
+import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { settings } from '$lib/stores/settings.svelte';
 import { AudioDevices } from './audioDevices.svelte';
@@ -184,6 +185,17 @@ class VoiceRoom {
   async disconnect(): Promise<void> {
     const room = this.#room;
     if (!room) return;
+    // Stop any watch parties I'm hosting in this channel before we tear
+    // down the room — the tile lives inside the voice grid, so leaving
+    // voice would orphan it for everyone else. Best-effort; backend's
+    // socket-close cleanup is the last-resort safety net.
+    const cid = this.channelId;
+    if (cid && auth.user) {
+      const party = watchPartyPresence.partyIn(cid);
+      if (party && party.host_user_id === auth.user.id) {
+        gateway.stopWatchParty(cid);
+      }
+    }
     try {
       await room.disconnect();
     } finally {

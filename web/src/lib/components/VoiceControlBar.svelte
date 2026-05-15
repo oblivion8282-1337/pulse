@@ -13,6 +13,7 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
+  import WatchPartyStartButton from './WatchPartyStartButton.svelte';
 
   let hqStreamOpen = $state(false);
 
@@ -26,7 +27,7 @@
 </script>
 
 <div
-  class="border-border mx-2 mt-1 rounded-2xl border bg-bg-input/60 p-2"
+  class="border-border mx-1 mt-1 rounded-2xl border bg-bg-input/60 p-1.5"
   data-testid="voice-control-bar"
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-xs">
@@ -103,6 +104,10 @@
             : 'Push-to-Talk aus'}
         </Tooltip.Content>
       </Tooltip.Root>
+
+      {#if voice.channelId}
+        <WatchPartyStartButton channelId={voice.channelId} />
+      {/if}
 
       <Tooltip.Root>
         <Tooltip.Trigger>

@@ -1,12 +1,20 @@
 <!--
-  WatchPartyStartButton — Header-Toolbar-Button mit Inline-Popover, in den
-  man eine YouTube-/Twitch-VOD-/Direct-Video-URL pastet. Live-Validation per
-  `parseSource()`; auf „Start" wird `gateway.startWatchParty` aufgerufen.
+  WatchPartyStartButton — icon button in the VoiceControlBar that opens a
+  dialog to start a watch party. URL is live-validated via the frontend
+  `parseSource` mirror; the backend re-validates the WS frame.
 
-  Disabled wenn schon eine Party im Channel läuft (das Tile lebt dann eh
-  schon im StreamGrid). Klick außerhalb schließt das Popover.
+  Disabled while a party is already active in the channel (the tile's X
+  button is the way to stop). When the host starts a party, the
+  VoiceChannelView auto-opens the stream grid so they immediately see the
+  tile they're controlling.
+
+  Dialog instead of a popover because the VoiceControlBar sits in the
+  channel-list aside which has overflow-hidden — a popover would clip.
 -->
 <script lang="ts">
+  import { Button } from '$lib/components/ui/button/index.js';
+  import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
   import { toast } from 'svelte-sonner';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -21,20 +29,10 @@
 
   let open = $state(false);
   let url = $state('');
-  let inputEl = $state<HTMLInputElement | undefined>();
 
   const active = $derived(watchPartyPresence.partyIn(channelId) !== undefined);
   const parsed = $derived(url.trim() ? parseSource(url.trim()) : null);
   const showParseError = $derived(url.trim().length > 0 && parsed === null);
-
-  function toggle(): void {
-    if (active) return;
-    open = !open;
-    if (open) {
-      // focus shortly after render
-      queueMicrotask(() => inputEl?.focus());
-    }
-  }
 
   function start(): void {
     if (!parsed) return;
@@ -53,8 +51,6 @@
     if (e.key === 'Enter') {
       e.preventDefault();
       start();
-    } else if (e.key === 'Escape') {
-      open = false;
     }
   }
 
@@ -66,48 +62,51 @@
   });
 </script>
 
-<div class="relative">
-  <button
-    type="button"
-    class="hover:bg-bg-hover hover:text-primary rounded-full p-2 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-inherit"
-    onclick={toggle}
-    aria-label="Watch Party starten"
-    aria-pressed={open}
-    aria-haspopup="dialog"
-    disabled={active}
-    data-testid="watch-party-start-button"
-    title={active ? 'Watch Party läuft bereits' : 'Watch Party starten'}
-  >
-    <PlayCircleIcon class="text-text-muted size-4" />
-  </button>
+<Tooltip.Provider delayDuration={300}>
+  <Tooltip.Root>
+    <Tooltip.Trigger>
+      {#snippet child({ props })}
+        <Button
+          {...props}
+          variant={active ? 'default' : 'ghost'}
+          size="icon-sm"
+          onclick={() => (open = true)}
+          disabled={active}
+          aria-label="Watch Party starten"
+          data-testid="watch-party-start-button"
+        >
+          <PlayCircleIcon class="size-4" />
+        </Button>
+      {/snippet}
+    </Tooltip.Trigger>
+    <Tooltip.Content>
+      {active ? 'Watch Party läuft bereits' : 'Watch Party starten'}
+    </Tooltip.Content>
+  </Tooltip.Root>
+</Tooltip.Provider>
 
-  {#if open}
-    <!-- click-outside catcher -->
-    <button
-      type="button"
-      class="fixed inset-0 z-10 cursor-default bg-transparent"
-      aria-label="Schließen"
-      onclick={() => (open = false)}
-    ></button>
-    <div
-      class="border-border bg-bg-chat absolute right-0 top-full z-20 mt-1 w-80 rounded-xl border p-3 shadow-xl backdrop-blur-xl"
-      role="dialog"
-      aria-label="Watch Party · Quelle einfügen"
-      data-testid="watch-party-popover"
-    >
-      <p class="text-text-bright mb-2 text-xs font-medium">Watch Party · Quelle</p>
+<Dialog.Root bind:open>
+  <Dialog.Content class="max-w-md" data-testid="watch-party-dialog">
+    <Dialog.Header>
+      <Dialog.Title>Watch Party starten</Dialog.Title>
+      <Dialog.Description>
+        YouTube, Twitch-VOD oder ein direkter mp4/webm/m3u8-Link.
+      </Dialog.Description>
+    </Dialog.Header>
+    <div class="flex flex-col gap-2 py-2">
       <input
-        bind:this={inputEl}
         bind:value={url}
         onkeydown={handleKey}
         type="url"
-        placeholder="YouTube / Twitch-VOD / .mp4-Link"
+        placeholder="https://youtu.be/..."
         class="border-border bg-bg-elev focus:border-primary text-text-bright w-full rounded-md border px-2 py-1.5 text-sm outline-none"
         data-testid="watch-party-url-input"
       />
-      <div class="mt-2 flex items-center justify-between gap-2 text-xs">
+      <div class="text-xs">
         {#if showParseError}
-          <span class="text-red-400" data-testid="watch-party-parse-error">URL nicht unterstützt</span>
+          <span class="text-red-400" data-testid="watch-party-parse-error">
+            URL nicht unterstützt
+          </span>
         {:else if parsed}
           <span class="text-text-muted" data-testid="watch-party-parse-ok">
             {parsed.type === 'youtube'
@@ -117,18 +116,19 @@
                 : 'Direkt-Video'}
           </span>
         {:else}
-          <span class="text-text-muted">YouTube, Twitch-VOD, mp4/webm/m3u8</span>
+          <span class="text-text-muted">YouTube, Twitch-VOD oder mp4/webm/m3u8-Link</span>
         {/if}
-        <button
-          type="button"
-          onclick={start}
-          disabled={!parsed}
-          class="bg-primary text-bg shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-opacity disabled:opacity-40"
-          data-testid="watch-party-start-confirm"
-        >
-          Start
-        </button>
       </div>
     </div>
-  {/if}
-</div>
+    <Dialog.Footer>
+      <Button variant="ghost" onclick={() => (open = false)}>Abbrechen</Button>
+      <Button
+        onclick={start}
+        disabled={!parsed}
+        data-testid="watch-party-start-confirm"
+      >
+        Start
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>

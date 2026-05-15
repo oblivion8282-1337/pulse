@@ -3,7 +3,6 @@
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import MemberList from './MemberList.svelte';
-  import WatchPartyStartButton from './WatchPartyStartButton.svelte';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -105,6 +104,18 @@
 
   $effect(() => {
     if (!othersStreaming) streamViewOpen = false;
+  });
+
+  // Auto-open the grid for the host on the transition into an active party:
+  // they just clicked Start, they should see their own tile + the stop X
+  // immediately without having to click the banner. Viewers still consent
+  // via the banner.
+  let prevHadParty = false;
+  $effect(() => {
+    const has = hasWatchParty;
+    const iAmHost = !!watchPartyState && !!auth.user && watchPartyState.host_user_id === auth.user.id;
+    if (has && !prevHadParty && iAmHost) streamViewOpen = true;
+    prevHadParty = has;
   });
 
   let memberListOpen = $state(false);
@@ -220,11 +231,8 @@
     <Volume2Icon class="text-primary size-5 shrink-0" />
     <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
-    <div class="ml-auto">
-      <WatchPartyStartButton channelId={channel.id} />
-    </div>
     <button
-      class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent"
+      class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent"
       onclick={toggleChatPanel}
       disabled={focusedStreamerId === null}
       aria-label="Live-Chat umschalten"
