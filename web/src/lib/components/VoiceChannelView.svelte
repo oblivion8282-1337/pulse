@@ -99,8 +99,14 @@
   let memberListOpen = $state(false);
   let chatPanelOpen = $state(settings.streamChat.panelOpen);
   // v1: kein Streamer-Switch im Panel — der erste fremde Streamer fokussiert sich
-  // (HQ bevorzugt, sonst der erste Browser-Screenshare-Publisher).
-  let focusedStreamerId = $derived(liveStreamersOther[0] ?? null);
+  // (HQ bevorzugt, sonst der erste Browser-Screenshare-Publisher). Streame ich
+  // selbst und sonst niemand, fokussiert das Panel meinen eigenen Stream, damit
+  // ich den Chat meiner Zuschauer mitlesen + selbst antworten kann (kein
+  // WhepPlayer/Tile für mich selbst, also kein Overlay — nur das rechte Panel).
+  let focusedStreamerId = $derived(
+    liveStreamersOther[0]
+      ?? (auth.user && liveStreamers.includes(auth.user.id) ? auth.user.id : null)
+  );
   let canShowStreamChat = $derived(chatPanelOpen && focusedStreamerId !== null);
   // Mutex zwischen Mitglieder- und Chat-Panel (gleicher rechter Slot).
   let showMember = $derived(memberListOpen && !canShowStreamChat);
