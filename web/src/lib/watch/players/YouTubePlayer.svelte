@@ -3,8 +3,10 @@
 
   Loads https://www.youtube.com/iframe_api once per session (module-level
   promise); subsequent instances reuse the loaded `window.YT`. Each component
-  instance mounts its own `YT.Player`; the host's tile binds to play/pause
-  events, viewers ignore them (controlsEnabled=false also hides the chrome).
+  instance mounts its own `YT.Player` with native controls enabled so viewers
+  get the standard volume / quality / fullscreen UI. The host's tile binds to
+  play/pause events; viewer events are ignored by WatchPartyTile so local
+  playback fiddling doesn't propagate.
 
   YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
   via heartbeat drift correction instead.
@@ -19,12 +21,11 @@
 
   interface Props {
     source: WatchSourceYouTube;
-    controlsEnabled: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, controlsEnabled, onReady, onEvent }: Props = $props();
+  let { source, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
 
@@ -71,8 +72,7 @@
         videoId: source.embed_id,
         playerVars: {
           autoplay: 0,
-          controls: controlsEnabled ? 1 : 0,
-          disablekb: controlsEnabled ? 0 : 1,
+          controls: 1,
           modestbranding: 1,
           rel: 0,
           start: source.start_seconds ?? 0,
@@ -122,8 +122,4 @@
   });
 </script>
 
-<div
-  bind:this={mount}
-  class="h-full w-full"
-  style:pointer-events={controlsEnabled ? undefined : 'none'}
-></div>
+<div bind:this={mount} class="h-full w-full"></div>

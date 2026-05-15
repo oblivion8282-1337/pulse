@@ -5,7 +5,15 @@
  * WatchPartyTile drives both host (broadcast user actions) and viewer (apply
  * remote state) sides through these primitives.
  *
- * Drift correction policy (viewers):
+ * Two correction modes:
+ *  - {@link DriftCorrector.applyHard} — used on host-driven transitions
+ *    (play/pause toggled, explicit seek). Forces is_playing AND position.
+ *  - {@link DriftCorrector.applySoft} — used on heartbeats. Drift-corrects
+ *    position only, never calls play/pause. This lets viewers pause
+ *    locally (e.g. to grab a drink) without being forced back to playing
+ *    on the next heartbeat.
+ *
+ * Position correction policy (both modes):
  *  - |drift| < 0.1s  → ignore (within noise of getCurrentTime())
  *  - |drift| < 0.5s  → playbackRate nudge for 2s (1.05 or 0.95) so the
  *                       player catches up smoothly. Reset on cleanup or on
@@ -54,13 +62,26 @@ export type DriftAction = 'none' | 'nudge-up' | 'nudge-down' | 'seek';
 export class DriftCorrector {
   private rateResetTimer: number | null = null;
 
-  apply(player: PlayerHandle, state: WatchPartyState): DriftAction {
-    // Apply play/pause first so getCurrentTime() reflects the right mode.
-    if (state.is_playing) {
-      player.play();
-    } else {
-      player.pause();
-    }
+  /** Force the player into the remote state — play/pause AND position.
+   * Use on host-driven transitions (play/pause toggled, explicit seek by
+   * host, viewer joining a party in progress). */
+  applyHard(player: PlayerHandle, state: WatchPartyState): DriftAction {
+    if (state.is_playing) player.play();
+    else player.pause();
+    return this.correctPosition(player, state);
+  }
+
+  /** Drift-correct position only. Does NOT call play/pause; if the viewer
+   * paused locally and is_playing is true on the host, the player stays
+   * paused — the next host-driven transition (or a manual viewer play) will
+   * resync via {@link applyHard}. Returns 'none' if the host is paused
+   * (nothing to drift against). */
+  applySoft(player: PlayerHandle, state: WatchPartyState): DriftAction {
+    if (!state.is_playing) return 'none';
+    return this.correctPosition(player, state);
+  }
+
+  private correctPosition(player: PlayerHandle, state: WatchPartyState): DriftAction {
     const expected = expectedPosition(state);
     const actual = player.getCurrentTime();
     const drift = expected - actual;

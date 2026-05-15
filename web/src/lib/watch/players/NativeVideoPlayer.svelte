@@ -5,8 +5,10 @@
   would need hls.js (not bundled in v1 — Pulse is desktop/PWA-focussed on
   Chromium).
 
-  The `controls` attribute is bound to `controlsEnabled` — viewers get a
-  read-only player, host gets full scrubbing/play/pause UI.
+  Native `controls` is always on so viewers get volume / fullscreen /
+  scrubbing. Viewer-driven play/pause/seek events are ignored by
+  WatchPartyTile (host-only broadcast), and the next heartbeat re-aligns
+  the viewer's position via DriftCorrector.applySoft.
 -->
 <script lang="ts">
   import type { WatchSourceNative } from '$lib/stores/watchPartyPresence.svelte';
@@ -14,12 +16,11 @@
 
   interface Props {
     source: WatchSourceNative;
-    controlsEnabled: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, controlsEnabled, onReady, onEvent }: Props = $props();
+  let { source, onReady, onEvent }: Props = $props();
 
   let video = $state<HTMLVideoElement | undefined>();
 
@@ -76,10 +77,9 @@
 <video
   bind:this={video}
   src={source.url}
-  controls={controlsEnabled}
+  controls
   playsinline
   class="h-full w-full bg-black"
-  style:pointer-events={controlsEnabled ? undefined : 'none'}
 >
   <track kind="captions" />
 </video>

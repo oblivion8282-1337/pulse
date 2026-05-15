@@ -21,12 +21,11 @@
 
   interface Props {
     source: WatchSourceTwitch;
-    controlsEnabled: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, controlsEnabled, onReady, onEvent }: Props = $props();
+  let { source, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
   const elementId = `twitch-player-${Math.random().toString(36).slice(2)}`;
@@ -118,9 +117,4 @@
   });
 </script>
 
-<div
-  bind:this={mount}
-  id={elementId}
-  class="h-full w-full"
-  style:pointer-events={controlsEnabled ? undefined : 'none'}
-></div>
+<div bind:this={mount} id={elementId} class="h-full w-full"></div>

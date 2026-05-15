@@ -2,11 +2,20 @@
   WatchPartyTile — eine aktive Watch-Party in einem Voice-Channel.
 
   Mountet den passenden Player (YouTube / Twitch / Native) anhand
-  `party.source.type`, hängt für *Viewer* den DriftCorrector an (lokaler
-  Player wird bei jedem Store-Update gegen den Host-Stand abgeglichen) und
-  für den *Host* den Heartbeat (3s-Loop, broadcasted seine currentTime
-  zurück). Player-Events (`play`/`pause`/`seek`) → `gateway.sendWatchControl`
-  nur beim Host.
+  `party.source.type`. Beide Seiten kriegen native Player-Controls
+  (Lautstärke / Qualität / Fullscreen) — beim Host werden play/pause/seek
+  über das WS broadcasted, Viewer-Events werden lokal verarbeitet aber
+  nicht broadcasted.
+
+  Sync-Strategie (Viewer):
+    * Erste Anwendung nach Player-ready → applyHard (Player ausrichten).
+    * Folgende Updates → Heuristik: Wenn is_playing flippt oder die Position
+      um mehr als ~2s vom erwarteten Wert abweicht (= Host hat geseekt) →
+      applyHard. Sonst → applySoft (nur Drift-Korrektur, kein erzwungenes
+      play/pause).
+    * Hat der Viewer lokal pausiert (`viewerPaused`) → keine Drift-Korrektur,
+      bis er wieder selbst auf Play drückt. So darf jeder kurz wegtreten
+      ohne dass der nächste Heartbeat ihn 3s später zurück ins Play kickt.
 
   Source/host_user_id sind während einer Party stabil; das `state`-Objekt
   ändert sich aber bei jedem Heartbeat/Control (neue position/updated_at),
@@ -25,6 +34,7 @@
   import YouTubePlayer from '$lib/watch/players/YouTubePlayer.svelte';
   import {
     DriftCorrector,
+    expectedPosition,
     startHeartbeat,
     type PlayerEvent,
     type PlayerHandle
@@ -41,6 +51,20 @@
   let stopHeartbeat: (() => void) | undefined;
   const corrector = new DriftCorrector();
 
+  // Tracks the last `party` value we synced against — drives the
+  // transition-vs-heartbeat decision in the viewer $effect below. Not $state:
+  // it's pure bookkeeping that shouldn't trigger reactivity.
+  let prevParty: WatchPartyState | undefined;
+  // Viewer-local: did the viewer manually pause? If yes, heartbeat-only
+  // updates skip drift correction so they stay paused until they themselves
+  // press play (or the host triggers a transition).
+  let viewerPaused = false;
+
+  // How far position can drift from the heartbeat-extrapolated value before
+  // we treat it as an explicit host seek (vs the natural advancement during
+  // playback). 2s comfortably covers heartbeat jitter and small clock skew.
+  const SEEK_DETECTION_THRESHOLD_S = 2.0;
+
   const isHost = $derived(!!auth.user && party.host_user_id === auth.user.id);
   const hostName = $derived(userCache.displayName(party.host_user_id));
 
@@ -48,11 +72,32 @@
     userCache.queue(party.host_user_id);
   });
 
-  // Viewer: correct drift whenever the remote state changes.
+  // Viewer: align the player to the remote state. Distinguishes a host-
+  // driven transition (force play/pause/position) from a heartbeat (only
+  // correct position drift, never override the viewer's local pause).
   $effect(() => {
     const p = player;
     if (!p || isHost) return;
-    corrector.apply(p, party);
+    const cur = party;
+    const prev = prevParty;
+    prevParty = cur;
+    if (!prev) {
+      // First sync after player ready — fully align.
+      viewerPaused = !cur.is_playing;
+      corrector.applyHard(p, cur);
+      return;
+    }
+    const playingFlipped = prev.is_playing !== cur.is_playing;
+    const expectedFromPrev = expectedPosition(prev, cur.updated_at);
+    const positionJumped =
+      Math.abs(cur.position - expectedFromPrev) > SEEK_DETECTION_THRESHOLD_S;
+    if (playingFlipped || positionJumped) {
+      viewerPaused = !cur.is_playing;
+      corrector.applyHard(p, cur);
+      return;
+    }
+    // Pure heartbeat. If the viewer paused locally, leave them alone.
+    if (!viewerPaused) corrector.applySoft(p, cur);
   });
 
   // Host: start/stop the 3s heartbeat as host status flips.
@@ -82,16 +127,25 @@
 
   function handleReady(handle: PlayerHandle): void {
     player = handle;
-    // Viewer aligns immediately so first paint matches the host.
-    if (!isHost) corrector.apply(handle, party);
+    // The $effect above will run on the next tick with prevParty=undefined
+    // and applyHard the initial state — no manual call needed here.
   }
 
   function handleEvent(e: PlayerEvent): void {
-    if (!isHost) return;
-    if (e.type === 'play') gateway.sendWatchControl(channelId, 'play', e.position);
-    else if (e.type === 'pause') gateway.sendWatchControl(channelId, 'pause', e.position);
-    else if (e.type === 'seek') gateway.sendWatchControl(channelId, 'seek', e.position);
-    // ready/error: nothing to broadcast.
+    if (isHost) {
+      if (e.type === 'play') gateway.sendWatchControl(channelId, 'play', e.position);
+      else if (e.type === 'pause') gateway.sendWatchControl(channelId, 'pause', e.position);
+      else if (e.type === 'seek') gateway.sendWatchControl(channelId, 'seek', e.position);
+      return;
+    }
+    // Viewer-side events don't broadcast — but we use them locally so a
+    // manual pause sticks (next heartbeat won't undo it) and a manual play
+    // re-engages drift correction.
+    if (e.type === 'pause') viewerPaused = true;
+    else if (e.type === 'play') {
+      viewerPaused = false;
+      if (player) corrector.applyHard(player, party);
+    }
   }
 
   function stop(): void {
@@ -139,26 +193,11 @@
 
   <div class="relative min-h-0 flex-1 bg-black">
     {#if party.source.type === 'youtube'}
-      <YouTubePlayer
-        source={party.source}
-        controlsEnabled={isHost}
-        onReady={handleReady}
-        onEvent={handleEvent}
-      />
+      <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
     {:else if party.source.type === 'twitch'}
-      <TwitchPlayer
-        source={party.source}
-        controlsEnabled={isHost}
-        onReady={handleReady}
-        onEvent={handleEvent}
-      />
+      <TwitchPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
     {:else}
-      <NativeVideoPlayer
-        source={party.source}
-        controlsEnabled={isHost}
-        onReady={handleReady}
-        onEvent={handleEvent}
-      />
+      <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
     {/if}
   </div>
 </div>
