@@ -41,7 +41,13 @@
   // Im-Player-Chat (Twitch-Style) — Sibling im containerEl, geht mit in den Fullscreen.
   let chatOpen = $state(false);
   let boost: VolumeBoost | null = null;
-  const applyVolume = () => boost?.setVolume(volume / 100);
+  function applyVolume() {
+    const v = volume / 100;
+    // Boost-Graph aktiv → Element ist muted, gain regelt. Fallback → unmuted,
+    // el.volume regelt (auf [0, 1] geclampt — >100% gibt's da nicht).
+    if (videoEl && !videoEl.muted) videoEl.volume = Math.min(1.0, v);
+    boost?.setVolume(v);
+  }
 
   function handleToggleFullscreen() {
     toggleFullscreen(containerEl, videoEl);
@@ -121,9 +127,18 @@
       const { whep_url } = await chatApi.getWhepUrl(cid, userId);
       if (disposed || runChannelId !== cid) return;
       const s = await connectWhep(whep_url, (stream) => {
-        if (videoEl) {
-          videoEl.srcObject = stream;
+        if (!videoEl) return;
+        videoEl.srcObject = stream;
+        // Audio kommt aus dem Web-Audio-Graph (createMediaStreamSource), sonst
+        // doppelt. createMediaElementSource funktioniert mit srcObject=MediaStream
+        // nicht zuverlässig (Chromium). Klappt das nicht (kein Audio-Track,
+        // kein AudioContext), unmuten und Slider operiert auf el.volume (≤100%).
+        if (boost?.attach(stream)) {
+          videoEl.muted = true;
           applyVolume();
+          audioBlocked = boost.suspended;
+        } else {
+          videoEl.muted = false;
         }
       });
       if (disposed || runChannelId !== cid) {
@@ -146,16 +161,11 @@
           });
         }
       });
-      // Best-effort autoplay-with-sound; if blocked, show the overlay.
+      // Video ist muted, also autoplay-tauglich; der Audio-Block hängt jetzt
+      // am AudioContext (kann suspended sein bevor der User klickt).
       statsReader.reset();
-      void videoEl
-        ?.play()
-        .then(() => {
-          audioBlocked = false;
-        })
-        .catch(() => {
-          audioBlocked = true;
-        });
+      void videoEl?.play().catch(() => { /* muted media should autoplay */ });
+      audioBlocked = !!boost?.suspended;
       statsTimer = setInterval(async () => {
         const cur = session;
         if (cur) stats = await statsReader.read(cur.pc);
@@ -176,7 +186,8 @@
   async function enableAudio() {
     try {
       await videoEl?.play();
-      audioBlocked = false;
+      await boost?.resume();
+      audioBlocked = !!boost?.suspended;
     } catch {
       /* still blocked */
     }
@@ -193,10 +204,8 @@
   });
 
   onMount(() => {
-    if (videoEl) {
-      boost = new VolumeBoost(videoEl);
-      applyVolume();
-    }
+    boost = new VolumeBoost();
+    boost.onStateChange = (suspended) => { audioBlocked = suspended; };
     function onFsChange() {
       isFullscreen = isDocFullscreen();
     }

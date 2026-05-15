@@ -1,74 +1,103 @@
 /**
- * Volume control for an HTMLMediaElement that can go *above* 100% via a Web
+ * Volume control for a WebRTC `MediaStream` that can go above 100% via a Web
  * Audio GainNode. `HTMLMediaElement.volume` is clamped to [0, 1] by the HTML
- * spec, so any boost factor has to route through Web Audio.
+ * spec, so boost > 1.0 needs Web Audio. Crucially, `createMediaElementSource`
+ * does NOT work for elements whose `srcObject` is a MediaStream (WebRTC) in
+ * Chromium — the audio bypasses the graph. We therefore route via
+ * `createMediaStreamSource` and mute the playback element so we don't double-
+ * play.
  *
- * Lazy: while the requested volume is ≤ 1.0 we just set `el.volume`. The
- * AudioContext + MediaElementSource are only built on the first request for
- * boost > 1.0 (driven by a slider input → user gesture, so `resume()` works).
- *
- * Once the graph is up, the element's native `volume` is pinned to 1.0 — the
- * audio stream is now consumed by the graph, not the speaker, so the element's
- * own volume would just be double-attenuation. The mute toggle still drives
- * us, it just sets gain to 0.
- *
- * Boost > 1.0 will clip / distort sources already near 0 dBFS. That's expected
- * for a user-controlled boost slider.
+ * Lifecycle:
+ *   1. Construct (no graph yet).
+ *   2. `attach(stream)` builds the AudioContext + graph. The AudioContext
+ *      starts `suspended` until a user-gesture-driven `resume()` — callers
+ *      should mirror that into the existing audio-blocked overlay.
+ *   3. `setVolume(v)` adjusts gain (0..MAX, 1.0 = 100%). Cheap; no graph
+ *      rebuild.
+ *   4. `attach(stream)` again with a different stream re-points the source.
+ *   5. `dispose()` tears everything down. The element is left muted — the
+ *      caller can un-mute if they want fallback playback.
  */
 export class VolumeBoost {
   private ctx: AudioContext | null = null;
-  private src: MediaElementAudioSourceNode | null = null;
+  private src: MediaStreamAudioSourceNode | null = null;
   private gain: GainNode | null = null;
+  private attachedStream: MediaStream | null = null;
+  private currentGain = 1.0;
 
-  constructor(private readonly el: HTMLMediaElement) {}
+  /** Notified whenever the underlying AudioContext changes between
+   *  `running` and `suspended`. Component wires this into its audio-blocked
+   *  state. */
+  onStateChange: ((suspended: boolean) => void) | null = null;
 
-  /** Set the volume as a linear gain (0..MAX). 1.0 = 100%. */
-  setVolume(v: number): void {
-    const want = Math.max(0, v);
-    if (!this.ctx && want <= 1.0) {
-      this.el.volume = want;
-      return;
-    }
-    if (!this.ctx && !this._initGraph()) {
-      this.el.volume = Math.min(1.0, want);
-      return;
-    }
-    if (this.ctx!.state === 'suspended') void this.ctx!.resume();
-    if (this.gain) this.gain.gain.value = want;
-  }
-
-  dispose(): void {
-    try {
-      this.src?.disconnect();
-      this.gain?.disconnect();
-      void this.ctx?.close();
-    } catch {
-      /* element/context already torn down */
-    }
-    this.ctx = null;
-    this.src = null;
-    this.gain = null;
-  }
-
-  private _initGraph(): boolean {
+  /**
+   * Build (or rebuild) the graph for `stream`. Returns true if at least one
+   * audio track was found and the graph is live (regardless of suspended
+   * state — that's for the caller to resolve via `resume()`).
+   */
+  attach(stream: MediaStream): boolean {
+    if (this.attachedStream === stream && this.src) return true;
+    this._teardownGraph();
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0) return false;
     const Ctor =
       (window.AudioContext as typeof AudioContext | undefined) ??
       (window as unknown as { webkitAudioContext?: typeof AudioContext })
         .webkitAudioContext;
     if (!Ctor) return false;
     try {
-      this.ctx = new Ctor();
-      this.src = this.ctx.createMediaElementSource(this.el);
+      if (!this.ctx) {
+        this.ctx = new Ctor();
+        this.ctx.onstatechange = () => {
+          this.onStateChange?.(this.ctx?.state !== 'running');
+        };
+      }
+      this.src = this.ctx.createMediaStreamSource(new MediaStream(audioTracks));
       this.gain = this.ctx.createGain();
+      this.gain.gain.value = this.currentGain;
       this.src.connect(this.gain).connect(this.ctx.destination);
-      this.el.volume = 1.0;
+      this.attachedStream = stream;
       return true;
     } catch {
-      this.ctx = null;
-      this.src = null;
-      this.gain = null;
+      this._teardownGraph();
       return false;
     }
+  }
+
+  /** True iff the AudioContext is suspended (autoplay-blocked, etc.). */
+  get suspended(): boolean {
+    return !!this.ctx && this.ctx.state !== 'running';
+  }
+
+  /** Resume the AudioContext. Must be called from a user-gesture handler. */
+  async resume(): Promise<void> {
+    if (this.ctx && this.ctx.state !== 'running') {
+      await this.ctx.resume();
+    }
+  }
+
+  setVolume(v: number): void {
+    this.currentGain = Math.max(0, v);
+    if (this.gain) this.gain.gain.value = this.currentGain;
+  }
+
+  dispose(): void {
+    this._teardownGraph();
+    try {
+      void this.ctx?.close();
+    } catch {
+      /* already closed */
+    }
+    this.ctx = null;
+    this.onStateChange = null;
+  }
+
+  private _teardownGraph(): void {
+    try { this.src?.disconnect(); } catch { /**/ }
+    try { this.gain?.disconnect(); } catch { /**/ }
+    this.src = null;
+    this.gain = null;
+    this.attachedStream = null;
   }
 }
 

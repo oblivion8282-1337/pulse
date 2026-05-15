@@ -49,7 +49,9 @@
   let boost: VolumeBoost | null = null;
 
   function applyVolume() {
-    boost?.setVolume(volume / 100);
+    const v = volume / 100;
+    if (audioEl && !audioEl.muted) audioEl.volume = Math.min(1.0, v);
+    boost?.setVolume(v);
   }
 
   function handleToggleFullscreen() {
@@ -69,12 +71,19 @@
     const el = audioEl;
     if (!at || !el) return;
     at.attach(el);
-    // Web-Audio-Graph einmalig anlegen — `createMediaElementSource(el)` wirft
-    // beim zweiten Aufruf auf demselben Element. Beim Track-Wechsel reicht
-    // re-attach, der Graph läuft weiter; dispose() passiert in onDestroy.
-    if (!boost) boost = new VolumeBoost(el);
+    if (!boost) {
+      boost = new VolumeBoost();
+      boost.onStateChange = (s) => { localBlocked = s; };
+    }
+    // Audio doppelt-spielt sonst (einmal via Element, einmal via AudioContext).
+    // Klappt das Boost-Attach nicht, unmuten — Slider operiert dann auf
+    // el.volume (≤100%).
+    const mst = at.mediaStreamTrack;
+    const boosted = mst ? boost.attach(new MediaStream([mst])) : false;
+    el.muted = boosted;
     applyVolume();
-    el.play().then(() => { localBlocked = false; }).catch(() => { localBlocked = true; });
+    localBlocked = boosted && boost.suspended;
+    el.play().catch(() => { /* autoplay best effort */ });
     return () => { at.detach(el); };
   });
 
@@ -98,7 +107,8 @@
     await voice.unblockAudio();
     try {
       await audioEl?.play();
-      localBlocked = false;
+      await boost?.resume();
+      localBlocked = !!boost?.suspended;
     } catch {
       /* still blocked — leave the button visible */
     }
