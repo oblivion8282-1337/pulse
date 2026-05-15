@@ -41,6 +41,7 @@
   import NativeVideoPlayer from '$lib/watch/players/NativeVideoPlayer.svelte';
   import TwitchPlayer from '$lib/watch/players/TwitchPlayer.svelte';
   import YouTubePlayer from '$lib/watch/players/YouTubePlayer.svelte';
+  import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
   import {
     DriftCorrector,
     expectedPosition,
@@ -207,9 +208,18 @@
     gateway.stopWatchParty(channelId);
   }
 
+  // Lazy-fetch the YouTube video title via oEmbed; the cache pushes the
+  // resolved title back into the reactive label once it lands.
+  $effect(() => {
+    if (party.source.type === 'youtube') prefetchYoutubeTitle(party.source.embed_id);
+  });
+
   const sourceLabel = $derived.by(() => {
     const s = party.source;
-    if (s.type === 'youtube') return `YouTube · ${s.embed_id}`;
+    if (s.type === 'youtube') {
+      const title = youtubeTitle(s.embed_id);
+      return title ? `YouTube · ${title}` : `YouTube · ${s.embed_id}`;
+    }
     if (s.type === 'twitch') return `Twitch · VOD ${s.embed_id}`;
     try {
       return new URL(s.url).hostname;
