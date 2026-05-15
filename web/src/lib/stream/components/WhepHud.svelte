@@ -16,6 +16,7 @@
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
   import { formatDiagnostic, type StreamStats } from '../whep-stats';
+  import { VOLUME_BOOST_MAX } from '../volumeBoost';
 
   let {
     phase,
@@ -130,9 +131,10 @@
         {#if volume === 0}<VolumeXIcon class="size-3" />{:else}<Volume2Icon class="size-3" />{/if}
       </button>
       <input
-        type="range" min="0" max="100" value={volume} oninput={onVolumeChange}
+        type="range" min="0" max={VOLUME_BOOST_MAX} value={volume} oninput={onVolumeChange}
         class="w-24 accent-white sm:w-20"
         aria-label="Lautstärke des Streams"
+        title="{volume}%"
         data-testid="hq-stream-volume"
       />
     </div>

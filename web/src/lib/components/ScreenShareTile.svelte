@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -9,6 +9,7 @@
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import { voice } from '$lib/voice/livekit.svelte';
   import { toggleFullscreen, isDocFullscreen } from '$lib/stream/fullscreen';
+  import { VolumeBoost, VOLUME_BOOST_MAX } from '$lib/stream/volumeBoost';
   import StreamChatOverlay from '$lib/stream/components/StreamChatOverlay.svelte';
   import StreamChatInlineInput from '$lib/stream/components/StreamChatInlineInput.svelte';
 
@@ -43,6 +44,13 @@
   let localBlocked = $state(false);
   let isFullscreen = $state(false);
   const audioBlocked = $derived(localBlocked || voice.audioBlocked);
+  // Lazy Web-Audio-Routing für >100%-Boost — `audioTrack.setVolume()` würde
+  // sonst nur el.volume setzen, das HTML-spec-seitig auf 1.0 gecappt ist.
+  let boost: VolumeBoost | null = null;
+
+  function applyVolume() {
+    boost?.setVolume(volume / 100);
+  }
 
   function handleToggleFullscreen() {
     toggleFullscreen(containerEl, videoEl);
@@ -61,7 +69,11 @@
     const el = audioEl;
     if (!at || !el) return;
     at.attach(el);
-    at.setVolume(volume / 100);
+    // Web-Audio-Graph einmalig anlegen — `createMediaElementSource(el)` wirft
+    // beim zweiten Aufruf auf demselben Element. Beim Track-Wechsel reicht
+    // re-attach, der Graph läuft weiter; dispose() passiert in onDestroy.
+    if (!boost) boost = new VolumeBoost(el);
+    applyVolume();
     el.play().then(() => { localBlocked = false; }).catch(() => { localBlocked = true; });
     return () => { at.detach(el); };
   });
@@ -69,7 +81,7 @@
   function handleVolume(e: Event) {
     volume = Number((e.currentTarget as HTMLInputElement).value);
     if (volume > 0) prevVolume = volume;
-    audioTrack?.setVolume(volume / 100);
+    applyVolume();
   }
 
   function toggleMute() {
@@ -79,7 +91,7 @@
     } else {
       volume = prevVolume > 0 ? prevVolume : 100;
     }
-    audioTrack?.setVolume(volume / 100);
+    applyVolume();
   }
 
   async function enableAudio() {
@@ -98,6 +110,11 @@
     }
     document.addEventListener('fullscreenchange', onFsChange);
     return () => document.removeEventListener('fullscreenchange', onFsChange);
+  });
+
+  onDestroy(() => {
+    boost?.dispose();
+    boost = null;
   });
 </script>
 
@@ -195,11 +212,12 @@
       <input
         type="range"
         min="0"
-        max="100"
+        max={VOLUME_BOOST_MAX}
         value={volume}
         oninput={handleVolume}
         class="w-24 accent-white sm:w-20"
         aria-label="Lautstärke des geteilten Bildschirms"
+        title="{volume}%"
         data-testid="screen-share-volume"
       />
     </div>

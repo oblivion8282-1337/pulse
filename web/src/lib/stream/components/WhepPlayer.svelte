@@ -21,6 +21,7 @@
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, type StreamStats } from '../whep-stats';
   import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
+  import { VolumeBoost } from '../volumeBoost';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
   import WhepHud from './WhepHud.svelte';
@@ -39,6 +40,8 @@
   let isFullscreen = $state(false);
   // Im-Player-Chat (Twitch-Style) — Sibling im containerEl, geht mit in den Fullscreen.
   let chatOpen = $state(false);
+  let boost: VolumeBoost | null = null;
+  const applyVolume = () => boost?.setVolume(volume / 100);
 
   function handleToggleFullscreen() {
     toggleFullscreen(containerEl, videoEl);
@@ -47,7 +50,7 @@
   function handleVolume(e: Event) {
     volume = Number((e.currentTarget as HTMLInputElement).value);
     if (volume > 0) prevVolume = volume;
-    if (videoEl) videoEl.volume = volume / 100;
+    applyVolume();
   }
 
   function toggleMute() {
@@ -57,7 +60,7 @@
     } else {
       volume = prevVolume > 0 ? prevVolume : 100;
     }
-    if (videoEl) videoEl.volume = volume / 100;
+    applyVolume();
   }
 
   let phase = $state<'connecting' | 'playing' | 'retrying' | 'error'>('connecting');
@@ -120,7 +123,7 @@
       const s = await connectWhep(whep_url, (stream) => {
         if (videoEl) {
           videoEl.srcObject = stream;
-          videoEl.volume = volume / 100;
+          applyVolume();
         }
       });
       if (disposed || runChannelId !== cid) {
@@ -190,6 +193,10 @@
   });
 
   onMount(() => {
+    if (videoEl) {
+      boost = new VolumeBoost(videoEl);
+      applyVolume();
+    }
     function onFsChange() {
       isFullscreen = isDocFullscreen();
     }
@@ -200,6 +207,7 @@
   onDestroy(() => {
     disposed = true;
     void teardown();
+    boost?.dispose();
   });
 </script>
 
