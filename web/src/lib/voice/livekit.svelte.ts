@@ -391,7 +391,7 @@ class VoiceRoom {
   #audioCaptureDefaults(): AudioCaptureOptions {
     const a = settings.audio;
     const opts: AudioCaptureOptions = {
-      autoGainControl: a.autoGainControl,
+      autoGainControl: a.noiseSuppression === 'deepfilternet' ? false : a.autoGainControl,
       echoCancellation: a.echoCancellation,
       // Browser NS only when explicitly selected — otherwise our own processor
       // (rnnoise/deepfilternet) handles it, or nothing ('off').

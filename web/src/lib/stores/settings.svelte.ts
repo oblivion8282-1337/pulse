@@ -87,7 +87,7 @@ const DEFAULTS: PersistedSettings = {
     outputDeviceId: '',
     outputDeviceLabel: '',
     echoCancellation: true,
-    autoGainControl: true,
+    autoGainControl: false,
     noiseSuppression: 'deepfilternet',
     voiceBitrateKbps: 128,
     stereo: false

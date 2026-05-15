@@ -141,13 +141,19 @@
         data-testid="settings-echo-cancellation"
       />
     </label>
-    <label class="flex cursor-pointer items-center justify-between gap-3">
-      <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
+    <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={settings.audio.noiseSuppression === 'deepfilternet'}>
+      <div>
+        <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
+        {#if settings.audio.noiseSuppression === 'deepfilternet'}
+          <p class="text-text-muted text-xs">Von DeepFilterNet3 übernommen — deaktiviert</p>
+        {/if}
+      </div>
       <input
         type="checkbox"
-        checked={settings.audio.autoGainControl}
+        checked={settings.audio.noiseSuppression === 'deepfilternet' ? false : settings.audio.autoGainControl}
         onchange={(e) => settings.setAutoGainControl((e.currentTarget as HTMLInputElement).checked)}
         class="accent-primary size-4"
+        disabled={settings.audio.noiseSuppression === 'deepfilternet'}
         data-testid="settings-auto-gain"
       />
     </label>
