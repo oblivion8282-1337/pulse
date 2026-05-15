@@ -149,6 +149,7 @@ class StreamController:
         bitrate_override: int | None = None,
         fps_override: int | None = None,
         resolution_override: str | None = None,
+        show_cursor: bool = True,
     ) -> list[str]:
         """Baut die ``gpu-screen-recorder``-Argumentliste.
 
@@ -187,6 +188,11 @@ class StreamController:
             if res:
                 args += ["-s", res]
 
+        # GSR default ist `-cursor yes`; nur explizit setzen wenn der User
+        # den Cursor ausblenden will, damit das normale argv schlank bleibt.
+        if not show_cursor:
+            args += ["-cursor", "no"]
+
         args += ["-o", push_url]
         return args
 
@@ -223,6 +229,7 @@ class StreamController:
         bitrate_override: int | None = None,
         fps_override: int | None = None,
         resolution_override: str | None = None,
+        show_cursor: bool = True,
     ) -> bool:
         """Startet GSR. Liefert ``True`` falls erfolgreich gestartet."""
         with self._lock:
@@ -244,6 +251,7 @@ class StreamController:
                 stream_key=stream_key, excluded_apps=excluded_apps,
                 codec_override=codec_override, bitrate_override=bitrate_override,
                 fps_override=fps_override, resolution_override=resolution_override,
+                show_cursor=show_cursor,
             )
             argv = [self._gsr_binary, *args]
             self._last_argv = argv

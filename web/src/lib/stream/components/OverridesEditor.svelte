@@ -55,9 +55,15 @@
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
   let resValue = $derived(streamSettings.overrides.resolution ?? 'Native');
+
+  function onShowCursor(e: Event) {
+    streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
+    persistSettings();
+  }
 </script>
 
-<div class="grid gap-3 sm:grid-cols-2" data-testid="stream-overrides-editor">
+<div class="flex flex-col gap-3" data-testid="stream-overrides-editor">
+ <div class="grid gap-3 sm:grid-cols-2">
   <div class="flex flex-col gap-1.5">
     <Label for="ov-codec">Codec</Label>
     <select
@@ -121,4 +127,16 @@
       data-testid="stream-overrides-fps"
     />
   </div>
+ </div>
+
+  <label class="flex cursor-pointer items-center gap-2 text-sm">
+    <input
+      type="checkbox"
+      class="size-4 accent-primary"
+      checked={streamSettings.show_cursor}
+      onchange={onShowCursor}
+      data-testid="stream-overrides-show-cursor"
+    />
+    <span class="text-text-base">Mauszeiger im Stream zeigen</span>
+  </label>
 </div>

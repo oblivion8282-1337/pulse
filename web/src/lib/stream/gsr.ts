@@ -94,6 +94,9 @@ export interface GsrStartArgs {
   capture: string;
   audio: { mode: string; excluded_apps?: string[] };
   overrides?: { codec?: string; bitrate_kbps?: number; fps?: number; resolution?: string };
+  /** Show the mouse cursor in the captured stream. Default true (GSR's
+   *  built-in default); set to false to pass `-cursor no`. */
+  show_cursor?: boolean;
 }
 
 export interface GsrStartResult {

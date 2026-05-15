@@ -104,6 +104,9 @@ export const streamSettings = $state({
   excluded_apps: [] as string[],
   overrides: {} as OverrideSet,
   use_overrides: false,
+  // Mauszeiger im Stream zeigen — default an (entspricht GSRs eingebautem
+  // `-cursor yes`). Toggle im OverridesEditor.
+  show_cursor: true,
 
   // Catalogs from sidecar (filled by `loadCatalogs()`)
   available_profiles: [] as GsrProfile[],
@@ -129,6 +132,7 @@ const PERSIST_KEYS = [
   'excluded_apps',
   'overrides',
   'use_overrides',
+  'show_cursor',
 ] as const;
 
 type PersistKey = (typeof PERSIST_KEYS)[number];
@@ -142,6 +146,7 @@ function snapshotPersisted(): Record<PersistKey, unknown> {
     excluded_apps: streamSettings.excluded_apps.slice(),
     overrides: { ...streamSettings.overrides },
     use_overrides: streamSettings.use_overrides,
+    show_cursor: streamSettings.show_cursor,
   };
 }
 
@@ -188,6 +193,9 @@ function applyPersisted(data: Record<string, unknown>): void {
   }
   if (typeof data.use_overrides === 'boolean') {
     streamSettings.use_overrides = data.use_overrides;
+  }
+  if (typeof data.show_cursor === 'boolean') {
+    streamSettings.show_cursor = data.show_cursor;
   }
 
   // Migration cleanup (one-shot, ~2026-05-13): an earlier version auto-added
@@ -341,6 +349,7 @@ export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
       mode: streamSettings.audio_mode,
       excluded_apps: streamSettings.excluded_apps.slice(),
     },
+    show_cursor: streamSettings.show_cursor,
   };
 
   if (apply) {

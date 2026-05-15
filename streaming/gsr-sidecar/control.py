@@ -288,6 +288,7 @@ class Sidecar:
             capture = str(body.get("capture", "portal"))
             audio_mode, excluded = _parse_audio(body)
             codec, bitrate, fps, resolution = _parse_overrides(body)
+            show_cursor = bool(body.get("show_cursor", True))
         except (KeyError, ValueError, TypeError) as e:
             return {"ok": False, "error": str(e)}
 
@@ -297,6 +298,7 @@ class Sidecar:
             excluded_apps=excluded,
             codec_override=codec, bitrate_override=bitrate,
             fps_override=fps, resolution_override=resolution,
+            show_cursor=show_cursor,
         )
         # argv[0]-Platz: Binary-Pfad (kann None sein); für Diagnose ausgeben.
         # Token in der `-o`-URL wird redaktiert — die Response geht via IPC
@@ -315,6 +317,7 @@ class Sidecar:
             capture = str(body.get("capture", "portal"))
             audio_mode, excluded = _parse_audio(body)
             codec, bitrate, fps, resolution = _parse_overrides(body)
+            show_cursor = bool(body.get("show_cursor", True))
         except (KeyError, ValueError, TypeError) as e:
             return {"ok": False, "error": str(e)}
 
@@ -327,6 +330,7 @@ class Sidecar:
             excluded_apps=excluded,
             codec_override=codec, bitrate_override=bitrate,
             fps_override=fps, resolution_override=resolution,
+            show_cursor=show_cursor,
         )
         if not ok:
             return {"ok": False, "error": "Start fehlgeschlagen — siehe error-Event."}
