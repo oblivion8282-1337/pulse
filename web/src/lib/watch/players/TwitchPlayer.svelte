@@ -21,16 +21,11 @@
 
   interface Props {
     source: WatchSourceTwitch;
-    /** Host: clickable. Viewer: pointer-events blocked. Note that Twitch's
-     * Embed API has no way to programmatically hide the native chrome —
-     * with pointer-events: none the chrome won't appear (no hover events
-     * reach the iframe), so this is good enough in practice. */
-    interactive?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, interactive = true, onReady, onEvent }: Props = $props();
+  let { source, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
   const elementId = `twitch-player-${Math.random().toString(36).slice(2)}`;
@@ -126,9 +121,4 @@
   });
 </script>
 
-<div
-  bind:this={mount}
-  id={elementId}
-  class="h-full w-full"
-  style:pointer-events={interactive ? undefined : 'none'}
-></div>
+<div bind:this={mount} id={elementId} class="h-full w-full"></div>

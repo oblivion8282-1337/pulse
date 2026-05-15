@@ -1,15 +1,15 @@
 <!--
   WatchPartyTile — eine aktive Watch-Party in einem Voice-Channel.
 
-  Mountet den passenden Player (YouTube / Twitch / Native). Host kriegt die
-  native Player-Chrome (play/pause/seek/volume/quality/fullscreen) und
-  steuert die Party; Viewer haben den Player auf `pointer-events: none` und
-  kriegen statt der Native-Chrome eine custom Toolbar im Tile-Header mit
-  Lautstärke + Fullscreen — kein play/pause/seek, sonst würden sie sich aus
-  der Party kicken.
+  Native Player-Chrome ist für alle aktiv — sonst gibt's keinen Lautstärke-
+  Slider / Qualitäts-Picker / Fullscreen-Button (wir können in einem
+  iframe-Player nicht selektiv nur play/pause ausblenden). Trade-off:
+  Viewer kann lokal pausieren/seeken; das broadcasted aber nichts, und
+  Heartbeats lassen ihn in Ruhe solange er pausiert ist. Drückt er wieder
+  Play, snappt's auf die aktuelle Host-Position.
 
   Host-Broadcasts (play/pause/seek) sind 300ms trailing-debounced. YouTube
-  feuert während Ad-Breaks und Buffer-Phasen mehrere Pause/Play-Events
+  feuert während Ad-Breaks / Buffer-Phasen mehrere PLAYING/PAUSED-Events
   hintereinander; ohne Debounce würden Viewer dabei rapide hin- und
   herspringen (das war der „Endlosschleife"-Bug).
 
@@ -17,15 +17,14 @@
     * Erste Anwendung nach Player-ready → applyHard.
     * is_playing flippt oder Position weicht > 2s vom heartbeat-
       extrapolierten Wert ab (= Host hat geseekt/Play-Pause) → applyHard.
-    * Sonst (reiner Heartbeat) → applySoft (nur Drift-Korrektur, kein
-      erzwungenes play/pause).
+    * Sonst (reiner Heartbeat) → applySoft (nur Drift, kein play/pause).
+    * Viewer hat lokal pausiert → keine Drift-Korrektur, bis er wieder
+      selbst auf Play drückt.
 -->
 <script lang="ts">
-  import { onDestroy, tick } from 'svelte';
+  import { onDestroy } from 'svelte';
   import XIcon from '@lucide/svelte/icons/x';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import Maximize2Icon from '@lucide/svelte/icons/maximize-2';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
@@ -49,28 +48,26 @@
   let { channelId, party }: Props = $props();
 
   let player = $state<PlayerHandle | undefined>(undefined);
-  let playerSurface = $state<HTMLDivElement | undefined>();
   let stopHeartbeat: (() => void) | undefined;
   const corrector = new DriftCorrector();
 
-  // Viewer's local volume (0-100). Pushed to the player handle whenever it
-  // changes. Persists across heartbeats but resets when the tile remounts
-  // (i.e. between parties).
-  let volume = $state(100);
-
-  // Tracks the last `party` value we synced against — drives the
-  // transition-vs-heartbeat decision in the viewer $effect below.
+  // Last `party` value we synced against — drives the transition-vs-heartbeat
+  // decision in the viewer $effect. Plain `let`, not $state, so updating it
+  // inside the effect doesn't re-trigger it.
   let prevParty: WatchPartyState | undefined;
+  // Did the viewer manually pause? Set on player 'pause' events, cleared on
+  // player 'play' events. Heartbeats skip drift correction while true so
+  // someone who paused to grab a drink isn't dragged back to playing 3s later.
+  let viewerPaused = false;
 
-  // How far position can drift from the heartbeat-extrapolated value before
-  // we treat it as an explicit host seek (vs the natural advancement during
-  // playback). 2s comfortably covers heartbeat jitter and small clock skew.
+  // Position diff vs heartbeat-extrapolated value above which we treat the
+  // update as a host seek (and applyHard) instead of a heartbeat.
   const SEEK_DETECTION_THRESHOLD_S = 2.0;
 
   // Trailing-debounce window for host control broadcasts. YouTube fires
   // multiple PLAYING/PAUSED events in rapid succession during ad breaks and
-  // buffer recovery; we only want the final state of any such burst to
-  // reach viewers, otherwise their player flickers between play and pause.
+  // buffer recovery — without this, viewers would ping-pong between play
+  // and pause every time the host hit a buffer.
   const BROADCAST_DEBOUNCE_MS = 300;
   let pendingBroadcast:
     | { action: 'play' | 'pause' | 'seek'; position: number }
@@ -86,7 +83,7 @@
 
   // Viewer: align the player to the remote state. Distinguishes a host-
   // driven transition (force play/pause/position) from a heartbeat (only
-  // correct position drift).
+  // correct position drift, never override the viewer's local pause).
   $effect(() => {
     const p = player;
     if (!p || isHost) return;
@@ -94,6 +91,7 @@
     const prev = prevParty;
     prevParty = cur;
     if (!prev) {
+      viewerPaused = !cur.is_playing;
       corrector.applyHard(p, cur);
       return;
     }
@@ -102,13 +100,13 @@
     const positionJumped =
       Math.abs(cur.position - expectedFromPrev) > SEEK_DETECTION_THRESHOLD_S;
     if (playingFlipped || positionJumped) {
+      viewerPaused = !cur.is_playing;
       corrector.applyHard(p, cur);
       return;
     }
-    corrector.applySoft(p, cur);
+    if (!viewerPaused) corrector.applySoft(p, cur);
   });
 
-  // Host: 3s heartbeat as host status flips on.
   $effect(() => {
     const p = player;
     if (!p || !isHost) {
@@ -127,12 +125,6 @@
     };
   });
 
-  // Viewer: push local volume to the player whenever the slider changes (or
-  // when the handle becomes available after mount).
-  $effect(() => {
-    if (player && !isHost) player.setVolume(volume);
-  });
-
   onDestroy(() => {
     stopHeartbeat?.();
     if (broadcastTimer !== undefined) clearTimeout(broadcastTimer);
@@ -142,15 +134,25 @@
 
   function handleReady(handle: PlayerHandle): void {
     player = handle;
-    // Apply the viewer's chosen volume on mount.
-    if (!isHost) handle.setVolume(volume);
+    // The $effect above will run on the next tick with prevParty=undefined
+    // and applyHard the initial state — no manual call needed here.
   }
 
   function handleEvent(e: PlayerEvent): void {
-    if (!isHost) return; // viewers don't broadcast and can't pause/seek anyway
-    if (e.type === 'play') scheduleBroadcast('play', e.position);
-    else if (e.type === 'pause') scheduleBroadcast('pause', e.position);
-    else if (e.type === 'seek') scheduleBroadcast('seek', e.position);
+    if (isHost) {
+      if (e.type === 'play') scheduleBroadcast('play', e.position);
+      else if (e.type === 'pause') scheduleBroadcast('pause', e.position);
+      else if (e.type === 'seek') scheduleBroadcast('seek', e.position);
+      return;
+    }
+    // Viewer events don't broadcast. We track them locally so a manual pause
+    // sticks (next heartbeat won't undo it) and a manual play re-engages
+    // drift correction.
+    if (e.type === 'pause') viewerPaused = true;
+    else if (e.type === 'play') {
+      viewerPaused = false;
+      if (player) corrector.applyHard(player, party);
+    }
   }
 
   function scheduleBroadcast(
@@ -175,17 +177,6 @@
   function stop(): void {
     if (!isHost) return;
     gateway.stopWatchParty(channelId);
-  }
-
-  async function goFullscreen(): Promise<void> {
-    await tick();
-    const el = playerSurface;
-    if (!el) return;
-    try {
-      await el.requestFullscreen();
-    } catch {
-      // user gesture missing / not supported — silent
-    }
   }
 
   const sourceLabel = $derived.by(() => {
@@ -214,33 +205,7 @@
     <span class="text-text-muted ml-auto truncate" data-testid="watch-party-host-label">
       Host: {hostName}
     </span>
-    {#if !isHost}
-      <!-- viewer-only volume + fullscreen overlay; the player surface
-           itself is non-interactive so no native chrome to fight with -->
-      <label class="flex items-center gap-1" title="Lautstärke">
-        <Volume2Icon class="text-text-muted size-3.5 shrink-0" />
-        <input
-          type="range"
-          min="0"
-          max="100"
-          step="1"
-          bind:value={volume}
-          class="h-1 w-16 cursor-pointer accent-primary"
-          aria-label="Lautstärke"
-          data-testid="watch-party-volume"
-        />
-      </label>
-      <button
-        type="button"
-        onclick={goFullscreen}
-        class="rounded-full bg-black/40 p-1 text-white transition-colors hover:bg-black/60"
-        aria-label="Vollbild"
-        title="Vollbild"
-        data-testid="watch-party-fullscreen"
-      >
-        <Maximize2Icon class="size-3" />
-      </button>
-    {:else}
+    {#if isHost}
       <button
         type="button"
         onclick={stop}
@@ -254,28 +219,13 @@
     {/if}
   </header>
 
-  <div bind:this={playerSurface} class="relative min-h-0 flex-1 bg-black">
+  <div class="relative min-h-0 flex-1 bg-black">
     {#if party.source.type === 'youtube'}
-      <YouTubePlayer
-        source={party.source}
-        interactive={isHost}
-        onReady={handleReady}
-        onEvent={handleEvent}
-      />
+      <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
     {:else if party.source.type === 'twitch'}
-      <TwitchPlayer
-        source={party.source}
-        interactive={isHost}
-        onReady={handleReady}
-        onEvent={handleEvent}
-      />
+      <TwitchPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
     {:else}
-      <NativeVideoPlayer
-        source={party.source}
-        interactive={isHost}
-        onReady={handleReady}
-        onEvent={handleEvent}
-      />
+      <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
     {/if}
   </div>
 </div>

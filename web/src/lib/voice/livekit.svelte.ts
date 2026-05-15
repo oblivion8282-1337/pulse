@@ -120,7 +120,9 @@ class VoiceRoom {
   async connect(channelId: string, channelName: string): Promise<void> {
     if (this.#room && (this.connected || this.connecting)) {
       if (this.channelId === channelId) return;
-      await this.disconnect();
+      // Switching channels = user-driven leave of the old one. End any
+      // hosted watch party there.
+      await this.disconnect({ reason: 'user' });
     }
     this.error = null;
     this.channelId = channelId;
@@ -182,18 +184,23 @@ class VoiceRoom {
     this.#publishSelfState();
   }
 
-  async disconnect(): Promise<void> {
+  /**
+   * Tear down the LiveKit room. Pass `reason: 'user'` for an *explicit*
+   * leave (PhoneOff click, channel switch) — this is the only path that
+   * also ends any watch party the local user is hosting in the channel.
+   * Page-unload / sign-out / guild-deleted callers omit the reason so a
+   * brief page refresh doesn't kill the host's party.
+   */
+  async disconnect(opts: { reason?: 'user' } = {}): Promise<void> {
     const room = this.#room;
     if (!room) return;
-    // Stop any watch parties I'm hosting in this channel before we tear
-    // down the room — the tile lives inside the voice grid, so leaving
-    // voice would orphan it for everyone else. Best-effort; backend's
-    // socket-close cleanup is the last-resort safety net.
-    const cid = this.channelId;
-    if (cid && auth.user) {
-      const party = watchPartyPresence.partyIn(cid);
-      if (party && party.host_user_id === auth.user.id) {
-        gateway.stopWatchParty(cid);
+    if (opts.reason === 'user') {
+      const cid = this.channelId;
+      if (cid && auth.user) {
+        const party = watchPartyPresence.partyIn(cid);
+        if (party && party.host_user_id === auth.user.id) {
+          gateway.stopWatchParty(cid);
+        }
       }
     }
     try {

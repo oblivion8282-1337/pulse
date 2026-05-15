@@ -3,10 +3,10 @@
 
   Loads https://www.youtube.com/iframe_api once per session (module-level
   promise); subsequent instances reuse the loaded `window.YT`. Native player
-  chrome (play/pause/seek/volume/quality/fullscreen) is only shown when
-  `interactive` is true — i.e. for the host. Viewers get a clean video
-  surface; the tile renders its own volume + fullscreen overlay so the
-  viewer can't accidentally pause/seek and desync the party.
+  chrome is always enabled so both host and viewer get volume / quality /
+  fullscreen. Viewer-side play/pause/seek don't broadcast (host-only) and
+  the WatchPartyTile holds a `viewerPaused` flag so heartbeats don't fight
+  the viewer's local pause.
 
   YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
   via heartbeat drift correction instead.
@@ -21,14 +21,11 @@
 
   interface Props {
     source: WatchSourceYouTube;
-    /** Host: native chrome + clickable. Viewer: no chrome, pointer-events
-     * blocked, custom overlay handles volume/fullscreen. */
-    interactive?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, interactive = true, onReady, onEvent }: Props = $props();
+  let { source, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
 
@@ -75,8 +72,7 @@
         videoId: source.embed_id,
         playerVars: {
           autoplay: 0,
-          controls: interactive ? 1 : 0,
-          disablekb: interactive ? 0 : 1,
+          controls: 1,
           modestbranding: 1,
           rel: 0,
           start: source.start_seconds ?? 0,
@@ -127,8 +123,4 @@
   });
 </script>
 
-<div
-  bind:this={mount}
-  class="h-full w-full"
-  style:pointer-events={interactive ? undefined : 'none'}
-></div>
+<div bind:this={mount} class="h-full w-full"></div>

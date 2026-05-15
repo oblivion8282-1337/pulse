@@ -396,7 +396,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 await expiry_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
-        await ws_watch.cleanup_on_disconnect(websocket, user, manager, hosted_parties)
+        # Watch parties are NOT auto-cleaned on socket close: a brief network
+        # blip / page refresh would otherwise kill the host's party while
+        # they're trying to reconnect. Explicit user actions (PhoneOff,
+        # channel switch, X-on-tile) end the party via the watch_stop op;
+        # everything else falls through to the 6h Redis TTL.
         await manager.remove_socket(websocket)
         # Try to close cleanly. Already-closed sockets raise.
         try:

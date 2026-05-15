@@ -139,7 +139,7 @@
               variant="destructive"
               size="icon-sm"
               class="ml-auto"
-              onclick={() => voice.disconnect()}
+              onclick={() => voice.disconnect({ reason: 'user' })}
               data-testid="voice-disconnect"
               aria-label="Voice verlassen"
             >

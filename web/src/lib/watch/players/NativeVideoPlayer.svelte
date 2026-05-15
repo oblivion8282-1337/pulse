@@ -16,14 +16,11 @@
 
   interface Props {
     source: WatchSourceNative;
-    /** Host: native controls on. Viewer: no controls, pointer-events
-     * blocked — the tile's custom overlay handles volume + fullscreen. */
-    interactive?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, interactive = true, onReady, onEvent }: Props = $props();
+  let { source, onReady, onEvent }: Props = $props();
 
   let video = $state<HTMLVideoElement | undefined>();
 
@@ -83,10 +80,9 @@
 <video
   bind:this={video}
   src={source.url}
-  controls={interactive}
+  controls
   playsinline
   class="h-full w-full bg-black"
-  style:pointer-events={interactive ? undefined : 'none'}
 >
   <track kind="captions" />
 </video>
