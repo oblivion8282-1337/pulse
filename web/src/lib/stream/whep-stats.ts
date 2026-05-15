@@ -21,6 +21,10 @@ export type StreamStats = {
   res: string;
   fps: string;
   bitrate: string;
+  /** Codec name parsed from the linked `codec` stats `mimeType` ("video/H264"
+   *  → "H.264", "video/AV1" → "AV1"). `'—'` if WebRTC didn't fill the link
+   *  yet (typical for the first ~1s after handshake). */
+  codec: string;
   /** True iff freeze detector has tripped (framesReceived ↑ but
    *  framesDecoded flat ≥ 2s). Used by the HUD to flag the stats pill red. */
   frozen: boolean;
@@ -92,16 +96,18 @@ export class WhepStatsReader {
   }
 
   async read(pc: RTCPeerConnection): Promise<StreamStats | null> {
-    let v: InboundRtp | undefined;
+    let report: RTCStatsReport;
     try {
-      (await pc.getStats()).forEach((r) => {
-        if (r.type === 'inbound-rtp' && (r as RTCInboundRtpStreamStats).kind === 'video') {
-          v = r as InboundRtp;
-        }
-      });
+      report = await pc.getStats();
     } catch {
       return null;
     }
+    let v: InboundRtp | undefined;
+    report.forEach((r) => {
+      if (r.type === 'inbound-rtp' && (r as RTCInboundRtpStreamStats).kind === 'video') {
+        v = r as InboundRtp;
+      }
+    });
     if (!v) return null;
 
     const framesReceived = v.framesReceived ?? 0;
@@ -164,10 +170,20 @@ export class WhepStatsReader {
       console.warn('[whep] freeze detected', diagnostic);
     }
 
+    // Codec aus dem verlinkten `codec`-Eintrag. RTCRtpCodecStats.mimeType ist
+    // immer "video/<NAME>"; H264 für Lesbarkeit zu "H.264" normalisieren.
+    let codec = '—';
+    if (v.codecId) {
+      const c = report.get(v.codecId) as { mimeType?: string } | undefined;
+      const sub = c?.mimeType?.split('/')[1];
+      if (sub) codec = sub === 'H264' ? 'H.264' : sub;
+    }
+
     return {
       res: v.frameWidth && v.frameHeight ? `${v.frameWidth}×${v.frameHeight}` : '—',
       fps: v.framesPerSecond !== undefined ? `${Math.round(v.framesPerSecond)} fps` : '—',
       bitrate,
+      codec,
       frozen,
       freezeSeconds,
       diagnostic,

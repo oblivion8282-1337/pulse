@@ -27,6 +27,7 @@
     audioBlocked,
     isFullscreen,
     chatOpen,
+    visible = true,
     onToggleFullscreen,
     onToggleChat,
     onToggleMute,
@@ -41,12 +42,22 @@
     audioBlocked: boolean;
     isFullscreen: boolean;
     chatOpen: boolean;
+    /** Driven by the parent's mouse-activity tracker. When false (no mouse
+     *  for ~2.5s), the auto-fade group hides itself. Forced back to true
+     *  while audioBlocked or stats.frozen, so user-actionable warnings can't
+     *  vanish. */
+    visible?: boolean;
     onToggleFullscreen: () => void;
     onToggleChat: () => void;
     onToggleMute: () => void;
     onVolumeChange: (e: Event) => void;
     onEnableAudio: () => void;
   } = $props();
+
+  let effective = $derived(visible || audioBlocked || !!stats?.frozen);
+  let fadeClass = $derived(
+    `transition-opacity duration-300 ${effective ? 'opacity-100' : 'pointer-events-none opacity-0'}`
+  );
 
   let copied = $state(false);
   let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
@@ -85,7 +96,7 @@
 
 {#if name}
   <div
-    class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
+    class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm {fadeClass}"
     data-testid="hq-stream-streamer-name"
   >
     <RocketIcon class="size-3 text-red-400" />
@@ -95,11 +106,11 @@
 
 {#if phase === 'playing' && stats}
   <div
-    class="absolute left-2 top-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm {stats.frozen ? 'bg-red-700/80 animate-pulse' : 'bg-black/55'}"
+    class="absolute left-2 top-2 flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm {stats.frozen ? 'bg-red-700/80 animate-pulse' : 'bg-black/55'} {fadeClass}"
     data-testid="hq-stream-stats"
     data-frozen={stats.frozen}
   >
-    <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span>
+    <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span><span>·</span><span>{stats.codec}</span>
     {#if stats.frozen}
       <span class="ml-1 font-sans font-semibold uppercase tracking-wide">freeze {stats.freezeSeconds.toFixed(0)}s</span>
     {/if}
@@ -118,7 +129,7 @@
 
 <!-- Eine zusammenhängende Control-Reihe unten rechts: Volume-Pill (wenn playing),
      "Ton aktivieren" (wenn blocked), Chat-Toggle, Fullscreen-Toggle. -->
-<div class="absolute bottom-2 right-2 flex items-center gap-1.5">
+<div class="absolute bottom-2 right-2 flex items-center gap-1.5 {fadeClass}">
   {#if phase === 'playing'}
     <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
       <button

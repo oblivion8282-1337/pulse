@@ -49,6 +49,19 @@
     boost?.setVolume(v);
   }
 
+  // Twitch-Style HUD-Auto-Hide: nach ~2.5s ohne Maus-/Touch-Aktivität fadet
+  // Stats/Name/Control-Reihe weg. WhepHud erzwingt selbst Sichtbarkeit
+  // solange audioBlocked oder stats.frozen — Bubbles + Inline-Input sind
+  // außerhalb der HUD-Group und faden unabhängig.
+  let hudVisible = $state(true);
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+  const HUD_HIDE_AFTER_MS = 2500;
+  function pokeHud() {
+    hudVisible = true;
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => { hudVisible = false; }, HUD_HIDE_AFTER_MS);
+  }
+
   function handleToggleFullscreen() {
     toggleFullscreen(containerEl, videoEl);
   }
@@ -206,6 +219,7 @@
   onMount(() => {
     boost = new VolumeBoost();
     boost.onStateChange = (suspended) => { audioBlocked = suspended; };
+    pokeHud();
     function onFsChange() {
       isFullscreen = isDocFullscreen();
     }
@@ -217,6 +231,7 @@
     disposed = true;
     void teardown();
     boost?.dispose();
+    if (hideTimer) clearTimeout(hideTimer);
   });
 </script>
 
@@ -225,6 +240,9 @@
   class="bg-bg-chat relative flex h-full flex-col overflow-hidden rounded-2xl border border-border"
   data-testid="hq-stream-player"
   data-channel-id={channelId}
+  onmousemove={pokeHud}
+  ontouchstart={pokeHud}
+  role="presentation"
 >
   <!-- svelte-ignore a11y_media_has_caption -->
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
@@ -246,6 +264,7 @@
     {audioBlocked}
     {isFullscreen}
     {chatOpen}
+    visible={hudVisible}
     onToggleFullscreen={handleToggleFullscreen}
     onToggleChat={() => (chatOpen = !chatOpen)}
     onToggleMute={toggleMute}
