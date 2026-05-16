@@ -25,7 +25,7 @@
 </script>
 
 <div
-  class="border-border mx-1 mt-1 rounded-2xl border bg-bg-input/60 p-1.5"
+  class="border-border mx-2 mt-2 rounded-2xl border bg-bg-input/60 p-1.5"
   data-testid="voice-control-bar"
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-xs">
