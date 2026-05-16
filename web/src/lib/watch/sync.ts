@@ -15,11 +15,20 @@
  *
  * Position correction policy (both modes):
  *  - |drift| < 0.1s  → ignore (within noise of getCurrentTime())
- *  - |drift| < 0.5s  → playbackRate nudge for 2s (1.05 or 0.95) so the
+ *  - |drift| < 2.0s  → playbackRate nudge for 2s (1.05 or 0.95) so the
  *                       player catches up smoothly. Reset on cleanup or on
  *                       the next correction call.
- *  - |drift| ≥ 0.5s  → hard seek; this is jarring but the alternative
- *                       (slow drift) is worse.
+ *  - |drift| ≥ 2.0s  → hard seek; this is jarring but the alternative
+ *                       (slow drift) is worse. Kept just under
+ *                       SEEK_DETECTION_THRESHOLD_S so heartbeat-driven
+ *                       corrections never seek — only genuine host seeks do.
+ *
+ * Why the wide nudge band: YouTube's seek costs 0.5–1.5s of real time
+ * (BUFFERING → PLAYING). If every heartbeat above 0.5s drift triggers a
+ * seek, the seek itself produces a new ~1s drift, which the next heartbeat
+ * tries to fix with another seek — a 3s-cadence stutter loop. A wider
+ * nudge band lets playbackRate smooth small drifts away without paying the
+ * buffering cost.
  */
 
 import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
@@ -45,7 +54,7 @@ export interface PlayerHandle {
 }
 
 const DRIFT_IGNORE_S = 0.1;
-const DRIFT_NUDGE_S = 0.5;
+const DRIFT_NUDGE_S = 2.0;
 const NUDGE_RATE_FAST = 1.05;
 const NUDGE_RATE_SLOW = 0.95;
 const NUDGE_DURATION_MS = 2000;
