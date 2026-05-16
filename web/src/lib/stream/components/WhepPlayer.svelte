@@ -24,13 +24,24 @@
   import { VolumeBoost } from '../volumeBoost';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
+  import StreamChatPanel from './StreamChatPanel.svelte';
   import WhepHud from './WhepHud.svelte';
+  import { detachedStreams } from '../detach.svelte';
+  import { toast } from 'svelte-sonner';
 
   let {
     channelId,
     userId,
-    name
-  }: { channelId: string; userId: string; name?: string } = $props();
+    name,
+    canDetach = true
+  }: {
+    channelId: string;
+    userId: string;
+    name?: string;
+    /** Wenn false, kein Detach-Button im HUD — z.B. im bereits entkoppelten
+     *  Popup-Fenster wäre ein weiteres Detach sinnlos. */
+    canDetach?: boolean;
+  } = $props();
 
   let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -38,8 +49,17 @@
   // Remembers last non-zero volume so the mute toggle can restore it.
   let prevVolume = $state(100);
   let isFullscreen = $state(false);
-  // Im-Player-Chat (Twitch-Style) — Sibling im containerEl, geht mit in den Fullscreen.
+  // Inline-Side-Chat (außerhalb Fullscreen) / Twitch-Style-Overlay (im Fullscreen).
   let chatOpen = $state(false);
+
+  function handleDetach(): void {
+    const opened = detachedStreams.open(channelId, userId);
+    if (!opened) {
+      toast.error('Popup blockiert', {
+        description: 'Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.'
+      });
+    }
+  }
   let boost: VolumeBoost | null = null;
   function applyVolume() {
     const v = volume / 100;
@@ -237,43 +257,52 @@
 
 <div
   bind:this={containerEl}
-  class="bg-bg-chat relative flex h-full flex-col overflow-hidden rounded-2xl border border-border"
+  class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
   data-testid="hq-stream-player"
   data-channel-id={channelId}
-  onmousemove={pokeHud}
-  ontouchstart={pokeHud}
-  role="presentation"
 >
-  <!-- svelte-ignore a11y_media_has_caption -->
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-  <video
-    bind:this={videoEl}
-    autoplay
-    playsinline
-    class="h-full w-full cursor-pointer bg-black object-contain"
-    onclick={handleToggleFullscreen}
-    title="Klicken für Vollbild / Esc zum Verlassen"
-  ></video>
+  <div
+    class="relative flex min-w-0 flex-1 flex-col"
+    onmousemove={pokeHud}
+    ontouchstart={pokeHud}
+    role="presentation"
+  >
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video
+      bind:this={videoEl}
+      autoplay
+      playsinline
+      class="h-full w-full cursor-pointer bg-black object-contain"
+      onclick={handleToggleFullscreen}
+      title="Klicken für Vollbild / Esc zum Verlassen"
+    ></video>
 
-  <WhepHud
-    {phase}
-    {detail}
-    {name}
-    {stats}
-    {volume}
-    {audioBlocked}
-    {isFullscreen}
-    {chatOpen}
-    visible={hudVisible}
-    onToggleFullscreen={handleToggleFullscreen}
-    onToggleChat={() => (chatOpen = !chatOpen)}
-    onToggleMute={toggleMute}
-    onVolumeChange={handleVolume}
-    onEnableAudio={enableAudio}
-  />
+    <WhepHud
+      {phase}
+      {detail}
+      {name}
+      {stats}
+      {volume}
+      {audioBlocked}
+      {isFullscreen}
+      {chatOpen}
+      visible={hudVisible}
+      onToggleFullscreen={handleToggleFullscreen}
+      onToggleChat={() => (chatOpen = !chatOpen)}
+      onToggleMute={toggleMute}
+      onVolumeChange={handleVolume}
+      onEnableAudio={enableAudio}
+      onDetach={canDetach ? handleDetach : undefined}
+    />
 
-  {#if isFullscreen && chatOpen}
-    <StreamChatOverlay {channelId} streamerId={userId} />
-    <StreamChatInlineInput {channelId} streamerId={userId} />
+    {#if isFullscreen && chatOpen}
+      <StreamChatOverlay {channelId} streamerId={userId} />
+      <StreamChatInlineInput {channelId} streamerId={userId} />
+    {/if}
+  </div>
+
+  {#if chatOpen && !isFullscreen}
+    <StreamChatPanel {channelId} streamerId={userId} />
   {/if}
 </div>

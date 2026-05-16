@@ -62,6 +62,12 @@ const APP_VERSION: string = pkg.version ?? '0.0.0';
 // the package.json itself once bundled).
 process.env.PULSE_APP_VERSION = APP_VERSION;
 
+// Document-Picture-in-Picture explizit anschalten — Chromium hat die API seit
+// 116 default-on, aber manche Electron-Builds / Distro-Patches schalten sie
+// per Default ab; der Renderer nutzt sie für das ScreenShare-Detach-Fenster.
+// Muss VOR app.whenReady() laufen.
+app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
+
 // Which web app to load: the local Vite dev server only when PULSE_DEV_URL is
 // explicitly set (frontend development) — otherwise the live deployed app, so a
 // web-side fix is visible immediately, no Electron re-release needed (the GSR

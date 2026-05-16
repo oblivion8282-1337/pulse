@@ -13,6 +13,7 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
   import { formatDiagnostic, type StreamStats } from '../whep-stats';
@@ -32,7 +33,8 @@
     onToggleChat,
     onToggleMute,
     onVolumeChange,
-    onEnableAudio
+    onEnableAudio,
+    onDetach
   }: {
     phase: 'connecting' | 'playing' | 'retrying' | 'error';
     detail: string;
@@ -52,6 +54,9 @@
     onToggleMute: () => void;
     onVolumeChange: (e: Event) => void;
     onEnableAudio: () => void;
+    /** Wenn gesetzt: Detach-Button im Control-Bar zeigt das Tile-Bild in
+     *  einem separaten Fenster/Tab. Im Fullscreen ausgeblendet — vorher Esc. */
+    onDetach?: () => void;
   } = $props();
 
   let effective = $derived(visible || audioBlocked || !!stats?.frozen);
@@ -164,18 +169,28 @@
       Ton aktivieren
     </button>
   {/if}
-  {#if isFullscreen}
-    <!-- Chat-Toggle nur im Fullscreen: außerhalb gibts das Side-Panel daneben. -->
+  <!-- Chat-Toggle: immer im Stream-Frame (kein separater Side-Slot mehr). -->
+  <button
+    type="button"
+    onclick={onToggleChat}
+    class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'ring-2 ring-primary' : ''}"
+    aria-label={chatOpen ? 'Live-Chat schließen' : 'Live-Chat öffnen'}
+    aria-pressed={chatOpen}
+    title={chatOpen ? 'Live-Chat schließen' : 'Live-Chat'}
+    data-testid="hq-stream-chat-toggle"
+  >
+    <MessageSquareIcon class="size-3.5" />
+  </button>
+  {#if onDetach && !isFullscreen}
     <button
       type="button"
-      onclick={onToggleChat}
-      class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'ring-2 ring-primary' : ''}"
-      aria-label={chatOpen ? 'Live-Chat schließen' : 'Live-Chat öffnen'}
-      aria-pressed={chatOpen}
-      title={chatOpen ? 'Live-Chat schließen' : 'Live-Chat'}
-      data-testid="hq-stream-chat-toggle"
+      onclick={onDetach}
+      class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
+      aria-label="Stream in eigenem Fenster"
+      title="In eigenem Fenster öffnen"
+      data-testid="hq-stream-detach"
     >
-      <MessageSquareIcon class="size-3.5" />
+      <ExternalLinkIcon class="size-3.5" />
     </button>
   {/if}
   <button

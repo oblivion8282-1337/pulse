@@ -3,13 +3,11 @@
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import MemberList from './MemberList.svelte';
-  import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
-  import WatchChatPanel from '$lib/components/WatchChatPanel.svelte';
   import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import UsersIcon from '@lucide/svelte/icons/users';
-  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import PlayIcon from '@lucide/svelte/icons/play';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
@@ -120,29 +118,8 @@
   });
 
   let memberListOpen = $state(false);
-  let chatPanelOpen = $state(settings.streamChat.panelOpen);
-  // v1: kein Streamer-Switch im Panel — der erste fremde Streamer fokussiert sich
-  // (HQ bevorzugt, sonst der erste Browser-Screenshare-Publisher). Streame ich
-  // selbst und sonst niemand, fokussiert das Panel meinen eigenen Stream, damit
-  // ich den Chat meiner Zuschauer mitlesen + selbst antworten kann (kein
-  // WhepPlayer/Tile für mich selbst, also kein Overlay — nur das rechte Panel).
-  let focusedStreamerId = $derived(
-    liveStreamersOther[0]
-      ?? (auth.user && liveStreamers.includes(auth.user.id) ? auth.user.id : null)
-  );
-  let canShowStreamChat = $derived(chatPanelOpen && focusedStreamerId !== null);
-  // Watch-Chat: nur wenn kein Stream-Chat aktiv ist (Stream hat Priorität im Panel).
-  let canShowWatchChat = $derived(chatPanelOpen && hasWatchParty && !canShowStreamChat);
-  // Mutex zwischen Mitglieder- und Chat-Panel (gleicher rechter Slot).
-  let showMember = $derived(memberListOpen && !canShowStreamChat && !canShowWatchChat);
-  function toggleChatPanel(): void {
-    chatPanelOpen = !chatPanelOpen;
-    settings.setStreamChatPanelOpen(chatPanelOpen);
-    if (chatPanelOpen) memberListOpen = false;
-  }
   function toggleMemberList(): void {
     memberListOpen = !memberListOpen;
-    if (memberListOpen) chatPanelOpen = false;
   }
 
   // Subscription auf chat:channel:<cid>, damit `stream_chat_message`-Events
@@ -234,25 +211,27 @@
     <Volume2Icon class="text-primary size-5 shrink-0" />
     <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
-    <button
-      class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary disabled:opacity-40 disabled:hover:bg-transparent"
-      onclick={toggleChatPanel}
-      disabled={focusedStreamerId === null && !hasWatchParty}
-      aria-label="Live-Chat umschalten"
-      aria-pressed={canShowStreamChat || canShowWatchChat}
-      data-testid="stream-chat-toggle"
-      title={focusedStreamerId === null && !hasWatchParty ? 'Kein aktiver Stream oder Watch Party' : 'Live-Chat'}
-    >
-      <MessageSquareIcon class="text-text-muted size-4" />
-    </button>
-    <button
-      class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
-      onclick={toggleMemberList}
-      aria-label="Mitgliederliste umschalten"
-      data-testid="member-list-toggle"
-    >
-      <UsersIcon class="text-text-muted size-4" />
-    </button>
+    <div class="ml-auto flex items-center gap-1">
+      {#if streamViewOpen && othersStreaming}
+        <button
+          class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+          onclick={() => (streamViewOpen = false)}
+          aria-label="Zurück zur Teilnehmer-Ansicht"
+          title="Teilnehmer-Ansicht"
+          data-testid="stream-grid-close"
+        >
+          <ArrowLeftIcon class="text-text-muted size-4" />
+        </button>
+      {/if}
+      <button
+        class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+        onclick={toggleMemberList}
+        aria-label="Mitgliederliste umschalten"
+        data-testid="member-list-toggle"
+      >
+        <UsersIcon class="text-text-muted size-4" />
+      </button>
+    </div>
   </header>
 
   {#if voice.audioBlocked && isThisChannel}
@@ -282,7 +261,6 @@
           {hqStreamersOther}
           {hqLabel}
           {watchPartyState}
-          onClose={() => (streamViewOpen = false)}
         />
       {:else}
         <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 md:gap-6 md:p-8">
@@ -319,30 +297,19 @@
     {/if}
    </div>
 
-    <!-- Rechter Slot inline (md+) — Mitgliederliste ODER Live-Chat ODER Watch-Chat. -->
-    {#if !viewport.isMobile}
-      {#if showMember}
-        <MemberList guildId={channel.guild_id} />
-      {:else if canShowStreamChat && focusedStreamerId}
-        <StreamChatPanel channelId={channel.id} streamerId={focusedStreamerId} onClose={toggleChatPanel} />
-      {:else if canShowWatchChat}
-        <WatchChatPanel channelId={channel.id} onClose={toggleChatPanel} />
-      {/if}
+    <!-- Rechter Slot inline (md+) — nur Mitgliederliste. Stream- und Watch-
+         Chats leben jetzt INNERHALB des jeweiligen Stream-Tiles. -->
+    {#if !viewport.isMobile && memberListOpen}
+      <MemberList guildId={channel.guild_id} />
     {/if}
   </div>
 
-  <!-- Sheet von rechts auf Mobil — gleicher mutex-Slot. -->
-  {#if viewport.isMobile && (showMember || canShowStreamChat || canShowWatchChat)}
+  <!-- Sheet von rechts auf Mobil — nur Mitgliederliste. -->
+  {#if viewport.isMobile && memberListOpen}
     <div class="fixed inset-0 z-30 bg-black/40" role="presentation"
-      onclick={() => { memberListOpen = false; if (chatPanelOpen) toggleChatPanel(); }}></div>
+      onclick={() => (memberListOpen = false)}></div>
     <div class="fixed inset-y-0 right-0 z-40 flex w-4/5 max-w-xs flex-col">
-      {#if canShowStreamChat && focusedStreamerId}
-        <StreamChatPanel channelId={channel.id} streamerId={focusedStreamerId} onClose={toggleChatPanel} />
-      {:else if canShowWatchChat}
-        <WatchChatPanel channelId={channel.id} onClose={toggleChatPanel} />
-      {:else}
-        <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
-      {/if}
+      <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
     </div>
   {/if}
 

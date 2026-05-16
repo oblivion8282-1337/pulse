@@ -11,7 +11,7 @@
 -->
 <script lang="ts">
   import RocketIcon from '@lucide/svelte/icons/rocket';
-  import XIcon from '@lucide/svelte/icons/x';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
@@ -19,6 +19,8 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
+  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import type { Channel } from '$lib/api/types';
   import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
 
@@ -27,8 +29,7 @@
     hqStreaming,
     hqStreamersOther,
     hqLabel,
-    watchPartyState,
-    onClose
+    watchPartyState
   }: {
     channel: Channel;
     hqStreaming: boolean;
@@ -36,10 +37,6 @@
     hqLabel: string;
     /** Aktive Watch-Party im selben Channel (parallel zu HQ/Screenshare). */
     watchPartyState?: WatchPartyState;
-    /** Wenn gesetzt: kleiner Schließen-Button oben rechts, der zur Teilnehmer-
-     *  Ansicht zurückkehrt. Ohne diesen Hook ist das Grid permanent (z.B. wenn
-     *  in einem anderen Layout-Kontext gemountet). */
-    onClose?: () => void;
   } = $props();
 
   let videoTileCount = $derived(
@@ -57,19 +54,6 @@
 </script>
 
 <div class="relative flex min-h-0 flex-1 flex-col gap-2 p-2 md:p-3" data-testid="stream-area">
-  {#if onClose}
-    <button
-      type="button"
-      onclick={onClose}
-      class="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-full bg-black/55 px-3 py-1 text-xs text-white backdrop-blur-sm hover:bg-black/75"
-      aria-label="Stream beenden"
-      title="Stream beenden"
-      data-testid="stream-grid-close"
-    >
-      <XIcon class="size-3.5" />
-      <span class="hidden sm:inline">Stream beenden</span>
-    </button>
-  {/if}
   {#if hqStreaming}
     <div class="flex shrink-0 items-center gap-2 text-sm" data-testid="hq-stream-label">
       <RocketIcon class="size-4 text-red-500" />
@@ -87,10 +71,58 @@
   {:else}
     <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 {streamGridCols}" data-testid="stream-grid">
       {#if watchPartyState}
-        <WatchPartyTile channelId={channel.id} party={watchPartyState} />
+        {#if detachedWatchParties.has(channel.id)}
+          <div
+            class="border-border bg-bg-chat flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-6 text-center"
+            data-testid="watch-party-detached-placeholder"
+            data-channel-id={channel.id}
+          >
+            <ExternalLinkIcon class="text-text-muted size-10 opacity-50" />
+            <p class="text-text-bright text-sm font-medium">Watch Party in eigenem Fenster</p>
+            <div class="mt-1 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onclick={() => detachedWatchParties.open(channel.id)}
+                class="bg-bg-hover border-border text-text rounded-full border px-3 py-1 text-xs hover:text-primary"
+              >Fenster fokussieren</button>
+              <button
+                type="button"
+                onclick={() => detachedWatchParties.reattach(channel.id)}
+                class="bg-primary hover:bg-primary/90 rounded-full px-3 py-1 text-xs font-semibold text-white"
+              >Wieder andocken</button>
+            </div>
+          </div>
+        {:else}
+          <WatchPartyTile channelId={channel.id} party={watchPartyState} />
+        {/if}
       {/if}
       {#each hqStreamersOther as uid (uid)}
-        <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
+        {#if detachedStreams.has(channel.id, uid)}
+          <div
+            class="border-border bg-bg-chat flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-6 text-center"
+            data-testid="hq-stream-detached-placeholder"
+            data-channel-id={channel.id}
+            data-user-id={uid}
+          >
+            <ExternalLinkIcon class="text-text-muted size-10 opacity-50" />
+            <p class="text-text-bright text-sm font-medium">Stream in eigenem Fenster</p>
+            <p class="text-text-muted text-xs">{userCache.displayName(uid)}</p>
+            <div class="mt-1 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onclick={() => detachedStreams.open(channel.id, uid)}
+                class="bg-bg-hover border-border text-text rounded-full border px-3 py-1 text-xs hover:text-primary"
+              >Fenster fokussieren</button>
+              <button
+                type="button"
+                onclick={() => detachedStreams.reattach(channel.id, uid)}
+                class="bg-primary hover:bg-primary/90 rounded-full px-3 py-1 text-xs font-semibold text-white"
+              >Wieder andocken</button>
+            </div>
+          </div>
+        {:else}
+          <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
+        {/if}
       {/each}
       {#each voice.screenTracks as st (st.identity)}
         <ScreenShareTile

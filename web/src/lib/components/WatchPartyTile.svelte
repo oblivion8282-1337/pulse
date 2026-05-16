@@ -34,6 +34,11 @@
   import { onDestroy } from 'svelte';
   import XIcon from '@lucide/svelte/icons/x';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import WatchChatPanel from './WatchChatPanel.svelte';
+  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { toast } from 'svelte-sonner';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
@@ -53,9 +58,24 @@
   interface Props {
     channelId: string;
     party: WatchPartyState;
+    /** Wenn false (Popup-Modus), kein Detach-Button — wir sind ja schon
+     *  entkoppelt. */
+    canDetach?: boolean;
   }
 
-  let { channelId, party }: Props = $props();
+  let { channelId, party, canDetach = true }: Props = $props();
+
+  // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
+  let chatOpen = $state(false);
+
+  function handleDetach(): void {
+    const opened = detachedWatchParties.open(channelId);
+    if (!opened) {
+      toast.error('Popup blockiert', {
+        description: 'Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.'
+      });
+    }
+  }
 
   let player = $state<PlayerHandle | undefined>(undefined);
   let stopHeartbeat: (() => void) | undefined;
@@ -243,6 +263,29 @@
     <span class="text-text-muted ml-auto truncate" data-testid="watch-party-host-label">
       Host: {hostName}
     </span>
+    <button
+      type="button"
+      onclick={() => (chatOpen = !chatOpen)}
+      class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-black/60 {chatOpen ? 'ring-2 ring-primary' : ''}"
+      aria-label={chatOpen ? 'Watch-Chat schließen' : 'Watch-Chat öffnen'}
+      aria-pressed={chatOpen}
+      title="Watch-Chat"
+      data-testid="watch-party-chat-toggle"
+    >
+      <MessageSquareIcon class="size-3" />
+    </button>
+    {#if canDetach}
+      <button
+        type="button"
+        onclick={handleDetach}
+        class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-black/60"
+        aria-label="Watch Party in eigenem Fenster"
+        title="In eigenem Fenster öffnen"
+        data-testid="watch-party-detach"
+      >
+        <ExternalLinkIcon class="size-3" />
+      </button>
+    {/if}
     {#if isHost}
       <button
         type="button"
@@ -257,13 +300,18 @@
     {/if}
   </header>
 
-  <div class="relative min-h-0 flex-1 bg-black">
-    {#if party.source.type === 'youtube'}
-      <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
-    {:else if party.source.type === 'twitch'}
-      <TwitchPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
-    {:else}
-      <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+  <div class="relative flex min-h-0 flex-1">
+    <div class="relative min-w-0 flex-1 bg-black">
+      {#if party.source.type === 'youtube'}
+        <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+      {:else if party.source.type === 'twitch'}
+        <TwitchPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+      {:else}
+        <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+      {/if}
+    </div>
+    {#if chatOpen}
+      <WatchChatPanel {channelId} />
     {/if}
   </div>
 </div>
