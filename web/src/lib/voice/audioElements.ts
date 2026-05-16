@@ -43,9 +43,9 @@ export class RemoteAudioElements {
   } as const;
   /** Compensates for the ~3–6 dB Chromium loses when WebRTC audio is routed
    *  through MediaStreamAudioSourceNode instead of direct HTMLAudioElement
-   *  playback. UI "100 %" therefore maps to a Web Audio gain of 1.5, which
+   *  playback. UI "100 %" therefore maps to a Web Audio gain of 2.0, which
    *  restores the perceived loudness from before the Web-Audio rewrite. */
-  static readonly DEFAULT_MAKEUP_GAIN = 1.5;
+  static readonly DEFAULT_MAKEUP_GAIN = 2.0;
   deafened = false;
   outputDeviceId = '';
 
