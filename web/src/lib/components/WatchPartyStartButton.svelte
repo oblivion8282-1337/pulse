@@ -1,12 +1,8 @@
 <!--
-  WatchPartyStartButton — icon button in the VoiceControlBar that opens a
-  dialog to start a watch party. URL is live-validated via the frontend
-  `parseSource` mirror; the backend re-validates the WS frame.
-
-  Disabled while a party is already active in the channel (the tile's X
-  button is the way to stop). When the host starts a party, the
-  VoiceChannelView auto-opens the stream grid so they immediately see the
-  tile they're controlling.
+  WatchPartyStartButton — icon button in the VoiceControlBar. Acts as a
+  toggle: opens a start dialog when no party is running, stops the party
+  with a single click when the local user is the host. Non-hosts see it
+  disabled while a party is active (the host owns the lifecycle).
 
   Dialog instead of a popover because the VoiceControlBar sits in the
   channel-list aside which has overflow-hidden — a popover would clip.
@@ -16,7 +12,9 @@
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import StopCircleIcon from '@lucide/svelte/icons/stop-circle';
   import { toast } from 'svelte-sonner';
+  import { auth } from '$lib/stores/auth.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { gateway } from '$lib/ws/connection';
   import { parseSource } from '$lib/watch/source';
@@ -30,9 +28,19 @@
   let open = $state(false);
   let url = $state('');
 
-  const active = $derived(watchPartyPresence.partyIn(channelId) !== undefined);
+  const party = $derived(watchPartyPresence.partyIn(channelId));
+  const active = $derived(party !== undefined);
+  const isHost = $derived(!!party && !!auth.user && party.host_user_id === auth.user.id);
   const parsed = $derived(url.trim() ? parseSource(url.trim()) : null);
   const showParseError = $derived(url.trim().length > 0 && parsed === null);
+
+  function handleClick(): void {
+    if (active && isHost) {
+      gateway.stopWatchParty(channelId);
+      return;
+    }
+    open = true;
+  }
 
   function start(): void {
     if (!parsed) return;
@@ -68,19 +76,27 @@
       {#snippet child({ props })}
         <Button
           {...props}
-          variant={active ? 'default' : 'ghost'}
+          variant={active ? (isHost ? 'destructive' : 'default') : 'ghost'}
           size="icon-sm"
-          onclick={() => (open = true)}
-          disabled={active}
-          aria-label="Watch Party starten"
-          data-testid="watch-party-start-button"
+          onclick={handleClick}
+          disabled={active && !isHost}
+          aria-label={active && isHost ? 'Watch Party beenden' : 'Watch Party starten'}
+          data-testid={active && isHost ? 'watch-party-stop-button' : 'watch-party-start-button'}
         >
-          <PlayCircleIcon class="size-4" />
+          {#if active && isHost}
+            <StopCircleIcon class="size-4" />
+          {:else}
+            <PlayCircleIcon class="size-4" />
+          {/if}
         </Button>
       {/snippet}
     </Tooltip.Trigger>
     <Tooltip.Content>
-      {active ? 'Watch Party läuft bereits' : 'Watch Party starten'}
+      {active
+        ? isHost
+          ? 'Watch Party beenden'
+          : 'Watch Party läuft bereits'
+        : 'Watch Party starten'}
     </Tooltip.Content>
   </Tooltip.Root>
 </Tooltip.Provider>

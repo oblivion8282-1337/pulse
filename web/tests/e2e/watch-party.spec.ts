@@ -202,10 +202,10 @@ test.describe.serial('Watch Party E2E', () => {
     matchPartyShape(await getGuildWatchState(bobPage, guildId));
   });
 
-  test('start button is disabled while a party is active (both clients)', async () => {
-    // Frontend store should reflect the WS push that landed on each client.
-    // Both buttons go to disabled state.
-    await expect(alicePage.getByTestId('watch-party-start-button')).toBeDisabled();
+  test('button reflects host vs viewer while a party is active', async () => {
+    // Host (alice) gets a stop-button at the same spot — single click ends
+    // the party. Non-host members (bob) see the start-button disabled.
+    await expect(alicePage.getByTestId('watch-party-stop-button')).toBeEnabled();
     await expect(bobPage.getByTestId('watch-party-start-button')).toBeDisabled();
   });
 });

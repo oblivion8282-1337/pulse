@@ -16,11 +16,13 @@
   import ScreenShareTile from './ScreenShareTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import WatchPartyTile from './WatchPartyTile.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { gateway } from '$lib/ws/connection';
   import type { Channel } from '$lib/api/types';
   import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
 
@@ -41,6 +43,9 @@
 
   let videoTileCount = $derived(
     hqStreamersOther.length + voice.screenTracks.length + (watchPartyState ? 1 : 0)
+  );
+  let iAmWatchPartyHost = $derived(
+    !!watchPartyState && !!auth.user && watchPartyState.host_user_id === auth.user.id
   );
   let streamGridCols = $derived(
     videoTileCount <= 1
@@ -90,6 +95,14 @@
                 onclick={() => detachedWatchParties.reattach(channel.id)}
                 class="bg-primary hover:bg-primary/90 rounded-full px-3 py-1 text-xs font-semibold text-white"
               >Wieder andocken</button>
+              {#if iAmWatchPartyHost}
+                <button
+                  type="button"
+                  onclick={() => gateway.stopWatchParty(channel.id)}
+                  class="bg-destructive hover:bg-destructive/90 rounded-full px-3 py-1 text-xs font-semibold text-white"
+                  data-testid="watch-party-detached-stop"
+                >Watch Party beenden</button>
+              {/if}
             </div>
           </div>
         {:else}
