@@ -27,6 +27,7 @@ import { RemoteAudioElements } from './audioElements';
 import { settings } from '$lib/stores/settings.svelte';
 import { AudioDevices } from './audioDevices.svelte';
 import { createNoiseProcessor } from './noiseFilter';
+import { LocalMicAnalyser } from './localMicAnalyser';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
 import { auth } from '$lib/stores/auth.svelte';
@@ -80,6 +81,7 @@ class VoiceRoom {
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
+  #localMic = new LocalMicAnalyser((n) => { this.localMicLevel = n; });
   #levelTimer: ReturnType<typeof setInterval> | null = null;
   #teardownDone = false;
   /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
@@ -216,7 +218,12 @@ class VoiceRoom {
     try {
       await room.localParticipant.setMicrophoneEnabled(on, this.#audioCaptureDefaults());
       this.micEnabled = on;
-      if (on) await this.applyNoiseFilter();
+      if (on) {
+        await this.applyNoiseFilter();
+        this.#attachLocalAnalyser();
+      } else {
+        this.#localMic.detach();
+      }
     } catch (e) {
       this.error = e instanceof Error ? e.message : 'Mikrofon-Zugriff fehlgeschlagen';
     }
@@ -358,6 +365,8 @@ class VoiceRoom {
         await audioTrack.stopProcessor();
       }
       this.#noiseProcessorMode = mode;
+      // Processor swap replaces the published mediaStreamTrack — rebind the meter.
+      this.#attachLocalAnalyser();
     } catch (e) {
       this.#noiseProcessorMode = 'off';
       toast.error('Rauschunterdrückung konnte nicht aktiviert werden', {
@@ -421,14 +430,20 @@ class VoiceRoom {
       .on(RoomEvent.TrackMuted, () => this.#refreshParticipants())
       .on(RoomEvent.TrackUnmuted, () => this.#refreshParticipants())
       .on(RoomEvent.LocalTrackPublished, (pub) => {
-        if (pub.source === Track.Source.Microphone) void this.applyNoiseFilter();
+        if (pub.source === Track.Source.Microphone) {
+          void this.applyNoiseFilter();
+          this.#attachLocalAnalyser();
+        }
         this.#refreshParticipants();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (pub.source === Track.Source.ScreenShare) {
           this.isScreenSharing = false;
         }
-        if (pub.source === Track.Source.Microphone) this.#noiseProcessorMode = 'off';
+        if (pub.source === Track.Source.Microphone) {
+          this.#noiseProcessorMode = 'off';
+          this.#localMic.detach();
+        }
         this.#refreshParticipants();
       })
       .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
@@ -496,7 +511,7 @@ class VoiceRoom {
 
   #startLevelPolling(): void {
     this.#stopLevelPolling();
-    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 50);
+    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 200);
   }
 
   #patchAudioLevels(): void {
@@ -520,8 +535,10 @@ class VoiceRoom {
       }
     }
     if (changed) this.participants = [...this.participants];
-    const localLevel = room.localParticipant.audioLevel ?? 0;
-    if (Math.abs(localLevel - this.localMicLevel) > 0.005) this.localMicLevel = localLevel;
+    // localMicLevel is driven by LocalMicAnalyser (Web Audio RMS), not by
+    // LiveKit's server-side speaker detection — that one only updates when
+    // the server has decided you're an active speaker, which is useless as
+    // a real-time input meter.
   }
 
   #stopLevelPolling(): void {
@@ -529,13 +546,20 @@ class VoiceRoom {
       clearInterval(this.#levelTimer);
       this.#levelTimer = null;
     }
-    this.localMicLevel = 0;
+  }
+
+  #attachLocalAnalyser(): void {
+    const room = this.#room;
+    if (!room) return;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+    this.#localMic.attach(pub?.audioTrack?.mediaStreamTrack ?? null);
   }
 
   #teardown(): void {
     if (this.#teardownDone) return;
     this.#teardownDone = true;
     this.#stopLevelPolling();
+    this.#localMic.detach();
     this.#audioEls.clear();
     this.#room = null;
     this.#noiseProcessorMode = 'off';
