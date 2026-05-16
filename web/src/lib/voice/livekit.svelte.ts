@@ -88,6 +88,8 @@ class VoiceRoom {
     (s) => { this.#setLocalSpeaking(s); }
   );
   #levelTimer: ReturnType<typeof setInterval> | null = null;
+  /** Mic state captured at deafen-on so un-deafen can restore it. */
+  #micEnabledBeforeDeafen = false;
   #teardownDone = false;
   /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
   #noiseProcessorMode: string = 'off';
@@ -237,6 +239,9 @@ class VoiceRoom {
   }
 
   toggleMic(): void {
+    // Explicit user toggle while deafened cancels the auto-restore on
+    // un-deafen — they've taken ownership of the mic state.
+    if (this.deafened) this.#micEnabledBeforeDeafen = false;
     void this.setMicEnabled(!this.micEnabled);
   }
 
@@ -261,6 +266,19 @@ class VoiceRoom {
   }
 
   setDeafened(on: boolean): void {
+    if (on === this.deafened) return;
+    // Discord-style: deafen also mutes the mic (no point talking if you can't
+    // hear reactions), un-deafen restores the prior mic state. PTT users
+    // never get auto-unmuted — their default mic state is "off until held."
+    if (on) {
+      this.#micEnabledBeforeDeafen = this.micEnabled;
+      if (this.micEnabled) void this.setMicEnabled(false);
+    } else {
+      if (this.#micEnabledBeforeDeafen && !this.pttMode) {
+        void this.setMicEnabled(true);
+      }
+      this.#micEnabledBeforeDeafen = false;
+    }
     this.deafened = on;
     this.#audioEls.setDeafened(on);
     this.#publishSelfState();
@@ -607,6 +625,7 @@ class VoiceRoom {
     this.participants = [];
     this.micEnabled = false;
     this.deafened = false;
+    this.#micEnabledBeforeDeafen = false;
     this.isScreenSharing = false;
     this.#screenShare.clear();
     this.audioBlocked = false;
