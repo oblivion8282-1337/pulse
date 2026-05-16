@@ -168,7 +168,13 @@ export default async function globalSetup() {
     AUTH_JWKS_URL: 'http://127.0.0.1:8001/.well-known/jwks.json',
     JWT_PRIVATE_KEY_FILE: resolve(ROOT, 'secrets/jwt_private.pem'),
     JWT_PUBLIC_KEY_FILE: resolve(ROOT, 'secrets/jwt_public.pem'),
-    CORS_ALLOW_ORIGINS: 'http://127.0.0.1:5173,http://localhost:5173'
+    CORS_ALLOW_ORIGINS: 'http://127.0.0.1:5173,http://localhost:5173',
+    // Default register limit (5/min) gets hit when the suite runs all three
+    // specs back-to-back — chat + invite + watch-party register 6+ users
+    // from 127.0.0.1 within one minute. Loosen to keep the suite reliable;
+    // production stays on the default 5/min.
+    RATE_LIMIT_REGISTER: '1000/minute',
+    RATE_LIMIT_LOGIN: '1000/minute'
   };
 
   // Apply migrations + truncate so every test run starts clean.

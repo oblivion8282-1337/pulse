@@ -2,17 +2,19 @@
  * Watch-Party E2E.
  *
  * Coverage:
- *   - WatchPartyStartButton renders in the voice-channel header (both clients).
- *   - URL popover live-validates via the frontend `parseSource` mirror.
- *   - Clicking Start triggers the WS `watch_start` op; both clients see the
- *     server-side state via the REST re-sync endpoint.
- *   - With a party active, the start button is disabled for everyone (the
- *     "one party per channel" invariant — backend enforces 4014 anyway, but
- *     the UI shouldn't let the user even open the popover).
+ *   - Frontend `parseSource` mirror accepts/rejects URLs as expected (including
+ *     Twitch live channels added in T+).
+ *   - The WS `watch_start` op produces server-side state visible to both
+ *     clients via the REST re-sync endpoint.
+ *   - Host vs viewer enforcement: only the host can stop, non-host gets
+ *     `4015`; second `watch_start` on the same channel gets `4014`.
  *
- * What we do NOT verify here (deferred to manual / unit tests):
- *   - The WatchPartyTile itself — it only renders after LiveKit voice join,
- *     which the E2E harness doesn't bring up.
+ * What we do NOT verify here:
+ *   - The WatchPartyStartButton + dialog UI — they live in the VoiceControlBar
+ *     which only renders after LiveKit voice join, and the E2E harness doesn't
+ *     bring up LiveKit. The WS + REST coverage below exercises the same
+ *     server-side codepath the button triggers.
+ *   - The WatchPartyTile itself — same LiveKit dependency.
  *   - Drift correction across browsers — covered by sync.ts logic + manual.
  *   - YouTube/Twitch iframes — third-party scripts, flaky in headless CI.
  */
@@ -97,6 +99,56 @@ async function createChannel(
   return JSON.parse(r.body).id as string;
 }
 
+/** Open a WS, skip the initial `ready`, send one op, wait for the first
+ * non-ready response, close. Used to exercise watch_start/stop/etc. without
+ * the UI button (which sits in the VoiceControlBar and isn't mounted in the
+ * E2E harness — no LiveKit). The server enforces the same membership /
+ * authorisation checks regardless of caller. */
+async function wsCall(
+  page: Page,
+  payload: object,
+  timeoutMs = 5000
+): Promise<{ op: string; [k: string]: unknown }> {
+  return page.evaluate(
+    ({ payload, timeoutMs }) =>
+      new Promise((resolve, reject) => {
+        const token = localStorage.getItem('dcc.tokens.access');
+        if (!token) return reject(new Error('no access token in localStorage'));
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        // Vite proxies /api/ws → ws://127.0.0.1:8002, stripping the /api/ws
+        // prefix. Backend mounts @router.websocket("/ws"). Net path = /api/ws/ws.
+        // Same shape as `wsPath` in $lib/ws/connection.ts:140.
+        const ws = new WebSocket(
+          `${proto}://${location.host}/api/ws/ws?token=${encodeURIComponent(token)}`
+        );
+        const t = setTimeout(() => {
+          ws.close();
+          reject(new Error('ws call timed out'));
+        }, timeoutMs);
+        let sent = false;
+        ws.onopen = () => {
+          if (sent) return;
+          sent = true;
+          ws.send(JSON.stringify(payload));
+        };
+        ws.onmessage = (e) => {
+          const m = JSON.parse(e.data);
+          // `ready` always lands first; presence/voice broadcasts are noise.
+          if (m.op === 'ready' || m.op === 'presence_update' || m.op === 'voice_state')
+            return;
+          clearTimeout(t);
+          ws.close();
+          resolve(m);
+        };
+        ws.onerror = () => {
+          clearTimeout(t);
+          reject(new Error('ws error'));
+        };
+      }),
+    { payload, timeoutMs }
+  );
+}
+
 /** REST re-sync helper — same shape as ready.watch_states. */
 async function getGuildWatchState(page: Page, guildId: string): Promise<
   { channel_id: string; state: { host_user_id: string; source: { type: string; embed_id?: string; url?: string } } | null }[]
@@ -161,29 +213,42 @@ test.describe.serial('Watch Party E2E', () => {
     await expect(bobPage.getByTestId('voice-channel-view')).toBeVisible();
   });
 
-  test('start-button visible for both members; popover validates URL', async () => {
-    await expect(alicePage.getByTestId('watch-party-start-button')).toBeEnabled();
-    await expect(bobPage.getByTestId('watch-party-start-button')).toBeEnabled();
-
-    // Alice opens the popover and tries garbage, then a valid URL.
-    await alicePage.getByTestId('watch-party-start-button').click();
-    await expect(alicePage.getByTestId('watch-party-popover')).toBeVisible();
-
-    const input = alicePage.getByTestId('watch-party-url-input');
-    await input.fill('not a url');
-    await expect(alicePage.getByTestId('watch-party-parse-error')).toBeVisible();
-
-    await input.fill('https://www.youtube.com/watch?v=abc12345678');
-    await expect(alicePage.getByTestId('watch-party-parse-ok')).toHaveText('YouTube');
+  test('parseSource mirror accepts/rejects URLs (YT, Twitch VOD+Live, native)', async () => {
+    // The frontend's parseSource is what the dialog uses for live UI feedback;
+    // the backend has its own copy that re-validates server-side. Both must
+    // agree — we test the frontend here, the backend in pytest. Run inside
+    // the page so the real module is exercised.
+    const out = await alicePage.evaluate(async () => {
+      // The module is bundled into the SPA; import via its public alias.
+      const mod = await import('/src/lib/watch/source.ts');
+      const { parseSource } = mod as { parseSource: (u: string) => unknown };
+      return {
+        ytWatch: parseSource('https://www.youtube.com/watch?v=abc12345678'),
+        ytShort: parseSource('https://youtu.be/abc12345678'),
+        twitchVod: parseSource('https://www.twitch.tv/videos/1234567890'),
+        twitchLive: parseSource('https://www.twitch.tv/xqc'),
+        twitchReserved: parseSource('https://www.twitch.tv/directory'),
+        garbage: parseSource('not a url'),
+        httpOnly: parseSource('http://example.com/movie.mp4')
+      };
+    });
+    expect(out.ytWatch).toMatchObject({ type: 'youtube', embed_id: 'abc12345678' });
+    expect(out.ytShort).toMatchObject({ type: 'youtube', embed_id: 'abc12345678' });
+    expect(out.twitchVod).toMatchObject({ type: 'twitch', embed_id: '1234567890' });
+    expect(out.twitchLive).toMatchObject({ type: 'twitch_live', channel: 'xqc' });
+    expect(out.twitchReserved).toBeNull();
+    expect(out.garbage).toBeNull();
+    expect(out.httpOnly).toBeNull();
   });
 
-  test('start broadcasts the party; REST sees it for both users', async () => {
-    // Alice confirms the start. Popover closes.
-    await alicePage.getByTestId('watch-party-start-confirm').click();
-    await expect(alicePage.getByTestId('watch-party-popover')).toHaveCount(0);
+  test('watch_start via WS produces a party visible to both via REST', async () => {
+    const resp = await wsCall(alicePage, {
+      op: 'watch_start',
+      channel_id: voiceChannelId,
+      source_url: 'https://www.youtube.com/watch?v=abc12345678'
+    });
+    expect(resp.op).toBe('watch_state');
 
-    // The REST re-sync (read straight off Redis) shows Alice's party in the
-    // voice channel — for both users, since membership is the only gate.
     const matchPartyShape = (states: Awaited<ReturnType<typeof getGuildWatchState>>) => {
       const e = states.find((s) => s.channel_id === voiceChannelId);
       expect(e, 'watch-state entry for the voice channel').toBeDefined();
@@ -191,21 +256,37 @@ test.describe.serial('Watch Party E2E', () => {
       expect(e!.state!.host_user_id).toBe(aliceUserId);
       expect(e!.state!.source).toMatchObject({ type: 'youtube', embed_id: 'abc12345678' });
     };
-
-    // Brief retry — the WS push lands within ~100ms but is async wrt our REST
-    // call. The REST endpoint reads Redis directly, so it's always at least
-    // as fresh as the WS push (the WS push happens *after* the SET).
-    await expect
-      .poll(async () => (await getGuildWatchState(alicePage, guildId)).length, { timeout: 3000 })
-      .toBeGreaterThan(0);
     matchPartyShape(await getGuildWatchState(alicePage, guildId));
     matchPartyShape(await getGuildWatchState(bobPage, guildId));
   });
 
-  test('button reflects host vs viewer while a party is active', async () => {
-    // Host (alice) gets a stop-button at the same spot — single click ends
-    // the party. Non-host members (bob) see the start-button disabled.
-    await expect(alicePage.getByTestId('watch-party-stop-button')).toBeEnabled();
-    await expect(bobPage.getByTestId('watch-party-start-button')).toBeDisabled();
+  test('only host can stop; second start gets 4014', async () => {
+    // Bob (non-host) tries to stop — server replies 4015.
+    const bobStop = await wsCall(bobPage, {
+      op: 'watch_stop',
+      channel_id: voiceChannelId
+    });
+    expect(bobStop).toMatchObject({ op: 'error', code: 4015 });
+
+    // Bob (or anyone else) tries to start a second party — 4014.
+    const bobStart = await wsCall(bobPage, {
+      op: 'watch_start',
+      channel_id: voiceChannelId,
+      source_url: 'https://youtu.be/xyz12345678'
+    });
+    expect(bobStart).toMatchObject({ op: 'error', code: 4014 });
+
+    // Alice (host) stops cleanly. Server broadcasts state=null.
+    const aliceStop = await wsCall(alicePage, {
+      op: 'watch_stop',
+      channel_id: voiceChannelId
+    });
+    expect(aliceStop.op).toBe('watch_state');
+    expect((aliceStop as { state: unknown }).state).toBeNull();
+
+    // REST re-sync now shows no party for either user.
+    expect(
+      (await getGuildWatchState(alicePage, guildId)).find((s) => s.channel_id === voiceChannelId)
+    ).toBeUndefined();
   });
 });
