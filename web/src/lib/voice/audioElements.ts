@@ -41,11 +41,11 @@ export class RemoteAudioElements {
     attack: 0.003,
     release: 0.25
   } as const;
-  /** Compensates for the ~3–6 dB Chromium loses when WebRTC audio is routed
+  /** Compensates for the Chromium-side level loss when WebRTC audio is routed
    *  through MediaStreamAudioSourceNode instead of direct HTMLAudioElement
-   *  playback. UI "100 %" therefore maps to a Web Audio gain of 2.0, which
-   *  restores the perceived loudness from before the Web-Audio rewrite. */
-  static readonly DEFAULT_MAKEUP_GAIN = 2.0;
+   *  playback, plus the sender-side AGC being off while RNNoise/DFN3 is the
+   *  active mic filter. UI "100 %" maps to a Web Audio gain of 4.0 (+12 dB). */
+  static readonly DEFAULT_MAKEUP_GAIN = 4.0;
   deafened = false;
   outputDeviceId = '';
 
