@@ -76,12 +76,17 @@ class VoiceRoom {
 
   /** 0..1 instantaneous level of the local microphone (for the meter). */
   localMicLevel = $state(0);
+  /** Whether the local user is currently speaking (RMS-based, not server). */
+  localSpeaking = $state(false);
 
   #screenShare = new ScreenShareTracks();
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
-  #localMic = new LocalMicAnalyser((n) => { this.localMicLevel = n; });
+  #localMic = new LocalMicAnalyser(
+    (n) => { this.localMicLevel = n; },
+    (s) => { this.#setLocalSpeaking(s); }
+  );
   #levelTimer: ReturnType<typeof setInterval> | null = null;
   #teardownDone = false;
   /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
@@ -496,7 +501,9 @@ class VoiceRoom {
       name: nameFor(p),
       userId: userIdFromIdentity(p.identity),
       isLocal,
-      isSpeaking: p.isSpeaking,
+      // Local: RMS-driven (server's active-speaker detection is unreliable
+      // when AGC is off, which is the default with DFN3/RNNoise).
+      isSpeaking: isLocal ? this.localSpeaking : p.isSpeaking,
       audioLevel: p.audioLevel ?? 0,
       micMuted: !p.isMicrophoneEnabled,
       connectionQuality: p.connectionQuality
@@ -527,7 +534,9 @@ class VoiceRoom {
       const p = participantMap.get(vp.identity);
       if (!p) continue;
       const newLevel = p.audioLevel ?? 0;
-      const newSpeaking = p.isSpeaking;
+      // Local isSpeaking is owned by LocalMicAnalyser — don't let the
+      // server-driven value (which often stays false with AGC off) clobber it.
+      const newSpeaking = vp.isLocal ? vp.isSpeaking : p.isSpeaking;
       if (vp.audioLevel !== newLevel || vp.isSpeaking !== newSpeaking) {
         vp.audioLevel = newLevel;
         vp.isSpeaking = newSpeaking;
@@ -552,7 +561,24 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
-    this.#localMic.attach(pub?.audioTrack?.mediaStreamTrack ?? null);
+    const audioTrack = pub?.audioTrack;
+    // Prefer the raw source MediaStreamTrack over the public getter, which
+    // returns the post-processor (DFN3/RNNoise) track — those attenuate the
+    // signal noticeably and make the meter look dead even at normal speech.
+    // `_mediaStreamTrack` is protected in livekit-client; accessed via cast.
+    const raw = (audioTrack as { _mediaStreamTrack?: MediaStreamTrack } | undefined)?._mediaStreamTrack;
+    this.#localMic.attach(raw ?? audioTrack?.mediaStreamTrack ?? null);
+  }
+
+  #setLocalSpeaking(s: boolean): void {
+    if (this.localSpeaking === s) return;
+    this.localSpeaking = s;
+    const idx = this.participants.findIndex((p) => p.isLocal);
+    if (idx >= 0 && this.participants[idx].isSpeaking !== s) {
+      const copy = [...this.participants];
+      copy[idx] = { ...copy[idx], isSpeaking: s };
+      this.participants = copy;
+    }
   }
 
   #teardown(): void {

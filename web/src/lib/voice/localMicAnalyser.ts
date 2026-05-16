@@ -17,9 +17,14 @@ export class LocalMicAnalyser {
   #raf: number | null = null;
   #track: MediaStreamTrack | null = null;
   #onLevel: (n: number) => void;
+  #onSpeaking: ((s: boolean) => void) | undefined;
+  #speaking = false;
+  #lastAboveMs = 0;
+  #displayLevel = 0;
 
-  constructor(onLevel: (n: number) => void) {
+  constructor(onLevel: (n: number) => void, onSpeaking?: (s: boolean) => void) {
     this.#onLevel = onLevel;
+    this.#onSpeaking = onSpeaking;
   }
 
   /** Attach to (or re-attach to a different) MediaStreamTrack. No-op if same track. */
@@ -64,7 +69,12 @@ export class LocalMicAnalyser {
     this.#ctx = null;
     this.#buf = null;
     this.#track = null;
+    this.#displayLevel = 0;
     this.#onLevel(0);
+    if (this.#speaking) {
+      this.#speaking = false;
+      this.#onSpeaking?.(false);
+    }
   }
 
   #loop = (): void => {
@@ -75,11 +85,38 @@ export class LocalMicAnalyser {
     let sum = 0;
     for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
     const rms = Math.sqrt(sum / buf.length);
-    // Speech RMS sits around 0.05–0.2 — scale so normal speech fills the bar
-    // without clipping. The settings meter additionally multiplies by 140 for
-    // the visual; keep this raw so the API stays 0..1.
-    const level = Math.min(1, rms * 4);
-    this.#onLevel(level);
+    // dBFS scaling — mic levels are perceived logarithmically. Map -50 dB
+    // (deep silence) through -5 dB (very loud) onto 0..1 so a normally-spoken
+    // voice at ~-20 dB sits at ~0.67, where it should be on a Discord-style
+    // meter. Linear rms*N kept everything bunched at the low end.
+    let level = 0;
+    if (rms > 0.0005) {
+      const db = 20 * Math.log10(rms);
+      level = Math.max(0, Math.min(1, (db + 50) / 45));
+    }
+    // Peak-meter ballistics: instant attack so speech onset shows up, smooth
+    // decay (~250ms half-life @ 60fps) so the bar doesn't strobe between
+    // syllables.
+    if (level > this.#displayLevel) this.#displayLevel = level;
+    else this.#displayLevel = this.#displayLevel * 0.85 + level * 0.15;
+    this.#onLevel(this.#displayLevel);
+    // Speaking detection on the raw (un-decayed) level with asymmetric
+    // thresholds + 300ms hold so brief inter-word gaps don't flicker the ring.
+    if (this.#onSpeaking) {
+      const now = performance.now();
+      if (this.#speaking) {
+        if (level >= 0.25) {
+          this.#lastAboveMs = now;
+        } else if (now - this.#lastAboveMs > 300) {
+          this.#speaking = false;
+          this.#onSpeaking(false);
+        }
+      } else if (level >= 0.4) {
+        this.#speaking = true;
+        this.#lastAboveMs = now;
+        this.#onSpeaking(true);
+      }
+    }
     this.#raf = requestAnimationFrame(this.#loop);
   };
 }

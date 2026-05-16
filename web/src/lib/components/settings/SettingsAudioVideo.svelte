@@ -54,7 +54,7 @@
     window.addEventListener('keydown', onKey, true);
   }
 
-  let micLevelPct = $derived(Math.min(100, Math.round(voice.localMicLevel * 140)));
+  let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
   let processorActive = $derived(settings.audio.noiseSuppression !== 'off' && settings.audio.noiseSuppression !== 'browser');
   let bitrateTooLowForStereo = $derived(settings.audio.voiceBitrateKbps < VOICE_BITRATE_STEREO_MIN);
   let stereoForced = $derived(processorActive || bitrateTooLowForStereo);
