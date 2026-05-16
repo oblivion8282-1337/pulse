@@ -4,6 +4,19 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
+  build: {
+    // `AudioWorklet.addModule()` braucht eine echte URL. Vite inlined per
+    // Default kleine Assets als `data:`-base64-URL (Limit 4 KB) — Chromium
+    // lehnt das fürs Worklet-Loading ab („Unable to load a worklet's
+    // module"). `@sapphi-red/web-noise-suppressor`'s noiseGate-Worklet ist
+    // klein genug für diesen Pfad und kippte die Rauschunterdrückung im
+    // Prod-Build (Dev funktionierte, weil Vite dort jede Datei separat
+    // ausliefert). Erzwinge eine separate Datei für alle Worklet-Prozessoren.
+    assetsInlineLimit(filePath) {
+      if (filePath.endsWith('workletProcessor.js')) return false;
+      return undefined;
+    },
+  },
   server: {
     port: 5173,
     host: '127.0.0.1',
