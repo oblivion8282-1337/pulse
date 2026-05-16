@@ -93,6 +93,8 @@ class VoiceRoom {
   #teardownDone = false;
   /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
   #noiseProcessorMode: string = 'off';
+  /** Live-tune handle for the currently published DFN3 processor (null otherwise). */
+  #noiseStrengthSetter: ((level: number) => void) | null = null;
 
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
@@ -383,19 +385,29 @@ class VoiceRoom {
     if (mode === this.#noiseProcessorMode) return;
     try {
       if (mode === 'rnnoise' || mode === 'deepfilternet') {
-        await audioTrack.setProcessor(createNoiseProcessor(mode));
+        const handle = createNoiseProcessor(mode, settings.audio.noiseSuppressionStrength);
+        await audioTrack.setProcessor(handle.processor);
+        this.#noiseStrengthSetter = handle.setSuppressionLevel ?? null;
       } else {
         await audioTrack.stopProcessor();
+        this.#noiseStrengthSetter = null;
       }
       this.#noiseProcessorMode = mode;
       // Processor swap replaces the published mediaStreamTrack — rebind the meter.
       this.#attachLocalAnalyser();
     } catch (e) {
       this.#noiseProcessorMode = 'off';
+      this.#noiseStrengthSetter = null;
       toast.error('Rauschunterdrückung konnte nicht aktiviert werden', {
         description: e instanceof Error ? e.message : undefined
       });
     }
+  }
+
+  /** Live-update DFN3 attenuation. No-op when DFN3 isn't the active processor.
+   *  Caller is responsible for persisting via `settings.setNoiseSuppressionStrength`. */
+  setNoiseSuppressionStrength(level: number): void {
+    this.#noiseStrengthSetter?.(level);
   }
 
   // --- internals -----------------------------------------------------
@@ -465,6 +477,7 @@ class VoiceRoom {
         }
         if (pub.source === Track.Source.Microphone) {
           this.#noiseProcessorMode = 'off';
+          this.#noiseStrengthSetter = null;
           this.#localMic.detach();
         }
         this.#refreshParticipants();
@@ -607,6 +620,7 @@ class VoiceRoom {
     this.#audioEls.clear();
     this.#room = null;
     this.#noiseProcessorMode = 'off';
+    this.#noiseStrengthSetter = null;
     this.state = ConnectionState.Disconnected;
     if (this.channelId) {
       const myUserId = auth.user?.id;

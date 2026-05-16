@@ -18,6 +18,10 @@ const VOICE_BITRATE_MIN = 16;
 const VOICE_BITRATE_MAX = 256;
 const VOICE_BITRATE_STEREO_MIN = 32;
 
+const NOISE_STRENGTH_MIN = 0;
+const NOISE_STRENGTH_MAX = 100;
+const NOISE_STRENGTH_DEFAULT = 50;
+
 // Cap for the LiveKit screen-share bitrate. Fan-out via SFU means the server
 // pays N×bitrate egress per channel — keep this low even when raising the HQ
 // cap, since voice channels regularly have multiple listeners.
@@ -38,6 +42,10 @@ type AudioSettings = {
   echoCancellation: boolean;
   autoGainControl: boolean;
   noiseSuppression: NoiseSuppressionMode;
+  /** DeepFilterNet3 max attenuation in dB (0..100). Ignored for other modes.
+   *  Lower = gentler, less risk of chopping quiet speech; higher = more noise
+   *  removed but louder mis-classifications. */
+  noiseSuppressionStrength: number;
   voiceBitrateKbps: number;
   stereo: boolean;
 };
@@ -94,6 +102,7 @@ const DEFAULTS: PersistedSettings = {
     echoCancellation: true,
     autoGainControl: false,
     noiseSuppression: 'deepfilternet',
+    noiseSuppressionStrength: NOISE_STRENGTH_DEFAULT,
     voiceBitrateKbps: 128,
     stereo: false
   },
@@ -120,6 +129,11 @@ const DEFAULTS: PersistedSettings = {
 function clampBitrate(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULTS.audio.voiceBitrateKbps;
   return Math.min(VOICE_BITRATE_MAX, Math.max(VOICE_BITRATE_MIN, Math.round(v)));
+}
+
+function clampNoiseStrength(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return NOISE_STRENGTH_DEFAULT;
+  return Math.min(NOISE_STRENGTH_MAX, Math.max(NOISE_STRENGTH_MIN, Math.round(v)));
 }
 
 function str(v: unknown, fallback: string): string {
@@ -224,6 +238,7 @@ function load(): PersistedSettings {
         noiseSuppression: VALID_NS.includes(a.noiseSuppression as NoiseSuppressionMode)
           ? (a.noiseSuppression as NoiseSuppressionMode)
           : da.noiseSuppression,
+        noiseSuppressionStrength: clampNoiseStrength(a.noiseSuppressionStrength),
         voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
         stereo: bool(a.stereo, da.stereo)
       },
@@ -335,6 +350,11 @@ class SettingsStore {
     this.#persist();
   }
 
+  setNoiseSuppressionStrength(v: number): void {
+    this.audio.noiseSuppressionStrength = clampNoiseStrength(v);
+    this.#persist();
+  }
+
   setVoiceBitrateKbps(v: number): void {
     this.audio.voiceBitrateKbps = clampBitrate(v);
     this.#persist();
@@ -424,6 +444,9 @@ export {
   VOICE_BITRATE_MIN,
   VOICE_BITRATE_MAX,
   VOICE_BITRATE_STEREO_MIN,
+  NOISE_STRENGTH_MIN,
+  NOISE_STRENGTH_MAX,
+  NOISE_STRENGTH_DEFAULT,
   SCREEN_SHARE_BITRATE_MIN,
   SCREEN_SHARE_BITRATE_MAX,
   USER_VOLUME_MIN,

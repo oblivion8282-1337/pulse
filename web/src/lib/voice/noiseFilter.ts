@@ -11,6 +11,14 @@ export type ProcessorMode = Exclude<NoiseSuppressionMode, 'off' | 'browser'>;
 
 export type AudioTrackProcessor = TrackProcessor<Track.Kind.Audio>;
 
+/** TrackProcessor + a live-tunable `setSuppressionLevel`. RNNoise has no
+ *  equivalent, so its handle is just the processor with no extra surface. */
+export type NoiseProcessorHandle = {
+  processor: AudioTrackProcessor;
+  /** Only present for DFN3 — adjusts the WASM attenuation limit live. */
+  setSuppressionLevel?: (level: number) => void;
+};
+
 /**
  * RNNoise-based noise suppression as a LiveKit audio TrackProcessor.
  *
@@ -103,19 +111,22 @@ export function preloadNoiseFilter(): void {
 
 /**
  * Build the audio TrackProcessor for the requested mode.
- * `noiseReductionLevel` 0..100 controls DeepFilterNet3 strength (default 100).
+ * `strength` 0..100 controls DeepFilterNet3's max attenuation in dB (ignored for RNNoise).
  */
-export function createNoiseProcessor(mode: ProcessorMode): AudioTrackProcessor {
+export function createNoiseProcessor(mode: ProcessorMode, strength: number): NoiseProcessorHandle {
   if (mode === 'deepfilternet') {
     const filter = new DeepFilterNoiseFilterProcessor({
       sampleRate: 48000,
-      noiseReductionLevel: 80,
+      noiseReductionLevel: strength,
       enabled: true,
       assetConfig: {
         cdnUrl: '/deepfilternet3'
       }
     });
-    return filter as unknown as AudioTrackProcessor;
+    return {
+      processor: filter as unknown as AudioTrackProcessor,
+      setSuppressionLevel: (level) => filter.setSuppressionLevel(level)
+    };
   }
-  return new RnnoiseTrackProcessor();
+  return { processor: new RnnoiseTrackProcessor() };
 }

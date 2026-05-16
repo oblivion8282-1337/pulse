@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { settings, VOICE_BITRATE_MIN, VOICE_BITRATE_MAX, VOICE_BITRATE_STEREO_MIN } from '$lib/stores/settings.svelte';
+  import {
+    settings,
+    VOICE_BITRATE_MIN,
+    VOICE_BITRATE_MAX,
+    VOICE_BITRATE_STEREO_MIN,
+    NOISE_STRENGTH_MIN,
+    NOISE_STRENGTH_MAX
+  } from '$lib/stores/settings.svelte';
   import InfoIcon from '@lucide/svelte/icons/info';
   import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -41,6 +48,34 @@
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
     if (!isNaN(val)) settings.setVoiceBitrateKbps(val);
   }
+
+  // Live-display + live-tune (cheap port.postMessage to the worklet on every
+  // drag); persist on release so localStorage isn't hit every pixel.
+  let noiseStrengthDisplay = $state(settings.audio.noiseSuppressionStrength);
+  $effect(() => {
+    noiseStrengthDisplay = settings.audio.noiseSuppressionStrength;
+  });
+  function onNoiseStrengthInput(e: Event) {
+    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+    if (isNaN(val)) return;
+    noiseStrengthDisplay = val;
+    voice.setNoiseSuppressionStrength(val);
+  }
+  function onNoiseStrengthChange(e: Event) {
+    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+    if (!isNaN(val)) settings.setNoiseSuppressionStrength(val);
+  }
+  let noiseStrengthLabel = $derived(
+    noiseStrengthDisplay <= 20
+      ? 'sehr sanft — Rauschen bleibt hörbar'
+      : noiseStrengthDisplay <= 45
+        ? 'sanft — Stimme bleibt sicher unangetastet'
+        : noiseStrengthDisplay <= 65
+          ? 'ausgewogen'
+          : noiseStrengthDisplay <= 85
+            ? 'stark — kann leise Sprache abschneiden'
+            : 'maximal — chopt oft Wörter'
+  );
 
   function startPttCapture() {
     listeningForPttKey = true;
@@ -143,6 +178,24 @@
         </label>
       {/each}
     </div>
+    {#if settings.audio.noiseSuppression === 'deepfilternet'}
+      <div class="mt-2 flex flex-col gap-1.5" data-testid="settings-noise-strength">
+        <div class="flex items-center justify-between">
+          <span class="text-text-base text-sm">Filterstärke</span>
+          <span class="text-text-muted text-sm">{noiseStrengthDisplay} · {noiseStrengthLabel}</span>
+        </div>
+        <input
+          type="range"
+          min={NOISE_STRENGTH_MIN}
+          max={NOISE_STRENGTH_MAX}
+          step="1"
+          value={settings.audio.noiseSuppressionStrength}
+          oninput={onNoiseStrengthInput}
+          onchange={onNoiseStrengthChange}
+          class="accent-primary w-full"
+        />
+      </div>
+    {/if}
   </div>
 
   <!-- Echo / Auto-Gain -->
