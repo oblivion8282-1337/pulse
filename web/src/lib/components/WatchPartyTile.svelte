@@ -41,7 +41,7 @@
   import { toast } from 'svelte-sonner';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
-  import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
+  import { isPassiveSource, type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
   import { gateway } from '$lib/ws/connection';
   import NativeVideoPlayer from '$lib/watch/players/NativeVideoPlayer.svelte';
   import TwitchPlayer from '$lib/watch/players/TwitchPlayer.svelte';
@@ -150,6 +150,11 @@
 
   const isHost = $derived(!!auth.user && party.host_user_id === auth.user.id);
   const hostName = $derived(userCache.displayName(party.host_user_id));
+  // Passive sources (Twitch live) have no seekable position — skip
+  // heartbeats, drift correction, and play/pause broadcast. The "host" only
+  // owns start/stop. All viewers share the embed at their own buffer depth
+  // (~1-2s spread on Twitch's Source quality), no central sync possible.
+  const isPassive = $derived(isPassiveSource(party.source));
 
   $effect(() => {
     userCache.queue(party.host_user_id);
@@ -158,9 +163,10 @@
   // Viewer: align the player to the remote state. Distinguishes a host-
   // driven transition (force play/pause/position) from a heartbeat (only
   // correct position drift, never override the viewer's local pause).
+  // Passive sources (live) don't sync at all — just embed it.
   $effect(() => {
     const p = player;
-    if (!p || isHost) return;
+    if (!p || isHost || isPassive) return;
     const cur = party;
     const prev = prevParty;
     prevParty = cur;
@@ -201,7 +207,7 @@
 
   $effect(() => {
     const p = player;
-    if (!p || !isHost) {
+    if (!p || !isHost || isPassive) {
       stopHeartbeat?.();
       stopHeartbeat = undefined;
       return;
@@ -232,11 +238,15 @@
 
   function handleEvent(e: PlayerEvent): void {
     if (isHost) {
+      // Live: host's local play/pause is just local — nothing to broadcast,
+      // viewers each manage their own playback against the live edge.
+      if (isPassive) return;
       if (e.type === 'play') scheduleBroadcast('play', e.position);
       else if (e.type === 'pause') scheduleBroadcast('pause', e.position);
       else if (e.type === 'seek') scheduleBroadcast('seek', e.position);
       return;
     }
+    if (isPassive) return; // viewer side: nothing to suppress / re-sync on live
     // Viewer events don't broadcast. We track them locally so a manual pause
     // sticks (next heartbeat won't undo it) and a manual play re-engages
     // drift correction. Suppress the echo of our own programmatic
@@ -303,6 +313,7 @@
       return title ? `YouTube · ${title}` : `YouTube · ${s.embed_id}`;
     }
     if (s.type === 'twitch') return `Twitch · VOD ${s.embed_id}`;
+    if (s.type === 'twitch_live') return `Twitch · ${s.channel}`;
     try {
       return new URL(s.url).hostname;
     } catch {
@@ -322,6 +333,15 @@
     <span class="text-text-muted truncate" data-testid="watch-party-source-label">
       {sourceLabel}
     </span>
+    {#if isPassive}
+      <span
+        class="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-300"
+        title="Live-Stream — kein zentraler Sync, Viewer landen auf ihrer eigenen Buffer-Position"
+        data-testid="watch-party-live-badge"
+      >
+        LIVE
+      </span>
+    {/if}
     <span class="text-text-muted ml-auto truncate" data-testid="watch-party-host-label">
       Host: {hostName}
     </span>
@@ -366,7 +386,7 @@
     <div class="relative min-w-0 flex-1 bg-black">
       {#if party.source.type === 'youtube'}
         <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
-      {:else if party.source.type === 'twitch'}
+      {:else if party.source.type === 'twitch' || party.source.type === 'twitch_live'}
         <TwitchPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
       {:else}
         <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />

@@ -65,6 +65,7 @@
       return t ? `YouTube · ${t}` : `YouTube · ${src.embed_id}`;
     }
     if (src.type === 'twitch') return `Twitch · VOD ${src.embed_id}`;
+    if (src.type === 'twitch_live') return `Twitch · ${src.channel} (live)`;
     try {
       return new URL(src.url).hostname;
     } catch {

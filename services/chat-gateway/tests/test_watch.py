@@ -83,10 +83,32 @@ def test_parse_twitch_vod():
     assert s == {"type": "twitch", "embed_id": "1234567890"}
 
 
-def test_parse_twitch_live_rejected():
-    # Channel/live URL has no /videos/ prefix → we don't support it (no seek).
-    assert parse_source("https://www.twitch.tv/some_streamer") is None
+def test_parse_twitch_live_channel():
+    s = parse_source("https://www.twitch.tv/xqc")
+    assert s == {"type": "twitch_live", "channel": "xqc"}
+    # Bare-host variant + numeric/underscore channel names.
+    assert parse_source("https://twitch.tv/some_streamer") == {
+        "type": "twitch_live",
+        "channel": "some_streamer",
+    }
+    assert parse_source("https://m.twitch.tv/Lirik") == {
+        "type": "twitch_live",
+        "channel": "Lirik",
+    }
+
+
+def test_parse_twitch_rejects_reserved_and_multipath():
+    # Reserved keywords must NOT become channel embeds.
+    for path in ("directory", "p", "user", "login", "settings", "team"):
+        assert parse_source(f"https://www.twitch.tv/{path}") is None
+    # Multi-segment paths (clips, /v/, /clip/) aren't supported v1.
     assert parse_source("https://twitch.tv/some_streamer/clip/foo") is None
+    assert parse_source("https://www.twitch.tv/xqc/v/1234") is None
+    # Invalid channel-name characters.
+    assert parse_source("https://www.twitch.tv/has-a-dash") is None
+    assert parse_source("https://www.twitch.tv/has.a.dot") is None
+    # Way too long.
+    assert parse_source("https://www.twitch.tv/" + "a" * 26) is None
 
 
 def test_parse_native_mp4_webm_m3u8():

@@ -8,8 +8,14 @@ Supported v1:
   * YouTube — ``youtu.be/<id>``, ``youtube.com/watch?v=<id>``,
     ``/embed/<id>``, ``/shorts/<id>``. Optional ``t=`` / ``start=`` (whole
     seconds or ``Xh Ym Zs``) → ``start_seconds``.
-  * Twitch VOD — ``twitch.tv/videos/<id>``. Live streams have no seek and are
-    explicitly rejected.
+  * Twitch VOD — ``twitch.tv/videos/<id>``.
+  * Twitch live channel — ``twitch.tv/<channel_name>``. Yields
+    ``{"type": "twitch_live", "channel": "<name>"}``. Live sources are
+    treated as a passive shared embed by the watch-party tile: no
+    heartbeat sync, no drift correction, no play/pause broadcast (Twitch
+    doesn't expose seek/position on live streams, and viewers' HLS buffers
+    keep them within ~1-2s anyway). The host role reduces to "started it /
+    can stop it".
   * Native — direct ``https://`` URL ending in ``.mp4`` / ``.webm`` / ``.m3u8``.
 
 Returns the parsed source dict, or ``None`` for anything we can't sync.
@@ -31,6 +37,55 @@ _YOUTUBE_HOSTS = {
     "m.youtube.com",
     "www.youtube-nocookie.com",
 }
+
+# Twitch channel-name rules are community-derived (no official regex):
+#  * Letters/digits/underscores, 1-25 chars (modern accounts ≥4, but legacy
+#    accounts from old contests can be 1-3, so we accept).
+#  * Names can't start with underscore on new accounts; legacy may, so the
+#    pattern allows it. Twitch rejects invalid names server-side anyway.
+_TWITCH_CHANNEL_NAME = re.compile(r"^[A-Za-z0-9_]{1,25}$")
+# Path segments under twitch.tv/ that are NOT channel homes. If `parse_source`
+# is handed e.g. `twitch.tv/directory` it must not embed a non-existent
+# "directory" channel. Keep in sync with the frontend mirror in source.ts.
+_TWITCH_RESERVED_PATHS = frozenset(
+    {
+        "videos",
+        "directory",
+        "p",
+        "user",
+        "users",
+        "legal",
+        "admin",
+        "login",
+        "signup",
+        "logout",
+        "jobs",
+        "team",
+        "teams",
+        "subscriptions",
+        "friends",
+        "inventory",
+        "wallet",
+        "downloads",
+        "search",
+        "settings",
+        "moderator",
+        "following",
+        "followers",
+        "popout",
+        "embed",
+        "clip",
+        "clips",
+        "collections",
+        "creatorcamp",
+        "turbo",
+        "prime",
+        "drops",
+        "store",
+        "broadcast",
+        "dashboard",
+    }
+)
 
 
 def _parse_t(values: list[str]) -> int | None:
@@ -99,11 +154,20 @@ def parse_source(url: object) -> dict | None:
             return _yt(vid, qs)
         return None
 
-    # --- Twitch VOD only ---
-    if host in ("twitch.tv", "www.twitch.tv"):
+    # --- Twitch VOD + live channel ---
+    if host in ("twitch.tv", "www.twitch.tv", "m.twitch.tv", "go.twitch.tv"):
         m = _TWITCH_VOD_PATH.match(u.path)
         if m:
             return {"type": "twitch", "embed_id": m.group(1)}
+        # Live channel: exactly one path segment, not a reserved keyword,
+        # matches the channel-name pattern. Anything multi-segment (clips,
+        # /<name>/v/<id>, /<name>/clip/<slug>, etc.) is intentionally not
+        # supported v1 — keep the surface small.
+        parts = [p for p in u.path.split("/") if p]
+        if len(parts) == 1:
+            name = parts[0].lower()
+            if name not in _TWITCH_RESERVED_PATHS and _TWITCH_CHANNEL_NAME.match(parts[0]):
+                return {"type": "twitch_live", "channel": parts[0]}
         return None
 
     # --- Native mp4/webm/m3u8 ---

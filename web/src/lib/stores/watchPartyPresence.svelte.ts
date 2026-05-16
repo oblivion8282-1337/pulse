@@ -18,8 +18,21 @@ export type WatchSourceYouTube = {
   start_seconds?: number;
 };
 export type WatchSourceTwitch = { type: 'twitch'; embed_id: string };
+/** Twitch live channel embed. No seek/position — the watch-party tile
+ * treats this as a passive shared embed (no heartbeat, no drift sync). */
+export type WatchSourceTwitchLive = { type: 'twitch_live'; channel: string };
 export type WatchSourceNative = { type: 'native'; url: string };
-export type WatchSource = WatchSourceYouTube | WatchSourceTwitch | WatchSourceNative;
+export type WatchSource =
+  | WatchSourceYouTube
+  | WatchSourceTwitch
+  | WatchSourceTwitchLive
+  | WatchSourceNative;
+
+/** True for sources whose state can't be drift-corrected (live streams).
+ * The tile uses this to gate heartbeat + applySoft/applyHard. */
+export function isPassiveSource(s: WatchSource): boolean {
+  return s.type === 'twitch_live';
+}
 
 export type WatchPartyState = {
   source: WatchSource;

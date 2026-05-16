@@ -1,26 +1,36 @@
 <!--
-  Twitch VOD player wrapper.
+  Twitch player wrapper — handles both VOD and live channel sources.
 
   Loads https://embed.twitch.tv/embed/v1.js once per session and instantiates
-  `Twitch.Player` (video-only, no chat). Live channels aren't supported — the
-  source parser rejects them because Twitch doesn't allow seek on live
-  streams (no way to keep viewers in sync without it).
+  `Twitch.Player` (video-only, no chat). The constructor takes either
+  `{ video: <id> }` (VOD) or `{ channel: <name> }` (live) — everything else
+  is identical.
+
+  Live caveats baked in:
+    * `getCurrentTime()` / `getDuration()` don't work on live — handle
+      returns 0 so the sync layer's expectedPosition math stays sane (the
+      WatchPartyTile gates heartbeats off entirely for live anyway).
+    * `seek()` doesn't work on live — handle's seek is a no-op.
+    * `SEEK` event doesn't fire on live — listener registered for VOD only.
 
   `parent` is required by Twitch and must match the current hostname; we
   derive it from `window.location` at mount time.
 
   Twitch's Embed API has no `setPlaybackRate` — our handle implements it as a
-  no-op; the drift corrector falls back to hard seeks on this player.
+  no-op; the drift corrector falls back to hard seeks on VODs.
 -->
 <script lang="ts">
-  import type { WatchSourceTwitch } from '$lib/stores/watchPartyPresence.svelte';
+  import type {
+    WatchSourceTwitch,
+    WatchSourceTwitchLive
+  } from '$lib/stores/watchPartyPresence.svelte';
   import type { PlayerEvent, PlayerHandle } from '../sync';
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type TwitchPlayer = any;
 
   interface Props {
-    source: WatchSourceTwitch;
+    source: WatchSourceTwitch | WatchSourceTwitchLive;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
@@ -29,6 +39,7 @@
 
   let mount = $state<HTMLDivElement | undefined>();
   const elementId = `twitch-player-${Math.random().toString(36).slice(2)}`;
+  const isLive = $derived(source.type === 'twitch_live');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let apiPromise: Promise<any> | undefined;
@@ -67,35 +78,37 @@
 
     void loadApi().then((Twitch) => {
       if (disposed || !mount) return;
-      player = new Twitch.Player(elementId, {
-        video: source.embed_id,
+      const options: Record<string, unknown> = {
         parent: [window.location.hostname],
         width: '100%',
         height: '100%',
         autoplay: false,
         muted: false
-      });
+      };
+      if (source.type === 'twitch_live') options.channel = source.channel;
+      else options.video = source.embed_id;
+      player = new Twitch.Player(elementId, options);
 
-      const onPlay = () => {
-        onEvent?.({ type: 'play', position: Number(player?.getCurrentTime() ?? 0) });
-      };
-      const onPause = () => {
-        onEvent?.({ type: 'pause', position: Number(player?.getCurrentTime() ?? 0) });
-      };
-      const onSeek = () => {
-        onEvent?.({ type: 'seek', position: Number(player?.getCurrentTime() ?? 0) });
-      };
+      const safeTime = () => (isLive ? 0 : Number(player?.getCurrentTime() ?? 0));
+      const onPlay = () => onEvent?.({ type: 'play', position: safeTime() });
+      const onPause = () => onEvent?.({ type: 'pause', position: safeTime() });
       player.addEventListener(Twitch.Player.PLAY, onPlay);
       player.addEventListener(Twitch.Player.PAUSE, onPause);
-      // SEEK event fires only for VODs — which is the only mode we support.
-      player.addEventListener(Twitch.Player.SEEK, onSeek);
+      // SEEK only fires for VODs — Twitch doesn't allow seek on live.
+      if (!isLive) {
+        const onSeek = () => onEvent?.({ type: 'seek', position: safeTime() });
+        player.addEventListener(Twitch.Player.SEEK, onSeek);
+      }
 
       player.addEventListener(Twitch.Player.READY, () => {
         const handle: PlayerHandle = {
           play: () => player?.play(),
           pause: () => player?.pause(),
-          seek: (t: number) => player?.seek(t),
-          getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
+          seek: (t: number) => {
+            if (isLive) return; // no-op on live; sync layer gates this too
+            player?.seek(t);
+          },
+          getCurrentTime: safeTime,
           setPlaybackRate: () => {
             /* Twitch Embed API doesn't expose playbackRate. */
           },

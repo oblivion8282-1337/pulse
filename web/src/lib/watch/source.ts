@@ -12,6 +12,7 @@ const MAX_URL_LEN = 2048;
 
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
 const TWITCH_VOD_PATH = /^\/videos\/(\d+)\/?$/;
+const TWITCH_CHANNEL_NAME = /^[A-Za-z0-9_]{1,25}$/;
 const NATIVE_SUFFIX = /\.(mp4|webm|m3u8)$/i;
 
 const YOUTUBE_HOSTS = new Set([
@@ -19,6 +20,48 @@ const YOUTUBE_HOSTS = new Set([
   'www.youtube.com',
   'm.youtube.com',
   'www.youtube-nocookie.com'
+]);
+
+const TWITCH_HOSTS = new Set(['twitch.tv', 'www.twitch.tv', 'm.twitch.tv', 'go.twitch.tv']);
+
+// Keep in sync with _TWITCH_RESERVED_PATHS in watch_source.py (backend is
+// the authority — this is just for fast UI feedback).
+const TWITCH_RESERVED_PATHS = new Set([
+  'videos',
+  'directory',
+  'p',
+  'user',
+  'users',
+  'legal',
+  'admin',
+  'login',
+  'signup',
+  'logout',
+  'jobs',
+  'team',
+  'teams',
+  'subscriptions',
+  'friends',
+  'inventory',
+  'wallet',
+  'downloads',
+  'search',
+  'settings',
+  'moderator',
+  'following',
+  'followers',
+  'popout',
+  'embed',
+  'clip',
+  'clips',
+  'collections',
+  'creatorcamp',
+  'turbo',
+  'prime',
+  'drops',
+  'store',
+  'broadcast',
+  'dashboard'
 ]);
 
 function parseT(raw: string | null): number | undefined {
@@ -77,10 +120,20 @@ export function parseSource(input: string): WatchSource | null {
     return vid && YOUTUBE_ID.test(vid) ? youtube(vid, params) : null;
   }
 
-  // Twitch VOD only — live channels have no seek, so we don't support them.
-  if (host === 'twitch.tv' || host === 'www.twitch.tv') {
+  // Twitch VOD + live channel.
+  if (TWITCH_HOSTS.has(host)) {
     const m = u.pathname.match(TWITCH_VOD_PATH);
-    return m ? { type: 'twitch', embed_id: m[1] } : null;
+    if (m) return { type: 'twitch', embed_id: m[1] };
+    // Live channel: single path segment, not reserved, matches name regex.
+    // Multi-segment paths (clips, /v/, /clip/) are intentionally not v1.
+    const parts = u.pathname.split('/').filter(Boolean);
+    if (parts.length === 1) {
+      const name = parts[0];
+      if (!TWITCH_RESERVED_PATHS.has(name.toLowerCase()) && TWITCH_CHANNEL_NAME.test(name)) {
+        return { type: 'twitch_live', channel: name };
+      }
+    }
+    return null;
   }
 
   // Native — direct https URL ending in mp4/webm/m3u8.

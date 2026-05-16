@@ -106,7 +106,7 @@
     <Dialog.Header>
       <Dialog.Title>Watch Party starten</Dialog.Title>
       <Dialog.Description>
-        YouTube, Twitch-VOD oder ein direkter mp4/webm/m3u8-Link.
+        YouTube, Twitch (VOD oder Live-Kanal) oder ein direkter mp4/webm/m3u8-Link.
       </Dialog.Description>
     </Dialog.Header>
     <div class="flex flex-col gap-2 py-2">
@@ -129,10 +129,14 @@
               ? 'YouTube'
               : parsed.type === 'twitch'
                 ? 'Twitch VOD'
-                : 'Direkt-Video'}
+                : parsed.type === 'twitch_live'
+                  ? `Twitch Live · ${parsed.channel} (kein Sync — alle gucken die Live-Edge)`
+                  : 'Direkt-Video'}
           </span>
         {:else}
-          <span class="text-text-muted">YouTube, Twitch-VOD oder mp4/webm/m3u8-Link</span>
+          <span class="text-text-muted">
+            YouTube, Twitch (VOD/Live) oder mp4/webm/m3u8-Link
+          </span>
         {/if}
       </div>
     </div>
