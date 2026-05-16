@@ -217,11 +217,14 @@ test.describe.serial('Watch Party E2E', () => {
     // The frontend's parseSource is what the dialog uses for live UI feedback;
     // the backend has its own copy that re-validates server-side. Both must
     // agree — we test the frontend here, the backend in pytest. Run inside
-    // the page so the real module is exercised.
+    // the page so the real module is exercised. The path is a Vite-dev URL
+    // resolved at browser runtime, not a TS module path — TS can't see it.
     const out = await alicePage.evaluate(async () => {
-      // The module is bundled into the SPA; import via its public alias.
-      const mod = await import('/src/lib/watch/source.ts');
-      const { parseSource } = mod as { parseSource: (u: string) => unknown };
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/watch/source.ts')) as {
+        parseSource: (u: string) => unknown;
+      };
+      const { parseSource } = mod;
       return {
         ytWatch: parseSource('https://www.youtube.com/watch?v=abc12345678'),
         ytShort: parseSource('https://youtu.be/abc12345678'),
@@ -282,7 +285,7 @@ test.describe.serial('Watch Party E2E', () => {
       channel_id: voiceChannelId
     });
     expect(aliceStop.op).toBe('watch_state');
-    expect((aliceStop as { state: unknown }).state).toBeNull();
+    expect((aliceStop as unknown as { state: unknown }).state).toBeNull();
 
     // REST re-sync now shows no party for either user.
     expect(
