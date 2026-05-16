@@ -96,9 +96,18 @@
 
   // Window during which player-emitted play/pause events are ignored as the
   // echo of our own programmatic seek/play/pause. 750ms covers a slow YT
-  // seek round-trip (BUFFERING → PLAYING typically lands within 200-500ms).
+  // seek round-trip (BUFFERING → PLAYING typically lands within 200-500ms);
+  // anything that leaks past this is filtered by the drift-gate in
+  // `handleEvent` below.
   const SYNC_QUIET_MS = 750;
   let syncingUntil = 0;
+
+  // Above this drift we treat a viewer 'play' event as a genuine catch-up
+  // (manual play after a long pause). Below it, the event is the echo of
+  // our own programmatic seek/play and we skip re-syncing — otherwise YT's
+  // slow post-seek PLAYING (>750ms on weak devices) would cascade into
+  // seek → buffer → PLAYING → seek → … stutter-loops.
+  const VIEWER_PLAY_RESYNC_THRESHOLD_S = 5;
 
   function syncHard(p: PlayerHandle, s: WatchPartyState): void {
     syncingUntil = Date.now() + SYNC_QUIET_MS;
@@ -200,7 +209,15 @@
     if (e.type === 'pause') viewerPaused = true;
     else if (e.type === 'play') {
       viewerPaused = false;
-      if (player) syncHard(player, party);
+      // Only catch up on real drift (viewer resuming after a long manual
+      // pause). The post-seek PLAYING echo has near-zero drift — calling
+      // syncHard there would re-seek and re-trigger the echo on slow YT
+      // responses, causing the stutter-loop the SYNC_QUIET_MS window was
+      // meant to (and on weak devices fails to) catch.
+      if (player) {
+        const drift = Math.abs(expectedPosition(party) - player.getCurrentTime());
+        if (drift > VIEWER_PLAY_RESYNC_THRESHOLD_S) syncHard(player, party);
+      }
     }
   }
 
