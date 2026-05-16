@@ -174,6 +174,55 @@ async def test_guild_watch_state_non_member_403(client, _auth_signer):
 # =============================================================================
 
 
+def _drain_until(ws, predicate, *, max_drained: int = 10):
+    """Read up to ``max_drained`` messages and return the first one matching
+    ``predicate(msg)``. Pub/sub-driven broadcasts (watch_state, voice_state,
+    stream_state, guild_event) can interleave or arrive in a different order
+    than the WS-op-driven response that wrote them, so tests asserting on a
+    specific broadcast should filter — not assume position N in the queue.
+
+    Hangs are caught by the test-level ``--timeout=30`` in pyproject.toml;
+    out-of-order or extra messages by this helper."""
+    for _ in range(max_drained):
+        msg = ws.receive_json()
+        if predicate(msg):
+            return msg
+    raise AssertionError(
+        f"no matching message after draining {max_drained}; last seen op was "
+        f"{msg.get('op') if isinstance(msg, dict) else msg!r}"
+    )
+
+
+def _wait_for_watch_state(
+    ws,
+    *,
+    channel_id: str,
+    is_playing: bool | None = None,
+    position: float | None = None,
+    state_is: object = object(),  # sentinel — pass ``None`` to assert the party ended
+):
+    """Drain until a ``watch_state`` for ``channel_id`` matches the filter."""
+    _none_sentinel = state_is  # noqa: F841 — kept for the closure
+
+    def _match(msg: dict) -> bool:
+        if msg.get("op") != "watch_state":
+            return False
+        if msg.get("channel_id") != channel_id:
+            return False
+        state = msg.get("state")
+        if state_is is None:
+            return state is None
+        if state is None:
+            return False
+        if is_playing is not None and state.get("is_playing") != is_playing:
+            return False
+        if position is not None and state.get("position") != position:
+            return False
+        return True
+
+    return _drain_until(ws, _match)
+
+
 def _setup_voice_channel(tc: TestClient, _auth_signer) -> tuple[str, int, str, str]:
     """Register a user, create guild + voice channel. Returns (token, uid,
     guild_id, channel_id)."""
@@ -380,7 +429,7 @@ async def test_watch_control_pause_updates_state(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()
+                ws.receive_json()  # ready
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -388,7 +437,6 @@ async def test_watch_control_pause_updates_state(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                ws.receive_json()  # initial broadcast (is_playing=True)
                 ws.send_json(
                     {
                         "op": "watch_control",
@@ -397,9 +445,11 @@ async def test_watch_control_pause_updates_state(ws_app, _auth_signer):
                         "position": 42.5,
                     }
                 )
-                got = ws.receive_json()
-                assert got["op"] == "watch_state"
-                assert got["state"]["is_playing"] is False
+                # Filter for the paused-state broadcast — skips the start
+                # broadcast (is_playing=True) that lands first.
+                got = _wait_for_watch_state(
+                    ws, channel_id=cid, is_playing=False, position=42.5
+                )
                 assert got["state"]["position"] == 42.5
 
     await asyncio.to_thread(_run)
@@ -447,7 +497,7 @@ async def test_watch_stop_deletes_state(ws_app, _auth_signer):
             r = sync_redis.Redis.from_url(_REDIS_URL)
             try:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()
+                    ws.receive_json()  # ready
                     ws.send_json(
                         {
                             "op": "watch_start",
@@ -455,12 +505,10 @@ async def test_watch_stop_deletes_state(ws_app, _auth_signer):
                             "source_url": "https://youtu.be/abc12345678",
                         }
                     )
-                    ws.receive_json()
+                    _wait_for_watch_state(ws, channel_id=cid, is_playing=True)
                     assert r.get(f"watch:channel-{cid}") is not None
                     ws.send_json({"op": "watch_stop", "channel_id": cid})
-                    got = ws.receive_json()
-                    assert got["op"] == "watch_state"
-                    assert got["state"] is None
+                    _wait_for_watch_state(ws, channel_id=cid, state_is=None)
                     assert r.get(f"watch:channel-{cid}") is None
             finally:
                 r.delete(f"watch:channel-{cid}")
@@ -476,7 +524,7 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()
+                ws.receive_json()  # ready
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -484,7 +532,7 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                first = ws.receive_json()
+                first = _wait_for_watch_state(ws, channel_id=cid, is_playing=True)
                 first_updated = first["state"]["updated_at"]
                 # Spam two heartbeats back-to-back — only the second would
                 # write because the start-event reset updated_at to "now".
@@ -502,7 +550,7 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
                         "position": 99,
                     }
                 )
-                after = ws.receive_json()
+                after = _wait_for_watch_state(ws, channel_id=cid, position=99)
                 # The control op did update updated_at and position — but
                 # crucially, position is 99 (from control), not 5 or 6 (from
                 # the dropped heartbeats).

@@ -28,7 +28,11 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-v --tb=short --import-mode=importlib"
+# Per-test hard timeout: a hung `ws.receive_json()` (real Redis pub/sub
+# fan-out races) used to stall the whole CI job until the runner's 6h
+# ceiling. 30s is generous for every test we have and turns a hang into
+# a fast failure that the CI re-run can recover from.
+addopts = "-v --tb=short --import-mode=importlib --timeout=30 --timeout-method=thread"
 testpaths = [
     "shared/tests",
     "services/auth/tests",
@@ -44,4 +48,5 @@ dev = [
     "httpx>=0.28.1",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
+    "pytest-timeout>=2.3.0",
 ]
