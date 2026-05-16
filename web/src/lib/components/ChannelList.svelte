@@ -14,6 +14,7 @@
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
+  import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -253,11 +254,13 @@
             ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
             : []}
         {@const memberStates = voicePresence.userStatesIn(c.id)}
+        {@const partyHostId = watchPartyPresence.partyIn(c.id)?.host_user_id ?? null}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}
             streamingUserIds={streamers}
             speakingUserIds={speakers}
+            watchPartyHostUserId={partyHostId}
             userStates={memberStates}
             onStreamClick={() => {
               // The badge passes the streamer's uid but v1 just opens the

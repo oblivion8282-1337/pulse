@@ -1,0 +1,142 @@
+<!--
+  MemberActivityHeader — kompakte „was läuft gerade"-Sektion oben in der
+  rechten Mitgliederliste. Aggregiert Watch-Parties + HQ-Streams + Browser-
+  Screenshares aller Voice-Channels dieses Guilds und bietet pro Eintrag
+  einen Quick-Open-Link in die zugehörige Channel-Stream-Ansicht.
+-->
+<script lang="ts">
+  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
+  import RocketIcon from '@lucide/svelte/icons/rocket';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import { goto } from '$app/navigation';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import {
+    watchPartyPresence,
+    type WatchPartyState
+  } from '$lib/stores/watchPartyPresence.svelte';
+  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
+  import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
+  import type { Channel } from '$lib/api/types';
+
+  let { guildId }: { guildId: string } = $props();
+
+  type PartyEntry = { kind: 'party'; channel: Channel; state: WatchPartyState };
+  type StreamEntry = { kind: 'stream'; channel: Channel; userId: string };
+
+  // Walk all known channels of this guild and collect activity entries from
+  // the three presence stores. Channels-by-guild may be empty until the user
+  // has visited the guild once — in that case the header simply renders
+  // nothing.
+  const entries = $derived.by<Array<PartyEntry | StreamEntry>>(() => {
+    const chans = guilds.channelsByGuild[guildId] ?? [];
+    const out: Array<PartyEntry | StreamEntry> = [];
+    for (const ch of chans) {
+      const wp = watchPartyPresence.partyIn(ch.id);
+      if (wp) out.push({ kind: 'party', channel: ch, state: wp });
+      const hq = streamPresence.streamersIn(ch.id);
+      const ss = voicePresence.streamingIn(ch.id);
+      const all = [...new Set([...hq, ...ss])];
+      for (const uid of all) out.push({ kind: 'stream', channel: ch, userId: uid });
+    }
+    return out;
+  });
+
+  // Queue display-name lookups + prefetch YouTube titles so the activity
+  // labels render with the proper name instead of "…" / the embed id.
+  $effect(() => {
+    for (const e of entries) {
+      if (e.kind === 'stream') userCache.queue(e.userId);
+      else {
+        userCache.queue(e.state.host_user_id);
+        if (e.state.source.type === 'youtube') {
+          prefetchYoutubeTitle(e.state.source.embed_id);
+        }
+      }
+    }
+  });
+
+  function sourceLabel(s: WatchPartyState): string {
+    const src = s.source;
+    if (src.type === 'youtube') {
+      const t = youtubeTitle(src.embed_id);
+      return t ? `YouTube · ${t}` : `YouTube · ${src.embed_id}`;
+    }
+    if (src.type === 'twitch') return `Twitch · VOD ${src.embed_id}`;
+    try {
+      return new URL(src.url).hostname;
+    } catch {
+      return 'Direkt-Video';
+    }
+  }
+
+  function open(channelId: string): void {
+    streamOpenRequest.request(channelId);
+    void goto(`/app/guilds/${guildId}/channels/${channelId}`);
+  }
+</script>
+
+{#if entries.length > 0}
+  <div
+    class="border-border flex shrink-0 flex-col gap-1.5 border-b px-2.5 py-2"
+    data-testid="member-activity-header"
+  >
+    {#each entries as e (e.kind === 'party' ? `p-${e.channel.id}` : `s-${e.channel.id}-${e.userId}`)}
+      {#if e.kind === 'party'}
+        {@const hostName = userCache.displayName(e.state.host_user_id)}
+        <div
+          class="bg-primary/10 hover:bg-primary/15 group flex items-start gap-2 rounded-xl px-2.5 py-2 transition-colors"
+          data-testid="member-activity-party"
+          data-channel-id={e.channel.id}
+        >
+          <PlayCircleIcon class="text-primary mt-0.5 size-4 shrink-0" />
+          <div class="min-w-0 flex-1">
+            <p class="text-text-bright truncate text-xs font-semibold">Watch Party</p>
+            <p class="text-text-muted truncate text-[11px]" title={sourceLabel(e.state)}>
+              {sourceLabel(e.state)}
+            </p>
+            <p class="text-text-muted mt-0.5 truncate text-[10px]">
+              Host: <span class="text-text-base">{hostName}</span> · #{e.channel.name}
+            </p>
+          </div>
+          <button
+            type="button"
+            onclick={() => open(e.channel.id)}
+            class="text-primary hover:text-primary/80 mt-0.5 shrink-0 rounded-full p-1 transition-colors"
+            aria-label="Watch Party öffnen"
+            title="Öffnen"
+          >
+            <ExternalLinkIcon class="size-3.5" />
+          </button>
+        </div>
+      {:else}
+        {@const name = userCache.displayName(e.userId)}
+        <div
+          class="bg-red-500/10 hover:bg-red-500/15 flex items-start gap-2 rounded-xl px-2.5 py-2 transition-colors"
+          data-testid="member-activity-stream"
+          data-channel-id={e.channel.id}
+          data-user-id={e.userId}
+        >
+          <RocketIcon class="mt-0.5 size-4 shrink-0 text-red-500" />
+          <div class="min-w-0 flex-1">
+            <p class="text-text-bright truncate text-xs font-semibold">
+              {name} streamt
+            </p>
+            <p class="text-text-muted truncate text-[10px]">#{e.channel.name}</p>
+          </div>
+          <button
+            type="button"
+            onclick={() => open(e.channel.id)}
+            class="mt-0.5 shrink-0 rounded-full p-1 text-red-400 transition-colors hover:text-red-300"
+            aria-label="Stream öffnen"
+            title="Öffnen"
+          >
+            <ExternalLinkIcon class="size-3.5" />
+          </button>
+        </div>
+      {/if}
+    {/each}
+  </div>
+{/if}

@@ -14,6 +14,7 @@
     userIds,
     streamingUserIds = [],
     speakingUserIds = [],
+    watchPartyHostUserId = null,
     userStates = {},
     onStreamClick
   }: {
@@ -23,10 +24,12 @@
      * threshold. Only the channel the local user is connected to has live
      * data; everything else is an empty list and renders no rings. */
     speakingUserIds?: string[];
+    /** The user hosting an active watch party in this channel (or null). */
+    watchPartyHostUserId?: string | null;
     /** Per-user self-reported mute/deafen flags. Missing entries == default off. */
     userStates?: Record<string, UserVoiceState>;
-    /** Click handler for the LIVE-badge — opens that user's stream in the
-     *  channel view. Without it the badge stays a passive label. */
+    /** Click handler for the LIVE / PARTY badge — opens the relevant stream
+     *  view in the channel. Without it both badges stay passive labels. */
     onStreamClick?: (userId: string) => void;
   } = $props();
 
@@ -108,6 +111,31 @@
                 aria-label="Stummschaltung"
                 data-testid="voice-presence-deafened"
               />
+            {/if}
+            {#if watchPartyHostUserId === uid}
+              {#if onStreamClick}
+                <span
+                  role="button"
+                  tabindex="0"
+                  class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90"
+                  data-testid="user-watch-party-badge"
+                  title="Watch Party öffnen"
+                  aria-label="{name}s Watch Party öffnen"
+                  onclick={(e) => { e.stopPropagation(); onStreamClick(uid); }}
+                  onkeydown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onStreamClick(uid);
+                  }}
+                >PARTY</span>
+              {:else}
+                <span
+                  class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground"
+                  data-testid="user-watch-party-badge"
+                  title="hostet eine Watch Party"
+                >PARTY</span>
+              {/if}
             {/if}
             {#if streamingSet.has(uid)}
               {#if onStreamClick}

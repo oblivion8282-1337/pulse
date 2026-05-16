@@ -3,7 +3,15 @@
   import XIcon from '@lucide/svelte/icons/x';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
+  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
+  import { voice } from '$lib/voice/livekit.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { goto } from '$app/navigation';
+  import MemberActivityHeader from './MemberActivityHeader.svelte';
   import type { Member } from '$lib/api/types';
 
   let {
@@ -36,6 +44,40 @@
     }
   }
 
+  // Per-guild aggregation across all voice channels: who's hosting a watch
+  // party + who's HQ-streaming or screen-sharing. Drives the per-row badges
+  // below the activity header.
+  const guildChannels = $derived(guilds.channelsByGuild[guildId] ?? []);
+  const partyHostIds = $derived.by(() => {
+    const set = new Set<string>();
+    for (const c of guildChannels) {
+      const wp = watchPartyPresence.partyIn(c.id);
+      if (wp) set.add(wp.host_user_id);
+    }
+    return set;
+  });
+  const streamerIds = $derived.by(() => {
+    const set = new Set<string>();
+    for (const c of guildChannels) {
+      for (const uid of streamPresence.streamersIn(c.id)) set.add(uid);
+      for (const uid of voicePresence.streamingIn(c.id)) set.add(uid);
+    }
+    return set;
+  });
+
+  // Speaking is live-data — only meaningful for the channel the local user
+  // is currently connected to. Skip if that channel doesn't belong to this
+  // guild (you're in a voice channel elsewhere).
+  const speakingIds = $derived.by(() => {
+    if (!voice.connected || !voice.channelId) return new Set<string>();
+    if (!guildChannels.some((c) => c.id === voice.channelId)) return new Set<string>();
+    const set = new Set<string>();
+    for (const p of voice.participants) {
+      if (p.isSpeaking && p.userId) set.add(p.userId);
+    }
+    return set;
+  });
+
   function displayName(m: Member): string {
     if (m.nickname) return m.nickname;
     return userCache.displayName(m.user_id);
@@ -47,6 +89,25 @@
 
   function initials(m: Member): string {
     return displayName(m).slice(0, 1).toUpperCase();
+  }
+
+  function openMemberActivity(uid: string): void {
+    // Find any voice channel in this guild where this user is hosting a
+    // party or streaming — first match wins (rare to have multiple). Set
+    // the open-request first, then navigate; VoiceChannelView consumes the
+    // request on (re)mount and pops the stream view open immediately.
+    for (const c of guildChannels) {
+      const wp = watchPartyPresence.partyIn(c.id);
+      const matchParty = wp && wp.host_user_id === uid;
+      const matchStream =
+        streamPresence.streamersIn(c.id).includes(uid) ||
+        voicePresence.streamingIn(c.id).includes(uid);
+      if (matchParty || matchStream) {
+        streamOpenRequest.request(c.id);
+        void goto(`/app/guilds/${guildId}/channels/${c.id}`);
+        return;
+      }
+    }
   }
 </script>
 
@@ -69,6 +130,8 @@
     {/if}
   </header>
 
+  <MemberActivityHeader {guildId} />
+
   <div class="flex-1 overflow-y-auto px-2.5 py-1">
     {#if loading}
       <p class="text-text-muted px-3 py-4 text-xs">Lädt…</p>
@@ -78,20 +141,64 @@
       {#each members as m (m.user_id)}
         {@const name = displayName(m)}
         {@const url = avatarUrl(m)}
+        {@const isSpeaking = speakingIds.has(m.user_id)}
+        {@const isPartyHost = partyHostIds.has(m.user_id)}
+        {@const isStreaming = streamerIds.has(m.user_id)}
         <div
           class="hover:bg-bg-hover flex items-center gap-2.5 rounded-xl px-3 py-2"
           data-testid="member-item"
           data-user-id={m.user_id}
         >
-          <Avatar.Root class="size-8 shrink-0">
-            {#if url}
-              <Avatar.Image src={url} alt={name} />
+          <span class="relative size-8 shrink-0" data-speaking={isSpeaking}>
+            {#if isSpeaking}
+              <!-- Two staggered rings build the sonar "ping" — identical to
+                   the voice-channel members list in the left rail. -->
+              <span
+                class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping"
+                aria-hidden="true"
+                data-testid="member-speaking-ring"
+              ></span>
+              <span
+                class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping [animation-delay:0.7s]"
+                aria-hidden="true"
+              ></span>
             {/if}
-            <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
-              {initials(m)}
-            </Avatar.Fallback>
-          </Avatar.Root>
-          <span class="text-text-base truncate text-sm font-medium">{name}</span>
+            <Avatar.Root class="relative size-8">
+              {#if url}
+                <Avatar.Image src={url} alt={name} />
+              {/if}
+              <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
+                {initials(m)}
+              </Avatar.Fallback>
+            </Avatar.Root>
+          </span>
+          <span
+            class="truncate text-sm transition-[color,font-weight] duration-200 ease-out {isSpeaking
+              ? 'text-text-bright font-semibold'
+              : 'text-text-base font-medium'}"
+          >{name}</span>
+          <span class="ml-auto flex shrink-0 items-center gap-1">
+            {#if isPartyHost}
+              <button
+                type="button"
+                onclick={() => openMemberActivity(m.user_id)}
+                class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90"
+                data-testid="member-party-badge"
+                aria-label="{name}s Watch Party öffnen"
+                title="Watch Party öffnen"
+              >PARTY</button>
+            {/if}
+            {#if isStreaming}
+              <button
+                type="button"
+                onclick={() => openMemberActivity(m.user_id)}
+                class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white hover:bg-red-500"
+                data-testid="member-live-badge"
+                aria-label="{name}s Stream öffnen"
+                title="Stream öffnen"
+              >LIVE</button>
+            {/if}
+          </span>
         </div>
       {/each}
       {#if members.length === 0}
