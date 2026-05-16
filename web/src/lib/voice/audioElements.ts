@@ -4,22 +4,25 @@ type SinkCapable = { setSinkId?: (id: string) => Promise<void> };
 
 interface AudioNodeBundle {
   source: MediaStreamAudioSourceNode;
-  compressor: DynamicsCompressorNode;
+  /** Null while effective gain ≤ 1.0 — at default volume the path is a
+   *  straight `source → gain → destination`. Spliced in lazily once the user
+   *  boosts above 100 %, removed again when they reset. */
+  compressor: DynamicsCompressorNode | null;
   gain: GainNode;
   /** Muted <audio> sink that keeps Chromium's WebRTC decoder running. Without
    *  it, MediaStreamAudioSourceNode produces no output for RTCPeerConnection
    *  tracks — known Chromium bug. We never hear this element (muted=true);
-   *  the audible path is source → compressor → gain → ctx.destination. */
+   *  the audible path is source → [compressor →] gain → ctx.destination. */
   anchor: HTMLAudioElement;
   userId: string;
 }
 
 /**
  * Owns the Web Audio routing for remote participant mic tracks (not
- * screen-share — those live in ScreenShareTile). Each track flows through a
- * gentle DynamicsCompressorNode (so loud speakers don't clip when their gain
- * is boosted) and a per-user GainNode (0..4 = 0..400 %, default 1.0), then
- * into the AudioContext destination.
+ * screen-share — those live in ScreenShareTile). Default path is a 1:1
+ * pass-through `source → gain → destination`; a DynamicsCompressorNode is
+ * spliced in only while a user is boosted >100 %, to catch the clipping
+ * linear gain would otherwise produce on loud speakers.
  *
  * Why not the previous `<audio>` approach: `HTMLMediaElement.volume` is
  * spec-clamped to 0..1, so a per-user "louder than 100 %" slider had no way
@@ -30,7 +33,7 @@ export class RemoteAudioElements {
   #nodes = new Map<string, AudioNodeBundle>();
   /** Per-user gain factor. Authoritative copy lives in settings.voice.userVolumes; we mirror it here so attach() can pick up the value before settings has had a chance to push it. */
   #userVolumes = new Map<string, number>();
-  /** Discord-tuned compressor: gentle ratio, slow release. Only kicks in for the loud speakers; quiet voices keep their dynamic range mostly untouched. */
+  /** Discord-tuned compressor, spliced in only while a user is boosted >100 %. */
   static readonly COMPRESSOR = {
     threshold: -20,
     knee: 10,
@@ -69,20 +72,13 @@ export class RemoteAudioElements {
     void anchor.play().catch(() => undefined);
 
     const source = ctx.createMediaStreamSource(stream);
-    const compressor = ctx.createDynamicsCompressor();
-    const c = RemoteAudioElements.COMPRESSOR;
-    compressor.threshold.value = c.threshold;
-    compressor.knee.value = c.knee;
-    compressor.ratio.value = c.ratio;
-    compressor.attack.value = c.attack;
-    compressor.release.value = c.release;
-
     const gain = ctx.createGain();
-    gain.gain.value = this.#computeGain(userId);
+    gain.connect(ctx.destination);
 
-    source.connect(compressor).connect(gain).connect(ctx.destination);
-
-    this.#nodes.set(sid, { source, compressor, gain, anchor, userId });
+    const node: AudioNodeBundle = { source, compressor: null, gain, anchor, userId };
+    source.connect(gain);
+    this.#syncNode(node);
+    this.#nodes.set(sid, node);
 
     if (ctx.state === 'suspended') void ctx.resume().catch(onBlocked);
   }
@@ -91,7 +87,7 @@ export class RemoteAudioElements {
     const node = this.#nodes.get(sid);
     if (!node) return;
     try { node.source.disconnect(); } catch { /* already gone */ }
-    try { node.compressor.disconnect(); } catch { /* already gone */ }
+    try { node.compressor?.disconnect(); } catch { /* already gone */ }
     try { node.gain.disconnect(); } catch { /* already gone */ }
     node.anchor.srcObject = null;
     node.anchor.remove();
@@ -100,9 +96,7 @@ export class RemoteAudioElements {
 
   setDeafened(on: boolean): void {
     this.deafened = on;
-    for (const node of this.#nodes.values()) {
-      node.gain.gain.value = this.#computeGain(node.userId);
-    }
+    for (const node of this.#nodes.values()) this.#syncNode(node);
   }
 
   setUserVolume(userId: string, volume: number): void {
@@ -110,7 +104,7 @@ export class RemoteAudioElements {
     if (clamped === 1) this.#userVolumes.delete(userId);
     else this.#userVolumes.set(userId, clamped);
     for (const node of this.#nodes.values()) {
-      if (node.userId === userId) node.gain.gain.value = this.#computeGain(userId);
+      if (node.userId === userId) this.#syncNode(node);
     }
   }
 
@@ -122,9 +116,7 @@ export class RemoteAudioElements {
       const clamped = Math.max(0, Math.min(4, v));
       if (clamped !== 1) this.#userVolumes.set(uid, clamped);
     }
-    for (const node of this.#nodes.values()) {
-      node.gain.gain.value = this.#computeGain(node.userId);
-    }
+    for (const node of this.#nodes.values()) this.#syncNode(node);
   }
 
   async setOutputDevice(deviceId: string): Promise<void> {
@@ -149,6 +141,34 @@ export class RemoteAudioElements {
   #computeGain(userId: string): number {
     if (this.deafened) return 0;
     return this.#userVolumes.get(userId) ?? 1;
+  }
+
+  /** Apply the current effective gain to `node` and splice the compressor in
+   *  (when boosted >100 %) or out (otherwise). Idempotent. */
+  #syncNode(node: AudioNodeBundle): void {
+    const g = this.#computeGain(node.userId);
+    node.gain.gain.value = g;
+    const needsCompressor = g > 1;
+    if (needsCompressor && !node.compressor) {
+      try { node.source.disconnect(node.gain); } catch { /* already detached */ }
+      const ctx = this.#ctx;
+      if (!ctx) return;
+      const comp = ctx.createDynamicsCompressor();
+      const c = RemoteAudioElements.COMPRESSOR;
+      comp.threshold.value = c.threshold;
+      comp.knee.value = c.knee;
+      comp.ratio.value = c.ratio;
+      comp.attack.value = c.attack;
+      comp.release.value = c.release;
+      node.source.connect(comp);
+      comp.connect(node.gain);
+      node.compressor = comp;
+    } else if (!needsCompressor && node.compressor) {
+      try { node.source.disconnect(node.compressor); } catch { /* */ }
+      try { node.compressor.disconnect(); } catch { /* */ }
+      node.compressor = null;
+      node.source.connect(node.gain);
+    }
   }
 
   async #applySink(target: AudioContext, deviceId: string): Promise<void> {
