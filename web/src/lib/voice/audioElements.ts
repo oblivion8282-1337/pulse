@@ -41,6 +41,11 @@ export class RemoteAudioElements {
     attack: 0.003,
     release: 0.25
   } as const;
+  /** Compensates for the ~3–6 dB Chromium loses when WebRTC audio is routed
+   *  through MediaStreamAudioSourceNode instead of direct HTMLAudioElement
+   *  playback. UI "100 %" therefore maps to a Web Audio gain of 1.5, which
+   *  restores the perceived loudness from before the Web-Audio rewrite. */
+  static readonly DEFAULT_MAKEUP_GAIN = 1.5;
   deafened = false;
   outputDeviceId = '';
 
@@ -140,15 +145,20 @@ export class RemoteAudioElements {
 
   #computeGain(userId: string): number {
     if (this.deafened) return 0;
-    return this.#userVolumes.get(userId) ?? 1;
+    const userMultiplier = this.#userVolumes.get(userId) ?? 1;
+    return userMultiplier * RemoteAudioElements.DEFAULT_MAKEUP_GAIN;
   }
 
   /** Apply the current effective gain to `node` and splice the compressor in
-   *  (when boosted >100 %) or out (otherwise). Idempotent. */
+   *  (when the user-facing volume is >100 %) or out (otherwise). The makeup
+   *  factor is intentionally excluded from the compressor trigger — otherwise
+   *  every track would be compressed at default volume, which is the bug this
+   *  whole branch exists to fix. Idempotent. */
   #syncNode(node: AudioNodeBundle): void {
     const g = this.#computeGain(node.userId);
     node.gain.gain.value = g;
-    const needsCompressor = g > 1;
+    const userMultiplier = this.#userVolumes.get(node.userId) ?? 1;
+    const needsCompressor = userMultiplier > 1;
     if (needsCompressor && !node.compressor) {
       try { node.source.disconnect(node.gain); } catch { /* already detached */ }
       const ctx = this.#ctx;
