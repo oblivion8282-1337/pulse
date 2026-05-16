@@ -83,7 +83,11 @@
               </Avatar.Fallback>
             </Avatar.Root>
           </span>
-          <span class="truncate {isSpeaking ? 'font-semibold text-text-bright' : ''}">{name}</span>
+          <span
+            class="truncate transition-[color,font-weight] duration-200 ease-out {isSpeaking
+              ? 'font-semibold text-text-bright'
+              : ''}"
+          >{name}</span>
           {#if !isSelf && volumePct !== 100}
             <span
               class="text-text-muted ml-1 shrink-0 font-mono text-[10px]"
