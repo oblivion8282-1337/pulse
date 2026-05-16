@@ -95,6 +95,13 @@ export class DriftCorrector {
       return drift > 0 ? 'nudge-up' : 'nudge-down';
     }
     this.cancelNudge(player);
+    // eslint-disable-next-line no-console
+    console.log('[wp] SEEK', {
+      from: actual.toFixed(2),
+      to: expected.toFixed(2),
+      drift: drift.toFixed(2),
+      direction: drift > 0 ? 'forward' : 'backward'
+    });
     player.seek(expected);
     return 'seek';
   }
