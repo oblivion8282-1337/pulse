@@ -4,33 +4,18 @@
     VOICE_BITRATE_MIN,
     VOICE_BITRATE_MAX,
     VOICE_BITRATE_STEREO_MIN,
-    NOISE_STRENGTH_MIN,
-    NOISE_STRENGTH_MAX
+    NOISE_GATE_DB_MIN,
+    NOISE_GATE_DB_MAX
   } from '$lib/stores/settings.svelte';
   import InfoIcon from '@lucide/svelte/icons/info';
-  import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
 
-  // DeepFilterNet3 fetches its WASM + model from a CDN at runtime; works out of
-  // the box, no Cross-Origin-Isolation needed. Kept enabled.
-  const dfnEnabled = true;
-
-  const nsOptions: { value: NoiseSuppressionMode; label: string; hint: string }[] = [
-    { value: 'off', label: 'Aus', hint: 'Keine Rauschunterdrückung — geringste CPU-Last.' },
-    { value: 'browser', label: 'Browser-Standard', hint: 'Eingebaute Unterdrückung des Browsers — leicht, solide.' },
-    { value: 'rnnoise', label: 'RNNoise', hint: 'Neuronales Netz, gute Qualität bei geringer CPU-Last.' },
-    {
-      value: 'deepfilternet',
-      label: 'DeepFilterNet3',
-      hint: 'Beste Qualität, mehr CPU. Modell wird beim ersten Mal aus dem Netz geladen.'
-    }
-  ];
-
   let listeningForPttKey = $state(false);
 
-  function onNoiseChange(v: NoiseSuppressionMode) {
-    settings.setNoiseSuppression(v);
+  function onNoiseToggle(e: Event) {
+    const on = (e.currentTarget as HTMLInputElement).checked;
+    settings.setNoiseSuppression(on ? 'rnnoise_gated' : 'off');
     if (voice.connected) void voice.applyNoiseFilter();
   }
 
@@ -49,32 +34,30 @@
     if (!isNaN(val)) settings.setVoiceBitrateKbps(val);
   }
 
-  // Live-display + live-tune (cheap port.postMessage to the worklet on every
-  // drag); persist on release so localStorage isn't hit every pixel.
-  let noiseStrengthDisplay = $state(settings.audio.noiseSuppressionStrength);
+  // Gate threshold: live-rebuild the gate node on drag (oninput, brief click —
+  // intended; user is fine-tuning by ear), persist on release.
+  let gateDbDisplay = $state(settings.audio.noiseGateThresholdDb);
   $effect(() => {
-    noiseStrengthDisplay = settings.audio.noiseSuppressionStrength;
+    gateDbDisplay = settings.audio.noiseGateThresholdDb;
   });
-  function onNoiseStrengthInput(e: Event) {
+  function onGateInput(e: Event) {
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
     if (isNaN(val)) return;
-    noiseStrengthDisplay = val;
-    voice.setNoiseSuppressionStrength(val);
+    gateDbDisplay = val;
+    voice.setNoiseGateThresholdDb(val);
   }
-  function onNoiseStrengthChange(e: Event) {
+  function onGateChange(e: Event) {
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (!isNaN(val)) settings.setNoiseSuppressionStrength(val);
+    if (!isNaN(val)) settings.setNoiseGateThresholdDb(val);
   }
-  let noiseStrengthLabel = $derived(
-    noiseStrengthDisplay <= 20
-      ? 'sehr sanft — Rauschen bleibt hörbar'
-      : noiseStrengthDisplay <= 45
-        ? 'sanft — Stimme bleibt sicher unangetastet'
-        : noiseStrengthDisplay <= 65
-          ? 'ausgewogen'
-          : noiseStrengthDisplay <= 85
-            ? 'stark — kann leise Sprache abschneiden'
-            : 'maximal — chopt oft Wörter'
+  let gateDbLabel = $derived(
+    gateDbDisplay <= -55
+      ? 'sehr empfindlich — fast alles kommt durch'
+      : gateDbDisplay <= -40
+        ? 'leise Stimme reicht'
+        : gateDbDisplay <= -30
+          ? 'normale Sprachlautstärke'
+          : 'nur lautes — Flüstern wird stumm'
   );
 
   function startPttCapture() {
@@ -90,7 +73,7 @@
   }
 
   let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
-  let processorActive = $derived(settings.audio.noiseSuppression !== 'off' && settings.audio.noiseSuppression !== 'browser');
+  let processorActive = $derived(settings.audio.noiseSuppression !== 'off');
   let bitrateTooLowForStereo = $derived(settings.audio.voiceBitrateKbps < VOICE_BITRATE_STEREO_MIN);
   let stereoForced = $derived(processorActive || bitrateTooLowForStereo);
   let bitrateLabel = $derived(
@@ -153,47 +136,35 @@
 
   <!-- Rauschunterdrückung -->
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Rauschunterdrückung</span>
-    <div class="flex flex-col gap-1.5" data-testid="settings-noise-suppression">
-      {#each nsOptions as o (o.value)}
-        {@const off = o.value === 'deepfilternet' && !dfnEnabled}
-        <label
-          class="flex items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors {off
-            ? 'cursor-not-allowed opacity-50'
-            : 'cursor-pointer hover:bg-bg-hover'}"
-        >
-          <input
-            type="radio"
-            name="ns-mode"
-            value={o.value}
-            disabled={off}
-            checked={settings.audio.noiseSuppression === o.value}
-            onchange={() => onNoiseChange(o.value)}
-            class="accent-primary mt-0.5"
-          />
-          <div>
-            <span class="text-text-bright text-sm">{o.label}{off ? ' (braucht COI — siehe team-lead)' : ''}</span>
-            <p class="text-text-muted text-xs">{o.hint}</p>
-          </div>
-        </label>
-      {/each}
-    </div>
-    {#if settings.audio.noiseSuppression === 'deepfilternet'}
-      <div class="mt-2 flex flex-col gap-1.5" data-testid="settings-noise-strength">
+    <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-noise-suppression">
+      <div>
+        <span class="text-text-bright text-sm font-medium">Rauschunterdrückung</span>
+        <p class="text-text-muted text-xs">RNNoise + Sprach-Gate — saubere Stille zwischen Wörtern.</p>
+      </div>
+      <input
+        type="checkbox"
+        checked={settings.audio.noiseSuppression !== 'off'}
+        onchange={onNoiseToggle}
+        class="accent-primary size-4"
+      />
+    </label>
+    {#if settings.audio.noiseSuppression !== 'off'}
+      <div class="mt-1 flex flex-col gap-1.5" data-testid="settings-noise-gate">
         <div class="flex items-center justify-between">
-          <span class="text-text-base text-sm">Filterstärke</span>
-          <span class="text-text-muted text-sm">{noiseStrengthDisplay} · {noiseStrengthLabel}</span>
+          <span class="text-text-base text-sm">Gate-Schwelle</span>
+          <span class="text-text-muted text-sm">{gateDbDisplay} dB · {gateDbLabel}</span>
         </div>
         <input
           type="range"
-          min={NOISE_STRENGTH_MIN}
-          max={NOISE_STRENGTH_MAX}
+          min={NOISE_GATE_DB_MIN}
+          max={NOISE_GATE_DB_MAX}
           step="1"
-          value={settings.audio.noiseSuppressionStrength}
-          oninput={onNoiseStrengthInput}
-          onchange={onNoiseStrengthChange}
+          value={settings.audio.noiseGateThresholdDb}
+          oninput={onGateInput}
+          onchange={onGateChange}
           class="accent-primary w-full"
         />
+        <p class="text-text-muted text-xs">Schwelle so wählen, dass sie unter deiner Stimme, aber über dem Hintergrund liegt.</p>
       </div>
     {/if}
   </div>
@@ -213,9 +184,7 @@
     <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={processorActive}>
       <div>
         <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
-        {#if settings.audio.noiseSuppression === 'deepfilternet'}
-          <p class="text-text-muted text-xs">Von DeepFilterNet3 übernommen — deaktiviert</p>
-        {:else if settings.audio.noiseSuppression === 'rnnoise'}
+        {#if settings.audio.noiseSuppression !== 'off'}
           <p class="text-text-muted text-xs">Von RNNoise übernommen — deaktiviert</p>
         {/if}
       </div>

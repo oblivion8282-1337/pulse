@@ -7,7 +7,7 @@ export type ScreenShareCodec = Extract<VideoCodec, 'vp8' | 'vp9' | 'h264' | 'av1
 export type ScreenShareResolution = 'native' | '1080p' | '720p' | '480p';
 export type ScreenShareFps = 15 | 30 | 60;
 
-export type NoiseSuppressionMode = 'off' | 'browser' | 'rnnoise' | 'deepfilternet';
+export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 
@@ -18,9 +18,13 @@ const VOICE_BITRATE_MIN = 16;
 const VOICE_BITRATE_MAX = 256;
 const VOICE_BITRATE_STEREO_MIN = 32;
 
-const NOISE_STRENGTH_MIN = 0;
-const NOISE_STRENGTH_MAX = 100;
-const NOISE_STRENGTH_DEFAULT = 50;
+// Hard noise-gate (open-threshold in dB) used by the 'rnnoise_gated' mode.
+// -60 = very sensitive (lets near-whispered speech through, gates almost nothing),
+// -20 = only loud speech opens the gate. -45 is a reasonable default for a quiet
+// home office; users in noisy rooms will want it closer to -30.
+const NOISE_GATE_DB_MIN = -60;
+const NOISE_GATE_DB_MAX = -20;
+const NOISE_GATE_DB_DEFAULT = -45;
 
 // Cap for the LiveKit screen-share bitrate. Fan-out via SFU means the server
 // pays N×bitrate egress per channel — keep this low even when raising the HQ
@@ -31,7 +35,7 @@ const SCREEN_SHARE_BITRATE_MAX = 10;
 const VALID_CODECS: ScreenShareCodec[] = ['vp8', 'vp9', 'h264', 'av1'];
 const VALID_RESOLUTIONS: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
 const VALID_FPS: ScreenShareFps[] = [15, 30, 60];
-const VALID_NS: NoiseSuppressionMode[] = ['off', 'browser', 'rnnoise', 'deepfilternet'];
+const VALID_NS: NoiseSuppressionMode[] = ['off', 'rnnoise_gated'];
 const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
 type AudioSettings = {
@@ -42,10 +46,9 @@ type AudioSettings = {
   echoCancellation: boolean;
   autoGainControl: boolean;
   noiseSuppression: NoiseSuppressionMode;
-  /** DeepFilterNet3 max attenuation in dB (0..100). Ignored for other modes.
-   *  Lower = gentler, less risk of chopping quiet speech; higher = more noise
-   *  removed but louder mis-classifications. */
-  noiseSuppressionStrength: number;
+  /** Open-threshold (dB) for the 'rnnoise_gated' mode. Below this the post-
+   *  RNNoise audio is muted entirely. Ignored when noise-suppression is 'off'. */
+  noiseGateThresholdDb: number;
   voiceBitrateKbps: number;
   stereo: boolean;
 };
@@ -101,8 +104,8 @@ const DEFAULTS: PersistedSettings = {
     outputDeviceLabel: '',
     echoCancellation: true,
     autoGainControl: false,
-    noiseSuppression: 'deepfilternet',
-    noiseSuppressionStrength: NOISE_STRENGTH_DEFAULT,
+    noiseSuppression: 'rnnoise_gated',
+    noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
     voiceBitrateKbps: 128,
     stereo: false
   },
@@ -131,9 +134,9 @@ function clampBitrate(v: unknown): number {
   return Math.min(VOICE_BITRATE_MAX, Math.max(VOICE_BITRATE_MIN, Math.round(v)));
 }
 
-function clampNoiseStrength(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return NOISE_STRENGTH_DEFAULT;
-  return Math.min(NOISE_STRENGTH_MAX, Math.max(NOISE_STRENGTH_MIN, Math.round(v)));
+function clampGateDb(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return NOISE_GATE_DB_DEFAULT;
+  return Math.min(NOISE_GATE_DB_MAX, Math.max(NOISE_GATE_DB_MIN, Math.round(v)));
 }
 
 function str(v: unknown, fallback: string): string {
@@ -235,10 +238,16 @@ function load(): PersistedSettings {
         outputDeviceLabel: str(a.outputDeviceLabel, da.outputDeviceLabel),
         echoCancellation: bool(a.echoCancellation, da.echoCancellation),
         autoGainControl: bool(a.autoGainControl, da.autoGainControl),
-        noiseSuppression: VALID_NS.includes(a.noiseSuppression as NoiseSuppressionMode)
-          ? (a.noiseSuppression as NoiseSuppressionMode)
-          : da.noiseSuppression,
-        noiseSuppressionStrength: clampNoiseStrength(a.noiseSuppressionStrength),
+        // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'.
+        // Any non-'off' legacy value indicates the user wanted *some* filter on —
+        // map to the unified gated mode. Unknown strings fall back to default.
+        noiseSuppression:
+          a.noiseSuppression === 'off'
+            ? 'off'
+            : typeof a.noiseSuppression === 'string'
+              ? 'rnnoise_gated'
+              : da.noiseSuppression,
+        noiseGateThresholdDb: clampGateDb(a.noiseGateThresholdDb),
         voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
         stereo: bool(a.stereo, da.stereo)
       },
@@ -350,8 +359,8 @@ class SettingsStore {
     this.#persist();
   }
 
-  setNoiseSuppressionStrength(v: number): void {
-    this.audio.noiseSuppressionStrength = clampNoiseStrength(v);
+  setNoiseGateThresholdDb(v: number): void {
+    this.audio.noiseGateThresholdDb = clampGateDb(v);
     this.#persist();
   }
 
@@ -444,9 +453,9 @@ export {
   VOICE_BITRATE_MIN,
   VOICE_BITRATE_MAX,
   VOICE_BITRATE_STEREO_MIN,
-  NOISE_STRENGTH_MIN,
-  NOISE_STRENGTH_MAX,
-  NOISE_STRENGTH_DEFAULT,
+  NOISE_GATE_DB_MIN,
+  NOISE_GATE_DB_MAX,
+  NOISE_GATE_DB_DEFAULT,
   SCREEN_SHARE_BITRATE_MIN,
   SCREEN_SHARE_BITRATE_MAX,
   USER_VOLUME_MIN,

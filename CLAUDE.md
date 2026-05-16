@@ -53,6 +53,7 @@ Drei Transportpfade, getrennt: HTTPS/WSS → FastAPI-Services · WebRTC → Live
 | valibot 1.4.0 | | API-Response-Validation |
 | shadcn-svelte 1.2.7 / bits-ui 2.18.1 | | Components unter `web/src/lib/components/ui/` (Vendor — von der Größen-Policy ausgenommen) |
 | livekit-client 2.18.9 | | `lib/voice/livekit.svelte.ts` abonniert rohe `Room`/`Participant`-Events (kein `@livekit/components-core`-Wrapper, obwohl installiert & ungenutzt) |
+| @sapphi-red/web-noise-suppressor 0.3.5 | | Mic-Filter = RNNoise → NoiseGate (`lib/voice/noiseFilter.ts::RnnoiseGatedTrackProcessor`). UI bietet nur Aus/An; bei An: dB-Slider für die Gate-Open-Schwelle (close = open − 5 dB, hold 200 ms). **`MediaStreamDestinationNode.channelCount = 1` zwingend setzen** — Default ist Stereo + `channelCountMode "explicit"` → mono-Worklet füllt nur output[0], rechter Kanal stumm. |
 | @svelte-put/shortcut 4.1.0 | | In-Window-PTT-Hotkey (Taste aus `settings.voice.pttKey`) |
 | svelte-sonner 1.1.1 · @lucide/svelte 1.14.0 | | Toasts / Icons |
 | @fontsource-variable/plus-jakarta-sans 5.2.8 | | UI-Font; `@fontsource-variable/inter` als Fallback |
@@ -281,7 +282,7 @@ MediaMTX lokal: `docker compose -f streaming/server/docker-compose.yml up -d` (s
 - ❌ `fastapi-users` / `broadcaster` / `fastapi-socketio` / `fastapi_websocket_pubsub` als Dep (alle archiviert/Maintenance → Eigenbau, Source nur als Referenz)
 - ❌ State-Library (Redux/Zustand/Pinia) neben Svelte-Runes · ❌ CSS-in-JS (Tailwind reicht)
 - ❌ **Tauri** als Desktop-Wrapper (WebKitGTK-WebRTC zu unzuverlässig für LiveKit-Voice → 2026-05-12 auf Electron migriert, `PLAN.md` §17) · ❌ `electron-store` als Dep (ESM-only → CJS-Friktion; hand-rolled `store.ts` reicht) · ❌ `electron-builder` als Dep (Flatpak-Manifest bündelt das Electron-Binary direkt) · ❌ React-Bridge in SvelteKit für LiveKit-React-Components
-- ❌ `@livekit/krisp-noise-filter` (kostenpflichtig seit 2026-05-01) · ❌ `svelte-french-toast` (Sv5-inaktiv) · ❌ `svelte-markdown` blind (kein Sanitizer)
+- ❌ `@livekit/krisp-noise-filter` (kostenpflichtig seit 2026-05-01) · ❌ `deepfilternet3-noise-filter` (klingt kratzig/metallisch durch Spektral-Masking + Worklet hatte einen Underrun-Bug der Wörter chopt — 2026-05-16 raus) · ❌ `svelte-french-toast` (Sv5-inaktiv) · ❌ `svelte-markdown` blind (kein Sanitizer)
 - ❌ Exactly-once-Delivery anstreben · ❌ Re-Publishing MediaMTX→LiveKit (Transcoding zu teuer)
 - ❌ Routes-/Service-Dateien über die Größen-Grenze wachsen lassen statt zu splitten
 - ❌ Existierende GSR-Files im Original anfassen (`~/Dokumente/GPU_Screen_Recorder/`) — nur die vendored `streaming/`-Kopie

@@ -93,8 +93,8 @@ class VoiceRoom {
   #teardownDone = false;
   /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
   #noiseProcessorMode: string = 'off';
-  /** Live-tune handle for the currently published DFN3 processor (null otherwise). */
-  #noiseStrengthSetter: ((level: number) => void) | null = null;
+  /** Live-tune handle for the post-RNNoise hard gate (null when filter is off). */
+  #noiseGateSetter: ((openDb: number) => void) | null = null;
 
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
@@ -384,37 +384,37 @@ class VoiceRoom {
     if (!audioTrack) return;
     if (mode === this.#noiseProcessorMode) return;
     try {
-      if (mode === 'rnnoise' || mode === 'deepfilternet') {
-        const handle = createNoiseProcessor(mode, settings.audio.noiseSuppressionStrength);
+      if (mode === 'rnnoise_gated') {
+        const handle = createNoiseProcessor(mode, settings.audio.noiseGateThresholdDb);
         await audioTrack.setProcessor(handle.processor);
-        this.#noiseStrengthSetter = handle.setSuppressionLevel ?? null;
+        this.#noiseGateSetter = handle.setGateThreshold;
       } else {
         await audioTrack.stopProcessor();
-        this.#noiseStrengthSetter = null;
+        this.#noiseGateSetter = null;
       }
       this.#noiseProcessorMode = mode;
       // Processor swap replaces the published mediaStreamTrack — rebind the meter.
       this.#attachLocalAnalyser();
     } catch (e) {
       this.#noiseProcessorMode = 'off';
-      this.#noiseStrengthSetter = null;
+      this.#noiseGateSetter = null;
       toast.error('Rauschunterdrückung konnte nicht aktiviert werden', {
         description: e instanceof Error ? e.message : undefined
       });
     }
   }
 
-  /** Live-update DFN3 attenuation. No-op when DFN3 isn't the active processor.
-   *  Caller is responsible for persisting via `settings.setNoiseSuppressionStrength`. */
-  setNoiseSuppressionStrength(level: number): void {
-    this.#noiseStrengthSetter?.(level);
+  /** Live-update the post-RNNoise hard-gate open threshold (dB). No-op when
+   *  the filter is off. Persisting is the caller's job. */
+  setNoiseGateThresholdDb(openDb: number): void {
+    this.#noiseGateSetter?.(openDb);
   }
 
   // --- internals -----------------------------------------------------
 
   #roomOptions(): RoomOptions {
     const a = settings.audio;
-    const customProcessor = a.noiseSuppression !== 'off' && a.noiseSuppression !== 'browser';
+    const customProcessor = a.noiseSuppression !== 'off';
     return {
       adaptiveStream: true,
       dynacast: true,
@@ -435,14 +435,13 @@ class VoiceRoom {
 
   #audioCaptureDefaults(): AudioCaptureOptions {
     const a = settings.audio;
-    const customProcessor = a.noiseSuppression !== 'off' && a.noiseSuppression !== 'browser';
+    const customProcessor = a.noiseSuppression !== 'off';
     const opts: AudioCaptureOptions = {
       autoGainControl: customProcessor ? false : a.autoGainControl,
       echoCancellation: a.echoCancellation,
-      // Browser NS only when explicitly selected — otherwise our own processor
-      // (rnnoise/deepfilternet) handles it, or nothing ('off').
-      noiseSuppression: a.noiseSuppression === 'browser',
-      // Custom processors (rnnoise/dfn3) are mono — stereo capture yields nothing.
+      // RNNoise+Gate handles noise — no browser-side NS layered on top.
+      noiseSuppression: false,
+      // Custom processor is mono — stereo capture yields nothing.
       channelCount: a.stereo && !customProcessor ? 2 : 1
     };
     if (a.inputDeviceId) opts.deviceId = a.inputDeviceId;
@@ -477,7 +476,7 @@ class VoiceRoom {
         }
         if (pub.source === Track.Source.Microphone) {
           this.#noiseProcessorMode = 'off';
-          this.#noiseStrengthSetter = null;
+          this.#noiseGateSetter = null;
           this.#localMic.detach();
         }
         this.#refreshParticipants();
@@ -620,7 +619,7 @@ class VoiceRoom {
     this.#audioEls.clear();
     this.#room = null;
     this.#noiseProcessorMode = 'off';
-    this.#noiseStrengthSetter = null;
+    this.#noiseGateSetter = null;
     this.state = ConnectionState.Disconnected;
     if (this.channelId) {
       const myUserId = auth.user?.id;
