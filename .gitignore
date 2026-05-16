@@ -83,3 +83,7 @@ infra/prod/certs/
 # Local-dev MediaMTX TLS material — same shape as the prod certs/ above,
 # self-signed key generated on-host. Never commit the private key.
 streaming/server/certs/
+
+# electron-packager output (Pulse-<platform>-<arch>{/,.zip})
+Pulse-*-*/
+Pulse-*-*.zip
