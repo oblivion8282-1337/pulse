@@ -18,10 +18,8 @@
  *  - |drift| < 2.0s  → playbackRate nudge for 2s (1.05 or 0.95) so the
  *                       player catches up smoothly. Reset on cleanup or on
  *                       the next correction call.
- *  - |drift| ≥ 2.0s  → hard seek; this is jarring but the alternative
- *                       (slow drift) is worse. Kept just under
- *                       SEEK_DETECTION_THRESHOLD_S so heartbeat-driven
- *                       corrections never seek — only genuine host seeks do.
+ *  - |drift| ≥ 2.0s  → hard seek with SEEK_LEAD_S lookahead + nudge-along.
+ *                       See "seek lead" block below.
  *
  * Why the wide nudge band: YouTube's seek costs 0.5–1.5s of real time
  * (BUFFERING → PLAYING). If every heartbeat above 0.5s drift triggers a
@@ -29,6 +27,20 @@
  * tries to fix with another seek — a 3s-cadence stutter loop. A wider
  * nudge band lets playbackRate smooth small drifts away without paying the
  * buffering cost.
+ *
+ * Seek-lead + nudge-along: when we hard-seek, the player freezes for ~1.5–
+ * 3s while YT buffers. During the freeze, wall-clock advances but the
+ * player doesn't — so a seek to `expected` lands the player back ~2s
+ * BEHIND wall-clock the moment it resumes. We compensate two ways:
+ *  1. Seek to `expected + SEEK_LEAD_S` (lookahead) so the player lands
+ *     close to wall-clock once buffering finishes.
+ *  2. Keep playbackRate=1.05 active for ~3s after the seek, so any
+ *     residual lag (buffer longer than lead) gets nudged away instead of
+ *     accumulating into a follow-up seek.
+ * Observed in real logs: without lead, every hard seek produced a 2–3s
+ * follow-up drift that re-triggered another seek every 3s — a "stutter
+ * loop" that wouldn't break until something pushed drift below the
+ * nudge band by accident.
  */
 
 import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
@@ -58,6 +70,13 @@ const DRIFT_NUDGE_S = 2.0;
 const NUDGE_RATE_FAST = 1.05;
 const NUDGE_RATE_SLOW = 0.95;
 const NUDGE_DURATION_MS = 2000;
+/** Seconds added to the target position on a hard seek to compensate for
+ * the buffer-induced wall-clock advance during YT's seek freeze. ~1.5s
+ * matches typical YT buffer latency. See header comment. */
+const SEEK_LEAD_S = 1.5;
+/** How long to keep the post-seek "catch up" nudge active. Longer than
+ * NUDGE_DURATION_MS because buffer recovery isn't instantaneous. */
+const POST_SEEK_NUDGE_MS = 3000;
 
 /** Where the host's clock says we should be right now. */
 export function expectedPosition(state: WatchPartyState, nowMs = Date.now()): number {
@@ -103,25 +122,35 @@ export class DriftCorrector {
       this.nudge(player, rate);
       return drift > 0 ? 'nudge-up' : 'nudge-down';
     }
-    this.cancelNudge(player);
+    // Seek to expected + lead so the player lands near wall-clock once
+    // YT's buffer phase finishes (during which wall-clock advances but
+    // the player is frozen). Then keep a 1.05x nudge active for a few
+    // seconds to absorb any residual lag if the buffer outlasted the
+    // lead. Do NOT cancelNudge here — the next nudge() call resets the
+    // rate-reset timer cleanly, and an aggressive cancel would briefly
+    // drop back to 1.0x before the seek lands, wasting the opportunity.
+    const target = expected + SEEK_LEAD_S;
     // eslint-disable-next-line no-console
     console.log('[wp] SEEK', {
       from: actual.toFixed(2),
-      to: expected.toFixed(2),
+      to: target.toFixed(2),
+      expected: expected.toFixed(2),
+      lead: SEEK_LEAD_S.toFixed(2),
       drift: drift.toFixed(2),
       direction: drift > 0 ? 'forward' : 'backward'
     });
-    player.seek(expected);
+    player.seek(target);
+    this.nudge(player, NUDGE_RATE_FAST, POST_SEEK_NUDGE_MS);
     return 'seek';
   }
 
-  private nudge(player: PlayerHandle, rate: number): void {
+  private nudge(player: PlayerHandle, rate: number, durationMs = NUDGE_DURATION_MS): void {
     player.setPlaybackRate(rate);
     if (this.rateResetTimer !== null) clearTimeout(this.rateResetTimer);
     this.rateResetTimer = window.setTimeout(() => {
       player.setPlaybackRate(1.0);
       this.rateResetTimer = null;
-    }, NUDGE_DURATION_MS);
+    }, durationMs);
   }
 
   private cancelNudge(player: PlayerHandle): void {
