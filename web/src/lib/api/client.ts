@@ -47,29 +47,52 @@ async function refreshIfNeeded(force = false): Promise<Tokens | null> {
   if (_refreshInflight) return _refreshInflight;
   _refreshInflight = (async () => {
     try {
-      const resp = await fetch(`${AUTH_BASE}/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: tokens.refresh_token })
-      });
-      if (!resp.ok) {
-        clearTokens();
-        _refreshLocked = true;
-        return null;
+      // Cross-window mutex über die Web-Locks-API: ohne den Lock kann ein
+      // Detach-Popup (`watchPartyDetach`/`stream/detach`) parallel zum
+      // Hauptfenster `/refresh` mit demselben Refresh-Token feuern → der
+      // Server interpretiert das zweite Request als Token-Reuse und revoked
+      // die *gesamte* Token-Familie (`services/auth/.../routes.py` Refresh-
+      // Rotation), wodurch der User mitten in der Session ausgeloggt wird.
+      const body = (): Promise<Tokens | null> => doRefresh(tokens.refresh_token);
+      if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+        return await navigator.locks.request('pulse:refresh', body);
       }
-      const data = (await resp.json()) as Tokens;
-      saveTokens(data);
-      _refreshLocked = false;
-      return data;
-    } catch {
-      clearTokens();
-      _refreshLocked = true;
-      return null;
+      return await body();
     } finally {
       _refreshInflight = null;
     }
   })();
   return _refreshInflight;
+}
+
+async function doRefresh(intendedRefreshToken: string): Promise<Tokens | null> {
+  // Erste Aktion unter dem Lock: localStorage erneut lesen. Wenn ein anderes
+  // Fenster bereits rotiert hat, liegt da schon ein neuer Refresh-Token —
+  // dann nehmen wir den statt nochmal `/refresh` zu schicken (was sonst mit
+  // dem inzwischen revoked'en Token die Familie killen würde).
+  const fresh = loadTokens();
+  if (!fresh) return null;
+  if (fresh.refresh_token !== intendedRefreshToken) return fresh;
+  try {
+    const resp = await fetch(`${AUTH_BASE}/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: fresh.refresh_token })
+    });
+    if (!resp.ok) {
+      clearTokens();
+      _refreshLocked = true;
+      return null;
+    }
+    const data = (await resp.json()) as Tokens;
+    saveTokens(data);
+    _refreshLocked = false;
+    return data;
+  } catch {
+    clearTokens();
+    _refreshLocked = true;
+    return null;
+  }
 }
 
 /** Reset the refresh-lock so a fresh login can re-enable refreshes. Called
