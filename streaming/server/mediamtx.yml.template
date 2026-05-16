@@ -22,9 +22,19 @@
 logLevel: info
 logDestinations: [stdout]
 
-# RTMP-Ingest
+# RTMP-Ingest — RTMPS-only auf :1936. Plain RTMP :1935 ist aus, weil media-svc
+# nur rtmps://-URLs ausgibt (sonst wäre der Publish-Token im Klartext).
+# Braucht ein self-signed Cert-Pair unter streaming/server/certs/server.{crt,key}
+# (in den Container nach /certs/ gemounted). Wenn du das noch nicht hast:
+#   cd streaming/server && mkdir -p certs && \
+#     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+#       -keyout certs/server.key -out certs/server.crt \
+#       -subj "/CN=localhost"
 rtmp: yes
-rtmpAddress: :1935
+rtmpEncryption: strict
+rtmpsAddress: :1936
+rtmpServerCert: /certs/server.crt
+rtmpServerKey: /certs/server.key
 
 # HLS Low-Latency
 hls: yes
