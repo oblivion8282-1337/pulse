@@ -261,26 +261,70 @@
     <span class="max-w-32 truncate">{name}</span>
   </div>
 
-  <!--
-    Top-right corner: Maximize button always visible, "Ton aktivieren" below it
-    when audioBlocked (and only when there is an audioTrack at all).
-    Vertical stacking keeps both tappable simultaneously on touch screens.
-  -->
-  <div class="absolute right-2 top-2 flex flex-col items-end gap-1.5">
+  {#if isFullscreen && chatOpen && streamerId}
+    <StreamChatOverlay {channelId} {streamerId} />
+    <StreamChatInlineInput {channelId} {streamerId} />
+  {/if}
+
+  <!-- Zusammenhängende Control-Reihe unten rechts — gleiche Anordnung wie
+       beim WhepPlayer-HUD: Volume-Pill, "Ton aktivieren", Chat-Toggle,
+       Detach, Fullscreen-Toggle. -->
+  <div class="absolute bottom-2 right-2 flex items-center gap-1.5">
+    {#if audioTrack}
+      <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
+        <button
+          type="button"
+          onclick={toggleMute}
+          class="flex items-center text-white hover:text-white/70"
+          aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
+          data-testid="screen-share-mute"
+        >
+          {#if volume === 0}
+            <VolumeXIcon class="size-3" />
+          {:else}
+            <Volume2Icon class="size-3" />
+          {/if}
+        </button>
+        <input
+          type="range"
+          min="0"
+          max={VOLUME_BOOST_MAX}
+          value={volume}
+          oninput={handleVolume}
+          class="w-24 accent-white sm:w-20"
+          aria-label="Lautstärke des geteilten Bildschirms"
+          data-testid="screen-share-volume"
+        />
+        <span
+          class="w-9 text-right font-mono text-[11px] tabular-nums text-white/85"
+          data-testid="screen-share-volume-percent"
+        >{volume}%</span>
+      </div>
+    {/if}
+    {#if audioTrack && audioBlocked}
+      <button
+        type="button"
+        onclick={enableAudio}
+        class="flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
+        data-testid="screen-share-unblock-audio"
+      >
+        <VolumeXIcon class="size-3" />
+        Ton aktivieren
+      </button>
+    {/if}
     {#if streamerId}
       <button
         type="button"
         onclick={() => (chatOpen = !chatOpen)}
-        class="flex items-center justify-center rounded-full p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'bg-primary/80' : 'bg-black/55'}"
-        aria-label="Live-Chat"
+        class="flex items-center justify-center rounded-full p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'ring-2 ring-primary bg-black/55' : 'bg-black/55'}"
+        aria-label={chatOpen ? 'Live-Chat schließen' : 'Live-Chat öffnen'}
         aria-pressed={chatOpen}
-        title="Live-Chat"
+        title={chatOpen ? 'Live-Chat schließen' : 'Live-Chat'}
         data-testid="screen-share-chat-toggle"
       >
         <MessageSquareIcon class="size-3.5" />
       </button>
     {/if}
-
     {#if docPipAvailable && !isFullscreen}
       <button
         type="button"
@@ -293,7 +337,6 @@
         <ExternalLinkIcon class="size-3.5" />
       </button>
     {/if}
-
     <button
       type="button"
       onclick={handleToggleFullscreen}
@@ -308,53 +351,7 @@
         <MaximizeIcon class="size-3.5" />
       {/if}
     </button>
-
-    {#if audioTrack && audioBlocked}
-      <button
-        type="button"
-        onclick={enableAudio}
-        class="rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
-        data-testid="screen-share-unblock-audio"
-      >Ton aktivieren</button>
-    {/if}
   </div>
-
-  {#if isFullscreen && chatOpen && streamerId}
-    <StreamChatOverlay {channelId} {streamerId} />
-    <StreamChatInlineInput {channelId} {streamerId} />
-  {/if}
-
-  {#if audioTrack}
-    <div class="absolute bottom-2 right-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
-      <button
-        type="button"
-        onclick={toggleMute}
-        class="flex items-center text-white hover:text-white/70"
-        aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
-        data-testid="screen-share-mute"
-      >
-        {#if volume === 0}
-          <VolumeXIcon class="size-3" />
-        {:else}
-          <Volume2Icon class="size-3" />
-        {/if}
-      </button>
-      <input
-        type="range"
-        min="0"
-        max={VOLUME_BOOST_MAX}
-        value={volume}
-        oninput={handleVolume}
-        class="w-24 accent-white sm:w-20"
-        aria-label="Lautstärke des geteilten Bildschirms"
-        data-testid="screen-share-volume"
-      />
-      <span
-        class="w-9 text-right font-mono text-[11px] tabular-nums text-white/85"
-        data-testid="screen-share-volume-percent"
-      >{volume}%</span>
-    </div>
-  {/if}
   </div>
 
   {#if chatOpen && !isFullscreen && streamerId}
