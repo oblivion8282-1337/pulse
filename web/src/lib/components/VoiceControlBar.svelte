@@ -6,12 +6,10 @@
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
-  import RadioIcon from '@lucide/svelte/icons/radio';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { settings } from '$lib/stores/settings.svelte';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
 
@@ -81,28 +79,6 @@
           {/snippet}
         </Tooltip.Trigger>
         <Tooltip.Content>{voice.deafened ? 'Taub (alle stumm)' : 'Ton an'}</Tooltip.Content>
-      </Tooltip.Root>
-
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              variant={voice.pttMode ? 'default' : 'ghost'}
-              size="icon-sm"
-              onclick={() => voice.setPttMode(!voice.pttMode)}
-              data-testid="voice-ptt-toggle"
-              aria-label="Push-to-Talk umschalten"
-            >
-              <RadioIcon class="size-4" />
-            </Button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>
-          {voice.pttMode
-            ? `Push-to-Talk an (Taste „${settings.voice.pttKey.toUpperCase()}" halten)`
-            : 'Push-to-Talk aus'}
-        </Tooltip.Content>
       </Tooltip.Root>
 
       {#if voice.channelId}
