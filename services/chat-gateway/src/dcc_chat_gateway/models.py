@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -76,9 +78,10 @@ class Message(Base):
     __tablename__ = "messages"
 
     id: Mapped[int] = snowflake_pk()
-    channel_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
-    )
+    # No FK on channel_id: it polymorphically references either Channel.id
+    # (guild channels) or DirectMessageChannel.id. Cascade-on-channel-delete
+    # is handled in routes/channels.py::delete_channel.
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     author_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     nonce: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -132,3 +135,34 @@ class GuildInvite(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (Index("ix_guild_invites_guild", "guild_id"),)
+
+
+class DirectMessageChannel(Base):
+    """1:1 direct-message channel between two users.
+
+    The (user_a_id, user_b_id) pair is stored sorted (a < b, enforced by
+    CHECK + UNIQUE) so that "A↔B" and "B↔A" map to the same row — no
+    duplicate channels possible.
+
+    The ``id`` is a snowflake from the same generator as guild channels,
+    so it's globally unique across both channel kinds — Message.channel_id
+    can polymorphically point at either.
+    """
+
+    __tablename__ = "direct_message_channels"
+
+    id: Mapped[int] = snowflake_pk()
+    user_a_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    user_b_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Bumped on every new message; used to sort the DM list by recency.
+    last_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        CheckConstraint("user_a_id < user_b_id", name="ck_dm_channels_sorted"),
+        UniqueConstraint("user_a_id", "user_b_id", name="uq_dm_channels_pair"),
+        Index("ix_dm_channels_user_a", "user_a_id"),
+        Index("ix_dm_channels_user_b", "user_b_id"),
+    )

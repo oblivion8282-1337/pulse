@@ -50,6 +50,19 @@ export type Message = {
   reactions?: ReactionAggregate[];
 };
 
+/**
+ * A 1:1 direct-message channel. Wire shape mirrors `DMChannelOut` on the
+ * server: `other_user_id` is the *other* member relative to the caller.
+ * `last_message_id` is null until the first message is sent — used to
+ * sort the DM list by recency (snowflake IDs are time-ordered).
+ */
+export type DMChannel = {
+  id: string;
+  other_user_id: string;
+  last_message_id: string | null;
+  created_at: string;
+};
+
 export type Member = {
   guild_id: string;
   user_id: string;

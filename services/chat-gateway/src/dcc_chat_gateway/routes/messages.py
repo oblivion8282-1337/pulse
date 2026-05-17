@@ -21,10 +21,11 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     Channel,
+    DirectMessageChannel,
     Message,
     MessageReaction,
 )
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.schemas import MessageEditIn, MessageIn, MessageOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -97,10 +98,9 @@ async def list_messages(
     before: Annotated[int | None, Query(ge=0)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
-    channel = await session.get(Channel, channel_id)
-    if channel is None:
-        raise HTTPException(404, detail="channel not found")
-    await require_member(session, channel.guild_id, current.id)
+    # Resolve the channel as guild-or-DM and enforce access in one go.
+    # The Message query below is identical regardless of channel kind.
+    await resolve_channel_or_raise(session, channel_id, current.id)
 
     stmt = select(Message).where(
         Message.channel_id == channel_id,
@@ -130,10 +130,10 @@ async def post_message(
     current: CurrentUser,
     request: Request,
 ):
-    channel = await session.get(Channel, channel_id)
-    if channel is None or channel.type != CHANNEL_TYPE_TEXT:
+    kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
+    if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
+        # Voice channels reject text posts. DM channels are always text-only.
         raise HTTPException(404, detail="text channel not found")
-    await require_member(session, channel.guild_id, current.id)
     if not ratelimit.check("message", current.id):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
@@ -153,26 +153,48 @@ async def post_message(
         reply_to_id=payload.reply_to_id,
     )
     session.add(msg)
+    if kind == "dm":
+        # Bump last_message_id so the DM list can sort by recency.
+        ch.last_message_id = msg.id
+        session.add(ch)
     await session.commit()
     await session.refresh(msg)
 
     # Bare payload — the pubsub listener auto-wraps as {"op": "message", "data": ...}.
     await _broadcast(request, channel_id, serialize_message(msg))
-    # Plus a global "channel had activity" envelope on guild:events, so
-    # clients NOT subscribed to this channel (i.e. everyone except whoever
-    # is currently viewing it) can flag the channel as unread in the
-    # sidebar. Payload is intentionally minimal — no content.
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
-        await mgr.publish_guild_event(
-            {
-                "op": "channel_bump",
-                "guild_id": str(channel.guild_id),
-                "channel_id": str(channel_id),
-                "message_id": str(msg.id),
-                "author_id": str(current.id),
-            }
-        )
+        if kind == "guild":
+            # Global "channel had activity" envelope on guild:events so
+            # clients NOT subscribed to this channel (i.e. everyone except
+            # whoever is currently viewing it) can flag the channel as
+            # unread in the sidebar. Payload is intentionally minimal —
+            # no content.
+            await mgr.publish_guild_event(
+                {
+                    "op": "channel_bump",
+                    "guild_id": str(ch.guild_id),
+                    "channel_id": str(channel_id),
+                    "message_id": str(msg.id),
+                    "author_id": str(current.id),
+                }
+            )
+        else:
+            # DM equivalent. ``user_a_id``/``user_b_id`` are carried in the
+            # envelope so each receiving client can decide locally whether
+            # it's a member (no server-side per-user routing in Phase 1 —
+            # this fans to every connected socket). MVP-acceptable for
+            # low user counts; tighten later if it matters.
+            await mgr.publish_guild_event(
+                {
+                    "op": "dm_bump",
+                    "channel_id": str(channel_id),
+                    "user_a_id": str(ch.user_a_id),
+                    "user_b_id": str(ch.user_b_id),
+                    "message_id": str(msg.id),
+                    "author_id": str(current.id),
+                }
+            )
     msg.reactions = []  # type: ignore[attr-defined]
     return msg
 
@@ -193,10 +215,9 @@ async def edit_message(
         raise HTTPException(404, detail="message not found")
     if msg.author_id != current.id:
         raise HTTPException(403, detail="only the author can edit")
-    channel = await session.get(Channel, msg.channel_id)
-    if channel is None:
-        raise HTTPException(404, detail="channel not found")
-    await require_member(session, channel.guild_id, current.id)
+    # Caller must still have access to the channel (guild kick → can't edit
+    # old messages; DM author trivially passes since DM membership is fixed).
+    await resolve_channel_or_raise(session, msg.channel_id, current.id)
 
     msg.content = payload.content
     msg.edited_at = datetime.now(timezone.utc)
@@ -223,16 +244,16 @@ async def delete_message(
     msg = await session.get(Message, message_id)
     if msg is None or msg.deleted_at is not None:
         raise HTTPException(404, detail="message not found")
-    channel = await session.get(Channel, msg.channel_id)
-    if channel is None:
-        raise HTTPException(404, detail="channel not found")
-    # Caller must still be a member of the channel's guild — a kicked author
-    # mustn't be able to keep deleting their old messages.
-    await require_member(session, channel.guild_id, current.id)
-    # Author may delete their own; guild owner may delete anything in the guild.
+    # Resolve channel: also enforces caller still has access (a kicked
+    # author can't keep deleting their old messages in a guild).
+    kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
+    # Author may delete their own. In a guild, the guild owner may also
+    # delete anything. DM channels have no owner-override.
     if msg.author_id != current.id:
+        if kind == "dm":
+            raise HTTPException(403, detail="not allowed to delete this message")
         from dcc_chat_gateway.models import Guild  # local to avoid top-level cycle
-        guild = await session.get(Guild, channel.guild_id)
+        guild = await session.get(Guild, ch.guild_id)
         if guild is None or guild.owner_id != current.id:
             raise HTTPException(403, detail="not allowed to delete this message")
 

@@ -266,19 +266,37 @@ async def test_delete_channel_as_owner(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_delete_channel_cascades_messages(client, _auth_signer):
+async def test_delete_channel_cascades_messages(client, _auth_signer, session_factory):
+    """The messages.channel_id FK was dropped in 0005_direct_messages,
+    so delete_channel is responsible for removing messages explicitly.
+    Pin that behavior by querying the DB directly after delete."""
+    from sqlalchemy import select
+
+    from dcc_chat_gateway.models import Message
+
     t_owner, _, g, c = await _setup_guild_and_channel(client, _auth_signer)
-    # Post a message first
     await client.post(
         f"/channels/{c['id']}/messages",
         json={"content": "bye"},
         headers=auth(t_owner),
     )
+    # Sanity: the message is in the DB.
+    async with session_factory() as s:
+        before = (
+            await s.execute(select(Message).where(Message.channel_id == int(c["id"])))
+        ).scalars().all()
+        assert len(before) == 1
+
     r = await client.delete(f"/channels/{c['id']}", headers=auth(t_owner))
     assert r.status_code == 204
-    # Channel (and messages via CASCADE) gone
     r2 = await client.get(f"/channels/{c['id']}", headers=auth(t_owner))
     assert r2.status_code == 404
+    # No orphaned messages left.
+    async with session_factory() as s:
+        after = (
+            await s.execute(select(Message).where(Message.channel_id == int(c["id"])))
+        ).scalars().all()
+        assert after == []
 
 
 @pytest.mark.asyncio

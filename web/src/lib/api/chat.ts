@@ -1,5 +1,14 @@
 import { request, requestForm } from './client';
-import type { AcceptInviteResult, Channel, Guild, Invite, InvitePreview, Member, Message } from './types';
+import type {
+  AcceptInviteResult,
+  Channel,
+  DMChannel,
+  Guild,
+  Invite,
+  InvitePreview,
+  Member,
+  Message
+} from './types';
 import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChannelEntry } from '$lib/stores/watchPartyPresence.svelte';
@@ -126,6 +135,22 @@ export const chatApi = {
       `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
       { method: 'DELETE' }
     );
+  },
+
+  // Direct messages — 1:1 DM channels. Polymorphic with guild channels at the
+  // wire level: once a DM channel id is in hand, list/post messages go through
+  // the same `/channels/{id}/messages` endpoints as guild channels.
+  listDMChannels(): Promise<DMChannel[]> {
+    return request<DMChannel[]>('/dm-channels');
+  },
+  createOrGetDMChannel(targetUserId: string): Promise<DMChannel> {
+    return request<DMChannel>('/dm-channels', {
+      method: 'POST',
+      body: { target_user_id: targetUserId }
+    });
+  },
+  getDMChannel(dmChannelId: string): Promise<DMChannel> {
+    return request<DMChannel>(`/dm-channels/${dmChannelId}`);
   },
 
   // Invites

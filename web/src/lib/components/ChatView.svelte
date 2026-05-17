@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import HashIcon from '@lucide/svelte/icons/hash';
+  import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
   import MenuIcon from '@lucide/svelte/icons/menu';
   import MessageItem from './MessageItem.svelte';
@@ -22,6 +23,8 @@
     onSend,
     onMenuClick,
     isOwner = false,
+    headerKind = 'channel',
+    showMemberList = true,
     onEditMessage,
     onDeleteMessage,
     onToggleReaction
@@ -31,10 +34,19 @@
     onSend: (text: string, replyToId: string | null) => void;
     onMenuClick?: () => void;
     isOwner?: boolean;
+    /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
+    headerKind?: 'channel' | 'dm';
+    /** Hide the member-list toggle + inline panel (DMs have no member list). */
+    showMemberList?: boolean;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
   } = $props();
+
+  // Computed once per render — symbol shown next to the name and used in the
+  // empty-state + input placeholder. Keeps the existing # prefix for guild
+  // channels so screenshot tests / habits stay stable.
+  let namePrefix = $derived(headerKind === 'dm' ? '@' : '#');
 
   let replyTarget = $state<Message | null>(null);
 
@@ -195,19 +207,25 @@
       </button>
     {/if}
     {#if channel}
-      <HashIcon class="text-primary size-5 shrink-0" />
+      {#if headerKind === 'dm'}
+        <AtSignIcon class="text-primary size-5 shrink-0" />
+      {:else}
+        <HashIcon class="text-primary size-5 shrink-0" />
+      {/if}
       <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
       {#if channel.topic}
         <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {channel.topic}</span>
       {/if}
-      <button
-        class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
-        onclick={() => (memberListOpen = !memberListOpen)}
-        aria-label="Mitgliederliste umschalten"
-        data-testid="member-list-toggle"
-      >
-        <UsersIcon class="text-text-muted size-4" />
-      </button>
+      {#if showMemberList}
+        <button
+          class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+          onclick={() => (memberListOpen = !memberListOpen)}
+          aria-label="Mitgliederliste umschalten"
+          data-testid="member-list-toggle"
+        >
+          <UsersIcon class="text-text-muted size-4" />
+        </button>
+      {/if}
     {:else}
       <span class="text-text-muted text-sm">Wähle einen Kanal aus</span>
     {/if}
@@ -218,7 +236,7 @@
       {#if channel}
         {#if messages.length === 0}
           <p class="text-text-muted px-4 py-8 text-center text-sm">
-            Noch keine Nachrichten in <strong class="text-text-bright">#{channel.name}</strong>. Sei der/die erste!
+            Noch keine Nachrichten in <strong class="text-text-bright">{namePrefix}{channel.name}</strong>. Sei der/die erste!
           </p>
         {:else}
           {#each items as item (item.key)}
@@ -250,12 +268,12 @@
     </div>
 
     <!-- Inline auf md+ -->
-    {#if channel && showMemberInline}
+    {#if channel && showMemberList && showMemberInline}
       <MemberList guildId={channel.guild_id} />
     {/if}
 
     <!-- Sheet von rechts auf Mobil -->
-    {#if channel && showMemberOverlay}
+    {#if channel && showMemberList && showMemberOverlay}
       <div
         class="fixed inset-0 z-30 bg-black/40"
         role="presentation"
@@ -269,7 +287,7 @@
 
   {#if channel}
     <MessageInput
-      placeholder={`Nachricht in #${channel.name}`}
+      placeholder={`Nachricht ${headerKind === 'dm' ? 'an' : 'in'} ${namePrefix}${channel.name}`}
       onSend={handleSend}
       replyTo={replyBanner}
       onCancelReply={cancelReply}

@@ -11,6 +11,7 @@ import { currentAccessToken } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { messages } from '$lib/stores/messages.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { directMessages } from '$lib/stores/directMessages.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import {
   voicePresence,
@@ -26,7 +27,7 @@ import {
   type WatchPartyState
 } from '$lib/stores/watchPartyPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
-import type { Message } from '$lib/api/types';
+import type { DMChannel, Message } from '$lib/api/types';
 
 export type ChannelPayload = {
   id: string;
@@ -57,6 +58,7 @@ type ServerEvent =
       op: 'ready';
       user_id: string;
       guilds: { id: string; name: string }[];
+      dm_channels?: DMChannel[];
       voice_states?: VoiceChannelState[];
       stream_states?: StreamChannelState[];
       watch_states?: WatchChannelEntry[];
@@ -74,6 +76,16 @@ type ServerEvent =
       op: 'channel_bump';
       guild_id: string;
       channel_id: string;
+      message_id: string;
+      author_id: string;
+    }
+  | {
+      // DM activity envelope. Carries the (a, b) pair so each receiving
+      // client decides locally whether it's a member; non-members ignore.
+      op: 'dm_bump';
+      channel_id: string;
+      user_a_id: string;
+      user_b_id: string;
       message_id: string;
       author_id: string;
     }
@@ -268,6 +280,7 @@ export class GatewayConnection {
 
     switch (evt.op) {
       case 'ready':
+        if (evt.dm_channels) directMessages.seed(evt.dm_channels);
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
         streamPresence.seed(evt.stream_states ?? []);
         watchPartyPresence.seed(evt.watch_states ?? []);
@@ -327,6 +340,31 @@ export class GatewayConnection {
           }
         }
         break;
+      case 'dm_bump': {
+        // We get this fanned to every connected socket — first decide if
+        // we're a member (one of the two user ids). Non-members ignore.
+        const me = auth.user?.id;
+        if (!me) break;
+        const isMember = evt.user_a_id === me || evt.user_b_id === me;
+        if (!isMember) break;
+        // Upsert: bumps an existing DM's last_message_id, or creates the
+        // record if the other side just opened a new DM with us (we
+        // wouldn't have it in the store yet otherwise).
+        directMessages.upsertFromBump({
+          channel_id: evt.channel_id,
+          user_a_id: evt.user_a_id,
+          user_b_id: evt.user_b_id,
+          message_id: evt.message_id,
+          currentUserId: me
+        });
+        if (evt.author_id !== me) {
+          readState.recordSeen(evt.channel_id, evt.message_id);
+          if (this.subs.has(evt.channel_id)) {
+            readState.markRead(evt.channel_id, evt.message_id);
+          }
+        }
+        break;
+      }
       case 'guild_updated':
         if (guilds.byId[evt.guild.id]) guilds.updateGuild(evt.guild);
         break;

@@ -116,6 +116,29 @@ class MessageOut(BaseModel):
         return _id_str(v) if v is not None else None
 
 
+class DMChannelCreateIn(BaseModel):
+    target_user_id: SnowflakeId
+
+
+class DMChannelOut(BaseModel):
+    """Wire representation of a 1:1 direct-message channel.
+
+    ``other_user_id`` is the *other* member relative to the caller —
+    computed in the route handler from ``user_a_id`` / ``user_b_id``.
+    Sorting by recency is done client-side on ``last_message_id``
+    (snowflake IDs are time-ordered, so no separate timestamp needed).
+    """
+
+    id: int
+    other_user_id: int
+    last_message_id: int | None = None
+    created_at: datetime
+
+    @field_serializer("id", "other_user_id", "last_message_id")
+    def _ser_ids(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
+
+
 class MemberIn(BaseModel):
     user_id: SnowflakeId
 

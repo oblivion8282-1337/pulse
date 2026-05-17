@@ -49,7 +49,7 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionLocal
@@ -57,12 +57,13 @@ from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     CHANNEL_TYPE_VOICE,
     Channel,
+    DirectMessageChannel,
     Guild,
     GuildMember,
     Message,
 )
 from dcc_chat_gateway.routes import ws_watch
-from dcc_chat_gateway.routes._deps import channel_membership
+from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
 from dcc_chat_gateway.snowflake import next_id
@@ -135,10 +136,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         # Connection cap reached — close before the client has done any work.
         await websocket.close(code=4009, reason="too many connections")
         return
-    # cid → guild_id. We cache the guild_id when a subscribe succeeds so the
-    # `send` fast path can stamp the channel_bump envelope without another DB
-    # round-trip per message.
-    subscribed: dict[str, int] = {}
+    # cid → guild_id (for guild channels) or None (for DM channels).
+    # Cached on successful subscribe so the `send` fast path can stamp the
+    # channel_bump envelope without another DB round-trip per message.
+    # The `in subscribed` check stays the authoritative "is this cid
+    # already trusted by this socket?" question — DMs use None as value.
+    subscribed: dict[str, int | None] = {}
     # Channel ids of watch parties this socket has started. Used at disconnect
     # time to end parties when the host's last socket goes away.
     hosted_parties: set[str] = set()
@@ -153,8 +156,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             _close_when_token_expires(websocket, float(exp)), name="dcc-ws-token-expiry"
         )
 
-    # Send "ready" with the user's guild list + the current voice-channel
-    # presence state + the current HQ-stream state for those guilds.
+    # Send "ready" with the user's guild list + DM channel list + the current
+    # voice-channel presence state + the current HQ-stream state for those
+    # guilds.
     async with SessionLocal() as session:
         guild_stmt = (
             select(Guild)
@@ -172,6 +176,34 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             )
             voice_channel_ids = [str(cid) for cid in (await session.execute(vc_stmt)).scalars()]
 
+        dm_stmt = (
+            select(DirectMessageChannel)
+            .where(
+                or_(
+                    DirectMessageChannel.user_a_id == user.id,
+                    DirectMessageChannel.user_b_id == user.id,
+                )
+            )
+            .order_by(
+                DirectMessageChannel.last_message_id.desc().nullslast(),
+                DirectMessageChannel.id.desc(),
+            )
+        )
+        dm_rows = list((await session.execute(dm_stmt)).scalars())
+        dm_channels = [
+            {
+                "id": str(d.id),
+                "other_user_id": str(
+                    d.user_b_id if d.user_a_id == user.id else d.user_a_id
+                ),
+                "last_message_id": (
+                    str(d.last_message_id) if d.last_message_id is not None else None
+                ),
+                "created_at": d.created_at.isoformat(),
+            }
+            for d in dm_rows
+        ]
+
     voice_states = await manager.voice_states_for(voice_channel_ids)
     # HQ streaming + watch parties only happen in voice channels, so the
     # relevant channel set is the same one.
@@ -183,6 +215,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "op": "ready",
             "user_id": str(user.id),
             "guilds": guilds,
+            "dm_channels": dm_channels,
             "voice_states": voice_states,
             "stream_states": stream_states,
             "watch_states": watch_states,
@@ -221,15 +254,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     )
                     continue
                 cid = str(cid_int)
+                # DM channels go through the same /ws subscribe path as guild
+                # channels — resolve_channel_for_user enforces the right
+                # access check (guild membership vs DM membership).
                 async with SessionLocal() as session:
-                    channel = await channel_membership(session, cid_int, user.id)
-                if channel is None:
+                    resolved = await resolve_channel_for_user(session, cid_int, user.id)
+                if resolved is None:
                     await websocket.send_json(
                         {"op": "error", "code": 4004, "msg": "channel not accessible"}
                     )
                     continue
+                kind, ch = resolved
                 await manager.subscribe(websocket, cid)
-                subscribed[cid] = channel.guild_id
+                subscribed[cid] = ch.guild_id if kind == "guild" else None
             elif op == "unsubscribe":
                 cid_int = _channel_id(msg.get("channel_id"))
                 if cid_int is not None:
@@ -271,17 +308,42 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         )
                         continue
                 async with SessionLocal() as session:
-                    # Fast path: if this socket already subscribed, membership +
-                    # text-channel-ness were validated then — skip the DB lookup.
-                    # Trade-off: if the user is removed from the guild while still
-                    # subscribed, they can keep sending until they reconnect. That
-                    # is an accepted MVP behaviour; a periodic re-validation would
-                    # be the clean fix.
+                    # Fast path: if this socket already subscribed, the channel
+                    # kind + access were validated then — skip the membership
+                    # lookup. ``subscribed[cid]`` is the guild_id for guild
+                    # channels, None for DMs. Trade-off: if a guild user is
+                    # kicked while still subscribed, they can keep sending
+                    # until they reconnect. Accepted MVP behaviour.
+                    kind: str | None = None
+                    guild_id_for_bump: int | None = None
+                    # (user_a_id, user_b_id) for the dm_bump envelope. Filled
+                    # by a small SELECT when kind == "dm".
+                    dm_pair: tuple[int, int] | None = None
                     if cid in subscribed:
+                        gid = subscribed[cid]
+                        kind = "dm" if gid is None else "guild"
+                        guild_id_for_bump = gid
+                        if kind == "dm":
+                            dm_obj = await session.get(DirectMessageChannel, cid_int)
+                            if dm_obj is not None:
+                                dm_pair = (dm_obj.user_a_id, dm_obj.user_b_id)
                         ok = True
                     else:
-                        channel = await channel_membership(session, cid_int, user.id)
-                        ok = channel is not None and channel.type == CHANNEL_TYPE_TEXT
+                        resolved = await resolve_channel_for_user(
+                            session, cid_int, user.id
+                        )
+                        if resolved is None:
+                            ok = False
+                        else:
+                            kind, ch = resolved
+                            if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
+                                ok = False
+                            else:
+                                ok = True
+                                if kind == "guild":
+                                    guild_id_for_bump = ch.guild_id
+                                else:
+                                    dm_pair = (ch.user_a_id, ch.user_b_id)
                     if not ok:
                         await websocket.send_json(
                             {"op": "error", "code": 4006, "msg": "channel not accessible"}
@@ -311,6 +373,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         reply_to_id=reply_to_int,
                     )
                     session.add(persisted)
+                    if kind == "dm":
+                        # Bump last_message_id so the DM list can sort by
+                        # recency. UPDATE-only to avoid loading the row.
+                        await session.execute(
+                            update(DirectMessageChannel)
+                            .where(DirectMessageChannel.id == cid_int)
+                            .values(last_message_id=persisted.id)
+                        )
                     await session.commit()
                     await session.refresh(persisted)
                 await websocket.send_json(
@@ -323,16 +393,16 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 except Exception:
                     log.exception("ws publish failed for channel %s (message persisted)", cid)
                 # Mirror routes/messages.py: lightweight global bump so clients
-                # NOT subscribed to this channel can flag it as unread. The
-                # guild_id is either cached (subscribed fast path) or fresh
-                # from the membership lookup above.
-                guild_id = subscribed.get(cid) or (channel.guild_id if channel is not None else None)
-                if guild_id is not None:
+                # NOT subscribed to this channel can flag it as unread. Guild
+                # channels emit channel_bump; DMs emit dm_bump with the
+                # (a, b) pair so receiving clients can decide locally whether
+                # they're a member (no per-user routing in Phase 1).
+                if guild_id_for_bump is not None:
                     try:
                         await manager.publish_guild_event(
                             {
                                 "op": "channel_bump",
-                                "guild_id": str(guild_id),
+                                "guild_id": str(guild_id_for_bump),
                                 "channel_id": cid,
                                 "message_id": str(persisted.id),
                                 "author_id": str(user.id),
@@ -340,6 +410,20 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         )
                     except Exception:
                         log.exception("ws guild_event publish failed for channel %s", cid)
+                elif kind == "dm" and dm_pair is not None:
+                    try:
+                        await manager.publish_guild_event(
+                            {
+                                "op": "dm_bump",
+                                "channel_id": cid,
+                                "user_a_id": str(dm_pair[0]),
+                                "user_b_id": str(dm_pair[1]),
+                                "message_id": str(persisted.id),
+                                "author_id": str(user.id),
+                            }
+                        )
+                    except Exception:
+                        log.exception("ws dm_bump publish failed for channel %s", cid)
             elif op == "voice_self_state":
                 cid_raw = msg.get("channel_id")
                 cid_int: int | None = None

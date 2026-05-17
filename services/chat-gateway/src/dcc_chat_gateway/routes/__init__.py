@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from dcc_chat_gateway.routes import (
     channels,
+    dms,
     guild_icons,
     guilds,
     invites,
@@ -22,6 +23,7 @@ router = APIRouter()
 router.include_router(guilds.router)
 router.include_router(guild_icons.router)
 router.include_router(channels.router)
+router.include_router(dms.router)
 router.include_router(invites.router)
 router.include_router(messages.router)
 router.include_router(reactions.router)

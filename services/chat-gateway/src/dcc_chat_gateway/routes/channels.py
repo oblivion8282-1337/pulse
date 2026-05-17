@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild
+from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
 from dcc_chat_gateway.security import CurrentUser
@@ -129,7 +129,10 @@ async def delete_channel(
 ):
     """Delete a channel. Only the guild owner may do this.
 
-    Messages cascade-delete via ON DELETE CASCADE in the DB migration.
+    Messages are deleted explicitly here (the messages.channel_id FK was
+    dropped in migration 0005 to make Message polymorphic over Channel /
+    DirectMessageChannel). MessageReaction cascades on messages.id at the
+    DB level, so reactions follow the messages.
     Broadcasts op:channel_deleted on guild:events to every connected client.
     """
     channel = await session.get(Channel, channel_id)
@@ -139,6 +142,7 @@ async def delete_channel(
     if guild is None or guild.owner_id != current.id:
         raise HTTPException(403, detail="only the guild owner can delete channels")
     guild_id = channel.guild_id
+    await session.execute(delete(Message).where(Message.channel_id == channel_id))
     await session.delete(channel)
     await session.commit()
     await _publish_guild_event(

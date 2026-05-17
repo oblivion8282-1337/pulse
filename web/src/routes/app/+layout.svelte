@@ -3,6 +3,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { directMessages } from '$lib/stores/directMessages.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
 
@@ -18,6 +19,7 @@
     }
     await Promise.all([
       guilds.hydrate().catch((e) => console.error('guilds.hydrate failed', e)),
+      directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
       gateway.connect().catch((e) => console.error('gateway connect', e))
     ]);
     hydrated = true;

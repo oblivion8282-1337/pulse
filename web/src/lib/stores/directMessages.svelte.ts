@@ -1,0 +1,87 @@
+import { chatApi } from '$lib/api/chat';
+import type { DMChannel } from '$lib/api/types';
+
+/**
+ * Holds the caller's 1:1 DM channels. Mirrors `guilds.svelte.ts` in shape:
+ * `byId` keyed by snowflake id, sorted `list` derived from it.
+ *
+ * Hydrated on app boot AND seeded again from `ready.dm_channels` on every
+ * WS reconnect. `upsertFromBump` is called from the `dm_bump` WS handler so
+ * a fresh DM (or one we created from another device) shows up live without
+ * a full hydrate round-trip.
+ */
+class DirectMessageStore {
+  byId = $state<Record<string, DMChannel>>({});
+  loaded = $state(false);
+
+  // Most-recently-active first. `last_message_id` is null for empty DMs, so
+  // those drop to the bottom (sorted by id as a tiebreaker).
+  list = $derived(
+    Object.values(this.byId).sort((a, b) => {
+      const aKey = a.last_message_id ?? a.id;
+      const bKey = b.last_message_id ?? b.id;
+      // Snowflake IDs all share the same length within a 100yr window, so
+      // string compare == numeric compare without 2^53 precision loss.
+      if (aKey === bKey) return 0;
+      return aKey < bKey ? 1 : -1;
+    })
+  );
+
+  async hydrate(): Promise<void> {
+    const dms = await chatApi.listDMChannels();
+    const next: Record<string, DMChannel> = {};
+    for (const d of dms) next[d.id] = d;
+    this.byId = next;
+    this.loaded = true;
+  }
+
+  /** Replace the whole map — used when WS `ready` re-seeds the list. */
+  seed(dms: DMChannel[]): void {
+    const next: Record<string, DMChannel> = {};
+    for (const d of dms) next[d.id] = d;
+    this.byId = next;
+    this.loaded = true;
+  }
+
+  upsert(dm: DMChannel): void {
+    this.byId = { ...this.byId, [dm.id]: dm };
+  }
+
+  /**
+   * Apply a `dm_bump` envelope. Creates the channel entry if we didn't know
+   * about it yet (e.g. the other side just opened a DM with us). Returns
+   * `false` if `currentUserId` isn't a member of this DM (caller should
+   * ignore the bump in that case).
+   */
+  upsertFromBump(args: {
+    channel_id: string;
+    user_a_id: string;
+    user_b_id: string;
+    message_id: string;
+    currentUserId: string;
+  }): boolean {
+    const { channel_id, user_a_id, user_b_id, message_id, currentUserId } = args;
+    if (user_a_id !== currentUserId && user_b_id !== currentUserId) return false;
+    const otherUserId = user_a_id === currentUserId ? user_b_id : user_a_id;
+    const existing = this.byId[channel_id];
+    const next: DMChannel = existing
+      ? { ...existing, last_message_id: message_id }
+      : {
+          id: channel_id,
+          other_user_id: otherUserId,
+          last_message_id: message_id,
+          // We don't know the real created_at here — use "now" as a
+          // best-effort. The next hydrate (or ready) will overwrite it.
+          created_at: new Date().toISOString()
+        };
+    this.byId = { ...this.byId, [channel_id]: next };
+    return true;
+  }
+
+  clear(): void {
+    this.byId = {};
+    this.loaded = false;
+  }
+}
+
+export const directMessages = new DirectMessageStore();

@@ -29,15 +29,21 @@
     guilds,
     activeGuildId = null,
     currentUserId = null,
+    homeActive = false,
     onSelect,
     onCreateClick,
+    onHomeClick,
     onGuildDeleted
   }: {
     guilds: Guild[];
     activeGuildId?: string | null;
     currentUserId?: string | null;
+    /** Show the active pill on the home button (e.g. when on /app/@me). */
+    homeActive?: boolean;
     onSelect: (g: Guild) => void;
     onCreateClick: () => void;
+    /** Overrides the default `href="/app"` navigation. */
+    onHomeClick?: () => void;
     onGuildDeleted?: (guildId: string) => void;
   } = $props();
 
@@ -126,18 +132,41 @@
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
-          <a
-            {...props}
-            href="/app"
-            class="shrink-0"
-            aria-label="Pulse"
-            data-testid="guild-home"
-          >
-            <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-9 rounded-lg" />
-          </a>
+          <div class="relative shrink-0">
+            {#if homeActive}
+              <span
+                class="absolute -left-2 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-primary"
+                aria-hidden="true"
+              ></span>
+            {/if}
+            {#if onHomeClick}
+              <button
+                {...props}
+                type="button"
+                class="block"
+                aria-label="Direktnachrichten"
+                data-testid="guild-home"
+                onclick={onHomeClick}
+              >
+                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-9 rounded-lg" />
+              </button>
+            {:else}
+              <a
+                {...props}
+                href="/app"
+                class="block"
+                aria-label="Pulse"
+                data-testid="guild-home"
+              >
+                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-9 rounded-lg" />
+              </a>
+            {/if}
+          </div>
         {/snippet}
       </Tooltip.Trigger>
-      <Tooltip.Content side="right">Pulse</Tooltip.Content>
+      <Tooltip.Content side="right">
+        {onHomeClick ? 'Direktnachrichten' : 'Pulse'}
+      </Tooltip.Content>
     </Tooltip.Root>
 
     <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>

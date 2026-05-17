@@ -322,6 +322,7 @@
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
   onCreateClick={() => (creatingGuild = true)}
+  onHomeClick={() => { sidebarOpen = false; void goto('/app/@me'); }}
   onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
 />
 

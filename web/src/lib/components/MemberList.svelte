@@ -1,9 +1,14 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import XIcon from '@lucide/svelte/icons/x';
+  import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
+  import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -91,6 +96,22 @@
     return displayName(m).slice(0, 1).toUpperCase();
   }
 
+  async function startDM(uid: string): Promise<void> {
+    if (auth.user && uid === auth.user.id) return; // no self-DM
+    try {
+      const dm = await chatApi.createOrGetDMChannel(uid);
+      // Seed the store so the sidebar picks it up immediately — otherwise
+      // it'd only appear on the next hydrate / ready.
+      directMessages.upsert(dm);
+      onClose?.();
+      await goto(`/app/@me/${dm.id}`);
+    } catch (err) {
+      toast.error('DM konnte nicht geöffnet werden', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
   function openMemberActivity(uid: string): void {
     // Find any voice channel in this guild where this user is hosting a
     // party or streaming — first match wins (rare to have multiple). Set
@@ -144,8 +165,13 @@
         {@const isSpeaking = speakingIds.has(m.user_id)}
         {@const isPartyHost = partyHostIds.has(m.user_id)}
         {@const isStreaming = streamerIds.has(m.user_id)}
+        {@const isSelf = !!auth.user && m.user_id === auth.user.id}
+        <ContextMenu.Root>
+          <ContextMenu.Trigger>
+            {#snippet child({ props })}
         <div
-          class="hover:bg-bg-hover flex items-center gap-2.5 rounded-xl px-3 py-2"
+          {...props}
+          class="group hover:bg-bg-hover flex items-center gap-2.5 rounded-xl px-3 py-2"
           data-testid="member-item"
           data-user-id={m.user_id}
         >
@@ -198,8 +224,31 @@
                 title="Stream öffnen"
               >LIVE</button>
             {/if}
+            {#if !isSelf}
+              <button
+                type="button"
+                onclick={() => startDM(m.user_id)}
+                class="text-text-muted hover:text-primary rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100"
+                data-testid="member-dm-btn"
+                aria-label="Nachricht an {name} senden"
+                title="Nachricht senden"
+              >
+                <MessageCircleIcon class="size-4" />
+              </button>
+            {/if}
           </span>
         </div>
+            {/snippet}
+          </ContextMenu.Trigger>
+          {#if !isSelf}
+            <ContextMenu.Content>
+              <ContextMenu.Item onSelect={() => startDM(m.user_id)} data-testid="member-dm-menu">
+                <MessageCircleIcon />
+                Nachricht senden
+              </ContextMenu.Item>
+            </ContextMenu.Content>
+          {/if}
+        </ContextMenu.Root>
       {/each}
       {#if members.length === 0}
         <p class="text-text-muted px-3 py-4 text-xs">Keine Mitglieder.</p>
