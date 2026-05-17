@@ -44,3 +44,67 @@ export const isLinux = (): boolean => {
   if (platform) return platform.includes('linux') && !platform.includes('android');
   return /\blinux\b/i.test(navigator.userAgent) && !/android/i.test(navigator.userAgent);
 };
+
+/** Best-effort "are we on Windows?" check. Same shape as `isLinux()`. */
+export const isWindows = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData;
+  const platform = (uaData?.platform ?? navigator.platform ?? '').toLowerCase();
+  if (platform) return platform.includes('win');
+  return /\bwindows\b/i.test(navigator.userAgent);
+};
+
+/** Chromium major-version, parsed from `Chrome/<N>.…` in the UA string. Returns
+ *  `null` for non-Chromium browsers. Edge ships with `Chrome/<same-N>` so this
+ *  works for both. */
+export const chromiumMajorVersion = (): number | null => {
+  if (typeof navigator === 'undefined') return null;
+  const m = /Chrome\/(\d+)\./.exec(navigator.userAgent);
+  return m ? parseInt(m[1], 10) : null;
+};
+
+/**
+ * Probe (async, cached) whether we are on Windows 11.
+ *
+ * UA-CH `platformVersion` for Windows: major `0..12` = Win10, `13+` = Win11.
+ * See https://learn.microsoft.com/en-us/microsoft-edge/web-platform/how-to-detect-win11.
+ * Returns `false` on non-Chromium browsers (no `getHighEntropyValues`) and on
+ * non-Windows. Result is cached after first call.
+ *
+ * Used by the screen-share path to decide whether `getDisplayMedia` will
+ * honour `windowAudio:"window"` — that feature is Win11-only (gated on
+ * `kApplicationAudioCaptureWin` + WASAPI ProcessLoopback availability inside
+ * Chromium).
+ */
+let _isWindows11Cache: boolean | null = null;
+let _isWindows11Probe: Promise<boolean> | null = null;
+export const isWindows11 = (): Promise<boolean> => {
+  if (_isWindows11Cache !== null) return Promise.resolve(_isWindows11Cache);
+  if (_isWindows11Probe) return _isWindows11Probe;
+  _isWindows11Probe = (async () => {
+    if (!isWindows()) return false;
+    const uaData = (
+      navigator as Navigator & {
+        userAgentData?: {
+          getHighEntropyValues?: (
+            hints: string[]
+          ) => Promise<{ platformVersion?: string }>;
+        };
+      }
+    ).userAgentData;
+    if (!uaData?.getHighEntropyValues) return false;
+    try {
+      const high = await uaData.getHighEntropyValues(['platformVersion']);
+      const ver = high.platformVersion;
+      if (!ver) return false;
+      return parseInt(ver.split('.')[0] ?? '0', 10) >= 13;
+    } catch {
+      return false;
+    }
+  })().then((v) => {
+    _isWindows11Cache = v;
+    return v;
+  });
+  return _isWindows11Probe;
+};

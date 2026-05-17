@@ -29,6 +29,10 @@ import { AudioDevices } from './audioDevices.svelte';
 import { createSendProcessor, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
+import {
+  acquireWindowAudioStream,
+  canUseWindowAudioCapture
+} from './windowAudioCapture';
 import { nameFor, userIdFromIdentity } from './identity';
 import { auth } from '$lib/stores/auth.svelte';
 import { gateway } from '$lib/ws/connection';
@@ -97,6 +101,12 @@ class VoiceRoom {
   localSendClip = $state(false);
 
   #screenShare = new ScreenShareTracks();
+  /** Tracks owned by the Win11 per-window-audio bypass path. `null` while the
+   *  regular LiveKit `setScreenShareEnabled` path is in use (or no share is
+   *  active). We keep raw MediaStreamTracks here so we can `.stop()` them on
+   *  teardown — LiveKit's own lifecycle covers only its managed tracks. */
+  #bypassVideoTrack: MediaStreamTrack | null = null;
+  #bypassAudioTrack: MediaStreamTrack | null = null;
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
@@ -351,23 +361,50 @@ class VoiceRoom {
     try {
       if (on) {
         const s = settings.screenShare;
-        const captureOptions: ScreenShareCaptureOptions = { audio: true, contentHint: s.contentHint };
-        if (s.resolution !== 'native') {
-          const resMap: Record<string, VideoResolution> = {
-            '1080p': { width: 1920, height: 1080, frameRate: s.fps },
-            '720p': { width: 1280, height: 720, frameRate: s.fps },
-            '480p': { width: 854, height: 480, frameRate: s.fps }
-          };
-          captureOptions.resolution = resMap[s.resolution];
-        }
+        const resMap: Record<string, VideoResolution> = {
+          '1080p': { width: 1920, height: 1080, frameRate: s.fps },
+          '720p': { width: 1280, height: 720, frameRate: s.fps },
+          '480p': { width: 854, height: 480, frameRate: s.fps }
+        };
         const publishOptions: TrackPublishOptions = {
           videoCodec: s.codec,
           screenShareEncoding: { maxBitrate: s.bitrateMbps * 1_000_000, maxFramerate: s.fps }
         };
-        await room.localParticipant.setScreenShareEnabled(true, captureOptions, publishOptions);
-        this.isScreenSharing = true;
+        // Win11 + Chrome/Edge 141+: bypass LiveKit's setScreenShareEnabled to
+        // pass `windowAudio:"window"` (not exposed in ScreenShareCaptureOptions
+        // and dropped by LiveKit's constraint whitelist). On other platforms
+        // / older Chromium the bypass would silently strip audio entirely
+        // (systemAudio:"exclude" with no per-window-audio fallback) — keep the
+        // regular LiveKit path there.
+        if (await canUseWindowAudioCapture()) {
+          const stream = await acquireWindowAudioStream({
+            resolution: s.resolution !== 'native' ? resMap[s.resolution] : undefined
+          });
+          // Mirror what LiveKit does internally for ScreenShareCaptureOptions
+          // — contentHint goes on the track, not in getDisplayMedia constraints.
+          const v = stream.getVideoTracks()[0];
+          if (v) v.contentHint = s.contentHint;
+          await this.#publishBypassStream(room.localParticipant, stream, publishOptions);
+          this.isScreenSharing = true;
+        } else {
+          const captureOptions: ScreenShareCaptureOptions = {
+            audio: true,
+            contentHint: s.contentHint
+          };
+          if (s.resolution !== 'native') captureOptions.resolution = resMap[s.resolution];
+          await room.localParticipant.setScreenShareEnabled(
+            true,
+            captureOptions,
+            publishOptions
+          );
+          this.isScreenSharing = true;
+        }
       } else {
-        await room.localParticipant.setScreenShareEnabled(false);
+        if (this.#bypassVideoTrack) {
+          await this.#unpublishBypass(room.localParticipant);
+        } else {
+          await room.localParticipant.setScreenShareEnabled(false);
+        }
         this.isScreenSharing = false;
       }
     } catch (e) {
@@ -398,6 +435,74 @@ class VoiceRoom {
 
   toggleScreenShare(): void {
     void this.setScreenShare(!this.isScreenSharing);
+  }
+
+  /**
+   * Publish a stream acquired by the Win11 per-window-audio bypass path
+   * (`getDisplayMedia({ windowAudio:"window" })`) to LiveKit as ScreenShare +
+   * ScreenShareAudio tracks. Stops the stream on publish failure so the
+   * picker doesn't leak. Hooks `onended` on the video so the browser-side
+   * "Stop sharing" bar triggers our own cleanup.
+   */
+  async #publishBypassStream(
+    lp: LocalParticipant,
+    stream: MediaStream,
+    publishOptions: TrackPublishOptions
+  ): Promise<void> {
+    const videoTrack = stream.getVideoTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0] ?? null;
+    if (!videoTrack) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('getDisplayMedia returned no video track');
+    }
+    try {
+      await lp.publishTrack(videoTrack, { source: Track.Source.ScreenShare, ...publishOptions });
+      if (audioTrack) {
+        await lp.publishTrack(audioTrack, { source: Track.Source.ScreenShareAudio });
+      }
+    } catch (e) {
+      // Publish failed mid-way — stop everything we acquired so the browser's
+      // picker dialog releases the source.
+      stream.getTracks().forEach((t) => t.stop());
+      throw e;
+    }
+    this.#bypassVideoTrack = videoTrack;
+    this.#bypassAudioTrack = audioTrack;
+    // Browser-side "Stop sharing" bar — Chrome ends the track without telling
+    // LiveKit. Translate that into our normal stop path.
+    videoTrack.addEventListener('ended', () => {
+      if (this.#bypassVideoTrack === videoTrack) void this.setScreenShare(false);
+    });
+  }
+
+  /** Counterpart to `#publishBypassStream` — unpublish from LiveKit and stop
+   *  the underlying MediaStreamTracks. Safe to call when no bypass is active
+   *  (no-op). */
+  async #unpublishBypass(lp: LocalParticipant): Promise<void> {
+    const v = this.#bypassVideoTrack;
+    const a = this.#bypassAudioTrack;
+    this.#bypassVideoTrack = null;
+    this.#bypassAudioTrack = null;
+    if (v) {
+      try {
+        await lp.unpublishTrack(v, true);
+      } catch {
+        // LiveKit may have already lost the publication (room disconnect race) —
+        // we still need to stop the raw track below.
+      }
+      // unpublishTrack(stopOnUnpublish=true) stops the wrapped track, but our
+      // raw MediaStreamTrack reference is what we own — stop it explicitly so
+      // the browser's "you are sharing" indicator goes away.
+      if (v.readyState !== 'ended') v.stop();
+    }
+    if (a) {
+      try {
+        await lp.unpublishTrack(a, true);
+      } catch {
+        // Same as video — best-effort.
+      }
+      if (a.readyState !== 'ended') a.stop();
+    }
   }
 
   async setInputDevice(deviceId: string): Promise<void> {
@@ -760,6 +865,17 @@ class VoiceRoom {
     this.deafened = false;
     this.#micEnabledBeforeDeafen = false;
     this.isScreenSharing = false;
+    // Win11 bypass path: stop raw MediaStreamTracks ourselves — the LiveKit
+    // room is gone so unpublishTrack would no-op, but the OS-level "you are
+    // sharing" indicator only goes away when the tracks actually .stop().
+    if (this.#bypassVideoTrack && this.#bypassVideoTrack.readyState !== 'ended') {
+      this.#bypassVideoTrack.stop();
+    }
+    if (this.#bypassAudioTrack && this.#bypassAudioTrack.readyState !== 'ended') {
+      this.#bypassAudioTrack.stop();
+    }
+    this.#bypassVideoTrack = null;
+    this.#bypassAudioTrack = null;
     this.#screenShare.clear();
     this.audioBlocked = false;
     voiceState.channelId = null;

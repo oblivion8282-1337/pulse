@@ -33,6 +33,14 @@
     Gilt für den nächsten Start des Teilens. Änderungen werden sofort gespeichert.
   </p>
 
+  <p class="text-text-muted bg-bg-soft rounded-lg px-3 py-2 text-xs">
+    <span class="text-text-bright font-medium">Tipp:</span> Wenn du ein Spiel teilst, wähle im
+    Picker das <span class="text-text-bright">Fenster</span> des Spiels und aktiviere
+    <span class="text-text-bright">„Audio teilen"</span>. Auf Windows 11 mit Chrome oder Edge 141+
+    wird so ausschließlich der Spiele-Ton übertragen — die Stimmen der anderen User landen nicht im
+    Stream.
+  </p>
+
   <div class="flex flex-col gap-2">
     <span class="text-text-bright text-sm font-medium">Codec</span>
     <div class="flex flex-col gap-1.5">
