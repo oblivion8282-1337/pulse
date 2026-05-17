@@ -70,7 +70,7 @@
     });
   });
 
-  async function send(content: string) {
+  async function send(content: string, _attachmentIds: string[] = []) {
     try {
       await chatApi.postStreamChat(channelId, streamerId, content);
       // Kein lokales Echo nötig — der eigene WS-Stream liefert die Message

@@ -1,33 +1,83 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
+  import { toast } from 'svelte-sonner';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
+  import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import XIcon from '@lucide/svelte/icons/x';
   import EmojiPicker from './EmojiPicker.svelte';
+  import AttachmentPreviewStrip from './AttachmentPreviewStrip.svelte';
   import { expandShortcodes } from '$lib/emoji';
+  import { startUpload, cleanupRow, type PendingAttachment } from '$lib/attachments/upload.svelte';
 
   let {
+    channelId = null,
     placeholder = 'Nachricht senden',
     onSend,
     replyTo = null,
     onCancelReply
   }: {
+    /** When set, attachment uploads are wired through the paperclip button,
+     *  paste handler, and drop target. Watch-party / stream-chat composers
+     *  omit it to disable attachments entirely. */
+    channelId?: string | null;
     placeholder?: string;
-    onSend: (text: string) => void;
+    onSend: (text: string, attachmentIds: string[]) => void;
     replyTo?: { id: string; author: string; snippet: string } | null;
     onCancelReply?: () => void;
   } = $props();
 
+  const attachmentsEnabled = $derived(channelId !== null);
+
   let text = $state('');
   let pickerOpen = $state(false);
   let textarea: HTMLTextAreaElement | undefined = $state();
+  let fileInput: HTMLInputElement | undefined = $state();
+
+  // Pending uploads + their abort handles. Each `row` carries its own
+  // local id so we can find + replace it on state-change callbacks.
+  let pending = $state<PendingAttachment[]>([]);
+  const aborts = new Map<string, () => void>();
+
+  let isDragging = $state(false);
+  let dragDepth = 0; // dragenter/leave fire on every child — count to stay sane
+
+  const allDone = $derived(pending.every((p) => p.state === 'done'));
+  const anyUploading = $derived(pending.some((p) => p.state === 'uploading' || p.state === 'queued'));
+  const sendDisabled = $derived(
+    (text.trim().length === 0 && pending.length === 0) || anyUploading
+  );
+
+  function addFiles(files: FileList | File[]): void {
+    if (!channelId) return; // attachmentsEnabled=false → ignore drops/pastes silently
+    for (const file of Array.from(files)) {
+      const { row, abort } = startUpload(channelId, file, (next) => {
+        pending = pending.map((p) => (p.localId === next.localId ? next : p));
+      });
+      pending = [...pending, row];
+      aborts.set(row.localId, abort);
+    }
+  }
+
+  function removeAttachment(localId: string) {
+    aborts.get(localId)?.();
+    aborts.delete(localId);
+    const row = pending.find((p) => p.localId === localId);
+    if (row) cleanupRow(row);
+    pending = pending.filter((p) => p.localId !== localId);
+  }
 
   function fire() {
+    if (sendDisabled) return;
     const value = expandShortcodes(text).trim();
-    if (!value) return;
-    onSend(value);
+    const ids = pending.filter((p) => p.state === 'done' && p.attachmentId).map((p) => p.attachmentId!);
+    if (!value && ids.length === 0) return;
+    onSend(value, ids);
     text = '';
+    pending.forEach(cleanupRow);
+    pending = [];
+    aborts.clear();
   }
 
   function submit(e: SubmitEvent) {
@@ -47,6 +97,42 @@
     }
   }
 
+  function onFilePick(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    if (input.files) addFiles(input.files);
+    input.value = ''; // allow re-selecting the same file later
+  }
+
+  function onPaste(e: ClipboardEvent) {
+    const files = e.clipboardData?.files;
+    if (files && files.length > 0) {
+      e.preventDefault(); // don't paste a path string into the textarea
+      addFiles(files);
+    }
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault();
+    dragDepth++;
+    isDragging = true;
+  }
+  function onDragOver(e: DragEvent) {
+    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  }
+  function onDragLeave() {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) isDragging = false;
+  }
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    dragDepth = 0;
+    isDragging = false;
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      addFiles(e.dataTransfer.files);
+    }
+  }
+
   function insertEmoji(emoji: string) {
     const ta = textarea;
     if (!ta) {
@@ -55,7 +141,6 @@
       const start = ta.selectionStart ?? text.length;
       const end = ta.selectionEnd ?? text.length;
       text = text.slice(0, start) + emoji + text.slice(end);
-      // Move caret behind the inserted emoji on the next tick.
       queueMicrotask(() => {
         ta.focus();
         const pos = start + emoji.length;
@@ -68,6 +153,10 @@
 
 <form
   class="px-4 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:pb-5"
+  ondragenter={onDragEnter}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
+  ondrop={onDrop}
   onsubmit={submit}
 >
   {#if replyTo}
@@ -88,15 +177,46 @@
       </button>
     </div>
   {/if}
+
+  <AttachmentPreviewStrip {pending} onRemove={removeAttachment} />
+
   <div
-    class="bg-bg-input flex items-end gap-2 border border-border px-4 py-3 backdrop-blur-sm
-           {replyTo ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
+    class="bg-bg-input relative flex items-end gap-2 border border-border px-4 py-3 backdrop-blur-sm
+           {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
   >
+    {#if isDragging}
+      <div
+        class="bg-primary/15 border-primary text-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed text-sm font-medium"
+        data-testid="drop-overlay"
+      >
+        Datei hier ablegen zum Hochladen
+      </div>
+    {/if}
+    {#if attachmentsEnabled}
+      <input
+        type="file"
+        multiple
+        bind:this={fileInput}
+        onchange={onFilePick}
+        class="sr-only"
+        data-testid="attachment-file-input"
+      />
+      <button
+        type="button"
+        class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
+        aria-label="Datei anhängen"
+        onclick={() => fileInput?.click()}
+        data-testid="attachment-button"
+      >
+        <PaperclipIcon class="size-5" />
+      </button>
+    {/if}
     <textarea
       bind:this={textarea}
       rows="1"
       bind:value={text}
       onkeydown={onKeydown}
+      onpaste={onPaste}
       {placeholder}
       class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[1.5rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none"
       data-testid="message-input"
@@ -127,7 +247,7 @@
     <Button
       type="submit"
       size="icon-sm"
-      disabled={!text.trim()}
+      disabled={sendDisabled}
       data-testid="message-send"
       aria-label="Senden"
     >

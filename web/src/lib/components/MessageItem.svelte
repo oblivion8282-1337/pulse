@@ -5,6 +5,7 @@
   import DOMPurify from 'dompurify';
   import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import MessageActions from './MessageActions.svelte';
+  import MessageAttachments from './MessageAttachments.svelte';
   import MessageReactions from './MessageReactions.svelte';
 
   const ALLOWED_TAGS = ['b', 'i', 'em', 'strong', 'code', 'pre', 'del', 's',
@@ -67,6 +68,7 @@
   const url = $derived(avatarUrl(message));
   const html = $derived(renderSafe(message.content));
   const reactions = $derived(message.reactions ?? []);
+  const attachments = $derived(message.attachments ?? []);
   const isEdited = $derived(!!message.edited_at);
 
   function formatTime(iso: string): string {
@@ -134,12 +136,15 @@
       Enter zum Speichern · Esc zum Abbrechen
     </div>
   {:else}
-    <div class="text-text-base break-words text-[15px]" data-testid="message-content">
-      {@html html}
-      {#if isEdited}
-        <span class="text-text-muted text-[10px]" title={message.edited_at ?? ''}>(bearbeitet)</span>
-      {/if}
-    </div>
+    {#if message.content}
+      <div class="text-text-base break-words text-[15px]" data-testid="message-content">
+        {@html html}
+        {#if isEdited}
+          <span class="text-text-muted text-[10px]" title={message.edited_at ?? ''}>(bearbeitet)</span>
+        {/if}
+      </div>
+    {/if}
+    <MessageAttachments {attachments} />
     <MessageReactions reactions={reactions} onToggle={handleToggle} />
   {/if}
 {/snippet}

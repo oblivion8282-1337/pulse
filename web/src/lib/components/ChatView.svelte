@@ -31,7 +31,7 @@
   }: {
     channel: Channel | null;
     messages: Message[];
-    onSend: (text: string, replyToId: string | null) => void;
+    onSend: (text: string, replyToId: string | null, attachmentIds: string[]) => void;
     onMenuClick?: () => void;
     isOwner?: boolean;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
@@ -178,9 +178,9 @@
     }
   }
 
-  function handleSend(text: string) {
+  function handleSend(text: string, attachmentIds: string[]) {
     const target = replyTarget;
-    onSend(text, target?.id ?? null);
+    onSend(text, target?.id ?? null, attachmentIds);
     replyTarget = null;
   }
 
@@ -287,6 +287,7 @@
 
   {#if channel}
     <MessageInput
+      channelId={channel.id}
       placeholder={`Nachricht ${headerKind === 'dm' ? 'an' : 'in'} ${namePrefix}${channel.name}`}
       onSend={handleSend}
       replyTo={replyBanner}

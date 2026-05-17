@@ -104,25 +104,64 @@ export const chatApi = {
   postMessage(
     channelId: string,
     content: string,
-    opts: { nonce?: string; replyToId?: string | null } = {}
+    opts: { nonce?: string; replyToId?: string | null; attachmentIds?: string[] } = {}
   ): Promise<Message> {
     return request<Message>(`/channels/${channelId}/messages`, {
       method: 'POST',
       body: {
         content,
         nonce: opts.nonce ?? null,
-        reply_to_id: opts.replyToId ?? null
+        reply_to_id: opts.replyToId ?? null,
+        attachment_ids: opts.attachmentIds ?? []
       }
     });
   },
-  editMessage(messageId: string, content: string): Promise<Message> {
+  editMessage(
+    messageId: string,
+    content: string,
+    opts: { attachmentIds?: string[] } = {}
+  ): Promise<Message> {
     return request<Message>(`/messages/${messageId}`, {
       method: 'PATCH',
-      body: { content }
+      body: { content, attachment_ids: opts.attachmentIds ?? [] }
     });
   },
   deleteMessage(messageId: string): Promise<void> {
     return request<void>(`/messages/${messageId}`, { method: 'DELETE' });
+  },
+
+  // ── Attachments (two-phase upload) ─────────────────────────────────────
+  /** Step 1: ask the server for a presigned PUT URL + a new attachment id.
+   * After this resolves, the client uploads the file's bytes via XHR
+   * (so we get progress events) directly to MinIO. Step 2 is to include
+   * this id in `postMessage({ attachmentIds: [...] })`. */
+  requestAttachmentUploadUrl(
+    channelId: string,
+    body: {
+      filename: string;
+      mime: string;
+      size: number;
+      width?: number;
+      height?: number;
+      has_thumb?: boolean;
+      thumb_size?: number;
+      thumb_width?: number;
+      thumb_height?: number;
+    }
+  ): Promise<{ id: string; upload_url: string; thumb_upload_url: string | null }> {
+    return request(`/channels/${channelId}/attachments/upload-url`, {
+      method: 'POST',
+      body
+    });
+  },
+  /** Re-sign an existing attachment when its presigned URL has expired
+   * (browser hit 403). Returns fresh `url` (+ `thumb_url` if present). */
+  refreshAttachmentDownloadUrl(
+    attachmentId: string
+  ): Promise<{ url: string; thumb_url: string | null }> {
+    return request(`/attachments/${attachmentId}/download-url`, {
+      endpoint: 'chat'
+    });
   },
   addReaction(messageId: string, emoji: string): Promise<void> {
     return request<void>(

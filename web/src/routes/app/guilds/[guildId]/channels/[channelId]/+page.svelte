@@ -240,7 +240,7 @@
     }
   }
 
-  function sendMessage(text: string, replyToId: string | null) {
+  function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
     if (!activeChannel || activeChannel.type !== 0 || !auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     const tmpId = `tmp-${nonce}`;
@@ -254,6 +254,18 @@
       reply_to_id: replyToId,
       created_at: new Date().toISOString()
     });
+    // Attachments go through REST — WS send-op carries no attachment_ids,
+    // and presigned URLs need server-side signing. Text-only stays on the
+    // optimistic WS path for the latency it saves.
+    if (attachmentIds.length > 0) {
+      chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds })
+        .then((real) => messages.upsert(real))
+        .catch((e) => {
+          messages.removeOptimistic(cid, tmpId);
+          toast.error('Senden fehlgeschlagen', { description: (e as Error).message });
+        });
+      return;
+    }
     const queued = gateway.send(cid, text, nonce, replyToId);
     if (!queued) {
       // WS not open — roll back the optimistic message and inform the user.

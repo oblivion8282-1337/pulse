@@ -57,7 +57,7 @@
     });
   });
 
-  async function send(content: string) {
+  async function send(content: string, _attachmentIds: string[] = []) {
     try {
       await chatApi.postWatchChat(channelId, content);
     } catch (e) {

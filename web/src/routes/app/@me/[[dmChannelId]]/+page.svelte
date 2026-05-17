@@ -153,7 +153,7 @@
     await goto(`/app/@me/${dm.id}`);
   }
 
-  function sendMessage(text: string, replyToId: string | null) {
+  function sendMessage(text: string, replyToId: string | null, attachmentIds: string[]) {
     if (!activeDM || !auth.user) return;
     const nonce = `n-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`;
     const tmpId = `tmp-${nonce}`;
@@ -167,6 +167,18 @@
       reply_to_id: replyToId,
       created_at: new Date().toISOString()
     });
+    // Attachments go through REST — the WS send-op doesn't carry
+    // attachment_ids and presigned URLs need server-side signing anyway.
+    // Pure-text messages stay on the WS fast-path.
+    if (attachmentIds.length > 0) {
+      chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds })
+        .then((real) => messages.upsert(real))
+        .catch((e) => {
+          messages.removeOptimistic(cid, tmpId);
+          toast.error('Senden fehlgeschlagen', { description: (e as Error).message });
+        });
+      return;
+    }
     const queued = gateway.send(cid, text, nonce, replyToId);
     if (!queued) {
       messages.removeOptimistic(cid, tmpId);
