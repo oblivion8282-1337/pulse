@@ -81,7 +81,12 @@ class VoiceRoom {
   /** 0..1 instantaneous level AFTER the noise filter + makeup gain — what's
    *  actually going into the encoder, i.e. what other listeners hear. */
   localSendLevel = $state(0);
-  /** True while the post-gain send signal is clipping (~ -1 dBFS). */
+  /** 0..1 peak-hold position of the send signal — same dBFS scaling as level,
+   *  but follows transient peaks (instant attack, ~800 ms decay). Sprache hat
+   *  hohen Crest-Faktor — der Peak liegt deutlich oberhalb der RMS-Anzeige
+   *  und ist das was das Clip-Lämpchen tatsächlich triggert. */
+  localSendPeak = $state(0);
+  /** True while the post-gain send signal is clipping (~ -1 dBFS peak). */
   localSendClip = $state(false);
 
   #screenShare = new ScreenShareTracks();
@@ -92,16 +97,23 @@ class VoiceRoom {
     (n) => {
       this.localMicLevel = n;
       // No send-side processor installed = raw mic IS the published track.
-      // Mirror the input level into the send meter so the settings panel
-      // shows something sensible (clip stays false — raw mic gain is unity).
+      // Mirror the input level/peak into the send meters so the settings panel
+      // still shows sensible values and the clip lamp works in that mode too.
       if (this.#sendProcessorMode === 'off') this.localSendLevel = n;
     },
-    (s) => { this.#setLocalSpeaking(s); }
+    (s) => { this.#setLocalSpeaking(s); },
+    (c) => {
+      if (this.#sendProcessorMode === 'off') this.localSendClip = c;
+    },
+    (p) => {
+      if (this.#sendProcessorMode === 'off') this.localSendPeak = p;
+    }
   );
   /** Display-level state for the send meter (peak-meter ballistics, identical
    *  shape to what LocalMicAnalyser does for raw mic but driven by the
    *  in-processor tap callback so we stay in the processor's AudioContext). */
   #sendDisplayLevel = 0;
+  #sendDisplayPeak = 0;
   #sendClipping = false;
   #sendClipUntilMs = 0;
   #levelTimer: ReturnType<typeof setInterval> | null = null;
@@ -655,6 +667,7 @@ class VoiceRoom {
    *  consistent. Clip flag is driven by raw peak amplitude > ~-1 dBFS with a
    *  300 ms hold so a single crackle stays visible. */
   #onSendLevel = (rms: number, peak: number): void => {
+    // RMS bar (smooth, peak-meter ballistics).
     let level = 0;
     if (rms > 0.0005) {
       const db = 20 * Math.log10(rms);
@@ -663,6 +676,16 @@ class VoiceRoom {
     if (level > this.#sendDisplayLevel) this.#sendDisplayLevel = level;
     else this.#sendDisplayLevel = this.#sendDisplayLevel * 0.85 + level * 0.15;
     this.localSendLevel = this.#sendDisplayLevel;
+    // Peak-hold (same scale; slow decay so the peak line is readable).
+    let peakLevel = 0;
+    if (peak > 0.0005) {
+      const pdb = 20 * Math.log10(peak);
+      peakLevel = Math.max(0, Math.min(1, (pdb + 50) / 45));
+    }
+    if (peakLevel > this.#sendDisplayPeak) this.#sendDisplayPeak = peakLevel;
+    else this.#sendDisplayPeak = this.#sendDisplayPeak * 0.97 + peakLevel * 0.03;
+    this.localSendPeak = this.#sendDisplayPeak;
+    // Clip on raw peak amplitude > ~-1 dBFS.
     const now = performance.now();
     if (peak >= 0.891) {
       this.#sendClipUntilMs = now + 300;
@@ -678,9 +701,11 @@ class VoiceRoom {
 
   #resetSendLevel(): void {
     this.#sendDisplayLevel = 0;
+    this.#sendDisplayPeak = 0;
     this.#sendClipping = false;
     this.#sendClipUntilMs = 0;
     this.localSendLevel = 0;
+    this.localSendPeak = 0;
     this.localSendClip = false;
   }
 

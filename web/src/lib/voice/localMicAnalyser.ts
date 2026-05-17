@@ -9,6 +9,12 @@
  * the published MediaStreamTrack at ~60 fps so the settings meter actually
  * reflects what the mic is picking up.
  */
+/** Linear peak threshold ≈ -1 dBFS — anything above is "clipping" for the lamp. */
+const CLIP_PEAK_THRESHOLD = 0.891;
+/** Hold the clip indicator on for at least this long after the last over-peak, so
+ *  a single crackle stays visible long enough for the eye to register it. */
+const CLIP_HOLD_MS = 300;
+
 export class LocalMicAnalyser {
   #ctx: AudioContext | null = null;
   #source: MediaStreamAudioSourceNode | null = null;
@@ -18,13 +24,25 @@ export class LocalMicAnalyser {
   #track: MediaStreamTrack | null = null;
   #onLevel: (n: number) => void;
   #onSpeaking: ((s: boolean) => void) | undefined;
+  #onClip: ((c: boolean) => void) | undefined;
+  #onPeak: ((p: number) => void) | undefined;
   #speaking = false;
   #lastAboveMs = 0;
   #displayLevel = 0;
+  #displayPeak = 0;
+  #clipping = false;
+  #clipUntilMs = 0;
 
-  constructor(onLevel: (n: number) => void, onSpeaking?: (s: boolean) => void) {
+  constructor(
+    onLevel: (n: number) => void,
+    onSpeaking?: (s: boolean) => void,
+    onClip?: (c: boolean) => void,
+    onPeak?: (p: number) => void
+  ) {
     this.#onLevel = onLevel;
     this.#onSpeaking = onSpeaking;
+    this.#onClip = onClip;
+    this.#onPeak = onPeak;
   }
 
   /** Attach to (or re-attach to a different) MediaStreamTrack. No-op if same track. */
@@ -70,10 +88,16 @@ export class LocalMicAnalyser {
     this.#buf = null;
     this.#track = null;
     this.#displayLevel = 0;
+    this.#displayPeak = 0;
     this.#onLevel(0);
+    this.#onPeak?.(0);
     if (this.#speaking) {
       this.#speaking = false;
       this.#onSpeaking?.(false);
+    }
+    if (this.#clipping) {
+      this.#clipping = false;
+      this.#onClip?.(false);
     }
   }
 
@@ -83,8 +107,37 @@ export class LocalMicAnalyser {
     if (!a || !buf) return;
     a.getFloatTimeDomainData(buf);
     let sum = 0;
-    for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    let peak = 0;
+    for (let i = 0; i < buf.length; i++) {
+      const v = buf[i];
+      sum += v * v;
+      const abs = v < 0 ? -v : v;
+      if (abs > peak) peak = abs;
+    }
     const rms = Math.sqrt(sum / buf.length);
+    // Clip detection on the raw peak: anything above -1 dBFS lights the lamp,
+    // 300ms hold so a single crackle stays visible.
+    if (this.#onClip) {
+      const nowC = performance.now();
+      if (peak >= CLIP_PEAK_THRESHOLD) {
+        this.#clipUntilMs = nowC + CLIP_HOLD_MS;
+        if (!this.#clipping) { this.#clipping = true; this.#onClip(true); }
+      } else if (this.#clipping && nowC >= this.#clipUntilMs) {
+        this.#clipping = false;
+        this.#onClip(false);
+      }
+    }
+    // Peak-hold display: same dBFS scaling as RMS so the peak line sits on the
+    // same axis as the bar. Instant attack, slow decay (~97%/frame ≈ 800ms
+    // half-life) so the user can read where the loudest sample was.
+    let peakDisplay = 0;
+    if (peak > 0.0005) {
+      const pdb = 20 * Math.log10(peak);
+      peakDisplay = Math.max(0, Math.min(1, (pdb + 50) / 45));
+    }
+    if (peakDisplay > this.#displayPeak) this.#displayPeak = peakDisplay;
+    else this.#displayPeak = this.#displayPeak * 0.97 + peakDisplay * 0.03;
+    this.#onPeak?.(this.#displayPeak);
     // dBFS scaling — mic levels are perceived logarithmically. Map -50 dB
     // (deep silence) through -5 dB (very loud) onto 0..1 so a normally-spoken
     // voice at ~-20 dB sits at ~0.67, where it should be on a Discord-style

@@ -40,8 +40,10 @@
       ? '0 dB'
       : `${gainPctDisplay > 100 ? '+' : ''}${(20 * Math.log10(gainPctDisplay / 100)).toFixed(1)} dB`
   );
-  // Send-level meter: 0..1 from the post-processor analyser.
+  // Send-level meter: RMS bar + peak-hold line. RMS is smoothed; peak is what
+  // the clip lamp actually reacts to (speech crest factor ~12–18 dB).
   let sendLevelPct = $derived(Math.round(voice.localSendLevel * 100));
+  let sendPeakPct = $derived(Math.round(voice.localSendPeak * 100));
 </script>
 
 <div class="flex flex-col gap-2">
@@ -82,16 +84,20 @@
   <div class="mt-1 flex items-center gap-2">
     <span class="text-text-muted text-xs w-20 shrink-0">Sende-Pegel</span>
     <div class="bg-bg-input relative h-2 flex-1 overflow-hidden rounded-full">
+      <!-- RMS-Füllung: glatter Durchschnittspegel. -->
       <div
         class="absolute inset-y-0 left-0 transition-[width] duration-75"
         style:width="{sendLevelPct}%"
         class:bg-emerald-500={!voice.localSendClip}
         class:bg-red-500={voice.localSendClip}
       ></div>
-      <!-- -1 dBFS marker -->
+      <!-- Peak-Hold-Line: zeigt die lauteste Spitze der letzten ~800 ms. Das ist
+           was das Clip-Lämpchen tatsächlich auslöst (Sprache: Peak ≈ RMS + 12–18 dB). -->
       <div
-        class="border-text-muted/40 absolute inset-y-0 border-r"
-        style:left="89%"
+        class="pointer-events-none absolute inset-y-0 w-px transition-[left] duration-75"
+        style:left="{sendPeakPct}%"
+        class:bg-white={!voice.localSendClip}
+        class:bg-red-200={voice.localSendClip}
       ></div>
     </div>
     <span
