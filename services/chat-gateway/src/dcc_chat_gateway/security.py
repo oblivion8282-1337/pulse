@@ -125,6 +125,7 @@ async def decode_token(token: str) -> dict[str, Any]:
 class AuthenticatedUser:
     id: int
     username: str
+    is_admin: bool
     payload: dict[str, Any]
 
 
@@ -139,7 +140,25 @@ async def get_current_user(
         uid = int(payload["sub"])
     except (KeyError, ValueError) as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid sub") from exc
-    return AuthenticatedUser(id=uid, username=payload.get("username", ""), payload=payload)
+    return AuthenticatedUser(
+        id=uid,
+        username=payload.get("username", ""),
+        is_admin=bool(payload.get("admin", False)),
+        payload=payload,
+    )
 
 
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
+
+
+async def require_admin(current: CurrentUser) -> AuthenticatedUser:
+    """Gate admin-only routes. Trusts the JWT ``admin`` claim — the token has a
+    short TTL (≤15 min), so freshly-revoked admins lose access within that
+    window. Auth-svc owns the source of truth and is the only place that can
+    *grant* admin (so a revoked admin can't mint themselves a new token)."""
+    if not current.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="admin only")
+    return current
+
+
+AdminUser = Annotated[AuthenticatedUser, Depends(require_admin)]

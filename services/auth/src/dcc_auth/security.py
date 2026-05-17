@@ -93,9 +93,9 @@ class JwtSigner:
             headers={"kid": self._settings.jwt_key_id},
         )
 
-    def issue_access(self, user_id: int, username: str) -> str:
+    def issue_access(self, user_id: int, username: str, *, is_admin: bool = False) -> str:
         now = int(time.time())
-        payload = {
+        payload: dict[str, Any] = {
             "iss": self._settings.jwt_issuer,
             "aud": self._settings.jwt_audience,
             "sub": str(user_id),
@@ -104,6 +104,10 @@ class JwtSigner:
             "exp": now + self._settings.jwt_access_ttl_seconds,
             "typ": "access",
         }
+        # Only stamp the admin claim when it's true — keeps tokens smaller for
+        # the 99% case and makes the absence semantically equivalent to false.
+        if is_admin:
+            payload["admin"] = True
         return self._sign(payload)
 
     def issue_refresh(self, user_id: int) -> tuple[str, uuid.UUID, int]:

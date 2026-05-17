@@ -41,6 +41,8 @@ class UserPublic(BaseModel):
     email: EmailStr
     display_name: str | None = None
     avatar_url: str | None = None
+    is_admin: bool = False
+    disabled: bool = False
     created_at: datetime
 
     @field_serializer("id")

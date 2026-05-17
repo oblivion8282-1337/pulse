@@ -657,7 +657,7 @@ async def test_cleanup_on_disconnect_deletes_hosted_party(redis):
         def __init__(self, r):
             self.app = _App(r)
 
-    user = AuthenticatedUser(id=uid, username=f"u{uid}", payload={})
+    user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     await ws_watch.cleanup_on_disconnect(_WS(redis), user, _Mgr(), {cid})
     assert await redis.get(f"watch:channel-{cid}") is None
 
@@ -696,7 +696,7 @@ async def test_cleanup_skips_when_user_has_other_sockets(redis):
         def __init__(self, r):
             self.app = _App(r)
 
-    user = AuthenticatedUser(id=uid, username=f"u{uid}", payload={})
+    user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
         await ws_watch.cleanup_on_disconnect(_WS(redis), user, _Mgr(), {cid})
         assert await redis.get(f"watch:channel-{cid}") is not None

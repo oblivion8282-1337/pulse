@@ -50,7 +50,7 @@ async def _issue_tokens(
     user_agent: str | None,
 ) -> TokensOut:
     settings = get_settings()
-    access = signer.issue_access(user.id, user.username)
+    access = signer.issue_access(user.id, user.username, is_admin=user.is_admin)
     refresh, jti, exp_ts = signer.issue_refresh(user.id)
     rt = RefreshToken(
         jti=jti,
@@ -145,6 +145,9 @@ async def login(
     )
     if user is None or not pw_ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
+    if user.disabled:
+        # Same status code as bad-creds: don't leak whether the account exists.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
 
     tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
     await session.commit()
@@ -196,6 +199,12 @@ async def refresh(
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    if user.disabled:
+        # Disabled accounts can't extend their session — also revoke this rt so
+        # repeated attempts don't repeatedly hit the password verification path.
+        rt.revoked_at = now
+        await session.commit()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
 
     # Rotate: revoke old, issue new — only now that the row is locked.
     rt.revoked_at = now
@@ -229,6 +238,19 @@ async def logout(
 
 @router.get("/me", response_model=UserPublic)
 async def me(current: User = Depends(_get_current_user)):
+    return current
+
+
+async def _require_admin(current: User = Depends(_get_current_user)) -> User:
+    """Same as ``_get_current_user`` but 403s non-admins.
+
+    Used to gate admin-only routes both inside auth-svc and (mirrored)
+    in chat-gateway. Re-checks the DB column rather than trusting the JWT
+    claim alone — the token might be from before the admin flag was set
+    or revoked, and we'd rather pay one row-lookup than honour stale state.
+    """
+    if not current.is_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="admin only")
     return current
 
 
