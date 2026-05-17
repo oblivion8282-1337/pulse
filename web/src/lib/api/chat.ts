@@ -163,6 +163,14 @@ export const chatApi = {
       endpoint: 'chat'
     });
   },
+
+  /** Read-only view of the server-wide permission flags. The admin panel
+   *  toggles these via `/admin/permissions`; the frontend gates create-
+   *  guild + create-invite buttons on the result. Refetched live via
+   *  the `permissions_updated` WS event. */
+  getCapabilities(): Promise<{ allow_guild_creation: boolean; allow_member_invites: boolean }> {
+    return request('/capabilities', { endpoint: 'chat' });
+  },
   addReaction(messageId: string, emoji: string): Promise<void> {
     return request<void>(
       `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,

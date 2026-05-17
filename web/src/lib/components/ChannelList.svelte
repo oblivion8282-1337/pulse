@@ -18,6 +18,8 @@
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
   import type { Channel, Guild } from '$lib/api/types';
@@ -52,6 +54,15 @@
 
   let textChannels = $derived(channels.filter((c) => c.type === 0));
   let voiceChannels = $derived(channels.filter((c) => c.type === 1));
+
+  // Invite button visibility — Guild-Owner always; everyone else only
+  // when the admin hasn't restricted invites. Mirrors the server-side
+  // check in routes/invites.py (no admin-bypass for non-owner).
+  const canInvite = $derived(
+    !!guild && (
+      auth.user?.id === guild.owner_id || capabilities.allowMemberInvites
+    )
+  );
 
   function openRename(c: Channel) {
     renameChannel = c;
@@ -101,7 +112,7 @@
   <header class="flex h-12 items-center justify-between px-4 pt-3 text-text-bright">
     <span class="truncate text-base font-bold tracking-tight">{guild?.name ?? '—'}</span>
     <div class="flex items-center gap-0.5">
-      {#if guild}
+      {#if guild && canInvite}
         <Button
           variant="ghost"
           size="icon-sm"

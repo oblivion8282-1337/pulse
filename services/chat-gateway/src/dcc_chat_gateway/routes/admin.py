@@ -24,6 +24,18 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 
+
+async def _broadcast(request: Request, payload: dict) -> None:
+    """Best-effort guild:events publish — never raises."""
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is None:
+        return
+    try:
+        await mgr.publish_guild_event(payload)
+    except Exception:  # noqa: BLE001
+        import structlog
+        structlog.get_logger(__name__).exception("permissions broadcast failed")
+
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     AdminAuditLog,
@@ -162,6 +174,7 @@ async def patch_permissions(
     payload: PermissionsPatch,
     session: SessionDep,
     actor: AdminUser,
+    request: Request,
 ):
     row = await session.get(ChatSettings, 1)
     if row is None:
@@ -195,6 +208,16 @@ async def patch_permissions(
         _audit(session, actor_id=actor.id, action="permissions.patch", payload=changes)
         await session.commit()
         await session.refresh(row)
+        # Push the new flags out so connected clients can re-gate their
+        # create-guild / create-invite buttons without a page reload.
+        await _broadcast(
+            request,
+            {
+                "op": "permissions_updated",
+                "allow_guild_creation": row.allow_guild_creation,
+                "allow_member_invites": row.allow_member_invites,
+            },
+        )
     return row
 
 

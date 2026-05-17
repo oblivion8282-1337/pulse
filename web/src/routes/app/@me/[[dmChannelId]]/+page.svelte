@@ -8,6 +8,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -242,7 +243,9 @@
   currentUserId={auth.user?.id ?? null}
   homeActive={true}
   onSelect={selectGuild}
-  onCreateClick={() => goto('/app')}
+  onCreateClick={
+    auth.user?.is_admin || capabilities.allowGuildCreation ? () => goto('/app') : undefined
+  }
   onHomeClick={async () => {
     sidebarOpen = false;
     await goto('/app/@me');

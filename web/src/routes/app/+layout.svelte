@@ -5,6 +5,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
 
@@ -21,6 +22,7 @@
     await Promise.all([
       guilds.hydrate().catch((e) => console.error('guilds.hydrate failed', e)),
       directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
+      capabilities.hydrate().catch((e) => console.error('capabilities.hydrate failed', e)),
       gateway.connect().catch((e) => console.error('gateway connect', e))
     ]);
     hydrated = true;

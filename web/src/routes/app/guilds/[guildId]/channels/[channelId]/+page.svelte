@@ -10,6 +10,7 @@
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import CreateChannelDialog from '$lib/components/CreateChannelDialog.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -334,7 +335,11 @@
   activeGuildId={guildId}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={() => (creatingGuild = true)}
+  onCreateClick={
+    auth.user?.is_admin || capabilities.allowGuildCreation
+      ? () => (creatingGuild = true)
+      : undefined
+  }
   onHomeClick={() => { sidebarOpen = false; void goto('/app/@me'); }}
   onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
 />

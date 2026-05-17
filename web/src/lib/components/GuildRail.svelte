@@ -43,7 +43,9 @@
     /** Show the active pill on the home button (e.g. when on /app/@me). */
     homeActive?: boolean;
     onSelect: (g: Guild) => void;
-    onCreateClick: () => void;
+    /** Hide the "+" button when undefined (e.g. when the admin disabled
+     *  guild-creation for non-admins). */
+    onCreateClick?: () => void;
     /** Overrides the default `href="/app"` navigation. */
     onHomeClick?: () => void;
     onGuildDeleted?: (guildId: string) => void;
@@ -253,22 +255,24 @@
       </ContextMenu.Root>
     {/each}
 
-    <Tooltip.Root>
-      <Tooltip.Trigger>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
-            onclick={onCreateClick}
-            data-testid="guild-create"
-            aria-label="Server erstellen"
-          >
-            <PlusIcon class="size-5" />
-          </button>
-        {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content side="right">Server erstellen</Tooltip.Content>
-    </Tooltip.Root>
+    {#if onCreateClick}
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <button
+              {...props}
+              class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
+              onclick={onCreateClick}
+              data-testid="guild-create"
+              aria-label="Server erstellen"
+            >
+              <PlusIcon class="size-5" />
+            </button>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content side="right">Server erstellen</Tooltip.Content>
+      </Tooltip.Root>
+    {/if}
   </Tooltip.Provider>
 </nav>
 

@@ -28,6 +28,7 @@ import {
 } from '$lib/stores/watchPartyPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import { userCache } from '$lib/stores/users.svelte';
+import { capabilities } from '$lib/stores/capabilities.svelte';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import type { DMChannel, Message } from '$lib/api/types';
@@ -111,6 +112,11 @@ type ServerEvent =
     }
   | { op: 'watch_state'; channel_id: string; state: WatchPartyState | null }
   | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
+  | {
+      op: 'permissions_updated';
+      allow_guild_creation: boolean;
+      allow_member_invites: boolean;
+    }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -275,6 +281,7 @@ export class GatewayConnection {
       evt.op !== 'stream_chat_message' &&
       evt.op !== 'watch_state' &&
       evt.op !== 'watch_chat_message' &&
+      evt.op !== 'permissions_updated' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -442,6 +449,12 @@ export class GatewayConnection {
         break;
       case 'watch_chat_message':
         watchChat.apply(evt.channel_id, evt.message);
+        break;
+      case 'permissions_updated':
+        capabilities.apply({
+          allow_guild_creation: evt.allow_guild_creation,
+          allow_member_invites: evt.allow_member_invites
+        });
         break;
     }
   }

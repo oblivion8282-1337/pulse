@@ -6,9 +6,15 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
   import { chatApi } from '$lib/api/chat';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import SidebarFooter from '$lib/components/SidebarFooter.svelte';
+
+  // Admins can always create; otherwise gate on the server-wide flag.
+  const canCreateGuild = $derived(
+    !!auth.user?.is_admin || capabilities.allowGuildCreation
+  );
 
   let creating = $state(false);
 
@@ -45,7 +51,7 @@
   activeGuildId={null}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
-  onCreateClick={() => (creating = true)}
+  onCreateClick={canCreateGuild ? () => (creating = true) : undefined}
 />
 
 <aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-60 md:rounded-2xl lg:w-68" data-testid="channel-list-placeholder">
@@ -57,7 +63,13 @@
   {#if guilds.list.length === 0}
     <div class="text-center">
       <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Server</p>
-      <Button onclick={() => (creating = true)} data-testid="empty-create-guild">Server erstellen</Button>
+      {#if canCreateGuild}
+        <Button onclick={() => (creating = true)} data-testid="empty-create-guild">Server erstellen</Button>
+      {:else}
+        <p class="text-text-muted text-xs">
+          Server-Erstellung ist vom Admin deaktiviert. Bitte einen Server-Admin um eine Einladung.
+        </p>
+      {/if}
     </div>
   {:else}
     Wähle einen Server.
