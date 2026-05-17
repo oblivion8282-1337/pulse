@@ -678,8 +678,32 @@ class VoiceRoom {
       .on(RoomEvent.ParticipantConnected, () => this.#refreshParticipants())
       .on(RoomEvent.ParticipantDisconnected, () => this.#refreshParticipants())
       .on(RoomEvent.ActiveSpeakersChanged, () => this.#refreshParticipants())
-      .on(RoomEvent.TrackMuted, () => this.#refreshParticipants())
-      .on(RoomEvent.TrackUnmuted, () => this.#refreshParticipants())
+      .on(RoomEvent.TrackMuted, (pub, p) => {
+        // setCameraEnabled(false) mutes the published track instead of
+        // unpublishing it — the track stays subscribed forever otherwise. Pull
+        // the muted cam out of the visible-cameras list so we don't render a
+        // ghost tile with no video flowing.
+        if (
+          pub.source === Track.Source.Camera &&
+          pub.kind === Track.Kind.Video &&
+          p instanceof RemoteParticipant
+        ) {
+          const sid = pub.trackSid ?? pub.track?.sid;
+          if (sid) this.#cameras.remove(sid);
+        }
+        this.#refreshParticipants();
+      })
+      .on(RoomEvent.TrackUnmuted, (pub, p) => {
+        if (
+          pub.source === Track.Source.Camera &&
+          pub.kind === Track.Kind.Video &&
+          p instanceof RemoteParticipant &&
+          pub.track
+        ) {
+          this.#cameras.add(pub.track as RemoteVideoTrack, p);
+        }
+        this.#refreshParticipants();
+      })
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (pub.source === Track.Source.Microphone) {
           void this.applyNoiseFilter();
@@ -720,7 +744,13 @@ class VoiceRoom {
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#screenShare.addVideo(track as RemoteVideoTrack, p);
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.Camera) {
-          this.#cameras.add(track as RemoteVideoTrack, p);
+          // A subscribed camera track can still be muted (publisher turned cam
+          // off after a previous on — LiveKit keeps the publication, just mutes
+          // it). Wait for TrackUnmuted before showing a tile, otherwise we'd
+          // render an empty video element.
+          if (!(track as RemoteVideoTrack).isMuted) {
+            this.#cameras.add(track as RemoteVideoTrack, p);
+          }
         }
         this.#refreshParticipants();
       })

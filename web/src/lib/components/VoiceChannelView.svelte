@@ -110,11 +110,14 @@
 
   // Reset auf collapsed bei Channel-Wechsel + jegliche User-spezifischen Hide-
   // Flags wegwerfen, sodass ein Re-Join nicht mit alter „Cam X ausgeblendet"-
-  // Erinnerung startet.
+  // Erinnerung startet. WICHTIG: `resetChannel` selbst LIEST + SCHREIBT
+  // hiddenTiles' interne Set-Rune — ohne `untrack` würde der Effekt dadurch
+  // bei jedem Hide-Klick re-firen und `streamViewOpen=false` setzen (=
+  // Symptom: Tile-X klickt → Grid kollabiert → User denkt er wurde gekickt).
   $effect(() => {
     const cid = channel.id;
     streamViewOpen = false;
-    hiddenTiles.resetChannel(cid);
+    untrack(() => hiddenTiles.resetChannel(cid));
   });
 
   // Sidebar-LIVE-Badge: setzt streamOpenRequest.pendingChannelId. Effekt
