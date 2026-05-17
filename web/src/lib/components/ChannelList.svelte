@@ -24,8 +24,7 @@
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
-  import VoiceControlBar from './VoiceControlBar.svelte';
-  import UserFooter from './UserFooter.svelte';
+  import SidebarFooter from './SidebarFooter.svelte';
 
   let {
     guild,
@@ -277,8 +276,5 @@
     {/if}
   </nav>
 
-  {#if voice.connected || voice.connecting}
-    <VoiceControlBar />
-  {/if}
-  <UserFooter />
+  <SidebarFooter />
 </aside>

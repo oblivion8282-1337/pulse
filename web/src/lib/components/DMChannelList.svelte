@@ -4,7 +4,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import UserFooter from './UserFooter.svelte';
+  import SidebarFooter from './SidebarFooter.svelte';
   import type { DMChannel } from '$lib/api/types';
 
   let {
@@ -76,5 +76,5 @@
     {/each}
   </nav>
 
-  <UserFooter />
+  <SidebarFooter />
 </aside>

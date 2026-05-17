@@ -8,7 +8,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { chatApi } from '$lib/api/chat';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import UserFooter from '$lib/components/UserFooter.svelte';
+  import SidebarFooter from '$lib/components/SidebarFooter.svelte';
 
   let creating = $state(false);
 
@@ -50,7 +50,7 @@
 
 <aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list-placeholder">
   <div class="flex-1"></div>
-  <UserFooter />
+  <SidebarFooter />
 </aside>
 
 <div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
