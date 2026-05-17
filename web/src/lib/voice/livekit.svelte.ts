@@ -26,7 +26,7 @@ import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { settings } from '$lib/stores/settings.svelte';
 import { AudioDevices } from './audioDevices.svelte';
-import { createNoiseProcessor } from './noiseFilter';
+import { createSendProcessor, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
 import { nameFor, userIdFromIdentity } from './identity';
@@ -78,23 +78,44 @@ class VoiceRoom {
   localMicLevel = $state(0);
   /** Whether the local user is currently speaking (RMS-based, not server). */
   localSpeaking = $state(false);
+  /** 0..1 instantaneous level AFTER the noise filter + makeup gain — what's
+   *  actually going into the encoder, i.e. what other listeners hear. */
+  localSendLevel = $state(0);
+  /** True while the post-gain send signal is clipping (~ -1 dBFS). */
+  localSendClip = $state(false);
 
   #screenShare = new ScreenShareTracks();
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
   #localMic = new LocalMicAnalyser(
-    (n) => { this.localMicLevel = n; },
+    (n) => {
+      this.localMicLevel = n;
+      // No send-side processor installed = raw mic IS the published track.
+      // Mirror the input level into the send meter so the settings panel
+      // shows something sensible (clip stays false — raw mic gain is unity).
+      if (this.#sendProcessorMode === 'off') this.localSendLevel = n;
+    },
     (s) => { this.#setLocalSpeaking(s); }
   );
+  /** Display-level state for the send meter (peak-meter ballistics, identical
+   *  shape to what LocalMicAnalyser does for raw mic but driven by the
+   *  in-processor tap callback so we stay in the processor's AudioContext). */
+  #sendDisplayLevel = 0;
+  #sendClipping = false;
+  #sendClipUntilMs = 0;
   #levelTimer: ReturnType<typeof setInterval> | null = null;
   /** Mic state captured at deafen-on so un-deafen can restore it. */
   #micEnabledBeforeDeafen = false;
   #teardownDone = false;
-  /** Active noise-suppression processor mode, so we don't re-apply unnecessarily. */
-  #noiseProcessorMode: string = 'off';
-  /** Live-tune handle for the post-RNNoise hard gate (null when filter is off). */
+  /** Effective send-processor state. Drives applyNoiseFilter's swap decisions —
+   *  re-evaluated against (noiseSuppression, inputMakeupGain≠1) on every call. */
+  #sendProcessorMode: 'off' | SendProcessorMode = 'off';
+  /** Live-tune handle for the post-RNNoise hard gate (null when filter is off
+   *  or the gain-only processor is the active one). */
   #noiseGateSetter: ((openDb: number) => void) | null = null;
+  /** Live-tune handle for the post-gate makeup gain (null when no processor). */
+  #makeupSetter: ((v: number) => void) | null = null;
 
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
@@ -232,6 +253,7 @@ class VoiceRoom {
         this.#attachLocalAnalyser();
       } else {
         this.#localMic.detach();
+        this.#resetSendLevel();
       }
     } catch (e) {
       this.error = e instanceof Error ? e.message : 'Mikrofon-Zugriff fehlgeschlagen';
@@ -372,33 +394,51 @@ class VoiceRoom {
   }
 
   /**
-   * (Re)apply the noise-suppression processor to the local mic track based on
-   * `settings.audio.noiseSuppression`. No-op when not connected / no mic track.
+   * (Re)apply the send-side processor to the local mic track based on the
+   * current `noiseSuppression` and `inputMakeupGain` settings:
+   *   NS = 'rnnoise_gated'                → RnnoiseGatedTrackProcessor (gain inside)
+   *   NS = 'off', inputMakeupGain ≠ 1.0   → GainOnlyTrackProcessor
+   *   NS = 'off', inputMakeupGain = 1.0   → no processor (raw mic published)
+   * No-op when not connected / no mic track. Cheap when the target mode
+   * matches the current one — just live-tunes the makeup gain.
    */
   async applyNoiseFilter(): Promise<void> {
     const room = this.#room;
     if (!room) return;
-    const mode = settings.audio.noiseSuppression;
+    const ns = settings.audio.noiseSuppression;
+    const gain = settings.audio.inputMakeupGain;
+    const target: 'off' | SendProcessorMode =
+      ns === 'rnnoise_gated' ? 'rnnoise_gated' : gain !== 1 ? 'gain_only' : 'off';
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
     const audioTrack = pub?.audioTrack;
     if (!audioTrack) return;
-    if (mode === this.#noiseProcessorMode) return;
+    if (target === this.#sendProcessorMode) {
+      // Same mode — just live-tune the makeup. Cheap, no track swap.
+      this.#makeupSetter?.(gain);
+      return;
+    }
     try {
-      if (mode === 'rnnoise_gated') {
-        const handle = createNoiseProcessor(mode, settings.audio.noiseGateThresholdDb);
-        await audioTrack.setProcessor(handle.processor);
-        this.#noiseGateSetter = handle.setGateThreshold;
-      } else {
+      if (target === 'off') {
         await audioTrack.stopProcessor();
         this.#noiseGateSetter = null;
+        this.#makeupSetter = null;
+        this.#resetSendLevel();
+      } else {
+        const handle = createSendProcessor(target, settings.audio.noiseGateThresholdDb, gain);
+        await audioTrack.setProcessor(handle.processor);
+        this.#noiseGateSetter = handle.setGateThreshold;
+        this.#makeupSetter = handle.setMakeupGain;
+        handle.setLevelTap(this.#onSendLevel);
       }
-      this.#noiseProcessorMode = mode;
-      // Processor swap replaces the published mediaStreamTrack — rebind the meter.
+      this.#sendProcessorMode = target;
+      // Processor swap replaces the published mediaStreamTrack — rebind raw meter.
       this.#attachLocalAnalyser();
     } catch (e) {
-      this.#noiseProcessorMode = 'off';
+      this.#sendProcessorMode = 'off';
       this.#noiseGateSetter = null;
-      toast.error('Rauschunterdrückung konnte nicht aktiviert werden', {
+      this.#makeupSetter = null;
+      this.#resetSendLevel();
+      toast.error('Audio-Pfad konnte nicht aktualisiert werden', {
         description: e instanceof Error ? e.message : undefined
       });
     }
@@ -408,6 +448,14 @@ class VoiceRoom {
    *  the filter is off. Persisting is the caller's job. */
   setNoiseGateThresholdDb(openDb: number): void {
     this.#noiseGateSetter?.(openDb);
+  }
+
+  /** Live-update the sender-side makeup gain on whatever processor is currently
+   *  installed. If no processor is installed (NS off + previous gain was 1.0),
+   *  the change won't be audible until applyNoiseFilter() reruns — typically
+   *  via the slider's onchange handler. Persisting is the caller's job. */
+  setInputMakeupGain(v: number): void {
+    this.#makeupSetter?.(v);
   }
 
   // --- internals -----------------------------------------------------
@@ -475,9 +523,11 @@ class VoiceRoom {
           this.isScreenSharing = false;
         }
         if (pub.source === Track.Source.Microphone) {
-          this.#noiseProcessorMode = 'off';
+          this.#sendProcessorMode = 'off';
           this.#noiseGateSetter = null;
+          this.#makeupSetter = null;
           this.#localMic.detach();
+          this.#resetSendLevel();
         }
         this.#refreshParticipants();
       })
@@ -600,6 +650,40 @@ class VoiceRoom {
     this.#localMic.attach(raw ?? audioTrack?.mediaStreamTrack ?? null);
   }
 
+  /** RAF-callback from the processor's internal post-gain AnalyserNode tap.
+   *  Same ballistics + dBFS scaling as LocalMicAnalyser so both meters look
+   *  consistent. Clip flag is driven by raw peak amplitude > ~-1 dBFS with a
+   *  300 ms hold so a single crackle stays visible. */
+  #onSendLevel = (rms: number, peak: number): void => {
+    let level = 0;
+    if (rms > 0.0005) {
+      const db = 20 * Math.log10(rms);
+      level = Math.max(0, Math.min(1, (db + 50) / 45));
+    }
+    if (level > this.#sendDisplayLevel) this.#sendDisplayLevel = level;
+    else this.#sendDisplayLevel = this.#sendDisplayLevel * 0.85 + level * 0.15;
+    this.localSendLevel = this.#sendDisplayLevel;
+    const now = performance.now();
+    if (peak >= 0.891) {
+      this.#sendClipUntilMs = now + 300;
+      if (!this.#sendClipping) {
+        this.#sendClipping = true;
+        this.localSendClip = true;
+      }
+    } else if (this.#sendClipping && now >= this.#sendClipUntilMs) {
+      this.#sendClipping = false;
+      this.localSendClip = false;
+    }
+  };
+
+  #resetSendLevel(): void {
+    this.#sendDisplayLevel = 0;
+    this.#sendClipping = false;
+    this.#sendClipUntilMs = 0;
+    this.localSendLevel = 0;
+    this.localSendClip = false;
+  }
+
   #setLocalSpeaking(s: boolean): void {
     if (this.localSpeaking === s) return;
     this.localSpeaking = s;
@@ -616,10 +700,12 @@ class VoiceRoom {
     this.#teardownDone = true;
     this.#stopLevelPolling();
     this.#localMic.detach();
+    this.#resetSendLevel();
     this.#audioEls.clear();
     this.#room = null;
-    this.#noiseProcessorMode = 'off';
+    this.#sendProcessorMode = 'off';
     this.#noiseGateSetter = null;
+    this.#makeupSetter = null;
     this.state = ConnectionState.Disconnected;
     if (this.channelId) {
       const myUserId = auth.user?.id;

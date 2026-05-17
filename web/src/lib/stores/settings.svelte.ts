@@ -51,6 +51,9 @@ type AudioSettings = {
   noiseGateThresholdDb: number;
   voiceBitrateKbps: number;
   stereo: boolean;
+  /** Linear gain applied to your own mic after the noise filter, before the
+   *  Opus encoder. 1.0 = pass-through. Other listeners hear this. */
+  inputMakeupGain: number;
 };
 
 type VoiceSettings = {
@@ -64,6 +67,12 @@ type VoiceSettings = {
 
 const USER_VOLUME_MIN = 0;
 const USER_VOLUME_MAX = 4;
+
+// Sender-side linear gain on the local mic AFTER the noise filter, BEFORE the
+// encoder. 0.5 = -6 dB (hot mic → quieter), 1.0 = pass-through, 4.0 = +12 dB.
+const INPUT_MAKEUP_MIN = 0.5;
+const INPUT_MAKEUP_MAX = 4;
+const INPUT_MAKEUP_DEFAULT = 1;
 /** Hard cap to keep the persisted record bounded — entries beyond this are
  *  FIFO-dropped at write time. Tuned for "you'll never adjust this many
  *  unique users on purpose" rather than a precise LRU. */
@@ -107,7 +116,8 @@ const DEFAULTS: PersistedSettings = {
     noiseSuppression: 'rnnoise_gated',
     noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
     voiceBitrateKbps: 128,
-    stereo: false
+    stereo: false,
+    inputMakeupGain: INPUT_MAKEUP_DEFAULT
   },
   voice: {
     pttMode: false,
@@ -137,6 +147,11 @@ function clampBitrate(v: unknown): number {
 function clampGateDb(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return NOISE_GATE_DB_DEFAULT;
   return Math.min(NOISE_GATE_DB_MAX, Math.max(NOISE_GATE_DB_MIN, Math.round(v)));
+}
+
+function clampInputMakeup(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return INPUT_MAKEUP_DEFAULT;
+  return Math.min(INPUT_MAKEUP_MAX, Math.max(INPUT_MAKEUP_MIN, v));
 }
 
 function str(v: unknown, fallback: string): string {
@@ -250,7 +265,8 @@ function load(): PersistedSettings {
               : da.noiseSuppression,
         noiseGateThresholdDb: clampGateDb(a.noiseGateThresholdDb),
         voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
-        stereo: bool(a.stereo, da.stereo)
+        stereo: bool(a.stereo, da.stereo),
+        inputMakeupGain: clampInputMakeup(a.inputMakeupGain)
       },
       voice: {
         pttMode: bool(v.pttMode, dv.pttMode),
@@ -375,6 +391,11 @@ class SettingsStore {
     this.#persist();
   }
 
+  setInputMakeupGain(v: number): void {
+    this.audio.inputMakeupGain = clampInputMakeup(v);
+    this.#persist();
+  }
+
   // --- voice / PTT setters ---
 
   setPttMode(v: boolean): void {
@@ -461,4 +482,7 @@ export {
   SCREEN_SHARE_BITRATE_MAX,
   USER_VOLUME_MIN,
   USER_VOLUME_MAX,
+  INPUT_MAKEUP_MIN,
+  INPUT_MAKEUP_MAX,
+  INPUT_MAKEUP_DEFAULT,
 };

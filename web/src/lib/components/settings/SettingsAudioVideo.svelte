@@ -10,6 +10,7 @@
   import InfoIcon from '@lucide/svelte/icons/info';
   import { voice } from '$lib/voice/livekit.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
+  import MicGainControl from './MicGainControl.svelte';
 
   let listeningForPttKey = $state(false);
 
@@ -198,6 +199,8 @@
       />
     </label>
   </div>
+
+  <MicGainControl />
 
   <!-- Bitrate + Stereo -->
   <div class="flex flex-col gap-2">
