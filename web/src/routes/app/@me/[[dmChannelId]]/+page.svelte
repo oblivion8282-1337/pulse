@@ -132,10 +132,11 @@
     gateway.subscribe(cid);
     const loaded = messages.for(cid);
     const latestSeen = loaded[loaded.length - 1]?.id;
-    if (latestSeen) {
-      readState.recordSeen(cid, latestSeen);
-      readState.markRead(cid, latestSeen);
-    }
+    if (latestSeen) readState.recordSeen(cid, latestSeen);
+    // Acknowledge up to whatever we know is the latest — including ids
+    // bumped in via dm_bump while we weren't subscribed (those don't land
+    // in `messages.byChannel`, so `latestSeen` can lag behind).
+    readState.markRead(cid);
     untrack(() => (prevDM = cid));
     loadError = null;
     resolving = false;

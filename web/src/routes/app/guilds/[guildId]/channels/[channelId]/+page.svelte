@@ -152,12 +152,13 @@
         if (isStale()) return;
         gateway.subscribe(target);
         // Acknowledge unread state: the user is now looking at this channel.
+        // markRead uses latestByChannel — which also reflects ids learned via
+        // channel_bump while we weren't subscribed. loaded[…].id alone would
+        // lag behind those.
         const loaded = messages.for(target);
         const latestSeen = loaded[loaded.length - 1]?.id;
-        if (latestSeen) {
-          readState.recordSeen(target, latestSeen);
-          readState.markRead(target, latestSeen);
-        }
+        if (latestSeen) readState.recordSeen(target, latestSeen);
+        readState.markRead(target);
       }
       // Record prevChannel only after the whole operation succeeded.
       untrack(() => (prevChannel = target!));
