@@ -2,14 +2,12 @@
  * Watch-Party presence store — mirrors `streamPresence.svelte.ts`.
  *
  * One active watch party per voice channel, max. State is owned end-to-end by
- * chat-gateway (`watchkeys.py`), fed into the store from three sources:
+ * chat-gateway (`watchkeys.py`), fed into the store from two sources:
  *  - the `ready` payload's `watch_states: [{channel_id, state}, ...]` →
  *    {@link seed} (replaces the map; runs on every (re)connect so it doubles
  *    as the reconnect re-sync);
  *  - the `{op:"watch_state", channel_id, state}` WS push → {@link apply}
- *    (full state snapshot, or `state: null` when the party ended);
- *  - the `GET /api/chat/guilds/{guildId}/watch-state` REST endpoint (same
- *    shape) for explicit re-sync after a guild switch.
+ *    (full state snapshot, or `state: null` when the party ended).
  */
 
 export type WatchSourceYouTube = {

@@ -8,7 +8,7 @@
  *
  *   E1b: `pulse.gsr.*`        — sidecar bridge (health, gpuInfo, listProfiles,
  *                               listApplicationAudio, buildArgv, start, stop,
- *                               state, onEvent) — implemented below
+ *                               onEvent) — implemented below
  *   E1c: `pulse.store.*`      — settings/token persistence (`get`/`getAll`/`set`),
  *                               backed by the hand-rolled store in `store.ts`
  *   later: `pulse.onPttDown` / `pulse.onPttUp` — once a native key-listener exists
@@ -51,7 +51,6 @@ contextBridge.exposeInMainWorld('pulse', {
     buildArgv: (args: unknown) => gsrCall('build_argv', args),
     start: (args: unknown) => gsrCall('start', args),
     stop: () => gsrCall('stop'),
-    state: () => gsrCall('state'),
 
     /** Subscribe to sidecar events (`{ev:..,...}`). Returns an unsubscribe fn.
      *  The renderer-supplied `cb` is invoked from inside this bridge function —

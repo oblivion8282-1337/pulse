@@ -20,7 +20,8 @@ class VoicePresenceStore {
    * map sparse. */
   userStatesByChannel = $state<Record<string, Record<string, UserVoiceState>>>({});
 
-  /** Seed from ready payload or REST re-sync. Replaces all existing state. */
+  /** Seed from the ready payload (re-sync after WS (re)connect). Replaces all
+   * existing state. */
   seed(states: VoiceChannelState[]): void {
     const next: Record<string, string[]> = {};
     const nextStreaming: Record<string, string[]> = {};

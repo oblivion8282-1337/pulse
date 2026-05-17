@@ -56,8 +56,3 @@ export function createTray(
 
   return tray;
 }
-
-export function destroyTray(): void {
-  tray?.destroy();
-  tray = null;
-}

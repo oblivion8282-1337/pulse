@@ -2,8 +2,8 @@
 
 Projekt: **Pulse — Web-First Discord-artiger Chat + Voice + HQ-Screen-Streaming**.
 Monorepo: uv-Workspace (Backend) + pnpm-Workspace (`web`, `desktop`).
-Vollständige Architektur + History: `PLAN.md`, `NIGHT_RUN_REPORT.md`, `ETAPPE_2_REPORT.md`,
-`infra/prod/DEPLOY.md`, `streaming/README.md` und `git log`. **Hier nur die nicht-offensichtlichen Dinge.**
+Vollständige Architektur + History: `PLAN.md`, `infra/prod/DEPLOY.md`, `streaming/README.md` und `git log`.
+**Hier nur die nicht-offensichtlichen Dinge.**
 Alle Stages (Etappe 1/1.5/2, HQ-Streaming, Electron-Pivot, Flatpak) sind auf `main` — kein Worktree mehr.
 
 ## Was das Projekt macht
@@ -99,7 +99,8 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
 `livekit.api.WebhookReceiver`, Key `devkey` = `webhook:`-Block in `infra/livekit/livekit.yaml`) → pflegt Redis-Sets
 `voice:room:channel-<id>` (TTL 6h, Self-Heal) → published auf `voice:events`. chat-gateway abonniert das im
 `ConnectionManager` → broadcastet `{"op":"voice_state","channel_id":..,"user_ids":[..]}`; `ready`-Payload trägt
-`voice_states`; REST `GET /guilds/{id}/voice-state` fürs Re-Sync nach Reconnect.
+`voice_states` → Re-Sync nach Reconnect läuft über den `ready`-Frame (das Backend bietet auch
+`GET /guilds/{id}/voice-state` an, hat aber keinen aktiven Frontend-Consumer).
 
 **HQ-Streaming** (per-User-Pfade — mehrere können in denselben Voice-Channel streamen):
 - `media-svc` (8004): vergibt Stream-Tokens (`POST /channels/{cid}/stream-token`, Auth = Pulse-Access-JWT, von
@@ -113,14 +114,15 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
   `stream:events` Pub/Sub: `{channel_id, user_ids:[...]}` pro State-Change. Key-Namen sind in
   `dcc_media_svc/streamkeys.py` + `dcc_mediamtx_auth_hook/shared.py` **dupliziert** (die Services teilen keinen Code — synchron halten).
 - chat-gateway: abonniert `stream:events` (neben `voice:events`) → broadcastet `{"op":"stream_state","channel_id":..,"user_ids":[..]}`;
-  `ready.stream_states` + `GET /guilds/{id}/stream-state` lesen `stream:channel:*` direkt aus Redis. Zwei
+  `ready.stream_states` liest `stream:channel:*` direkt aus Redis (analog `GET /guilds/{id}/stream-state`, das Backend
+  bietet den Endpoint an, aber das Frontend re-synced ausschließlich über `ready`). Zwei
   Membership-gateete media-svc-Proxies: `POST /channels/{id}/stream-token` (Channel existiert + User=Member + Channel
   ist Voice-Channel) und `GET /channels/{id}/whep?user_id=<uid>`. Braucht `MEDIA_SVC_URL` (Dev `http://127.0.0.1:8004`;
   fehlt media-svc → 502 nur auf diesen Routen, Rest läuft).
 - Push geht über **RTMPS** (`rtmps://<host>:1936/...`, Token nicht im Klartext) — MediaMTX `rtmpEncryption: optional`
   (plain :1935 bleibt funktionsfähig), self-signed Cert als Host-Volume (`/certs/server.{crt,key}`), UFW `1936/tcp`.
 - Frontend: `web/src/lib/stores/streamPresence.svelte.ts` (`byChannel: channelId→string[]`, `streamersIn()/isStreaming()`,
-  gefüttert aus `ready.stream_states` + WS-`stream_state` + `chatApi.getGuildStreamState`), `web/src/lib/stream/whep.ts`
+  gefüttert aus `ready.stream_states` + WS-`stream_state`), `web/src/lib/stream/whep.ts`
   (hand-rolled WHEP-Client, ~120 Z., keine neue Dep — Pattern aus dem GSR-`player.html`), `stream/components/WhepPlayer.svelte`
   (Props `userId`+`name`, Retry-Backoff, „Ton aktivieren"-Overlay bei Autoplay-Block, Stats-Overlay),
   `components/VoiceChannelView.svelte` (HQ-Streams + Browser-Screenshares in einem responsiven Grid; ein `WhepPlayer`

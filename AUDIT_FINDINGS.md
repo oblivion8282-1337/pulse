@@ -104,8 +104,8 @@ Status-Legende: `[ ]` offen · `[x]` gefixt in diesem Durchlauf · `[-]` bewusst
   ohne `try/except`: eine korrupte Redis-Message warf `JSONDecodeError`, der
   `_listen`-Loop fing das im äußeren `except`, loggte und `raise`-te → **der
   einzige Listener-Task für alle Channels stirbt**. (b) `_started` blieb dabei
-  `True` → ein späterer `start()` machte nichts (Self-Heal unmöglich; bereits in
-  `NIGHT_RUN_REPORT.md` notiert). (c) `await ws.send_json(envelope)` seriell pro
+  `True` → ein späterer `start()` machte nichts (Self-Heal unmöglich). (c)
+  `await ws.send_json(envelope)` seriell pro
   Ziel-Socket → ein langsamer/hängender Client verzögert die Zustellung an alle
   anderen (HoL-Blocking).
   **Fix:** `json.loads` pro Message in `try/except` → korrupte Messages werden

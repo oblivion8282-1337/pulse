@@ -9,9 +9,7 @@ import type {
   Member,
   Message
 } from './types';
-import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
-import type { WatchChannelEntry } from '$lib/stores/watchPartyPresence.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 
 /** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
@@ -54,13 +52,6 @@ export const chatApi = {
   },
 
   // Members
-  addMember(guildId: string, userId: string): Promise<Member> {
-    return request<Member>(`/guilds/${guildId}/members`, {
-      method: 'POST',
-      // Pass as string — snowflake IDs exceed 2^53 and Number() drops precision.
-      body: { user_id: userId }
-    });
-  },
   listMembers(guildId: string): Promise<Member[]> {
     return request<Member[]>(`/guilds/${guildId}/members`);
   },
@@ -77,9 +68,6 @@ export const chatApi = {
       method: 'POST',
       body: { type: 0, position: 0, topic: null, ...payload }
     });
-  },
-  getChannel(channelId: string): Promise<Channel> {
-    return request<Channel>(`/channels/${channelId}`);
   },
   deleteChannel(channelId: string): Promise<void> {
     return request<void>(`/channels/${channelId}`, { method: 'DELETE' });
@@ -242,17 +230,6 @@ export const chatApi = {
       `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}`
     );
   },
-  /** Channels in the guild that currently have an active HQ stream — re-sync helper. */
-  async getGuildStreamState(guildId: string): Promise<StreamChannelState[]> {
-    const r = await request<{ stream_states: StreamChannelState[] }>(`/guilds/${guildId}/stream-state`);
-    return r.stream_states ?? [];
-  },
-  /** Channels in the guild with an active watch party — re-sync helper. */
-  async getGuildWatchState(guildId: string): Promise<WatchChannelEntry[]> {
-    const r = await request<{ watch_states: WatchChannelEntry[] }>(`/guilds/${guildId}/watch-state`);
-    return r.watch_states ?? [];
-  },
-
   // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State
   // pro Streamer in `streamChat.svelte.ts`).
   /** Post a message into a streamer's live chat. 410 if the stream isn't active. */

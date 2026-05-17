@@ -63,9 +63,6 @@ class _S3Mock:
         self.deleted.append(key)
         self.uploaded.discard(key)
 
-    async def object_exists(self, key):
-        return key in self.uploaded
-
 
 @pytest.fixture
 def mock_s3(monkeypatch):
@@ -73,7 +70,6 @@ def mock_s3(monkeypatch):
     monkeypatch.setattr(s3_mod, "presigned_put_url", m.presigned_put_url)
     monkeypatch.setattr(s3_mod, "presigned_get_url", m.presigned_get_url)
     monkeypatch.setattr(s3_mod, "delete_object", m.delete_object)
-    monkeypatch.setattr(s3_mod, "object_exists", m.object_exists)
     return m
 
 

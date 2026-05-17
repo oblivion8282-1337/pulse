@@ -110,14 +110,6 @@ export interface GsrStopResult {
   note?: string;
   error?: string;
 }
-export interface GsrState {
-  ok: boolean;
-  running: boolean;
-  state: string;
-  fps: number | null;
-  uptime_s: number;
-  argv: string[] | null;
-}
 
 // ── Event types (forwarded from the sidecar) ────────────────────────────────
 
@@ -172,10 +164,6 @@ export const gsr = {
   async stop(): Promise<GsrStopResult | null> {
     const b = bridge();
     return b ? ((await b.stop()) as GsrStopResult) : null;
-  },
-  async state(): Promise<GsrState | null> {
-    const b = bridge();
-    return b ? ((await b.state()) as GsrState) : null;
   },
 
   /**

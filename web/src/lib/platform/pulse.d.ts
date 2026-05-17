@@ -33,7 +33,6 @@ export interface PulseGsrApi {
   buildArgv(args: unknown): Promise<unknown>;
   start(args: unknown): Promise<unknown>;
   stop(): Promise<unknown>;
-  state(): Promise<unknown>;
   /** Subscribe to sidecar events. Returns an unsubscribe function. */
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
 }

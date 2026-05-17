@@ -3,15 +3,13 @@
  *
  * Tracks, per channel, *which users* currently have an HQ stream (GSR → MediaMTX)
  * running into it — several people can stream into the same voice channel at
- * once (each gets their own MediaMTX path / WHEP URL). Fed from three sources,
+ * once (each gets their own MediaMTX path / WHEP URL). Fed from two sources,
  * exactly like voice presence is fed from `voice:room:*`:
  *  - the `ready` payload's `stream_states: [{channel_id, user_ids}, ...]` →
  *    {@link seed} (replaces the whole map; happens on every (re)connect, so it
  *    doubles as the reconnect re-sync);
  *  - the `{op:"stream_state", channel_id, user_ids}` WS push → {@link apply}
- *    (the *full* current set after the change);
- *  - the `GET /api/chat/guilds/{guildId}/stream-state` REST endpoint (same
- *    `{stream_states}` shape) for an explicit re-sync after a guild switch.
+ *    (the *full* current set after the change).
  *
  * Distinct from `voicePresence.streamingByChannel`, which tracks LiveKit
  * *screen-share* tracks (the in-call browser screen share), not the per-channel

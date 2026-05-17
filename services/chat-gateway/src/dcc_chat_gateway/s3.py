@@ -122,21 +122,6 @@ async def delete_object(key: str) -> None:
         await client.delete_object(Bucket=s.s3_bucket, Key=key)
 
 
-async def object_exists(key: str) -> bool:
-    """Used to verify an upload landed before associating the attachment with
-    a message (Two-Phase commit on the message-send path)."""
-    s = get_settings()
-    async with _internal_client() as client:
-        try:
-            await client.head_object(Bucket=s.s3_bucket, Key=key)
-            return True
-        except client.exceptions.ClientError as exc:
-            code = exc.response.get("Error", {}).get("Code")
-            if code in ("404", "NoSuchKey", "NotFound"):
-                return False
-            raise
-
-
 async def total_bucket_bytes() -> int | None:
     """Sum the Size of every object in the attachments bucket.
 
