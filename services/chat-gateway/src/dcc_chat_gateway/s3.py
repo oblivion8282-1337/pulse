@@ -135,3 +135,24 @@ async def object_exists(key: str) -> bool:
             if code in ("404", "NoSuchKey", "NotFound"):
                 return False
             raise
+
+
+async def total_bucket_bytes() -> int | None:
+    """Sum the Size of every object in the attachments bucket.
+
+    Used by the admin Übersicht-Tab. Returns ``None`` if MinIO is
+    unreachable so the UI can fall back to the "not active" placeholder
+    instead of erroring the whole stats panel. Cheap at our scale (paginated
+    LIST is O(n_objects) and we expect hundreds, not millions).
+    """
+    s = get_settings()
+    total = 0
+    try:
+        async with _internal_client() as client:
+            paginator = client.get_paginator("list_objects_v2")
+            async for page in paginator.paginate(Bucket=s.s3_bucket):
+                for obj in page.get("Contents", []):
+                    total += obj.get("Size", 0)
+        return total
+    except Exception:  # noqa: BLE001
+        return None

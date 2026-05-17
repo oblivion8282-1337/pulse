@@ -32,14 +32,13 @@ async def test_stats_returns_counts(client, admin_token):
     r = await client.get("/admin/stats", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     body = r.json()
-    # Empty fresh DB.
-    assert body == {
-        "guild_count": 0,
-        "channel_count": 0,
-        "dm_channel_count": 0,
-        "messages_24h": 0,
-        "storage_bytes": None,
-    }
+    # Empty fresh DB. `storage_bytes` depends on whether a MinIO is
+    # reachable from the test host: 0 if yes (empty bucket), None if not.
+    assert body["guild_count"] == 0
+    assert body["channel_count"] == 0
+    assert body["dm_channel_count"] == 0
+    assert body["messages_24h"] == 0
+    assert body["storage_bytes"] in (None, 0)
 
 
 @pytest.mark.asyncio

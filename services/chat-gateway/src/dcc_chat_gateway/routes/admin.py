@@ -36,6 +36,7 @@ async def _broadcast(request: Request, payload: dict) -> None:
         import structlog
         structlog.get_logger(__name__).exception("permissions broadcast failed")
 
+from dcc_chat_gateway import s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     AdminAuditLog,
@@ -102,7 +103,7 @@ async def get_stats(session: SessionDep, _actor: AdminUser):
         channel_count=channel_count,
         dm_channel_count=dm_channel_count,
         messages_24h=messages_24h,
-        storage_bytes=None,  # filled in once MinIO is wired up
+        storage_bytes=await s3.total_bucket_bytes(),
     )
 
 
