@@ -8,8 +8,9 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Guild, GuildMember
+from dcc_chat_gateway.models import Channel, Guild, GuildMember, MessageAttachment
 from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import GuildIn, GuildOut, GuildPatchIn, MemberIn, MemberOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -135,6 +136,18 @@ async def delete_guild(
         raise HTTPException(404, detail="guild not found")
     if guild.owner_id != current.id:
         raise HTTPException(403, detail="only the owner can delete the guild")
+    # Hard-delete MinIO attachments for all channels before the DB cascade
+    # removes the rows — the cascade can't clean up object-store objects.
+    channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
+    channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
+    if channel_ids:
+        att_ids_stmt = select(MessageAttachment.id).where(
+            MessageAttachment.channel_id.in_(channel_ids),
+            MessageAttachment.deleted_at.is_(None),
+        )
+        att_ids = list((await session.execute(att_ids_stmt)).scalars())
+        if att_ids:
+            await hard_delete_attachments(session, attachment_ids=att_ids)
     await session.delete(guild)
     await session.commit()
     await _publish_guild_event(

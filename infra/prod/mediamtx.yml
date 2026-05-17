@@ -13,7 +13,7 @@
 # No internal users, no fixed stream key — the GSR sidecar gets its push URL
 # (token in `?pass=…` or `streamid=publish:<path>:pulse:<token>`) from media-svc.
 #
-# Public ingest/egress ports must be open in UFW: 1935/tcp (RTMP), 8890/udp
+# Public ingest/egress ports must be open in UFW: 1936/tcp (RTMPS), 8890/udp
 # (SRT), 8189/udp (WebRTC ICE). 8889/tcp (WHEP) and 8888/tcp (HLS) are reached
 # via the pulse_web nginx (host.docker.internal) → not exposed directly. The API
 # (:9997) is bound on all interfaces so media-svc (on pulse-net) can poll it via

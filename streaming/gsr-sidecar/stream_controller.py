@@ -17,6 +17,7 @@ nur die Prozess-Verwaltung ist anders:
 ``control.py`` als nicht-invasive Test-Operation aufrufbar.
 """
 from __future__ import annotations
+import ctypes
 import os
 import re
 import signal
@@ -31,6 +32,20 @@ from profiles import ServerProfile, StreamProfile, build_audio_arg
 from redact import redact_token_string
 
 FPS_RE = re.compile(r"update fps:\s*(\d+)")
+
+
+def _hide_argv_from_proc() -> None:
+    """Set PR_SET_DUMPABLE=0 so /proc/<pid>/cmdline is unreadable by other users.
+
+    This hides the stream token embedded in the GSR -o URL from world-readable
+    /proc entries. Linux-only; silently skipped on other platforms.
+    """
+    try:
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc.prctl(4, 0)  # PR_SET_DUMPABLE = 4, value = 0
+    except Exception:  # noqa: BLE001
+        pass
+
 
 # Auflösungs-Ziele (GSR `-s WxH`). "Native" ist nicht hier — dann wird `-s`
 # weggelassen und GSR nimmt die Monitor-Auflösung.
@@ -277,6 +292,7 @@ class StreamController:
                     stderr=subprocess.STDOUT,  # merged channels — wie QProcess.MergedChannels
                     bufsize=0,                  # unbuffered (binary mode → line-buffering nicht supported)
                     start_new_session=True,     # eigene Prozess-Gruppe → sauber stoppbar
+                    preexec_fn=_hide_argv_from_proc,  # hide argv from /proc for other users
                 )
             except (OSError, FileNotFoundError) as e:
                 self._proc = None

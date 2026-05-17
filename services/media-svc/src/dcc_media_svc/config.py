@@ -35,7 +35,6 @@ class Settings(BaseSettings):
     # The "rtmp" protocol is served over TLS (rtmps://) so the token isn't on the
     # wire in cleartext — RTMPS lives on its own port (1936 in prod).
     mediamtx_ingest_host: str = "localhost"
-    mediamtx_rtmp_port: int = 1935
     mediamtx_rtmps_port: int = 1936
     mediamtx_srt_port: int = 8890
 

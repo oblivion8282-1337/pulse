@@ -31,7 +31,7 @@ import { userCache } from '$lib/stores/users.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
-import type { DMChannel, Message } from '$lib/api/types';
+import type { DMChannel, Guild, Message } from '$lib/api/types';
 
 export type ChannelPayload = {
   id: string;
@@ -290,6 +290,12 @@ export class GatewayConnection {
 
     switch (evt.op) {
       case 'ready':
+        // Pre-seed guilds.byId so lifecycle events buffered before REST hydrate
+        // don't no-op on the `if (guilds.byId[...])` guards. Uses ??= so a
+        // concurrently-completed hydrate() (full Guild object) is never downgraded.
+        for (const g of evt.guilds) {
+          guilds.byId[g.id] ??= { icon_url: null, owner_id: '', created_at: '', ...g } as Guild;
+        }
         if (evt.dm_channels) directMessages.seed(evt.dm_channels);
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
         streamPresence.seed(evt.stream_states ?? []);

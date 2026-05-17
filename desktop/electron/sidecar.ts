@@ -229,6 +229,12 @@ class SidecarManager {
   private ensureSpawned(): ChildProcessWithoutNullStreams {
     if (this.child) return this.child;
 
+    if (PYTHON_BIN.includes(' ')) {
+      throw new Error(
+        `PULSE_PYTHON must not contain spaces (got: ${PYTHON_BIN}). spawn() does not shell-split.`,
+      );
+    }
+
     const scriptPath = resolveScriptPath();
     const child = spawn(PYTHON_BIN, [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],

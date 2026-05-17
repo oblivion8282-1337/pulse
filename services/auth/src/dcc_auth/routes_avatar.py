@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
 import re
 import secrets
@@ -29,6 +30,15 @@ _MAX_DIM = 256
 _FILENAME_RE = re.compile(r"^\d+\.webp$")
 
 
+def _process_image(raw: bytes, dest: Path) -> None:
+    """Validate, resize, and save the image — runs in a thread pool."""
+    img = Image.open(io.BytesIO(raw))
+    img.verify()
+    img = Image.open(io.BytesIO(raw))  # re-open after verify() (it exhausts the stream)
+    img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
+    img.save(dest, "WEBP", quality=85)
+
+
 def _avatar_dir() -> Path:
     settings = _config.get_settings()
     d = Path(settings.avatar_upload_dir)
@@ -53,17 +63,11 @@ async def upload_avatar(
     if len(raw) > _MAX_RAW_BYTES:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="file too large (max 5 MB)")
 
+    dest = _avatar_path(current.id)
     try:
-        img = Image.open(io.BytesIO(raw))
-        img.verify()
-        img = Image.open(io.BytesIO(raw))  # re-open after verify() (it exhausts the stream)
+        await asyncio.to_thread(_process_image, raw, dest)
     except (UnidentifiedImageError, Exception) as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="invalid image file") from exc
-
-    img.thumbnail((_MAX_DIM, _MAX_DIM), Image.LANCZOS)
-
-    dest = _avatar_path(current.id)
-    img.save(dest, "WEBP", quality=85)
 
     # Cache-Buster: der Dateiname bleibt gleich (<user_id>.webp), also würde der
     # Browser das alte Bild aus dem Cache nehmen. Ein neuer ?v=-Token bei jedem

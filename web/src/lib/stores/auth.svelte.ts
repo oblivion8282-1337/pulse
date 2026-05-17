@@ -5,6 +5,8 @@ import { voicePresence } from './voicePresence.svelte';
 import { streamPresence } from './streamPresence.svelte';
 import { userCache } from './users.svelte';
 import { directMessages } from './directMessages.svelte';
+import { guilds } from './guilds.svelte';
+import { messages } from './messages.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -72,6 +74,8 @@ class AuthStore {
     streamPresence.clear();
     userCache.clear();
     directMessages.clear();
+    guilds.clear();
+    messages.clear();
     void goto('/login');
   }
 }

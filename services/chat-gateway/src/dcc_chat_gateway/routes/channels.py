@@ -6,8 +6,9 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message
+from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message, MessageAttachment
 from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -142,6 +143,18 @@ async def delete_channel(
     if guild is None or guild.owner_id != current.id:
         raise HTTPException(403, detail="only the guild owner can delete channels")
     guild_id = channel.guild_id
+    # Collect attachment ids before deleting messages, then hard-delete them
+    # (removes the MinIO objects too — Message bulk-delete can't cascade those).
+    att_ids_stmt = (
+        select(MessageAttachment.id)
+        .where(
+            MessageAttachment.channel_id == channel_id,
+            MessageAttachment.deleted_at.is_(None),
+        )
+    )
+    att_ids = list((await session.execute(att_ids_stmt)).scalars())
+    if att_ids:
+        await hard_delete_attachments(session, attachment_ids=att_ids)
     await session.execute(delete(Message).where(Message.channel_id == channel_id))
     await session.delete(channel)
     await session.commit()

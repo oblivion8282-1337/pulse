@@ -151,6 +151,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # time to end parties when the host's last socket goes away.
     hosted_parties: set[str] = set()
     oversize_frames = 0
+    # Track the voice channel this socket's user is currently in, as reported
+    # by voice_self_state ops. Used to republish a clean snapshot on disconnect.
+    current_voice_channel: str | None = None
 
     # Tie the connection's lifetime to the token's `exp`: when it passes, the
     # background task closes the socket with 4001 (the client then refreshes +
@@ -271,6 +274,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     continue
                 kind, ch = resolved
                 await manager.subscribe(websocket, cid)
+                # Voice channels are subscribed (for stream_chat_message fanout)
+                # but never enter the local `subscribed` map, so the send
+                # fast-path can't post regular messages to them — the slow path
+                # rejects them via the same CHANNEL_TYPE_TEXT check below.
+                if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
+                    continue
                 subscribed[cid] = ch.guild_id if kind == "guild" else None
             elif op == "unsubscribe":
                 cid_int = _channel_id(msg.get("channel_id"))
@@ -456,6 +465,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         )
                         continue
                     cid_str = str(cid_int)
+                current_voice_channel = cid_str
                 try:
                     await manager.set_user_voice_state(
                         str(user.id), mic_muted, deafened, cid_str
@@ -499,7 +509,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         # Multi-tab users keep their state until the last tab closes.
         if manager.user_socket_count(user.id) == 0:
             try:
-                await manager.clear_user_voice_state(str(user.id))
+                await manager.clear_user_voice_state(
+                    str(user.id), channel_id=current_voice_channel
+                )
             except Exception:  # noqa: BLE001
                 log.exception("clear_user_voice_state failed for user=%s", user.id)
         # Try to close cleanly. Already-closed sockets raise.

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_RATE_RE = re.compile(r"^\d+/(second|minute|hour)s?$")
 
 
 class Settings(BaseSettings):
@@ -54,6 +57,16 @@ class Settings(BaseSettings):
     # whole 172.16/12 + 10/8 would let any container on the host's docker
     # bridge spoof XFF and bypass the rate limit entirely.
     trusted_proxies: str = "127.0.0.1,::1"
+
+    @field_validator("rate_limit_register", "rate_limit_login")
+    @classmethod
+    def _validate_rate_format(cls, v: str) -> str:
+        if not _RATE_RE.match(v):
+            raise ValueError(
+                f"rate limit {v!r} must match '<N>/<period>' "
+                "(e.g. '5/minute', '20/seconds', '1/hour')"
+            )
+        return v
 
     @property
     def effective_database_url(self) -> str:

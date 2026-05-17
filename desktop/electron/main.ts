@@ -150,7 +150,9 @@ function _isAllowedOrigin(url: string): boolean {
 
 function wireSidecar(): void {
   getSidecar().onEvent((ev) => {
-    mainWindow?.webContents.send('gsr:event', ev);
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+      mainWindow.webContents.send('gsr:event', ev);
+    }
   });
 
   // Generic handler — the renderer calls `gsr:call` with an op name + params.

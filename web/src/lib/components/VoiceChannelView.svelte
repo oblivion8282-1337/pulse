@@ -213,15 +213,18 @@
     const tag = el.tagName;
     return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
   }
+  let pttPressed = false;
   function handlePttKeydown(detail: ShortcutEventDetail) {
     const ev = detail.originalEvent;
     if (!voice.pttMode || ev.repeat || isTypingTarget(ev.target)) return;
     ev.preventDefault();
+    pttPressed = true;
     voice.pttPress();
   }
   function handlePttKeyup(e: KeyboardEvent) {
     if (!voice.pttMode || e.key.toLowerCase() !== settings.voice.pttKey) return;
-    if (isTypingTarget(e.target)) return;
+    if (!pttPressed) return;
+    pttPressed = false;
     voice.pttRelease();
   }
 </script>

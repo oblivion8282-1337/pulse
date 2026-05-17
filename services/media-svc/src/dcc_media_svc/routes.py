@@ -45,7 +45,9 @@ UserIdQuery = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^\d+$"
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    protocol: Annotated[str, Field(default="rtmp", pattern=r"^(rtmp|srt)$")] = "rtmp"
+    # SRT is disabled: UDP has no TLS layer so the stream token would be
+    # visible in cleartext in the SRT streamid field.  Use rtmps (the default).
+    protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
 
 
 class StreamTokenOut(BaseModel):

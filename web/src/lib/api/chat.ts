@@ -218,7 +218,7 @@ export const chatApi = {
    * must be a member of the channel's guild and the channel must be a voice
    * channel. The returned `push_url` already carries the token.
    */
-  getStreamToken(channelId: string, protocol: 'rtmp' | 'srt' = 'rtmp'): Promise<StreamTokenResponse> {
+  getStreamToken(channelId: string, protocol: 'rtmp' = 'rtmp'): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
       body: { protocol }

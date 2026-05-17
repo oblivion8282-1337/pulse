@@ -68,19 +68,14 @@ async def test_stream_token_happy_path_rtmp(client, auth_signer, redis):
 
 
 @pytest.mark.asyncio
-async def test_stream_token_srt_protocol(client, auth_signer, redis):
+async def test_stream_token_srt_rejected(client, auth_signer):
+    """SRT is disabled because UDP carries no TLS — the token would leak in cleartext."""
     access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
     r = await client.post(
         f"/channels/{cid}/stream-token", json={"protocol": "srt"}, headers=_auth(access)
     )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["push_protocol"] == "srt"
-    path = body["mediamtx_path"]
-    assert path.startswith(f"channel-{cid}-7-")
-    assert body["push_url"].startswith(f"srt://ingest.test:8890?streamid=publish:{path}:pulse:")
-    await redis.delete(TOKEN_KEY.format(token=body["token"]))
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio

@@ -35,6 +35,18 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter()
 
+# Atomically remove a member from a set and delete the key if it becomes empty.
+# KEYS[1] = set key, ARGV[1] = member to remove.
+# Returns 1 if the key was deleted (set became empty), 0 otherwise.
+_LUA_SREM_DEL_IF_EMPTY = """
+redis.call('SREM', KEYS[1], ARGV[1])
+if redis.call('SCARD', KEYS[1]) == 0 then
+    redis.call('DEL', KEYS[1])
+    return 1
+end
+return 0
+"""
+
 VOICE_EVENTS_CHANNEL = "voice:events"
 VOICE_ROOM_KEY = "voice:room:{room}"
 VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
@@ -162,18 +174,11 @@ async def _apply_join(redis: Redis, room_name: str, user_id: str) -> None:
 async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     key = room_key(room_name)
     sk = streaming_key(room_name)
-    # Pipeline: srem + scard for both sets in two round-trips instead of up to 6.
-    pipe = redis.pipeline(transaction=False)
-    pipe.srem(key, user_id)
-    pipe.scard(key)
-    pipe.srem(sk, user_id)
-    pipe.scard(sk)
-    _, members_left, _, streamers_left = await pipe.execute()
-    # Conditional deletes — only two extra round-trips in the rare empty-set case.
-    if members_left == 0:
-        await redis.delete(key)
-    if streamers_left == 0:
-        await redis.delete(sk)
+    # Atomic: SREM + conditional DEL via Lua to avoid the TOCTOU race between
+    # scard and delete where a concurrent join could re-add a member before the
+    # delete fires, causing a key with live members to be wiped.
+    await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, key, user_id)  # type: ignore[arg-type]
+    await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, sk, user_id)  # type: ignore[arg-type]
 
 
 async def _apply_room_finished(redis: Redis, room_name: str) -> None:
@@ -193,12 +198,8 @@ async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) 
 
 async def _apply_screen_share_stop(redis: Redis, room_name: str, user_id: str) -> None:
     sk = streaming_key(room_name)
-    pipe = redis.pipeline(transaction=False)
-    pipe.srem(sk, user_id)
-    pipe.scard(sk)
-    _, streamers_left = await pipe.execute()
-    if streamers_left == 0:
-        await redis.delete(sk)
+    # Atomic: SREM + conditional DEL via Lua (same TOCTOU fix as _apply_leave).
+    await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, sk, user_id)  # type: ignore[arg-type]
 
 
 @router.post("/webhook", status_code=status.HTTP_204_NO_CONTENT)

@@ -157,11 +157,8 @@ async def login(
         if user is not None
         else False
     )
-    if user is None or not pw_ok:
+    if user is None or not pw_ok or user.disabled:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
-    if user.disabled:
-        # Same status code as bad-creds: don't leak whether the account exists.
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
 
     # Transparent rehash when Argon2 parameters have been bumped since this
     # hash was written. We still have the plaintext password right here, so
@@ -246,11 +243,12 @@ async def logout(
 
     try:
         jti = uuid.UUID(decoded["jti"])
+        user_id = int(decoded["sub"])
     except (KeyError, ValueError):
         return MessageOut(detail="ok")
 
     rt = await session.get(RefreshToken, jti)
-    if rt is not None and rt.revoked_at is None:
+    if rt is not None and rt.user_id == user_id and rt.revoked_at is None:
         rt.revoked_at = datetime.now(tz=UTC)
         await session.commit()
     return MessageOut(detail="ok")

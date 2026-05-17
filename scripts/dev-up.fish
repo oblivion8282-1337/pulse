@@ -123,7 +123,7 @@ bash -c "cd services/auth && env $pg_env $jwt_env $common_env setsid nohup uv ru
 bash -c "cd services/chat-gateway && env $pg_env $common_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
 
 # voice-signaling (8003)
-bash -c "cd services/voice-signaling && env $common_env $lk_env setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
+bash -c "cd services/voice-signaling && env $common_env $lk_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"
 
 # media-svc (8004)
 bash -c "cd services/media-svc && env $common_env MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list setsid nohup uv run uvicorn dcc_media_svc.app:app --host 127.0.0.1 --port 8004 --reload > /tmp/dcc-media.log 2>&1 < /dev/null &"

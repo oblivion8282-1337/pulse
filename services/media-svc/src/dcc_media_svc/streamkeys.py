@@ -36,7 +36,6 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)-([0-9a-f]{8})$")
 #                                       the public per-channel set of HQ streamers, owned by the poller.
 TOKEN_KEY = "stream:token:{token}"
 ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
-ACTIVE_SCAN_FOR_CHANNEL = "stream:active:channel-{channel_id}-*"
 CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
 
 # Pub/Sub channel — media-svc publishes per-channel stream-state changes here;

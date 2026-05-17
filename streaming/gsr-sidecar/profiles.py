@@ -230,7 +230,10 @@ def build_audio_arg(audio_mode_label: str, excluded_apps: list[str]) -> str | No
     if base.startswith("app:"):
         return base
 
-    inverse_chunk = "|".join(f"app-inverse:{a}" for a in excluded_apps)
+    # Strip any `|` characters from app names — `|` is GSR's argument separator
+    # and a name containing it would silently split the -a value into extra tokens.
+    sanitized = [a.replace("|", "") for a in excluded_apps]
+    inverse_chunk = "|".join(f"app-inverse:{a}" for a in sanitized if a)
 
     if base == "default_output":
         return inverse_chunk
