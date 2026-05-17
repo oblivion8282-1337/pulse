@@ -77,8 +77,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER required}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required}
-      # Presigning host — must match the public path nginx proxies through.
-      MINIO_SERVER_URL: https://pulse.unicutmedia.com/s3
+      # Presigning host — MinIO ignores path prefixes here (verified
+      # empirically: setting this to https://…/s3 made it log
+      # `API: https://pulse.unicutmedia.com` anyway, dropping the prefix,
+      # which broke signature verification). So the public surface uses
+      # the bucket name as the URL prefix instead: nginx forwards
+      # `/pulse-attachments/*` straight through.
+      MINIO_SERVER_URL: https://pulse.unicutmedia.com
       # No public console (admin UI). Reachable from the host via SSH-tunnel
       # if needed: `ssh -L 9001:127.0.0.1:9001 michael@…` + visit localhost.
       MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
