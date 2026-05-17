@@ -23,9 +23,15 @@ from dcc_chat_gateway.models import (
     Channel,
     DirectMessageChannel,
     Message,
+    MessageAttachment,
     MessageReaction,
 )
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+from dcc_chat_gateway.routes.attachments import (
+    bind_attachments,
+    hard_delete_attachments,
+    serialize_attachments,
+)
 from dcc_chat_gateway.schemas import MessageEditIn, MessageIn, MessageOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -61,7 +67,11 @@ async def _reactions_for(
     return {mid: list(emojis.values()) for mid, emojis in out.items()}
 
 
-def serialize_message(msg: Message, reactions: list[dict] | None = None) -> dict:
+def serialize_message(
+    msg: Message,
+    reactions: list[dict] | None = None,
+    attachments: list[dict] | None = None,
+) -> dict:
     return {
         "id": str(msg.id),
         "channel_id": str(msg.channel_id),
@@ -73,6 +83,7 @@ def serialize_message(msg: Message, reactions: list[dict] | None = None) -> dict
         "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
         "deleted_at": msg.deleted_at.isoformat() if msg.deleted_at else None,
         "reactions": reactions or [],
+        "attachments": attachments or [],
     }
 
 
@@ -110,11 +121,15 @@ async def list_messages(
         stmt = stmt.where(Message.id < before)
     stmt = stmt.order_by(Message.id.desc()).limit(limit)
     rows = list((await session.execute(stmt)).scalars().all())
-    reactions = await _reactions_for(session, [m.id for m in rows], current.id)
-    # MessageOut reads `from_attributes`; we attach reactions onto the ORM
-    # instance attribute so Pydantic picks it up alongside the columns.
+    msg_ids = [m.id for m in rows]
+    reactions = await _reactions_for(session, msg_ids, current.id)
+    attachments = await serialize_attachments(session, msg_ids)
+    # MessageOut reads `from_attributes`; we attach reactions + attachments
+    # onto the ORM instance attribute so Pydantic picks them up alongside
+    # the columns.
     for m in rows:
         m.reactions = reactions.get(m.id, [])  # type: ignore[attr-defined]
+        m.attachments = attachments.get(m.id, [])  # type: ignore[attr-defined]
     return rows
 
 
@@ -144,6 +159,22 @@ async def post_message(
         if parent is None or parent.channel_id != channel_id or parent.deleted_at is not None:
             raise HTTPException(400, detail="reply target not found in this channel")
 
+    # A message needs either text or at least one attachment — otherwise
+    # it's a blank ghost that adds nothing. The check happens *after* the
+    # reply-target check so reply-debugging errors stay specific.
+    if not payload.content.strip() and not payload.attachment_ids:
+        raise HTTPException(400, detail="message must have content or attachments")
+
+    # Count-limit per the per-guild / chat-settings cap.
+    if payload.attachment_ids:
+        from dcc_chat_gateway.routes.attachments import _limits_for_channel
+        _max_size, max_count = await _limits_for_channel(session, kind=kind, ch=ch)
+        if len(payload.attachment_ids) > max_count:
+            raise HTTPException(
+                400,
+                detail=f"too many attachments ({len(payload.attachment_ids)} > {max_count})",
+            )
+
     msg = Message(
         id=next_id(),
         channel_id=channel_id,
@@ -153,6 +184,17 @@ async def post_message(
         reply_to_id=payload.reply_to_id,
     )
     session.add(msg)
+    await session.flush()  # need msg.id before binding attachments
+
+    if payload.attachment_ids:
+        await bind_attachments(
+            session,
+            attachment_ids=list(payload.attachment_ids),
+            message_id=msg.id,
+            channel_id=channel_id,
+            uploader_id=current.id,
+        )
+
     if kind == "dm":
         # Bump last_message_id so the DM list can sort by recency.
         ch.last_message_id = msg.id
@@ -161,7 +203,12 @@ async def post_message(
     await session.refresh(msg)
 
     # Bare payload — the pubsub listener auto-wraps as {"op": "message", "data": ...}.
-    await _broadcast(request, channel_id, serialize_message(msg))
+    # Sign attachments NOW so the broadcast carries usable URLs for every
+    # subscribed client (otherwise each one has to GET /messages to re-hydrate).
+    atts_by_msg = await serialize_attachments(session, [msg.id])
+    atts = atts_by_msg.get(msg.id, [])
+    atts_serial = [a.model_dump(mode="json") for a in atts]
+    await _broadcast(request, channel_id, serialize_message(msg, attachments=atts_serial))
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         if kind == "guild":
@@ -196,6 +243,7 @@ async def post_message(
                 }
             )
     msg.reactions = []  # type: ignore[attr-defined]
+    msg.attachments = atts  # type: ignore[attr-defined]
     return msg
 
 
@@ -219,15 +267,51 @@ async def edit_message(
     # old messages; DM author trivially passes since DM membership is fixed).
     await resolve_channel_or_raise(session, msg.channel_id, current.id)
 
+    # Author may rewrite content AND swap attachments. Diff against the
+    # current set: removed → hard-delete (MinIO + soft-row), added → bind.
+    # An empty edit (no text + no attachments) is still rejected for the
+    # same reason as a fresh ghost message.
+    if not payload.content.strip() and not payload.attachment_ids:
+        raise HTTPException(400, detail="message must have content or attachments")
+
+    current_ids = {
+        a.id
+        for a in (
+            await session.execute(
+                select(MessageAttachment).where(
+                    MessageAttachment.message_id == msg.id,
+                    MessageAttachment.deleted_at.is_(None),
+                )
+            )
+        ).scalars()
+    }
+    desired_ids = set(payload.attachment_ids)
+    to_remove = current_ids - desired_ids
+    to_add = desired_ids - current_ids
+
+    if to_remove:
+        await hard_delete_attachments(session, attachment_ids=list(to_remove))
+    if to_add:
+        await bind_attachments(
+            session,
+            attachment_ids=list(to_add),
+            message_id=msg.id,
+            channel_id=msg.channel_id,
+            uploader_id=current.id,
+        )
+
     msg.content = payload.content
     msg.edited_at = datetime.now(timezone.utc)
     await session.commit()
     await session.refresh(msg)
 
     reactions = (await _reactions_for(session, [msg.id], current.id)).get(msg.id, [])
-    payload_out = serialize_message(msg, reactions)
+    attachments = (await serialize_attachments(session, [msg.id])).get(msg.id, [])
+    atts_serial = [a.model_dump(mode="json") for a in attachments]
+    payload_out = serialize_message(msg, reactions, attachments=atts_serial)
     await _broadcast(request, msg.channel_id, {"op": "message_update", "data": payload_out})
     msg.reactions = reactions  # type: ignore[attr-defined]
+    msg.attachments = attachments  # type: ignore[attr-defined]
     return msg
 
 
@@ -262,6 +346,10 @@ async def delete_message(
     await session.execute(
         delete(MessageReaction).where(MessageReaction.message_id == msg.id)
     )
+    # Attachments → hard-delete from MinIO + tombstone row. The message
+    # itself stays soft-deleted (audit trail) but the bytes go away to
+    # free storage.
+    await hard_delete_attachments(session, message_ids=[msg.id])
     await session.commit()
 
     await _broadcast(

@@ -80,13 +80,21 @@ class ChannelPatchIn(BaseModel):
 
 
 class MessageIn(BaseModel):
-    content: Annotated[str, Field(min_length=1, max_length=4000)]
+    # ``content`` was min_length=1; with attachments a message can carry an
+    # image and zero text. Still empty-string-vs-None-friendly. The route
+    # validates that *either* text or attachments are present.
+    content: Annotated[str, Field(min_length=0, max_length=4000)] = ""
     nonce: Annotated[str | None, Field(default=None, max_length=64)] = None
     reply_to_id: SnowflakeId | None = None
+    attachment_ids: Annotated[list[SnowflakeId], Field(default_factory=list, max_length=64)]
 
 
 class MessageEditIn(BaseModel):
-    content: Annotated[str, Field(min_length=1, max_length=4000)]
+    """Edit can change text AND attachments — author may add / remove /
+    replace per the design (see PLAN.md and the user-facing spec)."""
+
+    content: Annotated[str, Field(min_length=0, max_length=4000)] = ""
+    attachment_ids: Annotated[list[SnowflakeId], Field(default_factory=list, max_length=64)]
 
 
 class ReactionAggregate(BaseModel):
@@ -96,6 +104,28 @@ class ReactionAggregate(BaseModel):
     emoji: str
     count: int
     me: bool
+
+
+class AttachmentOut(BaseModel):
+    """Wire representation of an attachment. ``url`` / ``thumb_url`` carry
+    presigned MinIO GET URLs; both are short-lived (30 min default) and the
+    client auto-refreshes on 403 via /attachments/{id}/download-url."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    filename: str | None
+    mime: str | None
+    size: int
+    width: int | None = None
+    height: int | None = None
+    thumb_width: int | None = None
+    thumb_height: int | None = None
+    url: str
+    thumb_url: str | None = None
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
 
 
 class MessageOut(BaseModel):
@@ -110,10 +140,50 @@ class MessageOut(BaseModel):
     edited_at: datetime | None = None
     deleted_at: datetime | None = None
     reactions: list[ReactionAggregate] = []
+    attachments: list[AttachmentOut] = []
 
     @field_serializer("id", "channel_id", "author_id", "reply_to_id")
     def _ser_ids(self, v: int | None) -> str | None:
         return _id_str(v) if v is not None else None
+
+
+class AttachmentUploadIn(BaseModel):
+    """Client → server: 'please give me an upload-URL for this file'."""
+
+    filename: Annotated[str, Field(min_length=1, max_length=255)]
+    mime: Annotated[str, Field(min_length=1, max_length=128)]
+    size: Annotated[int, Field(ge=1, le=4 * 1024**4)]  # 4 TiB ceiling
+    # Optional dimensions for image/video — used by the renderer to set
+    # the placeholder aspect-ratio before the URL resolves.
+    width: int | None = None
+    height: int | None = None
+    # If true, the client will also PUT a thumbnail; server returns
+    # ``thumb_upload_url`` and ``thumb_storage_key`` alongside.
+    has_thumb: bool = False
+    thumb_size: int | None = None
+    thumb_width: int | None = None
+    thumb_height: int | None = None
+
+
+class AttachmentUploadOut(BaseModel):
+    """Server → client: upload directly here, then POST /messages with this id."""
+
+    id: int
+    upload_url: str
+    thumb_upload_url: str | None = None
+    # Caller doesn't need the storage_keys — they live on the row server-side
+    # — but they're handy for debugging in the dev tools.
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
+class AttachmentDownloadOut(BaseModel):
+    """Re-signed GET URL — used by the client when an existing URL hits 403."""
+
+    url: str
+    thumb_url: str | None = None
 
 
 class DMChannelCreateIn(BaseModel):

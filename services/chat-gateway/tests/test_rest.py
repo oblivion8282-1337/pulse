@@ -230,7 +230,9 @@ async def test_post_empty_message_rejected(client, _auth_signer):
         json={"content": ""},
         headers=auth(t1),
     )
-    assert r.status_code == 422
+    # Empty content was a Pydantic 422 before attachments; now the rule is
+    # "either text or attachments" so a route-level 400 covers both knobs.
+    assert r.status_code == 400
 
 
 # ---- Channel DELETE/PATCH ---------------------------------------------------

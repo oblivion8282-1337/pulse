@@ -39,6 +39,21 @@ export type ReactionAggregate = {
   me: boolean;
 };
 
+export type Attachment = {
+  id: string;
+  filename: string | null;
+  mime: string | null;
+  size: number;
+  width?: number | null;
+  height?: number | null;
+  thumb_width?: number | null;
+  thumb_height?: number | null;
+  /** Presigned MinIO GET URL — ~30 min TTL, auto-refresh on 403 via
+   *  `chatApi.refreshAttachmentDownloadUrl`. */
+  url: string;
+  thumb_url?: string | null;
+};
+
 export type Message = {
   id: string;
   channel_id: string;
@@ -50,6 +65,7 @@ export type Message = {
   edited_at?: string | null;
   deleted_at?: string | null;
   reactions?: ReactionAggregate[];
+  attachments?: Attachment[];
 };
 
 /**

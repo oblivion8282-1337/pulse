@@ -34,6 +34,14 @@ class Guild(Base):
     name: Mapped[str] = mapped_column(String(64), nullable=False)
     icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Per-guild attachment limits. DM channels use the chat_settings row;
+    # guild channels use these. Owner edits both via the admin / settings UIs.
+    attachment_max_size_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="26214400"  # 25 MB
+    )
+    attachment_max_count_per_message: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="4"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -196,6 +204,55 @@ class ChatSettings(Base):
     )
 
     __table_args__ = (CheckConstraint("id = 1", name="ck_chat_settings_singleton"),)
+
+
+class MessageAttachment(Base):
+    """Two-phase row backing a message attachment.
+
+    ``message_id`` is NULL between the upload-URL handout and the actual
+    POST /messages. The reaper sweeps stale-NULL rows after 1h. Once
+    associated with a message, the FK CASCADEs on hard message delete,
+    while soft-deletes are handled in the route layer (it explicitly
+    nukes the MinIO objects + sets deleted_at on the attachment row).
+
+    ``mime`` / ``filename`` / ``width`` / ``height`` are nullable
+    by-design — Phase-2 E2EE DMs will store ciphertext blobs where the
+    server doesn't know any of those.
+    """
+
+    __tablename__ = "message_attachments"
+
+    id: Mapped[int] = snowflake_pk()
+    message_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("messages.id", ondelete="CASCADE"), nullable=True
+    )
+    channel_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uploader_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    storage_key: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    mime: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thumb_storage_key: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True
+    )
+    thumb_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thumb_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_message_attachments_message", "message_id"),
+        Index(
+            "ix_message_attachments_pending",
+            "channel_id",
+            "created_at",
+            postgresql_where="message_id IS NULL",
+        ),
+    )
 
 
 class AdminAuditLog(Base):

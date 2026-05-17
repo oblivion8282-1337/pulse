@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.routes import router
+from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
 
 log = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
     redis: Redis | None = None
     manager: ConnectionManager | None = None
     supervisor: asyncio.Task | None = None
+    reaper: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -62,16 +64,19 @@ async def lifespan(app: FastAPI):
         app.state.connection_manager = manager
         owns_manager = True
         supervisor = asyncio.create_task(_supervise_pubsub(manager), name="dcc-pubsub-supervisor")
+        # Orphan-attachment reaper — sweeps pending uploads >1 h old.
+        reaper = asyncio.create_task(attachments_reaper(), name="dcc-attachments-reaper")
     try:
         yield
     finally:
         if owns_manager:
-            if supervisor is not None:
-                supervisor.cancel()
-                try:
-                    await supervisor
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
+            for task in (supervisor, reaper):
+                if task is not None:
+                    task.cancel()
+                    try:
+                        await task
+                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                        pass
             if manager is not None:
                 await manager.stop()
             if redis is not None:
