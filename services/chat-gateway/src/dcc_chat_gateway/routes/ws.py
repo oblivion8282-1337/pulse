@@ -283,7 +283,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 content = msg.get("content")
                 nonce = msg.get("nonce")
                 reply_to_raw = msg.get("reply_to_id")
-                if cid_int is None or not isinstance(content, str) or not content:
+                if cid_int is None or not isinstance(content, str) or not content.strip():
+                    # Match the REST endpoint: whitespace-only is rejected as
+                    # empty (messages.py:165 uses the same .strip() guard).
                     await websocket.send_json(
                         {"op": "error", "code": 4005, "msg": "invalid send payload"}
                     )
@@ -491,6 +493,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         # channel switch, X-on-tile) end the party via the watch_stop op;
         # everything else falls through to the 6h Redis TTL.
         await manager.remove_socket(websocket)
+        # If this was the user's last open socket, drop their self-mute state.
+        # Without this, voice:user_state:<id> lingers for the full 6h TTL and
+        # the user keeps appearing as muted to everyone after they disconnect.
+        # Multi-tab users keep their state until the last tab closes.
+        if manager.user_socket_count(user.id) == 0:
+            try:
+                await manager.clear_user_voice_state(str(user.id))
+            except Exception:  # noqa: BLE001
+                log.exception("clear_user_voice_state failed for user=%s", user.id)
         # Try to close cleanly. Already-closed sockets raise.
         try:
             await websocket.close()

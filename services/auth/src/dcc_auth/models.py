@@ -19,7 +19,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_auth.db import Base, snowflake_pk
@@ -119,7 +119,9 @@ class AdminAuditLog(Base):
     actor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
+    payload: Mapped[dict] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, server_default="{}"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -29,6 +29,7 @@ from dcc_auth.security import (
     JwtSigner,
     get_signer,
     hash_password,
+    needs_rehash,
     verify_password,
 )
 from dcc_auth.snowflake import next_id
@@ -83,6 +84,11 @@ async def _get_current_user(
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    if user.disabled:
+        # Existing access tokens of disabled users remain technically valid
+        # (no global revocation), but every protected route must reject them
+        # — otherwise a disabled admin keeps full access until the ≤15 min TTL.
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
     return user
 
 
@@ -156,6 +162,12 @@ async def login(
     if user.disabled:
         # Same status code as bad-creds: don't leak whether the account exists.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
+
+    # Transparent rehash when Argon2 parameters have been bumped since this
+    # hash was written. We still have the plaintext password right here, so
+    # this is the one moment we can upgrade without forcing a reset.
+    if needs_rehash(user.password_hash):
+        user.password_hash = await asyncio.to_thread(hash_password, payload.password)
 
     tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
     await session.commit()

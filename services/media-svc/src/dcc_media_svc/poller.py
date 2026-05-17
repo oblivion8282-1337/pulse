@@ -60,21 +60,30 @@ def _path_has_publisher(path_obj: dict[str, Any]) -> bool:
 
 async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict[str, set[str]]:
     """``{channel_id: {user_id, ...}}`` for every ``channel-<cid>-<uid>`` path
-    that has a publisher. Raises on transport/HTTP error — the caller handles it."""
-    resp = await client.get(url, params={"itemsPerPage": 1000, "page": 0})
-    resp.raise_for_status()
-    data = resp.json()
-    items = data.get("items", []) if isinstance(data, dict) else []
+    that has a publisher. Raises on transport/HTTP error — the caller handles it.
+
+    MediaMTX paginates ``/v3/paths/list``; we walk every page so a backlog of
+    >1000 paths never silently drops streamers from the presence snapshot."""
     out: dict[str, set[str]] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        cu = parse_channel_user_path(item.get("name", ""))
-        if cu is None:
-            continue
-        if _path_has_publisher(item):
-            cid, uid, _nonce = cu  # nonce is per-publish; presence not state
-            out.setdefault(cid, set()).add(uid)
+    page = 0
+    items_per_page = 1000
+    while True:
+        resp = await client.get(url, params={"itemsPerPage": items_per_page, "page": page})
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items", []) if isinstance(data, dict) else []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            cu = parse_channel_user_path(item.get("name", ""))
+            if cu is None:
+                continue
+            if _path_has_publisher(item):
+                cid, uid, _nonce = cu  # nonce is per-publish; presence not state
+                out.setdefault(cid, set()).add(uid)
+        if len(items) < items_per_page:
+            break
+        page += 1
     return out
 
 
