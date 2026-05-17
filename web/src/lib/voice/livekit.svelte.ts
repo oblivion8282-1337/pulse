@@ -532,7 +532,7 @@ class VoiceRoom {
       userId: userIdFromIdentity(p.identity),
       isLocal,
       // Local: RMS-driven (server's active-speaker detection is unreliable
-      // when AGC is off, which is the default with DFN3/RNNoise).
+      // when AGC is off, which is the default with RNNoise).
       isSpeaking: isLocal ? this.localSpeaking : p.isSpeaking,
       audioLevel: p.audioLevel ?? 0,
       micMuted: !p.isMicrophoneEnabled,
@@ -593,8 +593,8 @@ class VoiceRoom {
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
     const audioTrack = pub?.audioTrack;
     // Prefer the raw source MediaStreamTrack over the public getter, which
-    // returns the post-processor (DFN3/RNNoise) track — those attenuate the
-    // signal noticeably and make the meter look dead even at normal speech.
+    // returns the post-processor (RNNoise) track — that attenuates the signal
+    // noticeably and makes the meter look dead even at normal speech.
     // `_mediaStreamTrack` is protected in livekit-client; accessed via cast.
     const raw = (audioTrack as { _mediaStreamTrack?: MediaStreamTrack } | undefined)?._mediaStreamTrack;
     this.#localMic.attach(raw ?? audioTrack?.mediaStreamTrack ?? null);

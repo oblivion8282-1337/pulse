@@ -238,9 +238,10 @@ function load(): PersistedSettings {
         outputDeviceLabel: str(a.outputDeviceLabel, da.outputDeviceLabel),
         echoCancellation: bool(a.echoCancellation, da.echoCancellation),
         autoGainControl: bool(a.autoGainControl, da.autoGainControl),
-        // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'.
-        // Any non-'off' legacy value indicates the user wanted *some* filter on —
-        // map to the unified gated mode. Unknown strings fall back to default.
+        // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'
+        // (DFN3 was removed 2026-05-16). Any non-'off' legacy value indicates the
+        // user wanted *some* filter on — map to the unified gated mode. Unknown
+        // strings fall back to default.
         noiseSuppression:
           a.noiseSuppression === 'off'
             ? 'off'
