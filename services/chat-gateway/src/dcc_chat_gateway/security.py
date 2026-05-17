@@ -22,6 +22,7 @@ class _JwksEntry:
 
 
 _cache: _JwksEntry | None = None
+_cache_generation: int = 0
 _static_jwks: dict[str, Any] | None = None
 _fetch_lock: asyncio.Lock | None = None
 
@@ -35,16 +36,18 @@ def _get_lock() -> asyncio.Lock:
 
 def install_static_jwks(jwks: dict[str, Any]) -> None:
     """Used in tests to bypass the HTTP fetch."""
-    global _static_jwks, _cache
+    global _static_jwks, _cache, _cache_generation
     _static_jwks = jwks
     _cache = None
+    _cache_generation += 1
 
 
 def reset_cache() -> None:
-    global _cache, _static_jwks, _fetch_lock
+    global _cache, _static_jwks, _fetch_lock, _cache_generation
     _cache = None
     _static_jwks = None
     _fetch_lock = None
+    _cache_generation = 0
 
 
 def _build_keys(jwks: dict[str, Any]) -> dict[str, Any]:
@@ -60,7 +63,7 @@ def _build_keys(jwks: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _get_keys() -> dict[str, Any]:
-    global _cache
+    global _cache, _cache_generation
     settings = get_settings()
     now = time.monotonic()
     if _cache and _cache.expires_at > now:
@@ -82,6 +85,40 @@ async def _get_keys() -> dict[str, Any]:
                 jwks = resp.json()
         keys = _build_keys(jwks)
         _cache = _JwksEntry(keys_by_kid=keys, expires_at=now + settings.jwks_cache_seconds)
+        _cache_generation += 1
+        return keys
+
+
+async def _force_refresh_keys() -> dict[str, Any]:
+    """Force a fresh JWKS fetch for a previously-unknown ``kid``, single-flight.
+
+    Unlike ``_get_keys()`` which short-circuits on a valid cache, this is the
+    miss-path: an attacker can flood with random ``kid`` headers and previously
+    each request invalidated the cache *outside* the lock and re-entered, so N
+    concurrent unknown kids triggered N parallel JWKS fetches against auth-svc.
+    Now we capture the generation we observed, acquire the lock, and only fetch
+    if no one else refreshed in between."""
+    global _cache, _cache_generation
+    settings = get_settings()
+    observed_gen = _cache_generation
+    async with _get_lock():
+        # Did another coroutine already refresh while we waited for the lock?
+        if _cache is not None and _cache_generation > observed_gen:
+            return _cache.keys_by_kid
+
+        if _static_jwks is not None:
+            jwks = _static_jwks
+        else:
+            async with httpx.AsyncClient(timeout=5.0) as http:
+                resp = await http.get(settings.auth_jwks_url)
+                resp.raise_for_status()
+                jwks = resp.json()
+        keys = _build_keys(jwks)
+        _cache = _JwksEntry(
+            keys_by_kid=keys,
+            expires_at=time.monotonic() + settings.jwks_cache_seconds,
+        )
+        _cache_generation += 1
         return keys
 
 
@@ -99,10 +136,8 @@ async def decode_token(token: str) -> dict[str, Any]:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
     keys = await _get_keys()
     if kid not in keys:
-        # try a refresh in case kid is new
-        global _cache
-        _cache = None
-        keys = await _get_keys()
+        # Possibly a key rollover — force-refresh once (single-flight inside).
+        keys = await _force_refresh_keys()
         if kid not in keys:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="unknown signing key")
 

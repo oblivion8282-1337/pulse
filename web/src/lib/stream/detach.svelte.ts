@@ -11,7 +11,7 @@
  * Wir verfolgen geöffnete Popup-Fensterreferenzen lokal (nur im
  * eigenen Tab gültig) damit „Fenster fokussieren" / „Schließen" funktioniert.
  */
-const KEY_SEP = '';
+const KEY_SEP = '::';
 const CHANNEL_NAME = 'pulse:stream-detach';
 
 function keyOf(cid: string, uid: string): string {

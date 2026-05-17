@@ -393,9 +393,11 @@ class StreamController:
         # Exit-Code merken *bevor* das stopped-Event feuert, damit control.py
         # ihn in das IPC-Event packen kann (Protokoll-Vertrag aus streaming/README.md).
         self._last_exit_code = exit_code
+        # Direkt auf "stopped" — KEIN Zwischen-"idle". Sonst sieht der Renderer
+        # state=idle → state=stopped, und UI die auf "idle" den Start-Button
+        # wieder freigibt würde kurz flackern. "error" überschreiben wir nicht.
         if self._state != "error":
-            self._set_state("idle")
-        self._set_state("stopped")  # extra event-Signal an Aufrufer
+            self._set_state("stopped")
         with self._lock:
             self._proc = None
             self._start_time = None

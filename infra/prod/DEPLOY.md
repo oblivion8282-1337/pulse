@@ -46,7 +46,7 @@ chmod 0644 certs/server.crt
 
 # 3. firewall
 #    public ingest/egress + LiveKit RTC:
-sudo ufw allow 1935/tcp        # RTMP ingest (plain — kept for `optional` encryption)
+#    (no 1935/tcp — mediamtx.yml sets rtmpEncryption: strict, plain-RTMP is refused)
 sudo ufw allow 1936/tcp        # RTMPS ingest (GSR push — TLS, token not in cleartext)
 sudo ufw allow 8890/udp        # SRT ingest (GSR push, Opus audio)
 sudo ufw allow 8189/udp        # MediaMTX WebRTC ICE

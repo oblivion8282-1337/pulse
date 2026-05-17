@@ -15,8 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, Message, MessageReaction
-from dcc_chat_gateway.routes._deps import require_member
+from dcc_chat_gateway.models import Message, MessageReaction
+from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.routes.messages import _broadcast
 from dcc_chat_gateway.security import CurrentUser
 
@@ -38,10 +38,9 @@ async def _load_for_reaction(
     msg = await session.get(Message, message_id)
     if msg is None or msg.deleted_at is not None:
         raise HTTPException(404, detail="message not found")
-    channel = await session.get(Channel, msg.channel_id)
-    if channel is None:
-        raise HTTPException(404, detail="channel not found")
-    await require_member(session, channel.guild_id, current_user_id)
+    # Polymorphic channel lookup — works for both guild Channel and
+    # DirectMessageChannel rows. Raises the right 403/404 itself.
+    await resolve_channel_or_raise(session, msg.channel_id, current_user_id)
     return msg
 
 

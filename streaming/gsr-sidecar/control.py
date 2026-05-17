@@ -410,10 +410,11 @@ def run() -> int:
     def _on_signal(signum: int, _frame: object) -> None:
         sc.shutdown()
         # Kein sys.exit hier — der stdin-Loop reagiert auf EOF und beendet sich.
-        # Falls Signal vor EOF kommt, schließen wir stdin.
+        # Falls Signal vor EOF kommt, schließen wir stdin. Python kann ValueError
+        # werfen wenn stdin gerade in readline blockiert (je nach Plattform).
         try:
             sys.stdin.close()
-        except OSError:
+        except (OSError, ValueError):
             pass
 
     for sig in (signal.SIGTERM, signal.SIGINT):

@@ -1,6 +1,10 @@
 import { me } from '$lib/api/auth';
 import { clearTokens, loadTokens } from '$lib/api/storage';
 import { readState } from './readState.svelte';
+import { voicePresence } from './voicePresence.svelte';
+import { streamPresence } from './streamPresence.svelte';
+import { userCache } from './users.svelte';
+import { directMessages } from './directMessages.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -58,7 +62,16 @@ class AuthStore {
   signOut(): void {
     clearTokens();
     this.user = null;
+    // Clear all session-scoped stores so a re-login (or a different user
+    // signing in on the same tab without a reload) starts from a clean slate.
+    // guilds/messages are cleared by UserFooter.onSignOut where it's the
+    // user-initiated path; this method also runs from the WS connection's
+    // refresh-failure path, which is why the clearing belongs here.
     readState.clear();
+    voicePresence.clear();
+    streamPresence.clear();
+    userCache.clear();
+    directMessages.clear();
     void goto('/login');
   }
 }

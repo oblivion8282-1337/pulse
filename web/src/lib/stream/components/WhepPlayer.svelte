@@ -116,6 +116,10 @@
   const RETRY_MS = [1000, 2000, 3000, 5000, 5000];
   let attempt = 0;
   let session: WhepSession | null = null;
+  // Active connectionstatechange listener for the current session — held so
+  // teardown can remove it. Without removal each retry would attach a fresh
+  // closure to the previous (closed) RTCPeerConnection.
+  let connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let statsTimer: ReturnType<typeof setInterval> | null = null;
   const statsReader = new WhepStatsReader();
@@ -139,6 +143,10 @@
     clearTimers();
     const s = session;
     session = null;
+    if (s && connListener) {
+      s.pc.removeEventListener('connectionstatechange', connListener);
+    }
+    connListener = null;
     if (s) await s.close();
     if (videoEl) videoEl.srcObject = null;
   }
@@ -187,7 +195,7 @@
       attempt = 0;
       phase = 'playing';
       detail = '';
-      s.pc.addEventListener('connectionstatechange', () => {
+      connListener = () => {
         if (disposed || session !== s) return;
         const st = s.pc.connectionState;
         // `disconnected` is transient — Chromium recovers it back to `connected`
@@ -198,7 +206,8 @@
             if (!disposed && runChannelId === cid) scheduleRetry();
           });
         }
-      });
+      };
+      s.pc.addEventListener('connectionstatechange', connListener);
       // Video ist muted, also autoplay-tauglich; der Audio-Block hängt jetzt
       // am AudioContext (kann suspended sein bevor der User klickt).
       statsReader.reset();

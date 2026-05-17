@@ -42,15 +42,24 @@ function chmodQuiet(target: string, mode: number): void {
   }
 }
 
-/** Serialise the in-memory blob back to disk (mode 0o600 on the file). */
+/** Serialise the in-memory blob back to disk (mode 0o600 on the file).
+ *  Atomic: write to a `.tmp` sibling, then `rename` over the real file.
+ *  `rename(2)` on the same filesystem is atomic per POSIX, so a crash
+ *  mid-write leaves the previous good JSON intact instead of producing
+ *  a truncated file that `JSON.parse` would silently reset to `{}` on
+ *  next launch (and take all persisted settings + custom_servers with it). */
 function persist(): void {
   if (data === null || storePath === null) return;
+  const tmpPath = storePath + '.tmp';
   try {
     const json = JSON.stringify(data, null, 2);
-    fs.writeFileSync(storePath, json, { mode: 0o600 });
+    fs.writeFileSync(tmpPath, json, { mode: 0o600 });
+    fs.renameSync(tmpPath, storePath);
     if (isLinux()) chmodQuiet(storePath, 0o600);
   } catch (err) {
     console.error('[store] failed to persist:', err);
+    // Best-effort: clean up the temp file if it lingered.
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
   }
 }
 

@@ -1,4 +1,4 @@
-# MediaMTX config — Pulse production (MediaMTX 1.18.1).
+# MediaMTX config — Pulse production (MediaMTX 1.17.1).
 #
 # Derived from streaming/server/mediamtx.yml.template. Mounted read-only into
 # the `pulse_mediamtx` container (network_mode: host), so the addresses below
