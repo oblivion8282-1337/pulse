@@ -54,6 +54,8 @@ export type VoiceParticipant = {
   audioLevel: number;
   /** Whether the participant's microphone track is muted. */
   micMuted: boolean;
+  /** Whether this participant is publishing an unmuted camera track. */
+  cameraOn: boolean;
   connectionQuality: ConnectionQuality;
 };
 
@@ -761,6 +763,7 @@ class VoiceRoom {
       isSpeaking: isLocal ? this.localSpeaking : p.isSpeaking,
       audioLevel: p.audioLevel ?? 0,
       micMuted: !p.isMicrophoneEnabled,
+      cameraOn: p.isCameraEnabled,
       connectionQuality: p.connectionQuality
     });
     out.push(toVP(room.localParticipant as LocalParticipant, true));

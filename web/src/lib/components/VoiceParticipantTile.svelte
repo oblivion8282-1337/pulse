@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
+  import VideoIcon from '@lucide/svelte/icons/video';
   import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -60,6 +61,9 @@
           </span>
           {#if p.micMuted}
             <MicOffIcon class="size-3 text-red-400" />
+          {/if}
+          {#if p.cameraOn}
+            <VideoIcon class="size-3 text-primary" />
           {/if}
           {#if canAdjustVolume && volumePct !== 100}
             <span
