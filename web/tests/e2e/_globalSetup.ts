@@ -58,12 +58,17 @@ async function applyMigrations(env: NodeJS.ProcessEnv, name: string, cwd: string
 async function truncateDb(env: NodeJS.ProcessEnv) {
   // Make every test run independent. We don't drop the schemas because
   // re-running migrations would slow things down; instead we wipe rows.
+  // Settings singletons (auth_settings, chat_settings) are seeded by the
+  // migrations and survive truncate — we just nuke the row-tables.
   const sql = `
     TRUNCATE
+      chat.message_attachments,
+      chat.admin_audit_log,
       chat.messages,
       chat.guild_members,
       chat.channels,
       chat.guilds,
+      auth.admin_audit_log,
       auth.refresh_tokens,
       auth.users
     RESTART IDENTITY CASCADE;

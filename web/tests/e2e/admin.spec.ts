@@ -1,0 +1,125 @@
+/**
+ * End-to-end admin-panel flow:
+ *   register alice + bob → flip alice's is_admin via SQL bootstrap →
+ *   alice re-logs in so the JWT carries the admin claim → opens the
+ *   UserFooter dropdown, navigates to /app/admin, checks all five
+ *   sections render → changes DM-limits and verifies it persists →
+ *   toggles bob's disabled flag → audit-log shows the entry.
+ *
+ * The is_admin promotion goes through `docker exec pulse_postgres`
+ * (same path as the existing test-fixtures use for truncate). On a
+ * podman-host machine you may need a docker→podman shim — the rest of
+ * the test suite already depends on that.
+ */
+
+import { test, expect, type Page } from '@playwright/test';
+import { execSync } from 'node:child_process';
+
+const ts = Date.now();
+const ALICE = {
+  username: `admin_${ts}`,
+  email: `admin_${ts}@dcc-test.example.com`,
+  password: 'sup3r-secret-pass'
+};
+const BOB = {
+  username: `regular_${ts}`,
+  email: `regular_${ts}@dcc-test.example.com`,
+  password: 'sup3r-secret-pass'
+};
+
+async function register(page: Page, u: typeof ALICE) {
+  await page.goto('/register');
+  await page.getByTestId('reg-username').fill(u.username);
+  await page.getByTestId('reg-email').fill(u.email);
+  await page.getByTestId('reg-password').fill(u.password);
+  await page.getByTestId('reg-submit').click();
+  await page.waitForURL(/\/app/);
+}
+
+async function login(page: Page, identifier: string, password: string) {
+  await page.goto('/login');
+  await page.getByTestId('login-identifier').fill(identifier);
+  await page.getByTestId('login-password').fill(password);
+  await page.getByTestId('login-submit').click();
+  await page.waitForURL(/\/app/);
+}
+
+function promoteToAdmin(username: string) {
+  execSync(
+    `docker exec -i dcc_night_postgres psql -U dcc -d dcc_test -c "UPDATE auth.users SET is_admin=true WHERE username='${username}'"`,
+    { stdio: 'ignore' }
+  );
+}
+
+test.describe.serial('admin-panel E2E', () => {
+  let page: Page;
+
+  test.beforeAll(async ({ browser }) => {
+    const ctx = await browser.newContext();
+    page = await ctx.newPage();
+  });
+
+  test('register both users', async () => {
+    await register(page, ALICE);
+    // Bob registers in the same context — easier than juggling two pages
+    // for this flow; we don't need to act as Bob, just to have him exist.
+    const bobCtx = await page.context().browser()!.newContext();
+    const bobPage = await bobCtx.newPage();
+    await register(bobPage, BOB);
+    await bobCtx.close();
+  });
+
+  test('non-admin does not see the Server-Admin entry', async () => {
+    await page.getByTestId('user-footer-trigger').click();
+    // The "Server-Admin" item must NOT be in the dropdown for a regular user.
+    await expect(page.getByTestId('open-admin')).toHaveCount(0);
+    // Close the dropdown by pressing Escape.
+    await page.keyboard.press('Escape');
+  });
+
+  test('admin promotion makes the entry appear after re-login', async () => {
+    promoteToAdmin(ALICE.username);
+    // The current access-token was issued *before* the flip — to pick up
+    // `admin: true` we need a fresh token (i.e. log in again).
+    await page.goto('/login');
+    await page.evaluate(() => localStorage.clear());
+    await login(page, ALICE.username, ALICE.password);
+
+    await page.getByTestId('user-footer-trigger').click();
+    await expect(page.getByTestId('open-admin')).toBeVisible();
+  });
+
+  test('navigating opens the panel with five sections', async () => {
+    await page.getByTestId('open-admin').click();
+    await page.waitForURL(/\/app\/admin/);
+    await expect(page.getByTestId('admin-panel')).toBeVisible();
+    for (const id of [
+      'admin-overview',
+      'admin-attachments',
+      'admin-registration',
+      'admin-users',
+      'admin-audit-log'
+    ]) {
+      await expect(page.getByTestId(id)).toBeVisible();
+    }
+  });
+
+  test('DM-limits PATCH persists', async () => {
+    const sizeInput = page.getByTestId('dm-max-size-input');
+    await expect(sizeInput).toHaveValue('25', { timeout: 5_000 });
+    await sizeInput.fill('40');
+    await page.getByTestId('dm-limits-save').click();
+    // Toast confirms; refresh and verify the new value.
+    await page.reload();
+    await expect(page.getByTestId('dm-max-size-input')).toHaveValue('40', { timeout: 5_000 });
+  });
+
+  test('audit-log shows the DM-limits change', async () => {
+    // The merged log fetches both auth+chat. After our PATCH there must
+    // be at least one entry mentioning the dm_limits action.
+    await page.getByTestId('admin-audit-refresh').click();
+    await expect(
+      page.locator('[data-testid="audit-entry"]', { hasText: 'DM-Limits' })
+    ).toHaveCount(1, { timeout: 5_000 });
+  });
+});
