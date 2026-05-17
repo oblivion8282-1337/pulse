@@ -20,6 +20,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
+  import { hiddenCameras } from '$lib/voice/hiddenCameras.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -42,10 +43,13 @@
     watchPartyState?: WatchPartyState;
   } = $props();
 
+  let visibleCameras = $derived(
+    voice.cameraTracks.filter((c) => !hiddenCameras.has(channel.id, c.identity))
+  );
   let videoTileCount = $derived(
     hqStreamersOther.length +
       voice.screenTracks.length +
-      voice.cameraTracks.length +
+      visibleCameras.length +
       (watchPartyState ? 1 : 0)
   );
   let iAmWatchPartyHost = $derived(
@@ -151,8 +155,13 @@
           identity={st.identity}
         />
       {/each}
-      {#each voice.cameraTracks as ct (ct.identity)}
-        <CameraTile track={ct.track} name={ct.name} identity={ct.identity} />
+      {#each visibleCameras as ct (ct.identity)}
+        <CameraTile
+          channelId={channel.id}
+          track={ct.track}
+          name={ct.name}
+          identity={ct.identity}
+        />
       {/each}
     </div>
   {/if}

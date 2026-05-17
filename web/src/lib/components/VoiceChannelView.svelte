@@ -17,6 +17,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { hiddenCameras } from '$lib/voice/hiddenCameras.svelte';
   import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
@@ -56,11 +57,18 @@
   let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
   let hasWatchParty = $derived(watchPartyState !== undefined);
 
+  // Visible (not locally hidden) remote cams for this channel — viewers can
+  // dismiss individual cam tiles, so the open-state derivations have to use
+  // the filtered list, not voice.cameraTracks directly.
+  let visibleCameras = $derived(
+    voice.cameraTracks.filter((c) => !hiddenCameras.has(channel.id, c.identity))
+  );
+
   // Stream layout: every watchable HQ stream + every browser screen-share +
-  // every remote camera + any watch-party go into one responsive grid;
-  // participant avatars become a compact row below.
+  // every (non-hidden) remote camera + any watch-party go into one responsive
+  // grid; participant avatars become a compact row below.
   let hasStreams = $derived(
-    hqStreaming || voice.screenTracks.length > 0 || voice.cameraTracks.length > 0
+    hqStreaming || voice.screenTracks.length > 0 || visibleCameras.length > 0
   );
 
   // Live-Streamer-Namen für den Banner (HQ + Browser-Screenshare, ohne self).
@@ -69,7 +77,7 @@
   // Banner + auto-open trigger: any of HQ-others, screen-share-others, or a
   // watch-party in this channel counts as "etwas Sehenswertes läuft".
   let othersStreaming = $derived(
-    liveStreamersOther.length > 0 || hasWatchParty || voice.cameraTracks.length > 0
+    liveStreamersOther.length > 0 || hasWatchParty || visibleCameras.length > 0
   );
   let streamBannerLabel = $derived.by(() => {
     if (hasWatchParty && liveStreamersOther.length === 0) return 'Watch Party läuft';
@@ -86,10 +94,13 @@
   // Player automatisch starten nur weil jemand im Channel pusht.
   let streamViewOpen = $state(false);
 
-  // Reset auf collapsed bei Channel-Wechsel.
+  // Reset auf collapsed bei Channel-Wechsel + jegliche User-spezifischen Hide-
+  // Flags wegwerfen, sodass ein Re-Join nicht mit alter „Cam X ausgeblendet"-
+  // Erinnerung startet.
   $effect(() => {
-    void channel.id;
+    const cid = channel.id;
     streamViewOpen = false;
+    hiddenCameras.resetChannel(cid);
   });
 
   // Sidebar-LIVE-Badge: setzt streamOpenRequest.pendingChannelId. Effekt

@@ -4,13 +4,17 @@
   import VideoIcon from '@lucide/svelte/icons/video';
   import MaximizeIcon from '@lucide/svelte/icons/maximize';
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
+  import XIcon from '@lucide/svelte/icons/x';
   import { toggleFullscreen, isDocFullscreen } from '$lib/stream/fullscreen';
+  import { hiddenCameras } from '$lib/voice/hiddenCameras.svelte';
 
   let {
+    channelId,
     track,
     name,
     identity
   }: {
+    channelId: string;
     track: RemoteVideoTrack;
     name: string;
     identity: string;
@@ -62,6 +66,17 @@
     <VideoIcon class="size-3" />
     <span class="max-w-32 truncate">{name}</span>
   </div>
+
+  <button
+    type="button"
+    onclick={() => hiddenCameras.hide(channelId, identity)}
+    class="absolute right-2 top-2 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
+    aria-label="Kamera ausblenden"
+    title="Diese Kamera ausblenden"
+    data-testid="camera-hide"
+  >
+    <XIcon class="size-3.5" />
+  </button>
 
   <div class="absolute bottom-2 right-2 flex items-center gap-1.5">
     <button
