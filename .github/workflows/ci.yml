@@ -9,17 +9,16 @@ on:
     branches: [main]
   pull_request:
 
-# Runs on the self-hosted runner on the VPS (1 concurrent job, see
-# memory/feedback_self_hosted_runner.md). Newer pushes cancel older
-# pending/running CI for the same ref so we don't queue stale builds.
+# Cancel older runs on the same ref when a newer push lands. Repo is
+# public so we have unlimited Actions minutes, but cancelling stale
+# matrix-image-builds still keeps the GHCR `:latest` race-free.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   backend:
-    runs-on: [self-hosted, linux]
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:16-alpine
@@ -69,8 +68,7 @@ jobs:
         run: uv run pytest -v
 
   frontend:
-    runs-on: [self-hosted, linux]
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4   # version comes from package.json "packageManager"
@@ -91,8 +89,7 @@ jobs:
   # test jobs pass. Watchtower on the VPS follows the `:latest` tags.
   images:
     name: build & push images (${{ matrix.name }})
-    runs-on: [self-hosted, linux]
-    timeout-minutes: 30
+    runs-on: ubuntu-24.04
     needs: [backend, frontend]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
