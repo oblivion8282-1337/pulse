@@ -218,13 +218,15 @@
     <div class="ml-auto flex items-center gap-1">
       {#if streamViewOpen && othersStreaming}
         <button
-          class="rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+          class="bg-bg-input/70 text-text-bright hover:bg-bg-hover hover:text-primary flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition-colors"
           onclick={() => (streamViewOpen = false)}
           aria-label="Zurück zur Teilnehmer-Ansicht"
           title="Teilnehmer-Ansicht"
           data-testid="stream-grid-close"
         >
-          <ArrowLeftIcon class="text-text-muted size-4" />
+          <ArrowLeftIcon class="size-3.5" />
+          <span class="hidden sm:inline">Streams ausblenden</span>
+          <span class="sm:hidden">Zurück</span>
         </button>
       {/if}
       <button
