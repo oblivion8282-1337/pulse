@@ -75,6 +75,15 @@
 
   let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
   let processorActive = $derived(settings.audio.noiseSuppression !== 'off');
+  // Map the LIVE gate threshold (dBFS) onto the mic meter's 0..100% axis using
+  // the same dBFS-to-display scale LocalMicAnalyser uses (-50..-5 dB → 0..1).
+  // Imperfect: the gate measures post-RNNoise while the meter shows raw mic —
+  // but for speech the levels are close enough that the marker is a useful
+  // "your voice peaks must clear this line" anchor. Hidden when NS is off.
+  let gateMarkerPct = $derived(
+    Math.round(Math.max(0, Math.min(1, (gateDbDisplay + 50) / 45)) * 100)
+  );
+  let gateOpen = $derived(!processorActive || micLevelPct >= gateMarkerPct);
   let bitrateTooLowForStereo = $derived(settings.audio.voiceBitrateKbps < VOICE_BITRATE_STEREO_MIN);
   let stereoForced = $derived(processorActive || bitrateTooLowForStereo);
   let bitrateLabel = $derived(
@@ -108,11 +117,23 @@
         <option value={d.deviceId}>{deviceDisplayName(d, 'Mikrofon')}</option>
       {/each}
     </select>
-    <div class="bg-bg-input h-2 w-full overflow-hidden rounded-full" data-testid="settings-mic-level">
+    <div class="bg-bg-input relative h-2 w-full overflow-hidden rounded-full" data-testid="settings-mic-level">
       <div
-        class="bg-primary h-full rounded-full transition-[width] duration-75"
+        class="h-full rounded-full transition-[width] duration-75"
+        class:bg-primary={gateOpen}
+        class:bg-text-muted={!gateOpen}
+        class:opacity-40={!gateOpen}
         style:width="{micLevelPct}%"
       ></div>
+      {#if processorActive}
+        <!-- Gate-Schwelle (live aus settings.audio.noiseGateThresholdDb) -->
+        <div
+          class="border-text-bright/80 pointer-events-none absolute inset-y-0 border-l-2"
+          style:left="{gateMarkerPct}%"
+          aria-hidden="true"
+          title={`Gate-Schwelle: ${gateDbDisplay} dB`}
+        ></div>
+      {/if}
     </div>
   </div>
 
