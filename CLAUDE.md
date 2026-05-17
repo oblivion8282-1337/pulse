@@ -149,8 +149,9 @@ nehmen `channel:{id,token,mediamtx_endpoint?,push_protocol?}` (Pulse-Pfad, Media
 **KEIN `{"op":"start"}` im Test** (öffnet Wayland-Portal-Dialog + streamt wirklich); `build_argv` baut nur die argv ohne zu starten.
 
 **GSR-Binary-Resolver**: `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder` wenn `/.flatpak-info`/`$FLATPAK_ID`)
-→ Custom-Build (`/tmp/gsr-analysis/.../gpu-screen-recorder` von `streaming/bootstrap-gsr.fish`) → PATH. Fehlt alles
-→ `health.gsr.available=false` (kein Crash).
+→ Custom-Build (`$XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder` von `streaming/bootstrap-gsr.fish`,
+Legacy-Fallback `/tmp/gsr-analysis/...` — wandert beim nächsten Bootstrap mit) → PATH. Fehlt alles
+→ `health.gsr.available=false` (kein Crash). Persistenter Cache-Pfad überlebt Reboots; `/tmp` war tmpfs, da war HQ nach jedem Reboot weg.
 
 **Settings-Persistenz (Electron)**: `desktop/electron/store.ts` = hand-rolled Key-Value-Store (**bewusst kein `electron-store`**
 — ESM-only in neueren Versionen, gibt CJS/ESM-Friktion mit dem esbuild-Bundle). `<userData>/pulse-stream.json`, beim Start

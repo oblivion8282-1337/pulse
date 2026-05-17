@@ -862,7 +862,7 @@ Was NICHT mitkopiert wird: Binär-/Build-Artefakte (`mediamtx`-Binary, `*.flatpa
 **T2 — GSR-Paket rüberkopieren + Sidecar** (erledigt)
 - `streaming/` = Kopie der relevanten GSR-Teile (s. Layout). Qt-Dateien raus.
 - `gsr-sidecar/control.py`: stdio-Loop — Requests von stdin (`{"op":"start","profile":…,"server":…,"capture":…,"audio":…}`, `"stop"`, `"state"`, `"health"`, `"list_monitors"`, `"gpu_info"`, `"list_profiles"`, `"list_application_audio"`, `"build_argv"`), ruft den Controller (QProcess → `subprocess.Popen` + stderr-Reader-Thread), Events auf stdout (`{"ev":"state","running":true,"fps":59,"uptime":12}`, `{"ev":"error",…}`, `{"ev":"log","line":…}`). + `ServerProfile.from_channel(channel_id, token, mediamtx_endpoint)` in `profiles.py` (Pulse-Pfad `channel-<id>`, Stream-Token statt fixem Key).
-- GSR-Binary-Resolver im Sidecar: `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder`) → Custom-Build (`/tmp/gsr-analysis/...`) → System-PATH.
+- GSR-Binary-Resolver im Sidecar: `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder`) → Custom-Build (`$XDG_CACHE_HOME/pulse/gsr/...`, Legacy-Fallback `/tmp/gsr-analysis/...`) → System-PATH.
 - *Liefert:* `gsr-sidecar` lokal per stdin/stdout testbar; der Electron-Main spawnt/stoppt/abfragt ihn (E1b).
 
 **T3 — Svelte-Streaming-UI** (T3a obsolet — durch E1b ersetzt; T3b/T3c erledigt)

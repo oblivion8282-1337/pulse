@@ -2,8 +2,10 @@
 # Baut GSR aus dem git-Source mit unseren beiden Patches angewendet —
 # das lokale Binary-Pendant zum Flatpak-`gpu-screen-recorder`.
 #
-# Custom-Binary landet in /tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder
-# und wird vom Sidecar-Resolver (gsr_binary.py) vor dem System-Binary bevorzugt.
+# Custom-Binary landet in $XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder/build/
+# (default $HOME/.cache/pulse/gsr/...) und wird vom Sidecar-Resolver
+# (gsr_binary.py) vor dem System-Binary bevorzugt. Persistenter Pfad —
+# überlebt Reboots, anders als der frühere /tmp-Buildplatz.
 
 # ── Pinned upstream commit ─────────────────────────────────────────────────
 # Muss exakt mit `packaging/com.unicutmedia.Pulse.yml` (gpu-screen-recorder
@@ -14,7 +16,24 @@
 # Commit prüfen).
 set gsr_pinned_commit 0349083cfe4578dbc8bc600e31187e8e09318add
 
-set source_dir /tmp/gsr-analysis/gpu-screen-recorder
+# XDG-Cache-Pfad — XDG_CACHE_HOME überschreibbar, sonst $HOME/.cache. Im
+# Gegensatz zum früheren /tmp-Pfad bleibt das nach Reboot stehen, sodass der
+# HQ-Stream-Button nach jedem Login direkt verfügbar ist.
+if set -q XDG_CACHE_HOME; and test -n "$XDG_CACHE_HOME"
+    set cache_root $XDG_CACHE_HOME
+else
+    set cache_root $HOME/.cache
+end
+set source_dir $cache_root/pulse/gsr/gpu-screen-recorder
+
+# Migration: existing /tmp-Build einmal mitnehmen, falls jemand vor dem Move
+# schon gebaut hat — spart einen Re-Clone. Symlink/Cp wäre fragil; einfach
+# clobbern wenn der neue Pfad leer ist.
+if not test -d $source_dir; and test -d /tmp/gsr-analysis/gpu-screen-recorder
+    echo "→ Migriere alten /tmp-Build nach $source_dir"
+    mkdir -p (dirname $source_dir)
+    mv /tmp/gsr-analysis/gpu-screen-recorder $source_dir
+end
 
 # ── repo_dir VOR dem cd auflösen ───────────────────────────────────────────
 # `status -f` kann ein relativer Pfad sein, wenn das Skript via `fish

@@ -6,7 +6,9 @@ Sucht das Binary in folgender Reihenfolge:
 2. Flatpak-Pfad ``/app/bin/gpu-screen-recorder`` wenn ``/.flatpak-info``
    existiert oder ``$FLATPAK_ID`` gesetzt ist.
 3. Custom-Build aus ``bootstrap-gsr.fish`` unter
-   ``/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder``.
+   ``$XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder``
+   (default ``$HOME/.cache/...``). Legacy-Fallback: ``/tmp/gsr-analysis/...``
+   für alte Builds, die noch nicht migriert sind.
 4. System-Binary über ``$PATH`` (``shutil.which``).
 
 Wenn nichts gefunden wird, gibt der Resolver einen ``GsrBinary`` mit
@@ -31,7 +33,16 @@ from pathlib import Path
 
 # Bekannte Binary-Pfade (Flatpak-Default + Custom-Build aus bootstrap-gsr.fish).
 _FLATPAK_PATH = Path("/app/bin/gpu-screen-recorder")
-_CUSTOM_BUILD_PATH = Path("/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder")
+# Legacy-Pfad — bootstrap-gsr.fish baute vor 2026-05-17 hier rein. Wird beim
+# nächsten Bootstrap migriert, aber der Resolver schaut auch hier nach, damit
+# bestehende Installations weiter funktionieren bevor neu gebaut wurde.
+_LEGACY_TMP_BUILD_PATH = Path("/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder")
+
+
+def _persistent_build_path() -> Path:
+    """``$XDG_CACHE_HOME/pulse/gsr/...`` mit ``$HOME/.cache``-Fallback."""
+    cache_root = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return Path(cache_root) / "pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder"
 
 
 @dataclass(frozen=True)
@@ -68,8 +79,12 @@ def resolve() -> GsrBinary:
     if flatpak and _FLATPAK_PATH.exists():
         return GsrBinary(path=str(_FLATPAK_PATH), source="flatpak", is_flatpak=True)
 
-    if _CUSTOM_BUILD_PATH.exists() and os.access(_CUSTOM_BUILD_PATH, os.X_OK):
-        return GsrBinary(path=str(_CUSTOM_BUILD_PATH), source="custom", is_flatpak=flatpak)
+    persistent = _persistent_build_path()
+    if persistent.exists() and os.access(persistent, os.X_OK):
+        return GsrBinary(path=str(persistent), source="custom", is_flatpak=flatpak)
+
+    if _LEGACY_TMP_BUILD_PATH.exists() and os.access(_LEGACY_TMP_BUILD_PATH, os.X_OK):
+        return GsrBinary(path=str(_LEGACY_TMP_BUILD_PATH), source="custom", is_flatpak=flatpak)
 
     system = shutil.which("gpu-screen-recorder")
     if system:

@@ -120,8 +120,9 @@ MediaMTX pushen. Das macht der User selbst.
 
 Reihenfolge: `$GSR_BINARY` → Flatpak (`/app/bin/gpu-screen-recorder` wenn
 `/.flatpak-info` oder `$FLATPAK_ID`) → Custom-Build
-(`/tmp/gsr-analysis/gpu-screen-recorder/build/gpu-screen-recorder`,
-gebaut von `bootstrap-gsr.fish`) → System-PATH (`gpu-screen-recorder`).
+(`$XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder`,
+gebaut von `bootstrap-gsr.fish`; Legacy-Fallback `/tmp/gsr-analysis/...` für
+alte, noch nicht migrierte Builds) → System-PATH (`gpu-screen-recorder`).
 
 Wenn nichts gefunden wird, antwortet `health` mit `gsr.available=false`
 und `start` schlägt sauber fehl statt zu crashen.
