@@ -74,6 +74,7 @@
   }
 
   let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
+  let micPeakPct = $derived(Math.round(voice.localMicPeak * 100));
   let processorActive = $derived(settings.audio.noiseSuppression !== 'off');
   // Map the LIVE gate threshold (dBFS) onto the mic meter's 0..100% axis using
   // the same dBFS-to-display scale LocalMicAnalyser uses (-50..-5 dB → 0..1).
@@ -117,23 +118,42 @@
         <option value={d.deviceId}>{deviceDisplayName(d, 'Mikrofon')}</option>
       {/each}
     </select>
-    <div class="bg-bg-input relative h-2 w-full overflow-hidden rounded-full" data-testid="settings-mic-level">
-      <div
-        class="h-full rounded-full transition-[width] duration-75"
-        class:bg-primary={gateOpen}
-        class:bg-text-muted={!gateOpen}
-        class:opacity-40={!gateOpen}
-        style:width="{micLevelPct}%"
-      ></div>
-      {#if processorActive}
-        <!-- Gate-Schwelle (live aus settings.audio.noiseGateThresholdDb) -->
+    <div class="flex items-center gap-2">
+      <div class="bg-bg-input relative h-2 flex-1 overflow-hidden rounded-full" data-testid="settings-mic-level">
+        <!-- RMS-Füllung: das was die Gate-Schwelle vergleicht (short-window RMS). -->
         <div
-          class="border-text-bright/80 pointer-events-none absolute inset-y-0 border-l-2"
-          style:left="{gateMarkerPct}%"
-          aria-hidden="true"
-          title={`Gate-Schwelle: ${gateDbDisplay} dB`}
+          class="h-full rounded-full transition-[width] duration-75"
+          class:bg-primary={gateOpen}
+          class:bg-text-muted={!gateOpen}
+          class:opacity-40={!gateOpen}
+          style:width="{micLevelPct}%"
         ></div>
-      {/if}
+        <!-- Peak-Hold-Line: lauteste Spitze der letzten ~800 ms; raw-Mic-Clip wenn am rechten Rand. -->
+        <div
+          class="bg-white pointer-events-none absolute inset-y-0 w-px transition-[left] duration-75"
+          style:left="{micPeakPct}%"
+          aria-hidden="true"
+        ></div>
+        {#if processorActive}
+          <!-- Gate-Schwelle (live aus settings.audio.noiseGateThresholdDb) -->
+          <div
+            class="border-text-bright/80 pointer-events-none absolute inset-y-0 border-l-2"
+            style:left="{gateMarkerPct}%"
+            aria-hidden="true"
+            title={`Gate-Schwelle: ${gateDbDisplay} dB`}
+          ></div>
+        {/if}
+      </div>
+      <!-- Clip-Lämpchen für rohen Mic-Pegel: leuchtet wenn Peak > -1 dBFS. Bedeutet
+           OS-Mic-Gain ist zu hoch — bekommt der Slider nicht repariert. -->
+      <span
+        class="size-3 shrink-0 rounded-full transition-colors"
+        class:bg-red-500={voice.localMicClip}
+        class:bg-bg-input={!voice.localMicClip}
+        class:shadow-[0_0_6px_rgb(239_68_68)]={voice.localMicClip}
+        aria-label={voice.localMicClip ? 'Mic-Eingang clippt — OS-Pegel reduzieren' : 'Mic-Eingang ok'}
+        title={voice.localMicClip ? 'Mic-Eingang clippt — OS-Pegel reduzieren' : ''}
+      ></span>
     </div>
   </div>
 

@@ -76,6 +76,13 @@ class VoiceRoom {
 
   /** 0..1 instantaneous level of the local microphone (for the meter). */
   localMicLevel = $state(0);
+  /** 0..1 peak-hold position of the raw mic — instant attack, ~800 ms decay.
+   *  Rendered as a thin line over the RMS fill in the input-device meter. */
+  localMicPeak = $state(0);
+  /** True while raw-mic peaks exceed ~-1 dBFS (300 ms hold). Indicates an OS-
+   *  level mic-gain problem — RNNoise and the makeup slider can't recover from
+   *  pre-capture clipping, so this gets its own lamp distinct from sendClip. */
+  localMicClip = $state(false);
   /** Whether the local user is currently speaking (RMS-based, not server). */
   localSpeaking = $state(false);
   /** 0..1 instantaneous level AFTER the noise filter + makeup gain — what's
@@ -103,9 +110,11 @@ class VoiceRoom {
     },
     (s) => { this.#setLocalSpeaking(s); },
     (c) => {
+      this.localMicClip = c;
       if (this.#sendProcessorMode === 'off') this.localSendClip = c;
     },
     (p) => {
+      this.localMicPeak = p;
       if (this.#sendProcessorMode === 'off') this.localSendPeak = p;
     }
   );
