@@ -20,7 +20,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
-  import { hiddenCameras } from '$lib/voice/hiddenCameras.svelte';
+  import { hiddenTiles } from '$lib/stream/hiddenTiles.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -44,11 +44,14 @@
   } = $props();
 
   let visibleCameras = $derived(
-    voice.cameraTracks.filter((c) => !hiddenCameras.has(channel.id, c.identity))
+    voice.cameraTracks.filter((c) => !hiddenTiles.has('cam', channel.id, c.identity))
+  );
+  let visibleScreenShares = $derived(
+    voice.screenTracks.filter((s) => !hiddenTiles.has('screen', channel.id, s.identity))
   );
   let videoTileCount = $derived(
     hqStreamersOther.length +
-      voice.screenTracks.length +
+      visibleScreenShares.length +
       visibleCameras.length +
       (watchPartyState ? 1 : 0)
   );
@@ -145,7 +148,7 @@
           <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
         {/if}
       {/each}
-      {#each voice.screenTracks as st (st.identity)}
+      {#each visibleScreenShares as st (st.identity)}
         <ScreenShareTile
           channelId={channel.id}
           streamerId={userIdFromIdentity(st.identity)}

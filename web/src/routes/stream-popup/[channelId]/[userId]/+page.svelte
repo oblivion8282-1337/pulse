@@ -66,7 +66,7 @@
 
 <div class="h-full w-full" data-testid="stream-popup">
   {#if channelId && userId}
-    <WhepPlayer {channelId} {userId} name={streamerName} canDetach={false} />
+    <WhepPlayer {channelId} {userId} name={streamerName} canDetach={false} canHide={false} />
   {:else}
     <div class="flex h-full w-full items-center justify-center text-sm text-text-muted">
       Ungültiger Stream-Link.

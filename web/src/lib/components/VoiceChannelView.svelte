@@ -17,7 +17,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
-  import { hiddenCameras } from '$lib/voice/hiddenCameras.svelte';
+  import { hiddenTiles } from '$lib/stream/hiddenTiles.svelte';
   import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
@@ -37,8 +37,13 @@
   // a set of streamers, since several people can HQ-stream into one channel.
   let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
   let iAmHqStreaming = $derived(!!auth.user && hqStreamers.includes(auth.user.id));
-  // The streams whose video we can actually watch (everyone but ourselves).
-  let hqStreamersOther = $derived(hqStreamers.filter((id) => id !== auth.user?.id));
+  // The streams whose video we can actually watch (everyone but ourselves),
+  // minus the ones the viewer has dismissed locally.
+  let hqStreamersOther = $derived(
+    hqStreamers.filter(
+      (id) => id !== auth.user?.id && !hiddenTiles.has('hq', channel.id, id)
+    )
+  );
   let hqStreaming = $derived(hqStreamers.length > 0);
 
   // Browser screen-share publishers for this channel (from LiveKit webhooks via
@@ -54,21 +59,27 @@
 
   // Watch-Party (max 1 pro Channel, parallel zu HQ/Screenshare). Quelle ist
   // ein gemeinsam synchronisiertes Video (YouTube/Twitch-VOD/Direct-Link).
-  let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
+  let rawWatchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
+  let watchPartyHidden = $derived(hiddenTiles.has('party', channel.id, '_'));
+  let watchPartyState = $derived(watchPartyHidden ? undefined : rawWatchPartyState);
   let hasWatchParty = $derived(watchPartyState !== undefined);
 
-  // Visible (not locally hidden) remote cams for this channel — viewers can
-  // dismiss individual cam tiles, so the open-state derivations have to use
-  // the filtered list, not voice.cameraTracks directly.
+  // Visible (not locally hidden) cams + browser-screenshares for this channel.
+  // Viewers can dismiss individual tiles, so the open-state derivations must
+  // use the filtered lists rather than the raw voice.cameraTracks/screenTracks.
   let visibleCameras = $derived(
-    voice.cameraTracks.filter((c) => !hiddenCameras.has(channel.id, c.identity))
+    voice.cameraTracks.filter((c) => !hiddenTiles.has('cam', channel.id, c.identity))
+  );
+  let visibleScreenShares = $derived(
+    voice.screenTracks.filter((s) => !hiddenTiles.has('screen', channel.id, s.identity))
   );
 
   // Stream layout: every watchable HQ stream + every browser screen-share +
-  // every (non-hidden) remote camera + any watch-party go into one responsive
-  // grid; participant avatars become a compact row below.
+  // every remote camera + any watch-party go into one responsive grid (all
+  // filtered through hiddenTiles); participant avatars become a compact row
+  // below.
   let hasStreams = $derived(
-    hqStreaming || voice.screenTracks.length > 0 || visibleCameras.length > 0
+    hqStreamersOther.length > 0 || visibleScreenShares.length > 0 || visibleCameras.length > 0
   );
 
   // Live-Streamer-Namen für den Banner (HQ + Browser-Screenshare, ohne self).
@@ -77,7 +88,10 @@
   // Banner + auto-open trigger: any of HQ-others, screen-share-others, or a
   // watch-party in this channel counts as "etwas Sehenswertes läuft".
   let othersStreaming = $derived(
-    liveStreamersOther.length > 0 || hasWatchParty || visibleCameras.length > 0
+    hqStreamersOther.length > 0 ||
+      visibleScreenShares.length > 0 ||
+      visibleCameras.length > 0 ||
+      hasWatchParty
   );
   let streamBannerLabel = $derived.by(() => {
     if (hasWatchParty && liveStreamersOther.length === 0) return 'Watch Party läuft';
@@ -100,7 +114,7 @@
   $effect(() => {
     const cid = channel.id;
     streamViewOpen = false;
-    hiddenCameras.resetChannel(cid);
+    hiddenTiles.resetChannel(cid);
   });
 
   // Sidebar-LIVE-Badge: setzt streamOpenRequest.pendingChannelId. Effekt

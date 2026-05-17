@@ -27,13 +27,16 @@
   import StreamChatPanel from './StreamChatPanel.svelte';
   import WhepHud from './WhepHud.svelte';
   import { detachedStreams } from '../detach.svelte';
+  import { hiddenTiles } from '../hiddenTiles.svelte';
   import { toast } from 'svelte-sonner';
+  import XIcon from '@lucide/svelte/icons/x';
 
   let {
     channelId,
     userId,
     name,
-    canDetach = true
+    canDetach = true,
+    canHide = true
   }: {
     channelId: string;
     userId: string;
@@ -41,6 +44,8 @@
     /** Wenn false, kein Detach-Button im HUD — z.B. im bereits entkoppelten
      *  Popup-Fenster wäre ein weiteres Detach sinnlos. */
     canDetach?: boolean;
+    /** Wenn false, kein lokaler Hide-Button — im Popup-Fenster sinnlos. */
+    canHide?: boolean;
   } = $props();
 
   let containerEl = $state<HTMLDivElement | null>(null);
@@ -277,6 +282,19 @@
       onclick={handleToggleFullscreen}
       title="Klicken für Vollbild / Esc zum Verlassen"
     ></video>
+
+    {#if canHide}
+      <button
+        type="button"
+        onclick={() => hiddenTiles.hide('hq', channelId, userId)}
+        class="absolute right-2 top-2 z-10 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
+        aria-label="Stream ausblenden"
+        title="Diesen Stream ausblenden"
+        data-testid="hq-stream-hide"
+      >
+        <XIcon class="size-3.5" />
+      </button>
+    {/if}
 
     <WhepHud
       {phase}

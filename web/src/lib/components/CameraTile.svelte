@@ -6,7 +6,7 @@
   import MinimizeIcon from '@lucide/svelte/icons/minimize';
   import XIcon from '@lucide/svelte/icons/x';
   import { toggleFullscreen, isDocFullscreen } from '$lib/stream/fullscreen';
-  import { hiddenCameras } from '$lib/voice/hiddenCameras.svelte';
+  import { hiddenTiles } from '$lib/stream/hiddenTiles.svelte';
 
   let {
     channelId,
@@ -69,7 +69,7 @@
 
   <button
     type="button"
-    onclick={() => hiddenCameras.hide(channelId, identity)}
+    onclick={() => hiddenTiles.hide('cam', channelId, identity)}
     class="absolute right-2 top-2 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
     aria-label="Kamera ausblenden"
     title="Diese Kamera ausblenden"

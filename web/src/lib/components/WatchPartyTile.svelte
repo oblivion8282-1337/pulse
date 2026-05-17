@@ -38,6 +38,7 @@
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import WatchChatPanel from './WatchChatPanel.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { hiddenTiles } from '$lib/stream/hiddenTiles.svelte';
   import { toast } from 'svelte-sonner';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -376,6 +377,17 @@
         aria-label="Watch Party beenden"
         title="Watch Party beenden"
         data-testid="watch-party-stop"
+      >
+        <XIcon class="size-3" />
+      </button>
+    {:else}
+      <button
+        type="button"
+        onclick={() => hiddenTiles.hide('party', channelId, '_')}
+        class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-red-600"
+        aria-label="Watch Party ausblenden"
+        title="Bei dir ausblenden"
+        data-testid="watch-party-hide"
       >
         <XIcon class="size-3" />
       </button>
