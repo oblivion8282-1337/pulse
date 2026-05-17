@@ -27,7 +27,7 @@
 </script>
 
 <aside
-  class="glass-panel text-text-base flex h-full w-72 flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64"
+  class="glass-panel text-text-base flex h-full w-76 flex-col overflow-hidden rounded-none md:w-60 md:rounded-2xl lg:w-68"
   data-testid="dm-channel-list"
 >
   <header class="text-text-bright flex h-12 items-center px-4 pt-3">

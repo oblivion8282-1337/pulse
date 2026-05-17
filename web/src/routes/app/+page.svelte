@@ -48,7 +48,7 @@
   onCreateClick={() => (creating = true)}
 />
 
-<aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list-placeholder">
+<aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-60 md:rounded-2xl lg:w-68" data-testid="channel-list-placeholder">
   <div class="flex-1"></div>
   <SidebarFooter />
 </aside>

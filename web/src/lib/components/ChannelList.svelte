@@ -97,7 +97,7 @@
   }
 </script>
 
-<aside class="glass-panel text-text-base flex h-full w-72 flex-col overflow-hidden rounded-none md:w-56 md:rounded-2xl lg:w-64" data-testid="channel-list">
+<aside class="glass-panel text-text-base flex h-full w-76 flex-col overflow-hidden rounded-none md:w-60 md:rounded-2xl lg:w-68" data-testid="channel-list">
   <header class="flex h-12 items-center justify-between px-4 pt-3 text-text-bright">
     <span class="truncate text-base font-bold tracking-tight">{guild?.name ?? '—'}</span>
     <div class="flex items-center gap-0.5">
