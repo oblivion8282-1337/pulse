@@ -181,7 +181,7 @@
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-noise-suppression">
       <div>
         <span class="text-text-bright text-sm font-medium">Rauschunterdrückung</span>
-        <p class="text-text-muted text-xs">RNNoise + Sprach-Gate — saubere Stille zwischen Wörtern.</p>
+        <p class="text-text-muted text-xs">Schneidet Hintergrundgeräusche weg und macht Pausen zwischen Wörtern sauber.</p>
       </div>
       <input
         type="checkbox"
@@ -227,7 +227,7 @@
       <div>
         <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
         {#if settings.audio.noiseSuppression !== 'off'}
-          <p class="text-text-muted text-xs">Von RNNoise übernommen — deaktiviert</p>
+          <p class="text-text-muted text-xs">Wird von der Rauschunterdrückung übernommen</p>
         {/if}
       </div>
       <input
