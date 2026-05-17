@@ -56,17 +56,21 @@
   let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
   let hasWatchParty = $derived(watchPartyState !== undefined);
 
-  // Stream layout: every watchable HQ stream + every browser screen-share + any
-  // watch-party go into one responsive grid; participant avatars become a
-  // compact row below.
-  let hasStreams = $derived(hqStreaming || voice.screenTracks.length > 0);
+  // Stream layout: every watchable HQ stream + every browser screen-share +
+  // every remote camera + any watch-party go into one responsive grid;
+  // participant avatars become a compact row below.
+  let hasStreams = $derived(
+    hqStreaming || voice.screenTracks.length > 0 || voice.cameraTracks.length > 0
+  );
 
   // Live-Streamer-Namen für den Banner (HQ + Browser-Screenshare, ohne self).
   // `liveStreamersOther` ist die kanonische User-ID-Liste — `voice.screenTracks`
   // wäre identity-basiert und kann während Subscribe-Sync abweichen.
   // Banner + auto-open trigger: any of HQ-others, screen-share-others, or a
   // watch-party in this channel counts as "etwas Sehenswertes läuft".
-  let othersStreaming = $derived(liveStreamersOther.length > 0 || hasWatchParty);
+  let othersStreaming = $derived(
+    liveStreamersOther.length > 0 || hasWatchParty || voice.cameraTracks.length > 0
+  );
   let streamBannerLabel = $derived.by(() => {
     if (hasWatchParty && liveStreamersOther.length === 0) return 'Watch Party läuft';
     if (hasWatchParty && liveStreamersOther.length > 0) return 'Watch Party + Streams laufen';

@@ -14,6 +14,7 @@
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import ScreenShareTile from './ScreenShareTile.svelte';
+  import CameraTile from './CameraTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import WatchPartyTile from './WatchPartyTile.svelte';
   import { auth } from '$lib/stores/auth.svelte';
@@ -42,7 +43,10 @@
   } = $props();
 
   let videoTileCount = $derived(
-    hqStreamersOther.length + voice.screenTracks.length + (watchPartyState ? 1 : 0)
+    hqStreamersOther.length +
+      voice.screenTracks.length +
+      voice.cameraTracks.length +
+      (watchPartyState ? 1 : 0)
   );
   let iAmWatchPartyHost = $derived(
     !!watchPartyState && !!auth.user && watchPartyState.host_user_id === auth.user.id
@@ -146,6 +150,9 @@
           name={st.name}
           identity={st.identity}
         />
+      {/each}
+      {#each voice.cameraTracks as ct (ct.identity)}
+        <CameraTile track={ct.track} name={ct.name} identity={ct.identity} />
       {/each}
     </div>
   {/if}

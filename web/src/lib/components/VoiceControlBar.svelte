@@ -8,6 +8,8 @@
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
+  import VideoIcon from '@lucide/svelte/icons/video';
+  import VideoOffIcon from '@lucide/svelte/icons/video-off';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
@@ -84,6 +86,26 @@
       {#if voice.channelId}
         <WatchPartyStartButton channelId={voice.channelId} />
       {/if}
+
+      <Tooltip.Root>
+        <Tooltip.Trigger>
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              variant={voice.isCameraOn ? 'default' : 'ghost'}
+              size="icon-sm"
+              onclick={() => voice.toggleCamera()}
+              data-testid="voice-camera-toggle"
+              aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
+            >
+              {#if voice.isCameraOn}<VideoIcon class="size-4" />{:else}<VideoOffIcon class="size-4" />{/if}
+            </Button>
+          {/snippet}
+        </Tooltip.Trigger>
+        <Tooltip.Content>
+          {voice.isCameraOn ? 'Kamera aus' : 'Kamera an'}
+        </Tooltip.Content>
+      </Tooltip.Root>
 
       <Tooltip.Root>
         <Tooltip.Trigger>

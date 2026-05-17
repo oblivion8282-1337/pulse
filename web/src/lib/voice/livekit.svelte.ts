@@ -29,6 +29,7 @@ import { AudioDevices } from './audioDevices.svelte';
 import { createSendProcessor, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
+import { CameraTracks, type CameraTrack } from './cameraTracks.svelte';
 import {
   acquireWindowAudioStream,
   canUseWindowAudioCapture
@@ -38,7 +39,7 @@ import { auth } from '$lib/stores/auth.svelte';
 import { gateway } from '$lib/ws/connection';
 import { toast } from 'svelte-sonner';
 
-export type { ScreenShareTrack };
+export type { ScreenShareTrack, CameraTrack };
 
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
@@ -74,6 +75,8 @@ class VoiceRoom {
 
   /** Whether the local participant is currently sharing their screen. */
   isScreenSharing = $state(false);
+  /** Whether the local participant is currently publishing a camera track. */
+  isCameraOn = $state(false);
 
   /** True when the browser blocked audio playback (autoplay policy). */
   audioBlocked = $state(false);
@@ -101,6 +104,7 @@ class VoiceRoom {
   localSendClip = $state(false);
 
   #screenShare = new ScreenShareTracks();
+  #cameras = new CameraTracks();
   /** Tracks owned by the Win11 per-window-audio bypass path. `null` while the
    *  regular LiveKit `setScreenShareEnabled` path is in use (or no share is
    *  active). We keep raw MediaStreamTracks here so we can `.stop()` them on
@@ -151,6 +155,11 @@ class VoiceRoom {
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
     return this.#screenShare.list;
+  }
+
+  /** Remote camera (webcam) tracks currently active in the room. */
+  get cameraTracks(): CameraTrack[] {
+    return this.#cameras.list;
   }
 
   /** Available audio input/output devices + current selections (for the pickers). */
@@ -437,6 +446,38 @@ class VoiceRoom {
     void this.setScreenShare(!this.isScreenSharing);
   }
 
+  /** Publish/unpublish the local camera track. Capped at 720p/30fps to keep
+   *  egress bandwidth sane when several participants enable their cams at
+   *  once — LiveKit's adaptiveStream still downscales further per subscriber. */
+  async setCamera(on: boolean): Promise<void> {
+    const room = this.#room;
+    if (!room) return;
+    try {
+      await room.localParticipant.setCameraEnabled(on, {
+        resolution: { width: 1280, height: 720, frameRate: 30 }
+      });
+      this.isCameraOn = on;
+    } catch (e) {
+      this.isCameraOn = false;
+      if (e instanceof Error) {
+        const msg = e.message.toLowerCase();
+        if (
+          !msg.includes('cancel') &&
+          !msg.includes('abort') &&
+          !msg.includes('permission') &&
+          !msg.includes('denied') &&
+          !msg.includes('notallowed')
+        ) {
+          toast.error('Kamera konnte nicht aktiviert werden', { description: e.message });
+        }
+      }
+    }
+  }
+
+  toggleCamera(): void {
+    void this.setCamera(!this.isCameraOn);
+  }
+
   /**
    * Publish a stream acquired by the Win11 per-window-audio bypass path
    * (`getDisplayMedia({ windowAudio:"window" })`) to LiveKit as ScreenShare +
@@ -648,6 +689,9 @@ class VoiceRoom {
         if (pub.source === Track.Source.ScreenShare) {
           this.isScreenSharing = false;
         }
+        if (pub.source === Track.Source.Camera) {
+          this.isCameraOn = false;
+        }
         if (pub.source === Track.Source.Microphone) {
           this.#sendProcessorMode = 'off';
           this.#noiseGateSetter = null;
@@ -673,6 +717,8 @@ class VoiceRoom {
           }
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#screenShare.addVideo(track as RemoteVideoTrack, p);
+        } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.Camera) {
+          this.#cameras.add(track as RemoteVideoTrack, p);
         }
         this.#refreshParticipants();
       })
@@ -684,6 +730,9 @@ class VoiceRoom {
         }
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
           this.#screenShare.removeVideo(track.sid ?? '');
+        }
+        if (track.kind === Track.Kind.Video && track.source === Track.Source.Camera) {
+          this.#cameras.remove(track.sid ?? '');
         }
         this.#refreshParticipants();
       })
@@ -865,6 +914,8 @@ class VoiceRoom {
     this.deafened = false;
     this.#micEnabledBeforeDeafen = false;
     this.isScreenSharing = false;
+    this.isCameraOn = false;
+    this.#cameras.clear();
     // Win11 bypass path: stop raw MediaStreamTracks ourselves — the LiveKit
     // room is gone so unpublishTrack would no-op, but the OS-level "you are
     // sharing" indicator only goes away when the tracks actually .stop().
