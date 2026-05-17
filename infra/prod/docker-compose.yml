@@ -64,6 +64,57 @@ services:
     networks: [pulse-net]
     labels: *pinned-labels
 
+  # MinIO — S3-compatible object store for message attachments. Internal-only:
+  # the public surface is pulse_web's nginx proxying `/s3/*` → minio:9000.
+  # MINIO_SERVER_URL makes MinIO sign presigned URLs with the public host so
+  # browsers can PUT/GET directly via Caddy → pulse_web → nginx → MinIO.
+  # Bucket creation runs in the one-shot minio-init container below.
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: pulse_minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required}
+      # Presigning host — must match the public path nginx proxies through.
+      MINIO_SERVER_URL: https://pulse.unicutmedia.com/s3
+      # No public console (admin UI). Reachable from the host via SSH-tunnel
+      # if needed: `ssh -L 9001:127.0.0.1:9001 michael@…` + visit localhost.
+      MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+    volumes:
+      - pulse_minio:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    ports:
+      # Console bound to loopback so the SSH-tunnel works but nothing public.
+      - "127.0.0.1:9001:9001"
+    networks: [pulse-net]
+    labels: *pinned-labels
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    container_name: pulse_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" &&
+        mc mb --ignore-existing local/pulse-attachments &&
+        echo "bucket pulse-attachments ready"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    restart: "no"
+    networks: [pulse-net]
+    labels: *pinned-labels
+
   # ── migrations (run once, then exit) ───────────────────────────────────────
   migrate-auth:
     image: ghcr.io/oblivion8282-1337/pulse-auth:latest
@@ -122,6 +173,7 @@ services:
       redis: { condition: service_healthy }
       migrate-chat: { condition: service_completed_successfully }
       auth: { condition: service_started }
+      minio: { condition: service_healthy }
     volumes:
       - ./secrets:/secrets:ro
       - pulse_guild_icons:/app/services/chat-gateway/uploads
@@ -271,6 +323,7 @@ volumes:
   pulse_redis:
   pulse_avatars:
   pulse_guild_icons:
+  pulse_minio:
 
 networks:
   pulse-net:

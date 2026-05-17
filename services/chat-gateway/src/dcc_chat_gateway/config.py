@@ -39,6 +39,19 @@ class Settings(BaseSettings):
     # /api/chat/guild-icons/<guild_id>.webp (cache-buster ?v=… in icon_url).
     guild_icon_upload_dir: str = "./uploads/guild-icons"
 
+    # MinIO (S3-compatible) for message attachments. The split between
+    # *internal* and *public* endpoints matters in prod: server-side ops
+    # (delete, head, bucket admin) use the internal docker-DNS URL; presigned
+    # URLs handed to the browser use the public one (nginx /s3/* → MinIO).
+    # In dev both are the same localhost URL.
+    s3_internal_endpoint: str = "http://localhost:9000"
+    s3_public_endpoint: str = "http://localhost:9000"
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "pulse-attachments"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_presigned_ttl_seconds: int = 1800  # 30 min, auto-refreshed client-side
+
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     @property
