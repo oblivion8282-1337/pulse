@@ -104,7 +104,7 @@
         streamPresence.streamersIn(c.id).includes(uid) ||
         voicePresence.streamingIn(c.id).includes(uid);
       if (matchParty || matchStream) {
-        streamOpenRequest.request(c.id);
+        streamOpenRequest.request(c.id, uid);
         void goto(`/app/guilds/${guildId}/channels/${c.id}`);
         return;
       }

@@ -261,10 +261,10 @@
             speakingUserIds={speakers}
             watchPartyHostUserId={partyHostId}
             userStates={memberStates}
-            onStreamClick={() => {
-              // The badge passes the streamer's uid but v1 just opens the
-              // channel's stream view (auto-focuses the first streamer).
-              streamOpenRequest.request(c.id);
+            onStreamClick={(uid) => {
+              // Focus on the clicked person's tile only — they meant to watch
+              // them, not the whole channel-wide gallery.
+              streamOpenRequest.request(c.id, uid);
               onSelect(c);
             }}
           />

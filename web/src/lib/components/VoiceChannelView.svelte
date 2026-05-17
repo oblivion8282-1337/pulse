@@ -107,6 +107,11 @@
   // Teilnehmer-Ansicht. Verhindert dass WHEP-Handshakes (Bandbreite!) und der
   // Player automatisch starten nur weil jemand im Channel pusht.
   let streamViewOpen = $state(false);
+  // Wenn gesetzt, blendet das Grid nur die Kacheln dieses Users ein — wird vom
+  // streamOpenRequest gefüttert wenn der Klick einen spezifischen LIVE-Badge
+  // adressiert hat („öffne nur Person X"). Klick aufs in-Channel-Banner +
+  // sonstige Wege lassen das auf null und zeigen alles.
+  let focusUid = $state<string | null>(null);
 
   // Reset auf collapsed bei Channel-Wechsel + jegliche User-spezifischen Hide-
   // Flags wegwerfen, sodass ein Re-Join nicht mit alter „Cam X ausgeblendet"-
@@ -117,19 +122,22 @@
   $effect(() => {
     const cid = channel.id;
     streamViewOpen = false;
+    focusUid = null;
     untrack(() => hiddenTiles.resetChannel(cid));
   });
 
-  // Sidebar-LIVE-Badge: setzt streamOpenRequest.pendingChannelId. Effekt
-  // tracked das + channel.id, sodass beides Quellen für ein Re-Run sind
-  // (Klick auf LIVE im aktuellen Channel = pending ändert sich ohne Navigation).
-  // Consume in untrack, damit das Clearen des #pending nicht denselben Effekt
-  // sofort wieder triggert.
+  // Sidebar-LIVE-Badge: setzt streamOpenRequest. Effekt tracked das +
+  // channel.id, sodass beides Quellen für ein Re-Run sind (Klick auf LIVE im
+  // aktuellen Channel = pending ändert sich ohne Navigation). Consume in
+  // untrack, damit das Clearen des #pending nicht denselben Effekt sofort
+  // wieder triggert.
   $effect(() => {
-    void streamOpenRequest.pendingChannelId;
+    void streamOpenRequest.pending;
     const cid = channel.id;
-    if (untrack(() => streamOpenRequest.consume(cid))) {
+    const consumed = untrack(() => streamOpenRequest.consume(cid));
+    if (consumed) {
       streamViewOpen = true;
+      focusUid = consumed.focusUid;
     }
   });
 
@@ -245,9 +253,21 @@
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <div class="ml-auto flex items-center gap-1">
       {#if streamViewOpen && othersStreaming}
+        {#if focusUid}
+          <button
+            class="bg-bg-input/70 text-text-bright hover:bg-bg-hover hover:text-primary flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition-colors"
+            onclick={() => (focusUid = null)}
+            aria-label="Alle Streams im Kanal anzeigen"
+            title="Alle anzeigen"
+            data-testid="stream-grid-show-all"
+          >
+            <span class="hidden sm:inline">Alle Streams anzeigen</span>
+            <span class="sm:hidden">Alle</span>
+          </button>
+        {/if}
         <button
           class="bg-bg-input/70 text-text-bright hover:bg-bg-hover hover:text-primary flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition-colors"
-          onclick={() => (streamViewOpen = false)}
+          onclick={() => { streamViewOpen = false; focusUid = null; }}
           aria-label="Zurück zur Teilnehmer-Ansicht"
           title="Teilnehmer-Ansicht"
           data-testid="stream-grid-close"
@@ -295,6 +315,7 @@
           {hqStreamersOther}
           {hqLabel}
           {watchPartyState}
+          {focusUid}
         />
       {:else}
         <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 md:gap-6 md:p-8">
@@ -302,7 +323,7 @@
             <button
               type="button"
               class="bg-primary/15 text-primary hover:bg-primary/25 flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-colors"
-              onclick={() => (streamViewOpen = true)}
+              onclick={() => { streamViewOpen = true; focusUid = null; }}
               data-testid="voice-stream-open-banner"
             >
               <PlayIcon class="size-4" />

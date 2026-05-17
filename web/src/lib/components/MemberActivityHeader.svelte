@@ -73,8 +73,8 @@
     }
   }
 
-  function open(channelId: string): void {
-    streamOpenRequest.request(channelId);
+  function open(channelId: string, focusUid: string): void {
+    streamOpenRequest.request(channelId, focusUid);
     void goto(`/app/guilds/${guildId}/channels/${channelId}`);
   }
 </script>
@@ -104,7 +104,7 @@
           </div>
           <button
             type="button"
-            onclick={() => open(e.channel.id)}
+            onclick={() => open(e.channel.id, e.state.host_user_id)}
             class="text-primary hover:text-primary/80 mt-0.5 shrink-0 rounded-full p-1 transition-colors"
             aria-label="Watch Party öffnen"
             title="Öffnen"
@@ -129,7 +129,7 @@
           </div>
           <button
             type="button"
-            onclick={() => open(e.channel.id)}
+            onclick={() => open(e.channel.id, e.userId)}
             class="mt-0.5 shrink-0 rounded-full p-1 text-red-400 transition-colors hover:text-red-300"
             aria-label="Stream öffnen"
             title="Öffnen"

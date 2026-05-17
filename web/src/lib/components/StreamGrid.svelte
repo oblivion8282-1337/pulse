@@ -33,7 +33,8 @@
     hqStreaming,
     hqStreamersOther,
     hqLabel,
-    watchPartyState
+    watchPartyState,
+    focusUid = null
   }: {
     channel: Channel;
     hqStreaming: boolean;
@@ -41,22 +42,41 @@
     hqLabel: string;
     /** Aktive Watch-Party im selben Channel (parallel zu HQ/Screenshare). */
     watchPartyState?: WatchPartyState;
+    /** Wenn gesetzt, blendet das Grid nur Kacheln dieses Users ein
+     *  (Watch-Party-Tile nur wenn dieser User Host ist). */
+    focusUid?: string | null;
   } = $props();
 
-  let visibleCameras = $derived(
-    voice.cameraTracks.filter((c) => !hiddenTiles.has('cam', channel.id, c.identity))
+  // Im Fokus-Modus: nur die Kacheln des Ziel-Users zeigen. Sonst alles aus
+  // diesem Channel das nicht lokal versteckt wurde.
+  let focusedHq = $derived(focusUid ? hqStreamersOther.filter((u) => u === focusUid) : hqStreamersOther);
+  let focusedScreen = $derived(
+    voice.screenTracks.filter(
+      (s) =>
+        !hiddenTiles.has('screen', channel.id, s.identity) &&
+        (!focusUid || userIdFromIdentity(s.identity) === focusUid)
+    )
   );
-  let visibleScreenShares = $derived(
-    voice.screenTracks.filter((s) => !hiddenTiles.has('screen', channel.id, s.identity))
+  let focusedCameras = $derived(
+    voice.cameraTracks.filter(
+      (c) =>
+        !hiddenTiles.has('cam', channel.id, c.identity) &&
+        (!focusUid || userIdFromIdentity(c.identity) === focusUid)
+    )
+  );
+  let focusedParty = $derived(
+    watchPartyState && (!focusUid || watchPartyState.host_user_id === focusUid)
+      ? watchPartyState
+      : undefined
   );
   let videoTileCount = $derived(
-    hqStreamersOther.length +
-      visibleScreenShares.length +
-      visibleCameras.length +
-      (watchPartyState ? 1 : 0)
+    focusedHq.length +
+      focusedScreen.length +
+      focusedCameras.length +
+      (focusedParty ? 1 : 0)
   );
   let iAmWatchPartyHost = $derived(
-    !!watchPartyState && !!auth.user && watchPartyState.host_user_id === auth.user.id
+    !!focusedParty && !!auth.user && focusedParty.host_user_id === auth.user.id
   );
   let streamGridCols = $derived(
     videoTileCount <= 1
@@ -77,7 +97,12 @@
     </div>
   {/if}
 
-  {#if videoTileCount === 0}
+  {#if videoTileCount === 0 && focusUid}
+    <div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-bg-chat text-center" data-testid="focused-empty">
+      <p class="text-text-bright text-sm font-medium">{userCache.displayName(focusUid)} sendet hier gerade nichts</p>
+      <p class="text-text-muted text-xs">Vermutlich gerade beendet.</p>
+    </div>
+  {:else if videoTileCount === 0}
     <!-- our own HQ stream, nothing else to show — just the "you're streaming" notice -->
     <div class="flex flex-1 flex-col items-center justify-center gap-2 rounded-2xl border border-border bg-bg-chat text-center" data-testid="hq-stream-self-indicator">
       <RocketIcon class="size-10 text-red-500" />
@@ -86,7 +111,7 @@
     </div>
   {:else}
     <div class="grid min-h-0 flex-1 auto-rows-fr gap-2 {streamGridCols}" data-testid="stream-grid">
-      {#if watchPartyState}
+      {#if focusedParty}
         {#if detachedWatchParties.has(channel.id)}
           <div
             class="border-border bg-bg-chat flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-6 text-center"
@@ -117,10 +142,10 @@
             </div>
           </div>
         {:else}
-          <WatchPartyTile channelId={channel.id} party={watchPartyState} />
+          <WatchPartyTile channelId={channel.id} party={focusedParty} />
         {/if}
       {/if}
-      {#each hqStreamersOther as uid (uid)}
+      {#each focusedHq as uid (uid)}
         {#if detachedStreams.has(channel.id, uid)}
           <div
             class="border-border bg-bg-chat flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed p-6 text-center"
@@ -148,7 +173,7 @@
           <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
         {/if}
       {/each}
-      {#each visibleScreenShares as st (st.identity)}
+      {#each focusedScreen as st (st.identity)}
         <ScreenShareTile
           channelId={channel.id}
           streamerId={userIdFromIdentity(st.identity)}
@@ -158,7 +183,7 @@
           identity={st.identity}
         />
       {/each}
-      {#each visibleCameras as ct (ct.identity)}
+      {#each focusedCameras as ct (ct.identity)}
         <CameraTile
           channelId={channel.id}
           track={ct.track}
