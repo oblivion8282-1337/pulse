@@ -1,6 +1,5 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
-  import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import { userCache } from '$lib/stores/users.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { settings } from '$lib/stores/settings.svelte';
@@ -8,7 +7,8 @@
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
-  import UserVolumeMenu from './UserVolumeMenu.svelte';
+  import UserProfilePopover from './UserProfilePopover.svelte';
+  import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
 
   let {
     userIds,
@@ -53,13 +53,16 @@
   {@const state = userStates[uid]}
   {@const isMicMuted = state?.mic_muted === true}
   {@const isDeafened = state?.deafened === true}
-  <ContextMenu.Root>
-    <ContextMenu.Trigger>
-      {#snippet child({ props })}
+  <UserProfilePopover
+    userId={uid}
+    displayName={name}
+    avatarUrl={avatarSrc}
+  >
+    {#snippet children({ props })}
         <button
           {...props}
           type="button"
-          class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-base"
+          class="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-sm text-text-muted hover:bg-bg-hover hover:text-text-base data-[state=open]:bg-bg-hover"
           data-testid="voice-presence-member"
           data-user-id={uid}
           title={name}
@@ -167,9 +170,10 @@
           </span>
         </button>
       {/snippet}
-    </ContextMenu.Trigger>
-    {#if !isSelf}
-      <UserVolumeMenu userId={uid} {name} />
-    {/if}
-  </ContextMenu.Root>
+    {#snippet extra()}
+      {#if !isSelf}
+        <VoiceUserVolumeControl userId={uid} {name} />
+      {/if}
+    {/snippet}
+  </UserProfilePopover>
 {/each}

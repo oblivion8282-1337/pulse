@@ -1,12 +1,12 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
-  import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import UserVolumeMenu from './UserVolumeMenu.svelte';
+  import UserProfilePopover from './UserProfilePopover.svelte';
+  import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
 
   let { p }: { p: VoiceParticipant } = $props();
 
@@ -24,13 +24,17 @@
   let canAdjustVolume = $derived(!p.isLocal && p.userId !== null);
 </script>
 
-<ContextMenu.Root>
-  <ContextMenu.Trigger>
-    {#snippet child({ props })}
+{#if p.userId}
+<UserProfilePopover
+  userId={p.userId}
+  displayName={p.name}
+  avatarUrl={avatarSrc}
+>
+  {#snippet children({ props })}
       <button
         {...props}
         type="button"
-        class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors"
+        class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors data-[state=open]:ring-2 data-[state=open]:ring-primary/50"
         data-testid="voice-participant"
         data-identity={p.identity}
       >
@@ -69,9 +73,44 @@
         </div>
       </button>
     {/snippet}
-  </ContextMenu.Trigger>
-
-  {#if canAdjustVolume && p.userId}
-    <UserVolumeMenu userId={p.userId} name={p.name} />
-  {/if}
-</ContextMenu.Root>
+  {#snippet extra()}
+    {#if canAdjustVolume && p.userId}
+      <VoiceUserVolumeControl userId={p.userId} name={p.name} />
+    {/if}
+  {/snippet}
+</UserProfilePopover>
+{:else}
+  <!-- Anonymous participants (no userId — pre-LiveKit-join race window):
+       no popover, no DM, no volume — just the tile without interaction. -->
+  <button
+    type="button"
+    class="glass-panel flex flex-col items-center gap-3 rounded-2xl px-6 py-5 text-left transition-colors"
+    data-testid="voice-participant"
+    data-identity={p.identity}
+  >
+    <div class="relative">
+      {#if glow > 0}
+        <div
+          class="accent-gradient absolute -inset-1.5 rounded-full blur-[3px]"
+          style={`opacity: ${0.35 + glow * 0.5};`}
+        ></div>
+      {/if}
+      <Avatar.Root class="relative size-20">
+        {#if avatarSrc}
+          <Avatar.Image src={avatarSrc} alt={p.name} />
+        {/if}
+        <Avatar.Fallback class="accent-gradient text-primary-foreground text-xl font-semibold">
+          {initial}
+        </Avatar.Fallback>
+      </Avatar.Root>
+    </div>
+    <div class="flex items-center gap-1 text-xs">
+      <span class="text-text-bright max-w-28 truncate font-semibold" title={p.name}>
+        {p.name}{p.isLocal ? ' (du)' : ''}
+      </span>
+      {#if p.micMuted}
+        <MicOffIcon class="size-3 text-red-400" />
+      {/if}
+    </div>
+  </button>
+{/if}
