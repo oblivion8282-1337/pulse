@@ -17,6 +17,7 @@
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
+  import ShieldIcon from '@lucide/svelte/icons/shield';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
   let uploadOpen = $state(false);
@@ -114,6 +115,12 @@
         <SettingsIcon class="size-4" />
         Einstellungen
       </DropdownMenu.Item>
+      {#if auth.user?.is_admin}
+        <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
+          <ShieldIcon class="size-4" />
+          Server-Admin
+        </DropdownMenu.Item>
+      {/if}
       <DropdownMenu.Separator />
       <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
         <LogOutIcon class="size-4" />
