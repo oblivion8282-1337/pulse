@@ -13,8 +13,11 @@
   import { voiceState } from '$lib/voice/state.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
-  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { userIdFromIdentity } from '$lib/voice/identity';
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -265,17 +268,47 @@
             : []}
         {@const memberStates = voicePresence.userStatesIn(c.id)}
         {@const partyHostId = watchPartyPresence.partyIn(c.id)?.host_user_id ?? null}
+        {@const camUserMap =
+          voice.connected && voice.channelId === c.id
+            ? new Map(
+                voice.cameraTracks
+                  .map((ct) => [userIdFromIdentity(ct.identity), ct.identity] as const)
+                  .filter(([uid]) => uid !== null) as [string, string][]
+              )
+            : new Map<string, string>()}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}
             streamingUserIds={streamers}
+            camUserIds={[...camUserMap.keys()]}
             speakingUserIds={speakers}
             watchPartyHostUserId={partyHostId}
             userStates={memberStates}
-            onStreamClick={(uid) => {
-              // Focus on the clicked person's tile only — they meant to watch
-              // them, not the whole channel-wide gallery.
-              streamOpenRequest.request(c.id, uid);
+            onPartyOpen={() => {
+              if (detachedWatchParties.has(c.id)) detachedWatchParties.open(c.id);
+              else openedTiles.openParty(c.id);
+              onSelect(c);
+            }}
+            onLiveOpen={(uid) => {
+              // Open whichever live source(s) this user actually has.
+              if (streamPresence.streamersIn(c.id).includes(uid)) {
+                if (detachedStreams.has(c.id, uid)) detachedStreams.open(c.id, uid);
+                else openedTiles.open('hq', c.id, uid);
+              }
+              if (voicePresence.streamingIn(c.id).includes(uid)) {
+                // Screen-share keyed by LiveKit identity — only available
+                // if we're connected to this channel. Outside that, the
+                // tile can't mount anyway (no subscribed track).
+                const ident = voice.connected && voice.channelId === c.id
+                  ? voice.screenTracks.find((s) => userIdFromIdentity(s.identity) === uid)?.identity
+                  : undefined;
+                if (ident) openedTiles.open('screen', c.id, ident);
+              }
+              onSelect(c);
+            }}
+            onCamOpen={(uid) => {
+              const ident = camUserMap.get(uid);
+              if (ident) openedTiles.open('cam', c.id, ident);
               onSelect(c);
             }}
           />

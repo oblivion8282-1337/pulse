@@ -16,6 +16,7 @@
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import WatchPartyTile from '$lib/components/WatchPartyTile.svelte';
+  import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
 
   let channelId = $derived(page.params.channelId ?? '');
   let party = $derived(channelId ? watchPartyPresence.partyIn(channelId) : undefined);
@@ -82,9 +83,20 @@
   {#if party}<title>Pulse — Watch Party</title>{/if}
 </svelte:head>
 
-<div class="h-full w-full" data-testid="watch-popup">
+<div class="relative h-full w-full" data-testid="watch-popup">
   {#if party && channelId}
     <WatchPartyTile {channelId} {party} canDetach={false} />
+    <button
+      type="button"
+      onclick={() => { try { window.close(); } catch {} }}
+      class="absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/85"
+      title="Wieder andocken (schließt dieses Fenster)"
+      aria-label="Wieder andocken"
+      data-testid="popup-reattach"
+    >
+      <PictureInPicture2Icon class="size-3.5" />
+      <span>Wieder andocken</span>
+    </button>
   {:else}
     <div class="flex h-full w-full items-center justify-center text-sm text-text-muted">
       Lade Watch-Party-Status…

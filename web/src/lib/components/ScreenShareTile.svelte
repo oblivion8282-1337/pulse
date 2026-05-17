@@ -16,7 +16,7 @@
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
   import { getDocPip, docPipSupported, adoptDocStyles } from '$lib/stream/docpip';
-  import { hiddenTiles } from '$lib/stream/hiddenTiles.svelte';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
   import XIcon from '@lucide/svelte/icons/x';
 
@@ -265,7 +265,7 @@
 
   <button
     type="button"
-    onclick={() => hiddenTiles.hide('screen', channelId, identity)}
+    onclick={() => openedTiles.close('screen', channelId, identity)}
     class="absolute right-2 top-2 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
     aria-label="Stream ausblenden"
     title="Diesen Stream ausblenden"

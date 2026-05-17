@@ -17,6 +17,7 @@
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
+  import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
 
   let channelId = $derived(page.params.channelId ?? '');
   let userId = $derived(page.params.userId ?? '');
@@ -64,9 +65,23 @@
   {/if}
 </svelte:head>
 
-<div class="h-full w-full" data-testid="stream-popup">
+<div class="relative h-full w-full" data-testid="stream-popup">
   {#if channelId && userId}
     <WhepPlayer {channelId} {userId} name={streamerName} canDetach={false} canHide={false} />
+    <!-- Reattach button — closing the window via the OS X fires the same
+         notifyClosed → Hauptfenster mountet das Tile inline wieder
+         (sobald der Viewer das Sidebar-Symbol erneut klickt). -->
+    <button
+      type="button"
+      onclick={() => { try { window.close(); } catch {} }}
+      class="absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/85"
+      title="Wieder andocken (schließt dieses Fenster)"
+      aria-label="Wieder andocken"
+      data-testid="popup-reattach"
+    >
+      <PictureInPicture2Icon class="size-3.5" />
+      <span>Wieder andocken</span>
+    </button>
   {:else}
     <div class="flex h-full w-full items-center justify-center text-sm text-text-muted">
       Ungültiger Stream-Link.

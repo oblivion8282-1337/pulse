@@ -7,7 +7,10 @@
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
-  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { userIdFromIdentity } from '$lib/voice/identity';
   import { voice } from '$lib/voice/livekit.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { goto } from '$app/navigation';
@@ -94,20 +97,32 @@
 
   function openMemberActivity(uid: string): void {
     // Find any voice channel in this guild where this user is hosting a
-    // party or streaming — first match wins (rare to have multiple). Set
-    // the open-request first, then navigate; VoiceChannelView consumes the
-    // request on (re)mount and pops the stream view open immediately.
+    // party or streaming — first match wins (rare to have multiple).
+    // Open the matching tiles via openedTiles (HQ + screen-share + party
+    // independently, whatever's active), then navigate. VoiceChannelView
+    // will mount the grid because hasAny(cid) is now true.
     for (const c of guildChannels) {
       const wp = watchPartyPresence.partyIn(c.id);
-      const matchParty = wp && wp.host_user_id === uid;
-      const matchStream =
-        streamPresence.streamersIn(c.id).includes(uid) ||
-        voicePresence.streamingIn(c.id).includes(uid);
-      if (matchParty || matchStream) {
-        streamOpenRequest.request(c.id, uid);
-        void goto(`/app/guilds/${guildId}/channels/${c.id}`);
-        return;
+      const matchParty = !!wp && wp.host_user_id === uid;
+      const matchHq = streamPresence.streamersIn(c.id).includes(uid);
+      const matchScreen = voicePresence.streamingIn(c.id).includes(uid);
+      if (!matchParty && !matchHq && !matchScreen) continue;
+      if (matchParty) {
+        if (detachedWatchParties.has(c.id)) detachedWatchParties.open(c.id);
+        else openedTiles.openParty(c.id);
       }
+      if (matchHq) {
+        if (detachedStreams.has(c.id, uid)) detachedStreams.open(c.id, uid);
+        else openedTiles.open('hq', c.id, uid);
+      }
+      if (matchScreen) {
+        const ident = voice.connected && voice.channelId === c.id
+          ? voice.screenTracks.find((s) => userIdFromIdentity(s.identity) === uid)?.identity
+          : undefined;
+        if (ident) openedTiles.open('screen', c.id, ident);
+      }
+      void goto(`/app/guilds/${guildId}/channels/${c.id}`);
+      return;
     }
   }
 </script>

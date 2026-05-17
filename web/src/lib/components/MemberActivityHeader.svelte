@@ -16,7 +16,11 @@
     watchPartyPresence,
     type WatchPartyState
   } from '$lib/stores/watchPartyPresence.svelte';
-  import { streamOpenRequest } from '$lib/stores/streamOpenRequest.svelte';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { voice } from '$lib/voice/livekit.svelte';
+  import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
   import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
   import type { Channel } from '$lib/api/types';
@@ -73,8 +77,23 @@
     }
   }
 
-  function open(channelId: string, focusUid: string): void {
-    streamOpenRequest.request(channelId, focusUid);
+  function openParty(channelId: string): void {
+    if (detachedWatchParties.has(channelId)) detachedWatchParties.open(channelId);
+    else openedTiles.openParty(channelId);
+    void goto(`/app/guilds/${guildId}/channels/${channelId}`);
+  }
+
+  function openStream(channelId: string, uid: string): void {
+    if (streamPresence.streamersIn(channelId).includes(uid)) {
+      if (detachedStreams.has(channelId, uid)) detachedStreams.open(channelId, uid);
+      else openedTiles.open('hq', channelId, uid);
+    }
+    if (voicePresence.streamingIn(channelId).includes(uid)) {
+      const ident = voice.connected && voice.channelId === channelId
+        ? voice.screenTracks.find((s) => userIdFromIdentity(s.identity) === uid)?.identity
+        : undefined;
+      if (ident) openedTiles.open('screen', channelId, ident);
+    }
     void goto(`/app/guilds/${guildId}/channels/${channelId}`);
   }
 </script>
@@ -104,7 +123,7 @@
           </div>
           <button
             type="button"
-            onclick={() => open(e.channel.id, e.state.host_user_id)}
+            onclick={() => openParty(e.channel.id)}
             class="text-primary hover:text-primary/80 mt-0.5 shrink-0 rounded-full p-1 transition-colors"
             aria-label="Watch Party öffnen"
             title="Öffnen"
@@ -129,7 +148,7 @@
           </div>
           <button
             type="button"
-            onclick={() => open(e.channel.id, e.userId)}
+            onclick={() => openStream(e.channel.id, e.userId)}
             class="mt-0.5 shrink-0 rounded-full p-1 text-red-400 transition-colors hover:text-red-300"
             aria-label="Stream öffnen"
             title="Öffnen"

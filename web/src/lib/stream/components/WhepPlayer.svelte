@@ -27,7 +27,7 @@
   import StreamChatPanel from './StreamChatPanel.svelte';
   import WhepHud from './WhepHud.svelte';
   import { detachedStreams } from '../detach.svelte';
-  import { hiddenTiles } from '../hiddenTiles.svelte';
+  import { openedTiles } from '../openedTiles.svelte';
   import { toast } from 'svelte-sonner';
   import XIcon from '@lucide/svelte/icons/x';
 
@@ -295,7 +295,7 @@
     {#if canHide}
       <button
         type="button"
-        onclick={() => hiddenTiles.hide('hq', channelId, userId)}
+        onclick={() => openedTiles.close('hq', channelId, userId)}
         class="absolute right-2 top-2 z-10 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
         aria-label="Stream ausblenden"
         title="Diesen Stream ausblenden"

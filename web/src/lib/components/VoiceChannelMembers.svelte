@@ -13,13 +13,20 @@
   let {
     userIds,
     streamingUserIds = [],
+    camUserIds = [],
     speakingUserIds = [],
     watchPartyHostUserId = null,
     userStates = {},
-    onStreamClick
+    onLiveOpen,
+    onPartyOpen,
+    onCamOpen
   }: {
     userIds: string[];
+    /** Users with HQ-stream or screen-share active (server-tracked). */
     streamingUserIds?: string[];
+    /** Users with cam active. Only populated for the channel the local user
+     *  is connected to (LiveKit track info is client-only). */
+    camUserIds?: string[];
     /** Subset of userIds currently emitting audio above the speaking
      * threshold. Only the channel the local user is connected to has live
      * data; everything else is an empty list and renders no rings. */
@@ -28,12 +35,18 @@
     watchPartyHostUserId?: string | null;
     /** Per-user self-reported mute/deafen flags. Missing entries == default off. */
     userStates?: Record<string, UserVoiceState>;
-    /** Click handler for the LIVE / PARTY badge — opens the relevant stream
-     *  view in the channel. Without it both badges stay passive labels. */
-    onStreamClick?: (userId: string) => void;
+    /** Click on a user's LIVE badge (HQ + screen-share union). Caller resolves
+     *  which kinds are active and opens the matching tiles. */
+    onLiveOpen?: (userId: string) => void;
+    /** Click on a user's PARTY badge (channel-level, but per-user since the
+     *  host is one specific user). */
+    onPartyOpen?: () => void;
+    /** Click on a user's CAM badge. Caller maps userId → LiveKit identity. */
+    onCamOpen?: (userId: string) => void;
   } = $props();
 
   const streamingSet = $derived(new Set(streamingUserIds));
+  const camSet = $derived(new Set(camUserIds));
   const speakingSet = $derived(new Set(speakingUserIds));
   const selfId = $derived(auth.user?.id ?? null);
 
@@ -116,7 +129,7 @@
               />
             {/if}
             {#if watchPartyHostUserId === uid}
-              {#if onStreamClick}
+              {#if onPartyOpen}
                 <span
                   role="button"
                   tabindex="0"
@@ -124,12 +137,12 @@
                   data-testid="user-watch-party-badge"
                   title="Watch Party öffnen"
                   aria-label="{name}s Watch Party öffnen"
-                  onclick={(e) => { e.stopPropagation(); onStreamClick(uid); }}
+                  onclick={(e) => { e.stopPropagation(); onPartyOpen(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
                     e.preventDefault();
                     e.stopPropagation();
-                    onStreamClick(uid);
+                    onPartyOpen();
                   }}
                 >PARTY</span>
               {:else}
@@ -141,7 +154,7 @@
               {/if}
             {/if}
             {#if streamingSet.has(uid)}
-              {#if onStreamClick}
+              {#if onLiveOpen}
                 <!-- role=button (not <button>) — `<button>` inside the outer
                      context-menu trigger button would be invalid HTML. -->
                 <span
@@ -151,12 +164,12 @@
                   data-testid="user-streaming-badge"
                   title="Stream öffnen"
                   aria-label="{name}s Stream öffnen"
-                  onclick={(e) => { e.stopPropagation(); onStreamClick(uid); }}
+                  onclick={(e) => { e.stopPropagation(); onLiveOpen(uid); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
                     e.preventDefault();
                     e.stopPropagation();
-                    onStreamClick(uid);
+                    onLiveOpen(uid);
                   }}
                 >LIVE</span>
               {:else}
@@ -166,6 +179,23 @@
                   title="teilt seinen Bildschirm"
                 >LIVE</span>
               {/if}
+            {/if}
+            {#if camSet.has(uid) && onCamOpen}
+              <span
+                role="button"
+                tabindex="0"
+                class="rounded bg-primary/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary"
+                data-testid="user-cam-badge"
+                title="Webcam öffnen"
+                aria-label="{name}s Webcam öffnen"
+                onclick={(e) => { e.stopPropagation(); onCamOpen(uid); }}
+                onkeydown={(e) => {
+                  if (e.key !== 'Enter' && e.key !== ' ') return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onCamOpen(uid);
+                }}
+              >CAM</span>
             {/if}
           </span>
         </button>
