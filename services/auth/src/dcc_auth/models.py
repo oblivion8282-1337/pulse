@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    JSON,
     SmallInteger,
     String,
     Text,
@@ -104,3 +105,23 @@ class AuthSettings(Base):
     )
 
     __table_args__ = (CheckConstraint("id = 1", name="ck_auth_settings_singleton"),)
+
+
+class AdminAuditLog(Base):
+    """Append-only log of admin actions on the auth side (toggle is_admin,
+    disable user, change registration mode). chat-gateway keeps its own
+    audit-log table — the admin UI fetches both and merges client-side.
+    """
+
+    __tablename__ = "admin_audit_log"
+
+    id: Mapped[int] = snowflake_pk()
+    actor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_admin_audit_log_created", "created_at"),)

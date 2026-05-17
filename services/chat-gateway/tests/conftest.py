@@ -109,6 +109,8 @@ async def engine():
         for table in Base.metadata.tables.values():
             table.schema = None
         await conn.run_sync(Base.metadata.create_all)
+        # Seed singletons (the prod migration does this; create_all doesn't).
+        await conn.exec_driver_sql("INSERT INTO chat_settings (id) VALUES (1)")
     yield eng
     await eng.dispose()
 
@@ -186,6 +188,7 @@ async def ws_app(_auth_signer, tmp_path):
         for table in Base.metadata.tables.values():
             table.schema = None
         await conn.run_sync(Base.metadata.create_all)
+        await conn.exec_driver_sql("INSERT INTO chat_settings (id) VALUES (1)")
     await bootstrap_engine.dispose()
 
     runtime_engine = create_async_engine(db_url, future=True)
@@ -219,6 +222,13 @@ async def access_token(_auth_signer):
     # can ask the fixture for it.
     uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
     return _auth_signer.issue_access(uid, f"user{uid}"), uid
+
+
+@pytest_asyncio.fixture
+async def admin_token(_auth_signer):
+    """Like ``access_token`` but the JWT carries ``admin: true``."""
+    uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
+    return _auth_signer.issue_access(uid, f"admin{uid}", is_admin=True), uid
 
 
 def make_auth_header(token: str) -> dict[str, str]:

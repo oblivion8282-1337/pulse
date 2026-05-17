@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from dcc_auth.config import get_settings
 from dcc_auth.routes import router
+from dcc_auth.routes_admin import router as admin_router
 from dcc_auth.routes_avatar import router as avatar_router
 
 
@@ -30,6 +31,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(router)
     app.include_router(avatar_router)
+    app.include_router(admin_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
 
@@ -68,3 +68,67 @@ class UserSummary(BaseModel):
 
 class MessageOut(BaseModel):
     detail: str
+
+
+# ---- Admin --------------------------------------------------------------
+
+RegistrationMode = Literal["open", "invite_only", "closed"]
+
+
+class UserAdminOut(BaseModel):
+    """Full user record for the admin panel — includes email, is_admin, disabled."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: EmailStr
+    display_name: str | None = None
+    avatar_url: str | None = None
+    is_admin: bool
+    disabled: bool
+    created_at: datetime
+
+    @field_serializer("id")
+    def _id_to_str(self, value: int) -> str:
+        return str(value)
+
+
+class UserAdminPatch(BaseModel):
+    """Partial-update for admin user actions. Either field omitted = no change."""
+
+    is_admin: bool | None = None
+    disabled: bool | None = None
+
+
+class AuthSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    registration_mode: RegistrationMode
+
+
+class AuthSettingsPatch(BaseModel):
+    registration_mode: RegistrationMode
+
+
+class AdminStatsOut(BaseModel):
+    """Auth-svc slice of the admin Übersicht-Tab. chat-gateway emits its own
+    counts under its ``/admin/stats``; the UI merges them."""
+
+    user_count: int
+    admin_count: int
+    disabled_count: int
+
+
+class AdminAuditLogEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    actor_id: int
+    action: str
+    target_id: int | None
+    payload: dict
+    created_at: datetime
+
+    @field_serializer("id", "actor_id", "target_id")
+    def _ids_to_str(self, value: int | None) -> str | None:
+        return str(value) if value is not None else None

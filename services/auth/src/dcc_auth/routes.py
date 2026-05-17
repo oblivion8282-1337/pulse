@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
-from dcc_auth.models import RefreshToken, User
+from dcc_auth.models import AuthSettings, RefreshToken, User
 from dcc_auth.schemas import (
     LoginIn,
     MessageOut,
@@ -98,6 +98,14 @@ async def register(
     # Rate limit (per-IP) — applied via decorator-less manual call to avoid
     # forcing slowapi state into every test.
     await _check_rate(request, "register", settings.rate_limit_register)
+
+    # Registration gate set by the server admin. ``invite_only`` rejects too
+    # for now — there's no invite-issuing flow yet, the column exists so the
+    # UI can advertise the state and a future iteration can wire codes in.
+    row = await session.get(AuthSettings, 1)
+    mode = row.registration_mode if row else "open"
+    if mode != "open":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"registration is {mode}")
 
     # Argon2 is CPU-bound (~50-150ms at t=3/m=64MiB/p=4); run it off the event
     # loop so it doesn't block other requests on this worker.

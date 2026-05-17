@@ -208,3 +208,53 @@ class InviteAcceptOut(BaseModel):
     @field_serializer("channel_id")
     def _ser_channel(self, v: int | None) -> str | None:
         return _id_str(v) if v is not None else None
+
+
+# ---- Admin ----------------------------------------------------------------
+
+
+class ChatSettingsOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    dm_attachment_max_size_bytes: int
+    dm_attachment_max_count_per_message: int
+
+
+class ChatSettingsPatch(BaseModel):
+    # Both optional — admin can update one field at a time. Caps are large
+    # but bounded (4 TiB / 64 attachments) just to keep dumb inputs out.
+    dm_attachment_max_size_bytes: Annotated[
+        int | None, Field(default=None, ge=1024, le=4 * 1024**4)
+    ] = None
+    dm_attachment_max_count_per_message: Annotated[
+        int | None, Field(default=None, ge=0, le=64)
+    ] = None
+
+
+class AdminStatsOut(BaseModel):
+    """Chat-gateway slice of the admin Übersicht-Tab. auth-svc emits its own
+    counts under its ``/admin/stats``; the UI merges them.
+
+    ``messages_24h`` counts non-deleted rows from the last 24h.
+    ``storage_bytes`` is a placeholder until MinIO is wired up (None for now).
+    """
+
+    guild_count: int
+    channel_count: int
+    dm_channel_count: int
+    messages_24h: int
+    storage_bytes: int | None = None
+
+
+class AdminAuditLogEntry(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    actor_id: int
+    action: str
+    target_id: int | None
+    payload: dict
+    created_at: datetime
+
+    @field_serializer("id", "actor_id", "target_id")
+    def _ids_to_str(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
