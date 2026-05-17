@@ -39,6 +39,11 @@ export type ChatSettings = {
   dm_attachment_max_count_per_message: number;
 };
 
+export type Permissions = {
+  allow_guild_creation: boolean;
+  allow_member_invites: boolean;
+};
+
 export type ChatStats = {
   guild_count: number;
   channel_count: number;
@@ -111,6 +116,16 @@ export const adminApi = {
   },
   patchDmLimits(payload: Partial<ChatSettings>): Promise<ChatSettings> {
     return request<ChatSettings>('/admin/dm-limits', {
+      method: 'PATCH',
+      endpoint: 'chat',
+      body: payload
+    });
+  },
+  getPermissions(): Promise<Permissions> {
+    return request<Permissions>('/admin/permissions', { endpoint: 'chat' });
+  },
+  patchPermissions(payload: Partial<Permissions>): Promise<Permissions> {
+    return request<Permissions>('/admin/permissions', {
       method: 'PATCH',
       endpoint: 'chat',
       body: payload

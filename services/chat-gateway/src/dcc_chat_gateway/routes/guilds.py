@@ -43,6 +43,15 @@ async def create_guild(payload: GuildIn, session: SessionDep, current: CurrentUs
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
         )
+    # Admin-gated when allow_guild_creation is off. Admins always pass.
+    if not current.is_admin:
+        from dcc_chat_gateway.models import ChatSettings  # avoid circular
+        settings_row = await session.get(ChatSettings, 1)
+        if settings_row is not None and not settings_row.allow_guild_creation:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="server creation is disabled by the admin",
+            )
     guild = Guild(
         id=next_id(),
         name=payload.name,

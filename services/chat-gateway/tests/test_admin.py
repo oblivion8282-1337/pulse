@@ -126,3 +126,48 @@ async def test_patch_dm_limits_rejects_out_of_range(client, admin_token):
         headers=headers,
     )
     assert r.status_code == 422
+
+
+# ─── Permissions ────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_permissions_returns_defaults(client, admin_token):
+    token, _ = admin_token
+    r = await client.get(
+        "/admin/permissions", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 200
+    assert r.json() == {
+        "allow_guild_creation": True,
+        "allow_member_invites": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_patch_permissions_records_audit(client, admin_token):
+    token, _ = admin_token
+    headers = {"Authorization": f"Bearer {token}"}
+    r = await client.patch(
+        "/admin/permissions",
+        json={"allow_guild_creation": False, "allow_member_invites": False},
+        headers=headers,
+    )
+    assert r.status_code == 200
+    assert r.json() == {
+        "allow_guild_creation": False,
+        "allow_member_invites": False,
+    }
+    log = (await client.get("/admin/audit-log", headers=headers)).json()
+    entry = next(e for e in log if e["action"] == "permissions.patch")
+    assert entry["payload"]["allow_guild_creation"] == {"from": True, "to": False}
+    assert entry["payload"]["allow_member_invites"] == {"from": True, "to": False}
+
+
+@pytest.mark.asyncio
+async def test_permissions_non_admin_blocked(client, access_token):
+    token, _ = access_token
+    r = await client.get(
+        "/admin/permissions", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 403

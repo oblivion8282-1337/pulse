@@ -13,6 +13,7 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     Channel,
+    ChatSettings,
     Guild,
     GuildInvite,
     GuildMember,
@@ -98,6 +99,20 @@ async def create_invite(
     current: CurrentUser,
 ):
     await require_member(session, guild_id, current.id)
+
+    # Owner-only gate when allow_member_invites is off. We deliberately do
+    # NOT give global admins a special exemption — the design says
+    # "nur Guild-Owner", and the admin can flip the toggle if they need to
+    # rescue a server. Cheap row-lookup: this only runs when the flag is
+    # actually restrictive.
+    settings_row = await session.get(ChatSettings, 1)
+    if settings_row is not None and not settings_row.allow_member_invites:
+        guild = await session.get(Guild, guild_id)
+        if guild is None or guild.owner_id != current.id:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                detail="invite creation is restricted to the server owner",
+            )
 
     channel_id: int | None = None
     if payload.channel_id is not None:

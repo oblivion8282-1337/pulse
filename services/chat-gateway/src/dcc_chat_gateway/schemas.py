@@ -300,6 +300,21 @@ class ChatSettingsPatch(BaseModel):
     ] = None
 
 
+class PermissionsOut(BaseModel):
+    """Server-wide permission flags. Mirrored toggle pair in the admin UI's
+    'Berechtigungen' section. Defaults are ``true`` so the historical
+    'anyone can' behaviour holds unless the admin actively restricts."""
+
+    model_config = ConfigDict(from_attributes=True)
+    allow_guild_creation: bool
+    allow_member_invites: bool
+
+
+class PermissionsPatch(BaseModel):
+    allow_guild_creation: bool | None = None
+    allow_member_invites: bool | None = None
+
+
 class AdminStatsOut(BaseModel):
     """Chat-gateway slice of the admin Übersicht-Tab. auth-svc emits its own
     counts under its ``/admin/stats``; the UI merges them.

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -18,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -182,7 +184,7 @@ class ChatSettings(Base):
 
     Per PLAN.md anti-pattern: services never share tables. auth-svc keeps
     its own ``auth_settings`` row. The admin UI talks to both services
-    separately (registration mode → auth-svc, DM-limits → here).
+    separately (registration mode → auth-svc, the fields here → chat-gateway).
     """
 
     __tablename__ = "chat_settings"
@@ -195,6 +197,14 @@ class ChatSettings(Base):
     )
     dm_attachment_max_count_per_message: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="4"
+    )
+    # Permission gates. Default true keeps the historical "anyone can"
+    # behaviour; the admin flips them off via /admin/permissions.
+    allow_guild_creation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    allow_member_invites: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

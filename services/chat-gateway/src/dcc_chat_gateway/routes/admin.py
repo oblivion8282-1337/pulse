@@ -38,6 +38,8 @@ from dcc_chat_gateway.schemas import (
     AdminStatsOut,
     ChatSettingsOut,
     ChatSettingsPatch,
+    PermissionsOut,
+    PermissionsPatch,
 )
 from dcc_chat_gateway.security import AdminUser
 from dcc_chat_gateway.snowflake import next_id
@@ -139,6 +141,58 @@ async def patch_dm_limits(
 
     if changes:
         _audit(session, actor_id=actor.id, action="dm_limits.patch", payload=changes)
+        await session.commit()
+        await session.refresh(row)
+    return row
+
+
+@router.get("/permissions", response_model=PermissionsOut)
+async def get_permissions(session: SessionDep, _actor: AdminUser):
+    row = await session.get(ChatSettings, 1)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="chat_settings singleton missing — re-run migration 0006",
+        )
+    return row
+
+
+@router.patch("/permissions", response_model=PermissionsOut)
+async def patch_permissions(
+    payload: PermissionsPatch,
+    session: SessionDep,
+    actor: AdminUser,
+):
+    row = await session.get(ChatSettings, 1)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="chat_settings singleton missing — re-run migration 0006",
+        )
+
+    changes: dict[str, Any] = {}
+    if (
+        payload.allow_guild_creation is not None
+        and payload.allow_guild_creation != row.allow_guild_creation
+    ):
+        changes["allow_guild_creation"] = {
+            "from": row.allow_guild_creation,
+            "to": payload.allow_guild_creation,
+        }
+        row.allow_guild_creation = payload.allow_guild_creation
+
+    if (
+        payload.allow_member_invites is not None
+        and payload.allow_member_invites != row.allow_member_invites
+    ):
+        changes["allow_member_invites"] = {
+            "from": row.allow_member_invites,
+            "to": payload.allow_member_invites,
+        }
+        row.allow_member_invites = payload.allow_member_invites
+
+    if changes:
+        _audit(session, actor_id=actor.id, action="permissions.patch", payload=changes)
         await session.commit()
         await session.refresh(row)
     return row

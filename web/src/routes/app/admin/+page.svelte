@@ -14,6 +14,7 @@
   import AdminOverview from '$lib/components/admin/AdminOverview.svelte';
   import AdminAttachments from '$lib/components/admin/AdminAttachments.svelte';
   import AdminRegistration from '$lib/components/admin/AdminRegistration.svelte';
+  import AdminPermissions from '$lib/components/admin/AdminPermissions.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -57,6 +58,7 @@
       <AdminOverview />
       <AdminAttachments />
       <AdminRegistration />
+      <AdminPermissions />
       <AdminUsers />
       <AdminAuditLog />
     </main>
