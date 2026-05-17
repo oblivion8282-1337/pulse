@@ -4,6 +4,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { readState } from '$lib/stores/readState.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
 
@@ -28,6 +29,27 @@
   onDestroy(() => {
     gateway.disconnect();
     void import('$lib/voice/livekit.svelte').then(({ voice }) => voice.disconnect());
+    if (typeof document !== 'undefined') document.title = 'Pulse';
+  });
+
+  // Prefix the tab title with a dot when any DM or guild text channel has
+  // unread activity. Visible in the browser tab bar even when Pulse is in
+  // the background — cheap "you have new stuff" indicator that doesn't
+  // need notification permission. Reactive: flips back when read.
+  $effect(() => {
+    if (typeof document === 'undefined') return;
+    const dmUnread = directMessages.list.some((dm) => readState.isUnread(dm.id));
+    let channelUnread = false;
+    for (const list of Object.values(guilds.channelsByGuild)) {
+      for (const c of list) {
+        if (c.type === 0 && readState.isUnread(c.id)) {
+          channelUnread = true;
+          break;
+        }
+      }
+      if (channelUnread) break;
+    }
+    document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
   });
 </script>
 

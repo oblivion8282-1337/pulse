@@ -22,6 +22,8 @@
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
+  import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { readState } from '$lib/stores/readState.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import type { Guild } from '$lib/api/types';
 
@@ -46,6 +48,12 @@
     onHomeClick?: () => void;
     onGuildDeleted?: (guildId: string) => void;
   } = $props();
+
+  // True if any DM has a `latest > lastRead` — drives the red dot on the
+  // home button so the user knows there's something to look at on /app/@me
+  // without having to navigate there first. Computed live; flips off again
+  // as soon as the user opens the DM (the page's markRead bumps lastRead).
+  let hasUnreadDM = $derived(directMessages.list.some((dm) => readState.isUnread(dm.id)));
 
   let renameTarget = $state<Guild | null>(null);
   let deleteTarget = $state<Guild | null>(null);
@@ -160,6 +168,13 @@
               >
                 <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-9 rounded-lg" />
               </a>
+            {/if}
+            {#if hasUnreadDM && !homeActive}
+              <span
+                class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
+                aria-label="ungelesene Direktnachrichten"
+                data-testid="home-unread-dot"
+              ></span>
             {/if}
           </div>
         {/snippet}

@@ -27,6 +27,9 @@ import {
   type WatchPartyState
 } from '$lib/stores/watchPartyPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
+import { userCache } from '$lib/stores/users.svelte';
+import { goto } from '$app/navigation';
+import { toast } from 'svelte-sonner';
 import type { DMChannel, Message } from '$lib/api/types';
 
 export type ChannelPayload = {
@@ -360,7 +363,29 @@ export class GatewayConnection {
         if (evt.author_id !== me) {
           readState.recordSeen(evt.channel_id, evt.message_id);
           if (this.subs.has(evt.channel_id)) {
+            // Already viewing this DM — mark read, no toast.
             readState.markRead(evt.channel_id, evt.message_id);
+          } else {
+            // Not currently in this DM. Toast the user. We intentionally
+            // surface only the sender's name, not the message content,
+            // so the UX stays identical when DMs go E2EE in Phase 2.
+            // userCache.queue is debounced; if the sender isn't in cache
+            // yet (we've never rendered them anywhere) we just drop the
+            // name from the toast rather than show a "…" placeholder.
+            userCache.queue(evt.author_id);
+            const cached = userCache.get(evt.author_id);
+            const senderLabel = cached
+              ? ` von @${cached.display_name ?? cached.username}`
+              : '';
+            const channelId = evt.channel_id;
+            toast.message(`Neue Nachricht${senderLabel}`, {
+              action: {
+                label: 'Öffnen',
+                onClick: () => {
+                  void goto(`/app/@me/${channelId}`);
+                }
+              }
+            });
           }
         }
         break;
