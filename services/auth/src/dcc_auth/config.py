@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     rate_limit_email_verify_send: str = "2/minute"
     rate_limit_login_totp: str = "20/minute"
     rate_limit_totp_verify_setup: str = "10/minute"
+    rate_limit_totp_setup: str = "10/minute"
+    rate_limit_totp_disable: str = "10/minute"
+    rate_limit_totp_backup_regenerate: str = "10/minute"
 
     # Account-recovery / 2FA
     smtp_host: str | None = None
@@ -86,6 +89,9 @@ class Settings(BaseSettings):
         "rate_limit_email_verify_send",
         "rate_limit_login_totp",
         "rate_limit_totp_verify_setup",
+        "rate_limit_totp_setup",
+        "rate_limit_totp_disable",
+        "rate_limit_totp_backup_regenerate",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

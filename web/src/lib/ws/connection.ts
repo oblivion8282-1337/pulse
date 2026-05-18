@@ -184,7 +184,7 @@ type ServerEvent =
       // `guild_id` is null for DMs (the channel isn't part of a guild). The
       // backend stringifies guild_id when present (Snowflake-as-string across
       // the wire — see CLAUDE.md) and emits null for the DM case.
-      d: { channel_id: string; message_id: string; guild_id: string | null };
+      data: { channel_id: string; message_id: string; guild_id: string | null };
     }
   | { op: 'error'; code: number; msg: string };
 
@@ -656,7 +656,7 @@ export class GatewayConnection {
         // idempotent: the backend deduplicates the recipient set, we
         // don't have to. If the user is actively viewing the channel,
         // the inline `markRead` below clears the counter immediately.
-        const { channel_id, message_id, guild_id } = evt.d;
+        const { channel_id, message_id, guild_id } = evt.data;
         readState.incMention(channel_id);
         if (this.subs.has(channel_id)) {
           readState.markRead(channel_id, message_id);

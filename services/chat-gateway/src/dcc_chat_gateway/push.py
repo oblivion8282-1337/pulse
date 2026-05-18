@@ -1,20 +1,16 @@
-"""Web-Push (RFC 8030) helpers.
+"""Web-Push (RFC 8030) sender.
 
-Two concerns:
+``send_push_to_user`` fans a payload dict out to every
+``WebPushSubscription`` owned by ``user_id``, drops endpoints that
+push services reject with 404/410 (RFC 8030 §7.3 — "gone"), and
+refreshes ``last_used_at`` on success. pywebpush is sync-only; we run
+each send in a worker thread so a slow push service can't block the
+event loop.
 
-  * **VAPID key management** — ``ensure_vapid`` returns the in-process
-    ``(private_pem, public_b64url)`` pair. If the operator pre-configures
-    both via ``Settings.vapid_private_key`` + ``vapid_public_key`` we
-    trust those verbatim; otherwise we look on disk at
-    ``Settings.vapid_key_file`` and load the JSON we wrote on a previous
-    start; if neither exists we generate a fresh EC P-256 keypair, write
-    it (file 0600, dir 0700), and use it.
-  * **Sending** — ``send_push_to_user`` fans a payload dict out to every
-    ``WebPushSubscription`` owned by ``user_id``, drops endpoints that
-    push services reject with 404/410 (RFC 8030 §7.3 — "gone"), and
-    refreshes ``last_used_at`` on success. pywebpush is sync-only; we run
-    each send in a worker thread so a slow push service can't block the
-    event loop.
+VAPID key management (``ensure_vapid`` etc.) lives in
+``dcc_chat_gateway.vapid``; we re-export the public surface here so
+existing ``from dcc_chat_gateway.push import ensure_vapid`` callers
+keep working.
 
 The payload shape — the contract with the FE Service Worker and the
 Electron-side notifier — is documented at the bottom of this module
@@ -24,150 +20,22 @@ under ``MENTION_PAYLOAD_SCHEMA``.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
 import logging
-import os
-from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway.config import Settings, get_settings
+from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.models import WebPushSubscription
+from dcc_chat_gateway.vapid import (
+    VapidKeys,
+    ensure_vapid,
+    reset_vapid_cache_for_tests,
+)
 
 log = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class VapidKeys:
-    """Loaded / generated VAPID material. Both fields are required to
-    actually emit a push; ``public_b64url`` is what the browser passes
-    to ``pushManager.subscribe({applicationServerKey})``."""
-
-    private_pem: str
-    public_b64url: str
-
-
-_VAPID: VapidKeys | None = None
-
-
-def _b64url(data: bytes) -> str:
-    """URL-safe base64 with no ``=`` padding — RFC 7515 §2 / RFC 8292."""
-    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
-
-
-def _generate_keypair() -> VapidKeys:
-    """Mint a fresh EC-P256 keypair. The public key is encoded as the
-    raw 65-byte uncompressed point (0x04 || X || Y) base64url'd — that's
-    what the W3C Push API spec requires for ``applicationServerKey``.
-    The private key is PEM-encoded PKCS#8 (what pywebpush accepts)."""
-    private = ec.generate_private_key(ec.SECP256R1())
-    private_pem = private.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption(),
-    ).decode("ascii")
-    public_raw = private.public_key().public_bytes(
-        encoding=serialization.Encoding.X962,
-        format=serialization.PublicFormat.UncompressedPoint,
-    )
-    return VapidKeys(private_pem=private_pem, public_b64url=_b64url(public_raw))
-
-
-def _load_keypair_from_disk(path: Path) -> VapidKeys | None:
-    """Read a previously-persisted JSON file. Returns ``None`` if the
-    file doesn't exist or is corrupt — caller falls through to a fresh
-    generation."""
-    if not path.exists():
-        return None
-    try:
-        data = json.loads(path.read_text())
-        return VapidKeys(
-            private_pem=data["private_pem"],
-            public_b64url=data["public_b64url"],
-        )
-    except (OSError, ValueError, KeyError):
-        log.exception("vapid key file at %s is corrupt; regenerating", path)
-        return None
-
-
-def _persist_keypair_to_disk(path: Path, keys: VapidKeys) -> None:
-    """Write the keypair JSON with restrictive permissions.
-
-    Dir is 0700, file is 0600 — the private key would let an attacker
-    silently swap which push service we hit. Atomic via write-then-rename
-    so a crash mid-write can't leave a half-empty file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(path.parent, 0o700)
-    except OSError:
-        # Read-only mount / weird FS — best-effort, log but don't crash.
-        log.warning("could not chmod 0700 on %s", path.parent)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(
-        json.dumps(
-            {"private_pem": keys.private_pem, "public_b64url": keys.public_b64url}
-        )
-    )
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        log.warning("could not chmod 0600 on %s", tmp)
-    tmp.replace(path)
-
-
-def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
-    """Resolve the active VAPID keypair, generating + persisting if absent.
-
-    Returns ``None`` only if generation is impossible (very unlikely;
-    only if ``cryptography`` can't allocate). Operators who *don't* want
-    push can leave it enabled — the public key endpoint will just hand
-    out the auto-gen'd key.
-
-    Caching: a process-level singleton. The first caller wins; subsequent
-    callers reuse the same in-memory pair. Tests can reset by clearing
-    ``_VAPID`` (handled by the fixture).
-    """
-    global _VAPID
-    if _VAPID is not None:
-        return _VAPID
-    settings = settings or get_settings()
-    # Operator-provided: bypass the on-disk + auto-gen paths entirely.
-    if settings.vapid_private_key and settings.vapid_public_key:
-        _VAPID = VapidKeys(
-            private_pem=settings.vapid_private_key,
-            public_b64url=settings.vapid_public_key,
-        )
-        return _VAPID
-
-    path = Path(settings.vapid_key_file)
-    on_disk = _load_keypair_from_disk(path)
-    if on_disk is not None:
-        _VAPID = on_disk
-        return _VAPID
-
-    fresh = _generate_keypair()
-    try:
-        _persist_keypair_to_disk(path, fresh)
-    except OSError:
-        # Couldn't persist — still serve from memory; next restart will
-        # regen and old subscriptions will break, but that's a deploy bug
-        # rather than a user-facing crash.
-        log.exception("could not persist VAPID key to %s", path)
-    _VAPID = fresh
-    return _VAPID
-
-
-def reset_vapid_cache_for_tests() -> None:
-    """Clear the process-level cache. Used by tests so each fixture can
-    install its own deterministic key (or none at all)."""
-    global _VAPID
-    _VAPID = None
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +94,7 @@ async def send_push_to_user(
 
     ok_ids: list[int] = []
     dead_ids: list[int] = []
-    for row, outcome in zip(rows, results):
+    for row, outcome in zip(rows, results, strict=True):
         if outcome == "ok":
             ok_ids.append(row.id)
         elif outcome == "dead":
@@ -380,13 +248,6 @@ async def fan_out_mention_push(
                 await send_push_to_user(uid, payload_base, session)
             except Exception:  # noqa: BLE001
                 log.exception("send_push_to_user failed for user %s", uid)
-
-
-_MENTION_MARKERS = (
-    # Strip the markers (rough; mirrors mentions.py's parser) before
-    # building the snippet. We do this in-line rather than importing
-    # mentions.py to avoid a circular import.
-)
 
 
 def _make_snippet(content: str, limit: int = 100) -> str:

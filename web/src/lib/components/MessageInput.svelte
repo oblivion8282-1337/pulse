@@ -1,19 +1,19 @@
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
-  import { toast } from 'svelte-sonner';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import XIcon from '@lucide/svelte/icons/x';
   import EmojiPicker from './EmojiPicker.svelte';
   import AttachmentPreviewStrip from './AttachmentPreviewStrip.svelte';
-  import MentionAutocomplete from './MentionAutocomplete.svelte';
+  import MentionTriggerOverlay from './MentionTriggerOverlay.svelte';
   import { expandShortcodes } from '$lib/emoji';
   import { startUpload, cleanupRow, type PendingAttachment } from '$lib/attachments/upload.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
-  import { detectMentionTrigger, applyMentionInsertion } from './mentionTrigger';
 
+  // `channelId` null → watch-party / stream-chat composer: attachments
+  // (paperclip / paste / drop) are wired off, mention popup still works.
   let {
     channelId = null,
     placeholder = 'Nachricht senden',
@@ -21,9 +21,6 @@
     replyTo = null,
     onCancelReply
   }: {
-    /** When set, attachment uploads are wired through the paperclip button,
-     *  paste handler, and drop target. Watch-party / stream-chat composers
-     *  omit it to disable attachments entirely. */
     channelId?: string | null;
     placeholder?: string;
     onSend: (text: string, attachmentIds: string[]) => void;
@@ -46,28 +43,20 @@
   let isDragging = $state(false);
   let dragDepth = 0; // dragenter/leave fire on every child — count to stay sane
 
-  // Mention-autocomplete state. The popup lives in `MentionAutocomplete.svelte`;
-  // we own the trigger detection + insertion so the textarea state stays here.
-  let mentionOpen = $state(false);
-  let mentionQuery = $state('');
-  let mentionStart = $state<number>(-1); // index of the `@` in `text`
-  let autocomplete: MentionAutocomplete | undefined = $state();
+  // Mention overlay owns the popup state; we just forward textarea events.
+  let mentionOverlay: MentionTriggerOverlay | undefined = $state();
 
-  // Look up the guild that owns this channel. DM channels aren't in the
-  // store → guildId stays null → autocomplete suppresses role + everyone.
+  // DM channels aren't in the store → guildId stays null → autocomplete
+  // suppresses role + everyone suggestions.
   const guildId = $derived.by<string | null>(() => {
     if (!channelId) return null;
-    for (const [gid, list] of Object.entries(guilds.channelsByGuild)) {
+    for (const [gid, list] of Object.entries(guilds.channelsByGuild))
       if (list.some((c) => c.id === channelId)) return gid;
-    }
     return null;
   });
 
-  const allDone = $derived(pending.every((p) => p.state === 'done'));
   const anyUploading = $derived(pending.some((p) => p.state === 'uploading' || p.state === 'queued'));
-  const sendDisabled = $derived(
-    (text.trim().length === 0 && pending.length === 0) || anyUploading
-  );
+  const sendDisabled = $derived((text.trim().length === 0 && pending.length === 0) || anyUploading);
 
   function addFiles(files: FileList | File[]): void {
     if (!channelId) return; // attachmentsEnabled=false → ignore drops/pastes silently
@@ -87,6 +76,17 @@
     if (row) cleanupRow(row);
     pending = pending.filter((p) => p.localId !== localId);
   }
+  const onFilePick = (e: Event) => {
+    const input = e.currentTarget as HTMLInputElement;
+    if (input.files) addFiles(input.files);
+    input.value = ''; // allow re-selecting the same file later
+  };
+  const onPaste = (e: ClipboardEvent) => {
+    const files = e.clipboardData?.files;
+    if (!files?.length) return;
+    e.preventDefault(); // don't paste a path string into the textarea
+    addFiles(files);
+  };
 
   function fire() {
     if (sendDisabled) return;
@@ -100,102 +100,34 @@
     aborts.clear();
   }
 
-  function submit(e: SubmitEvent) {
-    e.preventDefault();
-    fire();
-  }
-
-  function updateMention() {
-    if (!textarea) return;
-    const caret = textarea.selectionStart ?? text.length;
-    const trig = detectMentionTrigger(text, caret);
-    if (trig) {
-      mentionOpen = true;
-      mentionStart = trig.start;
-      mentionQuery = trig.query;
-    } else if (mentionOpen) {
-      mentionOpen = false;
-      mentionStart = -1;
-    }
-  }
-
-  function applyMention(insertion: string) {
-    if (!textarea || mentionStart < 0) return;
-    const caret = textarea.selectionStart ?? text.length;
-    const next = applyMentionInsertion(text, mentionStart, caret, insertion);
-    text = next.text;
-    mentionOpen = false;
-    mentionStart = -1;
-    queueMicrotask(() => {
-      textarea?.focus();
-      textarea?.setSelectionRange(next.caret, next.caret);
-    });
-  }
-
   function onKeydown(e: KeyboardEvent) {
-    // Mention popup gets first dibs on ↑/↓/Enter/Tab/Esc.
-    if (mentionOpen && autocomplete?.handleKey(e)) return;
-    if (e.key === 'Escape' && replyTo) {
-      e.preventDefault();
-      onCancelReply?.();
-      return;
-    }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      fire();
-    }
-  }
-
-  function onFilePick(e: Event) {
-    const input = e.currentTarget as HTMLInputElement;
-    if (input.files) addFiles(input.files);
-    input.value = ''; // allow re-selecting the same file later
-  }
-
-  function onPaste(e: ClipboardEvent) {
-    const files = e.clipboardData?.files;
-    if (files && files.length > 0) {
-      e.preventDefault(); // don't paste a path string into the textarea
-      addFiles(files);
-    }
+    if (mentionOverlay?.handleKey(e)) return; // popup gets first dibs on ↑/↓/Enter/Tab/Esc
+    if (e.key === 'Escape' && replyTo) { e.preventDefault(); onCancelReply?.(); return; }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); fire(); }
   }
 
   function onDragEnter(e: DragEvent) {
     if (!e.dataTransfer?.types.includes('Files')) return;
-    e.preventDefault();
-    dragDepth++;
-    isDragging = true;
+    e.preventDefault(); dragDepth++; isDragging = true;
   }
-  function onDragOver(e: DragEvent) {
-    if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
-  }
-  function onDragLeave() {
+  const onDragOver = (e: DragEvent) =>
+    e.dataTransfer?.types.includes('Files') && e.preventDefault();
+  const onDragLeave = () => {
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth === 0) isDragging = false;
-  }
+  };
   function onDrop(e: DragEvent) {
-    e.preventDefault();
-    dragDepth = 0;
-    isDragging = false;
-    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-      addFiles(e.dataTransfer.files);
-    }
+    e.preventDefault(); dragDepth = 0; isDragging = false;
+    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
   }
 
   function insertEmoji(emoji: string) {
     const ta = textarea;
-    if (!ta) {
-      text = text + emoji;
-    } else {
-      const start = ta.selectionStart ?? text.length;
-      const end = ta.selectionEnd ?? text.length;
-      text = text.slice(0, start) + emoji + text.slice(end);
-      queueMicrotask(() => {
-        ta.focus();
-        const pos = start + emoji.length;
-        ta.setSelectionRange(pos, pos);
-      });
-    }
+    if (!ta) { text = text + emoji; pickerOpen = false; return; }
+    const start = ta.selectionStart ?? text.length;
+    const end = ta.selectionEnd ?? text.length;
+    text = text.slice(0, start) + emoji + text.slice(end);
+    queueMicrotask(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); });
     pickerOpen = false;
   }
 </script>
@@ -206,7 +138,7 @@
   ondragover={onDragOver}
   ondragleave={onDragLeave}
   ondrop={onDrop}
-  onsubmit={submit}
+  onsubmit={(e) => { e.preventDefault(); fire(); }}
 >
   {#if replyTo}
     <div
@@ -265,22 +197,21 @@
       rows="1"
       bind:value={text}
       onkeydown={onKeydown}
-      oninput={updateMention}
-      onkeyup={updateMention}
-      onclick={updateMention}
+      oninput={() => mentionOverlay?.update()}
+      onkeyup={() => mentionOverlay?.update()}
+      onclick={() => mentionOverlay?.update()}
       onpaste={onPaste}
-      onblur={() => { mentionOpen = false; }}
+      onblur={() => mentionOverlay?.close()}
       {placeholder}
       class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[1.5rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none"
       data-testid="message-input"
     ></textarea>
-    <MentionAutocomplete
-      bind:this={autocomplete}
-      open={mentionOpen}
-      query={mentionQuery}
+    <MentionTriggerOverlay
+      bind:this={mentionOverlay}
+      value={text}
+      textareaEl={textarea}
       {guildId}
-      onPick={applyMention}
-      onClose={() => { mentionOpen = false; }}
+      onChange={(t) => (text = t)}
     />
     <DropdownMenu.Root bind:open={pickerOpen}>
       <DropdownMenu.Trigger>

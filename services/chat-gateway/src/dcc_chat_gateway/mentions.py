@@ -267,7 +267,7 @@ async def fan_out_mention_events(
         return
     envelope = {
         "op": "mention_added",
-        "d": {
+        "data": {
             "channel_id": str(channel_id),
             "message_id": str(message_id),
             "guild_id": str(guild_id) if guild_id is not None else None,

@@ -536,6 +536,16 @@ class SettingsStore {
     this.notifications.soundEnabled = v;
     this.#persist();
   }
+
+  /** Reset state that's user-scoped despite living in device-level localStorage.
+   *  Currently: `notifications.browserPushEnabled` — the toggle reflects a
+   *  Push-Manager subscription bound to a specific user_id, so on sign-out the
+   *  next user shouldn't see "on" inherited from the previous account. Other
+   *  settings (audio, video, theme) stay because they describe the device. */
+  resetUserScoped(): void {
+    this.notifications.browserPushEnabled = false;
+    this.#persist();
+  }
 }
 
 export const settings = new SettingsStore();

@@ -66,6 +66,7 @@ router = APIRouter()
 
 @router.post("/totp/setup", response_model=TotpSetupOut)
 async def totp_setup(
+    request: Request,
     session: SessionDep,
     current: Annotated[User, Depends(_get_current_user)],
 ):
@@ -76,6 +77,7 @@ async def totp_setup(
     the caller must go through ``/totp/disable`` first.
     """
     settings = get_settings()
+    await _check_rate(request, "totp_setup", settings.rate_limit_totp_setup)
     if current.totp_enabled:
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="totp already enabled"
@@ -148,6 +150,7 @@ async def totp_verify_setup(
 
 @router.post("/totp/disable", response_model=MessageOut)
 async def totp_disable(
+    request: Request,
     payload: TotpDisableIn,
     session: SessionDep,
     current: Annotated[User, Depends(_get_current_user)],
@@ -157,6 +160,8 @@ async def totp_disable(
     Either second factor proves the user still has access; password proves
     a stolen access token alone can't strip 2FA off the account.
     """
+    settings = get_settings()
+    await _check_rate(request, "totp_disable", settings.rate_limit_totp_disable)
     if not current.totp_enabled or not current.totp_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="totp not enabled")
 
@@ -178,6 +183,7 @@ async def totp_disable(
 
 @router.post("/totp/backup-codes/regenerate", response_model=TotpVerifySetupOut)
 async def totp_backup_regen(
+    request: Request,
     payload: TotpBackupRegenIn,
     session: SessionDep,
     current: Annotated[User, Depends(_get_current_user)],
@@ -188,6 +194,10 @@ async def totp_backup_regen(
     burned backup codes is exactly the state where you most want a hard
     re-prove-yourself-via-app step.
     """
+    settings = get_settings()
+    await _check_rate(
+        request, "totp_backup_regenerate", settings.rate_limit_totp_backup_regenerate
+    )
     if not current.totp_enabled or not current.totp_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="totp not enabled")
 

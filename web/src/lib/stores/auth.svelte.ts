@@ -11,6 +11,7 @@ import { roles } from './roles.svelte';
 import { channelPermissions } from './channelPermissions.svelte';
 import { memberRoles } from './memberRoles.svelte';
 import { capabilities } from './capabilities.svelte';
+import { settings } from './settings.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -84,6 +85,7 @@ class AuthStore {
     channelPermissions.clear();
     memberRoles.clear();
     capabilities.clear();
+    settings.resetUserScoped();
     void goto('/login');
   }
 }

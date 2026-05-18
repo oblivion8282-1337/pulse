@@ -281,7 +281,7 @@ async def test_mention_added_ws_event(ws_app, _auth_signer):
                 )
                 assert r.status_code == 201, r.text
                 hit = _drain_until(ws_bob, lambda f: f.get("op") == "mention_added")
-                d = hit["d"]
+                d = hit["data"]
                 assert d["channel_id"] == cid
                 assert d["message_id"] == r.json()["id"]
 
@@ -382,7 +382,7 @@ async def test_edit_message_only_pings_new_user(ws_app, _auth_signer):
                 hit = _drain_until(
                     ws_carol, lambda f: f.get("op") == "mention_added"
                 )
-                assert hit["d"]["message_id"] == msg_id
+                assert hit["data"]["message_id"] == msg_id
 
                 # Bob must NOT see a fresh mention_added (he's still in the
                 # set so he's not "newly" mentioned). Sequencing trick:
