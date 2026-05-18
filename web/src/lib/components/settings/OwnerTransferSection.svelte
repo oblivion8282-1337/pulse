@@ -14,7 +14,12 @@
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { guildOwnershipApi } from '$lib/api/roles';
+  import { userCache } from '$lib/stores/users.svelte';
   import type { Guild, Member } from '$lib/api/types';
+
+  function displayName(m: Member): string {
+    return m.nickname ?? userCache.displayName(m.user_id);
+  }
 
   let { guild }: { guild: Guild } = $props();
 
@@ -28,6 +33,7 @@
       .listMembers(guild.id)
       .then((rows) => {
         members = rows.filter((m) => m.user_id !== guild.owner_id);
+        for (const m of members) userCache.queue(m.user_id);
       })
       .catch(() => {
         members = [];
@@ -79,7 +85,7 @@
     >
       <option value="">— Mitglied wählen —</option>
       {#each members as m (m.user_id)}
-        <option value={m.user_id}>{m.nickname ?? m.user_id}</option>
+        <option value={m.user_id}>{displayName(m)}</option>
       {/each}
     </select>
   </div>

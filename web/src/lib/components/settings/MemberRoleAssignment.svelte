@@ -21,8 +21,13 @@
   import { chatApi } from '$lib/api/chat';
   import { rolesApi, type Role } from '$lib/api/roles';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
   import { Perm, has, toBitfield } from '$lib/permissions/bitfield';
   import type { Member } from '$lib/api/types';
+
+  function displayName(m: Member): string {
+    return m.nickname ?? userCache.displayName(m.user_id);
+  }
 
   let { guildId, editorPermissions }: { guildId: string; editorPermissions: string } = $props();
 
@@ -54,6 +59,9 @@
   onMount(async () => {
     try {
       members = await chatApi.listMembers(guildId);
+      // Queue username lookups so display_name resolves to a human-
+      // readable value rather than the raw snowflake id.
+      for (const m of members) userCache.queue(m.user_id);
     } catch (err) {
       toast.error('Mitglieder laden fehlgeschlagen', { description: (err as Error).message });
     } finally {
@@ -145,7 +153,7 @@
               data-testid={`member-row-${m.user_id}`}
             >
               <div class="text-text-bright truncate font-medium">
-                {m.nickname ?? m.user_id}
+                {displayName(m)}
               </div>
               <div class="text-text-muted truncate text-xs">{m.user_id}</div>
             </button>
@@ -168,10 +176,10 @@
         Noch keine zuweisbaren Rollen — erstelle erst welche im Rollen-Tab.
       </p>
     {:else}
+      {@const selMember = members.find((m) => m.user_id === selectedUserId)}
       <header class="mb-3">
         <h3 class="text-text-bright text-sm font-semibold">
-          Rollen für {members.find((m) => m.user_id === selectedUserId)?.nickname
-            ?? selectedUserId}
+          Rollen für {selMember ? displayName(selMember) : selectedUserId}
         </h3>
         <p class="text-text-muted text-xs">
           Höhere Position = mächtigere Rolle. @everyone wird implizit zugewiesen.
