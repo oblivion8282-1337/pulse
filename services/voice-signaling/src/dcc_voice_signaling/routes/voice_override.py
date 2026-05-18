@@ -1,0 +1,142 @@
+"""``PUT /channels/{cid}/members/{uid}/voice-override`` — admin
+force-mute / unmute (caller must hold ``MUTE_MEMBERS``). Persists the
+override in Redis so re-issued tokens stay muted on reconnect and
+pushes a ``voice_override`` event on ``voice:events`` so listening
+clients update immediately."""
+
+from __future__ import annotations
+
+import json
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, Request, status
+from pydantic import BaseModel, ConfigDict
+
+from dcc_voice_signaling import routes as voice_routes
+from dcc_voice_signaling.security import CurrentUser
+
+router = APIRouter()
+
+
+class VoiceOverrideIn(BaseModel):
+    """Partial override patch — at least one of ``mute`` / ``deafen``
+    must be set. Each field is checked against its own permission bit
+    (``MUTE_MEMBERS`` / ``DEAFEN_MEMBERS``) so callers with only one of
+    the two can still operate. ``None`` means "don't touch that flag"."""
+
+    model_config = ConfigDict(extra="forbid")
+    mute: bool | None = None
+    deafen: bool | None = None
+
+
+@router.put("/channels/{channel_id}/members/{user_id}/voice-override")
+async def set_voice_override(
+    channel_id: str,
+    user_id: str,
+    payload: VoiceOverrideIn,
+    caller: CurrentUser,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, bool]:
+    """Force-mute / -deafen / clear-overrides for a participant.
+
+    Each field is independently permission-gated:
+      * ``mute``   → requires ``MUTE_MEMBERS``    — drives LiveKit publish
+                     grant (microphone is removed/restored from publish
+                     sources at next reconnect; live LiveKit call is
+                     best-effort for current connection).
+      * ``deafen`` → requires ``DEAFEN_MEMBERS`` — purely client-side.
+                     The receiving client mutes its own playback and
+                     refuses to undeafen until the override is cleared.
+
+    Writes the merged override to Redis so it survives reconnect, and
+    publishes the full state on ``voice:events`` for chat-gateway to
+    broadcast as ``voice_override``.
+    """
+    if payload.mute is None and payload.deafen is None:
+        raise HTTPException(400, detail="at least one of 'mute' / 'deafen' must be set")
+    if user_id == str(caller.id):
+        raise HTTPException(400, detail="cannot apply voice overrides to yourself")
+    bearer = voice_routes._bearer_from_header(authorization)
+    # Same membership + voice-channel check as token-issue. Acts as an
+    # implicit existence check for the channel.
+    await voice_routes._require_voice_channel_member(channel_id, bearer)
+    perms = await voice_routes._resolve_channel_permissions(channel_id, bearer)
+    if payload.mute is not None and not (perms & voice_routes._PERM_MUTE_MEMBERS):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="missing permission: MUTE_MEMBERS"
+        )
+    if payload.deafen is not None and not (perms & voice_routes._PERM_DEAFEN_MEMBERS):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="missing permission: DEAFEN_MEMBERS"
+        )
+
+    redis = voice_routes._get_redis(request)
+    if redis is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
+        )
+
+    # Merge: read current → apply patch → write back. Lets a caller
+    # toggle mute without disturbing an existing deafen, and vice-versa.
+    current = await voice_routes._load_override(redis, channel_id, user_id)
+    next_state: dict[str, bool] = {
+        "muted": bool(current.get("muted")),
+        "deafened": bool(current.get("deafened")),
+    }
+    if payload.mute is not None:
+        next_state["muted"] = bool(payload.mute)
+    if payload.deafen is not None:
+        next_state["deafened"] = bool(payload.deafen)
+
+    if not next_state["muted"] and not next_state["deafened"]:
+        await voice_routes._clear_override(redis, channel_id, user_id)
+    else:
+        await voice_routes._save_override(redis, channel_id, user_id, next_state)
+
+    # Live LiveKit update is only meaningful for the mute side — the
+    # deafen enforcement is client-only (LiveKit doesn't gate inbound
+    # subscriptions by participant permission). Skip the LiveKit call
+    # if mute wasn't part of this patch.
+    if payload.mute is not None:
+        cached_sources = await voice_routes._load_user_sources(redis, channel_id, user_id)
+        if next_state["muted"]:
+            # Strip "microphone" from the user's cached sources; keep
+            # the rest (camera, screen_share) intact so a non-mic
+            # publish isn't collateral damage.
+            base = cached_sources if cached_sources is not None else [
+                "camera",
+                "screen_share",
+                "screen_share_audio",
+            ]
+            new_sources = [s for s in base if s != "microphone"]
+        else:
+            # Restore exactly what the user was permitted to publish at
+            # their last token-issue. Missing cache (e.g. Redis flush
+            # during the mute) → conservative microphone-only fallback;
+            # the user's real grants take effect at their next reconnect.
+            new_sources = (
+                list(cached_sources)
+                if cached_sources is not None
+                else ["microphone"]
+            )
+        await voice_routes._livekit_update_participant(
+            channel_id,
+            user_id,
+            can_publish=bool(new_sources),
+            sources=new_sources,
+        )
+
+    await redis.publish(
+        voice_routes._VOICE_EVENTS_CHANNEL,
+        json.dumps(
+            {
+                "op": "voice_override",
+                "channel_id": channel_id,
+                "user_id": user_id,
+                "muted": next_state["muted"],
+                "deafened": next_state["deafened"],
+            }
+        ),
+    )
+    return {"muted": next_state["muted"], "deafened": next_state["deafened"]}
