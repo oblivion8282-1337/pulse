@@ -7,6 +7,8 @@ import { userCache } from './users.svelte';
 import { directMessages } from './directMessages.svelte';
 import { guilds } from './guilds.svelte';
 import { messages } from './messages.svelte';
+import { roles } from './roles.svelte';
+import { channelPermissions } from './channelPermissions.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -76,6 +78,8 @@ class AuthStore {
     directMessages.clear();
     guilds.clear();
     messages.clear();
+    roles.clear();
+    channelPermissions.clear();
     void goto('/login');
   }
 }

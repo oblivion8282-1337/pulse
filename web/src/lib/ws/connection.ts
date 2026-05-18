@@ -29,9 +29,12 @@ import {
 import { readState } from '$lib/stores/readState.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
+import { roles } from '$lib/stores/roles.svelte';
+import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import type { DMChannel, Guild, Message } from '$lib/api/types';
+import type { Role as RolePayload, Overwrite as OverwritePayload } from '$lib/api/roles';
 
 export type ChannelPayload = {
   id: string;
@@ -57,11 +60,23 @@ type ReactionEvent = {
   emoji: string;
 };
 
+/** Per-guild slice of the ready frame. The role/permission fields were
+ * added in Phase 3 (server-side); older payloads (e.g. mocked tests) may
+ * still omit them. */
+export type ReadyGuild = {
+  id: string;
+  name: string;
+  owner_id?: string;
+  my_permissions?: string;
+  my_role_ids?: string[];
+  roles?: RolePayload[];
+};
+
 type ServerEvent =
   | {
       op: 'ready';
       user_id: string;
-      guilds: { id: string; name: string }[];
+      guilds: ReadyGuild[];
       dm_channels?: DMChannel[];
       voice_states?: VoiceChannelState[];
       stream_states?: StreamChannelState[];
@@ -116,6 +131,16 @@ type ServerEvent =
       op: 'permissions_updated';
       allow_guild_creation: boolean;
       allow_member_invites: boolean;
+    }
+  | { op: 'role_created'; role: RolePayload }
+  | { op: 'role_updated'; role: RolePayload }
+  | { op: 'role_deleted'; guild_id: string; role_id: string }
+  | { op: 'member_roles_updated'; guild_id: string; user_id: string }
+  | {
+      op: 'channel_permissions_updated';
+      guild_id: string;
+      channel_id: string;
+      overwrites: OverwritePayload[];
     }
   | { op: 'error'; code: number; msg: string };
 
@@ -282,6 +307,11 @@ export class GatewayConnection {
       evt.op !== 'watch_state' &&
       evt.op !== 'watch_chat_message' &&
       evt.op !== 'permissions_updated' &&
+      evt.op !== 'role_created' &&
+      evt.op !== 'role_updated' &&
+      evt.op !== 'role_deleted' &&
+      evt.op !== 'member_roles_updated' &&
+      evt.op !== 'channel_permissions_updated' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -294,8 +324,17 @@ export class GatewayConnection {
         // don't no-op on the `if (guilds.byId[...])` guards. Uses ??= so a
         // concurrently-completed hydrate() (full Guild object) is never downgraded.
         for (const g of evt.guilds) {
-          guilds.byId[g.id] ??= { icon_url: null, owner_id: '', created_at: '', ...g } as Guild;
+          guilds.byId[g.id] ??= {
+            icon_url: null,
+            owner_id: g.owner_id ?? '',
+            created_at: '',
+            ...g
+          } as Guild;
         }
+        // The role payload is part of the ready envelope, not REST, so it's
+        // populated here (the hydrate() pass on the REST side does not return
+        // roles — they only come from /guilds/{id}/roles or this frame).
+        roles.seedFromReady(evt.guilds);
         if (evt.dm_channels) directMessages.seed(evt.dm_channels);
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
         streamPresence.seed(evt.stream_states ?? []);
@@ -461,6 +500,25 @@ export class GatewayConnection {
           allow_guild_creation: evt.allow_guild_creation,
           allow_member_invites: evt.allow_member_invites
         });
+        break;
+      case 'role_created':
+      case 'role_updated':
+        roles.upsertRole(evt.role);
+        break;
+      case 'role_deleted':
+        roles.removeRole(evt.guild_id, evt.role_id);
+        break;
+      case 'member_roles_updated':
+        // Only the *target* user's role list changed. If we are them, the
+        // store needs to re-pull (no payload list — server pushes a hint
+        // op, not full state). For other users we don't track member roles
+        // at the UI layer beyond what the editor explicitly loads.
+        if (auth.user?.id === evt.user_id) {
+          void roles.refreshMyRoles(evt.guild_id);
+        }
+        break;
+      case 'channel_permissions_updated':
+        channelPermissions.apply(evt.channel_id, evt.overwrites);
         break;
     }
   }

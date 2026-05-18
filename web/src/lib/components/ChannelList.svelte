@@ -6,8 +6,10 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import ShieldIcon from '@lucide/svelte/icons/shield';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
+  import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
@@ -23,6 +25,8 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
   import type { Channel, Guild } from '$lib/api/types';
@@ -57,14 +61,17 @@
 
   let textChannels = $derived(channels.filter((c) => c.type === 0));
   let voiceChannels = $derived(channels.filter((c) => c.type === 1));
+  let canManagePermissions = $derived(
+    !!guild && roles.hasGuildPermission(guild.id, Perm.MANAGE_PERMISSIONS)
+  );
 
-  // Invite button visibility — Guild-Owner always; everyone else only
-  // when the admin hasn't restricted invites. Mirrors the server-side
-  // check in routes/invites.py (no admin-bypass for non-owner).
+  // Invite button visibility — anyone with CREATE_INVITES (owner gets it
+  // implicitly via the resolver's GRANT_ALL_SAFE short-circuit). The
+  // server-wide allow_member_invites toggle stays the secondary gate
+  // mirroring routes/invites.py.
   const canInvite = $derived(
-    !!guild && (
-      auth.user?.id === guild.owner_id || capabilities.allowMemberInvites
-    )
+    !!guild && roles.hasGuildPermission(guild.id, Perm.CREATE_INVITES)
+      && (auth.user?.id === guild.owner_id || capabilities.allowMemberInvites)
   );
 
   function openRename(c: Channel) {
@@ -204,17 +211,30 @@
             </button>
           {/snippet}
         </ContextMenu.Trigger>
-        {#if canCreate}
+        {#if canCreate || canManagePermissions}
           <ContextMenu.Content>
-            <ContextMenu.Item onSelect={() => openRename(c)}>
-              <PencilIcon />
-              Kanal umbenennen
-            </ContextMenu.Item>
-            <ContextMenu.Separator />
-            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
-              <Trash2Icon />
-              Kanal löschen
-            </ContextMenu.Item>
+            {#if canCreate}
+              <ContextMenu.Item onSelect={() => openRename(c)}>
+                <PencilIcon />
+                Kanal umbenennen
+              </ContextMenu.Item>
+            {/if}
+            {#if canManagePermissions && guild}
+              <ContextMenu.Item
+                onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
+                data-testid={`channel-permissions-${c.id}`}
+              >
+                <ShieldIcon />
+                Berechtigungen
+              </ContextMenu.Item>
+            {/if}
+            {#if canCreate}
+              <ContextMenu.Separator />
+              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+                <Trash2Icon />
+                Kanal löschen
+              </ContextMenu.Item>
+            {/if}
           </ContextMenu.Content>
         {/if}
       </ContextMenu.Root>
@@ -243,17 +263,30 @@
             </button>
           {/snippet}
         </ContextMenu.Trigger>
-        {#if canCreate}
+        {#if canCreate || canManagePermissions}
           <ContextMenu.Content>
-            <ContextMenu.Item onSelect={() => openRename(c)}>
-              <PencilIcon />
-              Kanal umbenennen
-            </ContextMenu.Item>
-            <ContextMenu.Separator />
-            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
-              <Trash2Icon />
-              Kanal löschen
-            </ContextMenu.Item>
+            {#if canCreate}
+              <ContextMenu.Item onSelect={() => openRename(c)}>
+                <PencilIcon />
+                Kanal umbenennen
+              </ContextMenu.Item>
+            {/if}
+            {#if canManagePermissions && guild}
+              <ContextMenu.Item
+                onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
+                data-testid={`channel-permissions-${c.id}`}
+              >
+                <ShieldIcon />
+                Berechtigungen
+              </ContextMenu.Item>
+            {/if}
+            {#if canCreate}
+              <ContextMenu.Separator />
+              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+                <Trash2Icon />
+                Kanal löschen
+              </ContextMenu.Item>
+            {/if}
           </ContextMenu.Content>
         {/if}
       </ContextMenu.Root>

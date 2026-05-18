@@ -13,6 +13,9 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
@@ -133,6 +136,11 @@
       // Leave the previous text channel's WS subscription.
       if (prevC) gateway.unsubscribe(prevC);
       const ch = list.find((x) => x.id === target);
+      // Lazy-load this channel's permission overwrites so the resolver
+      // doesn't false-positive against guild defaults. Best-effort:
+      // a 403/500 here would only collapse UI affordances back to the
+      // guild-level resolution, which is still correct (just permissive).
+      if (ch) void channelPermissions.ensure(ch.id).catch(() => undefined);
       // Only text channels have message history + WS subscriptions.
       // Voice channels are handled entirely by VoiceChannelView/LiveKit.
       if (ch && ch.type === 0) {
@@ -359,7 +367,7 @@
     onSelect={selectChannel}
     onCreateClick={() => (creatingChannel = true)}
     {onChannelDeleted}
-    canCreate={!!activeGuild && auth.user?.id === activeGuild.owner_id}
+    canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
   />
 </div>
 
@@ -381,7 +389,7 @@
     messages={visibleMessages}
     onSend={sendMessage}
     onMenuClick={() => (sidebarOpen = true)}
-    isOwner={!!activeGuild && auth.user?.id === activeGuild.owner_id}
+    isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
     onEditMessage={editMessage}
     onDeleteMessage={deleteMessage}
     onToggleReaction={toggleReaction}

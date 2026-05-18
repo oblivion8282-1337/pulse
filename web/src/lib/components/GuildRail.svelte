@@ -18,12 +18,17 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import ImageIcon from '@lucide/svelte/icons/image';
   import ImageOffIcon from '@lucide/svelte/icons/image-off';
+  import SettingsIcon from '@lucide/svelte/icons/settings';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import type { Guild } from '$lib/api/types';
 
@@ -190,6 +195,8 @@
 
     {#each guilds as g (g.id)}
       {@const isOwner = currentUserId !== null && g.owner_id === currentUserId}
+      {@const canManageGuild = roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD)}
+      {@const canManageRoles = roles.hasGuildPermission(g.id, Perm.MANAGE_ROLES)}
       {@const active = activeGuildId === g.id}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
@@ -229,27 +236,40 @@
             </Tooltip.Root>
           {/snippet}
         </ContextMenu.Trigger>
-        {#if isOwner}
+        {#if canManageGuild || canManageRoles || isOwner || auth.user?.is_admin}
           <ContextMenu.Content>
-            <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
-              <PencilIcon />
-              Server umbenennen
-            </ContextMenu.Item>
-            <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
-              <ImageIcon />
-              Server-Bild ändern…
-            </ContextMenu.Item>
-            {#if g.icon_url}
-              <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
-                <ImageOffIcon />
-                Server-Bild entfernen
+            {#if canManageRoles || isOwner}
+              <ContextMenu.Item
+                onSelect={() => goto(`/app/guilds/${g.id}/settings`)}
+                data-testid="guild-settings"
+              >
+                <SettingsIcon />
+                Einstellungen
               </ContextMenu.Item>
             {/if}
-            <ContextMenu.Separator />
-            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
-              <Trash2Icon />
-              Server löschen
-            </ContextMenu.Item>
+            {#if canManageGuild}
+              <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
+                <PencilIcon />
+                Server umbenennen
+              </ContextMenu.Item>
+              <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
+                <ImageIcon />
+                Server-Bild ändern…
+              </ContextMenu.Item>
+              {#if g.icon_url}
+                <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
+                  <ImageOffIcon />
+                  Server-Bild entfernen
+                </ContextMenu.Item>
+              {/if}
+            {/if}
+            {#if isOwner || auth.user?.is_admin}
+              {#if canManageGuild}<ContextMenu.Separator />{/if}
+              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
+                <Trash2Icon />
+                Server löschen
+              </ContextMenu.Item>
+            {/if}
           </ContextMenu.Content>
         {/if}
       </ContextMenu.Root>

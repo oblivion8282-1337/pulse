@@ -18,12 +18,27 @@
   import { stream } from '../state.svelte';
   import { gsr } from '../gsr';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import HqStreamDialog from './HqStreamDialog.svelte';
 
   let { open = $bindable(false), compact = false }: { open?: boolean; compact?: boolean } = $props();
 
-  let visible = $derived(isElectron() && isLinux() && stream.gsrAvailable);
   let channelId = $derived(voice.channelId);
+  // STREAM-Permission im aktuellen Voice-Channel — Resolver liefert
+  // GRANT_ALL_SAFE für Owner. Wenn kein Channel oder kein Guild für
+  // den Channel im Store ist (z.B. DM), fällt das ungated zurück (das
+  // war's auch vor Phase 4).
+  let canStream = $derived.by(() => {
+    if (!channelId) return true;
+    const channel = Object.values(guilds.channelsByGuild)
+      .flat()
+      .find((c) => c.id === channelId);
+    if (!channel) return true;
+    return channelPermissions.hasChannelPermission(channel.guild_id, channel.id, Perm.STREAM);
+  });
+  let visible = $derived(isElectron() && isLinux() && stream.gsrAvailable && canStream);
   // Lokaler Sidecar pusht gerade → Click = Stop, Button leuchtet.
   let iAmStreaming = $derived(stream.running);
 
