@@ -7,7 +7,9 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import SidebarFooter from '$lib/components/SidebarFooter.svelte';
 
@@ -34,6 +36,18 @@
   async function createGuild(name: string) {
     const g = await chatApi.createGuild(name);
     guilds.add(g);
+    // Seed the role-store for the new guild so UI gates see the owner
+    // as having every permission (Owner short-circuits to GRANT_ALL_SAFE
+    // in ``recomputeGuild``). Without this every owner-gated affordance
+    // — invite button, channel create, settings — stays hidden until
+    // the next WS reconnect rebuilds ``ready``.
+    roles.recomputeGuild(g.id);
+    void rolesApi
+      .list(g.id)
+      .then((rows) => {
+        for (const r of rows) roles.upsertRole(r);
+      })
+      .catch(() => undefined);
     creating = false;
     const c = await chatApi.createChannel(g.id, { name: 'general' });
     guilds.addChannel(c);

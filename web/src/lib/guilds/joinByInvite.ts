@@ -1,6 +1,8 @@
 import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
+import { rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { roles } from '$lib/stores/roles.svelte';
 
 /**
  * Pull the invite code out of a pasted full link (e.g.
@@ -22,6 +24,16 @@ export async function joinGuildByInvite(input: string): Promise<void> {
 	if (!code) throw new Error('Bitte einen Einladungslink oder -code eingeben.');
 	const result = await chatApi.acceptInvite(code);
 	await guilds.hydrate();
+	// Pull roles for the newly-joined guild so UI gates resolve correctly
+	// before the next WS reconnect rebuilds ``ready``. recomputeGuild
+	// runs after upsert so the @everyone permissions feed the resolver.
+	try {
+		const rows = await rolesApi.list(result.guild.id);
+		for (const r of rows) roles.upsertRole(r);
+		roles.recomputeGuild(result.guild.id);
+	} catch {
+		/* best-effort; the user sees the guild listed either way */
+	}
 	await goto(
 		result.channel_id
 			? `/app/guilds/${result.guild.id}/channels/${result.channel_id}`

@@ -1,6 +1,8 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import XIcon from '@lucide/svelte/icons/x';
+  import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -10,6 +12,7 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { rolesApi } from '$lib/api/roles';
+  import { Perm } from '$lib/permissions/bitfield';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -32,6 +35,11 @@
   let members = $state<Member[]>([]);
   let loading = $state(false);
   let error = $state<string | null>(null);
+  // Quick-role menu only renders if the viewer actually has MANAGE_ROLES
+  // — otherwise the right-click would pop an empty ContextMenu.Content,
+  // which bits-ui still mounts as an empty floating element. Guarding
+  // here keeps the default right-click behaviour intact for everyone else.
+  let canQuickRole = $derived(roles.hasGuildPermission(guildId, Perm.MANAGE_ROLES));
 
   $effect(() => {
     if (!guildId) return;
@@ -44,21 +52,21 @@
     try {
       members = await chatApi.listMembers(id);
       for (const m of members) userCache.queue(m.user_id);
-      // One batched request for every member's role-ids beats N
-      // single-member ``ensure`` calls. seedAll fills "[]" for members
-      // with @everyone-only so the helper's synchronous ``for()``
-      // returns [] instead of undefined.
-      try {
-        const bulk = await rolesApi.bulkMemberRoles(id);
-        memberRoles.seedAll(id, bulk, members.map((m) => m.user_id));
-      } catch {
-        /* fall through to the per-member ``ensure`` on each render */
-      }
     } catch (e) {
       error = (e as Error).message;
     } finally {
       loading = false;
     }
+    // Role-id fetch is fire-and-forget so it never blocks the members
+    // render — the colour + hoist grouping populate as the data lands.
+    void rolesApi
+      .bulkMemberRoles(id)
+      .then((bulk) => {
+        memberRoles.seedAll(id, bulk, members.map((m) => m.user_id));
+      })
+      .catch(() => {
+        /* per-member ``ensure`` on the next render is the fallback */
+      });
   }
 
   type MemberGroup = { hoist: string | null; position: number; members: Member[] };
@@ -216,14 +224,18 @@
         {@const isPartyHost = partyHostIds.has(m.user_id)}
         {@const isStreaming = streamerIds.has(m.user_id)}
         {@const colour = nameColor(m.user_id)}
-        <UserProfilePopover
-          userId={m.user_id}
-          displayName={name}
-          avatarUrl={url}
-          onAction={onClose}
-        >
-          {#snippet children({ props })}
+        <ContextMenu.Root>
+          <ContextMenu.Trigger>
+            {#snippet child({ props: ctxProps })}
+              <UserProfilePopover
+                userId={m.user_id}
+                displayName={name}
+                avatarUrl={url}
+                onAction={onClose}
+              >
+                {#snippet children({ props })}
         <button
+          {...ctxProps}
           {...props}
           type="button"
           class="hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors data-[state=open]:bg-bg-hover"
@@ -286,8 +298,16 @@
             {/if}
           </span>
         </button>
-          {/snippet}
-        </UserProfilePopover>
+                {/snippet}
+              </UserProfilePopover>
+            {/snippet}
+          </ContextMenu.Trigger>
+          {#if canQuickRole}
+            <ContextMenu.Content>
+              <MemberQuickRoleMenu {guildId} userId={m.user_id} />
+            </ContextMenu.Content>
+          {/if}
+        </ContextMenu.Root>
       {/each}
       {/each}
       {#if members.length === 0}

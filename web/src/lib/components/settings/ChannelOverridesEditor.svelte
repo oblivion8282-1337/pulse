@@ -12,11 +12,15 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
+  import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { chatApi } from '$lib/api/chat';
   import { overwritesApi, type Overwrite } from '$lib/api/roles';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
+  import type { Member } from '$lib/api/types';
 
   let {
     channelId,
@@ -90,7 +94,10 @@
       const r = availableRoles.find((r) => r.id === ow.target_id);
       return r ? `Rolle: ${r.name}` : `Rolle ${ow.target_id}`;
     }
-    return `Mitglied ${ow.target_id}`;
+    const m = members.find((m) => m.user_id === ow.target_id);
+    if (m) return `Mitglied: ${memberLabel(m)}`;
+    const cached = userCache.displayName(ow.target_id);
+    return `Mitglied: ${cached}`;
   }
 
   async function save(target: string): Promise<void> {
@@ -129,18 +136,37 @@
   }
 
   let addRoleId = $state('');
+  let addUserId = $state('');
+  let members = $state<Member[]>([]);
 
-  async function addRoleOverride(): Promise<void> {
-    if (!addRoleId) return;
+  onMount(async () => {
     try {
-      await overwritesApi.set(channelId, 0, addRoleId, { allow: '0', deny: '0' });
-      addRoleId = '';
+      members = await chatApi.listMembers(guildId);
+      for (const m of members) userCache.queue(m.user_id);
+    } catch {
+      members = [];
+    }
+  });
+
+  async function addOverride(targetType: 0 | 1, targetId: string): Promise<void> {
+    if (!targetId) return;
+    try {
+      await overwritesApi.set(channelId, targetType, targetId, {
+        allow: '0',
+        deny: '0'
+      });
+      if (targetType === 0) addRoleId = '';
+      else addUserId = '';
       toast.success('Override hinzugefügt');
     } catch (err) {
       toast.error('Override hinzufügen fehlgeschlagen', {
         description: (err as Error).message
       });
     }
+  }
+
+  function memberLabel(m: Member): string {
+    return m.nickname ?? userCache.displayName(m.user_id);
   }
 
   function isEditorAllowed(perm: Permission): boolean {
@@ -158,30 +184,58 @@
     </p>
   </header>
 
-  <div class="flex flex-wrap items-end gap-2">
-    <div class="flex-1">
-      <Label for="add-role">Rolle als Override hinzufügen</Label>
-      <select
-        id="add-role"
-        class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
-        bind:value={addRoleId}
-        data-testid="add-role-select"
-      >
-        <option value="">— Rolle wählen —</option>
-        {#each availableRoles as r (r.id)}
-          {@const already = overwrites.some(
-            (ow) => ow.target_type === 0 && ow.target_id === r.id
-          )}
-          {#if !already}
-            <option value={r.id}>{r.name}{r.is_everyone ? ' (@everyone)' : ''}</option>
-          {/if}
-        {/each}
-      </select>
+  <div class="grid gap-3 sm:grid-cols-2">
+    <div class="flex flex-wrap items-end gap-2">
+      <div class="flex-1">
+        <Label for="add-role">Rolle</Label>
+        <select
+          id="add-role"
+          class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
+          bind:value={addRoleId}
+          data-testid="add-role-select"
+        >
+          <option value="">— Rolle wählen —</option>
+          {#each availableRoles as r (r.id)}
+            {@const already = overwrites.some(
+              (ow) => ow.target_type === 0 && ow.target_id === r.id
+            )}
+            {#if !already}
+              <option value={r.id}>{r.name}{r.is_everyone ? ' (@everyone)' : ''}</option>
+            {/if}
+          {/each}
+        </select>
+      </div>
+      <Button onclick={() => addOverride(0, addRoleId)} disabled={!addRoleId} data-testid="add-role-btn">
+        <PlusIcon />
+        Rolle
+      </Button>
     </div>
-    <Button onclick={addRoleOverride} disabled={!addRoleId} data-testid="add-role-btn">
-      <PlusIcon />
-      Hinzufügen
-    </Button>
+
+    <div class="flex flex-wrap items-end gap-2">
+      <div class="flex-1">
+        <Label for="add-user">Mitglied</Label>
+        <select
+          id="add-user"
+          class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
+          bind:value={addUserId}
+          data-testid="add-user-select"
+        >
+          <option value="">— Mitglied wählen —</option>
+          {#each members as m (m.user_id)}
+            {@const already = overwrites.some(
+              (ow) => ow.target_type === 1 && ow.target_id === m.user_id
+            )}
+            {#if !already}
+              <option value={m.user_id}>{memberLabel(m)}</option>
+            {/if}
+          {/each}
+        </select>
+      </div>
+      <Button onclick={() => addOverride(1, addUserId)} disabled={!addUserId} data-testid="add-user-btn">
+        <PlusIcon />
+        User
+      </Button>
+    </div>
   </div>
 
   {#if overwrites.length === 0}

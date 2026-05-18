@@ -467,8 +467,21 @@ export class GatewayConnection {
         if (auth.user && evt.user_id === auth.user.id) {
           // We just joined a guild on another tab / via an invite — re-hydrate
           // so this WS session starts tracking it (voice presence, channel
-          // lifecycle). loadChannels is best-effort.
-          void guilds.hydrate().then(() => guilds.loadChannels(evt.guild_id).catch(() => undefined));
+          // lifecycle, role list). loadChannels + role fetch are best-effort.
+          void guilds.hydrate().then(() => {
+            void guilds.loadChannels(evt.guild_id).catch(() => undefined);
+            // Pull the role list + recompute resolved perms — without this
+            // the UI gates stay locked until the next WS reconnect.
+            import('$lib/api/roles').then(({ rolesApi }) => {
+              rolesApi
+                .list(evt.guild_id)
+                .then((rows) => {
+                  for (const r of rows) roles.upsertRole(r);
+                  roles.recomputeGuild(evt.guild_id);
+                })
+                .catch(() => undefined);
+            });
+          });
         }
         break;
       case 'voice_state':

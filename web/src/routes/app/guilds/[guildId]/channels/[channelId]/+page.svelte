@@ -17,6 +17,7 @@
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
+  import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -217,6 +218,15 @@
   async function createGuild(name: string) {
     const g = await chatApi.createGuild(name);
     guilds.add(g);
+    // Same role-store seeding rationale as in ``/app/+page.svelte`` —
+    // without this the owner's UI gates stay locked until ready rebuilds.
+    roles.recomputeGuild(g.id);
+    void rolesApi
+      .list(g.id)
+      .then((rows) => {
+        for (const r of rows) roles.upsertRole(r);
+      })
+      .catch(() => undefined);
     creatingGuild = false;
     const ch = await chatApi.createChannel(g.id, { name: 'general' });
     guilds.addChannel(ch);

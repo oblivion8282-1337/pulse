@@ -102,6 +102,8 @@
   // hitting Save. Cancel reverts. Saved on PATCH success.
   let editName = $state('');
   let editPermissions = $state('0');
+  let editColor = $state<string>('#9ca3af'); // gray-400, matches "no colour" default
+  let editColorEnabled = $state(false);
   let editHoist = $state(false);
   let editMentionable = $state(false);
   let isSaving = $state(false);
@@ -113,6 +115,11 @@
     if (selectedRole) {
       editName = selectedRole.name;
       editPermissions = selectedRole.permissions;
+      editColorEnabled = selectedRole.color != null;
+      editColor =
+        selectedRole.color != null
+          ? '#' + selectedRole.color.toString(16).padStart(6, '0')
+          : '#9ca3af';
       editHoist = selectedRole.hoist;
       editMentionable = selectedRole.mentionable;
     }
@@ -133,9 +140,16 @@
     if (!selectedRole) return;
     isSaving = true;
     try {
+      // ``color: null`` clears the colour (members fall back to default
+      // text colour). HTML's <input type="color"> only emits "#rrggbb"
+      // strings; parse to int once before the PATCH.
+      const colourInt = editColorEnabled
+        ? parseInt(editColor.replace('#', ''), 16)
+        : null;
       const r = await rolesApi.patch(guildId, selectedRole.id, {
         name: selectedRole.is_everyone ? undefined : editName,
         permissions: editPermissions,
+        color: colourInt,
         hoist: editHoist,
         mentionable: editMentionable
       });
@@ -256,6 +270,39 @@
             <TrashIcon /> Löschen
           </Button>
         {/if}
+      </div>
+
+      <div class="mb-4 space-y-2">
+        <Label>Farbe</Label>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              bind:checked={editColorEnabled}
+              class="size-4 accent-primary"
+              data-testid="role-color-enabled"
+            />
+            Farbe verwenden
+          </label>
+          <input
+            type="color"
+            bind:value={editColor}
+            disabled={!editColorEnabled}
+            class="h-8 w-16 cursor-pointer rounded border border-border bg-transparent disabled:opacity-40"
+            data-testid="role-color-input"
+            aria-label="Farbe wählen"
+          />
+          <span
+            class="text-sm font-medium"
+            style={editColorEnabled ? `color: ${editColor}` : ''}
+          >
+            {editName || 'Rollenname'}
+          </span>
+        </div>
+        <p class="text-text-muted text-xs">
+          Member werden in dieser Farbe in der Mitglieder-Liste angezeigt
+          (höchste positionierte Color-Rolle gewinnt).
+        </p>
       </div>
 
       <div class="mb-4 flex flex-wrap gap-4">
