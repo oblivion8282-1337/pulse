@@ -52,7 +52,14 @@ async def _login(client, *, username_or_email: str) -> str:
 
 @pytest.fixture
 async def admin_token(client, session_factory):
-    """Register `alice`, promote to admin, return a fresh admin-claim token."""
+    """Register `alice`, promote to admin, return a fresh admin-claim token.
+
+    Note: alice is the very first user the test DB sees, so the
+    bootstrap-admin path in routes.py::register would already set
+    is_admin=True. The explicit ``_promote`` is still here for tests
+    that want to be portable to a non-empty DB layout (e.g. when a
+    later test registers a "throwaway-first" before promoting). Going
+    through _promote keeps the assertion stable either way."""
     await _register_user(client, username="alice", email="alice@example.com")
     await _promote(session_factory, "alice")
     return await _login(client, username_or_email="alice")
@@ -60,6 +67,11 @@ async def admin_token(client, session_factory):
 
 @pytest.fixture
 async def regular_token(client):
+    # The bootstrap path makes the *first* registered user an admin.
+    # Burn that slot on a throwaway so bob arrives as a regular user.
+    await _register_user(
+        client, username="bootstrap", email="bootstrap@example.com"
+    )
     return await _register_user(client, username="bob", email="bob@example.com")
 
 

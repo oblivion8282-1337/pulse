@@ -32,6 +32,30 @@ async def test_register_returns_tokens(client):
 
 
 @pytest.mark.asyncio
+async def test_first_user_becomes_admin(client):
+    """Bootstrap: the very first user on a fresh deploy gets is_admin
+    set so the server operator can reach /app/admin without an SQL
+    promotion. Subsequent users do not."""
+    r1 = await client.post("/register", json=REG_PAYLOAD)
+    assert r1.status_code == 201
+    claims1 = jwt.decode(
+        r1.json()["access_token"], options={"verify_signature": False}
+    )
+    assert claims1.get("admin") is True
+
+    r2 = await client.post(
+        "/register",
+        json={**REG_PAYLOAD, "username": "bob", "email": "bob@example.com"},
+    )
+    assert r2.status_code == 201
+    claims2 = jwt.decode(
+        r2.json()["access_token"], options={"verify_signature": False}
+    )
+    # JwtSigner only stamps ``admin`` when True — absent == false.
+    assert "admin" not in claims2
+
+
+@pytest.mark.asyncio
 async def test_register_rejects_duplicate(client):
     r1 = await client.post("/register", json=REG_PAYLOAD)
     assert r1.status_code == 201

@@ -95,6 +95,8 @@ Expired/ungültig → close Code 4001.
 Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bzw. MediaMTX den auth-hook
 (`localhost:8005`) und media-svc die MediaMTX-API (`localhost:9997`).
 
+**Bootstrap-Admin** (2026-05-18): `POST /register` setzt `is_admin=true` automatisch wenn der grad erstellte User der einzige in `auth.users` ist (`COUNT(*) == 1` nach flush). Pattern wie Mastodon/Gitea/Forgejo — Self-Hoster registriert sich zuerst, hat sofort Zugriff auf `/app/admin`, weitere Admins kommen über das Admin-Panel. Race-Mode (zwei parallele Registrierungen) akzeptiert, kostet selten echte Probleme. Vor dem Patch musste man via `docker exec ... psql -c "UPDATE auth.users SET is_admin=true WHERE username='…'"` bootstrappen.
+
 **Permissions** (Voll-Discord, 2026-05-18):
 - Bitfield in `dcc_shared/permissions.py` — `Permissions(IntFlag)` mit 23 Bits in 52-Bit-Budget (JS-Number-safe), bewusst Gaps zwischen Gruppen (Server-Admin 0-4, Member 8-12, Channel 20-27, Voice 30-36, ADMIN 51) für spätere Erweiterung. `GRANT_ALL_SAFE = (1<<52)-1` — Owner/ADMIN resolven dahin (NICHT `~0`), damit reserved bits Null bleiben.
 - Resolver in `dcc_shared/permission_resolver.py` ist pure-Python + DB-agnostisch via `PermissionContext`-Protocol. Discord-Formel `final = (base | allow) & ~deny`, !VIEW_CHANNEL→revoke_all-Invariante (kann nicht "darf schreiben aber nicht sehen" geben → Exploit-Schutz). @everyone wird über `is_everyone`-Flag implizit als erstes appliziert, dann role-overwrites in position-order, zuletzt user-overwrite.

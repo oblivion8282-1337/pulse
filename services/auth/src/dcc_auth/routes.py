@@ -10,7 +10,7 @@ import jwt
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import or_, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
@@ -131,6 +131,18 @@ async def register(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="username or email already taken"
         ) from exc
+
+    # Bootstrap: the first user on a fresh deploy becomes a global admin
+    # so the server operator has a path into ``/app/admin`` without
+    # needing to SQL-promote themselves. Counts include the row we just
+    # flushed; ==1 means we are the only user in the database.
+    # Race-mode (two concurrent registrations both seeing count==1) is
+    # accepted — same trade-off Mastodon / Gitea / Forgejo make. On a
+    # public-facing first-deploy the operator registers in the same
+    # second as the docker stack comes up, so this is fine in practice.
+    user_count = await session.scalar(select(func.count()).select_from(User))
+    if user_count == 1:
+        user.is_admin = True
 
     tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
     await session.commit()
