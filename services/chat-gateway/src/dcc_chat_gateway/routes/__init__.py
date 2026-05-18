@@ -15,6 +15,7 @@ from dcc_chat_gateway.routes import (
     guilds,
     invites,
     messages,
+    notifications,
     permission_overwrites,
     reactions,
     role_members,
@@ -44,6 +45,7 @@ router.include_router(watch_chat.router)
 router.include_router(watch.router)
 router.include_router(attachments.router)
 router.include_router(capabilities.router)
+router.include_router(notifications.router)
 router.include_router(admin.router)
 router.include_router(ws.router)
 

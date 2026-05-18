@@ -1,0 +1,25 @@
+{
+  "name": "Pulse",
+  "short_name": "Pulse",
+  "description": "Pulse — Chat, Voice und HQ-Screen-Streaming.",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#2563eb",
+  "background_color": "#f7f7f8",
+  "icons": [
+    {
+      "src": "/pulse-mark.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/pulse-mark-white.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "monochrome"
+    }
+  ]
+}

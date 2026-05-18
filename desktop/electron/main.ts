@@ -30,6 +30,7 @@ import pkg from '../package.json';
 import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet } from './store';
 import { createTray } from './tray';
+import { wireNotify } from './notify';
 
 // Override the user-visible app name BEFORE any other Electron API touches it.
 // `app.getName()` falls back to package.json `name`, which is `@dcc/desktop` —
@@ -248,18 +249,23 @@ app.on('second-instance', () => {
   mainWindow.focus();
 });
 
+// ── Notifications (mention/DM toasts) ───────────────────────────────────────
+// IPC wiring lives in `notify.ts` (mirrors the `tray.ts` pattern). The renderer
+// decides WHEN to fire (only when unfocused); main shows unconditionally so
+// there's a single source of truth for that decision.
+
 // ── PTT ─────────────────────────────────────────────────────────────────────
 // TODO: global PTT needs a native key-listener (uiohook-napi); Electron's
 // `globalShortcut` only fires on press, not press+release, so it can't do
 // hold-to-talk. The in-window PTT in VoiceChannelView.svelte (@svelte-put/shortcut)
-// still works. Notifications: TODO E1c (could be a small `notify(title, body)`
-// IPC handler doing `new Notification(...).show()` — left out of E1a).
+// still works.
 
 app.whenReady().then(() => {
   initStore();
   wireStore();
   wireSidecar();
   wireScreenShare();
+  wireNotify(() => mainWindow);
   createWindow();
   createTray(
     () => mainWindow,

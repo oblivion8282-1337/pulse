@@ -28,6 +28,7 @@ import {
 } from '$lib/stores/watchPartyPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import { userCache } from '$lib/stores/users.svelte';
+import { fireInPageNotification } from '$lib/notifications/inPage';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -180,7 +181,10 @@ type ServerEvent =
       // by mentioned users, so we can bump the channel's mention counter
       // even if the user isn't currently viewing or subscribed to it.
       op: 'mention_added';
-      d: { channel_id: string; message_id: string; guild_id: string };
+      // `guild_id` is null for DMs (the channel isn't part of a guild). The
+      // backend stringifies guild_id when present (Snowflake-as-string across
+      // the wire — see CLAUDE.md) and emits null for the DM case.
+      d: { channel_id: string; message_id: string; guild_id: string | null };
     }
   | { op: 'error'; code: number; msg: string };
 
@@ -652,11 +656,39 @@ export class GatewayConnection {
         // idempotent: the backend deduplicates the recipient set, we
         // don't have to. If the user is actively viewing the channel,
         // the inline `markRead` below clears the counter immediately.
-        const { channel_id, message_id } = evt.d;
+        const { channel_id, message_id, guild_id } = evt.d;
         readState.incMention(channel_id);
         if (this.subs.has(channel_id)) {
           readState.markRead(channel_id, message_id);
         }
+        // In-page notification (only fires when tab is in background — the
+        // helper gates on visibility + settings). The matching push from the
+        // SW collapses on the shared `message_id` tag, so the user sees one
+        // popup at most. Look up the message we just received for body text;
+        // it may not be in the local store yet if the user has never opened
+        // the channel — in that case we fall back to a generic body.
+        const msg = messages.for(channel_id).find((m) => m.id === message_id);
+        const author = msg
+          ? userCache.get(msg.author_id) ?? null
+          : null;
+        const authorName = author?.display_name ?? author?.username ?? 'Jemand';
+        const snippet = msg?.content?.slice(0, 140) ?? 'hat dich erwähnt';
+        const channelName = (() => {
+          if (guild_id) {
+            const list = guilds.channelsByGuild[guild_id] ?? [];
+            const c = list.find((x) => x.id === channel_id);
+            return c?.name ? `#${c.name}` : 'einem Kanal';
+          }
+          return 'einer Direktnachricht';
+        })();
+        fireInPageNotification({
+          kind: guild_id ? 'mention' : 'dm',
+          title: `${authorName} in ${channelName}`,
+          body: snippet,
+          channelId: channel_id,
+          messageId: message_id,
+          guildId: guild_id
+        });
         break;
       }
     }

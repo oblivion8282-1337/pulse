@@ -97,12 +97,27 @@ type StreamChatSettings = {
   panelOpen: boolean;
 };
 
+/** User-facing notification preferences. `browserPushEnabled` is a *user
+ *  intent* flag — the actual subscription state lives in the PushManager.
+ *  Toggling it kicks off `requestPushPermission()` / `unsubscribeUser()`;
+ *  on permission-denied the flag flips back to false so the UI stays honest.
+ *  Sub-toggles gate the local in-page fallback path (Service-Worker pushes
+ *  are server-driven and not filtered client-side — the server respects
+ *  per-user prefs sent via the subscribe call once that endpoint exists). */
+type NotificationSettings = {
+  browserPushEnabled: boolean;
+  onMention: boolean;
+  onDM: boolean;
+  soundEnabled: boolean;
+};
+
 type PersistedSettings = {
   audio: AudioSettings;
   voice: VoiceSettings;
   screenShare: ScreenShareSettings;
   streamChat: StreamChatSettings;
   appearance: AppearanceSettings;
+  notifications: NotificationSettings;
 };
 
 const DEFAULTS: PersistedSettings = {
@@ -136,6 +151,15 @@ const DEFAULTS: PersistedSettings = {
   },
   appearance: {
     theme: 'system'
+  },
+  notifications: {
+    // Explicit opt-in: requesting permission requires a user gesture and we
+    // don't want to fire it ambiently. The other sub-toggles default ON so
+    // once the user opts in, mentions + DMs both alert by default.
+    browserPushEnabled: false,
+    onMention: true,
+    onDM: true,
+    soundEnabled: false
   }
 };
 
@@ -225,6 +249,19 @@ function parseStreamChat(raw: Partial<StreamChatSettings> | undefined | null): S
   return { panelOpen: bool(p.panelOpen, d.panelOpen) };
 }
 
+function parseNotifications(
+  raw: Partial<NotificationSettings> | undefined | null
+): NotificationSettings {
+  const d = DEFAULTS.notifications;
+  const p = raw ?? {};
+  return {
+    browserPushEnabled: bool(p.browserPushEnabled, d.browserPushEnabled),
+    onMention: bool(p.onMention, d.onMention),
+    onDM: bool(p.onDM, d.onDM),
+    soundEnabled: bool(p.soundEnabled, d.soundEnabled)
+  };
+}
+
 function load(): PersistedSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -236,7 +273,8 @@ function load(): PersistedSettings {
         voice: { ...DEFAULTS.voice },
         screenShare: parseScreenShare(legacy),
         streamChat: { ...DEFAULTS.streamChat },
-        appearance: { ...DEFAULTS.appearance }
+        appearance: { ...DEFAULTS.appearance },
+        notifications: { ...DEFAULTS.notifications }
       };
     }
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
@@ -275,7 +313,8 @@ function load(): PersistedSettings {
       },
       screenShare: parseScreenShare(parsed.screenShare),
       streamChat: parseStreamChat(parsed.streamChat),
-      appearance: { theme: parseTheme(ap.theme) }
+      appearance: { theme: parseTheme(ap.theme) },
+      notifications: parseNotifications(parsed.notifications)
     };
   } catch {
     return {
@@ -283,7 +322,8 @@ function load(): PersistedSettings {
       voice: { ...DEFAULTS.voice },
       screenShare: { ...DEFAULTS.screenShare },
       streamChat: { ...DEFAULTS.streamChat },
-      appearance: { ...DEFAULTS.appearance }
+      appearance: { ...DEFAULTS.appearance },
+      notifications: { ...DEFAULTS.notifications }
     };
   }
 }
@@ -294,6 +334,7 @@ class SettingsStore {
   screenShare = $state<ScreenShareSettings>({ ...DEFAULTS.screenShare });
   streamChat = $state<StreamChatSettings>({ ...DEFAULTS.streamChat });
   appearance = $state<AppearanceSettings>({ ...DEFAULTS.appearance });
+  notifications = $state<NotificationSettings>({ ...DEFAULTS.notifications });
 
   /** True if a legacy `dcc.screenShareSettings` key was migrated and can be cleared. */
   #legacyMigrated = false;
@@ -305,6 +346,7 @@ class SettingsStore {
     this.screenShare = s.screenShare;
     this.streamChat = s.streamChat;
     this.appearance = s.appearance;
+    this.notifications = s.notifications;
     if (typeof localStorage !== 'undefined') {
       this.#legacyMigrated =
         localStorage.getItem(STORAGE_KEY) === null && localStorage.getItem(LEGACY_SCREENSHARE_KEY) !== null;
@@ -327,7 +369,8 @@ class SettingsStore {
           voice: this.voice,
           screenShare: this.screenShare,
           streamChat: this.streamChat,
-          appearance: this.appearance
+          appearance: this.appearance,
+          notifications: this.notifications
         })
       );
       if (this.#legacyMigrated) {
@@ -466,6 +509,31 @@ class SettingsStore {
 
   setStreamChatPanelOpen(v: boolean): void {
     this.streamChat.panelOpen = v;
+    this.#persist();
+  }
+
+  // --- notification setters ---
+
+  /** Reflect the result of the permission round-trip. UI calls this *after*
+   *  `requestPushPermission()` resolves (or on a denied/dismissed answer)
+   *  so the toggle ends up matching reality. */
+  setBrowserPushEnabled(v: boolean): void {
+    this.notifications.browserPushEnabled = v;
+    this.#persist();
+  }
+
+  setNotifyOnMention(v: boolean): void {
+    this.notifications.onMention = v;
+    this.#persist();
+  }
+
+  setNotifyOnDM(v: boolean): void {
+    this.notifications.onDM = v;
+    this.#persist();
+  }
+
+  setNotifySoundEnabled(v: boolean): void {
+    this.notifications.soundEnabled = v;
     this.#persist();
   }
 }

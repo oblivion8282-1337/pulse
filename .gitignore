@@ -63,6 +63,11 @@ uv.lock.backup
 # Uploaded files (avatars, guild icons, …) — never check in user content.
 services/*/uploads/
 
+# Service-runtime state (auto-generated VAPID keys etc.) — never commit.
+services/*/data/
+# pytest aus repo-root erzeugt das auch hier (CWD-relativer Default).
+/data/
+
 # Streaming (T2) — generierte MediaMTX-Config + Stream-Key. NIEMALS einchecken.
 # Das Template streaming/server/mediamtx.yml.template ist ok (Placeholder-Key).
 streaming/server/mediamtx.yml

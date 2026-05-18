@@ -51,6 +51,7 @@ from dcc_chat_gateway.permissions import (
     has_permission,
     resolve_permissions,
 )
+from dcc_chat_gateway.push import fan_out_mention_push
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.routes.attachments import (
     bind_attachments,
@@ -235,6 +236,23 @@ async def post_message(
         guild_id=guild_id_for_mentions,
         author_id=current.id,
     )
+    # Web-Push fan-out (cross-channel, out-of-band): same targets as the
+    # in-window ``mention_added`` envelope. Runs AFTER the WS broadcast
+    # so a slow push service can't delay the in-app counter bump.
+    push_targets = {
+        tid
+        for (t, tid) in valid_mentions
+        if t == MENTION_TYPE_USER and tid != current.id
+    }
+    if push_targets:
+        await fan_out_mention_push(
+            user_ids=push_targets,
+            author_name=current.username,
+            content=payload.content,
+            channel_id=channel_id,
+            message_id=msg.id,
+            guild_id=guild_id_for_mentions,
+        )
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         if kind == "guild":
@@ -394,6 +412,22 @@ async def edit_message(
             guild_id=guild_id_for_mentions,
             author_id=current.id,
         )
+        push_targets = {
+            tid for (t, tid) in new_user_mentions if t == MENTION_TYPE_USER
+        }
+        # ``new_user_mentions`` already excludes pre-existing ids, but
+        # edits where the author adds themselves still need the self-ping
+        # filter. Cheap belt-and-braces; matches post_message semantics.
+        push_targets.discard(current.id)
+        if push_targets:
+            await fan_out_mention_push(
+                user_ids=push_targets,
+                author_name=current.username,
+                content=payload.content,
+                channel_id=msg.channel_id,
+                message_id=msg.id,
+                guild_id=guild_id_for_mentions,
+            )
     msg.reactions = reactions  # type: ignore[attr-defined]
     msg.attachments = attachments  # type: ignore[attr-defined]
     msg.mentions = mentions_serial  # type: ignore[attr-defined]

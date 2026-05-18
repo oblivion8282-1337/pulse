@@ -64,6 +64,21 @@ class Settings(BaseSettings):
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # Web-Push VAPID — used to sign the Push API requests we send to a user's
+    # browser push service (FCM/Mozilla/etc.). The *private* key is PEM-encoded
+    # EC P-256 and stays server-side; the *public* key is the base64url-encoded
+    # raw P-256 point the browser passes to ``pushManager.subscribe``.
+    # ``vapid_subject`` MUST be a ``mailto:`` URI or an https URL (RFC 8292) —
+    # push services reject malformed subjects.
+    # When ``vapid_private_key`` is empty, ``push.ensure_vapid`` auto-generates
+    # a keypair on first startup and persists it to ``vapid_key_file`` so
+    # subsequent restarts use the same key. Self-hosters can pre-provision
+    # both keys via env vars to skip the auto-gen + avoid the on-disk file.
+    vapid_private_key: str | None = None
+    vapid_public_key: str | None = None
+    vapid_subject: str = "mailto:admin@example.com"
+    vapid_key_file: str = "./data/vapid.json"
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:

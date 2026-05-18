@@ -24,6 +24,7 @@ from dcc_chat_gateway.models.messages import (
     MessageMention,
     MessageReaction,
 )
+from dcc_chat_gateway.models.notifications import WebPushSubscription
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 
 __all__ = [
@@ -48,4 +49,5 @@ __all__ = [
     "MessageReaction",
     "PermissionOverwrite",
     "Role",
+    "WebPushSubscription",
 ]

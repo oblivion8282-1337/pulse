@@ -1,0 +1,416 @@
+"""Web-Push (RFC 8030) helpers.
+
+Two concerns:
+
+  * **VAPID key management** — ``ensure_vapid`` returns the in-process
+    ``(private_pem, public_b64url)`` pair. If the operator pre-configures
+    both via ``Settings.vapid_private_key`` + ``vapid_public_key`` we
+    trust those verbatim; otherwise we look on disk at
+    ``Settings.vapid_key_file`` and load the JSON we wrote on a previous
+    start; if neither exists we generate a fresh EC P-256 keypair, write
+    it (file 0600, dir 0700), and use it.
+  * **Sending** — ``send_push_to_user`` fans a payload dict out to every
+    ``WebPushSubscription`` owned by ``user_id``, drops endpoints that
+    push services reject with 404/410 (RFC 8030 §7.3 — "gone"), and
+    refreshes ``last_used_at`` on success. pywebpush is sync-only; we run
+    each send in a worker thread so a slow push service can't block the
+    event loop.
+
+The payload shape — the contract with the FE Service Worker and the
+Electron-side notifier — is documented at the bottom of this module
+under ``MENTION_PAYLOAD_SCHEMA``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import base64
+import json
+import logging
+import os
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
+from sqlalchemy import delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from dcc_chat_gateway.config import Settings, get_settings
+from dcc_chat_gateway.models import WebPushSubscription
+
+log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class VapidKeys:
+    """Loaded / generated VAPID material. Both fields are required to
+    actually emit a push; ``public_b64url`` is what the browser passes
+    to ``pushManager.subscribe({applicationServerKey})``."""
+
+    private_pem: str
+    public_b64url: str
+
+
+_VAPID: VapidKeys | None = None
+
+
+def _b64url(data: bytes) -> str:
+    """URL-safe base64 with no ``=`` padding — RFC 7515 §2 / RFC 8292."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _generate_keypair() -> VapidKeys:
+    """Mint a fresh EC-P256 keypair. The public key is encoded as the
+    raw 65-byte uncompressed point (0x04 || X || Y) base64url'd — that's
+    what the W3C Push API spec requires for ``applicationServerKey``.
+    The private key is PEM-encoded PKCS#8 (what pywebpush accepts)."""
+    private = ec.generate_private_key(ec.SECP256R1())
+    private_pem = private.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("ascii")
+    public_raw = private.public_key().public_bytes(
+        encoding=serialization.Encoding.X962,
+        format=serialization.PublicFormat.UncompressedPoint,
+    )
+    return VapidKeys(private_pem=private_pem, public_b64url=_b64url(public_raw))
+
+
+def _load_keypair_from_disk(path: Path) -> VapidKeys | None:
+    """Read a previously-persisted JSON file. Returns ``None`` if the
+    file doesn't exist or is corrupt — caller falls through to a fresh
+    generation."""
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text())
+        return VapidKeys(
+            private_pem=data["private_pem"],
+            public_b64url=data["public_b64url"],
+        )
+    except (OSError, ValueError, KeyError):
+        log.exception("vapid key file at %s is corrupt; regenerating", path)
+        return None
+
+
+def _persist_keypair_to_disk(path: Path, keys: VapidKeys) -> None:
+    """Write the keypair JSON with restrictive permissions.
+
+    Dir is 0700, file is 0600 — the private key would let an attacker
+    silently swap which push service we hit. Atomic via write-then-rename
+    so a crash mid-write can't leave a half-empty file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(path.parent, 0o700)
+    except OSError:
+        # Read-only mount / weird FS — best-effort, log but don't crash.
+        log.warning("could not chmod 0700 on %s", path.parent)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(
+            {"private_pem": keys.private_pem, "public_b64url": keys.public_b64url}
+        )
+    )
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        log.warning("could not chmod 0600 on %s", tmp)
+    tmp.replace(path)
+
+
+def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
+    """Resolve the active VAPID keypair, generating + persisting if absent.
+
+    Returns ``None`` only if generation is impossible (very unlikely;
+    only if ``cryptography`` can't allocate). Operators who *don't* want
+    push can leave it enabled — the public key endpoint will just hand
+    out the auto-gen'd key.
+
+    Caching: a process-level singleton. The first caller wins; subsequent
+    callers reuse the same in-memory pair. Tests can reset by clearing
+    ``_VAPID`` (handled by the fixture).
+    """
+    global _VAPID
+    if _VAPID is not None:
+        return _VAPID
+    settings = settings or get_settings()
+    # Operator-provided: bypass the on-disk + auto-gen paths entirely.
+    if settings.vapid_private_key and settings.vapid_public_key:
+        _VAPID = VapidKeys(
+            private_pem=settings.vapid_private_key,
+            public_b64url=settings.vapid_public_key,
+        )
+        return _VAPID
+
+    path = Path(settings.vapid_key_file)
+    on_disk = _load_keypair_from_disk(path)
+    if on_disk is not None:
+        _VAPID = on_disk
+        return _VAPID
+
+    fresh = _generate_keypair()
+    try:
+        _persist_keypair_to_disk(path, fresh)
+    except OSError:
+        # Couldn't persist — still serve from memory; next restart will
+        # regen and old subscriptions will break, but that's a deploy bug
+        # rather than a user-facing crash.
+        log.exception("could not persist VAPID key to %s", path)
+    _VAPID = fresh
+    return _VAPID
+
+
+def reset_vapid_cache_for_tests() -> None:
+    """Clear the process-level cache. Used by tests so each fixture can
+    install its own deterministic key (or none at all)."""
+    global _VAPID
+    _VAPID = None
+
+
+# ---------------------------------------------------------------------------
+# Sender
+
+
+async def send_push_to_user(
+    user_id: int, payload: dict, session: AsyncSession
+) -> int:
+    """Push ``payload`` to every device subscribed by ``user_id``.
+
+    Returns the count of *successful* deliveries. Failed endpoints (404,
+    410, unrecoverable cryptography errors) are dropped from the DB
+    inline so the next send doesn't waste a round-trip on them. Other
+    failures (timeouts, 5xx) are logged at WARN and the subscription
+    is left alone — push services are allowed to be flaky, and a single
+    failed send mustn't permanently disable notifications.
+
+    Never raises; a misconfigured VAPID or a dead push service must not
+    turn a successful message-write into a 500.
+    """
+    settings = get_settings()
+    vapid = ensure_vapid(settings)
+    if vapid is None:
+        return 0
+
+    rows = (
+        await session.execute(
+            select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
+        )
+    ).scalars().all()
+    if not rows:
+        return 0
+
+    body = json.dumps(payload, separators=(",", ":"))
+    vapid_claims = {"sub": settings.vapid_subject}
+
+    # pywebpush is sync; offload each send to a thread so a slow push
+    # service can't stall the event loop. Concurrency-bound by the default
+    # thread pool — typical user has 1-3 subscriptions.
+    results = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                _send_one,
+                endpoint=r.endpoint,
+                p256dh=r.p256dh,
+                auth_secret=r.auth_secret,
+                body=body,
+                vapid_pem=vapid.private_pem,
+                vapid_claims=vapid_claims,
+            )
+            for r in rows
+        ),
+        return_exceptions=False,
+    )
+
+    ok_ids: list[int] = []
+    dead_ids: list[int] = []
+    for row, outcome in zip(rows, results):
+        if outcome == "ok":
+            ok_ids.append(row.id)
+        elif outcome == "dead":
+            dead_ids.append(row.id)
+        # "warn" → leave alone (transient).
+
+    if dead_ids:
+        await session.execute(
+            delete(WebPushSubscription).where(WebPushSubscription.id.in_(dead_ids))
+        )
+    if ok_ids:
+        await session.execute(
+            update(WebPushSubscription)
+            .where(WebPushSubscription.id.in_(ok_ids))
+            .values(last_used_at=datetime.now(UTC))
+        )
+    if dead_ids or ok_ids:
+        await session.commit()
+    return len(ok_ids)
+
+
+def _send_one(
+    *,
+    endpoint: str,
+    p256dh: str,
+    auth_secret: str,
+    body: str,
+    vapid_pem: str,
+    vapid_claims: dict,
+) -> str:
+    """Single push attempt. Returns ``"ok"``, ``"dead"``, or ``"warn"``.
+
+    Imports pywebpush lazily so the chat-gateway can boot without the
+    library installed (tests that mock the sender don't need it either —
+    they monkey-patch ``send_push_to_user`` upstream of this function).
+
+    NEVER logs ``body``, ``p256dh``, ``auth_secret``, or ``vapid_pem`` —
+    those are sensitive (payload may carry message snippets; the keys
+    let anyone send pushes to the user's browser). Only the endpoint
+    host + status code go to logs.
+    """
+    try:
+        from pywebpush import WebPushException, webpush
+    except ImportError:
+        log.error("pywebpush not installed; push disabled")
+        return "warn"
+    try:
+        webpush(
+            subscription_info={
+                "endpoint": endpoint,
+                "keys": {"p256dh": p256dh, "auth": auth_secret},
+            },
+            data=body,
+            vapid_private_key=vapid_pem,
+            vapid_claims=dict(vapid_claims),
+        )
+        return "ok"
+    except WebPushException as exc:  # noqa: BLE001
+        status = getattr(exc.response, "status_code", None) if exc.response else None
+        if status in (404, 410):
+            return "dead"
+        # Endpoint host only — never the path (path can carry the
+        # subscription token for some push services).
+        host = endpoint.split("/", 3)[2] if "://" in endpoint else "<unknown>"
+        log.warning("web-push send failed: host=%s status=%s", host, status)
+        return "warn"
+    except Exception:  # noqa: BLE001
+        host = endpoint.split("/", 3)[2] if "://" in endpoint else "<unknown>"
+        log.exception("web-push unexpected error: host=%s", host)
+        return "warn"
+
+
+# ---------------------------------------------------------------------------
+# Payload contract — keep in sync with the Service Worker + Electron notifier.
+#
+# This is the documented shape ``send_push_to_user`` consumes (and what the
+# FE service worker / Electron renderer event handler must decode).
+#
+# {
+#   "type":         "mention",            # discriminator; future: "dm" etc.
+#   "title":        "<author_name>",      # 1st notification line
+#   "body":         "<snippet>",          # 2nd line, max ~120 chars
+#   "channel_id":   "<snowflake string>",
+#   "message_id":   "<snowflake string>",
+#   "guild_id":     "<snowflake string>" | null,   # null for DMs
+#   "author_name":  "<username>",
+#   "icon":         "<absolute https url>" | null  # avatar; null → SW falls
+#                                                  # back to app icon
+# }
+#
+# All snowflake-shaped ids are STRINGS over the API boundary (CLAUDE.md).
+# ``guild_id`` is null for DM mentions; the FE uses that to route the
+# notification's click action to ``/app/dms/<channel_id>`` vs
+# ``/app/guilds/<guild_id>/channels/<channel_id>``.
+MENTION_PAYLOAD_SCHEMA = {
+    "type": "string",
+    "title": "string",
+    "body": "string",
+    "channel_id": "string",
+    "message_id": "string",
+    "guild_id": "string|null",
+    "author_name": "string",
+    "icon": "string|null",
+}
+
+
+async def fan_out_mention_push(
+    *,
+    user_ids: set[int],
+    author_name: str,
+    content: str,
+    channel_id: int,
+    message_id: int,
+    guild_id: int | None,
+) -> None:
+    """Build the canonical mention payload + push it to each user.
+
+    Opens its own DB session (via ``routes.ws.SessionLocal``) so the
+    sub-cleanup work on a dead-endpoint hit doesn't ride the
+    calling route's transaction. Tests rebind ``routes.ws.SessionLocal``
+    to their fixture's sessionmaker; production uses the prod factory.
+
+    Never raises — push failures, missing VAPID, or an empty subscription
+    set must not break the message-send REST path. Caller (route layer)
+    fires this *after* the WS broadcast so the in-app counter bumps
+    even if the push half is misconfigured.
+    """
+    if not user_ids:
+        return
+    # 100-char snippet — long enough to be useful, short enough that an
+    # OS-level toast doesn't truncate weirdly. Strip mention markers so
+    # the preview doesn't read "<@123456789> please look". Use a soft
+    # rstrip → ellipsis if we cut.
+    body = _make_snippet(content)
+    payload_base = {
+        "type": "mention",
+        "title": author_name or "Pulse",
+        "body": body,
+        "channel_id": str(channel_id),
+        "message_id": str(message_id),
+        "guild_id": str(guild_id) if guild_id is not None else None,
+        "author_name": author_name or "",
+        "icon": None,  # chat-gateway has no avatar URL; FE/SW fallback.
+    }
+    # Late import: routes.ws → push would cycle.
+    from dcc_chat_gateway.routes import ws as _routes_ws
+
+    async with _routes_ws.SessionLocal() as session:
+        for uid in user_ids:
+            try:
+                await send_push_to_user(uid, payload_base, session)
+            except Exception:  # noqa: BLE001
+                log.exception("send_push_to_user failed for user %s", uid)
+
+
+_MENTION_MARKERS = (
+    # Strip the markers (rough; mirrors mentions.py's parser) before
+    # building the snippet. We do this in-line rather than importing
+    # mentions.py to avoid a circular import.
+)
+
+
+def _make_snippet(content: str, limit: int = 100) -> str:
+    """One-line, marker-free preview of the message content.
+
+    Replaces ``<@123>``/``<@&123>`` with empty + ``@everyone``/``@here``
+    with ``@everyone`` so the preview reads naturally. Collapses
+    whitespace + truncates with an ellipsis when over ``limit`` chars.
+    """
+    import re
+
+    text = re.sub(r"<@&?\d{1,20}>", "", content)
+    text = re.sub(r"@(everyone|here)\b", "@everyone", text)
+    text = " ".join(text.split())  # collapse runs of whitespace
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return text
+
+
+__all__ = [
+    "MENTION_PAYLOAD_SCHEMA",
+    "VapidKeys",
+    "ensure_vapid",
+    "fan_out_mention_push",
+    "reset_vapid_cache_for_tests",
+    "send_push_to_user",
+]

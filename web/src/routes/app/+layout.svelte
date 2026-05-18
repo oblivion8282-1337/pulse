@@ -12,6 +12,24 @@
   let { children } = $props();
   let hydrated = $state(false);
 
+  /** Single source of truth for notification-click navigation: SW postMessage
+   *  → `navigateTo` event, and Electron `pulse.notify.onClick` → same path.
+   *  Kept inline (instead of in `$lib/notifications/`) because it owns the
+   *  `goto` import which lives on the page side. */
+  function navigateToFromNotification(channelId: string, guildId: string | null | undefined): void {
+    if (!channelId) return;
+    const url = guildId
+      ? `/app/guilds/${guildId}/channels/${channelId}`
+      : `/app/@me/${channelId}`;
+    void goto(url);
+  }
+
+  /** Listener cleanup handles for the click bridges. Both are registered in
+   *  onMount; both are torn down in onDestroy so navigation back to /login
+   *  doesn't keep redirecting back into /app. */
+  let _swMessageHandler: ((ev: MessageEvent) => void) | null = null;
+  let _notifyUnsubscribe: (() => void) | null = null;
+
   onMount(async () => {
     viewport.init();
     await auth.hydrate();
@@ -26,12 +44,49 @@
       gateway.connect().catch((e) => console.error('gateway connect', e))
     ]);
     hydrated = true;
+
+    // Service-worker registration is best-effort: SvelteKit emits
+    // `/service-worker.js` from `web/src/service-worker.ts` at build time
+    // (see Vite-Plugin output). We register it ourselves rather than relying
+    // on auto-register so the browser-push toggle has something to call
+    // `pushManager.subscribe()` on. Skipped in dev unless Vite produced one.
+    if ('serviceWorker' in navigator) {
+      try {
+        await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+      } catch {
+        // Dev sessions / Electron without SW — fine, push falls back to no-op.
+      }
+      _swMessageHandler = (ev: MessageEvent) => {
+        const data = ev.data as { type?: string; channel_id?: string; guild_id?: string | null };
+        if (data?.type === 'navigateTo' && data.channel_id) {
+          navigateToFromNotification(data.channel_id, data.guild_id ?? null);
+        }
+      };
+      navigator.serviceWorker.addEventListener('message', _swMessageHandler);
+    }
+
+    // Electron path: bridge `pulse.notify.onClick` to the same router. Safe
+    // to call even on bundles where `notify` is missing (optional-chained).
+    const notifyApi = typeof window !== 'undefined' ? window.pulse?.notify : undefined;
+    if (notifyApi) {
+      _notifyUnsubscribe = notifyApi.onClick((data) => {
+        navigateToFromNotification(data.channel_id, data.guild_id ?? null);
+      });
+    }
   });
 
   onDestroy(() => {
     gateway.disconnect();
     void import('$lib/voice/livekit.svelte').then(({ voice }) => voice.disconnect());
     if (typeof document !== 'undefined') document.title = 'Pulse';
+    if (_swMessageHandler && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.removeEventListener('message', _swMessageHandler);
+      _swMessageHandler = null;
+    }
+    if (_notifyUnsubscribe) {
+      _notifyUnsubscribe();
+      _notifyUnsubscribe = null;
+    }
   });
 
   // Prefix the tab title with a dot when any DM or guild text channel has

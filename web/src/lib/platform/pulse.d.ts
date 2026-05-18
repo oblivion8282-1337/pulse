@@ -37,11 +37,44 @@ export interface PulseGsrApi {
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
 }
 
+/** Payload for `pulse.notify.show()` — mention/DM toast. The renderer is
+ *  responsible for gating these on `document.hidden || !document.hasFocus()`;
+ *  main shows unconditionally when called.
+ *
+ *  Linux quirk: `icon` MUST be a local file path (or omitted). HTTP(s) URLs
+ *  are silently dropped by main — Electron/libnotify can't async-fetch them. */
+export interface PulseNotifyShowPayload {
+  title: string;
+  body: string;
+  icon?: string;
+  channel_id: string;
+  guild_id?: string | null;
+  message_id: string;
+}
+
+/** Payload delivered to `pulse.notify.onClick()` listeners. Main has already
+ *  raised + focused the window by the time this fires; the renderer just
+ *  needs to navigate to the channel/message. */
+export interface PulseNotifyClickPayload {
+  channel_id: string;
+  guild_id?: string | null;
+  message_id: string;
+}
+
+export interface PulseNotifyApi {
+  /** Show a system notification. Returns an internal id (mostly for pattern
+   *  consistency with the GSR bridge — the renderer doesn't need it today). */
+  show(payload: PulseNotifyShowPayload): Promise<string>;
+  /** Subscribe to notification clicks. Returns an unsubscribe function. */
+  onClick(cb: (data: PulseNotifyClickPayload) => void): () => void;
+}
+
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
   store: PulseStoreApi;
   gsr: PulseGsrApi;
+  notify: PulseNotifyApi;
 }
 
 declare global {

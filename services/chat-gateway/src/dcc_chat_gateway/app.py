@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.pubsub import ConnectionManager
+from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
 from dcc_chat_gateway.routes.attachments import reaper_loop as attachments_reaper
 
@@ -48,6 +49,15 @@ async def _supervise_pubsub(manager: ConnectionManager) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Resolve / auto-generate the Web-Push VAPID keypair. Logs the
+    # *public* half (the browser needs it; not secret) on first call;
+    # NEVER logs the private PEM. ``ensure_vapid`` is idempotent so
+    # tests + repeated startups are safe.
+    vapid = ensure_vapid(settings)
+    if vapid is not None:
+        log.info("web-push VAPID public key: %s", vapid.public_b64url)
+    else:
+        log.warning("web-push disabled: VAPID key unavailable")
     redis: Redis | None = None
     manager: ConnectionManager | None = None
     supervisor: asyncio.Task | None = None

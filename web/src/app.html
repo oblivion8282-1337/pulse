@@ -4,8 +4,14 @@
   <head>
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="%sveltekit.assets%/manifest.json" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <!-- theme-color matches the light/dark brand accent (see app.css --brand);
+         drives the Android address-bar tint when the PWA is installed and the
+         iOS standalone status-bar background. -->
+    <meta name="theme-color" content="#2563eb" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#3b82f6" media="(prefers-color-scheme: dark)" />
     <!-- FOUC-Schutz: liest die gespeicherte Erscheinungsbild-Einstellung
          (settings.appearance.theme aus dcc.settings) und setzt die .dark-Klasse
          vor dem ersten Paint. 'system' folgt prefers-color-scheme. -->

@@ -11,6 +11,8 @@
  *                               onEvent) — implemented below
  *   E1c: `pulse.store.*`      — settings/token persistence (`get`/`getAll`/`set`),
  *                               backed by the hand-rolled store in `store.ts`
+ *   E2:  `pulse.notify.*`     — system notifications for mentions/DMs
+ *                               (renderer decides when, main shows + forwards clicks)
  *   later: `pulse.onPttDown` / `pulse.onPttUp` — once a native key-listener exists
  *
  * The renderer detects us via `window.pulse?.platform === 'electron'`
@@ -59,6 +61,43 @@ contextBridge.exposeInMainWorld('pulse', {
       const handler = (_e: unknown, ev: unknown): void => cb(ev);
       ipcRenderer.on('gsr:event', handler);
       return () => ipcRenderer.removeListener('gsr:event', handler);
+    },
+  },
+
+  // System notifications (mention/DM toasts). The renderer gates these on
+  // `document.hidden || !document.hasFocus()` — main shows unconditionally so
+  // there's only one source of truth for "should we toast right now".
+  notify: {
+    show: (payload: {
+      title: string;
+      body: string;
+      icon?: string;
+      channel_id: string;
+      guild_id?: string | null;
+      message_id: string;
+    }): Promise<string> => ipcRenderer.invoke('notify:show', payload),
+
+    /** Fires when the user clicks a system notification. Main has already
+     *  raised + focused the window by the time this arrives; the callback
+     *  should route to the channel/message. Returns an unsubscribe fn. */
+    onClick: (
+      cb: (data: { channel_id: string; guild_id?: string | null; message_id: string }) => void
+    ): (() => void) => {
+      const handler = (_e: unknown, data: unknown): void => {
+        // Defensive shape check — IPC payloads are untrusted by convention.
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        if (typeof d.channel_id !== 'string' || typeof d.message_id !== 'string') return;
+        const gid = d.guild_id;
+        if (gid !== null && gid !== undefined && typeof gid !== 'string') return;
+        cb({
+          channel_id: d.channel_id,
+          guild_id: (gid as string | null | undefined) ?? null,
+          message_id: d.message_id,
+        });
+      };
+      ipcRenderer.on('notify:click', handler);
+      return () => ipcRenderer.removeListener('notify:click', handler);
     },
   },
 });
