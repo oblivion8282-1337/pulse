@@ -14,6 +14,8 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
@@ -36,6 +38,17 @@
       .find((c) => c.id === cid);
     if (!ch) return true;
     return channelPermissions.hasChannelPermission(ch.guild_id, ch.id, Perm.USE_VIDEO);
+  });
+
+  // Force-mute state for the local user in the current voice channel.
+  // The LiveKit token already prevents publish; this flag is purely for
+  // disabling the mic-toggle UI + showing the right tooltip so the user
+  // sees *why* their mic is locked instead of an opaque silent failure.
+  let selfForceMuted = $derived.by(() => {
+    const cid = voice.channelId;
+    const uid = auth.user?.id;
+    if (!cid || !uid) return false;
+    return voicePresence.isForceMuted(cid, uid);
   });
 
   async function handleScreenShare() {
@@ -73,17 +86,28 @@
           {#snippet child({ props })}
             <Button
               {...props}
-              variant={voice.micEnabled ? 'secondary' : 'destructive'}
+              variant={voice.micEnabled && !selfForceMuted ? 'secondary' : 'destructive'}
               size="icon-sm"
               onclick={() => voice.toggleMic()}
+              disabled={selfForceMuted}
               data-testid="voice-mic-toggle"
-              aria-label={voice.micEnabled ? 'Mikrofon stummschalten' : 'Mikrofon aktivieren'}
+              aria-label={selfForceMuted
+                ? 'Vom Mod stummgeschaltet'
+                : voice.micEnabled
+                  ? 'Mikrofon stummschalten'
+                  : 'Mikrofon aktivieren'}
             >
-              {#if voice.micEnabled}<MicIcon class="size-4" />{:else}<MicOffIcon class="size-4" />{/if}
+              {#if voice.micEnabled && !selfForceMuted}<MicIcon class="size-4" />{:else}<MicOffIcon class="size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content>{voice.micEnabled ? 'Mikrofon stumm' : 'Mikrofon an'}</Tooltip.Content>
+        <Tooltip.Content>
+          {#if selfForceMuted}
+            Vom Mod stummgeschaltet
+          {:else}
+            {voice.micEnabled ? 'Mikrofon stumm' : 'Mikrofon an'}
+          {/if}
+        </Tooltip.Content>
       </Tooltip.Root>
 
       <Tooltip.Root>

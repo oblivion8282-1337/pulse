@@ -1,26 +1,32 @@
 """HTTP routes for the voice-signaling service.
 
-This is a Phase E (Voice-Backend-Skelett) — only `POST /token`. No
-Redis state, no webhook receiver. The Frontend client will use the
-returned `token` + `ws_url` to dial LiveKit directly via the
-livekit-client SDK.
+Routes:
+  * ``POST /token`` — issue a LiveKit access token for joining a voice
+    channel. Membership + per-channel permissions are resolved via
+    chat-gateway (voice-signaling does not own the auth DB).
+  * ``PUT /channels/{cid}/members/{uid}/voice-override`` — admin
+    force-mute / unmute (caller must hold ``MUTE_MEMBERS``). Persists
+    the override in Redis so re-issued tokens stay muted on reconnect
+    and pushes a ``voice_override`` event on ``voice:events`` so
+    listening clients update immediately.
 
-Membership is enforced by calling chat-gateway's ``GET /channels/{id}``
-with the caller's Pulse access token (chat-gateway is the only service
-that knows guild/channel membership). The HTTP wrapper lives at module
-level so tests can monkeypatch it; the actual issue-logic stays small.
+The HTTP wrappers (``_chat_gateway_request``, ``_livekit_update_participant``)
+live at module level so tests can monkeypatch them without spinning up
+real upstream services.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, Request, status
 from livekit import api as lk
 from pydantic import BaseModel, ConfigDict, Field
+from redis.asyncio import Redis
 
 from dcc_voice_signaling.config import get_settings
 from dcc_voice_signaling.security import CurrentUser
@@ -44,6 +50,17 @@ _PERM_CONNECT = 1 << 30
 _PERM_SPEAK = 1 << 31
 _PERM_STREAM = 1 << 32
 _PERM_USE_VIDEO = 1 << 33
+_PERM_MUTE_MEMBERS = 1 << 34
+
+# Redis: ``voice:events`` pub/sub topic chat-gateway already subscribes to.
+# Same constant the webhook module uses; duplicated locally to keep the
+# import graph flat.
+_VOICE_EVENTS_CHANNEL = "voice:events"
+
+# Override TTL — 24h covers a normal moderator action window. The
+# override is cleared by an explicit unmute; the TTL is only the
+# safety net so a forgotten mute doesn't outlive a server restart.
+_OVERRIDE_TTL_SECONDS = 24 * 3600
 
 
 class TokenIn(BaseModel):
@@ -201,10 +218,133 @@ def _publish_sources_for(perms: int) -> tuple[bool, list[str]]:
     return bool(sources), sources
 
 
+def _override_key(channel_id: str, user_id: str) -> str:
+    return f"voice:override:channel-{channel_id}:user-{user_id}"
+
+
+async def _load_override(redis: Redis | None, channel_id: str, user_id: str) -> dict:
+    """Return the current override state for (channel, user) or ``{}``.
+
+    Shape: ``{"muted": True}`` when force-muted by an admin. Missing /
+    Redis-unavailable returns ``{}``, treated as "no override"."""
+    if redis is None:
+        return {}
+    try:
+        raw = await redis.get(_override_key(channel_id, user_id))
+    except Exception:  # noqa: BLE001 — Redis offline; degrade to no-override
+        log.warning("voice override read failed", exc_info=True)
+        return {}
+    if raw is None:
+        return {}
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+async def _save_override(
+    redis: Redis, channel_id: str, user_id: str, state: dict
+) -> None:
+    await redis.set(
+        _override_key(channel_id, user_id),
+        json.dumps(state),
+        ex=_OVERRIDE_TTL_SECONDS,
+    )
+
+
+async def _clear_override(redis: Redis, channel_id: str, user_id: str) -> None:
+    await redis.delete(_override_key(channel_id, user_id))
+
+
+def _apply_override(sources: list[str], can_publish: bool, override: dict) -> tuple[bool, list[str]]:
+    """Strip override-blocked sources from the publish-list.
+
+    Force-mute removes ``microphone`` (the only source ``MUTE_MEMBERS``
+    governs). Camera + screen are independently gated by USE_VIDEO /
+    STREAM and out of scope for a "mute". If removing microphone leaves
+    no sources, can_publish is set False so LiveKit doesn't grant a
+    bare publish-no-sources token."""
+    if not override.get("muted"):
+        return can_publish, sources
+    filtered = [s for s in sources if s != "microphone"]
+    return bool(filtered), filtered
+
+
+async def _livekit_update_participant(
+    channel_id: str, user_id: str, *, can_publish: bool, sources: list[str]
+) -> None:
+    """Best-effort live LiveKit permission update for the (channel, user)
+    pair. Swallows errors (participant offline, LiveKit unreachable):
+    the Redis override is still authoritative for the next reconnect.
+
+    Module-level so tests can monkeypatch without needing a real
+    LiveKit instance — same pattern as ``_chat_gateway_request``."""
+    settings = get_settings()
+    if not settings.livekit_api_key or not settings.livekit_api_secret:
+        return
+    # LiveKitAPI wants the HTTP variant; ws:// → http:// is enough for
+    # the room-service endpoints we use.
+    host = settings.livekit_url.replace("wss://", "https://").replace(
+        "ws://", "http://"
+    )
+    api_client = lk.LiveKitAPI(
+        host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
+    )
+    try:
+        await api_client.room.update_participant(
+            lk.UpdateParticipantRequest(
+                room=_room_for_channel(channel_id),
+                identity=f"user-{user_id}",
+                permission=lk.ParticipantPermission(
+                    can_subscribe=True,
+                    can_publish=can_publish,
+                    can_publish_data=True,
+                    can_publish_sources=[_track_source_enum(s) for s in sources]
+                    if sources
+                    else [],
+                ),
+            )
+        )
+    except Exception:  # noqa: BLE001 — participant offline / server down
+        log.info(
+            "livekit update_participant failed for channel=%s user=%s — override is still persisted",
+            channel_id,
+            user_id,
+            exc_info=True,
+        )
+    finally:
+        try:
+            await api_client.aclose()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _track_source_enum(source: str) -> int:
+    """Map our source string to LiveKit's ``TrackSource`` enum value.
+
+    Strings come from ``_publish_sources_for``; the enum int is what the
+    proto wire format expects. Falls back to ``UNKNOWN`` (0) for unknown
+    strings — those shouldn't reach here but the default keeps us safe."""
+    return {
+        "microphone": lk.TrackSource.MICROPHONE,
+        "camera": lk.TrackSource.CAMERA,
+        "screen_share": lk.TrackSource.SCREEN_SHARE,
+        "screen_share_audio": lk.TrackSource.SCREEN_SHARE_AUDIO,
+    }.get(source, lk.TrackSource.UNKNOWN)
+
+
+def _get_redis(request: Request) -> Redis | None:
+    return getattr(request.app.state, "redis", None)
+
+
 @router.post("/token", response_model=TokenOut)
 async def issue_token(
     payload: TokenIn,
     user: CurrentUser,
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> TokenOut:
     settings = get_settings()
@@ -228,6 +368,13 @@ async def issue_token(
         )
     can_publish, sources = _publish_sources_for(perms)
 
+    # Force-mute overrides are persistent in Redis so a kicked-and-re-joined
+    # user stays muted on reconnect. Cleared by an explicit unmute call from
+    # an admin.
+    redis = _get_redis(request)
+    override = await _load_override(redis, payload.channel_id, str(user.id))
+    can_publish, sources = _apply_override(sources, can_publish, override)
+
     room = _room_for_channel(payload.channel_id)
     grants = lk.VideoGrants(
         room_join=True,
@@ -247,3 +394,80 @@ async def issue_token(
     )
     token = builder.to_jwt()
     return TokenOut(token=token, ws_url=settings.livekit_url, room=room)
+
+
+class VoiceOverrideIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mute: bool
+
+
+@router.put("/channels/{channel_id}/members/{user_id}/voice-override")
+async def set_voice_override(
+    channel_id: str,
+    user_id: str,
+    payload: VoiceOverrideIn,
+    caller: CurrentUser,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, bool]:
+    """Force-mute / unmute a participant. Requires ``MUTE_MEMBERS`` in
+    the channel's guild — resolved via chat-gateway with the caller's
+    bearer (same pattern as ``/token``).
+
+    Writes the override to Redis so it survives reconnect, and best-
+    effort live-applies it via LiveKit's room-service so the muted user
+    stops publishing immediately. Publishes a ``voice_override`` event
+    on ``voice:events`` so chat-gateway can broadcast to clients."""
+    if user_id == str(caller.id):
+        raise HTTPException(400, detail="cannot mute yourself via the admin endpoint")
+    bearer = _bearer_from_header(authorization)
+    # Same membership + voice-channel check as token-issue. Acts as an
+    # implicit existence check for the channel.
+    await _require_voice_channel_member(channel_id, bearer)
+    perms = await _resolve_channel_permissions(channel_id, bearer)
+    if not (perms & _PERM_MUTE_MEMBERS):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="missing permission: MUTE_MEMBERS"
+        )
+
+    redis = _get_redis(request)
+    if redis is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
+        )
+
+    if payload.mute:
+        await _save_override(redis, channel_id, user_id, {"muted": True})
+        # Live update: revoke microphone from the target's current
+        # publish grant. They keep camera + screen_share if their token
+        # allowed those — we touch only the mic.
+        await _livekit_update_participant(
+            channel_id,
+            user_id,
+            can_publish=True,
+            sources=["camera", "screen_share", "screen_share_audio"],
+        )
+    else:
+        await _clear_override(redis, channel_id, user_id)
+        # Restore the broadest publish set; LiveKit will still gate it
+        # against the user's actual token grant, so this is safe — the
+        # token (issued at join time) is the floor.
+        await _livekit_update_participant(
+            channel_id,
+            user_id,
+            can_publish=True,
+            sources=["microphone", "camera", "screen_share", "screen_share_audio"],
+        )
+
+    await redis.publish(
+        _VOICE_EVENTS_CHANNEL,
+        json.dumps(
+            {
+                "op": "voice_override",
+                "channel_id": channel_id,
+                "user_id": user_id,
+                "muted": bool(payload.mute),
+            }
+        ),
+    )
+    return {"muted": bool(payload.mute)}

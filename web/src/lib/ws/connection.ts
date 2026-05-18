@@ -126,6 +126,12 @@ type ServerEvent =
       streaming_user_ids?: string[];
       user_states?: Record<string, UserVoiceState>;
     }
+  | {
+      op: 'voice_override';
+      channel_id: string;
+      user_id: string;
+      muted: boolean;
+    }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
   | {
       op: 'stream_chat_message';
@@ -521,6 +527,9 @@ export class GatewayConnection {
           evt.streaming_user_ids,
           evt.user_states
         );
+        break;
+      case 'voice_override':
+        voicePresence.applyOverride(evt.channel_id, evt.user_id, evt.muted);
         break;
       case 'stream_state':
         streamPresence.apply(evt.channel_id, evt.user_ids ?? []);

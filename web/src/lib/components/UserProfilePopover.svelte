@@ -17,17 +17,23 @@
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
+  import MicOffIcon from '@lucide/svelte/icons/mic-off';
+  import MicIcon from '@lucide/svelte/icons/mic';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import NicknameDialog from './NicknameDialog.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { setVoiceMute } from '$lib/api/voice';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { goto } from '$app/navigation';
   import type { Snippet } from 'svelte';
+
+  const CHANNEL_TYPE_VOICE = 1;
 
   let {
     userId,
@@ -90,6 +96,48 @@
     if (ownerId && ownerId === userId) return false;
     return roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS);
   });
+
+  // Voice channel (if any) that the target user is currently in within
+  // this guild. Force-mute targets a specific channel — the same user
+  // could in theory be in multiple guilds' voice channels at once, but
+  // within one guild only one (LiveKit identity = user-<id>, room =
+  // channel-<id>, so collisions are impossible).
+  let targetVoiceChannelId = $derived.by<string | null>(() => {
+    if (!guildId || isSelf) return null;
+    const channels = guilds.channelsByGuild[guildId] ?? [];
+    for (const c of channels) {
+      if (c.type !== CHANNEL_TYPE_VOICE) continue;
+      if (voicePresence.usersIn(c.id).includes(userId)) return c.id;
+    }
+    return null;
+  });
+  let canMute = $derived.by(() => {
+    if (!guildId || isSelf) return false;
+    if (!targetVoiceChannelId) return false;
+    return roles.hasGuildPermission(guildId, Perm.MUTE_MEMBERS);
+  });
+  let isForceMuted = $derived.by(() => {
+    if (!targetVoiceChannelId) return false;
+    return voicePresence.isForceMuted(targetVoiceChannelId, userId);
+  });
+
+  async function toggleMute() {
+    if (!canMute || !targetVoiceChannelId || working) return;
+    working = true;
+    try {
+      const next = !isForceMuted;
+      await setVoiceMute(targetVoiceChannelId, userId, next);
+      // Optimistic local update — the WS event echo will reconfirm.
+      voicePresence.applyOverride(targetVoiceChannelId, userId, next);
+      toast.success(next ? `${displayName} stummgeschaltet` : `Stummschaltung aufgehoben`);
+    } catch (err) {
+      toast.error('Stummschaltung fehlgeschlagen', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      working = false;
+    }
+  }
 
   async function kick() {
     if (!guildId || working) return;
@@ -186,6 +234,23 @@
             >
               <PencilIcon class="size-4" />
               <span>Nickname ändern</span>
+            </button>
+          {/if}
+          {#if canMute}
+            <button
+              type="button"
+              class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+              onclick={toggleMute}
+              disabled={working}
+              data-testid="popover-mute-btn"
+            >
+              {#if isForceMuted}
+                <MicIcon class="size-4" />
+                <span>Stummschaltung aufheben</span>
+              {:else}
+                <MicOffIcon class="size-4" />
+                <span>Stummschalten</span>
+              {/if}
             </button>
           {/if}
           {#if canKick}

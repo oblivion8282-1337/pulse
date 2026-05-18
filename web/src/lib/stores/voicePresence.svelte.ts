@@ -19,6 +19,13 @@ class VoicePresenceStore {
    * for a user means default-off; absence is the common case so we keep the
    * map sparse. */
   userStatesByChannel = $state<Record<string, Record<string, UserVoiceState>>>({});
+  /** Admin-applied force-mute (and later force-deafen) per (channel, user).
+   * Set by ``voice_override`` WS events. Survives reconnect because the
+   * authoritative state lives in Redis server-side — but on a fresh WS
+   * the client only learns about it on the next event, so a refresh
+   * after a mute may show stale "unmuted" UI for currently-connected
+   * targets until the next mute toggle. Good-enough for v1. */
+  overrideByChannel = $state<Record<string, Record<string, { muted: boolean }>>>({});
 
   /** Seed from the ready payload (re-sync after WS (re)connect). Replaces all
    * existing state. */
@@ -128,10 +135,36 @@ class VoicePresenceStore {
     return this.userStatesByChannel[channelId] ?? {};
   }
 
+  /** Apply a server force-mute event. Removes the entry on unmute so
+   * the override map stays sparse. */
+  applyOverride(channelId: string, userId: string, muted: boolean): void {
+    const current = this.overrideByChannel[channelId] ?? {};
+    if (!muted) {
+      if (!current[userId]) return;
+      const { [userId]: _, ...rest } = current;
+      if (Object.keys(rest).length === 0) {
+        const { [channelId]: _drop, ...others } = this.overrideByChannel;
+        this.overrideByChannel = others;
+      } else {
+        this.overrideByChannel = { ...this.overrideByChannel, [channelId]: rest };
+      }
+      return;
+    }
+    this.overrideByChannel = {
+      ...this.overrideByChannel,
+      [channelId]: { ...current, [userId]: { muted: true } }
+    };
+  }
+
+  isForceMuted(channelId: string, userId: string): boolean {
+    return !!this.overrideByChannel[channelId]?.[userId]?.muted;
+  }
+
   clear(): void {
     this.byChannel = {};
     this.streamingByChannel = {};
     this.userStatesByChannel = {};
+    this.overrideByChannel = {};
   }
 }
 

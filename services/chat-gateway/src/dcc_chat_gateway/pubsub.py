@@ -647,6 +647,33 @@ class ConnectionManager:
                             "voice:events malformed or missing channel_id: %r", payload
                         )
                         continue
+                    # voice-signaling also publishes admin-override events on
+                    # this channel (force-mute / unmute). Recognise them by the
+                    # explicit ``op`` field and broadcast as a dedicated envelope
+                    # rather than the snapshot path below.
+                    if payload.get("op") == "voice_override":
+                        voice_cid = str(payload.get("channel_id"))
+                        envelope = {
+                            "op": "voice_override",
+                            "channel_id": voice_cid,
+                            "user_id": str(payload.get("user_id", "")),
+                            "muted": bool(payload.get("muted", False)),
+                        }
+                        async with self._lock:
+                            raw_targets = list(self._connections)
+                        targets = await self._filter_by_view_channel(
+                            raw_targets, voice_cid
+                        )
+                        log.info(
+                            "voice:events override channel=%s user=%s muted=%s targets=%d/%d",
+                            envelope["channel_id"],
+                            envelope["user_id"],
+                            envelope["muted"],
+                            len(targets),
+                            len(raw_targets),
+                        )
+                        await self._fan_out(targets, envelope)
+                        continue
                     voice_cid = str(payload.get("channel_id"))
                     user_ids = [str(u) for u in payload.get("user_ids", [])]
                     raw_states = payload.get("user_states")
