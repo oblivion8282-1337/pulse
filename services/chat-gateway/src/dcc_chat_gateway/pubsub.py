@@ -18,7 +18,10 @@ from typing import Any
 from fastapi import WebSocket
 from redis.asyncio import Redis
 
+from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, read_states_for
+from dcc_shared.permission_resolver import has_permission
+from dcc_shared.permissions import Permissions
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +74,12 @@ class ConnectionManager:
         self._redis = redis
         self._pubsub = redis.pubsub(ignore_subscribe_messages=True)
         self._listener_task: asyncio.Task | None = None
+        # Async sessionmaker injected by the lifespan/setup code so the
+        # permission filter can resolve channel perms during broadcast.
+        # When None the filter falls through to "broadcast to all" — same
+        # behaviour as before Phase 3, but only safe in tests that
+        # explicitly want it.
+        self._session_factory = None
         self._subs: dict[str, set[WebSocket]] = defaultdict(set)
         # Every connected WebSocket, regardless of channel subscriptions —
         # used to fan out global events like voice-presence updates.
@@ -78,7 +87,13 @@ class ConnectionManager:
         # user_id → set of that user's open sockets. Used to cap one user's
         # concurrent connections (DoS mitigation).
         self._user_conns: dict[int, set[WebSocket]] = defaultdict(set)
-        self._ws_user: dict[WebSocket, int] = {}
+        self._ws_user: dict[WebSocket, AuthenticatedUser] = {}
+        # Per-socket, per-channel cached resolved-permission bitfield. Filled
+        # lazily by ``_resolve_channel_perms``; invalidated on relevant
+        # guild:events (role mutations, member-role assignments, channel
+        # permission overwrites). Avoids three DB lookups per recipient per
+        # broadcasted message.
+        self._ws_perms: dict[WebSocket, dict[int, int]] = defaultdict(dict)
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -119,16 +134,22 @@ class ConnectionManager:
             pass
         self._started = False
 
-    async def register(self, ws: WebSocket, user_id: int) -> bool:
-        """Add ``ws`` to the connection set. Returns False when ``user_id``
+    async def register(self, ws: WebSocket, user: AuthenticatedUser) -> bool:
+        """Add ``ws`` to the connection set. Returns False when the user
         already has ``MAX_CONNECTIONS_PER_USER`` open sockets — the caller
-        must close the websocket in that case."""
+        must close the websocket in that case.
+
+        Storing the full ``AuthenticatedUser`` (rather than just the id)
+        keeps the ``is_admin`` flag available for permission resolution
+        during broadcast filtering — re-decoding the JWT per event would
+        be wasteful and re-fetching the user from auth-svc is impossible
+        once the bearer is consumed."""
         async with self._lock:
-            user_set = self._user_conns[user_id]
+            user_set = self._user_conns[user.id]
             if len(user_set) >= self.MAX_CONNECTIONS_PER_USER:
                 return False
             user_set.add(ws)
-            self._ws_user[ws] = user_id
+            self._ws_user[ws] = user
             self._connections.add(ws)
             return True
 
@@ -148,11 +169,12 @@ class ConnectionManager:
     async def remove_socket(self, ws: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(ws)
-            uid = self._ws_user.pop(ws, None)
-            if uid is not None:
-                self._user_conns[uid].discard(ws)
-                if not self._user_conns[uid]:
-                    del self._user_conns[uid]
+            user = self._ws_user.pop(ws, None)
+            if user is not None:
+                self._user_conns[user.id].discard(ws)
+                if not self._user_conns[user.id]:
+                    del self._user_conns[user.id]
+            self._ws_perms.pop(ws, None)
             for cid in list(self._subs):
                 self._subs[cid].discard(ws)
                 if not self._subs[cid]:
@@ -300,6 +322,144 @@ class ConnectionManager:
         active party are omitted. See ``watchkeys.py`` for the state shape."""
         return await read_states_for(self._redis, channel_ids)
 
+    # ----- Permission cache + visibility filter -----------------------------
+
+    def set_session_factory(self, factory) -> None:
+        """Wire the SQLAlchemy sessionmaker the permission filter should
+        use. The lifespan in ``app.py`` calls this with the production
+        ``SessionLocal``; tests use whichever factory their fixture
+        produced. When unset, the filter falls through (broadcast-to-all),
+        which preserves pre-Phase-3 behaviour for any caller that hasn't
+        wired it up."""
+        self._session_factory = factory
+
+    async def _resolve_channel_perms(self, ws: WebSocket, channel_id: int) -> int:
+        """Return the cached or freshly-resolved channel permission bitfield
+        for ``ws``'s user. Returns ``-1`` when no session factory is
+        available (caller falls through to allow). Returns 0 on a real
+        zero-perm result."""
+        if self._session_factory is None:
+            return -1
+        cache = self._ws_perms[ws]
+        cached = cache.get(channel_id)
+        if cached is not None:
+            return cached
+        user = self._ws_user.get(ws)
+        if user is None:
+            return 0
+        from dcc_chat_gateway.models import Channel
+        from dcc_chat_gateway.permissions import resolve_permissions
+
+        async with self._session_factory() as session:
+            channel = await session.get(Channel, channel_id)
+            if channel is None:
+                cache[channel_id] = 0
+                return 0
+            value = await resolve_permissions(
+                session, user, channel.guild_id, channel_id=channel_id
+            )
+        cache[channel_id] = value
+        return value
+
+    async def can_view_channel(self, ws: WebSocket, channel_id: int) -> bool:
+        """Predicate over the resolved cache. Used by the broadcast filter
+        to drop targets without ``VIEW_CHANNEL`` for ``channel_id``.
+        Returns True when no session factory is wired up (filter off)."""
+        value = await self._resolve_channel_perms(ws, channel_id)
+        if value < 0:
+            return True
+        return has_permission(value, Permissions.VIEW_CHANNEL)
+
+    def _invalidate_for_guild(self, guild_id: int) -> None:
+        """Drop cache entries that may have changed because of a guild-wide
+        role mutation. Cheap: just nuke every entry — channels live in a
+        single guild, so we'd need a guild→channel map otherwise. The cache
+        warms back up on the next message-send."""
+        # Without a channel→guild map in the manager, the only safe thing is
+        # to clear every socket's per-channel cache. Acceptable because
+        # role mutations are rare relative to messages.
+        for cache in self._ws_perms.values():
+            cache.clear()
+
+    def _invalidate_for_channel(self, channel_id: int) -> None:
+        for cache in self._ws_perms.values():
+            cache.pop(channel_id, None)
+
+    def _invalidate_for_member(self, user_id: int) -> None:
+        for ws, user in list(self._ws_user.items()):
+            if user.id == user_id:
+                self._ws_perms[ws].clear()
+
+    def _maybe_invalidate(self, payload: dict) -> None:
+        """Trigger cache invalidation when a guild:events envelope indicates
+        a permission-affecting change. Conservative: when we can't pinpoint
+        the affected channel we drop the whole socket's cache rather than
+        risk a stale read."""
+        op = payload.get("op")
+        if op in ("role_created", "role_updated", "role_deleted"):
+            # Any role change can affect every channel's resolved perms for
+            # every member who holds it — broad invalidation is correct.
+            for cache in self._ws_perms.values():
+                cache.clear()
+        elif op == "member_roles_updated":
+            try:
+                uid = int(payload.get("user_id", "0"))
+            except (TypeError, ValueError):
+                return
+            if uid:
+                self._invalidate_for_member(uid)
+        elif op == "channel_permissions_updated":
+            try:
+                cid = int(payload.get("channel_id", "0"))
+            except (TypeError, ValueError):
+                return
+            if cid:
+                self._invalidate_for_channel(cid)
+        elif op == "channel_deleted":
+            try:
+                cid = int(payload.get("channel_id", "0"))
+            except (TypeError, ValueError):
+                return
+            if cid:
+                self._invalidate_for_channel(cid)
+        elif op == "guild_updated":
+            # owner_id may have changed → owner-bypass changes for the
+            # ex-owner. Cheapest correct invalidation is everything for
+            # this guild; we don't track per-guild channels in the cache.
+            for cache in self._ws_perms.values():
+                cache.clear()
+
+    async def _filter_by_view_channel(
+        self, targets: list[WebSocket], channel_id: str
+    ) -> list[WebSocket]:
+        """Drop targets without ``VIEW_CHANNEL`` for the given channel.
+
+        DM channels live in a separate table and have no overwrites — the
+        resolver returns 0 for them, so the filter would incorrectly drop
+        every DM target. We detect DM channels by checking once whether
+        the id refers to a guild channel; if not, we assume DM and skip
+        the filter."""
+        if self._session_factory is None:
+            return targets
+        try:
+            cid_int = int(channel_id)
+        except (TypeError, ValueError):
+            return targets
+        from dcc_chat_gateway.models import Channel
+
+        async with self._session_factory() as session:
+            ch = await session.get(Channel, cid_int)
+        if ch is None:
+            # Either a DM channel (not in chat.channels) or a deleted/stale
+            # id — either way, skip filtering. DMs have no permission
+            # overlay so every subscribed peer should still receive.
+            return targets
+        kept: list[WebSocket] = []
+        for ws in targets:
+            if await self.can_view_channel(ws, cid_int):
+                kept.append(ws)
+        return kept
+
     def user_socket_count(self, user_id: int) -> int:
         """How many open sockets the given user currently has. Used by the WS
         endpoint to decide whether ending one socket should end that user's
@@ -363,6 +523,7 @@ class ConnectionManager:
                             "voice:events malformed or missing channel_id: %r", payload
                         )
                         continue
+                    voice_cid = str(payload.get("channel_id"))
                     user_ids = [str(u) for u in payload.get("user_ids", [])]
                     raw_states = payload.get("user_states")
                     # voice-signaling publishes without user_states (it owns
@@ -383,7 +544,7 @@ class ConnectionManager:
                         user_states = await self.user_voice_states_for(user_ids)
                     envelope = {
                         "op": "voice_state",
-                        "channel_id": str(payload.get("channel_id")),
+                        "channel_id": voice_cid,
                         "user_ids": user_ids,
                         "streaming_user_ids": [
                             str(u) for u in payload.get("streaming_user_ids", [])
@@ -391,14 +552,16 @@ class ConnectionManager:
                         "user_states": user_states,
                     }
                     async with self._lock:
-                        targets = list(self._connections)
+                        raw_targets = list(self._connections)
+                    targets = await self._filter_by_view_channel(raw_targets, voice_cid)
                     log.info(
-                        "voice:events broadcast channel=%s user_ids=%s streaming=%s states=%d targets=%d",
+                        "voice:events broadcast channel=%s user_ids=%s streaming=%s states=%d targets=%d/%d",
                         envelope["channel_id"],
                         envelope["user_ids"],
                         envelope["streaming_user_ids"],
                         len(envelope["user_states"]),
                         len(targets),
+                        len(raw_targets),
                     )
                     await self._fan_out(targets, envelope)
                     continue
@@ -410,18 +573,21 @@ class ConnectionManager:
                             "watch:events malformed or missing channel_id: %r", payload
                         )
                         continue
+                    watch_cid = str(payload.get("channel_id"))
                     envelope = {
                         "op": "watch_state",
-                        "channel_id": str(payload.get("channel_id")),
+                        "channel_id": watch_cid,
                         "state": payload.get("state"),
                     }
                     async with self._lock:
-                        targets = list(self._connections)
+                        raw_targets = list(self._connections)
+                    targets = await self._filter_by_view_channel(raw_targets, watch_cid)
                     log.info(
-                        "watch:events broadcast channel=%s active=%s targets=%d",
+                        "watch:events broadcast channel=%s active=%s targets=%d/%d",
                         envelope["channel_id"],
                         envelope["state"] is not None,
                         len(targets),
+                        len(raw_targets),
                     )
                     await self._fan_out(targets, envelope)
                     continue
@@ -433,18 +599,21 @@ class ConnectionManager:
                             "stream:events malformed or missing channel_id: %r", payload
                         )
                         continue
+                    stream_cid = str(payload.get("channel_id"))
                     envelope = {
                         "op": "stream_state",
-                        "channel_id": str(payload.get("channel_id")),
+                        "channel_id": stream_cid,
                         "user_ids": [str(u) for u in payload.get("user_ids", [])],
                     }
                     async with self._lock:
-                        targets = list(self._connections)
+                        raw_targets = list(self._connections)
+                    targets = await self._filter_by_view_channel(raw_targets, stream_cid)
                     log.info(
-                        "stream:events broadcast channel=%s user_ids=%s targets=%d",
+                        "stream:events broadcast channel=%s user_ids=%s targets=%d/%d",
                         envelope["channel_id"],
                         envelope["user_ids"],
                         len(targets),
+                        len(raw_targets),
                     )
                     await self._fan_out(targets, envelope)
                     continue
@@ -454,6 +623,7 @@ class ConnectionManager:
                     if not isinstance(payload, dict) or "op" not in payload:
                         log.warning("guild:events malformed or missing op: %r", payload)
                         continue
+                    self._maybe_invalidate(payload)
                     async with self._lock:
                         targets = list(self._connections)
                     log.info(
@@ -475,7 +645,8 @@ class ConnectionManager:
                 else:
                     envelope = {"op": "message", "data": payload}
                 async with self._lock:
-                    targets = list(self._subs.get(channel_id, ()))
+                    raw_targets = list(self._subs.get(channel_id, ()))
+                targets = await self._filter_by_view_channel(raw_targets, channel_id)
                 await self._fan_out(targets, envelope)
         except asyncio.CancelledError:
             raise

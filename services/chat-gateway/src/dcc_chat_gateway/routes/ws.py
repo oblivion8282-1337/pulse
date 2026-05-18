@@ -60,8 +60,11 @@ from dcc_chat_gateway.models import (
     DirectMessageChannel,
     Guild,
     GuildMember,
+    MemberRole,
     Message,
+    Role,
 )
+from dcc_chat_gateway.permissions import resolve_permissions
 from dcc_chat_gateway.routes import ws_watch
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
@@ -137,7 +140,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     await websocket.accept()
     app = websocket.app
     manager = app.state.connection_manager
-    if not await manager.register(websocket, user.id):
+    if not await manager.register(websocket, user):
         # Connection cap reached — close before the client has done any work.
         await websocket.close(code=4009, reason="too many connections")
         return
@@ -166,7 +169,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
 
     # Send "ready" with the user's guild list + DM channel list + the current
     # voice-channel presence state + the current HQ-stream state for those
-    # guilds.
+    # guilds. Each guild carries its role list + this user's resolved
+    # guild-wide permissions, so the frontend can gate UI affordances
+    # without round-tripping the API for every guild. Channel overwrites
+    # and per-channel resolved permissions are *not* eager-loaded — the
+    # frontend fetches those when the user opens the relevant channel.
     async with SessionLocal() as session:
         guild_stmt = (
             select(Guild)
@@ -175,8 +182,60 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             .order_by(Guild.id)
         )
         guild_rows = list((await session.execute(guild_stmt)).scalars())
-        guilds = [{"id": str(g.id), "name": g.name} for g in guild_rows]
         guild_ids = [g.id for g in guild_rows]
+        # Batched fetch of all roles across the user's guilds — one query
+        # rather than N. Same for the user's role assignments.
+        roles_by_guild: dict[int, list[Role]] = {gid: [] for gid in guild_ids}
+        my_role_ids: dict[int, list[int]] = {gid: [] for gid in guild_ids}
+        if guild_ids:
+            role_rows = list(
+                (
+                    await session.execute(
+                        select(Role)
+                        .where(Role.guild_id.in_(guild_ids))
+                        .order_by(Role.guild_id, Role.position.desc(), Role.id)
+                    )
+                ).scalars()
+            )
+            for role in role_rows:
+                roles_by_guild.setdefault(role.guild_id, []).append(role)
+            my_mr_rows = list(
+                (
+                    await session.execute(
+                        select(MemberRole).where(
+                            MemberRole.guild_id.in_(guild_ids),
+                            MemberRole.user_id == user.id,
+                        )
+                    )
+                ).scalars()
+            )
+            for mr in my_mr_rows:
+                my_role_ids.setdefault(mr.guild_id, []).append(mr.role_id)
+        guilds = []
+        for g in guild_rows:
+            my_perms = await resolve_permissions(session, user, g.id)
+            guilds.append(
+                {
+                    "id": str(g.id),
+                    "name": g.name,
+                    "owner_id": str(g.owner_id),
+                    "my_permissions": str(my_perms),
+                    "my_role_ids": [str(rid) for rid in my_role_ids.get(g.id, [])],
+                    "roles": [
+                        {
+                            "id": str(r.id),
+                            "name": r.name,
+                            "permissions": str(r.permissions),
+                            "color": r.color,
+                            "position": r.position,
+                            "hoist": r.hoist,
+                            "mentionable": r.mentionable,
+                            "is_everyone": r.is_everyone,
+                        }
+                        for r in roles_by_guild.get(g.id, [])
+                    ],
+                }
+            )
         voice_channel_ids: list[str] = []
         if guild_ids:
             vc_stmt = select(Channel.id).where(

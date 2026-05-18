@@ -140,6 +140,7 @@ async def app(session_factory, _auth_signer):
     application = create_app(skip_redis=True)
     redis = Redis.from_url(_TEST_SETTINGS.redis_url, decode_responses=False)
     manager = ConnectionManager(redis)
+    manager.set_session_factory(session_factory)
     await manager.start()
     application.state.redis = redis
     application.state.connection_manager = manager
