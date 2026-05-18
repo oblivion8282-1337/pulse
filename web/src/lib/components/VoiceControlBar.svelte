@@ -12,10 +12,31 @@
   import VideoOffIcon from '@lucide/svelte/icons/video-off';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
 
   let hqStreamOpen = $state(false);
+
+  // Camera-toggle gate: same shape as the HQ-stream button. Hide when
+  // the channel's resolved permissions lack USE_VIDEO. Falls back to
+  // "allowed" if the channel isn't in the local guild store yet
+  // (matches the optimistic-ungated default elsewhere). Note: this is
+  // a UI-only gate — voice-signaling currently grants ``can_publish``
+  // unconditionally in the LiveKit token, so a determined user could
+  // still publish video via DevTools. A backend gate via
+  // ``can_publish_sources`` is the proper follow-up.
+  let canUseCamera = $derived.by(() => {
+    const cid = voice.channelId;
+    if (!cid) return true;
+    const ch = Object.values(guilds.channelsByGuild)
+      .flat()
+      .find((c) => c.id === cid);
+    if (!ch) return true;
+    return channelPermissions.hasChannelPermission(ch.guild_id, ch.id, Perm.USE_VIDEO);
+  });
 
   async function handleScreenShare() {
     try {
@@ -87,25 +108,27 @@
         <WatchPartyStartButton channelId={voice.channelId} />
       {/if}
 
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              variant={voice.isCameraOn ? 'default' : 'ghost'}
-              size="icon-sm"
-              onclick={() => voice.toggleCamera()}
-              data-testid="voice-camera-toggle"
-              aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
-            >
-              {#if voice.isCameraOn}<VideoIcon class="size-4" />{:else}<VideoOffIcon class="size-4" />{/if}
-            </Button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>
-          {voice.isCameraOn ? 'Kamera aus' : 'Kamera an'}
-        </Tooltip.Content>
-      </Tooltip.Root>
+      {#if canUseCamera}
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant={voice.isCameraOn ? 'default' : 'ghost'}
+                size="icon-sm"
+                onclick={() => voice.toggleCamera()}
+                data-testid="voice-camera-toggle"
+                aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
+              >
+                {#if voice.isCameraOn}<VideoIcon class="size-4" />{:else}<VideoOffIcon class="size-4" />{/if}
+              </Button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>
+            {voice.isCameraOn ? 'Kamera aus' : 'Kamera an'}
+          </Tooltip.Content>
+        </Tooltip.Root>
+      {/if}
 
       <Tooltip.Root>
         <Tooltip.Trigger>

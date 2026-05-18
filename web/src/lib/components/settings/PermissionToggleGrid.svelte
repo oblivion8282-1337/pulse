@@ -51,7 +51,7 @@
         { perm: Perm.CONNECT, label: 'Voice betreten', desc: 'Voice-Kanal joinen.' },
         { perm: Perm.SPEAK, label: 'Sprechen', desc: 'Mic-Audio senden.' },
         { perm: Perm.STREAM, label: 'HQ-Stream / Screenshare', desc: 'Eigenen Bildschirm pushen.' },
-        { perm: Perm.USE_VIDEO, label: 'Kamera', desc: 'Webcam (geplant).' },
+        { perm: Perm.USE_VIDEO, label: 'Kamera', desc: 'Eigene Webcam im Voice-Channel teilen.' },
         { perm: Perm.MUTE_MEMBERS, label: 'Mute Members', desc: 'Andere im Voice muten.' },
         { perm: Perm.DEAFEN_MEMBERS, label: 'Deafen Members', desc: 'Andere im Voice taub stellen.' },
         { perm: Perm.MOVE_MEMBERS, label: 'Move Members', desc: 'Andere zwischen Voice-Channels verschieben.' }

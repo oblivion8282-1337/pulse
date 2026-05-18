@@ -53,7 +53,7 @@ class Permissions(IntFlag):
     CONNECT = 1 << 30
     SPEAK = 1 << 31
     STREAM = 1 << 32  # HQ stream + browser screenshare
-    USE_VIDEO = 1 << 33  # camera in voice (future)
+    USE_VIDEO = 1 << 33  # publish own webcam in voice (LiveKit setCameraEnabled)
     MUTE_MEMBERS = 1 << 34
     DEAFEN_MEMBERS = 1 << 35
     MOVE_MEMBERS = 1 << 36
