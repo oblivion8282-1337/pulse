@@ -153,16 +153,15 @@ def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
         # rather than a user-facing crash.
         log.exception("could not persist VAPID key to %s", path)
         persisted = False
+    # NB: stdlib logging reserves the ``message`` key on LogRecord — use
+    # ``note`` so ``log.warning(..., extra={...})`` doesn't raise KeyError.
     log.warning(
-        "vapid_auto_generated",
+        "vapid_auto_generated — Generated new VAPID keypair on first startup. "
+        "In production set VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY env vars "
+        "to a persistent keypair. Without persistence "
+        "(e.g. Docker volume on vapid_key_file path), "
+        "every restart will invalidate all push subscriptions silently.",
         extra={
-            "message": (
-                "Generated new VAPID keypair on first startup. "
-                "In production set VAPID_PRIVATE_KEY/VAPID_PUBLIC_KEY env vars "
-                "to a persistent keypair. Without persistence "
-                "(e.g. Docker volume on vapid_key_file path), "
-                "every restart will invalidate all push subscriptions silently."
-            ),
             "vapid_key_file": str(settings.vapid_key_file),
             "persisted_to_disk": persisted,
         },
