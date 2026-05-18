@@ -51,6 +51,7 @@ _PERM_SPEAK = 1 << 31
 _PERM_STREAM = 1 << 32
 _PERM_USE_VIDEO = 1 << 33
 _PERM_MUTE_MEMBERS = 1 << 34
+_PERM_DEAFEN_MEMBERS = 1 << 35
 
 # Redis: ``voice:events`` pub/sub topic chat-gateway already subscribes to.
 # Same constant the webhook module uses; duplicated locally to keep the
@@ -397,8 +398,14 @@ async def issue_token(
 
 
 class VoiceOverrideIn(BaseModel):
+    """Partial override patch — at least one of ``mute`` / ``deafen``
+    must be set. Each field is checked against its own permission bit
+    (``MUTE_MEMBERS`` / ``DEAFEN_MEMBERS``) so callers with only one of
+    the two can still operate. ``None`` means "don't touch that flag"."""
+
     model_config = ConfigDict(extra="forbid")
-    mute: bool
+    mute: bool | None = None
+    deafen: bool | None = None
 
 
 @router.put("/channels/{channel_id}/members/{user_id}/voice-override")
@@ -410,24 +417,37 @@ async def set_voice_override(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, bool]:
-    """Force-mute / unmute a participant. Requires ``MUTE_MEMBERS`` in
-    the channel's guild — resolved via chat-gateway with the caller's
-    bearer (same pattern as ``/token``).
+    """Force-mute / -deafen / clear-overrides for a participant.
 
-    Writes the override to Redis so it survives reconnect, and best-
-    effort live-applies it via LiveKit's room-service so the muted user
-    stops publishing immediately. Publishes a ``voice_override`` event
-    on ``voice:events`` so chat-gateway can broadcast to clients."""
+    Each field is independently permission-gated:
+      * ``mute``   → requires ``MUTE_MEMBERS``    — drives LiveKit publish
+                     grant (microphone is removed/restored from publish
+                     sources at next reconnect; live LiveKit call is
+                     best-effort for current connection).
+      * ``deafen`` → requires ``DEAFEN_MEMBERS`` — purely client-side.
+                     The receiving client mutes its own playback and
+                     refuses to undeafen until the override is cleared.
+
+    Writes the merged override to Redis so it survives reconnect, and
+    publishes the full state on ``voice:events`` for chat-gateway to
+    broadcast as ``voice_override``.
+    """
+    if payload.mute is None and payload.deafen is None:
+        raise HTTPException(400, detail="at least one of 'mute' / 'deafen' must be set")
     if user_id == str(caller.id):
-        raise HTTPException(400, detail="cannot mute yourself via the admin endpoint")
+        raise HTTPException(400, detail="cannot apply voice overrides to yourself")
     bearer = _bearer_from_header(authorization)
     # Same membership + voice-channel check as token-issue. Acts as an
     # implicit existence check for the channel.
     await _require_voice_channel_member(channel_id, bearer)
     perms = await _resolve_channel_permissions(channel_id, bearer)
-    if not (perms & _PERM_MUTE_MEMBERS):
+    if payload.mute is not None and not (perms & _PERM_MUTE_MEMBERS):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="missing permission: MUTE_MEMBERS"
+        )
+    if payload.deafen is not None and not (perms & _PERM_DEAFEN_MEMBERS):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="missing permission: DEAFEN_MEMBERS"
         )
 
     redis = _get_redis(request)
@@ -436,28 +456,47 @@ async def set_voice_override(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
         )
 
-    if payload.mute:
-        await _save_override(redis, channel_id, user_id, {"muted": True})
-        # Live update: revoke microphone from the target's current
-        # publish grant. They keep camera + screen_share if their token
-        # allowed those — we touch only the mic.
-        await _livekit_update_participant(
-            channel_id,
-            user_id,
-            can_publish=True,
-            sources=["camera", "screen_share", "screen_share_audio"],
-        )
-    else:
+    # Merge: read current → apply patch → write back. Lets a caller
+    # toggle mute without disturbing an existing deafen, and vice-versa.
+    current = await _load_override(redis, channel_id, user_id)
+    next_state: dict[str, bool] = {
+        "muted": bool(current.get("muted")),
+        "deafened": bool(current.get("deafened")),
+    }
+    if payload.mute is not None:
+        next_state["muted"] = bool(payload.mute)
+    if payload.deafen is not None:
+        next_state["deafened"] = bool(payload.deafen)
+
+    if not next_state["muted"] and not next_state["deafened"]:
         await _clear_override(redis, channel_id, user_id)
-        # Restore the broadest publish set; LiveKit will still gate it
-        # against the user's actual token grant, so this is safe — the
-        # token (issued at join time) is the floor.
-        await _livekit_update_participant(
-            channel_id,
-            user_id,
-            can_publish=True,
-            sources=["microphone", "camera", "screen_share", "screen_share_audio"],
-        )
+    else:
+        await _save_override(redis, channel_id, user_id, next_state)
+
+    # Live LiveKit update is only meaningful for the mute side — the
+    # deafen enforcement is client-only (LiveKit doesn't gate inbound
+    # subscriptions by participant permission). Skip the LiveKit call
+    # if mute wasn't part of this patch.
+    if payload.mute is not None:
+        if next_state["muted"]:
+            await _livekit_update_participant(
+                channel_id,
+                user_id,
+                can_publish=True,
+                sources=["camera", "screen_share", "screen_share_audio"],
+            )
+        else:
+            await _livekit_update_participant(
+                channel_id,
+                user_id,
+                can_publish=True,
+                sources=[
+                    "microphone",
+                    "camera",
+                    "screen_share",
+                    "screen_share_audio",
+                ],
+            )
 
     await redis.publish(
         _VOICE_EVENTS_CHANNEL,
@@ -466,8 +505,9 @@ async def set_voice_override(
                 "op": "voice_override",
                 "channel_id": channel_id,
                 "user_id": user_id,
-                "muted": bool(payload.mute),
+                "muted": next_state["muted"],
+                "deafened": next_state["deafened"],
             }
         ),
     )
-    return {"muted": bool(payload.mute)}
+    return {"muted": next_state["muted"], "deafened": next_state["deafened"]}

@@ -19,11 +19,13 @@
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import MicIcon from '@lucide/svelte/icons/mic';
+  import HeadphonesIcon from '@lucide/svelte/icons/headphones';
+  import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import NicknameDialog from './NicknameDialog.svelte';
   import { chatApi } from '$lib/api/chat';
-  import { setVoiceMute } from '$lib/api/voice';
+  import { setVoiceOverride } from '$lib/api/voice';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -116,9 +118,18 @@
     if (!targetVoiceChannelId) return false;
     return roles.hasGuildPermission(guildId, Perm.MUTE_MEMBERS);
   });
+  let canDeafen = $derived.by(() => {
+    if (!guildId || isSelf) return false;
+    if (!targetVoiceChannelId) return false;
+    return roles.hasGuildPermission(guildId, Perm.DEAFEN_MEMBERS);
+  });
   let isForceMuted = $derived.by(() => {
     if (!targetVoiceChannelId) return false;
     return voicePresence.isForceMuted(targetVoiceChannelId, userId);
+  });
+  let isForceDeafened = $derived.by(() => {
+    if (!targetVoiceChannelId) return false;
+    return voicePresence.isForceDeafened(targetVoiceChannelId, userId);
   });
 
   async function toggleMute() {
@@ -126,12 +137,45 @@
     working = true;
     try {
       const next = !isForceMuted;
-      await setVoiceMute(targetVoiceChannelId, userId, next);
+      const result = await setVoiceOverride(targetVoiceChannelId, userId, {
+        mute: next
+      });
       // Optimistic local update — the WS event echo will reconfirm.
-      voicePresence.applyOverride(targetVoiceChannelId, userId, next);
+      voicePresence.applyOverride(
+        targetVoiceChannelId,
+        userId,
+        result.muted,
+        result.deafened
+      );
       toast.success(next ? `${displayName} stummgeschaltet` : `Stummschaltung aufgehoben`);
     } catch (err) {
       toast.error('Stummschaltung fehlgeschlagen', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      working = false;
+    }
+  }
+
+  async function toggleDeafen() {
+    if (!canDeafen || !targetVoiceChannelId || working) return;
+    working = true;
+    try {
+      const next = !isForceDeafened;
+      const result = await setVoiceOverride(targetVoiceChannelId, userId, {
+        deafen: next
+      });
+      voicePresence.applyOverride(
+        targetVoiceChannelId,
+        userId,
+        result.muted,
+        result.deafened
+      );
+      toast.success(
+        next ? `${displayName} taubgeschaltet` : `Taubschaltung aufgehoben`
+      );
+    } catch (err) {
+      toast.error('Taubschaltung fehlgeschlagen', {
         description: err instanceof Error ? err.message : String(err)
       });
     } finally {
@@ -250,6 +294,23 @@
               {:else}
                 <MicOffIcon class="size-4" />
                 <span>Stummschalten</span>
+              {/if}
+            </button>
+          {/if}
+          {#if canDeafen}
+            <button
+              type="button"
+              class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+              onclick={toggleDeafen}
+              disabled={working}
+              data-testid="popover-deafen-btn"
+            >
+              {#if isForceDeafened}
+                <HeadphonesIcon class="size-4" />
+                <span>Taubschaltung aufheben</span>
+              {:else}
+                <HeadphoneOffIcon class="size-4" />
+                <span>Taubschalten</span>
               {/if}
             </button>
           {/if}

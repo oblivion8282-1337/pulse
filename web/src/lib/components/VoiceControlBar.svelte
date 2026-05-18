@@ -50,6 +50,15 @@
     if (!cid || !uid) return false;
     return voicePresence.isForceMuted(cid, uid);
   });
+  // Server force-deafen: voice.setDeafened is driven from the WS event
+  // handler; this flag just disables the toggle so the user can't undeafen
+  // themselves until the override is cleared.
+  let selfForceDeafened = $derived.by(() => {
+    const cid = voice.channelId;
+    const uid = auth.user?.id;
+    if (!cid || !uid) return false;
+    return voicePresence.isForceDeafened(cid, uid);
+  });
 
   async function handleScreenShare() {
     try {
@@ -118,14 +127,25 @@
               variant={voice.deafened ? 'destructive' : 'secondary'}
               size="icon-sm"
               onclick={() => voice.toggleDeafen()}
+              disabled={selfForceDeafened}
               data-testid="voice-deafen-toggle"
-              aria-label={voice.deafened ? 'Ton aktivieren' : 'Ton stummschalten'}
+              aria-label={selfForceDeafened
+                ? 'Vom Mod taubgeschaltet'
+                : voice.deafened
+                  ? 'Ton aktivieren'
+                  : 'Ton stummschalten'}
             >
               {#if voice.deafened}<HeadphoneOffIcon class="size-4" />{:else}<HeadphonesIcon class="size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content>{voice.deafened ? 'Taub (alle stumm)' : 'Ton an'}</Tooltip.Content>
+        <Tooltip.Content>
+          {#if selfForceDeafened}
+            Vom Mod taubgeschaltet
+          {:else}
+            {voice.deafened ? 'Taub (alle stumm)' : 'Ton an'}
+          {/if}
+        </Tooltip.Content>
       </Tooltip.Root>
 
       {#if voice.channelId}

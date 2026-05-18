@@ -74,8 +74,9 @@
   {@const avatarSrc = safeAvatarUrl(user?.avatar_url)}
   {@const state = userStates[uid]}
   {@const isForceMuted = voicePresence.isForceMuted(channelId, uid)}
+  {@const isForceDeafened = voicePresence.isForceDeafened(channelId, uid)}
   {@const isMicMuted = state?.mic_muted === true || isForceMuted}
-  {@const isDeafened = state?.deafened === true}
+  {@const isDeafened = state?.deafened === true || isForceDeafened}
   <UserProfilePopover
     userId={uid}
     displayName={name}
@@ -135,8 +136,8 @@
             {#if isDeafened}
               <HeadphoneOffIcon
                 class="size-3.5 text-red-400"
-                aria-label="Stummschaltung"
-                data-testid="voice-presence-deafened"
+                aria-label={isForceDeafened ? 'Vom Mod taubgeschaltet' : 'Stummschaltung'}
+                data-testid={isForceDeafened ? 'voice-presence-force-deafened' : 'voice-presence-deafened'}
               />
             {/if}
             {#if watchPartyHostUserId === uid}

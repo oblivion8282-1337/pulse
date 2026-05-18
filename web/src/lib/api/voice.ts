@@ -19,15 +19,18 @@ export function getVoiceToken(channelId: string, kind: 'voice' | 'screen' = 'voi
   });
 }
 
-/** Force-mute / unmute a participant. Requires ``MUTE_MEMBERS``; the
- * server returns 403 otherwise. */
-export function setVoiceMute(
+export type VoiceOverrideResponse = { muted: boolean; deafened: boolean };
+
+/** Patch the voice-override for a participant. Each field is
+ * independently permission-gated server-side (``MUTE_MEMBERS`` /
+ * ``DEAFEN_MEMBERS``); pass only the fields you intend to change. */
+export function setVoiceOverride(
   channelId: string,
   userId: string,
-  mute: boolean
-): Promise<{ muted: boolean }> {
-  return request<{ muted: boolean }>(
+  patch: { mute?: boolean; deafen?: boolean }
+): Promise<VoiceOverrideResponse> {
+  return request<VoiceOverrideResponse>(
     `/channels/${channelId}/members/${userId}/voice-override`,
-    { method: 'PUT', body: { mute }, endpoint: 'voice' }
+    { method: 'PUT', body: patch, endpoint: 'voice' }
   );
 }

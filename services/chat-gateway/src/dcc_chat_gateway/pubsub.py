@@ -658,6 +658,7 @@ class ConnectionManager:
                             "channel_id": voice_cid,
                             "user_id": str(payload.get("user_id", "")),
                             "muted": bool(payload.get("muted", False)),
+                            "deafened": bool(payload.get("deafened", False)),
                         }
                         async with self._lock:
                             raw_targets = list(self._connections)
@@ -665,10 +666,11 @@ class ConnectionManager:
                             raw_targets, voice_cid
                         )
                         log.info(
-                            "voice:events override channel=%s user=%s muted=%s targets=%d/%d",
+                            "voice:events override channel=%s user=%s muted=%s deafened=%s targets=%d/%d",
                             envelope["channel_id"],
                             envelope["user_id"],
                             envelope["muted"],
+                            envelope["deafened"],
                             len(targets),
                             len(raw_targets),
                         )

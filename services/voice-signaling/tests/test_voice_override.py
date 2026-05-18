@@ -31,6 +31,7 @@ _PERM_SPEAK = 1 << 31
 _PERM_USE_VIDEO = 1 << 33
 _PERM_STREAM = 1 << 32
 _PERM_MUTE_MEMBERS = 1 << 34
+_PERM_DEAFEN_MEMBERS = 1 << 35
 
 
 def _make_voice_channel_mock(perms_bf: int):
@@ -155,7 +156,7 @@ async def test_mute_persists_in_redis_and_publishes_event(
         headers=auth(access),
     )
     assert r.status_code == 200, r.text
-    assert r.json() == {"muted": True}
+    assert r.json() == {"muted": True, "deafened": False}
 
     # Redis key was set.
     raw = await redis.get("voice:override:channel-987654321:user-99")
@@ -171,13 +172,139 @@ async def test_mute_persists_in_redis_and_publishes_event(
         "channel_id": "987654321",
         "user_id": "99",
         "muted": True,
+        "deafened": False,
     }
     await pubsub.unsubscribe("voice:events")
     await pubsub.aclose()
 
 
 @pytest.mark.asyncio
-async def test_unmute_clears_redis_and_publishes(
+async def test_deafen_requires_deafen_members_perm(
+    app_with_redis, auth_signer, monkeypatch
+):
+    """MUTE_MEMBERS alone is not enough — deafen needs its own bit."""
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"deafen": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_deafen_only_does_not_touch_livekit_mute_path(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_update
+):
+    """Deafen is client-side; the live LiveKit permission call shouldn't
+    fire when only ``deafen`` is patched (a stray live call would risk
+    overriding the user's actual publish grant)."""
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_DEAFEN_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"deafen": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"muted": False, "deafened": True}
+    assert _stub_livekit_update == []  # no LiveKit calls
+
+
+@pytest.mark.asyncio
+async def test_mute_and_deafen_combined_in_one_patch(
+    app_with_redis, auth_signer, monkeypatch
+):
+    """Single PUT can set both fields when the caller holds both bits."""
+    client, redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(
+            _PERM_CONNECT | _PERM_MUTE_MEMBERS | _PERM_DEAFEN_MEMBERS
+        ),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": True, "deafen": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body == {"muted": True, "deafened": True}
+    raw = await redis.get("voice:override:channel-987654321:user-99")
+    state = json.loads(raw.decode())
+    assert state == {"muted": True, "deafened": True}
+
+
+@pytest.mark.asyncio
+async def test_partial_update_preserves_other_field(
+    app_with_redis, auth_signer, monkeypatch
+):
+    """Toggling deafen without touching mute leaves the existing mute
+    state intact (merge semantics)."""
+    client, redis = app_with_redis
+    # Pre-seed: muted but not deafened.
+    await redis.set(
+        "voice:override:channel-987654321:user-99",
+        json.dumps({"muted": True, "deafened": False}),
+    )
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_DEAFEN_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"deafen": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    assert r.json() == {"muted": True, "deafened": True}
+
+
+@pytest.mark.asyncio
+async def test_empty_patch_is_400(app_with_redis, auth_signer, monkeypatch):
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={},
+        headers=auth(access),
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_unmute_clears_redis_when_no_other_flags(
     app_with_redis, auth_signer, monkeypatch
 ):
     client, redis = app_with_redis

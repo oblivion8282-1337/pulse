@@ -131,6 +131,7 @@ type ServerEvent =
       channel_id: string;
       user_id: string;
       muted: boolean;
+      deafened: boolean;
     }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
   | {
@@ -528,9 +529,25 @@ export class GatewayConnection {
           evt.user_states
         );
         break;
-      case 'voice_override':
-        voicePresence.applyOverride(evt.channel_id, evt.user_id, evt.muted);
+      case 'voice_override': {
+        voicePresence.applyOverride(
+          evt.channel_id,
+          evt.user_id,
+          evt.muted,
+          evt.deafened
+        );
+        // If this targets us in the channel we're currently connected to,
+        // enforce the deafen client-side: drive voice.setDeafened so the
+        // local audio output mutes. Imported lazily to avoid the circular
+        // dependency (voice/livekit imports `gateway` from here).
+        if (auth.user?.id === evt.user_id) {
+          void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+            if (voice.channelId !== evt.channel_id) return;
+            if (evt.deafened !== voice.deafened) voice.setDeafened(evt.deafened);
+          });
+        }
         break;
+      }
       case 'stream_state':
         streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
         // Stream gone → lokaler Chat-State für absente Streamer auch raus
