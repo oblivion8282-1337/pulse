@@ -2,6 +2,7 @@ import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 
 /**
@@ -34,6 +35,10 @@ export async function joinGuildByInvite(input: string): Promise<void> {
 	} catch {
 		/* best-effort; the user sees the guild listed either way */
 	}
+	// Pull this guild's sound overrides for the same reason — without it
+	// the voice/notification sounds use defaults until WS reconnect.
+	guildSounds.ensureSlot(result.guild.id);
+	void guildSounds.refresh(result.guild.id);
 	await goto(
 		result.channel_id
 			? `/app/guilds/${result.guild.id}/channels/${result.channel_id}`

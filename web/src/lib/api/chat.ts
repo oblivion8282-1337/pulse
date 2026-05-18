@@ -13,6 +13,19 @@ import type {
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 
+/** A single per-guild sound override returned by GET/PUT
+ * `/guilds/{gid}/sounds[/{sound_id}]`. ``url`` is a fresh presigned GET URL
+ * (TTL 30 min — engine re-loads on next WS event / reconnect). */
+export type GuildSoundOverrideOut = {
+  sound_id: string;
+  url: string;
+  content_type: string;
+  file_size: number;
+  original_filename: string;
+  uploaded_by_id: string;
+  uploaded_at: string;
+};
+
 /** Response of `POST /channels/{id}/stream-token` (chat-gateway → media-svc proxy). */
 export type StreamTokenResponse = {
   token: string;
@@ -50,6 +63,29 @@ export const chatApi = {
   },
   deleteGuildIcon(id: string): Promise<void> {
     return request<void>(`/guilds/${id}/icon`, { method: 'DELETE' });
+  },
+
+  // Per-guild sound overrides
+  listGuildSounds(guildId: string): Promise<GuildSoundOverrideOut[]> {
+    return request<GuildSoundOverrideOut[]>(`/guilds/${guildId}/sounds`);
+  },
+  uploadGuildSound(
+    guildId: string,
+    soundId: string,
+    file: File
+  ): Promise<GuildSoundOverrideOut> {
+    const form = new FormData();
+    form.append('file', file);
+    return requestForm<GuildSoundOverrideOut>(
+      `/guilds/${guildId}/sounds/${soundId}`,
+      form,
+      { method: 'PUT' }
+    );
+  },
+  deleteGuildSound(guildId: string, soundId: string): Promise<void> {
+    return request<void>(`/guilds/${guildId}/sounds/${soundId}`, {
+      method: 'DELETE'
+    });
   },
 
   // Members
@@ -186,7 +222,11 @@ export const chatApi = {
    *  toggles these via `/admin/permissions`; the frontend gates create-
    *  guild + create-invite buttons on the result. Refetched live via
    *  the `permissions_updated` WS event. */
-  getCapabilities(): Promise<{ allow_guild_creation: boolean; allow_member_invites: boolean }> {
+  getCapabilities(): Promise<{
+    allow_guild_creation: boolean;
+    allow_member_invites: boolean;
+    guild_sound_max_size_bytes: number;
+  }> {
     return request('/capabilities', { endpoint: 'chat' });
   },
   addReaction(messageId: string, emoji: string): Promise<void> {

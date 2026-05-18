@@ -8,6 +8,7 @@ import { directMessages } from './directMessages.svelte';
 import { guilds } from './guilds.svelte';
 import { messages } from './messages.svelte';
 import { roles } from './roles.svelte';
+import { guildSounds } from './guildSounds.svelte';
 import { channelPermissions } from './channelPermissions.svelte';
 import { memberRoles } from './memberRoles.svelte';
 import { capabilities } from './capabilities.svelte';
@@ -82,6 +83,7 @@ class AuthStore {
     guilds.clear();
     messages.clear();
     roles.clear();
+    guildSounds.clear();
     channelPermissions.clear();
     memberRoles.clear();
     capabilities.clear();

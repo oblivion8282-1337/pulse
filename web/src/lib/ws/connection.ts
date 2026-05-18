@@ -31,6 +31,7 @@ import { userCache } from '$lib/stores/users.svelte';
 import { fireInPageNotification } from '$lib/notifications/inPage';
 import { sounds } from '$lib/sounds/engine';
 import { capabilities } from '$lib/stores/capabilities.svelte';
+import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
@@ -73,6 +74,7 @@ export type ReadyGuild = {
   my_permissions?: string;
   my_role_ids?: string[];
   roles?: RolePayload[];
+  sound_overrides?: { sound_id: string; url: string }[];
 };
 
 type ServerEvent =
@@ -166,6 +168,13 @@ type ServerEvent =
       op: 'permissions_updated';
       allow_guild_creation: boolean;
       allow_member_invites: boolean;
+      guild_sound_max_size_bytes?: number;
+    }
+  | {
+      op: 'guild_sound_updated';
+      guild_id: string;
+      sound_id: string;
+      removed: boolean;
     }
   | { op: 'role_created'; role: RolePayload }
   | { op: 'role_updated'; role: RolePayload }
@@ -398,6 +407,7 @@ export class GatewayConnection {
         // populated here (the hydrate() pass on the REST side does not return
         // roles — they only come from /guilds/{id}/roles or this frame).
         roles.seedFromReady(evt.guilds);
+        guildSounds.seedFromReady(evt.guilds);
         if (evt.dm_channels) directMessages.seed(evt.dm_channels);
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
         voicePresence.seedOverrides(evt.voice_overrides ?? []);
@@ -457,7 +467,7 @@ export class GatewayConnection {
           if (this.subs.has(evt.channel_id)) {
             readState.markRead(evt.channel_id, evt.message_id);
           } else if (!_recentMentions.has(evt.message_id)) {
-            sounds.play('notification.message');
+            sounds.play('notification.message', { guildId: evt.guild_id });
           }
         }
         break;
@@ -528,6 +538,7 @@ export class GatewayConnection {
           }
           for (const id of channelIds) messages.clearChannel(id);
           guilds.remove(evt.guild_id);
+          guildSounds.remove(evt.guild_id);
           for (const h of this.guildDeletedHooks) h(evt.guild_id);
         }
         break;
@@ -556,7 +567,10 @@ export class GatewayConnection {
         if (auth.user && evt.user_id === auth.user.id) {
           // We just joined a guild on another tab / via an invite — re-hydrate
           // so this WS session starts tracking it (voice presence, channel
-          // lifecycle, role list). loadChannels + role fetch are best-effort.
+          // lifecycle, role list, sound overrides). loadChannels + role +
+          // sound fetches are best-effort.
+          guildSounds.ensureSlot(evt.guild_id);
+          void guildSounds.refresh(evt.guild_id);
           void guilds.hydrate().then(() => {
             void guilds.loadChannels(evt.guild_id).catch(() => undefined);
             // Pull the role list + recompute resolved perms — without this
@@ -642,8 +656,19 @@ export class GatewayConnection {
       case 'permissions_updated':
         capabilities.apply({
           allow_guild_creation: evt.allow_guild_creation,
-          allow_member_invites: evt.allow_member_invites
+          allow_member_invites: evt.allow_member_invites,
+          guild_sound_max_size_bytes: evt.guild_sound_max_size_bytes
         });
+        break;
+      case 'guild_sound_updated':
+        // Either side could go silent if we don't refresh promptly — a stale
+        // presigned URL still points at the old MinIO object (deletion
+        // 4xxs) or just expires. Re-fetch the guild's full sound list:
+        // /sounds is cheap (≤13 rows) and gives us all fresh URLs in one
+        // call regardless of how many overrides changed at once.
+        if (guilds.byId[evt.guild_id]) {
+          void guildSounds.refresh(evt.guild_id);
+        }
         break;
       case 'role_created':
       case 'role_updated':
@@ -681,7 +706,7 @@ export class GatewayConnection {
         // Record before the matching channel_bump/dm_bump arrives so the
         // generic sound is suppressed.
         _markRecentMention(message_id);
-        sounds.play('notification.mention');
+        sounds.play('notification.mention', { guildId: guild_id });
         if (this.subs.has(channel_id)) {
           readState.markRead(channel_id, message_id);
         }
@@ -765,7 +790,10 @@ export class GatewayConnection {
       nonce,
       reply_to_id: replyToId ?? null
     });
-    if (queued) sounds.play('ui.send');
+    if (queued) {
+      // DM channel → no guild → falls back to default.
+      sounds.play('ui.send', { guildId: guilds.guildIdForChannel(channelId) });
+    }
     return queued;
   }
 
@@ -780,11 +808,12 @@ export class GatewayConnection {
       const me = auth.user?.id;
       const oldSet = new Set(oldIds);
       const newSet = new Set(newIds);
+      const gid = guilds.guildIdForChannel(channelId);
       for (const uid of newIds) {
-        if (uid !== me && !oldSet.has(uid)) sounds.play('voice.user_join');
+        if (uid !== me && !oldSet.has(uid)) sounds.play('voice.user_join', { guildId: gid });
       }
       for (const uid of oldIds) {
-        if (uid !== me && !newSet.has(uid)) sounds.play('voice.user_leave');
+        if (uid !== me && !newSet.has(uid)) sounds.play('voice.user_leave', { guildId: gid });
       }
     });
   }

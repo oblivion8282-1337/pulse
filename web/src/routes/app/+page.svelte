@@ -8,6 +8,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { roles } from '$lib/stores/roles.svelte';
+  import { guildSounds } from '$lib/stores/guildSounds.svelte';
   import { chatApi } from '$lib/api/chat';
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
@@ -36,12 +37,11 @@
   async function createGuild(name: string) {
     const g = await chatApi.createGuild(name);
     guilds.add(g);
-    // Seed the role-store for the new guild so UI gates see the owner
-    // as having every permission (Owner short-circuits to GRANT_ALL_SAFE
-    // in ``recomputeGuild``). Without this every owner-gated affordance
-    // — invite button, channel create, settings — stays hidden until
-    // the next WS reconnect rebuilds ``ready``.
+    // Seed empty stores for the new guild so per-guild affordances render
+    // immediately as "no overrides yet" / owner-grants-all instead of
+    // staying hidden until the next WS reconnect rebuilds ``ready``.
     roles.recomputeGuild(g.id);
+    guildSounds.ensureSlot(g.id);
     void rolesApi
       .list(g.id)
       .then((rows) => {

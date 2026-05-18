@@ -36,6 +36,7 @@ import {
 } from './windowAudioCapture';
 import { nameFor, userIdFromIdentity } from './identity';
 import { auth } from '$lib/stores/auth.svelte';
+import { guilds } from '$lib/stores/guilds.svelte';
 import { gateway } from '$lib/ws/connection';
 import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
@@ -257,7 +258,7 @@ class VoiceRoom {
     // setDeafened ran (PTT mode + not deafened = both false → no setter fired,
     // but we still want to clear any stale state from a previous session).
     this.#publishSelfState();
-    sounds.play('voice.self_join');
+    sounds.play('voice.self_join', { guildId: guilds.guildIdForChannel(channelId) });
   }
 
   /**
@@ -270,7 +271,7 @@ class VoiceRoom {
   async disconnect(opts: { reason?: 'user' } = {}): Promise<void> {
     const room = this.#room;
     if (!room) return;
-    sounds.play('voice.self_leave');
+    sounds.play('voice.self_leave', { guildId: guilds.guildIdForChannel(this.channelId ?? '') });
     if (opts.reason === 'user') {
       const cid = this.channelId;
       if (cid && auth.user) {
@@ -312,7 +313,9 @@ class VoiceRoom {
     // un-deafen — they've taken ownership of the mic state.
     if (this.deafened) this.#micEnabledBeforeDeafen = false;
     const target = !this.micEnabled;
-    sounds.play(target ? 'voice.self_unmute' : 'voice.self_mute');
+    sounds.play(target ? 'voice.self_unmute' : 'voice.self_mute', {
+      guildId: guilds.guildIdForChannel(this.channelId ?? '')
+    });
     void this.setMicEnabled(target);
   }
 
@@ -352,7 +355,9 @@ class VoiceRoom {
     }
     this.deafened = on;
     this.#audioEls.setDeafened(on);
-    sounds.play(on ? 'voice.self_deafen' : 'voice.self_undeafen');
+    sounds.play(on ? 'voice.self_deafen' : 'voice.self_undeafen', {
+      guildId: guilds.guildIdForChannel(this.channelId ?? '')
+    });
     this.#publishSelfState();
   }
   toggleDeafen(): void {

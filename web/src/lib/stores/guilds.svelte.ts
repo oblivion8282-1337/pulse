@@ -37,6 +37,16 @@ class GuildStore {
     this.byId = { ...this.byId, [guild.id]: { ...existing, ...guild } };
   }
 
+  /** Find the guild containing ``channelId``. Returns ``null`` for DM
+   * channels and unknown ids. Small N (a few guilds × dozens of channels)
+   * → linear scan is fine; no inverse-index bookkeeping. */
+  guildIdForChannel(channelId: string): string | null {
+    for (const [gid, list] of Object.entries(this.channelsByGuild)) {
+      if (list.some((c) => c.id === channelId)) return gid;
+    }
+    return null;
+  }
+
   remove(guildId: string): void {
     if (!this.byId[guildId]) return;
     const nextById = { ...this.byId };

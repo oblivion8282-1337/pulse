@@ -14,6 +14,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { roles } from '$lib/stores/roles.svelte';
+  import { guildSounds } from '$lib/stores/guildSounds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
@@ -230,9 +231,10 @@
   async function createGuild(name: string) {
     const g = await chatApi.createGuild(name);
     guilds.add(g);
-    // Same role-store seeding rationale as in ``/app/+page.svelte`` —
+    // Same role+sound-store seeding rationale as in ``/app/+page.svelte`` —
     // without this the owner's UI gates stay locked until ready rebuilds.
     roles.recomputeGuild(g.id);
+    guildSounds.ensureSlot(g.id);
     void rolesApi
       .list(g.id)
       .then((rows) => {
