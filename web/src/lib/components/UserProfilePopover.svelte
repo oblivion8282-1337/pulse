@@ -21,11 +21,12 @@
   import MicIcon from '@lucide/svelte/icons/mic';
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
+  import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import NicknameDialog from './NicknameDialog.svelte';
   import { chatApi } from '$lib/api/chat';
-  import { setVoiceOverride } from '$lib/api/voice';
+  import { setVoiceOverride, disconnectFromVoice } from '$lib/api/voice';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -150,6 +151,29 @@
       toast.success(next ? `${displayName} stummgeschaltet` : `Stummschaltung aufgehoben`);
     } catch (err) {
       toast.error('Stummschaltung fehlgeschlagen', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      working = false;
+    }
+  }
+
+  let canDisconnectVoice = $derived.by(() => {
+    if (!guildId || isSelf) return false;
+    if (!targetVoiceChannelId) return false;
+    return roles.hasGuildPermission(guildId, Perm.MOVE_MEMBERS);
+  });
+
+  async function disconnectVoice() {
+    if (!canDisconnectVoice || !targetVoiceChannelId || working) return;
+    working = true;
+    try {
+      await disconnectFromVoice(targetVoiceChannelId, userId);
+      toast.success(`${displayName} aus dem Voice-Channel entfernt`);
+      open = false;
+      onAction?.();
+    } catch (err) {
+      toast.error('Trennen aus Voice fehlgeschlagen', {
         description: err instanceof Error ? err.message : String(err)
       });
     } finally {
@@ -312,6 +336,18 @@
                 <HeadphoneOffIcon class="size-4" />
                 <span>Taubschalten</span>
               {/if}
+            </button>
+          {/if}
+          {#if canDisconnectVoice}
+            <button
+              type="button"
+              class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+              onclick={disconnectVoice}
+              disabled={working}
+              data-testid="popover-voice-disconnect-btn"
+            >
+              <PhoneOffIcon class="size-4" />
+              <span>Aus Voice trennen</span>
             </button>
           {/if}
           {#if canKick}

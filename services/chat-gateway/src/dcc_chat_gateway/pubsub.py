@@ -651,6 +651,27 @@ class ConnectionManager:
                     # this channel (force-mute / unmute). Recognise them by the
                     # explicit ``op`` field and broadcast as a dedicated envelope
                     # rather than the snapshot path below.
+                    if payload.get("op") == "voice_disconnect":
+                        voice_cid = str(payload.get("channel_id"))
+                        envelope = {
+                            "op": "voice_disconnect",
+                            "channel_id": voice_cid,
+                            "user_id": str(payload.get("user_id", "")),
+                        }
+                        async with self._lock:
+                            raw_targets = list(self._connections)
+                        targets = await self._filter_by_view_channel(
+                            raw_targets, voice_cid
+                        )
+                        log.info(
+                            "voice:events disconnect channel=%s user=%s targets=%d/%d",
+                            envelope["channel_id"],
+                            envelope["user_id"],
+                            len(targets),
+                            len(raw_targets),
+                        )
+                        await self._fan_out(targets, envelope)
+                        continue
                     if payload.get("op") == "voice_override":
                         voice_cid = str(payload.get("channel_id"))
                         envelope = {

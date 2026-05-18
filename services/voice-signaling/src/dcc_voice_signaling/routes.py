@@ -52,6 +52,7 @@ _PERM_STREAM = 1 << 32
 _PERM_USE_VIDEO = 1 << 33
 _PERM_MUTE_MEMBERS = 1 << 34
 _PERM_DEAFEN_MEMBERS = 1 << 35
+_PERM_MOVE_MEMBERS = 1 << 36
 
 # Redis: ``voice:events`` pub/sub topic chat-gateway already subscribes to.
 # Same constant the webhook module uses; duplicated locally to keep the
@@ -272,6 +273,43 @@ def _apply_override(sources: list[str], can_publish: bool, override: dict) -> tu
         return can_publish, sources
     filtered = [s for s in sources if s != "microphone"]
     return bool(filtered), filtered
+
+
+async def _livekit_remove_participant(channel_id: str, user_id: str) -> None:
+    """Best-effort: kick the (channel, user) out of their LiveKit room.
+
+    Same swallow-on-failure pattern as ``_livekit_update_participant`` —
+    if the participant isn't connected we still want the route to
+    succeed (the WS event still fires so the client can drop voice
+    state). Module-level so tests can monkeypatch."""
+    settings = get_settings()
+    if not settings.livekit_api_key or not settings.livekit_api_secret:
+        return
+    host = settings.livekit_url.replace("wss://", "https://").replace(
+        "ws://", "http://"
+    )
+    api_client = lk.LiveKitAPI(
+        host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
+    )
+    try:
+        await api_client.room.remove_participant(
+            lk.RoomParticipantIdentity(
+                room=_room_for_channel(channel_id),
+                identity=f"user-{user_id}",
+            )
+        )
+    except Exception:  # noqa: BLE001 — participant offline / server down
+        log.info(
+            "livekit remove_participant failed for channel=%s user=%s",
+            channel_id,
+            user_id,
+            exc_info=True,
+        )
+    finally:
+        try:
+            await api_client.aclose()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def _livekit_update_participant(
@@ -511,3 +549,57 @@ async def set_voice_override(
         ),
     )
     return {"muted": next_state["muted"], "deafened": next_state["deafened"]}
+
+
+@router.post("/channels/{channel_id}/members/{user_id}/voice-disconnect")
+async def disconnect_from_voice(
+    channel_id: str,
+    user_id: str,
+    caller: CurrentUser,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, bool]:
+    """Force a participant out of a voice channel. Requires
+    ``MOVE_MEMBERS`` (Discord uses the same bit for moving + kicking
+    from voice — Pulse-v1 only supports the kick variant; "move to
+    another channel" can land later).
+
+    Implementation:
+      * LiveKit ``remove_participant`` (best-effort — silent if the
+        target isn't currently connected);
+      * also clear any active voice-override for the (channel, user)
+        pair so the target isn't still locked when they re-join;
+      * publish ``voice_disconnect`` on ``voice:events`` so the
+        target's own client can drop its local voice state without
+        waiting for the LiveKit ParticipantLeft webhook.
+    """
+    if user_id == str(caller.id):
+        raise HTTPException(400, detail="cannot disconnect yourself via the admin endpoint")
+    bearer = _bearer_from_header(authorization)
+    await _require_voice_channel_member(channel_id, bearer)
+    perms = await _resolve_channel_permissions(channel_id, bearer)
+    if not (perms & _PERM_MOVE_MEMBERS):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="missing permission: MOVE_MEMBERS"
+        )
+
+    redis = _get_redis(request)
+    if redis is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
+        )
+
+    await _livekit_remove_participant(channel_id, user_id)
+    await _clear_override(redis, channel_id, user_id)
+
+    await redis.publish(
+        _VOICE_EVENTS_CHANNEL,
+        json.dumps(
+            {
+                "op": "voice_disconnect",
+                "channel_id": channel_id,
+                "user_id": user_id,
+            }
+        ),
+    )
+    return {"disconnected": True}

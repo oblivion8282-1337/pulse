@@ -34,3 +34,16 @@ export function setVoiceOverride(
     { method: 'PUT', body: patch, endpoint: 'voice' }
   );
 }
+
+/** Kick the participant out of the voice channel. Requires
+ * ``MOVE_MEMBERS``. Best-effort — LiveKit silently no-ops if the user
+ * isn't currently connected. The override (if any) is cleared. */
+export function disconnectFromVoice(
+  channelId: string,
+  userId: string
+): Promise<{ disconnected: boolean }> {
+  return request<{ disconnected: boolean }>(
+    `/channels/${channelId}/members/${userId}/voice-disconnect`,
+    { method: 'POST', endpoint: 'voice' }
+  );
+}

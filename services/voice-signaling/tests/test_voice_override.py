@@ -32,6 +32,7 @@ _PERM_USE_VIDEO = 1 << 33
 _PERM_STREAM = 1 << 32
 _PERM_MUTE_MEMBERS = 1 << 34
 _PERM_DEAFEN_MEMBERS = 1 << 35
+_PERM_MOVE_MEMBERS = 1 << 36
 
 
 def _make_voice_channel_mock(perms_bf: int):
@@ -389,3 +390,107 @@ async def test_token_without_override_grants_microphone(
     grants = json.loads(base64.urlsafe_b64decode(body)).get("video", {})
     sources = grants.get("canPublishSources") or []
     assert "microphone" in sources
+
+
+# ---- voice-disconnect (MOVE_MEMBERS) -------------------------------------
+
+
+@pytest_asyncio.fixture
+def _stub_livekit_remove(monkeypatch):
+    """The disconnect endpoint calls LiveKit room-service.remove_participant;
+    swap it for a recorder."""
+    calls: list[dict] = []
+
+    async def _noop(channel_id, user_id):
+        calls.append({"channel_id": channel_id, "user_id": user_id})
+
+    monkeypatch.setattr(voice_routes, "_livekit_remove_participant", _noop)
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_disconnect_requires_move_members(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_remove
+):
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    # Only MUTE_MEMBERS — not enough.
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/channels/987654321/members/99/voice-disconnect",
+        headers=auth(access),
+    )
+    assert r.status_code == 403
+    assert _stub_livekit_remove == []
+
+
+@pytest.mark.asyncio
+async def test_disconnect_rejects_self(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_remove
+):
+    client, _redis = app_with_redis
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MOVE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/channels/987654321/members/42/voice-disconnect",
+        headers=auth(access),
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_disconnect_calls_livekit_clears_override_and_publishes(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_remove
+):
+    client, redis = app_with_redis
+    # Pre-seed an override so we can verify it's cleared.
+    await redis.set(
+        "voice:override:channel-987654321:user-99",
+        json.dumps({"muted": True, "deafened": False}),
+    )
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MOVE_MEMBERS),
+    )
+    pubsub = redis.pubsub()
+    await pubsub.subscribe("voice:events")
+    await pubsub.get_message(timeout=1.0)
+
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.post(
+        "/channels/987654321/members/99/voice-disconnect",
+        headers=auth(access),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"disconnected": True}
+
+    # LiveKit was asked to remove the participant.
+    assert _stub_livekit_remove == [{"channel_id": "987654321", "user_id": "99"}]
+    # Override was cleared.
+    assert await redis.get("voice:override:channel-987654321:user-99") is None
+    # voice:events broadcast.
+    msg = await pubsub.get_message(timeout=1.0, ignore_subscribe_messages=True)
+    assert msg is not None
+    payload = json.loads(msg["data"].decode())
+    assert payload == {
+        "op": "voice_disconnect",
+        "channel_id": "987654321",
+        "user_id": "99",
+    }
+    await pubsub.unsubscribe("voice:events")
+    await pubsub.aclose()

@@ -133,6 +133,11 @@ type ServerEvent =
       muted: boolean;
       deafened: boolean;
     }
+  | {
+      op: 'voice_disconnect';
+      channel_id: string;
+      user_id: string;
+    }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
   | {
       op: 'stream_chat_message';
@@ -529,6 +534,20 @@ export class GatewayConnection {
           evt.user_states
         );
         break;
+      case 'voice_disconnect': {
+        // Server admin yanked someone out of voice. If that's us in the
+        // channel we're connected to, drop the LiveKit room locally —
+        // LiveKit may have already removed the participant, but the
+        // explicit disconnect ensures our UI state catches up
+        // immediately instead of waiting for the close event.
+        if (auth.user?.id === evt.user_id) {
+          void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+            if (voice.channelId !== evt.channel_id) return;
+            void voice.disconnect();
+          });
+        }
+        break;
+      }
       case 'voice_override': {
         voicePresence.applyOverride(
           evt.channel_id,
