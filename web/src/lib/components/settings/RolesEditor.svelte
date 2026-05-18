@@ -14,6 +14,8 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
+  import ChevronUpIcon from '@lucide/svelte/icons/chevron-up';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import { toast } from 'svelte-sonner';
   import { rolesApi, type Role } from '$lib/api/roles';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
@@ -49,6 +51,22 @@
     dragOverId = id;
   }
 
+  /** Push the new order to the server. Top-of-list = highest position
+   * so the visual order matches Discord's "highest role = top" mental
+   * model. Both onDrop and move() funnel through here. */
+  async function commitOrder(reordered: Role[]): Promise<void> {
+    const updates = reordered.map((r, i) => ({
+      id: r.id,
+      position: reordered.length - i
+    }));
+    try {
+      const rows = await rolesApi.setPositions(guildId, updates);
+      for (const r of rows) rolesStore.upsertRole(r);
+    } catch (err) {
+      toast.error('Reihenfolge ändern fehlgeschlagen', { description: (err as Error).message });
+    }
+  }
+
   async function onDrop(e: DragEvent, targetId: string): Promise<void> {
     e.preventDefault();
     const sourceId = dragId;
@@ -62,18 +80,22 @@
     const reordered = [...nonEveryone];
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
-    // First element (top of the list) gets the highest position so the
-    // visual order matches Discord's "highest role = top" mental model.
-    const updates = reordered.map((r, i) => ({
-      id: r.id,
-      position: reordered.length - i
-    }));
-    try {
-      const rows = await rolesApi.setPositions(guildId, updates);
-      for (const r of rows) rolesStore.upsertRole(r);
-    } catch (err) {
-      toast.error('Reihenfolge ändern fehlgeschlagen', { description: (err as Error).message });
-    }
+    await commitOrder(reordered);
+  }
+
+  /** Move a role one slot up (-1) or down (+1) in the visual list.
+   * Used by the touch/keyboard fallback buttons — drag-and-drop is
+   * still the primary path on desktop. @everyone is locked at the
+   * bottom; swaps that would cross it are no-ops. */
+  async function move(roleId: string, direction: -1 | 1): Promise<void> {
+    const nonEveryone = sortedRoles.filter((r) => !r.is_everyone);
+    const idx = nonEveryone.findIndex((r) => r.id === roleId);
+    if (idx < 0) return;
+    const target = idx + direction;
+    if (target < 0 || target >= nonEveryone.length) return;
+    const reordered = [...nonEveryone];
+    [reordered[idx], reordered[target]] = [reordered[target], reordered[idx]];
+    await commitOrder(reordered);
   }
 
   // Local edit buffer — the user changes name/permissions/color before
@@ -149,14 +171,18 @@
       </Button>
     </div>
     <ul class="space-y-1">
-      {#each sortedRoles as r (r.id)}
+      {#each sortedRoles as r, idx (r.id)}
+        {@const nonEveryoneList = sortedRoles.filter((x) => !x.is_everyone)}
+        {@const localIdx = nonEveryoneList.findIndex((x) => x.id === r.id)}
+        {@const isFirst = localIdx === 0}
+        {@const isLast = localIdx === nonEveryoneList.length - 1}
         <li
           draggable={!r.is_everyone}
           ondragstart={(e) => !r.is_everyone && onDragStart(e, r.id)}
           ondragover={(e) => !r.is_everyone && onDragOver(e, r.id)}
           ondragleave={() => (dragOverId = null)}
           ondrop={(e) => !r.is_everyone && onDrop(e, r.id)}
-          class="rounded-lg transition-shadow"
+          class="flex items-center gap-1 rounded-lg pr-1 transition-shadow"
           class:ring-2={dragOverId === r.id}
           class:ring-primary={dragOverId === r.id}
           class:opacity-50={dragId === r.id}
@@ -164,7 +190,7 @@
         >
           <button
             type="button"
-            class="hover:bg-bg-hover w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
+            class="hover:bg-bg-hover flex-1 rounded-lg px-3 py-2 text-left text-sm transition-colors"
             class:bg-bg-hover={selectedId === r.id}
             onclick={() => (selectedId = r.id)}
           >
@@ -173,11 +199,35 @@
             </span>
             {#if r.is_everyone}<span class="text-text-muted ml-1 text-xs">(implizit)</span>{/if}
           </button>
+          {#if !r.is_everyone}
+            <div class="flex flex-col">
+              <button
+                type="button"
+                class="hover:bg-bg-hover rounded p-0.5 disabled:opacity-30"
+                disabled={isFirst}
+                onclick={() => move(r.id, -1)}
+                aria-label="Eine Position höher"
+                data-testid={`role-move-up-${r.id}`}
+              >
+                <ChevronUpIcon class="size-3" />
+              </button>
+              <button
+                type="button"
+                class="hover:bg-bg-hover rounded p-0.5 disabled:opacity-30"
+                disabled={isLast}
+                onclick={() => move(r.id, 1)}
+                aria-label="Eine Position tiefer"
+                data-testid={`role-move-down-${r.id}`}
+              >
+                <ChevronDownIcon class="size-3" />
+              </button>
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>
     <p class="text-text-muted mt-2 text-xs">
-      Ziehen zum Umordnen. Obere Position = mächtigere Rolle.
+      Ziehen oder mit Pfeil-Buttons umordnen. Obere Position = mächtigere Rolle.
     </p>
   </aside>
 
