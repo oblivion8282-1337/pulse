@@ -206,3 +206,30 @@ class LoginMfaPending(BaseModel):
 
     requires_totp: Literal[True] = True
     mfa_ticket: str
+
+
+# ---- Active sessions / refresh-token introspection ---------------------
+
+
+class SessionOut(BaseModel):
+    """One active refresh-token row, surfaced to the owner's UI.
+
+    ``id`` is the refresh-token's ``jti`` UUID rendered as its canonical
+    string form (matches the rest of the auth API where DB IDs cross the
+    wire as strings). ``ip_hash_prefix`` is the first 8 hex chars of the
+    full SHA-256 — enough for the UI to diff "same source" between
+    sessions without exposing more of the hash than needed.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    user_agent: str | None = None
+    created_at: datetime
+    last_used_at: datetime | None = None
+    is_current: bool = False
+    ip_hash_prefix: str | None = None
+
+
+class SessionsRevokeAllOut(BaseModel):
+    revoked_count: int

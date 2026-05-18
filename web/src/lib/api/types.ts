@@ -147,3 +147,23 @@ export type ApiError = {
   detail: string;
   status: number;
 };
+
+/**
+ * One refresh-token "session" — a long-lived login on a single device/browser.
+ * Mirrors `SessionOut` from the auth service: `is_current` is a server-side
+ * heuristic (matches the current request's UA + IP-hash prefix), so the
+ * frontend treats it as advisory only.
+ *
+ * `ip_hash_prefix` is the first 8 chars of SHA-256(ip + server-pepper) —
+ * stable for a given network location, but not reversible. Two sessions
+ * sharing the same prefix are *probably* from the same network (home wifi vs
+ * mobile vs office), useful as a "is this me?" sanity-check signal.
+ */
+export interface Session {
+  id: string;
+  user_agent: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  is_current: boolean;
+  ip_hash_prefix: string | null;
+}

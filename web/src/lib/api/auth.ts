@@ -1,6 +1,6 @@
 import { request, requestForm, resetRefreshLock } from './client';
 import { saveTokens } from './storage';
-import type { Tokens, User } from './types';
+import type { Session, Tokens, User } from './types';
 
 /**
  * The /login endpoint returns one of two shapes:
@@ -181,6 +181,29 @@ export async function totpBackupRegenerate(password: string, code: string): Prom
   return request<BackupCodes>('/totp/backup-codes/regenerate', {
     method: 'POST',
     body: { password, code },
+    endpoint: 'auth'
+  });
+}
+
+// --- active sessions --------------------------------------------------------
+
+/** List all active refresh-token sessions for the current user. The server
+ *  marks one as `is_current: true` via UA + IP-hash heuristic. */
+export async function listSessions(): Promise<Session[]> {
+  return request<Session[]>('/sessions', { endpoint: 'auth' });
+}
+
+/** Revoke a single session by id. Server returns 204 on success, 404 if the
+ *  session belongs to someone else (defense in depth — should not happen). */
+export async function revokeSession(id: string): Promise<void> {
+  await request<void>(`/sessions/${id}`, { method: 'DELETE', endpoint: 'auth' });
+}
+
+/** Revoke every session except the current one. Returns the count for the
+ *  toast — useful as both UX feedback and a sanity check. */
+export async function revokeOtherSessions(): Promise<{ revoked_count: number }> {
+  return request<{ revoked_count: number }>('/sessions', {
+    method: 'DELETE',
     endpoint: 'auth'
   });
 }

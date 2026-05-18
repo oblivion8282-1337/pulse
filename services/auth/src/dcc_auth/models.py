@@ -156,6 +156,15 @@ class RefreshToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SHA-256 hex of the client IP at issue / last-refresh time. Storing the
+    # hash (not the IP) keeps the table DSGVO-friendly while still letting the
+    # /sessions list surface a "same source as your current session?" hint to
+    # the user via a short prefix exposed to the API.
+    ip_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Updated on every successful /refresh for the newly-rotated row, so the
+    # sessions UI can show real liveness. The old (revoked) row keeps its
+    # original value as an audit trail.
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index(
@@ -163,6 +172,7 @@ class RefreshToken(Base):
             "user_id",
             postgresql_where="revoked_at IS NULL",
         ),
+        Index("ix_refresh_tokens_user_revoked", "user_id", "revoked_at"),
     )
 
 

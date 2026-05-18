@@ -43,6 +43,7 @@ from dcc_auth.recovery import (
 from dcc_auth.routes import (
     _check_rate,
     _get_current_user,
+    _hash_ip,
     _issue_tokens,
     _signer_dep,
 )
@@ -253,7 +254,9 @@ async def login_totp(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid code")
 
     user_agent = request.headers.get("user-agent")
-    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    tokens = await _issue_tokens(
+        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
+    )
     await session.commit()
     return tokens
 

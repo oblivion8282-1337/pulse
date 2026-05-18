@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import uuid
 from datetime import UTC, datetime
 
@@ -50,20 +51,37 @@ async def _issue_tokens(
     *,
     signer: JwtSigner,
     user_agent: str | None,
+    ip_hash: str | None = None,
 ) -> TokensOut:
     settings = get_settings()
     access = signer.issue_access(user.id, user.username, is_admin=user.is_admin)
     refresh, jti, exp_ts = signer.issue_refresh(user.id)
+    # ``last_used_at`` starts at issue time so the sessions list can sort
+    # consistently by liveness; ``/refresh`` keeps it fresh on every rotation.
+    now = datetime.now(tz=UTC)
     rt = RefreshToken(
         jti=jti,
         user_id=user.id,
         expires_at=datetime.fromtimestamp(exp_ts, tz=UTC),
-        user_agent=(user_agent or None),
+        user_agent=(user_agent[:1000] if user_agent else None),
+        ip_hash=ip_hash,
+        last_used_at=now,
     )
     session.add(rt)
     await session.flush()
     _ = settings  # silence unused
     return TokensOut(access_token=access, refresh_token=refresh)
+
+
+def _hash_ip(request: Request) -> str:
+    """SHA-256 hex of the effective client IP (XFF-aware, see ``_client_ip``).
+
+    The raw IP is never persisted — only this hash. Comparing the hash with
+    the current request's hash on subsequent calls lets the ``/sessions``
+    list flag a session as "the one you're using right now" without ever
+    exposing the address itself.
+    """
+    return hashlib.sha256(_client_ip(request).encode("utf-8")).hexdigest()
 
 
 async def _get_current_user(
@@ -145,7 +163,9 @@ async def register(
     if user_count == 1:
         user.is_admin = True
 
-    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    tokens = await _issue_tokens(
+        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
+    )
     await session.commit()
     return tokens
 
@@ -191,7 +211,9 @@ async def login(
         ticket = issue_mfa_ticket(signer, user.id, settings.mfa_ticket_ttl_seconds)
         return LoginMfaPending(mfa_ticket=ticket)
 
-    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    tokens = await _issue_tokens(
+        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
+    )
     await session.commit()
     return tokens
 
@@ -199,6 +221,7 @@ async def login(
 @router.post("/refresh", response_model=TokensOut)
 async def refresh(
     payload: RefreshIn,
+    request: Request,
     session: SessionDep,
     signer: JwtSigner = Depends(_signer_dep),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
@@ -248,9 +271,13 @@ async def refresh(
         await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
 
-    # Rotate: revoke old, issue new — only now that the row is locked.
+    # Rotate: revoke old, issue new — only now that the row is locked. The
+    # rotated-out row keeps its original ``last_used_at`` (audit trail); the
+    # newly-issued row gets a fresh stamp inside ``_issue_tokens``.
     rt.revoked_at = now
-    tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
+    tokens = await _issue_tokens(
+        session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
+    )
     await session.commit()
     return tokens
 

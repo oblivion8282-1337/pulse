@@ -2,9 +2,10 @@
   /**
    * "Sicherheit"-Tab in den Settings.
    *
-   * Heute nur 2FA / TOTP — Email-Verifikation läuft über den Banner im
-   * Layout, Passwort-Reset über die unauthenticated-Routes. Wenn später
-   * Sessions-Management oder Connected-Apps dazukommen, ist hier der Platz.
+   * Enthält 2FA / TOTP-Management + Active-Sessions-Liste. Email-Verifikation
+   * läuft über den Banner im Layout, Passwort-Reset über die unauthenticated-
+   * Routes. Wenn weitere Bausteine dazukommen (Connected-Apps etc.), als
+   * eigene Section unter den bestehenden einreihen.
    *
    * Der Tab liest `auth.user.totp_enabled` — Backend liefert das im
    * `/me`-Response; bei Legacy-Usern (Feld fehlt) interpretieren wir das
@@ -16,6 +17,7 @@
   import TotpEnableDialog from './TotpEnableDialog.svelte';
   import TotpDisableDialog from './TotpDisableDialog.svelte';
   import TotpBackupRegenerateDialog from './TotpBackupRegenerateDialog.svelte';
+  import SessionsSection from './SessionsSection.svelte';
 
   let enableOpen = $state(false);
   let disableOpen = $state(false);
@@ -85,6 +87,8 @@
       </div>
     {/if}
   </section>
+
+  <SessionsSection />
 </div>
 
 <TotpEnableDialog bind:open={enableOpen} />

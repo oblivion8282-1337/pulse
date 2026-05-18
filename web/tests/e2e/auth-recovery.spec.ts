@@ -73,3 +73,106 @@ test.describe('account recovery flows', () => {
     await expect(page.getByTestId('verify-email-error')).toBeVisible({ timeout: 5_000 });
   });
 });
+
+test.describe('active sessions UI', () => {
+  // The /sessions endpoints may not exist in the auth-service yet at the time
+  // this UI lands (parallel backend work). We mock them at the network layer
+  // so the test is independent of the backend contract — only verifying the
+  // frontend renders + dispatches the right requests.
+  test('settings → security tab lists sessions and revokes one', async ({ page }) => {
+    const ts = Date.now();
+    const username = `sess_${ts}`;
+    const email = `${username}@dcc-test.example.com`;
+    const password = 'sup3r-secret-pass';
+
+    // Two mock sessions: the current one (with badge) + one stale.
+    const STALE_ID = '900000000000000001';
+    const CURRENT_ID = '900000000000000002';
+    let listCalls = 0;
+    let revokedSingleId: string | null = null;
+
+    await page.route('**/api/auth/sessions', async (route) => {
+      const method = route.request().method();
+      if (method === 'GET') {
+        listCalls++;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            {
+              id: CURRENT_ID,
+              user_agent:
+                'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              created_at: new Date(Date.now() - 60 * 1000).toISOString(),
+              last_used_at: new Date(Date.now() - 5 * 1000).toISOString(),
+              is_current: true,
+              ip_hash_prefix: 'a1b2c3d4'
+            },
+            {
+              id: STALE_ID,
+              user_agent:
+                'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 Version/16.0 Mobile/15E148 Safari/604.1',
+              created_at: new Date(Date.now() - 5 * 24 * 3600 * 1000).toISOString(),
+              last_used_at: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
+              is_current: false,
+              ip_hash_prefix: 'e5f6a7b8'
+            }
+          ])
+        });
+        return;
+      }
+      // DELETE all-but-current
+      if (method === 'DELETE') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ revoked_count: 1 })
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    await page.route(`**/api/auth/sessions/${STALE_ID}`, async (route) => {
+      if (route.request().method() === 'DELETE') {
+        revokedSingleId = STALE_ID;
+        await route.fulfill({ status: 204 });
+        return;
+      }
+      await route.continue();
+    });
+
+    // Register a real user so the app reaches /app and the settings dialog
+    // is mountable. We're not testing the auth flow here — just need a
+    // logged-in shell.
+    await page.goto('/register');
+    await page.getByTestId('reg-username').fill(username);
+    await page.getByTestId('reg-email').fill(email);
+    await page.getByTestId('reg-password').fill(password);
+    await page.getByTestId('reg-submit').click();
+    await page.waitForURL(/\/app/);
+
+    // Open user-footer menu → Settings → Security tab.
+    await page.getByTestId('open-settings').click();
+    await expect(page.getByTestId('settings-dialog')).toBeVisible();
+    await page.getByTestId('settings-tab-security').click();
+
+    // Sessions section appears + both rows rendered.
+    const section = page.getByTestId('sessions-section');
+    await expect(section).toBeVisible();
+    await expect(page.getByTestId('sessions-list')).toBeVisible({ timeout: 5_000 });
+    await expect(page.getByTestId('session-row')).toHaveCount(2);
+
+    // The current-session row carries the badge + no revoke button.
+    const currentRow = page.locator(`[data-session-id="${CURRENT_ID}"]`);
+    await expect(currentRow.getByTestId('session-current-badge')).toBeVisible();
+    await expect(currentRow.getByTestId('session-revoke')).toHaveCount(0);
+
+    // The stale row exposes the revoke button — click + assert request fired.
+    const staleRow = page.locator(`[data-session-id="${STALE_ID}"]`);
+    await staleRow.getByTestId('session-revoke').click();
+    await expect(staleRow).toHaveCount(0, { timeout: 3_000 });
+    expect(revokedSingleId).toBe(STALE_ID);
+    expect(listCalls).toBeGreaterThan(0);
+  });
+});
