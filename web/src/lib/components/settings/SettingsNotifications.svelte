@@ -183,21 +183,5 @@
       />
     </label>
 
-    <label class="flex items-center justify-between gap-3 text-sm">
-      <span class="flex flex-col">
-        <span class="text-text-bright">Ton abspielen</span>
-        <span class="text-text-muted text-xs">
-          Spielt einen kurzen Ton bei In-App-Notifications ab. (Demnächst.)
-        </span>
-      </span>
-      <input
-        type="checkbox"
-        class="size-4 accent-[var(--brand)]"
-        checked={settings.notifications.soundEnabled}
-        onchange={(e) =>
-          settings.setNotifySoundEnabled((e.currentTarget as HTMLInputElement).checked)}
-        data-testid="notifications-sound"
-      />
-    </label>
   </section>
 </div>

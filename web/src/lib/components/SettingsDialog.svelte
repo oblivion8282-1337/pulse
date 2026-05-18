@@ -4,15 +4,23 @@
   import SettingsAudioVideo from './settings/SettingsAudioVideo.svelte';
   import SettingsScreenShare from './settings/SettingsScreenShare.svelte';
   import SettingsNotifications from './settings/SettingsNotifications.svelte';
+  import SettingsSounds from './settings/SettingsSounds.svelte';
   import SettingsSecurity from './settings/SettingsSecurity.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import BellIcon from '@lucide/svelte/icons/bell';
+  import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 
-  type SettingsTab = 'appearance' | 'audio-video' | 'screen-share' | 'notifications' | 'security';
+  type SettingsTab =
+    | 'appearance'
+    | 'audio-video'
+    | 'screen-share'
+    | 'notifications'
+    | 'sounds'
+    | 'security';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -41,6 +49,7 @@
     { id: 'audio-video', label: 'Sprache & Video', icon: MicIcon },
     { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon },
     { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon },
+    { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
     { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
   ];
 
@@ -110,6 +119,8 @@
           <SettingsScreenShare />
         {:else if activeTab === 'notifications'}
           <SettingsNotifications />
+        {:else if activeTab === 'sounds'}
+          <SettingsSounds />
         {:else}
           <SettingsSecurity />
         {/if}

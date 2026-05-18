@@ -1,5 +1,12 @@
 import type { VideoCodec } from 'livekit-client';
 import { setMode } from 'mode-watcher';
+import {
+  DEFAULT_SOUNDS,
+  clampSoundVolume,
+  parseSounds,
+  type SoundCategoryKey,
+  type SoundsSettings
+} from '$lib/sounds/persistence';
 
 // --- screen-share types (kept identical to the previous screenShareSettings) ---
 
@@ -103,12 +110,13 @@ type StreamChatSettings = {
  *  on permission-denied the flag flips back to false so the UI stays honest.
  *  Sub-toggles gate the local in-page fallback path (Service-Worker pushes
  *  are server-driven and not filtered client-side — the server respects
- *  per-user prefs sent via the subscribe call once that endpoint exists). */
+ *  per-user prefs sent via the subscribe call once that endpoint exists).
+ *  Sound playback used to live here as `soundEnabled`; that flag was split
+ *  into the dedicated `sounds` block — migration in `parseSounds()`. */
 type NotificationSettings = {
   browserPushEnabled: boolean;
   onMention: boolean;
   onDM: boolean;
-  soundEnabled: boolean;
 };
 
 type PersistedSettings = {
@@ -118,6 +126,7 @@ type PersistedSettings = {
   streamChat: StreamChatSettings;
   appearance: AppearanceSettings;
   notifications: NotificationSettings;
+  sounds: SoundsSettings;
 };
 
 const DEFAULTS: PersistedSettings = {
@@ -158,9 +167,9 @@ const DEFAULTS: PersistedSettings = {
     // once the user opts in, mentions + DMs both alert by default.
     browserPushEnabled: false,
     onMention: true,
-    onDM: true,
-    soundEnabled: false
-  }
+    onDM: true
+  },
+  sounds: { ...DEFAULT_SOUNDS }
 };
 
 function clampBitrate(v: unknown): number {
@@ -257,8 +266,7 @@ function parseNotifications(
   return {
     browserPushEnabled: bool(p.browserPushEnabled, d.browserPushEnabled),
     onMention: bool(p.onMention, d.onMention),
-    onDM: bool(p.onDM, d.onDM),
-    soundEnabled: bool(p.soundEnabled, d.soundEnabled)
+    onDM: bool(p.onDM, d.onDM)
   };
 }
 
@@ -274,13 +282,17 @@ function load(): PersistedSettings {
         screenShare: parseScreenShare(legacy),
         streamChat: { ...DEFAULTS.streamChat },
         appearance: { ...DEFAULTS.appearance },
-        notifications: { ...DEFAULTS.notifications }
+        notifications: { ...DEFAULTS.notifications },
+        sounds: parseSounds(null, undefined)
       };
     }
-    const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
+    const parsed = JSON.parse(raw) as Partial<PersistedSettings> & {
+      notifications?: { soundEnabled?: boolean };
+    };
     const a = (parsed.audio ?? {}) as Partial<AudioSettings>;
     const v = (parsed.voice ?? {}) as Partial<VoiceSettings>;
     const ap = (parsed.appearance ?? {}) as Partial<AppearanceSettings>;
+    const legacySoundEnabled = parsed.notifications?.soundEnabled;
     const da = DEFAULTS.audio;
     const dv = DEFAULTS.voice;
     return {
@@ -314,7 +326,8 @@ function load(): PersistedSettings {
       screenShare: parseScreenShare(parsed.screenShare),
       streamChat: parseStreamChat(parsed.streamChat),
       appearance: { theme: parseTheme(ap.theme) },
-      notifications: parseNotifications(parsed.notifications)
+      notifications: parseNotifications(parsed.notifications),
+      sounds: parseSounds(parsed.sounds, legacySoundEnabled)
     };
   } catch {
     return {
@@ -323,7 +336,8 @@ function load(): PersistedSettings {
       screenShare: { ...DEFAULTS.screenShare },
       streamChat: { ...DEFAULTS.streamChat },
       appearance: { ...DEFAULTS.appearance },
-      notifications: { ...DEFAULTS.notifications }
+      notifications: { ...DEFAULTS.notifications },
+      sounds: parseSounds(null, undefined)
     };
   }
 }
@@ -335,6 +349,7 @@ class SettingsStore {
   streamChat = $state<StreamChatSettings>({ ...DEFAULTS.streamChat });
   appearance = $state<AppearanceSettings>({ ...DEFAULTS.appearance });
   notifications = $state<NotificationSettings>({ ...DEFAULTS.notifications });
+  sounds = $state<SoundsSettings>({ ...DEFAULT_SOUNDS });
 
   /** True if a legacy `dcc.screenShareSettings` key was migrated and can be cleared. */
   #legacyMigrated = false;
@@ -347,6 +362,7 @@ class SettingsStore {
     this.streamChat = s.streamChat;
     this.appearance = s.appearance;
     this.notifications = s.notifications;
+    this.sounds = s.sounds;
     if (typeof localStorage !== 'undefined') {
       this.#legacyMigrated =
         localStorage.getItem(STORAGE_KEY) === null && localStorage.getItem(LEGACY_SCREENSHARE_KEY) !== null;
@@ -370,7 +386,8 @@ class SettingsStore {
           screenShare: this.screenShare,
           streamChat: this.streamChat,
           appearance: this.appearance,
-          notifications: this.notifications
+          notifications: this.notifications,
+          sounds: this.sounds
         })
       );
       if (this.#legacyMigrated) {
@@ -532,8 +549,25 @@ class SettingsStore {
     this.#persist();
   }
 
-  setNotifySoundEnabled(v: boolean): void {
-    this.notifications.soundEnabled = v;
+  // --- sounds setters ---
+
+  setSoundsMasterEnabled(v: boolean): void {
+    this.sounds.masterEnabled = v;
+    this.#persist();
+  }
+
+  setSoundsMasterVolume(v: number): void {
+    this.sounds.masterVolume = clampSoundVolume(v);
+    this.#persist();
+  }
+
+  setSoundCategoryEnabled(cat: SoundCategoryKey, v: boolean): void {
+    this.sounds[cat].enabled = v;
+    this.#persist();
+  }
+
+  setSoundCategoryVolume(cat: SoundCategoryKey, v: number): void {
+    this.sounds[cat].volume = clampSoundVolume(v);
     this.#persist();
   }
 
