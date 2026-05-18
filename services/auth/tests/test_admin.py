@@ -194,11 +194,16 @@ async def test_patch_user_disable_revokes_refresh_tokens(
 
 @pytest.mark.asyncio
 async def test_patch_user_disable_self_blocked(client, admin_token, session_factory):
-    alice_id = (
-        await (await _open(session_factory)).execute(
-            select(User.id).where(User.username == "alice")
-        )
-    ).scalar_one()
+    # NB: use ``async with`` (not ``_open``) — the SQLite ``:memory:`` StaticPool
+    # is single-connection, and a non-context-managed session gets GC-cleaned
+    # mid-test on CPython 3.13, terminating the only connection. CI then sees
+    # "no such table: users" on the next checkout. Other ``_open`` sites pass
+    # on a different code path; the symptom is the disable-self assertion which
+    # re-loads the actor user from the same connection.
+    async with session_factory() as s:
+        alice_id = (
+            await s.execute(select(User.id).where(User.username == "alice"))
+        ).scalar_one()
     headers = {"Authorization": f"Bearer {admin_token}"}
     r = await client.patch(
         f"/admin/users/{alice_id}", json={"disabled": True}, headers=headers
