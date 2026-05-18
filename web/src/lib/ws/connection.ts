@@ -114,6 +114,13 @@ type ServerEvent =
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
   | { op: 'guild_member_removed'; guild_id: string; user_id: string }
   | {
+      op: 'guild_ban_added';
+      guild_id: string;
+      user_id: string;
+      reason?: string | null;
+    }
+  | { op: 'guild_ban_removed'; guild_id: string; user_id: string }
+  | {
       op: 'guild_member_updated';
       guild_id: string;
       user_id: string;
@@ -334,6 +341,8 @@ export class GatewayConnection {
       evt.op !== 'channel_permissions_updated' &&
       evt.op !== 'guild_member_updated' &&
       evt.op !== 'guild_member_removed' &&
+      evt.op !== 'guild_ban_added' &&
+      evt.op !== 'guild_ban_removed' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);

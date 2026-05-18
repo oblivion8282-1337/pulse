@@ -13,7 +13,7 @@ from dcc_chat_gateway.models.channels import (
     Channel,
     DirectMessageChannel,
 )
-from dcc_chat_gateway.models.guilds import Guild, GuildInvite, GuildMember
+from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
 from dcc_chat_gateway.models.messages import (
     Message,
     MessageAttachment,
@@ -29,6 +29,7 @@ __all__ = [
     "ChatSettings",
     "DirectMessageChannel",
     "Guild",
+    "GuildBan",
     "GuildInvite",
     "GuildMember",
     "MemberRole",

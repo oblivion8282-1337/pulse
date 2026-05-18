@@ -246,6 +246,26 @@ class MemberOut(BaseModel):
         return _id_str(v)
 
 
+class BanIn(BaseModel):
+    """Ban-creation payload. ``reason`` is free-form and surfaced to
+    moderators in the ban list."""
+
+    reason: Annotated[str | None, Field(default=None, max_length=512)] = None
+
+
+class BanOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    guild_id: int
+    user_id: int
+    reason: str | None
+    banned_at: datetime
+    banned_by_id: int
+
+    @field_serializer("guild_id", "user_id", "banned_by_id")
+    def _ser_ids(self, v: int) -> str:
+        return _id_str(v)
+
+
 # ---- Invites ---------------------------------------------------------------
 
 _MAX_INVITE_TTL = 30 * 24 * 3600  # 30 days

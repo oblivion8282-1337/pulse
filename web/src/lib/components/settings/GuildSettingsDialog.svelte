@@ -16,6 +16,7 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import UsersIcon from '@lucide/svelte/icons/users';
   import CrownIcon from '@lucide/svelte/icons/crown';
+  import BanIcon from '@lucide/svelte/icons/ban';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -26,6 +27,7 @@
   import RolesEditor from './RolesEditor.svelte';
   import MemberRoleAssignment from './MemberRoleAssignment.svelte';
   import OwnerTransferSection from './OwnerTransferSection.svelte';
+  import BansList from './BansList.svelte';
 
   let {
     open = $bindable(false),
@@ -37,7 +39,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'ownership';
+  type Tab = 'roles' | 'members' | 'bans' | 'ownership';
   let tab = $state<Tab>('roles');
 
   let guildId = $derived(guild?.id ?? '');
@@ -47,6 +49,9 @@
   let isOwner = $derived(!!guild && auth.user?.id === guild.owner_id);
   let myPermissions = $derived(
     guildId ? roles.myGuildPerms[guildId] ?? '0' : '0'
+  );
+  let canBanMembers = $derived(
+    !!guildId && roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS)
   );
 
   // Default to the first tab the caller is allowed to see, so the
@@ -183,6 +188,17 @@
             <UsersIcon class="size-4" /> Mitglieder
           </button>
         {/if}
+        {#if canBanMembers}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'bans'}
+            onclick={() => selectTab('bans')}
+            data-testid="settings-tab-bans"
+          >
+            <BanIcon class="size-4" /> Sperrungen
+          </button>
+        {/if}
         {#if isOwner}
           <button
             type="button"
@@ -208,6 +224,8 @@
           />
         {:else if tab === 'members' && canManageRoles}
           <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
+        {:else if tab === 'bans' && canBanMembers}
+          <BansList {guildId} />
         {:else if tab === 'ownership' && isOwner}
           <OwnerTransferSection {guild} />
         {:else}

@@ -88,6 +88,14 @@ export type Member = {
   joined_at: string;
 };
 
+export type Ban = {
+  guild_id: string;
+  user_id: string;
+  reason: string | null;
+  banned_at: string;
+  banned_by_id: string;
+};
+
 export type GuildSummary = {
   id: string;
   name: string;

@@ -215,6 +215,14 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser, re
         raise HTTPException(404, detail=_INVITE_INVALID)
     guild_name, guild_icon = guild.name, guild.icon_url
 
+    # Ban check before anything else — a banned user must not be able to
+    # consume an invite use, hit the "already member" idempotent path,
+    # or learn anything about the guild they're banned from.
+    from dcc_chat_gateway.routes.bans import is_user_banned  # local: import cycle
+
+    if await is_user_banned(session, invite.guild_id, current.id):
+        raise HTTPException(403, detail="you are banned from this server")
+
     existing = await session.get(GuildMember, (invite.guild_id, current.id))
     if existing is not None:
         # Already a member: idempotent, do not consume a use.

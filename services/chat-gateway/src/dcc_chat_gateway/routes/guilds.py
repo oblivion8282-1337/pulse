@@ -259,6 +259,13 @@ async def add_member(
         session, current, guild_id, Permissions.MANAGE_INVITES,
         detail="not allowed to add members",
     )
+    # Ban check — even a MANAGE_INVITES caller can't re-add a banned
+    # user; unban is the explicit path. Imported lazily to avoid the
+    # import cycle (bans.py needs to import from guilds via models).
+    from dcc_chat_gateway.routes.bans import is_user_banned  # local
+
+    if await is_user_banned(session, guild_id, payload.user_id):
+        raise HTTPException(403, detail="user is banned from this server")
     member = GuildMember(guild_id=guild_id, user_id=payload.user_id)
     session.add(member)
     try:

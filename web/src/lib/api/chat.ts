@@ -1,6 +1,7 @@
 import { request, requestForm } from './client';
 import type {
   AcceptInviteResult,
+  Ban,
   Channel,
   DMChannel,
   Guild,
@@ -69,6 +70,20 @@ export const chatApi = {
   },
   kickMember(guildId: string, userId: string): Promise<void> {
     return request<void>(`/guilds/${guildId}/members/${userId}`, { method: 'DELETE' });
+  },
+
+  // Bans
+  listBans(guildId: string): Promise<Ban[]> {
+    return request<Ban[]>(`/guilds/${guildId}/bans`);
+  },
+  banUser(guildId: string, userId: string, reason: string | null = null): Promise<Ban> {
+    return request<Ban>(`/guilds/${guildId}/bans/${userId}`, {
+      method: 'PUT',
+      body: { reason }
+    });
+  },
+  unbanUser(guildId: string, userId: string): Promise<void> {
+    return request<void>(`/guilds/${guildId}/bans/${userId}`, { method: 'DELETE' });
   },
 
   // Channels

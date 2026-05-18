@@ -22,6 +22,7 @@
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
+  import BanIcon from '@lucide/svelte/icons/ban';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import NicknameDialog from './NicknameDialog.svelte';
@@ -78,11 +79,15 @@
   let working = $state(false);
   let nickDialogOpen = $state(false);
   let kickConfirmArmed = $state(false);
+  let banConfirmArmed = $state(false);
 
   // Reset the armed-confirm when the popover closes so the next open
-  // starts on the safe "Aus Server entfernen" label.
+  // starts on the safe "Aus Server entfernen" / "Sperren" label.
   $effect(() => {
-    if (!open) kickConfirmArmed = false;
+    if (!open) {
+      kickConfirmArmed = false;
+      banConfirmArmed = false;
+    }
   });
 
   let isSelf = $derived(!!auth.user && userId === auth.user.id);
@@ -99,6 +104,30 @@
     if (ownerId && ownerId === userId) return false;
     return roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS);
   });
+  let canBan = $derived.by(() => {
+    if (!guildId || isSelf) return false;
+    const ownerId = guilds.byId[guildId]?.owner_id;
+    if (ownerId && ownerId === userId) return false;
+    return roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS);
+  });
+
+  async function ban() {
+    if (!canBan || !guildId || working) return;
+    working = true;
+    try {
+      await chatApi.banUser(guildId, userId, null);
+      toast.success(`${displayName} gesperrt`);
+      open = false;
+      banConfirmArmed = false;
+      onAction?.();
+    } catch (err) {
+      toast.error('Sperren fehlgeschlagen', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      working = false;
+    }
+  }
 
   // Voice channel (if any) that the target user is currently in within
   // this guild. Force-mute targets a specific channel — the same user
@@ -365,6 +394,25 @@
                   Wirklich entfernen?
                 {:else}
                   Aus Server entfernen
+                {/if}
+              </span>
+            </button>
+          {/if}
+          {#if canBan}
+            <button
+              type="button"
+              class="hover:bg-red-500/10 hover:text-red-400 text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-red-500/10 data-[armed=true]:text-red-400"
+              data-armed={banConfirmArmed}
+              onclick={() => (banConfirmArmed ? ban() : (banConfirmArmed = true))}
+              disabled={working}
+              data-testid="popover-ban-btn"
+            >
+              <BanIcon class="size-4" />
+              <span>
+                {#if banConfirmArmed}
+                  Wirklich sperren?
+                {:else}
+                  Sperren
                 {/if}
               </span>
             </button>

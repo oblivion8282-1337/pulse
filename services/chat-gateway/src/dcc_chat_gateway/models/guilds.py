@@ -59,6 +59,30 @@ class GuildMember(Base):
     )
 
 
+class GuildBan(Base):
+    """Per-guild ban entry. Existence of a row blocks any membership
+    creation for that ``(guild_id, user_id)``; an existing member gets
+    their ``guild_members`` row deleted in the same transaction so the
+    ban is effective immediately."""
+
+    __tablename__ = "guild_bans"
+
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("guilds.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    banned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    banned_by_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    __table_args__ = (
+        PrimaryKeyConstraint("guild_id", "user_id"),
+        Index("ix_guild_bans_user", "user_id"),
+    )
+
+
 class GuildInvite(Base):
     __tablename__ = "guild_invites"
 
