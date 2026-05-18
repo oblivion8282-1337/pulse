@@ -13,6 +13,7 @@ from dcc_chat_gateway.routes import (
     dms,
     guild_icons,
     guilds,
+    internal,
     invites,
     messages,
     notifications,
@@ -47,6 +48,7 @@ router.include_router(attachments.router)
 router.include_router(capabilities.router)
 router.include_router(notifications.router)
 router.include_router(admin.router)
+router.include_router(internal.router)
 router.include_router(ws.router)
 
 __all__ = ["router"]

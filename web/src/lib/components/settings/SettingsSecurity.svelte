@@ -18,6 +18,7 @@
   import TotpDisableDialog from './TotpDisableDialog.svelte';
   import TotpBackupRegenerateDialog from './TotpBackupRegenerateDialog.svelte';
   import SessionsSection from './SessionsSection.svelte';
+  import DangerZoneSection from './DangerZoneSection.svelte';
 
   let enableOpen = $state(false);
   let disableOpen = $state(false);
@@ -89,6 +90,8 @@
   </section>
 
   <SessionsSection />
+
+  <DangerZoneSection />
 </div>
 
 <TotpEnableDialog bind:open={enableOpen} />

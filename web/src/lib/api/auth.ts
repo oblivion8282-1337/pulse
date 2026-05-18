@@ -207,3 +207,36 @@ export async function revokeOtherSessions(): Promise<{ revoked_count: number }> 
     endpoint: 'auth'
   });
 }
+
+// --- account deletion (Gefahrenzone) ----------------------------------------
+
+/**
+ * Hard-delete the current user — irreversibly removes the profile, all
+ * messages, memberships, owned guilds and 2FA state. Server requires the
+ * current password + (if 2FA is enabled) one of (code | backup_code) + an
+ * explicit `confirm_username` that must exactly match the user's own
+ * username. The 204-on-success contract leaves the caller responsible for
+ * signing out + redirecting; the access token is invalid after the call
+ * regardless of what the caller does.
+ *
+ * Error mapping documented next to the call site in the dialog — we just
+ * forward the server's `detail` via `ApiError.message` for the toast.
+ */
+export async function deleteAccount(input: {
+  password: string;
+  code?: string;
+  backup_code?: string;
+  confirm_username: string;
+}): Promise<void> {
+  const body: Record<string, string> = {
+    password: input.password,
+    confirm_username: input.confirm_username
+  };
+  if (input.code) body.code = input.code;
+  if (input.backup_code) body.backup_code = input.backup_code;
+  await request<void>('/me', {
+    method: 'DELETE',
+    body,
+    endpoint: 'auth'
+  });
+}

@@ -233,3 +233,28 @@ class SessionOut(BaseModel):
 
 class SessionsRevokeAllOut(BaseModel):
     revoked_count: int
+
+
+# ---- Account delete -----------------------------------------------------
+
+
+class AccountDeleteIn(BaseModel):
+    """Self-service hard-delete payload.
+
+    Three gates stacked on top of the bearer-token requirement:
+      * ``password`` — proves a stolen access token alone can't nuke an
+        account.
+      * ``code`` / ``backup_code`` — second-factor; *consumed* when 2FA is
+        enabled, ignored otherwise. Validation mirrors ``TotpDisableIn``.
+      * ``confirm_username`` — typed re-entry of the user's exact username
+        (case-sensitive). Anti-misclick gate; UI surfaces the requested
+        username so an account-recovery scenario "type your username to
+        confirm" makes sense.
+    """
+
+    password: Annotated[str, Field(min_length=1, max_length=128)]
+    code: Annotated[str | None, Field(default=None, pattern=TOTP_CODE_PATTERN)] = None
+    backup_code: Annotated[
+        str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)
+    ] = None
+    confirm_username: Annotated[str, Field(min_length=1, max_length=32)]

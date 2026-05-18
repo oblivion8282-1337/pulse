@@ -56,6 +56,26 @@ class Settings(BaseSettings):
     rate_limit_totp_setup: str = "10/minute"
     rate_limit_totp_disable: str = "10/minute"
     rate_limit_totp_backup_regenerate: str = "10/minute"
+    # Account self-delete is irreversible and Hard-Delete on the chat side
+    # (messages purged too). Keep the bucket *very* tight — a stolen access
+    # token shouldn't be able to nuke an account before the user notices.
+    rate_limit_account_delete: str = "3/hour"
+
+    # Cross-service: auth → chat-gateway. ``DELETE /me`` calls
+    # ``POST {chat_gateway_url}/internal/users/{id}/purge`` to hard-delete the
+    # user's chat-side state (memberships, messages, presence) BEFORE the
+    # auth-side row is removed. The secret matches the one chat-gateway sees
+    # in its own ``INTERNAL_SERVICE_SECRET`` env (single source of truth on
+    # the operator side). Leaving it ``None`` here DISABLES self-delete — the
+    # route 503s with an explicit operator-hint message rather than silently
+    # deleting auth-side and orphaning chat-side rows.
+    internal_service_secret: str | None = None
+    chat_gateway_url: str = "http://chat-gateway:8000"
+    # ``DELETE /me`` blocks on the chat-gateway purge — message-hard-delete on
+    # a chatty user can be slow. 30 s is generous compared to the 5 s used
+    # for voice-evict; if your deployment's purge takes longer you have a
+    # bigger problem.
+    chat_gateway_purge_timeout_s: float = 30.0
 
     # Account-recovery / 2FA
     smtp_host: str | None = None
@@ -105,6 +125,7 @@ class Settings(BaseSettings):
         "rate_limit_totp_setup",
         "rate_limit_totp_disable",
         "rate_limit_totp_backup_regenerate",
+        "rate_limit_account_delete",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:
