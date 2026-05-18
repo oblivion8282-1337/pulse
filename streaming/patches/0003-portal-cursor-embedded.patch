@@ -1,0 +1,35 @@
+# Switches the portal cursor mode from METADATA to EMBEDDED.
+#
+# Background: in METADATA mode the compositor emits a fresh PipeWire buffer
+# on *every* cursor motion or shape change, with the cursor sprite + position
+# delivered as sideband data; GSR then composites the cursor itself on each
+# frame (color_conversion_draw call) and re-uploads the sprite via a
+# synchronous glTexImage2D whenever the shape changes. While capturing
+# moving content (video playback, hover-previews) this causes GPU pipeline
+# contention that shows up as localized macroblock artifacts in the busy
+# region — visible to the viewer as "jitter" in just the part of the screen
+# where motion is happening.
+#
+# EMBEDDED asks the compositor to bake the cursor into the frame pixmap
+# directly. GSR sees a single content-rate buffer stream with no separate
+# cursor work; cursor cost is amortized into the compositor's normal
+# per-frame paint pass.
+#
+# If the compositor doesn't expose EMBEDDED, dbus.c's
+# unset_unsupported_cursor_modes() drops it and falls through to HIDDEN.
+# Acceptable graceful degradation (cursor invisible in the stream — same
+# outcome as toggling record_cursor=false in our UI).
+#
+# Apply with: cd $XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder && patch -p1 < /path/to/0003-portal-cursor-embedded.patch
+
+--- a/src/capture/portal.c	2026-05-19 12:00:00.000000000 +0200
++++ b/src/capture/portal.c
+@@ -201,7 +201,7 @@
+     }
+
+     fprintf(stderr, "gsr info: gsr_capture_portal_setup_dbus: SelectSources\n");
+-    response_status = gsr_dbus_screencast_select_sources(&self->dbus, self->session_handle, GSR_PORTAL_CAPTURE_TYPE_ALL, self->params.record_cursor ? GSR_PORTAL_CURSOR_MODE_METADATA : GSR_PORTAL_CURSOR_MODE_HIDDEN);
++    response_status = gsr_dbus_screencast_select_sources(&self->dbus, self->session_handle, GSR_PORTAL_CAPTURE_TYPE_ALL, self->params.record_cursor ? GSR_PORTAL_CURSOR_MODE_EMBEDDED : GSR_PORTAL_CURSOR_MODE_HIDDEN);
+     if(response_status != 0) {
+         fprintf(stderr, "gsr error: gsr_capture_portal_setup_dbus: SelectSources failed\n");
+         return response_status;

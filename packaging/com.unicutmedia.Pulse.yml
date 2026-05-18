@@ -150,12 +150,12 @@ modules:
             url: https://code.videolan.org/videolan/x264.git
             commit: b35605ace3ddf7c1a5d67a2eb553f034aef41d55
 
-  # ── gpu-screen-recorder (custom build: FLV-Opus whitelist + Vulkan-encoder stub) ──
+  # ── gpu-screen-recorder (custom build: FLV-Opus whitelist + Vulkan-encoder stub + portal-cursor EMBEDDED) ──
   # The Vulkan-encoder stub is harmless — Pulse uses NVENC/VAAPI, never Vulkan encode.
   # Pinned: upstream force-pushes master and our patches are line-anchored, so a
   # moving HEAD breaks the Flatpak CI. Bump deliberately when refreshing GSR;
-  # re-run `patch -p1 --dry-run < streaming/patches/0002*.patch` against the new
-  # tree first and rewrite the patch if upstream rearranged the encoder source.
+  # re-run `patch -p1 --dry-run < streaming/patches/000*.patch` against the new
+  # tree first and rewrite the patch if upstream rearranged the source.
   - name: gpu-screen-recorder
     buildsystem: meson
     config-opts:
@@ -168,6 +168,8 @@ modules:
         path: ../streaming/patches/0001-opus-flv-whitelist.patch
       - type: patch
         path: ../streaming/patches/0002-stub-vulkan-encoder.patch
+      - type: patch
+        path: ../streaming/patches/0003-portal-cursor-embedded.patch
 
   # ── Pulse: the Electron shell + the Python sidecar + desktop integration ────
   - name: pulse
