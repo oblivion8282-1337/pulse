@@ -293,3 +293,98 @@ async def test_ready_carries_voice_overrides(ws_app, _auth_signer, redis):
         await redis.delete(f"voice:override:channel-{cid}:user-555")
         await redis.delete(f"voice:override:channel-{cid}:user-666")
         await redis.delete(f"voice:override:channel-{cid}:user-777")
+
+
+@pytest.mark.asyncio
+async def test_voice_override_event_pushed_to_connected_client(
+    ws_app, _auth_signer, redis
+):
+    """voice-signaling publishes voice_override on voice:events; the
+    chat-gateway listener should forward it as op=voice_override with
+    both muted+deafened flags."""
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(token),
+            ).json()
+            cid = vc["id"]
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                ws.receive_json()  # ready
+                import redis as sync_redis
+
+                r = sync_redis.Redis.from_url(_REDIS_URL)
+                try:
+                    r.publish(
+                        "voice:events",
+                        json.dumps(
+                            {
+                                "op": "voice_override",
+                                "channel_id": cid,
+                                "user_id": "555",
+                                "muted": True,
+                                "deafened": False,
+                            }
+                        ),
+                    )
+                finally:
+                    r.close()
+                got = ws.receive_json()
+                assert got == {
+                    "op": "voice_override",
+                    "channel_id": cid,
+                    "user_id": "555",
+                    "muted": True,
+                    "deafened": False,
+                }
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_voice_disconnect_event_pushed_to_connected_client(
+    ws_app, _auth_signer, redis
+):
+    """voice_disconnect should hit the connected client unchanged
+    (channel_id + user_id), filtered through VIEW_CHANNEL."""
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(token),
+            ).json()
+            cid = vc["id"]
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                ws.receive_json()  # ready
+                import redis as sync_redis
+
+                r = sync_redis.Redis.from_url(_REDIS_URL)
+                try:
+                    r.publish(
+                        "voice:events",
+                        json.dumps(
+                            {
+                                "op": "voice_disconnect",
+                                "channel_id": cid,
+                                "user_id": "999",
+                            }
+                        ),
+                    )
+                finally:
+                    r.close()
+                got = ws.receive_json()
+                assert got == {
+                    "op": "voice_disconnect",
+                    "channel_id": cid,
+                    "user_id": "999",
+                }
+
+    await asyncio.to_thread(_run)
