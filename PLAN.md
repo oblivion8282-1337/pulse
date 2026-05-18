@@ -604,7 +604,7 @@ volumes:
 
 ### Etappe 5 — Optional / Später
 - E2EE für DMs (Signal-Protocol via WASM-Bindings, `libsignal-protocol-typescript`)
-- Roles + Permission-Bitfield (DB-Felder reservieren, UI später)
+- ✅ **Roles + Permissions** (2026-05-18, voll-Discord-Scope) — Bitfield (`dcc_shared/permissions.py`, 23 Bits in 52-Bit-Budget mit reservierten Lücken), Resolver mit Discord-Formel + `!VIEW_CHANNEL→revoke_all`-Invariante, Anti-Escalation (Stoatchat-Pattern), Channel-Overwrites (Allow/Deny pro Bit), Per-WS-Permission-Cache mit Event-Invalidation, Visibility-Filter im Broadcast (Private Channels), Owner-Transfer-Endpoint, TS-Resolver-Port + Settings-Modal mit Rollen-/Members-/Eigentümerschaft-Tabs, Channel-Permissions-Page, Drag-Drop + Touch-Reorder, Member-List Role-Color + Hoist-Gruppierung. Stoatchat `crates/permissions/` als Vorlage gelesen. Migration 0009 + bulk `GET /guilds/{id}/member-roles` Endpoint.
 - Push-Notifications via Web-Push + Service-Worker (für mobile PWA)
 - AppStore-Distribution (Snap, Flathub, Microsoft Store, optional)
 - Mobile-PWA-Polish + Touch-UI
@@ -646,7 +646,7 @@ volumes:
 - ❌ Service-Worker im MVP (komplex, später für PWA)
 - ❌ **`fastapi-users` als Dependency** (Maintenance-Mode 2026, nur Source als Referenz)
 - ❌ **`broadcaster` / `fastapi-socketio` / `fastapi_websocket_pubsub`** (alle archiviert/inaktiv → Eigenbau)
-- ❌ **`casbin` / `oso`** für Permissions (Overkill für Bitfield → IntFlag-Eigenbau ~150 LOC)
+- ❌ **`casbin` / `oso`** für Permissions (Overkill für Bitfield → IntFlag-Eigenbau hat seit 2026-05-18 ~600 LOC mit Resolver + Anti-Escalation; siehe §10 Etappe 5)
 - ❌ **`@livekit/krisp-noise-filter`** (kostet seit 2026-05-01 → `@jitsi/rnnoise-wasm` als Free-Ersatz)
 - ❌ **`svelte-french-toast`** (Sv5-inaktiv → `svelte-sonner`)
 - ❌ **`svelte-markdown`** blind nutzen (kein eingebauter Sanitizer → `marked` + `DOMPurify` manuell)
