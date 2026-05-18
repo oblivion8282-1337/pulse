@@ -342,6 +342,99 @@ class AdminStatsOut(BaseModel):
     storage_bytes: int | None = None
 
 
+class RoleOut(BaseModel):
+    """Wire representation of a guild role. ``permissions`` is the raw
+    bitfield as a string (snowflake-style, JS-Number-safe for the upper bits)."""
+
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    guild_id: int
+    name: str
+    permissions: int
+    color: int | None
+    position: int
+    hoist: bool
+    mentionable: bool
+    is_everyone: bool
+
+    @field_serializer("id", "guild_id")
+    def _ser_ids(self, v: int) -> str:
+        return _id_str(v)
+
+    @field_serializer("permissions")
+    def _ser_perms(self, v: int) -> str:
+        return str(v)
+
+
+def _coerce_bitfield(value: object) -> int:
+    """Accept bitfields as int or string. Mirrors ``_coerce_id`` — same
+    JS-Number-precision concern."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        return int(value)
+    raise TypeError(
+        f"expected int or string bitfield, got {type(value).__name__}"
+    )
+
+
+Bitfield = Annotated[int, BeforeValidator(_coerce_bitfield)]
+
+
+class RoleIn(BaseModel):
+    """Create-role payload. ``permissions`` defaults to 0 (effectively a
+    cosmetic role until edited)."""
+
+    name: Annotated[str, Field(min_length=1, max_length=64)]
+    permissions: Bitfield = 0
+    color: Annotated[int | None, Field(default=None, ge=0, le=0xFFFFFF)] = None
+    hoist: bool = False
+    mentionable: bool = False
+
+
+class RolePatchIn(BaseModel):
+    name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
+    permissions: Bitfield | None = None
+    color: Annotated[int | None, Field(default=None, ge=0, le=0xFFFFFF)] = None
+    hoist: bool | None = None
+    mentionable: bool | None = None
+
+
+class RolePositionIn(BaseModel):
+    """One entry in a bulk role-reorder request."""
+
+    id: SnowflakeId
+    position: Annotated[int, Field(ge=0, le=1000)]
+
+
+class RolePositionsIn(BaseModel):
+    positions: Annotated[list[RolePositionIn], Field(min_length=1, max_length=200)]
+
+
+class OverwriteIn(BaseModel):
+    """Channel permission overwrite payload. ``allow`` and ``deny`` are
+    independent bitfields — bits in both means deny wins (resolver-side)."""
+
+    allow: Bitfield = 0
+    deny: Bitfield = 0
+
+
+class OverwriteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    target_type: int
+    target_id: int
+    allow: int
+    deny: int
+
+    @field_serializer("target_id")
+    def _ser_target(self, v: int) -> str:
+        return _id_str(v)
+
+    @field_serializer("allow", "deny")
+    def _ser_bf(self, v: int) -> str:
+        return str(v)
+
+
 class AdminAuditLogEntry(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

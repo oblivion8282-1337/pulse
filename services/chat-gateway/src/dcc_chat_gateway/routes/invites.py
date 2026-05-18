@@ -18,6 +18,7 @@ from dcc_chat_gateway.models import (
     GuildInvite,
     GuildMember,
 )
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import (
     CreateInviteIn,
@@ -98,13 +99,14 @@ async def create_invite(
     session: SessionDep,
     current: CurrentUser,
 ):
-    await require_member(session, guild_id, current.id)
+    await check_permission(
+        session, current, guild_id, Permissions.CREATE_INVITES
+    )
 
-    # Owner-only gate when allow_member_invites is off. We deliberately do
-    # NOT give global admins a special exemption — the design says
-    # "nur Guild-Owner", and the admin can flip the toggle if they need to
-    # rescue a server. Cheap row-lookup: this only runs when the flag is
-    # actually restrictive.
+    # Owner-only escalation when the server-wide allow_member_invites toggle
+    # is off. We deliberately do NOT give global admins a special exemption
+    # at the route level — the design says "nur Guild-Owner", and the admin
+    # can flip the toggle if they need to rescue a server.
     settings_row = await session.get(ChatSettings, 1)
     if settings_row is not None and not settings_row.allow_member_invites:
         guild = await session.get(Guild, guild_id)
@@ -171,10 +173,13 @@ async def revoke_invite(code: str, session: SessionDep, current: CurrentUser):
     invite = await session.get(GuildInvite, code)
     if invite is None:
         raise HTTPException(404, detail="invite not found")
+    # Creators can always revoke their own invites; otherwise the caller
+    # needs MANAGE_INVITES (mods cleaning up stale links).
     if invite.creator_id != current.id:
-        guild = await session.get(Guild, invite.guild_id)
-        if guild is None or guild.owner_id != current.id:
-            raise HTTPException(403, detail="not allowed to revoke this invite")
+        await check_permission(
+            session, current, invite.guild_id, Permissions.MANAGE_INVITES,
+            detail="not allowed to revoke this invite",
+        )
     if invite.revoked_at is None:
         invite.revoked_at = datetime.now(tz=UTC)
         await session.commit()

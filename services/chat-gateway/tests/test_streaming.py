@@ -66,6 +66,99 @@ def _resp(status: int, body: dict) -> httpx.Response:
     return httpx.Response(status, json=body, request=httpx.Request("GET", "http://media-svc/x"))
 
 
+async def _set_everyone_perms(client, token: str, guild_id: str, perms: int) -> None:
+    """Edit @everyone in-place. Used by tests that need to strip STREAM
+    from the default mask to verify the gate kicks in."""
+    roles = (await client.get(f"/guilds/{guild_id}/roles", headers=_auth(token))).json()
+    everyone = next(r for r in roles if r["is_everyone"])
+    r = await client.patch(
+        f"/guilds/{guild_id}/roles/{everyone['id']}",
+        json={"permissions": str(perms)},
+        headers=_auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_stream_token_403_without_stream_permission(
+    client, _auth_signer, mock_media_svc
+):
+    """A member without STREAM permission can't mint a publish token,
+    even if they're in the voice channel. The backend gate is what's
+    being asserted — the frontend already hides the button."""
+    from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS, Permissions
+
+    t_owner, _ = await _register(_auth_signer)
+    t_other, uid_other = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(t_owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "Voice", "type": 1},
+            headers=_auth(t_owner),
+        )
+    ).json()
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(uid_other)},
+        headers=_auth(t_owner),
+    )
+    # Strip STREAM from @everyone.
+    await _set_everyone_perms(
+        client,
+        t_owner,
+        g["id"],
+        DEFAULT_EVERYONE_PERMISSIONS & ~int(Permissions.STREAM),
+    )
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={}, headers=_auth(t_other)
+    )
+    assert r.status_code == 403
+    # And we never bothered calling media-svc.
+    assert mock_media_svc.calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_token_owner_bypasses_stream_permission(
+    client, _auth_signer, mock_media_svc
+):
+    """Owners short-circuit to GRANT_ALL_SAFE even when @everyone has
+    STREAM revoked — the publish gate must not lock out the owner."""
+    from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS, Permissions
+
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels",
+            json={"name": "Voice", "type": 1},
+            headers=_auth(token),
+        )
+    ).json()
+    await _set_everyone_perms(
+        client,
+        token,
+        g["id"],
+        DEFAULT_EVERYONE_PERMISSIONS & ~int(Permissions.STREAM),
+    )
+    mock_media_svc.responses.append(
+        _resp(
+            200,
+            {
+                "token": "ok",
+                "mediamtx_path": f"channel-{vc['id']}-1",
+                "push_protocol": "rtmp",
+                "push_url": "rtmps://x",
+                "expires_in_s": 14400,
+            },
+        )
+    )
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={}, headers=_auth(token)
+    )
+    assert r.status_code == 200, r.text
+
+
 # --- POST /channels/{id}/stream-token --------------------------------------
 
 

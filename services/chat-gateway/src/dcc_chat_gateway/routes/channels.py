@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message, MessageAttachment
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
@@ -51,8 +52,7 @@ async def create_channel(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
-    if guild.owner_id != current.id:
-        raise HTTPException(403, detail="only the owner can create channels")
+    await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
     channel = Channel(
         id=next_id(),
         guild_id=guild_id,
@@ -139,9 +139,9 @@ async def delete_channel(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
-    guild = await session.get(Guild, channel.guild_id)
-    if guild is None or guild.owner_id != current.id:
-        raise HTTPException(403, detail="only the guild owner can delete channels")
+    await check_permission(
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
+    )
     guild_id = channel.guild_id
     # Collect attachment ids before deleting messages, then hard-delete them
     # (removes the MinIO objects too — Message bulk-delete can't cascade those).
@@ -183,9 +183,9 @@ async def patch_channel(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
-    guild = await session.get(Guild, channel.guild_id)
-    if guild is None or guild.owner_id != current.id:
-        raise HTTPException(403, detail="only the guild owner can update channels")
+    await check_permission(
+        session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
+    )
     if payload.name is not None:
         channel.name = payload.name
     if payload.topic is not None:

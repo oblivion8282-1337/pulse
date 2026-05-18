@@ -29,6 +29,7 @@ from sqlalchemy import select
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import channel_membership, require_member
 from dcc_chat_gateway.security import CurrentUser
 
@@ -109,7 +110,15 @@ async def issue_stream_token(
     current: CurrentUser,
     authorization: Annotated[str | None, Header()] = None,
 ) -> StreamTokenOut:
-    await _require_voice_channel_member(session, channel_id, current.id)
+    channel = await _require_voice_channel_member(session, channel_id, current.id)
+    # STREAM gates the publish side — frontend already hides the button
+    # without it, but a 403 here closes the loop in case someone calls
+    # the endpoint directly (the media-svc token grants real publish
+    # rights, so backend enforcement is essential).
+    await check_permission(
+        session, current, channel.guild_id, Permissions.STREAM,
+        channel_id=channel_id,
+    )
     bearer = _bearer_from_header(authorization)
     try:
         resp = await _media_svc_request(

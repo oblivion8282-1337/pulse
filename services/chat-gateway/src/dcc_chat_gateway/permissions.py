@@ -1,0 +1,242 @@
+"""Permission check glue between routes and the shared resolver.
+
+The shared resolver (``dcc_shared.permission_resolver``) is pure-Python
+and DB-agnostic. This module is the adapter: it knows how to fetch the
+member's roles + the channel's overwrites from the chat-gateway's
+SQLAlchemy schema and feed them to the resolver.
+
+Hot-path note: every check loads role assignments + overwrites with one
+``SELECT`` each. A future optimisation is a per-request cache (the same
+route often checks two adjacent permissions, e.g. ``VIEW_CHANNEL`` and
+``SEND_MESSAGES``). Not implemented yet — premature for current scale.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from dcc_chat_gateway.models import (
+    Guild,
+    GuildMember,
+    MemberRole,
+    PermissionOverwrite,
+    Role,
+)
+from dcc_chat_gateway.security import AuthenticatedUser
+from dcc_shared.permission_resolver import (
+    OVERWRITE_TARGET_ROLE,
+    OVERWRITE_TARGET_USER,
+    Override,
+    RoleSnapshot,
+    calculate_channel_permissions,
+    calculate_guild_permissions,
+    has_permission,
+)
+from dcc_shared.permissions import Permissions
+
+
+@dataclass
+class _Ctx:
+    """Concrete ``PermissionContext`` populated from a single batched fetch.
+
+    Built by ``_load_context`` once; the resolver then walks the
+    snapshot without further I/O. Snapshot is per-call — no cross-route
+    caching at this layer (cheap because each route does at most one or
+    two checks)."""
+
+    user: int
+    admin: bool
+    owner: bool
+    member: bool
+    roles: list[RoleSnapshot]
+    overwrites: dict[tuple[int, int], Override]
+
+    def is_global_admin(self) -> bool:
+        return self.admin
+
+    def is_guild_owner(self) -> bool:
+        return self.owner
+
+    def is_guild_member(self) -> bool:
+        return self.member
+
+    def member_roles(self) -> list[RoleSnapshot]:
+        return self.roles
+
+    def channel_overwrite_for_target(
+        self, target_type: int, target_id: int
+    ) -> Override | None:
+        return self.overwrites.get((target_type, target_id))
+
+    def user_id(self) -> int:
+        return self.user
+
+
+async def _load_context(
+    session: AsyncSession,
+    user: AuthenticatedUser,
+    guild_id: int,
+    channel_id: int | None,
+) -> _Ctx:
+    """Populate the permission context for one (user, guild, channel?) tuple.
+
+    Three batched lookups:
+      1. ``guilds`` row (for owner_id; cheap, primary-key fetch)
+      2. ``member_roles`` JOIN ``roles`` (skipped entirely when not a member)
+      3. ``permission_overwrites`` for this channel (only when channel_id given)
+
+    A non-member context is returned with ``member=False`` and empty roles
+    — the resolver then short-circuits to 0 (or grants all on admin/owner).
+    """
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        return _Ctx(
+            user=user.id,
+            admin=user.is_admin,
+            owner=False,
+            member=False,
+            roles=[],
+            overwrites={},
+        )
+
+    is_owner = guild.owner_id == user.id
+    member = await session.get(GuildMember, (guild_id, user.id))
+    is_member = member is not None
+
+    roles: list[RoleSnapshot] = []
+    if is_member:
+        stmt = (
+            select(Role)
+            .join(MemberRole, MemberRole.role_id == Role.id)
+            .where(
+                MemberRole.guild_id == guild_id,
+                MemberRole.user_id == user.id,
+            )
+        )
+        assigned = list((await session.execute(stmt)).scalars())
+        # @everyone is implicit — every member has it whether or not
+        # there's a member_roles row for them. Pull it separately.
+        everyone_stmt = select(Role).where(
+            Role.guild_id == guild_id, Role.is_everyone.is_(True)
+        )
+        everyone = (await session.execute(everyone_stmt)).scalar_one_or_none()
+        if everyone is not None and everyone not in assigned:
+            assigned.append(everyone)
+        roles = [
+            RoleSnapshot(
+                id=r.id,
+                position=r.position,
+                permissions=r.permissions,
+                is_everyone=r.is_everyone,
+            )
+            for r in assigned
+        ]
+
+    overwrites: dict[tuple[int, int], Override] = {}
+    if channel_id is not None:
+        ow_stmt = select(PermissionOverwrite).where(
+            PermissionOverwrite.channel_id == channel_id
+        )
+        for ow in (await session.execute(ow_stmt)).scalars():
+            overwrites[(ow.target_type, ow.target_id)] = Override(
+                allow=ow.allow_bf, deny=ow.deny_bf
+            )
+
+    return _Ctx(
+        user=user.id,
+        admin=user.is_admin,
+        owner=is_owner,
+        member=is_member,
+        roles=roles,
+        overwrites=overwrites,
+    )
+
+
+async def resolve_permissions(
+    session: AsyncSession,
+    user: AuthenticatedUser,
+    guild_id: int,
+    channel_id: int | None = None,
+) -> int:
+    """Return the effective permission bitfield. Use ``check_permission``
+    if you just want a 403 on missing perms — this is the lower-level
+    primitive for routes that need the bitfield itself (e.g. ws ``ready``
+    or anti-escalation checks on overwrite edits)."""
+    ctx = await _load_context(session, user, guild_id, channel_id)
+    if channel_id is None:
+        return calculate_guild_permissions(ctx)
+    return calculate_channel_permissions(ctx)
+
+
+async def check_permission(
+    session: AsyncSession,
+    user: AuthenticatedUser,
+    guild_id: int,
+    permission: Permissions,
+    *,
+    channel_id: int | None = None,
+    detail: str | None = None,
+) -> int:
+    """403 if ``user`` lacks ``permission`` in ``guild_id`` (optionally
+    scoped to ``channel_id``). Returns the resolved bitfield on success
+    so callers can branch on additional bits without a second query.
+
+    ``detail`` overrides the default error message — useful when the
+    same permission gates a more specific UX phrase ("only the owner
+    can transfer this guild" etc.)."""
+    value = await resolve_permissions(session, user, guild_id, channel_id)
+    if not has_permission(value, permission):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=detail or f"missing permission: {permission.name}",
+        )
+    return value
+
+
+async def assert_overwrite_within_editor_scope(
+    session: AsyncSession,
+    user: AuthenticatedUser,
+    guild_id: int,
+    channel_id: int,
+    *,
+    new_allow: int,
+    new_deny: int,
+    existing_allow: int = 0,
+    existing_deny: int = 0,
+) -> None:
+    """Stoatchat-style anti-privilege-escalation check.
+
+    An editor of a channel-overwrite must themselves have every bit they
+    are *adding* to ``allow`` or *removing* from ``deny`` — otherwise
+    they'd be granting permissions they don't have. Bits being removed
+    from ``allow`` or added to ``deny`` are fine (you can always revoke
+    permissions you can't grant).
+
+    Owners and ADMINISTRATOR-holders pass trivially via ``check_permission``
+    short-circuits."""
+    editor_perms = await resolve_permissions(session, user, guild_id, channel_id)
+
+    granted_now = (~existing_allow) & new_allow
+    ungated_now = existing_deny & (~new_deny)
+    must_have = granted_now | ungated_now
+
+    if must_have & ~editor_perms:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="cannot grant permissions you do not yourself have",
+        )
+
+
+__all__ = [
+    "OVERWRITE_TARGET_ROLE",
+    "OVERWRITE_TARGET_USER",
+    "Permissions",
+    "assert_overwrite_within_editor_scope",
+    "check_permission",
+    "has_permission",
+    "resolve_permissions",
+]

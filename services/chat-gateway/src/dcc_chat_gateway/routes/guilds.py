@@ -8,7 +8,15 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, Guild, GuildMember, MessageAttachment
+from dcc_chat_gateway.models import (
+    Channel,
+    Guild,
+    GuildMember,
+    MessageAttachment,
+    Role,
+)
+from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import (
@@ -69,6 +77,19 @@ async def create_guild(payload: GuildIn, session: SessionDep, current: CurrentUs
     session.add(guild)
     await session.flush()
     session.add(GuildMember(guild_id=guild.id, user_id=current.id))
+    # Seed @everyone so the permission resolver has something to anchor on
+    # for non-owner members joining later. Mirrors the data-migration in
+    # 0009 that did the same for guilds existing before the feature shipped.
+    session.add(
+        Role(
+            id=next_id(),
+            guild_id=guild.id,
+            name="@everyone",
+            permissions=DEFAULT_EVERYONE_PERMISSIONS,
+            position=0,
+            is_everyone=True,
+        )
+    )
     await session.commit()
     await session.refresh(guild)
     return guild
@@ -103,7 +124,7 @@ async def patch_guild(
     current: CurrentUser,
     request: Request,
 ):
-    """Rename / update guild metadata. Owner-only.
+    """Rename / update guild metadata. Requires ``MANAGE_GUILD``.
 
     Broadcasts ``op:guild_updated`` on guild:events so every connected client
     can refresh its sidebar without a refetch.
@@ -111,8 +132,7 @@ async def patch_guild(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
-    if guild.owner_id != current.id:
-        raise HTTPException(403, detail="only the owner can update the guild")
+    await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
     if payload.name is not None:
         guild.name = payload.name
     if payload.icon_url is not None:
@@ -132,7 +152,9 @@ async def delete_guild(
     current: CurrentUser,
     request: Request,
 ):
-    """Delete a guild and everything inside it. Owner-only.
+    """Delete a guild and everything inside it. Owner-only (a
+    MANAGE_GUILD permission grants rename/icon edits, not nuke).
+    Global admins bypass.
 
     Channels / messages / members / invites cascade via ON DELETE CASCADE in
     the DB schema. Broadcasts ``op:guild_deleted`` so clients can navigate
@@ -141,7 +163,7 @@ async def delete_guild(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
-    if guild.owner_id != current.id:
+    if guild.owner_id != current.id and not current.is_admin:
         raise HTTPException(403, detail="only the owner can delete the guild")
     # Hard-delete MinIO attachments for all channels before the DB cascade
     # removes the rows — the cascade can't clean up object-store objects.
@@ -227,12 +249,14 @@ async def add_member(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
-    # Only the guild owner may add members (later: a MANAGE_MEMBERS permission).
-    # Self-add is intentionally NOT allowed: guild IDs are enumerable, so a
-    # self-add path would let any authenticated user join any guild (IDOR over
-    # all channels/messages/voice tokens).
-    if guild.owner_id != current.id:
-        raise HTTPException(403, detail="not allowed to add members")
+    # MANAGE_INVITES gates direct-add-by-id (same caller-trust as creating
+    # an invite link). Self-add is intentionally NOT allowed: guild IDs are
+    # enumerable, so a self-add path would let any authenticated user join
+    # any guild (IDOR over all channels/messages/voice tokens).
+    await check_permission(
+        session, current, guild_id, Permissions.MANAGE_INVITES,
+        detail="not allowed to add members",
+    )
     member = GuildMember(guild_id=guild_id, user_id=payload.user_id)
     session.add(member)
     try:

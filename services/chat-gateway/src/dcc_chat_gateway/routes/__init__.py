@@ -14,7 +14,10 @@ from dcc_chat_gateway.routes import (
     guilds,
     invites,
     messages,
+    permission_overwrites,
     reactions,
+    role_members,
+    roles,
     stream_chat,
     streaming,
     watch,
@@ -28,6 +31,9 @@ router.include_router(guild_icons.router)
 router.include_router(channels.router)
 router.include_router(dms.router)
 router.include_router(invites.router)
+router.include_router(roles.router)
+router.include_router(role_members.router)
+router.include_router(permission_overwrites.router)
 router.include_router(messages.router)
 router.include_router(reactions.router)
 router.include_router(streaming.router)

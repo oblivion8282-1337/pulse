@@ -26,6 +26,7 @@ Image.MAX_IMAGE_PIXELS = 16 * 1024 * 1024
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild
+from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes.guilds import _guild_dict, _publish_guild_event
 from dcc_chat_gateway.schemas import GuildOut
 from dcc_chat_gateway.security import CurrentUser
@@ -60,10 +61,10 @@ async def upload_icon(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
-    if guild.owner_id != current.id:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="only the owner can change the icon"
-        )
+    await check_permission(
+        session, current, guild_id, Permissions.MANAGE_GUILD,
+        detail="only the owner can change the icon",
+    )
 
     if file.content_type not in _ALLOWED_CONTENT_TYPES:
         raise HTTPException(
@@ -109,10 +110,10 @@ async def delete_icon(
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="guild not found")
-    if guild.owner_id != current.id:
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="only the owner can clear the icon"
-        )
+    await check_permission(
+        session, current, guild_id, Permissions.MANAGE_GUILD,
+        detail="only the owner can clear the icon",
+    )
 
     path = _icon_path(guild.id)
     if path.exists():

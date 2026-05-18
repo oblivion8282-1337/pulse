@@ -26,6 +26,11 @@ from dcc_chat_gateway.models import (
     MessageAttachment,
     MessageReaction,
 )
+from dcc_chat_gateway.permissions import (
+    Permissions,
+    has_permission,
+    resolve_permissions,
+)
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.routes.attachments import (
     bind_attachments,
@@ -331,14 +336,16 @@ async def delete_message(
     # Resolve channel: also enforces caller still has access (a kicked
     # author can't keep deleting their old messages in a guild).
     kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
-    # Author may delete their own. In a guild, the guild owner may also
-    # delete anything. DM channels have no owner-override.
+    # Author may delete their own. In a guild, anyone with MANAGE_MESSAGES
+    # (mods etc.) may also delete others'. DM channels have no override
+    # — only the author can delete.
     if msg.author_id != current.id:
         if kind == "dm":
             raise HTTPException(403, detail="not allowed to delete this message")
-        from dcc_chat_gateway.models import Guild  # local to avoid top-level cycle
-        guild = await session.get(Guild, ch.guild_id)
-        if guild is None or guild.owner_id != current.id:
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=ch.id
+        )
+        if not has_permission(perms, Permissions.MANAGE_MESSAGES):
             raise HTTPException(403, detail="not allowed to delete this message")
 
     msg.deleted_at = datetime.now(timezone.utc)
