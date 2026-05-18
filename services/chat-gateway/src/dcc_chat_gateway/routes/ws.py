@@ -290,6 +290,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             for d in dm_rows
         ]
 
+    # Hand the manager this socket's guild membership so precise cache
+    # invalidation (on role mutations, guild_updated, etc.) only busts the
+    # caches of sockets actually in the affected guild. Same list the
+    # ``ready`` frame is built from — no extra query. Updates after this
+    # point are live-applied in the manager's listener from
+    # ``guild_member_added`` / ``guild_deleted`` events.
+    await manager.set_guild_membership(websocket, guild_ids)
+
     voice_states = await manager.voice_states_for(voice_channel_ids)
     # HQ streaming + watch parties only happen in voice channels, so the
     # relevant channel set is the same one.

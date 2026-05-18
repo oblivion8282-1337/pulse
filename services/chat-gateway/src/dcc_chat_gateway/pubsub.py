@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Iterable
 from typing import Any
 
 from fastapi import WebSocket
@@ -99,6 +100,15 @@ class ConnectionManager:
         # is a slow memory leak. Writers must guard with ``ws in self._ws_user``
         # or use ``.get(ws)`` for reads.
         self._ws_perms: dict[WebSocket, dict[int, int]] = {}
+        # Per-socket set of guild ids the user is a member of. Populated by
+        # ``register`` (called from the WS endpoint with the same guild list
+        # the ``ready`` frame is built from) and live-updated from
+        # ``guild_member_added`` / ``guild_deleted`` events in ``_listen``.
+        # Used by ``_invalidate_for_guild`` to pinpoint affected sockets so a
+        # role mutation on Server X doesn't cold-bust caches for users only in
+        # Servers A, B, C. Same resurrection-via-defaultdict rule as
+        # ``_ws_perms`` — plain dict, writers guard with ``ws in self._ws_user``.
+        self._ws_guilds: dict[WebSocket, set[int]] = {}
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -139,7 +149,12 @@ class ConnectionManager:
             pass
         self._started = False
 
-    async def register(self, ws: WebSocket, user: AuthenticatedUser) -> bool:
+    async def register(
+        self,
+        ws: WebSocket,
+        user: AuthenticatedUser,
+        guild_ids: Iterable[int] = (),
+    ) -> bool:
         """Add ``ws`` to the connection set. Returns False when the user
         already has ``MAX_CONNECTIONS_PER_USER`` open sockets — the caller
         must close the websocket in that case.
@@ -148,7 +163,13 @@ class ConnectionManager:
         keeps the ``is_admin`` flag available for permission resolution
         during broadcast filtering — re-decoding the JWT per event would
         be wasteful and re-fetching the user from auth-svc is impossible
-        once the bearer is consumed."""
+        once the bearer is consumed.
+
+        ``guild_ids`` is the set of guilds the user is a member of at the
+        moment the WS endpoint accepts the connection (the same list the
+        ``ready`` frame is built from). Used by ``_invalidate_for_guild`` to
+        pinpoint which sockets to bust — a role mutation on Server X must not
+        cold-clear caches for users only in Servers A, B, C."""
         async with self._lock:
             user_set = self._user_conns[user.id]
             if len(user_set) >= self.MAX_CONNECTIONS_PER_USER:
@@ -156,7 +177,20 @@ class ConnectionManager:
             user_set.add(ws)
             self._ws_user[ws] = user
             self._connections.add(ws)
+            self._ws_guilds[ws] = {int(g) for g in guild_ids}
             return True
+
+    async def set_guild_membership(
+        self, ws: WebSocket, guild_ids: Iterable[int]
+    ) -> None:
+        """Populate / replace this socket's tracked guild-membership set.
+        Used by the WS endpoint right after ``register`` so the ``ready``
+        frame's already-fetched guild list feeds straight into the precise
+        invalidation path. No-op for sockets that have been removed."""
+        async with self._lock:
+            if ws not in self._ws_user:
+                return
+            self._ws_guilds[ws] = {int(g) for g in guild_ids}
 
     async def subscribe(self, ws: WebSocket, channel_id: str) -> None:
         async with self._lock:
@@ -180,6 +214,7 @@ class ConnectionManager:
                 if not self._user_conns[user.id]:
                     del self._user_conns[user.id]
             self._ws_perms.pop(ws, None)
+            self._ws_guilds.pop(ws, None)
             for cid in list(self._subs):
                 self._subs[cid].discard(ws)
                 if not self._subs[cid]:
@@ -384,20 +419,16 @@ class ConnectionManager:
 
     def _invalidate_for_guild(self, guild_id: int) -> None:
         """Drop cache entries that may have changed because of a guild-wide
-        role mutation. Cheap: just nuke every entry — channels live in a
-        single guild, so we'd need a guild→channel map otherwise. The cache
-        warms back up on the next message-send.
-
-        KNOWN LIMITATION: ``guild_id`` is currently ignored — this drops every
-        socket's cache, including caches for guilds that were not mutated.
-        Pinpointing the affected sockets would need either (a) a channel→guild
-        index built off the chat schema, or (b) a per-socket guild-membership
-        map populated by ``ready`` + ``guild_member_added`` events. Both are
-        feasible but not yet wired up; role mutations are rare relative to
-        messages so the over-invalidation cost is tolerable. Fix flagged in
-        the audit summary."""
-        for cache in self._ws_perms.values():
-            cache.clear()
+        role mutation. Precise: only sockets whose user is a member of
+        ``guild_id`` are affected (tracked in ``_ws_guilds``, populated at
+        ``register`` time + live-updated on ``guild_member_added`` /
+        ``guild_deleted`` in ``_listen``). The cache warms back up on the
+        next message-send."""
+        for ws, guilds in list(self._ws_guilds.items()):
+            if guild_id in guilds:
+                cache = self._ws_perms.get(ws)
+                if cache is not None:
+                    cache.clear()
 
     def _invalidate_for_channel(self, channel_id: int) -> None:
         for cache in self._ws_perms.values():
@@ -410,6 +441,44 @@ class ConnectionManager:
                 if cache is not None:
                     cache.clear()
 
+    def _apply_guild_membership_update(self, payload: dict) -> None:
+        """Live-update ``_ws_guilds`` from guild-lifecycle events so the
+        precise invalidation in ``_invalidate_for_guild`` stays correct as
+        users join / guilds disappear.
+
+        Handled:
+          * ``guild_member_added`` where ``user_id == ws.user.id`` → add
+            ``guild_id`` to that socket's set.
+          * ``guild_deleted`` → drop ``guild_id`` from every socket's set.
+
+        NOT handled: ``guild_member_removed`` — no kick endpoint exists yet
+        in the API. When one lands, mirror ``guild_member_added`` (filter by
+        user_id, discard the guild). Stale memberships are bounded — the
+        next reconnect rebuilds the set from the DB."""
+        op = payload.get("op")
+        if op == "guild_member_added":
+            try:
+                gid = int(payload.get("guild_id", "0"))
+                uid = int(payload.get("user_id", "0"))
+            except (TypeError, ValueError):
+                return
+            if not gid or not uid:
+                return
+            for ws, user in list(self._ws_user.items()):
+                if user.id == uid:
+                    guilds = self._ws_guilds.get(ws)
+                    if guilds is not None:
+                        guilds.add(gid)
+        elif op == "guild_deleted":
+            try:
+                gid = int(payload.get("guild_id", "0"))
+            except (TypeError, ValueError):
+                return
+            if not gid:
+                return
+            for guilds in self._ws_guilds.values():
+                guilds.discard(gid)
+
     def _maybe_invalidate(self, payload: dict) -> None:
         """Trigger cache invalidation when a guild:events envelope indicates
         a permission-affecting change. Conservative: when we can't pinpoint
@@ -417,10 +486,22 @@ class ConnectionManager:
         risk a stale read."""
         op = payload.get("op")
         if op in ("role_created", "role_updated", "role_deleted"):
-            # Any role change can affect every channel's resolved perms for
-            # every member who holds it — broad invalidation is correct.
-            for cache in self._ws_perms.values():
-                cache.clear()
+            # Any role change affects resolved perms for every member of the
+            # guild that owns the role — scope by guild via _ws_guilds rather
+            # than clearing every socket's cache. ``role_deleted`` carries
+            # ``guild_id`` at the top level; ``role_created`` / ``role_updated``
+            # nest it under ``role.guild_id`` (see routes/roles.py::_role_dict).
+            raw_gid = payload.get("guild_id")
+            if raw_gid is None:
+                role = payload.get("role")
+                if isinstance(role, dict):
+                    raw_gid = role.get("guild_id")
+            try:
+                gid = int(raw_gid or "0")
+            except (TypeError, ValueError):
+                return
+            if gid:
+                self._invalidate_for_guild(gid)
         elif op == "member_roles_updated":
             try:
                 uid = int(payload.get("user_id", "0"))
@@ -444,10 +525,18 @@ class ConnectionManager:
                 self._invalidate_for_channel(cid)
         elif op == "guild_updated":
             # owner_id may have changed → owner-bypass changes for the
-            # ex-owner. Cheapest correct invalidation is everything for
-            # this guild; we don't track per-guild channels in the cache.
-            for cache in self._ws_perms.values():
-                cache.clear()
+            # ex-owner. Scope to members of the affected guild. Payload shape:
+            # ``{"op": "guild_updated", "guild": {"id": "<id>", ...}}``
+            # (see routes/guilds.py::_guild_dict).
+            guild = payload.get("guild")
+            if not isinstance(guild, dict):
+                return
+            try:
+                gid = int(guild.get("id", "0"))
+            except (TypeError, ValueError):
+                return
+            if gid:
+                self._invalidate_for_guild(gid)
 
     async def _filter_by_view_channel(
         self, targets: list[WebSocket], channel_id: str
@@ -652,6 +741,7 @@ class ConnectionManager:
                     if not isinstance(payload, dict) or "op" not in payload:
                         log.warning("guild:events malformed or missing op: %r", payload)
                         continue
+                    self._apply_guild_membership_update(payload)
                     self._maybe_invalidate(payload)
                     async with self._lock:
                         targets = list(self._connections)

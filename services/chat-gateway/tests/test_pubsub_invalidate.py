@@ -253,3 +253,205 @@ async def test_filter_parallel_resolves_targets(app, session_factory, monkeypatc
         f"filter took {elapsed:.3f}s for {len(sockets)} targets at {delay}s each — "
         "appears sequential, not parallel"
     )
+
+
+# ---- bug #4: _invalidate_for_guild over-invalidation ----------------------
+
+
+@pytest.mark.asyncio
+async def test_invalidate_for_guild_only_clears_member_sockets(
+    app, session_factory
+):
+    """A role mutation on guild_1 must only bust caches for sockets whose
+    user is in guild_1 — not blanket-clear every socket in the process."""
+    manager = app.state.connection_manager
+
+    user_a = 50_001
+    user_b = 50_002
+    guild_1, channel_1 = await _seed_guild_with_channel(session_factory, user_a)
+    guild_2, channel_2 = await _seed_guild_with_channel(session_factory, user_b)
+
+    ws_a = _FakeWS("a")
+    ws_b = _FakeWS("b")
+    user_a_auth = await _register(manager, ws_a, user_a)
+    user_b_auth = await _register(manager, ws_b, user_b)
+    # Mirror what routes/ws.py does after the ready-frame query.
+    await manager.set_guild_membership(ws_a, [guild_1])  # type: ignore[arg-type]
+    await manager.set_guild_membership(ws_b, [guild_2])  # type: ignore[arg-type]
+
+    # Seed real cache entries via the resolver so we're testing the actual
+    # bookkeeping, not an artificial dict.
+    val_a = await manager._resolve_channel_perms(ws_a, channel_1)
+    val_b = await manager._resolve_channel_perms(ws_b, channel_2)
+    assert val_a >= 0 and val_b >= 0
+    assert manager._ws_perms[ws_a] == {channel_1: val_a}
+    assert manager._ws_perms[ws_b] == {channel_2: val_b}
+
+    manager._invalidate_for_guild(guild_1)
+
+    # ws_a is in guild_1 → cache cleared. ws_b is in guild_2 only → untouched.
+    assert manager._ws_perms[ws_a] == {}, "guild_1 member's cache must be cleared"
+    assert manager._ws_perms[ws_b] == {channel_2: val_b}, (
+        "guild_2-only socket's cache must NOT be cleared by a guild_1 mutation"
+    )
+
+    # Sanity: the user objects are still registered (no accidental removal).
+    assert manager._ws_user[ws_a] is user_a_auth
+    assert manager._ws_user[ws_b] is user_b_auth
+
+
+@pytest.mark.asyncio
+async def test_remove_socket_clears_guild_map(app, session_factory):
+    """``_ws_guilds`` must be cleaned up by ``remove_socket`` alongside the
+    other per-socket dicts — otherwise the precise invalidation would walk
+    stale entries forever."""
+    manager = app.state.connection_manager
+    owner_id = 60_001
+    guild_id, _ = await _seed_guild_with_channel(session_factory, owner_id)
+
+    ws = _FakeWS("doomed")
+    await _register(manager, ws, owner_id)
+    await manager.set_guild_membership(ws, [guild_id])  # type: ignore[arg-type]
+    assert ws in manager._ws_guilds
+    assert manager._ws_guilds[ws] == {guild_id}
+
+    await manager.remove_socket(ws)  # type: ignore[arg-type]
+    assert ws not in manager._ws_guilds
+
+
+@pytest.mark.asyncio
+async def test_apply_guild_member_added_adds_to_socket_guild_set(
+    app, session_factory
+):
+    """``guild_member_added`` for *this socket's user* must add the new guild
+    to the socket's tracked set, so subsequent role mutations on that guild
+    correctly bust this socket's cache."""
+    manager = app.state.connection_manager
+    uid = 70_001
+    other_uid = 70_002
+    guild_a, _ = await _seed_guild_with_channel(session_factory, uid)
+    guild_b, _ = await _seed_guild_with_channel(session_factory, other_uid)
+
+    ws = _FakeWS("joiner")
+    await _register(manager, ws, uid)
+    await manager.set_guild_membership(ws, [guild_a])  # type: ignore[arg-type]
+    assert manager._ws_guilds[ws] == {guild_a}
+
+    # Simulate the guild:events envelope routes/guilds.py:add_member emits
+    # when this user joins guild_b.
+    manager._apply_guild_membership_update(
+        {
+            "op": "guild_member_added",
+            "guild_id": str(guild_b),
+            "user_id": str(uid),
+        }
+    )
+    assert manager._ws_guilds[ws] == {guild_a, guild_b}
+
+    # A guild_member_added for a different user must NOT mutate this socket.
+    manager._apply_guild_membership_update(
+        {
+            "op": "guild_member_added",
+            "guild_id": "999999999",
+            "user_id": str(other_uid),
+        }
+    )
+    assert manager._ws_guilds[ws] == {guild_a, guild_b}
+
+
+@pytest.mark.asyncio
+async def test_apply_guild_deleted_drops_guild_everywhere(app, session_factory):
+    """``guild_deleted`` must remove the guild from every socket's set —
+    after delete, no future role mutation on that guild can target a stale
+    membership entry."""
+    manager = app.state.connection_manager
+    user_1 = 80_001
+    user_2 = 80_002
+    guild_x, _ = await _seed_guild_with_channel(session_factory, user_1)
+    guild_y, _ = await _seed_guild_with_channel(session_factory, user_2)
+
+    ws1 = _FakeWS("u1")
+    ws2 = _FakeWS("u2")
+    await _register(manager, ws1, user_1)
+    await _register(manager, ws2, user_2)
+    await manager.set_guild_membership(ws1, [guild_x, guild_y])  # type: ignore[arg-type]
+    await manager.set_guild_membership(ws2, [guild_y])  # type: ignore[arg-type]
+
+    manager._apply_guild_membership_update(
+        {"op": "guild_deleted", "guild_id": str(guild_y)}
+    )
+
+    assert manager._ws_guilds[ws1] == {guild_x}
+    assert manager._ws_guilds[ws2] == set()
+
+
+@pytest.mark.asyncio
+async def test_maybe_invalidate_role_event_scopes_by_guild(app, session_factory):
+    """``_maybe_invalidate`` for ``role_updated`` must use the precise per-
+    guild invalidation: the role's ``guild_id`` (nested under ``role``)
+    targets only members of that guild."""
+    manager = app.state.connection_manager
+    user_a = 90_001
+    user_b = 90_002
+    guild_1, channel_1 = await _seed_guild_with_channel(session_factory, user_a)
+    guild_2, channel_2 = await _seed_guild_with_channel(session_factory, user_b)
+
+    ws_a = _FakeWS("a")
+    ws_b = _FakeWS("b")
+    await _register(manager, ws_a, user_a)
+    await _register(manager, ws_b, user_b)
+    await manager.set_guild_membership(ws_a, [guild_1])  # type: ignore[arg-type]
+    await manager.set_guild_membership(ws_b, [guild_2])  # type: ignore[arg-type]
+
+    val_a = await manager._resolve_channel_perms(ws_a, channel_1)
+    val_b = await manager._resolve_channel_perms(ws_b, channel_2)
+    assert val_a >= 0 and val_b >= 0
+
+    # role_created / role_updated wrap guild_id under role.
+    manager._maybe_invalidate(
+        {
+            "op": "role_updated",
+            "role": {"id": "123", "guild_id": str(guild_1), "name": "x"},
+        }
+    )
+    assert manager._ws_perms[ws_a] == {}
+    assert manager._ws_perms[ws_b] == {channel_2: val_b}
+
+    # role_deleted carries guild_id at the top level — should still work.
+    await manager._resolve_channel_perms(ws_a, channel_1)
+    manager._maybe_invalidate(
+        {"op": "role_deleted", "guild_id": str(guild_2), "role_id": "999"}
+    )
+    assert manager._ws_perms[ws_b] == {}
+    assert manager._ws_perms[ws_a] == {channel_1: val_a}
+
+
+@pytest.mark.asyncio
+async def test_maybe_invalidate_guild_updated_scopes_by_guild(app, session_factory):
+    """``guild_updated`` carries the guild dict at the top level — the
+    invalidation must read ``guild.id`` and scope to that guild's members."""
+    manager = app.state.connection_manager
+    user_a = 95_001
+    user_b = 95_002
+    guild_1, channel_1 = await _seed_guild_with_channel(session_factory, user_a)
+    guild_2, channel_2 = await _seed_guild_with_channel(session_factory, user_b)
+
+    ws_a = _FakeWS("a")
+    ws_b = _FakeWS("b")
+    await _register(manager, ws_a, user_a)
+    await _register(manager, ws_b, user_b)
+    await manager.set_guild_membership(ws_a, [guild_1])  # type: ignore[arg-type]
+    await manager.set_guild_membership(ws_b, [guild_2])  # type: ignore[arg-type]
+
+    val_a = await manager._resolve_channel_perms(ws_a, channel_1)
+    val_b = await manager._resolve_channel_perms(ws_b, channel_2)
+    assert val_a >= 0 and val_b >= 0
+
+    manager._maybe_invalidate(
+        {
+            "op": "guild_updated",
+            "guild": {"id": str(guild_1), "name": "renamed", "owner_id": str(user_a)},
+        }
+    )
+    assert manager._ws_perms[ws_a] == {}
+    assert manager._ws_perms[ws_b] == {channel_2: val_b}
