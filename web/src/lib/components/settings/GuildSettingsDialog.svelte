@@ -12,6 +12,7 @@
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import UsersIcon from '@lucide/svelte/icons/users';
   import CrownIcon from '@lucide/svelte/icons/crown';
@@ -56,6 +57,43 @@
     else if (isOwner) tab = 'ownership';
   });
 
+  // Dirty-flag from RolesEditor — true while there are unsaved
+  // changes in the buffer. Used to gate the close + tab-switch.
+  let rolesEditorDirty = $state(false);
+  let closeConfirmOpen = $state(false);
+  let tabConfirmOpen = $state(false);
+  let pendingTab = $state<Tab | null>(null);
+
+  function handleOpenChange(next: boolean): void {
+    if (next === open) return;
+    if (!next && rolesEditorDirty) {
+      closeConfirmOpen = true;
+      return;
+    }
+    open = next;
+  }
+
+  function confirmDiscardClose(): void {
+    rolesEditorDirty = false;
+    closeConfirmOpen = false;
+    open = false;
+  }
+
+  // beforeunload guard so a hard tab-close also asks. Browsers ignore
+  // our custom message — they show their own generic prompt — but the
+  // event being present at all is what triggers the dialog.
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (open && rolesEditorDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  });
+
   // Lazy-load roles when the dialog first opens for a guild whose roles
   // aren't in the store yet (rare — happens for freshly-joined guilds).
   onMount(() => {
@@ -70,11 +108,26 @@
   });
 
   function selectTab(t: Tab): void {
+    if (t === tab) return;
+    if (rolesEditorDirty && tab === 'roles') {
+      pendingTab = t;
+      tabConfirmOpen = true;
+      return;
+    }
     tab = t;
+  }
+
+  function confirmDiscardTab(): void {
+    rolesEditorDirty = false;
+    if (pendingTab) {
+      tab = pendingTab;
+      pendingTab = null;
+    }
+    tabConfirmOpen = false;
   }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content
     class="flex h-[80vh] max-h-[700px] w-full max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
     data-testid="guild-settings-dialog"
@@ -122,7 +175,11 @@
         {#if !guild}
           <p class="text-text-muted text-sm">Server nicht gefunden.</p>
         {:else if tab === 'roles' && canManageRoles}
-          <RolesEditor {guildId} editorPermissions={myPermissions} />
+          <RolesEditor
+            {guildId}
+            editorPermissions={myPermissions}
+            bind:dirty={rolesEditorDirty}
+          />
         {:else if tab === 'members' && canManageRoles}
           <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
         {:else if tab === 'ownership' && isOwner}
@@ -136,3 +193,34 @@
     </div>
   </Dialog.Content>
 </Dialog.Root>
+
+<AlertDialog.Root bind:open={closeConfirmOpen}>
+  <AlertDialog.Content data-testid="settings-close-confirm">
+    <AlertDialog.Header>
+      <AlertDialog.Title>Ungespeicherte Änderungen verwerfen?</AlertDialog.Title>
+      <AlertDialog.Description>
+        Du hast Änderungen an einer Rolle, die noch nicht gespeichert sind.
+        Beim Schließen der Einstellungen gehen sie verloren.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Weiter bearbeiten</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmDiscardClose}>Verwerfen</AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root bind:open={tabConfirmOpen}>
+  <AlertDialog.Content data-testid="settings-tab-switch-confirm">
+    <AlertDialog.Header>
+      <AlertDialog.Title>Ungespeicherte Änderungen verwerfen?</AlertDialog.Title>
+      <AlertDialog.Description>
+        Beim Wechsel des Tabs gehen die ungespeicherten Änderungen verloren.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Weiter bearbeiten</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmDiscardTab}>Verwerfen</AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

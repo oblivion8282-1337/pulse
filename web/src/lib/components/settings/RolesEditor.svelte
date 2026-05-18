@@ -21,7 +21,17 @@
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
   import PermissionToggleGrid from './PermissionToggleGrid.svelte';
 
-  let { guildId, editorPermissions }: { guildId: string; editorPermissions: string } = $props();
+  let {
+    guildId,
+    editorPermissions,
+    dirty = $bindable(false)
+  }: {
+    guildId: string;
+    editorPermissions: string;
+    /** Reflects whether the buffer differs from the saved role. The
+     * parent (settings dialog) reads this to gate the close-confirm. */
+    dirty?: boolean;
+  } = $props();
 
   let allRoles = $derived(rolesStore.byGuild[guildId] ?? []);
   let sortedRoles = $derived(
@@ -109,21 +119,75 @@
   let isSaving = $state(false);
   let deleteConfirm = $state(false);
 
-  // Mirror the selected role into the buffer whenever the selection
-  // changes (and on first mount).
+  // Mirror the selected role into the buffer. We *can't* use $effect for
+  // this safely because that would constantly reset the user's pending
+  // edits whenever WS pushes a role_updated for the very role we're
+  // editing. Instead we snapshot manually on switch + after save.
+  function loadIntoBuffer(r: Role | undefined): void {
+    if (!r) return;
+    editName = r.name;
+    editPermissions = r.permissions;
+    editColorEnabled = r.color != null;
+    editColor = r.color != null
+      ? '#' + r.color.toString(16).padStart(6, '0')
+      : '#9ca3af';
+    editHoist = r.hoist;
+    editMentionable = r.mentionable;
+  }
+
+  // Initial load + auto-load on role-list arrival (when no selection yet).
+  let lastLoadedId = $state<string | null>(null);
   $effect(() => {
-    if (selectedRole) {
-      editName = selectedRole.name;
-      editPermissions = selectedRole.permissions;
-      editColorEnabled = selectedRole.color != null;
-      editColor =
-        selectedRole.color != null
-          ? '#' + selectedRole.color.toString(16).padStart(6, '0')
-          : '#9ca3af';
-      editHoist = selectedRole.hoist;
-      editMentionable = selectedRole.mentionable;
+    if (selectedRole && selectedRole.id !== lastLoadedId) {
+      // Only reload when we just switched to a *different* role;
+      // don't trample the buffer on re-render of the same selection.
+      loadIntoBuffer(selectedRole);
+      lastLoadedId = selectedRole.id;
     }
   });
+
+  // Dirty = buffer differs from the persisted role. Drives the
+  // "Verwerfen / Speichern"-bar + the parent's close-confirm.
+  $effect(() => {
+    if (!selectedRole) {
+      dirty = false;
+      return;
+    }
+    const currentColour = editColorEnabled
+      ? parseInt(editColor.replace('#', ''), 16)
+      : null;
+    dirty =
+      editName !== selectedRole.name ||
+      editPermissions !== selectedRole.permissions ||
+      currentColour !== selectedRole.color ||
+      editHoist !== selectedRole.hoist ||
+      editMentionable !== selectedRole.mentionable;
+  });
+
+  let pendingSwitchId = $state<string | null>(null);
+  let switchConfirmOpen = $state(false);
+
+  function trySelect(id: string): void {
+    if (id === selectedId) return;
+    if (dirty) {
+      pendingSwitchId = id;
+      switchConfirmOpen = true;
+      return;
+    }
+    selectedId = id;
+  }
+
+  function confirmDiscardAndSwitch(): void {
+    if (pendingSwitchId) {
+      selectedId = pendingSwitchId;
+      pendingSwitchId = null;
+    }
+    switchConfirmOpen = false;
+  }
+
+  function discardEdits(): void {
+    if (selectedRole) loadIntoBuffer(selectedRole);
+  }
 
   async function createRole(): Promise<void> {
     try {
@@ -154,6 +218,9 @@
         mentionable: editMentionable
       });
       rolesStore.upsertRole(r);
+      // Re-snapshot so dirty flips back to false. Without this the new
+      // role state from upsertRole would race with the buffer.
+      loadIntoBuffer(r);
       toast.success('Rolle gespeichert');
     } catch (err) {
       toast.error('Speichern fehlgeschlagen', { description: (err as Error).message });
@@ -206,7 +273,7 @@
             type="button"
             class="hover:bg-bg-hover flex-1 rounded-lg px-3 py-2 text-left text-sm transition-colors"
             class:bg-bg-hover={selectedId === r.id}
-            onclick={() => (selectedId = r.id)}
+            onclick={() => trySelect(r.id)}
           >
             <span class="font-medium" style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}>
               {r.name}
@@ -318,16 +385,50 @@
 
       <PermissionToggleGrid bind:value={editPermissions} {editorPermissions} disabled={isSaving} />
 
-      <div class="mt-6 flex justify-end gap-2">
-        <Button onclick={saveRole} disabled={isSaving} data-testid="role-save">
-          {isSaving ? 'Speichert…' : 'Speichern'}
-        </Button>
+      <div class="mt-6 flex items-center justify-between gap-2 rounded-lg border border-border bg-bg-input/60 px-3 py-2">
+        <span class="text-text-muted text-xs">
+          {dirty ? 'Ungespeicherte Änderungen.' : 'Keine Änderungen.'}
+        </span>
+        <div class="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onclick={discardEdits}
+            disabled={!dirty || isSaving}
+            data-testid="role-discard"
+          >
+            Verwerfen
+          </Button>
+          <Button
+            onclick={saveRole}
+            disabled={!dirty || isSaving}
+            data-testid="role-save"
+          >
+            {isSaving ? 'Speichert…' : 'Speichern'}
+          </Button>
+        </div>
       </div>
     {:else}
       <p class="text-text-muted text-sm">Wähle eine Rolle aus oder erstelle eine neue.</p>
     {/if}
   </section>
 </div>
+
+<AlertDialog.Root bind:open={switchConfirmOpen}>
+  <AlertDialog.Content data-testid="role-switch-confirm">
+    <AlertDialog.Header>
+      <AlertDialog.Title>Ungespeicherte Änderungen verwerfen?</AlertDialog.Title>
+      <AlertDialog.Description>
+        Du hast Änderungen an {selectedRole?.name ?? 'dieser Rolle'}, die noch
+        nicht gespeichert sind. Beim Wechsel gehen sie verloren.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmDiscardAndSwitch}>Verwerfen</AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
 
 <AlertDialog.Root bind:open={deleteConfirm}>
   <AlertDialog.Content>
