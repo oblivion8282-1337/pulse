@@ -113,6 +113,12 @@ type ServerEvent =
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
   | {
+      op: 'guild_member_updated';
+      guild_id: string;
+      user_id: string;
+      nickname: string | null;
+    }
+  | {
       op: 'voice_state';
       channel_id: string;
       user_ids: string[];
@@ -313,6 +319,7 @@ export class GatewayConnection {
       evt.op !== 'role_deleted' &&
       evt.op !== 'member_roles_updated' &&
       evt.op !== 'channel_permissions_updated' &&
+      evt.op !== 'guild_member_updated' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);

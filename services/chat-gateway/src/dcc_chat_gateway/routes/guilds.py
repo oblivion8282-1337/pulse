@@ -24,6 +24,7 @@ from dcc_chat_gateway.schemas import (
     GuildOut,
     GuildPatchIn,
     MemberIn,
+    MemberNicknameIn,
     MemberOut,
     TransferOwnershipIn,
 )
@@ -276,6 +277,97 @@ async def add_member(
                 "user_id": str(payload.user_id),
             }
         )
+    return member
+
+
+def _normalise_nickname(value: str | None) -> str | None:
+    """Trim whitespace; empty / whitespace-only string clears the nickname.
+
+    Single source of truth so the @me and admin routes agree on what
+    "" vs None means. ``None`` from the payload means "no change" and
+    is filtered upstream — by the time we reach here we already know
+    the caller is patching the field.
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+async def _publish_member_updated(
+    request: Request, guild_id: int, user_id: int, nickname: str | None
+) -> None:
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(
+            {
+                "op": "guild_member_updated",
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+                "nickname": nickname,
+            }
+        )
+
+
+@router.patch(
+    "/guilds/{guild_id}/members/@me",
+    response_model=MemberOut,
+)
+async def patch_self_member(
+    guild_id: int,
+    payload: MemberNicknameIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Update the caller's own per-guild profile. Currently only
+    nickname; requires ``CHANGE_NICKNAME``."""
+    member = await session.get(GuildMember, (guild_id, current.id))
+    if member is None:
+        raise HTTPException(404, detail="not a member of this guild")
+    if payload.nickname is None:
+        # Caller submitted an empty patch — return current state untouched.
+        return member
+    await check_permission(
+        session, current, guild_id, Permissions.CHANGE_NICKNAME
+    )
+    member.nickname = _normalise_nickname(payload.nickname)
+    await session.commit()
+    await session.refresh(member)
+    await _publish_member_updated(request, guild_id, current.id, member.nickname)
+    return member
+
+
+@router.patch(
+    "/guilds/{guild_id}/members/{user_id}",
+    response_model=MemberOut,
+)
+async def patch_member(
+    guild_id: int,
+    user_id: int,
+    payload: MemberNicknameIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Update another member's per-guild profile. Currently only
+    nickname; requires ``MANAGE_NICKNAMES``. Callers patching their
+    own row should use ``PATCH .../@me`` — this route 400s on
+    ``user_id == current.id`` so the two paths don't share a gate."""
+    if user_id == current.id:
+        raise HTTPException(400, detail="use PATCH .../members/@me for self-edits")
+    member = await session.get(GuildMember, (guild_id, user_id))
+    if member is None:
+        raise HTTPException(404, detail="member not found")
+    if payload.nickname is None:
+        return member
+    await check_permission(
+        session, current, guild_id, Permissions.MANAGE_NICKNAMES
+    )
+    member.nickname = _normalise_nickname(payload.nickname)
+    await session.commit()
+    await session.refresh(member)
+    await _publish_member_updated(request, guild_id, user_id, member.nickname)
     return member
 
 

@@ -55,6 +55,18 @@ export const chatApi = {
   listMembers(guildId: string): Promise<Member[]> {
     return request<Member[]>(`/guilds/${guildId}/members`);
   },
+  setSelfNickname(guildId: string, nickname: string): Promise<Member> {
+    return request<Member>(`/guilds/${guildId}/members/@me`, {
+      method: 'PATCH',
+      body: { nickname }
+    });
+  },
+  setMemberNickname(guildId: string, userId: string, nickname: string): Promise<Member> {
+    return request<Member>(`/guilds/${guildId}/members/${userId}`, {
+      method: 'PATCH',
+      body: { nickname }
+    });
+  },
 
   // Channels
   listChannels(guildId: string): Promise<Channel[]> {

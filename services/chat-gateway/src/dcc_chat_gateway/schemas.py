@@ -225,6 +225,15 @@ class MemberIn(BaseModel):
     user_id: SnowflakeId
 
 
+class MemberNicknameIn(BaseModel):
+    """Nickname patch payload. Empty string ``""`` clears the nickname
+    (same convention as Discord's "reset"). ``None`` means "don't touch"
+    — kept as a separate field so future patches (e.g. timeout) can be
+    added without breaking the single-field shape."""
+
+    nickname: Annotated[str | None, Field(default=None, max_length=64)] = None
+
+
 class MemberOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     guild_id: int
