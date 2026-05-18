@@ -20,7 +20,6 @@
   import ImageOffIcon from '@lucide/svelte/icons/image-off';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
-  import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -30,6 +29,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
+  import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
   import type { Guild } from '$lib/api/types';
 
   let {
@@ -66,6 +66,15 @@
   let deleteTarget = $state<Guild | null>(null);
   let deleteConfirmOpen = $state(false);
   let deleteBusy = $state(false);
+  // Server-settings modal — opened from the context-menu, replaces the
+  // /settings page navigation.
+  let settingsTarget = $state<Guild | null>(null);
+  let settingsOpen = $state(false);
+
+  function openSettings(g: Guild): void {
+    settingsTarget = g;
+    settingsOpen = true;
+  }
 
   // Hidden file-input shared by all guilds — clicked programmatically from
   // the context-menu item. `iconTarget` remembers which guild the dialog
@@ -240,7 +249,7 @@
           <ContextMenu.Content>
             {#if canManageRoles || isOwner}
               <ContextMenu.Item
-                onSelect={() => goto(`/app/guilds/${g.id}/settings`)}
+                onSelect={() => openSettings(g)}
                 data-testid="guild-settings"
               >
                 <SettingsIcon />
@@ -310,6 +319,8 @@
   onchange={onIconFile}
   data-testid="guild-icon-file"
 />
+
+<GuildSettingsDialog bind:open={settingsOpen} guild={settingsTarget} />
 
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
   <AlertDialog.Content data-testid="delete-guild-dialog">
