@@ -49,6 +49,28 @@ class MemberRolesStore {
     return this.byMember[this._key(guildId, userId)] ?? [];
   }
 
+  /** Replace the cached role-ids for *every* member of a guild in one
+   * shot. Callers use this after a ``rolesApi.bulkMemberRoles`` fetch
+   * so the member-list can colour + hoist-group without N+1 lookups.
+   *
+   * Members absent from ``payload`` are treated as @everyone-only and
+   * get an empty list — the helper writes them explicitly so the
+   * ``for()`` synchronous lookup short-circuits to "[]" instead of
+   * undefined (which the caller would otherwise see as "not yet
+   * loaded" and trigger an extra single-member ``ensure``). */
+  seedAll(
+    guildId: string,
+    payload: Record<string, string[]>,
+    knownUserIds: readonly string[]
+  ): void {
+    const next = { ...this.byMember };
+    for (const uid of knownUserIds) {
+      const ids = payload[uid] ?? [];
+      next[this._key(guildId, uid)] = ids;
+    }
+    this.byMember = next;
+  }
+
   /** Drop a member's cached roles so a follow-up access re-fetches.
    * Called from the WS handler on ``member_roles_updated``. */
   invalidate(guildId: string, userId: string): void {

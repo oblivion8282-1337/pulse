@@ -9,6 +9,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
+  import { rolesApi } from '$lib/api/roles';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -42,12 +43,16 @@
     error = null;
     try {
       members = await chatApi.listMembers(id);
-      for (const m of members) {
-        userCache.queue(m.user_id);
-        // Best-effort lazy role fetch so colour + hoist grouping populate
-        // as data arrives. Errors are swallowed — we just stay with the
-        // empty role list for that member.
-        void memberRoles.ensure(id, m.user_id).catch(() => undefined);
+      for (const m of members) userCache.queue(m.user_id);
+      // One batched request for every member's role-ids beats N
+      // single-member ``ensure`` calls. seedAll fills "[]" for members
+      // with @everyone-only so the helper's synchronous ``for()``
+      // returns [] instead of undefined.
+      try {
+        const bulk = await rolesApi.bulkMemberRoles(id);
+        memberRoles.seedAll(id, bulk, members.map((m) => m.user_id));
+      } catch {
+        /* fall through to the per-member ``ensure`` on each render */
       }
     } catch (e) {
       error = (e as Error).message;

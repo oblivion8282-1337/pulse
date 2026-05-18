@@ -138,6 +138,38 @@ async def list_member_roles(
     return list(rows)
 
 
+@router.get("/guilds/{guild_id}/member-roles")
+async def bulk_member_roles(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+) -> dict[str, list[str]]:
+    """Every member's role-id list in one shot.
+
+    Lets the frontend avoid the N+1 pattern of fetching per-member roles
+    when rendering a member list of any size. The shape is
+    ``{user_id: [role_id, ...]}``; users with only the implicit
+    @everyone role show up as an empty list (or are omitted — clients
+    treat absence as "@everyone only"). Snowflake ids as strings.
+
+    Permission: same as ``list_member_roles`` — guild membership is
+    enough. No MANAGE_ROLES gate; Discord exposes the same data to
+    every member."""
+    await require_member(session, guild_id, current.id)
+    stmt = (
+        select(MemberRole.user_id, MemberRole.role_id)
+        .join(Role, Role.id == MemberRole.role_id)
+        .where(
+            MemberRole.guild_id == guild_id,
+            Role.is_everyone.is_(False),
+        )
+    )
+    out: dict[str, list[str]] = {}
+    for user_id, role_id in (await session.execute(stmt)).all():
+        out.setdefault(str(user_id), []).append(str(role_id))
+    return out
+
+
 @router.get("/guilds/{guild_id}/permissions/me")
 async def my_guild_permissions(
     guild_id: int,

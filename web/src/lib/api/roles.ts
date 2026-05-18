@@ -80,6 +80,12 @@ export const rolesApi = {
   listMemberRoles(guildId: string, userId: string): Promise<Role[]> {
     return request<Role[]>(`/guilds/${guildId}/members/${userId}/roles`);
   },
+  /** Every member's role-id list for the guild in one batched call.
+   * Empty/absent entries == @everyone-only. Use this rather than
+   * iterating ``listMemberRoles`` over a long member list. */
+  bulkMemberRoles(guildId: string): Promise<Record<string, string[]>> {
+    return request<Record<string, string[]>>(`/guilds/${guildId}/member-roles`);
+  },
   myGuildPermissions(guildId: string): Promise<{ permissions: string }> {
     return request<{ permissions: string }>(`/guilds/${guildId}/permissions/me`);
   }

@@ -284,3 +284,38 @@ async def test_my_guild_permissions_member_gets_everyone_default(
     )
     assert r.status_code == 200
     assert int(r.json()["permissions"]) == DEFAULT_EVERYONE_PERMISSIONS
+
+
+# ---- bulk member-roles endpoint -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bulk_member_roles_returns_only_assigned(client, _auth_signer):
+    """Members with explicit role assignments show up; members with only
+    the implicit @everyone are omitted (clients treat absence as
+    @everyone-only). @everyone-itself is never included."""
+    t_owner, t_other, uid_other, g = await _make_guild_with_member(client, _auth_signer)
+    role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": "0"},
+        headers=auth(t_owner),
+    )).json()
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_other}/roles/{role['id']}",
+        headers=auth(t_owner),
+    )
+    r = await client.get(f"/guilds/{g['id']}/member-roles", headers=auth(t_owner))
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get(str(uid_other)) == [role["id"]]
+
+
+@pytest.mark.asyncio
+async def test_bulk_member_roles_requires_membership(client, _auth_signer):
+    t_owner, _ = await _register_user(_auth_signer)
+    g = (await client.post(
+        "/guilds", json={"name": "g"}, headers=auth(t_owner)
+    )).json()
+    t_stranger, _ = await _register_user(_auth_signer)
+    r = await client.get(f"/guilds/{g['id']}/member-roles", headers=auth(t_stranger))
+    assert r.status_code == 403
