@@ -494,3 +494,101 @@ async def test_disconnect_calls_livekit_clears_override_and_publishes(
     }
     await pubsub.unsubscribe("voice:events")
     await pubsub.aclose()
+
+
+# ---- Unmute restores exact cached sources, not a wide superset --------
+
+
+@pytest.mark.asyncio
+async def test_mute_strips_microphone_from_cached_sources(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_update
+):
+    """The target's source-cache (written at token-issue) drives the
+    Mute LiveKit grant — non-mic sources stay intact, mic is dropped."""
+    client, redis = app_with_redis
+    # Simulate a prior token-issue cache (user had SPEAK only).
+    await redis.set(
+        "voice:user_sources:channel-987654321:user-99",
+        json.dumps(["microphone"]),
+    )
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": True},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    # Live update should have empty sources + can_publish=False (mic was
+    # the only thing they had).
+    assert _stub_livekit_update[-1]["sources"] == []
+    assert _stub_livekit_update[-1]["can_publish"] is False
+
+
+@pytest.mark.asyncio
+async def test_unmute_restores_only_cached_sources(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_update
+):
+    """Unmute must NOT grant camera/screen_share if the target's real
+    perms didn't include them — restore from the cache snapshot."""
+    client, redis = app_with_redis
+    # Cache: user had microphone + camera (no STREAM bit).
+    await redis.set(
+        "voice:user_sources:channel-987654321:user-99",
+        json.dumps(["microphone", "camera"]),
+    )
+    # Pre-existing mute override to clear.
+    await redis.set(
+        "voice:override:channel-987654321:user-99",
+        json.dumps({"muted": True, "deafened": False}),
+    )
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": False},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    assert _stub_livekit_update[-1]["sources"] == ["microphone", "camera"]
+    assert "screen_share" not in _stub_livekit_update[-1]["sources"]
+
+
+@pytest.mark.asyncio
+async def test_unmute_without_cache_falls_back_to_mic_only(
+    app_with_redis, auth_signer, monkeypatch, _stub_livekit_update
+):
+    """No cache (e.g. Redis flush during the mute) → conservative
+    microphone-only restore; real perms take effect on reconnect."""
+    client, redis = app_with_redis
+    await redis.set(
+        "voice:override:channel-987654321:user-99",
+        json.dumps({"muted": True, "deafened": False}),
+    )
+    monkeypatch.setattr(
+        voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test"
+    )
+    monkeypatch.setattr(
+        voice_routes, "_chat_gateway_request",
+        _make_voice_channel_mock(_PERM_CONNECT | _PERM_MUTE_MEMBERS),
+    )
+    access = auth_signer.issue_access(42, "alice")
+    r = await client.put(
+        "/channels/987654321/members/99/voice-override",
+        json={"mute": False},
+        headers=auth(access),
+    )
+    assert r.status_code == 200
+    assert _stub_livekit_update[-1]["sources"] == ["microphone"]

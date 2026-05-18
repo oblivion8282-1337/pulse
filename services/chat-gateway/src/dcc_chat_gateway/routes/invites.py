@@ -257,6 +257,15 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser, re
     guild_id, invite_channel_id = result
 
     session.add(GuildMember(guild_id=guild_id, user_id=current.id))
+    # Re-check the ban-list *inside* the transaction before commit. The
+    # earlier ``is_user_banned`` call above closes the common-case door,
+    # but a concurrent PUT /bans/{uid} that committed between the two
+    # calls would slip through if we only checked once. Reading the row
+    # again under the same transaction means a serializable read sees
+    # the just-committed ban and we abort.
+    if await is_user_banned(session, guild_id, current.id):
+        await session.rollback()
+        raise HTTPException(403, detail="you are banned from this server")
     try:
         await session.commit()
     except IntegrityError:

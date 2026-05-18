@@ -268,6 +268,12 @@ async def add_member(
         raise HTTPException(403, detail="user is banned from this server")
     member = GuildMember(guild_id=guild_id, user_id=payload.user_id)
     session.add(member)
+    # Re-check the ban-list inside the transaction (post-INSERT, pre-
+    # commit) so a concurrent PUT /bans/{uid} that committed between
+    # the first check and now can't sneak through.
+    if await is_user_banned(session, guild_id, payload.user_id):
+        await session.rollback()
+        raise HTTPException(403, detail="user is banned from this server")
     try:
         await session.commit()
     except IntegrityError:

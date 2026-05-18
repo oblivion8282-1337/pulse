@@ -64,6 +64,11 @@ _VOICE_EVENTS_CHANNEL = "voice:events"
 # safety net so a forgotten mute doesn't outlive a server restart.
 _OVERRIDE_TTL_SECONDS = 24 * 3600
 
+# Source-cache TTL — long enough to outlive a typical voice session
+# (incl. typical disconnects + reconnects), short enough that a stale
+# entry from a removed permission auto-expires before causing harm.
+_SOURCE_CACHE_TTL_SECONDS = 6 * 3600
+
 
 class TokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -222,6 +227,52 @@ def _publish_sources_for(perms: int) -> tuple[bool, list[str]]:
 
 def _override_key(channel_id: str, user_id: str) -> str:
     return f"voice:override:channel-{channel_id}:user-{user_id}"
+
+
+def _sources_key(channel_id: str, user_id: str) -> str:
+    return f"voice:user_sources:channel-{channel_id}:user-{user_id}"
+
+
+async def _save_user_sources(
+    redis: Redis | None, channel_id: str, user_id: str, sources: list[str]
+) -> None:
+    """Cache the resolved publish-sources at token-issue time so a
+    later unmute can restore them without granting more than the
+    user's actual token permitted. Best-effort — Redis offline just
+    means the unmute falls back to a conservative grant."""
+    if redis is None:
+        return
+    try:
+        await redis.set(
+            _sources_key(channel_id, user_id),
+            json.dumps(sources),
+            ex=_SOURCE_CACHE_TTL_SECONDS,
+        )
+    except Exception:  # noqa: BLE001
+        log.warning("voice source-cache write failed", exc_info=True)
+
+
+async def _load_user_sources(
+    redis: Redis | None, channel_id: str, user_id: str
+) -> list[str] | None:
+    """Return the cached publish-sources for the user, or None if
+    missing. Caller decides the conservative fallback (mic-only vs
+    none) when None."""
+    if redis is None:
+        return None
+    try:
+        raw = await redis.get(_sources_key(channel_id, user_id))
+    except Exception:  # noqa: BLE001
+        return None
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    try:
+        parsed = json.loads(raw)
+        return [str(s) for s in parsed] if isinstance(parsed, list) else None
+    except json.JSONDecodeError:
+        return None
 
 
 async def _load_override(redis: Redis | None, channel_id: str, user_id: str) -> dict:
@@ -411,6 +462,12 @@ async def issue_token(
     # user stays muted on reconnect. Cleared by an explicit unmute call from
     # an admin.
     redis = _get_redis(request)
+    # Cache the resolved sources BEFORE the override is applied, so a
+    # later unmute knows what to restore (without granting strictly
+    # more than the user's token actually permitted). Skipping the
+    # write when Redis is offline degrades cleanly: the unmute path
+    # falls back to a microphone-only restore.
+    await _save_user_sources(redis, payload.channel_id, str(user.id), sources)
     override = await _load_override(redis, payload.channel_id, str(user.id))
     can_publish, sources = _apply_override(sources, can_publish, override)
 
@@ -516,25 +573,33 @@ async def set_voice_override(
     # subscriptions by participant permission). Skip the LiveKit call
     # if mute wasn't part of this patch.
     if payload.mute is not None:
+        cached_sources = await _load_user_sources(redis, channel_id, user_id)
         if next_state["muted"]:
-            await _livekit_update_participant(
-                channel_id,
-                user_id,
-                can_publish=True,
-                sources=["camera", "screen_share", "screen_share_audio"],
-            )
+            # Strip "microphone" from the user's cached sources; keep
+            # the rest (camera, screen_share) intact so a non-mic
+            # publish isn't collateral damage.
+            base = cached_sources if cached_sources is not None else [
+                "camera",
+                "screen_share",
+                "screen_share_audio",
+            ]
+            new_sources = [s for s in base if s != "microphone"]
         else:
-            await _livekit_update_participant(
-                channel_id,
-                user_id,
-                can_publish=True,
-                sources=[
-                    "microphone",
-                    "camera",
-                    "screen_share",
-                    "screen_share_audio",
-                ],
+            # Restore exactly what the user was permitted to publish at
+            # their last token-issue. Missing cache (e.g. Redis flush
+            # during the mute) → conservative microphone-only fallback;
+            # the user's real grants take effect at their next reconnect.
+            new_sources = (
+                list(cached_sources)
+                if cached_sources is not None
+                else ["microphone"]
             )
+        await _livekit_update_participant(
+            channel_id,
+            user_id,
+            can_publish=bool(new_sources),
+            sources=new_sources,
+        )
 
     await redis.publish(
         _VOICE_EVENTS_CHANNEL,
