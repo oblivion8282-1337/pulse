@@ -6,14 +6,23 @@
  *   sections render → changes DM-limits and verifies it persists →
  *   toggles bob's disabled flag → audit-log shows the entry.
  *
- * The is_admin promotion goes through `docker exec pulse_postgres`
- * (same path as the existing test-fixtures use for truncate). On a
- * podman-host machine you may need a docker→podman shim — the rest of
- * the test suite already depends on that.
+ * The is_admin promotion uses the container runtime auto-detected at
+ * setup time (docker or podman). ``$DOCKER_CMD`` overrides it.
  */
 
 import { test, expect, type Page } from '@playwright/test';
 import { execSync } from 'node:child_process';
+
+function detectExec(): string {
+  if (process.env.DOCKER_CMD) return process.env.DOCKER_CMD;
+  try {
+    execSync('docker --version', { stdio: 'ignore' });
+    return 'docker';
+  } catch {
+    return 'podman';
+  }
+}
+const CONTAINER_EXEC = detectExec();
 
 const ts = Date.now();
 const ALICE = {
@@ -46,7 +55,7 @@ async function login(page: Page, identifier: string, password: string) {
 
 function promoteToAdmin(username: string) {
   execSync(
-    `docker exec -i dcc_night_postgres psql -U dcc -d dcc_test -c "UPDATE auth.users SET is_admin=true WHERE username='${username}'"`,
+    `${CONTAINER_EXEC} exec -i dcc_night_postgres psql -U dcc -d dcc_test -c "UPDATE auth.users SET is_admin=true WHERE username='${username}'"`,
     { stdio: 'ignore' }
   );
 }

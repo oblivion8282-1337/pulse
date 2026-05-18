@@ -13,6 +13,48 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { readFileSync, writeFileSync } from 'node:fs';
 
+/**
+ * Detect the container runtime once at setup time. The repo's
+ * docker-compose.yml is podman-compose compatible, and ``$COMPOSE_CMD``
+ * lets contributors point at any other implementation (e.g. ``nerdctl
+ * compose``). We persist the choice in a single ``compose`` variable
+ * so every subsequent shell-out picks it up automatically.
+ *
+ * The CLI binary for ``exec`` calls is also picked up here — podman
+ * ships its own ``podman`` for ``exec`` (rather than going through the
+ * compose shim), and docker uses ``docker``. We test for ``$DOCKER_CMD``
+ * first, then auto-detect.
+ */
+function detectCompose(): { compose: string; exec: string } {
+  if (process.env.COMPOSE_CMD) {
+    const cmd = process.env.COMPOSE_CMD;
+    const exec = process.env.DOCKER_CMD ?? cmd.split(' ')[0];
+    return { compose: cmd, exec };
+  }
+  try {
+    execSync('docker compose version', { stdio: 'ignore' });
+    return { compose: 'docker compose', exec: 'docker' };
+  } catch {
+    // fall through
+  }
+  try {
+    execSync('podman compose version', { stdio: 'ignore' });
+    return { compose: 'podman compose', exec: 'podman' };
+  } catch {
+    // fall through
+  }
+  try {
+    execSync('podman-compose --version', { stdio: 'ignore' });
+    return { compose: 'podman-compose', exec: 'podman' };
+  } catch {
+    throw new Error(
+      'No container runtime found. Install docker or podman, or set $COMPOSE_CMD (+ $DOCKER_CMD).'
+    );
+  }
+}
+
+const { compose: COMPOSE, exec: CONTAINER_EXEC } = detectCompose();
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '../../..');
 
@@ -75,7 +117,7 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
   `;
   await new Promise<void>((resolveP, rejectP) => {
     const p = spawn(
-      'docker',
+      CONTAINER_EXEC,
       ['exec', '-i', 'dcc_night_postgres', 'psql', '-U', env.POSTGRES_USER ?? 'dcc', '-d', env.POSTGRES_DB ?? 'dcc', '-v', 'ON_ERROR_STOP=1'],
       { stdio: ['pipe', 'inherit', 'inherit'] }
     );
@@ -89,21 +131,21 @@ function ensureTestDb(postgresUser: string) {
   const cwd = resolve(__dirname, '../../..');
   // CREATE DATABASE has no IF NOT EXISTS — check first, then create.
   const check = execSync(
-    `docker compose exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='dcc_test'"`,
+    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='dcc_test'"`,
     { cwd }
   )
     .toString()
     .trim();
   if (check !== '1') {
     execSync(
-      `docker compose exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE dcc_test"`,
+      `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d postgres -c "CREATE DATABASE dcc_test"`,
       { cwd }
     );
   }
   // Alembic stores alembic_version in the service schema, so the schemas
   // must exist before the first migration run.
   execSync(
-    `docker compose exec -T postgres psql -U ${postgresUser} -d dcc_test -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
+    `${COMPOSE} exec -T postgres psql -U ${postgresUser} -d dcc_test -c "CREATE SCHEMA IF NOT EXISTS auth; CREATE SCHEMA IF NOT EXISTS chat;"`,
     { cwd }
   );
 }
