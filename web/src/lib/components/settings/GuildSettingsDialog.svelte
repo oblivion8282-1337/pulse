@@ -63,19 +63,32 @@
   let closeConfirmOpen = $state(false);
   let tabConfirmOpen = $state(false);
   let pendingTab = $state<Tab | null>(null);
+  // One-shot override so the user-confirmed discard close passes
+  // through the dirty guard instead of bouncing back.
+  let closeOverride = $state(false);
 
   function handleOpenChange(next: boolean): void {
-    if (next === open) return;
-    if (!next && rolesEditorDirty) {
+    if (!next && rolesEditorDirty && !closeOverride) {
+      // bits-ui already set its internal state to closed and the
+      // bind:open below is in the middle of propagating that to us.
+      // Schedule the reopen for after that propagation so our true
+      // isn't immediately overwritten by the same-tick false.
       closeConfirmOpen = true;
+      queueMicrotask(() => {
+        open = true;
+      });
       return;
     }
-    open = next;
+    if (!next) {
+      // Either nothing dirty, or the user just confirmed discard —
+      // reset the one-shot so the next open starts fresh.
+      closeOverride = false;
+    }
   }
 
   function confirmDiscardClose(): void {
-    rolesEditorDirty = false;
     closeConfirmOpen = false;
+    closeOverride = true;
     open = false;
   }
 
@@ -127,7 +140,7 @@
   }
 </script>
 
-<Dialog.Root {open} onOpenChange={handleOpenChange}>
+<Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content
     class="flex h-[80vh] max-h-[700px] w-full max-w-4xl flex-col gap-0 overflow-hidden p-0 sm:max-w-4xl"
     data-testid="guild-settings-dialog"
