@@ -56,6 +56,18 @@
     void switchTo(g, c);
   });
 
+  // Direct-load safety net: switchTo only kicks off `channelPermissions.ensure`
+  // when `target !== prevC`, which on the very first render is fine, but a
+  // page-reload onto `/app/guilds/X/channels/<voice-id>` could otherwise paint
+  // before the overwrite list lands (STREAM/USE_VIDEO deny gates would miss).
+  // Re-firing on every channelId change is idempotent — `ensure` short-circuits
+  // on a cached entry.
+  $effect(() => {
+    const cid = channelId;
+    if (!cid || cid === '_') return;
+    void channelPermissions.ensure(cid).catch(() => undefined);
+  });
+
   // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every
   // subscribed channel on `open`, which empties byChannel + loadedChannels.
   // switchTo only fires on URL change — so without this effect the user would

@@ -235,6 +235,115 @@ async def test_post_empty_message_rejected(client, _auth_signer):
     assert r.status_code == 400
 
 
+# ---- Permission gates on message routes -----------------------------------
+#
+# These pin the SEND_MESSAGES / READ_HISTORY / MENTION_EVERYONE bits at the
+# REST layer. Pattern: owner creates guild + channel + adds a second member,
+# then applies a user-targeted channel overwrite that denies the bit under
+# test. The second member then hits the endpoint and must get 403.
+
+
+async def _make_owner_member_channel(client, _auth_signer):
+    """Helper: owner + plain member + guild + text channel."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_member, uid_member = await _register_user(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t_owner))).json()
+    c = (await client.post(
+        f"/guilds/{g['id']}/channels",
+        json={"name": "general"},
+        headers=auth(t_owner),
+    )).json()
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(uid_member)},
+        headers=auth(t_owner),
+    )
+    return t_owner, t_member, uid_member, g, c
+
+
+@pytest.mark.asyncio
+async def test_send_message_blocked_without_send_messages(client, _auth_signer):
+    """Member with a user-overwrite denying SEND_MESSAGES gets 403 on POST."""
+    from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+    from dcc_shared.permissions import Permissions
+
+    t_owner, t_member, uid_member, _, c = await _make_owner_member_channel(
+        client, _auth_signer
+    )
+    r = await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_USER}/{uid_member}",
+        json={"allow": "0", "deny": str(int(Permissions.SEND_MESSAGES))},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    r = await client.post(
+        f"/channels/{c['id']}/messages",
+        json={"content": "hi"},
+        headers=auth(t_member),
+    )
+    assert r.status_code == 403
+    assert "SEND_MESSAGES" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_list_messages_blocked_without_read_history(client, _auth_signer):
+    """Member with READ_HISTORY denied gets 403 on GET /channels/{}/messages."""
+    from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+    from dcc_shared.permissions import Permissions
+
+    t_owner, t_member, uid_member, _, c = await _make_owner_member_channel(
+        client, _auth_signer
+    )
+    r = await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_USER}/{uid_member}",
+        json={"allow": "0", "deny": str(int(Permissions.READ_HISTORY))},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    r = await client.get(f"/channels/{c['id']}/messages", headers=auth(t_member))
+    assert r.status_code == 403
+    assert "READ_HISTORY" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mention_everyone_blocked_without_perm(client, _auth_signer):
+    """A member can SEND_MESSAGES but cannot smuggle @everyone without the
+    explicit MENTION_EVERYONE bit. Owner has GRANT_ALL_SAFE so any @everyone
+    by the owner is fine. We test the non-owner path."""
+    t_owner, t_member, _, _, c = await _make_owner_member_channel(
+        client, _auth_signer
+    )
+    # Plain "hi" is fine.
+    r = await client.post(
+        f"/channels/{c['id']}/messages",
+        json={"content": "hi"},
+        headers=auth(t_member),
+    )
+    assert r.status_code == 201, r.text
+    # @everyone is blocked — default @everyone-perms don't include MENTION_EVERYONE.
+    r = await client.post(
+        f"/channels/{c['id']}/messages",
+        json={"content": "hey @everyone wake up"},
+        headers=auth(t_member),
+    )
+    assert r.status_code == 403
+    assert "MENTION_EVERYONE" in r.json()["detail"]
+    # @here is treated the same.
+    r = await client.post(
+        f"/channels/{c['id']}/messages",
+        json={"content": "@here hi"},
+        headers=auth(t_member),
+    )
+    assert r.status_code == 403
+    # @everyonething (no word boundary) does NOT trigger the gate.
+    r = await client.post(
+        f"/channels/{c['id']}/messages",
+        json={"content": "@everyonething"},
+        headers=auth(t_member),
+    )
+    assert r.status_code == 201, r.text
+
+
 # ---- Channel DELETE/PATCH ---------------------------------------------------
 
 

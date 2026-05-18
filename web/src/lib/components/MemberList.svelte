@@ -263,6 +263,15 @@
           class="hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors data-[state=open]:bg-bg-hover"
           data-testid="member-item"
           data-user-id={m.user_id}
+          oncontextmenu={() => {
+            // Prime the lazy per-member role cache so the quick-role
+            // sub-menu shows the correct checkbox state on first open
+            // (replaces MemberQuickRoleMenu's unwired `onOpen` export).
+            // No-op when the menu wouldn't render anyway.
+            if (canQuickRole) {
+              void memberRoles.ensure(guildId, m.user_id).catch(() => undefined);
+            }
+          }}
         >
           <span class="relative size-8 shrink-0" data-speaking={isSpeaking}>
             {#if isSpeaking}

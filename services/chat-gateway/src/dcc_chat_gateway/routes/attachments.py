@@ -38,6 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.db import SessionDep, SessionLocal
 from dcc_chat_gateway.models import ChatSettings, Guild, MessageAttachment
+from dcc_chat_gateway.permissions import (
+    Permissions,
+    has_permission,
+    resolve_permissions,
+)
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
     AttachmentDownloadOut,
@@ -99,6 +104,13 @@ async def create_upload_url(
     current: CurrentUser,
 ):
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
+    # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
+    if kind == "guild":
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=channel_id
+        )
+        if not has_permission(perms, Permissions.ATTACH_FILES):
+            raise HTTPException(403, detail="missing permission: ATTACH_FILES")
     max_size, _max_count = await _limits_for_channel(session, kind=kind, ch=ch)
 
     if payload.size > max_size:

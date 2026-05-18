@@ -24,10 +24,16 @@
   let {
     guildId,
     editorPermissions,
+    discardSignal = 0,
     dirty = $bindable(false)
   }: {
     guildId: string;
     editorPermissions: string;
+    /** Monotonic counter bumped by the parent to force a buffer-discard
+     * (tab-switch / close confirms). We can't just rely on the parent
+     * clearing `dirty` because our own dirty-effect re-derives it from
+     * buffer ≠ persisted role on the next tick. */
+    discardSignal?: number;
     /** Reflects whether the buffer differs from the saved role. The
      * parent (settings dialog) reads this to gate the close-confirm. */
     dirty?: boolean;
@@ -188,6 +194,18 @@
   function discardEdits(): void {
     if (selectedRole) loadIntoBuffer(selectedRole);
   }
+
+  // Parent-driven discard (tab-switch / close confirm). The initial
+  // value is captured on mount via untrack so subsequent changes from
+  // the parent trigger the reset.
+  let lastDiscardSignal = $state(0);
+  $effect(() => {
+    const sig = discardSignal;
+    if (sig !== lastDiscardSignal) {
+      lastDiscardSignal = sig;
+      discardEdits();
+    }
+  });
 
   async function createRole(): Promise<void> {
     try {

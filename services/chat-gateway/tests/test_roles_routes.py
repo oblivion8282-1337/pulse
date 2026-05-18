@@ -117,6 +117,90 @@ async def test_patch_role_permissions(client, _auth_signer):
     assert int(r.json()["permissions"]) == int(Permissions.MANAGE_MESSAGES)
 
 
+# ---- Delete + reorder happy paths ------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_delete_role_happy_path_as_owner(client, _auth_signer):
+    """Owner creates a role, deletes it, follow-up list confirms absence.
+    Discord-style: delete is idempotent at the wire level (the next call
+    on the same id would 404, but that path is covered elsewhere)."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    mod = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": "0"},
+        headers=auth(t_owner),
+    )).json()
+
+    r = await client.delete(
+        f"/guilds/{g['id']}/roles/{mod['id']}", headers=auth(t_owner)
+    )
+    assert r.status_code == 204, r.text
+
+    roles = (await client.get(
+        f"/guilds/{g['id']}/roles", headers=auth(t_owner)
+    )).json()
+    assert mod["id"] not in {r["id"] for r in roles}
+
+
+@pytest.mark.asyncio
+async def test_delete_role_403_without_manage_roles(client, _auth_signer):
+    """Regular member without MANAGE_ROLES gets a 403 on delete — the
+    @everyone default doesn't include MANAGE_ROLES so this is the bare
+    'member tries to delete' path."""
+    t_owner, t_other, _, g = await _make_guild_with_member(client, _auth_signer)
+    mod = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": "0"},
+        headers=auth(t_owner),
+    )).json()
+
+    r = await client.delete(
+        f"/guilds/{g['id']}/roles/{mod['id']}", headers=auth(t_other)
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_roles_positions_happy_path(client, _auth_signer):
+    """Owner creates two roles and reorders both in one PATCH. The
+    follow-up GET reflects the requested positions; the order is
+    descending by position (see ``list_roles``), so we just verify
+    the per-role position values."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    a = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Alpha", "permissions": "0"},
+        headers=auth(t_owner),
+    )).json()
+    b = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Beta", "permissions": "0"},
+        headers=auth(t_owner),
+    )).json()
+
+    # Move Alpha above Beta. New positions: Beta=5, Alpha=10 → Alpha is
+    # the higher-position role on the follow-up read.
+    r = await client.patch(
+        f"/guilds/{g['id']}/roles-positions",
+        json={
+            "positions": [
+                {"id": a["id"], "position": 10},
+                {"id": b["id"], "position": 5},
+            ]
+        },
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+
+    roles = (await client.get(
+        f"/guilds/{g['id']}/roles", headers=auth(t_owner)
+    )).json()
+    by_id = {row["id"]: row for row in roles}
+    assert by_id[a["id"]]["position"] == 10
+    assert by_id[b["id"]]["position"] == 5
+
+
 # ---- @everyone protections --------------------------------------------------
 
 
@@ -229,6 +313,106 @@ async def test_member_cannot_assign_admin_role_without_admin(client, _auth_signe
     r = await client.put(
         f"/guilds/{g['id']}/members/{uid_other}/roles/{admin_role['id']}",
         headers=auth(t_other),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_assign_role_anti_escalation_blocks_non_admin_bits(
+    client, _auth_signer
+):
+    """Mod with MANAGE_ROLES (only) cannot assign a role granting BAN_MEMBERS
+    — they don't hold BAN_MEMBERS themselves, so the assign would smuggle in
+    a privilege escalation. Anti-escalation is broader than just ADMINISTRATOR."""
+    t_owner, t_mod, uid_mod, g = await _make_guild_with_member(client, _auth_signer)
+    # Owner creates: a "ban-only" role + a "mod" role.
+    ban_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Banhammer", "permissions": str(int(Permissions.BAN_MEMBERS))},
+        headers=auth(t_owner),
+    )).json()
+    mod_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": str(int(Permissions.MANAGE_ROLES))},
+        headers=auth(t_owner),
+    )).json()
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_mod}/roles/{mod_role['id']}",
+        headers=auth(t_owner),
+    )
+    # Mod tries to assign the Banhammer role to themselves.
+    r = await client.put(
+        f"/guilds/{g['id']}/members/{uid_mod}/roles/{ban_role['id']}",
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unassign_role_anti_escalation_blocks_non_admin_bits(
+    client, _auth_signer
+):
+    """A mod who can't grant BAN_MEMBERS also can't unassign a BAN_MEMBERS
+    role — unassigning is a privilege change of the same blast radius."""
+    t_owner, t_mod, uid_mod, g = await _make_guild_with_member(client, _auth_signer)
+    # Third user gets the ban-role assigned by the owner.
+    t_victim, uid_victim = await _register_user(_auth_signer)
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(uid_victim)},
+        headers=auth(t_owner),
+    )
+    ban_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Banhammer", "permissions": str(int(Permissions.BAN_MEMBERS))},
+        headers=auth(t_owner),
+    )).json()
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_victim}/roles/{ban_role['id']}",
+        headers=auth(t_owner),
+    )
+    # Mod (only MANAGE_ROLES) tries to unassign Banhammer from victim.
+    mod_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": str(int(Permissions.MANAGE_ROLES))},
+        headers=auth(t_owner),
+    )).json()
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_mod}/roles/{mod_role['id']}",
+        headers=auth(t_owner),
+    )
+    r = await client.delete(
+        f"/guilds/{g['id']}/members/{uid_victim}/roles/{ban_role['id']}",
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_delete_role_anti_escalation_blocks_non_admin_bits(
+    client, _auth_signer
+):
+    """Mod with MANAGE_ROLES (only) cannot delete a role granting BAN_MEMBERS.
+    Deleting it strips the bit from every holder — same privilege change
+    as bulk-unassign — so the editor must hold every bit the role carries."""
+    t_owner, t_mod, uid_mod, g = await _make_guild_with_member(client, _auth_signer)
+    ban_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Banhammer", "permissions": str(int(Permissions.BAN_MEMBERS))},
+        headers=auth(t_owner),
+    )).json()
+    mod_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": str(int(Permissions.MANAGE_ROLES))},
+        headers=auth(t_owner),
+    )).json()
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_mod}/roles/{mod_role['id']}",
+        headers=auth(t_owner),
+    )
+    r = await client.delete(
+        f"/guilds/{g['id']}/roles/{ban_role['id']}",
+        headers=auth(t_mod),
     )
     assert r.status_code == 403
 

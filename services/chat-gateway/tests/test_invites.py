@@ -364,6 +364,53 @@ async def test_revoke_invite_as_stranger_forbidden(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_revoke_invite_with_manage_invites_positive(client, _auth_signer):
+    """A non-creator member who *does* hold MANAGE_INVITES (via a mod
+    role) can revoke someone else's invite. Mirrors the negative case
+    one test up but flips the role assignment so the call should
+    succeed (204)."""
+    from dcc_shared.permissions import Permissions
+
+    owner_t, _ = await _register_user(_auth_signer)
+    mod_t, mod_uid = await _register_user(_auth_signer)
+    creator_t, creator_uid = await _register_user(_auth_signer)
+    g = await _make_guild(client, owner_t)
+    # Both other users join the guild.
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(mod_uid)},
+        headers=auth(owner_t),
+    )
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(creator_uid)},
+        headers=auth(owner_t),
+    )
+    # Owner mints a role with MANAGE_INVITES and assigns it to mod_uid.
+    mod_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={
+            "name": "InviteMod",
+            "permissions": str(int(Permissions.MANAGE_INVITES)),
+        },
+        headers=auth(owner_t),
+    )).json()
+    r_assign = await client.put(
+        f"/guilds/{g['id']}/members/{mod_uid}/roles/{mod_role['id']}",
+        headers=auth(owner_t),
+    )
+    assert r_assign.status_code == 204, r_assign.text
+    # Creator (who has neither role nor ownership of the guild itself)
+    # creates an invite.
+    inv = (await client.post(
+        f"/guilds/{g['id']}/invites", json={}, headers=auth(creator_t)
+    )).json()
+    # The MANAGE_INVITES holder, who is NOT the creator, can revoke it.
+    r = await client.delete(f"/invites/{inv['code']}", headers=auth(mod_t))
+    assert r.status_code == 204, r.text
+
+
+@pytest.mark.asyncio
 async def test_revoke_invite_unknown_code(client, _auth_signer):
     t, _ = await _register_user(_auth_signer)
     r = await client.delete("/invites/ZZZZZZZZ", headers=auth(t))

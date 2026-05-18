@@ -147,4 +147,163 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await alice.keyboard.press('Escape');
     await expect(alice.getByTestId('guild-settings-dialog')).toBeHidden();
   });
+
+  test('alice can drag a role to reorder it', async () => {
+    // Re-open settings and create a second "Helper" role so we have two
+    // non-everyone rows to swap. HTML5 drag-and-drop isn't actually
+    // synthesizable from Playwright's dragTo() — it dispatches mouse
+    // events and the drop targets only listen for drag*. The visible
+    // chevron buttons hit the same setPositions endpoint, so we drive
+    // through those instead.
+    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
+    await alice.getByTestId('guild-settings').click();
+    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
+    await alice.getByTestId('role-create').click();
+    const nameInput = alice.getByTestId('role-name-input');
+    await nameInput.fill('Helper');
+    await alice.getByTestId('role-save').click();
+    // Grab the helper's row-id from its row testid.
+    const helperRow = alice
+      .locator('[data-testid^="role-row-"]')
+      .filter({ hasText: 'Helper' })
+      .first();
+    const helperAttr = await helperRow.getAttribute('data-testid');
+    const helperId = helperAttr!.replace('role-row-', '');
+    expect(helperId).toMatch(/^\d+$/);
+
+    // Helper was created after Mod → has the higher position → sits
+    // above Mod in the list. Click chevron-down to swap them so Mod is
+    // now the higher role.
+    const helperPosBefore = await alice
+      .locator(`[data-testid="role-move-down-${helperId}"]`)
+      .isEnabled();
+    if (helperPosBefore) {
+      await alice.getByTestId(`role-move-down-${helperId}`).click();
+    }
+    // The chevron click fires a network PATCH /roles-positions. Wait
+    // for the resulting roles list to reflect Mod-above-Helper.
+    await expect
+      .poll(
+        async () => {
+          const rows = await alice
+            .locator('[data-testid^="role-row-"]')
+            .all();
+          // Filter out @everyone (always at the bottom).
+          const ids: string[] = [];
+          for (const row of rows) {
+            const tid = await row.getAttribute('data-testid');
+            if (tid) ids.push(tid.replace('role-row-', ''));
+          }
+          return ids.slice(0, 2);
+        },
+        { timeout: 10_000 }
+      )
+      .toEqual([modRoleId, helperId]);
+
+    await alice.keyboard.press('Escape');
+    await expect(alice.getByTestId('guild-settings-dialog')).toBeHidden();
+  });
+
+  test('alice picks a colour and the role row shows it', async () => {
+    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
+    await alice.getByTestId('guild-settings').click();
+    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
+    // The Mod row is what we'll edit. Click it to select.
+    await alice.getByTestId(`role-row-${modRoleId}`).click();
+    // Enable colour if it isn't already.
+    const colourEnabled = alice.getByTestId('role-color-enabled');
+    if (!(await colourEnabled.isChecked())) {
+      await colourEnabled.check();
+    }
+    // <input type=color> only accepts "#rrggbb"; fill() works because
+    // Svelte's bind:value writes back through the value property.
+    const colourInput = alice.getByTestId('role-color-input');
+    await colourInput.evaluate((el: HTMLInputElement) => {
+      el.value = '#ff8800';
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await alice.getByTestId('role-save').click();
+
+    // After save, the row's name span should have an inline color
+    // style — the row template wraps the name in
+    // ``<span style="color: #...">``.
+    const modRow = alice.getByTestId(`role-row-${modRoleId}`);
+    const nameSpan = modRow.locator('span').first();
+    await expect
+      .poll(
+        async () =>
+          await nameSpan.evaluate((el: HTMLElement) => el.style.color),
+        { timeout: 10_000 }
+      )
+      // Some browsers normalize the inline ``color:`` to ``rgb(...)``
+      // when read back via ``style.color``; both forms are valid.
+      .toMatch(/(?:#ff8800|rgb\(\s*255,\s*136,\s*0\s*\))/i);
+
+    await alice.keyboard.press('Escape');
+    await expect(alice.getByTestId('guild-settings-dialog')).toBeHidden();
+  });
+
+  test('alice transfers ownership to bob', async () => {
+    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
+    await alice.getByTestId('guild-settings').click();
+    await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
+    await alice.getByTestId('settings-tab-ownership').click();
+    await expect(alice.getByTestId('ownership-transfer')).toBeVisible();
+    // Pick bob (the only other member; the select drops the owner row).
+    const target = alice.getByTestId('ot-target');
+    const options = await target.locator('option').all();
+    // First option is the placeholder "— Mitglied wählen —"; pick the second.
+    expect(options.length).toBeGreaterThanOrEqual(2);
+    const bobValue = await options[1].getAttribute('value');
+    expect(bobValue).toMatch(/^\d+$/);
+    await target.selectOption(bobValue!);
+
+    await alice.getByTestId('ot-confirm').fill('Roles Test Guild');
+    // Wait on the network 200 from POST /transfer-ownership so we
+    // assert the *actual* success — UI-only signals are racy with the
+    // settings dialog re-rendering after the owner flip.
+    const responsePromise = alice.waitForResponse(
+      (r) => r.url().includes('/transfer-ownership') && r.request().method() === 'POST',
+      { timeout: 15_000 }
+    );
+    await alice.getByTestId('ot-submit').click();
+    const response = await responsePromise;
+    expect(response.status()).toBe(200);
+  });
+
+  test('unsaved-changes dialog keeps the settings open on Weiter bearbeiten', async () => {
+    // Re-open settings for the same guild. After the ownership transfer
+    // alice may no longer be owner, but she still has any MANAGE_ROLES
+    // grant via the @everyone or assigned roles; if MANAGE_ROLES isn't
+    // there, the Rollen-tab is hidden — in that case we skip rather
+    // than fail. (We don't predicate this test on ownership state.)
+    await alice.getByTestId(`guild-${guildId}`).click({ button: 'right' });
+    await alice.getByTestId('guild-settings').click();
+    const dialog = alice.getByTestId('guild-settings-dialog');
+    await expect(dialog).toBeVisible();
+    const rolesTab = alice.getByTestId('settings-tab-roles');
+    if (!(await rolesTab.isVisible())) {
+      test.skip(true, 'no MANAGE_ROLES after ownership flip; tab hidden');
+      return;
+    }
+    await rolesTab.click();
+    // Make sure the Mod row is selected, then edit its name without saving.
+    const modRow = alice.locator(`[data-testid="role-row-${modRoleId}"]`);
+    await modRow.click();
+    const nameInput = alice.getByTestId('role-name-input');
+    await nameInput.fill('ModDirty');
+    // Press Escape — the dialog should NOT close because of the dirty
+    // buffer; the close-confirm AlertDialog should pop instead.
+    await alice.keyboard.press('Escape');
+    const confirm = alice.getByTestId('settings-close-confirm');
+    await expect(confirm).toBeVisible({ timeout: 5_000 });
+
+    // Click "Weiter bearbeiten" = the Cancel action. bits-ui's Cancel
+    // doesn't carry a testid; match it by visible role+text.
+    await alice.getByRole('button', { name: 'Weiter bearbeiten' }).click();
+    // The confirm goes away, but the settings dialog must still be open.
+    await expect(confirm).toBeHidden();
+    await expect(dialog).toBeVisible();
+  });
 });

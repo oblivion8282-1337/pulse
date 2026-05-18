@@ -145,6 +145,36 @@ async def test_upload_url_rejects_oversize(client, _auth_signer, mock_s3):
 
 
 @pytest.mark.asyncio
+async def test_attach_files_blocked_without_attach_files(
+    client, _auth_signer, mock_s3
+):
+    """Member with ATTACH_FILES denied via a user-overwrite gets 403 on
+    the upload-url endpoint, even though they're a guild member."""
+    from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+    from dcc_shared.permissions import Permissions
+
+    (t_owner, _u_owner), (t_member, uid_member) = await register_two(_auth_signer)
+    gid, cid = await _make_guild_channel(client, t_owner)
+    # Owner adds the second user as a guild member.
+    await client.post(
+        f"/guilds/{gid}/members",
+        json={"user_id": str(uid_member)},
+        headers=auth(t_owner),
+    )
+    # Owner denies ATTACH_FILES for that user in this channel.
+    r = await client.put(
+        f"/channels/{cid}/permissions/{OVERWRITE_TARGET_USER}/{uid_member}",
+        json={"allow": "0", "deny": str(int(Permissions.ATTACH_FILES))},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    # Member tries to start an upload → 403.
+    r = await _upload(client, t_member, cid)
+    assert r.status_code == 403
+    assert "ATTACH_FILES" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_upload_url_rejects_non_member(client, _auth_signer, mock_s3):
     (t1, _u1), (t2, _u2) = await register_two(_auth_signer)
     _, cid = await _make_guild_channel(client, t1)

@@ -64,12 +64,17 @@ from dcc_chat_gateway.models import (
     Message,
     Role,
 )
-from dcc_chat_gateway.permissions import resolve_permissions
+from dcc_chat_gateway.permissions import (
+    resolve_guild_permissions_from_snapshot,
+    resolve_permissions,
+)
 from dcc_chat_gateway.routes import ws_watch
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.permission_resolver import has_permission
+from dcc_shared.permissions import Permissions
 
 log = logging.getLogger(__name__)
 
@@ -213,7 +218,21 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 my_role_ids.setdefault(mr.guild_id, []).append(mr.role_id)
         guilds = []
         for g in guild_rows:
-            my_perms = await resolve_permissions(session, user, g.id)
+            # Reuse the batched data instead of letting ``resolve_permissions``
+            # re-query the DB (3 SELECTs/guild on top of an already-known
+            # member set). Build the per-guild member-role set from
+            # ``my_role_ids`` (explicit assignments) + the implicit
+            # @everyone role found in ``roles_by_guild``.
+            guild_roles = roles_by_guild.get(g.id, [])
+            my_role_id_set = set(my_role_ids.get(g.id, []))
+            member_roles_snapshot: list[Role] = [
+                r
+                for r in guild_roles
+                if r.id in my_role_id_set or r.is_everyone
+            ]
+            my_perms = resolve_guild_permissions_from_snapshot(
+                user, g.owner_id, member_roles_snapshot
+            )
             guilds.append(
                 {
                     "id": str(g.id),
@@ -323,15 +342,38 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 cid = str(cid_int)
                 # DM channels go through the same /ws subscribe path as guild
                 # channels — resolve_channel_for_user enforces the right
-                # access check (guild membership vs DM membership).
+                # access check (guild membership vs DM membership). For guild
+                # channels we additionally require VIEW_CHANNEL — otherwise
+                # subscribe would succeed but the broadcast filter would drop
+                # every message later, producing a confusing silent-channel UX.
                 async with SessionLocal() as session:
                     resolved = await resolve_channel_for_user(session, cid_int, user.id)
-                if resolved is None:
-                    await websocket.send_json(
-                        {"op": "error", "code": 4004, "msg": "channel not accessible"}
-                    )
-                    continue
-                kind, ch = resolved
+                    if resolved is None:
+                        await websocket.send_json(
+                            {"op": "error", "code": 4004, "msg": "channel not accessible"}
+                        )
+                        continue
+                    kind, ch = resolved
+                    # Text-channel subscribes get the VIEW_CHANNEL gate so
+                    # silent-channel UX doesn't bite the user. Voice channels
+                    # subscribe via this same path (for stream_chat_message
+                    # fan-out) and must NOT be gated — denying VIEW on a
+                    # voice channel still lets you join the voice room (the
+                    # CONNECT bit is the real voice-join gate). Live filter
+                    # at fan-out time catches any remaining mismatch.
+                    if kind == "guild" and ch.type == CHANNEL_TYPE_TEXT:
+                        perms = await resolve_permissions(
+                            session, user, ch.guild_id, cid_int
+                        )
+                        if not has_permission(perms, Permissions.VIEW_CHANNEL):
+                            await websocket.send_json(
+                                {
+                                    "op": "error",
+                                    "code": 4012,
+                                    "msg": "channel not accessible",
+                                }
+                            )
+                            continue
                 await manager.subscribe(websocket, cid)
                 # Voice channels are subscribed (for stream_chat_message fanout)
                 # but never enter the local `subscribed` map, so the send
@@ -424,6 +466,23 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                             {"op": "error", "code": 4006, "msg": "channel not accessible"}
                         )
                         continue
+                    # SEND_MESSAGES gate for guild channels. Mirrors the REST
+                    # `POST /channels/{id}/messages` check; DMs bypass (no
+                    # channel overwrites apply). VIEW_CHANNEL alone is not
+                    # enough — a member may be allowed to read but not post.
+                    if kind == "guild" and guild_id_for_bump is not None:
+                        send_perms = await resolve_permissions(
+                            session, user, guild_id_for_bump, cid_int
+                        )
+                        if not has_permission(send_perms, Permissions.SEND_MESSAGES):
+                            await websocket.send_json(
+                                {
+                                    "op": "error",
+                                    "code": 4013,
+                                    "msg": "cannot send in this channel",
+                                }
+                            )
+                            continue
                     if reply_to_int is not None:
                         parent = await session.get(Message, reply_to_int)
                         if (

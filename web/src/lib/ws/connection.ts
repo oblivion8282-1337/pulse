@@ -526,11 +526,15 @@ export class GatewayConnection {
         // Only the target user's role list changed. If we are them, the
         // resolved-permissions store needs to re-pull. Either way, drop
         // the lazy cache for this (guild, user) so the next access
-        // re-fetches with the new state.
+        // re-fetches with the new state — and immediately kick off the
+        // refetch via `ensure` so MemberList's hoist-group + colour
+        // re-derive correctly instead of falling back to "Online" /
+        // default colour until the user navigates.
         if (auth.user?.id === evt.user_id) {
           void roles.refreshMyRoles(evt.guild_id);
         }
         memberRoles.invalidate(evt.guild_id, evt.user_id);
+        void memberRoles.ensure(evt.guild_id, evt.user_id).catch(() => undefined);
         break;
       case 'channel_permissions_updated':
         channelPermissions.apply(evt.channel_id, evt.overwrites);

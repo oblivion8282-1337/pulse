@@ -57,17 +57,35 @@
 
   // Map target → cached editor buffer (allow/deny). Stored as strings
   // so the toggles can flip bits without floating bigints into reactive
-  // state. Re-seeded whenever the canonical overwrite for this target
-  // changes (e.g. WS event from another editor).
+  // state. We only snapshot a (target_type, target_id) the *first* time
+  // it lands — re-seeding on every reactive run would silently revert
+  // in-progress edits on rows the user hasn't saved yet (mirrors the
+  // ``lastLoadedId`` pattern in RolesEditor). WS events from other
+  // editors come through `channelPermissions.apply` and re-render the
+  // row, but the local buffer is left alone — the user has to save or
+  // explicitly discard to pick up remote changes.
   let buffers = $state<Record<string, { allow: string; deny: string }>>({});
+  let seededKeys = $state<Set<string>>(new Set());
 
   $effect(() => {
-    const next: Record<string, { allow: string; deny: string }> = {};
+    let next = buffers;
+    let nextSeeded = seededKeys;
+    let mutated = false;
     for (const ow of overwrites) {
       const k = `${ow.target_type}:${ow.target_id}`;
+      if (nextSeeded.has(k)) continue;
+      if (!mutated) {
+        next = { ...buffers };
+        nextSeeded = new Set(seededKeys);
+        mutated = true;
+      }
       next[k] = { allow: ow.allow, deny: ow.deny };
+      nextSeeded.add(k);
     }
-    buffers = next;
+    if (mutated) {
+      buffers = next;
+      seededKeys = nextSeeded;
+    }
   });
 
   function tripleFor(target: string, perm: Permission): Triple {
@@ -127,6 +145,16 @@
           (ow) => `${ow.target_type}:${ow.target_id}` !== target
         )
       );
+      // Forget the seed-once guard for this row so adding the same
+      // target again later re-snapshots the server's reset values.
+      if (seededKeys.has(target)) {
+        const nextSeeded = new Set(seededKeys);
+        nextSeeded.delete(target);
+        seededKeys = nextSeeded;
+        const nextBuffers = { ...buffers };
+        delete nextBuffers[target];
+        buffers = nextBuffers;
+      }
       toast.success('Override entfernt');
     } catch (err) {
       toast.error('Override entfernen fehlgeschlagen', {
@@ -151,10 +179,27 @@
   async function addOverride(targetType: 0 | 1, targetId: string): Promise<void> {
     if (!targetId) return;
     try {
-      await overwritesApi.set(channelId, targetType, targetId, {
+      const created = await overwritesApi.set(channelId, targetType, targetId, {
         allow: '0',
         deny: '0'
       });
+      // Push the new row into the cache immediately — without this the
+      // overwrite list only repaints after the WS broadcast lands, which
+      // makes the UI feel laggy on slow links.
+      const current = channelPermissions.byChannel[channelId] ?? [];
+      const exists = current.some(
+        (ow) => ow.target_type === created.target_type && ow.target_id === created.target_id
+      );
+      channelPermissions.apply(
+        channelId,
+        exists
+          ? current.map((ow) =>
+              ow.target_type === created.target_type && ow.target_id === created.target_id
+                ? created
+                : ow
+            )
+          : [...current, created]
+      );
       if (targetType === 0) addRoleId = '';
       else addUserId = '';
       toast.success('Override hinzugefügt');

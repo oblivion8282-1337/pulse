@@ -10,6 +10,7 @@ import { messages } from './messages.svelte';
 import { roles } from './roles.svelte';
 import { channelPermissions } from './channelPermissions.svelte';
 import { memberRoles } from './memberRoles.svelte';
+import { capabilities } from './capabilities.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -82,6 +83,7 @@ class AuthStore {
     roles.clear();
     channelPermissions.clear();
     memberRoles.clear();
+    capabilities.clear();
     void goto('/login');
   }
 }

@@ -16,7 +16,6 @@ from dcc_chat_gateway.models import MemberRole, Role
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
-    has_permission,
     resolve_permissions,
 )
 from dcc_chat_gateway.routes._deps import require_member
@@ -62,14 +61,14 @@ async def assign_member_role(
     editor_perms = await check_permission(
         session, current, guild_id, Permissions.MANAGE_ROLES
     )
-    # Anti-escalation: assigning a role with ADMINISTRATOR requires the
-    # editor to have ADMINISTRATOR (or be owner — short-circuits in the
-    # resolver to GRANT_ALL_SAFE).
-    if role.permissions & int(Permissions.ADMINISTRATOR) and not has_permission(
-        editor_perms, Permissions.ADMINISTRATOR
-    ):
+    # Anti-escalation: assigning a role grants the *target* every bit the
+    # role carries. The editor must therefore already hold every one of
+    # those bits themselves (same rule as create/patch_role). Owners +
+    # ADMINISTRATOR-holders pass via the GRANT_ALL_SAFE short-circuit in
+    # the resolver.
+    if role.permissions & ~editor_perms:
         raise HTTPException(
-            403, detail="cannot grant ADMINISTRATOR without having it yourself"
+            403, detail="cannot grant permissions you do not yourself have"
         )
 
     existing = await session.get(MemberRole, (guild_id, user_id, role_id))
@@ -98,7 +97,18 @@ async def unassign_member_role(
         raise HTTPException(
             400, detail="@everyone is implicit — cannot be unassigned"
         )
-    await check_permission(session, current, guild_id, Permissions.MANAGE_ROLES)
+    editor_perms = await check_permission(
+        session, current, guild_id, Permissions.MANAGE_ROLES
+    )
+    # Anti-escalation (symmetric with assign): a mod who can't hold a bit
+    # also can't decide whether someone else stops holding it. Without
+    # this check, a mod could un-assign a role that included MANAGE_ROLES
+    # from a higher-tier member they outrank only via MANAGE_ROLES itself.
+    # Owners + ADMINISTRATOR pass via GRANT_ALL_SAFE.
+    if role.permissions & ~editor_perms:
+        raise HTTPException(
+            403, detail="cannot manage assignment of bits you do not yourself have"
+        )
 
     await session.execute(
         delete(MemberRole).where(

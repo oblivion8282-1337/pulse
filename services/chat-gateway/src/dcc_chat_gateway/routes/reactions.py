@@ -16,6 +16,11 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Message, MessageReaction
+from dcc_chat_gateway.permissions import (
+    Permissions,
+    has_permission,
+    resolve_permissions,
+)
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.routes.messages import _broadcast
 from dcc_chat_gateway.security import CurrentUser
@@ -56,7 +61,18 @@ async def add_reaction(
     request: Request,
 ):
     emoji_n = _normalize_emoji(emoji)
-    msg = await _load_for_reaction(session, message_id, current.id)
+    msg = await session.get(Message, message_id)
+    if msg is None or msg.deleted_at is not None:
+        raise HTTPException(404, detail="message not found")
+    # Polymorphic channel lookup + access check (handles guild vs DM).
+    kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
+    # ADD_REACTIONS gate (guild channels only — DMs have no overlay).
+    if kind == "guild":
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=msg.channel_id
+        )
+        if not has_permission(perms, Permissions.ADD_REACTIONS):
+            raise HTTPException(403, detail="missing permission: ADD_REACTIONS")
     row = MessageReaction(message_id=msg.id, user_id=current.id, emoji=emoji_n)
     session.add(row)
     try:

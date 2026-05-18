@@ -7,6 +7,7 @@ that's needed for `reply` quote previews and the initial list payload.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -32,6 +33,9 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
 )
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
+
+# Matches `@everyone` / `@here` as standalone tokens (word boundary).
+_MENTION_EVERYONE_RE = re.compile(r"@(everyone|here)\b")
 from dcc_chat_gateway.routes.attachments import (
     bind_attachments,
     hard_delete_attachments,
@@ -116,7 +120,15 @@ async def list_messages(
 ):
     # Resolve the channel as guild-or-DM and enforce access in one go.
     # The Message query below is identical regardless of channel kind.
-    await resolve_channel_or_raise(session, channel_id, current.id)
+    kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
+
+    # READ_HISTORY gate (guild channels only — DMs have no permission overlay).
+    if kind == "guild":
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=channel_id
+        )
+        if not has_permission(perms, Permissions.READ_HISTORY):
+            raise HTTPException(403, detail="missing permission: READ_HISTORY")
 
     stmt = select(Message).where(
         Message.channel_id == channel_id,
@@ -154,6 +166,20 @@ async def post_message(
     if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
         # Voice channels reject text posts. DM channels are always text-only.
         raise HTTPException(404, detail="text channel not found")
+    # SEND_MESSAGES + MENTION_EVERYONE gates (guild channels only — DMs have
+    # no permission overlay). Resolve once and bit-check locally.
+    if kind == "guild":
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=channel_id
+        )
+        if not has_permission(perms, Permissions.SEND_MESSAGES):
+            raise HTTPException(403, detail="missing permission: SEND_MESSAGES")
+        if _MENTION_EVERYONE_RE.search(payload.content) and not has_permission(
+            perms, Permissions.MENTION_EVERYONE
+        ):
+            raise HTTPException(
+                403, detail="missing permission: MENTION_EVERYONE"
+            )
     if not ratelimit.check("message", current.id):
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
@@ -270,7 +296,24 @@ async def edit_message(
         raise HTTPException(403, detail="only the author can edit")
     # Caller must still have access to the channel (guild kick → can't edit
     # old messages; DM author trivially passes since DM membership is fixed).
-    await resolve_channel_or_raise(session, msg.channel_id, current.id)
+    kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
+
+    # SEND_MESSAGES + MENTION_EVERYONE gates: editing publishes content the
+    # same way posting does — a read-only channel must reject edits too, and
+    # ``@everyone`` smuggled in via edit needs the same bit. Guild channels
+    # only; DMs bypass.
+    if kind == "guild":
+        perms = await resolve_permissions(
+            session, current, ch.guild_id, channel_id=msg.channel_id
+        )
+        if not has_permission(perms, Permissions.SEND_MESSAGES):
+            raise HTTPException(403, detail="missing permission: SEND_MESSAGES")
+        if _MENTION_EVERYONE_RE.search(payload.content) and not has_permission(
+            perms, Permissions.MENTION_EVERYONE
+        ):
+            raise HTTPException(
+                403, detail="missing permission: MENTION_EVERYONE"
+            )
 
     # Author may rewrite content AND swap attachments. Diff against the
     # current set: removed → hard-delete (MinIO + soft-row), added → bind.

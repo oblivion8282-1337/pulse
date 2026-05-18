@@ -172,6 +172,45 @@ async def resolve_permissions(
     return calculate_channel_permissions(ctx)
 
 
+def resolve_guild_permissions_from_snapshot(
+    user: AuthenticatedUser,
+    guild_owner_id: int,
+    member_roles: list[Role],
+) -> int:
+    """Resolve guild-wide permissions from already-batched data.
+
+    The WS ``ready`` frame fetches every guild's roles + the caller's
+    role assignments in two batched SELECTs. Calling ``resolve_permissions``
+    once per guild then incurs three more SELECTs *per guild* on top of that,
+    which dominates the ready latency on a user with many guilds. This helper
+    rebuilds a ``PermissionContext`` purely from the in-memory snapshot and
+    runs the resolver — no DB I/O.
+
+    ``member_roles`` is the set of roles the user actually holds in this
+    guild (including @everyone — callers must append it if the user is a
+    member). Non-members must pass an empty list; that returns 0 unless the
+    user is the global admin (which short-circuits inside the resolver). The
+    owner short-circuit still works via ``guild_owner_id == user.id``."""
+    snapshots = [
+        RoleSnapshot(
+            id=r.id,
+            position=r.position,
+            permissions=r.permissions,
+            is_everyone=r.is_everyone,
+        )
+        for r in member_roles
+    ]
+    ctx = _Ctx(
+        user=user.id,
+        admin=user.is_admin,
+        owner=guild_owner_id == user.id,
+        member=bool(member_roles),
+        roles=snapshots,
+        overwrites={},
+    )
+    return calculate_guild_permissions(ctx)
+
+
 async def check_permission(
     session: AsyncSession,
     user: AuthenticatedUser,
@@ -238,5 +277,6 @@ __all__ = [
     "assert_overwrite_within_editor_scope",
     "check_permission",
     "has_permission",
+    "resolve_guild_permissions_from_snapshot",
     "resolve_permissions",
 ]

@@ -120,3 +120,35 @@ async def test_non_member_cannot_react_to_guild_message(client, _auth_signer):
         f"/messages/{msg['id']}/reactions/%F0%9F%91%8D/@me", headers=auth(t_other)
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_add_reaction_blocked_without_add_reactions(client, _auth_signer):
+    """Member with ADD_REACTIONS denied via channel overwrite gets 403 on PUT.
+
+    Remove-reaction stays unrestricted (users can always undo their own),
+    so this test only pins the add side.
+    """
+    from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+    from dcc_shared.permissions import Permissions
+
+    t1, _, t2, uid2, cid = await _make_guild_with_channel(client, _auth_signer)
+    # t1 (owner) posts a message t2 will try to react to.
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages", json={"content": "hi"}, headers=auth(t1)
+        )
+    ).json()
+    # Owner denies ADD_REACTIONS for t2 in this channel.
+    r = await client.put(
+        f"/channels/{cid}/permissions/{OVERWRITE_TARGET_USER}/{uid2}",
+        json={"allow": "0", "deny": str(int(Permissions.ADD_REACTIONS))},
+        headers=auth(t1),
+    )
+    assert r.status_code == 200, r.text
+    # t2 reaction add → 403.
+    r = await client.put(
+        f"/messages/{msg['id']}/reactions/%F0%9F%91%8D/@me", headers=auth(t2)
+    )
+    assert r.status_code == 403
+    assert "ADD_REACTIONS" in r.json()["detail"]

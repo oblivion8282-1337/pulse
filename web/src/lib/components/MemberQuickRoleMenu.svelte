@@ -58,11 +58,8 @@
     }
   }
 
-  /** Called by the host's Trigger so we can ensure the lazy
-   * per-member role cache is filled before the menu renders. */
-  export function onOpen(): void {
-    void memberRoles.ensure(guildId, userId).catch(() => undefined);
-  }
+  // Lazy per-member role cache is primed by the host's
+  // `oncontextmenu` handler before the menu opens — see MemberList.
 </script>
 
 {#if canManage && assignable.length > 0}

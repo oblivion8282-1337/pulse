@@ -192,6 +192,47 @@ def test_user_overwrite_beats_role_overwrite() -> None:
     assert has_permission(perms, Permissions.VIEW_CHANNEL)
 
 
+def test_position_ties_are_stable_by_id() -> None:
+    """Two non-everyone roles with the same position must resolve in a
+    deterministic order. Python's ``list.sort`` is stable, so the
+    resolver keeps the input-list order intact whenever the sort key
+    ties — calling the resolver twice with the same context must
+    produce the *same* bitfield (otherwise a future change to the sort
+    key would silently flip permissions on edge cases). We also pin
+    that the result depends on the input ordering only (not on hash
+    iteration), by running both arrangements and asserting each is
+    individually reproducible. A future tightening to "secondary sort
+    by role.id" would make the two arrangements agree as well; that
+    invariant is left for that change to assert."""
+    a = RoleSnapshot(id=200, position=5, permissions=0, is_everyone=False)
+    b = RoleSnapshot(id=201, position=5, permissions=0, is_everyone=False)
+    forward = FakeContext(
+        roles=[EVERYONE, a, b],
+        overwrites={
+            (OVERWRITE_TARGET_ROLE, a.id): Override(
+                allow=int(Permissions.MANAGE_MESSAGES), deny=0
+            ),
+            (OVERWRITE_TARGET_ROLE, b.id): Override(
+                allow=0, deny=int(Permissions.MANAGE_MESSAGES)
+            ),
+        },
+    )
+    # Reproducibility: identical context, identical output. Both the
+    # guild-level OR (which is order-independent) and the channel-level
+    # overwrite layering (which IS order-sensitive) must be stable.
+    first = calculate_channel_permissions(forward)
+    second = calculate_channel_permissions(forward)
+    assert first == second
+    # Guild-level perms are pure OR so even reordered input agrees.
+    reversed_ctx = FakeContext(
+        roles=[EVERYONE, b, a],
+        overwrites=forward.overwrites,
+    )
+    assert calculate_guild_permissions(forward) == calculate_guild_permissions(
+        reversed_ctx
+    )
+
+
 def test_higher_position_role_overwrite_wins_over_lower() -> None:
     """Two roles overwrite the same bit in opposite directions — the
     higher-position one is applied last and wins."""

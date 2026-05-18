@@ -66,6 +66,11 @@
   // One-shot override so the user-confirmed discard close passes
   // through the dirty guard instead of bouncing back.
   let closeOverride = $state(false);
+  // Monotonic signal — bumping it tells RolesEditor to reset its
+  // local edit buffer. Without this, just resetting `rolesEditorDirty`
+  // here would be reverted on the next tick because the editor's
+  // dirty-effect compares buffer ≠ persisted role and flips it back.
+  let discardSignal = $state(0);
 
   function handleOpenChange(next: boolean): void {
     if (!next && rolesEditorDirty && !closeOverride) {
@@ -89,6 +94,10 @@
   function confirmDiscardClose(): void {
     closeConfirmOpen = false;
     closeOverride = true;
+    // Drop the buffer too — Dialog.Root keeps the inner content mounted
+    // through its close transition, so leaving a dirty buffer behind
+    // would briefly flash "ungespeicherte Änderungen" before unmount.
+    discardSignal += 1;
     open = false;
   }
 
@@ -131,7 +140,10 @@
   }
 
   function confirmDiscardTab(): void {
-    rolesEditorDirty = false;
+    // Signal RolesEditor to roll back its buffer. The editor's dirty
+    // effect will then flip `rolesEditorDirty` to false on its own —
+    // clearing it manually here would race with the next reactive run.
+    discardSignal += 1;
     if (pendingTab) {
       tab = pendingTab;
       pendingTab = null;
@@ -191,6 +203,7 @@
           <RolesEditor
             {guildId}
             editorPermissions={myPermissions}
+            {discardSignal}
             bind:dirty={rolesEditorDirty}
           />
         {:else if tab === 'members' && canManageRoles}

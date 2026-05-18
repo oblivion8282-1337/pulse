@@ -38,8 +38,9 @@ _CHAT_GW_CHANNEL_TYPE_VOICE = 1
 # voice-signaling can't pull dcc-shared without making the dependency
 # graph circular in dev (chat-gateway imports dcc-shared, dcc-shared
 # is the canonical source). Pinning these here is the cheapest way to
-# keep voice-signaling decoupled — if the bit layout ever changes,
-# pytest in this service breaks immediately.
+# keep voice-signaling decoupled — drift is caught by
+# ``test_bit_constants_match_shared`` in this service's test suite.
+_PERM_CONNECT = 1 << 30
 _PERM_SPEAK = 1 << 31
 _PERM_STREAM = 1 << 32
 _PERM_USE_VIDEO = 1 << 33
@@ -156,7 +157,7 @@ async def _resolve_channel_permissions(channel_id: str, bearer: str) -> int:
         # No chat-gateway configured (test/dev fallback) — assume full
         # publish, matching the pre-gate behaviour. The
         # ``_require_voice_channel_member`` warning already fired.
-        return _PERM_SPEAK | _PERM_USE_VIDEO | _PERM_STREAM
+        return _PERM_CONNECT | _PERM_SPEAK | _PERM_USE_VIDEO | _PERM_STREAM
     try:
         resp = await _chat_gateway_request(
             "GET", f"/channels/{channel_id}/permissions/me", bearer=bearer
@@ -216,6 +217,15 @@ async def issue_token(
     bearer = _bearer_from_header(authorization)
     await _require_voice_channel_member(payload.channel_id, bearer)
     perms = await _resolve_channel_permissions(payload.channel_id, bearer)
+    # CONNECT is the join gate. A member who has been deny-CONNECT'd on the
+    # channel must not get *any* token — issuing a subscribe-only token here
+    # would still let them sit in the room and consume bandwidth. Refuse
+    # entirely instead.
+    if not (perms & _PERM_CONNECT):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="cannot connect to this voice channel",
+        )
     can_publish, sources = _publish_sources_for(perms)
 
     room = _room_for_channel(payload.channel_id)

@@ -141,8 +141,8 @@ async def test_token_passes_with_voice_channel(client, auth_signer, monkeypatch)
     """Happy path: chat-gateway confirms voice channel membership."""
     monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
 
-    # Full publish perms — SPEAK + USE_VIDEO + STREAM all set.
-    perms = (1 << 31) | (1 << 32) | (1 << 33)
+    # Full publish perms — CONNECT + SPEAK + USE_VIDEO + STREAM all set.
+    perms = (1 << 30) | (1 << 31) | (1 << 32) | (1 << 33)
     monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(perms))
     access = auth_signer.issue_access(42, "alice")
     r = await client.post(
@@ -164,7 +164,7 @@ async def test_token_microphone_only_when_no_video_perm(
     client, auth_signer, monkeypatch
 ):
     monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
-    perms = 1 << 31  # SPEAK only
+    perms = (1 << 30) | (1 << 31)  # CONNECT + SPEAK only
     monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(perms))
     r = await client.post(
         "/token",
@@ -181,10 +181,11 @@ async def test_token_microphone_only_when_no_video_perm(
 async def test_token_subscribe_only_when_no_publish_perms(
     client, auth_signer, monkeypatch
 ):
-    """No SPEAK / USE_VIDEO / STREAM → token grants no publish at all.
-    Subscribe is always on."""
+    """CONNECT but no SPEAK / USE_VIDEO / STREAM → token grants no publish at
+    all. Subscribe is always on."""
     monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
-    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(0))
+    # CONNECT alone — joinable but nothing publishable.
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(1 << 30))
     r = await client.post(
         "/token",
         json={"channel_id": "987654321"},
@@ -196,3 +197,31 @@ async def test_token_subscribe_only_when_no_publish_perms(
     # as ``False`` (proto3 strips defaults though; absent == False).
     assert not grants.get("canPublish", False)
     assert grants.get("canSubscribe", True) is True
+
+
+@pytest.mark.asyncio
+async def test_token_403_without_connect_perm(client, auth_signer, monkeypatch):
+    """A member with deny-CONNECT must not get any token at all — not even a
+    subscribe-only one. The route returns 403 before LiveKit token-build."""
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+    # SPEAK + STREAM but no CONNECT — still rejected entirely.
+    perms = (1 << 31) | (1 << 32)
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(perms))
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(auth_signer.issue_access(42, "alice")),
+    )
+    assert r.status_code == 403, r.text
+
+
+def test_bit_constants_match_shared():
+    """Pin the SPEAK / STREAM / USE_VIDEO / CONNECT bits to dcc_shared so a
+    future shift in ``Permissions`` breaks this test loudly instead of
+    silently desyncing the LiveKit grant gate."""
+    from dcc_shared.permissions import Permissions
+
+    assert voice_routes._PERM_CONNECT == int(Permissions.CONNECT)
+    assert voice_routes._PERM_SPEAK == int(Permissions.SPEAK)
+    assert voice_routes._PERM_STREAM == int(Permissions.STREAM)
+    assert voice_routes._PERM_USE_VIDEO == int(Permissions.USE_VIDEO)

@@ -93,7 +93,12 @@ class ConnectionManager:
         # guild:events (role mutations, member-role assignments, channel
         # permission overwrites). Avoids three DB lookups per recipient per
         # broadcasted message.
-        self._ws_perms: dict[WebSocket, dict[int, int]] = defaultdict(dict)
+        # IMPORTANT: plain dict (not defaultdict) — a defaultdict here would
+        # silently resurrect entries for sockets already removed via
+        # ``remove_socket`` (every read of ``_ws_perms[ws]`` inserts {}), which
+        # is a slow memory leak. Writers must guard with ``ws in self._ws_user``
+        # or use ``.get(ws)`` for reads.
+        self._ws_perms: dict[WebSocket, dict[int, int]] = {}
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -340,25 +345,32 @@ class ConnectionManager:
         zero-perm result."""
         if self._session_factory is None:
             return -1
-        cache = self._ws_perms[ws]
-        cached = cache.get(channel_id)
-        if cached is not None:
-            return cached
+        # Don't write into _ws_perms for sockets we don't know about — that
+        # would leak entries past remove_socket().
         user = self._ws_user.get(ws)
         if user is None:
             return 0
+        cache = self._ws_perms.get(ws)
+        if cache is not None:
+            cached = cache.get(channel_id)
+            if cached is not None:
+                return cached
         from dcc_chat_gateway.models import Channel
         from dcc_chat_gateway.permissions import resolve_permissions
 
         async with self._session_factory() as session:
             channel = await session.get(Channel, channel_id)
             if channel is None:
-                cache[channel_id] = 0
+                # Re-check the socket is still registered before caching — it
+                # could have been removed while we were awaiting the DB call.
+                if ws in self._ws_user:
+                    self._ws_perms.setdefault(ws, {})[channel_id] = 0
                 return 0
             value = await resolve_permissions(
                 session, user, channel.guild_id, channel_id=channel_id
             )
-        cache[channel_id] = value
+        if ws in self._ws_user:
+            self._ws_perms.setdefault(ws, {})[channel_id] = value
         return value
 
     async def can_view_channel(self, ws: WebSocket, channel_id: int) -> bool:
@@ -374,10 +386,16 @@ class ConnectionManager:
         """Drop cache entries that may have changed because of a guild-wide
         role mutation. Cheap: just nuke every entry — channels live in a
         single guild, so we'd need a guild→channel map otherwise. The cache
-        warms back up on the next message-send."""
-        # Without a channel→guild map in the manager, the only safe thing is
-        # to clear every socket's per-channel cache. Acceptable because
-        # role mutations are rare relative to messages.
+        warms back up on the next message-send.
+
+        KNOWN LIMITATION: ``guild_id`` is currently ignored — this drops every
+        socket's cache, including caches for guilds that were not mutated.
+        Pinpointing the affected sockets would need either (a) a channel→guild
+        index built off the chat schema, or (b) a per-socket guild-membership
+        map populated by ``ready`` + ``guild_member_added`` events. Both are
+        feasible but not yet wired up; role mutations are rare relative to
+        messages so the over-invalidation cost is tolerable. Fix flagged in
+        the audit summary."""
         for cache in self._ws_perms.values():
             cache.clear()
 
@@ -388,7 +406,9 @@ class ConnectionManager:
     def _invalidate_for_member(self, user_id: int) -> None:
         for ws, user in list(self._ws_user.items()):
             if user.id == user_id:
-                self._ws_perms[ws].clear()
+                cache = self._ws_perms.get(ws)
+                if cache is not None:
+                    cache.clear()
 
     def _maybe_invalidate(self, payload: dict) -> None:
         """Trigger cache invalidation when a guild:events envelope indicates
@@ -436,29 +456,38 @@ class ConnectionManager:
 
         DM channels live in a separate table and have no overwrites — the
         resolver returns 0 for them, so the filter would incorrectly drop
-        every DM target. We detect DM channels by checking once whether
-        the id refers to a guild channel; if not, we assume DM and skip
-        the filter."""
+        every DM target. We detect DM channels by checking the
+        ``direct_message_channels`` table and skip the filter when the id
+        belongs there. When the id matches neither table, the channel is
+        deleted (or never existed) — drop the broadcast entirely so race-
+        window messages on a still-subscribed ``_subs[cid]`` set don't fan
+        out to unrelated clients."""
         if self._session_factory is None:
             return targets
         try:
             cid_int = int(channel_id)
         except (TypeError, ValueError):
             return targets
-        from dcc_chat_gateway.models import Channel
+        from dcc_chat_gateway.models import Channel, DirectMessageChannel
 
         async with self._session_factory() as session:
             ch = await session.get(Channel, cid_int)
-        if ch is None:
-            # Either a DM channel (not in chat.channels) or a deleted/stale
-            # id — either way, skip filtering. DMs have no permission
-            # overlay so every subscribed peer should still receive.
-            return targets
-        kept: list[WebSocket] = []
-        for ws in targets:
-            if await self.can_view_channel(ws, cid_int):
-                kept.append(ws)
-        return kept
+            if ch is None:
+                # Could be a DM, or a deleted/unknown id. DMs have no
+                # permission overlay so they pass through unfiltered;
+                # deleted/unknown channels broadcast to nobody.
+                dm = await session.get(DirectMessageChannel, cid_int)
+                if dm is None:
+                    return []
+                return targets
+        # Resolve permissions concurrently. The session factory is reentrant
+        # so each can_view_channel() opens its own short-lived session.
+        # Sequential awaits here scale linearly with target count (100 voice-
+        # presence subscribers → 100 round-trips on a cold cache).
+        results = await asyncio.gather(
+            *(self.can_view_channel(ws, cid_int) for ws in targets)
+        )
+        return [ws for ws, ok in zip(targets, results) if ok]
 
     def user_socket_count(self, user_id: int) -> int:
         """How many open sockets the given user currently has. Used by the WS

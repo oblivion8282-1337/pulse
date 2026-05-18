@@ -186,7 +186,18 @@ async def delete_role(
         raise HTTPException(404, detail="role not found")
     if role.is_everyone:
         raise HTTPException(400, detail="@everyone cannot be deleted")
-    await check_permission(session, current, guild_id, Permissions.MANAGE_ROLES)
+    editor_perms = await check_permission(
+        session, current, guild_id, Permissions.MANAGE_ROLES
+    )
+    # Anti-escalation: deleting a role implicitly *removes* whatever bits
+    # it granted to every holder — that's a privilege change in the same
+    # blast-radius as un-assigning it from each one individually. Apply
+    # the same gate as create/patch_role: the editor must hold every bit
+    # the role carries (Owner/ADMINISTRATOR short-circuit via the resolver).
+    if role.permissions & ~editor_perms:
+        raise HTTPException(
+            403, detail="cannot delete a role granting bits you do not yourself have"
+        )
 
     await session.delete(role)
     await session.commit()

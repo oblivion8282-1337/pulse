@@ -40,9 +40,14 @@ class RoleStore {
       my_permissions?: string;
     }[]
   ): void {
-    const nextRoles: Record<string, Role[]> = {};
-    const nextMy: Record<string, string[]> = {};
-    const nextPerms: Record<string, string> = {};
+    // Merge per-guild — never wipe a guild's slot just because the ready
+    // frame omitted its field. Older mocks / partial payloads / WS-role
+    // events that ran before ready would otherwise vanish silently. We
+    // also use this as the merge point for events buffered out of order
+    // (ws/connection.ts now flushes pre-ready role events through here).
+    const nextRoles: Record<string, Role[]> = { ...this.byGuild };
+    const nextMy: Record<string, string[]> = { ...this.myRoleIds };
+    const nextPerms: Record<string, string> = { ...this.myGuildPerms };
     for (const e of entries) {
       if (e.roles) nextRoles[e.id] = e.roles;
       if (e.my_role_ids) nextMy[e.id] = e.my_role_ids;

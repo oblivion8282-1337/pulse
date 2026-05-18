@@ -368,17 +368,38 @@ class RoleOut(BaseModel):
 
 def _coerce_bitfield(value: object) -> int:
     """Accept bitfields as int or string. Mirrors ``_coerce_id`` — same
-    JS-Number-precision concern."""
+    JS-Number-precision concern.
+
+    Rejects negatives upfront so a hostile ``-1`` can't slip past the
+    Field-bounded Annotated chain via the int branch (BeforeValidator
+    runs first → Field's ``ge=0`` still re-validates after, but the
+    early raise gives a clearer error and stops a negative int from
+    even materialising into the field path)."""
+    if isinstance(value, bool):
+        # bool is an int subclass but never makes sense as a bitfield.
+        raise TypeError("expected int or string bitfield, got bool")
     if isinstance(value, int):
+        if value < 0:
+            raise ValueError("bitfield must be non-negative")
         return value
     if isinstance(value, str):
-        return int(value)
+        parsed = int(value)
+        if parsed < 0:
+            raise ValueError("bitfield must be non-negative")
+        return parsed
     raise TypeError(
         f"expected int or string bitfield, got {type(value).__name__}"
     )
 
 
-Bitfield = Annotated[int, BeforeValidator(_coerce_bitfield)]
+# ``BeforeValidator`` coerces str→int first; the trailing ``Field`` then
+# pins the value into the safe 0..(1<<52)-1 range so neither owners nor
+# admins can persist a role with a negative or out-of-budget bitfield.
+Bitfield = Annotated[
+    int,
+    BeforeValidator(_coerce_bitfield),
+    Field(ge=0, lt=1 << 52),
+]
 
 
 class RoleIn(BaseModel):

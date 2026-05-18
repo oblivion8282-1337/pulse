@@ -360,3 +360,102 @@ async def test_role_grants_view_back_unlocks_broadcast(ws_app, _auth_signer):
                 assert evt["data"]["content"] == "hi"
 
     await asyncio.to_thread(_run)
+
+
+# ---- subscribe / send permission gates ------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_subscribe_blocked_without_view_channel(ws_app, _auth_signer):
+    """A guild member with deny-VIEW_CHANNEL on a channel must get an explicit
+    error frame on ``subscribe`` rather than a silent success that produces an
+    invisible-channel UX."""
+    def _run():
+        with _client(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            other_uid = random.randint(1, 1_000_000)
+            owner_t = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            other_t = _auth_signer.issue_access(other_uid, f"o{other_uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_t)).json()
+            c = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "secret"},
+                headers=_auth(owner_t),
+            ).json()
+            tc.post(
+                f"/guilds/{g['id']}/members",
+                json={"user_id": str(other_uid)},
+                headers=_auth(owner_t),
+            )
+            everyone_id = next(
+                r["id"]
+                for r in tc.get(
+                    f"/guilds/{g['id']}/roles", headers=_auth(owner_t)
+                ).json()
+                if r["is_everyone"]
+            )
+            tc.put(
+                f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
+                json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+                headers=_auth(owner_t),
+            )
+            with tc.websocket_connect(f"/ws?token={other_t}") as ws:
+                ws.receive_json()  # ready
+                ws.send_text(
+                    json.dumps({"op": "subscribe", "channel_id": c["id"]})
+                )
+                err = _drain_until(ws, "error")
+                assert err["code"] == 4012
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_send_blocked_without_send_messages(ws_app, _auth_signer):
+    """Member retains VIEW_CHANNEL (so subscribe works + messages still flow
+    to them) but has SEND_MESSAGES denied — ``send`` op must return an error
+    frame instead of persisting the message."""
+    def _run():
+        with _client(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            other_uid = random.randint(1, 1_000_000)
+            owner_t = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            other_t = _auth_signer.issue_access(other_uid, f"o{other_uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_t)).json()
+            c = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "readonly"},
+                headers=_auth(owner_t),
+            ).json()
+            tc.post(
+                f"/guilds/{g['id']}/members",
+                json={"user_id": str(other_uid)},
+                headers=_auth(owner_t),
+            )
+            everyone_id = next(
+                r["id"]
+                for r in tc.get(
+                    f"/guilds/{g['id']}/roles", headers=_auth(owner_t)
+                ).json()
+                if r["is_everyone"]
+            )
+            # Deny SEND_MESSAGES; VIEW_CHANNEL stays allowed.
+            tc.put(
+                f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
+                json={"allow": "0", "deny": str(int(Permissions.SEND_MESSAGES))},
+                headers=_auth(owner_t),
+            )
+            with tc.websocket_connect(f"/ws?token={other_t}") as ws:
+                ws.receive_json()  # ready
+                ws.send_text(
+                    json.dumps({"op": "subscribe", "channel_id": c["id"]})
+                )
+                ws.send_text(
+                    json.dumps(
+                        {"op": "send", "channel_id": c["id"], "content": "hi"}
+                    )
+                )
+                err = _drain_until(ws, "error")
+                assert err["code"] == 4013
+
+    await asyncio.to_thread(_run)
