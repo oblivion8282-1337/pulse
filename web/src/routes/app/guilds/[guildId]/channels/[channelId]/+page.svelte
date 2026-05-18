@@ -353,11 +353,7 @@
   activeGuildId={guildId}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={
-    auth.user?.is_admin || capabilities.allowGuildCreation
-      ? () => (creatingGuild = true)
-      : undefined
-  }
+  onCreateClick={() => (creatingGuild = true)}
   onHomeClick={() => { sidebarOpen = false; void goto('/app/@me'); }}
   onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
 />
@@ -408,6 +404,7 @@
 
 <CreateGuildDialog
   open={creatingGuild}
+  canCreate={!!auth.user?.is_admin || capabilities.allowGuildCreation}
   onClose={() => (creatingGuild = false)}
   onCreate={createGuild}
   onJoin={joinGuild}

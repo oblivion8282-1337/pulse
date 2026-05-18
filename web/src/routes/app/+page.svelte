@@ -65,7 +65,7 @@
   activeGuildId={null}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
-  onCreateClick={canCreateGuild ? () => (creating = true) : undefined}
+  onCreateClick={() => (creating = true)}
 />
 
 <aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-60 md:rounded-2xl lg:w-68" data-testid="channel-list-placeholder">
@@ -77,11 +77,12 @@
   {#if guilds.list.length === 0}
     <div class="text-center">
       <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Server</p>
-      {#if canCreateGuild}
-        <Button onclick={() => (creating = true)} data-testid="empty-create-guild">Server erstellen</Button>
-      {:else}
-        <p class="text-text-muted text-xs">
-          Server-Erstellung ist vom Admin deaktiviert. Bitte einen Server-Admin um eine Einladung.
+      <Button onclick={() => (creating = true)} data-testid="empty-create-guild">
+        {canCreateGuild ? 'Server erstellen oder beitreten' : 'Server beitreten'}
+      </Button>
+      {#if !canCreateGuild}
+        <p class="text-text-muted mt-2 text-xs">
+          Server-Erstellung ist vom Admin deaktiviert — du kannst aber per Einladung beitreten.
         </p>
       {/if}
     </div>
@@ -92,6 +93,7 @@
 
 <CreateGuildDialog
   open={creating}
+  canCreate={canCreateGuild}
   onClose={() => (creating = false)}
   onCreate={createGuild}
   onJoin={joinGuild}

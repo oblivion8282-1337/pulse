@@ -8,11 +8,17 @@
 
   let {
     open = false,
+    canCreate = true,
     onClose,
     onCreate,
     onJoin
   }: {
     open?: boolean;
+    /** When false, only "Join via invite" is offered. Used for non-admins
+     * on a self-hosted deploy where the admin hasn't opened up Server
+     * creation. The "+"-Button stays visible so a fresh user can still
+     * join a server via a friend's invite link. */
+    canCreate?: boolean;
     onClose: () => void;
     /** Create a new server with this name. May throw — the dialog shows the error. */
     onCreate: (name: string) => void | Promise<void>;
@@ -22,6 +28,12 @@
 
   type Mode = 'choose' | 'create' | 'join';
   let mode = $state<Mode>('choose');
+
+  // Skip the chooser when only one option exists — open the dialog
+  // straight into the join form to save a click for non-admins.
+  $effect(() => {
+    if (open && !canCreate && mode === 'choose') mode = 'join';
+  });
   let name = $state('');
   let inviteInput = $state('');
   let busy = $state(false);
@@ -90,17 +102,19 @@
         </Dialog.Description>
       </Dialog.Header>
       <div class="space-y-2">
-        <button
-          type="button"
-          class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
-          onclick={() => (mode = 'create')}
-          data-testid="create-guild-choice"
-        >
-          <div>
-            <div class="text-text-bright font-semibold">Eigenen Server erstellen</div>
-            <div class="text-text-muted text-xs">Du wirst der Owner.</div>
-          </div>
-        </button>
+        {#if canCreate}
+          <button
+            type="button"
+            class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
+            onclick={() => (mode = 'create')}
+            data-testid="create-guild-choice"
+          >
+            <div>
+              <div class="text-text-bright font-semibold">Eigenen Server erstellen</div>
+              <div class="text-text-muted text-xs">Du wirst der Owner.</div>
+            </div>
+          </button>
+        {/if}
         <button
           type="button"
           class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
