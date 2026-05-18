@@ -15,7 +15,7 @@
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
 
-  let { p, channelId }: { p: VoiceParticipant; channelId: string } = $props();
+  let { p, channelId, guildId }: { p: VoiceParticipant; channelId: string; guildId: string } = $props();
 
   $effect(() => {
     if (p.userId) userCache.queue(p.userId);
@@ -30,6 +30,14 @@
     p.userId ? Math.round(settings.getUserVolume(p.userId) * 100) : 100
   );
   let canAdjustVolume = $derived(!p.isLocal && p.userId !== null);
+  // Force-mute (server admin set MUTE_MEMBERS override). Treated as
+  // "mic muted" in the UI so the icon shows even if LiveKit's reported
+  // ``micMuted`` is false (e.g. the publish was killed entirely rather
+  // than soft-muted).
+  let isForceMuted = $derived(
+    !!p.userId && voicePresence.isForceMuted(channelId, p.userId)
+  );
+  let showMicOff = $derived(p.micMuted || isForceMuted);
 
   // Activity flags — drive the LIVE/PARTY/CAM badges. HQ + screen-share are
   // both server-tracked; cam is local-only (we only know about cameras whose
@@ -81,6 +89,7 @@
   userId={p.userId}
   displayName={p.name}
   avatarUrl={avatarSrc}
+  {guildId}
 >
   {#snippet children({ props })}
       <button
@@ -129,8 +138,11 @@
           >
             {p.name}{p.isLocal ? ' (du)' : ''}
           </span>
-          {#if p.micMuted}
-            <MicOffIcon class="size-3 text-red-400" />
+          {#if showMicOff}
+            <MicOffIcon
+              class="size-3 text-red-400"
+              aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+            />
           {/if}
           {#if canAdjustVolume && volumePct !== 100}
             <span
@@ -252,8 +264,11 @@
       >
         {p.name}{p.isLocal ? ' (du)' : ''}
       </span>
-      {#if p.micMuted}
-        <MicOffIcon class="size-3 text-red-400" />
+      {#if showMicOff}
+        <MicOffIcon
+          class="size-3 text-red-400"
+          aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+        />
       {/if}
     </div>
   </button>

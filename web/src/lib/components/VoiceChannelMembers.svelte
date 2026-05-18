@@ -3,6 +3,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { settings } from '$lib/stores/settings.svelte';
+  import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
@@ -12,6 +13,8 @@
 
   let {
     userIds,
+    channelId,
+    guildId,
     streamingUserIds = [],
     camUserIds = [],
     speakingUserIds = [],
@@ -22,6 +25,12 @@
     onCamOpen
   }: {
     userIds: string[];
+    /** Voice channel the listed users belong to. Required for force-mute
+     *  lookups + threading into the popover's guild-scoped actions. */
+    channelId: string;
+    /** Guild the channel belongs to. Threaded into UserProfilePopover so
+     *  guild actions (nickname / kick / mute) show up on left-click. */
+    guildId: string;
     /** Users with HQ-stream or screen-share active (server-tracked). */
     streamingUserIds?: string[];
     /** Users with cam active. Only populated for the channel the local user
@@ -64,12 +73,14 @@
   {@const volumePct = Math.round(settings.getUserVolume(uid) * 100)}
   {@const avatarSrc = safeAvatarUrl(user?.avatar_url)}
   {@const state = userStates[uid]}
-  {@const isMicMuted = state?.mic_muted === true}
+  {@const isForceMuted = voicePresence.isForceMuted(channelId, uid)}
+  {@const isMicMuted = state?.mic_muted === true || isForceMuted}
   {@const isDeafened = state?.deafened === true}
   <UserProfilePopover
     userId={uid}
     displayName={name}
     avatarUrl={avatarSrc}
+    {guildId}
   >
     {#snippet children({ props })}
         <button
@@ -117,8 +128,8 @@
             {#if isMicMuted}
               <MicOffIcon
                 class="size-3.5 text-red-400"
-                aria-label="Mikrofon stumm"
-                data-testid="voice-presence-mic-muted"
+                aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+                data-testid={isForceMuted ? 'voice-presence-force-muted' : 'voice-presence-mic-muted'}
               />
             {/if}
             {#if isDeafened}

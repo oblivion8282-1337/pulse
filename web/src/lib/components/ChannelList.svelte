@@ -312,6 +312,8 @@
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}
+            channelId={c.id}
+            guildId={c.guild_id}
             streamingUserIds={streamers}
             camUserIds={[...camUserMap.keys()]}
             speakingUserIds={speakers}

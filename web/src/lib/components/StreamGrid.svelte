@@ -124,7 +124,7 @@
 
   <div class="flex shrink-0 flex-wrap items-center justify-center gap-3 py-1" data-testid="voice-participants">
     {#each voice.participants as p (p.identity)}
-      <VoiceParticipantTile {p} channelId={channel.id} />
+      <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
     {/each}
   </div>
 </div>

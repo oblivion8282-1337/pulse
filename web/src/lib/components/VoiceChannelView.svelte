@@ -207,7 +207,7 @@
         <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 md:gap-6 md:p-8">
           <div class="flex flex-wrap items-center justify-center gap-4 md:gap-6" data-testid="voice-participants">
             {#each voice.participants as p (p.identity)}
-              <VoiceParticipantTile {p} channelId={channel.id} />
+              <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
             {/each}
           </div>
         </div>
