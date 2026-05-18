@@ -7,6 +7,8 @@
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
@@ -40,12 +42,56 @@
     error = null;
     try {
       members = await chatApi.listMembers(id);
-      for (const m of members) userCache.queue(m.user_id);
+      for (const m of members) {
+        userCache.queue(m.user_id);
+        // Best-effort lazy role fetch so colour + hoist grouping populate
+        // as data arrives. Errors are swallowed — we just stay with the
+        // empty role list for that member.
+        void memberRoles.ensure(id, m.user_id).catch(() => undefined);
+      }
     } catch (e) {
       error = (e as Error).message;
     } finally {
       loading = false;
     }
+  }
+
+  type MemberGroup = { hoist: string | null; position: number; members: Member[] };
+
+  /** Group members by their top hoist role (highest-position role with
+   * ``hoist=true``). Members without one fall into the ``null`` bucket,
+   * which renders as "Online". Groups are sorted by position desc so
+   * the top-most hoist role appears first. Within a group, members are
+   * alphabetised by display name. */
+  let groupedMembers = $derived.by<MemberGroup[]>(() => {
+    const byHoist = new Map<string, MemberGroup>();
+    for (const m of members) {
+      const ids = memberRoles.for(guildId, m.user_id);
+      const top = roles.topHoistRole(guildId, ids);
+      const key = top?.id ?? '__none__';
+      if (!byHoist.has(key)) {
+        byHoist.set(key, {
+          hoist: top?.name ?? null,
+          position: top?.position ?? -1,
+          members: []
+        });
+      }
+      byHoist.get(key)!.members.push(m);
+    }
+    const groups = [...byHoist.values()].sort((a, b) => b.position - a.position);
+    for (const g of groups) {
+      g.members.sort((a, b) => displayName(a).localeCompare(displayName(b)));
+    }
+    return groups;
+  });
+
+  /** "#RRGGBB" string for the top-coloured role this member holds, or
+   * null when nothing applies. Used inline on the username span. */
+  function nameColor(userId: string): string | null {
+    const ids = memberRoles.for(guildId, userId);
+    const top = roles.topColorRole(guildId, ids);
+    if (!top) return null;
+    return '#' + top.color.toString(16).padStart(6, '0');
   }
 
   // Per-guild aggregation across all voice channels: who's hosting a watch
@@ -154,12 +200,17 @@
     {:else if error}
       <p class="px-3 py-4 text-xs text-red-400">{error}</p>
     {:else}
-      {#each members as m (m.user_id)}
+      {#each groupedMembers as group (group.hoist ?? '__none__')}
+        <div class="text-text-muted mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wide first:mt-0">
+          {group.hoist ?? 'Online'} — {group.members.length}
+        </div>
+        {#each group.members as m (m.user_id)}
         {@const name = displayName(m)}
         {@const url = avatarUrl(m)}
         {@const isSpeaking = speakingIds.has(m.user_id)}
         {@const isPartyHost = partyHostIds.has(m.user_id)}
         {@const isStreaming = streamerIds.has(m.user_id)}
+        {@const colour = nameColor(m.user_id)}
         <UserProfilePopover
           userId={m.user_id}
           displayName={name}
@@ -201,6 +252,7 @@
             class="truncate text-sm transition-[color,font-weight] duration-200 ease-out {isSpeaking
               ? 'text-text-bright font-semibold'
               : 'text-text-base font-medium'}"
+            style={colour ? `color: ${colour}` : ''}
           >{name}</span>
           <span class="ml-auto flex shrink-0 items-center gap-1">
             {#if isPartyHost}
@@ -231,6 +283,7 @@
         </button>
           {/snippet}
         </UserProfilePopover>
+      {/each}
       {/each}
       {#if members.length === 0}
         <p class="text-text-muted px-3 py-4 text-xs">Keine Mitglieder.</p>

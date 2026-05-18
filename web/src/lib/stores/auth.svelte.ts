@@ -9,6 +9,7 @@ import { guilds } from './guilds.svelte';
 import { messages } from './messages.svelte';
 import { roles } from './roles.svelte';
 import { channelPermissions } from './channelPermissions.svelte';
+import { memberRoles } from './memberRoles.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -80,6 +81,7 @@ class AuthStore {
     messages.clear();
     roles.clear();
     channelPermissions.clear();
+    memberRoles.clear();
     void goto('/login');
   }
 }

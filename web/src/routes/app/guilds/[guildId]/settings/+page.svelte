@@ -17,6 +17,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { rolesApi } from '$lib/api/roles';
   import RolesEditor from '$lib/components/settings/RolesEditor.svelte';
+  import MemberRoleAssignment from '$lib/components/settings/MemberRoleAssignment.svelte';
   import OwnerTransferSection from '$lib/components/settings/OwnerTransferSection.svelte';
 
   let guildId = $derived(page.params.guildId ?? '');
@@ -61,7 +62,13 @@
     {:else}
       {#if canManageRoles}
         <section>
+          <h2 class="text-text-bright mb-3 text-base font-semibold">Rollen</h2>
           <RolesEditor {guildId} editorPermissions={myPermissions} />
+        </section>
+        <hr class="border-border" />
+        <section>
+          <h2 class="text-text-bright mb-3 text-base font-semibold">Mitglieder &amp; Rollen</h2>
+          <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
         </section>
       {:else}
         <p class="text-text-muted text-sm">

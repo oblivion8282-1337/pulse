@@ -30,6 +30,52 @@
   let selectedId = $state<string | null>(null);
   let selectedRole = $derived(sortedRoles.find((r) => r.id === selectedId) ?? sortedRoles[0]);
 
+  // Drag-and-drop position state. dragId is the role being moved; dragOver
+  // is the role we'd insert *before*. @everyone is fixed at position 0
+  // and neither draggable nor a drop target.
+  let dragId = $state<string | null>(null);
+  let dragOverId = $state<string | null>(null);
+
+  function onDragStart(e: DragEvent, id: string): void {
+    if (!e.dataTransfer) return;
+    dragId = id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  }
+
+  function onDragOver(e: DragEvent, id: string): void {
+    if (!dragId || dragId === id) return;
+    e.preventDefault();
+    dragOverId = id;
+  }
+
+  async function onDrop(e: DragEvent, targetId: string): Promise<void> {
+    e.preventDefault();
+    const sourceId = dragId;
+    dragId = null;
+    dragOverId = null;
+    if (!sourceId || sourceId === targetId) return;
+    const nonEveryone = sortedRoles.filter((r) => !r.is_everyone);
+    const fromIdx = nonEveryone.findIndex((r) => r.id === sourceId);
+    const toIdx = nonEveryone.findIndex((r) => r.id === targetId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...nonEveryone];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    // First element (top of the list) gets the highest position so the
+    // visual order matches Discord's "highest role = top" mental model.
+    const updates = reordered.map((r, i) => ({
+      id: r.id,
+      position: reordered.length - i
+    }));
+    try {
+      const rows = await rolesApi.setPositions(guildId, updates);
+      for (const r of rows) rolesStore.upsertRole(r);
+    } catch (err) {
+      toast.error('Reihenfolge ändern fehlgeschlagen', { description: (err as Error).message });
+    }
+  }
+
   // Local edit buffer — the user changes name/permissions/color before
   // hitting Save. Cancel reverts. Saved on PATCH success.
   let editName = $state('');
@@ -104,13 +150,23 @@
     </div>
     <ul class="space-y-1">
       {#each sortedRoles as r (r.id)}
-        <li>
+        <li
+          draggable={!r.is_everyone}
+          ondragstart={(e) => !r.is_everyone && onDragStart(e, r.id)}
+          ondragover={(e) => !r.is_everyone && onDragOver(e, r.id)}
+          ondragleave={() => (dragOverId = null)}
+          ondrop={(e) => !r.is_everyone && onDrop(e, r.id)}
+          class="rounded-lg transition-shadow"
+          class:ring-2={dragOverId === r.id}
+          class:ring-primary={dragOverId === r.id}
+          class:opacity-50={dragId === r.id}
+          data-testid={`role-row-${r.id}`}
+        >
           <button
             type="button"
             class="hover:bg-bg-hover w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
             class:bg-bg-hover={selectedId === r.id}
             onclick={() => (selectedId = r.id)}
-            data-testid={`role-row-${r.id}`}
           >
             <span class="font-medium" style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}>
               {r.name}
@@ -120,6 +176,9 @@
         </li>
       {/each}
     </ul>
+    <p class="text-text-muted mt-2 text-xs">
+      Ziehen zum Umordnen. Obere Position = mächtigere Rolle.
+    </p>
   </aside>
 
   <section class="min-w-0 flex-1 overflow-y-auto">

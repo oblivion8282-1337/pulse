@@ -157,6 +157,40 @@ class RoleStore {
     return has(toBitfield(value), perm);
   }
 
+  /** Highest-position role with a non-null color among the given ids,
+   * scoped to one guild. Returned null when no such role exists — the
+   * caller should fall back to a default member colour. */
+  topColorRole(guildId: string, roleIds: readonly string[]) {
+    const all = this.byGuild[guildId];
+    if (!all || roleIds.length === 0) return null;
+    const set = new Set(roleIds);
+    let best: { position: number; color: number } | null = null;
+    for (const r of all) {
+      if (!set.has(r.id) || r.color == null) continue;
+      if (!best || r.position > best.position) {
+        best = { position: r.position, color: r.color };
+      }
+    }
+    return best;
+  }
+
+  /** Highest-position role with ``hoist=true`` among the given ids.
+   * Used by the member list to group hoisted members under their
+   * top-most hoist role. Returns null when no hoist role applies. */
+  topHoistRole(guildId: string, roleIds: readonly string[]) {
+    const all = this.byGuild[guildId];
+    if (!all || roleIds.length === 0) return null;
+    const set = new Set(roleIds);
+    let best: { id: string; name: string; position: number } | null = null;
+    for (const r of all) {
+      if (!set.has(r.id) || !r.hoist) continue;
+      if (!best || r.position > best.position) {
+        best = { id: r.id, name: r.name, position: r.position };
+      }
+    }
+    return best;
+  }
+
   clear(): void {
     this.byGuild = {};
     this.myRoleIds = {};

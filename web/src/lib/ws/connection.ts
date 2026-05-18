@@ -31,6 +31,7 @@ import { userCache } from '$lib/stores/users.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+import { memberRoles } from '$lib/stores/memberRoles.svelte';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import type { DMChannel, Guild, Message } from '$lib/api/types';
@@ -509,13 +510,14 @@ export class GatewayConnection {
         roles.removeRole(evt.guild_id, evt.role_id);
         break;
       case 'member_roles_updated':
-        // Only the *target* user's role list changed. If we are them, the
-        // store needs to re-pull (no payload list — server pushes a hint
-        // op, not full state). For other users we don't track member roles
-        // at the UI layer beyond what the editor explicitly loads.
+        // Only the target user's role list changed. If we are them, the
+        // resolved-permissions store needs to re-pull. Either way, drop
+        // the lazy cache for this (guild, user) so the next access
+        // re-fetches with the new state.
         if (auth.user?.id === evt.user_id) {
           void roles.refreshMyRoles(evt.guild_id);
         }
+        memberRoles.invalidate(evt.guild_id, evt.user_id);
         break;
       case 'channel_permissions_updated':
         channelPermissions.apply(evt.channel_id, evt.overwrites);
