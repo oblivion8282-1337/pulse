@@ -33,6 +33,16 @@ class Settings(BaseSettings):
     media_svc_url: str = "http://127.0.0.1:8004"
     media_svc_timeout_s: float = 10.0
 
+    # voice-signaling internal-evict callback. chat-gateway hits this
+    # endpoint on kick/ban so voice-signaling can yank the target from
+    # LiveKit + clear voice-overrides for every voice channel in the
+    # guild. Empty secret DISABLES the call — fail-open here (kick/ban
+    # still works, just leaves the LiveKit session live); set both
+    # ``voice_signaling_url`` and ``internal_service_secret`` together.
+    voice_signaling_url: str = "http://127.0.0.1:8003"
+    voice_signaling_timeout_s: float = 3.0
+    internal_service_secret: str = ""
+
     snowflake_worker_id_chat: int = Field(default=2, ge=0, le=1023)
 
     # Guild-icon uploads (owner-only). Resized to 256px webp, served via

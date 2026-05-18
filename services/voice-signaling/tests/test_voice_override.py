@@ -592,3 +592,64 @@ async def test_unmute_without_cache_falls_back_to_mic_only(
     )
     assert r.status_code == 200
     assert _stub_livekit_update[-1]["sources"] == ["microphone"]
+
+
+# ---- internal /evict-from-voice ---------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_internal_evict_requires_configured_secret(
+    app_with_redis, monkeypatch, _stub_livekit_remove
+):
+    """Empty internal_service_secret = endpoint disabled (503)."""
+    client, _redis = app_with_redis
+    # Settings default has secret = "" → 503.
+    r = await client.post(
+        "/internal/evict-from-voice",
+        json={"channel_ids": ["1"], "user_id": "42"},
+        headers={"X-Pulse-Internal-Secret": "anything"},
+    )
+    assert r.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_internal_evict_rejects_bad_secret(
+    app_with_redis, monkeypatch, _stub_livekit_remove
+):
+    client, _redis = app_with_redis
+    monkeypatch.setattr(voice_routes.get_settings(), "internal_service_secret", "S3CRET")
+    r = await client.post(
+        "/internal/evict-from-voice",
+        json={"channel_ids": ["1"], "user_id": "42"},
+        headers={"X-Pulse-Internal-Secret": "wrong"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_internal_evict_calls_livekit_and_clears_overrides(
+    app_with_redis, monkeypatch, _stub_livekit_remove
+):
+    client, redis = app_with_redis
+    monkeypatch.setattr(voice_routes.get_settings(), "internal_service_secret", "S3CRET")
+    # Seed overrides on two channels.
+    await redis.set(
+        "voice:override:channel-1:user-42", json.dumps({"muted": True})
+    )
+    await redis.set(
+        "voice:override:channel-2:user-42", json.dumps({"deafened": True})
+    )
+    r = await client.post(
+        "/internal/evict-from-voice",
+        json={"channel_ids": ["1", "2"], "user_id": "42"},
+        headers={"X-Pulse-Internal-Secret": "S3CRET"},
+    )
+    assert r.status_code == 204
+    # LiveKit was asked to remove from both rooms.
+    assert _stub_livekit_remove == [
+        {"channel_id": "1", "user_id": "42"},
+        {"channel_id": "2", "user_id": "42"},
+    ]
+    # Both override keys are gone.
+    assert await redis.get("voice:override:channel-1:user-42") is None
+    assert await redis.get("voice:override:channel-2:user-42") is None

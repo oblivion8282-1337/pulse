@@ -616,6 +616,49 @@ async def set_voice_override(
     return {"muted": next_state["muted"], "deafened": next_state["deafened"]}
 
 
+class InternalEvictIn(BaseModel):
+    """Service-to-service eviction request from chat-gateway. Fired on
+    kick + ban so voice-signaling can clean up the LiveKit session and
+    any persisted voice-overrides for every voice channel in the guild."""
+
+    model_config = ConfigDict(extra="forbid")
+    channel_ids: list[Annotated[str, Field(min_length=1, max_length=64)]]
+    user_id: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
+
+
+@router.post("/internal/evict-from-voice", status_code=204)
+async def internal_evict_from_voice(
+    payload: InternalEvictIn,
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+) -> None:
+    """Service-to-service: bulk LiveKit-remove + override-clear for
+    every channel in ``channel_ids`` for ``user_id``. No user-bearer
+    permission check — gated by a shared secret. Empty secret in
+    config DISABLES the endpoint entirely (production deployments must
+    set ``internal_service_secret``)."""
+    settings = get_settings()
+    expected = settings.internal_service_secret
+    if not expected:
+        # Fail-closed when not configured: a misconfigured deploy can't
+        # accidentally expose a no-auth eviction path.
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
+        )
+    if x_pulse_internal_secret != expected:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="bad service token")
+
+    redis = _get_redis(request)
+    for cid in payload.channel_ids:
+        # Best-effort LiveKit remove (silent on offline target) — same
+        # swallow path as the admin disconnect endpoint.
+        await _livekit_remove_participant(cid, payload.user_id)
+        if redis is not None:
+            await _clear_override(redis, cid, payload.user_id)
+
+
 @router.post("/channels/{channel_id}/members/{user_id}/voice-disconnect")
 async def disconnect_from_voice(
     channel_id: str,

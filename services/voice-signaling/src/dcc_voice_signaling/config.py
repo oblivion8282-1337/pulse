@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     chat_gateway_url: str | None = None
     chat_gateway_timeout_s: float = 3.0
 
+    # Shared secret for service-to-service POSTs from chat-gateway
+    # (kick / ban triggers a LiveKit-eviction + Redis-cleanup pass).
+    # Empty string DISABLES the internal endpoint — fail-closed; set
+    # this in production (same value on both services' .env).
+    internal_service_secret: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]

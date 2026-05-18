@@ -29,6 +29,7 @@ from dcc_chat_gateway.schemas import (
     MemberOut,
     TransferOwnershipIn,
 )
+from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -439,6 +440,11 @@ async def kick_member(
         )
     await session.delete(member)
     await session.commit()
+    # Yank the kicked user out of LiveKit + clear any voice-overrides
+    # for every voice channel of this guild. Fire-and-forget — failure
+    # is logged but doesn't unwind the kick (the WS event already went
+    # out and the membership is gone).
+    await evict_user_from_guild_voice(session, guild_id, user_id)
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(

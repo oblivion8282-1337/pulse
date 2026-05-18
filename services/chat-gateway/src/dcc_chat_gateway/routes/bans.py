@@ -29,6 +29,7 @@ from dcc_chat_gateway.models import (
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
 
 router = APIRouter()
 
@@ -174,6 +175,10 @@ async def ban_user(
     await session.refresh(existing)
 
     if was_member:
+        # Yank the banned user out of any LiveKit voice session before
+        # the WS broadcast goes out so by the time other clients see
+        # "member_removed" the target is already disconnected.
+        await evict_user_from_guild_voice(session, guild_id, user_id)
         await _publish_member_removed(request, guild_id, user_id)
     await _publish_ban_event(
         request, "guild_ban_added", guild_id, user_id, reason=existing.reason
