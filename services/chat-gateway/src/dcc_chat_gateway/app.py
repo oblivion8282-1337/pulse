@@ -10,7 +10,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
+from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.db import engine
 from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
@@ -62,6 +64,7 @@ async def lifespan(app: FastAPI):
     manager: ConnectionManager | None = None
     supervisor: asyncio.Task | None = None
     reaper: asyncio.Task | None = None
+    push_cleanup: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -83,11 +86,15 @@ async def lifespan(app: FastAPI):
         supervisor = asyncio.create_task(_supervise_pubsub(manager), name="dcc-pubsub-supervisor")
         # Orphan-attachment reaper — sweeps pending uploads >1 h old.
         reaper = asyncio.create_task(attachments_reaper(), name="dcc-attachments-reaper")
+        # Web-Push subscription cleanup — drops subs idle >N days.
+        push_cleanup = asyncio.create_task(
+            push_cleanup_loop(settings, engine), name="dcc-push-subscription-cleanup"
+        )
     try:
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper):
+            for task in (supervisor, reaper, push_cleanup):
                 if task is not None:
                     task.cancel()
                     try:

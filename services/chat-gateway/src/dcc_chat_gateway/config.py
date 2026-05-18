@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     vapid_subject: str = "mailto:admin@example.com"
     vapid_key_file: str = "./data/vapid.json"
 
+    # Background cleanup of long-idle Web-Push subscriptions. ``push.py``
+    # already drops a sub when the provider returns 404/410; this catches
+    # the case where the endpoint still answers 2xx but belongs to a
+    # browser the user never opens. See ``cleanup.py`` for the delete
+    # predicate (created_at + last_used_at both older than N days).
+    push_subscription_idle_days: int = 60
+    cleanup_interval_seconds: int = 86400  # 24 h
+
     @property
     def effective_database_url(self) -> str:
         if self.database_url:

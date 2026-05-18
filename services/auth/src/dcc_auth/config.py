@@ -67,6 +67,19 @@ class Settings(BaseSettings):
     password_reset_ttl_seconds: int = 3600  # 1h
     email_verification_ttl_seconds: int = 86400  # 24h
     mfa_ticket_ttl_seconds: int = 300  # 5min — short-lived MFA login challenge
+    # Background cleanup of stale token rows. ``_run_once`` (in ``cleanup.py``)
+    # fires every ``token_cleanup_interval_seconds`` and deletes:
+    #   * ``password_reset_tokens`` / ``email_verification_tokens`` whose
+    #     ``expires_at`` is older than ``…_grace_days_expired`` (default 7 d —
+    #     grace is intentional so an operator can still introspect a recent
+    #     reset attempt during incident debugging),
+    #   * ``refresh_tokens`` with non-null ``revoked_at`` older than
+    #     ``…_grace_days_revoked`` (default 30 d).
+    # Backup codes are *never* swept here — they're 2FA audit-trail and
+    # cascade out when the user disables 2FA.
+    token_cleanup_interval_seconds: int = 86400  # 24h
+    token_cleanup_grace_days_expired: int = 7
+    token_cleanup_grace_days_revoked: int = 30
     # Self-hoster overrides in prod (e.g. ``https://pulse.example.com``); used
     # for the reset/verify links embedded in outbound emails.
     app_base_url: str = "http://localhost:5173"
