@@ -13,6 +13,8 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
+  import { untrack } from 'svelte';
+  import { sounds } from '$lib/sounds/engine';
 
   type SettingsTab =
     | 'appearance'
@@ -31,11 +33,16 @@
   let activeTab = $state<SettingsTab>('audio-video');
   let mobileView = $state<MobileView>('list');
 
-  // Jump to the requested tab whenever the dialog is (re)opened.
+  // Jump to the requested tab whenever the dialog is (re)opened. `initialTab`
+  // is read untracked so a parent-driven re-bind mid-open doesn't re-fire the
+  // open-sound or clobber the user's current tab choice.
   $effect(() => {
     if (open) {
-      activeTab = initialTab;
-      mobileView = 'list';
+      untrack(() => {
+        activeTab = initialTab;
+        mobileView = 'list';
+        sounds.play('ui.modal_open');
+      });
     }
   });
 

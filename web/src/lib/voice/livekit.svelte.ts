@@ -37,6 +37,7 @@ import {
 import { nameFor, userIdFromIdentity } from './identity';
 import { auth } from '$lib/stores/auth.svelte';
 import { gateway } from '$lib/ws/connection';
+import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
 
 export type { ScreenShareTrack, CameraTrack };
@@ -256,6 +257,7 @@ class VoiceRoom {
     // setDeafened ran (PTT mode + not deafened = both false → no setter fired,
     // but we still want to clear any stale state from a previous session).
     this.#publishSelfState();
+    sounds.play('voice.self_join');
   }
 
   /**
@@ -268,6 +270,7 @@ class VoiceRoom {
   async disconnect(opts: { reason?: 'user' } = {}): Promise<void> {
     const room = this.#room;
     if (!room) return;
+    sounds.play('voice.self_leave');
     if (opts.reason === 'user') {
       const cid = this.channelId;
       if (cid && auth.user) {
@@ -308,7 +311,9 @@ class VoiceRoom {
     // Explicit user toggle while deafened cancels the auto-restore on
     // un-deafen — they've taken ownership of the mic state.
     if (this.deafened) this.#micEnabledBeforeDeafen = false;
-    void this.setMicEnabled(!this.micEnabled);
+    const target = !this.micEnabled;
+    sounds.play(target ? 'voice.self_unmute' : 'voice.self_mute');
+    void this.setMicEnabled(target);
   }
 
   /** Enable/disable push-to-talk mode. Entering PTT mode mutes the mic. */
@@ -347,6 +352,7 @@ class VoiceRoom {
     }
     this.deafened = on;
     this.#audioEls.setDeafened(on);
+    sounds.play(on ? 'voice.self_deafen' : 'voice.self_undeafen');
     this.#publishSelfState();
   }
   toggleDeafen(): void {

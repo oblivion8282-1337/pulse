@@ -29,6 +29,7 @@ import {
 import { readState } from '$lib/stores/readState.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { fireInPageNotification } from '$lib/notifications/inPage';
+import { sounds } from '$lib/sounds/engine';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -209,6 +210,17 @@ type ClientEvent =
   | { op: 'watch_heartbeat'; channel_id: string; position: number };
 
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
+
+// Sound-suppression: when a `mention_added` arrives, we record its message_id
+// briefly so the matching `channel_bump` / `dm_bump` (which fan out separately)
+// doesn't fire the generic message/dm sound on top of the mention chime.
+// The reverse order is best-effort — if the bump arrives first, both play.
+const MENTION_SUPPRESSION_MS = 1500;
+const _recentMentions = new Set<string>();
+function _markRecentMention(messageId: string): void {
+  _recentMentions.add(messageId);
+  setTimeout(() => _recentMentions.delete(messageId), MENTION_SUPPRESSION_MS);
+}
 
 export type WsListener = (evt: ServerEvent) => void;
 
@@ -444,6 +456,8 @@ export class GatewayConnection {
           // again here. markRead is idempotent.
           if (this.subs.has(evt.channel_id)) {
             readState.markRead(evt.channel_id, evt.message_id);
+          } else if (!_recentMentions.has(evt.message_id)) {
+            sounds.play('notification.message');
           }
         }
         break;
@@ -490,6 +504,9 @@ export class GatewayConnection {
                 }
               }
             });
+            if (!_recentMentions.has(evt.message_id)) {
+              sounds.play('notification.dm');
+            }
           }
         }
         break;
@@ -556,14 +573,17 @@ export class GatewayConnection {
           });
         }
         break;
-      case 'voice_state':
+      case 'voice_state': {
+        const oldIds = voicePresence.byChannel[evt.channel_id] ?? [];
         voicePresence.apply(
           evt.channel_id,
           evt.user_ids,
           evt.streaming_user_ids,
           evt.user_states
         );
+        this._fireVoiceDiff(evt.channel_id, oldIds, evt.user_ids);
         break;
+      }
       case 'voice_disconnect': {
         // Server admin yanked someone out of voice. If that's us in the
         // channel we're connected to, drop the LiveKit room locally —
@@ -658,6 +678,10 @@ export class GatewayConnection {
         // the inline `markRead` below clears the counter immediately.
         const { channel_id, message_id, guild_id } = evt.data;
         readState.incMention(channel_id);
+        // Record before the matching channel_bump/dm_bump arrives so the
+        // generic sound is suppressed.
+        _markRecentMention(message_id);
+        sounds.play('notification.mention');
         if (this.subs.has(channel_id)) {
           readState.markRead(channel_id, message_id);
         }
@@ -734,12 +758,34 @@ export class GatewayConnection {
     nonce: string,
     replyToId?: string | null
   ): boolean {
-    return this._sendRaw({
+    const queued = this._sendRaw({
       op: 'send',
       channel_id: channelId,
       content,
       nonce,
       reply_to_id: replyToId ?? null
+    });
+    if (queued) sounds.play('ui.send');
+    return queued;
+  }
+
+  /** Fire join/leave sounds for *other* users in *our* voice channel. The
+   *  initial roster after our own connect arrives as a diff against a snapshot
+   *  that already contains those users (gateway pushed voice_state to us as a
+   *  guild member before we joined voice), so no spurious join-sounds. */
+  private _fireVoiceDiff(channelId: string, oldIds: string[], newIds: string[]): void {
+    // Lazy import to avoid the circular dep with voice/livekit.
+    void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+      if (voice.channelId !== channelId) return;
+      const me = auth.user?.id;
+      const oldSet = new Set(oldIds);
+      const newSet = new Set(newIds);
+      for (const uid of newIds) {
+        if (uid !== me && !oldSet.has(uid)) sounds.play('voice.user_join');
+      }
+      for (const uid of oldIds) {
+        if (uid !== me && !newSet.has(uid)) sounds.play('voice.user_leave');
+      }
     });
   }
 
