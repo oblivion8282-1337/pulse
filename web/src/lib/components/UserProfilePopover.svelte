@@ -16,12 +16,14 @@
   import { Popover as PopoverPrimitive } from 'bits-ui';
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
   import PencilIcon from '@lucide/svelte/icons/pencil';
+  import UserMinusIcon from '@lucide/svelte/icons/user-minus';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import NicknameDialog from './NicknameDialog.svelte';
   import { chatApi } from '$lib/api/chat';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { goto } from '$app/navigation';
@@ -66,6 +68,13 @@
   let open = $state(false);
   let working = $state(false);
   let nickDialogOpen = $state(false);
+  let kickConfirmArmed = $state(false);
+
+  // Reset the armed-confirm when the popover closes so the next open
+  // starts on the safe "Aus Server entfernen" label.
+  $effect(() => {
+    if (!open) kickConfirmArmed = false;
+  });
 
   let isSelf = $derived(!!auth.user && userId === auth.user.id);
   let canEditNickname = $derived.by(() => {
@@ -74,6 +83,31 @@
       ? roles.hasGuildPermission(guildId, Perm.CHANGE_NICKNAME)
       : roles.hasGuildPermission(guildId, Perm.MANAGE_NICKNAMES);
   });
+  let canKick = $derived.by(() => {
+    if (!guildId || isSelf) return false;
+    // Can't kick the guild owner even with KICK_MEMBERS.
+    const ownerId = guilds.byId[guildId]?.owner_id;
+    if (ownerId && ownerId === userId) return false;
+    return roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS);
+  });
+
+  async function kick() {
+    if (!guildId || working) return;
+    working = true;
+    try {
+      await chatApi.kickMember(guildId, userId);
+      toast.success(`${displayName} entfernt`);
+      open = false;
+      kickConfirmArmed = false;
+      onAction?.();
+    } catch (err) {
+      toast.error('Mitglied konnte nicht entfernt werden', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    } finally {
+      working = false;
+    }
+  }
 
   async function startDM() {
     if (isSelf || working) return;
@@ -152,6 +186,25 @@
             >
               <PencilIcon class="size-4" />
               <span>Nickname ändern</span>
+            </button>
+          {/if}
+          {#if canKick}
+            <button
+              type="button"
+              class="hover:bg-red-500/10 hover:text-red-400 text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-red-500/10 data-[armed=true]:text-red-400"
+              data-armed={kickConfirmArmed}
+              onclick={() => (kickConfirmArmed ? kick() : (kickConfirmArmed = true))}
+              disabled={working}
+              data-testid="popover-kick-btn"
+            >
+              <UserMinusIcon class="size-4" />
+              <span>
+                {#if kickConfirmArmed}
+                  Wirklich entfernen?
+                {:else}
+                  Aus Server entfernen
+                {/if}
+              </span>
             </button>
           {/if}
         </div>

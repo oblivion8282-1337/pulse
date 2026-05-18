@@ -444,19 +444,16 @@ class ConnectionManager:
     def _apply_guild_membership_update(self, payload: dict) -> None:
         """Live-update ``_ws_guilds`` from guild-lifecycle events so the
         precise invalidation in ``_invalidate_for_guild`` stays correct as
-        users join / guilds disappear.
+        users join / get kicked / guilds disappear.
 
         Handled:
           * ``guild_member_added`` where ``user_id == ws.user.id`` → add
             ``guild_id`` to that socket's set.
-          * ``guild_deleted`` → drop ``guild_id`` from every socket's set.
-
-        NOT handled: ``guild_member_removed`` — no kick endpoint exists yet
-        in the API. When one lands, mirror ``guild_member_added`` (filter by
-        user_id, discard the guild). Stale memberships are bounded — the
-        next reconnect rebuilds the set from the DB."""
+          * ``guild_member_removed`` where ``user_id == ws.user.id`` → drop
+            ``guild_id`` from that socket's set.
+          * ``guild_deleted`` → drop ``guild_id`` from every socket's set."""
         op = payload.get("op")
-        if op == "guild_member_added":
+        if op in ("guild_member_added", "guild_member_removed"):
             try:
                 gid = int(payload.get("guild_id", "0"))
                 uid = int(payload.get("user_id", "0"))
@@ -464,11 +461,20 @@ class ConnectionManager:
                 return
             if not gid or not uid:
                 return
+            adding = op == "guild_member_added"
             for ws, user in list(self._ws_user.items()):
                 if user.id == uid:
                     guilds = self._ws_guilds.get(ws)
                     if guilds is not None:
-                        guilds.add(gid)
+                        if adding:
+                            guilds.add(gid)
+                        else:
+                            guilds.discard(gid)
+                        # Stale cache entries for the (now-removed) guild
+                        # could otherwise survive the kick on this socket.
+                        cache = self._ws_perms.get(ws)
+                        if cache is not None:
+                            cache.clear()
         elif op == "guild_deleted":
             try:
                 gid = int(payload.get("guild_id", "0"))

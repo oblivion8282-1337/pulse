@@ -51,16 +51,17 @@
     void load(guildId);
   });
 
-  // React to nickname changes pushed via guild:events. Keeps the open
-  // member list in sync without forcing a refetch — and gives the
-  // patcher their own confirmation when the event echoes back.
+  // React to guild-member events pushed via guild:events. Keeps the
+  // open member list in sync without forcing a refetch.
   $effect(() => {
     return gateway.on((evt) => {
-      if (evt.op !== 'guild_member_updated') return;
-      if (evt.guild_id !== guildId) return;
-      members = members.map((m) =>
-        m.user_id === evt.user_id ? { ...m, nickname: evt.nickname } : m
-      );
+      if (evt.op === 'guild_member_updated' && evt.guild_id === guildId) {
+        members = members.map((m) =>
+          m.user_id === evt.user_id ? { ...m, nickname: evt.nickname } : m
+        );
+      } else if (evt.op === 'guild_member_removed' && evt.guild_id === guildId) {
+        members = members.filter((m) => m.user_id !== evt.user_id);
+      }
     });
   });
 

@@ -112,6 +112,7 @@ type ServerEvent =
   | { op: 'guild_updated'; guild: GuildPayload }
   | { op: 'guild_deleted'; guild_id: string }
   | { op: 'guild_member_added'; guild_id: string; user_id: string }
+  | { op: 'guild_member_removed'; guild_id: string; user_id: string }
   | {
       op: 'guild_member_updated';
       guild_id: string;
@@ -320,6 +321,7 @@ export class GatewayConnection {
       evt.op !== 'member_roles_updated' &&
       evt.op !== 'channel_permissions_updated' &&
       evt.op !== 'guild_member_updated' &&
+      evt.op !== 'guild_member_removed' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -469,6 +471,27 @@ export class GatewayConnection {
           guilds.remove(evt.guild_id);
           for (const h of this.guildDeletedHooks) h(evt.guild_id);
         }
+        break;
+      case 'guild_member_removed':
+        if (auth.user && evt.user_id === auth.user.id) {
+          // The kicked user is us. Drop the guild locally — mirrors the
+          // ``guild_deleted`` cleanup path (subscriptions, messages,
+          // navigation hook). The WS itself isn't force-closed; the next
+          // membership-gated REST call will 403 naturally.
+          if (guilds.byId[evt.guild_id]) {
+            const channelIds = new Set<string>(
+              (guilds.channelsByGuild[evt.guild_id] ?? []).map((c) => c.id)
+            );
+            for (const subId of this.subs) {
+              if (channelIds.has(subId)) this.unsubscribe(subId);
+            }
+            for (const id of channelIds) messages.clearChannel(id);
+            guilds.remove(evt.guild_id);
+            for (const h of this.guildDeletedHooks) h(evt.guild_id);
+          }
+        }
+        // Either way, an open MemberList re-renders via its local
+        // gateway.on listener (which re-fetches on this op).
         break;
       case 'guild_member_added':
         if (auth.user && evt.user_id === auth.user.id) {

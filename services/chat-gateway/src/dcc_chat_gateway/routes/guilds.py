@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
@@ -13,6 +13,7 @@ from dcc_chat_gateway.models import (
     Guild,
     GuildMember,
     MessageAttachment,
+    PermissionOverwrite,
     Role,
 )
 from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
@@ -369,6 +370,71 @@ async def patch_member(
     await session.refresh(member)
     await _publish_member_updated(request, guild_id, user_id, member.nickname)
     return member
+
+
+@router.delete(
+    "/guilds/{guild_id}/members/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def kick_member(
+    guild_id: int,
+    user_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Remove a member from a guild. Requires ``KICK_MEMBERS``.
+
+    Restrictions:
+      * cannot kick yourself — leave-flow is a separate concept (not built);
+      * cannot kick the guild owner — ownership transfer is the only path;
+      * member-role rows cascade via the composite FK on ``member_roles``;
+      * per-channel user-target permission overwrites for this user are
+        wiped explicitly (they're not cascaded — see
+        ``permission_overwrites`` schema).
+
+    Broadcasts ``guild_member_removed`` on guild:events. Clients that are
+    the kicked user drop the guild locally; other clients prune their
+    member list. The WS connection is not force-closed — the next
+    permission-gated action on that guild will 403 naturally.
+    """
+    if user_id == current.id:
+        raise HTTPException(400, detail="cannot kick yourself")
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    if guild.owner_id == user_id:
+        raise HTTPException(403, detail="cannot kick the guild owner")
+    member = await session.get(GuildMember, (guild_id, user_id))
+    if member is None:
+        raise HTTPException(404, detail="member not found")
+    await check_permission(
+        session, current, guild_id, Permissions.KICK_MEMBERS
+    )
+    # Wipe per-channel user-target overwrites — composite FKs only cascade
+    # member_roles; channel overwrites live on a different table and would
+    # otherwise come back if the user is re-invited later.
+    channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
+    channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
+    if channel_ids:
+        await session.execute(
+            sa_delete(PermissionOverwrite).where(
+                PermissionOverwrite.channel_id.in_(channel_ids),
+                PermissionOverwrite.target_type == 1,
+                PermissionOverwrite.target_id == user_id,
+            )
+        )
+    await session.delete(member)
+    await session.commit()
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(
+            {
+                "op": "guild_member_removed",
+                "guild_id": str(guild_id),
+                "user_id": str(user_id),
+            }
+        )
 
 
 @router.get("/guilds/{guild_id}/members", response_model=list[MemberOut])

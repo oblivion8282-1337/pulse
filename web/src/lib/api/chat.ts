@@ -67,6 +67,9 @@ export const chatApi = {
       body: { nickname }
     });
   },
+  kickMember(guildId: string, userId: string): Promise<void> {
+    return request<void>(`/guilds/${guildId}/members/${userId}`, { method: 'DELETE' });
+  },
 
   // Channels
   listChannels(guildId: string): Promise<Channel[]> {
