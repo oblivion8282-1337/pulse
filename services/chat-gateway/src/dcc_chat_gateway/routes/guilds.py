@@ -11,7 +11,14 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Channel, Guild, GuildMember, MessageAttachment
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
-from dcc_chat_gateway.schemas import GuildIn, GuildOut, GuildPatchIn, MemberIn, MemberOut
+from dcc_chat_gateway.schemas import (
+    GuildIn,
+    GuildOut,
+    GuildPatchIn,
+    MemberIn,
+    MemberOut,
+    TransferOwnershipIn,
+)
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -153,6 +160,57 @@ async def delete_guild(
     await _publish_guild_event(
         request, {"op": "guild_deleted", "guild_id": str(guild_id)}
     )
+
+
+@router.post(
+    "/guilds/{guild_id}/transfer-ownership",
+    response_model=GuildOut,
+)
+async def transfer_ownership(
+    guild_id: int,
+    payload: TransferOwnershipIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Hand the guild over to another member.
+
+    Only the current owner may call this. The target must already be a
+    guild member (no implicit invite). ``confirm_name`` must match the
+    guild's current name verbatim — see ``TransferOwnershipIn`` for the
+    reasoning. The transfer is atomic: the previous owner stays as a
+    regular member afterward.
+    """
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    if guild.owner_id != current.id:
+        raise HTTPException(
+            403, detail="only the owner can transfer ownership"
+        )
+    if payload.confirm_name != guild.name:
+        raise HTTPException(
+            400, detail="confirm_name does not match the guild name"
+        )
+    if payload.new_owner_id == current.id:
+        raise HTTPException(
+            400, detail="cannot transfer ownership to yourself"
+        )
+    target_member = await session.get(
+        GuildMember, (guild_id, payload.new_owner_id)
+    )
+    if target_member is None:
+        raise HTTPException(
+            400, detail="target user is not a member of this guild"
+        )
+
+    guild.owner_id = payload.new_owner_id
+    await session.commit()
+    await session.refresh(guild)
+    await _publish_guild_event(
+        request, {"op": "guild_updated", "guild": _guild_dict(guild)}
+    )
+    return guild
 
 
 # ---- Members (lightweight invite-by-id) ------------------------------------

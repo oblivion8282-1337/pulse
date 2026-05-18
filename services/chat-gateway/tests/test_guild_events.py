@@ -178,6 +178,39 @@ async def test_guild_updated_broadcast(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_ownership_transfer_broadcasts_guild_updated(ws_app, _auth_signer):
+    """transfer-ownership reuses the guild_updated event, since the owner_id
+    is part of the guild_dict payload. Verifies the new owner_id appears in
+    the broadcast — the frontend uses this to flip the "Settings" gate."""
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            other_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            g = tc.post(
+                "/guilds", json={"name": "handover"}, headers=_auth(owner_token)
+            ).json()
+            tc.post(
+                f"/guilds/{g['id']}/members",
+                json={"user_id": str(other_uid)},
+                headers=_auth(owner_token),
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                ws.receive_json()  # ready
+                r = tc.post(
+                    f"/guilds/{g['id']}/transfer-ownership",
+                    json={"new_owner_id": str(other_uid), "confirm_name": "handover"},
+                    headers=_auth(owner_token),
+                )
+                assert r.status_code == 200, r.text
+                evt = _drain_until(ws, "guild_updated")
+                assert evt["guild"]["id"] == g["id"]
+                assert evt["guild"]["owner_id"] == str(other_uid)
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_channel_bump_broadcast(ws_app, _auth_signer):
     """Posting a message fires a guild:events channel_bump so the sidebar
     can mark non-subscribed channels as unread."""

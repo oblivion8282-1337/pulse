@@ -52,6 +52,18 @@ class GuildPatchIn(BaseModel):
     icon_url: Annotated[str | None, Field(default=None, max_length=512)] = None
 
 
+class TransferOwnershipIn(BaseModel):
+    """Transfer guild ownership to another member.
+
+    ``confirm_name`` must match the guild's current name verbatim — the
+    "type the project name to confirm" pattern, here to prevent
+    fat-fingered transfers (no undo in v1 — the ex-owner becomes a
+    regular member and would need the new owner to transfer back)."""
+
+    new_owner_id: SnowflakeId
+    confirm_name: Annotated[str, Field(min_length=1, max_length=64)]
+
+
 class ChannelIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=64)]
     type: Annotated[int, Field(ge=0, le=1)] = 0
