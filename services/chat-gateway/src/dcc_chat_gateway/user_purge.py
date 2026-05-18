@@ -22,7 +22,8 @@ import logging
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete as sa_delete, or_, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import (
@@ -229,7 +230,7 @@ async def purge_user(
     session: AsyncSession,
     user_id: int,
     *,
-    manager: "ConnectionManager | None" = None,
+    manager: ConnectionManager | None = None,
     redis: Any = None,
 ) -> dict[str, Any]:
     """Run the full purge for ``user_id`` and broadcast lifecycle
