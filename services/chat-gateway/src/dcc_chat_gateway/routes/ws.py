@@ -60,10 +60,12 @@ from dcc_chat_gateway.models import (
     DirectMessageChannel,
     Guild,
     GuildMember,
+    GuildSoundOverride,
     MemberRole,
     Message,
     Role,
 )
+from dcc_chat_gateway import s3
 from dcc_chat_gateway.permissions import (
     resolve_guild_permissions_from_snapshot,
     resolve_permissions,
@@ -216,6 +218,29 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             )
             for mr in my_mr_rows:
                 my_role_ids.setdefault(mr.guild_id, []).append(mr.role_id)
+        # Sound overrides: batched across the user's guilds → presigned-GET
+        # URLs per (guild, sound_id). Ready ships the URL set in one shot
+        # so the engine can pre-resolve guild→sound_id→url maps without
+        # an extra fetch on connection. URLs expire (default 30 min) — the
+        # ``guild_sound_updated`` WS event triggers a re-fetch on change.
+        sound_overrides_by_guild: dict[int, list[dict[str, str]]] = {
+            gid: [] for gid in guild_ids
+        }
+        if guild_ids:
+            sound_rows = list(
+                (
+                    await session.execute(
+                        select(GuildSoundOverride).where(
+                            GuildSoundOverride.guild_id.in_(guild_ids)
+                        )
+                    )
+                ).scalars()
+            )
+            for srow in sound_rows:
+                url = await s3.presigned_get_url(srow.storage_key)
+                sound_overrides_by_guild.setdefault(srow.guild_id, []).append(
+                    {"sound_id": srow.sound_id, "url": url}
+                )
         guilds = []
         for g in guild_rows:
             # Reuse the batched data instead of letting ``resolve_permissions``
@@ -240,6 +265,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     "owner_id": str(g.owner_id),
                     "my_permissions": str(my_perms),
                     "my_role_ids": [str(rid) for rid in my_role_ids.get(g.id, [])],
+                    "sound_overrides": sound_overrides_by_guild.get(g.id, []),
                     "roles": [
                         {
                             "id": str(r.id),

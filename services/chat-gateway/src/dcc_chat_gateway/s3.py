@@ -114,6 +114,21 @@ async def presigned_get_url(
         )
 
 
+async def put_object(key: str, *, body: bytes, content_type: str) -> None:
+    """Direct server-side upload — used for small admin-driven blobs
+    (per-guild sound overrides, ≤ 5 MB). Attachments take the presigned-PUT
+    route instead so the client streams straight to MinIO; for these
+    micro-uploads the extra round-trip would dominate latency."""
+    s = get_settings()
+    async with _internal_client() as client:
+        await client.put_object(
+            Bucket=s.s3_bucket,
+            Key=key,
+            Body=body,
+            ContentType=content_type,
+        )
+
+
 async def delete_object(key: str) -> None:
     """Hard-delete an object. Used by the message-delete + attachment-edit
     paths to free MinIO storage immediately (per Phase-1 spec: no soft-keep)."""

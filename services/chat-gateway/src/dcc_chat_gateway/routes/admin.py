@@ -205,6 +205,16 @@ async def patch_permissions(
         }
         row.allow_member_invites = payload.allow_member_invites
 
+    if (
+        payload.guild_sound_max_size_bytes is not None
+        and payload.guild_sound_max_size_bytes != row.guild_sound_max_size_bytes
+    ):
+        changes["guild_sound_max_size_bytes"] = {
+            "from": row.guild_sound_max_size_bytes,
+            "to": payload.guild_sound_max_size_bytes,
+        }
+        row.guild_sound_max_size_bytes = payload.guild_sound_max_size_bytes
+
     if changes:
         _audit(session, actor_id=actor.id, action="permissions.patch", payload=changes)
         await session.commit()
@@ -217,6 +227,7 @@ async def patch_permissions(
                 "op": "permissions_updated",
                 "allow_guild_creation": row.allow_guild_creation,
                 "allow_member_invites": row.allow_member_invites,
+                "guild_sound_max_size_bytes": row.guild_sound_max_size_bytes,
             },
         )
     return row

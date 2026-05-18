@@ -140,6 +140,7 @@ async def test_get_permissions_returns_defaults(client, admin_token):
     assert r.json() == {
         "allow_guild_creation": True,
         "allow_member_invites": True,
+        "guild_sound_max_size_bytes": 524288,
     }
 
 
@@ -156,6 +157,7 @@ async def test_patch_permissions_records_audit(client, admin_token):
     assert r.json() == {
         "allow_guild_creation": False,
         "allow_member_invites": False,
+        "guild_sound_max_size_bytes": 524288,
     }
     log = (await client.get("/admin/audit-log", headers=headers)).json()
     entry = next(e for e in log if e["action"] == "permissions.patch")

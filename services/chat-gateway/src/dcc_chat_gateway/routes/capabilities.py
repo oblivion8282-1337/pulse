@@ -34,5 +34,9 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
         # ``allow_guild_creation`` to false keeps a missing row from
         # accidentally re-enabling "anyone can create a Server" on a
         # broken deploy.
-        return PermissionsOut(allow_guild_creation=False, allow_member_invites=True)
+        return PermissionsOut(
+            allow_guild_creation=False,
+            allow_member_invites=True,
+            guild_sound_max_size_bytes=524288,
+        )
     return row

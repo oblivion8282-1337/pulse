@@ -21,6 +21,7 @@ from dcc_chat_gateway.routes import (
     reactions,
     role_members,
     roles,
+    sounds,
     stream_chat,
     streaming,
     watch,
@@ -37,6 +38,7 @@ router.include_router(dms.router)
 router.include_router(invites.router)
 router.include_router(roles.router)
 router.include_router(role_members.router)
+router.include_router(sounds.router)
 router.include_router(permission_overwrites.router)
 router.include_router(messages.router)
 router.include_router(reactions.router)

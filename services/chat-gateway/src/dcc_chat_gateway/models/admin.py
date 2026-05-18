@@ -52,6 +52,13 @@ class ChatSettings(Base):
     allow_member_invites: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
+    # Per-file cap (bytes) for per-guild sound-override uploads. Tunable
+    # by the Pulse-instance admin via /admin/permissions; the route layer
+    # in chat-gateway enforces it on PUT. 512 KB default = comfortable
+    # headroom over the Kenney UI Audio defaults (~10–30 KB).
+    guild_sound_max_size_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="524288"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

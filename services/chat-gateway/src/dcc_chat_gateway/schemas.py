@@ -362,18 +362,51 @@ class ChatSettingsPatch(BaseModel):
 
 
 class PermissionsOut(BaseModel):
-    """Server-wide permission flags. Mirrored toggle pair in the admin UI's
-    'Berechtigungen' section. Defaults are ``true`` so the historical
-    'anyone can' behaviour holds unless the admin actively restricts."""
+    """Server-wide chat flags + limits surfaced to every client via
+    ``/capabilities`` (so UI can gate the create-guild button, validate
+    uploads, etc.). Admin writes happen via ``/admin/permissions``.
+
+    The numeric ``guild_sound_max_size_bytes`` lives here because it's
+    a public ceiling — any uploader needs to know it. The class name
+    pre-dates the field and is mildly misleading; renaming would touch
+    too many callers without payoff."""
 
     model_config = ConfigDict(from_attributes=True)
     allow_guild_creation: bool
     allow_member_invites: bool
+    guild_sound_max_size_bytes: int
 
 
 class PermissionsPatch(BaseModel):
     allow_guild_creation: bool | None = None
     allow_member_invites: bool | None = None
+    # Bound: 4 KB floor (a 1-frame OGG is ~2 KB; below that = abuse),
+    # 5 MB ceiling (anything larger isn't a "UI sound" anymore).
+    guild_sound_max_size_bytes: Annotated[
+        int | None, Field(default=None, ge=4096, le=5 * 1024 * 1024)
+    ] = None
+
+
+class GuildSoundOverrideOut(BaseModel):
+    """A single per-guild sound override + a fresh presigned GET URL.
+
+    ``url`` is short-lived (``s3_presigned_ttl_seconds``, default 30 min).
+    The frontend re-fetches the list on reconnect and on the
+    ``guild_sound_updated`` WS event, so URL staleness in long-lived
+    connections is bounded by the next event or reconnect."""
+
+    model_config = ConfigDict(from_attributes=True)
+    sound_id: str
+    url: str
+    content_type: str
+    file_size: int
+    original_filename: str
+    uploaded_by_id: SnowflakeId
+    uploaded_at: datetime
+
+    @field_serializer("uploaded_by_id")
+    def _ser_uploaded_by(self, v: int) -> str:
+        return _id_str(v)
 
 
 class AdminStatsOut(BaseModel):
