@@ -18,15 +18,23 @@
  */
 
 const STORAGE_PREFIX = 'pulse.readState.';
+const MENTIONS_PREFIX = 'pulse.mentions.';
 
 class ReadState {
   lastReadByChannel = $state<Record<string, string>>({});
   latestByChannel = $state<Record<string, string>>({});
+  /** Per-channel unread @-mention counter — bumped by the WS handler
+   *  when a `mention_added` event (or an inline `message` whose mentions
+   *  include the current user) lands for a channel the user isn't
+   *  actively viewing. Cleared by `markRead` and `clearMentions`. */
+  mentionCountByChannel = $state<Record<string, number>>({});
 
   private storageKey = '';
+  private mentionsKey = '';
 
   hydrateForUser(userId: string): void {
     this.storageKey = `${STORAGE_PREFIX}${userId}`;
+    this.mentionsKey = `${MENTIONS_PREFIX}${userId}`;
     if (typeof window === 'undefined') return;
     try {
       const raw = window.localStorage.getItem(this.storageKey);
@@ -39,12 +47,25 @@ class ReadState {
     } catch {
       // Corrupt localStorage — start fresh.
     }
+    try {
+      const raw = window.localStorage.getItem(this.mentionsKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          this.mentionCountByChannel = parsed as Record<string, number>;
+        }
+      }
+    } catch {
+      // Corrupt → fresh counters; non-fatal.
+    }
   }
 
   clear(): void {
     this.storageKey = '';
+    this.mentionsKey = '';
     this.lastReadByChannel = {};
     this.latestByChannel = {};
+    this.mentionCountByChannel = {};
   }
 
   /** Record that we've observed a message in this channel (from any source —
@@ -57,15 +78,23 @@ class ReadState {
   }
 
   /** Acknowledge the channel up to (and including) `messageId`. Falls back
-   *  to the latest-seen id if none is provided. Persists immediately. */
+   *  to the latest-seen id if none is provided. Persists immediately.
+   *  Also clears any pending mention count for the channel — opening a
+   *  channel mark-reads it, so the @-badge goes away in lockstep. */
   markRead(channelId: string, messageId?: string): void {
     const target = messageId ?? this.latestByChannel[channelId];
-    if (!target) return;
+    if (!target) {
+      // No new message id but we still want the mention badge to clear
+      // on focus (e.g. when the user clicks an empty channel).
+      this.clearMentions(channelId);
+      return;
+    }
     const prev = this.lastReadByChannel[channelId];
     if (!prev || target > prev) {
       this.lastReadByChannel = { ...this.lastReadByChannel, [channelId]: target };
       this.persist();
     }
+    this.clearMentions(channelId);
   }
 
   isUnread(channelId: string): boolean {
@@ -75,12 +104,56 @@ class ReadState {
     return !lastRead || latest > lastRead;
   }
 
+  /** Bump the per-channel @-mention counter by one. */
+  incMention(channelId: string): void {
+    const prev = this.mentionCountByChannel[channelId] ?? 0;
+    this.mentionCountByChannel = {
+      ...this.mentionCountByChannel,
+      [channelId]: prev + 1
+    };
+    this.persistMentions();
+  }
+
+  /** Zero the counter for a channel — called from `markRead` and on
+   *  explicit "I've read this" actions. */
+  clearMentions(channelId: string): void {
+    if (!this.mentionCountByChannel[channelId]) return;
+    const next = { ...this.mentionCountByChannel };
+    delete next[channelId];
+    this.mentionCountByChannel = next;
+    this.persistMentions();
+  }
+
+  /** Synchronous lookup; 0 when no mentions are pending. */
+  getMentionCount(channelId: string): number {
+    return this.mentionCountByChannel[channelId] ?? 0;
+  }
+
+  /** Does any channel in this guild have a pending mention? Drives the
+   *  guild-rail red dot — O(n) over the channel list per call, which is
+   *  fine for typical guild sizes. */
+  hasGuildMentions(channelIds: readonly string[]): boolean {
+    for (const cid of channelIds) {
+      if ((this.mentionCountByChannel[cid] ?? 0) > 0) return true;
+    }
+    return false;
+  }
+
   private persist(): void {
     if (!this.storageKey || typeof window === 'undefined') return;
     try {
       window.localStorage.setItem(this.storageKey, JSON.stringify(this.lastReadByChannel));
     } catch {
       // Quota exceeded / disabled — silently drop; in-memory state remains correct.
+    }
+  }
+
+  private persistMentions(): void {
+    if (!this.mentionsKey || typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(this.mentionsKey, JSON.stringify(this.mentionCountByChannel));
+    } catch {
+      // Same forgiveness as `persist` — counter survives in memory.
     }
   }
 }

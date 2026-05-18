@@ -6,11 +6,13 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
     Integer,
     PrimaryKeyConstraint,
+    SmallInteger,
     String,
     Text,
     func,
@@ -18,6 +20,20 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_chat_gateway.db import Base, snowflake_pk
+
+# Mention-type sentinels — mirror the ``mention_type`` column in the
+# ``message_mentions`` table. Kept here next to the model that owns them
+# so the parser + serializer can refer to symbolic names instead of bare
+# 0/1/2 magic numbers.
+MENTION_TYPE_USER = 0
+MENTION_TYPE_ROLE = 1
+MENTION_TYPE_EVERYONE = 2
+
+# ``target_id`` for an @everyone mention. The PK column is NOT NULL and
+# any non-NULL sentinel is fine since there's only ever one @everyone
+# per message anyway. Zero is also the sentinel used by the migration's
+# server_default, so manually-inserted rows match exactly.
+MENTION_EVERYONE_TARGET_ID = 0
 
 
 class Message(Base):
@@ -40,7 +56,58 @@ class Message(Base):
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Parsed `<@uid>` / `<@&rid>` / `@everyone` markers are stored in the
+    # ``message_mentions`` table — see ``MessageMention`` below + the
+    # ``mentions`` module that owns the parser + persistence. We do NOT
+    # declare a SQLAlchemy relationship for them: ``selectin`` would
+    # collide with the route layer's ad-hoc serialization (the routes
+    # set ``msg.mentions = [...dicts...]`` for Pydantic's
+    # from_attributes path; a real relationship would have ORM
+    # semantics on flush and confuse the issue). All reads go through
+    # ``mentions.mentions_for`` instead — same pattern as reactions.
+
     __table_args__ = (Index("ix_messages_channel_id_desc", "channel_id", "id"),)
+
+
+class MessageMention(Base):
+    """One @-mention parsed out of a message's ``content`` at write time.
+
+    ``mention_type`` is one of the ``MENTION_TYPE_*`` constants above
+    (0=user, 1=role, 2=everyone). ``target_id`` is the mentioned
+    snowflake (user-id or role-id) for type 0/1, or
+    ``MENTION_EVERYONE_TARGET_ID`` (0) for type 2 — Postgres composite
+    primary keys disallow NULL, and a sentinel keeps the
+    ``(target_id, mention_type)`` reverse index uniform.
+
+    Rows are re-computed on edit (delete-all-then-insert via the
+    relationship's delete-orphan cascade). On hard message delete the
+    FK CASCADEs. The router fans out a per-user ``mention_added`` WS
+    envelope so a closed-channel client can still increment its
+    mention counter.
+    """
+
+    __tablename__ = "message_mentions"
+
+    message_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
+    )
+    mention_type: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    target_id: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint("message_id", "mention_type", "target_id"),
+        CheckConstraint(
+            "mention_type IN (0, 1, 2)", name="ck_message_mentions_type"
+        ),
+        Index(
+            "ix_message_mentions_target", "target_id", "mention_type"
+        ),
+    )
 
 
 class MessageReaction(Base):

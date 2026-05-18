@@ -39,6 +39,18 @@ export type ReactionAggregate = {
   me: boolean;
 };
 
+/**
+ * One @-mention parsed out of a message's content at write time.
+ * `type` is a numeric sentinel mirroring `dcc_chat_gateway/models/messages.py`:
+ *   0 = user (`<@123>`), 1 = role (`<@&456>`), 2 = everyone / here literal.
+ * `id` is the snowflake target (user-id or role-id) as a string; for
+ * `type === 2` the server emits the sentinel "0" — we don't render it.
+ */
+export interface Mention {
+  type: 0 | 1 | 2;
+  id: string;
+}
+
 export type Attachment = {
   id: string;
   filename: string | null;
@@ -66,6 +78,8 @@ export type Message = {
   deleted_at?: string | null;
   reactions?: ReactionAggregate[];
   attachments?: Attachment[];
+  /** Server-parsed mention list. Empty/absent when the message has none. */
+  mentions?: Mention[];
 };
 
 /**

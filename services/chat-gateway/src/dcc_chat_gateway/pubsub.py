@@ -16,13 +16,13 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
+from dcc_shared.permission_resolver import has_permission
+from dcc_shared.permissions import Permissions
 from fastapi import WebSocket
 from redis.asyncio import Redis
 
 from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, read_states_for
-from dcc_shared.permission_resolver import has_permission
-from dcc_shared.permissions import Permissions
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +63,15 @@ STREAM_CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
 # 6h self-heal window; cleared explicitly on disconnect.
 VOICE_USER_STATE_KEY = "voice:user_state:{user_id}"
 VOICE_USER_STATE_TTL_SECONDS = 6 * 3600
+
+# Per-user direct-delivery events (currently: `mention_added`). The payload
+# carries an explicit ``target_user_id`` and the listener fans it out only
+# to *that* user's sockets, regardless of channel subscription. Used so a
+# client with the channel closed can still bump its mention counter for
+# cross-channel notifications — they'd otherwise miss the `message` envelope
+# entirely. Cross-instance via Redis so a multi-replica deploy still routes
+# correctly when the recipient is connected to a different gateway pod.
+USER_EVENTS_CHANNEL = "user:events"
 
 
 class ConnectionManager:
@@ -131,6 +140,7 @@ class ConnectionManager:
             GUILD_EVENTS_CHANNEL,
             STREAM_EVENTS_CHANNEL,
             WATCH_EVENTS_CHANNEL,
+            USER_EVENTS_CHANNEL,
         )
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
@@ -232,6 +242,24 @@ class ConnectionManager:
         await self._redis.publish(
             GUILD_EVENTS_CHANNEL,
             json.dumps(envelope, separators=(",", ":")),
+        )
+
+    async def publish_user_event(
+        self, target_user_id: int | str, envelope: dict[str, Any]
+    ) -> None:
+        """Publish a direct-delivery envelope routed to one specific user.
+
+        ``envelope`` carries its own ``op`` and ``d``; we wrap it with a
+        ``_target_user_id`` field that the listener strips before delivery.
+        Used for cross-channel notifications (mention-counter increment etc.)
+        where the recipient may not be subscribed to the originating channel.
+        See ``USER_EVENTS_CHANNEL``.
+        """
+        wrapped = dict(envelope)
+        wrapped["_target_user_id"] = str(target_user_id)
+        await self._redis.publish(
+            USER_EVENTS_CHANNEL,
+            json.dumps(wrapped, separators=(",", ":")),
         )
 
     def listener_alive(self) -> bool:
@@ -886,6 +914,33 @@ class ConnectionManager:
                         len(raw_targets),
                     )
                     await self._fan_out(targets, envelope)
+                    continue
+
+                if channel == USER_EVENTS_CHANNEL:
+                    payload = self._decode_payload(msg["data"], USER_EVENTS_CHANNEL)
+                    if not isinstance(payload, dict):
+                        log.warning("user:events malformed: %r", payload)
+                        continue
+                    target_uid_raw = payload.pop("_target_user_id", None)
+                    if target_uid_raw is None:
+                        log.warning("user:events missing _target_user_id: %r", payload)
+                        continue
+                    try:
+                        target_uid = int(target_uid_raw)
+                    except (TypeError, ValueError):
+                        log.warning(
+                            "user:events bad _target_user_id: %r", target_uid_raw
+                        )
+                        continue
+                    async with self._lock:
+                        targets = [
+                            ws for ws, u in self._ws_user.items() if u.id == target_uid
+                        ]
+                    log.info(
+                        "user:events broadcast op=%s target_user=%s targets=%d",
+                        payload.get("op"), target_uid, len(targets),
+                    )
+                    await self._fan_out(targets, payload)
                     continue
 
                 if channel == GUILD_EVENTS_CHANNEL:

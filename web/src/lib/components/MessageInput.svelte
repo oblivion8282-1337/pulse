@@ -8,8 +8,11 @@
   import XIcon from '@lucide/svelte/icons/x';
   import EmojiPicker from './EmojiPicker.svelte';
   import AttachmentPreviewStrip from './AttachmentPreviewStrip.svelte';
+  import MentionAutocomplete from './MentionAutocomplete.svelte';
   import { expandShortcodes } from '$lib/emoji';
   import { startUpload, cleanupRow, type PendingAttachment } from '$lib/attachments/upload.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
+  import { detectMentionTrigger, applyMentionInsertion } from './mentionTrigger';
 
   let {
     channelId = null,
@@ -42,6 +45,23 @@
 
   let isDragging = $state(false);
   let dragDepth = 0; // dragenter/leave fire on every child — count to stay sane
+
+  // Mention-autocomplete state. The popup lives in `MentionAutocomplete.svelte`;
+  // we own the trigger detection + insertion so the textarea state stays here.
+  let mentionOpen = $state(false);
+  let mentionQuery = $state('');
+  let mentionStart = $state<number>(-1); // index of the `@` in `text`
+  let autocomplete: MentionAutocomplete | undefined = $state();
+
+  // Look up the guild that owns this channel. DM channels aren't in the
+  // store → guildId stays null → autocomplete suppresses role + everyone.
+  const guildId = $derived.by<string | null>(() => {
+    if (!channelId) return null;
+    for (const [gid, list] of Object.entries(guilds.channelsByGuild)) {
+      if (list.some((c) => c.id === channelId)) return gid;
+    }
+    return null;
+  });
 
   const allDone = $derived(pending.every((p) => p.state === 'done'));
   const anyUploading = $derived(pending.some((p) => p.state === 'uploading' || p.state === 'queued'));
@@ -85,7 +105,36 @@
     fire();
   }
 
+  function updateMention() {
+    if (!textarea) return;
+    const caret = textarea.selectionStart ?? text.length;
+    const trig = detectMentionTrigger(text, caret);
+    if (trig) {
+      mentionOpen = true;
+      mentionStart = trig.start;
+      mentionQuery = trig.query;
+    } else if (mentionOpen) {
+      mentionOpen = false;
+      mentionStart = -1;
+    }
+  }
+
+  function applyMention(insertion: string) {
+    if (!textarea || mentionStart < 0) return;
+    const caret = textarea.selectionStart ?? text.length;
+    const next = applyMentionInsertion(text, mentionStart, caret, insertion);
+    text = next.text;
+    mentionOpen = false;
+    mentionStart = -1;
+    queueMicrotask(() => {
+      textarea?.focus();
+      textarea?.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
   function onKeydown(e: KeyboardEvent) {
+    // Mention popup gets first dibs on ↑/↓/Enter/Tab/Esc.
+    if (mentionOpen && autocomplete?.handleKey(e)) return;
     if (e.key === 'Escape' && replyTo) {
       e.preventDefault();
       onCancelReply?.();
@@ -216,11 +265,23 @@
       rows="1"
       bind:value={text}
       onkeydown={onKeydown}
+      oninput={updateMention}
+      onkeyup={updateMention}
+      onclick={updateMention}
       onpaste={onPaste}
+      onblur={() => { mentionOpen = false; }}
       {placeholder}
       class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[1.5rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none"
       data-testid="message-input"
     ></textarea>
+    <MentionAutocomplete
+      bind:this={autocomplete}
+      open={mentionOpen}
+      query={mentionQuery}
+      {guildId}
+      onPick={applyMention}
+      onClose={() => { mentionOpen = false; }}
+    />
     <DropdownMenu.Root bind:open={pickerOpen}>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}

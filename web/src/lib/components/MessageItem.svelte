@@ -1,37 +1,11 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Message } from '$lib/api/types';
-  import { marked } from 'marked';
-  import DOMPurify from 'dompurify';
   import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import MessageActions from './MessageActions.svelte';
   import MessageAttachments from './MessageAttachments.svelte';
   import MessageReactions from './MessageReactions.svelte';
-
-  const ALLOWED_TAGS = ['b', 'i', 'em', 'strong', 'code', 'pre', 'del', 's',
-    'a', 'ul', 'ol', 'li', 'br', 'p', 'blockquote'];
-  const ALLOWED_ATTR = ['href', 'title', 'target', 'rel'];
-
-  DOMPurify.removeHook('afterSanitizeAttributes');
-  DOMPurify.addHook('afterSanitizeAttributes', (node) => {
-    if (node.tagName === 'A') {
-      node.setAttribute('target', '_blank');
-      node.setAttribute('rel', 'noopener noreferrer');
-    }
-  });
-
-  function renderSafe(text: string): string {
-    // Pass options per-call instead of `marked.use({...})` so we don't mutate
-    // the global parser config — other code (tests, HMR, future imports) won't
-    // unexpectedly inherit `breaks: true`.
-    const html = marked.parse(text, { breaks: true }) as string;
-    return DOMPurify.sanitize(html, {
-      ALLOWED_TAGS,
-      ALLOWED_ATTR,
-      FORCE_BODY: true,
-      ALLOW_DATA_ATTR: false
-    });
-  }
+  import { renderMessage } from './messageRender';
 
   let {
     message,
@@ -66,7 +40,7 @@
 
   const time = $derived(formatTime(message.created_at));
   const url = $derived(avatarUrl(message));
-  const html = $derived(renderSafe(message.content));
+  const html = $derived(renderMessage(message.content, message.mentions));
   const reactions = $derived(message.reactions ?? []);
   const attachments = $derived(message.attachments ?? []);
   const isEdited = $derived(!!message.edited_at);
@@ -207,3 +181,20 @@
     {/if}
   </div>
 {/if}
+
+<style>
+  /* Mention pills emitted by `renderMessage` — `:global` because the
+     `<span class="mention …">` lives inside an `{@html}` block. */
+  :global(.mention) {
+    background-color: var(--accent-soft);
+    color: var(--primary);
+    border-radius: 0.375rem;
+    padding: 0 0.25rem;
+    font-weight: 600;
+  }
+  :global(.mention--self) {
+    background-color: color-mix(in oklab, var(--primary) 25%, transparent);
+    color: var(--text-bright, var(--primary-foreground));
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 60%, transparent);
+  }
+</style>

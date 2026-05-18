@@ -168,4 +168,22 @@ test.describe.serial('Discord-Clone E2E', () => {
       bobPage.locator('[data-testid="message-content"]', { hasText: 'still here' })
     ).toBeVisible();
   });
+
+  test('Alice @-mentions Bob; Bob sees a mention pill on the channel', async () => {
+    // Park Bob outside the channel so the mention badge actually has somewhere
+    // to live (clicking the channel would mark-read it immediately).
+    await bobPage.goto('/app/@me');
+    await bobPage.waitForURL(/\/app\/@me/);
+
+    await alicePage.getByTestId('message-input').click();
+    await alicePage.getByTestId('message-input').fill(`<@${bobUserId}> ping`);
+    await alicePage.getByTestId('message-input').press('Enter');
+
+    // The pill is rendered next to the channel name in Bob's channel list.
+    // We give it a generous window because the WS hop + counter persist take
+    // a moment after navigation.
+    const pill = bobPage.locator(`[data-testid="channel-${channelId}"] [data-testid="channel-mention-pill"]`);
+    await expect(pill).toBeVisible({ timeout: 10_000 });
+    await expect(pill).toHaveText(/\d+/);
+  });
 });

@@ -1,28 +1,47 @@
 """Message history + send/edit/delete endpoints.
 
-Reactions live in routes/reactions.py — both modules share the
-`serialize_message` helper here, including the reaction aggregation
-that's needed for `reply` quote previews and the initial list payload.
+Reaction aggregation + the wire-shape ``serialize_message`` helper +
+the WS broadcast helper live in ``dcc_chat_gateway.message_helpers``
+and are re-exported here for backwards-compatibility (``routes.ws`` +
+``routes.reactions`` import them from this module).
+
+Mention parsing + persistence + per-user fan-out live in
+``dcc_chat_gateway.mentions``.
 """
 
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
-from typing import Annotated
-
 import logging
+from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.mentions import (
+    MENTION_EVERYONE_RE as _MENTION_EVERYONE_RE,
+)
+from dcc_chat_gateway.mentions import (
+    fan_out_mention_events,
+    filter_to_valid,
+    mentions_for,
+    parse_markers,
+    persist_for_message,
+)
+from dcc_chat_gateway.message_helpers import (
+    broadcast as _broadcast,
+)
+from dcc_chat_gateway.message_helpers import (
+    reactions_for as _reactions_for,
+)
+from dcc_chat_gateway.message_helpers import (
+    serialize_message,
+)
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
-    Channel,
-    DirectMessageChannel,
+    MENTION_TYPE_USER,
     Message,
     MessageAttachment,
     MessageReaction,
@@ -33,9 +52,6 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
 )
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
-
-# Matches `@everyone` / `@here` as standalone tokens (word boundary).
-_MENTION_EVERYONE_RE = re.compile(r"@(everyone|here)\b")
 from dcc_chat_gateway.routes.attachments import (
     bind_attachments,
     hard_delete_attachments,
@@ -48,63 +64,6 @@ from dcc_chat_gateway.snowflake import next_id
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-async def _reactions_for(
-    session: AsyncSession, message_ids: list[int], current_user_id: int
-) -> dict[int, list[dict]]:
-    """Return `{message_id: [{emoji, count, me}, ...]}` for the given ids.
-
-    One round-trip; we fold the rows by (message_id, emoji) in Python so we
-    can compute `me` without a second query."""
-    if not message_ids:
-        return {}
-    rows = (
-        await session.execute(
-            select(MessageReaction.message_id, MessageReaction.emoji, MessageReaction.user_id)
-            .where(MessageReaction.message_id.in_(message_ids))
-            .order_by(MessageReaction.message_id, MessageReaction.emoji, MessageReaction.created_at)
-        )
-    ).all()
-    out: dict[int, dict[str, dict]] = {}
-    for mid, emoji, uid in rows:
-        per_msg = out.setdefault(mid, {})
-        agg = per_msg.setdefault(emoji, {"emoji": emoji, "count": 0, "me": False})
-        agg["count"] += 1
-        if uid == current_user_id:
-            agg["me"] = True
-    return {mid: list(emojis.values()) for mid, emojis in out.items()}
-
-
-def serialize_message(
-    msg: Message,
-    reactions: list[dict] | None = None,
-    attachments: list[dict] | None = None,
-) -> dict:
-    return {
-        "id": str(msg.id),
-        "channel_id": str(msg.channel_id),
-        "author_id": str(msg.author_id),
-        "content": msg.content,
-        "nonce": msg.nonce,
-        "reply_to_id": str(msg.reply_to_id) if msg.reply_to_id is not None else None,
-        "created_at": msg.created_at.isoformat(),
-        "edited_at": msg.edited_at.isoformat() if msg.edited_at else None,
-        "deleted_at": msg.deleted_at.isoformat() if msg.deleted_at else None,
-        "reactions": reactions or [],
-        "attachments": attachments or [],
-    }
-
-
-async def _broadcast(request: Request, channel_id: int, payload: dict) -> None:
-    """Best-effort publish to the channel's WS subscribers — never raises."""
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is None:
-        return
-    try:
-        await mgr.publish(str(channel_id), payload)
-    except Exception:
-        log.exception("publish failed for channel %s", channel_id)
 
 
 @router.get(
@@ -141,12 +100,14 @@ async def list_messages(
     msg_ids = [m.id for m in rows]
     reactions = await _reactions_for(session, msg_ids, current.id)
     attachments = await serialize_attachments(session, msg_ids)
+    mentions_map = await mentions_for(session, msg_ids)
     # MessageOut reads `from_attributes`; we attach reactions + attachments
-    # onto the ORM instance attribute so Pydantic picks them up alongside
-    # the columns.
+    # + mentions onto the ORM instance attribute so Pydantic picks them up
+    # alongside the columns.
     for m in rows:
         m.reactions = reactions.get(m.id, [])  # type: ignore[attr-defined]
         m.attachments = attachments.get(m.id, [])  # type: ignore[attr-defined]
+        m.mentions = mentions_map.get(m.id, [])  # type: ignore[attr-defined]
     return rows
 
 
@@ -168,6 +129,8 @@ async def post_message(
         raise HTTPException(404, detail="text channel not found")
     # SEND_MESSAGES + MENTION_EVERYONE gates (guild channels only — DMs have
     # no permission overlay). Resolve once and bit-check locally.
+    perms = 0  # DM-path default; mentions.filter_to_valid treats it as
+    # "no MENTION_EVERYONE override" (DMs have no roles anyway).
     if kind == "guild":
         perms = await resolve_permissions(
             session, current, ch.guild_id, channel_id=channel_id
@@ -226,6 +189,22 @@ async def post_message(
             uploader_id=current.id,
         )
 
+    # Parse + validate @-mentions and persist them. Markers that don't
+    # ping anyone (non-member users, non-mentionable roles without
+    # MENTION_EVERYONE) are silently skipped. ``everyone`` already
+    # 403's upstream if the author lacks the bit.
+    guild_id_for_mentions = ch.guild_id if kind == "guild" else None
+    raw_mentions = parse_markers(payload.content)
+    valid_mentions = await filter_to_valid(
+        session,
+        guild_id=guild_id_for_mentions,
+        author_permissions=perms,
+        candidates=raw_mentions,
+    )
+    await persist_for_message(
+        session, message_id=msg.id, mentions=valid_mentions, replace=False
+    )
+
     if kind == "dm":
         # Bump last_message_id so the DM list can sort by recency.
         ch.last_message_id = msg.id
@@ -233,13 +212,29 @@ async def post_message(
     await session.commit()
     await session.refresh(msg)
 
+    mentions_serial = [
+        {"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)
+    ]
+
     # Bare payload — the pubsub listener auto-wraps as {"op": "message", "data": ...}.
     # Sign attachments NOW so the broadcast carries usable URLs for every
     # subscribed client (otherwise each one has to GET /messages to re-hydrate).
     atts_by_msg = await serialize_attachments(session, [msg.id])
     atts = atts_by_msg.get(msg.id, [])
     atts_serial = [a.model_dump(mode="json") for a in atts]
-    await _broadcast(request, channel_id, serialize_message(msg, attachments=atts_serial))
+    await _broadcast(
+        request,
+        channel_id,
+        serialize_message(msg, attachments=atts_serial, mentions=mentions_serial),
+    )
+    await fan_out_mention_events(
+        request,
+        mentions=valid_mentions,
+        message_id=msg.id,
+        channel_id=channel_id,
+        guild_id=guild_id_for_mentions,
+        author_id=current.id,
+    )
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         if kind == "guild":
@@ -275,6 +270,7 @@ async def post_message(
             )
     msg.reactions = []  # type: ignore[attr-defined]
     msg.attachments = atts  # type: ignore[attr-defined]
+    msg.mentions = mentions_serial  # type: ignore[attr-defined]
     return msg
 
 
@@ -302,6 +298,7 @@ async def edit_message(
     # same way posting does — a read-only channel must reject edits too, and
     # ``@everyone`` smuggled in via edit needs the same bit. Guild channels
     # only; DMs bypass.
+    perms = 0  # DM-path default — see notes in post_message.
     if kind == "guild":
         perms = await resolve_permissions(
             session, current, ch.guild_id, channel_id=msg.channel_id
@@ -349,17 +346,57 @@ async def edit_message(
         )
 
     msg.content = payload.content
-    msg.edited_at = datetime.now(timezone.utc)
+    msg.edited_at = datetime.now(UTC)
+
+    # Re-compute mentions from the edited content. Read the pre-edit set
+    # first so we can fire ``mention_added`` only for *newly* added user
+    # pings (an edit that just fixes a typo must not re-notify everyone).
+    guild_id_for_mentions = ch.guild_id if kind == "guild" else None
+    pre_existing = await mentions_for(session, [msg.id])
+    pre_user_ids: set[int] = {
+        int(m["id"]) for m in pre_existing.get(msg.id, []) if m["type"] == MENTION_TYPE_USER
+    }
+    raw_mentions = parse_markers(payload.content)
+    valid_mentions = await filter_to_valid(
+        session,
+        guild_id=guild_id_for_mentions,
+        author_permissions=perms,
+        candidates=raw_mentions,
+    )
+    await persist_for_message(
+        session, message_id=msg.id, mentions=valid_mentions, replace=True
+    )
     await session.commit()
     await session.refresh(msg)
 
     reactions = (await _reactions_for(session, [msg.id], current.id)).get(msg.id, [])
     attachments = (await serialize_attachments(session, [msg.id])).get(msg.id, [])
     atts_serial = [a.model_dump(mode="json") for a in attachments]
-    payload_out = serialize_message(msg, reactions, attachments=atts_serial)
+    mentions_serial = [
+        {"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)
+    ]
+    payload_out = serialize_message(
+        msg, reactions, attachments=atts_serial, mentions=mentions_serial
+    )
     await _broadcast(request, msg.channel_id, {"op": "message_update", "data": payload_out})
+    # Only fan out direct mention_added events for newly pinged users.
+    new_user_mentions = {
+        (t, tid)
+        for (t, tid) in valid_mentions
+        if t == MENTION_TYPE_USER and tid not in pre_user_ids
+    }
+    if new_user_mentions:
+        await fan_out_mention_events(
+            request,
+            mentions=new_user_mentions,
+            message_id=msg.id,
+            channel_id=msg.channel_id,
+            guild_id=guild_id_for_mentions,
+            author_id=current.id,
+        )
     msg.reactions = reactions  # type: ignore[attr-defined]
     msg.attachments = attachments  # type: ignore[attr-defined]
+    msg.mentions = mentions_serial  # type: ignore[attr-defined]
     return msg
 
 
@@ -391,7 +428,7 @@ async def delete_message(
         if not has_permission(perms, Permissions.MANAGE_MESSAGES):
             raise HTTPException(403, detail="not allowed to delete this message")
 
-    msg.deleted_at = datetime.now(timezone.utc)
+    msg.deleted_at = datetime.now(UTC)
     # Reactions are no longer meaningful once the message is gone.
     await session.execute(
         delete(MessageReaction).where(MessageReaction.message_id == msg.id)

@@ -25,6 +25,9 @@
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  // Channels-by-guild map drives the guild-rail mention indicator. We
+  // reach into the same store; the rail's `guilds` prop only has
+  // top-level guild metadata, not their channel lists.
   import { roles } from '$lib/stores/roles.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { Perm } from '$lib/permissions/bitfield';
@@ -207,6 +210,8 @@
       {@const canManageGuild = roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD)}
       {@const canManageRoles = roles.hasGuildPermission(g.id, Perm.MANAGE_ROLES)}
       {@const active = activeGuildId === g.id}
+      {@const guildChannels = guildsStore.channelsByGuild[g.id] ?? []}
+      {@const guildMentioned = !active && readState.hasGuildMentions(guildChannels.map((c) => c.id))}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
@@ -238,6 +243,13 @@
                         {initials(g.name)}
                       {/if}
                     </button>
+                    {#if guildMentioned}
+                      <span
+                        class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
+                        aria-label="ungelesene Erwähnungen"
+                        data-testid="guild-mention-dot"
+                      ></span>
+                    {/if}
                   </div>
                 {/snippet}
               </Tooltip.Trigger>

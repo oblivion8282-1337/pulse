@@ -140,6 +140,23 @@ class AttachmentOut(BaseModel):
         return _id_str(v)
 
 
+class MentionRef(BaseModel):
+    """One @-mention parsed off a message's ``content``.
+
+    ``type`` mirrors the ``MENTION_TYPE_*`` constants in
+    ``dcc_chat_gateway.models.messages`` (0=user, 1=role, 2=everyone).
+    ``id`` is the mentioned snowflake as a string — ``"0"`` for the
+    everyone sentinel; the frontend branches on ``type == 2`` to
+    distinguish (the id is meaningless in that case)."""
+
+    type: int
+    id: SnowflakeId
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
+
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -153,6 +170,9 @@ class MessageOut(BaseModel):
     deleted_at: datetime | None = None
     reactions: list[ReactionAggregate] = []
     attachments: list[AttachmentOut] = []
+    # Parsed at write-time from ``content``. Always present (empty list
+    # for messages without mentions). See ``mentions.py`` for the parser.
+    mentions: list[MentionRef] = []
 
     @field_serializer("id", "channel_id", "author_id", "reply_to_id")
     def _ser_ids(self, v: int | None) -> str | None:

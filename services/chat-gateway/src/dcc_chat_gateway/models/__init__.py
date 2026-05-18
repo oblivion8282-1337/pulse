@@ -15,8 +15,13 @@ from dcc_chat_gateway.models.channels import (
 )
 from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
 from dcc_chat_gateway.models.messages import (
+    MENTION_EVERYONE_TARGET_ID,
+    MENTION_TYPE_EVERYONE,
+    MENTION_TYPE_ROLE,
+    MENTION_TYPE_USER,
     Message,
     MessageAttachment,
+    MessageMention,
     MessageReaction,
 )
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
@@ -24,6 +29,10 @@ from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 __all__ = [
     "CHANNEL_TYPE_TEXT",
     "CHANNEL_TYPE_VOICE",
+    "MENTION_EVERYONE_TARGET_ID",
+    "MENTION_TYPE_EVERYONE",
+    "MENTION_TYPE_ROLE",
+    "MENTION_TYPE_USER",
     "AdminAuditLog",
     "Channel",
     "ChatSettings",
@@ -35,6 +44,7 @@ __all__ = [
     "MemberRole",
     "Message",
     "MessageAttachment",
+    "MessageMention",
     "MessageReaction",
     "PermissionOverwrite",
     "Role",

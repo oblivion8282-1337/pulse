@@ -188,6 +188,7 @@
     <div class="text-text-muted px-2.5 pb-1 pt-3 text-xs font-bold">Text-Kanäle</div>
     {#each textChannels as c (c.id)}
       {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
+      {@const mentionCount = activeChannelId !== c.id ? readState.getMentionCount(c.id) : 0}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
@@ -201,7 +202,14 @@
             >
               <HashIcon class="text-text-muted size-[17px] shrink-0 group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
               <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">{c.name}</span>
-              {#if isUnread}
+              {#if mentionCount > 0}
+                <span
+                  class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+                  data-testid="channel-mention-pill"
+                  data-mention-count={mentionCount}
+                  aria-label="{mentionCount} ungelesene Erwähnung(en)"
+                >{mentionCount > 99 ? '99+' : mentionCount}</span>
+              {:else if isUnread}
                 <span
                   class="ml-auto size-2 shrink-0 rounded-full bg-primary"
                   data-testid="channel-unread-dot"

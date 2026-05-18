@@ -175,6 +175,13 @@ type ServerEvent =
       channel_id: string;
       overwrites: OverwritePayload[];
     }
+  | {
+      // Per-user mention notification — fanned out only to sockets owned
+      // by mentioned users, so we can bump the channel's mention counter
+      // even if the user isn't currently viewing or subscribed to it.
+      op: 'mention_added';
+      d: { channel_id: string; message_id: string; guild_id: string };
+    }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -351,6 +358,7 @@ export class GatewayConnection {
       evt.op !== 'guild_member_removed' &&
       evt.op !== 'guild_ban_added' &&
       evt.op !== 'guild_ban_removed' &&
+      evt.op !== 'mention_added' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -637,6 +645,20 @@ export class GatewayConnection {
       case 'channel_permissions_updated':
         channelPermissions.apply(evt.channel_id, evt.overwrites);
         break;
+      case 'mention_added': {
+        // Per-user notification fanned out only to mentioned sockets. We
+        // intentionally drive the unread-mention badge from THIS event
+        // only (not from `message.mentions`) so the counter logic stays
+        // idempotent: the backend deduplicates the recipient set, we
+        // don't have to. If the user is actively viewing the channel,
+        // the inline `markRead` below clears the counter immediately.
+        const { channel_id, message_id } = evt.d;
+        readState.incMention(channel_id);
+        if (this.subs.has(channel_id)) {
+          readState.markRead(channel_id, message_id);
+        }
+        break;
+      }
     }
   }
 
