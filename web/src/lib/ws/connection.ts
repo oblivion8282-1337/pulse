@@ -329,6 +329,8 @@ export class GatewayConnection {
       evt.op !== 'reaction_remove' &&
       evt.op !== 'message_ack' &&
       evt.op !== 'voice_state' &&
+      evt.op !== 'voice_override' &&
+      evt.op !== 'voice_disconnect' &&
       evt.op !== 'stream_state' &&
       evt.op !== 'stream_chat_message' &&
       evt.op !== 'watch_state' &&

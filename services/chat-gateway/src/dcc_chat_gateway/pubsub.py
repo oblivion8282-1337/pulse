@@ -544,6 +544,52 @@ class ConnectionManager:
             if gid:
                 self._invalidate_for_guild(gid)
 
+    # ops on guild:events whose visibility should be scoped to guild
+    # members. Other ops on the same channel (role_*, guild_updated,
+    # etc.) keep the broadcast-everyone semantics they were built on
+    # — the frontend filters by guild membership in its handlers.
+    _GUILD_MEMBER_SCOPED_OPS = frozenset(
+        {
+            "guild_member_added",
+            "guild_member_removed",
+            "guild_member_updated",
+            "guild_ban_added",
+            "guild_ban_removed",
+        }
+    )
+
+    def _filter_targets_by_guild(
+        self, payload: dict, targets: list[WebSocket]
+    ) -> list[WebSocket]:
+        """Filter ``targets`` to sockets whose user is in the event's
+        ``guild_id``. Used for member/ban events so non-members don't
+        receive (and can't sniff in DevTools) per-guild membership
+        churn for guilds they aren't in.
+
+        For the kicked/banned user themselves: ``_apply_guild_membership_update``
+        runs *before* this filter on ``guild_member_removed``, dropping
+        the guild from their ``_ws_guilds`` set first. So the kicked
+        user does receive the event (their socket still appears as
+        member at the moment we check) — that's intentional so the
+        client can run its drop-guild cleanup. ``guild_ban_added`` runs
+        after the ``guild_member_removed`` though, so the banned user
+        won't see it; acceptable since their UI is already gone."""
+        op = payload.get("op")
+        if op not in self._GUILD_MEMBER_SCOPED_OPS:
+            return targets
+        try:
+            gid = int(payload.get("guild_id", "0"))
+        except (TypeError, ValueError):
+            return targets
+        if not gid:
+            return targets
+        out: list[WebSocket] = []
+        for ws in targets:
+            guilds = self._ws_guilds.get(ws)
+            if guilds is not None and gid in guilds:
+                out.append(ws)
+        return out
+
     async def _filter_by_view_channel(
         self, targets: list[WebSocket], channel_id: str
     ) -> list[WebSocket]:
@@ -801,6 +847,11 @@ class ConnectionManager:
                     self._maybe_invalidate(payload)
                     async with self._lock:
                         targets = list(self._connections)
+                    # Per-guild events (bans, member adds/removes/updates)
+                    # are scoped to actual guild members rather than blasted
+                    # to every connected socket. Other ops keep the wide
+                    # broadcast pattern they were built on.
+                    targets = self._filter_targets_by_guild(payload, targets)
                     log.info(
                         "guild:events broadcast op=%s targets=%d", payload.get("op"), len(targets)
                     )

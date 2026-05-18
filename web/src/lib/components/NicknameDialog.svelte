@@ -28,7 +28,10 @@
     guildId: string;
     userId: string;
     isSelf: boolean;
-    initialNickname: string | null;
+    /** Current per-guild nickname; ``undefined`` means "not provided —
+     *  fetch on open". Pass ``null`` if you know the value and it's
+     *  empty (skips the fetch). */
+    initialNickname: string | null | undefined;
     fallbackName: string;
     onClose: () => void;
     onSaved?: (nickname: string | null) => void;
@@ -36,9 +39,33 @@
 
   let value = $state('');
   let busy = $state(false);
+  // Local tracker for the "current" nickname — the prop may be undefined
+  // (caller didn't know), in which case we resolve it via a member-list
+  // lookup the first time the dialog opens.
+  let resolved = $state<string | null>(null);
 
   $effect(() => {
-    if (open) value = initialNickname ?? '';
+    if (!open) return;
+    if (initialNickname !== undefined) {
+      resolved = initialNickname;
+      value = initialNickname ?? '';
+      return;
+    }
+    // Lookup-on-open path: fetch the member row so we can pre-fill the
+    // input AND offer the "Zurücksetzen" button. listMembers is the
+    // existing endpoint; for very large guilds we'd want a per-member
+    // GET but for v1 the round-trip is acceptable.
+    void chatApi
+      .listMembers(guildId)
+      .then((rows) => {
+        const me = rows.find((m) => m.user_id === userId);
+        resolved = me?.nickname ?? null;
+        value = resolved ?? '';
+      })
+      .catch(() => {
+        resolved = null;
+        value = '';
+      });
   });
 
   function handleOpenChange(next: boolean) {
@@ -52,7 +79,7 @@
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     const next = value.trim();
-    if (next === (initialNickname ?? '')) {
+    if (next === (resolved ?? '')) {
       onClose();
       return;
     }
@@ -117,7 +144,7 @@
         />
       </div>
       <Dialog.Footer>
-        {#if initialNickname}
+        {#if resolved}
           <Button
             type="button"
             variant="ghost"

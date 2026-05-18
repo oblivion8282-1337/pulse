@@ -44,7 +44,7 @@
     displayName,
     avatarUrl,
     guildId,
-    nickname = null,
+    nickname,
     onAction,
     extra,
     children
@@ -56,9 +56,11 @@
      *  Omitted in non-guild contexts (DM list, voice tiles without a
      *  matching member context). */
     guildId?: string;
-    /** Current per-guild nickname for this user; ``null`` if none set.
-     *  Only meaningful when ``guildId`` is provided. */
-    nickname?: string | null;
+    /** Current per-guild nickname for this user; ``null`` if none set,
+     *  ``undefined`` if the caller doesn't know (the dialog will then
+     *  lazily resolve it on open). Only meaningful when ``guildId`` is
+     *  provided. */
+    nickname?: string | null | undefined;
     /** Fired after an action navigates away — used by the caller to close
      *  parent overlays (e.g. the mobile member-list sheet). */
     onAction?: () => void;
