@@ -3,9 +3,7 @@
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import XIcon from '@lucide/svelte/icons/x';
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
-  import PencilIcon from '@lucide/svelte/icons/pencil';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
-  import NicknameDialog from './NicknameDialog.svelte';
   import { gateway } from '$lib/ws/connection';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
@@ -47,15 +45,6 @@
   // which bits-ui still mounts as an empty floating element. Guarding
   // here keeps the default right-click behaviour intact for everyone else.
   let canQuickRole = $derived(roles.hasGuildPermission(guildId, Perm.MANAGE_ROLES));
-  let canChangeOwnNickname = $derived(roles.hasGuildPermission(guildId, Perm.CHANGE_NICKNAME));
-  let canManageNicknames = $derived(roles.hasGuildPermission(guildId, Perm.MANAGE_NICKNAMES));
-
-  let nicknameTarget = $state<{
-    userId: string;
-    isSelf: boolean;
-    current: string | null;
-    fallback: string;
-  } | null>(null);
 
   $effect(() => {
     if (!guildId) return;
@@ -278,6 +267,8 @@
                 userId={m.user_id}
                 displayName={name}
                 avatarUrl={url}
+                {guildId}
+                nickname={m.nickname}
                 onAction={onClose}
               >
                 {#snippet children({ props })}
@@ -358,11 +349,9 @@
               </UserProfilePopover>
             {/snippet}
           </ContextMenu.Trigger>
-          {@const isSelf = m.user_id === auth.user?.id}
-          {@const canEditNick = isSelf ? canChangeOwnNickname : canManageNicknames}
-          {#if !isSelf || canQuickRole || canChangeOwnNickname}
+          {#if m.user_id !== auth.user?.id || canQuickRole}
             <ContextMenu.Content>
-              {#if !isSelf}
+              {#if m.user_id !== auth.user?.id}
                 <ContextMenu.Item
                   onSelect={() => openDmWith(m.user_id)}
                   data-testid="member-dm-menu"
@@ -370,26 +359,9 @@
                   <MessageCircleIcon />
                   Direktnachricht senden
                 </ContextMenu.Item>
-              {/if}
-              {#if canEditNick}
-                {#if !isSelf}<ContextMenu.Separator />{/if}
-                <ContextMenu.Item
-                  onSelect={() => {
-                    nicknameTarget = {
-                      userId: m.user_id,
-                      isSelf,
-                      current: m.nickname ?? null,
-                      fallback: userCache.displayName(m.user_id)
-                    };
-                  }}
-                  data-testid="member-nickname-menu"
-                >
-                  <PencilIcon />
-                  Nickname ändern
-                </ContextMenu.Item>
+                {#if canQuickRole}<ContextMenu.Separator />{/if}
               {/if}
               {#if canQuickRole}
-                {#if !isSelf || canEditNick}<ContextMenu.Separator />{/if}
                 <MemberQuickRoleMenu {guildId} userId={m.user_id} />
               {/if}
             </ContextMenu.Content>
@@ -403,15 +375,3 @@
     {/if}
   </div>
 </aside>
-
-{#if nicknameTarget}
-  <NicknameDialog
-    open={!!nicknameTarget}
-    {guildId}
-    userId={nicknameTarget.userId}
-    isSelf={nicknameTarget.isSelf}
-    initialNickname={nicknameTarget.current}
-    fallbackName={nicknameTarget.fallback}
-    onClose={() => (nicknameTarget = null)}
-  />
-{/if}

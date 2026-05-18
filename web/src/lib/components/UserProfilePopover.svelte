@@ -15,11 +15,15 @@
 <script lang="ts">
   import { Popover as PopoverPrimitive } from 'bits-ui';
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
+  import PencilIcon from '@lucide/svelte/icons/pencil';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import NicknameDialog from './NicknameDialog.svelte';
   import { chatApi } from '$lib/api/chat';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import { goto } from '$app/navigation';
   import type { Snippet } from 'svelte';
 
@@ -27,6 +31,8 @@
     userId,
     displayName,
     avatarUrl,
+    guildId,
+    nickname = null,
     onAction,
     extra,
     children
@@ -34,6 +40,13 @@
     userId: string;
     displayName: string;
     avatarUrl: string | null;
+    /** Guild scope — enables guild-specific actions like nickname editing.
+     *  Omitted in non-guild contexts (DM list, voice tiles without a
+     *  matching member context). */
+    guildId?: string;
+    /** Current per-guild nickname for this user; ``null`` if none set.
+     *  Only meaningful when ``guildId`` is provided. */
+    nickname?: string | null;
     /** Fired after an action navigates away — used by the caller to close
      *  parent overlays (e.g. the mobile member-list sheet). */
     onAction?: () => void;
@@ -52,8 +65,15 @@
 
   let open = $state(false);
   let working = $state(false);
+  let nickDialogOpen = $state(false);
 
   let isSelf = $derived(!!auth.user && userId === auth.user.id);
+  let canEditNickname = $derived.by(() => {
+    if (!guildId) return false;
+    return isSelf
+      ? roles.hasGuildPermission(guildId, Perm.CHANGE_NICKNAME)
+      : roles.hasGuildPermission(guildId, Perm.MANAGE_NICKNAMES);
+  });
 
   async function startDM() {
     if (isSelf || working) return;
@@ -109,18 +129,31 @@
         </div>
       </div>
 
-      {#if !isSelf}
+      {#if !isSelf || canEditNickname}
         <div class="mt-4 flex flex-col gap-1">
-          <button
-            type="button"
-            class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
-            onclick={startDM}
-            disabled={working}
-            data-testid="popover-dm-btn"
-          >
-            <MessageCircleIcon class="size-4" />
-            <span>{working ? 'Öffne…' : 'Nachricht senden'}</span>
-          </button>
+          {#if !isSelf}
+            <button
+              type="button"
+              class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+              onclick={startDM}
+              disabled={working}
+              data-testid="popover-dm-btn"
+            >
+              <MessageCircleIcon class="size-4" />
+              <span>{working ? 'Öffne…' : 'Nachricht senden'}</span>
+            </button>
+          {/if}
+          {#if canEditNickname}
+            <button
+              type="button"
+              class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+              onclick={() => (nickDialogOpen = true)}
+              data-testid="popover-nickname-btn"
+            >
+              <PencilIcon class="size-4" />
+              <span>Nickname ändern</span>
+            </button>
+          {/if}
         </div>
       {/if}
 
@@ -132,3 +165,18 @@
     </PopoverPrimitive.Content>
   </PopoverPrimitive.Portal>
 </PopoverPrimitive.Root>
+
+{#if canEditNickname && guildId}
+  <NicknameDialog
+    open={nickDialogOpen}
+    {guildId}
+    {userId}
+    {isSelf}
+    initialNickname={nickname}
+    fallbackName={displayName}
+    onClose={() => {
+      nickDialogOpen = false;
+      close();
+    }}
+  />
+{/if}
