@@ -251,3 +251,35 @@ async def test_ban_non_member_user_still_blocks_future_join(client, _auth_signer
         headers=auth(t_new),
     )
     assert r2.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_mod_can_ban_peer_mod_no_hierarchy(client, _auth_signer):
+    """No position-hierarchy in v1 — a mod with BAN_MEMBERS can ban
+    another mod that holds the same (or higher) permission bits.
+    Pulse-v1 is self-host MVP where mods are trusted; if a Discord-
+    style hierarchy lands later, flip this test to 403."""
+    s = await _setup(client, _auth_signer)
+    # Grant both A and B a mod role with BAN_MEMBERS + MANAGE_ROLES.
+    mod_role = (
+        await client.post(
+            f"/guilds/{s['g']['id']}/roles",
+            json={
+                "name": "mod",
+                "permissions": str((1 << 9) | (1 << 3)),  # BAN | MANAGE_ROLES
+            },
+            headers=auth(s["t_owner"]),
+        )
+    ).json()
+    for uid in (s["uid_a"], s["uid_b"]):
+        await client.put(
+            f"/guilds/{s['g']['id']}/members/{uid}/roles/{mod_role['id']}",
+            headers=auth(s["t_owner"]),
+        )
+    # A bans B — currently allowed.
+    r = await client.put(
+        f"/guilds/{s['g']['id']}/bans/{s['uid_b']}",
+        json={"reason": "mod-vs-mod"},
+        headers=auth(s["t_a"]),
+    )
+    assert r.status_code == 200

@@ -189,3 +189,31 @@ async def test_kicked_user_cannot_access_guild(client, _auth_signer):
     )
     r = await client.get(f"/guilds/{gid}/members", headers=auth(s["t_a"]))
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_mod_can_kick_peer_mod_no_hierarchy(client, _auth_signer):
+    """No position-hierarchy in v1 — a mod with KICK_MEMBERS can kick
+    a peer mod. Self-host MVP trust model; flip if Discord-style
+    position-based hierarchy lands later."""
+    s = await _setup(client, _auth_signer)
+    mod_role = (
+        await client.post(
+            f"/guilds/{s['g']['id']}/roles",
+            json={
+                "name": "mod",
+                "permissions": str(1 << 8),  # KICK_MEMBERS
+            },
+            headers=auth(s["t_owner"]),
+        )
+    ).json()
+    for uid in (s["uid_a"], s["uid_b"]):
+        await client.put(
+            f"/guilds/{s['g']['id']}/members/{uid}/roles/{mod_role['id']}",
+            headers=auth(s["t_owner"]),
+        )
+    r = await client.delete(
+        f"/guilds/{s['g']['id']}/members/{s['uid_b']}",
+        headers=auth(s["t_a"]),
+    )
+    assert r.status_code == 204

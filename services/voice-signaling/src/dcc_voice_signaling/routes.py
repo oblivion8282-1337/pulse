@@ -350,7 +350,7 @@ async def _livekit_remove_participant(channel_id: str, user_id: str) -> None:
             )
         )
     except Exception:  # noqa: BLE001 — participant offline / server down
-        log.info(
+        log.warning(
             "livekit remove_participant failed for channel=%s user=%s",
             channel_id,
             user_id,
@@ -399,8 +399,14 @@ async def _livekit_update_participant(
             )
         )
     except Exception:  # noqa: BLE001 — participant offline / server down
-        log.info(
-            "livekit update_participant failed for channel=%s user=%s — override is still persisted",
+        # WARNING (not INFO): if LiveKit is wedged the mute won't be
+        # live-applied to currently-publishing tracks; the override is
+        # in Redis and will take effect on the user's next reconnect,
+        # but admins should see this in logs. Participant-not-found
+        # (user offline) lands here too — harmless but noisy in dev;
+        # consider a separate exception filter if it gets annoying.
+        log.warning(
+            "livekit update_participant failed for channel=%s user=%s — override is persisted, will apply on reconnect",
             channel_id,
             user_id,
             exc_info=True,

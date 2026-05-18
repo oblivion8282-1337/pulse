@@ -573,10 +573,15 @@ export class GatewayConnection {
           evt.muted,
           evt.deafened
         );
-        // If this targets us in the channel we're currently connected to,
-        // enforce the deafen client-side: drive voice.setDeafened so the
-        // local audio output mutes. Imported lazily to avoid the circular
-        // dependency (voice/livekit imports `gateway` from here).
+        // Deafen enforcement is *soft* — LiveKit's per-participant
+        // permission model doesn't gate inbound subscriptions, only
+        // outbound publishes. We drive voice.setDeafened so the local
+        // audio output mutes and the toggle is disabled, but a
+        // tampered client could still play subscribed audio. Same
+        // trust model as Discord's server-deafen. Mute is server-
+        // enforced via LiveKit publish-permissions (see voice-
+        // signaling/_livekit_update_participant).
+        // Lazy-imported to avoid the circular dep with voice/livekit.
         if (auth.user?.id === evt.user_id) {
           void import('$lib/voice/livekit.svelte').then(({ voice }) => {
             if (voice.channelId !== evt.channel_id) return;
