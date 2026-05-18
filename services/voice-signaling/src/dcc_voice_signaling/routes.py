@@ -33,6 +33,17 @@ router = APIRouter()
 # Duplicated here because voice-signaling can't import chat-gateway's models.
 _CHAT_GW_CHANNEL_TYPE_VOICE = 1
 
+# Permission bits we care about for the LiveKit publish-source gate.
+# Mirror of dcc_shared.permissions.Permissions; duplicated because
+# voice-signaling can't pull dcc-shared without making the dependency
+# graph circular in dev (chat-gateway imports dcc-shared, dcc-shared
+# is the canonical source). Pinning these here is the cheapest way to
+# keep voice-signaling decoupled — if the bit layout ever changes,
+# pytest in this service breaks immediately.
+_PERM_SPEAK = 1 << 31
+_PERM_STREAM = 1 << 32
+_PERM_USE_VIDEO = 1 << 33
+
 
 class TokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -132,6 +143,63 @@ async def _require_voice_channel_member(channel_id: str, bearer: str) -> None:
         )
 
 
+async def _resolve_channel_permissions(channel_id: str, bearer: str) -> int:
+    """Ask chat-gateway for the caller's resolved channel-level bitfield.
+
+    Returns ``0`` on any non-200 — voice-signaling treats unknown
+    permissions as "no publish" (subscribe-only). Membership has
+    already been verified via ``_require_voice_channel_member`` by the
+    time this runs, so a 403 here would mean a race (member kicked
+    between the two calls) — bailing to 0 is the safe answer."""
+    settings = get_settings()
+    if settings.chat_gateway_url is None:
+        # No chat-gateway configured (test/dev fallback) — assume full
+        # publish, matching the pre-gate behaviour. The
+        # ``_require_voice_channel_member`` warning already fired.
+        return _PERM_SPEAK | _PERM_USE_VIDEO | _PERM_STREAM
+    try:
+        resp = await _chat_gateway_request(
+            "GET", f"/channels/{channel_id}/permissions/me", bearer=bearer
+        )
+    except httpx.HTTPError as exc:
+        log.warning("chat-gateway permission lookup failed: %s", exc)
+        return 0
+    if resp.status_code != 200:
+        log.warning(
+            "chat-gateway permission lookup returned %s for channel %s",
+            resp.status_code,
+            channel_id,
+        )
+        return 0
+    try:
+        return int(resp.json().get("permissions", "0"))
+    except (ValueError, TypeError, AttributeError):
+        return 0
+
+
+def _publish_sources_for(perms: int) -> tuple[bool, list[str]]:
+    """Translate Pulse permission bits to LiveKit publish-source strings.
+    Returns ``(can_publish, sources)`` — the first is true iff at least
+    one source is allowed.
+
+    Source strings match LiveKit's ``TrackSource`` enum names lower-
+    cased (``microphone`` / ``camera`` / ``screen_share``)."""
+    sources: list[str] = []
+    if perms & _PERM_SPEAK:
+        sources.append("microphone")
+    if perms & _PERM_USE_VIDEO:
+        sources.append("camera")
+    if perms & _PERM_STREAM:
+        # Browser screenshare publishes Track.Source.ScreenShare in
+        # LiveKit; the HQ GSR push goes through MediaMTX and bypasses
+        # the LiveKit grant entirely. The STREAM bit gates the
+        # ScreenShare track here so browser-screenshare permission
+        # matches the HQ-stream permission semantically.
+        sources.append("screen_share")
+        sources.append("screen_share_audio")
+    return bool(sources), sources
+
+
 @router.post("/token", response_model=TokenOut)
 async def issue_token(
     payload: TokenIn,
@@ -147,12 +215,15 @@ async def issue_token(
 
     bearer = _bearer_from_header(authorization)
     await _require_voice_channel_member(payload.channel_id, bearer)
+    perms = await _resolve_channel_permissions(payload.channel_id, bearer)
+    can_publish, sources = _publish_sources_for(perms)
 
     room = _room_for_channel(payload.channel_id)
     grants = lk.VideoGrants(
         room_join=True,
         room=room,
-        can_publish=True,
+        can_publish=can_publish,
+        can_publish_sources=sources if sources else None,
         can_subscribe=True,
         can_publish_data=True,
     )

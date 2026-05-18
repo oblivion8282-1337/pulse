@@ -183,3 +183,28 @@ async def my_guild_permissions(
     refresh after a role mutation, in case the ws event got dropped)."""
     value = await resolve_permissions(session, current, guild_id)
     return {"permissions": str(value)}
+
+
+@router.get("/channels/{channel_id}/permissions/me")
+async def my_channel_permissions(
+    channel_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+) -> dict[str, str]:
+    """Resolved channel-level permission bitfield for the current user.
+
+    Used by voice-signaling to gate LiveKit ``can_publish_sources`` —
+    a service-to-service call (forwarding the user's bearer) avoids
+    duplicating the resolver in voice-signaling and keeps the DB
+    access localised to chat-gateway.
+    """
+    from dcc_chat_gateway.models import Channel  # local: routes load order
+
+    channel = await session.get(Channel, channel_id)
+    if channel is None:
+        raise HTTPException(404, detail="channel not found")
+    await require_member(session, channel.guild_id, current.id)
+    value = await resolve_permissions(
+        session, current, channel.guild_id, channel_id=channel_id
+    )
+    return {"permissions": str(value)}

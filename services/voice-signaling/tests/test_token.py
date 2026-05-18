@@ -111,15 +111,39 @@ async def test_token_rejects_non_voice_channel(client, auth_signer, monkeypatch)
     assert r.status_code == 400
 
 
+def _make_gateway_mock(perms_bf: int):
+    """Build a chat-gateway request mock that answers the two endpoints
+    voice-signaling expects:
+      * GET /channels/{id}       → voice channel
+      * GET /channels/{id}/permissions/me → ``perms_bf`` as string
+    """
+    async def _mock(method, path, *, bearer):
+        if path.endswith("/permissions/me"):
+            return httpx.Response(200, json={"permissions": str(perms_bf)})
+        return httpx.Response(200, json={"id": "987654321", "guild_id": "1", "type": 1})
+    return _mock
+
+
+def _decode_grants(token: str) -> dict:
+    """LiveKit access-tokens are unsigned to us — decode without verifying
+    (the test only inspects the embedded grants)."""
+    import base64
+    import json
+
+    body = token.split(".")[1]
+    body += "=" * ((4 - len(body) % 4) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(body))
+    return payload.get("video", {})
+
+
 @pytest.mark.asyncio
 async def test_token_passes_with_voice_channel(client, auth_signer, monkeypatch):
     """Happy path: chat-gateway confirms voice channel membership."""
     monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
 
-    async def _voice_channel(method, path, *, bearer):
-        return httpx.Response(200, json={"id": "987654321", "guild_id": "1", "type": 1})
-
-    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _voice_channel)
+    # Full publish perms — SPEAK + USE_VIDEO + STREAM all set.
+    perms = (1 << 31) | (1 << 32) | (1 << 33)
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(perms))
     access = auth_signer.issue_access(42, "alice")
     r = await client.post(
         "/token",
@@ -127,3 +151,48 @@ async def test_token_passes_with_voice_channel(client, auth_signer, monkeypatch)
         headers=auth(access),
     )
     assert r.status_code == 200, r.text
+    grants = _decode_grants(r.json()["token"])
+    assert grants.get("canPublish") is True
+    sources = grants.get("canPublishSources") or []
+    assert "microphone" in sources
+    assert "camera" in sources
+    assert "screen_share" in sources
+
+
+@pytest.mark.asyncio
+async def test_token_microphone_only_when_no_video_perm(
+    client, auth_signer, monkeypatch
+):
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+    perms = 1 << 31  # SPEAK only
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(perms))
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(auth_signer.issue_access(42, "alice")),
+    )
+    assert r.status_code == 200
+    grants = _decode_grants(r.json()["token"])
+    sources = grants.get("canPublishSources") or []
+    assert sources == ["microphone"]
+
+
+@pytest.mark.asyncio
+async def test_token_subscribe_only_when_no_publish_perms(
+    client, auth_signer, monkeypatch
+):
+    """No SPEAK / USE_VIDEO / STREAM → token grants no publish at all.
+    Subscribe is always on."""
+    monkeypatch.setattr(voice_routes.get_settings(), "chat_gateway_url", "http://chat-gateway.test")
+    monkeypatch.setattr(voice_routes, "_chat_gateway_request", _make_gateway_mock(0))
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(auth_signer.issue_access(42, "alice")),
+    )
+    assert r.status_code == 200
+    grants = _decode_grants(r.json()["token"])
+    # canPublish gets serialised when False (Pydantic-style) — present
+    # as ``False`` (proto3 strips defaults though; absent == False).
+    assert not grants.get("canPublish", False)
+    assert grants.get("canSubscribe", True) is True
