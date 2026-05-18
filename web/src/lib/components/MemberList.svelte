@@ -2,8 +2,12 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
   import XIcon from '@lucide/svelte/icons/x';
+  import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
+  import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
+  import { directMessages } from '$lib/stores/directMessages.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
@@ -154,6 +158,24 @@
     return displayName(m).slice(0, 1).toUpperCase();
   }
 
+  /** Spin up (or fetch) a DM channel with the target user and navigate
+   * there. Same flow as the UserProfilePopover's "DM" button — mirrored
+   * here so the member-list right-click works without left-clicking
+   * through the profile popover first. */
+  async function openDmWith(targetUserId: string): Promise<void> {
+    if (targetUserId === auth.user?.id) return;
+    try {
+      const dm = await chatApi.createOrGetDMChannel(targetUserId);
+      directMessages.upsert(dm);
+      onClose?.();
+      await goto(`/app/@me/${dm.id}`);
+    } catch (err) {
+      toast.error('DM konnte nicht geöffnet werden', {
+        description: err instanceof Error ? err.message : String(err)
+      });
+    }
+  }
+
   function openMemberActivity(uid: string): void {
     // Find any voice channel in this guild where this user is hosting a
     // party or streaming — first match wins (rare to have multiple).
@@ -302,9 +324,21 @@
               </UserProfilePopover>
             {/snippet}
           </ContextMenu.Trigger>
-          {#if canQuickRole}
+          {#if m.user_id !== auth.user?.id || canQuickRole}
             <ContextMenu.Content>
-              <MemberQuickRoleMenu {guildId} userId={m.user_id} />
+              {#if m.user_id !== auth.user?.id}
+                <ContextMenu.Item
+                  onSelect={() => openDmWith(m.user_id)}
+                  data-testid="member-dm-menu"
+                >
+                  <MessageCircleIcon />
+                  Direktnachricht senden
+                </ContextMenu.Item>
+                {#if canQuickRole}<ContextMenu.Separator />{/if}
+              {/if}
+              {#if canQuickRole}
+                <MemberQuickRoleMenu {guildId} userId={m.user_id} />
+              {/if}
             </ContextMenu.Content>
           {/if}
         </ContextMenu.Root>

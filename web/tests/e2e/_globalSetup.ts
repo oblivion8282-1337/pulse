@@ -100,8 +100,12 @@ async function applyMigrations(env: NodeJS.ProcessEnv, name: string, cwd: string
 async function truncateDb(env: NodeJS.ProcessEnv) {
   // Make every test run independent. We don't drop the schemas because
   // re-running migrations would slow things down; instead we wipe rows.
-  // Settings singletons (auth_settings, chat_settings) are seeded by the
-  // migrations and survive truncate — we just nuke the row-tables.
+  // Settings singletons (auth_settings, chat_settings) survive TRUNCATE
+  // because dropping them would violate the singleton CHECK + a missing
+  // row breaks code paths that ``session.get(ChatSettings, 1)`` —
+  // we UPDATE them back to the migration defaults instead. Without
+  // this any test that mutates an admin setting leaks into the next run
+  // (admin.spec.ts:116 DM-limits PATCH was the symptom).
   const sql = `
     TRUNCATE
       chat.message_attachments,
@@ -114,6 +118,15 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
       auth.refresh_tokens,
       auth.users
     RESTART IDENTITY CASCADE;
+    UPDATE chat.chat_settings SET
+      dm_attachment_max_size_bytes = 26214400,
+      dm_attachment_max_count_per_message = 4,
+      allow_guild_creation = true,
+      allow_member_invites = true
+    WHERE id = 1;
+    UPDATE auth.auth_settings SET
+      registration_mode = 'open'
+    WHERE id = 1;
   `;
   await new Promise<void>((resolveP, rejectP) => {
     const p = spawn(

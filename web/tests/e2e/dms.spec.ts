@@ -99,7 +99,9 @@ test.describe.serial('DM (direct messages) E2E', () => {
   });
 
   test('alice opens a DM with bob from the member-list context menu', async () => {
-    // The member list is inline-rendered on desktop. Wait for Bob to appear.
+    // The member list is hidden behind the header toggle by default
+    // (memberListOpen=false). Click it before looking for the row.
+    await alicePage.getByTestId('member-list-toggle').click();
     const bobRow = alicePage
       .getByTestId('member-item')
       .and(alicePage.locator(`[data-user-id="${bobUserId}"]`));
@@ -169,6 +171,7 @@ test.describe.serial('DM (direct messages) E2E', () => {
     // Go back to the guild channel, then re-trigger the DM-open flow. Should
     // resolve to the same /app/@me/<id> URL.
     await alicePage.goto(`/app/guilds/${guildId}/channels/${channelId}`);
+    await alicePage.getByTestId('member-list-toggle').click();
     const bobRow = alicePage
       .getByTestId('member-item')
       .and(alicePage.locator(`[data-user-id="${bobUserId}"]`));
