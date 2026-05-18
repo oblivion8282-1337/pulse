@@ -269,6 +269,56 @@ class ConnectionManager:
                 out.append({"channel_id": cid, **state})
         return out
 
+    async def voice_overrides_for(
+        self, channel_ids: list[str]
+    ) -> list[dict[str, Any]]:
+        """Active force-mute / force-deafen overrides for the given
+        voice channels. Read straight off Redis (``voice:override:*``
+        keys written by voice-signaling). Used in the ``ready`` frame
+        so a freshly-connected client sees the current admin overrides
+        without waiting for the next mod-toggle event."""
+        if not channel_ids:
+            return []
+        out: list[dict[str, Any]] = []
+        for cid in channel_ids:
+            # Voice channels are scoped per-channel; an SCAN per channel
+            # is cheap (overrides are rare). MATCH pattern picks up
+            # every user-keyed entry; iter_scan is bounded by Redis
+            # COUNT, no unbounded pagination needed for typical loads.
+            pattern = f"voice:override:channel-{cid}:user-*"
+            keys: list[str] = []
+            async for k in self._redis.scan_iter(match=pattern, count=100):
+                if isinstance(k, bytes):
+                    k = k.decode()
+                keys.append(k)
+            if not keys:
+                continue
+            raws = await self._redis.mget(*keys)
+            for k, raw in zip(keys, raws):
+                if raw is None:
+                    continue
+                try:
+                    data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(data, dict):
+                    continue
+                # ``voice:override:channel-<cid>:user-<uid>`` — split out the user_id.
+                uid = k.rsplit(":user-", 1)[-1]
+                muted = bool(data.get("muted"))
+                deafened = bool(data.get("deafened"))
+                if not (muted or deafened):
+                    continue
+                out.append(
+                    {
+                        "channel_id": cid,
+                        "user_id": uid,
+                        "muted": muted,
+                        "deafened": deafened,
+                    }
+                )
+        return out
+
     async def user_voice_states_for(self, user_ids: list[str]) -> dict[str, dict[str, bool]]:
         """Read per-user mute/deafen state for the given user_ids. Missing keys
         are omitted — clients treat absence as ``{mic_muted: false, deafened: false}``."""

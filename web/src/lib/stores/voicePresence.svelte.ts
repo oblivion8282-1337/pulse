@@ -49,6 +49,23 @@ class VoicePresenceStore {
     this.userStatesByChannel = nextStates;
   }
 
+  /** Hydrate the admin-override map from the ready payload.
+   * Replaces the entire ``overrideByChannel`` (the server's view is
+   * authoritative for the snapshot). */
+  seedOverrides(
+    overrides: { channel_id: string; user_id: string; muted: boolean; deafened: boolean }[]
+  ): void {
+    const next: Record<string, Record<string, { muted: boolean; deafened: boolean }>> = {};
+    for (const o of overrides) {
+      if (!o.muted && !o.deafened) continue;
+      (next[o.channel_id] ||= {})[o.user_id] = {
+        muted: !!o.muted,
+        deafened: !!o.deafened
+      };
+    }
+    this.overrideByChannel = next;
+  }
+
   /** Apply a single voice_state push (full snapshot for one channel). */
   apply(
     channelId: string,

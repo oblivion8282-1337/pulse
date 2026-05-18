@@ -82,6 +82,12 @@ type ServerEvent =
       voice_states?: VoiceChannelState[];
       stream_states?: StreamChannelState[];
       watch_states?: WatchChannelEntry[];
+      voice_overrides?: {
+        channel_id: string;
+        user_id: string;
+        muted: boolean;
+        deafened: boolean;
+      }[];
     }
   | { op: 'message'; data: Message }
   | { op: 'message_update'; data: Message }
@@ -370,6 +376,7 @@ export class GatewayConnection {
         roles.seedFromReady(evt.guilds);
         if (evt.dm_channels) directMessages.seed(evt.dm_channels);
         if (evt.voice_states) voicePresence.seed(evt.voice_states);
+        voicePresence.seedOverrides(evt.voice_overrides ?? []);
         streamPresence.seed(evt.stream_states ?? []);
         watchPartyPresence.seed(evt.watch_states ?? []);
         this._readyDone = true;

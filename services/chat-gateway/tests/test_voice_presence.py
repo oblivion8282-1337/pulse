@@ -244,3 +244,52 @@ async def test_guild_voice_state_rest_endpoint(ws_app, _auth_signer, redis):
         await redis.delete(f"voice:room:channel-{cid}")
         await redis.delete(f"voice:room:channel-{cid}:streaming")
         await redis.delete("voice:user_state:55")
+
+
+@pytest.mark.asyncio
+async def test_ready_carries_voice_overrides(ws_app, _auth_signer, redis):
+    """Force-mute / -deafen state persisted in voice:override:* keys
+    is replayed in the ready frame so a freshly-reconnected client
+    sees the admin overrides without waiting for the next event."""
+    def _run():
+        with TestClient(ws_app) as tc:
+            uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(uid, f"u{uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(token),
+            ).json()
+            return token, g["id"], vc["id"]
+
+    token, gid, cid = await asyncio.to_thread(_run)
+    await redis.set(
+        f"voice:override:channel-{cid}:user-555",
+        json.dumps({"muted": True, "deafened": False}),
+    )
+    await redis.set(
+        f"voice:override:channel-{cid}:user-666",
+        json.dumps({"muted": False, "deafened": True}),
+    )
+    # Empty-override key must be skipped:
+    await redis.set(
+        f"voice:override:channel-{cid}:user-777",
+        json.dumps({"muted": False, "deafened": False}),
+    )
+    try:
+        def _connect():
+            with TestClient(ws_app) as tc:
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    payload = ws.receive_json()
+                    assert payload["op"] == "ready"
+                    overrides = {o["user_id"]: o for o in payload["voice_overrides"]}
+                    assert "555" in overrides and overrides["555"]["muted"] is True
+                    assert "666" in overrides and overrides["666"]["deafened"] is True
+                    assert "777" not in overrides  # empty override skipped
+
+        await asyncio.to_thread(_connect)
+    finally:
+        await redis.delete(f"voice:override:channel-{cid}:user-555")
+        await redis.delete(f"voice:override:channel-{cid}:user-666")
+        await redis.delete(f"voice:override:channel-{cid}:user-777")

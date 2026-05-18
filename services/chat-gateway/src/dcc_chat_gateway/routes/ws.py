@@ -303,6 +303,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # relevant channel set is the same one.
     stream_states = await manager.stream_states_for(voice_channel_ids)
     watch_states = await manager.watch_states_for(voice_channel_ids)
+    # Active force-mute / force-deafen overrides per (channel, user) —
+    # lets a freshly-reconnected client see who's currently muted by a
+    # mod without waiting for the next toggle.
+    voice_overrides = await manager.voice_overrides_for(voice_channel_ids)
 
     await websocket.send_json(
         {
@@ -313,6 +317,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "voice_states": voice_states,
             "stream_states": stream_states,
             "watch_states": watch_states,
+            "voice_overrides": voice_overrides,
         }
     )
 
