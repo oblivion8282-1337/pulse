@@ -17,6 +17,7 @@
   import UsersIcon from '@lucide/svelte/icons/users';
   import CrownIcon from '@lucide/svelte/icons/crown';
   import BanIcon from '@lucide/svelte/icons/ban';
+  import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -28,6 +29,7 @@
   import MemberRoleAssignment from './MemberRoleAssignment.svelte';
   import OwnerTransferSection from './OwnerTransferSection.svelte';
   import BansList from './BansList.svelte';
+  import GuildSoundsEditor from './GuildSoundsEditor.svelte';
 
   let {
     open = $bindable(false),
@@ -39,7 +41,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'ownership';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'ownership';
   let tab = $state<Tab>('roles');
 
   let guildId = $derived(guild?.id ?? '');
@@ -53,12 +55,19 @@
   let canBanMembers = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS)
   );
+  // Sound-overrides reuse MANAGE_GUILD on the backend (server-rename /
+  // icon / settings sit on the same bit). Matches Discord's "manage
+  // server" grouping.
+  let canManageSounds = $derived(
+    !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
+  );
 
   // Default to the first tab the caller is allowed to see, so the
   // dialog never opens on a tab that's empty.
   $effect(() => {
     if (!open) return;
     if (canManageRoles) tab = 'roles';
+    else if (canManageSounds) tab = 'sounds';
     else if (isOwner) tab = 'ownership';
   });
 
@@ -199,6 +208,17 @@
             <BanIcon class="size-4" /> Sperrungen
           </button>
         {/if}
+        {#if canManageSounds}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'sounds'}
+            onclick={() => selectTab('sounds')}
+            data-testid="settings-tab-sounds"
+          >
+            <Volume2Icon class="size-4" /> Sounds
+          </button>
+        {/if}
         {#if isOwner}
           <button
             type="button"
@@ -226,6 +246,8 @@
           <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
         {:else if tab === 'bans' && canBanMembers}
           <BansList {guildId} />
+        {:else if tab === 'sounds' && canManageSounds}
+          <GuildSoundsEditor {guildId} />
         {:else if tab === 'ownership' && isOwner}
           <OwnerTransferSection {guild} />
         {:else}

@@ -21,16 +21,22 @@
     allow_member_invites: false
   });
   let error = $state<string | null>(null);
+  // Working copy of the size-limit input. Stored as KB for human input;
+  // converted to bytes on save. Bound to <input type=number>; "" = empty
+  // (user is editing) until they blur or press Speichern.
+  let soundLimitKb = $state<number | ''>('');
+  let soundLimitBusy = $state(false);
 
   onMount(async () => {
     try {
       current = await adminApi.getPermissions();
+      soundLimitKb = Math.round(current.guild_sound_max_size_bytes / 1024);
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
   });
 
-  async function toggle(field: keyof Permissions) {
+  async function toggle(field: 'allow_guild_creation' | 'allow_member_invites') {
     if (!current || busy[field]) return;
     busy[field] = true;
     const next = !current[field];
@@ -46,9 +52,35 @@
       busy[field] = false;
     }
   }
+
+  async function saveSoundLimit() {
+    if (!current || soundLimitBusy) return;
+    const kb = typeof soundLimitKb === 'number' ? soundLimitKb : NaN;
+    // Backend accepts 4096 (4 KB) – 5 * 1024 * 1024 (5 MB). Mirror here
+    // so the toast tells the user *before* the round-trip what the cap is.
+    if (!Number.isFinite(kb) || kb < 4 || kb > 5120) {
+      toast.error('Ungültiger Wert', { description: 'Bitte 4 – 5120 KB.' });
+      return;
+    }
+    soundLimitBusy = true;
+    try {
+      const updated = await adminApi.patchPermissions({
+        guild_sound_max_size_bytes: Math.round(kb * 1024)
+      });
+      current = updated;
+      soundLimitKb = Math.round(updated.guild_sound_max_size_bytes / 1024);
+      toast.success('Größenlimit gespeichert');
+    } catch (e) {
+      toast.error('Speichern fehlgeschlagen', {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    } finally {
+      soundLimitBusy = false;
+    }
+  }
 </script>
 
-{#snippet toggleRow(field: keyof Permissions, title: string, description: string)}
+{#snippet toggleRow(field: 'allow_guild_creation' | 'allow_member_invites', title: string, description: string)}
   <div class="flex items-start justify-between gap-4 rounded-xl border border-border bg-bg-hover/30 p-3">
     <div class="min-w-0 flex-1">
       <div class="text-text-bright text-sm font-medium">{title}</div>
@@ -96,6 +128,38 @@
         'Einladungen verschicken',
         'Wenn aus, kann nur der Server-Owner Einladungs-Codes für seinen Server erstellen.'
       )}
+
+      <div class="flex items-start justify-between gap-4 rounded-xl border border-border bg-bg-hover/30 p-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-text-bright text-sm font-medium">Sound-Upload-Limit pro Datei</div>
+          <div class="text-text-muted text-xs mt-0.5">
+            Maximale Größe einer hochgeladenen Sound-Datei pro Server.
+            Gilt für jede Sound-ID einzeln (13 Slots × Limit). 4 – 5120 KB.
+          </div>
+        </div>
+        <div class="flex shrink-0 items-center gap-2">
+          <input
+            type="number"
+            min="4"
+            max="5120"
+            step="1"
+            bind:value={soundLimitKb}
+            class="w-24 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
+            data-testid="sound-limit-input"
+            aria-label="Maximalgröße in KB"
+          />
+          <span class="text-text-muted text-xs">KB</span>
+          <button
+            type="button"
+            disabled={soundLimitBusy || soundLimitKb === '' || Math.round(current.guild_sound_max_size_bytes / 1024) === soundLimitKb}
+            onclick={saveSoundLimit}
+            class="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
+            data-testid="sound-limit-save"
+          >
+            Speichern
+          </button>
+        </div>
+      </div>
     </div>
   {:else}
     <div class="text-text-muted text-sm">lade…</div>

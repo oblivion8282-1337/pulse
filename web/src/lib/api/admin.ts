@@ -42,6 +42,10 @@ export type ChatSettings = {
 export type Permissions = {
   allow_guild_creation: boolean;
   allow_member_invites: boolean;
+  /** Per-file cap (bytes) for per-guild sound-override uploads. The
+   * Sounds tab in guild settings reads the live value via the
+   * capabilities store; this admin view edits it directly. */
+  guild_sound_max_size_bytes: number;
 };
 
 export type ChatStats = {
