@@ -8,6 +8,7 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import EmailVerifyBanner from '$lib/components/EmailVerifyBanner.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -110,10 +111,15 @@
   });
 </script>
 
-<div class="text-text-base flex h-dvh w-screen gap-0 p-0 md:gap-3 md:p-3" data-testid="app-shell">
-  {#if !hydrated}
-    <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
-  {:else}
-    {@render children?.()}
+<div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
+  {#if hydrated}
+    <EmailVerifyBanner />
   {/if}
+  <div class="flex flex-1 gap-0 p-0 md:gap-3 md:p-3 min-h-0">
+    {#if !hydrated}
+      <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
+    {:else}
+      {@render children?.()}
+    {/if}
+  </div>
 </div>

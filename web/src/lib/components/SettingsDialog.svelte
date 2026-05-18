@@ -4,13 +4,15 @@
   import SettingsAudioVideo from './settings/SettingsAudioVideo.svelte';
   import SettingsScreenShare from './settings/SettingsScreenShare.svelte';
   import SettingsNotifications from './settings/SettingsNotifications.svelte';
+  import SettingsSecurity from './settings/SettingsSecurity.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import BellIcon from '@lucide/svelte/icons/bell';
+  import ShieldIcon from '@lucide/svelte/icons/shield';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
 
-  type SettingsTab = 'appearance' | 'audio-video' | 'screen-share' | 'notifications';
+  type SettingsTab = 'appearance' | 'audio-video' | 'screen-share' | 'notifications' | 'security';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -38,7 +40,8 @@
     { id: 'appearance', label: 'Erscheinungsbild', icon: PaletteIcon },
     { id: 'audio-video', label: 'Sprache & Video', icon: MicIcon },
     { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon },
-    { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon }
+    { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon },
+    { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
   ];
 
   let activeLabel = $derived(tabs.find((t) => t.id === activeTab)?.label ?? '');
@@ -105,8 +108,10 @@
           <SettingsAudioVideo />
         {:else if activeTab === 'screen-share'}
           <SettingsScreenShare />
-        {:else}
+        {:else if activeTab === 'notifications'}
           <SettingsNotifications />
+        {:else}
+          <SettingsSecurity />
         {/if}
       </div>
     </div>

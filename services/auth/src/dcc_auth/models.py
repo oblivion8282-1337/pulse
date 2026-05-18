@@ -6,23 +6,31 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
-    JSON,
     SmallInteger,
     String,
     Text,
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
+from sqlalchemy.dialects import sqlite as _sqlite
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_auth.db import Base, snowflake_pk
+
+# Autoincrement on SQLite only happens with the literal ``INTEGER PRIMARY KEY``
+# affinity — ``BigInteger`` translates to ``BIGINT``, which doesn't. We use
+# ``with_variant`` so the prod backend still gets BIGSERIAL while the test
+# SQLite backend gets a normal autoincrementing rowid.
+_AutoIncBig = BigInteger().with_variant(_sqlite.INTEGER(), "sqlite")
 
 
 class User(Base):
@@ -43,6 +51,17 @@ class User(Base):
     disabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
+    # Account-recovery / 2FA columns (migration 0006).
+    email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # base32-encoded TOTP shared-secret. Set on ``/totp/setup`` (rotates on
+    # repeat calls), but ``totp_enabled`` stays false until ``/totp/verify-setup``
+    # — so login is unaffected for setups the user never confirmed.
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -52,6 +71,76 @@ class User(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class PasswordResetToken(Base):
+    """One-shot reset token. Only the SHA-256 of the plaintext lives in DB.
+
+    The plaintext (43-char URL-safe random) is delivered to the user via email
+    and is never persisted server-side — so a DB leak alone cannot be used to
+    take over accounts.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(_AutoIncBig, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_password_reset_tokens_user_used", "user_id", "used_at"),)
+
+
+class EmailVerificationToken(Base):
+    """One-shot email-verify token. Same shape as ``PasswordResetToken``.
+
+    The two tables are separate so the cleanup / rate-limit semantics of one
+    flow can't accidentally invalidate tokens belonging to the other.
+    """
+
+    __tablename__ = "email_verification_tokens"
+
+    id: Mapped[int] = mapped_column(_AutoIncBig, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_email_verification_tokens_user_used", "user_id", "used_at"),)
+
+
+class BackupCode(Base):
+    """Single-use TOTP backup code. Stored as SHA-256 of the plaintext.
+
+    8-hex codes have ~32 bit of entropy — fine because they're single-use and
+    the issuing endpoint is rate-limited. SHA-256 instead of Argon2 is
+    intentional: the codes are throwaways, not long-lived secrets.
+    """
+
+    __tablename__ = "user_backup_codes"
+
+    id: Mapped[int] = mapped_column(_AutoIncBig, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    code_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_user_backup_codes_user", "user_id"),)
 
 
 class RefreshToken(Base):

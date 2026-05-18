@@ -10,6 +10,12 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
 # Username allows letters, digits, underscore, dot, dash; 3..32.
 USERNAME_PATTERN = r"^[a-zA-Z0-9_.-]{3,32}$"
 
+# TOTP codes are 6 numeric digits in the RFC 6238 default config that pyotp
+# uses. Backup codes are 8 hex chars (uppercase). The schemas accept the
+# slightly looser shapes so a user copying with a stray space still validates.
+TOTP_CODE_PATTERN = r"^\d{6}$"
+BACKUP_CODE_PATTERN = r"^[0-9A-Fa-f]{8}$"
+
 
 class RegisterIn(BaseModel):
     username: Annotated[str, Field(pattern=USERNAME_PATTERN)]
@@ -43,6 +49,10 @@ class UserPublic(BaseModel):
     avatar_url: str | None = None
     is_admin: bool = False
     disabled: bool = False
+    # Account-recovery / 2FA state — the frontend needs both to drive the
+    # "verify your email" banner and the "2FA enabled" badge on /me.
+    email_verified_at: datetime | None = None
+    totp_enabled: bool = False
     created_at: datetime
 
     @field_serializer("id")
@@ -132,3 +142,67 @@ class AdminAuditLogEntry(BaseModel):
     @field_serializer("id", "actor_id", "target_id")
     def _ids_to_str(self, value: int | None) -> str | None:
         return str(value) if value is not None else None
+
+
+# ---- Account recovery / 2FA ---------------------------------------------
+
+
+class PasswordForgotIn(BaseModel):
+    email_or_username: Annotated[str, Field(min_length=3, max_length=255)]
+
+
+class PasswordResetIn(BaseModel):
+    token: Annotated[str, Field(min_length=10, max_length=128)]
+    new_password: Annotated[str, Field(min_length=8, max_length=128)]
+
+
+class EmailVerifyConfirmIn(BaseModel):
+    token: Annotated[str, Field(min_length=10, max_length=128)]
+
+
+class TotpSetupOut(BaseModel):
+    secret: str
+    qr_png_base64: str
+    provisioning_uri: str
+
+
+class TotpVerifySetupIn(BaseModel):
+    code: Annotated[str, Field(pattern=TOTP_CODE_PATTERN)]
+
+
+class TotpVerifySetupOut(BaseModel):
+    backup_codes: list[str]
+
+
+class TotpDisableIn(BaseModel):
+    password: Annotated[str, Field(min_length=1, max_length=128)]
+    code: Annotated[str | None, Field(default=None, pattern=TOTP_CODE_PATTERN)] = None
+    backup_code: Annotated[
+        str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)
+    ] = None
+
+
+class TotpBackupRegenIn(BaseModel):
+    password: Annotated[str, Field(min_length=1, max_length=128)]
+    code: Annotated[str, Field(pattern=TOTP_CODE_PATTERN)]
+
+
+class LoginTotpIn(BaseModel):
+    mfa_ticket: Annotated[str, Field(min_length=10, max_length=4096)]
+    code: Annotated[str | None, Field(default=None, pattern=TOTP_CODE_PATTERN)] = None
+    backup_code: Annotated[
+        str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)
+    ] = None
+
+
+class LoginMfaPending(BaseModel):
+    """First-step response when the account has 2FA enabled.
+
+    Frontend gates the second step (``POST /login/totp``) on the presence of
+    ``requires_totp`` — a regular ``TokensOut`` lacks that field. Using a
+    discriminated union in the route signature (``TokensOut | LoginMfaPending``)
+    is how the OpenAPI schema makes that contract explicit.
+    """
+
+    requires_totp: Literal[True] = True
+    mfa_ticket: str

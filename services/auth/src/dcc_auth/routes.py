@@ -18,6 +18,7 @@ from dcc_auth.db import SessionDep
 from dcc_auth.models import AuthSettings, RefreshToken, User
 from dcc_auth.schemas import (
     LoginIn,
+    LoginMfaPending,
     MessageOut,
     RefreshIn,
     RegisterIn,
@@ -149,7 +150,7 @@ async def register(
     return tokens
 
 
-@router.post("/login", response_model=TokensOut)
+@router.post("/login", response_model=TokensOut | LoginMfaPending)
 async def login(
     payload: LoginIn,
     request: Request,
@@ -177,6 +178,18 @@ async def login(
     # this is the one moment we can upgrade without forcing a reset.
     if needs_rehash(user.password_hash):
         user.password_hash = await asyncio.to_thread(hash_password, payload.password)
+
+    # 2FA branch: short-circuit BEFORE issuing tokens. The frontend posts
+    # ``ticket + code`` to ``/login/totp`` to actually receive the tokens.
+    # Imported lazily to avoid a routes.py ↔ recovery.py circular import.
+    if user.totp_enabled:
+        from dcc_auth.recovery import issue_mfa_ticket
+
+        # Commit the rehash above (if any) so it isn't lost when the user
+        # bails between steps; tokens are issued only on step 2.
+        await session.commit()
+        ticket = issue_mfa_ticket(signer, user.id, settings.mfa_ticket_ttl_seconds)
+        return LoginMfaPending(mfa_ticket=ticket)
 
     tokens = await _issue_tokens(session, user, signer=signer, user_agent=user_agent)
     await session.commit()

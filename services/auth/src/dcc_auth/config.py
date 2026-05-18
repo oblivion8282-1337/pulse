@@ -48,6 +48,26 @@ class Settings(BaseSettings):
     # Rate limiting
     rate_limit_register: str = "5/minute"
     rate_limit_login: str = "20/minute"
+    rate_limit_password_forgot: str = "2/minute"
+    rate_limit_password_reset: str = "10/minute"
+    rate_limit_email_verify_send: str = "2/minute"
+    rate_limit_login_totp: str = "20/minute"
+    rate_limit_totp_verify_setup: str = "10/minute"
+
+    # Account-recovery / 2FA
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str = "noreply@pulse.local"
+    smtp_use_ssl: bool = False  # True ≈ port 465; False ≈ port 587 STARTTLS
+    password_reset_ttl_seconds: int = 3600  # 1h
+    email_verification_ttl_seconds: int = 86400  # 24h
+    mfa_ticket_ttl_seconds: int = 300  # 5min — short-lived MFA login challenge
+    # Self-hoster overrides in prod (e.g. ``https://pulse.example.com``); used
+    # for the reset/verify links embedded in outbound emails.
+    app_base_url: str = "http://localhost:5173"
+    totp_issuer: str = "Pulse"
     # IPs / CIDRs whose ``X-Forwarded-For`` header we trust. Anything else and
     # the rate-limiter falls back to the peer address — a malicious client
     # cannot then spoof its bucket. **Default is loopback only**: in the Pulse
@@ -58,7 +78,15 @@ class Settings(BaseSettings):
     # bridge spoof XFF and bypass the rate limit entirely.
     trusted_proxies: str = "127.0.0.1,::1"
 
-    @field_validator("rate_limit_register", "rate_limit_login")
+    @field_validator(
+        "rate_limit_register",
+        "rate_limit_login",
+        "rate_limit_password_forgot",
+        "rate_limit_password_reset",
+        "rate_limit_email_verify_send",
+        "rate_limit_login_totp",
+        "rate_limit_totp_verify_setup",
+    )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:
         if not _RATE_RE.match(v):

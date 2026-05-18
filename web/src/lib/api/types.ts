@@ -13,6 +13,12 @@ export type User = {
   is_admin: boolean;
   disabled: boolean;
   created_at: string;
+  /** ISO timestamp of email verification, or null if still unverified.
+   *  Backwards-compatible: legacy users seeded before the field existed
+   *  may have it absent — treat undefined identical to null. */
+  email_verified_at?: string | null;
+  /** True iff TOTP-based 2FA is set up + confirmed for this account. */
+  totp_enabled?: boolean;
 };
 
 export type Guild = {
