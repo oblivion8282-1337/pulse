@@ -30,11 +30,16 @@ async def disconnect_from_voice(
     Implementation:
       * LiveKit ``remove_participant`` (best-effort — silent if the
         target isn't currently connected);
-      * also clear any active voice-override for the (channel, user)
-        pair so the target isn't still locked when they re-join;
       * publish ``voice_disconnect`` on ``voice:events`` so the
         target's own client can drop its local voice state without
         waiting for the LiveKit ParticipantLeft webhook.
+
+    Voice-overrides (mute/deafen) are *not* cleared. Matches Discord's
+    server-mute semantics — the mod state persists across disconnect/
+    rejoin in the same guild. It also closes the race where a
+    concurrent ``PUT /voice-override mute=true`` committed between the
+    admin's disconnect-decision and the clear: an unconditional clear
+    would silently swallow that mute.
     """
     if user_id == str(caller.id):
         raise HTTPException(400, detail="cannot disconnect yourself via the admin endpoint")
@@ -53,7 +58,6 @@ async def disconnect_from_voice(
         )
 
     await voice_routes._livekit_remove_participant(channel_id, user_id)
-    await voice_routes._clear_override(redis, channel_id, user_id)
 
     await redis.publish(
         voice_routes._VOICE_EVENTS_CHANNEL,

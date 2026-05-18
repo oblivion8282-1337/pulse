@@ -451,11 +451,14 @@ async def test_disconnect_rejects_self(
 
 
 @pytest.mark.asyncio
-async def test_disconnect_calls_livekit_clears_override_and_publishes(
+async def test_disconnect_calls_livekit_preserves_override_and_publishes(
     app_with_redis, auth_signer, monkeypatch, _stub_livekit_remove
 ):
+    """Voice-overrides survive an admin disconnect — matches Discord's
+    server-mute semantics (mute persists across disconnect/rejoin)
+    AND closes the race where a concurrent mute commit between the
+    admin's decision and the clear would be silently lost."""
     client, redis = app_with_redis
-    # Pre-seed an override so we can verify it's cleared.
     await redis.set(
         "voice:override:channel-987654321:user-99",
         json.dumps({"muted": True, "deafened": False}),
@@ -481,8 +484,10 @@ async def test_disconnect_calls_livekit_clears_override_and_publishes(
 
     # LiveKit was asked to remove the participant.
     assert _stub_livekit_remove == [{"channel_id": "987654321", "user_id": "99"}]
-    # Override was cleared.
-    assert await redis.get("voice:override:channel-987654321:user-99") is None
+    # Override remains so the next reconnect re-applies it.
+    raw = await redis.get("voice:override:channel-987654321:user-99")
+    assert raw is not None
+    assert json.loads(raw.decode())["muted"] is True
     # voice:events broadcast.
     msg = await pubsub.get_message(timeout=1.0, ignore_subscribe_messages=True)
     assert msg is not None
