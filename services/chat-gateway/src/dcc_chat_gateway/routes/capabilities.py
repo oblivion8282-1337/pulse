@@ -30,6 +30,9 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
     row = await session.get(ChatSettings, 1)
     if row is None:
         # Singleton missing would be a migration mismatch — fall back to
-        # the historical "anyone can" defaults rather than 500ing the UI.
-        return PermissionsOut(allow_guild_creation=True, allow_member_invites=True)
+        # the locked-down defaults that match the migrations. Inverting
+        # ``allow_guild_creation`` to false keeps a missing row from
+        # accidentally re-enabling "anyone can create a Server" on a
+        # broken deploy.
+        return PermissionsOut(allow_guild_creation=False, allow_member_invites=True)
     return row

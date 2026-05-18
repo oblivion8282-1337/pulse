@@ -40,10 +40,14 @@ class ChatSettings(Base):
     dm_attachment_max_count_per_message: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="4"
     )
-    # Permission gates. Default true keeps the historical "anyone can"
-    # behaviour; the admin flips them off via /admin/permissions.
+    # Permission gates. ``allow_guild_creation`` defaults to FALSE so a
+    # fresh self-hosted deploy is locked down: only the bootstrap admin
+    # can spin up Servers until they explicitly open the door via
+    # /admin/permissions. ``allow_member_invites`` stays true so members
+    # of a guild can invite friends — that's a per-guild concern, not a
+    # global one.
     allow_guild_creation: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
+        Boolean, nullable=False, server_default=text("false")
     )
     allow_member_invites: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")

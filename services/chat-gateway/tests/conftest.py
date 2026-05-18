@@ -110,7 +110,15 @@ async def engine():
             table.schema = None
         await conn.run_sync(Base.metadata.create_all)
         # Seed singletons (the prod migration does this; create_all doesn't).
-        await conn.exec_driver_sql("INSERT INTO chat_settings (id) VALUES (1)")
+        # ``allow_guild_creation=true`` is a test-suite convenience — most
+        # tests register a non-admin user and POST /guilds without caring
+        # about the production gate. Tests that *do* care about the gate
+        # toggle it explicitly via the admin endpoint (see test_permissions).
+        # Prod default is false (locked down — only the bootstrap admin
+        # opens it up).
+        await conn.exec_driver_sql(
+            "INSERT INTO chat_settings (id, allow_guild_creation) VALUES (1, true)"
+        )
     yield eng
     await eng.dispose()
 
@@ -189,7 +197,9 @@ async def ws_app(_auth_signer, tmp_path):
         for table in Base.metadata.tables.values():
             table.schema = None
         await conn.run_sync(Base.metadata.create_all)
-        await conn.exec_driver_sql("INSERT INTO chat_settings (id) VALUES (1)")
+        await conn.exec_driver_sql(
+            "INSERT INTO chat_settings (id, allow_guild_creation) VALUES (1, true)"
+        )
     await bootstrap_engine.dispose()
 
     runtime_engine = create_async_engine(db_url, future=True)
