@@ -1,20 +1,28 @@
-# streaming/ — GSR-Streaming-Paket für Pulse (T2)
+# streaming/ — HQ-Screen-Streaming für Pulse
 
-Vendored aus `~/Dokumente/GPU_Screen_Recorder/` (2026-05-11). Das
-**Original-Repo bleibt unangetastet** — es ist das bewährte Standalone-
-GSR-Setup mit Qt-UI und eigenem Flatpak; hier liegt nur die für Pulse
-gebrauchte Teilmenge plus ein stdio-Sidecar statt der Qt-UI.
+Zwei Plattform-Sidecars, **gleiches stdio-JSON-RPC-Protokoll**: Linux nutzt GPU Screen Recorder (`gsr-sidecar/`,
+Python), Windows nutzt einen eigenen Rust-Sidecar (`win-hq-sidecar/`, WGC + WASAPI + ffmpeg-next). Beide pushen via
+RTMPS an MediaMTX → Viewer holen den Stream per WHEP.
+
+GSR-Teil ist vendored aus `~/Dokumente/GPU_Screen_Recorder/` (2026-05-11). Das **Original-Repo bleibt unangetastet** —
+es ist das bewährte Standalone-GSR-Setup mit Qt-UI und eigenem Flatpak; hier liegt nur die für Pulse gebrauchte
+Teilmenge plus ein stdio-Sidecar statt der Qt-UI.
 
 ## Layout
 
 ```
 streaming/
-├── gsr-sidecar/             pure-stdlib Python-Sidecar
+├── gsr-sidecar/             Linux: pure-stdlib Python-Sidecar
 │   ├── profiles.py          Stream-/ServerProfile (+ ServerProfile.from_channel)
 │   ├── stream_controller.py subprocess.Popen-Wrapper für GSR (statt QProcess)
 │   ├── gsr_binary.py        Binary-Resolver + --info-Parser
 │   ├── control.py           stdio-Loop, JSON-RPC-Protokoll
 │   └── __init__.py
+├── win-hq-sidecar/          Windows: Rust-Sidecar — s. unten
+│   ├── src/                 WGC-Capture + WASAPI + ffmpeg-next-Encode
+│   ├── ffmpeg-dist/         vendored FFmpeg LGPL n8.1-shared (BtbN)
+│   ├── mediamtx-dist/       MediaMTX-Binary für lokale Smoke-Tests
+│   └── examples/            cargo-runnable Smoke-Driver
 ├── patches/                 GSR-C++-Patches (FLV-Opus, Vulkan-Stub) — verbatim
 ├── server/                  MediaMTX-Setup (Template + docker-compose + Player)
 ├── bootstrap-gsr.fish       Custom-GSR-Build mit Patches (für T6 Flatpak)
@@ -134,7 +142,54 @@ und `start` schlägt sauber fehl statt zu crashen.
 und `streaming/server/.stream-key` sind **gitignored** (im Worktree-
 Root-`.gitignore`). Sidecar-RPC sieht den Stream-Key/Token nur transient
 als Request-Field — er wird **nicht** persistiert, **nicht** geloggt und
-landet ausschließlich in der GSR-Push-URL.
+landet ausschließlich in der Push-URL (GSR auf Linux, ffmpeg-next auf Windows).
+
+## Windows-Sidecar (`win-hq-sidecar/`)
+
+Rust-Binary, gleiches stdio-JSON-RPC wie der Linux-GSR-Sidecar (alle Ops/Events
+identisch). Stack: `windows-capture` v2 (WGC), `wasapi` (Desktop-Loopback +
+Mikrofon), `ffmpeg-next` 8.1 gegen die **vendored** BtbN-LGPL-Shared-Distribution
+unter `ffmpeg-dist/n8.1-lgpl-shared/`. `build.rs` kopiert die FFmpeg-DLLs neben
+die exe — Binary ist standalone, kein Python nötig.
+
+**Zwei Encode-Pfade**, dispatch in `src/stream_controller.rs::run_pipeline`:
+- **NVIDIA Zero-Copy** (`src/pipeline_hw.rs` + `capture/wgc_hw.rs` + `encode/encoder_hw.rs` + `encode/hwctx.rs`):
+  WGC liefert `ID3D11Texture2D`-Frames; im Capture-Callback `CopySubresourceRegion` GPU-intern in einen D3D11VA-Pool
+  (`av_hwframe_get_buffer`), NVENC liest `AV_PIX_FMT_D3D11` mit `sw_format=BGRA` direkt — Swizzle + NV12-Convert auf
+  der GPU. Kein PCIe-Roundtrip. **ffmpeg-next bindet `hwcontext_d3d11va.h` nicht** → `AVD3D11VADeviceContext` in
+  `hwctx.rs` hand-gespiegelt, CRITICAL_SECTION als FFmpeg-Lock-Callback (Capture-Thread hält denselben Lock manuell
+  für CopySubresourceRegion). Aktiv für `adapter.vendor() == "nvidia"`.
+- **CPU-Pfad** (`capture/wgc.rs` + `encode/encoder.rs`): BGRA via `frame.buffer()` → CPU-Vec → swscale BGRA→NV12 →
+  AMF/QSV. Aktiv für AMD/Intel oder mit `PULSE_HQ_DISABLE_ZERO_COPY=1`. Hat zusätzlich einen NVIDIA-„BGR-direct"-
+  Fastpath (NVENC schluckt BGRA-Bytes 1:1 ohne swscale wenn keine Downscale-Differenz). AMD/Intel Zero-Copy bräuchten
+  einen GPU-Color-Convert vor dem Encoder (D3D11-Compute-Shader oder `scale_d3d11`-Filter) — nicht implementiert.
+
+**Env-Overrides**:
+- `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU
+  (dGPU+iGPU) der einzige Weg den AMF/QSV-Pfad zu validieren.
+- `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt CPU-Pfad auch auf NVIDIA. A/B-Debugging.
+- `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
+
+**Build + Test**:
+```powershell
+cd streaming/win-hq-sidecar
+cargo build --release
+# Smoke (kein realer Stream — nur health/gpu_info/list_profiles/state):
+'{"op":"health","id":1}' | .\target\release\pulse-win-hq-sidecar.exe
+
+# Echter Smoke gegen lokales MediaMTX:
+Start-Process .\mediamtx-dist\v1.18.1\mediamtx.exe .\mediamtx-dist\v1.18.1\mediamtx.yml
+cargo run --release --example test_driver -- video_only rtmp://localhost:1935/smoke
+cargo run --release --example test_driver -- audio_mux  rtmp://localhost:1935/smoke
+```
+Test-Driver-Logs landen unter `target/test-driver-<scenario>-<unix-ts>.log`. Build-Caveat: bei laufendem Sidecar
+schlägt der DLL-Copy fehl (nur Warning, Build läuft trotzdem fertig — aber die DLLs neben der frischen exe sind dann
+stale). Sidecar-Prozess vorher stoppen.
+
+**TLS/RTMPS-Fußnote**: FFmpegs Schannel-Backend ist strict-verify by default → `tls_verify=0` MUSS für `rtmps://`
+gesetzt sein wenn MediaMTX self-signed nutzt (Pulse-Default; Token in URL ist die echte Auth). Sonst killt FFmpeg den
+Push nach dem TLS-Handshake mit „Writing encrypted data to socket failed". `encoder.rs::create` +
+`encoder_hw.rs::create` setzen das automatisch bei `rtmps://`.
 
 ## Nächste Etappe (T3)
 

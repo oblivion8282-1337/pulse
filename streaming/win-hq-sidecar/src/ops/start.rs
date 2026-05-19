@@ -55,7 +55,8 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
 
     let capture = parse_capture(&params)?;
     let audio = parse_audio(&params);
-    let (override_codec, override_bitrate, override_fps) = parse_overrides(&params);
+    let (override_codec, override_bitrate, override_fps, override_resolution) =
+        parse_overrides(&params);
 
     let start_params = StartParams {
         profile,
@@ -67,6 +68,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         override_codec,
         override_bitrate_kbps: override_bitrate,
         override_fps,
+        override_resolution,
     };
 
     let argv = StreamController::singleton().start(start_params)?;
@@ -130,10 +132,10 @@ fn parse_audio(params: &Map<String, Value>) -> Option<AudioSource> {
 
 fn parse_overrides(
     params: &Map<String, Value>,
-) -> (Option<VideoCodec>, Option<u32>, Option<u32>) {
+) -> (Option<VideoCodec>, Option<u32>, Option<u32>, Option<(u32, u32)>) {
     let o = match params.get("overrides").and_then(Value::as_object) {
         Some(o) => o,
-        None => return (None, None, None),
+        None => return (None, None, None, None),
     };
     let codec = o.get("codec").and_then(Value::as_str).and_then(|s| match s {
         "h264" => Some(VideoCodec::H264),
@@ -143,5 +145,16 @@ fn parse_overrides(
     });
     let bitrate = o.get("bitrate_kbps").and_then(Value::as_u64).map(|n| n as u32);
     let fps = o.get("fps").and_then(Value::as_u64).map(|n| n as u32);
-    (codec, bitrate, fps)
+    // Auflösungs-Map konsistent zum Linux-Sidecar (`gsr-sidecar/stream_controller.py`):
+    // "Native" → None (kein Downscale), sonst Standard-Streaming-Targets. Downscale-
+    // only — Upscale auf größere als Capture-Resolution geht über die Pipeline
+    // nicht (Pool ist auf Capture-Native allokiert).
+    let resolution = o.get("resolution").and_then(Value::as_str).and_then(|s| match s {
+        "1080p" => Some((1920u32, 1080u32)),
+        "720p" => Some((1280u32, 720u32)),
+        "480p" => Some((854u32, 480u32)),
+        "Native" | "" => None,
+        _ => None,
+    });
+    (codec, bitrate, fps, resolution)
 }

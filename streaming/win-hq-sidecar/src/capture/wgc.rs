@@ -5,10 +5,10 @@
 //! `mpsc::Sender` raus. Der Sender geht in die `Flags` des Handlers rein
 //! (einziger Weg State in `GraphicsCaptureApiHandler::new` zu übergeben).
 //!
-//! Frame-Output: rohe BGRA8-Bytes plus Geometrie. In Stage 7 (Encode) ersetzen
-//! wir das durch D3D11-Texture-Handles für Zero-Copy NVENC; Day-3-Spike nutzt
-//! CPU-Buffer weil das mit `frame.buffer()?` direkt geht und für PNG-Smoke-Test
-//! ausreicht.
+//! Frame-Output: rohe BGRA8-Bytes plus Geometrie. **Das ist der CPU-Pfad** —
+//! für AMD AMF + Intel QSV + jeden Downscale-Case. Für NVIDIA-native gibt's
+//! parallel `wgc_hw.rs` mit Zero-Copy direkt in einen D3D11VA-Pool; siehe
+//! `encode/hwctx.rs` und `pipeline_hw.rs`.
 
 use anyhow::{Context, Result};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -31,7 +31,8 @@ pub struct CapturedFrame {
     pub height: u32,
     /// BGRA8 (4 bytes/pixel), `width * height * 4` Bytes lang. Padding-Bytes
     /// wurden bereits rausgestrippt von `frame.buffer()`. Encoder swizzelt
-    /// das selbst nach NV12 (oder bekommt direkt eine D3D11-Texture in Stage 7).
+    /// das selbst nach NV12. Zero-Copy-Pfad (NVIDIA) nutzt `wgc_hw.rs` statt
+    /// dieses Module — bekommt D3D11-Texture-Handles ohne Sysmem-Roundtrip.
     pub bgra: Vec<u8>,
 }
 
@@ -161,9 +162,9 @@ impl GraphicsCaptureApiHandler for FrameSink {
         // `FrameBuffer::as_nopadding_buffer` returns the de-padded slice; the
         // `&mut Vec<u8>` is scratch the crate uses internally if it needs to
         // de-stride. We materialise into a fresh Vec via `.to_vec()` because
-        // the slice's lifetime is tied to `buf`. Stage 7 replaces this with
-        // D3D11-texture sharing for zero-copy to NVENC; CPU-buffer is fine
-        // here.
+        // the slice's lifetime is tied to `buf`. NVIDIA hat einen parallelen
+        // Zero-Copy-Pfad in `wgc_hw.rs` der das vermeidet; hier ist der CPU-
+        // Pfad für AMD/Intel/Downscale.
         let mut scratch: Vec<u8> = Vec::new();
         let bgra = buf.as_nopadding_buffer(&mut scratch).to_vec();
 

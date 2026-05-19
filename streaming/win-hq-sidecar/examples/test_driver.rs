@@ -47,20 +47,23 @@ fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
     let scenario = args.next().unwrap_or_else(|| "health".to_string());
     let push_url = args.next().unwrap_or_else(|| DEFAULT_PUSH_URL.to_string());
+    // Optional 3rd arg: resolution-override (Native|1080p|720p|480p). Default "Native".
+    let resolution = args.next();
 
     let log = LogWriter::new(&scenario)?;
-    log.write("driver", &format!("scenario={scenario} push_url={push_url}"));
+    log.write("driver", &format!("scenario={scenario} push_url={push_url} res={resolution:?}"));
 
     let bin = resolve_sidecar_bin()?;
     log.write("driver", &format!("sidecar bin: {}", bin.display()));
 
+    let res = resolution.as_deref();
     let mut driver = Driver::spawn(bin, log.clone())?;
     let result = match scenario.as_str() {
         "health" => scenario_health(&mut driver),
-        "video_only" => scenario_full(&mut driver, &push_url, "Aus", None),
-        "audio_mux" => scenario_full(&mut driver, &push_url, "Desktop", None),
-        "av1_mux" => scenario_full(&mut driver, &push_url, "Desktop", Some("av1")),
-        "hevc_mux" => scenario_full(&mut driver, &push_url, "Desktop", Some("hevc")),
+        "video_only" => scenario_full(&mut driver, &push_url, "Aus", None, res),
+        "audio_mux" => scenario_full(&mut driver, &push_url, "Desktop", None, res),
+        "av1_mux" => scenario_full(&mut driver, &push_url, "Desktop", Some("av1"), res),
+        "hevc_mux" => scenario_full(&mut driver, &push_url, "Desktop", Some("hevc"), res),
         other => Err(anyhow::anyhow!(
             "unknown scenario: {other} \
              (use: health | video_only | audio_mux | av1_mux | hevc_mux)"
@@ -93,6 +96,7 @@ fn scenario_full(
     push_url: &str,
     audio_mode: &str,
     override_codec: Option<&str>,
+    override_resolution: Option<&str>,
 ) -> anyhow::Result<()> {
     // 1) Sanity: health
     let resp = driver.send("health", Map::new())?;
@@ -113,8 +117,15 @@ fn scenario_full(
     );
     params.insert("capture".into(), Value::String("monitor".into()));
     params.insert("audio".into(), json!({"mode": audio_mode, "excluded_apps": []}));
+    let mut overrides = Map::new();
     if let Some(c) = override_codec {
-        params.insert("overrides".into(), json!({"codec": c}));
+        overrides.insert("codec".into(), Value::String(c.into()));
+    }
+    if let Some(r) = override_resolution {
+        overrides.insert("resolution".into(), Value::String(r.into()));
+    }
+    if !overrides.is_empty() {
+        params.insert("overrides".into(), Value::Object(overrides));
     }
 
     let t_start = Instant::now();

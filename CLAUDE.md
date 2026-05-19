@@ -141,16 +141,24 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
   (Props `userId`+`name`, Retry-Backoff, „Ton aktivieren"-Overlay bei Autoplay-Block, Stats-Overlay),
   `components/VoiceChannelView.svelte` (HQ-Streams + Browser-Screenshares in einem responsiven Grid; ein `WhepPlayer`
   pro fremdem Streamer; eigener Stream → kein Self-Echo, nur Indikator + „Stream beenden"). `gsr.ts`/`state.svelte.ts`/
-  `HqStreamButton`/`StreamPanel` gaten auf `isElectron() && isLinux() && stream.gsrAvailable`.
+  `HqStreamButton`/`StreamPanel` gaten auf `isElectron() && (isLinux() || isWindows()) && stream.gsrAvailable`
+  (Windows hat einen eigenen Rust-Sidecar — s.u. **Windows-HQ-Sidecar**).
 - HQ-Panel ist abgespeckt: nur Codec(H.264/AV1)/Auflösung (Native/1080p/720p/480p, downscale-only)/Bitrate/FPS + Audio
   (inkl. „Bestimmte App" → `audio_mode="App: <name>"` → GSR `-a app:<name>`) + Start/Stop + Log. Pfad/Modus immer Channel/Portal.
 
-**Desktop ↔ Sidecar-Bridge**: Electron-Main spawnt den Python-Sidecar (`streaming/gsr-sidecar/control.py`) **lazy**
-beim ersten `gsr:call` aus dem Renderer. `desktop/electron/sidecar.ts` (`SidecarManager`, Singleton via `getSidecar()`):
-`child_process.spawn`, readline auf stdout, Request/Reply via numerische `id` (von `control.py` gespiegelt), Events
-(`{"ev":..}`, kein id) → `webContents.send('gsr:event', ev)`. Path-Resolver: `$PULSE_SIDECAR_PY` → Walk-up von `dist/`
-bis `streaming/gsr-sidecar/control.py` → Flatpak-Default `/app/share/pulse/gsr-sidecar/control.py`. `shutdown()`:
-stdin schließen (Sidecar-Loop endet auf EOF, stoppt laufenden GSR) → 1.5s → SIGTERM → 2s → SIGKILL. `pythonBin = $PULSE_PYTHON ?? 'python3'`.
+**Desktop ↔ Sidecar-Bridge**: Electron-Main spawnt den Plattform-Sidecar **lazy** beim ersten `gsr:call` aus dem
+Renderer — Linux = Python (`streaming/gsr-sidecar/control.py`), Windows = Rust-Binary
+(`streaming/win-hq-sidecar/target/release/pulse-win-hq-sidecar.exe`); beide sprechen das **gleiche stdio-JSON-RPC-
+Protokoll** (s. **Sidecar-Protokoll**). `desktop/electron/sidecar.ts` (`SidecarManager`, Singleton via
+`getSidecar()`): `child_process.spawn`, readline auf stdout, Request/Reply via numerische `id`, Events
+(`{"ev":..}`, kein id) → `webContents.send('gsr:event', ev)`. Path-Resolver pro Plattform:
+- Linux: `$PULSE_SIDECAR_PY` → Walk-up von `dist/` bis `streaming/gsr-sidecar/control.py` → Flatpak-Default
+  `/app/share/pulse/gsr-sidecar/control.py`. `pythonBin = $PULSE_PYTHON ?? 'python3'`.
+- Windows: `$PULSE_HQ_SIDECAR` → Walk-up auf `streaming/win-hq-sidecar/target/release|debug/pulse-win-hq-sidecar.exe`
+  → `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe`. Kein Python — Rust-Bin ist standalone (FFmpeg-DLLs
+  neben der exe).
+
+`shutdown()`: stdin schließen (Sidecar-Loop endet auf EOF, stoppt laufenden GSR/WGC) → 1.5s → SIGTERM → 2s → SIGKILL.
 Renderer-API = `window.pulse.gsr.*` (`health/gpuInfo/listMonitors/listProfiles/listApplicationAudio/buildArgv/start/stop/state/onEvent/available`,
 alle async, geben das rohe Response-JSON zurück bzw. werfen bei `ok:false`/Timeout — `start` 60s, `stop` 15s, sonst 10s).
 Shape in `web/src/lib/platform/pulse.d.ts` deklariert — **mit `preload.ts` synchron halten**. `control.py` selbst ist
@@ -168,6 +176,45 @@ nehmen `channel:{id,token,mediamtx_endpoint?,push_protocol?}` (Pulse-Pfad, Media
 → Custom-Build (`$XDG_CACHE_HOME/pulse/gsr/gpu-screen-recorder/build/gpu-screen-recorder` von `streaming/bootstrap-gsr.fish`,
 Legacy-Fallback `/tmp/gsr-analysis/...` — wandert beim nächsten Bootstrap mit) → PATH. Fehlt alles
 → `health.gsr.available=false` (kein Crash). Persistenter Cache-Pfad überlebt Reboots; `/tmp` war tmpfs, da war HQ nach jedem Reboot weg.
+
+**Windows-HQ-Sidecar** (`streaming/win-hq-sidecar/`): Rust-Bin (Cargo, Edition 2024), spricht dasselbe stdio-JSON-RPC
+wie der Linux-GSR-Sidecar — gleiche Ops/Events, gleiche Response-Shapes (auch wo's unter Windows keinen GSR gibt:
+`health.gsr.source="builtin"` statt Binary-Pfad). Capture = `windows-capture` v2 (WGC, ID3D11-Texture-Output), Audio =
+`wasapi` (Desktop-Loopback + Mikrofon), Encode/Mux = `ffmpeg-next` 8.1 gelinkt gegen die **vendored** BtbN-LGPL-Shared-
+Distribution unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml` `FFMPEG_DIR`; `build.rs` kopiert die
+DLLs neben die exe). MediaMTX-Build für lokales Testen unter `mediamtx-dist/v1.18.1/mediamtx.exe`.
+
+**Zwei Encode-Pfade**, dispatch in `src/stream_controller.rs::run_pipeline`:
+- **NVIDIA Zero-Copy** (`src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`):
+  WGC liefert `ID3D11Texture2D`-Frames; im Capture-Callback `CopySubresourceRegion` GPU-intern in einen D3D11VA-Pool
+  (`av_hwframe_get_buffer`), NVENC liest `AV_PIX_FMT_D3D11` mit `sw_format=BGRA` direkt — Swizzle + NV12-Convert auf
+  der GPU. Kein PCIe-Roundtrip, kein `Vec<u8>`-Alloc im Hot-Path. **ffmpeg-next bindet `hwcontext_d3d11va.h` nicht** →
+  `AVD3D11VADeviceContext`-Layout in `hwctx.rs` hand-gespiegelt + CRITICAL_SECTION als `lock`/`unlock`-Callback (FFmpeg
+  serialisiert intern darüber den D3D11-Device-Zugriff; Capture-Callback hält denselben Lock manuell für
+  CopySubresourceRegion). Aktiv für `adapter.vendor() == "nvidia"`.
+- **CPU-Fallback** (`src/capture/wgc.rs` + `src/encode/encoder.rs`): BGRA via `frame.buffer().as_nopadding_buffer()` →
+  CPU `Vec<u8>` → swscale BGRA→NV12 → AMF/QSV. Aktiv für AMD/Intel oder wenn die Bedingungen oben nicht stimmen. Hat
+  zusätzlich einen **NVIDIA-„BGR-direct"-Fastpath** (BGRA-Bytes 1:1 in NVENC-Frame ohne swscale) der bei
+  `PULSE_HQ_DISABLE_ZERO_COPY=1` aktiviert wird.
+
+Env-Overrides (Test/Debug):
+- `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU
+  (dGPU+iGPU) der einzige Weg den AMF/QSV-Pfad zu validieren ohne den Default umzustellen.
+- `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt CPU-Pfad auch auf NVIDIA. Für A/B-Debugging.
+- `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
+
+Tests: `cargo build --release` baut + DLL-Copy; Smoke via `examples/test_driver.rs` —
+`cargo run --release --example test_driver -- health|video_only|audio_mux|av1_mux|hevc_mux [rtmp_url]`. Erwartet
+MediaMTX auf `rtmp://localhost:1935/<path>` (lokal: `mediamtx-dist/v1.18.1/mediamtx.exe mediamtx-dist/v1.18.1/mediamtx.yml`).
+`video_only` läuft Capture + Encode + Push 10s, validiert `state=live` + ≥1 `fps`-Event; `audio_mux` zusätzlich Opus-
+Spur. Logs landen in `target/test-driver-<scenario>-<unix-ts>.log`. **Achtung**: DLL-Copy schlägt fehl wenn ein
+laufender Sidecar die alten DLLs hält — Build kennt die exe-Lock-Datei, gibt aber nur Warning auf die DLLs (Build
+selbst läuft trotzdem fertig, nur die kopierten DLLs sind dann stale).
+
+**TLS/RTMPS-Fußnote**: FFmpegs Schannel-Backend auf Windows ist strict-verify by default — `tls_verify=0` MUSS gesetzt
+sein wenn MediaMTX self-signed nutzt (Pulse-Default, Token in URL ist die echte Auth). Sonst killt FFmpeg den Push
+nach dem TLS-Handshake mit „Writing encrypted data to socket failed" (sieht aus wie ein Network-Bug, ist aber
+Cert-Verification — `encoder.rs::create` setzt das automatisch bei `rtmps://`).
 
 **Settings-Persistenz (Electron)**: `desktop/electron/store.ts` = hand-rolled Key-Value-Store (**bewusst kein `electron-store`**
 — ESM-only in neueren Versionen, gibt CJS/ESM-Friktion mit dem esbuild-Bundle). `<userData>/pulse-stream.json`, beim Start

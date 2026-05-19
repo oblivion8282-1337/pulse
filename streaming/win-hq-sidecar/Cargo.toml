@@ -18,9 +18,11 @@ anyhow = "1"
 # Features kept narrow — only what the adapter walk + COM init needs.
 windows = { version = "0.62", features = [
     "Win32_Foundation",
+    "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_System_Com",
+    "Win32_System_Kernel",
     "Win32_Media_Audio",
     "Win32_Media_KernelStreaming",
     "Win32_System_Threading",
@@ -49,9 +51,10 @@ windows-capture = "2"
 # Feature (würde FFmpeg aus Source bauen — wir wollen die LGPL-DLLs nutzen).
 ffmpeg-next = { version = "8.1", default-features = false, features = [
     "codec",
+    "filter",              # libavfilter für scale_cuda Downscale auf der GPU (Zero-Copy-Pfad)
     "format",
     "software-resampling", # swresample für Sample-Rate-Mismatches (44.1k Games vs 48k Browser)
-    "software-scaling",    # swscale für BGRA→NV12-Konversion
+    "software-scaling",    # swscale für BGRA→NV12-Konversion (CPU-Fallback)
 ] }
 
 # Stage 8+ deps — added in their respective stages.

@@ -65,6 +65,10 @@ pub struct StartParams {
     pub override_codec: Option<VideoCodec>,
     pub override_bitrate_kbps: Option<u32>,
     pub override_fps: Option<u32>,
+    /// Downscale-Target (1920x1080, 1280x720, 854x480). `None` = capture-native.
+    /// Upscale wird nicht unterstützt — wenn target > capture-res, ignoriert die
+    /// Pipeline das (s. `run_pipeline`).
+    pub override_resolution: Option<(u32, u32)>,
 }
 
 pub struct StreamController {
@@ -175,12 +179,12 @@ impl StreamController {
         events::emit(json!({"ev": "stopped"}));
     }
 
-    fn set_fps(&self, fps: f64) {
+    pub(crate) fn set_fps(&self, fps: f64) {
         let mut inner = self.inner.lock().unwrap();
         inner.snapshot.fps = Some(fps);
     }
 
-    fn set_state(&self, state: &'static str) {
+    pub(crate) fn set_state(&self, state: &'static str) {
         let mut inner = self.inner.lock().unwrap();
         inner.snapshot.state = state;
     }
@@ -191,27 +195,19 @@ impl StreamController {
 fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let ctrl = StreamController::singleton();
     let result = (|| -> Result<()> {
-        // Adapter-Auswahl: per default der HIGH_PERFORMANCE-Slot (dGPU bevorzugt).
-        // Test/Diagnose-Override: `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` filtert
-        // erst nach Vendor, dann wird der erste Treffer genommen. Nützlich auf
-        // Multi-GPU-Systemen (dGPU+iGPU) um den AMF/QSV-Pfad zu validieren
-        // ohne den HIGH_PERFORMANCE-Default umzustellen.
-        let adapters = dxgi::list_adapters()?;
-        let adapter = match std::env::var("PULSE_HQ_ADAPTER_VENDOR").ok().as_deref() {
-            Some(want) if !want.is_empty() => adapters
-                .into_iter()
-                .find(|a| a.vendor() == want)
-                .ok_or_else(|| anyhow!("no DXGI adapter with vendor={want}"))?,
-            _ => adapters
-                .into_iter()
-                .next()
-                .ok_or_else(|| anyhow!("no DXGI adapter for encode"))?,
-        };
-        eprintln!(
-            "[stream-pipeline] encode adapter: {} (vendor={})",
-            adapter.description,
-            adapter.vendor()
-        );
+        let adapter = select_adapter()?;
+
+        // Zero-Copy-Pfad: NVENC kann D3D11-BGRA-Frames direkt; Downscale läuft
+        // über einen GPU-`scale_cuda`-Filter zwischen Capture und Encoder
+        // (siehe `encode/scale_filter.rs`). AMD AMF + Intel QSV wollen NV12 ohne
+        // CUDA-Detour → CPU-Fallback, kein Scope für die jetzt. Kill-Switch
+        // `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad zum Debugging.
+        let disable_zc = std::env::var("PULSE_HQ_DISABLE_ZERO_COPY")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false);
+        if adapter.vendor() == "nvidia" && !disable_zc {
+            return crate::pipeline_hw::run(adapter, params, stop_rx);
+        }
 
         let mut capture = WgcCapture::start(
             params.capture.clone(),
@@ -254,14 +250,28 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             .as_ref()
             .map(|_| AudioStreamConfig::DEFAULT);
 
+        // dst_width/dst_height aus override (mit Upscale-Schutz: max = capture-native).
+        // Bei Match dst==src degeneriert swscale zu reinem Format-Convert; sonst
+        // triggert `FfmpegEncoder::create` automatisch den Downscale-Pfad.
+        let (dst_w, dst_h) = match params.override_resolution {
+            Some((w, h)) if w <= first.width && h <= first.height => (w, h),
+            Some((w, h)) => {
+                eprintln!(
+                    "[stream-pipeline] resolution override {}x{} > capture {}x{} — ignored",
+                    w, h, first.width, first.height
+                );
+                (first.width, first.height)
+            }
+            None => (first.width, first.height),
+        };
         let mut encoder = FfmpegEncoder::create(
             &EncoderConfig {
                 codec,
                 vendor: adapter.vendor().to_string(),
                 src_width: first.width,
                 src_height: first.height,
-                dst_width: first.width, // native, kein Downscale (Stage 7b)
-                dst_height: first.height,
+                dst_width: dst_w,
+                dst_height: dst_h,
                 fps,
                 bitrate_kbps: bitrate,
             },
@@ -331,7 +341,32 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-fn emit_state(state: &str, running: bool, uptime_s: f64) {
+/// Adapter-Auswahl: per default der HIGH_PERFORMANCE-Slot (dGPU bevorzugt).
+/// Test/Diagnose-Override: `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` filtert
+/// erst nach Vendor, dann wird der erste Treffer genommen. Nützlich auf
+/// Multi-GPU-Systemen (dGPU+iGPU) um den AMF/QSV-Pfad zu validieren ohne den
+/// HIGH_PERFORMANCE-Default umzustellen.
+fn select_adapter() -> Result<dxgi::Adapter> {
+    let adapters = dxgi::list_adapters()?;
+    let adapter = match std::env::var("PULSE_HQ_ADAPTER_VENDOR").ok().as_deref() {
+        Some(want) if !want.is_empty() => adapters
+            .into_iter()
+            .find(|a| a.vendor() == want)
+            .ok_or_else(|| anyhow!("no DXGI adapter with vendor={want}"))?,
+        _ => adapters
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("no DXGI adapter for encode"))?,
+    };
+    eprintln!(
+        "[stream-pipeline] encode adapter: {} (vendor={})",
+        adapter.description,
+        adapter.vendor()
+    );
+    Ok(adapter)
+}
+
+pub(crate) fn emit_state(state: &str, running: bool, uptime_s: f64) {
     events::emit(json!({
         "ev": "state",
         "state": state,

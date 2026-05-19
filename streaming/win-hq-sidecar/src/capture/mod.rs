@@ -15,5 +15,7 @@
 
 pub mod source;
 pub mod wgc;
+pub mod wgc_hw;
 
 pub use source::CaptureSource;
+pub use wgc_hw::{HwCaptureItem, WgcHwCapture};

@@ -339,7 +339,7 @@ impl FfmpegEncoder {
 /// - `rtmp://` / `rtmps://` → FLV (RTMP transportiert FLV-Tags)
 /// - `srt://`               → MPEG-TS (SRT-Standard)
 /// - Sonst                  → `None` (FFmpeg-Default, Extension-basiert)
-fn url_format_hint(target: &str) -> Option<&'static str> {
+pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
     let lower = target.to_ascii_lowercase();
     if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
         Some("flv")
@@ -368,7 +368,7 @@ fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, height: u32) {
 /// Vendor-spezifische Encoder-Optionen. Defaults sind „streaming-tauglich"
 /// (Low-Latency, CBR) — pro Encoder mehr durchstimmen wenn die echten
 /// Quality-Tradeoffs sichtbar sind.
-fn vendor_encoder_opts(vendor: &str) -> Dictionary<'static> {
+pub(crate) fn vendor_encoder_opts(vendor: &str) -> Dictionary<'static> {
     let mut opts = Dictionary::new();
     match vendor {
         "nvidia" => {
