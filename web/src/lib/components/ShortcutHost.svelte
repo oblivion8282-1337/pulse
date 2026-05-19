@@ -11,10 +11,14 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
+  import { toast } from 'svelte-sonner';
   import { mountWindowListener, register } from '$lib/shortcuts/engine.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
+  import { stream } from '$lib/stream/state.svelte';
+  import { gsr } from '$lib/stream/gsr';
+  import { isElectron, isLinux } from '$lib/platform/runtime';
   import ShortcutCheatsheet from './ShortcutCheatsheet.svelte';
   import QuickSwitcher from './QuickSwitcher.svelte';
 
@@ -79,6 +83,32 @@
       register('voice.disconnect', () => {
         if (!voice.connected) return;
         void voice.disconnect({ reason: 'user' });
+      }),
+      register('stream.toggleHq', () => {
+        if (!isElectron() || !isLinux() || !stream.gsrAvailable) {
+          toast.info('HQ-Stream nur in Electron auf Linux verfügbar');
+          return;
+        }
+        if (stream.running) {
+          void gsr.stop();
+          return;
+        }
+        if (!voice.channelId) {
+          toast.info('Tritt erst einem Sprach-Channel bei, um zu streamen');
+          return;
+        }
+        uiOverlays.hqStreamDialogOpen = true;
+      }),
+      register('stream.toggleScreenshare', () => {
+        if (!voice.connected) {
+          toast.info('Tritt erst einem Sprach-Channel bei, um zu teilen');
+          return;
+        }
+        voice.toggleScreenShare();
+      }),
+      register('stream.highlightClip', () => {
+        // Placeholder bis der 30s-Roll-Buffer in media-svc existiert (IDEAS.md #58).
+        toast.info('Highlight-Clip kommt — der 30s-Buffer im media-svc fehlt noch');
       })
     ];
     return () => disposers.forEach((d) => d());

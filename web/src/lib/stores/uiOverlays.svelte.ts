@@ -7,6 +7,7 @@
 class UIOverlays {
   settingsOpen = $state(false);
   quickSwitcherOpen = $state(false);
+  hqStreamDialogOpen = $state(false);
 }
 
 export const uiOverlays = new UIOverlays();

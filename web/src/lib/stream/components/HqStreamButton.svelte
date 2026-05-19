@@ -22,8 +22,9 @@
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import HqStreamDialog from './HqStreamDialog.svelte';
+  import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
 
-  let { open = $bindable(false), compact = false }: { open?: boolean; compact?: boolean } = $props();
+  let { compact = false }: { compact?: boolean } = $props();
 
   let channelId = $derived(voice.channelId);
   // STREAM-Permission im aktuellen Voice-Channel — Resolver liefert
@@ -51,7 +52,7 @@
       }
       return;
     }
-    open = true;
+    uiOverlays.hqStreamDialogOpen = true;
   }
 </script>
 
@@ -87,5 +88,5 @@
     </Tooltip.Root>
   </Tooltip.Provider>
 
-  <HqStreamDialog bind:open {channelId} />
+  <HqStreamDialog bind:open={uiOverlays.hqStreamDialogOpen} {channelId} />
 {/if}

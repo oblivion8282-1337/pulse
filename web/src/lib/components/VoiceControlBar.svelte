@@ -22,7 +22,6 @@
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
   import type { PublishStats } from '$lib/voice/screenShareStats';
 
-  let hqStreamOpen = $state(false);
   let publishStats = $state<PublishStats | null>(null);
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
@@ -217,7 +216,7 @@
         </Tooltip.Content>
       </Tooltip.Root>
 
-      <HqStreamButton bind:open={hqStreamOpen} compact />
+      <HqStreamButton compact />
 
       <Tooltip.Root>
         <Tooltip.Trigger>
