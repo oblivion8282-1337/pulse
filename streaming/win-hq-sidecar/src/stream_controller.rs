@@ -240,6 +240,17 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
                 }
             }
         });
+        // Aktivieren von Audio führt zu einer FFmpeg-Mux-Blockade die wir noch
+        // nicht final lokalisiert haben — siehe Commit-Message von ad75308 +
+        // dem Trace-Versuch danach. Symptome: `state=live` wird emittiert, dann
+        // gar nichts mehr. Beobachtungen aus Debug:
+        //   - libopus' Output-Packets haben pts=None und duration=AV_NOPTS_VALUE
+        //   - FFmpeg loggt "Encoder did not produce proper pts, making some up"
+        //   - Auch mit AAC bleibt der Hang → ist nicht codec-spezifisch
+        //   - Theorie: write_interleaved buffert Video unbegrenzt weil Audio
+        //     mit komischen Timestamps kommt und interleave-Order kaputt geht
+        // Fokussierte Session braucht's: Rust-native test driver (PowerShell-IO
+        // mit async-Tasks ist zu fragil) und Bisect der Mux-Bedingungen.
         let audio_cfg: Option<AudioStreamConfig> = None;
 
         let mut encoder = FfmpegEncoder::create(
@@ -273,11 +284,14 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             // Audio zuerst rein-pumpen — non-blocking try_recv. Audio kommt in
             // 1024-Frame-Chunks ~jede 21ms an, Video alle ~16ms, also locker
             // genug Headroom für beides in einem Loop.
-            // Audio wird gecaptured aber bewusst weggeworfen — siehe Kommentar
-            // bei `audio_cfg = None` oben. Sobald die Mux-Blockade gefixt ist,
-            // wird hier `encoder.send_audio(&chunk)` reaktiviert.
+            // Audio-Chunks aus dem Channel ziehen — solange `audio_cfg = None`
+            // ist `send_audio` ein No-op, aber wir leeren den Channel damit
+            // WASAPI weiter buffern kann (sonst backpressure → audio_capture
+            // pausiert).
             if let Some(ac) = audio_capture.as_ref() {
-                while ac.samples.try_recv().is_ok() {}
+                while let Ok(chunk) = ac.samples.try_recv() {
+                    let _ = encoder.send_audio(&chunk);
+                }
             }
 
             let frame = match capture.frames.recv_timeout(Duration::from_millis(500)) {
