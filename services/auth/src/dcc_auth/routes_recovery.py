@@ -21,8 +21,8 @@ from sqlalchemy import or_, select, update
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.email import (
-    compose_email_verification,
     compose_password_reset_email,
+    issue_verification_email,
     send_email,
 )
 from dcc_auth.models import (
@@ -199,29 +199,8 @@ async def email_verification_send(
     if current.email_verified_at is not None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-    now = datetime.now(UTC)
-    await session.execute(
-        update(EmailVerificationToken)
-        .where(
-            EmailVerificationToken.user_id == current.id,
-            EmailVerificationToken.used_at.is_(None),
-        )
-        .values(used_at=now)
-    )
-
-    plaintext, digest = generate_token()
-    session.add(
-        EmailVerificationToken(
-            user_id=current.id,
-            token_hash=digest,
-            expires_at=now + timedelta(seconds=settings.email_verification_ttl_seconds),
-        )
-    )
+    await issue_verification_email(session, current)
     await session.commit()
-
-    verify_url = f"{settings.app_base_url.rstrip('/')}/verify-email/{plaintext}"
-    subject, body = compose_email_verification(current.email, verify_url)
-    await send_email(current.email, subject, body, session=session)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

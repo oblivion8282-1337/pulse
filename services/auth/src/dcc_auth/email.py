@@ -20,18 +20,23 @@ from __future__ import annotations
 import asyncio
 import smtplib
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from typing import TYPE_CHECKING
 
 import structlog
 from cryptography.fernet import InvalidToken
+from sqlalchemy import update
 
 from dcc_auth.config import get_settings
 from dcc_auth.crypto import decrypt_secret
-from dcc_auth.models import SmtpSettings
+from dcc_auth.models import EmailVerificationToken, SmtpSettings
+from dcc_auth.recovery import generate_token
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from dcc_auth.models import User
 
 logger = structlog.get_logger(__name__)
 
@@ -191,6 +196,41 @@ def compose_email_verification(to: str, verify_url: str) -> tuple[str, str]:
         f"du diese Mail einfach ignorieren.\n"
     )
     return subject, body
+
+
+async def issue_verification_email(session: AsyncSession, user: User) -> None:
+    """Invalidate prior open verify-tokens, issue a fresh one, send the mail.
+
+    Shared by ``POST /register`` (best-effort — caller swallows SMTP errors
+    so a flaky mail relay can't abort a registration) and
+    ``POST /email/verification/send`` (caller bubbles errors so the UI can
+    surface them). The DB-side work (token row) happens BEFORE the wire-side
+    send, so even if SMTP fails the row exists and the user can resend via
+    the banner.
+
+    Does NOT commit — the caller controls the transaction boundary.
+    """
+    settings = get_settings()
+    now = datetime.now(UTC)
+    await session.execute(
+        update(EmailVerificationToken)
+        .where(
+            EmailVerificationToken.user_id == user.id,
+            EmailVerificationToken.used_at.is_(None),
+        )
+        .values(used_at=now)
+    )
+    plaintext, digest = generate_token()
+    session.add(
+        EmailVerificationToken(
+            user_id=user.id,
+            token_hash=digest,
+            expires_at=now + timedelta(seconds=settings.email_verification_ttl_seconds),
+        )
+    )
+    verify_url = f"{settings.app_base_url.rstrip('/')}/verify-email/{plaintext}"
+    subject, body = compose_email_verification(user.email, verify_url)
+    await send_email(user.email, subject, body, session=session)
 
 
 def compose_test_email(to: str) -> tuple[str, str]:

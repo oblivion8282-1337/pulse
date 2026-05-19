@@ -8,6 +8,7 @@ import uuid
 from datetime import UTC, datetime
 
 import jwt
+import structlog
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -16,6 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
+from dcc_auth.email import issue_verification_email
 from dcc_auth.models import AuthSettings, RefreshToken, User
 from dcc_auth.schemas import (
     LoginIn,
@@ -37,6 +39,7 @@ from dcc_auth.security import (
 from dcc_auth.snowflake import next_id
 
 router = APIRouter()
+log = structlog.get_logger(__name__)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
@@ -166,6 +169,16 @@ async def register(
     tokens = await _issue_tokens(
         session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
     )
+
+    # Auto-fire the verify-email so the new user finds a fresh link in their
+    # inbox right after the redirect to /app. Wrapped in try/except: a flaky
+    # mail relay must NOT abort registration — the token row is committed
+    # alongside the user either way, and the in-app banner has a manual resend.
+    try:
+        await issue_verification_email(session, user)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("register_verify_email_failed", user_id=user.id, error=str(exc))
+
     await session.commit()
     return tokens
 

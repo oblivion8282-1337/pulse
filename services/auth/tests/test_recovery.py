@@ -178,15 +178,19 @@ async def test_email_verify_confirm_sets_verified_at(
 ):
     captured: dict[str, str] = {}
 
-    from dcc_auth import routes_recovery
+    # Spy on the verify-mail composer in email.py — both register's auto-fire
+    # and the explicit /email/verification/send route go through it.
+    # Last-write-wins means ``captured["url"]`` holds the *most recent* token,
+    # which matches what a real user would click in their inbox.
+    from dcc_auth import email as email_mod
 
-    real_compose = routes_recovery.compose_email_verification
+    real_compose = email_mod.compose_email_verification
 
     def _spy(to, url):
         captured["url"] = url
         return real_compose(to, url)
 
-    monkeypatch.setattr(routes_recovery, "compose_email_verification", _spy)
+    monkeypatch.setattr(email_mod, "compose_email_verification", _spy)
 
     tokens = await _register(client)
     bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
@@ -456,7 +460,67 @@ async def test_no_refresh_tokens_left_after_reset(client, session_factory, monke
 
 
 @pytest.mark.asyncio
+async def test_register_auto_fires_verify_email(
+    client, session_factory, monkeypatch
+):
+    """Registration alone (without any further calls) must leave a fresh
+    verify-token in the DB AND have invoked the mail composer once. The
+    inbox-link UX depends on this: a new user clicks register, the redirect
+    to /app finishes, and the mail with the link is already on its way.
+    """
+    captured: list[str] = []
+
+    from dcc_auth import email as email_mod
+
+    real_compose = email_mod.compose_email_verification
+
+    def _spy(to, url):
+        captured.append(url)
+        return real_compose(to, url)
+
+    monkeypatch.setattr(email_mod, "compose_email_verification", _spy)
+
+    await _register(client)
+
+    assert len(captured) == 1
+    async with session_factory() as s:
+        rows = (
+            await s.execute(select(EmailVerificationToken))
+        ).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].used_at is None  # fresh, ready to redeem
+
+
+@pytest.mark.asyncio
+async def test_register_succeeds_when_verify_mail_fails(
+    client, session_factory, monkeypatch
+):
+    """A flaky SMTP relay must NOT abort registration — the user account is
+    created, an access token is returned, the verify-token row exists for
+    later manual resend. Only the outbound send is the casualty."""
+    from dcc_auth import email as email_mod
+
+    async def _boom(*args, **kwargs):
+        raise RuntimeError("smtp relay melted")
+
+    monkeypatch.setattr(email_mod, "send_email", _boom)
+
+    r = await client.post("/register", json=REG)
+    assert r.status_code == 201, r.text
+    assert "access_token" in r.json()
+    # The token row was committed before the send was attempted.
+    async with session_factory() as s:
+        rows = (
+            await s.execute(select(EmailVerificationToken))
+        ).scalars().all()
+        assert len(rows) == 1
+
+
+@pytest.mark.asyncio
 async def test_email_verify_token_in_db(client, session_factory):
+    """After register (auto-fire) + manual resend, exactly ONE open token
+    exists. The earlier register-token gets marked ``used_at`` by the resend
+    so the user can't accidentally consume a stale link."""
     tokens = await _register(client)
     bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
     r = await client.post("/email/verification/send", headers=bearer)
@@ -465,6 +529,8 @@ async def test_email_verify_token_in_db(client, session_factory):
         rows = (
             await s.execute(select(EmailVerificationToken))
         ).scalars().all()
-        assert len(rows) == 1
+        open_rows = [r for r in rows if r.used_at is None]
+        assert len(open_rows) == 1
+        assert len(rows) == 2  # one from register, one from /send
         # plaintext never leaked
-        assert len(rows[0].token_hash) == 64  # sha256 hex
+        assert all(len(r.token_hash) == 64 for r in rows)  # sha256 hex
