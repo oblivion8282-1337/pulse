@@ -10,6 +10,7 @@
    */
   import { onMount } from 'svelte';
   import { mountWindowListener, register } from '$lib/shortcuts/engine.svelte';
+  import { voice } from '$lib/voice/livekit.svelte';
   import ShortcutCheatsheet from './ShortcutCheatsheet.svelte';
 
   let cheatsheetOpen = $state(false);
@@ -19,6 +20,21 @@
       mountWindowListener(),
       register('nav.cheatsheet', () => {
         cheatsheetOpen = !cheatsheetOpen;
+      }),
+      // Voice-Actions sind global (auch außerhalb der VoiceChannelView nutzbar,
+      // sobald man im Voice ist — Discord-Style). Guards verhindern, dass
+      // toggleMic()s Sound spielt ohne dass Connection da ist.
+      register('voice.toggleMute', () => {
+        if (!voice.connected) return;
+        voice.toggleMic();
+      }),
+      register('voice.toggleDeafen', () => {
+        if (!voice.connected) return;
+        voice.toggleDeafen();
+      }),
+      register('voice.disconnect', () => {
+        if (!voice.connected) return;
+        void voice.disconnect({ reason: 'user' });
       })
     ];
     return () => disposers.forEach((d) => d());
