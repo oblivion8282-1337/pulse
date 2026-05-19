@@ -221,16 +221,9 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             .override_bitrate_kbps
             .unwrap_or(params.profile.bitrate_kbps);
 
-        // Audio-Pipeline ist als Infrastruktur vorhanden (siehe `encode::audio`)
-        // aber noch NICHT in den Live-Mux-Pfad verdrahtet: das initial Wiring
-        // löste eine FFmpeg-write_interleaved-Blockade aus (Video-Packets warten
-        // auf Audio-Packets, die zwar produziert werden aber das Mux-Buffer
-        // anscheinend nicht ablaufen lassen). Stage 8a Schritt 2 muss das in
-        // einer fokussierten Session debuggen — wahrscheinlich `write` statt
-        // `write_interleaved` oder Audio-Pre-Buffer vor write_header.
-        //
-        // Bis dahin: Audio wird gecaptured aber nicht gemuxt. Stream ist tonlos
-        // — funktionsfähig für Screen-Tests, Audio-Mux folgt.
+        // Audio-Pipeline: WASAPI-Capture + libopus-Encode + zweite FLV-Spur.
+        // Wenn `params.audio = None` (mode=Aus) oder die Capture fehlschlägt,
+        // läuft der Stream video-only weiter.
         let audio_capture: Option<AudioCapture> = params.audio.as_ref().and_then(|src| {
             match AudioCapture::start(src.clone(), 1024) {
                 Ok(c) => Some(c),
@@ -240,18 +233,9 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
                 }
             }
         });
-        // Aktivieren von Audio führt zu einer FFmpeg-Mux-Blockade die wir noch
-        // nicht final lokalisiert haben — siehe Commit-Message von ad75308 +
-        // dem Trace-Versuch danach. Symptome: `state=live` wird emittiert, dann
-        // gar nichts mehr. Beobachtungen aus Debug:
-        //   - libopus' Output-Packets haben pts=None und duration=AV_NOPTS_VALUE
-        //   - FFmpeg loggt "Encoder did not produce proper pts, making some up"
-        //   - Auch mit AAC bleibt der Hang → ist nicht codec-spezifisch
-        //   - Theorie: write_interleaved buffert Video unbegrenzt weil Audio
-        //     mit komischen Timestamps kommt und interleave-Order kaputt geht
-        // Fokussierte Session braucht's: Rust-native test driver (PowerShell-IO
-        // mit async-Tasks ist zu fragil) und Bisect der Mux-Bedingungen.
-        let audio_cfg: Option<AudioStreamConfig> = None;
+        let audio_cfg: Option<AudioStreamConfig> = audio_capture
+            .as_ref()
+            .map(|_| AudioStreamConfig::DEFAULT);
 
         let mut encoder = FfmpegEncoder::create(
             &EncoderConfig {

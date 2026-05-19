@@ -20,11 +20,9 @@
 //! - `health` — `health` + Exit. Sanity-Check der Wire-Protocol-Pipeline.
 //! - `video_only` — start mit audio=Aus, erwartet `state=live` + ≥1 `fps`-Event
 //!   binnen 15s, läuft 10s, dann `stop`. Validates the happy path.
-//! - `audio_mux` — wie video_only, aber audio.mode=Desktop. Mit dem hard-disabled
-//!   `audio_cfg = None` in stream_controller.rs ist das funktional identisch
-//!   zu video_only (Audio wird gecaptured aber nicht gemuxt). Wenn der User
-//!   `audio_cfg = Some(AudioStreamConfig::DEFAULT)` re-enabled, reproduziert
-//!   dieses Szenario den write_interleaved-Hang.
+//! - `audio_mux` — wie video_only, aber audio.mode=Desktop. Pusht zweispurigen
+//!   Stream (H.264 + Opus). Validiert via MediaMTX-API
+//!   `/v3/paths/list` → `tracks2: [H264, Opus]`.
 
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};

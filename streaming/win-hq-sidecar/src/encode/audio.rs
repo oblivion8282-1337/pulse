@@ -40,7 +40,6 @@ pub struct AudioPipeline {
     out_pts_samples: i64,
     pub stream_idx: usize,
     pub encoder_time_base: Rational,
-    pub stream_time_base: Rational,
 }
 
 impl AudioPipeline {
@@ -94,9 +93,16 @@ impl AudioPipeline {
             ChannelLayout::STEREO,
         );
 
-        let stream_time_base = output.stream(stream_idx).unwrap().time_base();
         let encoder_time_base = Rational::new(1, sample_rate as i32);
         let block_align_in = (channels as usize) * 4; // F32 = 4 Bytes/Sample
+
+        // NICHT: stream.time_base() hier cachen. Output.write_header() läuft
+        // NACH AudioPipeline::create — die Stream-Time-Base ist bis dahin 0/0
+        // (uninitialized). Wir lesen sie stattdessen in drain_packets aus dem
+        // Output. Bug-History: vorher hier gecached → rescale_ts mit 0/0 als
+        // Ziel-Rational killt PTS+Duration auf AV_NOPTS_VALUE, FFmpeg loggt
+        // dann „Packet with invalid duration -9223372036854775808" für jedes
+        // Audio-Packet und „making some up" für die PTS.
 
         Ok(Self {
             encoder: opened,
@@ -109,7 +115,6 @@ impl AudioPipeline {
             out_pts_samples: 0,
             stream_idx,
             encoder_time_base,
-            stream_time_base,
         })
     }
 
@@ -167,12 +172,17 @@ impl AudioPipeline {
     }
 
     pub fn drain_packets(&mut self, output: &mut format::context::Output) -> Result<()> {
+        // Stream-Time-Base erst HIER lesen (= nach write_header). Bei FLV ist
+        // das typischerweise 1/1000 (Millisekunden); MPEG-TS nutzt 1/90000.
+        let stream_time_base = output.stream(self.stream_idx).unwrap().time_base();
+
         let mut packet = Packet::empty();
         while self.encoder.receive_packet(&mut packet).is_ok() {
-            // libopus' FFmpeg-Encoder propagiert weder PTS/DTS noch Duration
-            // sauber in den Output-Packet (n8.1 hatte das fixes/regressions;
-            // wir setzen alles drei manuell). PTS+DTS in encoder_time_base
-            // (1/sample_rate), Duration = 20ms-Frame = 960 Samples.
+            // libopus' Output-Packets können in manchen Versionen mit pts=None
+            // kommen (n8.1 hatte das fixes/regressions). Defensive Setter:
+            // wenn pts fehlt, aus unserem Sample-Counter rekonstruieren. Duration
+            // setzen wir generell (libopus' Encoder lässt sie manchmal bei
+            // AV_NOPTS_VALUE, was rescale_ts dann unverändert lässt).
             if packet.pts().is_none() {
                 packet.set_pts(Some(self.out_pts_samples));
                 packet.set_dts(Some(self.out_pts_samples));
@@ -180,7 +190,7 @@ impl AudioPipeline {
             packet.set_duration(OPUS_FRAME_SAMPLES as i64);
             self.out_pts_samples += OPUS_FRAME_SAMPLES as i64;
             packet.set_stream(self.stream_idx);
-            packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+            packet.rescale_ts(self.encoder_time_base, stream_time_base);
             packet
                 .write_interleaved(output)
                 .context("audio packet.write_interleaved")?;
