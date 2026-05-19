@@ -57,10 +57,13 @@ fn main() -> anyhow::Result<()> {
     let mut driver = Driver::spawn(bin, log.clone())?;
     let result = match scenario.as_str() {
         "health" => scenario_health(&mut driver),
-        "video_only" => scenario_full(&mut driver, &push_url, "Aus"),
-        "audio_mux" => scenario_full(&mut driver, &push_url, "Desktop"),
+        "video_only" => scenario_full(&mut driver, &push_url, "Aus", None),
+        "audio_mux" => scenario_full(&mut driver, &push_url, "Desktop", None),
+        "av1_mux" => scenario_full(&mut driver, &push_url, "Desktop", Some("av1")),
+        "hevc_mux" => scenario_full(&mut driver, &push_url, "Desktop", Some("hevc")),
         other => Err(anyhow::anyhow!(
-            "unknown scenario: {other} (use: health | video_only | audio_mux)"
+            "unknown scenario: {other} \
+             (use: health | video_only | audio_mux | av1_mux | hevc_mux)"
         )),
     };
 
@@ -85,7 +88,12 @@ fn scenario_health(driver: &mut Driver) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn scenario_full(driver: &mut Driver, push_url: &str, audio_mode: &str) -> anyhow::Result<()> {
+fn scenario_full(
+    driver: &mut Driver,
+    push_url: &str,
+    audio_mode: &str,
+    override_codec: Option<&str>,
+) -> anyhow::Result<()> {
     // 1) Sanity: health
     let resp = driver.send("health", Map::new())?;
     if !response_ok(&resp) {
@@ -105,6 +113,9 @@ fn scenario_full(driver: &mut Driver, push_url: &str, audio_mode: &str) -> anyho
     );
     params.insert("capture".into(), Value::String("monitor".into()));
     params.insert("audio".into(), json!({"mode": audio_mode, "excluded_apps": []}));
+    if let Some(c) = override_codec {
+        params.insert("overrides".into(), json!({"codec": c}));
+    }
 
     let t_start = Instant::now();
     let resp = driver.send("start", params)?;
