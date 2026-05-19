@@ -41,6 +41,11 @@
   let testing = $state(false);
   let lastTestOk = $state<boolean | null>(null);
   let lastTestError = $state<string | null>(null);
+  // Editable test-recipient: defaults to the admin's account email, but the
+  // admin can override (the account email may be a placeholder on dev/test
+  // accounts; showing the value also makes it obvious WHERE the test goes
+  // before they click).
+  let testTo = $state('');
 
   onMount(async () => {
     try {
@@ -48,6 +53,7 @@
     } catch (e) {
       loadError = e instanceof Error ? e.message : String(e);
     }
+    testTo = auth.user?.email ?? '';
   });
 
   function hydrate(s: SmtpSettings) {
@@ -117,15 +123,16 @@
 
   async function test() {
     if (testing) return;
-    if (!auth.user?.email) {
-      toast.error('Keine Admin-Mail-Adresse hinterlegt');
+    const to = testTo.trim();
+    if (!to) {
+      toast.error('Empfänger-Adresse fehlt');
       return;
     }
     testing = true;
     lastTestError = null;
     try {
       const res = await adminApi.testSmtp({
-        to: auth.user.email,
+        to,
         provider,
         host: host || null,
         port,
@@ -136,7 +143,7 @@
       });
       lastTestOk = res.ok;
       lastTestError = res.error;
-      if (res.ok) toast.success(`Test-Mail an ${auth.user.email} geschickt`);
+      if (res.ok) toast.success(`Test-Mail an ${to} geschickt`);
       else toast.error('Test fehlgeschlagen', { description: res.error ?? '' });
     } catch (e) {
       lastTestOk = false;
@@ -249,6 +256,21 @@
         {/if}
       </div>
 
+      <div class="border-border/50 mt-2 flex flex-col gap-1.5 border-t pt-3">
+        <Label for="smtp-test-to">Test-Mail an</Label>
+        <Input
+          id="smtp-test-to"
+          type="email"
+          bind:value={testTo}
+          placeholder="admin@example.com"
+          data-testid="smtp-test-to"
+        />
+        <p class="text-text-muted text-xs">
+          Vorausgefüllt mit der Mail-Adresse deines Pulse-Accounts. Hier kannst
+          du jede beliebige Adresse eintippen, an die das Test-Mail gehen soll.
+        </p>
+      </div>
+
       {#if lastTestOk !== null}
         <div
           class="rounded-md border px-3 py-2 text-xs {lastTestOk
@@ -257,7 +279,7 @@
           data-testid="smtp-test-result"
         >
           {#if lastTestOk}
-            ✓ Test-Mail erfolgreich an {auth.user?.email} geschickt.
+            ✓ Test-Mail erfolgreich an {testTo} geschickt.
           {:else}
             ✗ {lastTestError ?? 'Test fehlgeschlagen.'}
           {/if}
@@ -267,7 +289,7 @@
       <div class="mt-2 flex items-center justify-between gap-2">
         <Button variant="outline" onclick={test} disabled={testing} data-testid="smtp-test">
           <MailIcon class="size-4" />
-          {testing ? 'Sende…' : 'Test-Mail an mich'}
+          {testing ? 'Sende…' : 'Test-Mail senden'}
         </Button>
         <Button onclick={save} disabled={!dirty || saving} data-testid="smtp-save">
           <SaveIcon class="size-4" />
