@@ -2,13 +2,15 @@
  * Hysteresis-Speaking-State-Machine. Linear-RMS-Samples reinfeeden, gefiltertes
  * boolean kommt via Callback raus.
  *
- * Schwellen in dBFS, weil das Signal logarithmisch wahrgenommen wird — und die
- * Idee ist "lampe leuchtet wenn was hörbar durchgeht": Trigger sitzt ~5 dB
- * über der RNNoise-Gate-Default-Schwelle (-45 dB), Release deutlich darunter
- * + Hold gegen Wort-Lücken-Flackern.
+ * Schwellen in dBFS — Idee ist "Ring an = Listener hört wirklich was". Trigger
+ * deshalb knapp über dem Opus-Decoder-Noise-Floor (digital-silente Pakete
+ * landen bei ≤ -80 dBFS), nicht am Gate-Threshold orientiert: ein User der
+ * sein Gate tief setzt oder Makeup auf 1× lässt sendet hörbares Sprechen bei
+ * -50 dBFS, und das soll auslösen. Release noch weiter unten + Hold gegen
+ * Wort-Lücken-Flackern.
  */
-const DEFAULT_ON_DB = -40;
-const DEFAULT_OFF_DB = -55;
+const DEFAULT_ON_DB = -55;
+const DEFAULT_OFF_DB = -65;
 const DEFAULT_HOLD_MS = 300;
 
 export class SpeakingDetector {
