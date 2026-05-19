@@ -10,9 +10,15 @@ import {
 
 // --- screen-share types (kept identical to the previous screenShareSettings) ---
 
-export type ScreenShareCodec = Extract<VideoCodec, 'vp8' | 'vp9' | 'h264' | 'av1'>;
+// VP8/VP9 sind 2026-05-19 raus: H.264 hat überall HW-Encoder (NVENC/QSV/
+// VideoToolbox), AV1 deckt das moderne High-Quality-Segment ab. VP9 wäre
+// CPU-only auf praktisch jedem Setup und VP8 ist veraltet — beide nehmen
+// nur UI-Platz weg.
+export type ScreenShareCodec = Extract<VideoCodec, 'h264' | 'av1'>;
 export type ScreenShareResolution = 'native' | '1080p' | '720p' | '480p';
-export type ScreenShareFps = 15 | 30 | 60;
+// Frei wählbar als Number-Input. SCREEN_SHARE_FPS_MAX ist ein Sanity-Cap
+// (kein Browser/Encoder schafft das wirklich) — schützt vor NaN/Infinity
+// und unrealistischen Eingaben, ohne den User künstlich zu beschneiden.
 
 export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
 
@@ -38,10 +44,12 @@ const NOISE_GATE_DB_DEFAULT = -45;
 // cap, since voice channels regularly have multiple listeners.
 const SCREEN_SHARE_BITRATE_MIN = 1;
 const SCREEN_SHARE_BITRATE_MAX = 10;
+export const SCREEN_SHARE_FPS_MIN = 1;
+export const SCREEN_SHARE_FPS_MAX = 240;
+const SCREEN_SHARE_FPS_DEFAULT = 30;
 
-const VALID_CODECS: ScreenShareCodec[] = ['vp8', 'vp9', 'h264', 'av1'];
+const VALID_CODECS: ScreenShareCodec[] = ['h264', 'av1'];
 const VALID_RESOLUTIONS: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
-const VALID_FPS: ScreenShareFps[] = [15, 30, 60];
 const VALID_NS: NoiseSuppressionMode[] = ['off', 'rnnoise_gated'];
 const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
 
@@ -92,7 +100,7 @@ type AppearanceSettings = {
 type ScreenShareSettings = {
   codec: ScreenShareCodec;
   resolution: ScreenShareResolution;
-  fps: ScreenShareFps;
+  fps: number;
   bitrateMbps: number;
   contentHint: 'motion' | 'detail';
 };
@@ -149,9 +157,9 @@ const DEFAULTS: PersistedSettings = {
     userVolumes: {}
   },
   screenShare: {
-    codec: 'vp9',
+    codec: 'h264',
     resolution: '1080p',
-    fps: 30,
+    fps: SCREEN_SHARE_FPS_DEFAULT,
     bitrateMbps: 4,
     contentHint: 'motion'
   },
@@ -185,6 +193,11 @@ function clampGateDb(v: unknown): number {
 function clampInputMakeup(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return INPUT_MAKEUP_DEFAULT;
   return Math.min(INPUT_MAKEUP_MAX, Math.max(INPUT_MAKEUP_MIN, v));
+}
+
+function clampScreenShareFps(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return SCREEN_SHARE_FPS_DEFAULT;
+  return Math.min(SCREEN_SHARE_FPS_MAX, Math.max(SCREEN_SHARE_FPS_MIN, Math.round(v)));
 }
 
 function str(v: unknown, fallback: string): string {
@@ -236,12 +249,23 @@ function readLegacyScreenShare(): Partial<ScreenShareSettings> | null {
 function parseScreenShare(raw: Partial<ScreenShareSettings> | undefined | null): ScreenShareSettings {
   const d = DEFAULTS.screenShare;
   const p = raw ?? {};
+  // Migration: gespeicherte 'vp8'/'vp9'-Codec-Settings (Pre-2026-05-19) auf
+  // 'h264' falten — die beiden Codecs sind aus der Auswahl raus, müssen
+  // beim Lesen aber sanft auf einen gültigen Wert mappen statt zu errorn.
+  // Cast via `unknown` damit der Migrations-String-Vergleich nicht durch das
+  // engere `ScreenShareCodec`-Type weg-narrowt wird.
+  const rawCodec = p.codec as unknown as string | undefined;
+  const codec: ScreenShareCodec = VALID_CODECS.includes(rawCodec as ScreenShareCodec)
+    ? (rawCodec as ScreenShareCodec)
+    : rawCodec === 'vp8' || rawCodec === 'vp9'
+      ? 'h264'
+      : d.codec;
   return {
-    codec: VALID_CODECS.includes(p.codec as ScreenShareCodec) ? (p.codec as ScreenShareCodec) : d.codec,
+    codec,
     resolution: VALID_RESOLUTIONS.includes(p.resolution as ScreenShareResolution)
       ? (p.resolution as ScreenShareResolution)
       : d.resolution,
-    fps: VALID_FPS.includes(p.fps as ScreenShareFps) ? (p.fps as ScreenShareFps) : d.fps,
+    fps: clampScreenShareFps(p.fps),
     bitrateMbps:
       typeof p.bitrateMbps === 'number' &&
       p.bitrateMbps >= SCREEN_SHARE_BITRATE_MIN &&
@@ -501,8 +525,8 @@ class SettingsStore {
     this.#persist();
   }
 
-  setScreenShareFps(v: ScreenShareFps): void {
-    this.screenShare.fps = v;
+  setScreenShareFps(v: number): void {
+    this.screenShare.fps = clampScreenShareFps(v);
     this.#persist();
   }
 

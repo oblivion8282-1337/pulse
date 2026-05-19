@@ -2,6 +2,7 @@ import {
   ConnectionState,
   ConnectionQuality,
   LocalParticipant,
+  LocalVideoTrack,
   Participant,
   RemoteAudioTrack,
   RemoteParticipant,
@@ -176,6 +177,18 @@ class VoiceRoom {
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
     return this.#screenShare.list;
+  }
+
+  /** Local screen-share video track (whatever path published it: regular
+   *  LiveKit setScreenShareEnabled or the Win11 windowAudio-bypass) — both
+   *  end up as a publication with source === ScreenShare on the local
+   *  participant. Returns null when not sharing. Used by the streamer-side
+   *  stats overlay to read outbound-rtp + encoderImplementation. */
+  get localScreenShareTrack(): LocalVideoTrack | null {
+    const room = this.#room;
+    if (!room || !this.isScreenSharing) return null;
+    const pub = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+    return (pub?.videoTrack as LocalVideoTrack | undefined) ?? null;
   }
 
   /** Remote camera (webcam) tracks currently active in the room. */
@@ -451,11 +464,13 @@ class VoiceRoom {
       if (e instanceof Error) {
         const msg = e.message.toLowerCase();
         if (msg.includes('codec') || msg.includes('encodingparameters') || msg.includes('unsupportederror')) {
-          // A real codec/encoding rejection from the publish step — e.g. H.264 or
-          // AV1 in the desktop client (Electron's Chromium can't encode those for
-          // WebRTC). VP8/VP9 always work.
+          // A real codec/encoding rejection from the publish step. AV1 is the
+          // more likely culprit (no HW encode on older GPUs + Chromium's WebRTC
+          // AV1-encode path is gated). H.264 is the safe fallback we point at.
+          const current = settings.screenShare.codec.toUpperCase();
+          const fallback = settings.screenShare.codec === 'av1' ? 'H.264' : 'AV1';
           toast.error(
-            `Codec ${settings.screenShare.codec.toUpperCase()} wird hier nicht unterstützt — stell ihn in den Einstellungen auf VP9 um.`
+            `Codec ${current} wird hier nicht unterstützt — stell ihn in den Einstellungen auf ${fallback} um.`
           );
         } else if (msg.includes('not supported') || msg.includes('failed to start')) {
           // getDisplayMedia couldn't acquire a source.

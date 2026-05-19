@@ -2,6 +2,7 @@
   import { onMount, onDestroy, mount, unmount } from 'svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
+  import { ReceiveStatsReader, type ReceiveStats } from '$lib/voice/screenShareStats';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import MaximizeIcon from '@lucide/svelte/icons/maximize';
@@ -63,6 +64,12 @@
   // Lazy Web-Audio-Routing für >100%-Boost — `audioTrack.setVolume()` würde
   // sonst nur el.volume setzen, das HTML-spec-seitig auf 1.0 gecappt ist.
   let boost: VolumeBoost | null = null;
+
+  // Stats-Overlay (codec/res/fps/bitrate) — analog zum WHEP-Player-HUD.
+  // 1 Hz Poller über RemoteVideoTrack.getRTCStatsReport().
+  let stats = $state<ReceiveStats | null>(null);
+  const statsReader = new ReceiveStatsReader();
+  let statsTimer: ReturnType<typeof setInterval> | null = null;
 
   function applyVolume() {
     const v = volume / 100;
@@ -153,6 +160,26 @@
     if (!t || !el) return;
     t.attach(el);
     return () => { t.detach(el); };
+  });
+
+  $effect(() => {
+    const t = track;
+    if (!t) {
+      stats = null;
+      return;
+    }
+    statsReader.reset();
+    void statsReader.read(t).then((s) => { if (s) stats = s; });
+    statsTimer = setInterval(async () => {
+      const next = await statsReader.read(t);
+      if (next) stats = next;
+    }, 1000);
+    return () => {
+      if (statsTimer) {
+        clearInterval(statsTimer);
+        statsTimer = null;
+      }
+    };
   });
 
   $effect(() => {
@@ -258,9 +285,26 @@
   <!-- svelte-ignore a11y_media_has_caption -->
   <audio bind:this={audioEl} autoplay style="display:none"></audio>
 
-  <div class="absolute bottom-2 left-2 flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
-    <MonitorIcon class="size-3" />
-    <span class="max-w-32 truncate">{name}</span>
+  <div class="absolute bottom-2 left-2 flex items-center gap-1.5">
+    <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
+      <MonitorIcon class="size-3" />
+      <span class="max-w-32 truncate">{name}</span>
+    </div>
+    {#if stats}
+      <div
+        class="hidden items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] tabular-nums text-white backdrop-blur-sm sm:flex"
+        data-testid="screen-share-receive-stats"
+        title={`Codec: ${stats.codec}\nAuflösung: ${stats.res}\nFPS: ${stats.fps}\nBitrate: ${stats.bitrate}`}
+      >
+        <span>{stats.codec}</span>
+        <span class="text-white/60">·</span>
+        <span>{stats.res}</span>
+        <span class="text-white/60">·</span>
+        <span>{stats.fps}</span>
+        <span class="text-white/60">·</span>
+        <span>{stats.bitrate}</span>
+      </div>
+    {/if}
   </div>
 
   <button

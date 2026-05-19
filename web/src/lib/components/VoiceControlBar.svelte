@@ -18,6 +18,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
+  import ScreenSharePublishStats from './ScreenSharePublishStats.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
 
   let hqStreamOpen = $state(false);
@@ -193,6 +194,8 @@
           {voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}
         </Tooltip.Content>
       </Tooltip.Root>
+
+      <ScreenSharePublishStats />
 
       <HqStreamButton bind:open={hqStreamOpen} compact />
 
