@@ -37,6 +37,7 @@ import {
   acquireWindowAudioStream,
   canUseWindowAudioCapture
 } from './windowAudioCapture';
+import { installH264HwHint } from './h264HwHint';
 import { nameFor, userIdFromIdentity } from './identity';
 import { auth } from '$lib/stores/auth.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -45,6 +46,11 @@ import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
 
 export type { ScreenShareTrack, CameraTrack };
+
+// Einmalig vor dem ersten Room-Aufbau: H.264-`42e01f`-Profile in den
+// Codec-Preferences ans Ende, damit Chrome auf Windows MediaFoundation (NVENC/
+// QSV/AMF) statt OpenH264 nimmt. Details siehe `h264HwHint.ts`.
+installH264HwHint();
 
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
