@@ -20,8 +20,10 @@
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
   import ScreenSharePublishStats from './ScreenSharePublishStats.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
+  import type { PublishStats } from '$lib/voice/screenShareStats';
 
   let hqStreamOpen = $state(false);
+  let publishStats = $state<PublishStats | null>(null);
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -178,24 +180,42 @@
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
-            <Button
-              {...props}
-              variant={voice.isScreenSharing ? 'default' : 'ghost'}
-              size="icon-sm"
-              onclick={handleScreenShare}
-              data-testid="voice-screenshare-toggle"
-              aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
-            >
-              {#if voice.isScreenSharing}<MonitorOffIcon class="size-4" />{:else}<MonitorIcon class="size-4" />{/if}
-            </Button>
+            <span class="relative inline-flex">
+              <Button
+                {...props}
+                variant={voice.isScreenSharing ? 'default' : 'ghost'}
+                size="icon-sm"
+                onclick={handleScreenShare}
+                data-testid="voice-screenshare-toggle"
+                aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
+              >
+                {#if voice.isScreenSharing}<MonitorOffIcon class="size-4" />{:else}<MonitorIcon class="size-4" />{/if}
+              </Button>
+              <ScreenSharePublishStats bind:stats={publishStats} />
+            </span>
           {/snippet}
         </Tooltip.Trigger>
         <Tooltip.Content>
-          {voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}
+          <div>{voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}</div>
+          {#if voice.isScreenSharing && publishStats}
+            <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-[11px] tabular-nums">
+              <div>
+                Encoder:
+                {publishStats.encoderImpl || '—'}
+                {#if publishStats.encoderKind === 'gpu'}
+                  <span class="text-emerald-400">(GPU)</span>
+                {:else if publishStats.encoderKind === 'cpu'}
+                  <span class="text-amber-400">(CPU)</span>
+                {/if}
+              </div>
+              <div>Codec: {publishStats.codec}</div>
+              <div>Auflösung: {publishStats.res}</div>
+              <div>FPS: {publishStats.fps}</div>
+              <div>Bitrate: {publishStats.bitrate}</div>
+            </div>
+          {/if}
         </Tooltip.Content>
       </Tooltip.Root>
-
-      <ScreenSharePublishStats />
 
       <HqStreamButton bind:open={hqStreamOpen} compact />
 

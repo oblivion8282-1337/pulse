@@ -1,12 +1,14 @@
 <!--
-  Kleine Status-Pille für den Streamenden — zeigt während des eigenen
-  Bildschirm-Teilens an, was tatsächlich rausgeht:
-    [GPU] H.264 · 1920×1080 · 30 fps · 4.0 Mbit/s
+  Encoder-Badge für den Streamenden — kleines GPU/CPU-Indicator-Icon, das als
+  absolutes Overlay auf dem ScreenShare-Button gelegt wird. Die Details
+  (Codec/Auflösung/FPS/Bitrate/encoderImplementation) fließen über `bind:stats`
+  zurück zum Parent, der sie in den Button-Tooltip einbettet — damit die Info
+  nicht in der schmalen VoiceControlBar truncated wird.
 
   Pollt sekündlich `voice.localScreenShareTrack.getRTCStatsReport()`. Solange
-  WebRTC die outbound-rtp-Reports noch nicht gefüllt hat (typischerweise das
-  erste 1–2 s nach Start), zeigt sie "—" — bewusst nicht versteckt, damit der
-  Streamer den Start des Streams optisch bestätigt sieht.
+  WebRTC die outbound-rtp-Reports noch nicht gefüllt hat (typischerweise die
+  ersten 1–2 s nach Start), bleibt das Badge im "?"-Zustand sichtbar — damit
+  der Streamer den Start optisch bestätigt sieht.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
@@ -17,7 +19,8 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { PublishStatsReader, type PublishStats } from '$lib/voice/screenShareStats';
 
-  let stats = $state<PublishStats | null>(null);
+  let { stats = $bindable<PublishStats | null>(null) } = $props();
+
   let reader = new PublishStatsReader();
   let timer: ReturnType<typeof setInterval> | null = null;
   // Letzter Track, gegen den der Reader läuft — bei Wechsel (Re-Start nach
@@ -40,7 +43,6 @@
   }
 
   $effect(() => {
-    // Nur poller laufen lassen, solange wir tatsächlich teilen.
     if (!voice.isScreenSharing) {
       stats = null;
       if (timer) {
@@ -63,57 +65,20 @@
       timer = null;
     }
   });
-
-  // Kompakter Hinweis als Tooltip — der rohe `encoderImplementation`-String
-  // ist für Bug-Reports nützlich (z.B. "OpenH264" vs "MediaFoundation_h264")
-  // und sonst nirgends sichtbar.
-  let tooltip = $derived.by(() => {
-    if (!stats) return 'Encoder-Stats werden gleich verfügbar …';
-    const lines = [
-      `Codec: ${stats.codec}`,
-      `Auflösung: ${stats.res}`,
-      `Framerate: ${stats.fps}`,
-      `Bitrate: ${stats.bitrate}`,
-      `Encoder: ${stats.encoderImpl || '—'}`,
-      stats.encoderKind === 'gpu'
-        ? 'Hardware-beschleunigt (GPU)'
-        : stats.encoderKind === 'cpu'
-          ? 'Software-Encode (CPU)'
-          : 'Encoder-Typ unbekannt'
-    ];
-    return lines.join('\n');
-  });
 </script>
 
 {#if voice.isScreenSharing}
-  <div
-    class="bg-bg-soft border-border-soft text-text-base flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] tabular-nums"
-    title={tooltip}
+  <span
+    class="bg-bg-base ring-border absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full ring-1"
     data-testid="screen-share-publish-stats"
+    aria-hidden="true"
   >
     {#if stats?.encoderKind === 'gpu'}
-      <span class="flex items-center gap-1 text-emerald-400" data-testid="encoder-kind-gpu">
-        <ZapIcon class="size-3" />
-        GPU
-      </span>
+      <ZapIcon class="size-2.5 text-emerald-400" data-testid="encoder-kind-gpu" />
     {:else if stats?.encoderKind === 'cpu'}
-      <span class="flex items-center gap-1 text-amber-400" data-testid="encoder-kind-cpu">
-        <CpuIcon class="size-3" />
-        CPU
-      </span>
+      <CpuIcon class="size-2.5 text-amber-400" data-testid="encoder-kind-cpu" />
     {:else}
-      <span class="text-text-muted flex items-center gap-1" data-testid="encoder-kind-unknown">
-        <HelpCircleIcon class="size-3" />
-        ?
-      </span>
+      <HelpCircleIcon class="text-text-muted size-2.5" data-testid="encoder-kind-unknown" />
     {/if}
-    <span class="text-text-muted">·</span>
-    <span>{stats?.codec ?? '—'}</span>
-    <span class="text-text-muted">·</span>
-    <span>{stats?.res ?? '—'}</span>
-    <span class="text-text-muted">·</span>
-    <span>{stats?.fps ?? '—'}</span>
-    <span class="text-text-muted">·</span>
-    <span>{stats?.bitrate ?? '—'}</span>
-  </div>
+  </span>
 {/if}
