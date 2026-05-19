@@ -6,11 +6,13 @@
   import SettingsNotifications from './settings/SettingsNotifications.svelte';
   import SettingsSounds from './settings/SettingsSounds.svelte';
   import SettingsSecurity from './settings/SettingsSecurity.svelte';
+  import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import BellIcon from '@lucide/svelte/icons/bell';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import KeyboardIcon from '@lucide/svelte/icons/keyboard';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
@@ -22,6 +24,7 @@
     | 'screen-share'
     | 'notifications'
     | 'sounds'
+    | 'keyboard'
     | 'security';
   type MobileView = 'list' | 'detail';
 
@@ -57,6 +60,7 @@
     { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon },
     { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon },
     { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
+    { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon },
     { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
   ];
 
@@ -128,6 +132,8 @@
           <SettingsNotifications />
         {:else if activeTab === 'sounds'}
           <SettingsSounds />
+        {:else if activeTab === 'keyboard'}
+          <SettingsKeyboard />
         {:else}
           <SettingsSecurity />
         {/if}

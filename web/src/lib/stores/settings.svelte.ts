@@ -7,6 +7,12 @@ import {
   type SoundCategoryKey,
   type SoundsSettings
 } from '$lib/sounds/persistence';
+import {
+  DEFAULT_SHORTCUTS,
+  parseShortcuts,
+  type ShortcutsSettings
+} from '$lib/shortcuts/persistence';
+import type { ActionId } from '$lib/shortcuts/actions';
 
 // --- screen-share types (kept identical to the previous screenShareSettings) ---
 
@@ -135,6 +141,7 @@ type PersistedSettings = {
   appearance: AppearanceSettings;
   notifications: NotificationSettings;
   sounds: SoundsSettings;
+  shortcuts: ShortcutsSettings;
 };
 
 const DEFAULTS: PersistedSettings = {
@@ -177,7 +184,8 @@ const DEFAULTS: PersistedSettings = {
     onMention: true,
     onDM: true
   },
-  sounds: { ...DEFAULT_SOUNDS }
+  sounds: { ...DEFAULT_SOUNDS },
+  shortcuts: { ...DEFAULT_SHORTCUTS }
 };
 
 function clampBitrate(v: unknown): number {
@@ -307,7 +315,8 @@ function load(): PersistedSettings {
         streamChat: { ...DEFAULTS.streamChat },
         appearance: { ...DEFAULTS.appearance },
         notifications: { ...DEFAULTS.notifications },
-        sounds: parseSounds(null)
+        sounds: parseSounds(null),
+        shortcuts: { ...DEFAULT_SHORTCUTS }
       };
     }
     const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
@@ -348,7 +357,8 @@ function load(): PersistedSettings {
       streamChat: parseStreamChat(parsed.streamChat),
       appearance: { theme: parseTheme(ap.theme) },
       notifications: parseNotifications(parsed.notifications),
-      sounds: parseSounds(parsed.sounds)
+      sounds: parseSounds(parsed.sounds),
+      shortcuts: parseShortcuts(parsed.shortcuts)
     };
   } catch {
     return {
@@ -358,7 +368,8 @@ function load(): PersistedSettings {
       streamChat: { ...DEFAULTS.streamChat },
       appearance: { ...DEFAULTS.appearance },
       notifications: { ...DEFAULTS.notifications },
-      sounds: parseSounds(null)
+      sounds: parseSounds(null),
+      shortcuts: { ...DEFAULT_SHORTCUTS }
     };
   }
 }
@@ -371,6 +382,7 @@ class SettingsStore {
   appearance = $state<AppearanceSettings>({ ...DEFAULTS.appearance });
   notifications = $state<NotificationSettings>({ ...DEFAULTS.notifications });
   sounds = $state<SoundsSettings>({ ...DEFAULT_SOUNDS });
+  shortcuts = $state<ShortcutsSettings>({ ...DEFAULT_SHORTCUTS });
 
   /** True if a legacy `dcc.screenShareSettings` key was migrated and can be cleared. */
   #legacyMigrated = false;
@@ -384,6 +396,7 @@ class SettingsStore {
     this.appearance = s.appearance;
     this.notifications = s.notifications;
     this.sounds = s.sounds;
+    this.shortcuts = s.shortcuts;
     if (typeof localStorage !== 'undefined') {
       this.#legacyMigrated =
         localStorage.getItem(STORAGE_KEY) === null && localStorage.getItem(LEGACY_SCREENSHARE_KEY) !== null;
@@ -408,7 +421,8 @@ class SettingsStore {
           streamChat: this.streamChat,
           appearance: this.appearance,
           notifications: this.notifications,
-          sounds: this.sounds
+          sounds: this.sounds,
+          shortcuts: this.shortcuts
         })
       );
       if (this.#legacyMigrated) {
@@ -589,6 +603,32 @@ class SettingsStore {
 
   setSoundCategoryVolume(cat: SoundCategoryKey, v: number): void {
     this.sounds[cat].volume = clampSoundVolume(v);
+    this.#persist();
+  }
+
+  // --- shortcut setters ---
+
+  setShortcutBinding(id: ActionId, combo: string): void {
+    this.shortcuts = { overrides: { ...this.shortcuts.overrides, [id]: combo } };
+    this.#persist();
+  }
+
+  /** Explicitly unbind an action (binding is `null` — no key fires it). */
+  unbindShortcut(id: ActionId): void {
+    this.shortcuts = { overrides: { ...this.shortcuts.overrides, [id]: null } };
+    this.#persist();
+  }
+
+  /** Drop the override so the built-in default applies again. */
+  resetShortcut(id: ActionId): void {
+    const next = { ...this.shortcuts.overrides };
+    delete next[id];
+    this.shortcuts = { overrides: next };
+    this.#persist();
+  }
+
+  resetAllShortcuts(): void {
+    this.shortcuts = { ...DEFAULT_SHORTCUTS };
     this.#persist();
   }
 

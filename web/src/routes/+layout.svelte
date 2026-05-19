@@ -6,6 +6,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { initDesktopPtt } from '$lib/platform/ptt';
   import { initStream } from '$lib/stream/state.svelte';
+  import ShortcutHost from '$lib/components/ShortcutHost.svelte';
 
   let { children } = $props();
 
@@ -43,5 +44,7 @@
 <div class="min-h-dvh">
   {@render children?.()}
 </div>
+
+<ShortcutHost />
 
 <Toaster position="bottom-right" richColors />
