@@ -236,8 +236,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     )
                 ).scalars()
             )
-            for srow in sound_rows:
-                url = await s3.presigned_get_url(srow.storage_key)
+            # Sign all overrides in parallel — serial awaits here used to add
+            # 5–30 ms per row to Ready (one aiobotocore client-create each,
+            # back when s3.py wasn't using a singleton). Even with the
+            # singleton the SigV4 work is still parallelizable for free.
+            urls = await asyncio.gather(
+                *(s3.presigned_get_url(srow.storage_key) for srow in sound_rows)
+            )
+            for srow, url in zip(sound_rows, urls):
                 sound_overrides_by_guild.setdefault(srow.guild_id, []).append(
                     {"sound_id": srow.sound_id, "url": url}
                 )
@@ -262,6 +268,12 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 {
                     "id": str(g.id),
                     "name": g.name,
+                    # Ship icon_url + created_at so the frontend doesn't need
+                    # the extra `GET /guilds` round-trip just to render the
+                    # GuildRail. With these fields present in Ready, the
+                    # parallel REST hydrate is fully redundant.
+                    "icon_url": g.icon_url,
+                    "created_at": g.created_at.isoformat(),
                     "owner_id": str(g.owner_id),
                     "my_permissions": str(my_perms),
                     "my_role_ids": [str(rid) for rid in my_role_ids.get(g.id, [])],
@@ -324,15 +336,18 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # ``guild_member_added`` / ``guild_deleted`` events.
     await manager.set_guild_membership(websocket, guild_ids)
 
-    voice_states = await manager.voice_states_for(voice_channel_ids)
     # HQ streaming + watch parties only happen in voice channels, so the
-    # relevant channel set is the same one.
-    stream_states = await manager.stream_states_for(voice_channel_ids)
-    watch_states = await manager.watch_states_for(voice_channel_ids)
-    # Active force-mute / force-deafen overrides per (channel, user) —
-    # lets a freshly-reconnected client see who's currently muted by a
-    # mod without waiting for the next toggle.
-    voice_overrides = await manager.voice_overrides_for(voice_channel_ids)
+    # relevant channel set is the same one. Force-mute / force-deafen
+    # overrides round out the snapshot so a freshly-reconnected client sees
+    # who's currently muted by a mod without waiting for the next toggle.
+    # All four are independent Redis reads — gather them so a slow Redis
+    # roundtrip doesn't get multiplied by four.
+    voice_states, stream_states, watch_states, voice_overrides = await asyncio.gather(
+        manager.voice_states_for(voice_channel_ids),
+        manager.stream_states_for(voice_channel_ids),
+        manager.watch_states_for(voice_channel_ids),
+        manager.voice_overrides_for(voice_channel_ids),
+    )
 
     await websocket.send_json(
         {

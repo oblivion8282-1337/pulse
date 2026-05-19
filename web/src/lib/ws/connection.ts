@@ -70,6 +70,8 @@ type ReactionEvent = {
 export type ReadyGuild = {
   id: string;
   name: string;
+  icon_url?: string | null;
+  created_at?: string;
   owner_id?: string;
   my_permissions?: string;
   my_role_ids?: string[];
@@ -256,6 +258,12 @@ export class GatewayConnection {
   // Buffer for events that arrive before the `ready` handler has run.
   private _readyDone = false;
   private _preReadyBuffer: ServerEvent[] = [];
+  // Resolved when the *current* connection's Ready frame has been processed.
+  // The /app layout awaits this so it doesn't render with an empty
+  // `guilds.byId` between WS-open and Ready arrival (which would flash a
+  // blank GuildRail). Replaced on each new connection.
+  private _readyPromise: Promise<void> | null = null;
+  private _readyResolve: (() => void) | null = null;
 
   on(listener: WsListener): () => void {
     this.listeners.add(listener);
@@ -276,12 +284,26 @@ export class GatewayConnection {
     this.wantConnected = true;
     if (this.ws && this.ws.readyState <= 1) return;
     if (this.connectPromise) return this.connectPromise;
+    // Fresh Ready promise for this connection. Resolved in the `case 'ready'`
+    // branch of `_handle`; rejected if the dial fails.
+    this._readyPromise = new Promise((resolve) => {
+      this._readyResolve = resolve;
+    });
     this.connectPromise = this._dial();
     try {
       await this.connectPromise;
     } finally {
       this.connectPromise = null;
     }
+  }
+
+  /** Resolves once the Ready frame for the *current* connection has been
+   * processed (guilds.byId, roles, voice/stream/watch presence all seeded).
+   * The /app layout awaits this before painting so the first frame already
+   * has the GuildRail populated. Returns immediately if Ready already came. */
+  waitForReady(): Promise<void> {
+    if (this._readyDone) return Promise.resolve();
+    return this._readyPromise ?? Promise.resolve();
   }
 
   private async _dial(): Promise<void> {
@@ -430,16 +452,34 @@ export class GatewayConnection {
 
     switch (evt.op) {
       case 'ready':
-        // Pre-seed guilds.byId so lifecycle events buffered before REST hydrate
-        // don't no-op on the `if (guilds.byId[...])` guards. Uses ??= so a
-        // concurrently-completed hydrate() (full Guild object) is never downgraded.
-        for (const g of evt.guilds) {
-          guilds.byId[g.id] ??= {
-            icon_url: null,
-            owner_id: g.owner_id ?? '',
-            created_at: '',
-            ...g
-          } as Guild;
+        // The Ready frame is now the single source of truth for the guild
+        // list — `+layout.svelte` no longer fires a parallel `GET /guilds`.
+        // We upsert each guild (so a reconnect picks up renames/icon-changes
+        // that happened while we were offline) and reap stale entries that
+        // are no longer in the user's set (e.g. removed from a guild during
+        // the disconnect). Lifecycle events that arrived before Ready are
+        // still replayed below from the pre-ready buffer.
+        {
+          const seen = new Set<string>();
+          for (const g of evt.guilds) {
+            seen.add(g.id);
+            const existing = guilds.byId[g.id];
+            guilds.byId[g.id] = {
+              ...(existing ?? {}),
+              ...g,
+              icon_url: g.icon_url ?? existing?.icon_url ?? null,
+              created_at: g.created_at ?? existing?.created_at ?? '',
+              owner_id: g.owner_id ?? existing?.owner_id ?? ''
+            } as Guild;
+          }
+          for (const gid of Object.keys(guilds.byId)) {
+            if (!seen.has(gid)) guilds.remove(gid);
+          }
+          guilds.loaded = true;
+        }
+        if (this._readyResolve) {
+          this._readyResolve();
+          this._readyResolve = null;
         }
         // The role payload is part of the ready envelope, not REST, so it's
         // populated here (the hydrate() pass on the REST side does not return

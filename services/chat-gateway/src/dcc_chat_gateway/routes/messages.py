@@ -102,6 +102,13 @@ async def list_messages(
     stmt = stmt.order_by(Message.id.desc()).limit(limit)
     rows = list((await session.execute(stmt)).scalars().all())
     msg_ids = [m.id for m in rows]
+    # Three independent fan-out queries — kept sequential because
+    # AsyncSession is not safe to share across concurrent tasks (SQLAlchemy
+    # docs: connection state is per-execute). Each query is index-bound on
+    # ``msg_ids IN (...)`` so the win from parallelizing them would be a
+    # few ms at most; the real wall-clock cost in this function lived in
+    # ``serialize_attachments`` (S3-signing), which now reuses a singleton
+    # aiobotocore client — see ``s3.py``.
     reactions = await _reactions_for(session, msg_ids, current.id)
     attachments = await serialize_attachments(session, msg_ids)
     mentions_map = await mentions_for(session, msg_ids)

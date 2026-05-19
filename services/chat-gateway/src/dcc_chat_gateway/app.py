@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
+from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import engine
@@ -108,6 +109,10 @@ async def lifespan(app: FastAPI):
                     await redis.aclose()
                 except Exception:  # noqa: BLE001
                     pass
+        # Close the lazily-initialised S3 clients regardless of which branch
+        # we took above — they may have been created from a non-Redis test
+        # path too.
+        await s3.shutdown_clients()
 
 
 def create_app(*, skip_redis: bool = False) -> FastAPI:

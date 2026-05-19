@@ -11,13 +11,23 @@ nginx for latency. MinIO is configured with ``MINIO_SERVER_URL`` matching
 
 In dev both endpoints collapse to ``http://localhost:9000`` — same client
 shape, different endpoints. The helpers below close over the configured
-endpoint via ``_make_client``.
+endpoint via ``_make_client_kwargs``.
+
+**Lifecycle:** aiobotocore clients are expensive to create (~5–30 ms each:
+they load service-model JSON, open a connection pool). The previous design
+spun one up per ``presigned_get_url`` call via an ``asynccontextmanager``,
+which dominated the latency of any endpoint that signed N URLs (Ready,
+list_messages, attachment-heavy channel-opens). We now hold one
+process-wide client per endpoint, lazily initialised on first use and torn
+down by the FastAPI lifespan via ``shutdown_clients``. Lazy-init is
+serialized through ``_init_lock`` so a burst of concurrent first requests
+doesn't race to create N clients.
 """
 
 from __future__ import annotations
 
-import contextlib
-from typing import AsyncIterator, Literal
+import asyncio
+from typing import Literal
 
 import aiobotocore.session
 import httpx
@@ -49,26 +59,63 @@ def _make_client_kwargs(endpoint: str) -> dict:
     }
 
 
-@contextlib.asynccontextmanager
-async def _internal_client() -> AsyncIterator:
-    """aiobotocore client pointing at the docker-DNS MinIO endpoint."""
-    s = get_settings()
-    session = aiobotocore.session.get_session()
-    async with session.create_client(
-        **_make_client_kwargs(s.s3_internal_endpoint)
-    ) as client:
-        yield client
+# Cached clients + their context managers (we hold the CM so we can call
+# __aexit__ at shutdown). None until first use.
+_session = aiobotocore.session.get_session()
+_internal_cm = None
+_internal_client = None
+_public_cm = None
+_public_client = None
+_init_lock = asyncio.Lock()
 
 
-@contextlib.asynccontextmanager
-async def _public_client() -> AsyncIterator:
-    """aiobotocore client whose presigned URLs are stamped with the public host."""
-    s = get_settings()
-    session = aiobotocore.session.get_session()
-    async with session.create_client(
-        **_make_client_kwargs(s.s3_public_endpoint)
-    ) as client:
-        yield client
+async def _ensure_internal_client():
+    """Return the singleton aiobotocore client for server→MinIO ops."""
+    global _internal_cm, _internal_client
+    if _internal_client is not None:
+        return _internal_client
+    async with _init_lock:
+        if _internal_client is None:
+            s = get_settings()
+            _internal_cm = _session.create_client(
+                **_make_client_kwargs(s.s3_internal_endpoint)
+            )
+            _internal_client = await _internal_cm.__aenter__()
+    return _internal_client
+
+
+async def _ensure_public_client():
+    """Return the singleton aiobotocore client used to sign browser-bound URLs."""
+    global _public_cm, _public_client
+    if _public_client is not None:
+        return _public_client
+    async with _init_lock:
+        if _public_client is None:
+            s = get_settings()
+            _public_cm = _session.create_client(
+                **_make_client_kwargs(s.s3_public_endpoint)
+            )
+            _public_client = await _public_cm.__aenter__()
+    return _public_client
+
+
+async def shutdown_clients() -> None:
+    """Close cached aiobotocore clients. Called from the FastAPI lifespan's
+    ``finally`` branch. Safe to call when nothing was ever initialised."""
+    global _internal_cm, _internal_client, _public_cm, _public_client
+    for cm_name, client_name in (
+        ("_internal_cm", "_internal_client"),
+        ("_public_cm", "_public_client"),
+    ):
+        cm = globals()[cm_name]
+        if cm is None:
+            continue
+        try:
+            await cm.__aexit__(None, None, None)
+        except Exception:  # noqa: BLE001 — best-effort shutdown
+            pass
+        globals()[cm_name] = None
+        globals()[client_name] = None
 
 
 async def presigned_put_url(
@@ -89,12 +136,12 @@ async def presigned_put_url(
         params["ContentType"] = content_type
     if content_length is not None:
         params["ContentLength"] = content_length
-    async with _public_client() as client:
-        return await client.generate_presigned_url(
-            ClientMethod="put_object",
-            Params=params,
-            ExpiresIn=s.s3_presigned_ttl_seconds,
-        )
+    client = await _ensure_public_client()
+    return await client.generate_presigned_url(
+        ClientMethod="put_object",
+        Params=params,
+        ExpiresIn=s.s3_presigned_ttl_seconds,
+    )
 
 
 async def presigned_get_url(
@@ -110,12 +157,12 @@ async def presigned_get_url(
         params["ResponseContentDisposition"] = (
             f'attachment; filename="{filename}"'
         )
-    async with _public_client() as client:
-        return await client.generate_presigned_url(
-            ClientMethod="get_object",
-            Params=params,
-            ExpiresIn=s.s3_presigned_ttl_seconds,
-        )
+    client = await _ensure_public_client()
+    return await client.generate_presigned_url(
+        ClientMethod="get_object",
+        Params=params,
+        ExpiresIn=s.s3_presigned_ttl_seconds,
+    )
 
 
 async def put_object(key: str, *, body: bytes, content_type: str) -> None:
@@ -124,21 +171,21 @@ async def put_object(key: str, *, body: bytes, content_type: str) -> None:
     route instead so the client streams straight to MinIO; for these
     micro-uploads the extra round-trip would dominate latency."""
     s = get_settings()
-    async with _internal_client() as client:
-        await client.put_object(
-            Bucket=s.s3_bucket,
-            Key=key,
-            Body=body,
-            ContentType=content_type,
-        )
+    client = await _ensure_internal_client()
+    await client.put_object(
+        Bucket=s.s3_bucket,
+        Key=key,
+        Body=body,
+        ContentType=content_type,
+    )
 
 
 async def delete_object(key: str) -> None:
     """Hard-delete an object. Used by the message-delete + attachment-edit
     paths to free MinIO storage immediately (per Phase-1 spec: no soft-keep)."""
     s = get_settings()
-    async with _internal_client() as client:
-        await client.delete_object(Bucket=s.s3_bucket, Key=key)
+    client = await _ensure_internal_client()
+    await client.delete_object(Bucket=s.s3_bucket, Key=key)
 
 
 async def total_bucket_bytes() -> int | None:
@@ -152,11 +199,11 @@ async def total_bucket_bytes() -> int | None:
     s = get_settings()
     total = 0
     try:
-        async with _internal_client() as client:
-            paginator = client.get_paginator("list_objects_v2")
-            async for page in paginator.paginate(Bucket=s.s3_bucket):
-                for obj in page.get("Contents", []):
-                    total += obj.get("Size", 0)
+        client = await _ensure_internal_client()
+        paginator = client.get_paginator("list_objects_v2")
+        async for page in paginator.paginate(Bucket=s.s3_bucket):
+            for obj in page.get("Contents", []):
+                total += obj.get("Size", 0)
         return total
     except Exception:  # noqa: BLE001
         return None

@@ -38,11 +38,18 @@
       await goto('/login', { replaceState: true });
       return;
     }
+    // No `guilds.hydrate()` here: the WS Ready frame is authoritative for
+    // the guild list (includes icon_url + created_at since Phase 4 perf
+    // pass) and `gateway.connect()` already runs in parallel below. Calling
+    // `GET /guilds` here used to double-fetch the same data and burn an
+    // extra round-trip on the cold-boot path. We additionally await
+    // `gateway.waitForReady()` so the layout doesn't paint with an empty
+    // GuildRail between WS-open and Ready-arrival.
+    void gateway.connect().catch((e) => console.error('gateway connect', e));
     await Promise.all([
-      guilds.hydrate().catch((e) => console.error('guilds.hydrate failed', e)),
       directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
       capabilities.hydrate().catch((e) => console.error('capabilities.hydrate failed', e)),
-      gateway.connect().catch((e) => console.error('gateway connect', e))
+      gateway.waitForReady().catch((e) => console.error('gateway ready', e))
     ]);
     hydrated = true;
 
