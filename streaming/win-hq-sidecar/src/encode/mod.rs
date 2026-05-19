@@ -9,6 +9,7 @@
 //! der „risk corner" aus WINDOWS_HQ_SIDECAR.md — `ffmpeg-sys-next`-`unsafe`-
 //! Verkabelung). System-RAM-NV12 verliert -20-30% Perf, läuft aber stabil.
 
+pub mod audio;
 pub mod encoder;
 
-pub use encoder::{EncoderConfig, FfmpegEncoder, VideoCodec};
+pub use encoder::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};

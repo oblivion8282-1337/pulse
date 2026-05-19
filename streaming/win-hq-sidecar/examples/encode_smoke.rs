@@ -25,6 +25,7 @@ use pulse_win_hq_sidecar::capture::{
     wgc::{CaptureConfig, WgcCapture},
 };
 use pulse_win_hq_sidecar::encode::{EncoderConfig, FfmpegEncoder, VideoCodec};
+// `None` für `audio_cfg` → reine Video-Spur in der MP4 (siehe encode_smoke).
 use pulse_win_hq_sidecar::system::dxgi;
 
 const TARGET_FPS: u32 = 30;
@@ -96,6 +97,7 @@ fn main() -> anyhow::Result<()> {
             fps: TARGET_FPS,
             bitrate_kbps: bitrate,
         },
+        None, // video-only — encode_smoke testet die Encode-Pipeline ohne Audio
         out_path
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("non-utf8 output path"))?,

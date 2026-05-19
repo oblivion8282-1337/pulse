@@ -22,7 +22,28 @@ use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame, software::scaling};
 
+use super::audio::AudioPipeline;
+use crate::audio::CapturedAudio;
 use crate::capture::wgc::CapturedFrame;
+
+/// Konfiguration für die optionale Audio-Spur. Wenn `None` an
+/// `FfmpegEncoder::create` übergeben wird, hat der Output nur eine Video-Spur.
+#[derive(Debug, Clone, Copy)]
+pub struct AudioStreamConfig {
+    pub sample_rate: u32,
+    pub channels: u16,
+    pub bitrate_kbps: u32,
+}
+
+impl AudioStreamConfig {
+    /// Default für Pulse: 48 kHz Stereo, 128 kbps Opus — Streaming-Standard,
+    /// transparent für Sprache und Musik bei moderater Bandbreite.
+    pub const DEFAULT: Self = Self {
+        sample_rate: 48_000,
+        channels: 2,
+        bitrate_kbps: 128,
+    };
+}
 
 /// Pixel-Format das wir an den Encoder reichen. NVENC akzeptiert `AV_PIX_FMT_BGRA`
 /// direkt (siehe `libavcodec/nvenc_h264.c::pix_fmts[]`) → kein swscale-Schritt
@@ -94,6 +115,9 @@ pub struct FfmpegEncoder {
     stream_time_base: Rational,
     /// Erwartete Dimensionen für `send()`-Validation.
     expected_src: (u32, u32),
+    /// Optionale Audio-Spur (libopus). Capture-Worker pumpt
+    /// `send_audio(captured)` rein; finish() flusht beide Spuren.
+    audio: Option<AudioPipeline>,
 }
 
 impl FfmpegEncoder {
@@ -101,7 +125,14 @@ impl FfmpegEncoder {
     /// Datei (`.mp4`/`.flv`) oder eine URL (`rtmp://...`/`rtmps://...`) sein.
     /// Bei Dateien errät FFmpeg das Format aus der Extension; bei URLs ohne
     /// Extension forcieren wir es manuell (FLV für RTMP/RTMPS, MPEG-TS für SRT).
-    pub fn create(cfg: &EncoderConfig, output_path: &str) -> Result<Self> {
+    ///
+    /// `audio_cfg = Some(...)` fügt eine libopus-Audio-Spur hinzu; `None` =
+    /// video-only.
+    pub fn create(
+        cfg: &EncoderConfig,
+        audio_cfg: Option<AudioStreamConfig>,
+        output_path: &str,
+    ) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
 
         let mut output = match url_format_hint(output_path) {
@@ -156,6 +187,19 @@ impl FfmpegEncoder {
             .with_context(|| format!("open encoder '{codec_name}' (vendor={})", cfg.vendor))?;
         stream.set_parameters(&opened);
 
+        // Audio-Pipeline VOR write_header anlegen — sie addiert einen Stream
+        // zum Output-Context, was nur erlaubt ist bevor der Header geschrieben
+        // wurde.
+        let audio = match audio_cfg {
+            Some(a) => Some(AudioPipeline::create(
+                &mut output,
+                a.sample_rate,
+                a.channels,
+                a.bitrate_kbps,
+            )?),
+            None => None,
+        };
+
         output.write_header().context("write_header")?;
 
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
@@ -202,7 +246,17 @@ impl FfmpegEncoder {
             encoder_time_base,
             stream_time_base,
             expected_src: (cfg.src_width, cfg.src_height),
+            audio,
         })
+    }
+
+    /// Schickt einen WASAPI-Audio-Chunk in den Opus-Encoder. No-op wenn der
+    /// Encoder ohne Audio-Spur erstellt wurde.
+    pub fn send_audio(&mut self, captured: &CapturedAudio) -> Result<()> {
+        if let Some(audio) = self.audio.as_mut() {
+            audio.send(captured, &mut self.output)?;
+        }
+        Ok(())
     }
 
     /// Schickt einen Capture-Frame in den Encoder. Drained interne Packets auf
@@ -261,11 +315,14 @@ impl FfmpegEncoder {
         Ok(())
     }
 
-    /// EOF an den Encoder, restliche Packets flushen, Trailer schreiben. Konsumiert
-    /// self — danach ist der Encoder zu.
+    /// EOF an Video + Audio Encoder, restliche Packets flushen, Trailer schreiben.
+    /// Konsumiert self — danach ist der Encoder zu.
     pub fn finish(mut self) -> Result<()> {
-        self.encoder.send_eof().context("send_eof")?;
+        self.encoder.send_eof().context("video send_eof")?;
         self.drain_packets()?;
+        if let Some(mut audio) = self.audio.take() {
+            audio.flush(&mut self.output)?;
+        }
         self.output.write_trailer().context("write_trailer")?;
         Ok(())
     }

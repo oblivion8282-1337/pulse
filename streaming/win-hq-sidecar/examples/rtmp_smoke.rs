@@ -93,6 +93,7 @@ fn main() -> anyhow::Result<()> {
             fps: TARGET_FPS,
             bitrate_kbps: NATIVE_BITRATE_KBPS,
         },
+        None, // rtmp_smoke = video-only (rtmpav_smoke wäre die A+V-Variante)
         &url,
     )?;
     println!("[smoke] encoder + RTMP output context opened");

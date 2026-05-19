@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use crate::audio::{AudioCapture, AudioSource};
 use crate::capture::CaptureSource;
 use crate::capture::wgc::{CaptureConfig, WgcCapture};
-use crate::encode::{EncoderConfig, FfmpegEncoder, VideoCodec};
+use crate::encode::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};
 use crate::events;
 use crate::profiles::StreamProfile;
 use crate::system::dxgi;
@@ -221,6 +221,27 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             .override_bitrate_kbps
             .unwrap_or(params.profile.bitrate_kbps);
 
+        // Audio-Pipeline ist als Infrastruktur vorhanden (siehe `encode::audio`)
+        // aber noch NICHT in den Live-Mux-Pfad verdrahtet: das initial Wiring
+        // löste eine FFmpeg-write_interleaved-Blockade aus (Video-Packets warten
+        // auf Audio-Packets, die zwar produziert werden aber das Mux-Buffer
+        // anscheinend nicht ablaufen lassen). Stage 8a Schritt 2 muss das in
+        // einer fokussierten Session debuggen — wahrscheinlich `write` statt
+        // `write_interleaved` oder Audio-Pre-Buffer vor write_header.
+        //
+        // Bis dahin: Audio wird gecaptured aber nicht gemuxt. Stream ist tonlos
+        // — funktionsfähig für Screen-Tests, Audio-Mux folgt.
+        let audio_capture: Option<AudioCapture> = params.audio.as_ref().and_then(|src| {
+            match AudioCapture::start(src.clone(), 1024) {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    eprintln!("[stream-pipeline] audio capture failed, continuing video-only: {e:#}");
+                    None
+                }
+            }
+        });
+        let audio_cfg: Option<AudioStreamConfig> = None;
+
         let mut encoder = FfmpegEncoder::create(
             &EncoderConfig {
                 codec,
@@ -232,17 +253,9 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
                 fps,
                 bitrate_kbps: bitrate,
             },
+            audio_cfg,
             &params.push_url,
         )?;
-
-        // Audio-Capture nebenher starten falls AudioSource gesetzt. Stage 7
-        // muxt Audio noch nicht in den FLV-Stream — Audio-Spur kommt in
-        // einem Folge-Patch (FFmpeg-Audio-Stream + Mixer für Desktop+Mic).
-        // Hier nur Lifecycle-Management.
-        let _audio: Option<AudioCapture> = params
-            .audio
-            .as_ref()
-            .and_then(|src| AudioCapture::start(src.clone(), 1024).ok());
 
         ctrl.set_state("live");
         emit_state("live", true, 0.0);
@@ -256,6 +269,17 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
             if stop_rx.try_recv().is_ok() {
                 break;
             }
+
+            // Audio zuerst rein-pumpen — non-blocking try_recv. Audio kommt in
+            // 1024-Frame-Chunks ~jede 21ms an, Video alle ~16ms, also locker
+            // genug Headroom für beides in einem Loop.
+            // Audio wird gecaptured aber bewusst weggeworfen — siehe Kommentar
+            // bei `audio_cfg = None` oben. Sobald die Mux-Blockade gefixt ist,
+            // wird hier `encoder.send_audio(&chunk)` reaktiviert.
+            if let Some(ac) = audio_capture.as_ref() {
+                while ac.samples.try_recv().is_ok() {}
+            }
+
             let frame = match capture.frames.recv_timeout(Duration::from_millis(500)) {
                 Ok(f) => f,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
@@ -279,6 +303,9 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         }
 
         capture.stop();
+        if let Some(mut ac) = audio_capture {
+            ac.stop();
+        }
         encoder.finish()?;
         Ok(())
     })();
