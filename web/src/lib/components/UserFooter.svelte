@@ -12,6 +12,7 @@
   import { deleteAvatar } from '$lib/api/auth';
   import { loadTokens } from '$lib/api/storage';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import AvatarUploadDialog from './AvatarUploadDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
@@ -21,7 +22,6 @@
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
   let uploadOpen = $state(false);
-  let settingsOpen = $state(false);
 
   let displayName = $derived(
     auth.user ? (auth.user.display_name ?? auth.user.username) : ''
@@ -66,7 +66,7 @@
 </script>
 
 <AvatarUploadDialog bind:open={uploadOpen} />
-<SettingsDialog bind:open={settingsOpen} />
+<SettingsDialog bind:open={uiOverlays.settingsOpen} />
 
 <div
   class="bg-bg-input m-2 flex shrink-0 items-center gap-2.5 rounded-2xl border border-border p-2"
@@ -111,7 +111,7 @@
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Separator />
-      <DropdownMenu.Item onclick={() => (settingsOpen = true)} data-testid="open-settings">
+      <DropdownMenu.Item onclick={() => (uiOverlays.settingsOpen = true)} data-testid="open-settings">
         <SettingsIcon class="size-4" />
         Einstellungen
       </DropdownMenu.Item>
