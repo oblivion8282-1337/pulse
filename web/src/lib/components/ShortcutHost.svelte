@@ -18,7 +18,7 @@
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import { stream } from '$lib/stream/state.svelte';
   import { gsr } from '$lib/stream/gsr';
-  import { isElectron, isLinux } from '$lib/platform/runtime';
+  import { isElectron, isLinux, isWindows } from '$lib/platform/runtime';
   import ShortcutCheatsheet from './ShortcutCheatsheet.svelte';
   import QuickSwitcher from './QuickSwitcher.svelte';
 
@@ -85,8 +85,8 @@
         void voice.disconnect({ reason: 'user' });
       }),
       register('stream.toggleHq', () => {
-        if (!isElectron() || !isLinux() || !stream.gsrAvailable) {
-          toast.info('HQ-Stream nur in Electron auf Linux verfügbar');
+        if (!isElectron() || !(isLinux() || isWindows()) || !stream.gsrAvailable) {
+          toast.info('HQ-Stream nur in der Desktop-App verfügbar');
           return;
         }
         if (stream.running) {
