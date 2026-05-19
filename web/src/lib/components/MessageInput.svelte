@@ -11,6 +11,8 @@
   import { expandShortcodes } from '$lib/emoji';
   import { startUpload, cleanupRow, type PendingAttachment } from '$lib/attachments/upload.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { lookupComposer } from '$lib/shortcuts/engine.svelte';
+  import { applyComposerAction } from '$lib/shortcuts/composerActions';
 
   // `channelId` null → watch-party / stream-chat composer: attachments
   // (paperclip / paste / drop) are wired off, mention popup still works.
@@ -102,6 +104,12 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (mentionOverlay?.handleKey(e)) return; // popup gets first dibs on ↑/↓/Enter/Tab/Esc
+    const composerAction = lookupComposer(e);
+    if (composerAction && textarea && applyComposerAction(composerAction, textarea, text, (v) => (text = v))) {
+      e.preventDefault();
+      mentionOverlay?.update();
+      return;
+    }
     if (e.key === 'Escape' && replyTo) { e.preventDefault(); onCancelReply?.(); return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); fire(); }
   }
