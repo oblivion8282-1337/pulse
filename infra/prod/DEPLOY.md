@@ -107,9 +107,14 @@ docker logs pulse_watchtower            # see what Watchtower is doing
 
 ## Backups
 
-The `backup` sidecar (built locally from `infra/prod/backup/Dockerfile`)
-runs restic-encrypted snapshots of Postgres + MinIO + avatars + guild_icons
-into the `pulse_backups` Docker volume. Schedule (UTC):
+**Opt-in.** Pulse runs fine without the backup sidecar — `docker compose
+up -d` skips the `backup` service unless you opt in via `COMPOSE_PROFILES=
+backup` in `.env`. The `/app/admin` panel surfaces a "Backup nicht
+eingerichtet" card while the profile is off, so you don't silently forget.
+
+When enabled, the `backup` sidecar (built locally from `infra/prod/backup/
+Dockerfile`) runs restic-encrypted snapshots of Postgres + MinIO + avatars
++ guild_icons into the `pulse_backups` Docker volume. Schedule (UTC):
 
 - `pg`        — daily 04:00 (pg_dump | restic --stdin)
 - `minio`     — every 6h    (mc mirror → restic)
@@ -119,7 +124,7 @@ into the `pulse_backups` Docker volume. Schedule (UTC):
 
 Schedule + script live in `infra/prod/backup/{crontab,backup.sh}`.
 
-### Setup (one-time, before next deploy)
+### Setup (one-time, when ready to enable backups)
 
 ```sh
 # 1. Generate the repo passphrase. **Save it in a password manager AND on
@@ -127,11 +132,11 @@ Schedule + script live in `infra/prod/backup/{crontab,backup.sh}`.
 #    repo, full stop.
 openssl rand -base64 32
 
-# 2. Append the passphrase to ~/pulse/infra/prod/.env on the VPS.
-#    Without RESTIC_PASSWORD set, `docker compose up -d` will REFUSE TO
-#    START the whole stack (the env var is required:?). So this step
-#    blocks the next deploy until done.
-echo "RESTIC_PASSWORD=<paste here>" >> ~/pulse/infra/prod/.env
+# 2. Enable the profile + add the passphrase in ~/pulse/infra/prod/.env:
+cat >> ~/pulse/infra/prod/.env <<EOF
+COMPOSE_PROFILES=backup
+RESTIC_PASSWORD=<paste here>
+EOF
 
 # 3. Build + start the sidecar.
 cd ~/pulse/infra/prod

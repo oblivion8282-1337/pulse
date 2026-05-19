@@ -121,22 +121,34 @@ services:
     labels: *pinned-labels
 
   # ── encrypted backups (restic → pulse_backups volume) ──────────────────────
-  # Sidecar that snapshots Postgres + MinIO + avatars + guild_icons into a
-  # local restic repo at /repo. Built from ./backup/Dockerfile (not GHCR);
-  # Watchtower-excluded because the image only changes when this directory
-  # does. Schedule + script land in a follow-up commit; for now the container
-  # is a working environment for restic invocations and stays idle.
+  # Opt-in sidecar that snapshots Postgres + MinIO + avatars + guild_icons
+  # into a local restic repo at /repo. Built from ./backup/Dockerfile (not
+  # GHCR); Watchtower-excluded because the image only changes when this
+  # directory does.
   #
-  # See infra/prod/backup/restore.md (added with the restore runbook) for
-  # recovery. Local-only repo is *not* a real backup against disk loss —
-  # an off-host move is tracked as a TODO in DEPLOY.md.
+  # Profile-gated: `docker compose up -d` skips this service unless the
+  # operator opts in by setting ``COMPOSE_PROFILES=backup`` in .env (or
+  # passing ``--profile backup``). That keeps fresh self-hoster installs
+  # painless (no mandatory RESTIC_PASSWORD ceremony) — the trade-off is
+  # documented in DEPLOY.md, and the admin panel surfaces the "not
+  # configured" state so it doesn't get forgotten silently.
+  #
+  # See infra/prod/backup/restore.md for recovery. Local-only repo is
+  # *not* a real backup against disk loss — an off-host move is tracked
+  # as a TODO in DEPLOY.md.
   backup:
+    profiles: [backup]
     build: ./backup
     container_name: pulse_backup
     restart: unless-stopped
     environment:
       RESTIC_REPOSITORY: /repo
-      RESTIC_PASSWORD: ${RESTIC_PASSWORD:?RESTIC_PASSWORD required}
+      # Lenient interpolation so profile-OFF deployments don't trip the
+      # compose-level required-guard (it evaluates before profile filtering).
+      # The entrypoint enforces non-empty RESTIC_PASSWORD instead — clearer
+      # error than the empty-passphrase restic crash that would otherwise
+      # happen if the operator enables the profile but forgets the .env.
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:-}
       PGHOST: postgres
       PGUSER: ${POSTGRES_USER:-dcc}
       PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}

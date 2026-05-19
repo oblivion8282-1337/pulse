@@ -45,14 +45,19 @@ async def get_backup_status(
     path = settings.backup_marker_path
     threshold = settings.backup_stale_threshold_seconds
 
-    # "Configured" probe = the volume mount-point exists. By convention the
-    # marker lives at ``<volume-root>/.pulse/<marker>``, so the volume root
-    # is the grandparent. Checking ``.pulse/`` instead would conflate
-    # "volume mounted" with "backup.sh ran at least once" — a fresh deploy
-    # where the operator wired the mount but the backup container hasn't
-    # touched its marker yet would otherwise wrongly report not-configured.
-    volume_root = path.parent.parent
-    if not volume_root.exists():
+    # "Configured" probe = the ``.pulse/`` subdir exists. The auth service
+    # *always* mounts the pulse_backups volume RO (so the mount point
+    # itself is always present), but the ``.pulse/`` subdir is created
+    # only by the backup container's entrypoint / backup.sh. Its absence
+    # therefore signals one of two cases — both with the same operator
+    # remedy (enable the backup profile + set RESTIC_PASSWORD):
+    #
+    #   * Backup profile is OFF — the most common state for fresh
+    #     self-hoster installs that haven't enabled backups yet.
+    #   * Profile ON but the container has never started successfully
+    #     (e.g. RESTIC_PASSWORD missing → crash-loop). Operator should
+    #     check ``docker logs pulse_backup``.
+    if not path.parent.exists():
         return BackupStatusOut(
             configured=False,
             last_backup_at=None,

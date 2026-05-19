@@ -14,6 +14,15 @@ set -eu
 
 case "${1:-cron}" in
     cron)
+        # Enforce passphrase here (not via compose's :?required) — compose
+        # evaluates that guard before profile filtering, which would block
+        # `docker compose up -d` for users who haven't opted into the
+        # backup profile at all. See docker-compose.yml's backup service.
+        if [ -z "${RESTIC_PASSWORD:-}" ]; then
+            echo "pulse_backup: RESTIC_PASSWORD not set in .env — backups disabled." >&2
+            echo "pulse_backup: see infra/prod/DEPLOY.md → Backups for setup." >&2
+            exit 1
+        fi
         mkdir -p /var/spool/cron/crontabs
         cp /etc/pulse-crontab /var/spool/cron/crontabs/root
         chmod 0600 /var/spool/cron/crontabs/root
