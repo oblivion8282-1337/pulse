@@ -124,8 +124,23 @@ impl FfmpegEncoder {
         ffmpeg::init().context("ffmpeg::init")?;
 
         let mut output = match url_format_hint(output_path) {
-            Some(fmt) => format::output_as(&output_path, fmt)
-                .with_context(|| format!("format::output_as({output_path}, {fmt})"))?,
+            Some(fmt) => {
+                // Für RTMPS: `tls_verify=0` setzen — Pulse-MediaMTX nutzt by-design
+                // ein self-signed Cert (siehe `streaming/server/mediamtx.yml.template`).
+                // Die echte Auth läuft per Stream-Token in der URL
+                // (`?user=pulse&pass=<token>`) → MediaMTX authHTTP-Hook → media-svc.
+                // TLS ist hier nur Token-Verschleierung, nicht Server-Verifikation.
+                // FFmpegs Schannel-Backend auf Windows ist strict-verify by default,
+                // was den Stream sonst nach dem TLS-Handshake mit „Writing encrypted
+                // data to socket failed" killt. Verifiziert mit `ffmpeg.exe
+                // -tls_verify 0` als Referenz (= identisches Verhalten).
+                let mut opts = Dictionary::new();
+                if output_path.to_ascii_lowercase().starts_with("rtmps://") {
+                    opts.set("tls_verify", "0");
+                }
+                format::output_as_with(&output_path, fmt, opts)
+                    .with_context(|| format!("format::output_as_with({output_path}, {fmt})"))?
+            }
             None => format::output(&output_path)
                 .with_context(|| format!("format::output({output_path})"))?,
         };
