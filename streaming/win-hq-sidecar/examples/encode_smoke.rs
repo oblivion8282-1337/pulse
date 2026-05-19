@@ -28,9 +28,14 @@ use pulse_win_hq_sidecar::encode::{EncoderConfig, FfmpegEncoder, VideoCodec};
 use pulse_win_hq_sidecar::system::dxgi;
 
 const TARGET_FPS: u32 = 30;
-const TARGET_BITRATE_KBPS: u32 = 5_000;
-const DST_WIDTH: u32 = 1920;
-const DST_HEIGHT: u32 = 1080;
+// 4K bei 12 Mbps für den Native-Pfad (kein Downscale → BGR0-direct auf NVIDIA).
+// Wer 1080p braucht, setzt DOWNSCALE=true und kriegt 5 Mbps + CPU-swscale.
+const NATIVE_BITRATE_KBPS: u32 = 12_000;
+const DOWNSCALE_BITRATE_KBPS: u32 = 5_000;
+const DOWNSCALE_WIDTH: u32 = 1920;
+const DOWNSCALE_HEIGHT: u32 = 1080;
+/// `true` = 1080p (CPU-swscale), `false` = native res (BGR-direct, fast)
+const DOWNSCALE: bool = false;
 
 fn main() -> anyhow::Result<()> {
     let duration_secs: u64 = std::env::args()
@@ -66,9 +71,17 @@ fn main() -> anyhow::Result<()> {
         .recv_timeout(Duration::from_secs(5))
         .map_err(|e| anyhow::anyhow!("never got first frame: {e}"))?;
     println!("[smoke] capture native: {}x{}", first.width, first.height);
+
+    let (dst_w, dst_h, bitrate) = if DOWNSCALE {
+        (DOWNSCALE_WIDTH, DOWNSCALE_HEIGHT, DOWNSCALE_BITRATE_KBPS)
+    } else {
+        (first.width, first.height, NATIVE_BITRATE_KBPS)
+    };
+    let fast_path = !DOWNSCALE && adapter.vendor() == "nvidia";
     println!(
-        "[smoke] encoder target:  {DST_WIDTH}x{DST_HEIGHT} @ {TARGET_FPS}fps, {TARGET_BITRATE_KBPS} kbps CBR ({})",
-        adapter.vendor()
+        "[smoke] encoder target:  {dst_w}x{dst_h} @ {TARGET_FPS}fps, {bitrate} kbps CBR ({}{})",
+        adapter.vendor(),
+        if fast_path { ", BGR-direct" } else { ", CPU-swscale" }
     );
 
     let out_path = PathBuf::from("encode_smoke.mp4");
@@ -78,10 +91,10 @@ fn main() -> anyhow::Result<()> {
             vendor: adapter.vendor().to_string(),
             src_width: first.width,
             src_height: first.height,
-            dst_width: DST_WIDTH,
-            dst_height: DST_HEIGHT,
+            dst_width: dst_w,
+            dst_height: dst_h,
             fps: TARGET_FPS,
-            bitrate_kbps: TARGET_BITRATE_KBPS,
+            bitrate_kbps: bitrate,
         },
         out_path
             .to_str()
