@@ -52,24 +52,22 @@ function parseCategory(
 }
 
 /**
- * Parse the persisted `sounds` block. If absent, falls back to
- * `legacySoundEnabled` (the pre-split `notifications.soundEnabled` boolean)
- * for the `masterEnabled` field so users who toggled the old placeholder
- * keep their choice.
+ * Parse the persisted `sounds` block. Falls back to ``DEFAULT_SOUNDS`` for
+ * any missing field — users who never touched the new Sounds-Tab get the
+ * real defaults (master on, volume 0.7).
+ *
+ * We do NOT migrate the pre-split ``notifications.soundEnabled`` boolean.
+ * That flag was a placeholder with default ``false`` that never actually
+ * gated any playback; treating it as a real user preference muted every
+ * upgrader who had never seen the new tab.
  */
 export function parseSounds(
-  raw: Partial<SoundsSettings> | undefined | null,
-  legacySoundEnabled: boolean | undefined
+  raw: Partial<SoundsSettings> | undefined | null
 ): SoundsSettings {
   const d = DEFAULT_SOUNDS;
   const p = raw ?? {};
-  const explicitMaster = typeof p.masterEnabled === 'boolean';
   return {
-    masterEnabled: explicitMaster
-      ? (p.masterEnabled as boolean)
-      : typeof legacySoundEnabled === 'boolean'
-        ? legacySoundEnabled
-        : d.masterEnabled,
+    masterEnabled: bool(p.masterEnabled, d.masterEnabled),
     masterVolume: clampVolume(p.masterVolume, d.masterVolume),
     notification: parseCategory(p.notification, d.notification),
     voice: parseCategory(p.voice, d.voice),

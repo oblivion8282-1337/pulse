@@ -111,8 +111,8 @@ type StreamChatSettings = {
  *  Sub-toggles gate the local in-page fallback path (Service-Worker pushes
  *  are server-driven and not filtered client-side — the server respects
  *  per-user prefs sent via the subscribe call once that endpoint exists).
- *  Sound playback used to live here as `soundEnabled`; that flag was split
- *  into the dedicated `sounds` block — migration in `parseSounds()`. */
+ *  Sound playback used to live here as `soundEnabled` (placeholder; never
+ *  gated real audio); that flag is gone, replaced by the `sounds` block. */
 type NotificationSettings = {
   browserPushEnabled: boolean;
   onMention: boolean;
@@ -283,16 +283,13 @@ function load(): PersistedSettings {
         streamChat: { ...DEFAULTS.streamChat },
         appearance: { ...DEFAULTS.appearance },
         notifications: { ...DEFAULTS.notifications },
-        sounds: parseSounds(null, undefined)
+        sounds: parseSounds(null)
       };
     }
-    const parsed = JSON.parse(raw) as Partial<PersistedSettings> & {
-      notifications?: { soundEnabled?: boolean };
-    };
+    const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
     const a = (parsed.audio ?? {}) as Partial<AudioSettings>;
     const v = (parsed.voice ?? {}) as Partial<VoiceSettings>;
     const ap = (parsed.appearance ?? {}) as Partial<AppearanceSettings>;
-    const legacySoundEnabled = parsed.notifications?.soundEnabled;
     const da = DEFAULTS.audio;
     const dv = DEFAULTS.voice;
     return {
@@ -327,7 +324,7 @@ function load(): PersistedSettings {
       streamChat: parseStreamChat(parsed.streamChat),
       appearance: { theme: parseTheme(ap.theme) },
       notifications: parseNotifications(parsed.notifications),
-      sounds: parseSounds(parsed.sounds, legacySoundEnabled)
+      sounds: parseSounds(parsed.sounds)
     };
   } catch {
     return {
@@ -337,7 +334,7 @@ function load(): PersistedSettings {
       streamChat: { ...DEFAULTS.streamChat },
       appearance: { ...DEFAULTS.appearance },
       notifications: { ...DEFAULTS.notifications },
-      sounds: parseSounds(null, undefined)
+      sounds: parseSounds(null)
     };
   }
 }
