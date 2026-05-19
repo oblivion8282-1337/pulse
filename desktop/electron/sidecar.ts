@@ -27,9 +27,10 @@ import * as fs from 'node:fs';
 
 const PYTHON_BIN = process.env.PULSE_PYTHON ?? 'python3';
 
-/** Per-op request timeout (ms). `start` opens the Wayland portal dialog so it
- *  needs a long fuse; `stop` escalates through SIGINT→SIGTERM→SIGKILL inside
- *  the controller (≤5 s) plus slack. Everything else is a quick stdio round-trip. */
+/** Per-op request timeout (ms). `start` opens the Wayland portal dialog (Linux)
+ *  or initialises WGC + NVENC/AMF/QSV (Windows) so it needs a long fuse; `stop`
+ *  escalates through SIGINT→SIGTERM→SIGKILL inside the controller (≤5 s) plus
+ *  slack. Everything else is a quick stdio round-trip. */
 const DEFAULT_TIMEOUT_MS = 10_000;
 const OP_TIMEOUT_MS: Record<string, number> = {
   start: 60_000,
@@ -37,15 +38,47 @@ const OP_TIMEOUT_MS: Record<string, number> = {
 };
 
 /** How long to wait for the sidecar to exit naturally after we close its stdin
- *  (its loop ends on EOF and stops a running GSR) before sending SIGTERM. */
+ *  (its loop ends on EOF and stops a running stream) before sending SIGTERM. */
 const SHUTDOWN_EOF_GRACE_MS = 1_500;
 /** How long to wait after SIGTERM before escalating to SIGKILL. */
 const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 
-// ── Sidecar script path resolver ────────────────────────────────────────────
+// ── Sidecar resolver ────────────────────────────────────────────────────────
+//
+// Two implementations of the same newline-JSON-over-stdio protocol live in the
+// repo:
+//
+//   - Linux:   `streaming/gsr-sidecar/control.py` (Python, drives GSR + Wayland
+//              portal + PipeWire — see `streaming/README.md`).
+//   - Windows: `streaming/win-hq-sidecar/` (Rust, drives WGC + WASAPI +
+//              NVENC/AMF/QSV via FFmpeg — see `WINDOWS_HQ_SIDECAR.md`).
+//
+// macOS has no implementation yet — `resolveSidecarSpawn()` throws there. The
+// renderer hides the streaming UI on non-Linux/Windows so this never fires in
+// practice; if you hit it, you reached a code path that bypassed the UI gate.
+
+interface SpawnTarget {
+  /** Executable to spawn (absolute path or PATH-resolvable name). */
+  command: string;
+  /** Argv tail (script path on Linux, empty on Windows). */
+  args: string[];
+}
+
+function resolveSidecarSpawn(): SpawnTarget {
+  if (process.platform === 'linux') {
+    return { command: PYTHON_BIN, args: [resolveScriptPath()] };
+  }
+  if (process.platform === 'win32') {
+    return { command: resolveBinaryPath(), args: [] };
+  }
+  throw new Error(
+    `Pulse HQ sidecar: no implementation for ${process.platform} ` +
+      '(Linux: streaming/gsr-sidecar/, Windows: streaming/win-hq-sidecar/).',
+  );
+}
 
 /**
- * Locate `control.py`.
+ * Locate `control.py` (Linux only).
  *
  * Order:
  *   1. `$PULSE_SIDECAR_PY` override (absolute path to control.py).
@@ -53,8 +86,7 @@ const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
  *      `<X>/streaming/gsr-sidecar/control.py`. In dev the bundled `main.cjs`
  *      lives at `desktop/electron/dist/`, so `../../../streaming/...` from there
  *      hits the repo root; the walk-up also tolerates other layouts.
- *   3. TODO(T6 Flatpak): `/app/share/pulse/gsr-sidecar/control.py` — not needed
- *      for E1b (dev path + the env override cover development).
+ *   3. Flatpak default `/app/share/pulse/gsr-sidecar/control.py`.
  */
 function resolveScriptPath(): string {
   const override = process.env.PULSE_SIDECAR_PY;
@@ -76,13 +108,62 @@ function resolveScriptPath(): string {
     dir = parent;
   }
 
-  // TODO(T6): Flatpak default — /app/share/pulse/gsr-sidecar/control.py
   const flatpakDefault = '/app/share/pulse/gsr-sidecar/control.py';
   if (fs.existsSync(flatpakDefault)) return flatpakDefault;
 
   throw new Error(
     'Could not locate streaming/gsr-sidecar/control.py (walked up from ' +
       `${__dirname}). Set PULSE_SIDECAR_PY to override.`,
+  );
+}
+
+/**
+ * Locate `pulse-win-hq-sidecar.exe` (Windows only).
+ *
+ * Order:
+ *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the .exe).
+ *   2. Walk up from this module looking for `<X>/streaming/win-hq-sidecar/target/release/`
+ *      then `<X>/streaming/win-hq-sidecar/target/debug/` (dev: `cargo build`
+ *      hits debug, `cargo build --release` hits release; release wins if both
+ *      exist).
+ *   3. `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe` (the
+ *      production install location that the PowerShell bootstrap script writes
+ *      to — see WINDOWS_HQ_SIDECAR.md "Distribution-Pfad").
+ */
+function resolveBinaryPath(): string {
+  const override = process.env.PULSE_HQ_SIDECAR;
+  if (override) {
+    if (!fs.existsSync(override)) {
+      throw new Error(`PULSE_HQ_SIDECAR points at a non-existent file: ${override}`);
+    }
+    return override;
+  }
+
+  const exe = 'pulse-win-hq-sidecar.exe';
+  const candidates = [
+    path.join('streaming', 'win-hq-sidecar', 'target', 'release', exe),
+    path.join('streaming', 'win-hq-sidecar', 'target', 'debug', exe),
+  ];
+  let dir = __dirname;
+  for (;;) {
+    for (const rel of candidates) {
+      const candidate = path.join(dir, rel);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  const localAppData = process.env.LOCALAPPDATA;
+  if (localAppData) {
+    const installed = path.join(localAppData, 'Pulse', 'hq-sidecar', exe);
+    if (fs.existsSync(installed)) return installed;
+  }
+
+  throw new Error(
+    `Could not locate ${exe} (walked up from ${__dirname}, also checked %LOCALAPPDATA%\\Pulse\\hq-sidecar\\). ` +
+      'Build it with `cargo build --release` in streaming/win-hq-sidecar/ or set PULSE_HQ_SIDECAR.',
   );
 }
 
@@ -132,7 +213,10 @@ class SidecarManager {
 
   /** Send `{op, id, ...params}` to the sidecar and resolve with the full response
    *  JSON. Spawns the sidecar on first use. Rejects on timeout, on a non-object
-   *  response, on `ok === false`, or if the sidecar dies before replying. */
+   *  response, on `ok === false`, or if the sidecar dies before replying.
+   *
+   *  Linux + Windows both have a real sidecar implementation (see resolver above).
+   *  Other platforms throw a clear error before any spawn attempt. */
   async call(op: string, params?: unknown): Promise<SidecarMessage> {
     const child = this.ensureSpawned();
     const id = this.nextId++;
@@ -229,14 +313,21 @@ class SidecarManager {
   private ensureSpawned(): ChildProcessWithoutNullStreams {
     if (this.child) return this.child;
 
-    if (PYTHON_BIN.includes(' ')) {
+    const target = resolveSidecarSpawn();
+    if (target.command.includes(' ')) {
+      // spawn() doesn't shell-split. A space in the command itself = caller passed
+      // a path with embedded spaces (`C:\Program Files\…\foo.exe`); Node hands that
+      // to CreateProcess as a single argv[0] which fails. The resolved binary path
+      // is always absolute on Windows (`%LOCALAPPDATA%\Pulse\…`) and the dev
+      // walk-up path can land under `Documents\…`, so guard against the user
+      // putting Pulse under a path with spaces (or a custom PULSE_PYTHON).
       throw new Error(
-        `PULSE_PYTHON must not contain spaces (got: ${PYTHON_BIN}). spawn() does not shell-split.`,
+        `Pulse sidecar command must not contain spaces (got: ${target.command}). ` +
+          'spawn() does not shell-split.',
       );
     }
 
-    const scriptPath = resolveScriptPath();
-    const child = spawn(PYTHON_BIN, [scriptPath], {
+    const child = spawn(target.command, target.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false,
     }) as ChildProcessWithoutNullStreams;
