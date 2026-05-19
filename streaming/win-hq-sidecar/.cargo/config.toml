@@ -1,0 +1,13 @@
+# Wo ffmpeg-sys-next die Header + Libs sucht. `relative = true` macht den Pfad
+# relativ zum Workspace-Root (= dem `Cargo.toml`-Verzeichnis), nicht zum CWD —
+# damit funktioniert `cargo build` aus jedem Unterordner.
+#
+# Die `ffmpeg-dist/`-Verzeichnis-Inhalte werden per `scripts/fetch-ffmpeg.ps1`
+# erzeugt — gitignored, weil ~250 MB.
+
+[env]
+FFMPEG_DIR = { value = "ffmpeg-dist/n8.1-lgpl-shared", relative = true }
+# bindgen (transitive dep of ffmpeg-sys-next) braucht libclang.dll. winget-
+# Install von `LLVM.LLVM` landet hier; falls auf einem anderen Pfad → diese
+# Variable überschreiben oder per `LIBCLANG_PATH` ENV-Var setzen.
+LIBCLANG_PATH = "C:\\Program Files\\LLVM\\bin"

@@ -42,9 +42,20 @@ sysinfo = "0.32"
 # pick the source in the Pulse UI, not via the Win32 picker dialog.
 windows-capture = "2"
 
-# Stage 7+ deps — added in their respective stages.
+# Stage 7: FFmpeg-Bindings für Encode (NVENC/AMF/QSV) + Mux (FLV/MPEGTS) +
+# RTMPS-Push. Linkt gegen die BtbN-LGPL-Shared-Distribution in
+# `ffmpeg-dist/n8.1-lgpl-shared/` (FFMPEG_DIR in `.cargo/config.toml`).
+# Default-Features (codec/device/filter/format/...) reichen; KEIN `build`-
+# Feature (würde FFmpeg aus Source bauen — wir wollen die LGPL-DLLs nutzen).
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec",
+    "format",
+    "software-resampling", # swresample für Sample-Rate-Mismatches (44.1k Games vs 48k Browser)
+    "software-scaling",    # swscale für BGRA→NV12-Konversion
+] }
+
+# Stage 8+ deps — added in their respective stages.
 #
-# ffmpeg-next     = "8.1"   # NVENC/AMF/QSV encode, FLV-mux, RTMPS push (Stage 7)
 # tokio           = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
 
 [[example]]
@@ -54,6 +65,10 @@ path = "examples/capture_smoke.rs"
 [[example]]
 name = "audio_smoke"
 path = "examples/audio_smoke.rs"
+
+[[example]]
+name = "ffmpeg_smoke"
+path = "examples/ffmpeg_smoke.rs"
 
 [profile.release]
 opt-level = 3
