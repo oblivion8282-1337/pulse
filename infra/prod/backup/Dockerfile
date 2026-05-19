@@ -31,7 +31,10 @@ ENV RESTIC_REPOSITORY=/repo \
 WORKDIR /backup
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+COPY backup.sh    /usr/local/bin/backup.sh
+COPY crontab      /etc/pulse-crontab
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/backup.sh \
+    && mkdir -p /var/spool/cron/crontabs /var/cache/pulse-backup
 
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/entrypoint.sh"]
-CMD ["idle"]
+CMD ["cron"]

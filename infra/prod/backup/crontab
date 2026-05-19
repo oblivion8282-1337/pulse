@@ -1,0 +1,19 @@
+# Pulse backup schedule — busybox-crond reads this (installed to
+# /var/spool/cron/crontabs/root by entrypoint.sh). All times UTC.
+#
+# Each line redirects to /proc/1/fd/1 so cron-job output ends up in
+# `docker logs pulse_backup` instead of disappearing into the busybox
+# mail-spool void.
+
+# Postgres dump — daily at 04:00
+0 4 * * * /usr/local/bin/backup.sh pg >/proc/1/fd/1 2>&1
+
+# MinIO bucket (pulse-attachments) — every 6h (00:00 / 06:00 / 12:00 / 18:00)
+0 */6 * * * /usr/local/bin/backup.sh minio >/proc/1/fd/1 2>&1
+
+# Avatars + guild icons — daily, staggered after PG
+30 4 * * * /usr/local/bin/backup.sh avatars >/proc/1/fd/1 2>&1
+35 4 * * * /usr/local/bin/backup.sh icons >/proc/1/fd/1 2>&1
+
+# Weekly maintenance — Sunday 05:00 (forget+prune+check)
+0 5 * * 0 /usr/local/bin/backup.sh maintenance >/proc/1/fd/1 2>&1

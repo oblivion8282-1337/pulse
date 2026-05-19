@@ -2,25 +2,31 @@
 # Pulse backup container entrypoint.
 #
 # Modes:
-#   idle   — keep PID 1 alive without doing any work (Commit A scaffold).
-#   cron   — install crontab and exec busybox-crond (Commit B; not wired up yet).
-#   <cmd>  — run an arbitrary command (used for `docker compose exec` restores
-#            and one-off manual snapshots).
-#
-# The repo at $RESTIC_REPOSITORY is initialised on first need, not here — the
-# password is required and we don't want the container to crash-loop before
-# the operator has set RESTIC_PASSWORD in .env.
+#   cron   — install the baked-in crontab and exec busybox-crond in the
+#            foreground. Default; this is what `docker compose up -d` runs.
+#   idle   — keep PID 1 alive without doing any work. Useful for poking the
+#            container interactively (`docker compose run --rm backup idle`
+#            then `docker exec ... restic snapshots`).
+#   <cmd>  — run an arbitrary command. Used by restore.md for one-off
+#            `restic restore` invocations.
 
 set -eu
 
-case "${1:-idle}" in
-    idle)
-        echo "pulse_backup: idle (no schedule installed; backup.sh + crontab land in Commit B)" >&2
-        exec sleep infinity
-        ;;
+case "${1:-cron}" in
     cron)
-        echo "pulse_backup: cron mode not implemented in Commit A" >&2
-        exit 64
+        mkdir -p /var/spool/cron/crontabs
+        cp /etc/pulse-crontab /var/spool/cron/crontabs/root
+        chmod 0600 /var/spool/cron/crontabs/root
+        echo "pulse_backup: schedule installed, starting busybox-crond" >&2
+        cat /etc/pulse-crontab >&2
+        # -f foreground, -L /dev/stdout cron's own log → docker logs,
+        # -l 0 = log level "warn" (busybox crond is noisy at higher levels;
+        # actual job output comes from each line's >/proc/1/fd/1 redirect).
+        exec crond -f -L /dev/stdout -l 0
+        ;;
+    idle)
+        echo "pulse_backup: idle (no schedule running)" >&2
+        exec sleep infinity
         ;;
     *)
         exec "$@"
