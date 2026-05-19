@@ -98,13 +98,18 @@ pub struct FfmpegEncoder {
 
 impl FfmpegEncoder {
     /// Erstellt einen neuen Encoder + Output-Context. `output_path` kann eine
-    /// Datei (`.mp4`/`.flv`) oder eine URL (`rtmps://...`) sein — FFmpeg
-    /// erkennt das Format an der Extension/Scheme automatisch.
+    /// Datei (`.mp4`/`.flv`) oder eine URL (`rtmp://...`/`rtmps://...`) sein.
+    /// Bei Dateien errät FFmpeg das Format aus der Extension; bei URLs ohne
+    /// Extension forcieren wir es manuell (FLV für RTMP/RTMPS, MPEG-TS für SRT).
     pub fn create(cfg: &EncoderConfig, output_path: &str) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
 
-        let mut output = format::output(&output_path)
-            .with_context(|| format!("format::output({output_path})"))?;
+        let mut output = match url_format_hint(output_path) {
+            Some(fmt) => format::output_as(&output_path, fmt)
+                .with_context(|| format!("format::output_as({output_path}, {fmt})"))?,
+            None => format::output(&output_path)
+                .with_context(|| format!("format::output({output_path})"))?,
+        };
 
         let codec_name = cfg.codec.ffmpeg_name(&cfg.vendor)?;
         let codec_descriptor = codec::encoder::find_by_name(codec_name)
@@ -263,6 +268,23 @@ impl FfmpegEncoder {
         self.drain_packets()?;
         self.output.write_trailer().context("write_trailer")?;
         Ok(())
+    }
+}
+
+/// Für URL-Schemes ohne Extension wählt FFmpeg's Auto-Detect kein Format —
+/// wir mappen die unterstützten Streaming-Protokolle hier explizit.
+///
+/// - `rtmp://` / `rtmps://` → FLV (RTMP transportiert FLV-Tags)
+/// - `srt://`               → MPEG-TS (SRT-Standard)
+/// - Sonst                  → `None` (FFmpeg-Default, Extension-basiert)
+fn url_format_hint(target: &str) -> Option<&'static str> {
+    let lower = target.to_ascii_lowercase();
+    if lower.starts_with("rtmp://") || lower.starts_with("rtmps://") {
+        Some("flv")
+    } else if lower.starts_with("srt://") {
+        Some("mpegts")
+    } else {
+        None
     }
 }
 
