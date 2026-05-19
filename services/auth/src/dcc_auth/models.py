@@ -206,6 +206,50 @@ class AuthSettings(Base):
     __table_args__ = (CheckConstraint("id = 1", name="ck_auth_settings_singleton"),)
 
 
+class SmtpSettings(Base):
+    """Singleton row holding admin-managed SMTP credentials.
+
+    ``email.py`` reads this first; if ``configured`` is false it falls back
+    to env-based settings (back-compat with existing deployments). The
+    password is Fernet-encrypted at rest — key derived from the JWT private
+    key, see ``dcc_auth.crypto``.
+
+    ``provider`` is one of the preset keys in ``dcc_auth.email_providers``
+    (``brevo`` / ``mailgun`` / ``resend`` / ``gmail`` / ``custom``). The
+    preset only seeds the UI defaults; the actual ``host``/``port``/``use_ssl``
+    columns are authoritative once the row is saved.
+    """
+
+    __tablename__ = "smtp_settings"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    provider: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="custom"
+    )
+    host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    port: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default=text("587")
+    )
+    username: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Fernet ciphertext of the SMTP password / API key. Empty = not set.
+    password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    from_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    use_ssl: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    configured: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (CheckConstraint("id = 1", name="ck_smtp_settings_singleton"),)
+
+
 class AdminAuditLog(Base):
     """Append-only log of admin actions on the auth side (toggle is_admin,
     disable user, change registration mode). chat-gateway keeps its own

@@ -120,6 +120,74 @@ class AuthSettingsPatch(BaseModel):
     registration_mode: RegistrationMode
 
 
+SmtpProvider = Literal["brevo", "mailgun", "resend", "gmail", "custom"]
+
+
+class SmtpSettingsOut(BaseModel):
+    """Admin-facing view of the SMTP config singleton.
+
+    ``has_password`` reflects only "is a password stored?" — the plaintext
+    or ciphertext is never sent over the wire. The admin re-types the
+    password to change it; sending an empty/null password on PATCH means
+    "leave the existing password alone", so the UI can pre-fill all other
+    fields without clobbering the secret on every save.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    provider: SmtpProvider
+    host: str | None
+    port: int
+    username: str | None
+    from_email: str | None
+    use_ssl: bool
+    configured: bool
+    has_password: bool
+
+
+class SmtpSettingsPatch(BaseModel):
+    """Partial-update payload for ``PATCH /admin/smtp``.
+
+    Mirrors the columns 1:1 plus a separate ``password`` plaintext-field.
+    Omitting ``password`` (or sending null) preserves the existing
+    ciphertext. Sending an empty string explicitly clears it.
+    """
+
+    provider: SmtpProvider
+    host: Annotated[str | None, Field(default=None, max_length=255)] = None
+    port: Annotated[int, Field(ge=1, le=65535)] = 587
+    username: Annotated[str | None, Field(default=None, max_length=255)] = None
+    password: Annotated[str | None, Field(default=None, max_length=1024)] = None
+    from_email: Annotated[EmailStr | None, Field(default=None)] = None
+    use_ssl: bool = False
+
+
+class SmtpTestIn(BaseModel):
+    """Body for ``POST /admin/smtp/test``: send a one-shot test mail.
+
+    The full config can be passed inline so the admin can hit "Test" before
+    the first Save (no DB row yet). When ``provider`` etc. are omitted, the
+    saved row is used.
+    """
+
+    to: EmailStr
+    provider: SmtpProvider | None = None
+    host: Annotated[str | None, Field(default=None, max_length=255)] = None
+    port: Annotated[int | None, Field(default=None, ge=1, le=65535)] = None
+    username: Annotated[str | None, Field(default=None, max_length=255)] = None
+    password: Annotated[str | None, Field(default=None, max_length=1024)] = None
+    from_email: Annotated[EmailStr | None, Field(default=None)] = None
+    use_ssl: bool | None = None
+
+
+class SmtpTestOut(BaseModel):
+    """Result of a test-mail send. ``ok=false`` carries an admin-readable
+    error string (sanitised; no plaintext-secret echo)."""
+
+    ok: bool
+    error: str | None = None
+
+
 class AdminStatsOut(BaseModel):
     """Auth-svc slice of the admin Übersicht-Tab. chat-gateway emits its own
     counts under its ``/admin/stats``; the UI merges them."""

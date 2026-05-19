@@ -98,7 +98,7 @@ async def password_forgot(
 
     reset_url = f"{settings.app_base_url.rstrip('/')}/reset-password/{plaintext}"
     subject, body = compose_password_reset_email(user.email, reset_url)
-    await send_email(user.email, subject, body)
+    await send_email(user.email, subject, body, session=session)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -221,7 +221,7 @@ async def email_verification_send(
 
     verify_url = f"{settings.app_base_url.rstrip('/')}/verify-email/{plaintext}"
     subject, body = compose_email_verification(current.email, verify_url)
-    await send_email(current.email, subject, body)
+    await send_email(current.email, subject, body, session=session)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

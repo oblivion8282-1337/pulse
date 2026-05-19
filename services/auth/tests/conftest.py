@@ -79,6 +79,7 @@ async def engine(_isolate_settings):
         await conn.run_sync(Base.metadata.create_all)
         # Seed singletons (the prod migration does this; create_all doesn't).
         await conn.exec_driver_sql("INSERT INTO auth_settings (id) VALUES (1)")
+        await conn.exec_driver_sql("INSERT INTO smtp_settings (id) VALUES (1)")
     yield eng
     await eng.dispose()
 
