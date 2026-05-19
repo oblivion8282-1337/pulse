@@ -206,6 +206,11 @@ services:
     volumes:
       - ./secrets:/secrets:ro
       - pulse_avatars:/app/services/auth/uploads
+      # RO view into the backup volume so /admin/backup-status can stat the
+      # marker file written by infra/prod/backup/backup.sh::mark_ok. The
+      # repo contents are encrypted ciphertext and the RESTIC_PASSWORD is
+      # NOT in auth's env — RCE here can't decrypt the repo.
+      - pulse_backups:/backup-state:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s

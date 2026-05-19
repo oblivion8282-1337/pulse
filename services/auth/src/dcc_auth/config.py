@@ -45,6 +45,17 @@ class Settings(BaseSettings):
     # Avatar upload
     avatar_upload_dir: str = "./uploads/avatars"
 
+    # Backup status — the backup sidecar (infra/prod/backup/) writes an
+    # ISO-8601 timestamp to ``.pulse/last-backup-ok`` in the ``pulse_backups``
+    # volume after every successful run. We mount that volume read-only at
+    # ``/backup-state`` in prod so the admin endpoint can stat the marker
+    # file. ``configured=False`` is the natural state outside prod — the
+    # path simply won't exist.
+    backup_marker_path: Path = Path("/backup-state/.pulse/last-backup-ok")
+    # Stale threshold (seconds). Matches the compose healthcheck on the
+    # ``backup`` service — 36 h = 24 h daily cycle + 12 h slack.
+    backup_stale_threshold_seconds: int = 129_600
+
     # Rate limiting
     rate_limit_register: str = "5/minute"
     rate_limit_login: str = "20/minute"

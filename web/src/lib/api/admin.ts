@@ -116,6 +116,21 @@ export type AuditLogEntry = {
   source: 'auth' | 'chat';
 };
 
+/** Status snapshot of the restic backup sidecar. Read-only — there is no
+ * trigger/restore endpoint by design (see infra/prod/backup/restore.md). */
+export type BackupStatus = {
+  /** False if the pulse_backups volume isn't mounted into auth-svc — i.e.
+   * the backup sidecar hasn't been deployed yet (dev / pre-setup). */
+  configured: boolean;
+  /** ISO-8601 UTC of the most recent successful run, or null if no run
+   * has happened yet (fresh deploy within the entrypoint-touch window). */
+  last_backup_at: string | null;
+  age_seconds: number | null;
+  /** Mirrors the compose healthcheck: false once age > stale_threshold. */
+  healthy: boolean;
+  stale_threshold_seconds: number;
+};
+
 export const adminApi = {
   // ---- auth-svc -----------------------------------------------------------
 
@@ -164,6 +179,9 @@ export const adminApi = {
       endpoint: 'auth',
       body: payload
     });
+  },
+  getBackupStatus(): Promise<BackupStatus> {
+    return request<BackupStatus>('/admin/backup-status', { endpoint: 'auth' });
   },
   authAuditLog(
     opts: { before?: string; limit?: number } = {}

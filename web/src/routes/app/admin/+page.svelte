@@ -15,6 +15,7 @@
   import AdminAttachments from '$lib/components/admin/AdminAttachments.svelte';
   import AdminRegistration from '$lib/components/admin/AdminRegistration.svelte';
   import AdminSmtp from '$lib/components/admin/AdminSmtp.svelte';
+  import AdminBackup from '$lib/components/admin/AdminBackup.svelte';
   import AdminPermissions from '$lib/components/admin/AdminPermissions.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
@@ -57,6 +58,7 @@
 
     <main class="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
       <AdminOverview />
+      <AdminBackup />
       <AdminAttachments />
       <AdminRegistration />
       <AdminSmtp />

@@ -197,6 +197,30 @@ class AdminStatsOut(BaseModel):
     disabled_count: int
 
 
+class BackupStatusOut(BaseModel):
+    """Read-only status of the restic backup sidecar.
+
+    Reads the marker file at ``backup_marker_path`` (written by
+    ``infra/prod/backup/backup.sh::mark_ok`` on every successful run, and
+    touched by its entrypoint on container start). The endpoint never
+    *triggers* backups — that's deliberately CLI-only; see
+    ``infra/prod/backup/restore.md``.
+
+    * ``configured=False`` — the volume isn't mounted, i.e. backup sidecar
+      not deployed (dev environments, fresh self-hosters before setup).
+    * ``configured=True``, ``last_backup_at=None`` — volume mounted but
+      no run has succeeded yet (within ``start_period`` of fresh deploy).
+    * ``configured=True``, ``last_backup_at=...`` — most recent success;
+      ``healthy`` flips ``false`` once ``age_seconds`` exceeds the stale
+      threshold (default 36 h, matching the compose healthcheck)."""
+
+    configured: bool
+    last_backup_at: str | None
+    age_seconds: int | None
+    healthy: bool
+    stale_threshold_seconds: int
+
+
 class AdminAuditLogEntry(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
