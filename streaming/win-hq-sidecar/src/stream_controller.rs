@@ -191,10 +191,27 @@ impl StreamController {
 fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let ctrl = StreamController::singleton();
     let result = (|| -> Result<()> {
-        let adapter = dxgi::list_adapters()?
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow!("no DXGI adapter for encode"))?;
+        // Adapter-Auswahl: per default der HIGH_PERFORMANCE-Slot (dGPU bevorzugt).
+        // Test/Diagnose-Override: `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` filtert
+        // erst nach Vendor, dann wird der erste Treffer genommen. Nützlich auf
+        // Multi-GPU-Systemen (dGPU+iGPU) um den AMF/QSV-Pfad zu validieren
+        // ohne den HIGH_PERFORMANCE-Default umzustellen.
+        let adapters = dxgi::list_adapters()?;
+        let adapter = match std::env::var("PULSE_HQ_ADAPTER_VENDOR").ok().as_deref() {
+            Some(want) if !want.is_empty() => adapters
+                .into_iter()
+                .find(|a| a.vendor() == want)
+                .ok_or_else(|| anyhow!("no DXGI adapter with vendor={want}"))?,
+            _ => adapters
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("no DXGI adapter for encode"))?,
+        };
+        eprintln!(
+            "[stream-pipeline] encode adapter: {} (vendor={})",
+            adapter.description,
+            adapter.vendor()
+        );
 
         let mut capture = WgcCapture::start(
             params.capture.clone(),

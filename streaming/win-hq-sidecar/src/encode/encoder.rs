@@ -45,18 +45,6 @@ impl AudioStreamConfig {
     };
 }
 
-/// Pixel-Format das wir an den Encoder reichen. NVENC akzeptiert `AV_PIX_FMT_BGRA`
-/// direkt (siehe `libavcodec/nvenc_h264.c::pix_fmts[]`) → kein swscale-Schritt
-/// auf der CPU, NVENC swizzelt+konvertiert intern. AMF/QSV brauchen NV12.
-fn input_pixel_format(vendor: &str) -> format::Pixel {
-    match vendor {
-        "nvidia" => format::Pixel::BGRA,
-        // AMF und QSV listen `nv12` als primären Input. Beide unterstützen auch
-        // `p010le`/`yuv420p`, aber NV12 ist der mit der besten Treiber-Fast-Path.
-        _ => format::Pixel::NV12,
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub enum VideoCodec {
     H264,
@@ -151,16 +139,16 @@ impl FfmpegEncoder {
         let mut stream = output.add_stream(codec_descriptor).context("add_stream")?;
         let stream_idx = stream.index();
 
-        // Encoder-Pixel-Format pro Vendor. Wenn der Capture-Frame dieselbe
-        // Resolution hat wie der Output (= kein Downscale) UND der Encoder
-        // BGR0 akzeptiert, gehen wir den schnellen Direkt-Pfad — keine
-        // CPU-Konvertierung, NVENC macht das intern auf der GPU.
+        // BGR-direct-Fast-Path: BGRA-Bytes 1:1 in den Encoder-Frame, GPU
+        // swizzelt + NV12-Convert intern. Aktiv NUR auf NVIDIA UND ohne
+        // Downscale. AMF (AMD) und QSV (Intel) listen nur NV12/P010LE als
+        // Input — wir müssen für die durch CPU-swscale, auch ohne Downscale.
         let needs_scale = (cfg.src_width, cfg.src_height) != (cfg.dst_width, cfg.dst_height);
-        let pix_fmt = if needs_scale {
-            // Downscale erzwingt swscale → NV12 als Encoder-Input.
-            format::Pixel::NV12
+        let use_bgr_direct = !needs_scale && cfg.vendor == "nvidia";
+        let pix_fmt = if use_bgr_direct {
+            format::Pixel::BGRA
         } else {
-            input_pixel_format(&cfg.vendor)
+            format::Pixel::NV12
         };
 
         let mut encoder = codec::context::Context::new_with_codec(codec_descriptor)
@@ -205,8 +193,17 @@ impl FfmpegEncoder {
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
         let encoder_time_base = Rational::new(1, cfg.fps as i32);
 
-        let (sws, src_frame, encoder_frame) = if needs_scale {
-            // CPU-swscale-Pfad (AMD/Intel oder Downscale auf NVIDIA).
+        let (sws, src_frame, encoder_frame) = if use_bgr_direct {
+            // Fast-Path: BGR0 direkt in den NVENC-Frame, GPU macht den Rest.
+            (
+                None,
+                None,
+                frame::Video::new(format::Pixel::BGRA, cfg.dst_width, cfg.dst_height),
+            )
+        } else {
+            // CPU-swscale-Pfad: für AMD/Intel immer, plus Downscale auf jedem
+            // Vendor. Quellbild ist BGRA aus WGC; Ziel ist NV12. Bei
+            // dst==src degeneriert das Re-Sampling zu reinem Format-Convert.
             let sws = scaling::Context::get(
                 format::Pixel::BGRA,
                 cfg.src_width,
@@ -225,13 +222,6 @@ impl FfmpegEncoder {
                     cfg.src_height,
                 )),
                 frame::Video::new(format::Pixel::NV12, cfg.dst_width, cfg.dst_height),
-            )
-        } else {
-            // Fast-Path: BGR0 direkt in den Encoder, GPU macht den Rest.
-            (
-                None,
-                None,
-                frame::Video::new(pix_fmt, cfg.dst_width, cfg.dst_height),
             )
         };
 
