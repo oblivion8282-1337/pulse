@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
+  import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -30,14 +31,28 @@
     p.userId ? Math.round(settings.getUserVolume(p.userId) * 100) : 100
   );
   let canAdjustVolume = $derived(!p.isLocal && p.userId !== null);
-  // Force-mute (server admin set MUTE_MEMBERS override). Treated as
-  // "mic muted" in the UI so the icon shows even if LiveKit's reported
-  // ``micMuted`` is false (e.g. the publish was killed entirely rather
-  // than soft-muted).
+  // Force-mute / force-deafen (server admin overrides MUTE_MEMBERS /
+  // DEAFEN_MEMBERS). Treated as "mic muted" / "deafened" in the UI so the
+  // icon shows even if LiveKit's reported ``micMuted`` is false (e.g. the
+  // publish was killed entirely rather than soft-muted) and so deafen —
+  // which LiveKit has no concept of — is visible at all.
   let isForceMuted = $derived(
     !!p.userId && voicePresence.isForceMuted(channelId, p.userId)
   );
+  let isForceDeafened = $derived(
+    !!p.userId && voicePresence.isForceDeafened(channelId, p.userId)
+  );
+  // Remote deafen comes from the server's per-user voice state (gateway pushes
+  // ``user_states`` in each ``voice_state`` snapshot). Local user pulls from
+  // ``voice.deafened`` directly so the icon flips instantly on self-toggle
+  // instead of waiting for the WS echo.
+  let serverState = $derived(
+    p.userId ? voicePresence.userStatesIn(channelId)[p.userId] : undefined
+  );
   let showMicOff = $derived(p.micMuted || isForceMuted);
+  let showDeafened = $derived(
+    (p.isLocal ? voice.deafened : serverState?.deafened === true) || isForceDeafened
+  );
 
   // Activity flags — drive the LIVE/PARTY/CAM badges. HQ + screen-share are
   // both server-tracked; cam is local-only (we only know about cameras whose
@@ -142,6 +157,14 @@
             <MicOffIcon
               class="size-3 text-red-400"
               aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+              data-testid={isForceMuted ? 'voice-participant-force-muted' : 'voice-participant-mic-muted'}
+            />
+          {/if}
+          {#if showDeafened}
+            <HeadphoneOffIcon
+              class="size-3 text-red-400"
+              aria-label={isForceDeafened ? 'Vom Mod taubgeschaltet' : 'Ton stummgeschaltet'}
+              data-testid={isForceDeafened ? 'voice-participant-force-deafened' : 'voice-participant-deafened'}
             />
           {/if}
           {#if canAdjustVolume && volumePct !== 100}
@@ -268,6 +291,12 @@
         <MicOffIcon
           class="size-3 text-red-400"
           aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+        />
+      {/if}
+      {#if showDeafened}
+        <HeadphoneOffIcon
+          class="size-3 text-red-400"
+          aria-label={isForceDeafened ? 'Vom Mod taubgeschaltet' : 'Ton stummgeschaltet'}
         />
       {/if}
     </div>
