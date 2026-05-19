@@ -115,11 +115,10 @@ async def test_stats_returns_counts(client, admin_token):
 @pytest.mark.asyncio
 async def test_patch_user_promote_to_admin(client, admin_token, session_factory):
     await _register_user(client, username="bob", email="bob@example.com")
-    bob_id = (
-        await (await _open(session_factory)).execute(
-            select(User.id).where(User.username == "bob")
-        )
-    ).scalar_one()
+    async with session_factory() as s:
+        bob_id = (
+            await s.execute(select(User.id).where(User.username == "bob"))
+        ).scalar_one()
 
     headers = {"Authorization": f"Bearer {admin_token}"}
     r = await client.patch(
@@ -140,11 +139,10 @@ async def test_patch_user_promote_to_admin(client, admin_token, session_factory)
 async def test_patch_user_demote_last_admin_blocked(
     client, admin_token, session_factory
 ):
-    alice_id = (
-        await (await _open(session_factory)).execute(
-            select(User.id).where(User.username == "alice")
-        )
-    ).scalar_one()
+    async with session_factory() as s:
+        alice_id = (
+            await s.execute(select(User.id).where(User.username == "alice"))
+        ).scalar_one()
     headers = {"Authorization": f"Bearer {admin_token}"}
     r = await client.patch(
         f"/admin/users/{alice_id}", json={"is_admin": False}, headers=headers
@@ -194,12 +192,6 @@ async def test_patch_user_disable_revokes_refresh_tokens(
 
 @pytest.mark.asyncio
 async def test_patch_user_disable_self_blocked(client, admin_token, session_factory):
-    # NB: use ``async with`` (not ``_open``) — the SQLite ``:memory:`` StaticPool
-    # is single-connection, and a non-context-managed session gets GC-cleaned
-    # mid-test on CPython 3.13, terminating the only connection. CI then sees
-    # "no such table: users" on the next checkout. Other ``_open`` sites pass
-    # on a different code path; the symptom is the disable-self assertion which
-    # re-loads the actor user from the same connection.
     async with session_factory() as s:
         alice_id = (
             await s.execute(select(User.id).where(User.username == "alice"))
@@ -286,10 +278,3 @@ async def test_disabled_user_cant_login(client, admin_token, session_factory):
     assert r.status_code == 401
 
 
-# ---- helper: open a session for a quick read in the same event-loop --------
-
-
-async def _open(session_factory):
-    """Return a fresh session (caller must close). Used for one-shot reads in
-    tests where the assertions need to peek at the DB outside the request."""
-    return session_factory()
