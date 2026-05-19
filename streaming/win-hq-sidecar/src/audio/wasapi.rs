@@ -1,0 +1,244 @@
+//! WASAPI-Capture-Worker für alle vier Audio-Modi.
+//!
+//! Architektur analog `capture/wgc.rs`: ein Worker-Thread pollt WASAPI-Events,
+//! liest Frames in eine `VecDeque<u8>`, schneidet sie in Chunks und sendet
+//! `CapturedAudio` per `mpsc::sync_channel` raus. Drop = Stop.
+//!
+//! Format ist hardcoded auf **32-bit Float, 48 kHz, stereo, interleaved** —
+//! das mag FFmpeg-Opus direkt und entspricht der Default-Win11-Audio-Engine.
+//! `autoconvert: true` zwingt WASAPI bei Geräten mit anderem Native-Format zu
+//! konvertieren (z.B. ein 44.1k-Audio-Interface wird zu 48k upsampled). Ohne
+//! das Flag würde `initialize_client` mit AUDCLNT_E_UNSUPPORTED_FORMAT
+//! abbrechen.
+
+use anyhow::{Context, Result, anyhow};
+use std::collections::VecDeque;
+use std::sync::mpsc::{Receiver, Sender, SyncSender, channel};
+use std::thread::{self, JoinHandle};
+
+use wasapi::{AudioClient, Direction, SampleType, StreamMode, WaveFormat, initialize_mta};
+
+use super::source::AudioSource;
+
+/// PCM-Format der Capture-Pipeline. Festgenagelt — der Encoder kommt damit klar.
+#[derive(Debug, Clone, Copy)]
+pub struct AudioFormat {
+    pub sample_rate: u32,
+    pub channels: u16,
+    /// Bits pro Sample (32 = float).
+    pub bits_per_sample: u16,
+}
+
+impl AudioFormat {
+    pub const DEFAULT: Self = Self { sample_rate: 48_000, channels: 2, bits_per_sample: 32 };
+
+    pub fn block_align(&self) -> u16 {
+        self.channels * (self.bits_per_sample / 8)
+    }
+}
+
+/// Ein Chunk PCM-Samples (interleaved). Bytes-Layout matches `AudioFormat`.
+///
+/// Encoder konvertiert in `&[f32]` per `bytemuck::cast_slice` o.ä. — Stage 7.
+#[derive(Debug)]
+pub struct CapturedAudio {
+    pub format: AudioFormat,
+    /// Roh-PCM, `frames * block_align` Bytes. Für 32-bit-Float-Stereo ist das
+    /// `frames * 8`.
+    pub bytes: Vec<u8>,
+    /// Anzahl Frames (= Samples pro Channel).
+    pub frames: u32,
+}
+
+/// Living capture-handle. Drop = stop.
+pub struct AudioCapture {
+    pub samples: Receiver<CapturedAudio>,
+    stop_tx: Sender<()>,
+    worker: Option<JoinHandle<Result<(), String>>>,
+    format: AudioFormat,
+}
+
+impl AudioCapture {
+    /// Startet die Capture. `chunk_frames` ist die Frames-pro-Chunk-Granularität
+    /// (kleiner = weniger Latenz, höher = weniger Channel-Sends). 1024 @ 48kHz =
+    /// ~21ms Chunks — guter Default.
+    pub fn start(source: AudioSource, chunk_frames: usize) -> Result<Self> {
+        let format = AudioFormat::DEFAULT;
+        let (tx, rx) = std::sync::mpsc::sync_channel::<CapturedAudio>(8);
+        let (stop_tx, stop_rx) = channel();
+
+        let src = source.clone();
+        let worker = thread::Builder::new()
+            .name("wasapi-capture".into())
+            .spawn(move || -> Result<(), String> {
+                run_capture(src, format, chunk_frames, tx, stop_rx).map_err(|e| format!("{e:#}"))
+            })
+            .context("spawn wasapi-capture thread")?;
+
+        Ok(Self {
+            samples: rx,
+            stop_tx,
+            worker: Some(worker),
+            format,
+        })
+    }
+
+    pub fn format(&self) -> AudioFormat {
+        self.format
+    }
+
+    pub fn stop(&mut self) {
+        let _ = self.stop_tx.send(());
+        if let Some(h) = self.worker.take() {
+            let _ = h.join();
+        }
+    }
+}
+
+impl Drop for AudioCapture {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+// ── Worker-Thread ───────────────────────────────────────────────────────────
+
+fn run_capture(
+    source: AudioSource,
+    format: AudioFormat,
+    chunk_frames: usize,
+    tx: SyncSender<CapturedAudio>,
+    stop_rx: Receiver<()>,
+) -> Result<()> {
+    // `initialize_mta()` gibt einen windows-rs HRESULT zurück; `.ok()` macht
+    // daraus ein `Result<(), windows::core::Error>` das wir mit `anyhow::Context`
+    // dann „normal" propagieren.
+    initialize_mta()
+        .ok()
+        .context("CoInitializeEx(MTA) failed")?;
+
+    let wf = WaveFormat::new(
+        format.bits_per_sample as usize,
+        format.bits_per_sample as usize,
+        &SampleType::Float,
+        format.sample_rate as usize,
+        format.channels as usize,
+        None,
+    );
+
+    let mut audio_client = open_audio_client(&source)?;
+    let mode = StreamMode::EventsShared {
+        autoconvert: true,
+        buffer_duration_hns: 0, // use device default
+    };
+    // Loopback-Magie: für DefaultDesktop geben wir ein Render-Device hinein,
+    // sagen `Direction::Capture` → wasapi-rs setzt AUDCLNT_STREAMFLAGS_LOOPBACK.
+    // Application-Loopback ist schon im Render-Path eingebaut, braucht ebenfalls
+    // Direction::Capture + Shared (per Crate-Doku).
+    audio_client
+        .initialize_client(&wf, &Direction::Capture, &mode)
+        .with_context(|| format!("initialize_client for {source:?}"))?;
+
+    let h_event = audio_client
+        .set_get_eventhandle()
+        .context("set_get_eventhandle")?;
+    let capture_client = audio_client
+        .get_audiocaptureclient()
+        .context("get_audiocaptureclient")?;
+
+    let block_align = format.block_align() as usize;
+    let chunk_bytes = chunk_frames * block_align;
+    let mut queue: VecDeque<u8> = VecDeque::with_capacity(chunk_bytes * 4);
+
+    audio_client.start_stream().context("start_stream")?;
+
+    let mut should_stop = false;
+    loop {
+        if stop_rx.try_recv().is_ok() {
+            should_stop = true;
+        }
+
+        // Erstmal alles was schon in der Queue ist als Chunks rauspushen.
+        while queue.len() >= chunk_bytes {
+            let mut chunk = vec![0u8; chunk_bytes];
+            for slot in chunk.iter_mut() {
+                *slot = queue.pop_front().unwrap();
+            }
+            let captured = CapturedAudio {
+                format,
+                bytes: chunk,
+                frames: chunk_frames as u32,
+            };
+            if tx.send(captured).is_err() {
+                should_stop = true;
+                break;
+            }
+        }
+
+        if should_stop {
+            break;
+        }
+
+        // Neuen Block vom Device einlesen wenn da was ist.
+        match capture_client.get_next_packet_size() {
+            Ok(Some(frames)) if frames > 0 => {
+                let need = frames as usize * block_align;
+                if queue.capacity() - queue.len() < need {
+                    queue.reserve(need);
+                }
+                capture_client
+                    .read_from_device_to_deque(&mut queue)
+                    .context("read_from_device_to_deque")?;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                return Err(anyhow!("get_next_packet_size: {e}"));
+            }
+        }
+
+        // Event-Handle wartet auf "neuer Buffer fertig". 1s Timeout — länger
+        // ohne Ton kommt bei Desktop-Loopback nicht vor (WASAPI liefert sogar
+        // Silence-Frames wenn niemand spielt). Kürzer = häufigeres Polling.
+        if h_event.wait_for_event(1_000).is_err() {
+            // Timeout — nicht fatal, könnte heißen dass kein Frame kam.
+            // Loop läuft weiter; stop_rx wird nächste Runde gecheckt.
+        }
+    }
+
+    let _ = audio_client.stop_stream();
+    Ok(())
+}
+
+fn open_audio_client(source: &AudioSource) -> Result<AudioClient> {
+    match source {
+        AudioSource::DefaultDesktop => {
+            // Render-Device → Direction::Render. Direction-Bias zum LOOPBACK-Flag
+            // kommt erst beim initialize_client.
+            let enumerator = wasapi::DeviceEnumerator::new().context("DeviceEnumerator::new")?;
+            let device = enumerator
+                .get_default_device(&Direction::Render)
+                .context("get_default_device(Render)")?;
+            device.get_iaudioclient().context("get_iaudioclient")
+        }
+        AudioSource::DefaultMicrophone => {
+            let enumerator = wasapi::DeviceEnumerator::new().context("DeviceEnumerator::new")?;
+            let device = enumerator
+                .get_default_device(&Direction::Capture)
+                .context("get_default_device(Capture)")?;
+            device.get_iaudioclient().context("get_iaudioclient")
+        }
+        AudioSource::DesktopPlusMicrophone => {
+            // Mixing-Path braucht zwei AudioClients gleichzeitig + einen Mixer-
+            // Thread. Day-4-Spike fängt mit der primären Quelle (Desktop) an;
+            // Mikrofon-Add kommt mit dem Encoder-Mixer in Stage 7.
+            Err(anyhow!(
+                "AudioSource::DesktopPlusMicrophone not yet wired (needs Stage-7 mixer)"
+            ))
+        }
+        AudioSource::Application { pid, include_tree } => {
+            AudioClient::new_application_loopback_client(*pid, *include_tree)
+                .map_err(|e| anyhow!("new_application_loopback_client(pid={pid}): {e}"))
+        }
+    }
+}
+
