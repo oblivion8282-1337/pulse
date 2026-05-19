@@ -48,6 +48,51 @@ export type Permissions = {
   guild_sound_max_size_bytes: number;
 };
 
+export type SmtpProvider = 'brevo' | 'mailgun' | 'resend' | 'gmail' | 'custom';
+
+export type SmtpSettings = {
+  provider: SmtpProvider;
+  host: string | null;
+  port: number;
+  username: string | null;
+  from_email: string | null;
+  use_ssl: boolean;
+  configured: boolean;
+  /** Server tells the UI whether a password is stored, without ever sending
+   * the value. Lets the password input render as "leave blank to keep" vs
+   * "empty" without a separate flag. */
+  has_password: boolean;
+};
+
+/** PATCH payload — every field except ``password`` is required (sent every
+ * time). ``password`` is tri-state: omitted/null preserves, ""  clears,
+ * non-empty replaces. Mirrors ``SmtpSettingsPatch`` in the auth-svc. */
+export type SmtpSettingsPatch = {
+  provider: SmtpProvider;
+  host: string | null;
+  port: number;
+  username: string | null;
+  password?: string | null;
+  from_email: string | null;
+  use_ssl: boolean;
+};
+
+export type SmtpTestPayload = {
+  to: string;
+  provider?: SmtpProvider | null;
+  host?: string | null;
+  port?: number | null;
+  username?: string | null;
+  password?: string | null;
+  from_email?: string | null;
+  use_ssl?: boolean | null;
+};
+
+export type SmtpTestResult = {
+  ok: boolean;
+  error: string | null;
+};
+
 export type ChatStats = {
   guild_count: number;
   channel_count: number;
@@ -99,6 +144,23 @@ export const adminApi = {
   patchAuthSettings(payload: AuthSettings): Promise<AuthSettings> {
     return request<AuthSettings>('/admin/settings', {
       method: 'PATCH',
+      endpoint: 'auth',
+      body: payload
+    });
+  },
+  getSmtpSettings(): Promise<SmtpSettings> {
+    return request<SmtpSettings>('/admin/smtp', { endpoint: 'auth' });
+  },
+  patchSmtpSettings(payload: SmtpSettingsPatch): Promise<SmtpSettings> {
+    return request<SmtpSettings>('/admin/smtp', {
+      method: 'PATCH',
+      endpoint: 'auth',
+      body: payload
+    });
+  },
+  testSmtp(payload: SmtpTestPayload): Promise<SmtpTestResult> {
+    return request<SmtpTestResult>('/admin/smtp/test', {
+      method: 'POST',
       endpoint: 'auth',
       body: payload
     });

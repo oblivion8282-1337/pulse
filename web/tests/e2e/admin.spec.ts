@@ -106,11 +106,27 @@ test.describe.serial('admin-panel E2E', () => {
       'admin-overview',
       'admin-attachments',
       'admin-registration',
+      'admin-smtp',
       'admin-users',
       'admin-audit-log'
     ]) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
+  });
+
+  test('SMTP-Config PATCH flips the status badge to "Aktiv"', async () => {
+    // Fresh DB: smtp_settings starts unconfigured → "Nicht eingerichtet".
+    await expect(page.getByTestId('smtp-status-inactive')).toBeVisible();
+    // Pick the Custom preset so host/port stay editable, fill creds.
+    await page.getByTestId('smtp-provider').selectOption('custom');
+    await page.getByTestId('smtp-host').fill('smtp.test.example');
+    await page.getByTestId('smtp-from').fill('noreply@test.example');
+    await page.getByTestId('smtp-pass').fill('secret-not-tested');
+    await page.getByTestId('smtp-save').click();
+    // After save the row has host+from_email → configured=true.
+    await expect(page.getByTestId('smtp-status-configured')).toBeVisible({
+      timeout: 5_000
+    });
   });
 
   test('DM-limits PATCH persists', async () => {
