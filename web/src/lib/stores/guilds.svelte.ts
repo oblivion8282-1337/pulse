@@ -5,6 +5,10 @@ class GuildStore {
   byId = $state<Record<string, Guild>>({});
   channelsByGuild = $state<Record<string, Channel[]>>({});
   loaded = $state(false);
+  // In-flight `listChannels` calls keyed by guild id. Lets `ensureChannels`
+  // dedupe a prefetch + a concurrent click-driven load into a single
+  // round-trip.
+  #channelLoads = new Map<string, Promise<Channel[]>>();
 
   // Snowflake IDs have the same length, so lexicographic order == numeric order.
   // Avoids Number() precision loss for IDs > 2^53.
@@ -20,10 +24,29 @@ class GuildStore {
     this.loaded = true;
   }
 
+  /** Force-refresh: always fires `GET /channels`. Use for explicit "I want
+   * fresh data" paths (`channel_*` lifecycle events keep the cache live
+   * during a connected session, so this is rarely the right choice — prefer
+   * ``ensureChannels``). */
   async loadChannels(guildId: string): Promise<Channel[]> {
     const channels = await chatApi.listChannels(guildId);
     this.channelsByGuild = { ...this.channelsByGuild, [guildId]: channels };
     return channels;
+  }
+
+  /** Cached + deduped variant. Returns the cached list if we already have
+   * one; otherwise fires a single `listChannels` (or attaches to the
+   * in-flight one). Used by the post-Ready prefetch and by `switchTo`. */
+  async ensureChannels(guildId: string): Promise<Channel[]> {
+    const cached = this.channelsByGuild[guildId];
+    if (cached) return cached;
+    const inflight = this.#channelLoads.get(guildId);
+    if (inflight) return inflight;
+    const p = this.loadChannels(guildId).finally(() => {
+      this.#channelLoads.delete(guildId);
+    });
+    this.#channelLoads.set(guildId, p);
+    return p;
   }
 
   add(guild: Guild): void {
@@ -91,6 +114,7 @@ class GuildStore {
     this.byId = {};
     this.channelsByGuild = {};
     this.loaded = false;
+    this.#channelLoads.clear();
   }
 }
 

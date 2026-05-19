@@ -53,6 +53,16 @@
     ]);
     hydrated = true;
 
+    // Channel-prefetch: now that Ready has populated guilds.byId, kick off
+    // a `listChannels` for every guild in the background. Fire-and-forget
+    // — the user can navigate the moment the layout paints, and whichever
+    // guild they click hits a warm cache. `ensureChannels` dedupes against
+    // a concurrent click-driven load, so we don't double-fetch if the user
+    // is faster than the prefetch.
+    for (const g of guilds.list) {
+      void guilds.ensureChannels(g.id).catch(() => undefined);
+    }
+
     // Service-worker registration is best-effort: SvelteKit emits
     // `/service-worker.js` from `web/src/service-worker.ts` at build time
     // (see Vite-Plugin output). We register it ourselves rather than relying

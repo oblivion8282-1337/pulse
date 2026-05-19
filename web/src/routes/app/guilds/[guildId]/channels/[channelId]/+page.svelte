@@ -125,7 +125,11 @@
       resolving = true;
       loadError = null;
       try {
-        await guilds.loadChannels(g);
+        // `ensureChannels` hits the post-Ready prefetch cache if it ran
+        // through; falls back to a single `listChannels` otherwise. The
+        // `channel_*` lifecycle events keep the cache live during the
+        // session, so this rarely needs to refetch.
+        await guilds.ensureChannels(g);
       } catch (err) {
         if (isStale()) return;
         loadError = err instanceof Error ? err.message : 'Kanäle konnten nicht geladen werden';
