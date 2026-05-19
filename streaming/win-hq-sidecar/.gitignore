@@ -1,0 +1,6 @@
+/target
+/Cargo.lock
+# Smoke-test artefacts (a 4K BMP is ~24 MB and uncompressed; don't commit).
+capture_smoke_*.bmp
+capture_smoke_*.png
+audio_smoke_*.wav

@@ -1,0 +1,62 @@
+[package]
+name = "pulse-win-hq-sidecar"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Pulse Windows HQ-streaming sidecar — stdio JSON-RPC over newline-delimited JSON, mirrors streaming/gsr-sidecar/control.py"
+
+[[bin]]
+name = "pulse-win-hq-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+# Stage 2: DXGI-Adapter-Enum (real `gpu_info` + populates `health.gsr.vendor`).
+# Features kept narrow — only what the adapter walk + COM init needs.
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Com",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_System_Variant",
+] }
+
+# Stage 3: per-app audio enum for `list_application_audio`. The crate wraps
+# IAudioSessionManager2 + IAudioSessionEnumerator + IAudioSessionControl2;
+# we read each session's process-id and dedupe by process name.
+wasapi = "0.23"
+
+# PID → process-name resolver (sysinfo wraps QueryFullProcessImageNameW).
+sysinfo = "0.32"
+
+# Stage 5: WGC + DXGI-DDA capture. NiiightmareXD's crate wraps both APIs and
+# exposes Monitor/Window enumeration without a picker UI — important because we
+# pick the source in the Pulse UI, not via the Win32 picker dialog.
+windows-capture = "2"
+
+# Stage 7+ deps — added in their respective stages.
+#
+# ffmpeg-next     = "8.1"   # NVENC/AMF/QSV encode, FLV-mux, RTMPS push (Stage 7)
+# tokio           = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
+
+[[example]]
+name = "capture_smoke"
+path = "examples/capture_smoke.rs"
+
+[[example]]
+name = "audio_smoke"
+path = "examples/audio_smoke.rs"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
