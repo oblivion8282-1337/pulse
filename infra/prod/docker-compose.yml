@@ -120,6 +120,40 @@ services:
     networks: [pulse-net]
     labels: *pinned-labels
 
+  # ── encrypted backups (restic → pulse_backups volume) ──────────────────────
+  # Sidecar that snapshots Postgres + MinIO + avatars + guild_icons into a
+  # local restic repo at /repo. Built from ./backup/Dockerfile (not GHCR);
+  # Watchtower-excluded because the image only changes when this directory
+  # does. Schedule + script land in a follow-up commit; for now the container
+  # is a working environment for restic invocations and stays idle.
+  #
+  # See infra/prod/backup/restore.md (added with the restore runbook) for
+  # recovery. Local-only repo is *not* a real backup against disk loss —
+  # an off-host move is tracked as a TODO in DEPLOY.md.
+  backup:
+    build: ./backup
+    container_name: pulse_backup
+    restart: unless-stopped
+    environment:
+      RESTIC_REPOSITORY: /repo
+      RESTIC_PASSWORD: ${RESTIC_PASSWORD:?RESTIC_PASSWORD required}
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-dcc}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      PGDATABASE: ${POSTGRES_DB:-dcc}
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - pulse_backups:/repo
+      - pulse_avatars:/snapshot/avatars:ro
+      - pulse_guild_icons:/snapshot/guild_icons:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    networks: [pulse-net]
+    labels: *pinned-labels
+
   # ── migrations (run once, then exit) ───────────────────────────────────────
   migrate-auth:
     image: ghcr.io/oblivion8282-1337/pulse-auth:latest
@@ -329,6 +363,7 @@ volumes:
   pulse_avatars:
   pulse_guild_icons:
   pulse_minio:
+  pulse_backups:
 
 networks:
   pulse-net:
