@@ -70,6 +70,10 @@ path = "examples/audio_smoke.rs"
 name = "ffmpeg_smoke"
 path = "examples/ffmpeg_smoke.rs"
 
+[[example]]
+name = "encode_smoke"
+path = "examples/encode_smoke.rs"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

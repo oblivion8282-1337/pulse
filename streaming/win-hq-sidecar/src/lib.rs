@@ -7,6 +7,7 @@
 pub mod audio;
 pub mod capture;
 pub mod dispatch;
+pub mod encode;
 pub mod ops;
 pub mod profiles;
 pub mod proto;
