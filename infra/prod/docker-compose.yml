@@ -151,6 +151,16 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       minio: { condition: service_healthy }
+    # Healthcheck reads /repo/.pulse/last-backup-ok (written by backup.sh on
+    # every successful run, touched by entrypoint on container start). > 36h
+    # old ⇒ unhealthy — catches "cron silently broke for >1 day" without
+    # tripping on daily-only cadence.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /repo/.pulse/last-backup-ok && [ $(($(date +%s) - $(stat -c %Y /repo/.pulse/last-backup-ok))) -lt 129600 ]"]
+      interval: 1h
+      timeout: 5s
+      retries: 3
+      start_period: 5m
     networks: [pulse-net]
     labels: *pinned-labels
 

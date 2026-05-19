@@ -105,6 +105,74 @@ docker compose pull && docker compose up -d   # force-pull latest (Watchtower do
 docker logs pulse_watchtower            # see what Watchtower is doing
 ```
 
-Backups: `pulse_pg` (Postgres data), `pulse_redis` (AOF), `pulse_avatars`
-(uploaded avatars) are Docker named volumes — back them up with the rest of the
-VPS volume backups.
+## Backups
+
+The `backup` sidecar (built locally from `infra/prod/backup/Dockerfile`)
+runs restic-encrypted snapshots of Postgres + MinIO + avatars + guild_icons
+into the `pulse_backups` Docker volume. Schedule (UTC):
+
+- `pg`        — daily 04:00 (pg_dump | restic --stdin)
+- `minio`     — every 6h    (mc mirror → restic)
+- `avatars`   — daily 04:30
+- `icons`     — daily 04:35
+- `maintenance` — Sunday 05:00 (`forget --prune` 7d/4w/6m per tag + `check`)
+
+Schedule + script live in `infra/prod/backup/{crontab,backup.sh}`.
+
+### Setup (one-time, before next deploy)
+
+```sh
+# 1. Generate the repo passphrase. **Save it in a password manager AND on
+#    paper** — restic uses scrypt+AES-256; a lost passphrase = unrecoverable
+#    repo, full stop.
+openssl rand -base64 32
+
+# 2. Append the passphrase to ~/pulse/infra/prod/.env on the VPS.
+#    Without RESTIC_PASSWORD set, `docker compose up -d` will REFUSE TO
+#    START the whole stack (the env var is required:?). So this step
+#    blocks the next deploy until done.
+echo "RESTIC_PASSWORD=<paste here>" >> ~/pulse/infra/prod/.env
+
+# 3. Build + start the sidecar.
+cd ~/pulse/infra/prod
+docker compose build backup
+docker compose up -d backup
+docker compose ps backup       # should be Up (health: starting) for 5 min, then healthy
+```
+
+### Updating the backup image
+
+The `backup` image is **not** in CI — it's locally-built and Watchtower-
+excluded. If `backup.sh` / `crontab` / `Dockerfile` change after a `git pull`
+on the VPS:
+
+```sh
+cd ~/pulse/infra/prod
+docker compose build backup
+docker compose up -d backup     # picks up the new image
+```
+
+### Recovery
+
+Step-by-step runbook: `infra/prod/backup/restore.md`. Every command in there
+was end-to-end validated on a laptop drill — single-file cherry-pick, full
+Postgres, full MinIO bucket, and avatars/icons all confirmed byte-identical
+after a destroy+restore cycle.
+
+### What is NOT in restic
+
+Restic captures the data layer only. These must be kept off-host separately
+(password manager, encrypted USB, second VPS):
+
+- `~/pulse/infra/prod/.env`               — passwords + `RESTIC_PASSWORD`
+- `~/pulse/infra/prod/secrets/jwt_*.pem`  — JWT signing keys (rotating these
+                                            invalidates every issued token)
+- `~/pulse/infra/prod/certs/server.{crt,key}` — MediaMTX self-signed TLS
+- `~/.docker/config.json`                 — GHCR pull token
+
+### TODO: off-host replica
+
+A local-only restic repo dies with the disk. Add a second repository (B2 /
+Hetzner Storage Box / S3) and run `restic copy` from a new cron line in
+`backup.sh::run_maintenance` (or a dedicated `mirror` subcommand). Sketch
+in `restore.md` §8.

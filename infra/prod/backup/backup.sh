@@ -73,6 +73,16 @@ run_maintenance() {
     restic check
 }
 
+# Health marker — read by the compose healthcheck (file age < 36h ⇒ healthy).
+# Lives at /repo/.pulse/last-backup-ok inside the pulse_backups volume so it
+# survives container restarts. restic ignores files outside its managed
+# subdirs (data/index/keys/locks/snapshots/config), so this is safe to keep
+# co-located with the repo.
+mark_ok() {
+    mkdir -p /repo/.pulse
+    date -u +%FT%TZ > /repo/.pulse/last-backup-ok
+}
+
 ensure_repo
 
 case "${1:-}" in
@@ -85,4 +95,5 @@ case "${1:-}" in
     *)           echo "unknown subcommand: $1" >&2; exit 64 ;;
 esac
 
+mark_ok
 log "$1 done"

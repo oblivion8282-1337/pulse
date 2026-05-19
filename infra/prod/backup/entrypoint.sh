@@ -17,6 +17,9 @@ case "${1:-cron}" in
         mkdir -p /var/spool/cron/crontabs
         cp /etc/pulse-crontab /var/spool/cron/crontabs/root
         chmod 0600 /var/spool/cron/crontabs/root
+        # Refresh the health marker on start so a restart doesn't get
+        # immediately marked unhealthy (real cron runs overwrite this later).
+        mkdir -p /repo/.pulse && touch /repo/.pulse/last-backup-ok || true
         echo "pulse_backup: schedule installed, starting busybox-crond" >&2
         cat /etc/pulse-crontab >&2
         # -f foreground, -L /dev/stdout cron's own log → docker logs,
