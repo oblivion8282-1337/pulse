@@ -78,6 +78,10 @@ path = "examples/encode_smoke.rs"
 name = "rtmp_smoke"
 path = "examples/rtmp_smoke.rs"
 
+[[example]]
+name = "test_driver"
+path = "examples/test_driver.rs"
+
 [profile.release]
 opt-level = 3
 lto = "thin"

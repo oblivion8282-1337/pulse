@@ -79,7 +79,10 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    // EOF auf stdin → Writer-Thread auch beenden lassen.
+    // EOF auf stdin → Writer-Thread auch beenden lassen. Wichtig: erst die
+    // EMITTER-interne Sender-Clone droppen (sonst hält der OnceLock sie für die
+    // ganze Prozess-Lebenszeit fest → `writer.join()` hängt unendlich).
+    events::shutdown();
     drop(out_tx);
     let _ = writer.join();
 

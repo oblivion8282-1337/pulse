@@ -10,3 +10,7 @@ encode_smoke*.flv
 # heruntergeladen (BtbN-Prebuilt, n8.1, ~88 MB Zip → ~250 MB ausgepackt). Pin
 # steht im Script (URL + SHA256).
 /ffmpeg-dist/
+# MediaMTX-Standalone-Binary für lokale Test-Driver-Runs (`scripts/fetch-mediamtx.ps1`).
+/mediamtx-dist/
+# Test-Driver-Logs.
+/target/test-driver-*.log

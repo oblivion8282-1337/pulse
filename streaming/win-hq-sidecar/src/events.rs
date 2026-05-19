@@ -14,12 +14,12 @@ use serde_json::Value;
 use std::sync::mpsc::Sender;
 use std::sync::{Mutex, OnceLock};
 
-static EMITTER: OnceLock<Mutex<Sender<Value>>> = OnceLock::new();
+static EMITTER: OnceLock<Mutex<Option<Sender<Value>>>> = OnceLock::new();
 
 /// Initialisiert den Emitter mit dem Writer-Thread-Channel. Wird einmal von
 /// `main.rs` aufgerufen.
 pub fn init(tx: Sender<Value>) {
-    let _ = EMITTER.set(Mutex::new(tx));
+    let _ = EMITTER.set(Mutex::new(Some(tx)));
 }
 
 /// Sendet ein Event an den stdout-Writer-Thread. Nicht-blockierend; bei Disconnect
@@ -27,7 +27,21 @@ pub fn init(tx: Sender<Value>) {
 pub fn emit(event: Value) {
     if let Some(m) = EMITTER.get() {
         if let Ok(guard) = m.lock() {
-            let _ = guard.send(event);
+            if let Some(tx) = guard.as_ref() {
+                let _ = tx.send(event);
+            }
+        }
+    }
+}
+
+/// Dropped den EMITTER-internen Sender. Wird von `main.rs` zur Shutdown-Zeit
+/// gerufen — sonst hält der static OnceLock einen Sender-Clone die ganze
+/// Prozess-Lebenszeit fest, der writer-Thread sieht nie ein Disconnect, und
+/// `writer.join()` hängt unendlich.
+pub fn shutdown() {
+    if let Some(m) = EMITTER.get() {
+        if let Ok(mut guard) = m.lock() {
+            *guard = None;
         }
     }
 }
