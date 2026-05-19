@@ -414,7 +414,12 @@ class AdminStatsOut(BaseModel):
     counts under its ``/admin/stats``; the UI merges them.
 
     ``messages_24h`` counts non-deleted rows from the last 24h.
-    ``storage_bytes`` is a placeholder until MinIO is wired up (None for now).
+    ``storage_bytes`` is the live MinIO attachments-bucket usage (sum of
+    Object sizes via paginated LIST). ``storage_total_bytes`` +
+    ``storage_free_bytes`` come from MinIO's admin storageinfo endpoint —
+    underlying disk total/free, so the UI can show a fill-rate. All three
+    are ``None`` if MinIO is unreachable; the UI falls back to "noch nicht
+    aktiv".
     """
 
     guild_count: int
@@ -422,6 +427,8 @@ class AdminStatsOut(BaseModel):
     dm_channel_count: int
     messages_24h: int
     storage_bytes: int | None = None
+    storage_total_bytes: int | None = None
+    storage_free_bytes: int | None = None
 
 
 class RoleOut(BaseModel):

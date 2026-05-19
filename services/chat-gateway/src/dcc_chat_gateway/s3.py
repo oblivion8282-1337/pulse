@@ -20,7 +20,11 @@ import contextlib
 from typing import AsyncIterator, Literal
 
 import aiobotocore.session
+import httpx
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from botocore.config import Config
+from botocore.credentials import Credentials
 
 from dcc_chat_gateway.config import get_settings
 
@@ -156,3 +160,39 @@ async def total_bucket_bytes() -> int | None:
         return total
     except Exception:  # noqa: BLE001
         return None
+
+
+async def cluster_disk_info() -> tuple[int, int] | None:
+    """Query MinIO's admin API for total + available disk space, summed across
+    drives. Returns ``(total_bytes, free_bytes)`` or ``None`` if the call fails.
+
+    Used by the admin Übersicht-Tab to render "X of Y GB used" instead of just
+    bucket-usage in isolation. MinIO's ``/minio/admin/v3/storageinfo`` is a
+    plain sigv4-signed GET (service name ``s3``), so we sign with botocore and
+    fire with httpx — no extra dep. Single-node FS backend has one drive;
+    multi-drive setups are summed.
+    """
+    s = get_settings()
+    url = f"{s.s3_internal_endpoint}/minio/admin/v3/storageinfo"
+    creds = Credentials(s.s3_access_key, s.s3_secret_key)
+    req = AWSRequest(method="GET", url=url, data=b"")
+    # Unsigned payload — admin GET has no body. Without this header sigv4 would
+    # try to sha256 a None body and fail.
+    req.headers["x-amz-content-sha256"] = "UNSIGNED-PAYLOAD"
+    SigV4Auth(creds, "s3", s.s3_region).add_auth(req)
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(url, headers=dict(req.headers))
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:  # noqa: BLE001
+        return None
+    # MinIO ships the disks list as `Disks` (uppercase D). totalspace /
+    # availspace are lowercase. Verified against MinIO 2024.x; if a future
+    # release renames the keys this returns None and the UI degrades cleanly.
+    disks = data.get("Disks") or data.get("disks") or []
+    total = sum(int(d.get("totalspace", 0) or 0) for d in disks)
+    free = sum(int(d.get("availspace", 0) or 0) for d in disks)
+    if total <= 0:
+        return None
+    return total, free

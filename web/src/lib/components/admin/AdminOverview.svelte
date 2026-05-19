@@ -86,7 +86,15 @@
         </div>
         <div class="text-text-bright text-2xl font-semibold">{fmtBytes(chat.storage_bytes)}</div>
         <div class="text-text-muted text-xs">
-          {chat.storage_bytes === null ? 'noch nicht aktiv' : 'belegt'}
+          {#if chat.storage_bytes === null}
+            noch nicht aktiv
+          {:else if chat.storage_total_bytes !== null && chat.storage_free_bytes !== null}
+            belegt · {fmtBytes(chat.storage_free_bytes)} frei von {fmtBytes(
+              chat.storage_total_bytes
+            )}
+          {:else}
+            belegt
+          {/if}
         </div>
       </div>
     </div>

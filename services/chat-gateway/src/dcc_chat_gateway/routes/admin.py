@@ -18,6 +18,7 @@ Three concerns split across endpoints:
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
@@ -98,12 +99,20 @@ async def get_stats(session: SessionDep, _actor: AdminUser):
             .where(Message.created_at >= cutoff, Message.deleted_at.is_(None))
         )
     ).scalar_one()
+    # Fire bucket-sum + disk-info in parallel so the slowest of the two caps
+    # the whole stats endpoint, not their sum.
+    bucket_bytes, disk = await asyncio.gather(
+        s3.total_bucket_bytes(),
+        s3.cluster_disk_info(),
+    )
     return AdminStatsOut(
         guild_count=guild_count,
         channel_count=channel_count,
         dm_channel_count=dm_channel_count,
         messages_24h=messages_24h,
-        storage_bytes=await s3.total_bucket_bytes(),
+        storage_bytes=bucket_bytes,
+        storage_total_bytes=disk[0] if disk else None,
+        storage_free_bytes=disk[1] if disk else None,
     )
 
 

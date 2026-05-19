@@ -54,6 +54,10 @@ export type ChatStats = {
   dm_channel_count: number;
   messages_24h: number;
   storage_bytes: number | null;
+  /** Total + free disk space of the MinIO backend, summed across drives.
+   * Null if the admin endpoint was unreachable. */
+  storage_total_bytes: number | null;
+  storage_free_bytes: number | null;
 };
 
 export type AuditLogEntry = {
