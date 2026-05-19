@@ -28,6 +28,8 @@ import { settings } from '$lib/stores/settings.svelte';
 import { AudioDevices } from './audioDevices.svelte';
 import { createSendProcessor, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
+import { SpeakingDetector } from './speakingDetector';
+import { RemoteSpeakingTracker } from './remoteSpeakingTracker';
 import { ScreenShareTracks, type ScreenShareTrack } from './screenTracks.svelte';
 import { CameraTracks, type CameraTrack } from './cameraTracks.svelte';
 import {
@@ -126,7 +128,13 @@ class VoiceRoom {
       // still shows sensible values and the clip lamp works in that mode too.
       if (this.#sendProcessorMode === 'off') this.localSendLevel = n;
     },
-    (s) => { this.#setLocalSpeaking(s); },
+    (s) => {
+      // Raw mic only drives the speaking ring when there is no send-processor.
+      // With a processor installed, the post-gain tap (#onSendLevel →
+      // #sendSpeakingDetector) is the source of truth — what listeners
+      // actually hear, not what hit the mic.
+      if (this.#sendProcessorMode === 'off') this.#setLocalSpeaking(s);
+    },
     (c) => {
       this.localMicClip = c;
       if (this.#sendProcessorMode === 'off') this.localSendClip = c;
@@ -135,6 +143,15 @@ class VoiceRoom {
       this.localMicPeak = p;
       if (this.#sendProcessorMode === 'off') this.localSendPeak = p;
     }
+  );
+  /** Drives `localSpeaking` from the post-processor send-tap RMS. Only fed
+   *  while a send-processor (RNNoise+Gate or gain-only) is installed; raw-mic
+   *  mode uses LocalMicAnalyser's own detector instead. */
+  #sendSpeakingDetector = new SpeakingDetector((s) => this.#setLocalSpeaking(s));
+  /** Per-remote-participant speaking state, computed client-side from the
+   *  subscribed audio track. */
+  #remoteSpeaking = new RemoteSpeakingTracker((identity, speaking) =>
+    this.#onRemoteSpeakingChange(identity, speaking)
   );
   /** Display-level state for the send meter (peak-meter ballistics, identical
    *  shape to what LocalMicAnalyser does for raw mic but driven by the
@@ -751,6 +768,10 @@ class VoiceRoom {
                 this.audioBlocked = true;
               }
             );
+            // Parallel speaking-detector tap on the same raw track — independent
+            // of LiveKit's server-side active-speaker decision.
+            const ms = (track as RemoteAudioTrack).mediaStreamTrack;
+            if (ms) this.#remoteSpeaking.attach(p.identity, ms);
           }
         } else if (track.kind === Track.Kind.Video && pub.source === Track.Source.ScreenShare) {
           this.#screenShare.addVideo(track as RemoteVideoTrack, p);
@@ -765,11 +786,12 @@ class VoiceRoom {
         }
         this.#refreshParticipants();
       })
-      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+      .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
         if (track.source === Track.Source.ScreenShareAudio) {
           this.#screenShare.removeAudio(track as RemoteAudioTrack);
-        } else {
+        } else if (track.kind === Track.Kind.Audio) {
           this.#audioEls.detach(track.sid ?? '');
+          this.#remoteSpeaking.detach(p.identity);
         }
         if (track.kind === Track.Kind.Video && track.source === Track.Source.ScreenShare) {
           this.#screenShare.removeVideo(track.sid ?? '');
@@ -799,9 +821,11 @@ class VoiceRoom {
       name: nameFor(p),
       userId: userIdFromIdentity(p.identity),
       isLocal,
-      // Local: RMS-driven (server's active-speaker detection is unreliable
-      // when AGC is off, which is the default with RNNoise).
-      isSpeaking: isLocal ? this.localSpeaking : p.isSpeaking,
+      // Both sides RMS-driven — LiveKit's server active-speaker detection is
+      // unreliable with AGC off (the default here, RNNoise replaces it).
+      // Local: LocalMicAnalyser (raw) when no processor, else the
+      // post-processor tap. Remote: AnalyserNode on the subscribed track.
+      isSpeaking: isLocal ? this.localSpeaking : this.#remoteSpeaking.isSpeaking(p.identity),
       audioLevel: p.audioLevel ?? 0,
       micMuted: !p.isMicrophoneEnabled,
       cameraOn: p.isCameraEnabled,
@@ -833,9 +857,10 @@ class VoiceRoom {
       const p = participantMap.get(vp.identity);
       if (!p) continue;
       const newLevel = p.audioLevel ?? 0;
-      // Local isSpeaking is owned by LocalMicAnalyser — don't let the
-      // server-driven value (which often stays false with AGC off) clobber it.
-      const newSpeaking = vp.isLocal ? vp.isSpeaking : p.isSpeaking;
+      // Local isSpeaking is owned by LocalMicAnalyser / the send-tap detector.
+      // Remote isSpeaking is owned by RemoteSpeakingTracker. The server's
+      // `p.isSpeaking` is intentionally ignored — see comment in #refreshParticipants.
+      const newSpeaking = vp.isLocal ? vp.isSpeaking : this.#remoteSpeaking.isSpeaking(vp.identity);
       if (vp.audioLevel !== newLevel || vp.isSpeaking !== newSpeaking) {
         vp.audioLevel = newLevel;
         vp.isSpeaking = newSpeaking;
@@ -874,6 +899,11 @@ class VoiceRoom {
    *  consistent. Clip flag is driven by raw peak amplitude > ~-1 dBFS with a
    *  300 ms hold so a single crackle stays visible. */
   #onSendLevel = (rms: number, peak: number): void => {
+    // Speaking ring tracks the post-processor signal — i.e. exactly what
+    // other listeners receive. Above the gate's open-threshold (default
+    // -45 dBFS at the gain node's input ⇒ louder at the tap after makeup)
+    // means audio is genuinely flowing.
+    this.#sendSpeakingDetector.feed(rms);
     // RMS bar (smooth, peak-meter ballistics).
     let level = 0;
     if (rms > 0.0005) {
@@ -914,6 +944,18 @@ class VoiceRoom {
     this.localSendLevel = 0;
     this.localSendPeak = 0;
     this.localSendClip = false;
+    // Send-tap stops feeding the detector when the processor goes away or the
+    // mic gets disabled — without an explicit reset the detector would latch
+    // on whatever state it had at the moment the feed stopped.
+    this.#sendSpeakingDetector.reset();
+  }
+
+  #onRemoteSpeakingChange(identity: string, speaking: boolean): void {
+    const idx = this.participants.findIndex((p) => p.identity === identity);
+    if (idx < 0 || this.participants[idx].isSpeaking === speaking) return;
+    const copy = [...this.participants];
+    copy[idx] = { ...copy[idx], isSpeaking: speaking };
+    this.participants = copy;
   }
 
   #setLocalSpeaking(s: boolean): void {
@@ -933,6 +975,8 @@ class VoiceRoom {
     this.#stopLevelPolling();
     this.#localMic.detach();
     this.#resetSendLevel();
+    this.#sendSpeakingDetector.reset();
+    this.#remoteSpeaking.clear();
     this.#audioEls.clear();
     this.#room = null;
     this.#sendProcessorMode = 'off';

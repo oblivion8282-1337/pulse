@@ -9,6 +9,8 @@
  * the published MediaStreamTrack at ~60 fps so the settings meter actually
  * reflects what the mic is picking up.
  */
+import { SpeakingDetector } from './speakingDetector';
+
 /** Linear peak threshold ≈ -1 dBFS — anything above is "clipping" for the lamp. */
 const CLIP_PEAK_THRESHOLD = 0.891;
 /** Hold the clip indicator on for at least this long after the last over-peak, so
@@ -23,11 +25,9 @@ export class LocalMicAnalyser {
   #raf: number | null = null;
   #track: MediaStreamTrack | null = null;
   #onLevel: (n: number) => void;
-  #onSpeaking: ((s: boolean) => void) | undefined;
   #onClip: ((c: boolean) => void) | undefined;
   #onPeak: ((p: number) => void) | undefined;
-  #speaking = false;
-  #lastAboveMs = 0;
+  #speakingDetector: SpeakingDetector | null;
   #displayLevel = 0;
   #displayPeak = 0;
   #clipping = false;
@@ -40,9 +40,9 @@ export class LocalMicAnalyser {
     onPeak?: (p: number) => void
   ) {
     this.#onLevel = onLevel;
-    this.#onSpeaking = onSpeaking;
     this.#onClip = onClip;
     this.#onPeak = onPeak;
+    this.#speakingDetector = onSpeaking ? new SpeakingDetector(onSpeaking) : null;
   }
 
   /** Attach to (or re-attach to a different) MediaStreamTrack. No-op if same track. */
@@ -91,10 +91,7 @@ export class LocalMicAnalyser {
     this.#displayPeak = 0;
     this.#onLevel(0);
     this.#onPeak?.(0);
-    if (this.#speaking) {
-      this.#speaking = false;
-      this.#onSpeaking?.(false);
-    }
+    this.#speakingDetector?.reset();
     if (this.#clipping) {
       this.#clipping = false;
       this.#onClip?.(false);
@@ -153,23 +150,12 @@ export class LocalMicAnalyser {
     if (level > this.#displayLevel) this.#displayLevel = level;
     else this.#displayLevel = this.#displayLevel * 0.85 + level * 0.15;
     this.#onLevel(this.#displayLevel);
-    // Speaking detection on the raw (un-decayed) level with asymmetric
-    // thresholds + 300ms hold so brief inter-word gaps don't flicker the ring.
-    if (this.#onSpeaking) {
-      const now = performance.now();
-      if (this.#speaking) {
-        if (level >= 0.25) {
-          this.#lastAboveMs = now;
-        } else if (now - this.#lastAboveMs > 300) {
-          this.#speaking = false;
-          this.#onSpeaking(false);
-        }
-      } else if (level >= 0.4) {
-        this.#speaking = true;
-        this.#lastAboveMs = now;
-        this.#onSpeaking(true);
-      }
-    }
+    // Speaking detection: feed raw RMS into the shared detector — only
+    // meaningful when no send-processor is installed (raw mic IS the
+    // published track then). With a processor present, livekit.svelte.ts
+    // drives speaking off the post-processor tap instead, and this
+    // detector's callback is gated out at the call site.
+    this.#speakingDetector?.feed(rms);
     this.#raf = requestAnimationFrame(this.#loop);
   };
 }
