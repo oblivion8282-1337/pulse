@@ -76,6 +76,7 @@ async def list_messages(
     session: SessionDep,
     current: CurrentUser,
     before: Annotated[int | None, Query(ge=0)] = None,
+    after: Annotated[int | None, Query(ge=0)] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
 ):
     # Resolve the channel as guild-or-DM and enforce access in one go.
@@ -96,6 +97,8 @@ async def list_messages(
     )
     if before is not None:
         stmt = stmt.where(Message.id < before)
+    if after is not None:
+        stmt = stmt.where(Message.id > after)
     stmt = stmt.order_by(Message.id.desc()).limit(limit)
     rows = list((await session.execute(stmt)).scalars().all())
     msg_ids = [m.id for m in rows]

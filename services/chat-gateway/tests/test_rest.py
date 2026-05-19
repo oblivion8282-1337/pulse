@@ -147,6 +147,57 @@ async def test_messages_paginated(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_messages_after_cursor(client, _auth_signer):
+    """`?after=<id>` returns only messages strictly newer than the cursor.
+
+    Used by the WS-reconnect gap-fill path (web/src/lib/ws/connection.ts):
+    on reconnect the client fetches `after=<lastSeenId>` to backfill any
+    messages it missed during the disconnect, instead of wiping + reloading
+    the whole channel.
+    """
+    t1, _ = await _register_user(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=auth(t1))).json()
+    c = (await client.post(
+        f"/guilds/{g['id']}/channels",
+        json={"name": "general"},
+        headers=auth(t1),
+    )).json()
+    ids = []
+    for i in range(4):
+        r = await client.post(
+            f"/channels/{c['id']}/messages",
+            json={"content": f"m{i}"},
+            headers=auth(t1),
+        )
+        ids.append(r.json()["id"])
+
+    # after=<id of m1> → expect m2 + m3 only (newest first).
+    r = await client.get(
+        f"/channels/{c['id']}/messages?after={ids[1]}",
+        headers=auth(t1),
+    )
+    assert r.status_code == 200
+    page = r.json()
+    assert [m["id"] for m in page] == [ids[3], ids[2]]
+
+    # after=<latest> → empty (no gap).
+    r = await client.get(
+        f"/channels/{c['id']}/messages?after={ids[-1]}",
+        headers=auth(t1),
+    )
+    assert r.status_code == 200
+    assert r.json() == []
+
+    # before + after compose: half-open (after, before).
+    r = await client.get(
+        f"/channels/{c['id']}/messages?after={ids[0]}&before={ids[3]}",
+        headers=auth(t1),
+    )
+    assert r.status_code == 200
+    assert [m["id"] for m in r.json()] == [ids[2], ids[1]]
+
+
+@pytest.mark.asyncio
 async def test_non_member_cannot_post(client, _auth_signer):
     t1, _ = await _register_user(_auth_signer)
     t2, _ = await _register_user(_auth_signer)

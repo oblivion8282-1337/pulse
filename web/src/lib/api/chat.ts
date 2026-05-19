@@ -148,10 +148,11 @@ export const chatApi = {
   // Messages
   listMessages(
     channelId: string,
-    opts: { before?: string; limit?: number } = {}
+    opts: { before?: string; after?: string; limit?: number } = {}
   ): Promise<Message[]> {
     const params = new URLSearchParams();
     if (opts.before) params.set('before', opts.before);
+    if (opts.after) params.set('after', opts.after);
     params.set('limit', String(opts.limit ?? 50));
     return request<Message[]>(`/channels/${channelId}/messages?${params.toString()}`);
   },

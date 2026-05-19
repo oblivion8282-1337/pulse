@@ -322,14 +322,13 @@ export class GatewayConnection {
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
-        // Drop loaded messages so the next channel-switch hits the REST
-        // endpoint and pulls everything that arrived during the disconnect.
-        // (invalidateLoaded only flips a flag — messages already in the store
-        //  would be merged with the next push, leaving gaps if any history
-        //  was missed.)
-        for (const cid of this.subs) {
-          messages.clearChannel(cid);
-        }
+        // Backfill anything that arrived during the disconnect via the REST
+        // gap-fill endpoint (`?after=<lastSeenId>`). Done *after* re-subscribing
+        // so any new WS-pushed message racing the REST call gets deduped by
+        // mergeGap (id + nonce). Token expiry triggers a close every
+        // jwt_access_ttl_seconds (=15min); without this the user sees the
+        // chat blink on every cycle.
+        void this._gapFillAll();
         resolve();
       });
       ws.addEventListener('message', (event) => {
@@ -353,6 +352,39 @@ export class GatewayConnection {
         // Surface as close — browsers fire close right after.
       });
     });
+  }
+
+  /** Per-channel gap-fill on reconnect. For each subscribed channel whose
+   *  history we've already loaded, fetch `?after=<lastSeenId>` and merge.
+   *  If a single gap exceeds GAP_FILL_LIMIT the safe move is to drop the
+   *  channel's cache so the page-effect in
+   *  `routes/app/.../+page.svelte` triggers a full reload — better a single
+   *  visible reload than a silent hole. Channels that aren't loaded yet
+   *  (e.g. user never opened them in this session) need no work; their
+   *  first switchTo will REST-fetch normally. */
+  private async _gapFillAll(): Promise<void> {
+    const GAP_FILL_LIMIT = 100;
+    const { chatApi } = await import('$lib/api/chat');
+    for (const cid of this.subs) {
+      const lastId = messages.lastPersistedId(cid);
+      if (!lastId) continue;
+      try {
+        const page = await chatApi.listMessages(cid, {
+          after: lastId,
+          limit: GAP_FILL_LIMIT
+        });
+        if (page.length >= GAP_FILL_LIMIT) {
+          // Gap saturates the page — there might be more we'd miss.
+          // Fall back to a full reload via the existing page-effect.
+          messages.clearChannel(cid);
+        } else if (page.length) {
+          messages.mergeGap(cid, page);
+        }
+      } catch {
+        // Best-effort. A 401 means the token already rotated again
+        // (unlikely but possible); the next reconnect will retry.
+      }
+    }
   }
 
   private _handle(evt: ServerEvent): void {

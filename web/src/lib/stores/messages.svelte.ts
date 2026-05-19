@@ -116,6 +116,38 @@ class MessageStore {
     this.byChannel = { ...this.byChannel, [evt.channel_id]: next };
   }
 
+  /** Newest persisted (non-optimistic) message id in the channel, or null
+   *  if empty / only optimistic placeholders. Used by the WS-reconnect
+   *  gap-fill to request `?after=<lastId>`. */
+  lastPersistedId(channelId: string): string | null {
+    const list = this.byChannel[channelId];
+    if (!list) return null;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (!list[i].id.startsWith('tmp-')) return list[i].id;
+    }
+    return null;
+  }
+
+  /** Merge a gap-fill page (messages strictly newer than `lastPersistedId`)
+   *  into the channel non-destructively. Dedupes by id and by nonce echo,
+   *  so a message that the WS already pushed during the round-trip is not
+   *  duplicated. */
+  mergeGap(channelId: string, msgs: Message[]): void {
+    if (!msgs.length) return;
+    const list = this.byChannel[channelId] ?? [];
+    const haveIds = new Set(list.map((m) => m.id));
+    const haveNonces = new Set(list.map((m) => m.nonce).filter(Boolean) as string[]);
+    const incoming = msgs.filter(
+      (m) => !haveIds.has(m.id) && !(m.nonce && haveNonces.has(m.nonce))
+    );
+    if (!incoming.length) return;
+    let next = [...list, ...incoming].sort((a, b) =>
+      a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+    );
+    if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
+    this.byChannel = { ...this.byChannel, [channelId]: next };
+  }
+
   /** Mark a channel as not loaded so the next visit re-fetches messages. */
   invalidateLoaded(channelId: string): void {
     delete this.loadedChannels[channelId];
