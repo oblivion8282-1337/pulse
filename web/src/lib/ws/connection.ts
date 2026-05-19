@@ -322,6 +322,12 @@ export class GatewayConnection {
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
+        // Re-emit our voice mute/deafen state. The previous socket's disconnect
+        // path cleared ``voice:user_state:<uid>`` server-side (last-socket-gone
+        // race on token-expiry close), so peers stopped seeing our icons.
+        void import('$lib/voice/livekit.svelte').then(({ voice }) => {
+          voice.resyncSelfState();
+        });
         // Backfill anything that arrived during the disconnect via the REST
         // gap-fill endpoint (`?after=<lastSeenId>`). Done *after* re-subscribing
         // so any new WS-pushed message racing the REST call gets deduped by

@@ -1033,6 +1033,14 @@ class VoiceRoom {
       // change (or a manual re-emit on reconnect) will catch up.
     }
   }
+
+  /** Re-emit the local mute/deafen state. Called after a WS reconnect — the
+   * gateway clears ``voice:user_state:<uid>`` when our last socket goes away
+   * (token-expiry close + reconnect race), so without this our mute/deafen
+   * icons disappear for every other client until we toggle again. */
+  resyncSelfState(): void {
+    this.#publishSelfState();
+  }
 }
 
 export const voice = new VoiceRoom();
