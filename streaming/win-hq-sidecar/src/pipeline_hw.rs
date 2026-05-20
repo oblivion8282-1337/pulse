@@ -53,7 +53,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // bedienen — 24 ist für beide Fälle robust.
     let mut capture = WgcHwCapture::start(
         params.capture.clone(),
-        CaptureConfig { max_fps: fps, ..Default::default() },
+        CaptureConfig { max_fps: fps, include_cursor: params.show_cursor, ..Default::default() },
         24,
     )?;
 

@@ -7,7 +7,8 @@
 //!  "channel":{"id":"123","token":"…","push_url":"rtmps://…"},
 //!  "capture":"portal"|"monitor"|"window"|"App: <name>",
 //!  "audio":{"mode":"Aus|Desktop|Mikrofon|Desktop + Mikrofon","excluded_apps":[]},
-//!  "overrides":{"codec":"h264","bitrate_kbps":4000,"fps":60,"resolution":"1080p"}?}
+//!  "overrides":{"codec":"h264","bitrate_kbps":4000,"fps":60,"resolution":"1080p"}?,
+//!  "show_cursor":true?}
 //! ```
 //!
 //! Returnt `{"ok":true, "argv":[…redactet…]}`, danach kommen via `events::emit`
@@ -57,6 +58,12 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let audio = parse_audio(&params);
     let (override_codec, override_bitrate, override_fps, override_resolution) =
         parse_overrides(&params);
+    // Mauszeiger im Stream — Default `true` (GSR-Default `-cursor yes`); fehlt
+    // das Feld oder ist es kein Bool, bleibt's an.
+    let show_cursor = params
+        .get("show_cursor")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
 
     let start_params = StartParams {
         profile,
@@ -69,6 +76,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         override_bitrate_kbps: override_bitrate,
         override_fps,
         override_resolution,
+        show_cursor,
     };
 
     let argv = StreamController::singleton().start(start_params)?;

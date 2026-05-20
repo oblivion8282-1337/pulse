@@ -69,6 +69,9 @@ pub struct StartParams {
     /// Upscale wird nicht unterstützt — wenn target > capture-res, ignoriert die
     /// Pipeline das (s. `run_pipeline`).
     pub override_resolution: Option<(u32, u32)>,
+    /// Mauszeiger im Stream zeigen. Default `true` (entspricht GSRs `-cursor yes`).
+    /// `false` → WGC `CursorCaptureSettings::WithoutCursor`.
+    pub show_cursor: bool,
 }
 
 pub struct StreamController {
@@ -234,6 +237,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             params.capture.clone(),
             CaptureConfig {
                 max_fps: params.override_fps.unwrap_or(params.profile.fps),
+                include_cursor: params.show_cursor,
                 ..Default::default()
             },
         )?;
