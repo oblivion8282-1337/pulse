@@ -198,7 +198,7 @@ impl FfmpegEncoder {
         // Audio-Pipeline VOR write_header anlegen — sie addiert einen Stream
         // zum Output-Context, was nur erlaubt ist bevor der Header geschrieben
         // wurde.
-        let audio = match audio_cfg {
+        let mut audio = match audio_cfg {
             Some(a) => Some(AudioPipeline::create(
                 &mut output,
                 a.sample_rate,
@@ -212,6 +212,11 @@ impl FfmpegEncoder {
 
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
         let encoder_time_base = Rational::new(1, cfg.fps as i32);
+        // Audio-Stream-Timebase erst JETZT (nach write_header) lesen + setzen.
+        if let Some(a) = audio.as_mut() {
+            let audio_tb = output.stream(a.stream_idx).unwrap().time_base();
+            a.set_stream_time_base(audio_tb);
+        }
 
         let (sws, src_frame, encoder_frame) = if use_bgr_direct {
             // Fast-Path: BGR0 direkt in den NVENC-Frame, GPU macht den Rest.
@@ -263,7 +268,12 @@ impl FfmpegEncoder {
     /// Encoder ohne Audio-Spur erstellt wurde.
     pub fn send_audio(&mut self, captured: &CapturedAudio) -> Result<()> {
         if let Some(audio) = self.audio.as_mut() {
-            audio.send(captured, &mut self.output)?;
+            let packets = audio.send(captured)?;
+            for packet in packets {
+                packet
+                    .write_interleaved(&mut self.output)
+                    .context("audio packet.write_interleaved")?;
+            }
         }
         Ok(())
     }
@@ -336,7 +346,12 @@ impl FfmpegEncoder {
         self.encoder.send_eof().context("video send_eof")?;
         self.drain_packets()?;
         if let Some(audio) = self.audio.as_mut() {
-            audio.flush(&mut self.output)?;
+            let packets = audio.flush()?;
+            for packet in packets {
+                packet
+                    .write_interleaved(&mut self.output)
+                    .context("audio packet.write_interleaved")?;
+            }
         }
         self.output.write_trailer().context("write_trailer")?;
         Ok(())

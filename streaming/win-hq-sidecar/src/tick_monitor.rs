@@ -54,7 +54,10 @@ pub struct TickSample {
     pub audio_drain: Duration,
     /// NVENC-Submit des Video-Frames (`avcodec_send_frame`).
     pub send: Duration,
-    /// Mux + synchroner RTMPS-Socket-Write (`write_interleaved`).
+    /// Einreihen der Video-Packets in die `MuxWriter`-Queue. Seit dem
+    /// Async-Mux-Umbau läuft `write_interleaved` auf einem eigenen Thread —
+    /// dieser Wert ist normal ~0; ein Spike = Queue voll = Writer hängt am
+    /// Socket.
     pub mux: Duration,
     /// Gesamte Iterationszeit ohne den Pacing-Sleep.
     pub iter: Duration,

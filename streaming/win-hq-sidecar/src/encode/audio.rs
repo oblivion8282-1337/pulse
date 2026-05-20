@@ -40,6 +40,10 @@ pub struct AudioPipeline {
     out_pts_samples: i64,
     pub stream_idx: usize,
     pub encoder_time_base: Rational,
+    /// Stream-Timebase des Audio-Streams im Output-Container. Steht erst nach
+    /// `output.write_header()` fest — der Caller setzt sie via
+    /// `set_stream_time_base`, bevor das erste `send()` läuft.
+    stream_time_base: Rational,
 }
 
 impl AudioPipeline {
@@ -96,14 +100,12 @@ impl AudioPipeline {
         let encoder_time_base = Rational::new(1, sample_rate as i32);
         let block_align_in = (channels as usize) * 4; // F32 = 4 Bytes/Sample
 
-        // NICHT: stream.time_base() hier cachen. Output.write_header() läuft
-        // NACH AudioPipeline::create — die Stream-Time-Base ist bis dahin 0/0
-        // (uninitialized). Wir lesen sie stattdessen in drain_packets aus dem
-        // Output. Bug-History: vorher hier gecached → rescale_ts mit 0/0 als
-        // Ziel-Rational killt PTS+Duration auf AV_NOPTS_VALUE, FFmpeg loggt
-        // dann „Packet with invalid duration -9223372036854775808" für jedes
-        // Audio-Packet und „making some up" für die PTS.
-
+        // Stream-Timebase NICHT hier cachen: `output.write_header()` läuft erst
+        // NACH `AudioPipeline::create`, bis dahin ist sie 0/0 (uninitialized) —
+        // ein `rescale_ts` mit 0/0 als Ziel-Rational killt PTS+Duration auf
+        // AV_NOPTS_VALUE (FFmpeg loggt dann „Packet with invalid duration …").
+        // Der Caller liest sie nach `write_header` aus und setzt sie via
+        // `set_stream_time_base`. Platzhalter = FLV-Default (1/1000 ms).
         Ok(Self {
             encoder: opened,
             interleaved_frame,
@@ -115,17 +117,21 @@ impl AudioPipeline {
             out_pts_samples: 0,
             stream_idx,
             encoder_time_base,
+            stream_time_base: Rational::new(1, 1000),
         })
     }
 
+    /// Setzt die Stream-Timebase des Audio-Streams. MUSS nach
+    /// `output.write_header()` und vor dem ersten `send()` aufgerufen werden.
+    pub fn set_stream_time_base(&mut self, time_base: Rational) {
+        self.stream_time_base = time_base;
+    }
+
     /// WASAPI-Chunk in den FIFO werfen + so viele Opus-Frames rauspushen wie
-    /// gehen. Jeder gesendete Frame schreibt Encoder-Packets in den
-    /// gemeinsamen Output-Context.
-    pub fn send(
-        &mut self,
-        captured: &CapturedAudio,
-        output: &mut format::context::Output,
-    ) -> Result<()> {
+    /// gehen. Liefert die fertig encodeten Packets (Stream-Index + Timestamps
+    /// gesetzt) zurück — der Caller schreibt sie raus (direkt oder via
+    /// `MuxWriter`-Queue). Audio besitzt den Output-Context bewusst NICHT mehr.
+    pub fn send(&mut self, captured: &CapturedAudio) -> Result<Vec<Packet>> {
         if captured.format.sample_rate != self.sample_rate
             || captured.format.channels != self.channels
         {
@@ -139,17 +145,18 @@ impl AudioPipeline {
         }
         self.fifo.extend(&captured.bytes);
 
+        let mut packets = Vec::new();
         let chunk_bytes = OPUS_FRAME_SAMPLES * self.block_align_in;
         while self.fifo.len() >= chunk_bytes {
-            self.encode_one_chunk(chunk_bytes, output)?;
+            self.encode_one_chunk(chunk_bytes, &mut packets)?;
         }
-        Ok(())
+        Ok(packets)
     }
 
     fn encode_one_chunk(
         &mut self,
         chunk_bytes: usize,
-        output: &mut format::context::Output,
+        out: &mut Vec<Packet>,
     ) -> Result<()> {
         // FIFO-Front in den interleaved_frame kopieren (plane 0 hält die
         // gesamten Stereo-interleaved Bytes für F32-Packed).
@@ -167,17 +174,16 @@ impl AudioPipeline {
         self.encoder
             .send_frame(&self.interleaved_frame)
             .context("audio encoder.send_frame")?;
-        self.drain_packets(output)?;
+        self.drain_packets(out)?;
         Ok(())
     }
 
-    pub fn drain_packets(&mut self, output: &mut format::context::Output) -> Result<()> {
-        // Stream-Time-Base erst HIER lesen (= nach write_header). Bei FLV ist
-        // das typischerweise 1/1000 (Millisekunden); MPEG-TS nutzt 1/90000.
-        let stream_time_base = output.stream(self.stream_idx).unwrap().time_base();
-
-        let mut packet = Packet::empty();
-        while self.encoder.receive_packet(&mut packet).is_ok() {
+    fn drain_packets(&mut self, out: &mut Vec<Packet>) -> Result<()> {
+        loop {
+            let mut packet = Packet::empty();
+            if self.encoder.receive_packet(&mut packet).is_err() {
+                break;
+            }
             // libopus' Output-Packets können in manchen Versionen mit pts=None
             // kommen (n8.1 hatte das fixes/regressions). Defensive Setter:
             // wenn pts fehlt, aus unserem Sample-Counter rekonstruieren. Duration
@@ -190,17 +196,17 @@ impl AudioPipeline {
             packet.set_duration(OPUS_FRAME_SAMPLES as i64);
             self.out_pts_samples += OPUS_FRAME_SAMPLES as i64;
             packet.set_stream(self.stream_idx);
-            packet.rescale_ts(self.encoder_time_base, stream_time_base);
-            packet
-                .write_interleaved(output)
-                .context("audio packet.write_interleaved")?;
+            packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+            out.push(packet);
         }
         Ok(())
     }
 
-    pub fn flush(&mut self, output: &mut format::context::Output) -> Result<()> {
+    /// Flusht den Encoder (EOF) und liefert die restlichen Packets.
+    pub fn flush(&mut self) -> Result<Vec<Packet>> {
         self.encoder.send_eof().context("audio send_eof")?;
-        self.drain_packets(output)?;
-        Ok(())
+        let mut out = Vec::new();
+        self.drain_packets(&mut out)?;
+        Ok(out)
     }
 }

@@ -24,6 +24,7 @@ use ffmpeg::{Dictionary, Packet, Rational, codec, format, ffi::*};
 use super::audio::AudioPipeline;
 use super::encoder::{AudioStreamConfig, VideoCodec, url_format_hint, vendor_encoder_opts};
 use super::hwctx::OwnedHwFrame;
+use super::mux_writer::MuxWriter;
 use crate::audio::CapturedAudio;
 
 #[derive(Debug, Clone)]
@@ -39,7 +40,9 @@ pub struct HwEncoderConfig {
 }
 
 pub struct FfmpegHwEncoder {
-    output: format::context::Output,
+    /// Async-Muxer — der `AVFormatContext` lebt auf einem eigenen Thread, der
+    /// Encoder schiebt Packets nur in dessen Queue (s. `mux_writer.rs`).
+    mux: MuxWriter,
     encoder: codec::encoder::Video,
     video_stream_idx: usize,
     encoder_time_base: Rational,
@@ -48,8 +51,8 @@ pub struct FfmpegHwEncoder {
     /// Diagnose-Timings des letzten `send_hw`-Calls (µs) — gespeist in den
     /// `TickMonitor` (s. `tick_monitor.rs`) zur Mikro-Stutter-Analyse.
     /// `last_send_us` = `avcodec_send_frame` (NVENC-Submit), `last_mux_us` =
-    /// `write_interleaved` (FLV-Mux + synchroner RTMPS-Socket-Write — der
-    /// wahrscheinlichste Verursacher sporadischer Loop-Stalls).
+    /// Zeit fürs Einreihen der Packets in die `MuxWriter`-Queue (normal ~0;
+    /// ein Spike = Queue voll = Writer-Thread hängt am Socket).
     last_send_us: u64,
     last_mux_us: u64,
 }
@@ -124,7 +127,7 @@ impl FfmpegHwEncoder {
             .with_context(|| format!("open hw encoder '{codec_name}' (vendor={})", cfg.vendor))?;
         stream.set_parameters(&opened);
 
-        let audio = match audio_cfg {
+        let mut audio = match audio_cfg {
             Some(a) => Some(AudioPipeline::create(
                 &mut output,
                 a.sample_rate,
@@ -138,9 +141,18 @@ impl FfmpegHwEncoder {
 
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
         let encoder_time_base = Rational::new(1, cfg.fps as i32);
+        // Audio-Stream-Timebase erst JETZT (nach write_header) lesen + setzen.
+        if let Some(a) = audio.as_mut() {
+            let audio_tb = output.stream(a.stream_idx).unwrap().time_base();
+            a.set_stream_time_base(audio_tb);
+        }
+
+        // Output an den Writer-Thread übergeben — ab hier läuft jedes
+        // write_interleaved asynchron, der Pacing-Loop blockiert nie am Socket.
+        let mux = MuxWriter::start(output).context("start mux-writer")?;
 
         Ok(Self {
-            output,
+            mux,
             encoder: opened,
             video_stream_idx: stream_idx,
             encoder_time_base,
@@ -156,15 +168,19 @@ impl FfmpegHwEncoder {
         self.last_send_us
     }
 
-    /// Mux-+-Socket-Write-Dauer (`write_interleaved`) des letzten `send_hw`
-    /// in µs — summiert über alle in dem Call gedrainten Pakete.
+    /// Queue-Einreih-Dauer (`MuxWriter::send`) des letzten `send_hw` in µs —
+    /// summiert über alle gedrainten Pakete. Normal ~0; ein Spike heißt die
+    /// Queue ist voll = der Writer-Thread hängt am Socket.
     pub fn last_mux_us(&self) -> u64 {
         self.last_mux_us
     }
 
     pub fn send_audio(&mut self, captured: &CapturedAudio) -> Result<()> {
         if let Some(audio) = self.audio.as_mut() {
-            audio.send(captured, &mut self.output)?;
+            let packets = audio.send(captured)?;
+            for packet in packets {
+                self.mux.send(packet)?;
+            }
         }
         Ok(())
     }
@@ -191,43 +207,51 @@ impl FfmpegHwEncoder {
             }
         }
         self.last_send_us = t_send.elapsed().as_micros() as u64;
-        self.drain_packets()
+        self.drain_video()
     }
 
-    fn drain_packets(&mut self) -> Result<()> {
-        let mut packet = Packet::empty();
+    /// Encodete Video-Packets aus dem Encoder ziehen und in die MuxWriter-Queue
+    /// schieben. `receive_packet` schlägt mit EAGAIN/EOF fehl, wenn nichts
+    /// (mehr) da ist — dann ist der Drain fertig.
+    fn drain_video(&mut self) -> Result<()> {
         let mut mux_us: u64 = 0;
-        while self.encoder.receive_packet(&mut packet).is_ok() {
+        loop {
+            let mut packet = Packet::empty();
+            if self.encoder.receive_packet(&mut packet).is_err() {
+                break;
+            }
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
-            // Nur den Socket-Write messen — das ist der Teil, der bei einem
-            // TCP-Stall den Pacing-Loop blockiert.
+            // Einreihen in die Queue messen — normal ~0; blockiert nur, wenn
+            // die Queue voll ist (Writer-Thread hängt am Socket).
             let t_mux = std::time::Instant::now();
-            packet
-                .write_interleaved(&mut self.output)
-                .context("packet.write_interleaved")?;
+            self.mux.send(packet)?;
             mux_us += t_mux.elapsed().as_micros() as u64;
         }
         self.last_mux_us = mux_us;
         Ok(())
     }
 
-    /// Finalisiert den Stream: EOF an Video (+Audio), restliche Pakete flushen,
-    /// FLV-Trailer schreiben — die RTMP-Verbindung wird dabei sauber geschlossen.
+    /// Finalisiert den Stream: EOF an Video (+Audio), restliche Pakete in die
+    /// Queue, dann `MuxWriter::finish` — das wartet auf den Writer-Thread, der
+    /// den FLV-Trailer schreibt und die RTMP-Verbindung sauber schließt.
     ///
     /// Nimmt `&mut self`, gibt den Encoder also bewusst NICHT frei: der
     /// Encoder-Drop schließt NVENC + entlädt `nvEncodeAPI64.dll`, und genau
     /// dieser Teardown lässt einen treiber-internen Threadpool-Timer dangling
     /// zurück (→ Use-after-free, `0xC0000005` auf einem `TpWaitForTimer`-Thread).
     /// Der Caller `mem::forget`et den Encoder; der Per-Stream-Sidecar endet
-    /// direkt nach `stop`, `ExitProcess` gibt alles sauber frei.
+    /// direkt nach `stop`, `ExitProcess` gibt alles sauber frei. (Der Muxer-
+    /// Teardown im Writer-Thread ist davon unberührt — rein Netzwerk/Userspace.)
     pub fn finish(&mut self) -> Result<()> {
         self.encoder.send_eof().context("video send_eof")?;
-        self.drain_packets()?;
+        self.drain_video()?;
         if let Some(audio) = self.audio.as_mut() {
-            audio.flush(&mut self.output)?;
+            let packets = audio.flush()?;
+            for packet in packets {
+                self.mux.send(packet)?;
+            }
         }
-        self.output.write_trailer().context("write_trailer")?;
-        Ok(())
+        self.mux.finish()
     }
 }
