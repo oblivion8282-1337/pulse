@@ -11,6 +11,16 @@
  * `console.warn` fires once per freeze episode so devtools captures the
  * exact stats at the moment things started to fail.
  *
+ * **Micro-stutter detection**: the 2s freeze detector above is deliberately
+ * coarse and misses the brief single-frame hitches the user reports. Two
+ * finer signals catch those: (1) Chromium's own `freezeCount` — incremented
+ * whenever one inter-frame interval blows past `max(3×avg, avg+150ms)`, i.e.
+ * exactly a "frame held visibly too long"; a delta here fires a one-shot
+ * `console.warn`. (2) `interFrameJitterMs` — the std-dev of decoded
+ * inter-frame intervals within the last poll window, derived from
+ * `totalInterFrameDelay` / `totalSquaredInterFrameDelay`. ~0 ms = perfectly
+ * smooth; a spike is a stutter even when no full `freezeCount` tick landed.
+ *
  * Stateful: keeps the previous counters + timestamps across polls. Create
  * one per peer connection; call {@link WhepStatsReader.reset} when the
  * connection is (re)established.
@@ -30,6 +40,11 @@ export type StreamStats = {
   frozen: boolean;
   /** How long the current freeze has lasted (s); 0 when not frozen. */
   freezeSeconds: number;
+  /** Chromium's cumulative `freezeCount` — total number of micro-stutter
+   *  hitches the browser flagged since the connection opened. Cheap running
+   *  tally for the HUD; a rising value while `frozen` stays false is exactly
+   *  the "läuft flüssig, nur manchmal kurzes Stottern"-symptom. */
+  microStutters: number;
   /** Full diagnostic snapshot — surfaced via the HUD's copy button. Not
    *  rendered in the overlay; just there so consumers can format/share it. */
   diagnostic: DiagnosticSnapshot;
@@ -54,6 +69,17 @@ export type DiagnosticSnapshot = {
   bytesReceived: number;
   frozen: boolean;
   freezeSeconds: number;
+  /** Cumulative micro-stutter counters from Chromium's stats. `freezeCount`
+   *  ticks per brief hitch; `pauseCount` per longer stall. */
+  freezeCount: number;
+  totalFreezesDuration: number;
+  pauseCount: number;
+  /** Avg decoded inter-frame interval over the last poll window (ms).
+   *  Nominal = 1000 / encode-fps. `null` until two polls are in. */
+  interFrameDelayMs: number | null;
+  /** Std-dev of the inter-frame interval over the last poll window (ms).
+   *  ~0 = smooth; a spike means frames arrived unevenly = micro-stutter. */
+  interFrameJitterMs: number | null;
 };
 
 type InboundRtp = RTCInboundRtpStreamStats & {
@@ -69,6 +95,12 @@ type InboundRtp = RTCInboundRtpStreamStats & {
   nackCount?: number;
   bytesReceived?: number;
   decoderImplementation?: string;
+  freezeCount?: number;
+  totalFreezesDuration?: number;
+  pauseCount?: number;
+  totalPausesDuration?: number;
+  totalInterFrameDelay?: number;
+  totalSquaredInterFrameDelay?: number;
 };
 
 const FREEZE_TRIGGER_SECONDS = 2.0;
@@ -85,6 +117,10 @@ export class WhepStatsReader {
    *  episode, so we don't spam once per second. Reset when frames decode
    *  again. */
   #warnedThisFreeze = false;
+  /** Previous-poll values for the micro-stutter math. */
+  #lastFreezeCount = 0;
+  #lastInterFrameDelay = 0;
+  #lastSquaredInterFrameDelay = 0;
 
   reset(): void {
     this.#lastBytes = 0;
@@ -93,6 +129,9 @@ export class WhepStatsReader {
     this.#lastFramesDecoded = 0;
     this.#freezeStartedAt = 0;
     this.#warnedThisFreeze = false;
+    this.#lastFreezeCount = 0;
+    this.#lastInterFrameDelay = 0;
+    this.#lastSquaredInterFrameDelay = 0;
   }
 
   async read(pc: RTCPeerConnection): Promise<StreamStats | null> {
@@ -137,10 +176,48 @@ export class WhepStatsReader {
     const freezeSeconds = this.#freezeStartedAt > 0 ? (now - this.#freezeStartedAt) / 1000 : 0;
     const frozen = freezeSeconds >= FREEZE_TRIGGER_SECONDS;
 
+    // Micro-stutter math — finer than the 2s freeze detector above.
+    // `totalInterFrameDelay`/`totalSquaredInterFrameDelay` are running sums;
+    // the delta over one poll window + the decoded-frame delta give the
+    // mean and std-dev of the inter-frame interval inside that window.
+    const freezeCount = v.freezeCount ?? 0;
+    const interFrameDelay = v.totalInterFrameDelay ?? 0;
+    const squaredInterFrameDelay = v.totalSquaredInterFrameDelay ?? 0;
+    const havePrev = this.#lastTs > 0;
+    const decodedDelta = framesDecoded - this.#lastFramesDecoded;
+    let interFrameDelayMs: number | null = null;
+    let interFrameJitterMs: number | null = null;
+    if (havePrev && decodedDelta > 0) {
+      const sumD = interFrameDelay - this.#lastInterFrameDelay;
+      const sumD2 = squaredInterFrameDelay - this.#lastSquaredInterFrameDelay;
+      const mean = sumD / decodedDelta;
+      // Clamp: float drift in the running sums can push this slightly < 0.
+      const variance = Math.max(0, sumD2 / decodedDelta - mean * mean);
+      interFrameDelayMs = mean * 1000;
+      interFrameJitterMs = Math.sqrt(variance) * 1000;
+    }
+    // A freezeCount tick = Chromium flagged ≥1 visibly-too-long frame this
+    // window. Warn once per window so devtools captures the moment.
+    const stutterDelta = havePrev ? freezeCount - this.#lastFreezeCount : 0;
+    if (stutterDelta > 0) {
+      // eslint-disable-next-line no-console
+      console.warn(`[whep] micro-stutter ×${stutterDelta}`, {
+        interFrameJitterMs: interFrameJitterMs?.toFixed(1),
+        interFrameDelayMs: interFrameDelayMs?.toFixed(1),
+        networkJitterMs: typeof v.jitter === 'number' ? (v.jitter * 1000).toFixed(1) : null,
+        nackCount: v.nackCount ?? 0,
+        framesDropped: v.framesDropped ?? 0,
+        freezeCount,
+      });
+    }
+
     this.#lastTs = ts;
     this.#lastBytes = bytes;
     this.#lastFramesReceived = framesReceived;
     this.#lastFramesDecoded = framesDecoded;
+    this.#lastFreezeCount = freezeCount;
+    this.#lastInterFrameDelay = interFrameDelay;
+    this.#lastSquaredInterFrameDelay = squaredInterFrameDelay;
 
     const diagnostic: DiagnosticSnapshot = {
       framesReceived,
@@ -158,6 +235,11 @@ export class WhepStatsReader {
       bytesReceived: bytes,
       frozen,
       freezeSeconds,
+      freezeCount,
+      totalFreezesDuration: v.totalFreezesDuration ?? 0,
+      pauseCount: v.pauseCount ?? 0,
+      interFrameDelayMs,
+      interFrameJitterMs,
     };
 
     // First poll of a freeze episode: dump the snapshot to the devtools
@@ -186,6 +268,7 @@ export class WhepStatsReader {
       codec,
       frozen,
       freezeSeconds,
+      microStutters: freezeCount,
       diagnostic,
     };
   }
@@ -207,7 +290,13 @@ export function formatDiagnostic(d: DiagnosticSnapshot, ctx?: { name?: string })
     `resolution: ${d.frameWidth ?? '?'}×${d.frameHeight ?? '?'}`,
     `presentation fps: ${d.framesPerSecond ?? '—'}`,
     `decoder: ${d.decoderImplementation ?? '—'}`,
-    `jitter: ${d.jitter !== null ? `${(d.jitter * 1000).toFixed(1)} ms` : '—'}`,
+    `network jitter: ${d.jitter !== null ? `${(d.jitter * 1000).toFixed(1)} ms` : '—'}`,
+    '',
+    `micro-stutter (freezeCount): ${d.freezeCount}`,
+    `freezes total duration: ${d.totalFreezesDuration.toFixed(2)} s`,
+    `pauses: ${d.pauseCount}`,
+    `inter-frame delay: ${d.interFrameDelayMs !== null ? `${d.interFrameDelayMs.toFixed(1)} ms` : '—'}`,
+    `inter-frame jitter: ${d.interFrameJitterMs !== null ? `${d.interFrameJitterMs.toFixed(1)} ms` : '—'}`,
     '',
     `frames received: ${d.framesReceived}`,
     `frames decoded:  ${d.framesDecoded}`,

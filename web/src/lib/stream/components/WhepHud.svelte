@@ -118,6 +118,13 @@
     <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span>{stats.bitrate}</span><span>·</span><span>{stats.codec}</span>
     {#if stats.frozen}
       <span class="ml-1 font-sans font-semibold uppercase tracking-wide">freeze {stats.freezeSeconds.toFixed(0)}s</span>
+    {:else if stats.microStutters > 0}
+      <!-- Läuft, aber Chromium hat ≥1 zu-lang-gehaltenen Frame gezählt:
+           der "manchmal kurzes Stottern"-Indikator. -->
+      <span
+        class="ml-1 font-sans text-amber-300"
+        title="Mikro-Stutter seit Verbindungsstart (Chromium freezeCount)"
+      >⚠ {stats.microStutters}</span>
     {/if}
     <button
       type="button"
