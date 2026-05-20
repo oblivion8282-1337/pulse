@@ -191,11 +191,20 @@ DLLs neben die exe). MediaMTX-Build für lokales Testen unter `mediamtx-dist/v1.
   der GPU. Kein PCIe-Roundtrip, kein `Vec<u8>`-Alloc im Hot-Path. **ffmpeg-next bindet `hwcontext_d3d11va.h` nicht** →
   `AVD3D11VADeviceContext`-Layout in `hwctx.rs` hand-gespiegelt + CRITICAL_SECTION als `lock`/`unlock`-Callback (FFmpeg
   serialisiert intern darüber den D3D11-Device-Zugriff; Capture-Callback hält denselben Lock manuell für
-  CopySubresourceRegion). Aktiv für `adapter.vendor() == "nvidia"`.
-- **CPU-Fallback** (`src/capture/wgc.rs` + `src/encode/encoder.rs`): BGRA via `frame.buffer().as_nopadding_buffer()` →
-  CPU `Vec<u8>` → swscale BGRA→NV12 → AMF/QSV. Aktiv für AMD/Intel oder wenn die Bedingungen oben nicht stimmen. Hat
-  zusätzlich einen **NVIDIA-„BGR-direct"-Fastpath** (BGRA-Bytes 1:1 in NVENC-Frame ohne swscale) der bei
-  `PULSE_HQ_DISABLE_ZERO_COPY=1` aktiviert wird.
+  CopySubresourceRegion). Aktiv **nur** für NVIDIA.
+- **CPU-Fallback** (`src/capture/wgc.rs` + `src/encode/encoder.rs` → `run_cpu_pipeline`): BGRA via
+  `frame.buffer().as_nopadding_buffer()` → CPU `Vec<u8>` → swscale BGRA→NV12 → AMF/QSV. Aktiv für AMD/Intel oder bei
+  `PULSE_HQ_DISABLE_ZERO_COPY=1`. Hat zusätzlich einen **NVIDIA-„BGR-direct"-Fastpath** (BGRA-Bytes 1:1 in
+  NVENC-Frame ohne swscale).
+
+**AMD kann NICHT zero-copy** (2026-05-20, hart verifiziert): `h264_amf` stürzt auf D3D11-Surface-Input reproduzierbar
+mit Integer-Divide-by-Zero in der AMF-Runtime ab (`SubmitInput`, Frame 0) — dokumentierter AMD-Treiber-Bug, AMF-Issue
+[#455](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/455). Bind-Flags, Auflösung und NV12-vs-BGRA als Ursache
+ausgeschlossen (Probe `examples/probe_d3d11.rs`); identische Encoder-Config mit Software-NV12-Surface läuft sauber bei
+60 fps. Darum: AMD/Intel → CPU-Pfad, Punkt. **Dispatch-Detail:** `select_adapter()` liefert auf Multi-GPU den
+`HIGH_PERFORMANCE`-Slot (dGPU), nicht zwingend die Display-/Capture-GPU. `run_pipeline` schickt `nvidia` an
+`pipeline_hw`; `pipeline_hw::run` prüft dann die ECHTE WGC-D3D11-Device-GPU (`device_vendor`) und delegiert bei
+!=nvidia selbst zurück an `run_cpu_pipeline`. Auf einer reinen AMD-Box greift schon `run_pipeline` direkt zum CPU-Pfad.
 
 Env-Overrides (Test/Debug):
 - `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU

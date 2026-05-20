@@ -197,19 +197,39 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let result = (|| -> Result<()> {
         let adapter = select_adapter()?;
 
-        // Zero-Copy-Pfad (`pipeline_hw`): WGC → D3D11-Pool → optional
-        // `D3D11Scaler` (VideoProcessorBlt-GPU-Downscale) → Encoder direkt.
-        // NVIDIA *und* AMD nehmen D3D11-BGRA-Frames direkt (h264_nvenc bzw.
-        // h264_amf — verifiziert 2026-05). Intel/QSV läuft weiter über den
-        // CPU-Fallback unten. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1`
-        // erzwingt den CPU-Pfad zum Debugging.
+        // Zero-Copy-Pfad (`pipeline_hw`): WGC → D3D11-Pool → VideoProcessor
+        // (BGRA→NV12 + optional Downscale) → Encoder direkt. NUR NVIDIA —
+        // h264_nvenc frisst D3D11-NV12-Frames sauber. AMD/Intel laufen über den
+        // CPU-Pfad: h264_amf/qsv crashen reproduzierbar auf D3D11-Surface-Input
+        // (dokumentierter AMD-AMF-Treiber-Bug — `SubmitInput`-Integer-Divide-by-
+        // Zero, AMF-Issue #455). `select_adapter()` liefert auf Multi-GPU evtl.
+        // die dGPU statt der Display-GPU; `pipeline_hw` verifiziert die echte
+        // WGC-GPU selbst und delegiert nötigenfalls zurück an `run_cpu_pipeline`.
+        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad.
         let disable_zc = std::env::var("PULSE_HQ_DISABLE_ZERO_COPY")
             .map(|v| !v.is_empty() && v != "0")
             .unwrap_or(false);
-        if matches!(adapter.vendor(), "nvidia" | "amd") && !disable_zc {
+        if adapter.vendor() == "nvidia" && !disable_zc {
             return crate::pipeline_hw::run(adapter, params, stop_rx);
         }
+        run_cpu_pipeline(params, stop_rx)
+    })();
 
+    let error_msg = result.err().map(|e| format!("{e:#}"));
+    ctrl.worker_finished(error_msg);
+}
+
+/// CPU-Encode-Pfad: WGC-CPU-Readback → swscale BGRA→NV12 → FFmpeg-Encoder
+/// (`encoder.rs`). Aktiv für AMD/Intel sowie für NVIDIA unter
+/// `PULSE_HQ_DISABLE_ZERO_COPY=1`. `pipeline_hw` delegiert hierher, wenn die
+/// echte Capture-GPU (WGC-D3D11-Device) nicht NVIDIA ist.
+pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
+    let ctrl = StreamController::singleton();
+    (|| -> Result<()> {
+        // Encoder-Vendor aus dem HIGH_PERFORMANCE-Adapter. Im CPU-Pfad gehen
+        // Software-NV12-Frames in den Encoder — die GPU lädt sie selbst hoch,
+        // sie muss kein Display treiben. Auf Multi-GPU ist das die dGPU.
+        let adapter = select_adapter()?;
         let mut capture = WgcCapture::start(
             params.capture.clone(),
             CaptureConfig {
@@ -363,10 +383,7 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
         }
         encoder.finish()?;
         Ok(())
-    })();
-
-    let error_msg = result.err().map(|e| format!("{e:#}"));
-    ctrl.worker_finished(error_msg);
+    })()
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────

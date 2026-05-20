@@ -4,10 +4,13 @@
 //! D3D11VA-Pool, von dem der Encoder direkt liest. Kein PCIe-Hin-und-Her, kein
 //! BGRA→NV12-swscale auf der CPU. Downscale per `D3D11Scaler` (VideoProcessor).
 //!
-//! Aktiv für NVIDIA und AMD — beide nehmen D3D11-BGRA-Frames direkt
-//! (h264_nvenc bzw. h264_amf). Intel/QSV läuft weiter über die CPU-Pipeline
-//! in `stream_controller.rs`. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1`
-//! → erzwingt den CPU-Pfad.
+//! Aktiv NUR für NVIDIA — h264_nvenc nimmt D3D11-BGRA-Frames direkt. AMD und
+//! Intel laufen über die CPU-Pipeline (`run_cpu_pipeline` in
+//! `stream_controller.rs`): h264_amf/qsv stürzen auf D3D11-Surface-Input ab
+//! (dokumentierter AMD-AMF-Treiber-Bug, AMF-Issue #455). Da `select_adapter()`
+//! auf Multi-GPU die dGPU statt der Display-GPU liefern kann, verifiziert
+//! `run` die echte WGC-Capture-GPU und delegiert bei !=nvidia selbst an
+//! `run_cpu_pipeline`. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
 //!
 //! Der Encoder-Vendor wird aus der echten WGC-D3D11-Device-GPU abgeleitet
 //! (`device_vendor`), NICHT aus `select_adapter()` — letzteres bevorzugt die
@@ -63,10 +66,24 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         HwCaptureItem::Setup { hw, width, height, first } => (hw, width, height, first),
         HwCaptureItem::Frame(_) => return Err(anyhow!("first item was Frame, expected Setup")),
     };
-    // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device) — bestimmt den
-    // Encoder (h264_nvenc vs h264_amf). `adapter` aus `select_adapter()` kann
-    // eine andere GPU sein (dGPU-Default), darf hier also nicht zählen.
+    // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). `adapter` aus
+    // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
     let vendor = device_vendor(hw.device()).unwrap_or_else(|| adapter.vendor());
+
+    // Zero-Copy nur auf NVIDIA: h264_amf (AMD) / h264_qsv (Intel) stürzen auf
+    // D3D11-Surface-Input ab (dokumentierter AMD-AMF-Treiber-Bug, AMF-Issue
+    // #455 — `SubmitInput`-Integer-Divide-by-Zero). Ist die echte Capture-GPU
+    // nicht NVIDIA → HW-Capture stoppen und an den CPU-Pfad delegieren.
+    if vendor != "nvidia" {
+        eprintln!(
+            "[pipeline-hw] Capture-GPU ist {vendor}, nicht nvidia — kein \
+             D3D11-Zero-Copy, Delegation an den CPU-Pfad"
+        );
+        drop(capture);
+        drop(first);
+        drop(hw);
+        return crate::stream_controller::run_cpu_pipeline(params, stop_rx);
+    }
     // Downscale-Target mit Upscale-Schutz. Bei dst==src geht der Capture-Frame
     // direkt in den Encoder; sonst skaliert der `D3D11Scaler` per
     // `VideoProcessorBlt` auf der GPU davor.
