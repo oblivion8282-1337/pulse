@@ -239,12 +239,17 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         if pts <= last_pts {
             pts = last_pts + 1;
         }
+        // Convert-Zeit: GPU-Scaler bei Downscale, 0 bei Native (NVENC macht
+        // den BGRA→NV12-Convert selbst).
+        let mut convert = Duration::ZERO;
         if let Some(frame) = last_frame.as_mut() {
             match &mut scaler {
                 // Downscale: GPU-Resize in einen frischen Ziel-Pool-Frame,
                 // dann den skalierten Frame encoden.
                 Some(s) => {
+                    let t_conv = Instant::now();
                     let mut scaled = s.scale(frame)?;
+                    convert = t_conv.elapsed();
                     encoder.send_hw(&mut scaled, pts)?;
                 }
                 // Native: Capture-Frame direkt in den Encoder.
@@ -263,6 +268,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             capture_drain,
             captured,
             audio_drain,
+            convert,
             send: Duration::from_micros(encoder.last_send_us()),
             mux: Duration::from_micros(encoder.last_mux_us()),
             iter,

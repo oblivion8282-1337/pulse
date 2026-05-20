@@ -11,6 +11,8 @@
 //! `encode/hwctx.rs` und `pipeline_hw.rs`.
 
 use anyhow::{Context, Result};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{self, JoinHandle};
 
@@ -69,6 +71,9 @@ pub struct WgcCapture {
     stop_tx: Sender<()>,
     /// Worker-Thread (held für JoinHandle on drop).
     worker: Option<JoinHandle<Result<(), String>>>,
+    /// Kumulativ verworfene Capture-Frames (Channel-Backpressure). Vom
+    /// Capture-Thread geschrieben, vom Pacing-Loop pro Tick gelesen.
+    dropped: Arc<AtomicU64>,
 }
 
 impl WgcCapture {
@@ -84,15 +89,24 @@ impl WgcCapture {
         let (stop_tx, stop_rx) = channel();
 
         let cfg_for_thread = cfg.clone();
+        let dropped = Arc::new(AtomicU64::new(0));
+        let dropped_for_thread = dropped.clone();
         let worker = thread::spawn(move || -> Result<(), String> {
-            run_capture(target, cfg_for_thread, tx, stop_rx).map_err(|e| format!("{e:#}"))
+            run_capture(target, cfg_for_thread, tx, stop_rx, dropped_for_thread)
+                .map_err(|e| format!("{e:#}"))
         });
 
         Ok(Self {
             frames: into_unbounded(frames),
             stop_tx,
             worker: Some(worker),
+            dropped,
         })
+    }
+
+    /// Kumulativ verworfene Capture-Frames seit Start. Lock-frei pollbar.
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     /// Stoppt die Capture (best-effort). `Drop` ruft das selber.
@@ -124,13 +138,14 @@ fn into_unbounded<T>(rx: Receiver<T>) -> Receiver<T> {
 struct FrameSink {
     tx: std::sync::mpsc::SyncSender<CapturedFrame>,
     stop_rx: Receiver<()>,
-    dropped: u64,
+    dropped: Arc<AtomicU64>,
 }
 
 /// `Flags`-Payload — `windows-capture` reicht den 1:1 an `new()` durch.
 struct HandlerFlags {
     tx: std::sync::mpsc::SyncSender<CapturedFrame>,
     stop_rx: Receiver<()>,
+    dropped: Arc<AtomicU64>,
 }
 
 impl GraphicsCaptureApiHandler for FrameSink {
@@ -141,7 +156,7 @@ impl GraphicsCaptureApiHandler for FrameSink {
         Ok(Self {
             tx: ctx.flags.tx,
             stop_rx: ctx.flags.stop_rx,
-            dropped: 0,
+            dropped: ctx.flags.dropped,
         })
     }
 
@@ -173,9 +188,9 @@ impl GraphicsCaptureApiHandler for FrameSink {
         match self.tx.try_send(captured) {
             Ok(()) => {}
             Err(std::sync::mpsc::TrySendError::Full(_)) => {
-                self.dropped += 1;
-                if self.dropped % 30 == 0 {
-                    eprintln!("[capture] backpressure: {} frames dropped", self.dropped);
+                let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n % 30 == 0 {
+                    eprintln!("[capture] backpressure: {n} frames dropped");
                 }
             }
             Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
@@ -200,6 +215,7 @@ fn run_capture(
     cfg: CaptureConfig,
     tx: std::sync::mpsc::SyncSender<CapturedFrame>,
     stop_rx: Receiver<()>,
+    dropped: Arc<AtomicU64>,
 ) -> Result<()> {
     let cursor = if cfg.include_cursor {
         CursorCaptureSettings::WithCursor
@@ -221,7 +237,7 @@ fn run_capture(
         ))
     };
 
-    let flags = HandlerFlags { tx, stop_rx };
+    let flags = HandlerFlags { tx, stop_rx, dropped };
 
     match target {
         ResolvedTarget::Monitor(monitor) => {

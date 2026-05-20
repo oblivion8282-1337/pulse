@@ -23,6 +23,7 @@ use ffmpeg_next as ffmpeg;
 use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame, software::scaling};
 
 use super::audio::AudioPipeline;
+use super::mux_writer::MuxWriter;
 use crate::audio::CapturedAudio;
 use crate::capture::wgc::CapturedFrame;
 
@@ -86,7 +87,9 @@ pub struct EncoderConfig {
 }
 
 pub struct FfmpegEncoder {
-    output: format::context::Output,
+    /// Async-Muxer — der `AVFormatContext` lebt auf einem eigenen Thread, der
+    /// Encoder schiebt Packets nur in dessen Queue (s. `mux_writer.rs`).
+    mux: MuxWriter,
     encoder: codec::encoder::Video,
     /// `Some(sws)` wenn der Encoder NV12 will (= AMD/Intel oder explizites
     /// Downscale erzwungen). NVIDIA ohne Downscale läuft auf der schnellen
@@ -105,6 +108,13 @@ pub struct FfmpegEncoder {
     /// Optionale Audio-Spur (libopus). Capture-Worker pumpt
     /// `send_audio(captured)` rein; finish() flusht beide Spuren.
     audio: Option<AudioPipeline>,
+    /// Diagnose-Timings des letzten `send`-Calls (µs) — für den `TickMonitor`
+    /// (s. `tick_monitor.rs`). `last_convert_us` = Frame-Copy + swscale
+    /// BGRA→NV12; `last_send_us` = AMF/QSV-Submit (`send_frame`); `last_mux_us`
+    /// = Einreihen der Packets in die `MuxWriter`-Queue (normal ~0).
+    last_convert_us: u64,
+    last_send_us: u64,
+    last_mux_us: u64,
 }
 
 impl FfmpegEncoder {
@@ -250,8 +260,12 @@ impl FfmpegEncoder {
             )
         };
 
+        // Output an den Writer-Thread übergeben — ab hier läuft jedes
+        // write_interleaved asynchron, der Pacing-Loop blockiert nie am Socket.
+        let mux = MuxWriter::start(output).context("start mux-writer")?;
+
         Ok(Self {
-            output,
+            mux,
             encoder: opened,
             sws,
             src_frame,
@@ -261,7 +275,26 @@ impl FfmpegEncoder {
             stream_time_base,
             expected_src: (cfg.src_width, cfg.src_height),
             audio,
+            last_convert_us: 0,
+            last_send_us: 0,
+            last_mux_us: 0,
         })
+    }
+
+    /// Frame-Copy + swscale BGRA→NV12 des letzten `send` in µs.
+    pub fn last_convert_us(&self) -> u64 {
+        self.last_convert_us
+    }
+
+    /// Encoder-Submit (`send_frame`, AMF/QSV) des letzten `send` in µs.
+    pub fn last_send_us(&self) -> u64 {
+        self.last_send_us
+    }
+
+    /// Queue-Einreih-Dauer (`MuxWriter::send`) des letzten `send` in µs.
+    /// Normal ~0; ein Spike = Queue voll = Writer-Thread hängt am Socket.
+    pub fn last_mux_us(&self) -> u64 {
+        self.last_mux_us
     }
 
     /// Schickt einen WASAPI-Audio-Chunk in den Opus-Encoder. No-op wenn der
@@ -270,9 +303,7 @@ impl FfmpegEncoder {
         if let Some(audio) = self.audio.as_mut() {
             let packets = audio.send(captured)?;
             for packet in packets {
-                packet
-                    .write_interleaved(&mut self.output)
-                    .context("audio packet.write_interleaved")?;
+                self.mux.send(packet)?;
             }
         }
         Ok(())
@@ -294,6 +325,7 @@ impl FfmpegEncoder {
             ));
         }
 
+        let t_convert = std::time::Instant::now();
         let frame = match (&mut self.sws, &mut self.src_frame) {
             (Some(sws), Some(src_frame)) => {
                 copy_bgra(src_frame, &captured.bgra, captured.width, captured.height);
@@ -313,25 +345,36 @@ impl FfmpegEncoder {
                 &mut self.encoder_frame
             }
         };
+        self.last_convert_us = t_convert.elapsed().as_micros() as u64;
 
         frame.set_pts(Some(pts));
 
+        let t_send = std::time::Instant::now();
         self.encoder
             .send_frame(frame)
             .context("encoder.send_frame")?;
+        self.last_send_us = t_send.elapsed().as_micros() as u64;
         self.drain_packets()?;
         Ok(())
     }
 
+    /// Encodete Video-Packets aus dem Encoder ziehen und in die MuxWriter-Queue
+    /// schieben. `receive_packet` schlägt mit EAGAIN/EOF fehl, wenn nichts
+    /// (mehr) da ist — dann ist der Drain fertig.
     fn drain_packets(&mut self) -> Result<()> {
-        let mut packet = Packet::empty();
-        while self.encoder.receive_packet(&mut packet).is_ok() {
+        let mut mux_us: u64 = 0;
+        loop {
+            let mut packet = Packet::empty();
+            if self.encoder.receive_packet(&mut packet).is_err() {
+                break;
+            }
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
-            packet
-                .write_interleaved(&mut self.output)
-                .context("packet.write_interleaved")?;
+            let t_mux = std::time::Instant::now();
+            self.mux.send(packet)?;
+            mux_us += t_mux.elapsed().as_micros() as u64;
         }
+        self.last_mux_us = mux_us;
         Ok(())
     }
 
@@ -348,13 +391,10 @@ impl FfmpegEncoder {
         if let Some(audio) = self.audio.as_mut() {
             let packets = audio.flush()?;
             for packet in packets {
-                packet
-                    .write_interleaved(&mut self.output)
-                    .context("audio packet.write_interleaved")?;
+                self.mux.send(packet)?;
             }
         }
-        self.output.write_trailer().context("write_trailer")?;
-        Ok(())
+        self.mux.finish()
     }
 }
 

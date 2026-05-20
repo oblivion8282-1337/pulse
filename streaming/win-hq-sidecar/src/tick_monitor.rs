@@ -52,7 +52,12 @@ pub struct TickSample {
     pub captured: u32,
     /// Dauer des Audio-Channel-Drains (inkl. Audio-Encode + Mux).
     pub audio_drain: Duration,
-    /// NVENC-Submit des Video-Frames (`avcodec_send_frame`).
+    /// Pixel-Convert vor dem Encoder: CPU-swscale BGRA→NV12 + Frame-Copy
+    /// (CPU-Pfad), GPU-Scaler (`VideoProcessorBlt`, NVIDIA-Downscale) oder 0
+    /// (NVIDIA-native — NVENC macht den Convert selbst). Auf dem CPU-Pfad bei
+    /// hoher Auflösung der wahrscheinlichste Stutter-Kandidat.
+    pub convert: Duration,
+    /// NVENC-/AMF-Submit des Video-Frames (`(avcodec_)send_frame`).
     pub send: Duration,
     /// Einreihen der Video-Packets in die `MuxWriter`-Queue. Seit dem
     /// Async-Mux-Umbau läuft `write_interleaved` auf einem eigenen Thread —
@@ -81,6 +86,7 @@ struct Window {
     max_iter: Duration,
     max_wake: Duration,
     max_capture: Duration,
+    max_convert: Duration,
     max_send: Duration,
     max_mux: Duration,
     max_audio: Duration,
@@ -141,6 +147,7 @@ impl TickMonitor {
             w.max_iter = w.max_iter.max(s.iter);
             w.max_wake = w.max_wake.max(s.wake_jitter);
             w.max_capture = w.max_capture.max(s.capture_drain);
+            w.max_convert = w.max_convert.max(s.convert);
             w.max_send = w.max_send.max(s.send);
             w.max_mux = w.max_mux.max(s.mux);
             w.max_audio = w.max_audio.max(s.audio_drain);
@@ -161,6 +168,7 @@ impl TickMonitor {
                 "cap_us": s.capture_drain.as_micros(),
                 "captured": s.captured,
                 "audio_us": s.audio_drain.as_micros(),
+                "conv_us": s.convert.as_micros(),
                 "send_us": s.send.as_micros(),
                 "mux_us": s.mux.as_micros(),
                 "iter_us": s.iter.as_micros(),
@@ -178,11 +186,12 @@ impl TickMonitor {
             if self.win.slow_logged < MAX_SLOW_LOGS_PER_WINDOW {
                 self.win.slow_logged += 1;
                 emit_log(format!(
-                    "slow tick #{idx}: iter={} (budget {}) | wake={} cap={} send={} mux={} audio={} | pts+{}{}",
+                    "slow tick #{idx}: iter={} (budget {}) | wake={} cap={} conv={} send={} mux={} audio={} | pts+{}{}",
                     ms(s.iter),
                     ms(self.budget),
                     ms(s.wake_jitter),
                     ms(s.capture_drain),
+                    ms(s.convert),
                     ms(s.send),
                     ms(s.mux),
                     ms(s.audio_drain),
@@ -214,7 +223,7 @@ impl TickMonitor {
         };
         emit_log(format!(
             "{} ticks: {} slow, {} pts-gaps, {} capture-drops, {} dup-frames | \
-             iter avg={} max={} | max send={} mux={} audio={} wake={} cap={}",
+             iter avg={} max={} | max conv={} send={} mux={} audio={} wake={} cap={}",
             w.ticks,
             w.slow,
             w.pts_gaps,
@@ -222,6 +231,7 @@ impl TickMonitor {
             w.dups,
             ms(avg),
             ms(w.max_iter),
+            ms(w.max_convert),
             ms(w.max_send),
             ms(w.max_mux),
             ms(w.max_audio),

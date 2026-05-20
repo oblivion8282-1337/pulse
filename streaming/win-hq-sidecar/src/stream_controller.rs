@@ -29,6 +29,7 @@ use crate::encode::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec}
 use crate::events;
 use crate::profiles::StreamProfile;
 use crate::system::dxgi;
+use crate::tick_monitor::{TickMonitor, TickSample};
 
 /// Wie lange `stop()` maximal auf das Auslaufen des Worker-Threads wartet,
 /// bevor es ihn aufgibt. Der Worker terminiert nach dem Stop-Signal selbst
@@ -346,6 +347,10 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         let mut frames_sent: u64 = 0;
         let mut next_tick = started;
         let mut last_fps_emit = started;
+        // Mikro-Stutter-Diagnose — identische Instrumentierung wie der
+        // NVIDIA-Pfad (`pipeline_hw.rs`), s. `tick_monitor.rs`.
+        let mut monitor = TickMonitor::new(fps);
+        let mut prev_pts: i64 = 0;
 
         loop {
             if stop_rx.try_recv().is_ok() {
@@ -353,6 +358,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             }
 
             // Bis zum nächsten Tick warten (High-Res-Sleep auf Win10+/Rust).
+            let planned = next_tick;
             let now = Instant::now();
             if next_tick > now {
                 std::thread::sleep(next_tick - now);
@@ -363,13 +369,20 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 next_tick = now;
             }
 
+            // Ab hier wird Arbeit gemessen (ohne den Pacing-Sleep).
+            let iter_start = Instant::now();
+            let wake_jitter = iter_start.saturating_duration_since(planned);
+
             // Capture-Frames abholen, neuesten passenden behalten; ältere
             // verwerfen. Nichts Neues → `last_frame` bleibt (Duplizierung).
+            let t_capture = Instant::now();
+            let mut captured: u32 = 0;
             loop {
                 match capture.frames.try_recv() {
                     Ok(f) => {
                         if (f.width, f.height) == expected {
                             last_frame = Some(f);
+                            captured += 1;
                         }
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
@@ -378,14 +391,17 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                     }
                 }
             }
+            let capture_drain = t_capture.elapsed();
 
             // Audio non-blocking nachziehen — leert den Channel auch bei
             // `audio_cfg = None`, damit WASAPI weiter buffern kann.
+            let t_audio = Instant::now();
             if let Some(ac) = audio_capture.as_ref() {
                 while let Ok(chunk) = ac.samples.try_recv() {
                     let _ = encoder.send_audio(&chunk);
                 }
             }
+            let audio_drain = t_audio.elapsed();
 
             // Wall-clock-PTS in Encoder-Timebase (1/fps), streng monoton.
             let elapsed = started.elapsed().as_secs_f64();
@@ -399,11 +415,31 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 frames_sent += 1;
             }
 
+            // Tick verbuchen. `convert`/`send`/`mux` kommen aus dem Encoder
+            // (swscale, AMF/QSV-Submit, Queue-Einreihung); `iter` ist die
+            // Arbeitszeit ohne Pacing-Sleep.
+            let iter = iter_start.elapsed();
+            monitor.record(&TickSample {
+                wake_jitter,
+                capture_drain,
+                captured,
+                audio_drain,
+                convert: Duration::from_micros(encoder.last_convert_us()),
+                send: Duration::from_micros(encoder.last_send_us()),
+                mux: Duration::from_micros(encoder.last_mux_us()),
+                iter,
+                pts,
+                pts_delta: pts - prev_pts,
+                capture_drops: capture.dropped(),
+            });
+            prev_pts = pts;
+
             if last_fps_emit.elapsed() >= Duration::from_secs(2) {
                 let el = started.elapsed().as_secs_f64();
                 let fps_now = frames_sent as f64 / el;
                 ctrl.set_fps(fps_now);
                 events::emit(json!({"ev": "fps", "fps": fps_now, "uptime_s": el}));
+                monitor.flush_summary();
                 last_fps_emit = Instant::now();
             }
         }
