@@ -36,7 +36,15 @@ jobs:
 
       # ffmpeg-dist/ ist nicht im Git (~307 MB) — das Script lädt die
       # SHA-gepinnte BtbN-LGPL-Distribution nach ffmpeg-dist/n8.1-lgpl-shared/,
-      # wohin .cargo/config.toml FFMPEG_DIR zeigt.
+      # wohin .cargo/config.toml FFMPEG_DIR zeigt. Cache keyed auf das Script
+      # (enthält die SHA) → BtbN-Re-Releases brechen den Workflow nicht, solange
+      # der Cache hält; ein SHA-Bump im Script invalidiert ihn automatisch.
+      - name: FFmpeg-Cache
+        uses: actions/cache@v4
+        with:
+          path: streaming/win-hq-sidecar/ffmpeg-dist
+          key: ffmpeg-dist-${{ hashFiles('streaming/win-hq-sidecar/scripts/fetch-ffmpeg.ps1') }}
+
       - name: FFmpeg holen (vendored, SHA-gepinnt)
         shell: pwsh
         run: ./streaming/win-hq-sidecar/scripts/fetch-ffmpeg.ps1
