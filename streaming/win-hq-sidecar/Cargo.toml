@@ -47,11 +47,12 @@ windows-capture = "2"
 # Stage 7: FFmpeg-Bindings für Encode (NVENC/AMF/QSV) + Mux (FLV/MPEGTS) +
 # RTMPS-Push. Linkt gegen die BtbN-LGPL-Shared-Distribution in
 # `ffmpeg-dist/n8.1-lgpl-shared/` (FFMPEG_DIR in `.cargo/config.toml`).
-# Default-Features (codec/device/filter/format/...) reichen; KEIN `build`-
-# Feature (würde FFmpeg aus Source bauen — wir wollen die LGPL-DLLs nutzen).
+# KEIN `build`-Feature (würde FFmpeg aus Source bauen — wir wollen die
+# LGPL-DLLs nutzen). KEIN `filter`-Feature mehr: der GPU-Downscale läuft jetzt
+# über `ID3D11VideoProcessor` (`encode/d3d11_scale.rs`) statt einen
+# libavfilter-`scale_cuda`-Graph.
 ffmpeg-next = { version = "8.1", default-features = false, features = [
     "codec",
-    "filter",              # libavfilter für scale_cuda Downscale auf der GPU (Zero-Copy-Pfad)
     "format",
     "software-resampling", # swresample für Sample-Rate-Mismatches (44.1k Games vs 48k Browser)
     "software-scaling",    # swscale für BGRA→NV12-Konversion (CPU-Fallback)

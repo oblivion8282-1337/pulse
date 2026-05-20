@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 
 use crate::audio::{AudioCapture, AudioSource};
 use crate::capture::CaptureSource;
-use crate::capture::wgc::{CaptureConfig, WgcCapture};
+use crate::capture::wgc::{CaptureConfig, CapturedFrame, WgcCapture};
 use crate::encode::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};
 use crate::events;
 use crate::profiles::StreamProfile;
@@ -281,48 +281,77 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
 
         ctrl.set_state("live");
         emit_state("live", true, 0.0);
-        encoder.send(&first)?;
 
+        // Frame-Pacing wie GSR (Details: `pipeline_hw.rs`). WGC ist change-
+        // driven — der Encode-Loop läuft mit fester Kadenz und dupliziert bei
+        // statischem Bild den letzten Frame, statt im Capture-Takt zu encoden.
+        // Ohne das stockt der RTMP-Push und MediaMTX killt die Verbindung.
+        let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
+        let expected = (first.width, first.height);
         let started = Instant::now();
-        let mut frames_sent: u64 = 1;
-        let mut last_fps_emit = Instant::now();
+        let mut last_frame: Option<CapturedFrame> = Some(first);
+        let mut last_pts: i64 = -1;
+        let mut frames_sent: u64 = 0;
+        let mut next_tick = started;
+        let mut last_fps_emit = started;
 
         loop {
             if stop_rx.try_recv().is_ok() {
                 break;
             }
 
-            // Audio zuerst rein-pumpen — non-blocking try_recv. Audio kommt in
-            // 1024-Frame-Chunks ~jede 21ms an, Video alle ~16ms, also locker
-            // genug Headroom für beides in einem Loop.
-            // Audio-Chunks aus dem Channel ziehen — solange `audio_cfg = None`
-            // ist `send_audio` ein No-op, aber wir leeren den Channel damit
-            // WASAPI weiter buffern kann (sonst backpressure → audio_capture
-            // pausiert).
+            // Bis zum nächsten Tick warten (High-Res-Sleep auf Win10+/Rust).
+            let now = Instant::now();
+            if next_tick > now {
+                std::thread::sleep(next_tick - now);
+            }
+            next_tick += frame_dur;
+            let now = Instant::now();
+            if next_tick < now {
+                next_tick = now;
+            }
+
+            // Capture-Frames abholen, neuesten passenden behalten; ältere
+            // verwerfen. Nichts Neues → `last_frame` bleibt (Duplizierung).
+            loop {
+                match capture.frames.try_recv() {
+                    Ok(f) => {
+                        if (f.width, f.height) == expected {
+                            last_frame = Some(f);
+                        }
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        return Err(anyhow!("capture channel disconnected"));
+                    }
+                }
+            }
+
+            // Audio non-blocking nachziehen — leert den Channel auch bei
+            // `audio_cfg = None`, damit WASAPI weiter buffern kann.
             if let Some(ac) = audio_capture.as_ref() {
                 while let Ok(chunk) = ac.samples.try_recv() {
                     let _ = encoder.send_audio(&chunk);
                 }
             }
 
-            let frame = match capture.frames.recv_timeout(Duration::from_millis(500)) {
-                Ok(f) => f,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err(anyhow!("capture channel disconnected"));
-                }
-            };
-            if (frame.width, frame.height) != (first.width, first.height) {
-                continue;
+            // Wall-clock-PTS in Encoder-Timebase (1/fps), streng monoton.
+            let elapsed = started.elapsed().as_secs_f64();
+            let mut pts = (elapsed * fps as f64).round() as i64;
+            if pts <= last_pts {
+                pts = last_pts + 1;
             }
-            encoder.send(&frame)?;
-            frames_sent += 1;
+            if let Some(frame) = last_frame.as_ref() {
+                encoder.send(frame, pts)?;
+                last_pts = pts;
+                frames_sent += 1;
+            }
 
             if last_fps_emit.elapsed() >= Duration::from_secs(2) {
-                let elapsed = started.elapsed().as_secs_f64();
-                let fps = frames_sent as f64 / elapsed;
-                ctrl.set_fps(fps);
-                events::emit(json!({"ev": "fps", "fps": fps, "uptime_s": elapsed}));
+                let el = started.elapsed().as_secs_f64();
+                let fps_now = frames_sent as f64 / el;
+                ctrl.set_fps(fps_now);
+                events::emit(json!({"ev": "fps", "fps": fps_now, "uptime_s": el}));
                 last_fps_emit = Instant::now();
             }
         }

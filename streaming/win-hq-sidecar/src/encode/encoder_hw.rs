@@ -2,16 +2,20 @@
 //!
 //! Spiegelt `FfmpegEncoder` aus `encoder.rs`, aber:
 //! - Input-Frames sind `OwnedHwFrame` (AVFrame mit D3D11-Texture in data[0]).
-//! - **Ohne Downscale**: `pix_fmt = AV_PIX_FMT_D3D11`, `sw_format = AV_PIX_FMT_BGRA`
-//!   (siehe `hwctx.rs`). NVENC schluckt die BGRA-D3D11-Frames direkt.
-//! - **Mit Downscale**: `ScaleFilter` (`hwmap=cuda` → `scale_cuda=W:H:format=nv12`)
-//!   dazwischen → NVENC bekommt CUDA-NV12-Frames in dst-res. Bleibt zero-copy
-//!   weil D3D11→CUDA-Mapping auf derselben GPU keine echte Memory-Bewegung ist.
-//! - `hw_frames_ctx` muss VOR `avcodec_open2` via FFI an `AVCodecContext` gehängt
-//!   werden (ffmpeg-next exponiert das Feld nicht; wir gehen über `as_mut_ptr`).
+//! - `pix_fmt = AV_PIX_FMT_D3D11`, `sw_format = AV_PIX_FMT_BGRA` (siehe
+//!   `hwctx.rs`). NVENC schluckt die BGRA-D3D11-Frames direkt.
+//! - `hw_frames_ctx` muss VOR `avcodec_open2` via FFI an `AVCodecContext`
+//!   gehängt werden (ffmpeg-next exponiert das Feld nicht; wir gehen über
+//!   `as_mut_ptr`).
+//!
+//! **Downscale** läuft NICHT mehr hier: der `D3D11Scaler` (siehe
+//! `d3d11_scale.rs`) skaliert vor dem Encoder per `VideoProcessorBlt` auf der
+//! GPU. Der Encoder bekommt immer fertig dimensionierte D3D11-BGRA-Frames —
+//! native aus dem Capture-Pool, downscaled aus dem Scaler-Ziel-Pool. Der
+//! Caller übergibt die passende `hw_frames_ctx`-AVBufferRef.
 //!
 //! Aktiv für `vendor == "nvidia"`. AMD/Intel-Zero-Copy bräuchten zusätzlich
-//! einen GPU-Color-Convert BGRA→NV12 ohne CUDA-Detour — kein Scope hier.
+//! einen GPU-Color-Convert BGRA→NV12 — kein Scope hier.
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
@@ -19,8 +23,7 @@ use ffmpeg::{Dictionary, Packet, Rational, codec, format, ffi::*};
 
 use super::audio::AudioPipeline;
 use super::encoder::{AudioStreamConfig, VideoCodec, url_format_hint, vendor_encoder_opts};
-use super::hwctx::{HwContext, OwnedHwFrame};
-use super::scale_filter::ScaleFilter;
+use super::hwctx::OwnedHwFrame;
 use crate::audio::CapturedAudio;
 
 #[derive(Debug, Clone)]
@@ -29,11 +32,8 @@ pub struct HwEncoderConfig {
     pub vendor: String,
     pub fps: u32,
     pub bitrate_kbps: u32,
-    /// Capture-native Dimensionen — = HwContext-Pool-Größe.
-    pub src_w: u32,
-    pub src_h: u32,
-    /// Encoder-Output. Bei `(src_w, src_h) == (dst_w, dst_h)` läuft der direkte
-    /// D3D11-Pfad; sonst wird ein `scale_cuda`-Filter zwischengeschoben.
+    /// Encoder-Output-Dimensionen. Bei Downscale = dst-Auflösung (der
+    /// `D3D11Scaler` hat dann schon skaliert); bei Native = capture-res.
     pub dst_w: u32,
     pub dst_h: u32,
 }
@@ -41,44 +41,23 @@ pub struct HwEncoderConfig {
 pub struct FfmpegHwEncoder {
     output: format::context::Output,
     encoder: codec::encoder::Video,
-    /// `Some` wenn Downscale aktiv ist. Pipeline: D3D11-Frame → scale.push() →
-    /// scale.pull() → CUDA-Frame → encoder.
-    scale: Option<ScaleFilter>,
     video_stream_idx: usize,
-    pts: i64,
     encoder_time_base: Rational,
     stream_time_base: Rational,
     audio: Option<AudioPipeline>,
 }
 
 impl FfmpegHwEncoder {
+    /// `hw_frames_ref` ist die D3D11VA-frames-AVBufferRef, aus der die
+    /// Input-Frames stammen — Capture-`HwContext` (native) oder Scaler-
+    /// Ziel-`HwContext` (downscale). Der Encoder nimmt eine eigene Referenz.
     pub fn create(
         cfg: &HwEncoderConfig,
-        hw: &HwContext,
+        hw_frames_ref: *mut AVBufferRef,
         audio_cfg: Option<AudioStreamConfig>,
         output_path: &str,
     ) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
-
-        let needs_scale = (cfg.src_w, cfg.src_h) != (cfg.dst_w, cfg.dst_h);
-        // ScaleFilter VOR dem Encoder bauen — der Filter-Graph init macht
-        // hwmap+scale_cuda und stellt einen CUDA-frames-ctx bereit, den wir an
-        // den Encoder hängen.
-        let scale = if needs_scale {
-            Some(
-                ScaleFilter::new(
-                    hw.frames_ref(),
-                    cfg.src_w,
-                    cfg.src_h,
-                    cfg.dst_w,
-                    cfg.dst_h,
-                    cfg.fps,
-                )
-                .context("ScaleFilter::new")?,
-            )
-        } else {
-            None
-        };
 
         let mut output = match url_format_hint(output_path) {
             Some(fmt) => {
@@ -107,7 +86,7 @@ impl FfmpegHwEncoder {
             .video()?;
         encoder.set_width(cfg.dst_w);
         encoder.set_height(cfg.dst_h);
-        encoder.set_format(if needs_scale { format::Pixel::CUDA } else { format::Pixel::D3D11 });
+        encoder.set_format(format::Pixel::D3D11);
         encoder.set_time_base(Rational::new(1, cfg.fps as i32));
         encoder.set_frame_rate(Some(Rational::new(cfg.fps as i32, 1)));
         encoder.set_bit_rate((cfg.bitrate_kbps as usize).saturating_mul(1000));
@@ -118,17 +97,13 @@ impl FfmpegHwEncoder {
         }
 
         // hw_frames_ctx an die AVCodecContext hängen — MUSS vor open passieren.
-        // Downscale-Pfad nimmt den CUDA-frames-ctx aus dem ScaleFilter-Sink
-        // (dst-res, NV12); direkt-Pfad nimmt den D3D11-Pool (src-res, BGRA).
+        // Native = Capture-D3D11-Pool (src-res), Downscale = Scaler-Ziel-Pool
+        // (dst-res); beide D3D11/BGRA, also derselbe Encoder-Pfad.
         unsafe {
             let ctx_ptr = encoder.as_mut_ptr();
-            let source_ref = match &scale {
-                Some(s) => s.cuda_frames_ref(),
-                None => hw.frames_ref(),
-            };
-            let new_ref = av_buffer_ref(source_ref);
+            let new_ref = av_buffer_ref(hw_frames_ref);
             if new_ref.is_null() {
-                return Err(anyhow!("av_buffer_ref(frames_ref) returned NULL"));
+                return Err(anyhow!("av_buffer_ref(hw_frames_ref) returned NULL"));
             }
             (*ctx_ptr).hw_frames_ctx = new_ref;
         }
@@ -157,9 +132,7 @@ impl FfmpegHwEncoder {
         Ok(Self {
             output,
             encoder: opened,
-            scale,
             video_stream_idx: stream_idx,
-            pts: 0,
             encoder_time_base,
             stream_time_base,
             audio,
@@ -173,39 +146,17 @@ impl FfmpegHwEncoder {
         Ok(())
     }
 
-    /// Schickt einen Pool-Frame in den Encoder. PTS wird hier gesetzt
-    /// (überschreibt eventuell vorab gesetzte) — Pipeline-Convention: pro
-    /// Encoder-Instanz monoton ab 0.
-    pub fn send_hw(&mut self, frame: &mut OwnedHwFrame) -> Result<()> {
-        let pts = self.pts;
-        self.pts += 1;
+    /// Schickt einen Pool-Frame in den Encoder. `pts` ist die wall-clock-
+    /// abgeleitete Präsentations-Zeit in Encoder-Timebase-Einheiten (1/fps) —
+    /// vom Pacing-Loop in `pipeline_hw.rs` vergeben, muss streng monoton sein.
+    /// Bei statischem Bild wird derselbe Frame mehrfach mit fortlaufender PTS
+    /// gesendet (Duplizierung) — daher PTS als Parameter, kein interner Zähler.
+    ///
+    /// Der Frame ist immer ein fertig dimensionierter D3D11-BGRA-Frame
+    /// (Downscale erledigt der `D3D11Scaler` vorgelagert).
+    pub fn send_hw(&mut self, frame: &mut OwnedHwFrame, pts: i64) -> Result<()> {
         frame.set_pts(pts);
-
-        if self.scale.is_none() {
-            return self.send_avframe(frame.as_mut_ptr());
-        }
-
-        // Downscale-Pfad: erst alle ready-CUDA-Frames aus dem Filter ziehen
-        // (Vec entkoppelt den scale-Borrow vom send_avframe-Borrow), dann
-        // sequentiell senden. Pro D3D11-Input erzeugt scale_cuda 1 CUDA-Output
-        // (nach dem initialen Warmup); in Edge-Cases (Filter braucht mehr Input
-        // bevor er output produziert) kann's auch 0 sein → nächste send_hw
-        // bekommt zwei Frames raus. Pipeline bleibt korrekt.
-        {
-            let scale = self.scale.as_mut().unwrap();
-            scale.push(frame.as_mut_ptr())?;
-        }
-        let mut cuda_frames = Vec::with_capacity(1);
-        {
-            let scale = self.scale.as_mut().unwrap();
-            while let Some(cf) = scale.pull()? {
-                cuda_frames.push(cf);
-            }
-        }
-        for mut cf in cuda_frames {
-            self.send_avframe(cf.as_mut_ptr())?;
-        }
-        Ok(())
+        self.send_avframe(frame.as_mut_ptr())
     }
 
     fn send_avframe(&mut self, frame_ptr: *mut AVFrame) -> Result<()> {

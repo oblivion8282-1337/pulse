@@ -41,6 +41,10 @@ pub enum HwCaptureItem {
     Frame(OwnedHwFrame),
 }
 
+/// Kapazität der Capture→Encoder-Queue. Muss deutlich kleiner als der
+/// D3D11VA-`pool_size` sein (s. `WgcHwCapture::start`).
+const CHANNEL_CAPACITY: usize = 4;
+
 pub struct WgcHwCapture {
     pub items: Receiver<HwCaptureItem>,
     stop_tx: Sender<()>,
@@ -50,10 +54,13 @@ pub struct WgcHwCapture {
 impl WgcHwCapture {
     pub fn start(source: CaptureSource, cfg: CaptureConfig, pool_size: u32) -> Result<Self> {
         let target = source.resolve()?;
-        // Channel-Kapazität = pool_size — wenn der Encoder Backpressure macht
-        // greift bereits der av_hwframe_get_buffer-Pool davor (Pool-Erschöpfung
-        // → Drop im Callback).
-        let (tx, items) = sync_channel(pool_size as usize);
+        // Channel-Kapazität bewusst KLEINER als der D3D11VA-Pool: der Channel
+        // teilt sich die `pool_size` Surfaces mit scale_cuda (hwmap D3D11→CUDA)
+        // und der NVENC-In-Flight-Tiefe. Wäre die Kapazität == pool_size, könnte
+        // eine volle Queue den kompletten Pool belegen → 0 Surfaces für den
+        // Encoder → „Static surface pool size exceeded" → Push-Crash. Mit 4
+        // bleiben pool_size−4 Surfaces für die Encode-Seite.
+        let (tx, items) = sync_channel(CHANNEL_CAPACITY);
         let (stop_tx, stop_rx) = channel();
         let pool_size_for_thread = pool_size;
         let cfg_for_thread = cfg.clone();
@@ -128,6 +135,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
                 width,
                 height,
                 self.pool_size,
+                0, // Capture-Pool: keine extra Bind-Flags (libavutil-Default).
             )
             .context("HwContext::new")?;
             let hw = Arc::new(hw);

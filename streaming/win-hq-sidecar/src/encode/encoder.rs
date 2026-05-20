@@ -98,7 +98,6 @@ pub struct FfmpegEncoder {
     /// (sws-Output).
     encoder_frame: frame::Video,
     video_stream_idx: usize,
-    pts: i64,
     encoder_time_base: Rational,
     stream_time_base: Rational,
     /// Erwartete Dimensionen für `send()`-Validation.
@@ -247,7 +246,6 @@ impl FfmpegEncoder {
             src_frame,
             encoder_frame,
             video_stream_idx: stream_idx,
-            pts: 0,
             encoder_time_base,
             stream_time_base,
             expected_src: (cfg.src_width, cfg.src_height),
@@ -264,10 +262,12 @@ impl FfmpegEncoder {
         Ok(())
     }
 
-    /// Schickt einen Capture-Frame in den Encoder. Drained interne Packets auf
-    /// den Output. Returnt sofort wenn der Encoder noch Frames akkumuliert —
-    /// das ist normal (B-Frame-Lookahead) und kein Fehler.
-    pub fn send(&mut self, captured: &CapturedFrame) -> Result<()> {
+    /// Schickt einen Capture-Frame in den Encoder. `pts` ist die wall-clock-
+    /// abgeleitete Präsentations-Zeit in Encoder-Timebase-Einheiten (1/fps),
+    /// vergeben vom Pacing-Loop — muss streng monoton sein. Bei statischem
+    /// Bild wird derselbe Frame mehrfach mit fortlaufender PTS gesendet.
+    /// Drained interne Packets auf den Output.
+    pub fn send(&mut self, captured: &CapturedFrame, pts: i64) -> Result<()> {
         if (captured.width, captured.height) != self.expected_src {
             return Err(anyhow!(
                 "frame dimensions {}x{} don't match encoder src {}x{}",
@@ -298,8 +298,7 @@ impl FfmpegEncoder {
             }
         };
 
-        frame.set_pts(Some(self.pts));
-        self.pts += 1;
+        frame.set_pts(Some(pts));
 
         self.encoder
             .send_frame(frame)

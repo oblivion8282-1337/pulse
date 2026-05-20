@@ -19,6 +19,15 @@ use std::thread;
 use pulse_win_hq_sidecar::{dispatch, events};
 
 fn main() -> anyhow::Result<()> {
+    // Diagnose-Schalter: `PULSE_HQ_FFMPEG_DEBUG=1` hebt das FFmpeg-Log-Level auf
+    // Debug — nötig um hinter „Writing encrypted data to socket failed" den
+    // tatsächlichen Socket-Fehler (Connection reset / timed out / broken pipe)
+    // zu sehen. Default-Level (Info) verschluckt den. Greift für tcp/tls/rtmp.
+    if std::env::var("PULSE_HQ_FFMPEG_DEBUG").is_ok() {
+        ffmpeg_next::util::log::set_level(ffmpeg_next::util::log::Level::Debug);
+        eprintln!("[hq-sidecar] FFmpeg log level = Debug (PULSE_HQ_FFMPEG_DEBUG)");
+    }
+
     let (out_tx, out_rx) = std::sync::mpsc::channel::<serde_json::Value>();
     events::init(out_tx.clone());
 

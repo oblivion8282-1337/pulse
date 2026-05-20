@@ -43,17 +43,30 @@ struct AVD3D11VADeviceContext {
     lock_ctx: *mut c_void,
 }
 
-/// `AVD3D11VAFramesContext` aus FFmpeg 8.1. `texture_infos` füllt libavutil
-/// nach `av_hwframe_ctx_init` (Länge = `initial_pool_size`). Wir lesen es
-/// nicht — pro AVFrame kommt die Textur via `data[0]` + `data[1]` raus.
-/// Layout-Dokumentation; aktuell ungenutzt da wir BindFlags=0 (Default) lassen.
+/// `AVD3D11VAFramesContext` aus FFmpeg 8.1 `libavutil/hwcontext_d3d11va.h`.
+/// **Achtung Layout:** das erste Feld ist `ID3D11Texture2D *texture` — eine
+/// frühere Spiegelung hier hat das weggelassen, dadurch landete `bind_flags`
+/// am falschen Offset (Schreiben in `texture` statt `BindFlags`). Reihenfolge
+/// MUSS sein: `texture, BindFlags, MiscFlags, texture_infos`.
 #[repr(C)]
-#[allow(dead_code)]
 struct AVD3D11VAFramesContext {
-    bind_flags: c_int, // D3D11_BIND_* (0 = libavutil-Default DECODER|SHADER_RESOURCE)
-    misc_flags: c_int, // D3D11_RESOURCE_MISC_* (0 = libavutil-Default)
+    texture: *mut c_void,       // ID3D11Texture2D* — von uns NULL gelassen
+    bind_flags: u32,            // D3D11_BIND_* (0 = libavutil-Default DECODER|SHADER_RESOURCE)
+    misc_flags: u32,            // D3D11_RESOURCE_MISC_* (0 = libavutil-Default)
     texture_infos: *mut c_void, // AVD3D11FrameDescriptor* — output, ungenutzt
 }
+
+/// `D3D11_BIND_SHADER_RESOURCE`. Sobald wir `bind_flags` explizit befüllen,
+/// übernimmt libavutil seinen Default (`DECODER|SHADER_RESOURCE`) NICHT mehr —
+/// SHADER_RESOURCE müssen wir selbst dazunehmen, sonst kann NVENC nicht aus
+/// dem Pool lesen.
+///
+/// `D3D11_BIND_DECODER` (0x200) lassen wir BEWUSST WEG: das Flag ist für
+/// Video-Decoder-Output-Surfaces (NV12/P010) gedacht und ist mit
+/// `D3D11_BIND_RENDER_TARGET` auf einem BGRA-Format inkompatibel —
+/// `CreateTexture2D` failt dann mit `E_INVALIDARG` (0x80070057). NVENC braucht
+/// für seinen D3D11-Input kein DECODER-Flag, nur SHADER_RESOURCE.
+const D3D11_BIND_SHADER_RESOURCE: u32 = 0x8;
 
 unsafe extern "C" fn cs_lock(ctx: *mut c_void) {
     unsafe { EnterCriticalSection(ctx as *mut CRITICAL_SECTION) }
@@ -66,9 +79,11 @@ pub struct HwContext {
     device_ref: *mut AVBufferRef,
     frames_ref: *mut AVBufferRef,
     cs: Box<CRITICAL_SECTION>,
-    // ID3D11DeviceContext brauchen wir im Capture-Callback für
-    // CopySubresourceRegion in den Pool-Frame. Zugriffe MÜSSEN durch
-    // lock()/unlock() geschützt sein.
+    // ID3D11Device + ID3D11DeviceContext: Context brauchen wir im
+    // Capture-Callback für CopySubresourceRegion, Device + Context zusätzlich
+    // für den D3D11Scaler (ID3D11VideoDevice/-Context-Cast). Context-Zugriffe
+    // MÜSSEN durch lock()/unlock() geschützt sein.
+    device: ID3D11Device,
     device_context: ID3D11DeviceContext,
     width: u32,
     height: u32,
@@ -88,12 +103,19 @@ impl HwContext {
     /// `pool_size`: D3D11VA kann den Pool nicht dynamisch erweitern, also genug
     /// für NVENC-Lookahead + Capture-Backpressure. 8 ist robust für 60 FPS bei
     /// `tune=ull` (kein B-Frame-Lookahead, aber NVENC braucht ~2-3 Frames in-flight).
+    ///
+    /// `extra_bind_flags`: zusätzliche `D3D11_BIND_*`-Flags für die Pool-
+    /// Texturen (0 = nur libavutil-Default DECODER|SHADER_RESOURCE). Der
+    /// `D3D11Scaler`-Ziel-Pool übergibt `D3D11_BIND_RENDER_TARGET`, damit
+    /// `CreateVideoProcessorOutputView` die Texturen akzeptiert; der
+    /// Capture-Pool übergibt 0.
     pub fn new(
         device: ID3D11Device,
         device_context: ID3D11DeviceContext,
         width: u32,
         height: u32,
         pool_size: u32,
+        extra_bind_flags: u32,
     ) -> Result<Self> {
         let mut cs = Box::new(CRITICAL_SECTION::default());
         unsafe { InitializeCriticalSection(&mut *cs as *mut CRITICAL_SECTION) };
@@ -147,10 +169,16 @@ impl HwContext {
             (*frames_hdr).width = width as c_int;
             (*frames_hdr).height = height as c_int;
             (*frames_hdr).initial_pool_size = pool_size as c_int;
-            // bind_flags=0 → libavutil-Default (DECODER|SHADER_RESOURCE). NVENC
-            // braucht DECODER; libavutil setzt das selbst. Wir hauen nichts mehr
-            // dazu — RENDER_TARGET würde Pool-Allocs für unsere CopyDst-Texturen
-            // entlasten, NVENC will aber genau die Default-Flags.
+            // BindFlags setzen wir nur explizit, wenn `extra_bind_flags != 0`
+            // (Scaler-Ziel-Pool braucht RENDER_TARGET). Dann SHADER_RESOURCE
+            // selbst dazunehmen — DECODER lassen wir weg (inkompatibel mit
+            // RENDER_TARGET auf BGRA, s. Konstanten-Doku oben). Capture-Pool
+            // (flags=0) bleibt unverändert auf libavutil-Default.
+            if extra_bind_flags != 0 {
+                let d3d_frames =
+                    (*frames_hdr).hwctx as *mut AVD3D11VAFramesContext;
+                (*d3d_frames).bind_flags = D3D11_BIND_SHADER_RESOURCE | extra_bind_flags;
+            }
         }
 
         let init = unsafe { av_hwframe_ctx_init(frames_ref) };
@@ -165,11 +193,14 @@ impl HwContext {
             return Err(anyhow!("av_hwframe_ctx_init failed: {init}"));
         }
 
-        Ok(Self { device_ref, frames_ref, cs, device_context, width, height })
+        Ok(Self { device_ref, frames_ref, cs, device, device_context, width, height })
     }
 
     pub fn width(&self) -> u32 { self.width }
     pub fn height(&self) -> u32 { self.height }
+
+    /// ID3D11Device — für den `D3D11Scaler` (Cast auf `ID3D11VideoDevice`).
+    pub fn device(&self) -> &ID3D11Device { &self.device }
 
     /// Roh-Pointer auf die frames AVBufferRef. Encoder muss `av_buffer_ref`
     /// aufrufen um eine eigene Referenz für `AVCodecContext.hw_frames_ctx` zu

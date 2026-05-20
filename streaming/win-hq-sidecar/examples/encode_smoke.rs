@@ -103,7 +103,7 @@ fn main() -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("non-utf8 output path"))?,
     )?;
 
-    encoder.send(&first)?;
+    encoder.send(&first, 0)?;
     let started = Instant::now();
     let mut frames_sent = 1usize;
 
@@ -122,7 +122,7 @@ fn main() -> anyhow::Result<()> {
             );
             continue;
         }
-        encoder.send(&frame)?;
+        encoder.send(&frame, frames_sent as i64)?;
         frames_sent += 1;
         if frames_sent % 30 == 0 {
             let elapsed = started.elapsed().as_secs_f64();
