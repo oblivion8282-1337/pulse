@@ -62,6 +62,9 @@ impl FfmpegHwEncoder {
         let mut output = match url_format_hint(output_path) {
             Some(fmt) => {
                 let mut opts = Dictionary::new();
+                // Netzwerk-Timeout (µs) — s. encoder.rs::create. Ohne das hängt
+                // ein toter Connect/Write den Worker unbegrenzt → Sidecar-Freeze.
+                opts.set("rw_timeout", "10000000");
                 if output_path.to_ascii_lowercase().starts_with("rtmps://") {
                     opts.set("tls_verify", "0");
                 }

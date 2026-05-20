@@ -134,6 +134,12 @@ impl FfmpegEncoder {
                 // data to socket failed" killt. Verifiziert mit `ffmpeg.exe
                 // -tls_verify 0` als Referenz (= identisches Verhalten).
                 let mut opts = Dictionary::new();
+                // Netzwerk-Timeout (µs). Ohne das blockiert ein toter Connect
+                // oder ein stockender RTMPS-TLS-Handshake den Worker-Thread
+                // praktisch unbegrenzt (FFmpeg-Default = kein Timeout) — und
+                // ein `stop()` während dieser Blockade fror den ganzen Sidecar
+                // ein. 10 s → ein hängender Connect/Write scheitert sauber.
+                opts.set("rw_timeout", "10000000");
                 if output_path.to_ascii_lowercase().starts_with("rtmps://") {
                     opts.set("tls_verify", "0");
                 }

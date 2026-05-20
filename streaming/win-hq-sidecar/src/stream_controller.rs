@@ -30,6 +30,13 @@ use crate::events;
 use crate::profiles::StreamProfile;
 use crate::system::dxgi;
 
+/// Wie lange `stop()` maximal auf das Auslaufen des Worker-Threads wartet,
+/// bevor es ihn aufgibt. Der Worker terminiert nach dem Stop-Signal selbst
+/// (`rw_timeout` im Encoder kappt jeden Netzwerk-Stall auf ~10 s) — dieser
+/// Wert ist nur ein Sicherheitsnetz gegen einen wider Erwarten wedged Worker.
+/// Bewusst unter dem `stop`-Op-Timeout in `sidecar.ts` (15 s).
+const STOP_JOIN_TIMEOUT: Duration = Duration::from_secs(13);
+
 /// Snapshot des Stream-Zustandes — was die `state`-Op zurückliefert.
 #[derive(Debug, Clone)]
 pub struct StreamSnapshot {
@@ -150,8 +157,28 @@ impl StreamController {
         }
         let worker = inner.worker.take();
         drop(inner);
+
+        // Worker auslaufen lassen — aber NICHT unbegrenzt blockierend. Der
+        // Dispatch-Loop ist single-threaded (`main.rs`); ein direktes `join()`
+        // hier fror den ganzen Sidecar ein, wenn der Worker auf Netzwerk-I/O
+        // blockierte (toter RTMPS-Connect). Das `join()` läuft jetzt auf einem
+        // Hilfsthread, wir warten nur mit Timeout. Der Worker terminiert nach
+        // dem Stop-Signal selbst (`rw_timeout` im Encoder kappt jeden Stall auf
+        // ~10 s); `STOP_JOIN_TIMEOUT` ist nur das Sicherheitsnetz.
         if let Some(w) = worker {
-            let _ = w.join();
+            let (done_tx, done_rx) = channel();
+            let _ = thread::Builder::new()
+                .name("stream-joiner".into())
+                .spawn(move || {
+                    let _ = w.join();
+                    let _ = done_tx.send(());
+                });
+            if done_rx.recv_timeout(STOP_JOIN_TIMEOUT).is_err() {
+                eprintln!(
+                    "[stream-controller] Worker nicht in {STOP_JOIN_TIMEOUT:?} beendet — \
+                     aufgegeben (Sidecar bleibt responsiv)"
+                );
+            }
         }
         // Worker hat im Erfolgsfall schon einen `stopped`-Event emittiert;
         // hier ist nur Aufräumen.
