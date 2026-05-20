@@ -45,6 +45,13 @@ pub struct FfmpegHwEncoder {
     encoder_time_base: Rational,
     stream_time_base: Rational,
     audio: Option<AudioPipeline>,
+    /// Diagnose-Timings des letzten `send_hw`-Calls (µs) — gespeist in den
+    /// `TickMonitor` (s. `tick_monitor.rs`) zur Mikro-Stutter-Analyse.
+    /// `last_send_us` = `avcodec_send_frame` (NVENC-Submit), `last_mux_us` =
+    /// `write_interleaved` (FLV-Mux + synchroner RTMPS-Socket-Write — der
+    /// wahrscheinlichste Verursacher sporadischer Loop-Stalls).
+    last_send_us: u64,
+    last_mux_us: u64,
 }
 
 impl FfmpegHwEncoder {
@@ -139,7 +146,20 @@ impl FfmpegHwEncoder {
             encoder_time_base,
             stream_time_base,
             audio,
+            last_send_us: 0,
+            last_mux_us: 0,
         })
+    }
+
+    /// NVENC-Submit-Dauer (`avcodec_send_frame`) des letzten `send_hw` in µs.
+    pub fn last_send_us(&self) -> u64 {
+        self.last_send_us
+    }
+
+    /// Mux-+-Socket-Write-Dauer (`write_interleaved`) des letzten `send_hw`
+    /// in µs — summiert über alle in dem Call gedrainten Pakete.
+    pub fn last_mux_us(&self) -> u64 {
+        self.last_mux_us
     }
 
     pub fn send_audio(&mut self, captured: &CapturedAudio) -> Result<()> {
@@ -163,24 +183,32 @@ impl FfmpegHwEncoder {
     }
 
     fn send_avframe(&mut self, frame_ptr: *mut AVFrame) -> Result<()> {
+        let t_send = std::time::Instant::now();
         unsafe {
             let ret = avcodec_send_frame(self.encoder.as_mut_ptr(), frame_ptr);
             if ret < 0 {
                 return Err(anyhow!("avcodec_send_frame failed: {ret}"));
             }
         }
+        self.last_send_us = t_send.elapsed().as_micros() as u64;
         self.drain_packets()
     }
 
     fn drain_packets(&mut self) -> Result<()> {
         let mut packet = Packet::empty();
+        let mut mux_us: u64 = 0;
         while self.encoder.receive_packet(&mut packet).is_ok() {
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
+            // Nur den Socket-Write messen — das ist der Teil, der bei einem
+            // TCP-Stall den Pacing-Loop blockiert.
+            let t_mux = std::time::Instant::now();
             packet
                 .write_interleaved(&mut self.output)
                 .context("packet.write_interleaved")?;
+            mux_us += t_mux.elapsed().as_micros() as u64;
         }
+        self.last_mux_us = mux_us;
         Ok(())
     }
 

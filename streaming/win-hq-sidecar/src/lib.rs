@@ -15,3 +15,4 @@ pub mod profiles;
 pub mod proto;
 pub mod stream_controller;
 pub mod system;
+pub mod tick_monitor;

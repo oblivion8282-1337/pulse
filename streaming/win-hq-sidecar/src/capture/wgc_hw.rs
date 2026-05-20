@@ -12,6 +12,7 @@
 
 use anyhow::{Context as _, Result, anyhow};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_channel};
 use std::thread::{self, JoinHandle};
 
@@ -49,6 +50,10 @@ pub struct WgcHwCapture {
     pub items: Receiver<HwCaptureItem>,
     stop_tx: Sender<()>,
     worker: Option<JoinHandle<Result<(), String>>>,
+    /// Kumulativ verworfene Capture-Frames (Pool erschöpft ODER Channel-
+    /// Backpressure). Vom Capture-Thread geschrieben, vom Pacing-Loop pro Tick
+    /// gelesen — ein Anstieg deutet auf Encode-/Push-Rückstau hin.
+    dropped: Arc<AtomicU64>,
 }
 
 impl WgcHwCapture {
@@ -64,11 +69,25 @@ impl WgcHwCapture {
         let (stop_tx, stop_rx) = channel();
         let pool_size_for_thread = pool_size;
         let cfg_for_thread = cfg.clone();
+        let dropped = Arc::new(AtomicU64::new(0));
+        let dropped_for_thread = dropped.clone();
         let worker = thread::spawn(move || -> Result<(), String> {
-            run_capture(target, cfg_for_thread, tx, stop_rx, pool_size_for_thread)
-                .map_err(|e| format!("{e:#}"))
+            run_capture(
+                target,
+                cfg_for_thread,
+                tx,
+                stop_rx,
+                pool_size_for_thread,
+                dropped_for_thread,
+            )
+            .map_err(|e| format!("{e:#}"))
         });
-        Ok(Self { items, stop_tx, worker: Some(worker) })
+        Ok(Self { items, stop_tx, worker: Some(worker), dropped })
+    }
+
+    /// Kumulativ verworfene Capture-Frames seit Start. Lock-frei pollbar.
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     pub fn stop(&mut self) {
@@ -92,13 +111,14 @@ struct HwFrameSink {
     stop_rx: Receiver<()>,
     pool_size: u32,
     hw: Option<Arc<HwContext>>,
-    dropped: u64,
+    dropped: Arc<AtomicU64>,
 }
 
 struct HwHandlerFlags {
     tx: SyncSender<HwCaptureItem>,
     stop_rx: Receiver<()>,
     pool_size: u32,
+    dropped: Arc<AtomicU64>,
 }
 
 impl GraphicsCaptureApiHandler for HwFrameSink {
@@ -111,7 +131,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             stop_rx: ctx.flags.stop_rx,
             pool_size: ctx.flags.pool_size,
             hw: None,
-            dropped: 0,
+            dropped: ctx.flags.dropped,
         })
     }
 
@@ -155,9 +175,9 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
         let pool_frame = match hw.acquire_frame() {
             Ok(f) => f,
             Err(_) => {
-                self.dropped += 1;
-                if self.dropped % 30 == 0 {
-                    eprintln!("[capture-hw] pool exhausted: {} frames dropped", self.dropped);
+                let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n % 30 == 0 {
+                    eprintln!("[capture-hw] pool exhausted: {n} frames dropped");
                 }
                 return Ok(());
             }
@@ -166,9 +186,9 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
         match self.tx.try_send(HwCaptureItem::Frame(pool_frame)) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                self.dropped += 1;
-                if self.dropped % 30 == 0 {
-                    eprintln!("[capture-hw] backpressure: {} frames dropped", self.dropped);
+                let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n % 30 == 0 {
+                    eprintln!("[capture-hw] backpressure: {n} frames dropped");
                 }
             }
             Err(TrySendError::Disconnected(_)) => capture_control.stop(),
@@ -213,6 +233,7 @@ fn run_capture(
     tx: SyncSender<HwCaptureItem>,
     stop_rx: Receiver<()>,
     pool_size: u32,
+    dropped: Arc<AtomicU64>,
 ) -> Result<()> {
     let cursor = if cfg.include_cursor {
         CursorCaptureSettings::WithCursor
@@ -231,7 +252,7 @@ fn run_capture(
             1.0 / cfg.max_fps as f64,
         ))
     };
-    let flags = HwHandlerFlags { tx, stop_rx, pool_size };
+    let flags = HwHandlerFlags { tx, stop_rx, pool_size, dropped };
 
     match target {
         ResolvedTarget::Monitor(monitor) => {
