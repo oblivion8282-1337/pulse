@@ -216,7 +216,15 @@ class SidecarManager {
    *  response, on `ok === false`, or if the sidecar dies before replying.
    *
    *  Linux + Windows both have a real sidecar implementation (see resolver above).
-   *  Other platforms throw a clear error before any spawn attempt. */
+   *  Other platforms throw a clear error before any spawn attempt.
+   *
+   *  Respawn-on-`stop`: after every `stop` op the sidecar process is shut down,
+   *  so the next `call()` spawns a fresh one. The Windows HQ pipeline
+   *  (WGC + D3D11 + NVENC) has an in-process restart bug — a second capture
+   *  session in the same process produces a black image (audio, a separate
+   *  WASAPI subsystem, is unaffected). A fresh process per stream sidesteps the
+   *  whole class of restart bugs; the sidecar is stateless between streams and
+   *  the idle EOF-exit is near-instant. */
   async call(op: string, params?: unknown): Promise<SidecarMessage> {
     const child = this.ensureSpawned();
     const id = this.nextId++;
@@ -228,32 +236,46 @@ class SidecarManager {
 
     const timeoutMs = OP_TIMEOUT_MS[op] ?? DEFAULT_TIMEOUT_MS;
 
-    return new Promise<SidecarMessage>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`gsr sidecar: '${op}' timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
+    try {
+      return await new Promise<SidecarMessage>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          this.pending.delete(id);
+          reject(new Error(`gsr sidecar: '${op}' timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
 
-      this.pending.set(id, {
-        resolve: (msg) => {
-          if (msg.ok === false) {
-            reject(new Error(`gsr sidecar: '${op}' failed: ${String(msg.error ?? 'ok=false')}`));
-            return;
-          }
-          resolve(msg);
-        },
-        reject,
-        timer,
+        this.pending.set(id, {
+          resolve: (msg) => {
+            if (msg.ok === false) {
+              reject(new Error(`gsr sidecar: '${op}' failed: ${String(msg.error ?? 'ok=false')}`));
+              return;
+            }
+            resolve(msg);
+          },
+          reject,
+          timer,
+        });
+
+        try {
+          child.stdin.write(JSON.stringify(req) + '\n');
+        } catch (err) {
+          clearTimeout(timer);
+          this.pending.delete(id);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       });
-
-      try {
-        child.stdin.write(JSON.stringify(req) + '\n');
-      } catch (err) {
-        clearTimeout(timer);
-        this.pending.delete(id);
-        reject(err instanceof Error ? err : new Error(String(err)));
+    } finally {
+      // Fresh process per stream — see the doc comment above. Runs on success
+      // *and* on a failed/timed-out stop (a wedged sidecar gets killed too).
+      // `await` keeps it deterministic: by the time `call()` resolves, the old
+      // child is gone and `this.child` is null, so the next `call()` spawns
+      // fresh with no race against a still-dying process.
+      //
+      // Windows-only: the restart bug is in the WGC/D3D11/NVENC pipeline. The
+      // Linux GSR sidecar has no such issue, so its process stays warm.
+      if (op === 'stop' && process.platform === 'win32') {
+        await this.shutdown();
       }
-    });
+    }
   }
 
   /** Graceful shutdown. Best-effort, resolves even if the child was never

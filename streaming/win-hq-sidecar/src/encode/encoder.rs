@@ -325,12 +325,17 @@ impl FfmpegEncoder {
         Ok(())
     }
 
-    /// EOF an Video + Audio Encoder, restliche Packets flushen, Trailer schreiben.
-    /// Konsumiert self — danach ist der Encoder zu.
-    pub fn finish(mut self) -> Result<()> {
+    /// Finalisiert den Stream: EOF an Video (+Audio), restliche Packets flushen,
+    /// Trailer schreiben (RTMP wird sauber geschlossen).
+    ///
+    /// Nimmt `&mut self` — gibt den Encoder NICHT frei. Der Caller
+    /// `mem::forget`et ihn: der Drop-Teardown rennt sonst gegen einen
+    /// treiber-internen Threadpool-Timer (Use-after-free-Crash). Per-Stream-
+    /// Sidecar — der Prozess endet gleich, das OS räumt auf. S. `encoder_hw.rs`.
+    pub fn finish(&mut self) -> Result<()> {
         self.encoder.send_eof().context("video send_eof")?;
         self.drain_packets()?;
-        if let Some(mut audio) = self.audio.take() {
+        if let Some(audio) = self.audio.as_mut() {
             audio.flush(&mut self.output)?;
         }
         self.output.write_trailer().context("write_trailer")?;

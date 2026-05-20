@@ -260,7 +260,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         // Software-NV12-Frames in den Encoder — die GPU lädt sie selbst hoch,
         // sie muss kein Display treiben. Auf Multi-GPU ist das die dGPU.
         let adapter = select_adapter()?;
-        let mut capture = WgcCapture::start(
+        let capture = WgcCapture::start(
             params.capture.clone(),
             CaptureConfig {
                 max_fps: params.override_fps.unwrap_or(params.profile.fps),
@@ -408,11 +408,17 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
             }
         }
 
-        capture.stop();
-        if let Some(mut ac) = audio_capture {
-            ac.stop();
-        }
+        // Stream finalisieren (Trailer/RTMP-Close); `finish` gibt nichts frei.
         encoder.finish()?;
+
+        // Kein `capture.stop()`/`ac.stop()`/Drop — s. ausführlicher Kommentar
+        // in `pipeline_hw::run`: die grafische Teardown-Sequenz lässt einen
+        // treiber-internen Threadpool-Timer dangling zurück (Use-after-free-
+        // Crash). Wir machen gar keinen Teardown; der Per-Stream-Sidecar endet
+        // gleich, `ExitProcess` terminiert alle Threads + räumt sauber auf.
+        std::mem::forget(capture);
+        std::mem::forget(audio_capture);
+        std::mem::forget(encoder);
         Ok(())
     })()
 }

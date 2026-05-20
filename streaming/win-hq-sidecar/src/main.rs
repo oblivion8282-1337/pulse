@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
             continue;
         }
 
-        let response = dispatch::handle_request_line(trimmed);
+        let (response, exit_after) = dispatch::handle_request_line(trimmed);
         // serde-Wert für den Writer. Wenn der Serialize-Schritt failt, ist's
         // ein Bug in der Response-Struktur — wir loggen auf stderr und gehen
         // weiter.
@@ -85,6 +85,13 @@ fn main() -> anyhow::Result<()> {
             Err(e) => {
                 eprintln!("[hq-sidecar] failed to serialize response: {e}");
             }
+        }
+        // Nach erfolgreichem `stop`: Prozess beenden (s. `dispatch`-Doku —
+        // dangling Threadpool-Timer aus dem Teardown). Wir brechen die Schleife
+        // ab; der Shutdown-Block unten flusht Writer (also auch diese `stop`-
+        // Response + das `stopped`-Event) und der Prozess endet danach prompt.
+        if exit_after {
+            break;
         }
     }
 

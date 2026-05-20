@@ -184,10 +184,19 @@ impl FfmpegHwEncoder {
         Ok(())
     }
 
-    pub fn finish(mut self) -> Result<()> {
+    /// Finalisiert den Stream: EOF an Video (+Audio), restliche Pakete flushen,
+    /// FLV-Trailer schreiben — die RTMP-Verbindung wird dabei sauber geschlossen.
+    ///
+    /// Nimmt `&mut self`, gibt den Encoder also bewusst NICHT frei: der
+    /// Encoder-Drop schließt NVENC + entlädt `nvEncodeAPI64.dll`, und genau
+    /// dieser Teardown lässt einen treiber-internen Threadpool-Timer dangling
+    /// zurück (→ Use-after-free, `0xC0000005` auf einem `TpWaitForTimer`-Thread).
+    /// Der Caller `mem::forget`et den Encoder; der Per-Stream-Sidecar endet
+    /// direkt nach `stop`, `ExitProcess` gibt alles sauber frei.
+    pub fn finish(&mut self) -> Result<()> {
         self.encoder.send_eof().context("video send_eof")?;
         self.drain_packets()?;
-        if let Some(mut audio) = self.audio.take() {
+        if let Some(audio) = self.audio.as_mut() {
             audio.flush(&mut self.output)?;
         }
         self.output.write_trailer().context("write_trailer")?;

@@ -51,7 +51,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // NVENC-In-Flight-Tiefe. Im Downscale-Pfad hat der Scaler einen eigenen
     // Ziel-Pool, dann muss dieser hier nur Capture-Queue + Scaler-Input-Halt
     // bedienen — 24 ist für beide Fälle robust.
-    let mut capture = WgcHwCapture::start(
+    let capture = WgcHwCapture::start(
         params.capture.clone(),
         CaptureConfig { max_fps: fps, include_cursor: params.show_cursor, ..Default::default() },
         24,
@@ -243,12 +243,29 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         }
     }
 
-    drop(last_frame); // gibt den gehaltenen Pool-Frame zurück
-    capture.stop();
-    if let Some(mut ac) = audio_capture {
-        ac.stop();
-    }
+    // Stream finalisieren: FLV-Trailer schreiben, RTMP sauber schließen. Das
+    // gibt nichts frei (`finish` nimmt `&mut self`).
     encoder.finish()?;
+
+    // KEIN `capture.stop()` / `ac.stop()` / Drop. Die *grafische* Teardown-
+    // Sequenz (WGC-FramePool/Session schließen, D3D11-Device + NVENC + Audio-
+    // Client freigeben, `nvEncodeAPI64.dll` entladen) ist genau das, was einen
+    // treiber-internen Threadpool-Timer dangling zurücklässt — feuert der
+    // danach, springt er in freigegebenen Speicher → `0xC0000005` exec-Fault
+    // auf einem `TpWaitForTimer`-Thread (mit Audio zuverlässig reproduzierbar).
+    //
+    // Darum: gar keinen Teardown. Capture-, Audio- und Encoder-Objekte bleiben
+    // am Leben (`mem::forget`), die Threads laufen weiter. Der Per-Stream-
+    // Sidecar endet unmittelbar nach diesem `stop` (`dispatch`/`main` →
+    // Prozess-Exit); `ExitProcess` terminiert ALLE Threads — Capture, WASAPI,
+    // Treiber-Threadpool — abrupt, bevor irgendein Timer feuern kann. Das OS
+    // gibt GPU-/COM-/Datei-Handles beim Prozess-Ende vollständig frei.
+    std::mem::forget(last_frame);
+    std::mem::forget(capture);
+    std::mem::forget(scaler);
+    std::mem::forget(hw);
+    std::mem::forget(audio_capture);
+    std::mem::forget(encoder);
     Ok(())
 }
 
