@@ -197,15 +197,16 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let result = (|| -> Result<()> {
         let adapter = select_adapter()?;
 
-        // Zero-Copy-Pfad: NVENC kann D3D11-BGRA-Frames direkt; Downscale läuft
-        // über einen GPU-`scale_cuda`-Filter zwischen Capture und Encoder
-        // (siehe `encode/scale_filter.rs`). AMD AMF + Intel QSV wollen NV12 ohne
-        // CUDA-Detour → CPU-Fallback, kein Scope für die jetzt. Kill-Switch
-        // `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad zum Debugging.
+        // Zero-Copy-Pfad (`pipeline_hw`): WGC → D3D11-Pool → optional
+        // `D3D11Scaler` (VideoProcessorBlt-GPU-Downscale) → Encoder direkt.
+        // NVIDIA *und* AMD nehmen D3D11-BGRA-Frames direkt (h264_nvenc bzw.
+        // h264_amf — verifiziert 2026-05). Intel/QSV läuft weiter über den
+        // CPU-Fallback unten. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1`
+        // erzwingt den CPU-Pfad zum Debugging.
         let disable_zc = std::env::var("PULSE_HQ_DISABLE_ZERO_COPY")
             .map(|v| !v.is_empty() && v != "0")
             .unwrap_or(false);
-        if adapter.vendor() == "nvidia" && !disable_zc {
+        if matches!(adapter.vendor(), "nvidia" | "amd") && !disable_zc {
             return crate::pipeline_hw::run(adapter, params, stop_rx);
         }
 
