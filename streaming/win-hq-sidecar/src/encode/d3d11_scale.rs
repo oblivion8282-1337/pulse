@@ -24,6 +24,7 @@
 
 use anyhow::{Result, anyhow};
 use ffmpeg_next::ffi::AVBufferRef;
+use std::collections::HashMap;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_RENDER_TARGET, D3D11_TEX2D_ARRAY_VPOV, D3D11_TEX2D_VPIV,
     D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE, D3D11_VIDEO_PROCESSOR_CONTENT_DESC,
@@ -48,6 +49,11 @@ pub struct D3D11Scaler {
     processor: ID3D11VideoProcessor,
     /// Ziel-Pool (dst-res, BGRA, +RENDER_TARGET). NVENC liest hieraus.
     dst: HwContext,
+    /// View-Cache, gekeyt auf (Textur-Ptr, Array-Slice). Pool-Texturen sind
+    /// eine feste kleine Menge → nach dem ersten Pool-Durchlauf 0 View-Allocs
+    /// im Hot-Path (statt 2 Treiber-Calls pro Frame).
+    input_views: HashMap<(usize, u32), ID3D11VideoProcessorInputView>,
+    output_views: HashMap<(usize, u32), ID3D11VideoProcessorOutputView>,
 }
 
 // ID3D11Video*-Zugriffe sind durch die CRITICAL_SECTION des dst-HwContext
@@ -118,12 +124,21 @@ impl D3D11Scaler {
             );
             // Auto-Processing AUS: ohne das macht der Treiber beim Blt
             // Denoise/Edge-Enhance/etc. — reiner Overhead für einen simplen
-            // Downscale und auf schwacher Hardware (iGPU) der Flaschenhals.
-            // Spart auf der AMD-iGPU ~6 ms/Frame (44 → ~60 FPS bei 4K→1080p).
+            // Downscale. Die korrekte Einstellung; auf der getesteten iGPU
+            // brachte es keine fps-Änderung (Bottleneck ist die Skalier-
+            // Rechenarbeit selbst), schadet aber nicht.
             video_context.VideoProcessorSetStreamAutoProcessingMode(&processor, 0, false.into());
         }
 
-        Ok(Self { video_device, video_context, enumerator, processor, dst })
+        Ok(Self {
+            video_device,
+            video_context,
+            enumerator,
+            processor,
+            dst,
+            input_views: HashMap::new(),
+            output_views: HashMap::new(),
+        })
     }
 
     /// Frames-AVBufferRef des Ziel-Pools — der Encoder hängt das via
@@ -133,84 +148,105 @@ impl D3D11Scaler {
     }
 
     /// Skaliert einen Capture-Frame in einen frischen Ziel-Pool-Frame.
-    /// GPU-only: `VideoProcessorBlt` macht Resize ohne PCIe-Roundtrip.
-    pub fn scale(&self, src: &OwnedHwFrame) -> Result<OwnedHwFrame> {
+    /// GPU-only: `VideoProcessorBlt` macht Resize ohne PCIe-Roundtrip. Die
+    /// Input/Output-Views werden pro (Textur, Slice) genau einmal erzeugt und
+    /// gecacht — Pool-Texturen sind eine feste kleine Menge, nach dem ersten
+    /// Pool-Durchlauf gibt es 0 View-Allocs im Hot-Path.
+    pub fn scale(&mut self, src: &OwnedHwFrame) -> Result<OwnedHwFrame> {
         let dst_frame = self.dst.acquire_frame()?;
+        let src_key = (src.texture_raw() as usize, src.subresource_index());
+        let dst_key = (dst_frame.texture_raw() as usize, dst_frame.subresource_index());
 
-        // Input-View auf die src-Capture-Texture (Array-Pool, ArraySlice =
-        // Subresource-Index).
-        let mut in_desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
-            FourCC: 0,
-            ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
-            Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
-                Texture2D: D3D11_TEX2D_VPIV {
-                    MipSlice: 0,
-                    ArraySlice: src.subresource_index(),
-                },
-            },
-        };
-        let mut out_desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
-            ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2DARRAY,
-            Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
-                Texture2DArray: D3D11_TEX2D_ARRAY_VPOV {
-                    MipSlice: 0,
-                    FirstArraySlice: dst_frame.subresource_index(),
-                    ArraySize: 1,
-                },
-            },
-        };
+        // Views holen — Treiber-Call nur beim ersten Auftreten eines Pool-Slots.
+        // Läuft auf dem ID3D11VideoDevice (free-threaded) → kein Context-Lock.
+        self.ensure_input_view(src_key, src.texture_raw())?;
+        self.ensure_output_view(dst_key, dst_frame.texture_raw())?;
 
-        let src_raw = src.texture_raw();
-        let dst_raw = dst_frame.texture_raw();
-
-        // Alle D3D11-Context-Aufrufe unter dem dst-HwContext-Lock (gleiche
-        // CRITICAL_SECTION-Disziplin wie copy_into_pool). View-Creation läuft
-        // auf dem ID3D11VideoDevice (thread-safe), das Blt auf dem Context.
+        // Blt auf dem ID3D11VideoContext — unter dem dst-HwContext-Lock (gleiche
+        // CRITICAL_SECTION-Disziplin wie copy_into_pool).
         self.dst.lock();
-        let result = unsafe { self.blt_locked(src_raw, dst_raw, &mut in_desc, &mut out_desc) };
+        let result = unsafe { self.blt_cached(src_key, dst_key) };
         self.dst.unlock();
         result?;
 
         Ok(dst_frame)
     }
 
-    /// Innerer Blt-Pfad — Caller hält den dst-HwContext-Lock.
-    unsafe fn blt_locked(
-        &self,
-        src_raw: *mut std::ffi::c_void,
-        dst_raw: *mut std::ffi::c_void,
-        in_desc: &mut D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
-        out_desc: &mut D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
-    ) -> Result<()> {
-        let src_res = unsafe { ID3D11Resource::from_raw_borrowed(&src_raw) }
+    /// Erzeugt + cacht einen Input-View für eine Capture-Pool-Textur/Slice.
+    fn ensure_input_view(&mut self, key: (usize, u32), tex_raw: *mut std::ffi::c_void) -> Result<()> {
+        if self.input_views.contains_key(&key) {
+            return Ok(());
+        }
+        let desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+            FourCC: 0,
+            ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+            Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
+                Texture2D: D3D11_TEX2D_VPIV { MipSlice: 0, ArraySlice: key.1 },
+            },
+        };
+        let res = unsafe { ID3D11Resource::from_raw_borrowed(&tex_raw) }
             .ok_or_else(|| anyhow!("src texture is null"))?;
-        let dst_res = unsafe { ID3D11Resource::from_raw_borrowed(&dst_raw) }
-            .ok_or_else(|| anyhow!("dst pool texture is null"))?;
-
-        let mut input_view: Option<ID3D11VideoProcessorInputView> = None;
+        let mut view: Option<ID3D11VideoProcessorInputView> = None;
         unsafe {
             self.video_device.CreateVideoProcessorInputView(
-                src_res,
+                res,
                 &self.enumerator,
-                in_desc as *const _,
-                Some(&mut input_view),
+                &desc,
+                Some(&mut view),
             )
         }
         .map_err(|e| anyhow!("CreateVideoProcessorInputView: {e}"))?;
-        let input_view = input_view.ok_or_else(|| anyhow!("input view NULL"))?;
+        self.input_views
+            .insert(key, view.ok_or_else(|| anyhow!("input view NULL"))?);
+        Ok(())
+    }
 
-        let mut output_view: Option<ID3D11VideoProcessorOutputView> = None;
+    /// Erzeugt + cacht einen Output-View für eine Ziel-Pool-Textur/Slice.
+    fn ensure_output_view(&mut self, key: (usize, u32), tex_raw: *mut std::ffi::c_void) -> Result<()> {
+        if self.output_views.contains_key(&key) {
+            return Ok(());
+        }
+        let desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
+            ViewDimension: D3D11_VPOV_DIMENSION_TEXTURE2DARRAY,
+            Anonymous: D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0 {
+                Texture2DArray: D3D11_TEX2D_ARRAY_VPOV {
+                    MipSlice: 0,
+                    FirstArraySlice: key.1,
+                    ArraySize: 1,
+                },
+            },
+        };
+        let res = unsafe { ID3D11Resource::from_raw_borrowed(&tex_raw) }
+            .ok_or_else(|| anyhow!("dst pool texture is null"))?;
+        let mut view: Option<ID3D11VideoProcessorOutputView> = None;
         unsafe {
             self.video_device.CreateVideoProcessorOutputView(
-                dst_res,
+                res,
                 &self.enumerator,
-                out_desc as *const _,
-                Some(&mut output_view),
+                &desc,
+                Some(&mut view),
             )
         }
         .map_err(|e| anyhow!("CreateVideoProcessorOutputView: {e}"))?;
-        let output_view = output_view.ok_or_else(|| anyhow!("output view NULL"))?;
+        self.output_views
+            .insert(key, view.ok_or_else(|| anyhow!("output view NULL"))?);
+        Ok(())
+    }
 
+    /// Blt mit gecachten Views. Caller hält den dst-HwContext-Lock; beide Views
+    /// MÜSSEN vorher via `ensure_*_view` im Cache liegen.
+    unsafe fn blt_cached(&self, src_key: (usize, u32), dst_key: (usize, u32)) -> Result<()> {
+        let in_view = self
+            .input_views
+            .get(&src_key)
+            .ok_or_else(|| anyhow!("input view not cached"))?;
+        let out_view = self
+            .output_views
+            .get(&dst_key)
+            .ok_or_else(|| anyhow!("output view not cached"))?;
+
+        // `pInputSurface` ist ein `ManuallyDrop` — der geklonte Ref (AddRef)
+        // wird nach dem Blt explizit released, sonst COM-Leak pro Frame.
         let stream = D3D11_VIDEO_PROCESSOR_STREAM {
             Enable: true.into(),
             OutputIndex: 0,
@@ -218,17 +254,23 @@ impl D3D11Scaler {
             PastFrames: 0,
             FutureFrames: 0,
             ppPastSurfaces: std::ptr::null_mut(),
-            pInputSurface: std::mem::ManuallyDrop::new(Some(input_view)),
+            pInputSurface: std::mem::ManuallyDrop::new(Some(in_view.clone())),
             ppFutureSurfaces: std::ptr::null_mut(),
             ppPastSurfacesRight: std::ptr::null_mut(),
             pInputSurfaceRight: std::mem::ManuallyDrop::new(None),
             ppFutureSurfacesRight: std::ptr::null_mut(),
         };
-
+        let streams = [stream];
         let blt_result = unsafe {
             self.video_context
-                .VideoProcessorBlt(&self.processor, &output_view, 0, &[stream])
+                .VideoProcessorBlt(&self.processor, out_view, 0, &streams)
         };
+        // Geklonten Input-Surface-Ref freigeben (ManuallyDrop dropt nicht selbst).
+        let [mut s] = streams;
+        unsafe {
+            std::mem::ManuallyDrop::drop(&mut s.pInputSurface);
+            std::mem::ManuallyDrop::drop(&mut s.pInputSurfaceRight);
+        }
         blt_result.map_err(|e| anyhow!("VideoProcessorBlt: {e}"))
     }
 }

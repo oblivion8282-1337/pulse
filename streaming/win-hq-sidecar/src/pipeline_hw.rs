@@ -102,7 +102,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // Encoder. Der Scaler hat einen eigenen D3D11VA-Ziel-Pool (dst-res, BGRA,
     // +RENDER_TARGET) — der Encoder bindet dann diesen statt des Capture-Pools.
     // Bei dst==src bleibt `scaler` None und der Encoder bindet den Capture-Pool.
-    let scaler = if (dst_w, dst_h) != (width, height) {
+    let mut scaler = if (dst_w, dst_h) != (width, height) {
         Some(
             D3D11Scaler::new(
                 hw.device().clone(),
@@ -203,7 +203,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             pts = last_pts + 1;
         }
         if let Some(frame) = last_frame.as_mut() {
-            match &scaler {
+            match &mut scaler {
                 // Downscale: GPU-Resize in einen frischen Ziel-Pool-Frame,
                 // dann den skalierten Frame encoden.
                 Some(s) => {
