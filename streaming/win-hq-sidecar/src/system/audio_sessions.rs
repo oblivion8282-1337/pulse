@@ -81,6 +81,44 @@ unsafe fn collect_session_pids() -> Result<BTreeSet<u32>> {
     Ok(pids)
 }
 
+/// Prozessname (z.B. `"firefox.exe"`) → PID des Tree-Root-Prozesses für den
+/// WASAPI-Process-Loopback.
+///
+/// Multi-Prozess-Apps (Chromium, Firefox, Electron) erzeugen Audio in Child-
+/// Prozessen; der WASAPI-Process-Loopback mit `include_tree=true` deckt die
+/// Kinder nur ab, wenn der **Root**-Prozess der Target ist. Darum: alle
+/// laufenden Prozesse mit passendem Namen sammeln und den nehmen, dessen
+/// Parent nicht selbst so heißt. `None` wenn kein passender Prozess läuft
+/// (z.B. die App wurde zwischen Auswahl und Stream-Start geschlossen).
+///
+/// Match ist case-insensitiv — `list_application_audio` liefert den Namen in
+/// der Schreibweise von `sysinfo`, der Renderer schickt ihn 1:1 zurück.
+pub fn resolve_application_pid(name: &str) -> Option<u32> {
+    use std::collections::HashSet;
+    use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
+
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::new());
+
+    let want = name.to_ascii_lowercase();
+    let matching: Vec<&sysinfo::Process> = sys
+        .processes()
+        .values()
+        .filter(|p| p.name().to_string_lossy().to_ascii_lowercase() == want)
+        .collect();
+    if matching.is_empty() {
+        return None;
+    }
+    let match_pids: HashSet<Pid> = matching.iter().map(|p| p.pid()).collect();
+    // Tree-Root = der matchende Prozess, dessen Parent NICHT auch ein Match ist.
+    let root = matching
+        .iter()
+        .find(|p| p.parent().map(|par| !match_pids.contains(&par)).unwrap_or(true))
+        .or_else(|| matching.first())
+        .copied()?;
+    Some(root.pid().as_u32())
+}
+
 /// PID-Set → sortierte, deduplizierte Liste von Process-Namen (basename, mit `.exe`).
 fn pids_to_process_names(pids: BTreeSet<u32>) -> Vec<String> {
     use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};

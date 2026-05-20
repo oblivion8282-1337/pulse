@@ -22,6 +22,7 @@ use crate::capture::CaptureSource;
 use crate::encode::VideoCodec;
 use crate::profiles::{APP_LABEL_PREFIX, profile_by_name};
 use crate::stream_controller::{StartParams, StreamController};
+use crate::system::audio_sessions;
 
 pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let profile_name = params
@@ -121,8 +122,9 @@ fn parse_capture(params: &Map<String, Value>) -> Result<CaptureSource> {
 
 /// `audio` aus dem Request → `AudioSource`. UI-Labels wie auf Linux:
 /// `"Aus"`/`"Desktop"`/`"Mikrofon"`/`"Desktop + Mikrofon"`/`"App: <name>"`.
-/// Die App-Variante schickt der Renderer mit dem Prozessnamen — die PID-
-/// Auflösung passiert in Stage-6-WASAPI.
+/// Die App-Variante schickt der Renderer mit dem Prozessnamen; wir lösen ihn
+/// hier via `audio_sessions::resolve_application_pid` zur Tree-Root-PID auf
+/// und bauen den WASAPI-Process-Loopback (`AudioSource::Application`).
 fn parse_audio(params: &Map<String, Value>) -> Option<AudioSource> {
     let mode = params
         .get("audio")
@@ -136,10 +138,20 @@ fn parse_audio(params: &Map<String, Value>) -> Option<AudioSource> {
         "Mikrofon" => Some(AudioSource::DefaultMicrophone),
         "Desktop + Mikrofon" => Some(AudioSource::DesktopPlusMicrophone),
         s if s.starts_with(APP_LABEL_PREFIX) => {
-            // PID-Resolution würde hier passieren — Stage-7-Audio-Mux braucht
-            // das. Day-1-Wire emittiert Audio noch nicht in den Stream, also
-            // ignorieren wir die App-Wahl vorerst und fallen auf Desktop zurück.
-            Some(AudioSource::DefaultDesktop)
+            let app_name = s[APP_LABEL_PREFIX.len()..].trim();
+            match audio_sessions::resolve_application_pid(app_name) {
+                // `include_tree=true` — Chromium/Firefox erzeugen Audio in
+                // Child-Prozessen, der Loopback muss den ganzen Tree erfassen.
+                Some(pid) => Some(AudioSource::Application { pid, include_tree: true }),
+                None => {
+                    // App nicht (mehr) gefunden — kein stiller Mitschnitt des
+                    // gesamten Desktops (Privacy); lieber video-only streamen.
+                    eprintln!(
+                        "[hq-sidecar] Audio-App {app_name:?} läuft nicht — Audio deaktiviert"
+                    );
+                    None
+                }
+            }
         }
         _ => None,
     }
