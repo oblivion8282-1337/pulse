@@ -74,6 +74,23 @@ export interface GsrListApplicationAudio {
   error?: string;
 }
 
+/** One display monitor, as reported by the Windows sidecar's `list_monitors`.
+ *  `index` is 1-based and round-trips as the `"Monitor: <index>"` capture
+ *  source the sidecar resolves via `Monitor::from_index`. */
+export interface GsrMonitor {
+  index: number;
+  name: string;
+  primary: boolean;
+  width: number;
+  height: number;
+  refresh_hz: number;
+}
+export interface GsrListMonitors {
+  ok: boolean;
+  monitors?: GsrMonitor[];
+  error?: string;
+}
+
 export interface GsrBuildArgv {
   ok: boolean;
   binary?: string;
@@ -148,6 +165,12 @@ export const gsr = {
   async listProfiles(): Promise<GsrListProfiles | null> {
     const b = bridge();
     return b ? ((await b.listProfiles()) as GsrListProfiles) : null;
+  },
+  /** Enumerate display monitors. Windows-only in practice — on Linux the
+   *  portal dialog handles source selection, so callers gate on `isWindows()`. */
+  async listMonitors(): Promise<GsrListMonitors | null> {
+    const b = bridge();
+    return b ? ((await b.listMonitors()) as GsrListMonitors) : null;
   },
   async listApplicationAudio(): Promise<GsrListApplicationAudio | null> {
     const b = bridge();

@@ -2,8 +2,9 @@
   StreamPanel — die HQ-Stream-UI (GSR), eingebettet im Voice-Channel-View
   (HqStreamDialog → StreamPanel). Immer Channel-Modus: gestreamt wird in den
   aktuellen Voice-Channel (per-Channel MediaMTX-Pfad `channel-<id>`, Token vom
-  chat-gateway), Capture immer über das Wayland-Portal. Kein Server-/Profil-/
-  Capture-Picker mehr — nur Codec/Auflösung/Bitrate/FPS + Audio.
+  chat-gateway). Capture: Linux über das Wayland-Portal (Portal-Dialog wählt
+  die Quelle), Windows über den `MonitorPicker` (WGC hat keinen Portal-Dialog).
+  Kein Server-/Profil-Picker mehr — nur Codec/Auflösung/Bitrate/FPS + Audio.
 
   Gating:
   - `gsr.available()` false → komplett ausblenden (reiner Browser, keine
@@ -17,10 +18,12 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RocketIcon from '@lucide/svelte/icons/rocket';
 
+  import { isWindows } from '$lib/platform/runtime';
   import { gsr, type GsrHealth } from '../gsr';
   import { loadCatalogs, streamSettings } from '../settings.svelte';
 
   import OverridesEditor from './OverridesEditor.svelte';
+  import MonitorPicker from './MonitorPicker.svelte';
   import AudioModePicker from './AudioModePicker.svelte';
   import StreamControls from './StreamControls.svelte';
   import StreamLog from './StreamLog.svelte';
@@ -34,10 +37,12 @@
   let healthError = $state<string | null>(null);
 
   onMount(() => {
-    // Always stream into the current voice channel via the portal; the
-    // codec/resolution/bitrate/fps come straight from the editor below
-    // ("Custom" profile = use the explicit values).
-    streamSettings.capture_source = 'portal';
+    // Always stream into the current voice channel; the codec/resolution/
+    // bitrate/fps come straight from the editor below ("Custom" profile = use
+    // the explicit values). Capture source: Linux uses the Wayland portal;
+    // Windows resolves a concrete monitor in `loadCatalogs()` (a persisted
+    // choice is honoured), so don't clobber it here.
+    if (!isWindows()) streamSettings.capture_source = 'portal';
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     if (!gsr.available()) return;
@@ -82,6 +87,10 @@
       </p>
     {:else}
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">
+        {#if isWindows()}
+          <MonitorPicker />
+          <Separator />
+        {/if}
         <OverridesEditor />
 
         <Separator />

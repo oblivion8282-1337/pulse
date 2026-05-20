@@ -85,10 +85,10 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
 ///
 /// Linux nimmt `"portal"`/`"monitor"`/`"window"` als String. Auf Windows
 /// mappen wir das so:
-/// - `"portal"` (Default) → `PrimaryMonitor` (kein Portal-Picker auf Windows)
-/// - `"monitor"` → `PrimaryMonitor` (Index 1 via `MonitorByIndex(1)` ist
-///   alternativ aber primary reicht)
-/// - `"window"` ohne weitere Felder → Fehler (Title fehlt)
+/// - `"portal"` (Default) → `PrimaryMonitor` (kein Portal-Picker auf Windows;
+///   greift auch als Fallback wenn `list_monitors` leer war)
+/// - `"monitor"` → `PrimaryMonitor`
+/// - `"Monitor: <n>"` → `MonitorByIndex(n)` (1-basiert, matcht `list_monitors`)
 /// - alles was mit `"Window: <title>"` anfängt → `WindowByTitle(title)`
 fn parse_capture(params: &Map<String, Value>) -> Result<CaptureSource> {
     let raw = params
@@ -97,6 +97,13 @@ fn parse_capture(params: &Map<String, Value>) -> Result<CaptureSource> {
         .unwrap_or("portal");
     if let Some(title) = raw.strip_prefix("Window: ") {
         return Ok(CaptureSource::WindowByTitle(title.to_string()));
+    }
+    if let Some(idx) = raw.strip_prefix("Monitor: ") {
+        let index: usize = idx
+            .trim()
+            .parse()
+            .map_err(|_| anyhow!("ungültiger Monitor-Index in capture: {raw:?}"))?;
+        return Ok(CaptureSource::MonitorByIndex(index));
     }
     match raw {
         "portal" | "monitor" | "" => Ok(CaptureSource::PrimaryMonitor),

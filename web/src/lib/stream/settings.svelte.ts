@@ -21,8 +21,9 @@
  * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
  */
 
-import { gsr, type GsrProfile, type GsrGpuInfo, type GsrStartArgs } from './gsr';
+import { gsr, type GsrProfile, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
+import { isWindows } from '$lib/platform/runtime';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,6 +75,13 @@ export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
  *  `streaming/gsr-sidecar/profiles.py`.) */
 export const APP_AUDIO_PREFIX = 'App: ';
 
+/** Prefix for a per-monitor capture source. The on-the-wire `capture` value is
+ *  `"Monitor: <index>"` (1-based); the Windows sidecar resolves it via
+ *  `Monitor::from_index` (see `ops/start.rs::parse_capture`). Windows-only —
+ *  on Linux `capture_source` stays `'portal'` (the Wayland portal dialog picks
+ *  the screen). */
+export const MONITOR_CAPTURE_PREFIX = 'Monitor: ';
+
 export function isAppAudioMode(mode: string): boolean {
   return mode.startsWith(APP_AUDIO_PREFIX);
 }
@@ -111,6 +119,8 @@ export const streamSettings = $state({
   // Catalogs from sidecar (filled by `loadCatalogs()`)
   available_profiles: [] as GsrProfile[],
   available_audio_apps: [] as string[],
+  // Display monitors — only populated on Windows (Linux uses the portal picker).
+  available_monitors: [] as GsrMonitor[],
 
   // GPU info cache (filled by `loadCatalogs()` → consumed by the codec default).
   gpu_info: null as GsrGpuInfo | null,
@@ -251,10 +261,13 @@ export async function loadCatalogs(): Promise<void> {
     // the user already has a stored selection.
     await loadPersisted();
 
-    const [profiles, audioApps, gpuInfo] = await Promise.all([
+    // Monitors are Windows-only — on Linux the portal dialog picks the source,
+    // so skip the round-trip entirely there.
+    const [profiles, audioApps, gpuInfo, monitors] = await Promise.all([
       gsr.listProfiles(),
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
+      isWindows() ? gsr.listMonitors() : Promise.resolve(null),
     ]);
 
     if (profiles?.ok) {
@@ -266,11 +279,19 @@ export async function loadCatalogs(): Promise<void> {
     if (gpuInfo?.ok) {
       streamSettings.gpu_info = gpuInfo;
     }
+    if (monitors?.ok) {
+      streamSettings.available_monitors = monitors.monitors ?? [];
+    }
 
     // The HQ-stream panel is channel-mode only (push into the current voice
-    // channel via the portal, explicit codec/res/bitrate/fps). Force those —
-    // overriding anything `loadPersisted()` restored from an older config.
-    streamSettings.capture_source = 'portal';
+    // channel, explicit codec/res/bitrate/fps). Force the profile; the capture
+    // source is platform-dependent — Linux always uses the Wayland portal,
+    // Windows picks a concrete monitor (persisted choice wins if still valid).
+    if (isWindows()) {
+      resolveWindowsCaptureSource();
+    } else {
+      streamSettings.capture_source = 'portal';
+    }
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     // Default codec/bitrate/fps — only if the user hasn't already saved a value.
@@ -295,6 +316,38 @@ export async function refreshAudioApps(): Promise<void> {
   try {
     const r = await gsr.listApplicationAudio();
     if (r?.ok) streamSettings.available_audio_apps = r.applications ?? [];
+  } catch {
+    // tolerate — keep the previous list
+  }
+}
+
+/**
+ * Windows-only: resolve `capture_source` to a concrete `"Monitor: <n>"` from
+ * the enumerated monitors. A persisted choice wins if it still matches a live
+ * monitor; otherwise default to the primary one. Falls back to `'portal'`
+ * (which the sidecar maps to the primary monitor) when enumeration is empty.
+ */
+function resolveWindowsCaptureSource(): void {
+  const mons = streamSettings.available_monitors;
+  if (mons.length === 0) {
+    streamSettings.capture_source = 'portal';
+    return;
+  }
+  const m = /^Monitor: (\d+)$/.exec(streamSettings.capture_source);
+  if (m && mons.some((mon) => mon.index === Number(m[1]))) return;
+  const primary = mons.find((mon) => mon.primary) ?? mons[0];
+  streamSettings.capture_source = `${MONITOR_CAPTURE_PREFIX}${primary.index}`;
+}
+
+/** Refresh the monitor list (Windows-only; called from the monitor picker).
+ *  Re-resolves the capture source so a now-unplugged monitor doesn't linger. */
+export async function refreshMonitors(): Promise<void> {
+  try {
+    const r = await gsr.listMonitors();
+    if (r?.ok) {
+      streamSettings.available_monitors = r.monitors ?? [];
+      resolveWindowsCaptureSource();
+    }
   } catch {
     // tolerate — keep the previous list
   }

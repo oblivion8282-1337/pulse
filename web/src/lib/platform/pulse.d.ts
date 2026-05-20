@@ -29,6 +29,8 @@ export interface PulseGsrApi {
   health(): Promise<unknown>;
   gpuInfo(): Promise<unknown>;
   listProfiles(): Promise<unknown>;
+  /** Enumerate display monitors (Windows-only — Linux uses the portal picker). */
+  listMonitors(): Promise<unknown>;
   listApplicationAudio(): Promise<unknown>;
   buildArgv(args: unknown): Promise<unknown>;
   start(args: unknown): Promise<unknown>;

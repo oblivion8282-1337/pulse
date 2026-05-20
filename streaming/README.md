@@ -67,6 +67,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 | `health` | — | `gsr: {available, source, path?, version?, vendor?, is_flatpak, video_codecs?, has_flv_patch?, ...}` |
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` |
+| `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
 | `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}` | `argv` (die gleiche Liste) — danach kommen Events |
@@ -80,6 +81,10 @@ Voice-Channel:
   Channel-Pfad (`ServerProfile.from_channel()`). `push_url` (von media-svc, mit
   Token drin) wird wenn gesetzt verbatim an GSR `-o` gereicht; sonst werden
   `mediamtx_endpoint` + `push_protocol` als Fallback genutzt.
+
+`capture`: Linux `"portal"`/`"monitor"`/`"window"` (Portal-Dialog wählt die
+Quelle). Windows-Sidecar zusätzlich `"Monitor: <index>"` (Index aus
+`list_monitors`) und `"Window: <title>"`; `"portal"` → Primärmonitor.
 
 ### Events (`{"ev": "..."}`)
 
