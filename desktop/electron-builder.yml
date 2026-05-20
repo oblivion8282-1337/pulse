@@ -1,0 +1,45 @@
+# electron-builder — Windows-Portable-Build.
+#
+# Erzeugt EINE einzelne `Pulse-<version>-portable.exe` (kein Installer): die
+# Electron-Runtime + das gebundelte main/preload + der HQ-Streaming-Sidecar
+# (`pulse-win-hq-sidecar.exe` + FFmpeg-DLLs) in einem File. Doppelklick startet,
+# nichts zu installieren.
+#
+# Eine .exe deckt NVIDIA *und* AMD ab — der Sidecar erkennt die GPU selbst und
+# wählt den Pfad (NVIDIA-Zero-Copy / AMD-CPU).
+#
+# Voraussetzung: der Sidecar ist vorher release-gebaut
+# (`cargo build --release` in `streaming/win-hq-sidecar/`) — `extraResources`
+# zieht die Artefakte direkt aus dessen `target/release/`. Die Web-Oberfläche
+# wird NICHT mitgepackt: die App lädt sie von `https://pulse.unicutmedia.com`.
+appId: com.unicutmedia.pulse
+productName: Pulse
+directories:
+  output: release
+# Was in die app.asar wandert — nur das esbuild-Bundle + package.json (für das
+# `main`-Feld). Keine node_modules: main.cjs ist bereits gebundelt, `electron`
+# ist external und wird von der Runtime selbst aufgelöst.
+files:
+  - electron/dist/**/*
+  - package.json
+# Sidecar + FFmpeg-DLLs landen NEBEN der asar unter resources/hq-sidecar/ —
+# eine .exe + DLLs können nicht in die asar. Der Resolver in sidecar.ts findet
+# sie über process.resourcesPath.
+extraResources:
+  - from: ../streaming/win-hq-sidecar/target/release
+    to: hq-sidecar
+    filter:
+      - pulse-win-hq-sidecar.exe
+      - "*.dll"
+win:
+  target: portable
+  icon: electron/icon.png
+  # winCodeSign (das Tool zum Editieren der exe-Ressourcen/Signieren) enthält
+  # macOS-Symlinks, deren Extraktion auf Windows ohne Admin/Developer-Mode
+  # scheitert ("Cannot create symbolic link"). Wir signieren nicht — also den
+  # ganzen Sign-&-Edit-Schritt abschalten. Kosten: das exe-Datei-Icon bleibt
+  # das Electron-Default (Fenster-/Taskbar-Icon setzt die App selbst zur
+  # Laufzeit). Für einen Test-Build irrelevant.
+  signAndEditExecutable: false
+portable:
+  artifactName: Pulse-${version}-portable.exe

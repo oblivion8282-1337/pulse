@@ -1,0 +1,85 @@
+name: win-build
+
+# Baut die portable Windows-.exe (Pulse-Desktop inkl. HQ-Streaming-Sidecar)
+# und veröffentlicht sie als Release-Asset unter dem rollenden Tag
+# `desktop-latest`. Eine .exe deckt NVIDIA *und* AMD ab — der Sidecar erkennt
+# die GPU selbst.
+#
+# Läuft bei jedem main-Push, der den Desktop-Wrapper oder den Windows-Sidecar
+# berührt. Manuell auslösbar via "Run workflow".
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'streaming/win-hq-sidecar/**'
+      - '.github/workflows/win-build.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write # für das Release-Asset
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust-Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo-Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: streaming/win-hq-sidecar
+
+      # ffmpeg-dist/ ist nicht im Git (~307 MB) — das Script lädt die
+      # SHA-gepinnte BtbN-LGPL-Distribution nach ffmpeg-dist/n8.1-lgpl-shared/,
+      # wohin .cargo/config.toml FFMPEG_DIR zeigt.
+      - name: FFmpeg holen (vendored, SHA-gepinnt)
+        shell: pwsh
+        run: ./streaming/win-hq-sidecar/scripts/fetch-ffmpeg.ps1
+
+      # Baut pulse-win-hq-sidecar.exe + kopiert die FFmpeg-DLLs daneben
+      # (build.rs). LLVM/libclang für bindgen liegt auf dem Runner unter
+      # C:\Program Files\LLVM — der Pfad in .cargo/config.toml passt.
+      - name: Sidecar bauen (release)
+        shell: pwsh
+        working-directory: streaming/win-hq-sidecar
+        run: cargo build --release
+
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Dependencies
+        run: pnpm install --frozen-lockfile
+
+      # esbuild-Bundle + electron-builder → desktop/release/Pulse-*-portable.exe.
+      # Zieht den Sidecar + DLLs aus streaming/win-hq-sidecar/target/release/
+      # als extraResources (siehe desktop/electron-builder.yml).
+      - name: Portable .exe bauen
+        run: pnpm --filter @dcc/desktop run dist:win
+
+      - name: .exe als Workflow-Artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-portable-win
+          path: desktop/release/Pulse-*-portable.exe
+          if-no-files-found: error
+
+      # Rollendes Release: jeder Build überschreibt das Asset unter dem festen
+      # Tag `desktop-latest` → stabile Download-URL für die Tester.
+      - name: Release "desktop-latest" aktualisieren
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-latest
+          name: Pulse Desktop — neuester Build
+          prerelease: true
+          files: desktop/release/Pulse-*-portable.exe

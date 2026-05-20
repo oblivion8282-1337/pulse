@@ -122,11 +122,15 @@ function resolveScriptPath(): string {
  *
  * Order:
  *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the .exe).
- *   2. Walk up from this module looking for `<X>/streaming/win-hq-sidecar/target/release/`
+ *   2. Packaged app: `<process.resourcesPath>/hq-sidecar/pulse-win-hq-sidecar.exe`
+ *      — electron-builder ships the sidecar + FFmpeg-DLLs as `extraResources`
+ *      there (see `desktop/electron-builder.yml`). In a dev run this path
+ *      doesn't exist and we fall through.
+ *   3. Walk up from this module looking for `<X>/streaming/win-hq-sidecar/target/release/`
  *      then `<X>/streaming/win-hq-sidecar/target/debug/` (dev: `cargo build`
  *      hits debug, `cargo build --release` hits release; release wins if both
  *      exist).
- *   3. `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe` (the
+ *   4. `%LOCALAPPDATA%\Pulse\hq-sidecar\pulse-win-hq-sidecar.exe` (the
  *      production install location that the PowerShell bootstrap script writes
  *      to — see WINDOWS_HQ_SIDECAR.md "Distribution-Pfad").
  */
@@ -140,6 +144,15 @@ function resolveBinaryPath(): string {
   }
 
   const exe = 'pulse-win-hq-sidecar.exe';
+
+  // Packaged app — the sidecar bundle sits next to the asar under
+  // resources/hq-sidecar/. `process.resourcesPath` is set in every Electron
+  // process; in a dev run the path just won't exist → fall through.
+  if (process.resourcesPath) {
+    const packaged = path.join(process.resourcesPath, 'hq-sidecar', exe);
+    if (fs.existsSync(packaged)) return packaged;
+  }
+
   const candidates = [
     path.join('streaming', 'win-hq-sidecar', 'target', 'release', exe),
     path.join('streaming', 'win-hq-sidecar', 'target', 'debug', exe),
