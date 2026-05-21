@@ -188,6 +188,37 @@ function killPort(port: number, knownTestPids: Set<number>) {
   } catch { /* lsof exits 1 when nothing found */ }
 }
 
+/**
+ * Hard-fail if a port is still occupied after the kill pass. The e2e suite
+ * starts its own auth/chat-gateway on 8001/8002 wired to the dcc_test DB.
+ * killPort deliberately spares the user's own dev servers, and startService
+ * runs with stdio:'ignore' which *swallows* the EADDRINUSE — so a dev stack
+ * left running on these ports would silently shadow the test services and
+ * the whole suite would run against (and pollute) the dcc dev database.
+ * Fail loudly with an actionable message instead.
+ */
+function assertPortFree(port: number): void {
+  let held = '';
+  try {
+    held = execSync(`lsof -ti :${port} -sTCP:LISTEN`, {
+      stdio: ['pipe', 'pipe', 'ignore']
+    })
+      .toString()
+      .trim();
+  } catch {
+    return; // lsof exits 1 when nothing is listening → port is free
+  }
+  if (held) {
+    throw new Error(
+      `Port ${port} is already in use (PID ${held.split(/\s+/).join(', ')}).\n` +
+        `The e2e suite starts its own auth/chat-gateway on 8001/8002 against the\n` +
+        `dcc_test database. A process already bound here — most likely your local\n` +
+        `dev stack — would silently shadow them, and the suite would run against\n` +
+        `the dcc dev DB instead. Stop the dev stack before running e2e.`
+    );
+  }
+}
+
 const procs: ChildProcess[] = [];
 
 function startService(name: string, env: NodeJS.ProcessEnv, port: number, cwd: string) {
@@ -251,8 +282,8 @@ export default async function globalSetup() {
 
   // Kill only previously-spawned test services (from the last run's pid file).
   // This cleans up stale test processes after a crash without touching the
-  // user's dev servers. If the port is held by an unrelated process, spawn
-  // will fail with EADDRINUSE so the situation is visible.
+  // user's dev servers. If the port is still held afterwards, assertPortFree
+  // (below) aborts the run with an actionable message.
   const pidFile = resolve(ROOT, 'node_modules/.dcc-e2e-pids.json');
   let lastPids: Set<number> = new Set();
   try {
@@ -263,6 +294,11 @@ export default async function globalSetup() {
   if (lastPids.size > 0) {
     await new Promise((r) => setTimeout(r, 500)); // brief settle after kill
   }
+
+  // Pre-flight: the ports must be free now. If not (a dev stack is running),
+  // abort with a clear message rather than silently testing the wrong DB.
+  assertPortFree(8001);
+  assertPortFree(8002);
 
   startService('dcc-auth', baseEnv, 8001, resolve(ROOT, 'services/auth'));
   startService('dcc-chat-gateway', baseEnv, 8002, resolve(ROOT, 'services/chat-gateway'));

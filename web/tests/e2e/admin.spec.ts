@@ -69,6 +69,19 @@ test.describe.serial('admin-panel E2E', () => {
   });
 
   test('register both users', async () => {
+    // Burn the bootstrap-admin slot first: on a freshly-truncated dcc_test
+    // the FIRST registrant becomes a global admin (COUNT(*)==1 rule). Without
+    // this throwaway user, ALICE would arrive as an admin and the "non-admin"
+    // assertion below — plus the explicit promotion test — would be moot.
+    const bootCtx = await page.context().browser()!.newContext();
+    const bootPage = await bootCtx.newPage();
+    await register(bootPage, {
+      username: `bootstrap_${ts}`,
+      email: `bootstrap_${ts}@dcc-test.example.com`,
+      password: 'sup3r-secret-pass'
+    });
+    await bootCtx.close();
+
     await register(page, ALICE);
     // Bob registers in the same context — easier than juggling two pages
     // for this flow; we don't need to act as Bob, just to have him exist.
