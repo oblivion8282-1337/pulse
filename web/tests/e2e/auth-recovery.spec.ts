@@ -152,7 +152,9 @@ test.describe('active sessions UI', () => {
     await page.getByTestId('reg-submit').click();
     await page.waitForURL(/\/app/);
 
-    // Open user-footer menu → Settings → Security tab.
+    // Open user-footer menu → Settings → Security tab. `open-settings` is a
+    // dropdown item, so the footer trigger has to be opened first.
+    await page.getByTestId('user-footer-trigger').click();
     await page.getByTestId('open-settings').click();
     await expect(page.getByTestId('settings-dialog')).toBeVisible();
     await page.getByTestId('settings-tab-security').click();
