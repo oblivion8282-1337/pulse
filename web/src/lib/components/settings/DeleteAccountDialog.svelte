@@ -168,7 +168,7 @@
       </AlertDialog.Header>
 
       <ul
-        class="text-text-base list-disc space-y-1 pl-5 text-sm"
+        class="text-text-base list-disc space-y-2 pl-5 text-sm md:space-y-1"
         data-testid="delete-account-bullets"
       >
         <li>Dein Profil (Username, Email, Avatar)</li>
@@ -194,6 +194,7 @@
           autocomplete="off"
           spellcheck={false}
           bind:value={confirmUsername}
+          class="h-11 md:h-9"
           data-testid="delete-account-username-input"
         />
       </div>

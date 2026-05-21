@@ -38,7 +38,7 @@
     <button
       type="button"
       onclick={() => (deleteOpen = true)}
-      class="bg-destructive hover:bg-destructive/90 self-start rounded-md px-3 py-1.5 text-sm font-medium text-white transition-colors"
+      class="bg-destructive hover:bg-destructive/90 self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-colors md:py-1.5"
       data-testid="danger-zone-delete-account"
     >
       Account löschen

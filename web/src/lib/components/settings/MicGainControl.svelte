@@ -61,7 +61,7 @@
     value={gainPctDisplay}
     oninput={onInput}
     onchange={onChange}
-    class="accent-primary w-full"
+    class="accent-primary h-3 w-full md:h-auto"
     data-testid="settings-input-makeup"
   />
   <div class="flex items-center gap-2 text-text-muted text-xs">
@@ -71,7 +71,7 @@
     <button
       type="button"
       onclick={reset}
-      class="hover:text-text-base text-xs underline-offset-2 hover:underline"
+      class="hover:text-text-base hover:bg-bg-hover rounded px-2 py-1.5 text-xs underline-offset-2 hover:underline"
       disabled={gainPctDisplay === 100}
       class:opacity-30={gainPctDisplay === 100}
       aria-label="Auf 100% zurücksetzen"

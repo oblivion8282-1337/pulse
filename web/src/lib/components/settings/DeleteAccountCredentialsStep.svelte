@@ -67,6 +67,7 @@
       autocomplete="current-password"
       bind:value={password}
       required
+      class="h-11 md:h-9"
       data-testid="delete-account-password"
     />
   </div>
@@ -84,6 +85,7 @@
           spellcheck={false}
           bind:value={backupCode}
           required
+          class="h-11 md:h-9"
           data-testid="delete-account-backup"
         />
       </div>
@@ -100,7 +102,7 @@
           bind:value={code}
           required
           maxlength={7}
-          class="text-center font-mono tracking-[0.2em]"
+          class="h-11 text-center font-mono tracking-[0.2em] md:h-9"
           data-testid="delete-account-code"
         />
       </div>
@@ -108,7 +110,7 @@
 
     <button
       type="button"
-      class="text-primary text-xs hover:underline"
+      class="text-primary hover:bg-bg-hover rounded px-2 py-1.5 text-xs hover:underline"
       onclick={() => (useBackup = !useBackup)}
       data-testid="delete-account-toggle-backup"
     >

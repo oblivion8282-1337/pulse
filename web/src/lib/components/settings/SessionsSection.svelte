@@ -128,7 +128,7 @@
                 {formatUserAgent(s.user_agent)}
                 {#if s.is_current}
                   <span
-                    class="ml-1 inline-flex items-center rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-500"
+                    class="ml-1 inline-flex items-center rounded bg-emerald-500/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-500 md:px-1.5 md:py-0.5 md:text-[10px]"
                     data-testid="session-current-badge"
                   >
                     Diese Session
@@ -140,7 +140,7 @@
                 {formatRelative(s.last_used_at ?? s.created_at)}
               </span>
               {#if s.ip_hash_prefix}
-                <span class="text-text-muted font-mono text-[10px] uppercase tracking-wider">
+                <span class="text-text-muted font-mono text-xs uppercase tracking-wider md:text-[10px]">
                   Quelle: {s.ip_hash_prefix}
                 </span>
               {/if}
@@ -152,7 +152,7 @@
               type="button"
               onclick={() => handleRevoke(s)}
               disabled={revokingId === s.id}
-              class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 sm:self-auto"
+              class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:self-auto md:py-1.5"
               data-testid="session-revoke"
             >
               {revokingId === s.id ? 'Widerrufen…' : 'Diese Session widerrufen'}
@@ -166,7 +166,7 @@
       <button
         type="button"
         onclick={() => (bulkOpen = true)}
-        class="text-destructive bg-destructive/10 hover:bg-destructive/20 mt-1 self-start rounded-md px-3 py-1.5 text-sm font-medium transition-colors"
+        class="text-destructive bg-destructive/10 hover:bg-destructive/20 mt-1 self-start rounded-md px-3 py-2 text-sm font-medium transition-colors md:py-1.5"
         data-testid="sessions-revoke-all"
       >
         Alle anderen Sessions widerrufen

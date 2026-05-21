@@ -85,7 +85,7 @@
       <Input
         bind:value={nameDraft}
         maxlength={64}
-        class="h-7 text-sm"
+        class="h-9 text-sm md:h-7"
         data-testid="passkey-rename-input"
         onkeydown={(e: KeyboardEvent) => {
           if (e.key === 'Enter') saveRename();
@@ -106,7 +106,7 @@
         type="button"
         onclick={saveRename}
         disabled={busy}
-        class="text-emerald-500 hover:bg-bg-hover rounded-md p-1.5 transition-colors"
+        class="text-emerald-500 hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label="Namen speichern"
         data-testid="passkey-rename-save"
       >
@@ -116,7 +116,7 @@
         type="button"
         onclick={() => (editing = false)}
         disabled={busy}
-        class="text-text-muted hover:bg-bg-hover rounded-md p-1.5 transition-colors"
+        class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label="Abbrechen"
       >
         <XIcon class="size-4" />
@@ -126,7 +126,7 @@
         type="button"
         onclick={remove}
         disabled={busy}
-        class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-2 py-1 text-xs font-medium transition-colors"
+        class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-2 py-2 text-xs font-medium transition-colors md:py-1"
         data-testid="passkey-delete-confirm"
       >
         {busy ? 'Entferne…' : 'Wirklich entfernen'}
@@ -135,7 +135,7 @@
         type="button"
         onclick={() => (confirmDelete = false)}
         disabled={busy}
-        class="text-text-muted hover:bg-bg-hover rounded-md p-1.5 transition-colors"
+        class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label="Abbrechen"
       >
         <XIcon class="size-4" />
@@ -144,7 +144,7 @@
       <button
         type="button"
         onclick={startEdit}
-        class="text-text-muted hover:bg-bg-hover rounded-md p-1.5 transition-colors"
+        class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label="Passkey umbenennen"
         data-testid="passkey-rename"
       >
@@ -153,7 +153,7 @@
       <button
         type="button"
         onclick={() => (confirmDelete = true)}
-        class="text-text-muted hover:text-destructive hover:bg-bg-hover rounded-md p-1.5 transition-colors"
+        class="text-text-muted hover:text-destructive hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
         aria-label="Passkey entfernen"
         data-testid="passkey-delete"
       >

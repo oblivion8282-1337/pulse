@@ -48,7 +48,7 @@
     <span class="text-text-bright text-sm font-medium">Codec</span>
     <div class="flex flex-col gap-1.5">
       {#each codecs as c (c.value)}
-        <label class="flex cursor-pointer items-start gap-2.5 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
+        <label class="flex cursor-pointer items-start gap-2.5 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
           <input
             type="radio"
             name="sss-codec"
@@ -70,7 +70,7 @@
     <span class="text-text-bright text-sm font-medium">Auflösung</span>
     <div class="grid grid-cols-2 gap-1.5">
       {#each resolutions as r (r.value)}
-        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
+        <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
           <input
             type="radio"
             name="sss-resolution"
@@ -97,7 +97,7 @@
       step="1"
       value={settings.screenShare.fps}
       oninput={onFpsInput}
-      class="bg-bg-soft border-border-soft text-text-bright focus:border-primary w-24 rounded-md border px-2 py-1 text-sm focus:outline-none"
+      class="bg-bg-soft border-border-soft text-text-bright focus:border-primary w-full rounded-md border px-2 py-2 text-sm focus:outline-none md:w-24 md:py-1"
       data-testid="screenshare-fps-input"
     />
     <p class="text-text-muted text-xs">
@@ -118,7 +118,7 @@
       step="1"
       value={settings.screenShare.bitrateMbps}
       oninput={onBitrateInput}
-      class="accent-primary w-full"
+      class="accent-primary h-3 w-full md:h-auto"
       data-testid="screenshare-bitrate-slider"
     />
     <p class="text-text-muted text-xs">Höhere Bitrate = bessere Qualität, mehr Bandbreite.</p>
@@ -127,7 +127,7 @@
   <div class="flex flex-col gap-2">
     <span class="text-text-bright text-sm font-medium">Inhaltstyp</span>
     <div class="flex gap-3">
-      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
+      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
         <input
           type="radio"
           name="sss-hint"
@@ -138,7 +138,7 @@
         />
         <span class="text-text-base text-sm">Video / Gaming</span>
       </label>
-      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-bg-hover">
+      <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
         <input
           type="radio"
           name="sss-hint"

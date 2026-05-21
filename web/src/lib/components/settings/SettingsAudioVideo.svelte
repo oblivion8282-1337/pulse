@@ -105,7 +105,7 @@
   <div class="flex flex-col gap-2">
     <span class="text-text-bright text-sm font-medium">Eingabegerät (Mikrofon)</span>
     <select
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
+      class="bg-bg-input text-text-base h-11 rounded-md px-2 text-sm outline-none md:h-9"
       value={voice.selectedInputDeviceId}
       onchange={(e) => void voice.setInputDevice((e.currentTarget as HTMLSelectElement).value)}
       data-testid="settings-input-device"
@@ -161,7 +161,7 @@
   <div class="flex flex-col gap-2">
     <span class="text-text-bright text-sm font-medium">Ausgabegerät</span>
     <select
-      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
+      class="bg-bg-input text-text-base h-11 rounded-md px-2 text-sm outline-none md:h-9"
       value={voice.selectedOutputDeviceId}
       onchange={(e) => void voice.setOutputDevice((e.currentTarget as HTMLSelectElement).value)}
       data-testid="settings-output-device"
@@ -187,7 +187,7 @@
         type="checkbox"
         checked={settings.audio.noiseSuppression !== 'off'}
         onchange={onNoiseToggle}
-        class="accent-primary size-4"
+        class="accent-primary size-5 md:size-4"
       />
     </label>
     {#if settings.audio.noiseSuppression !== 'off'}
@@ -204,7 +204,7 @@
           value={settings.audio.noiseGateThresholdDb}
           oninput={onGateInput}
           onchange={onGateChange}
-          class="accent-primary w-full"
+          class="accent-primary h-3 w-full md:h-auto"
         />
         <p class="text-text-muted text-xs">Schwelle so wählen, dass sie unter deiner Stimme, aber über dem Hintergrund liegt.</p>
       </div>
@@ -219,7 +219,7 @@
         type="checkbox"
         checked={settings.audio.echoCancellation}
         onchange={(e) => settings.setEchoCancellation((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-4"
+        class="accent-primary size-5 md:size-4"
         data-testid="settings-echo-cancellation"
       />
     </label>
@@ -234,7 +234,7 @@
         type="checkbox"
         checked={processorActive ? false : settings.audio.autoGainControl}
         onchange={(e) => settings.setAutoGainControl((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-4"
+        class="accent-primary size-5 md:size-4"
         disabled={processorActive}
         data-testid="settings-auto-gain"
       />
@@ -257,7 +257,7 @@
       value={settings.audio.voiceBitrateKbps}
       oninput={onBitrateInput}
       onchange={onBitrateChange}
-      class="accent-primary w-full"
+      class="accent-primary h-3 w-full md:h-auto"
       data-testid="settings-voice-bitrate"
     />
     <label class="mt-1 flex cursor-pointer items-center justify-between gap-3" class:opacity-50={stereoForced}>
@@ -273,7 +273,7 @@
         type="checkbox"
         checked={stereoForced ? false : settings.audio.stereo}
         onchange={(e) => settings.setStereo((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-4"
+        class="accent-primary size-5 md:size-4"
         disabled={stereoForced}
         data-testid="settings-stereo"
       />
@@ -289,7 +289,7 @@
         type="checkbox"
         checked={settings.voice.pttMode}
         onchange={(e) => void voice.setPttMode((e.currentTarget as HTMLInputElement).checked)}
-        class="accent-primary size-4"
+        class="accent-primary size-5 md:size-4"
         data-testid="settings-ptt-toggle"
       />
     </label>
@@ -298,7 +298,7 @@
       <button
         type="button"
         onclick={startPttCapture}
-        class="bg-bg-input text-text-bright hover:bg-bg-hover rounded-full border border-border px-3 py-1.5 text-sm uppercase transition-colors"
+        class="bg-bg-input text-text-bright hover:bg-bg-hover rounded-full border border-border px-3 py-2 text-sm uppercase transition-colors md:py-1.5"
         data-testid="settings-ptt-key"
       >
         {listeningForPttKey ? 'Taste drücken…' : settings.voice.pttKey}

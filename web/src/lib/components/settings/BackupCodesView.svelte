@@ -36,7 +36,7 @@
 
 <div class="flex flex-col gap-3" data-testid="backup-codes-view">
   <div
-    class="bg-bg-input/60 border-border grid grid-cols-2 gap-1.5 rounded-lg border p-3 font-mono text-sm"
+    class="bg-bg-input/60 border-border grid grid-cols-2 gap-2 rounded-lg border p-4 font-mono text-sm md:gap-1.5 md:p-3"
   >
     {#each codes as code (code)}
       <span class="text-text-bright select-all">{code}</span>
@@ -46,7 +46,7 @@
     <button
       type="button"
       onclick={download}
-      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
       data-testid="backup-codes-download"
     >
       <DownloadIcon class="size-3.5" />
@@ -55,7 +55,7 @@
     <button
       type="button"
       onclick={copyAll}
-      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+      class="bg-bg-input text-text-base hover:bg-bg-hover flex items-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
       data-testid="backup-codes-copy"
     >
       <CopyIcon class="size-3.5" />

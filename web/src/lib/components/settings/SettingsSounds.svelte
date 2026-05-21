@@ -79,7 +79,7 @@
       </span>
       <input
         type="checkbox"
-        class="size-4 accent-[var(--brand)]"
+        class="size-5 accent-[var(--brand)] md:size-4"
         checked={settings.sounds.masterEnabled}
         onchange={(e) =>
           settings.setSoundsMasterEnabled((e.currentTarget as HTMLInputElement).checked)}
@@ -100,7 +100,7 @@
         value={Math.round(settings.sounds.masterVolume * 100)}
         oninput={onMasterVolume}
         disabled={!settings.sounds.masterEnabled}
-        class="accent-[var(--brand)] disabled:opacity-50"
+        class="h-3 accent-[var(--brand)] disabled:opacity-50 md:h-auto"
         data-testid="sounds-master-volume"
       />
     </label>
@@ -123,7 +123,7 @@
         </span>
         <input
           type="checkbox"
-          class="size-4 shrink-0 accent-[var(--brand)]"
+          class="size-5 shrink-0 accent-[var(--brand)] md:size-4"
           checked={catSettings.enabled}
           disabled={!settings.sounds.masterEnabled}
           onchange={(e) =>
@@ -148,7 +148,7 @@
           value={Math.round(catSettings.volume * 100)}
           oninput={(e) => onCategoryVolume(cat.key, e)}
           disabled={dimmed}
-          class="accent-[var(--brand)] disabled:opacity-50"
+          class="h-3 accent-[var(--brand)] disabled:opacity-50 md:h-auto"
           data-testid="sounds-category-{cat.key}-volume"
         />
       </label>
@@ -168,7 +168,7 @@
               onclick={() => sounds.test(id)}
               disabled={missing || !settings.sounds.masterEnabled}
               title={missing ? 'Sound-Datei fehlt' : 'Anhören'}
-              class="hover:bg-bg-hover shrink-0 rounded-md p-1 text-text-muted hover:text-text-bright transition-colors disabled:cursor-not-allowed disabled:opacity-30"
+              class="hover:bg-bg-hover shrink-0 rounded-md p-2.5 text-text-muted hover:text-text-bright transition-colors disabled:cursor-not-allowed disabled:opacity-30 md:p-1"
               data-testid="sounds-test-{id}"
               aria-label="Sound {SOUNDS[id].label} anhören"
             >

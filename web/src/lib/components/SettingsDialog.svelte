@@ -90,13 +90,13 @@
         <button
           type="button"
           onclick={() => selectTab(t.id)}
-          class="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-sm transition-colors {activeTab ===
+          class="flex items-center gap-2 rounded-xl px-2 py-3 text-left text-base transition-colors md:py-1.5 md:text-sm {activeTab ===
           t.id
             ? 'bg-bg-hover text-text-bright'
             : 'text-text-base hover:bg-bg-hover'}"
           data-testid="settings-tab-{t.id}"
         >
-          <t.icon class="size-4 shrink-0" />
+          <t.icon class="size-5 shrink-0 md:size-4" />
           {t.label}
         </button>
       {/each}
@@ -112,11 +112,11 @@
         <button
           type="button"
           onclick={() => (mobileView = 'list')}
-          class="flex items-center gap-1 rounded-lg p-1 text-sm transition-colors hover:bg-bg-hover"
+          class="flex items-center gap-1 rounded-lg p-2 text-base transition-colors hover:bg-bg-hover md:p-1 md:text-sm"
           aria-label="Zurück"
         >
-          <ChevronLeftIcon class="text-text-muted size-4" />
-          <span class="text-text-muted text-sm">Einstellungen</span>
+          <ChevronLeftIcon class="text-text-muted size-5 md:size-4" />
+          <span class="text-text-muted text-base md:text-sm">Einstellungen</span>
         </button>
         <span class="text-text-bright ml-1 text-sm font-semibold">{activeLabel}</span>
       </div>

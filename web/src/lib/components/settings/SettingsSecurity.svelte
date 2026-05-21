@@ -63,7 +63,7 @@
       <button
         type="button"
         onclick={() => (enableOpen = true)}
-        class="accent-gradient self-start rounded-md px-3 py-1.5 text-sm font-medium text-white transition-opacity hover:opacity-90"
+        class="accent-gradient self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 md:py-1.5"
         data-testid="security-enable-2fa"
       >
         2FA aktivieren
@@ -73,7 +73,7 @@
         <button
           type="button"
           onclick={() => (regenOpen = true)}
-          class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+          class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="security-regen-backup"
         >
           Backup-Codes neu generieren
@@ -81,7 +81,7 @@
         <button
           type="button"
           onclick={() => (disableOpen = true)}
-          class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
+          class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="security-disable-2fa"
         >
           2FA deaktivieren

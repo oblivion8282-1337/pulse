@@ -135,7 +135,7 @@
 
         <button
           type="button"
-          class="text-primary text-xs hover:underline"
+          class="text-primary hover:bg-bg-hover rounded px-2 py-1.5 text-xs hover:underline"
           onclick={() => {
             useBackup = !useBackup;
             error = null;

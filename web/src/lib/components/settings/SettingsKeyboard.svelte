@@ -101,7 +101,7 @@
     <button
       type="button"
       onclick={resetAll}
-      class="text-text-muted hover:text-text-base hover:bg-bg-hover shrink-0 rounded-lg px-2 py-1 text-xs transition-colors"
+      class="text-text-muted hover:text-text-base hover:bg-bg-hover shrink-0 rounded-lg px-2 py-1.5 text-xs transition-colors md:py-1"
       data-testid="shortcuts-reset-all"
     >
       Alle zurücksetzen
@@ -125,7 +125,7 @@
             <button
               type="button"
               onclick={() => startCapture(a.id)}
-              class="text-text-bright bg-bg-input hover:bg-bg-hover2 min-w-[6.5rem] rounded-md px-3 py-1 text-center font-mono text-xs transition-colors {listeningId ===
+              class="text-text-bright bg-bg-input hover:bg-bg-hover2 min-w-fit rounded-md px-3 py-2 text-center font-mono text-xs transition-colors md:min-w-[6.5rem] md:py-1 {listeningId ===
               a.id
                 ? 'ring-2 ring-primary'
                 : ''}"
@@ -137,7 +137,7 @@
               type="button"
               onclick={() => resetOne(a.id)}
               disabled={isDefault}
-              class="text-text-muted hover:text-text-base hover:bg-bg-hover2 rounded-md p-1 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+              class="text-text-muted hover:text-text-base hover:bg-bg-hover2 rounded-md p-2 transition-colors disabled:opacity-30 disabled:hover:bg-transparent md:p-1"
               aria-label="Auf Standard zurücksetzen"
               title="Auf Standard zurücksetzen"
             >

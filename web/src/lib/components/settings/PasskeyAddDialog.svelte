@@ -129,7 +129,7 @@
         <label class="text-text-base mt-3 flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            class="size-4 accent-[var(--brand)]"
+            class="size-5 accent-[var(--brand)] md:size-4"
             bind:checked={saved}
             data-testid="passkey-saved-check"
           />

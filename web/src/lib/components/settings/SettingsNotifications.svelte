@@ -107,7 +107,7 @@
           onclick={pushToggle}
           disabled={busy || permission === 'unsupported' || serverDisabled}
           aria-pressed={settings.notifications.browserPushEnabled}
-          class="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors {settings
+          class="shrink-0 rounded-full px-3 py-2 text-xs font-medium transition-colors md:py-1.5 {settings
             .notifications.browserPushEnabled
             ? 'accent-gradient text-white'
             : 'bg-bg-hover text-text-bright hover:bg-bg-input'} disabled:cursor-not-allowed disabled:opacity-50"
@@ -162,7 +162,7 @@
       </span>
       <input
         type="checkbox"
-        class="size-4 accent-[var(--brand)]"
+        class="size-5 accent-[var(--brand)] md:size-4"
         checked={settings.notifications.onMention}
         onchange={(e) => settings.setNotifyOnMention((e.currentTarget as HTMLInputElement).checked)}
         data-testid="notifications-on-mention"
@@ -176,7 +176,7 @@
       </span>
       <input
         type="checkbox"
-        class="size-4 accent-[var(--brand)]"
+        class="size-5 accent-[var(--brand)] md:size-4"
         checked={settings.notifications.onDM}
         onchange={(e) => settings.setNotifyOnDM((e.currentTarget as HTMLInputElement).checked)}
         data-testid="notifications-on-dm"

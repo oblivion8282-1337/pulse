@@ -128,13 +128,13 @@
               alt="QR-Code für die Authenticator-App"
               width="200"
               height="200"
-              class="border-border rounded-lg border bg-white p-2"
+              class="border-border h-auto w-full max-w-[14rem] rounded-lg border bg-white p-2 md:w-52"
               data-testid="totp-qr"
             />
             <div class="flex flex-col gap-1 text-center">
               <span class="text-text-muted text-xs">Geht's nicht? Gib das Secret manuell ein:</span>
               <code
-                class="bg-bg-input text-text-bright select-all rounded px-2 py-1 font-mono text-xs"
+                class="bg-bg-input text-text-bright select-all rounded px-3 py-2 font-mono text-sm md:px-2 md:py-1 md:text-xs"
                 data-testid="totp-secret"
               >
                 {setupData.secret}
@@ -190,7 +190,7 @@
         <label class="text-text-base mt-3 flex items-center gap-2 text-sm">
           <input
             type="checkbox"
-            class="size-4 accent-[var(--brand)]"
+            class="size-5 accent-[var(--brand)] md:size-4"
             bind:checked={saved}
             data-testid="totp-enable-saved-check"
           />
