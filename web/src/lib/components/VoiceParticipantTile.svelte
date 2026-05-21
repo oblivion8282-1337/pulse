@@ -144,7 +144,7 @@
             </Avatar.Fallback>
           </Avatar.Root>
         </div>
-        <div class="flex items-center gap-1 text-xs">
+        <div class="flex items-center gap-1 text-sm md:text-xs">
           <span
             class="text-text-bright max-w-28 truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
               ? 'font-bold'
@@ -278,7 +278,7 @@
         </Avatar.Fallback>
       </Avatar.Root>
     </div>
-    <div class="flex items-center gap-1 text-xs">
+    <div class="flex items-center gap-1 text-sm md:text-xs">
       <span
         class="text-text-bright max-w-28 truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
           ? 'font-bold'

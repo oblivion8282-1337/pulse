@@ -76,7 +76,7 @@
   class="border-border mx-2 mt-2 rounded-2xl border bg-bg-input/60 p-2 md:p-1.5"
   data-testid="voice-control-bar"
 >
-  <div class="flex items-center gap-1.5 px-1 pb-1.5 text-xs">
+  <div class="flex items-center gap-1.5 px-1 pb-1.5 text-base md:text-xs">
     <span
       class="size-2 shrink-0 rounded-full {voice.connecting ? 'bg-yellow-400' : 'bg-green-500'}"
       aria-hidden="true"

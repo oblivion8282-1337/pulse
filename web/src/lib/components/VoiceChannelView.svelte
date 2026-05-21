@@ -155,7 +155,7 @@
       </button>
     {/if}
     <Volume2Icon class="text-primary size-5 shrink-0" />
-    <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
+    <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <div class="ml-auto flex items-center gap-1">
       {#if streamViewOpen}

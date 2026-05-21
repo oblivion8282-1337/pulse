@@ -214,7 +214,7 @@
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
-      <span class="text-text-bright truncate text-base font-semibold tracking-tight md:text-lg" data-testid="active-channel-name">{channel.name}</span>
+      <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
       {#if channel.topic}
         <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {channel.topic}</span>
       {/if}
