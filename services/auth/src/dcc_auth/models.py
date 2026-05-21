@@ -143,6 +143,58 @@ class BackupCode(Base):
     __table_args__ = (Index("ix_user_backup_codes_user", "user_id"),)
 
 
+class WebAuthnCredential(Base):
+    """A registered WebAuthn / FIDO2 credential — a passkey or security key.
+
+    Stores only *public* material: the credential's public key, its opaque
+    credential-id, and a signature counter. The private key never leaves the
+    user's authenticator, so a DB-only leak cannot be used to forge a login
+    assertion — this is the structural advantage over the shared ``totp_secret``.
+
+    ``credential_id`` and ``public_key`` are base64url-encoded text (not raw
+    BLOBs) so the column behaves identically on the Postgres prod backend and
+    the SQLite test backend, and a row stays greppable in psql.
+
+    ``sign_count`` is the FIDO clone-detection counter. Many platform
+    authenticators (synced passkeys) always report 0 — that's expected; the
+    verifier only flags a *decrease*, never a flat 0.
+    """
+
+    __tablename__ = "webauthn_credentials"
+
+    id: Mapped[int] = mapped_column(_AutoIncBig, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # base64url of the raw credential id. Globally unique per the WebAuthn
+    # spec — the unique index also doubles as the fast lookup path on login.
+    credential_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # base64url of the COSE-encoded public key captured at registration.
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0"), default=0
+    )
+    # User-facing label, e.g. "MacBook Touch ID" or "YubiKey 5C".
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Authenticator-model id (AAGUID) — informational; may be all-zero for
+    # privacy-preserving platform authenticators.
+    aaguid: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Transport hints from the browser (e.g. ["internal"], ["usb","nfc"]) —
+    # echoed back in future allowCredentials so the browser picks the right
+    # authenticator without prompting through every option.
+    transports: Mapped[list | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (Index("ix_webauthn_credentials_user", "user_id"),)
+
+
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
 

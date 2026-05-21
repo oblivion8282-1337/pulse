@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     rate_limit_totp_setup: str = "10/minute"
     rate_limit_totp_disable: str = "10/minute"
     rate_limit_totp_backup_regenerate: str = "10/minute"
+    # WebAuthn ceremonies. ``register`` covers the authenticated add-a-passkey
+    # flow; ``login`` covers both the 2FA-second-step and the passwordless
+    # entry point (the latter is unauthenticated, so keep it as tight as the
+    # password ``/login`` bucket).
+    rate_limit_webauthn_register: str = "10/minute"
+    rate_limit_webauthn_login: str = "20/minute"
     # Account self-delete is irreversible and Hard-Delete on the chat side
     # (messages purged too). Keep the bucket *very* tight — a stolen access
     # token shouldn't be able to nuke an account before the user notices.
@@ -115,6 +121,25 @@ class Settings(BaseSettings):
     # for the reset/verify links embedded in outbound emails.
     app_base_url: str = "http://localhost:5173"
     totp_issuer: str = "Pulse"
+
+    # --- WebAuthn / passkeys ------------------------------------------------
+    # The Relying Party id MUST be a registrable domain suffix of every origin
+    # the ceremony runs on. Dev default is ``localhost`` — note that means dev
+    # browsers have to reach the app via ``http://localhost:5173`` and NOT
+    # ``http://127.0.0.1:5173`` (an IP literal can't be an rpId, so a passkey
+    # created on one host won't validate on the other). In prod set it to the
+    # bare apex, e.g. ``pulse.unicutmedia.com``.
+    webauthn_rp_id: str = "localhost"
+    # Human-readable name shown by the authenticator's consent UI.
+    webauthn_rp_name: str = "Pulse"
+    # CSV of allowed ceremony origins. Dev = the Vite origin; prod =
+    # ``https://pulse.unicutmedia.com``. The Electron app loads that same
+    # remote origin, so it needs no separate entry.
+    webauthn_origin: str = "http://localhost:5173"
+    # TTL of the signed challenge ticket bridging the options→verify steps.
+    # 5 min mirrors ``mfa_ticket_ttl_seconds`` — long enough for a Touch-ID
+    # prompt, short enough that a leaked ticket is near-useless.
+    webauthn_challenge_ttl_seconds: int = 300
     # IPs / CIDRs whose ``X-Forwarded-For`` header we trust. Anything else and
     # the rate-limiter falls back to the peer address — a malicious client
     # cannot then spoof its bucket. **Default is loopback only**: in the Pulse
@@ -136,6 +161,8 @@ class Settings(BaseSettings):
         "rate_limit_totp_setup",
         "rate_limit_totp_disable",
         "rate_limit_totp_backup_regenerate",
+        "rate_limit_webauthn_register",
+        "rate_limit_webauthn_login",
         "rate_limit_account_delete",
     )
     @classmethod
@@ -159,6 +186,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_allow_origins.split(",") if o.strip()]
+
+    @property
+    def webauthn_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.webauthn_origin.split(",") if o.strip()]
 
     def load_private_key(self) -> str:
         return self.jwt_private_key_file.read_text()
