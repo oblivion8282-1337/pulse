@@ -397,3 +397,43 @@ async def test_edit_message_only_pings_new_user(ws_app, _auth_signer):
                 assert f["op"] != "mention_added"
 
     await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ws_sent_message_carries_mentions(ws_app, _auth_signer):
+    """A message sent over the WS ``send`` op (the default text path —
+    REST POST is attachment-only) must parse + persist + serialize its
+    @-mentions exactly like the REST endpoint. Regression: the WS handler
+    used to skip mention parsing entirely, so ``<@uid>`` reached the
+    client as a raw marker instead of a resolvable mention."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, member_token, member_uid, _, cid = _bootstrap_two_users(
+                tc, _auth_signer
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as ws_o:
+                ws_o.receive_json()  # ready
+                ws_o.send_json({"op": "subscribe", "channel_id": cid})
+                ws_o.send_json(
+                    {
+                        "op": "send",
+                        "channel_id": cid,
+                        "content": f"hey <@{member_uid}>",
+                        "nonce": "n-mention",
+                    }
+                )
+                # The channel broadcast carries the parsed mention array.
+                frame = _drain_until(ws_o, lambda f: f.get("op") == "message")
+                msg = frame["data"]
+                assert {"type": 0, "id": str(member_uid)} in msg["mentions"]
+
+                # And it was persisted — a fresh REST read re-derives the
+                # same mention list from the message_mentions table.
+                listing = tc.get(
+                    f"/channels/{cid}/messages", headers=_auth(owner_token)
+                ).json()
+                hit = next(m for m in listing if m["id"] == msg["id"])
+                assert {"type": 0, "id": str(member_uid)} in hit["mentions"]
+
+    await asyncio.to_thread(_run)

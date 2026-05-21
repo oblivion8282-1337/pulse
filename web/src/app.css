@@ -19,6 +19,7 @@
   --color-bg-chat: var(--panel);
   --color-bg-input: var(--panel-2);
   --color-bg-hover: var(--hover);
+  --color-bg-panel: var(--panel-solid);
   --color-accent: var(--accent);
   --color-accent-hover: var(--brand-hover);
   --color-brand: var(--brand);

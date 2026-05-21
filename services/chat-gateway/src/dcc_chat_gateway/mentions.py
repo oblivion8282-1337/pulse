@@ -31,9 +31,9 @@ import re
 
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
-from fastapi import Request
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import HTTPConnection
 
 from dcc_chat_gateway.models import (
     MENTION_EVERYONE_TARGET_ID,
@@ -233,7 +233,7 @@ def serialize_mentions(rows: list[MessageMention] | None) -> list[dict]:
 
 
 async def fan_out_mention_events(
-    request: Request,
+    conn: HTTPConnection,
     *,
     mentions: set[tuple[int, int]],
     message_id: int,
@@ -255,7 +255,7 @@ async def fan_out_mention_events(
     only mention is the author themselves (self-pings shouldn't bump a
     counter).
     """
-    mgr = getattr(request.app.state, "connection_manager", None)
+    mgr = getattr(conn.app.state, "connection_manager", None)
     if mgr is None:
         return
     targets = {

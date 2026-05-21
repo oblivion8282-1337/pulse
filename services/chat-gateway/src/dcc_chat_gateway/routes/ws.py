@@ -48,14 +48,24 @@ import json
 import logging
 import time
 
+from dcc_shared.permission_resolver import has_permission
+from dcc_shared.permissions import Permissions
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import or_, select, update
 
-from dcc_chat_gateway import ratelimit
+from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionLocal
+from dcc_chat_gateway.mentions import (
+    MENTION_EVERYONE_RE,
+    fan_out_mention_events,
+    filter_to_valid,
+    parse_markers,
+    persist_for_message,
+)
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     CHANNEL_TYPE_VOICE,
+    MENTION_TYPE_USER,
     Channel,
     DirectMessageChannel,
     Guild,
@@ -65,18 +75,16 @@ from dcc_chat_gateway.models import (
     Message,
     Role,
 )
-from dcc_chat_gateway import s3
 from dcc_chat_gateway.permissions import (
     resolve_guild_permissions_from_snapshot,
     resolve_permissions,
 )
+from dcc_chat_gateway.push import fan_out_mention_push
 from dcc_chat_gateway.routes import ws_watch
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
 from dcc_chat_gateway.snowflake import next_id
-from dcc_shared.permission_resolver import has_permission
-from dcc_shared.permissions import Permissions
 
 log = logging.getLogger(__name__)
 
@@ -532,16 +540,35 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     # `POST /channels/{id}/messages` check; DMs bypass (no
                     # channel overwrites apply). VIEW_CHANNEL alone is not
                     # enough — a member may be allowed to read but not post.
+                    # Resolved author permissions — drives the SEND_MESSAGES
+                    # gate, the MENTION_EVERYONE gate, and the @-mention
+                    # validation below. Stays 0 for DMs (no permission overlay
+                    # there — ``filter_to_valid`` treats 0 as "no override").
+                    author_perms = 0
                     if kind == "guild" and guild_id_for_bump is not None:
-                        send_perms = await resolve_permissions(
+                        author_perms = await resolve_permissions(
                             session, user, guild_id_for_bump, cid_int
                         )
-                        if not has_permission(send_perms, Permissions.SEND_MESSAGES):
+                        if not has_permission(author_perms, Permissions.SEND_MESSAGES):
                             await websocket.send_json(
                                 {
                                     "op": "error",
                                     "code": 4013,
                                     "msg": "cannot send in this channel",
+                                }
+                            )
+                            continue
+                        # Mirror the REST endpoint: an @everyone/@here marker
+                        # from someone without MENTION_EVERYONE is rejected
+                        # rather than silently delivered.
+                        if MENTION_EVERYONE_RE.search(content) and not has_permission(
+                            author_perms, Permissions.MENTION_EVERYONE
+                        ):
+                            await websocket.send_json(
+                                {
+                                    "op": "error",
+                                    "code": 4013,
+                                    "msg": "missing permission: MENTION_EVERYONE",
                                 }
                             )
                             continue
@@ -569,6 +596,23 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                         reply_to_id=reply_to_int,
                     )
                     session.add(persisted)
+                    # Parse + persist @-mentions so WS-sent messages get the
+                    # same pill rendering / counters as the REST POST path.
+                    # ``guild_id_for_bump`` is the guild id for guild channels
+                    # and None for DMs — exactly the scope filter_to_valid
+                    # expects.
+                    valid_mentions = await filter_to_valid(
+                        session,
+                        guild_id=guild_id_for_bump,
+                        author_permissions=author_perms,
+                        candidates=parse_markers(content),
+                    )
+                    await persist_for_message(
+                        session,
+                        message_id=persisted.id,
+                        mentions=valid_mentions,
+                        replace=False,
+                    )
                     if kind == "dm":
                         # Bump last_message_id so the DM list can sort by
                         # recency. UPDATE-only to avoid loading the row.
@@ -582,12 +626,46 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 await websocket.send_json(
                     {"op": "message_ack", "nonce": nonce, "id": str(persisted.id)}
                 )
+                mentions_serial = [
+                    {"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)
+                ]
                 # Publish is best-effort: message is already persisted, so a Redis
                 # failure must not kill the WS connection.
                 try:
-                    await manager.publish(cid, serialize_message(persisted))
+                    await manager.publish(
+                        cid, serialize_message(persisted, mentions=mentions_serial)
+                    )
                 except Exception:
                     log.exception("ws publish failed for channel %s (message persisted)", cid)
+                # Cross-channel mention fan-out (in-app counter bump) + web-push,
+                # mirroring routes/messages.py. Best-effort — a fan-out hiccup
+                # must not break the WS session (message is already persisted).
+                try:
+                    await fan_out_mention_events(
+                        websocket,
+                        mentions=valid_mentions,
+                        message_id=persisted.id,
+                        channel_id=cid_int,
+                        guild_id=guild_id_for_bump,
+                        author_id=user.id,
+                    )
+                except Exception:
+                    log.exception("ws mention fan-out failed for channel %s", cid)
+                push_targets = {
+                    tid
+                    for (t, tid) in valid_mentions
+                    if t == MENTION_TYPE_USER and tid != user.id
+                }
+                if push_targets:
+                    # ``fan_out_mention_push`` never raises (see its docstring).
+                    await fan_out_mention_push(
+                        user_ids=push_targets,
+                        author_name=user.username,
+                        content=content,
+                        channel_id=cid_int,
+                        message_id=persisted.id,
+                        guild_id=guild_id_for_bump,
+                    )
                 # Mirror routes/messages.py: lightweight global bump so clients
                 # NOT subscribed to this channel can flag it as unread. Guild
                 # channels emit channel_bump; DMs emit dm_bump with the
