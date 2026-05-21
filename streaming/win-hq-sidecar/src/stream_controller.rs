@@ -228,20 +228,28 @@ fn run_pipeline(params: StartParams, stop_rx: Receiver<()>) {
     let result = (|| -> Result<()> {
         let adapter = select_adapter()?;
 
-        // Zero-Copy-Pfad (`pipeline_hw`): WGC → D3D11-Pool → VideoProcessor
-        // (BGRA→NV12 + optional Downscale) → Encoder direkt. NUR NVIDIA —
-        // h264_nvenc frisst D3D11-NV12-Frames sauber. AMD/Intel laufen über den
-        // CPU-Pfad: h264_amf/qsv crashen reproduzierbar auf D3D11-Surface-Input
-        // (dokumentierter AMD-AMF-Treiber-Bug — `SubmitInput`-Integer-Divide-by-
-        // Zero, AMF-Issue #455). `select_adapter()` liefert auf Multi-GPU evtl.
-        // die dGPU statt der Display-GPU; `pipeline_hw` verifiziert die echte
-        // WGC-GPU selbst und delegiert nötigenfalls zurück an `run_cpu_pipeline`.
-        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad.
+        // Encoder-Pfad nach Vendor:
+        // - NVIDIA → `pipeline_hw`: WGC → D3D11-Pool → VideoProcessor → NVENC
+        //   direkt (Zero-Copy). h264_nvenc frisst D3D11-Frames sauber.
+        // - AMD → `pipeline_d3d12`: nativer `h264_d3d12va`-Encoder. h264_amf
+        //   crasht reproduzierbar auf D3D11-Surface-Input (AMF-Runtime-Bug,
+        //   `SubmitInput`-Integer-Divide-by-Zero, Issue #455); der d3d12va-
+        //   Encoder umgeht die AMF-Runtime komplett (D3D12 Video Encode API).
+        // - Intel/sonst → CPU-Pfad (`run_cpu_pipeline`, h264_qsv).
+        // `select_adapter()` liefert auf Multi-GPU evtl. die dGPU statt der
+        // Display-GPU; `pipeline_hw` verifiziert die echte WGC-GPU selbst und
+        // delegiert nötigenfalls an `pipeline_d3d12`/`run_cpu_pipeline`.
+        // Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` erzwingt den CPU-Pfad
+        // (für AMD = Fallback auf das funktionierende h264_amf).
         let disable_zc = std::env::var("PULSE_HQ_DISABLE_ZERO_COPY")
             .map(|v| !v.is_empty() && v != "0")
             .unwrap_or(false);
-        if adapter.vendor() == "nvidia" && !disable_zc {
-            return crate::pipeline_hw::run(adapter, params, stop_rx);
+        if !disable_zc {
+            match adapter.vendor() {
+                "nvidia" => return crate::pipeline_hw::run(adapter, params, stop_rx),
+                "amd" => return crate::pipeline_d3d12::run(params, stop_rx),
+                _ => {}
+            }
         }
         run_cpu_pipeline(params, stop_rx)
     })();

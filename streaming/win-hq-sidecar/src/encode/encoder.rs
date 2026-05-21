@@ -70,6 +70,19 @@ impl VideoCodec {
             _ => return Err(anyhow!("no HW encoder for vendor={vendor} codec={self:?}")),
         })
     }
+
+    /// FFmpeg-Encoder-Name für den nativen D3D12VA-Pfad (AMD-GPU-Pfad). Die
+    /// d3d12va-Encoder nutzen Microsofts D3D12 Video Encode API — NICHT
+    /// NVENC/AMF/QSV — und umgehen so die AMF-Runtime + deren D3D11-Surface-
+    /// Crash (Issue #455). Vendor-unabhängig: nur der Codec bestimmt den Namen.
+    /// S. `encoder_d3d12.rs`.
+    pub fn d3d12va_name(self) -> &'static str {
+        match self {
+            VideoCodec::H264 => "h264_d3d12va",
+            VideoCodec::Hevc => "hevc_d3d12va",
+            VideoCodec::Av1 => "av1_d3d12va",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -419,7 +432,7 @@ pub(crate) fn url_format_hint(target: &str) -> Option<&'static str> {
 /// (FFmpeg padded die Zeilen für SIMD-Alignment, deshalb funktioniert kein
 /// pauschales `data.copy_from_slice(src)`). `width`/`height` müssen mit der
 /// Frame-Allokation übereinstimmen (Caller-Verantwortung).
-fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, height: u32) {
+pub(crate) fn copy_bgra(frame: &mut frame::Video, bgra: &[u8], width: u32, height: u32) {
     let stride = frame.stride(0);
     let row_bytes = width as usize * 4;
     let data = frame.data_mut(0);

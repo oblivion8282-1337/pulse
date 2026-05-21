@@ -18,12 +18,16 @@
 
 pub mod audio;
 pub mod d3d11_scale;
+pub mod d3d12_convert;
 pub mod encoder;
+pub mod encoder_d3d12;
+pub mod extradata;
 pub mod encoder_hw;
 pub mod hwctx;
 pub mod mux_writer;
 
 pub use d3d11_scale::D3D11Scaler;
 pub use encoder::{AudioStreamConfig, EncoderConfig, FfmpegEncoder, VideoCodec};
+pub use encoder_d3d12::{D3d12EncoderConfig, FfmpegD3d12Encoder};
 pub use encoder_hw::{FfmpegHwEncoder, HwEncoderConfig};
 pub use hwctx::{HwContext, OwnedHwFrame};

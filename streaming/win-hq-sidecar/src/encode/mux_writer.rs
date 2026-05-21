@@ -56,9 +56,10 @@ impl MuxWriter {
             .spawn(move || -> Result<()> {
                 let mut output = out.0;
                 for pkt in rx {
-                    pkt.0
-                        .write_interleaved(&mut output)
-                        .context("mux-writer: write_interleaved")?;
+                    if let Err(e) = pkt.0.write_interleaved(&mut output) {
+                        eprintln!("[mux-writer] write_interleaved failed: {e:#}");
+                        return Err(e).context("mux-writer: write_interleaved");
+                    }
                 }
                 // Channel geschlossen = EOF → Trailer schreiben (RTMP/TLS
                 // sauber zu). Der anschließende Drop von `output` ist reines

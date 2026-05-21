@@ -15,6 +15,7 @@ use anyhow::{Context, Result, anyhow};
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel};
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 
 use wasapi::{AudioClient, Direction, SampleType, StreamMode, WaveFormat, initialize_mta};
 
@@ -71,7 +72,13 @@ impl AudioCapture {
         let worker = thread::Builder::new()
             .name("wasapi-capture".into())
             .spawn(move || -> Result<(), String> {
-                run_capture(src, format, chunk_frames, tx, stop_rx).map_err(|e| format!("{e:#}"))
+                match run_capture(src, format, chunk_frames, tx, stop_rx) {
+                    Ok(()) => Ok(()),
+                    Err(e) => {
+                        eprintln!("[wasapi-capture] worker failed: {e:#}");
+                        Err(format!("{e:#}"))
+                    }
+                }
             })
             .context("spawn wasapi-capture thread")?;
 
@@ -152,13 +159,22 @@ fn run_capture(
 
     audio_client.start_stream().context("start_stream")?;
 
+    // Stille-Fill-Kadenz: ein Chunk pro `chunk_frames`-Periode Wall-Clock.
+    // Desktop-Loopback liefert NICHTS, wenn die Audio-Engine idle ist (stiller
+    // Desktop) — entgegen der früheren Annahme kommen keine Silence-Frames.
+    // Ohne Gegenmaßnahme verhungert dann die FLV-Opus-Spur und der 2-Stream-
+    // Muxer stockt (`av_interleaved_write_frame` puffert ewig → kein Push →
+    // `rw_timeout`). Darum: liefert WASAPI keinen vollen Chunk, wird die
+    // Audio-Timeline mit Null-PCM aufgefüllt — wall-clock-getaktet.
+    let chunk_period = Duration::from_secs_f64(chunk_frames as f64 / format.sample_rate as f64);
+    let mut last_emit = Instant::now();
     let mut should_stop = false;
     loop {
         if stop_rx.try_recv().is_ok() {
             should_stop = true;
         }
 
-        // Erstmal alles was schon in der Queue ist als Chunks rauspushen.
+        // Reale Chunks rauspushen, solange genug Samples gepuffert sind.
         while queue.len() >= chunk_bytes {
             let mut chunk = vec![0u8; chunk_bytes];
             for slot in chunk.iter_mut() {
@@ -173,8 +189,27 @@ fn run_capture(
                 should_stop = true;
                 break;
             }
+            last_emit = Instant::now();
+        }
+        if should_stop {
+            break;
         }
 
+        // Stille-Fill: hat WASAPI keinen vollen Chunk geliefert und ist die
+        // Wall-Clock-Periode überschritten, Null-PCM nachschieben (holt auch
+        // einen Rückstand auf, da `last_emit` exakt um `chunk_period` wächst).
+        while queue.len() < chunk_bytes && last_emit.elapsed() >= chunk_period {
+            let silence = CapturedAudio {
+                format,
+                bytes: vec![0u8; chunk_bytes],
+                frames: chunk_frames as u32,
+            };
+            if tx.send(silence).is_err() {
+                should_stop = true;
+                break;
+            }
+            last_emit += chunk_period;
+        }
         if should_stop {
             break;
         }
@@ -196,13 +231,9 @@ fn run_capture(
             }
         }
 
-        // Event-Handle wartet auf "neuer Buffer fertig". 1s Timeout — länger
-        // ohne Ton kommt bei Desktop-Loopback nicht vor (WASAPI liefert sogar
-        // Silence-Frames wenn niemand spielt). Kürzer = häufigeres Polling.
-        if h_event.wait_for_event(1_000).is_err() {
-            // Timeout — nicht fatal, könnte heißen dass kein Frame kam.
-            // Loop läuft weiter; stop_rx wird nächste Runde gecheckt.
-        }
+        // Kurzer Wait — klein genug, dass die Stille-Fill ihre ~21ms-Kadenz
+        // hält (früher 1s, was den Fill bei idler Audio-Engine verzögerte).
+        let _ = h_event.wait_for_event(8);
     }
 
     let _ = audio_client.stop_stream();

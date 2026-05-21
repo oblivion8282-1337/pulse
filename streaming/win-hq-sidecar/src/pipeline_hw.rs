@@ -4,13 +4,14 @@
 //! D3D11VA-Pool, von dem der Encoder direkt liest. Kein PCIe-Hin-und-Her, kein
 //! BGRA→NV12-swscale auf der CPU. Downscale per `D3D11Scaler` (VideoProcessor).
 //!
-//! Aktiv NUR für NVIDIA — h264_nvenc nimmt D3D11-BGRA-Frames direkt. AMD und
-//! Intel laufen über die CPU-Pipeline (`run_cpu_pipeline` in
-//! `stream_controller.rs`): h264_amf/qsv stürzen auf D3D11-Surface-Input ab
+//! Aktiv NUR für NVIDIA — h264_nvenc nimmt D3D11-BGRA-Frames direkt. AMD läuft
+//! über `pipeline_d3d12` (nativer h264_d3d12va), Intel über die CPU-Pipeline
+//! (`run_cpu_pipeline`): h264_amf stürzt auf D3D11-Surface-Input ab
 //! (dokumentierter AMD-AMF-Treiber-Bug, AMF-Issue #455). Da `select_adapter()`
 //! auf Multi-GPU die dGPU statt der Display-GPU liefern kann, verifiziert
 //! `run` die echte WGC-Capture-GPU und delegiert bei !=nvidia selbst an
-//! `run_cpu_pipeline`. Kill-Switch `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
+//! `pipeline_d3d12` bzw. `run_cpu_pipeline`. Kill-Switch
+//! `PULSE_HQ_DISABLE_ZERO_COPY=1` → CPU-Pfad.
 //!
 //! Der Encoder-Vendor wird aus der echten WGC-D3D11-Device-GPU abgeleitet
 //! (`device_vendor`), NICHT aus `select_adapter()` — letzteres bevorzugt die
@@ -71,18 +72,22 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // `select_adapter()` kann auf Multi-GPU eine andere GPU sein (dGPU-Default).
     let vendor = device_vendor(hw.device()).unwrap_or_else(|| adapter.vendor());
 
-    // Zero-Copy nur auf NVIDIA: h264_amf (AMD) / h264_qsv (Intel) stürzen auf
-    // D3D11-Surface-Input ab (dokumentierter AMD-AMF-Treiber-Bug, AMF-Issue
-    // #455 — `SubmitInput`-Integer-Divide-by-Zero). Ist die echte Capture-GPU
-    // nicht NVIDIA → HW-Capture stoppen und an den CPU-Pfad delegieren.
+    // Dieser D3D11-Zero-Copy-Pfad gilt NUR für NVIDIA — h264_amf (AMD) stürzt
+    // auf D3D11-Surface-Input ab (AMF-Runtime-Bug, AMF-Issue #455). Ist die
+    // echte Capture-GPU nicht NVIDIA → HW-Capture stoppen und delegieren:
+    // AMD → `pipeline_d3d12` (nativer h264_d3d12va), sonst → CPU-Pfad.
     if vendor != "nvidia" {
-        eprintln!(
-            "[pipeline-hw] Capture-GPU ist {vendor}, nicht nvidia — kein \
-             D3D11-Zero-Copy, Delegation an den CPU-Pfad"
-        );
         drop(capture);
         drop(first);
         drop(hw);
+        if vendor == "amd" {
+            eprintln!("[pipeline-hw] Capture-GPU ist amd — Delegation an pipeline_d3d12");
+            return crate::pipeline_d3d12::run(params, stop_rx);
+        }
+        eprintln!(
+            "[pipeline-hw] Capture-GPU ist {vendor}, nicht nvidia/amd — \
+             Delegation an den CPU-Pfad"
+        );
         return crate::stream_controller::run_cpu_pipeline(params, stop_rx);
     }
     // Downscale-Target mit Upscale-Schutz. Bei dst==src geht der Capture-Frame

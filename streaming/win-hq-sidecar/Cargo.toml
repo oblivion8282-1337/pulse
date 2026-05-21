@@ -19,9 +19,12 @@ anyhow = "1"
 windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D_Fxc",
     "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
+    "Win32_Security",
     "Win32_System_Com",
     "Win32_System_Kernel",
     "Win32_Media_Audio",
@@ -63,6 +66,14 @@ ffmpeg-next = { version = "8.1", default-features = false, features = [
 #
 # tokio           = { version = "1", features = ["rt-multi-thread", "macros", "sync", "io-util"] }
 
+[dev-dependencies]
+# NUR für `examples/probe_vulkan_sps.rs` — Diagnose-Probe, die
+# `vkGetEncodedVideoSessionParametersKHR` direkt aufruft, um die vom GPU-Treiber
+# serialisierten H.264-SPS/PPS-Roh-Bytes zu dumpen (AMD-Vulkan-Encode-Analyse).
+# Bewusst NUR dev-dependency — der Sidecar selbst nutzt FFmpeg, kein rohes
+# Vulkan. `ash` lädt `vulkan-1.dll` zur Laufzeit, braucht kein Vulkan-SDK.
+ash = "0.38"
+
 [[example]]
 name = "capture_smoke"
 path = "examples/capture_smoke.rs"
@@ -86,6 +97,14 @@ path = "examples/rtmp_smoke.rs"
 [[example]]
 name = "test_driver"
 path = "examples/test_driver.rs"
+
+[[example]]
+name = "probe_vulkan_sps"
+path = "examples/probe_vulkan_sps.rs"
+
+[[example]]
+name = "probe_d3d12_zerocopy"
+path = "examples/probe_d3d12_zerocopy.rs"
 
 [profile.release]
 opt-level = 3

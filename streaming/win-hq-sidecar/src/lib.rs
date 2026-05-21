@@ -10,6 +10,7 @@ pub mod dispatch;
 pub mod encode;
 pub mod events;
 pub mod ops;
+pub mod pipeline_d3d12;
 pub mod pipeline_hw;
 pub mod profiles;
 pub mod proto;
