@@ -8,7 +8,6 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import EmailVerifyBanner from '$lib/components/EmailVerifyBanner.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -36,6 +35,13 @@
     await auth.hydrate();
     if (!auth.isAuthenticated) {
       await goto('/login', { replaceState: true });
+      return;
+    }
+    // Hard email-verification gate: an unverified account on an SMTP-enabled
+    // deployment cannot enter /app at all — chat-gateway/voice would 403 it
+    // anyway. Bounce to the lock screen before connecting anything.
+    if (auth.user?.email_verification_pending) {
+      await goto('/verify-email-required', { replaceState: true });
       return;
     }
     // No `guilds.hydrate()` here: the WS Ready frame is authoritative for
@@ -129,9 +135,6 @@
 </script>
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
-  {#if hydrated}
-    <EmailVerifyBanner />
-  {/if}
   <div class="flex flex-1 gap-0 p-0 md:gap-3 md:p-3 min-h-0">
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>

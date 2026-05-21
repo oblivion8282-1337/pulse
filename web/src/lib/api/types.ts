@@ -17,6 +17,10 @@ export type User = {
    *  Backwards-compatible: legacy users seeded before the field existed
    *  may have it absent — treat undefined identical to null. */
   email_verified_at?: string | null;
+  /** Server-computed: true iff SMTP is configured AND this account is still
+   *  unverified — i.e. the hard email-verification gate is blocking the user.
+   *  Drives the `/verify-email-required` lock screen. */
+  email_verification_pending?: boolean;
   /** True iff TOTP-based 2FA is set up + confirmed for this account. */
   totp_enabled?: boolean;
 };

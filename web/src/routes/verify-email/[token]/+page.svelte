@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { emailVerifyConfirm, emailVerifySend } from '$lib/api/auth';
+  import { emailVerifyConfirm, emailVerifySend, me } from '$lib/api/auth';
+  import { forceTokenRefresh } from '$lib/api/client';
+  import { loadTokens } from '$lib/api/storage';
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
@@ -28,12 +30,16 @@
     try {
       await emailVerifyConfirm(token);
       status = 'ok';
-      // Best-effort: refresh the auth user so the verify-banner disappears
-      // on the next /app visit. Ignore errors — user might not be signed in.
-      try {
-        await auth.hydrate();
-      } catch {
-        /* not signed in — fine, they'll log in after */
+      // If signed in on this device: force a token rotation so the fresh
+      // access token drops the stale `email_blocked` claim, then refresh the
+      // cached user so the routing gate waves them straight into /app.
+      if (loadTokens()) {
+        try {
+          await forceTokenRefresh();
+          auth.setUser(await me());
+        } catch {
+          /* non-critical — they can simply log in again */
+        }
       }
     } catch (err) {
       status = 'error';

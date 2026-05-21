@@ -101,6 +101,14 @@ export function resetRefreshLock(): void {
   _refreshLocked = false;
 }
 
+/** Force a token rotation regardless of access-token expiry. Used right after
+ * email verification: the still-valid access token carries the stale
+ * `email_blocked` claim, so we mint a fresh one before the client opens the
+ * WebSocket or hits gated routes. Returns true when a fresh token was saved. */
+export async function forceTokenRefresh(): Promise<boolean> {
+  return (await refreshIfNeeded(true)) !== null;
+}
+
 export type RequestOpts = {
   method?: string;
   body?: unknown;

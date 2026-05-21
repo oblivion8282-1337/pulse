@@ -127,6 +127,15 @@ test.describe.serial('admin-panel E2E', () => {
     await expect(page.getByTestId('smtp-status-configured')).toBeVisible({
       timeout: 5_000
     });
+    // Revert to unconfigured. A configured SMTP singleton activates the
+    // email-verification gate — without this revert every register flow in
+    // every test file after admin.spec bounces to /verify-email-required.
+    // Doubles as coverage of the un-configure path (configured → false).
+    await page.getByTestId('smtp-host').fill('');
+    await page.getByTestId('smtp-save').click();
+    await expect(page.getByTestId('smtp-status-inactive')).toBeVisible({
+      timeout: 5_000
+    });
   });
 
   test('DM-limits PATCH persists', async () => {

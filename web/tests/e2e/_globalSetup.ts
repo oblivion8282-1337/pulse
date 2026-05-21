@@ -100,12 +100,14 @@ async function applyMigrations(env: NodeJS.ProcessEnv, name: string, cwd: string
 async function truncateDb(env: NodeJS.ProcessEnv) {
   // Make every test run independent. We don't drop the schemas because
   // re-running migrations would slow things down; instead we wipe rows.
-  // Settings singletons (auth_settings, chat_settings) survive TRUNCATE
-  // because dropping them would violate the singleton CHECK + a missing
-  // row breaks code paths that ``session.get(ChatSettings, 1)`` —
-  // we UPDATE them back to the migration defaults instead. Without
-  // this any test that mutates an admin setting leaks into the next run
-  // (admin.spec.ts:116 DM-limits PATCH was the symptom).
+  // Settings singletons (auth_settings, chat_settings, smtp_settings)
+  // survive TRUNCATE because dropping them would violate the singleton
+  // CHECK + a missing row breaks code paths that ``session.get(...)`` —
+  // we UPDATE them back to the migration defaults instead. Without this
+  // any test that mutates an admin setting leaks into the next run
+  // (admin.spec.ts DM-limits PATCH was the symptom). smtp_settings MUST
+  // reset too: a configured SMTP row activates the email-verification
+  // gate, which would bounce every register flow to /verify-email-required.
   const sql = `
     TRUNCATE
       chat.message_attachments,
@@ -126,6 +128,11 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
     WHERE id = 1;
     UPDATE auth.auth_settings SET
       registration_mode = 'open'
+    WHERE id = 1;
+    UPDATE auth.smtp_settings SET
+      provider = 'custom', host = NULL, port = 587, username = NULL,
+      password_encrypted = NULL, from_email = NULL, use_ssl = false,
+      configured = false
     WHERE id = 1;
   `;
   await new Promise<void>((resolveP, rejectP) => {
