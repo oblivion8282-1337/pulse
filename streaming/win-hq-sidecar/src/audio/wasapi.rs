@@ -15,7 +15,7 @@ use anyhow::{Context, Result, anyhow};
 use std::collections::VecDeque;
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use wasapi::{AudioClient, Direction, SampleType, StreamMode, WaveFormat, initialize_mta};
 
@@ -49,6 +49,10 @@ pub struct CapturedAudio {
     pub bytes: Vec<u8>,
     /// Anzahl Frames (= Samples pro Channel).
     pub frames: u32,
+    /// Wall-clock-Stempel (monotone Uhr) beim Emittieren des Chunks. Verankert
+    /// den Audio-PTS-Origin am selben Ursprung wie das Video — sonst driften
+    /// die beiden Timelines auseinander (A/V-Desync, s. `AudioPipeline`).
+    pub captured_at: Instant,
 }
 
 /// Living capture-handle. Drop = stop.
@@ -159,15 +163,20 @@ fn run_capture(
 
     audio_client.start_stream().context("start_stream")?;
 
-    // Stille-Fill-Kadenz: ein Chunk pro `chunk_frames`-Periode Wall-Clock.
-    // Desktop-Loopback liefert NICHTS, wenn die Audio-Engine idle ist (stiller
-    // Desktop) — entgegen der früheren Annahme kommen keine Silence-Frames.
-    // Ohne Gegenmaßnahme verhungert dann die FLV-Opus-Spur und der 2-Stream-
-    // Muxer stockt (`av_interleaved_write_frame` puffert ewig → kein Push →
-    // `rw_timeout`). Darum: liefert WASAPI keinen vollen Chunk, wird die
-    // Audio-Timeline mit Null-PCM aufgefüllt — wall-clock-getaktet.
-    let chunk_period = Duration::from_secs_f64(chunk_frames as f64 / format.sample_rate as f64);
-    let mut last_emit = Instant::now();
+    // Stille-Fill nach Sample-Budget. Desktop-Loopback liefert NICHTS, wenn die
+    // Audio-Engine idle ist (stiller Desktop) — entgegen der früheren Annahme
+    // kommen keine Silence-Frames. Ohne Gegenmaßnahme verhungert die FLV-Opus-
+    // Spur und der 2-Stream-Muxer stockt (`av_interleaved_write_frame` puffert
+    // ewig → kein Push → `rw_timeout`).
+    //
+    // `emitted_frames` zählt ALLE emittierten Frames (real + Stille). Stille
+    // wird nur eingeschoben, wenn ein GANZER Chunk gegenüber der Wall-Clock
+    // fehlt. Fließt echtes Audio in Echtzeit, deckt der Sub-Chunk-Rest in der
+    // Queue den Verzug ab → die Bilanz holt nie einen vollen Chunk Rückstand
+    // ein → es wird KEINE Stille zwischen reale Samples gestottert. Ein früher
+    // Timer-Ansatz (Schwelle == realer Chunk-Takt) tat genau das.
+    let started = Instant::now();
+    let mut emitted_frames: u64 = 0;
     let mut should_stop = false;
     loop {
         if stop_rx.try_recv().is_ok() {
@@ -184,31 +193,32 @@ fn run_capture(
                 format,
                 bytes: chunk,
                 frames: chunk_frames as u32,
+                captured_at: Instant::now(),
             };
             if tx.send(captured).is_err() {
                 should_stop = true;
                 break;
             }
-            last_emit = Instant::now();
+            emitted_frames += chunk_frames as u64;
         }
         if should_stop {
             break;
         }
 
-        // Stille-Fill: hat WASAPI keinen vollen Chunk geliefert und ist die
-        // Wall-Clock-Periode überschritten, Null-PCM nachschieben (holt auch
-        // einen Rückstand auf, da `last_emit` exakt um `chunk_period` wächst).
-        while queue.len() < chunk_bytes && last_emit.elapsed() >= chunk_period {
+        // Stille-Fill: nur ganze Chunks, die gegenüber der Wall-Clock fehlen.
+        let owed = (started.elapsed().as_secs_f64() * format.sample_rate as f64) as u64;
+        while queue.len() < chunk_bytes && emitted_frames + chunk_frames as u64 <= owed {
             let silence = CapturedAudio {
                 format,
                 bytes: vec![0u8; chunk_bytes],
                 frames: chunk_frames as u32,
+                captured_at: Instant::now(),
             };
             if tx.send(silence).is_err() {
                 should_stop = true;
                 break;
             }
-            last_emit += chunk_period;
+            emitted_frames += chunk_frames as u64;
         }
         if should_stop {
             break;

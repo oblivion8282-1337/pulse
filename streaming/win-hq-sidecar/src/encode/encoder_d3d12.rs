@@ -301,6 +301,15 @@ impl FfmpegD3d12Encoder {
         Ok(())
     }
 
+    /// Verankert den Audio-PTS am Video-PTS-Ursprung (A/V-Sync). Vor dem
+    /// ersten `send_audio` aufrufen — sonst startet der Audio-PTS bei 0 und
+    /// die Spuren driften (Audio-Backlog vor `started` + `activate`-Delay).
+    pub fn set_audio_origin(&mut self, origin: std::time::Instant) {
+        if let Some(audio) = self.audio.as_mut() {
+            audio.set_stream_origin(origin);
+        }
+    }
+
     /// Encodete Video-Packets ziehen, beim ersten den Muxer aktivieren, dann
     /// alle in die MuxWriter-Queue schieben.
     fn drain_and_mux(&mut self) -> Result<()> {

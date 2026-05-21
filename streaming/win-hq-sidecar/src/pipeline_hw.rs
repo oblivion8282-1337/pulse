@@ -172,6 +172,8 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // Wanduhr → Stream-Zeit läuft mit Echtzeit statt mit der Capture-Rate.
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
     let started = Instant::now();
+    // Audio-PTS am selben Wall-clock-Ursprung wie der Video-PTS verankern.
+    encoder.set_audio_origin(started);
     let mut last_frame: Option<OwnedHwFrame> = Some(first);
     let mut last_pts: i64 = -1;
     let mut frames_sent: u64 = 0;

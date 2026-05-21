@@ -144,6 +144,8 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     // den Ring) — so kann der Capture-Thread die anderen Slots befüllen.
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
     let started = Instant::now();
+    // Audio-PTS am selben Wall-clock-Ursprung wie der Video-PTS verankern.
+    encoder.set_audio_origin(started);
     let mut last_pts: i64 = -1;
     let mut frames_sent: u64 = 0;
     let mut next_tick = started;

@@ -322,6 +322,15 @@ impl FfmpegEncoder {
         Ok(())
     }
 
+    /// Verankert den Audio-PTS am Video-PTS-Ursprung (A/V-Sync). Vor dem
+    /// ersten `send_audio` aufrufen — sonst startet der Audio-PTS bei 0 und
+    /// die Spuren driften (Audio-Backlog vor `started`).
+    pub fn set_audio_origin(&mut self, origin: std::time::Instant) {
+        if let Some(audio) = self.audio.as_mut() {
+            audio.set_stream_origin(origin);
+        }
+    }
+
     /// Schickt einen Capture-Frame in den Encoder. `pts` ist die wall-clock-
     /// abgeleitete Präsentations-Zeit in Encoder-Timebase-Einheiten (1/fps),
     /// vergeben vom Pacing-Loop — muss streng monoton sein. Bei statischem

@@ -15,6 +15,7 @@ use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
 use ffmpeg::{ChannelLayout, Dictionary, Packet, Rational, codec, format, frame};
 use std::collections::VecDeque;
+use std::time::Instant;
 
 use crate::audio::CapturedAudio;
 
@@ -44,6 +45,13 @@ pub struct AudioPipeline {
     /// `output.write_header()` fest — der Caller setzt sie via
     /// `set_stream_time_base`, bevor das erste `send()` läuft.
     stream_time_base: Rational,
+    /// Wall-clock-Ursprung der Stream-Timeline (= derselbe `Instant` wie der
+    /// Video-PTS-Ursprung). Ist er gesetzt, wird der Audio-PTS beim ersten
+    /// `send()` aus `captured_at - stream_origin` verankert — sonst (None)
+    /// startet er bei 0 (Alt-Verhalten für die NVENC-/CPU-Pfade).
+    stream_origin: Option<Instant>,
+    /// Einmal-Flag: PTS-Origin wurde beim ersten `send()` festgenagelt.
+    origin_set: bool,
 }
 
 impl AudioPipeline {
@@ -118,6 +126,8 @@ impl AudioPipeline {
             stream_idx,
             encoder_time_base,
             stream_time_base: Rational::new(1, 1000),
+            stream_origin: None,
+            origin_set: false,
         })
     }
 
@@ -125,6 +135,13 @@ impl AudioPipeline {
     /// `output.write_header()` und vor dem ersten `send()` aufgerufen werden.
     pub fn set_stream_time_base(&mut self, time_base: Rational) {
         self.stream_time_base = time_base;
+    }
+
+    /// Setzt den Wall-clock-Ursprung der Stream-Timeline (= Video-PTS-Origin).
+    /// MUSS vor dem ersten `send()` gesetzt werden. Ohne diesen Aufruf startet
+    /// der Audio-PTS bei 0 (Alt-Verhalten — kein A/V-Sync-Anker).
+    pub fn set_stream_origin(&mut self, origin: Instant) {
+        self.stream_origin = Some(origin);
     }
 
     /// WASAPI-Chunk in den FIFO werfen + so viele Opus-Frames rauspushen wie
@@ -143,6 +160,22 @@ impl AudioPipeline {
                 self.channels
             ));
         }
+        // Beim ersten Chunk den PTS-Origin am Wall-clock-Ursprung verankern.
+        // `captured_at - stream_origin` ist der Versatz der Audio-Timeline-Null
+        // gegenüber dem Video-PTS-Null → ohne das driften die Spuren auseinander.
+        if !self.origin_set {
+            if let Some(origin) = self.stream_origin {
+                let s = (captured
+                    .captured_at
+                    .saturating_duration_since(origin)
+                    .as_secs_f64()
+                    * self.sample_rate as f64) as i64;
+                self.pts_samples = s;
+                self.out_pts_samples = s;
+            }
+            self.origin_set = true;
+        }
+
         self.fifo.extend(&captured.bytes);
 
         let mut packets = Vec::new();
