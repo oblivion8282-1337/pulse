@@ -3,6 +3,7 @@
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import MemberList from './MemberList.svelte';
+  import VoiceControlBar from './VoiceControlBar.svelte';
   import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
@@ -241,6 +242,13 @@
     <div class="fixed inset-y-0 right-0 z-40 flex w-4/5 max-w-xs flex-col">
       <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
     </div>
+  {/if}
+
+  <!-- Mobil: Voice-Controls als fixe Leiste unten — die Sidebar (mit dem
+       SidebarFooter-VoiceControlBar) lebt im Drawer und wäre sonst nur
+       übers Burger-Menü erreichbar. -->
+  {#if viewport.isMobile && (voice.connected || voice.connecting)}
+    <VoiceControlBar />
   {/if}
 
 </section>

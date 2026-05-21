@@ -6,14 +6,20 @@
   wherever the user navigates. Without this, switching from a voice
   channel to a DM made the connection bar disappear and the only way to
   hang up was to navigate back to the voice channel.
+
+  Mobil: die Sidebar lebt im Drawer — die Voice-Bar dort wäre nur über
+  das Burger-Menü erreichbar. Darum auf Mobil HIER ausgeblendet; ChatView
+  und VoiceChannelView rendern sie stattdessen als fixe Leiste über dem
+  Composer (siehe dort).
 -->
 <script lang="ts">
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import UserFooter from './UserFooter.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
 </script>
 
-{#if voice.connected || voice.connecting}
+{#if (voice.connected || voice.connecting) && !viewport.isMobile}
   <VoiceControlBar />
 {/if}
 <UserFooter />
