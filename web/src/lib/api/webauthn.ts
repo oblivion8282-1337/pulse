@@ -127,7 +127,11 @@ function encodeAssertion(cred: PublicKeyCredential): Record<string, unknown> {
 
 /** Turn the WebAuthn API's `DOMException`s into German user-facing copy.
  *  `NotAllowedError` covers both an explicit cancel and a ceremony timeout —
- *  the browser deliberately doesn't distinguish them (privacy). */
+ *  the browser deliberately doesn't distinguish them (privacy).
+ *  `SecurityError` is *not* only a missing-HTTPS problem: the browser raises
+ *  it just as well when the server's rpId is not a registrable suffix of the
+ *  current origin (WEBAUTHN_RP_ID / WEBAUTHN_ORIGIN misconfigured) — so the
+ *  copy names both causes instead of blaming the connection. */
 function ceremonyError(err: unknown): Error {
   if (err instanceof DOMException) {
     if (err.name === 'NotAllowedError')
@@ -135,7 +139,10 @@ function ceremonyError(err: unknown): Error {
     if (err.name === 'InvalidStateError')
       return new Error('Dieser Authenticator ist bereits als Passkey registriert.');
     if (err.name === 'SecurityError')
-      return new Error('Passkeys funktionieren nur über eine sichere Verbindung (HTTPS).');
+      return new Error(
+        'Passkey nicht möglich: Die Seite muss über HTTPS laufen und die ' +
+          'Server-Domain (rpId/Origin) muss zur aufgerufenen Adresse passen.'
+      );
   }
   return err instanceof Error ? err : new Error('Passkey-Vorgang fehlgeschlagen.');
 }
