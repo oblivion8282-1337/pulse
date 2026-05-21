@@ -51,15 +51,17 @@ test.describe('account recovery flows', () => {
 
   test('reset-password rejects too-short passwords client-side', async ({ page }) => {
     await page.goto('/reset-password/anything-here');
-    // Browser-level minlength would block submit before our handler runs, so
-    // we drop the attribute first and assert our JS-side check kicks in.
-    await page.evaluate(() => {
-      for (const el of document.querySelectorAll<HTMLInputElement>('input[type=password]')) {
-        el.removeAttribute('minlength');
-      }
-    });
     await page.getByTestId('reset-password').fill('short');
     await page.getByTestId('reset-confirm').fill('short');
+    // The inputs carry HTML5 `minlength=8`, which blocks the submit before our
+    // onsubmit handler runs — but the JS-side length check is what's under
+    // test here. Disable native validation on the <form>: `locator.evaluate`
+    // auto-waits for the form (the SPA mounts it after `goto` resolves), and
+    // `noValidate` on the stable form node survives the `bind:value`
+    // re-renders that `fill` triggers.
+    await page.locator('form').evaluate((form: HTMLFormElement) => {
+      form.noValidate = true;
+    });
     await page.getByTestId('reset-submit').click();
     await expect(page.getByTestId('reset-error')).toContainText(
       /mindestens 8 Zeichen/i
