@@ -163,8 +163,11 @@
       // Only text channels have message history + WS subscriptions.
       // Voice channels are handled entirely by VoiceChannelView/LiveKit.
       if (ch && ch.type === 0) {
+        // Cached from an earlier visit? Then its WS subscription lapsed while
+        // we were away — re-subscribe + gap-fill below instead of re-fetching.
+        const alreadyLoaded = !!messages.loadedChannels[target];
         try {
-          if (!messages.loadedChannels[target]) {
+          if (!alreadyLoaded) {
             const history = await chatApi.listMessages(target);
             if (isStale()) return;
             messages.setInitial(target, history);
@@ -179,6 +182,8 @@
         // a faster switch already moved on and we'd leak a subscription.
         if (isStale()) return;
         gateway.subscribe(target);
+        // Backfill anything that landed while the subscription was dropped.
+        if (alreadyLoaded) void gateway.gapFill(target);
         // Acknowledge unread state: the user is now looking at this channel.
         // markRead uses latestByChannel — which also reflects ids learned via
         // channel_bump while we weren't subscribed. loaded[…].id alone would

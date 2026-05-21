@@ -117,8 +117,11 @@
       }
     }
 
+    // Cached from an earlier visit? Then its WS subscription lapsed while we
+    // were away — re-subscribe + gap-fill below instead of re-fetching.
+    const alreadyLoaded = !!messages.loadedChannels[cid];
     try {
-      if (!messages.loadedChannels[cid]) {
+      if (!alreadyLoaded) {
         const history = await chatApi.listMessages(cid);
         if (isStale()) return;
         messages.setInitial(cid, history);
@@ -132,6 +135,8 @@
 
     if (isStale()) return;
     gateway.subscribe(cid);
+    // Backfill anything that landed while the subscription was dropped.
+    if (alreadyLoaded) void gateway.gapFill(cid);
     const loaded = messages.for(cid);
     const latestSeen = loaded[loaded.length - 1]?.id;
     if (latestSeen) readState.recordSeen(cid, latestSeen);

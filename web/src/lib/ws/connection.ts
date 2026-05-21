@@ -391,27 +391,47 @@ export class GatewayConnection {
    *  (e.g. user never opened them in this session) need no work; their
    *  first switchTo will REST-fetch normally. */
   private async _gapFillAll(): Promise<void> {
-    const GAP_FILL_LIMIT = 100;
-    const { chatApi } = await import('$lib/api/chat');
     for (const cid of this.subs) {
-      const lastId = messages.lastPersistedId(cid);
-      if (!lastId) continue;
-      try {
-        const page = await chatApi.listMessages(cid, {
-          after: lastId,
-          limit: GAP_FILL_LIMIT
-        });
-        if (page.length >= GAP_FILL_LIMIT) {
-          // Gap saturates the page — there might be more we'd miss.
-          // Fall back to a full reload via the existing page-effect.
+      await this._gapFillChannel(cid, false);
+    }
+  }
+
+  /** Gap-fill a single, already-cached channel after (re)subscribing — used
+   *  by the channel-switch path. Re-opening a channel whose history was
+   *  loaded earlier this session would otherwise miss every message that
+   *  arrived while its WS subscription was dropped (the subscription is
+   *  released on switch-away, and `loadedChannels` short-circuits the
+   *  REST-fetch on the way back). Safe to call right after `subscribe()`:
+   *  a WS push racing the REST call dedupes via `mergeGap` (id + nonce). */
+  async gapFill(channelId: string): Promise<void> {
+    await this._gapFillChannel(channelId, true);
+  }
+
+  private async _gapFillChannel(cid: string, refetchOnOverflow: boolean): Promise<void> {
+    const GAP_FILL_LIMIT = 100;
+    const lastId = messages.lastPersistedId(cid);
+    if (!lastId) return;
+    const { chatApi } = await import('$lib/api/chat');
+    try {
+      const page = await chatApi.listMessages(cid, { after: lastId, limit: GAP_FILL_LIMIT });
+      if (page.length >= GAP_FILL_LIMIT) {
+        // Gap saturates the page — more messages may lie beyond it.
+        if (refetchOnOverflow) {
+          // Channel-switch path: no page-effect reload to fall back to, so
+          // re-fetch the full history in place.
+          messages.setInitial(cid, await chatApi.listMessages(cid));
+        } else {
+          // Reconnect path: drop the cache so the page-effect in
+          // `routes/app/.../+page.svelte` triggers a full reload — better a
+          // single visible reload than a silent hole.
           messages.clearChannel(cid);
-        } else if (page.length) {
-          messages.mergeGap(cid, page);
         }
-      } catch {
-        // Best-effort. A 401 means the token already rotated again
-        // (unlikely but possible); the next reconnect will retry.
+      } else if (page.length) {
+        messages.mergeGap(cid, page);
       }
+    } catch {
+      // Best-effort. A 401 means the token already rotated again (unlikely
+      // but possible); the next reconnect/switch will retry.
     }
   }
 
