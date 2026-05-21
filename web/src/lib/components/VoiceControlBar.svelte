@@ -16,6 +16,7 @@
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
   import ScreenSharePublishStats from './ScreenSharePublishStats.svelte';
@@ -72,7 +73,7 @@
 </script>
 
 <div
-  class="border-border mx-2 mt-2 rounded-2xl border bg-bg-input/60 p-1.5"
+  class="border-border mx-2 mt-2 rounded-2xl border bg-bg-input/60 p-2 md:p-1.5"
   data-testid="voice-control-bar"
 >
   <div class="flex items-center gap-1.5 px-1 pb-1.5 text-xs">
@@ -90,7 +91,7 @@
     {/if}
   </div>
 
-  <div class="flex flex-wrap items-center gap-1">
+  <div class="flex flex-wrap items-center justify-around gap-2 md:justify-start md:gap-1">
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger>
@@ -99,7 +100,7 @@
               {...props}
               variant={voice.micEnabled && !selfForceMuted ? 'secondary' : 'destructive'}
               size="icon-sm"
-              class="size-9 md:size-8"
+              class="size-14 md:size-8"
               onclick={() => voice.toggleMic()}
               disabled={selfForceMuted}
               data-testid="voice-mic-toggle"
@@ -109,7 +110,7 @@
                   ? 'Mikrofon stummschalten'
                   : 'Mikrofon aktivieren'}
             >
-              {#if voice.micEnabled && !selfForceMuted}<MicIcon class="size-4" />{:else}<MicOffIcon class="size-4" />{/if}
+              {#if voice.micEnabled && !selfForceMuted}<MicIcon class="size-6 md:size-4" />{:else}<MicOffIcon class="size-6 md:size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
@@ -129,7 +130,7 @@
               {...props}
               variant={voice.deafened ? 'destructive' : 'secondary'}
               size="icon-sm"
-              class="size-9 md:size-8"
+              class="size-14 md:size-8"
               onclick={() => voice.toggleDeafen()}
               disabled={selfForceDeafened}
               data-testid="voice-deafen-toggle"
@@ -139,7 +140,7 @@
                   ? 'Ton aktivieren'
                   : 'Ton stummschalten'}
             >
-              {#if voice.deafened}<HeadphoneOffIcon class="size-4" />{:else}<HeadphonesIcon class="size-4" />{/if}
+              {#if voice.deafened}<HeadphoneOffIcon class="size-6 md:size-4" />{:else}<HeadphonesIcon class="size-6 md:size-4" />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
@@ -152,7 +153,8 @@
         </Tooltip.Content>
       </Tooltip.Root>
 
-      {#if voice.channelId}
+      <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
+      {#if voice.channelId && !viewport.isMobile}
         <WatchPartyStartButton channelId={voice.channelId} />
       {/if}
 
@@ -164,12 +166,12 @@
                 {...props}
                 variant={voice.isCameraOn ? 'default' : 'ghost'}
                 size="icon-sm"
-                class="size-9 md:size-8"
+                class="size-14 md:size-8"
                 onclick={() => voice.toggleCamera()}
                 data-testid="voice-camera-toggle"
                 aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
               >
-                {#if voice.isCameraOn}<VideoIcon class="size-4" />{:else}<VideoOffIcon class="size-4" />{/if}
+                {#if voice.isCameraOn}<VideoIcon class="size-6 md:size-4" />{:else}<VideoOffIcon class="size-6 md:size-4" />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
@@ -179,6 +181,9 @@
         </Tooltip.Root>
       {/if}
 
+      <!-- Bildschirm teilen auf Mobil ausgeblendet: getDisplayMedia() gibt's
+           weder auf iOS Safari noch auf Android Chrome → toter Button. -->
+      {#if !viewport.isMobile}
       <Tooltip.Root>
         <Tooltip.Trigger>
           {#snippet child({ props })}
@@ -187,12 +192,12 @@
                 {...props}
                 variant={voice.isScreenSharing ? 'default' : 'ghost'}
                 size="icon-sm"
-                class="size-9 md:size-8"
+                class="size-14 md:size-8"
                 onclick={handleScreenShare}
                 data-testid="voice-screenshare-toggle"
                 aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
               >
-                {#if voice.isScreenSharing}<MonitorOffIcon class="size-4" />{:else}<MonitorIcon class="size-4" />{/if}
+                {#if voice.isScreenSharing}<MonitorOffIcon class="size-6 md:size-4" />{:else}<MonitorIcon class="size-6 md:size-4" />{/if}
               </Button>
               <ScreenSharePublishStats bind:stats={publishStats} />
             </span>
@@ -219,6 +224,7 @@
           {/if}
         </Tooltip.Content>
       </Tooltip.Root>
+      {/if}
 
       <HqStreamButton compact />
 
@@ -229,12 +235,12 @@
               {...props}
               variant="destructive"
               size="icon-sm"
-              class="ml-auto size-9 md:size-8"
+              class="ml-auto max-md:ml-0 size-14 md:size-8"
               onclick={() => voice.disconnect({ reason: 'user' })}
               data-testid="voice-disconnect"
               aria-label="Voice verlassen"
             >
-              <PhoneOffIcon class="size-4" />
+              <PhoneOffIcon class="size-6 md:size-4" />
             </Button>
           {/snippet}
         </Tooltip.Trigger>
