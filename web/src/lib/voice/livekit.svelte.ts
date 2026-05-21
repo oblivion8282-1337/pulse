@@ -171,6 +171,11 @@ class VoiceRoom {
   /** Mic state captured at deafen-on so un-deafen can restore it. */
   #micEnabledBeforeDeafen = false;
   #teardownDone = false;
+  /** Monotonic connect counter. Each `connect()` captures its value; an
+   *  await that returns to find `#connectGen` moved on knows a newer
+   *  connect (or a disconnect) superseded it and bails — without this a
+   *  fast double-click builds two `Room`s and orphans the first. */
+  #connectGen = 0;
   /** Effective send-processor state. Drives applyNoiseFilter's swap decisions —
    *  re-evaluated against (noiseSuppression, inputMakeupGain≠1) on every call. */
   #sendProcessorMode: 'off' | SendProcessorMode = 'off';
@@ -236,6 +241,10 @@ class VoiceRoom {
       // hosted watch party there.
       await this.disconnect({ reason: 'user' });
     }
+    // Claim this connect. Any earlier connect still in flight (its `#room`
+    // not yet assigned, so the guard above couldn't see it) will notice the
+    // bump after its next await and abort instead of building a second Room.
+    const gen = ++this.#connectGen;
     this.error = null;
     this.channelId = channelId;
     this.channelName = channelName;
@@ -246,12 +255,19 @@ class VoiceRoom {
     try {
       resp = await getVoiceToken(channelId, 'voice');
     } catch (e) {
-      this.state = ConnectionState.Disconnected;
-      this.channelId = null;
-      this.channelName = null;
-      this.error = e instanceof Error ? e.message : 'Token-Anfrage fehlgeschlagen';
+      // Only roll back shared state if we're still the current connect —
+      // otherwise a newer connect already owns `this.*`.
+      if (gen === this.#connectGen) {
+        this.state = ConnectionState.Disconnected;
+        this.channelId = null;
+        this.channelName = null;
+        this.error = e instanceof Error ? e.message : 'Token-Anfrage fehlgeschlagen';
+      }
       throw e;
     }
+    // Superseded during the token fetch — drop out silently before building
+    // a Room. The newer connect owns the UI state from here.
+    if (gen !== this.#connectGen) return;
 
     const room = new Room(this.#roomOptions());
     this.#room = room;
@@ -266,6 +282,13 @@ class VoiceRoom {
       this.error = e instanceof Error ? e.message : 'Verbindung zu LiveKit fehlgeschlagen';
       this.#teardown();
       throw e;
+    }
+
+    // Superseded while the LiveKit handshake ran — tear down the room we just
+    // built so it doesn't linger connected + mic-publishing as an orphan.
+    if (gen !== this.#connectGen) {
+      await room.disconnect().catch(() => undefined);
+      return;
     }
 
     // We're still inside the user gesture that triggered connect() — resume the
@@ -344,7 +367,24 @@ class VoiceRoom {
     this.#publishSelfState();
   }
 
+  /** Admin force-mute / force-deafen for the local user in the current
+   *  channel. The UI disables the mic/deafen buttons on this, but the
+   *  keyboard shortcuts call toggleMic/toggleDeafen directly — so the gate
+   *  lives at those entry points, reading the same store the buttons do. */
+  #selfOverride(): { muted: boolean; deafened: boolean } {
+    const cid = this.channelId;
+    const uid = auth.user?.id;
+    if (!cid || !uid) return { muted: false, deafened: false };
+    return {
+      muted: voicePresence.isForceMuted(cid, uid),
+      deafened: voicePresence.isForceDeafened(cid, uid)
+    };
+  }
+
   toggleMic(): void {
+    // Force-muted by an admin → the mic toggle is inert (button is disabled;
+    // this also blocks the keyboard-shortcut path). Mirrors toggleDeafen.
+    if (this.#selfOverride().muted) return;
     // Explicit user toggle while deafened cancels the auto-restore on
     // un-deafen — they've taken ownership of the mic state.
     if (this.deafened) this.#micEnabledBeforeDeafen = false;
@@ -397,6 +437,10 @@ class VoiceRoom {
     this.#publishSelfState();
   }
   toggleDeafen(): void {
+    // Force-deafened by an admin → refuse to un-deafen until the override is
+    // cleared. The deafen button is disabled in the UI; this closes the
+    // keyboard-shortcut bypass (voice.toggleDeafen → here, ungated before).
+    if (this.#selfOverride().deafened) return;
     this.setDeafened(!this.deafened);
   }
 
@@ -715,19 +759,27 @@ class VoiceRoom {
   }
 
   #wireEvents(room: Room): void {
+    // Every handler bails when `room` is no longer the active one: a
+    // superseded connect() can leave an orphan Room whose late events would
+    // otherwise tear down (`#teardown`) or corrupt (`#audioEls` etc.) the
+    // live room's state. `_active` is the single guard for that.
+    const _active = (): boolean => this.#room === room;
     room
       .on(RoomEvent.ConnectionStateChanged, (s: ConnectionState) => {
+        if (!_active()) return;
         this.state = s;
         voiceState.connected = s === ConnectionState.Connected;
         if (s === ConnectionState.Disconnected) this.#teardown();
       })
       .on(RoomEvent.Disconnected, () => {
+        if (!_active()) return;
         this.#teardown();
       })
-      .on(RoomEvent.ParticipantConnected, () => this.#refreshParticipants())
-      .on(RoomEvent.ParticipantDisconnected, () => this.#refreshParticipants())
-      .on(RoomEvent.ActiveSpeakersChanged, () => this.#refreshParticipants())
+      .on(RoomEvent.ParticipantConnected, () => _active() && this.#refreshParticipants())
+      .on(RoomEvent.ParticipantDisconnected, () => _active() && this.#refreshParticipants())
+      .on(RoomEvent.ActiveSpeakersChanged, () => _active() && this.#refreshParticipants())
       .on(RoomEvent.TrackMuted, (pub, p) => {
+        if (!_active()) return;
         // setCameraEnabled(false) mutes the published track instead of
         // unpublishing it — the track stays subscribed forever otherwise. Pull
         // the muted cam out of the visible-cameras list so we don't render a
@@ -743,6 +795,7 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.TrackUnmuted, (pub, p) => {
+        if (!_active()) return;
         if (
           pub.source === Track.Source.Camera &&
           pub.kind === Track.Kind.Video &&
@@ -754,6 +807,7 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.LocalTrackPublished, (pub) => {
+        if (!_active()) return;
         if (pub.source === Track.Source.Microphone) {
           void this.applyNoiseFilter();
           this.#attachLocalAnalyser();
@@ -761,6 +815,7 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+        if (!_active()) return;
         if (pub.source === Track.Source.ScreenShare) {
           this.isScreenSharing = false;
         }
@@ -776,8 +831,9 @@ class VoiceRoom {
         }
         this.#refreshParticipants();
       })
-      .on(RoomEvent.ConnectionQualityChanged, () => this.#refreshParticipants())
+      .on(RoomEvent.ConnectionQualityChanged, () => _active() && this.#refreshParticipants())
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant) => {
+        if (!_active()) return;
         if (track.kind === Track.Kind.Audio) {
           if (pub.source === Track.Source.ScreenShareAudio) {
             this.#screenShare.addAudio(track as RemoteAudioTrack, p);
@@ -808,6 +864,7 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
+        if (!_active()) return;
         if (track.source === Track.Source.ScreenShareAudio) {
           this.#screenShare.removeAudio(track as RemoteAudioTrack);
         } else if (track.kind === Track.Kind.Audio) {
@@ -823,9 +880,11 @@ class VoiceRoom {
         this.#refreshParticipants();
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
+        if (!_active()) return;
         void this.#devices.refresh(this.#room);
       })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => {
+        if (!_active()) return;
         this.audioBlocked = !this.#room?.canPlaybackAudio;
       });
   }
