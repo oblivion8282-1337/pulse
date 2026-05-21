@@ -254,7 +254,10 @@
                   </div>
                 {/snippet}
               </Tooltip.Trigger>
-              <Tooltip.Content side="right" class="flex-col items-start gap-1">
+              <Tooltip.Content
+                side="right"
+                class="flex-col items-stretch gap-0 px-3 py-2.5 min-w-[12rem]"
+              >
                 <GuildVoiceTooltip guildId={g.id} name={g.name} />
               </Tooltip.Content>
             </Tooltip.Root>
