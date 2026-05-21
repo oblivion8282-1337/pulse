@@ -198,7 +198,7 @@
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
     {#if onMenuClick}
       <button
-        class="mr-1 rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary md:hidden"
+        class="mr-1 rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary md:hidden"
         onclick={onMenuClick}
         aria-label="Menü"
         data-testid="mobile-menu-toggle"
@@ -218,7 +218,7 @@
       {/if}
       {#if showMemberList}
         <button
-          class="ml-auto rounded-full p-2 transition-colors hover:bg-bg-hover hover:text-primary"
+          class="ml-auto rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary"
           onclick={() => (memberListOpen = !memberListOpen)}
           aria-label="Mitgliederliste umschalten"
           data-testid="member-list-toggle"

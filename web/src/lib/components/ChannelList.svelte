@@ -126,7 +126,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="text-text-muted hover:text-primary"
+          class="size-9 md:size-8 text-text-muted hover:text-primary"
           onclick={() => (inviteOpen = true)}
           data-testid="invite-open-btn"
           aria-label="Leute einladen"
@@ -138,7 +138,7 @@
         <Button
           variant="ghost"
           size="icon-sm"
-          class="text-text-muted hover:text-primary"
+          class="size-9 md:size-8 text-text-muted hover:text-primary"
           onclick={onCreateClick}
           data-testid="channel-create"
           aria-label="Kanal erstellen"
@@ -194,7 +194,7 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors md:py-2 hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
               data-active={activeChannelId === c.id}
               data-unread={isUnread}
               onclick={() => onSelect(c)}
@@ -258,7 +258,7 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors md:py-2 hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
               data-active={activeChannelId === c.id}
               onclick={() => selectChannel(c)}
               data-testid={`channel-${c.id}`}

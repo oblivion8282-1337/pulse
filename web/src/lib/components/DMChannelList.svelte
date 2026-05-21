@@ -45,7 +45,7 @@
       {@const u = userCache.get(dm.other_user_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <button
-        class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm font-medium transition-colors hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+        class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors md:py-2 hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
         data-active={activeDMId === dm.id}
         data-unread={isUnread}
         onclick={() => onSelect(dm)}
