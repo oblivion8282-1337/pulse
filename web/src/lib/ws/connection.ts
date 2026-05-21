@@ -413,22 +413,31 @@ export class GatewayConnection {
     if (!lastId) return;
     const { chatApi } = await import('$lib/api/chat');
     try {
-      const page = await chatApi.listMessages(cid, { after: lastId, limit: GAP_FILL_LIMIT });
-      if (page.length >= GAP_FILL_LIMIT) {
-        // Gap saturates the page — more messages may lie beyond it.
+      // Fetch the latest page rather than a bare `?after` slice: it backfills
+      // new messages (`mergeGap`) AND lets `reconcile` re-sync reactions /
+      // edits that landed on messages we already hold — a `?after` page
+      // never sees changes on existing rows.
+      const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
+      if (!page.length) return;
+      // `listMessages` returns newest-first → its last entry is the oldest.
+      const oldestFetched = page[page.length - 1].id;
+      if (page.length >= GAP_FILL_LIMIT && oldestFetched > lastId) {
+        // Even the oldest row on the page is newer than anything we hold —
+        // the gap exceeds one page; older missed messages would be lost.
         if (refetchOnOverflow) {
           // Channel-switch path: no page-effect reload to fall back to, so
-          // re-fetch the full history in place.
-          messages.setInitial(cid, await chatApi.listMessages(cid));
+          // adopt the latest page as the new history.
+          messages.setInitial(cid, page);
         } else {
           // Reconnect path: drop the cache so the page-effect in
           // `routes/app/.../+page.svelte` triggers a full reload — better a
           // single visible reload than a silent hole.
           messages.clearChannel(cid);
         }
-      } else if (page.length) {
-        messages.mergeGap(cid, page);
+        return;
       }
+      messages.mergeGap(cid, page);
+      messages.reconcile(cid, page);
     } catch {
       // Best-effort. A 401 means the token already rotated again (unlikely
       // but possible); the next reconnect/switch will retry.
@@ -800,13 +809,17 @@ export class GatewayConnection {
         // don't have to. If the user is actively viewing the channel,
         // the inline `markRead` below clears the counter immediately.
         const { channel_id, message_id, guild_id } = evt.data;
+        const viewingMentioned = this.subs.has(channel_id);
         readState.incMention(channel_id);
         // Record before the matching channel_bump/dm_bump arrives so the
         // generic sound is suppressed.
         _markRecentMention(message_id);
-        sounds.play('notification.mention', { guildId: guild_id });
-        if (this.subs.has(channel_id)) {
+        if (viewingMentioned) {
+          // Already looking at the channel — clear the counter, no chime
+          // (a sound for the focused channel is just noise).
           readState.markRead(channel_id, message_id);
+        } else {
+          sounds.play('notification.mention', { guildId: guild_id });
         }
         // In-page notification (only fires when tab is in background — the
         // helper gates on visibility + settings). The matching push from the

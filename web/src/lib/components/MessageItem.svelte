@@ -44,6 +44,10 @@
   const reactions = $derived(message.reactions ?? []);
   const attachments = $derived(message.attachments ?? []);
   const isEdited = $derived(!!message.edited_at);
+  // Optimistic copy still awaiting its server echo — it has no real id yet,
+  // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
+  // until the echo swaps in the persisted message.
+  const isPending = $derived(message.id.startsWith('tmp-'));
 
   function formatTime(iso: string): string {
     const d = new Date(iso);
@@ -54,6 +58,7 @@
   }
 
   function startEdit() {
+    if (isPending) return;
     draft = message.content;
     editing = true;
   }
@@ -81,6 +86,7 @@
   }
 
   function handleToggle(emoji: string, mine: boolean) {
+    if (isPending) return;
     onToggleReaction(message, emoji, mine);
   }
 </script>
@@ -137,8 +143,8 @@
     </div>
     {#if !editing}
       <MessageActions
-        {canEdit}
-        {canDelete}
+        canEdit={canEdit && !isPending}
+        canDelete={canDelete && !isPending}
         onReply={() => onReply(message)}
         onEdit={startEdit}
         onDelete={() => onDelete(message)}
@@ -171,8 +177,8 @@
     </div>
     {#if !editing}
       <MessageActions
-        {canEdit}
-        {canDelete}
+        canEdit={canEdit && !isPending}
+        canDelete={canDelete && !isPending}
         onReply={() => onReply(message)}
         onEdit={startEdit}
         onDelete={() => onDelete(message)}

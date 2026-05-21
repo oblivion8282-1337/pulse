@@ -129,23 +129,76 @@ class MessageStore {
   }
 
   /** Merge a gap-fill page (messages strictly newer than `lastPersistedId`)
-   *  into the channel non-destructively. Dedupes by id and by nonce echo,
-   *  so a message that the WS already pushed during the round-trip is not
-   *  duplicated. */
+   *  into the channel non-destructively. Dedupes by id. A message that the
+   *  WS already pushed during the round-trip is skipped by id.
+   *
+   *  Nonce handling: if an incoming row carries the nonce of an optimistic
+   *  `tmp-` copy we still hold, it IS that message's persisted version —
+   *  the WS echo was lost (e.g. to a reconnect that happened in the send
+   *  window). We replace the `tmp-` copy in place rather than dropping the
+   *  real row, which would otherwise strand the message on a `tmp-` id
+   *  forever (un-editable, un-reactable until a full channel reload). */
   mergeGap(channelId: string, msgs: Message[]): void {
     if (!msgs.length) return;
     const list = this.byChannel[channelId] ?? [];
     const haveIds = new Set(list.map((m) => m.id));
-    const haveNonces = new Set(list.map((m) => m.nonce).filter(Boolean) as string[]);
-    const incoming = msgs.filter(
-      (m) => !haveIds.has(m.id) && !(m.nonce && haveNonces.has(m.nonce))
-    );
-    if (!incoming.length) return;
-    let next = [...list, ...incoming].sort((a, b) =>
+    // nonce → index of an optimistic copy still awaiting its echo.
+    const tmpByNonce = new Map<string, number>();
+    list.forEach((m, i) => {
+      if (m.nonce && m.id.startsWith('tmp-')) tmpByNonce.set(m.nonce, i);
+    });
+    let next = list.slice();
+    const append: Message[] = [];
+    let mutated = false;
+    for (const m of msgs) {
+      if (haveIds.has(m.id)) continue;
+      const tmpIdx = m.nonce ? tmpByNonce.get(m.nonce) : undefined;
+      if (tmpIdx !== undefined) {
+        next[tmpIdx] = m;
+        mutated = true;
+      } else {
+        append.push(m);
+      }
+    }
+    if (!mutated && !append.length) return;
+    next = [...next, ...append].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     );
     if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [channelId]: next };
+  }
+
+  /** Re-sync already-present messages from a freshly re-fetched page —
+   *  `content`, `edited_at` and `reactions`. A `?after=<lastId>` gap-fill
+   *  only ever sees brand-new messages, so reaction toggles and edits that
+   *  landed on *existing* messages while the WS was disconnected would
+   *  otherwise stay stale until a full channel reload. New messages in
+   *  `msgs` are ignored here — `mergeGap` owns those. */
+  reconcile(channelId: string, msgs: Message[]): void {
+    const list = this.byChannel[channelId];
+    if (!list) return;
+    const byId = new Map(msgs.map((m) => [m.id, m]));
+    let changed = false;
+    const next = list.map((cur) => {
+      const fresh = byId.get(cur.id);
+      if (!fresh) return cur;
+      const merged: Message = {
+        ...cur,
+        content: fresh.content,
+        edited_at: fresh.edited_at,
+        reactions: fresh.reactions ?? cur.reactions
+      };
+      if (
+        merged.content === cur.content &&
+        merged.edited_at === cur.edited_at &&
+        JSON.stringify(merged.reactions ?? []) === JSON.stringify(cur.reactions ?? [])
+      ) {
+        return cur;
+      }
+      changed = true;
+      return merged;
+    });
+    if (changed) this.byChannel = { ...this.byChannel, [channelId]: next };
   }
 
   /** Mark a channel as not loaded so the next visit re-fetches messages. */
