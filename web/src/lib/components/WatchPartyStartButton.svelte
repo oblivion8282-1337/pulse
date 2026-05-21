@@ -78,6 +78,7 @@
           {...props}
           variant={active ? (isHost ? 'destructive' : 'default') : 'ghost'}
           size="icon-sm"
+          class="size-9 md:size-8"
           onclick={handleClick}
           disabled={active && !isHost}
           aria-label={active && isHost ? 'Watch Party beenden' : 'Watch Party starten'}

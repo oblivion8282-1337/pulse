@@ -23,6 +23,7 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import type { Channel } from '$lib/api/types';
 
   let { channel }: { channel: Channel } = $props();
@@ -78,6 +79,10 @@
   // a direct style binding instead. `max(1, …)` keeps the grid valid when the
   // viewer just closed everything (videoTileCount briefly 0 before unmount).
   let gridColumns = $derived.by(() => {
+    // Mobil: immer 1 Spalte — ein Video-Tile in einer 2-Spalten-Grid auf
+    // ~393px wäre unbrauchbar klein. Mehrere Tiles teilen sich die Höhe
+    // (auto-rows-fr), jedes über die volle Breite.
+    if (viewport.isMobile) return 'minmax(0, 1fr)';
     const cols = videoTileCount <= 1 ? 1 : videoTileCount <= 4 ? 2 : videoTileCount <= 9 ? 3 : 4;
     return `repeat(${cols}, minmax(0, 1fr))`;
   });

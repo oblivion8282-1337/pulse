@@ -90,7 +90,7 @@
     {/if}
   </div>
 
-  <div class="flex items-center gap-0.5">
+  <div class="flex flex-wrap items-center gap-1">
     <Tooltip.Provider delayDuration={300}>
       <Tooltip.Root>
         <Tooltip.Trigger>
@@ -99,6 +99,7 @@
               {...props}
               variant={voice.micEnabled && !selfForceMuted ? 'secondary' : 'destructive'}
               size="icon-sm"
+              class="size-9 md:size-8"
               onclick={() => voice.toggleMic()}
               disabled={selfForceMuted}
               data-testid="voice-mic-toggle"
@@ -128,6 +129,7 @@
               {...props}
               variant={voice.deafened ? 'destructive' : 'secondary'}
               size="icon-sm"
+              class="size-9 md:size-8"
               onclick={() => voice.toggleDeafen()}
               disabled={selfForceDeafened}
               data-testid="voice-deafen-toggle"
@@ -162,6 +164,7 @@
                 {...props}
                 variant={voice.isCameraOn ? 'default' : 'ghost'}
                 size="icon-sm"
+                class="size-9 md:size-8"
                 onclick={() => voice.toggleCamera()}
                 data-testid="voice-camera-toggle"
                 aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
@@ -184,6 +187,7 @@
                 {...props}
                 variant={voice.isScreenSharing ? 'default' : 'ghost'}
                 size="icon-sm"
+                class="size-9 md:size-8"
                 onclick={handleScreenShare}
                 data-testid="voice-screenshare-toggle"
                 aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
@@ -225,7 +229,7 @@
               {...props}
               variant="destructive"
               size="icon-sm"
-              class="ml-auto"
+              class="ml-auto size-9 md:size-8"
               onclick={() => voice.disconnect({ reason: 'user' })}
               data-testid="voice-disconnect"
               aria-label="Voice verlassen"
