@@ -200,12 +200,12 @@
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
     {#if onMenuClick}
       <button
-        class="mr-1 rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary md:hidden"
+        class="-ml-1 mr-1 rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:hidden"
         onclick={onMenuClick}
         aria-label="Menü"
         data-testid="mobile-menu-toggle"
       >
-        <MenuIcon class="text-text-muted size-4" />
+        <MenuIcon class="text-text-muted size-6" />
       </button>
     {/if}
     {#if channel}
