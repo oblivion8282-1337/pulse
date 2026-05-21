@@ -34,7 +34,10 @@
     query: string;
     /** Null for DMs — disables role + everyone suggestions. */
     guildId: string | null;
-    onPick: (insertion: string) => void;
+    /** Called with the human-readable display text and the raw wire markup
+     *  separately so the host can show `@Username` in the textarea while
+     *  still sending `<@id>` to the server. */
+    onPick: (display: string, markup: string) => void;
     onClose: () => void;
   } = $props();
 
@@ -122,15 +125,16 @@
     activeIdx = 0;
   });
 
-  function insertionFor(item: Item): string {
-    if (item.kind === 'user') return `<@${item.id}> `;
-    if (item.kind === 'role') return `<@&${item.id}> `;
-    if (item.kind === 'everyone') return `@everyone `;
-    return `@here `;
+  function insertionFor(item: Item): { display: string; markup: string } {
+    if (item.kind === 'user') return { display: `@${item.label} `, markup: `<@${item.id}> ` };
+    if (item.kind === 'role') return { display: `@${item.label} `, markup: `<@&${item.id}> ` };
+    if (item.kind === 'everyone') return { display: '@everyone ', markup: '@everyone ' };
+    return { display: '@here ', markup: '@here ' };
   }
 
   function pick(item: Item) {
-    onPick(insertionFor(item));
+    const { display, markup } = insertionFor(item);
+    onPick(display, markup);
   }
 
   /** Public — host wires this to the textarea's keydown so ↑/↓/Enter/Tab/Esc

@@ -93,13 +93,18 @@
   function fire() {
     if (sendDisabled) return;
     const value = expandShortcodes(text).trim();
+    // Convert `@DisplayName` placeholders back to `<@id>` wire format before
+    // sending. The overlay tracked each autocomplete insertion; manually typed
+    // @-patterns are left as-is (they won't match the tracked display texts).
+    const markupValue = mentionOverlay?.toMarkup(value) ?? value;
     const ids = pending.filter((p) => p.state === 'done' && p.attachmentId).map((p) => p.attachmentId!);
-    if (!value && ids.length === 0) return;
-    onSend(value, ids);
+    if (!markupValue && ids.length === 0) return;
+    onSend(markupValue, ids);
     text = '';
     pending.forEach(cleanupRow);
     pending = [];
     aborts.clear();
+    mentionOverlay?.clear();
   }
 
   function onKeydown(e: KeyboardEvent) {

@@ -29,6 +29,9 @@
   let mentionQuery = $state('');
   let mentionStart = $state<number>(-1);
   let autocomplete: MentionAutocomplete | undefined = $state();
+  // Tracks display→markup replacements for mentions inserted via autocomplete.
+  // `toMarkup` converts the human-readable textarea text back to wire format.
+  let _replacements: { display: string; markup: string }[] = [];
 
   /** Recompute the trigger range from the current caret position. Called
    *  from the host on `oninput`/`onkeyup`/`onclick`. */
@@ -58,10 +61,11 @@
     return autocomplete?.handleKey(e) ?? false;
   }
 
-  function applyMention(insertion: string) {
+  function applyMention(display: string, markup: string) {
     if (!textareaEl || mentionStart < 0) return;
     const caret = textareaEl.selectionStart ?? value.length;
-    const next = applyMentionInsertion(value, mentionStart, caret, insertion);
+    const next = applyMentionInsertion(value, mentionStart, caret, display);
+    _replacements.push({ display, markup });
     onChange(next.text);
     mentionOpen = false;
     mentionStart = -1;
@@ -70,6 +74,39 @@
       textareaEl?.setSelectionRange(next.caret, next.caret);
     });
   }
+
+  /**
+   * Convert the human-readable display text (with `@Username`) back to wire
+   * markup (with `<@id>`). Call this on the trimmed textarea value just
+   * before sending — the order of replacements mirrors insertion order so
+   * two mentions of same-name users resolve correctly.
+   *
+   * Also handles the trim edge-case: if the message ends with a mention and
+   * the trailing space was removed by `.trim()`, the trimmless form is tried.
+   */
+  export function toMarkup(text: string): string {
+    let result = text;
+    for (const { display, markup } of _replacements) {
+      const idx = result.indexOf(display);
+      if (idx >= 0) {
+        result = result.slice(0, idx) + markup + result.slice(idx + display.length);
+      } else {
+        // Trailing-space was stripped by .trim() — try without it.
+        const d = display.trimEnd();
+        const m = markup.trimEnd();
+        const i2 = result.indexOf(d);
+        if (i2 >= 0) {
+          result = result.slice(0, i2) + m + result.slice(i2 + d.length);
+        }
+      }
+    }
+    return result;
+  }
+
+  /** Clear tracked replacements after a message is sent. */
+  export function clear(): void {
+    _replacements = [];
+  }
 </script>
 
 <MentionAutocomplete
@@ -77,6 +114,6 @@
   open={mentionOpen}
   query={mentionQuery}
   {guildId}
-  onPick={applyMention}
+  onPick={(display, markup) => applyMention(display, markup)}
   onClose={() => { mentionOpen = false; }}
 />
