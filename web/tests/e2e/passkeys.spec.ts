@@ -30,6 +30,8 @@ async function registerAndOpenSecurity(page: import('@playwright/test').Page) {
   await page.getByTestId('reg-submit').click();
   await page.waitForURL(/\/app/);
 
+  // Settings lives behind the user-footer dropdown — open the trigger first.
+  await page.getByTestId('user-footer-trigger').click();
   await page.getByTestId('open-settings').click();
   await expect(page.getByTestId('settings-dialog')).toBeVisible();
   await page.getByTestId('settings-tab-security').click();
