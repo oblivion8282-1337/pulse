@@ -74,6 +74,21 @@ async def test_token_rejects_unknown_field(client, auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_token_rejects_email_blocked(client, auth_signer):
+    """Email-verification gate: a token stamped ``email_blocked`` (unverified
+    account on an SMTP-configured deployment) gets no voice token — the 403
+    fires in the auth dependency, before the membership check."""
+    access = auth_signer.issue_access(42, "alice", email_blocked=True)
+    r = await client.post(
+        "/token",
+        json={"channel_id": "987654321"},
+        headers=auth(access),
+    )
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "email verification required"
+
+
+@pytest.mark.asyncio
 async def test_token_requires_channel_membership(client, auth_signer, monkeypatch):
     """With ``CHAT_GATEWAY_URL`` configured, the route must consult chat-gateway
     and reject non-members. We monkeypatch ``_chat_gateway_request`` to avoid

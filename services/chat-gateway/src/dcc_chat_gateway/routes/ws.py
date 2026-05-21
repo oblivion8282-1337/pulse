@@ -137,6 +137,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4001, reason="unauthorized")
         return
 
+    # Email-verification gate: a token carrying ``email_blocked`` belongs to
+    # an unverified account on an SMTP-configured deployment. Distinct close
+    # code (4003) so the client can route to the "verify your email" screen
+    # instead of treating it as a generic auth failure.
+    if payload.get("email_blocked"):
+        await websocket.close(code=4003, reason="email not verified")
+        return
+
     # Reject already-expired tokens before accepting — avoids sending `ready`
     # followed immediately by a 4001 close (inconsistent client state).
     exp = payload.get("exp")

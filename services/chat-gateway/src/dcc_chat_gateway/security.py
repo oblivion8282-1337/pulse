@@ -171,6 +171,14 @@ async def get_current_user(
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
     payload = await decode_token(token)
+    # Email-verification gate: auth-svc stamps ``email_blocked`` on tokens of
+    # unverified accounts once SMTP is configured. The whole chat-gateway is
+    # off-limits until the address is confirmed (auth-svc itself stays open so
+    # the user can still verify / fix their email).
+    if payload.get("email_blocked"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="email verification required"
+        )
     try:
         uid = int(payload["sub"])
     except (KeyError, ValueError) as exc:
