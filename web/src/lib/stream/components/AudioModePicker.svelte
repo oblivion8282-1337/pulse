@@ -25,6 +25,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import { isWindows } from '$lib/platform/runtime';
   import {
     streamSettings,
     APP_AUDIO_PREFIX,
@@ -50,7 +51,13 @@
   }
 
   const MAIN_MODES: AudioMode[] = ['Aus', 'Desktop'];
-  const SECONDARY_MODES: AudioMode[] = ['Mikrofon', 'Desktop + Mikrofon'];
+  // "System + Mikrofon" braucht den Stage-7-Mixer, den der Windows-Sidecar
+  // nicht hat (`AudioSource::DesktopPlusMicrophone` = TODO-Stub). Dort nur
+  // "Nur Mikrofon" anbieten — ein verhungernder Audio-Stream crasht sonst den
+  // Muxer (s. settings.svelte.ts::applyPersisted für den persistierten Wert).
+  const SECONDARY_MODES: AudioMode[] = isWindows()
+    ? ['Mikrofon']
+    : ['Mikrofon', 'Desktop + Mikrofon'];
 
   let appMode = $derived(isAppAudioMode(streamSettings.audio_mode));
   let usesDesktop = $derived(audioModeUsesDesktop(streamSettings.audio_mode));

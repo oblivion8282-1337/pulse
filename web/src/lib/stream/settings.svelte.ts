@@ -188,6 +188,13 @@ function applyPersisted(data: Record<string, unknown>): void {
   ) {
     streamSettings.audio_mode = data.audio_mode;
   }
+  // "Desktop + Mikrofon" hat auf dem Windows-Sidecar keinen Mixer (Stage-7-
+  // TODO). Die UI blendet den Modus dort aus (AudioModePicker) — einen
+  // alt-persistierten Wert hier auf "Desktop" zurücksetzen, sonst streamt der
+  // Windows-Sidecar mit einem verhungernden Audio-Stream und crasht den Muxer.
+  if (isWindows() && streamSettings.audio_mode === 'Desktop + Mikrofon') {
+    streamSettings.audio_mode = 'Desktop';
+  }
   if (typeof data.audio_app === 'string') streamSettings.audio_app = data.audio_app;
   if (Array.isArray(data.excluded_apps)) {
     streamSettings.excluded_apps = data.excluded_apps.filter((x): x is string => typeof x === 'string');
