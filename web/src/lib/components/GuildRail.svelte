@@ -30,8 +30,10 @@
   // top-level guild metadata, not their channel lists.
   import { roles } from '$lib/stores/roles.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
+  import UserFooter from './UserFooter.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
   import GuildVoiceTooltip from './GuildVoiceTooltip.svelte';
   import type { Guild } from '$lib/api/types';
@@ -156,7 +158,9 @@
   data-testid="guild-rail"
   aria-label="Server"
 >
-  <Tooltip.Provider delayDuration={200}>
+  <!-- Tooltips auf Mobil aus: Hover-Popups (Server-Name/Member-Zahl) poppen
+       auf Touch beim Antippen unerwünscht auf. -->
+  <Tooltip.Provider delayDuration={200} disabled={viewport.isMobile}>
     <Tooltip.Root>
       <Tooltip.Trigger>
         {#snippet child({ props })}
@@ -321,6 +325,14 @@
       </Tooltip.Root>
     {/if}
   </Tooltip.Provider>
+
+  <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-
+       Symbol (Desktop hat ihn im Sidebar-Footer mit Name). -->
+  {#if viewport.isMobile}
+    <div class="mt-auto shrink-0 pt-1">
+      <UserFooter compact />
+    </div>
+  {/if}
 </nav>
 
 <RenameGuildDialog

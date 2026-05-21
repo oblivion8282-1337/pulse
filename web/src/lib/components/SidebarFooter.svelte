@@ -22,4 +22,8 @@
 {#if (voice.connected || voice.connecting) && !viewport.isMobile}
   <VoiceControlBar />
 {/if}
-<UserFooter />
+<!-- Auf Mobil sitzt der eigene User unten in der GuildRail (s. dort) — hier
+     nur auf Desktop, mit Name + Chip. -->
+{#if !viewport.isMobile}
+  <UserFooter />
+{/if}

@@ -21,6 +21,11 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import LogOutIcon from '@lucide/svelte/icons/log-out';
 
+  // `compact`: nur das Avatar-Symbol, kein Name + kein Chip-Hintergrund — für
+  // die mobile GuildRail, wo der eigene User unten in der Server-Spalte sitzt.
+  // Default = volle Variante (Name + Chip) im Sidebar-Footer auf Desktop.
+  let { compact = false }: { compact?: boolean } = $props();
+
   let uploadOpen = $state(false);
 
   let displayName = $derived(
@@ -68,64 +73,92 @@
 <AvatarUploadDialog bind:open={uploadOpen} />
 <SettingsDialog bind:open={uiOverlays.settingsOpen} />
 
-<div
-  class="bg-bg-input m-2 flex shrink-0 items-center gap-2.5 rounded-2xl border border-border p-2"
-  data-testid="user-footer"
->
+{#snippet avatarBlock(sizeClass: string)}
+  {#key avatarUrl}
+    <Avatar.Root class="{sizeClass} shrink-0">
+      {#if avatarUrl}
+        <Avatar.Image src={avatarUrl} alt={displayName} />
+      {/if}
+      <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
+        {initial}
+      </Avatar.Fallback>
+    </Avatar.Root>
+  {/key}
+{/snippet}
+
+{#snippet menuItems()}
+  <DropdownMenu.Item onclick={() => (uploadOpen = true)} data-testid="avatar-change-btn">
+    <ImagePlusIcon class="size-4" />
+    Profilbild ändern
+  </DropdownMenu.Item>
+  {#if auth.user?.avatar_url}
+    <DropdownMenu.Item onclick={onRemoveAvatar} data-testid="avatar-remove-btn">
+      <Trash2Icon class="size-4" />
+      Profilbild entfernen
+    </DropdownMenu.Item>
+  {/if}
+  <DropdownMenu.Separator />
+  <DropdownMenu.Item onclick={() => (uiOverlays.settingsOpen = true)} data-testid="open-settings">
+    <SettingsIcon class="size-4" />
+    Einstellungen
+  </DropdownMenu.Item>
+  {#if auth.user?.is_admin}
+    <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
+      <ShieldIcon class="size-4" />
+      Server-Admin
+    </DropdownMenu.Item>
+  {/if}
+  <DropdownMenu.Separator />
+  <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
+    <LogOutIcon class="size-4" />
+    Abmelden
+  </DropdownMenu.Item>
+{/snippet}
+
+{#if compact}
   <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <button
           {...props}
-          class="hover:bg-bg-hover flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors"
+          class="shrink-0 rounded-2xl transition-transform hover:scale-105 active:scale-95"
           data-testid="user-footer-trigger"
+          aria-label="Konto & Einstellungen"
         >
-          {#key avatarUrl}
-            <Avatar.Root class="size-8 shrink-0">
-              {#if avatarUrl}
-                <Avatar.Image src={avatarUrl} alt={displayName} />
-              {/if}
-              <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
-                {initial}
-              </Avatar.Fallback>
-            </Avatar.Root>
-          {/key}
-          <div class="min-w-0 text-left">
-            <p class="text-text-bright truncate text-sm font-semibold">{displayName}</p>
-            {#if displayName !== username}
-              <p class="text-text-muted truncate text-xs">{username}</p>
-            {/if}
-          </div>
+          {@render avatarBlock('size-10')}
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content side="top" align="start" class="w-52">
-      <DropdownMenu.Item onclick={() => (uploadOpen = true)} data-testid="avatar-change-btn">
-        <ImagePlusIcon class="size-4" />
-        Profilbild ändern
-      </DropdownMenu.Item>
-      {#if auth.user?.avatar_url}
-        <DropdownMenu.Item onclick={onRemoveAvatar} data-testid="avatar-remove-btn">
-          <Trash2Icon class="size-4" />
-          Profilbild entfernen
-        </DropdownMenu.Item>
-      {/if}
-      <DropdownMenu.Separator />
-      <DropdownMenu.Item onclick={() => (uiOverlays.settingsOpen = true)} data-testid="open-settings">
-        <SettingsIcon class="size-4" />
-        Einstellungen
-      </DropdownMenu.Item>
-      {#if auth.user?.is_admin}
-        <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
-          <ShieldIcon class="size-4" />
-          Server-Admin
-        </DropdownMenu.Item>
-      {/if}
-      <DropdownMenu.Separator />
-      <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
-        <LogOutIcon class="size-4" />
-        Abmelden
-      </DropdownMenu.Item>
+    <DropdownMenu.Content side="right" align="end" class="w-52">
+      {@render menuItems()}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
-</div>
+{:else}
+  <div
+    class="bg-bg-input m-2 flex shrink-0 items-center gap-2.5 rounded-2xl border border-border p-2"
+    data-testid="user-footer"
+  >
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            class="hover:bg-bg-hover flex min-w-0 flex-1 items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors"
+            data-testid="user-footer-trigger"
+          >
+            {@render avatarBlock('size-8')}
+            <div class="min-w-0 text-left">
+              <p class="text-text-bright truncate text-sm font-semibold">{displayName}</p>
+              {#if displayName !== username}
+                <p class="text-text-muted truncate text-xs">{username}</p>
+              {/if}
+            </div>
+          </button>
+        {/snippet}
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content side="top" align="start" class="w-52">
+        {@render menuItems()}
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
+  </div>
+{/if}
