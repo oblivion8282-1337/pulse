@@ -5,21 +5,25 @@ import type { Session, Tokens, User } from './types';
 /**
  * The /login endpoint returns one of two shapes:
  *  - `Tokens` (normal flow) — saved + the auth-store can hydrate.
- *  - `TotpChallenge` — caller must complete via `loginWithTotp(mfa_ticket, …)`.
+ *  - `MfaChallenge` — the account has a second factor; the caller completes
+ *    via `loginWithTotp(...)` or `loginWithPasskey(mfa_ticket)`.
  *
- * The discriminator is `requires_totp: true` on the challenge variant. The
- * union has no other fields — the server omits `access_token`/`refresh_token`
- * on the challenge response so we can safely narrow with `'requires_totp' in r`.
+ * The discriminator is `requires_mfa: true`. `methods` lists which second
+ * factors the account actually has, so the UI shows only the relevant inputs:
+ * a passkey-only account is `["webauthn"]` and never sees a code field.
  */
-export type TotpChallenge = {
-  requires_totp: true;
+export type MfaMethod = 'totp' | 'webauthn';
+
+export type MfaChallenge = {
+  requires_mfa: true;
   mfa_ticket: string;
+  methods: MfaMethod[];
 };
 
-export type LoginResult = Tokens | TotpChallenge;
+export type LoginResult = Tokens | MfaChallenge;
 
-export function isTotpChallenge(result: LoginResult): result is TotpChallenge {
-  return 'requires_totp' in result && result.requires_totp === true;
+export function isMfaChallenge(result: LoginResult): result is MfaChallenge {
+  return 'requires_mfa' in result && result.requires_mfa === true;
 }
 
 export type TotpSetup = {
@@ -56,7 +60,7 @@ export async function login(emailOrUsername: string, password: string): Promise<
     auth: false,
     endpoint: 'auth'
   });
-  if (!isTotpChallenge(result)) {
+  if (!isMfaChallenge(result)) {
     saveTokens(result);
     resetRefreshLock();
   }

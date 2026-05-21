@@ -3,7 +3,8 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { toast } from 'svelte-sonner';
-  import { login, loginWithTotp, me, isTotpChallenge } from '$lib/api/auth';
+  import { login, loginWithTotp, me, isMfaChallenge, type MfaMethod } from '$lib/api/auth';
+  import { loginWithPasskey, webauthnSupported } from '$lib/api/webauthn';
   import { ApiError } from '$lib/api/client';
   import { auth } from '$lib/stores/auth.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -11,10 +12,11 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
+  import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
-  import LoginTotpForm from '$lib/components/auth/LoginTotpForm.svelte';
+  import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
 
-  type Step = 'credentials' | 'totp';
+  type Step = 'credentials' | 'mfa';
 
   let emailOrUsername = $state('');
   let password = $state('');
@@ -22,6 +24,11 @@
   let busy = $state(false);
   let step = $state<Step>('credentials');
   let mfaTicket = $state<string | null>(null);
+  let mfaMethods = $state<MfaMethod[]>([]);
+
+  // WebAuthn API presence is fixed for the page's lifetime — `ssr=false`, so
+  // `window` is always there by the time this runs.
+  const passkeysAvailable = webauthnSupported();
 
   function safeRedirect(raw: string | null): string {
     if (!raw) return '/app';
@@ -51,14 +58,53 @@
     busy = true;
     try {
       const result = await login(emailOrUsername.trim(), password);
-      if (isTotpChallenge(result)) {
+      if (isMfaChallenge(result)) {
         mfaTicket = result.mfa_ticket;
-        step = 'totp';
+        mfaMethods = result.methods;
+        step = 'mfa';
         return;
       }
       await completeLogin();
     } catch (err) {
       error = (err as Error).message;
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Passwordless login from the credentials step — a discoverable passkey
+   *  identifies the user, no email/password typed. */
+  async function passwordlessLogin() {
+    if (busy) return;
+    error = null;
+    busy = true;
+    try {
+      await loginWithPasskey();
+      await completeLogin();
+    } catch (err) {
+      error = (err as Error).message;
+    } finally {
+      busy = false;
+    }
+  }
+
+  /** Passkey as the 2FA second factor — uses the ticket from the password
+   *  step. Same expired-ticket reset as `submitTotp`. */
+  async function submitPasskeyMfa() {
+    if (!mfaTicket || busy) return;
+    error = null;
+    busy = true;
+    try {
+      await loginWithPasskey(mfaTicket);
+      await completeLogin();
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 410)) {
+        mfaTicket = null;
+        step = 'credentials';
+        error = 'Anmeldung abgelaufen — bitte erneut einloggen.';
+      } else {
+        error = (err as Error).message;
+      }
     } finally {
       busy = false;
     }
@@ -87,9 +133,10 @@
     }
   }
 
-  function cancelTotp() {
+  function cancelMfa() {
     step = 'credentials';
     mfaTicket = null;
+    mfaMethods = [];
     error = null;
   }
 </script>
@@ -174,13 +221,39 @@
           {busy ? 'Anmelden…' : 'Anmelden'}
         </Button>
 
+        {#if passkeysAvailable}
+          <div class="text-muted-foreground flex items-center gap-3 text-xs">
+            <span class="bg-border h-px flex-1"></span>
+            oder
+            <span class="bg-border h-px flex-1"></span>
+          </div>
+          <Button
+            type="button"
+            variant="secondary"
+            class="w-full gap-2"
+            disabled={busy}
+            onclick={passwordlessLogin}
+            data-testid="login-passkey"
+          >
+            <FingerprintIcon class="size-4" />
+            Mit Passkey anmelden
+          </Button>
+        {/if}
+
         <p class="text-muted-foreground text-center text-sm">
           Brauchst du ein Konto?
           <a class="text-primary hover:underline" href="/register">Registrieren</a>
         </p>
       </form>
     {:else}
-      <LoginTotpForm {busy} {error} onSubmit={submitTotp} onCancel={cancelTotp} />
+      <LoginMfaForm
+        methods={mfaMethods}
+        {busy}
+        {error}
+        onTotp={submitTotp}
+        onPasskey={submitPasskeyMfa}
+        onCancel={cancelMfa}
+      />
     {/if}
   </div>
 </div>
