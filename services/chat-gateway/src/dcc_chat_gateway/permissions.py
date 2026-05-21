@@ -270,6 +270,107 @@ async def assert_overwrite_within_editor_scope(
         )
 
 
+async def members_who_can_view(
+    session: AsyncSession,
+    guild_id: int,
+    channel_id: int,
+) -> set[int]:
+    """User-ids of every guild member who currently holds ``VIEW_CHANNEL``
+    on ``channel_id``.
+
+    Batched: a fixed four SELECTs regardless of member count (guild row,
+    members, the guild's roles + every member's role assignments, the
+    channel's overwrites). The per-member resolve then runs purely
+    in-memory via the shared resolver — no N+1.
+
+    Used by the @-mention / channel-activity fan-out to decide who may be
+    notified about a channel without leaking pings for channels the
+    recipient cannot even open.
+
+    Caveat: a user's *global-admin* flag lives in the auth-svc DB / the
+    JWT and is not visible here, so a global admin who lacks VIEW via
+    roles is conservatively excluded. Rare and non-fatal — they still see
+    the message when they open the channel."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        return set()
+
+    member_ids = {
+        uid
+        for (uid,) in (
+            await session.execute(
+                select(GuildMember.user_id).where(GuildMember.guild_id == guild_id)
+            )
+        ).all()
+    }
+    if not member_ids:
+        return set()
+
+    # Every role of the guild, indexed by id. @everyone is implicit for
+    # every member whether or not a member_roles row exists.
+    role_by_id: dict[int, Role] = {}
+    everyone: Role | None = None
+    for r in (
+        await session.execute(select(Role).where(Role.guild_id == guild_id))
+    ).scalars():
+        role_by_id[r.id] = r
+        if r.is_everyone:
+            everyone = r
+
+    # Explicit assignments: user_id -> [role_id, ...].
+    assignments: dict[int, list[int]] = {}
+    for uid, rid in (
+        await session.execute(
+            select(MemberRole.user_id, MemberRole.role_id).where(
+                MemberRole.guild_id == guild_id
+            )
+        )
+    ).all():
+        assignments.setdefault(uid, []).append(rid)
+
+    # Channel overwrites — identical for every member, fetched once.
+    overwrites: dict[tuple[int, int], Override] = {}
+    for ow in (
+        await session.execute(
+            select(PermissionOverwrite).where(
+                PermissionOverwrite.channel_id == channel_id
+            )
+        )
+    ).scalars():
+        overwrites[(ow.target_type, ow.target_id)] = Override(
+            allow=ow.allow_bf, deny=ow.deny_bf
+        )
+
+    out: set[int] = set()
+    for uid in member_ids:
+        member_roles: list[Role] = [
+            role_by_id[rid] for rid in assignments.get(uid, ()) if rid in role_by_id
+        ]
+        if everyone is not None and everyone not in member_roles:
+            member_roles.append(everyone)
+        ctx = _Ctx(
+            user=uid,
+            admin=False,  # global-admin flag not visible here — see docstring
+            owner=guild.owner_id == uid,
+            member=True,
+            roles=[
+                RoleSnapshot(
+                    id=r.id,
+                    position=r.position,
+                    permissions=r.permissions,
+                    is_everyone=r.is_everyone,
+                )
+                for r in member_roles
+            ],
+            overwrites=overwrites,
+        )
+        if has_permission(
+            calculate_channel_permissions(ctx), Permissions.VIEW_CHANNEL
+        ):
+            out.add(uid)
+    return out
+
+
 __all__ = [
     "OVERWRITE_TARGET_ROLE",
     "OVERWRITE_TARGET_USER",
@@ -277,6 +378,7 @@ __all__ = [
     "assert_overwrite_within_editor_scope",
     "check_permission",
     "has_permission",
+    "members_who_can_view",
     "resolve_guild_permissions_from_snapshot",
     "resolve_permissions",
 ]

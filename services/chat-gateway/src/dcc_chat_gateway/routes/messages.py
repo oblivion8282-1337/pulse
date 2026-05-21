@@ -41,7 +41,6 @@ from dcc_chat_gateway.message_helpers import (
 )
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
-    MENTION_TYPE_USER,
     Message,
     MessageAttachment,
     MessageReaction,
@@ -238,25 +237,22 @@ async def post_message(
         channel_id,
         serialize_message(msg, attachments=atts_serial, mentions=mentions_serial),
     )
-    await fan_out_mention_events(
+    notified = await fan_out_mention_events(
         request,
+        session=session,
         mentions=valid_mentions,
         message_id=msg.id,
         channel_id=channel_id,
         guild_id=guild_id_for_mentions,
         author_id=current.id,
     )
-    # Web-Push fan-out (cross-channel, out-of-band): same targets as the
-    # in-window ``mention_added`` envelope. Runs AFTER the WS broadcast
-    # so a slow push service can't delay the in-app counter bump.
-    push_targets = {
-        tid
-        for (t, tid) in valid_mentions
-        if t == MENTION_TYPE_USER and tid != current.id
-    }
-    if push_targets:
+    # Web-Push fan-out (cross-channel, out-of-band): exactly the audience
+    # the in-window ``mention_added`` envelope went to — role + everyone
+    # pings already expanded + VIEW-filtered + author-excluded. Runs AFTER
+    # the WS broadcast so a slow push service can't delay the counter bump.
+    if notified:
         await fan_out_mention_push(
-            user_ids=push_targets,
+            user_ids=notified,
             author_name=current.username,
             content=payload.content,
             channel_id=channel_id,
@@ -381,8 +377,10 @@ async def edit_message(
     # pings (an edit that just fixes a typo must not re-notify everyone).
     guild_id_for_mentions = ch.guild_id if kind == "guild" else None
     pre_existing = await mentions_for(session, [msg.id])
-    pre_user_ids: set[int] = {
-        int(m["id"]) for m in pre_existing.get(msg.id, []) if m["type"] == MENTION_TYPE_USER
+    # Full pre-edit marker set ``(type, id)`` — drives the "only notify for
+    # *newly* added pings" diff below (a typo-fix edit must not re-ping).
+    pre_set: set[tuple[int, int]] = {
+        (m["type"], int(m["id"])) for m in pre_existing.get(msg.id, [])
     }
     raw_mentions = parse_markers(payload.content)
     valid_mentions = await filter_to_valid(
@@ -407,31 +405,23 @@ async def edit_message(
         msg, reactions, attachments=atts_serial, mentions=mentions_serial
     )
     await _broadcast(request, msg.channel_id, {"op": "message_update", "data": payload_out})
-    # Only fan out direct mention_added events for newly pinged users.
-    new_user_mentions = {
-        (t, tid)
-        for (t, tid) in valid_mentions
-        if t == MENTION_TYPE_USER and tid not in pre_user_ids
-    }
-    if new_user_mentions:
-        await fan_out_mention_events(
+    # Only fan out mention_added for *newly* added markers — user, role or
+    # everyone alike. ``fan_out_mention_events`` then expands + VIEW-filters
+    # the new set and returns the concrete recipients for the push fan-out.
+    new_mentions = valid_mentions - pre_set
+    if new_mentions:
+        notified = await fan_out_mention_events(
             request,
-            mentions=new_user_mentions,
+            session=session,
+            mentions=new_mentions,
             message_id=msg.id,
             channel_id=msg.channel_id,
             guild_id=guild_id_for_mentions,
             author_id=current.id,
         )
-        push_targets = {
-            tid for (t, tid) in new_user_mentions if t == MENTION_TYPE_USER
-        }
-        # ``new_user_mentions`` already excludes pre-existing ids, but
-        # edits where the author adds themselves still need the self-ping
-        # filter. Cheap belt-and-braces; matches post_message semantics.
-        push_targets.discard(current.id)
-        if push_targets:
+        if notified:
             await fan_out_mention_push(
-                user_ids=push_targets,
+                user_ids=notified,
                 author_name=current.username,
                 content=payload.content,
                 channel_id=msg.channel_id,

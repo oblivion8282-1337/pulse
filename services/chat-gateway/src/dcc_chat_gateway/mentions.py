@@ -41,9 +41,11 @@ from dcc_chat_gateway.models import (
     MENTION_TYPE_ROLE,
     MENTION_TYPE_USER,
     GuildMember,
+    MemberRole,
     MessageMention,
     Role,
 )
+from dcc_chat_gateway.permissions import members_who_can_view
 
 log = logging.getLogger(__name__)
 
@@ -232,39 +234,89 @@ def serialize_mentions(rows: list[MessageMention] | None) -> list[dict]:
     ]
 
 
+async def _expand_mention_targets(
+    session: AsyncSession,
+    mentions: set[tuple[int, int]],
+    *,
+    channel_id: int,
+    guild_id: int | None,
+    author_id: int,
+) -> set[int]:
+    """Resolve mention markers to a concrete recipient user-id set.
+
+    User markers are taken at face value (``filter_to_valid`` already
+    confirmed guild membership). Role markers expand to every holder of
+    the role; ``everyone``/``here`` expands to every guild member. Both
+    of the latter are intersected with the members who can actually
+    ``VIEW_CHANNEL`` the channel — nobody should get a mention badge for
+    a channel they cannot open. The author is always dropped.
+    """
+    targets: set[int] = {tid for (t, tid) in mentions if t == MENTION_TYPE_USER}
+    role_ids = {tid for (t, tid) in mentions if t == MENTION_TYPE_ROLE}
+    has_everyone = (MENTION_TYPE_EVERYONE, MENTION_EVERYONE_TARGET_ID) in mentions
+    # Role + everyone expansion is guild-only — DMs have neither.
+    if guild_id is not None and (role_ids or has_everyone):
+        viewers = await members_who_can_view(session, guild_id, channel_id)
+        if has_everyone:
+            targets |= viewers
+        if role_ids:
+            holders = {
+                uid
+                for (uid,) in (
+                    await session.execute(
+                        select(MemberRole.user_id).where(
+                            MemberRole.guild_id == guild_id,
+                            MemberRole.role_id.in_(role_ids),
+                        )
+                    )
+                ).all()
+            }
+            targets |= holders & viewers
+    targets.discard(author_id)
+    return targets
+
+
 async def fan_out_mention_events(
     conn: HTTPConnection,
     *,
+    session: AsyncSession,
     mentions: set[tuple[int, int]],
     message_id: int,
     channel_id: int,
     guild_id: int | None,
     author_id: int,
-) -> None:
-    """Direct-deliver ``mention_added`` to each pinged user's sockets.
+) -> set[int]:
+    """Direct-deliver ``mention_added`` to every pinged user's sockets.
 
-    The channel-scoped broadcast already carries the ``mentions`` array
-    on the ``message`` envelope; this is the *cross-channel* path so a
-    client with the channel closed still sees its counter bump. We only
-    fire per-user envelopes for ``MENTION_TYPE_USER`` markers — role +
-    everyone fan-out are handled client-side from the channel broadcast
-    (each client knows its own role set; expanding ``everyone`` to
-    individual user routes would be O(members) per message).
+    Expands the three marker kinds to a concrete recipient set:
+      * user markers   → the target user,
+      * role markers   → every member holding that role,
+      * everyone/here  → every guild member,
+    with role + everyone recipients intersected with the members who can
+    ``VIEW_CHANNEL`` the channel (see ``_expand_mention_targets``).
 
-    No-op when no users were mentioned, no manager is wired up, or the
-    only mention is the author themselves (self-pings shouldn't bump a
-    counter).
+    The channel-scoped ``message`` broadcast still carries the full
+    ``mentions`` array for pill rendering; this is the *cross-channel*
+    path so a client with the channel closed still bumps its counter —
+    crucially also for role / everyone pings, which the ``message``
+    envelope alone would never surface to a non-subscribed client.
+
+    Returns the recipient user-id set so the caller can drive web-push
+    to the same audience. Empty when nobody is pinged or no manager is
+    wired up.
     """
     mgr = getattr(conn.app.state, "connection_manager", None)
     if mgr is None:
-        return
-    targets = {
-        tid
-        for (t, tid) in mentions
-        if t == MENTION_TYPE_USER and tid != author_id
-    }
+        return set()
+    targets = await _expand_mention_targets(
+        session,
+        mentions,
+        channel_id=channel_id,
+        guild_id=guild_id,
+        author_id=author_id,
+    )
     if not targets:
-        return
+        return set()
     envelope = {
         "op": "mention_added",
         "data": {
@@ -278,6 +330,7 @@ async def fan_out_mention_events(
             await mgr.publish_user_event(uid, envelope)
         except Exception:
             log.exception("publish_user_event failed for user %s", uid)
+    return targets
 
 
 __all__ = [

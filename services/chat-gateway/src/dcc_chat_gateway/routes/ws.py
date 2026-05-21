@@ -65,7 +65,6 @@ from dcc_chat_gateway.mentions import (
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     CHANNEL_TYPE_VOICE,
-    MENTION_TYPE_USER,
     Channel,
     DirectMessageChannel,
     Guild,
@@ -640,26 +639,29 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 # Cross-channel mention fan-out (in-app counter bump) + web-push,
                 # mirroring routes/messages.py. Best-effort — a fan-out hiccup
                 # must not break the WS session (message is already persisted).
+                notified: set[int] = set()
                 try:
-                    await fan_out_mention_events(
-                        websocket,
-                        mentions=valid_mentions,
-                        message_id=persisted.id,
-                        channel_id=cid_int,
-                        guild_id=guild_id_for_bump,
-                        author_id=user.id,
-                    )
+                    # Fresh short-lived session — the send-path session above
+                    # is already closed; the fan-out only does read-only
+                    # role/member/overwrite lookups.
+                    async with SessionLocal() as fanout_session:
+                        notified = await fan_out_mention_events(
+                            websocket,
+                            session=fanout_session,
+                            mentions=valid_mentions,
+                            message_id=persisted.id,
+                            channel_id=cid_int,
+                            guild_id=guild_id_for_bump,
+                            author_id=user.id,
+                        )
                 except Exception:
                     log.exception("ws mention fan-out failed for channel %s", cid)
-                push_targets = {
-                    tid
-                    for (t, tid) in valid_mentions
-                    if t == MENTION_TYPE_USER and tid != user.id
-                }
-                if push_targets:
-                    # ``fan_out_mention_push`` never raises (see its docstring).
+                if notified:
+                    # Same audience as the in-window ``mention_added`` envelope —
+                    # role + everyone pings already expanded + VIEW-filtered +
+                    # author-excluded. ``fan_out_mention_push`` never raises.
                     await fan_out_mention_push(
-                        user_ids=push_targets,
+                        user_ids=notified,
                         author_name=user.username,
                         content=content,
                         channel_id=cid_int,
