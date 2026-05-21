@@ -21,6 +21,8 @@ from dcc_auth.routes_avatar import router as avatar_router
 from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_sessions import router as sessions_router
 from dcc_auth.routes_totp import router as totp_router
+from dcc_auth.routes_webauthn import router as webauthn_router
+from dcc_auth.routes_webauthn_login import router as webauthn_login_router
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,8 @@ def create_app() -> FastAPI:
     app.include_router(recovery_router)
     app.include_router(sessions_router)
     app.include_router(totp_router)
+    app.include_router(webauthn_router)
+    app.include_router(webauthn_login_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

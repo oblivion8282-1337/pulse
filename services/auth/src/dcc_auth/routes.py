@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.email import issue_verification_email, resolve_smtp_config
-from dcc_auth.models import AuthSettings, RefreshToken, User
+from dcc_auth.models import AuthSettings, RefreshToken, User, WebAuthnCredential
 from dcc_auth.schemas import (
     LoginIn,
     LoginMfaPending,
@@ -229,17 +229,29 @@ async def login(
     if needs_rehash(user.password_hash):
         user.password_hash = await asyncio.to_thread(hash_password, payload.password)
 
-    # 2FA branch: short-circuit BEFORE issuing tokens. The frontend posts
-    # ``ticket + code`` to ``/login/totp`` to actually receive the tokens.
-    # Imported lazily to avoid a routes.py ↔ recovery.py circular import.
+    # 2FA branch: short-circuit BEFORE issuing tokens. An account is MFA-gated
+    # if it has TOTP enabled and/or at least one registered passkey. The
+    # frontend completes step 2 via ``/login/totp`` or ``/login/webauthn/*``
+    # depending on which methods are advertised. ``issue_mfa_ticket`` is
+    # imported lazily to avoid a routes.py ↔ recovery.py circular import.
+    methods: list[str] = []
     if user.totp_enabled:
+        methods.append("totp")
+    passkey_count = await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == user.id)
+    )
+    if passkey_count:
+        methods.append("webauthn")
+    if methods:
         from dcc_auth.recovery import issue_mfa_ticket
 
         # Commit the rehash above (if any) so it isn't lost when the user
         # bails between steps; tokens are issued only on step 2.
         await session.commit()
         ticket = issue_mfa_ticket(signer, user.id, settings.mfa_ticket_ttl_seconds)
-        return LoginMfaPending(mfa_ticket=ticket)
+        return LoginMfaPending(mfa_ticket=ticket, methods=methods)
 
     tokens = await _issue_tokens(
         session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)

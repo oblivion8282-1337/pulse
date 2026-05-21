@@ -29,11 +29,11 @@ import jwt
 import pyotp
 import qrcode
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
-from dcc_auth.models import BackupCode, User
+from dcc_auth.models import BackupCode, User, WebAuthnCredential
 from dcc_auth.recovery import (
     decode_mfa_ticket,
     generate_backup_codes,
@@ -177,7 +177,18 @@ async def totp_disable(
 
     current.totp_enabled = False
     current.totp_secret = None
-    await session.execute(delete(BackupCode).where(BackupCode.user_id == current.id))
+    # Backup codes are the recovery factor for the account's MFA as a whole —
+    # keep them if a passkey is still registered, drop them only when TOTP was
+    # the last factor standing.
+    has_passkey = await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == current.id)
+    )
+    if not has_passkey:
+        await session.execute(
+            delete(BackupCode).where(BackupCode.user_id == current.id)
+        )
     await session.commit()
     return MessageOut(detail="ok")
 

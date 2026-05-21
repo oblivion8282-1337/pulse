@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_serializer
 
@@ -292,16 +292,105 @@ class LoginTotpIn(BaseModel):
 
 
 class LoginMfaPending(BaseModel):
-    """First-step response when the account has 2FA enabled.
+    """First-step response when the account has a second factor enabled.
 
-    Frontend gates the second step (``POST /login/totp``) on the presence of
-    ``requires_totp`` — a regular ``TokensOut`` lacks that field. Using a
-    discriminated union in the route signature (``TokensOut | LoginMfaPending``)
-    is how the OpenAPI schema makes that contract explicit.
+    Frontend gates the second step on the presence of ``requires_mfa`` — a
+    regular ``TokensOut`` lacks that field. Using a discriminated union in the
+    route signature (``TokensOut | LoginMfaPending``) is how the OpenAPI schema
+    makes that contract explicit.
+
+    ``methods`` lists which second factors this account actually has, a subset
+    of ``{"totp", "webauthn"}`` — the login UI shows only the relevant inputs.
+    A passkey-only account has ``["webauthn"]`` and never sees a code field.
     """
 
-    requires_totp: Literal[True] = True
+    requires_mfa: Literal[True] = True
     mfa_ticket: str
+    methods: list[Literal["totp", "webauthn"]]
+
+
+# ---- WebAuthn / passkeys ------------------------------------------------
+
+
+class WebAuthnOptionsOut(BaseModel):
+    """Output of any WebAuthn *options* endpoint.
+
+    ``options`` is the spec's ``PublicKeyCredentialCreationOptions`` /
+    ``...RequestOptions`` JSON, ready to feed (after base64url→ArrayBuffer
+    decoding) to ``navigator.credentials.create|get``. ``challenge_ticket`` is
+    the signed JWT the client posts back to the matching verify endpoint.
+    """
+
+    options: dict[str, Any]
+    challenge_ticket: str
+
+
+class WebAuthnRegisterVerifyIn(BaseModel):
+    """Body for ``POST /webauthn/register/verify``.
+
+    ``credential`` is the JSON-serialised ``PublicKeyCredential`` returned by
+    the browser — passed through verbatim to the ``webauthn`` library, which
+    owns its shape. ``name`` is the user's label for the new passkey.
+    """
+
+    challenge_ticket: Annotated[str, Field(min_length=10, max_length=4096)]
+    credential: dict[str, Any]
+    name: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class WebAuthnCredentialOut(BaseModel):
+    """One registered passkey, surfaced to its owner's settings UI."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    aaguid: str | None = None
+    transports: list[str] | None = None
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+    @field_serializer("id")
+    def _id_to_str(self, value: int) -> str:
+        return str(value)
+
+
+class WebAuthnRegisterVerifyOut(BaseModel):
+    """Result of enrolling a passkey.
+
+    ``backup_codes`` is populated *only* the first time an account gains any
+    MFA factor via a passkey (i.e. no TOTP, no prior codes) — those are the
+    one-time recovery codes, shown once. It is ``None`` on every later add.
+    """
+
+    credential: WebAuthnCredentialOut
+    backup_codes: list[str] | None = None
+
+
+class WebAuthnCredentialRenameIn(BaseModel):
+    name: Annotated[str, Field(min_length=1, max_length=64)]
+
+
+class WebAuthnLoginOptionsIn(BaseModel):
+    """Body for ``POST /login/webauthn/options``.
+
+    ``mfa_ticket`` present → 2FA second step (options scoped to the pinned
+    user's credentials). Absent → passwordless login (discoverable).
+    """
+
+    mfa_ticket: Annotated[str | None, Field(default=None, max_length=4096)] = None
+
+
+class WebAuthnLoginVerifyIn(BaseModel):
+    """Body for ``POST /login/webauthn/verify``.
+
+    ``mfa_ticket`` must be echoed back on the 2FA path (it pins the same user
+    the password step authenticated); omitted on the passwordless path.
+    """
+
+    challenge_ticket: Annotated[str, Field(min_length=10, max_length=4096)]
+    credential: dict[str, Any]
+    mfa_ticket: Annotated[str | None, Field(default=None, max_length=4096)] = None
 
 
 # ---- Active sessions / refresh-token introspection ---------------------

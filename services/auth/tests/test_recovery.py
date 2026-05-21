@@ -317,7 +317,8 @@ async def test_login_with_totp_enabled_returns_mfa_ticket(client):
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body.get("requires_totp") is True
+    assert body.get("requires_mfa") is True
+    assert body.get("methods") == ["totp"]
     assert body.get("mfa_ticket")
     assert "access_token" not in body
 
