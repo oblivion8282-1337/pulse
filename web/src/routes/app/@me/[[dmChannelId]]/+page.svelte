@@ -240,7 +240,7 @@
 
 {#if sidebarOpen}
   <div
-    class="fixed inset-0 z-30 bg-black/40 md:hidden"
+    class="absolute inset-0 z-30 bg-black/40 md:hidden"
     role="presentation"
     onclick={() => (sidebarOpen = false)}
   ></div>
@@ -263,7 +263,7 @@
 
 <div
   class="
-    fixed inset-y-0 left-16 z-40 w-[min(18rem,calc(100vw-5rem))] transition-transform duration-300 ease-out
+    absolute inset-y-0 left-16 z-40 w-[min(18rem,calc(100vw-5rem))] transition-transform duration-300 ease-out
     {sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
     md:relative md:inset-auto md:left-auto md:z-auto md:w-auto md:translate-x-0 md:transition-none
   "

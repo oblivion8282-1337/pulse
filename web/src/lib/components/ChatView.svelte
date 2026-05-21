@@ -7,12 +7,10 @@
   import MessageItem from './MessageItem.svelte';
   import MessageInput from './MessageInput.svelte';
   import MemberList from './MemberList.svelte';
-  import VoiceControlBar from './VoiceControlBar.svelte';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { voice } from '$lib/voice/livekit.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
 
   type ChatItem =
@@ -142,8 +140,7 @@
     return safeAvatarUrl(raw);
   }
 
-  // Mitgliederliste: auf Mobil als Sheet von rechts, auf Desktop als Spalte
-  let showMemberOverlay = $derived(memberListOpen && viewport.isMobile);
+  // Mitgliederliste: nur Desktop — auf Mobil komplett ausgeblendet.
   let showMemberInline = $derived(memberListOpen && !viewport.isMobile);
 
   function snippet(text: string): string {
@@ -220,7 +217,7 @@
       {/if}
       {#if showMemberList}
         <button
-          class="ml-auto rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary"
+          class="ml-auto rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
           onclick={() => (memberListOpen = !memberListOpen)}
           aria-label="Mitgliederliste umschalten"
           data-testid="member-list-toggle"
@@ -274,25 +271,7 @@
       <MemberList guildId={channel.guild_id} />
     {/if}
 
-    <!-- Sheet von rechts auf Mobil -->
-    {#if channel && showMemberList && showMemberOverlay}
-      <div
-        class="fixed inset-0 z-30 bg-black/40"
-        role="presentation"
-        onclick={() => (memberListOpen = false)}
-      ></div>
-      <div class="fixed inset-y-0 right-0 z-40 flex w-4/5 max-w-xs flex-col">
-        <MemberList guildId={channel.guild_id} onClose={() => (memberListOpen = false)} />
-      </div>
-    {/if}
   </div>
-
-  <!-- Mobil: Voice-Controls als fixe Leiste über dem Composer — auf Mobil
-       lebt die Sidebar (mit dem SidebarFooter-VoiceControlBar) im Drawer
-       und wäre sonst nur übers Burger-Menü erreichbar. -->
-  {#if viewport.isMobile && (voice.connected || voice.connecting)}
-    <VoiceControlBar />
-  {/if}
 
   {#if channel}
     <MessageInput

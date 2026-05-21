@@ -8,6 +8,8 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { voice } from '$lib/voice/livekit.svelte';
+  import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -136,12 +138,23 @@
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
   <!-- pt-[env(safe-area-inset-top)]: clears the iOS notch / status bar in the
-       installed PWA (no-op as a browser tab). md restores the regular padding. -->
-  <div class="flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
+       installed PWA (no-op as a browser tab). md restores the regular padding.
+       `relative`: Anker für den Channel-Drawer, der auf Mobil `absolute` ist
+       und so nur diese Zeile aufspannt — nie das Voice-Dock darunter. -->
+  <div class="relative flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}
       {@render children?.()}
     {/if}
   </div>
+  <!-- Mobil: Voice-Controls als persistentes Dock unter der Panel-Zeile.
+       Eigene Flex-Zeile → der Drawer (absolute in der Panel-Zeile) kann sie
+       nicht überdecken; Auflegen ist immer erreichbar. Desktop: Controls
+       leben im Sidebar-Footer (s. SidebarFooter). -->
+  {#if viewport.isMobile && (voice.connected || voice.connecting)}
+    <div class="shrink-0 pb-[env(safe-area-inset-bottom)]">
+      <VoiceControlBar />
+    </div>
+  {/if}
 </div>
