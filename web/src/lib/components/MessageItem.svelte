@@ -3,9 +3,11 @@
   import type { Message } from '$lib/api/types';
   import CornerDownRightIcon from '@lucide/svelte/icons/corner-down-right';
   import MessageActions from './MessageActions.svelte';
+  import MessageActionSheet from './MessageActionSheet.svelte';
   import MessageAttachments from './MessageAttachments.svelte';
   import MessageReactions from './MessageReactions.svelte';
   import { renderMessage } from './messageRender';
+  import { longpress } from '$lib/utils/longpress';
 
   let {
     message,
@@ -37,6 +39,9 @@
 
   let editing = $state(false);
   let draft = $state('');
+  // Touch action sheet — opened by long-press, the only message-action path
+  // on a device with no hover (the `MessageActions` toolbar is hover-gated).
+  let sheetOpen = $state(false);
 
   const time = $derived(formatTime(message.created_at));
   const url = $derived(avatarUrl(message));
@@ -89,6 +94,12 @@
     if (isPending) return;
     onToggleReaction(message, emoji, mine);
   }
+
+  function openSheet() {
+    // Nothing actionable on a still-editing or not-yet-persisted message.
+    if (editing || isPending) return;
+    sheetOpen = true;
+  }
 </script>
 
 {#snippet body()}
@@ -134,9 +145,10 @@
     class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-0.5 transition-colors hover:bg-bg-hover"
     data-testid="message-item"
     data-message-id={message.id}
+    use:longpress={{ onLongPress: openSheet }}
   >
     <div class="flex w-10 shrink-0 items-center justify-end">
-      <span class="text-text-muted hidden text-[10px] group-hover:block">{time}</span>
+      <span class="text-text-muted hidden text-[10px] group-hover:block pointer-coarse:block">{time}</span>
     </div>
     <div class="min-w-0 flex-1">
       {@render body()}
@@ -157,6 +169,7 @@
     class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-1.5 transition-colors hover:bg-bg-hover"
     data-testid="message-item"
     data-message-id={message.id}
+    use:longpress={{ onLongPress: openSheet }}
   >
     {#key url}
       <Avatar.Root class="size-10 shrink-0">
@@ -187,6 +200,16 @@
     {/if}
   </div>
 {/if}
+
+<MessageActionSheet
+  bind:open={sheetOpen}
+  canEdit={canEdit && !isPending}
+  canDelete={canDelete && !isPending}
+  onReply={() => onReply(message)}
+  onEdit={startEdit}
+  onDelete={() => onDelete(message)}
+  onReact={(e) => handleToggle(e, false)}
+/>
 
 <style>
   /* Mention pills emitted by `renderMessage` — `:global` because the
