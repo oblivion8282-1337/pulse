@@ -171,6 +171,30 @@ function promoteSelfTitleToDataAttr(html: string): string {
 }
 
 /**
+ * Client-side mention-marker extraction for the optimistic-send echo.
+ * Mirrors `dcc_chat_gateway/mentions.py::parse_markers` so a just-sent
+ * message renders its pills immediately, instead of flashing the raw
+ * `<@id>` marker until the server's authoritative `mentions` list lands
+ * on the WS echo. The server still has the last word — `upsert` swaps
+ * the optimistic copy and may drop markers that don't ping a real
+ * member/role (non-member, locked role, missing MENTION_EVERYONE).
+ */
+export function parseMentionMarkers(content: string): Mention[] {
+  const out: Mention[] = [];
+  const seen = new Set<string>();
+  const add = (type: 0 | 1 | 2, id: string) => {
+    const key = `${type}:${id}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ type, id });
+  };
+  for (const m of content.matchAll(/<@(\d{1,20})>/g)) add(0, m[1]);
+  for (const m of content.matchAll(/<@&(\d{1,20})>/g)) add(1, m[1]);
+  if (/@(everyone|here)\b/.test(content)) add(2, '0');
+  return out;
+}
+
+/**
  * Public render entry point. Safe to call with `mentions=undefined` — the
  * markup pass becomes a no-op and the output matches the legacy renderer.
  */

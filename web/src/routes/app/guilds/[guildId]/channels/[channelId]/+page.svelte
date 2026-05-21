@@ -23,6 +23,7 @@
   import { gateway } from '$lib/ws/connection';
   import { voice } from '$lib/voice/livekit.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
   import type { Channel, Message } from '$lib/api/types';
 
@@ -289,7 +290,10 @@
       content: text,
       nonce,
       reply_to_id: replyToId,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
+      // Parse markers locally so mention pills render at once — the WS
+      // echo replaces this copy with the server's authoritative list.
+      mentions: parseMentionMarkers(text)
     });
     // Attachments go through REST — WS send-op carries no attachment_ids,
     // and presigned URLs need server-side signing. Text-only stays on the
