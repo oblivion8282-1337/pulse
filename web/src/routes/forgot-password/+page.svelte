@@ -36,7 +36,7 @@
     headlineSub="Wir setzen dich zurück."
     description="Trag deine E-Mail oder deinen Benutzernamen ein — wenn das Konto bei uns liegt, kommt gleich ein Link."
     features={[
-      'Link gilt 30 Minuten',
+      'Link gilt 1 Stunde',
       'Funktioniert auch mit Benutzernamen',
       'Argon2id-Passwörter, niemals im Klartext gespeichert',
     ]}
