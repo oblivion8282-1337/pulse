@@ -40,6 +40,8 @@ Drei Transportpfade, getrennt: HTTPS/WSS → FastAPI-Services · WebRTC → Live
 | httpx 0.28.1 · structlog 25.5.0 · websockets 16.0 | | |
 | slowapi | lockfile | Rate-Limit in auth-svc (**in-process!**) |
 | email-validator | lockfile | blockt special-use-TLDs → Tests nutzen `dcc-test.example.com`, nicht `*.test` |
+| pyotp 2.x · qrcode[pil] 8.x | lockfile | TOTP-2FA in auth-svc (`routes_totp.py`) |
+| webauthn (py_webauthn) 2.7.1 | `>=2.5,<3` | WebAuthn/Passkeys in auth-svc — CBOR/COSE/Attestation, kein Eigenbau |
 | pytest 9.0.3 · pytest-asyncio 1.3.0 | | `--import-mode=importlib`, `asyncio_mode=auto` |
 
 ### Frontend (`web/`, SvelteKit-SPA, `ssr=false`, `adapter-static`)
@@ -96,6 +98,14 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
 (`localhost:8005`) und media-svc die MediaMTX-API (`localhost:9997`).
 
 **Bootstrap-Admin** (2026-05-18): `POST /register` setzt `is_admin=true` automatisch wenn der grad erstellte User der einzige in `auth.users` ist (`COUNT(*) == 1` nach flush). Pattern wie Mastodon/Gitea/Forgejo — Self-Hoster registriert sich zuerst, hat sofort Zugriff auf `/app/admin`, weitere Admins kommen über das Admin-Panel. Race-Mode (zwei parallele Registrierungen) akzeptiert, kostet selten echte Probleme. Vor dem Patch musste man via `docker exec ... psql -c "UPDATE auth.users SET is_admin=true WHERE username='…'"` bootstrappen.
+
+**2FA — TOTP + WebAuthn/Passkeys** (2026-05-21): zwei Zweitfaktoren, beide auth-svc.
+- TOTP: `routes_totp.py` (`pyotp`+`qrcode`). WebAuthn: `routes_webauthn.py` (Registrierung+Verwaltung, eingeloggt) + `routes_webauthn_login.py` (Login-Ceremony) + `passkeys.py` (Helpers). `py_webauthn` macht CBOR/COSE/Attestation — **kein Eigenbau**.
+- **Challenge-State = signiertes JWT** ("challenge ticket", `passkeys.py`), kein State-Table/Redis — exakt das Muster vom `mfa_ticket`. `purpose`-Claim trennt reg/auth, options→verify reicht das Ticket durch. Funktioniert deshalb auch im SQLite-Test.
+- `POST /login` ist MFA-gated bei `totp_enabled` **oder** ≥1 Passkey → `LoginMfaPending{mfa_ticket, methods[]}` (`requires_mfa`, **nicht** mehr `requires_totp`). Zweitschritt: `/login/totp` oder `/login/webauthn/verify`.
+- **Passwortloser Passkey-Login**: `/login/webauthn/*` ohne `mfa_ticket` → discoverable, `userVerification=required`. Die Assertion ist damit allein schon echte MFA → kein Passwortschritt, umgeht TOTP bewusst. Mit `mfa_ticket` = 2FA-Zweitfaktor (Ticket + Challenge-Ticket müssen denselben User nennen).
+- **rpId/Origin** (`WEBAUTHN_RP_ID`/`WEBAUTHN_ORIGIN`, prod in `.env`): rpId muss Domain-Suffix der Origin sein. **Dev: `localhost`, NICHT `127.0.0.1`** — eine IP kann keine rpId sein, ein Passkey von `localhost` validiert nicht auf `127.0.0.1`. Folge: die E2E-Origin ist `127.0.0.1:5173` → echte Ceremony dort nicht lauffähig, `passkeys.spec.ts` mockt die `/webauthn/*`-Routes (Krypto-Pfad deckt `test_webauthn.py` ab, Lib-`verify_*` dort gemockt).
+- **Backup-Codes sind MFA-weit**, nicht TOTP-spezifisch: der erste Passkey auf einem Account ohne sonstiges MFA erzeugt 10 Stück; `totp/disable` + Passkey-Delete droppen sie nur, wenn danach **kein** Faktor mehr übrig ist.
 
 **`allow_guild_creation` default = FALSE** (Migration 0010, 2026-05-18): Fresh-Deploys sind locked-down — nur der Bootstrap-Admin kann Server anlegen. Admin öffnet's via `/admin/permissions` für alle Member. Vorher war's `true` (= Public-Discord-Modell), was für Self-Host falsche Default-Annahme war. `allow_member_invites` bleibt `true` — das ist per-guild-scoped via `CREATE_INVITES`-Permission, nicht global. Test-Convenience: `services/chat-gateway/tests/conftest.py` seedet die Singleton mit `allow_guild_creation=true` (sonst müssten 80% der Tests erst durch den admin-Toggle gehen).
 
