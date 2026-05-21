@@ -154,7 +154,7 @@
 </script>
 
 <nav
-  class="glass-panel flex h-full w-16 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:rounded-2xl"
+  class="glass-panel flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
   data-testid="guild-rail"
   aria-label="Server"
 >
@@ -180,7 +180,7 @@
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
-                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-9 rounded-lg" />
+                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-lg md:size-9" />
               </button>
             {:else}
               <a
@@ -190,7 +190,7 @@
                 aria-label="Pulse"
                 data-testid="guild-home"
               >
-                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-9 rounded-lg" />
+                <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-lg md:size-9" />
               </a>
             {/if}
             {#if hasUnreadDM && !homeActive}
@@ -234,7 +234,7 @@
                     <button
                       {...props}
                       {...tipProps}
-                      class="relative flex size-10 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)]"
+                      class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)]"
                       style={g.icon_url?.startsWith('https://') || g.icon_url?.startsWith('/')
                         ? ''
                         : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
@@ -312,12 +312,12 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
+              class="border-primary/30 text-primary flex size-12 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all md:size-10 hover:rounded-xl hover:bg-bg-hover"
               onclick={onCreateClick}
               data-testid="guild-create"
               aria-label="Server erstellen"
             >
-              <PlusIcon class="size-5" />
+              <PlusIcon class="size-6 md:size-5" />
             </button>
           {/snippet}
         </Tooltip.Trigger>

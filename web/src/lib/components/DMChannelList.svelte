@@ -45,7 +45,7 @@
       {@const u = userCache.get(dm.other_user_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <button
-        class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors md:py-2 hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+        class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
         data-active={activeDMId === dm.id}
         data-unread={isUnread}
         onclick={() => onSelect(dm)}
@@ -59,7 +59,7 @@
           />
         {:else}
           <AtSignIcon
-            class="text-text-muted size-[17px] shrink-0 group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
+            class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
           />
         {/if}
         <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">

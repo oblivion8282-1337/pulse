@@ -125,7 +125,7 @@
           data-testid="user-footer-trigger"
           aria-label="Konto & Einstellungen"
         >
-          {@render avatarBlock('size-10')}
+          {@render avatarBlock('size-12')}
         </button>
       {/snippet}
     </DropdownMenu.Trigger>

@@ -185,7 +185,7 @@
   </AlertDialog.Root>
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
-    <div class="text-text-muted px-2.5 pb-1 pt-3 text-xs font-bold">Text-Kanäle</div>
+    <div class="text-text-muted px-2.5 pb-1 pt-3 text-sm font-bold md:text-xs">Text-Kanäle</div>
     {#each textChannels as c (c.id)}
       {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
       {@const mentionCount = activeChannelId !== c.id ? readState.getMentionCount(c.id) : 0}
@@ -194,13 +194,13 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors md:py-2 hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+              class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
               data-active={activeChannelId === c.id}
               data-unread={isUnread}
               onclick={() => onSelect(c)}
               data-testid={`channel-${c.id}`}
             >
-              <HashIcon class="text-text-muted size-[17px] shrink-0 group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
+              <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
               <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">{c.name}</span>
               {#if mentionCount > 0}
                 <span
@@ -251,19 +251,19 @@
       <p class="text-text-muted px-3 py-2 text-xs">Noch keine Text-Kanäle.</p>
     {/if}
 
-    <div class="text-text-muted px-2.5 pb-1 pt-4 text-xs font-bold">Sprach-Kanäle</div>
+    <div class="text-text-muted px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">Sprach-Kanäle</div>
     {#each voiceChannels as c (c.id)}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
             <button
               {...props}
-              class="group flex w-full items-center gap-2.5 rounded-xl px-3 py-3 text-left text-sm font-medium transition-colors md:py-2 hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+              class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
               data-active={activeChannelId === c.id}
               onclick={() => selectChannel(c)}
               data-testid={`channel-${c.id}`}
             >
-              <Volume2Icon class="text-text-muted size-[17px] shrink-0 group-data-[active=true]:text-primary" />
+              <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
               <span class="truncate">{c.name}</span>
               {#if voiceState.channelId === c.id && voiceState.connected}
                 <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title="verbunden"></span>
