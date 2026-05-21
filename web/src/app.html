@@ -5,7 +5,13 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="%sveltekit.assets%/manifest.json" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- interactive-widget=resizes-content: the virtual keyboard shrinks the
+         layout viewport (Android Chrome) so the bottom composer stays visible
+         instead of being hidden behind the keyboard. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="light dark" />
     <!-- theme-color matches the light/dark brand accent (see app.css --brand);
          drives the Android address-bar tint when the PWA is installed and the

@@ -58,11 +58,11 @@
       {#if searchHits.length === 0}
         <p class="text-text-muted px-1 py-3 text-center text-xs">Keine Treffer</p>
       {:else}
-        <div class="grid grid-cols-8 gap-1">
+        <div class="grid grid-cols-6 gap-1 md:grid-cols-8">
           {#each searchHits as e (e.emoji)}
             <button
               type="button"
-              class="rounded-md p-1 text-xl hover:bg-bg-hover"
+              class="rounded-md p-2 text-2xl hover:bg-bg-hover md:p-1 md:text-xl"
               title=":{e.name}:"
               onclick={() => onPick(e.emoji)}
             >{e.emoji}</button>

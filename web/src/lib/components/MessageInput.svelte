@@ -197,7 +197,7 @@
       />
       <button
         type="button"
-        class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
+        class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-2.5 md:p-1.5"
         aria-label="Datei anhängen"
         onclick={() => fileInput?.click()}
         data-testid="attachment-button"
@@ -232,7 +232,7 @@
           <button
             {...props}
             type="button"
-            class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
+            class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-2.5 md:p-1.5"
             aria-label="Emoji einfügen"
             data-testid="emoji-button"
           >
@@ -252,6 +252,7 @@
     <Button
       type="submit"
       size="icon-sm"
+      class="size-11 md:size-8"
       disabled={sendDisabled}
       data-testid="message-send"
       aria-label="Senden"
