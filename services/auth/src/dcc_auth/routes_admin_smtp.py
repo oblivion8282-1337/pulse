@@ -19,9 +19,11 @@ of digging through container logs.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import update
 
 from dcc_auth.crypto import decrypt_secret, encrypt_secret
 from dcc_auth.db import SessionDep
@@ -120,12 +122,30 @@ async def patch_smtp_settings(
 
     row.configured = bool(row.host and row.from_email)
 
+    # SMTP just went unconfigured → configured: this is the moment the
+    # email-verification gate switches on. Grandfather every still-unverified
+    # account as verified so nobody who registered *before* SMTP existed gets
+    # retroactively locked out — only registrations after this point face the
+    # gate. (Mirrors the deploy-time grandfather migration; this covers users
+    # who signed up between deploy and the admin enabling SMTP.)
+    smtp_just_enabled = not before["configured"] and row.configured
+    grandfathered = 0
+    if smtp_just_enabled:
+        result = await session.execute(
+            update(User)
+            .where(User.email_verified_at.is_(None))
+            .values(email_verified_at=datetime.now(UTC))
+        )
+        grandfathered = result.rowcount or 0
+
     after = {k: getattr(row, k) for k in fields} | {"configured": row.configured}
     diff: dict[str, dict] = {
         k: {"from": before[k], "to": after[k]} for k in after if before[k] != after[k]
     }
     if password_changed:
         diff["password"] = {"changed": True}
+    if grandfathered:
+        diff["grandfathered_users"] = {"count": grandfathered}
 
     if diff:
         _audit(session, actor_id=actor.id, action="smtp.patch", payload=diff)

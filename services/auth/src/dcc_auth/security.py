@@ -93,7 +93,14 @@ class JwtSigner:
             headers={"kid": self._settings.jwt_key_id},
         )
 
-    def issue_access(self, user_id: int, username: str, *, is_admin: bool = False) -> str:
+    def issue_access(
+        self,
+        user_id: int,
+        username: str,
+        *,
+        is_admin: bool = False,
+        email_blocked: bool = False,
+    ) -> str:
         now = int(time.time())
         payload: dict[str, Any] = {
             "iss": self._settings.jwt_issuer,
@@ -108,6 +115,13 @@ class JwtSigner:
         # the 99% case and makes the absence semantically equivalent to false.
         if is_admin:
             payload["admin"] = True
+        # ``email_blocked`` carries the *resolved* email-verification gate
+        # decision (SMTP configured AND the account still unverified). Stamped
+        # only when the user is blocked, so absence == allowed. chat-gateway
+        # and voice-signaling reject tokens that carry it — they never need to
+        # know about SMTP state themselves.
+        if email_blocked:
+            payload["email_blocked"] = True
         return self._sign(payload)
 
     def issue_refresh(self, user_id: int) -> tuple[str, uuid.UUID, int]:

@@ -54,6 +54,10 @@ class UserPublic(BaseModel):
     email_verified_at: datetime | None = None
     totp_enabled: bool = False
     created_at: datetime
+    # Computed server-side (NOT a column): true iff SMTP is configured AND the
+    # account is still unverified — i.e. the hard email-verification gate is
+    # blocking this user. ``me()`` fills it; everywhere else it defaults false.
+    email_verification_pending: bool = False
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:

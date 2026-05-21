@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
-from dcc_auth.email import issue_verification_email
+from dcc_auth.email import issue_verification_email, resolve_smtp_config
 from dcc_auth.models import AuthSettings, RefreshToken, User
 from dcc_auth.schemas import (
     LoginIn,
@@ -48,6 +48,20 @@ def _signer_dep() -> JwtSigner:
     return get_signer()
 
 
+async def _email_gate_blocked(session, user: User) -> bool:
+    """True when the email-verification gate currently blocks this account.
+
+    The gate is active only when SMTP can actually deliver mail — on a fresh
+    self-host without SMTP configured it stays off, so the bootstrap admin can
+    never lock themselves out. Once an admin saves an SMTP config, every
+    still-unverified account flips to blocked. Verified accounts are never
+    blocked regardless of SMTP state.
+    """
+    if user.email_verified_at is not None:
+        return False
+    return (await resolve_smtp_config(session)) is not None
+
+
 async def _issue_tokens(
     session,
     user: User,
@@ -57,7 +71,10 @@ async def _issue_tokens(
     ip_hash: str | None = None,
 ) -> TokensOut:
     settings = get_settings()
-    access = signer.issue_access(user.id, user.username, is_admin=user.is_admin)
+    blocked = await _email_gate_blocked(session, user)
+    access = signer.issue_access(
+        user.id, user.username, is_admin=user.is_admin, email_blocked=blocked
+    )
     refresh, jti, exp_ts = signer.issue_refresh(user.id)
     # ``last_used_at`` starts at issue time so the sessions list can sort
     # consistently by liveness; ``/refresh`` keeps it fresh on every rotation.
@@ -320,8 +337,11 @@ async def logout(
 
 
 @router.get("/me", response_model=UserPublic)
-async def me(current: User = Depends(_get_current_user)):
-    return current
+async def me(session: SessionDep, current: User = Depends(_get_current_user)):
+    out = UserPublic.model_validate(current)
+    # Computed (not a column): drives the frontend's hard verification gate.
+    out.email_verification_pending = await _email_gate_blocked(session, current)
+    return out
 
 
 async def _require_admin(current: User = Depends(_get_current_user)) -> User:
