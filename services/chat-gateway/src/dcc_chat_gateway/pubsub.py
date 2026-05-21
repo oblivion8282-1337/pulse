@@ -626,6 +626,9 @@ class ConnectionManager:
     # members. Other ops on the same channel (role_*, guild_updated,
     # etc.) keep the broadcast-everyone semantics they were built on
     # — the frontend filters by guild membership in its handlers.
+    # ``channel_bump`` is scoped here so the (cold-cache) VIEW_CHANNEL
+    # resolve below only runs for the guild's own members, not for every
+    # globally-connected socket.
     _GUILD_MEMBER_SCOPED_OPS = frozenset(
         {
             "guild_member_added",
@@ -633,6 +636,7 @@ class ConnectionManager:
             "guild_member_updated",
             "guild_ban_added",
             "guild_ban_removed",
+            "channel_bump",
         }
     )
 
@@ -952,18 +956,18 @@ class ConnectionManager:
                     self._maybe_invalidate(payload)
                     async with self._lock:
                         targets = list(self._connections)
-                    # Per-guild events (bans, member adds/removes/updates)
-                    # are scoped to actual guild members rather than blasted
-                    # to every connected socket. Other ops keep the wide
-                    # broadcast pattern they were built on.
+                    # Per-guild events (bans, member adds/removes/updates,
+                    # channel_bump) are scoped to actual guild members rather
+                    # than blasted to every connected socket. Other ops keep
+                    # the wide broadcast pattern they were built on.
                     targets = self._filter_targets_by_guild(payload, targets)
                     # ``channel_bump`` carries no body, but still flags a
-                    # channel as unread + plays a ping sound. Gate it on
-                    # VIEW_CHANNEL so a member without access to a private
-                    # channel isn't pinged for it (and a non-guild-member
-                    # can't sniff the channel/message ids in DevTools).
-                    # ``dm_bump`` deliberately stays wide — DM channels have
-                    # no permission overlay; the client filters by membership.
+                    # channel as unread + plays a ping sound. On top of the
+                    # guild-member scoping above, gate it on VIEW_CHANNEL so a
+                    # member without access to a private channel isn't pinged
+                    # for it. ``dm_bump`` deliberately stays wide — DM channels
+                    # have no permission overlay; the client filters by
+                    # membership.
                     if payload.get("op") == "channel_bump":
                         targets = await self._filter_by_view_channel(
                             targets, str(payload.get("channel_id", ""))
