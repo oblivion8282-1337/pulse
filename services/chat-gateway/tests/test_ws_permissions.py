@@ -229,7 +229,9 @@ async def test_private_channel_blocks_member_from_message_broadcast(
 ):
     """Owner posts a message in a channel where @everyone has been
     deny-VIEW'd. A regular member subscribed before the deny no longer
-    receives the message — the filter drops them at fan-out time."""
+    receives the message *or* its channel_bump — both fan-out paths are
+    VIEW-gated. A second, still-visible channel is the sync barrier:
+    the member must get its message, and nothing about the private one."""
     def _run():
         with _client(ws_app) as tc:
             owner_uid = random.randint(1, 1_000_000)
@@ -240,6 +242,14 @@ async def test_private_channel_blocks_member_from_message_broadcast(
             c = tc.post(
                 f"/guilds/{g['id']}/channels",
                 json={"name": "general"},
+                headers=_auth(owner_t),
+            ).json()
+            # A second channel the member keeps default VIEW on — used as a
+            # deterministic sync barrier so the test never blocks waiting
+            # for a frame about the private channel that must never arrive.
+            c2 = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "visible"},
                 headers=_auth(owner_t),
             ).json()
             tc.post(
@@ -259,8 +269,10 @@ async def test_private_channel_blocks_member_from_message_broadcast(
                 other_ws.send_text(
                     json.dumps({"op": "subscribe", "channel_id": c["id"]})
                 )
-                # Drain any incidental events the subscribe might produce.
-                # Now: revoke VIEW on @everyone via owner.
+                other_ws.send_text(
+                    json.dumps({"op": "subscribe", "channel_id": c2["id"]})
+                )
+                # Now: revoke VIEW on @everyone for the private channel only.
                 tc.put(
                     f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
                     json={
@@ -271,32 +283,39 @@ async def test_private_channel_blocks_member_from_message_broadcast(
                 )
                 # The channel_permissions_updated invalidates the cache.
                 _drain_until(other_ws, "channel_permissions_updated")
-                # Owner posts via REST → the member should NOT get it.
+                # Owner posts the secret (private channel) then a ping in the
+                # still-visible channel. The member must NOT see the secret
+                # or its bump; the visible ping is the loop's stop signal.
                 tc.post(
                     f"/channels/{c['id']}/messages",
                     json={"content": "secret"},
                     headers=_auth(owner_t),
                 )
-                # Give the listener a moment, then expect no message frame.
-                import time
-                time.sleep(0.3)
-                received_ops: list[str] = []
-                # Pull anything that arrived (non-blocking via short
-                # receive_text + json.loads loop). receive_json blocks, so
-                # we use a poll with a timeout fall-through via send_text-
-                # ping pattern.
-                # Easier: just verify the next op is a channel_bump (always
-                # broadcast to every connection) OR nothing — definitely
-                # NOT a 'message' op for this private channel.
-                for _ in range(4):
+                tc.post(
+                    f"/channels/{c2['id']}/messages",
+                    json={"content": "visible-ping"},
+                    headers=_auth(owner_t),
+                )
+                received: list[dict] = []
+                while True:
                     msg = other_ws.receive_json()
-                    received_ops.append(msg.get("op"))
-                    if msg.get("op") == "channel_bump":
-                        # channel_bump goes to every guild member via
-                        # guild:events (not gated by VIEW_CHANNEL). The
-                        # message itself though must NOT have arrived.
+                    received.append(msg)
+                    if (
+                        msg.get("op") == "message"
+                        and msg.get("data", {}).get("channel_id") == c2["id"]
+                    ):
                         break
-                assert "message" not in received_ops, received_ops
+                # No frame referencing the private channel may have arrived.
+                leaked = [
+                    m
+                    for m in received
+                    if m.get("op") in ("message", "channel_bump")
+                    and (
+                        m.get("data", {}).get("channel_id") == c["id"]
+                        or m.get("channel_id") == c["id"]
+                    )
+                ]
+                assert not leaked, leaked
 
     await asyncio.to_thread(_run)
 

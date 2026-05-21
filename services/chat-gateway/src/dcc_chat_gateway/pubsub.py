@@ -957,6 +957,17 @@ class ConnectionManager:
                     # to every connected socket. Other ops keep the wide
                     # broadcast pattern they were built on.
                     targets = self._filter_targets_by_guild(payload, targets)
+                    # ``channel_bump`` carries no body, but still flags a
+                    # channel as unread + plays a ping sound. Gate it on
+                    # VIEW_CHANNEL so a member without access to a private
+                    # channel isn't pinged for it (and a non-guild-member
+                    # can't sniff the channel/message ids in DevTools).
+                    # ``dm_bump`` deliberately stays wide — DM channels have
+                    # no permission overlay; the client filters by membership.
+                    if payload.get("op") == "channel_bump":
+                        targets = await self._filter_by_view_channel(
+                            targets, str(payload.get("channel_id", ""))
+                        )
                     log.info(
                         "guild:events broadcast op=%s targets=%d", payload.get("op"), len(targets)
                     )
