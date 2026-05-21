@@ -29,8 +29,8 @@ function _die; echo "$red✗ $rst$argv" >&2; exit 1; end
 _info "Pre-flight checks"
 test -f .env; or _die ".env fehlt — vergleiche mit .env.example"
 test -f secrets/jwt_private.pem; or _die "secrets/jwt_private.pem fehlt"
-command -v podman >/dev/null; or _die "podman fehlt"
-command -v podman-compose >/dev/null; or _die "podman-compose fehlt"
+command -v docker >/dev/null; or _die "docker fehlt"
+docker compose version >/dev/null 2>&1; or _die "docker compose (Plugin) fehlt"
 command -v uv >/dev/null; or _die "uv fehlt"
 
 set -l pnpm_bin (command -v pnpm)
@@ -70,10 +70,18 @@ end
 set -gx POSTGRES_PASSWORD (_read_env_var POSTGRES_PASSWORD)
 test -n "$POSTGRES_PASSWORD"; or _die "POSTGRES_PASSWORD fehlt in .env"
 
+# Service-zu-Service-Secret (auth → chat-gateway DELETE /me purge,
+# chat-gateway → voice-signaling eviction). Fehlt es, 503t die
+# Account-Löschung — kein harter Fehler fürs Dev-Loop, nur ein Hinweis.
+set -l internal_secret (_read_env_var INTERNAL_SERVICE_SECRET)
+if test -z "$internal_secret"
+    _warn "INTERNAL_SERVICE_SECRET fehlt in .env — Account-Löschung (DELETE /me) bleibt 503. Generieren: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+end
+
 # --- Container --------------------------------------------------------------
 
-_info "Container starten (Postgres + Redis + LiveKit)"
-podman-compose --profile voice up -d >/dev/null 2>&1; or _die "podman-compose root failed"
+_info "Container starten (Postgres + Redis + MinIO + LiveKit)"
+docker compose --profile voice up -d >/dev/null 2>&1; or _die "docker compose root failed"
 
 _info "MediaMTX starten"
 cd $repo_root/streaming/server
@@ -81,12 +89,12 @@ if not test -f mediamtx.yml
     cp mediamtx.yml.template mediamtx.yml
     _warn "mediamtx.yml aus Template erstellt"
 end
-podman-compose up -d mediamtx >/dev/null 2>&1; or _die "podman-compose mediamtx failed"
+docker compose up -d mediamtx >/dev/null 2>&1; or _die "docker compose mediamtx failed"
 cd $repo_root
 
 # Wait for Postgres healthy
 for i in (seq 1 20)
-    podman exec dcc_night_postgres pg_isready -U dcc -d dcc >/dev/null 2>&1; and break
+    docker exec dcc_night_postgres pg_isready -U dcc -d dcc >/dev/null 2>&1; and break
     sleep 0.5
 end
 _ok "" "Container up"
@@ -113,14 +121,17 @@ set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
+# auth + chat-gateway teilen das Internal-Secret; auth braucht zusätzlich
+# CHAT_GATEWAY_URL (Default zeigt auf den Docker-Namen, lokal unerreichbar).
+set -l internal_env "INTERNAL_SERVICE_SECRET=$internal_secret"
 
 _info "Uvicorns starten (mit --reload)"
 
 # auth (8001)
-bash -c "cd services/auth && env $pg_env $jwt_env $common_env setsid nohup uv run uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
+bash -c "cd services/auth && env $pg_env $jwt_env $common_env $internal_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_auth.app:app --host 127.0.0.1 --port 8001 --reload > /tmp/dcc-auth.log 2>&1 < /dev/null &"
 
 # chat-gateway (8002)
-bash -c "cd services/chat-gateway && env $pg_env $common_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
+bash -c "cd services/chat-gateway && env $pg_env $common_env $internal_env MEDIA_SVC_URL=http://127.0.0.1:8004 setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 --reload > /tmp/dcc-chat.log 2>&1 < /dev/null &"
 
 # voice-signaling (8003)
 bash -c "cd services/voice-signaling && env $common_env $lk_env CHAT_GATEWAY_URL=http://127.0.0.1:8002 setsid nohup uv run uvicorn dcc_voice_signaling.app:app --host 127.0.0.1 --port 8003 --reload > /tmp/dcc-voice.log 2>&1 < /dev/null &"

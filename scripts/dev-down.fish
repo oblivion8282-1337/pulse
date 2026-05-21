@@ -31,11 +31,11 @@ _ok "Uvicorns weg"
 
 _info "MediaMTX stoppen"
 pushd streaming/server >/dev/null
-podman-compose stop mediamtx >/dev/null 2>&1
+docker compose stop mediamtx >/dev/null 2>&1
 popd >/dev/null
 
-_info "Container stoppen (Postgres / Redis / LiveKit)"
-podman-compose --profile voice stop >/dev/null 2>&1
+_info "Container stoppen (Postgres / Redis / MinIO / LiveKit)"
+docker compose --profile voice stop >/dev/null 2>&1
 _ok "Container gestoppt (Volumes bleiben)"
 
 echo ""
@@ -43,5 +43,5 @@ echo "$grn═══════════════════════�
 echo "$grn  Dev-Stack heruntergefahren$rst"
 echo "$grn═══════════════════════════════════════════════════$rst"
 echo "  Nächster Start:   scripts/dev-up.fish"
-echo "  Komplett-Reset:   podman-compose --profile voice down -v   (löscht Volumes!)"
+echo "  Komplett-Reset:   docker compose --profile voice down -v   (löscht Volumes!)"
 echo ""
