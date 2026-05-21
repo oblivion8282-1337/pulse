@@ -3,7 +3,6 @@
   import HashIcon from '@lucide/svelte/icons/hash';
   import AtSignIcon from '@lucide/svelte/icons/at-sign';
   import UsersIcon from '@lucide/svelte/icons/users';
-  import MenuIcon from '@lucide/svelte/icons/menu';
   import MessageItem from './MessageItem.svelte';
   import MessageInput from './MessageInput.svelte';
   import MemberList from './MemberList.svelte';
@@ -21,7 +20,6 @@
     channel,
     messages,
     onSend,
-    onMenuClick,
     isOwner = false,
     headerKind = 'channel',
     showMemberList = true,
@@ -32,7 +30,6 @@
     channel: Channel | null;
     messages: Message[];
     onSend: (text: string, replyToId: string | null, attachmentIds: string[]) => void;
-    onMenuClick?: () => void;
     isOwner?: boolean;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
     headerKind?: 'channel' | 'dm';
@@ -195,16 +192,6 @@
 
 <section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl">
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
-    {#if onMenuClick}
-      <button
-        class="-ml-1 mr-1 rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:hidden"
-        onclick={onMenuClick}
-        aria-label="Menü"
-        data-testid="mobile-menu-toggle"
-      >
-        <MenuIcon class="text-text-muted size-6" />
-      </button>
-    {/if}
     {#if channel}
       {#if headerKind === 'dm'}
         <AtSignIcon class="text-primary size-5 shrink-0" />

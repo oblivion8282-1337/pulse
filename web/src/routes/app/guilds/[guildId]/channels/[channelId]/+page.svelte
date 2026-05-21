@@ -23,6 +23,8 @@
   import { gateway } from '$lib/ws/connection';
   import { voice } from '$lib/voice/livekit.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
   import type { Channel, Message } from '$lib/api/types';
@@ -41,7 +43,6 @@
   let creatingChannel = $state(false);
   let resolving = $state(true);
   let loadError = $state<string | null>(null);
-  let sidebarOpen = $state(false);
 
   let prevGuild = $state('');
   let prevChannel = $state('');
@@ -97,7 +98,7 @@
 
     // Escape schließt Drawer auf Mobil
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === 'Escape' && sidebarOpen) sidebarOpen = false;
+      if (e.key === 'Escape' && navDrawer.open) navDrawer.open = false;
     }
     window.addEventListener('keydown', onKeydown);
 
@@ -227,13 +228,18 @@
   }
 
   async function selectGuild(id: string) {
-    sidebarOpen = false;
-    if (id === guildId) return;
+    // Server-Icon ist der Drawer-Trigger. Gleicher Server → Liste auf/zu;
+    // anderer Server → wechseln und Liste aufklappen.
+    if (id === guildId) {
+      navDrawer.open = !navDrawer.open;
+      return;
+    }
+    navDrawer.open = true;
     await goto(`/app/guilds/${id}/channels/_`);
   }
 
   async function selectChannel(c: Channel) {
-    sidebarOpen = false;
+    navDrawer.open = false;
     if (c.id === channelId) return;
     await goto(`/app/guilds/${guildId}/channels/${c.id}`);
   }
@@ -365,15 +371,6 @@
   }
 </script>
 
-<!-- Mobile Drawer Backdrop -->
-{#if sidebarOpen}
-  <div
-    class="absolute inset-0 z-30 bg-black/40 md:hidden"
-    role="presentation"
-    onclick={() => (sidebarOpen = false)}
-  ></div>
-{/if}
-
 <!-- Guild-Rail: immer sichtbar (auch Mobil), Discord-Style. -->
 <GuildRail
   guilds={guilds.list}
@@ -381,18 +378,13 @@
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
   onCreateClick={() => (creatingGuild = true)}
-  onHomeClick={() => { sidebarOpen = false; void goto('/app/@me'); }}
+  onHomeClick={() => { navDrawer.open = true; void goto('/app/@me'); }}
   onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
 />
 
-<!-- Channel-Sidebar: inline auf md+, Drawer auf Mobil -->
-<div
-  class="
-    absolute inset-y-0 left-16 z-40 w-[min(18rem,calc(100vw-5rem))] transition-transform duration-300 ease-out
-    {sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-    md:relative md:inset-auto md:left-auto md:z-auto md:w-auto md:translate-x-0 md:transition-none
-  "
->
+<!-- Channel-Liste: Desktop dauerhaft; Mobil als eigene Spalte rechts der
+     Guild-Rail, sobald der Drawer offen ist — In-Flow, kein Overlay. -->
+{#if !viewport.isMobile || navDrawer.open}
   <ChannelList
     guild={activeGuild ?? null}
     channels={channelsForGuild}
@@ -402,31 +394,33 @@
     {onChannelDeleted}
     canCreate={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_CHANNELS)}
   />
-</div>
+{/if}
 
-{#if isVoiceChannel && activeChannel}
-  {#key activeChannel.id}
-    <VoiceChannelView channel={activeChannel} onMenuClick={() => (sidebarOpen = true)} />
-  {/key}
-{:else if loadError}
-  <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
-    <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
-    <Button
-      onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
-      data-testid="load-retry"
-    >Erneut versuchen</Button>
-  </section>
-{:else}
-  <ChatView
-    channel={activeChannel}
-    messages={visibleMessages}
-    onSend={sendMessage}
-    onMenuClick={() => (sidebarOpen = true)}
-    isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
-    onEditMessage={editMessage}
-    onDeleteMessage={deleteMessage}
-    onToggleReaction={toggleReaction}
-  />
+<!-- Chat/Voice: Desktop dauerhaft; Mobil nur solange der Drawer zu ist. -->
+{#if !viewport.isMobile || !navDrawer.open}
+  {#if isVoiceChannel && activeChannel}
+    {#key activeChannel.id}
+      <VoiceChannelView channel={activeChannel} />
+    {/key}
+  {:else if loadError}
+    <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">
+      <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
+      <Button
+        onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
+        data-testid="load-retry"
+      >Erneut versuchen</Button>
+    </section>
+  {:else}
+    <ChatView
+      channel={activeChannel}
+      messages={visibleMessages}
+      onSend={sendMessage}
+      isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
+      onEditMessage={editMessage}
+      onDeleteMessage={deleteMessage}
+      onToggleReaction={toggleReaction}
+    />
+  {/if}
 {/if}
 
 <CreateGuildDialog

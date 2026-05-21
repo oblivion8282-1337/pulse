@@ -14,6 +14,8 @@
   import { chatApi } from '$lib/api/chat';
   import { gateway } from '$lib/ws/connection';
   import { readState } from '$lib/stores/readState.svelte';
+  import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
@@ -43,7 +45,6 @@
 
   let visibleMessages = $derived(dmChannelId ? messages.for(dmChannelId) : []);
 
-  let sidebarOpen = $state(false);
   let loadError = $state<string | null>(null);
   let resolving = $state(false);
 
@@ -150,12 +151,13 @@
   }
 
   async function selectGuild(g: { id: string }) {
-    sidebarOpen = false;
+    // Server-Icon ist der Drawer-Trigger — dort dann den Channel-Drawer auf.
+    navDrawer.open = true;
     await goto(`/app/guilds/${g.id}/channels/_`);
   }
 
   async function selectDM(dm: DMChannel) {
-    sidebarOpen = false;
+    navDrawer.open = false;
     if (dm.id === dmChannelId) return;
     await goto(`/app/@me/${dm.id}`);
   }
@@ -238,14 +240,6 @@
   }
 </script>
 
-{#if sidebarOpen}
-  <div
-    class="absolute inset-0 z-30 bg-black/40 md:hidden"
-    role="presentation"
-    onclick={() => (sidebarOpen = false)}
-  ></div>
-{/if}
-
 <GuildRail
   guilds={guilds.list}
   activeGuildId={''}
@@ -256,47 +250,45 @@
     auth.user?.is_admin || capabilities.allowGuildCreation ? () => goto('/app') : undefined
   }
   onHomeClick={async () => {
-    sidebarOpen = false;
+    navDrawer.open = !navDrawer.open;
     await goto('/app/@me');
   }}
 />
 
-<div
-  class="
-    absolute inset-y-0 left-16 z-40 w-[min(18rem,calc(100vw-5rem))] transition-transform duration-300 ease-out
-    {sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-    md:relative md:inset-auto md:left-auto md:z-auto md:w-auto md:translate-x-0 md:transition-none
-  "
->
+<!-- DM-Liste: Desktop dauerhaft; Mobil als eigene Spalte rechts der
+     Guild-Rail, sobald der Drawer offen ist — In-Flow, kein Overlay. -->
+{#if !viewport.isMobile || navDrawer.open}
   <DMChannelList activeDMId={dmChannelId || null} onSelect={selectDM} />
-</div>
+{/if}
 
-{#if loadError}
-  <section
-    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
-  >
-    <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
-  </section>
-{:else if activeDM && synthChannel}
-  <ChatView
-    channel={synthChannel}
-    messages={visibleMessages}
-    onSend={sendMessage}
-    onMenuClick={() => (sidebarOpen = true)}
-    headerKind="dm"
-    showMemberList={false}
-    onEditMessage={editMessage}
-    onDeleteMessage={deleteMessage}
-    onToggleReaction={toggleReaction}
-  />
-{:else}
-  <section
-    class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-none p-8 md:rounded-2xl"
-    data-testid="dm-empty-state"
-  >
-    <p class="text-text-bright text-base font-semibold">Direktnachrichten</p>
-    <p class="text-text-muted max-w-sm text-center text-sm">
-      Wähle links eine bestehende DM aus oder klick im Channel auf einen Member, um eine neue zu starten.
-    </p>
-  </section>
+<!-- Chat: Desktop dauerhaft; Mobil nur solange der Drawer zu ist. -->
+{#if !viewport.isMobile || !navDrawer.open}
+  {#if loadError}
+    <section
+      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl"
+    >
+      <p class="text-sm text-red-400" data-testid="load-error">{loadError}</p>
+    </section>
+  {:else if activeDM && synthChannel}
+    <ChatView
+      channel={synthChannel}
+      messages={visibleMessages}
+      onSend={sendMessage}
+      headerKind="dm"
+      showMemberList={false}
+      onEditMessage={editMessage}
+      onDeleteMessage={deleteMessage}
+      onToggleReaction={toggleReaction}
+    />
+  {:else}
+    <section
+      class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-none p-8 md:rounded-2xl"
+      data-testid="dm-empty-state"
+    >
+      <p class="text-text-bright text-base font-semibold">Direktnachrichten</p>
+      <p class="text-text-muted max-w-sm text-center text-sm">
+        Wähle links eine bestehende DM aus oder klick im Channel auf einen Member, um eine neue zu starten.
+      </p>
+    </section>
+  {/if}
 {/if}

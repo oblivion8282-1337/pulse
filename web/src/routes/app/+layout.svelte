@@ -138,10 +138,8 @@
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
   <!-- pt-[env(safe-area-inset-top)]: clears the iOS notch / status bar in the
-       installed PWA (no-op as a browser tab). md restores the regular padding.
-       `relative`: Anker für den Channel-Drawer, der auf Mobil `absolute` ist
-       und so nur diese Zeile aufspannt — nie das Voice-Dock darunter. -->
-  <div class="relative flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
+       installed PWA (no-op as a browser tab). md restores the regular padding. -->
+  <div class="flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}

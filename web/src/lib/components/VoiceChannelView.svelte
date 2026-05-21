@@ -21,16 +21,9 @@
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import { untrack } from 'svelte';
-  import MenuIcon from '@lucide/svelte/icons/menu';
   import type { Channel } from '$lib/api/types';
 
-  let {
-    channel,
-    onMenuClick
-  }: {
-    channel: Channel;
-    onMenuClick?: () => void;
-  } = $props();
+  let { channel }: { channel: Channel } = $props();
 
   // HQ stream presence for this channel — needed by the prune effect below
   // so that a publisher who stopped doesn't keep auto-mounting a tile.
@@ -143,16 +136,6 @@
 
 <section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
-    {#if onMenuClick}
-      <button
-        class="-ml-1 mr-1 rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:hidden"
-        onclick={onMenuClick}
-        aria-label="Menü"
-        data-testid="mobile-menu-toggle"
-      >
-        <MenuIcon class="text-text-muted size-6" />
-      </button>
-    {/if}
     <Volume2Icon class="text-primary size-5 shrink-0" />
     <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
