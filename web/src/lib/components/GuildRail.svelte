@@ -33,6 +33,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
+  import GuildVoiceTooltip from './GuildVoiceTooltip.svelte';
   import type { Guild } from '$lib/api/types';
 
   let {
@@ -253,7 +254,9 @@
                   </div>
                 {/snippet}
               </Tooltip.Trigger>
-              <Tooltip.Content side="right">{g.name}</Tooltip.Content>
+              <Tooltip.Content side="right" class="flex-col items-start gap-1">
+                <GuildVoiceTooltip guildId={g.id} name={g.name} />
+              </Tooltip.Content>
             </Tooltip.Root>
           {/snippet}
         </ContextMenu.Trigger>
