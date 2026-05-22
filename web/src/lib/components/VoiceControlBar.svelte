@@ -6,8 +6,6 @@
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
-  import MonitorIcon from '@lucide/svelte/icons/monitor';
-  import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
   import VideoIcon from '@lucide/svelte/icons/video';
   import VideoOffIcon from '@lucide/svelte/icons/video-off';
   import { toast } from 'svelte-sonner';
@@ -18,12 +16,8 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
-  import HqStreamButton from '$lib/stream/components/HqStreamButton.svelte';
-  import ScreenSharePublishStats from './ScreenSharePublishStats.svelte';
+  import ScreenShareModeButton from './ScreenShareModeButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
-  import type { PublishStats } from '$lib/voice/screenShareStats';
-
-  let publishStats = $state<PublishStats | null>(null);
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -63,13 +57,6 @@
     return voicePresence.isForceDeafened(cid, uid);
   });
 
-  async function handleScreenShare() {
-    try {
-      await voice.setScreenShare(!voice.isScreenSharing);
-    } catch {
-      toast.info('Bildschirm teilen abgebrochen');
-    }
-  }
 </script>
 
 <div
@@ -181,52 +168,10 @@
         </Tooltip.Root>
       {/if}
 
-      <!-- Bildschirm teilen auf Mobil ausgeblendet: getDisplayMedia() gibt's
-           weder auf iOS Safari noch auf Android Chrome → toter Button. -->
+      <!-- Screenshare/HQ — auf Mobil ausgeblendet (kein getDisplayMedia auf iOS/Android) -->
       {#if !viewport.isMobile}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <span class="relative inline-flex">
-              <Button
-                {...props}
-                variant={voice.isScreenSharing ? 'default' : 'ghost'}
-                size="icon-sm"
-                class="size-14 md:size-8"
-                onclick={handleScreenShare}
-                data-testid="voice-screenshare-toggle"
-                aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
-              >
-                {#if voice.isScreenSharing}<MonitorOffIcon class="size-6 md:size-4" />{:else}<MonitorIcon class="size-6 md:size-4" />{/if}
-              </Button>
-              <ScreenSharePublishStats bind:stats={publishStats} />
-            </span>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content>
-          <div>{voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}</div>
-          {#if voice.isScreenSharing && publishStats}
-            <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-[11px] tabular-nums">
-              <div>
-                Encoder:
-                {publishStats.encoderImpl || '—'}
-                {#if publishStats.encoderKind === 'gpu'}
-                  <span class="text-emerald-400">(GPU)</span>
-                {:else if publishStats.encoderKind === 'cpu'}
-                  <span class="text-amber-400">(CPU)</span>
-                {/if}
-              </div>
-              <div>Codec: {publishStats.codec}</div>
-              <div>Auflösung: {publishStats.res}</div>
-              <div>FPS: {publishStats.fps}</div>
-              <div>Bitrate: {publishStats.bitrate}</div>
-            </div>
-          {/if}
-        </Tooltip.Content>
-      </Tooltip.Root>
+        <ScreenShareModeButton />
       {/if}
-
-      <HqStreamButton compact />
 
       <Tooltip.Root>
         <Tooltip.Trigger>
