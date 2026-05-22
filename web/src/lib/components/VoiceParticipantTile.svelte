@@ -70,6 +70,15 @@
   // The LiveKit cam track for this participant, if subscribed + unmuted.
   let camTrack = $derived(voice.cameraTracks.find((c) => c.identity === p.identity));
   let hasCam = $derived(!!camTrack);
+  let ringClass = $derived(
+    isLive
+      ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-background'
+      : isPartyHost
+        ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+        : hasCam
+          ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-background'
+          : ''
+  );
 
   function openLive(): void {
     // Open whichever live source(s) this user actually has. HQ takes the
@@ -122,10 +131,20 @@
             style={`opacity: ${glowOpacity};`}
             aria-hidden="true"
           ></div>
-          <!-- Red live-glow — same mount pattern as the speaker glow above. -->
+          <!-- Activity glows — always mounted, fade in/out. -->
           <div
             class="pointer-events-none absolute -inset-2 rounded-full bg-red-500/50 blur-[8px] transition-opacity duration-500"
             style={`opacity: ${isLive ? 1 : 0};`}
+            aria-hidden="true"
+          ></div>
+          <div
+            class="pointer-events-none absolute -inset-2 rounded-full bg-primary/50 blur-[8px] transition-opacity duration-500"
+            style={`opacity: ${isPartyHost ? 1 : 0};`}
+            aria-hidden="true"
+          ></div>
+          <div
+            class="pointer-events-none absolute -inset-2 rounded-full bg-blue-500/50 blur-[8px] transition-opacity duration-500"
+            style={`opacity: ${hasCam ? 1 : 0};`}
             aria-hidden="true"
           ></div>
           {#if p.isSpeaking}
@@ -141,7 +160,7 @@
               aria-hidden="true"
             ></span>
           {/if}
-          <Avatar.Root class="relative size-20 {isLive ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-background' : ''}">
+          <Avatar.Root class="relative size-20 {ringClass}">
             {#if avatarSrc}
               <Avatar.Image src={avatarSrc} alt={p.name} />
             {/if}
@@ -149,26 +168,64 @@
               {initial}
             </Avatar.Fallback>
           </Avatar.Root>
-          {#if isLive}
-            <span
-              role="button"
-              tabindex="0"
-              class="absolute -bottom-2 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-md bg-red-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
-              data-testid="voice-participant-live-badge"
-              title={isHqStreaming && isScreenSharing
-                ? 'HQ-Stream + Bildschirm öffnen'
-                : isHqStreaming
-                  ? 'HQ-Stream öffnen'
-                  : 'Bildschirm öffnen'}
-              aria-label="{p.name}s Stream öffnen"
-              onclick={(e) => { e.stopPropagation(); openLive(); }}
-              onkeydown={(e) => {
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                e.preventDefault();
-                e.stopPropagation();
-                openLive();
-              }}
-            >LIVE</span>
+          {#if isLive || isPartyHost || hasCam}
+            <div class="absolute -bottom-2 left-1/2 z-10 flex -translate-x-1/2 gap-1">
+              {#if isLive}
+                <span
+                  role="button"
+                  tabindex="0"
+                  class="cursor-pointer rounded-md bg-red-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
+                  data-testid="voice-participant-live-badge"
+                  title={isHqStreaming && isScreenSharing
+                    ? 'HQ-Stream + Bildschirm öffnen'
+                    : isHqStreaming
+                      ? 'HQ-Stream öffnen'
+                      : 'Bildschirm öffnen'}
+                  aria-label="{p.name}s Stream öffnen"
+                  onclick={(e) => { e.stopPropagation(); openLive(); }}
+                  onkeydown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openLive();
+                  }}
+                >LIVE</span>
+              {/if}
+              {#if isPartyHost}
+                <span
+                  role="button"
+                  tabindex="0"
+                  class="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-bold leading-none text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95"
+                  data-testid="voice-participant-party-badge"
+                  title="Watch Party öffnen"
+                  aria-label="{p.name}s Watch Party öffnen"
+                  onclick={(e) => { e.stopPropagation(); openParty(); }}
+                  onkeydown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openParty();
+                  }}
+                >PARTY</span>
+              {/if}
+              {#if hasCam}
+                <span
+                  role="button"
+                  tabindex="0"
+                  class="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-blue-500 active:scale-95"
+                  data-testid="voice-participant-cam-badge"
+                  title="Webcam öffnen"
+                  aria-label="{p.name}s Webcam öffnen"
+                  onclick={(e) => { e.stopPropagation(); openCam(); }}
+                  onkeydown={(e) => {
+                    if (e.key !== 'Enter' && e.key !== ' ') return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    openCam();
+                  }}
+                >CAM</span>
+              {/if}
+            </div>
           {/if}
         </div>
         <div class="flex items-center gap-1 text-sm md:text-xs">
@@ -204,44 +261,6 @@
             </span>
           {/if}
         </div>
-        {#if isPartyHost || hasCam}
-          <div class="flex flex-wrap items-center justify-center gap-1">
-            {#if isPartyHost}
-              <span
-                role="button"
-                tabindex="0"
-                class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90 cursor-pointer"
-                data-testid="voice-participant-party-badge"
-                title="Watch Party öffnen"
-                aria-label="{p.name}s Watch Party öffnen"
-                onclick={(e) => { e.stopPropagation(); openParty(); }}
-                onkeydown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openParty();
-                }}
-              >PARTY</span>
-            {/if}
-            {#if hasCam}
-              <span
-                role="button"
-                tabindex="0"
-                class="rounded bg-primary/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary cursor-pointer"
-                data-testid="voice-participant-cam-badge"
-                title="Webcam öffnen"
-                aria-label="{p.name}s Webcam öffnen"
-                onclick={(e) => { e.stopPropagation(); openCam(); }}
-                onkeydown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openCam();
-                }}
-              >CAM</span>
-            {/if}
-          </div>
-        {/if}
       </button>
     {/snippet}
   {#snippet extra()}
