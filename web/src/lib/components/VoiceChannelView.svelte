@@ -20,7 +20,7 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
-  import { untrack } from 'svelte';
+  import { untrack, onMount } from 'svelte';
   import type { Channel } from '$lib/api/types';
 
   let { channel }: { channel: Channel } = $props();
@@ -79,9 +79,10 @@
     for (const uid of screenSharerIds) userCache.queue(uid);
   });
 
-  // Connecting must happen from a user gesture (click on "Beitreten") so the
-  // browser allows the AudioContext to start — auto-connect on mount would be
-  // blocked by autoplay policy.
+  // Connecting must happen from a user gesture so the browser allows the
+  // AudioContext to start. On desktop the "Beitreten"-Button provides that
+  // gesture. On mobile the channel-list tap IS the gesture — SPA navigation
+  // keeps the user-activation alive into onMount, so we auto-join there.
   async function joinChannel() {
     try {
       await voice.connect(channel.id, channel.name);
@@ -91,6 +92,12 @@
       });
     }
   }
+
+  onMount(() => {
+    if (viewport.isMobile && !voice.connected && !voice.connecting) {
+      void joinChannel();
+    }
+  });
 
   let isThisChannel = $derived(voice.channelId === channel.id);
   let statusLabel = $derived(
@@ -200,11 +207,15 @@
         <div class="text-center">
           <Volume2Icon class="text-text-muted mx-auto mb-3 size-12" />
           <p class="text-text-bright mb-1 text-lg">{channel.name}</p>
-          <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
           {#if voice.error}
             <p class="mt-2 text-sm text-red-400">{voice.error}</p>
           {/if}
-          <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+          {#if !viewport.isMobile}
+            <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
+            <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+          {:else}
+            <p class="text-text-muted text-sm">Verbinde…</p>
+          {/if}
         </div>
       </div>
     {/if}
