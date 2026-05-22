@@ -33,9 +33,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import XIcon from '@lucide/svelte/icons/x';
-  import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
-  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
-  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
@@ -62,9 +60,12 @@
     /** Wenn false (Popup-Modus), kein Detach-Button — wir sind ja schon
      *  entkoppelt. */
     canDetach?: boolean;
+    /** Filmstrip-Kachel im Fokus-Modus. */
+    compact?: boolean;
+    onActivate?: () => void;
   }
 
-  let { channelId, party, canDetach = true }: Props = $props();
+  let { channelId, party, canDetach = true, compact = false, onActivate }: Props = $props();
 
   // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
   let chatOpen = $state(false);
@@ -323,79 +324,22 @@
   });
 </script>
 
-<div
-  class="border-border bg-bg-chat relative flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border"
-  data-testid="watch-party-tile"
+<TileShell
+  kind="party"
+  containerTestid="watch-party-tile"
+  testidPrefix="watch-party"
+  staticHud
+  name={sourceLabel}
+  nameTestid="watch-party-source-label"
+  {chatOpen}
+  onToggleChat={() => (chatOpen = !chatOpen)}
+  onDetach={canDetach ? handleDetach : undefined}
+  onHide={() => openedTiles.closeParty(channelId)}
+  {compact}
+  {onActivate}
 >
-  <header class="flex shrink-0 items-center gap-2 px-3 py-2 text-xs">
-    <PlayCircleIcon class="text-primary size-4 shrink-0" />
-    <span class="text-text-bright font-medium">Watch Party</span>
-    <span class="text-text-muted">·</span>
-    <span class="text-text-muted truncate" data-testid="watch-party-source-label">
-      {sourceLabel}
-    </span>
-    {#if isPassive}
-      <span
-        class="rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-red-300"
-        title="Live-Stream — kein zentraler Sync, Viewer landen auf ihrer eigenen Buffer-Position"
-        data-testid="watch-party-live-badge"
-      >
-        LIVE
-      </span>
-    {/if}
-    <span class="text-text-muted ml-auto truncate" data-testid="watch-party-host-label">
-      Host: {hostName}
-    </span>
-    <button
-      type="button"
-      onclick={() => (chatOpen = !chatOpen)}
-      class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-black/60 {chatOpen ? 'ring-2 ring-primary' : ''}"
-      aria-label={chatOpen ? 'Watch-Chat schließen' : 'Watch-Chat öffnen'}
-      aria-pressed={chatOpen}
-      title="Watch-Chat"
-      data-testid="watch-party-chat-toggle"
-    >
-      <MessageSquareIcon class="size-3" />
-    </button>
-    {#if canDetach}
-      <button
-        type="button"
-        onclick={handleDetach}
-        class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-black/60"
-        aria-label="Watch Party in eigenem Fenster"
-        title="In eigenem Fenster öffnen"
-        data-testid="watch-party-detach"
-      >
-        <ExternalLinkIcon class="size-3" />
-      </button>
-    {/if}
-    {#if isHost}
-      <button
-        type="button"
-        onclick={stop}
-        class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-black/60"
-        aria-label="Watch Party beenden"
-        title="Watch Party beenden"
-        data-testid="watch-party-stop"
-      >
-        <XIcon class="size-3" />
-      </button>
-    {:else}
-      <button
-        type="button"
-        onclick={() => openedTiles.closeParty(channelId)}
-        class="ml-1 rounded-full bg-black/40 px-2 py-0.5 text-white transition-colors hover:bg-red-600"
-        aria-label="Watch Party ausblenden"
-        title="Bei dir ausblenden"
-        data-testid="watch-party-hide"
-      >
-        <XIcon class="size-3" />
-      </button>
-    {/if}
-  </header>
-
-  <div class="relative flex min-h-0 flex-1">
-    <div class="relative min-w-0 flex-1 bg-black">
+  {#snippet media()}
+    <div class="relative min-h-0 w-full flex-1 bg-black">
       {#if party.source.type === 'youtube'}
         <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
       {:else if party.source.type === 'twitch' || party.source.type === 'twitch_live'}
@@ -404,8 +348,39 @@
         <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
       {/if}
     </div>
-    {#if chatOpen}
-      <WatchChatPanel {channelId} />
+  {/snippet}
+  {#snippet nameExtra()}
+    {#if isPassive}
+      <span
+        class="rounded-full bg-red-500/30 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-red-200 backdrop-blur-sm"
+        title="Live-Stream — kein zentraler Sync, Viewer landen auf ihrer eigenen Buffer-Position"
+        data-testid="watch-party-live-badge"
+      >
+        LIVE
+      </span>
     {/if}
-  </div>
-</div>
+    <span
+      class="max-w-36 truncate rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
+      data-testid="watch-party-host-label"
+    >
+      Host: {hostName}
+    </span>
+  {/snippet}
+  {#snippet controlsExtra()}
+    {#if isHost}
+      <button
+        type="button"
+        onclick={stop}
+        class="flex items-center justify-center rounded-full bg-black/55 p-2.5 text-white backdrop-blur-sm hover:bg-red-600 md:p-1.5"
+        aria-label="Watch Party beenden"
+        title="Watch Party beenden"
+        data-testid="watch-party-stop"
+      >
+        <XIcon class="size-5 md:size-3.5" />
+      </button>
+    {/if}
+  {/snippet}
+  {#snippet chatPanel()}
+    <WatchChatPanel {channelId} />
+  {/snippet}
+</TileShell>
