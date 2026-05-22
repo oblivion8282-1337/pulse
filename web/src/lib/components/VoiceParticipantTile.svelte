@@ -122,6 +122,12 @@
             style={`opacity: ${glowOpacity};`}
             aria-hidden="true"
           ></div>
+          <!-- Red live-glow — same mount pattern as the speaker glow above. -->
+          <div
+            class="pointer-events-none absolute -inset-2 rounded-full bg-red-500/50 blur-[8px] transition-opacity duration-500"
+            style={`opacity: ${isLive ? 1 : 0};`}
+            aria-hidden="true"
+          ></div>
           {#if p.isSpeaking}
             <!-- Two staggered rings build the sonar "ping" — identical
                  animation to the sidebar voice-channel members list. -->
@@ -147,7 +153,7 @@
             <span
               role="button"
               tabindex="0"
-              class="absolute -bottom-2 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white hover:bg-red-500"
+              class="absolute -bottom-3.5 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-md bg-red-600 px-2.5 py-1 text-xs font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
               data-testid="voice-participant-live-badge"
               title={isHqStreaming && isScreenSharing
                 ? 'HQ-Stream + Bildschirm öffnen'
