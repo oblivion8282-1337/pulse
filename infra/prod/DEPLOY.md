@@ -81,6 +81,23 @@ docker network connect pulse-net caddy 2>/dev/null || true   # idempotent
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```
 
+## Volume ownership gotcha (fresh deploys)
+
+The auth service stores uploaded avatars in the named volume `pulse_avatars`
+(`pulse_auth:/app/services/auth/uploads`). `services/*/uploads` is in
+`.dockerignore`, so it's not baked into the image — `Dockerfile.service` creates
+`uploads/avatars` *after* `USER app`, so a fresh empty named volume inherits `app`
+ownership on first seed. If the volume somehow ends up `root:root` (uid 10001 in
+the container then can't write → avatar upload fails with `500 PermissionError`),
+fix it once:
+
+```sh
+docker exec -u root pulse_auth chown -R 10001:10001 /app/services/auth/uploads
+```
+
+The JWT PEM keys have the same uid-10001 constraint — see step 2 above
+(`jwt_private.pem` `0600` + chowned, `jwt_public.pem` `0644`).
+
 ## Updating
 
 - **Code / bug fixes** → just `git push` to `main`. CI builds & pushes the

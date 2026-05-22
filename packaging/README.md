@@ -94,6 +94,24 @@ cached runs ~5 min (the workflow caches `~/.local/share/flatpak` + `.flatpak-bui
 The legacy pre-push hook still works as an emergency fallback (CI down, hotfix
 without pushing to GitHub) — opt in with `PULSE_FORCE_LOCAL_PUBLISH=1 git push …`.
 
+## Troubleshooting
+
+**App won't start (Exit 1, almost no output).** First check whether the Electron
+tree is intact:
+```fish
+flatpak run --command=sh com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'
+```
+If those are missing, it's the `strip-components` bug (see below). Otherwise it's
+usually GPU/Wayland on NVIDIA → try `PULSE_OZONE=x11 flatpak run …`, or add
+`--disable-gpu` / `--disable-gpu-sandbox` to the `zypak-wrapper` line in `launcher.sh`.
+
+**The `strip-components` trap.** The Electron-42 binary is pulled from the GitHub
+release as a flat tree with `locales/` + `resources/` at the top level. The
+flatpak-builder default `strip-components: 1` flattens those two directories →
+Electron can't find `resources/default_app.asar` → Exit 1 *before `main.cjs` even
+runs*. The manifest therefore pins **`strip-components: 0`** for that source. If you
+ever touch the `pulse` module's `archive` source, keep it at `0`.
+
 ## Files
 - `com.unicutmedia.Pulse.yml` — the manifest
 - `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`

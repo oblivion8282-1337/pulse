@@ -18,68 +18,37 @@ Drei Transportpfade, getrennt: HTTPS/WSS → FastAPI-Services · WebRTC → Live
 
 `~/Dokumente/GPU_Screen_Recorder/` ist **READ-ONLY** (Original) — `streaming/` ist eine vendored Kopie (2026-05-11), nur die wird modifiziert.
 
-## Tech-Stack (verifiziert aus uv.lock / pnpm-lock.yaml / package.json — kein Raten)
+## Tech-Stack — die Stolpersteine
 
-### Tooling / Runtimes
-- **Python** 3.14.4 (`>=3.13,<3.15`) · **uv** 0.11.11 · **Node** v25.9.0 · **pnpm** 10.33.0
-- Ruff `line-length=100`, `target-version=py313`, `ignore=["E501"]`
+Genaue Versionen stehen in `uv.lock` / `pnpm-lock.yaml` / `package.json` — bei Bedarf dort nachsehen, hier nur das Nicht-Offensichtliche.
+Runtimes: **Python** 3.14 (`>=3.13,<3.15`) · **uv** · **Node** 25 · **pnpm** 10. Ruff `line-length=100`, `target-version=py313`, `ignore=["E501"]`.
 
-### Backend (`services/*` + `shared/`)
-| Lib | Version | Notiz |
-|---|---|---|
-| FastAPI | 0.136.1 (`>=0.115,<0.137`) | |
-| uvicorn[standard] | 0.46.0 | |
-| SQLAlchemy[asyncio] | 2.0.49 (`>=2.0.40,<2.1`) | async ORM, **eigenes Schema pro Service** (`auth`/`chat`) |
-| asyncpg 0.31.0 / aiosqlite 0.22.1 | | Postgres (Prod) / SQLite (nur Tests) |
-| Alembic | 1.18.4 | Migrationen pro Service unter `alembic/versions/` |
-| pydantic 2.13.4 / pydantic-settings 2.14.1 | | |
-| pyjwt[crypto] | 2.12.1 | RS256. **`PyJWKClient.from_jwks` gibt's hier noch nicht** → Eigenbau via `RSAAlgorithm.from_jwk` in `security.py` |
-| cryptography 48.0.0 · argon2-cffi 25.1.0 | | argon2 = Passwort-Hashing (Argon2id t=3/m=64MiB/p=4) |
-| redis | 7.4.0 | async; ConnectionManager nutzt `psubscribe` + `get_message()`-Poll (kein `listen()`-Race) |
-| livekit-api | 1.1.0 | Token-Issue im voice-signaling |
-| httpx 0.28.1 · structlog 25.5.0 · websockets 16.0 | | |
-| slowapi | lockfile | Rate-Limit in auth-svc (**in-process!**) |
-| email-validator | lockfile | blockt special-use-TLDs → Tests nutzen `dcc-test.example.com`, nicht `*.test` |
-| pyotp 2.x · qrcode[pil] 8.x | lockfile | TOTP-2FA in auth-svc (`routes_totp.py`) |
-| webauthn (py_webauthn) 2.7.1 | `>=2.5,<3` | WebAuthn/Passkeys in auth-svc — CBOR/COSE/Attestation, kein Eigenbau |
-| pytest 9.0.3 · pytest-asyncio 1.3.0 | | `--import-mode=importlib`, `asyncio_mode=auto` |
+**Backend** (`services/*` + `shared/`) — FastAPI + uvicorn, SQLAlchemy[asyncio] (async ORM, **eigenes Schema pro Service**: `auth`/`chat`), asyncpg (Prod) / aiosqlite (nur Tests), Alembic (Migrationen pro Service unter `alembic/versions/`), pydantic v2 + pydantic-settings. Nicht-offensichtlich:
+- **pyjwt[crypto]**: RS256. `PyJWKClient.from_jwks` gibt's in der Version noch nicht → Eigenbau via `RSAAlgorithm.from_jwk` in `security.py`.
+- **argon2-cffi**: Passwort-Hashing Argon2id (t=3/m=64MiB/p=4).
+- **redis** async: ConnectionManager nutzt `psubscribe` + `get_message()`-Poll (kein `listen()`-Race).
+- **slowapi**: Rate-Limit in auth-svc — **in-process!**
+- **email-validator** blockt special-use-TLDs → Tests nutzen `dcc-test.example.com`, nicht `*.test`.
+- **py_webauthn**: WebAuthn/Passkeys — CBOR/COSE/Attestation, kein Eigenbau. `pyotp`+`qrcode[pil]` für TOTP.
+- **pytest** + pytest-asyncio: `--import-mode=importlib`, `asyncio_mode=auto`.
 
-### Frontend (`web/`, SvelteKit-SPA, `ssr=false`, `adapter-static`)
-| Lib | Version | Notiz |
-|---|---|---|
-| @sveltejs/kit 2.59.1 · svelte 5.55.5 | | Runes-API (`$state`/`$derived`) |
-| @sveltejs/adapter-static 3.0.10 | | Build → `web/build/` → `pulse_web`-nginx-Image. Die Electron-App lädt die *deployte* Web-App remote, nicht `web/build/` |
-| @sveltejs/vite-plugin-svelte 7.1.2 · vite 8.0.11 | | Vite-Dev-Proxy: `/api/auth`→:8001 · `/api/chat`+`/api/ws`→:8002 · `/api/voice`→:8003 |
-| typescript 5.9.3 (strict) | | |
-| tailwindcss 4.3.0 | | + `@tailwindcss/vite`; shadcn-Semantik-Tokens im `.dark{}`-Block |
-| valibot 1.4.0 | | API-Response-Validation |
-| shadcn-svelte 1.2.7 / bits-ui 2.18.1 | | Components unter `web/src/lib/components/ui/` (Vendor — von der Größen-Policy ausgenommen) |
-| livekit-client 2.18.9 | | `lib/voice/livekit.svelte.ts` abonniert rohe `Room`/`Participant`-Events (kein `@livekit/components-core`-Wrapper, obwohl installiert & ungenutzt) |
-| @sapphi-red/web-noise-suppressor 0.3.5 | | Mic-Filter = RNNoise → NoiseGate (`lib/voice/noiseFilter.ts::RnnoiseGatedTrackProcessor`). UI bietet nur Aus/An; bei An: dB-Slider für die Gate-Open-Schwelle (close = open − 5 dB, hold 200 ms). **`MediaStreamDestinationNode.channelCount = 1` zwingend setzen** — Default ist Stereo + `channelCountMode "explicit"` → mono-Worklet füllt nur output[0], rechter Kanal stumm. |
-| @svelte-put/shortcut 4.1.0 | | In-Window-PTT-Hotkey (Taste aus `settings.voice.pttKey`) |
-| svelte-sonner 1.1.1 · @lucide/svelte 1.14.0 | | Toasts / Icons |
-| @fontsource-variable/plus-jakarta-sans 5.2.8 | | UI-Font; `@fontsource-variable/inter` als Fallback |
-| mode-watcher 1.1.0 | | Light/Dark/System; `setMode()` aus `settings.svelte.ts`, persistiert in `dcc.settings`; FOUC-Inline-Script in `app.html` |
-| @playwright/test 1.59.1 · svelte-check 4.4.8 | | E2E (`web/tests/e2e/`, globalSetup startet auth+chat als child-procs) / `pnpm check` |
+**Frontend** (`web/`, SvelteKit-SPA, `ssr=false`, `adapter-static`) — Svelte 5 Runes (`$state`/`$derived`), Tailwind 4 (+ `@tailwindcss/vite`, shadcn-Semantik-Tokens im `.dark{}`-Block), valibot (API-Response-Validation), shadcn-svelte / bits-ui (`web/src/lib/components/ui/`, Vendor — von der Größen-Policy ausgenommen). Nicht-offensichtlich:
+- Build → `web/build/` → `pulse_web`-nginx-Image. **Die Electron-App lädt die *deployte* Web-App remote**, nicht `web/build/`.
+- Vite-Dev-Proxy: `/api/auth`→:8001 · `/api/chat`+`/api/ws`→:8002 · `/api/voice`→:8003.
+- **livekit-client**: `lib/voice/livekit.svelte.ts` abonniert rohe `Room`/`Participant`-Events (kein `@livekit/components-core`-Wrapper, obwohl installiert & ungenutzt).
+- **@sapphi-red/web-noise-suppressor**: Mic-Filter RNNoise→NoiseGate (`lib/voice/noiseFilter.ts::RnnoiseGatedTrackProcessor`). UI nur Aus/An; bei An dB-Slider für die Gate-Open-Schwelle (close = open−5 dB, hold 200 ms). **`MediaStreamDestinationNode.channelCount = 1` zwingend setzen** — Default ist Stereo + `channelCountMode "explicit"` → mono-Worklet füllt nur output[0], rechter Kanal stumm.
+- **mode-watcher**: Light/Dark/System; `setMode()` aus `settings.svelte.ts`, persistiert in `dcc.settings`; FOUC-Inline-Script in `app.html`.
+- **@svelte-put/shortcut**: In-Window-PTT-Hotkey (Taste aus `settings.voice.pttKey`).
+- Tests: `@playwright/test` E2E (`web/tests/e2e/`, globalSetup startet auth+chat als child-procs) + `svelte-check` (`pnpm check`). Kein Vitest/Unit.
 
-### Desktop (`desktop/`, Electron — `@dcc/desktop`, pnpm-Workspace-Member)
-| Lib | Version | Notiz |
-|---|---|---|
-| electron | 42.0.1 (gepinnt) | bundlet Node 22.x. **Kein `postinstall`** — Binary wird beim ersten `require('electron')` lazy gezogen |
-| esbuild | 0.28.0 | bundlet `electron/{main,preload}.ts` (zieht `sidecar.ts`+`store.ts` via Import mit) → `electron/dist/*.cjs` (`build:electron`). In root-`pnpm.onlyBuiltDependencies` |
-| @types/node | ^22.7.5 | |
+**Desktop** (`desktop/`, Electron — `@dcc/desktop`, pnpm-Workspace-Member):
+- electron 42.0.1 (gepinnt) bundlet Node 22.x. **Kein `postinstall`** — Binary wird beim ersten `require('electron')` lazy gezogen.
+- esbuild bundlet `electron/{main,preload}.ts` (zieht `sidecar.ts`+`store.ts` via Import mit) → `electron/dist/*.cjs` (`build:electron`).
+- `desktop/package.json` ist CJS (**ohne** `"type":"module"`), `"main":"electron/dist/main.cjs"`.
+- Scripts: `dev` (= build + `PULSE_DEV_URL=:5173 electron .` gegen Vite) · `prod` (= build + `electron .` ohne Env → lädt `https://pulse.unicutmedia.com`, keine DevTools) · `start` (`electron .` ohne Rebuild). DevTools nur bei `PULSE_DEVTOOLS=1` oder Strg+Shift+I. Build-Check ohne GUI: `cd desktop && pnpm run build:electron`.
+- Voice funktioniert im Electron-Fenster (Chromium-WebRTC) — das war der Grund für den Tauri→Electron-Pivot.
 
-`desktop/package.json` ist CJS (**ohne** `"type":"module"`), `"main":"electron/dist/main.cjs"`.
-Scripts: `build:electron` (esbuild) · `dev` (= build + `PULSE_DEV_URL=:5173 electron .` gegen Vite) ·
-`prod` (= build + `electron .` ohne Env → lädt `https://pulse.unicutmedia.com`, keine DevTools) · `start` (`electron .` ohne Rebuild).
-DevTools nur bei `PULSE_DEVTOOLS=1` oder Strg+Shift+I. Build-Check ohne GUI: `cd desktop && pnpm run build:electron`.
-Voice funktioniert im Electron-Fenster (Chromium-WebRTC) — das war der Grund für den Tauri→Electron-Pivot.
-
-### Infra
-- Dev: `docker-compose.yml` — Postgres `postgres:16-alpine`, Redis `redis:7-alpine`, LiveKit `livekit/livekit-server:latest`
-  (hinter `docker compose --profile voice up -d`, **`network_mode: host`** — s.u.). MediaMTX läuft *separat* über
-  `streaming/server/docker-compose.yml` (`network_mode: host`).
-- Prod: siehe „Produktiv-Deployment".
+**Infra (Dev):** `docker-compose.yml` — Postgres `postgres:16-alpine`, Redis `redis:7-alpine`, LiveKit (hinter `docker compose --profile voice up -d`, **`network_mode: host`** — s.u.). MediaMTX läuft *separat* über `streaming/server/docker-compose.yml` (`network_mode: host`). Prod siehe „Produktiv-Deployment".
 
 ## Architektur — die nicht-offensichtlichen Stücke
 
@@ -132,9 +101,12 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
   Stream-State in Redis, published auf `stream:events`, hat einen Poller gegen `MEDIAMTX_API_URL`
   (default `localhost:9997/v3/paths/list`, 3s) der Publisher erkennt + den State self-healt. `GET /channels/{cid}/whep?user_id=<uid>` → `{whep_url}` (anonymer Read).
 - `mediamtx-auth-hook` (8005): MediaMTX' `authMethod: http`-Delegation (kein DB/JWT, nur Redis). Publish: Pfad
-  `^channel-(\d+)-(\d+)$`, `password`/`token` muss `stream:token:<token>` matchen (`scope=="publish"`, `channel_id`+`user_id` müssen zum Pfad passen) → 200 + schreibt `stream:active:channel-<cid>-<uid>`. Read/playback: anonym, nur Pfad-Check. Alles andere → 401.
-- Redis: `stream:token:<token>` (von media-svc, EX 4h), `stream:active:channel-<cid>-<uid>` (vom auth-hook beim
-  publish-OK, EX 6h), `stream:channel:<cid>` → `{user_ids:[...], since}` (vom Poller, EX 6h Self-Heal).
+  `^channel-(\d+)-(\d+)-([0-9a-f]{8})$` (letzte Gruppe = Per-Publish-Nonce, s.u.), `password`/`token` muss `stream:token:<token>` matchen (`scope=="publish"`, `channel_id`+`user_id` müssen zum Pfad passen) → 200 + schreibt `stream:active:channel-<cid>-<uid>`. Read/playback: anonym, nur Pfad-Check. Alles andere → 401.
+- Redis: `stream:token:<token>` (von media-svc, EX 4h; trägt zusätzlich `nonce` = 8 Hex aus `secrets.token_hex(4)`,
+  frisch pro Token-Issue → MediaMTX-Pfad ist `channel-<cid>-<uid>-<nonce>`, umschifft den 1.17.1-Republish-ICE-Race:
+  gleicher Pfad < Sekunden später = tote WebRTC-Session), `stream:active:channel-<cid>-<uid>` (vom auth-hook beim
+  publish-OK, EX 6h, **ohne** Nonce — Feld `.path` hält den vollen Live-Pfad für media-svc' WHEP-Lookup),
+  `stream:channel:<cid>` → `{user_ids:[...], since}` (vom Poller, EX 6h Self-Heal).
   `stream:events` Pub/Sub: `{channel_id, user_ids:[...]}` pro State-Change. Key-Namen sind in
   `dcc_media_svc/streamkeys.py` + `dcc_mediamtx_auth_hook/shared.py` **dupliziert** (die Services teilen keinen Code — synchron halten).
 - chat-gateway: abonniert `stream:events` (neben `voice:events`) → broadcastet `{"op":"stream_state","channel_id":..,"user_ids":[..]}`;
@@ -177,7 +149,7 @@ seit T2 unverändert (Request-ID-Echo + SIGTERM/SIGINT/stdin-EOF-Shutdown waren 
 **Sidecar-Protokoll** (stdio, newline-JSON, voll in `streaming/README.md`): Request `{"op":..,"id":..?,..}` → Response
 `{"id":..,"ok":bool,..}`; Async-Event `{"ev":..,..}`. Ops: `health gpu_info list_monitors list_profiles list_application_audio
 build_argv start stop state`. Events: `state`(`idle|starting|live|error|stopped`) `fps log error stopped`. `start`/`build_argv`
-nehmen `channel:{id,token,mediamtx_endpoint?,push_protocol?}` (Pulse-Pfad, MediaMTX-Pfad `channel-<cid>-<uid>`) oder
+nehmen `channel:{id,token,mediamtx_endpoint?,push_protocol?}` (Pulse-Pfad, MediaMTX-Pfad `channel-<cid>-<uid>-<nonce>`) oder
 `server:"<name>"`+`stream_key`. Testen ohne realen Stream:
 `printf '{"op":"health","id":1}\n{"op":"build_argv","id":2,...}\n' | python3 streaming/gsr-sidecar/control.py` —
 **KEIN `{"op":"start"}` im Test** (öffnet Wayland-Portal-Dialog + streamt wirklich); `build_argv` baut nur die argv ohne zu starten.
@@ -187,53 +159,11 @@ nehmen `channel:{id,token,mediamtx_endpoint?,push_protocol?}` (Pulse-Pfad, Media
 Legacy-Fallback `/tmp/gsr-analysis/...` — wandert beim nächsten Bootstrap mit) → PATH. Fehlt alles
 → `health.gsr.available=false` (kein Crash). Persistenter Cache-Pfad überlebt Reboots; `/tmp` war tmpfs, da war HQ nach jedem Reboot weg.
 
-**Windows-HQ-Sidecar** (`streaming/win-hq-sidecar/`): Rust-Bin (Cargo, Edition 2024), spricht dasselbe stdio-JSON-RPC
-wie der Linux-GSR-Sidecar — gleiche Ops/Events, gleiche Response-Shapes (auch wo's unter Windows keinen GSR gibt:
-`health.gsr.source="builtin"` statt Binary-Pfad). Capture = `windows-capture` v2 (WGC, ID3D11-Texture-Output), Audio =
-`wasapi` (Desktop-Loopback + Mikrofon), Encode/Mux = `ffmpeg-next` 8.1 gelinkt gegen die **vendored** BtbN-LGPL-Shared-
-Distribution unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml` `FFMPEG_DIR`; `build.rs` kopiert die
-DLLs neben die exe). MediaMTX-Build für lokales Testen unter `mediamtx-dist/v1.18.1/mediamtx.exe`.
-
-**Zwei Encode-Pfade**, dispatch in `src/stream_controller.rs::run_pipeline`:
-- **NVIDIA Zero-Copy** (`src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`):
-  WGC liefert `ID3D11Texture2D`-Frames; im Capture-Callback `CopySubresourceRegion` GPU-intern in einen D3D11VA-Pool
-  (`av_hwframe_get_buffer`), NVENC liest `AV_PIX_FMT_D3D11` mit `sw_format=BGRA` direkt — Swizzle + NV12-Convert auf
-  der GPU. Kein PCIe-Roundtrip, kein `Vec<u8>`-Alloc im Hot-Path. **ffmpeg-next bindet `hwcontext_d3d11va.h` nicht** →
-  `AVD3D11VADeviceContext`-Layout in `hwctx.rs` hand-gespiegelt + CRITICAL_SECTION als `lock`/`unlock`-Callback (FFmpeg
-  serialisiert intern darüber den D3D11-Device-Zugriff; Capture-Callback hält denselben Lock manuell für
-  CopySubresourceRegion). Aktiv **nur** für NVIDIA.
-- **CPU-Fallback** (`src/capture/wgc.rs` + `src/encode/encoder.rs` → `run_cpu_pipeline`): BGRA via
-  `frame.buffer().as_nopadding_buffer()` → CPU `Vec<u8>` → swscale BGRA→NV12 → AMF/QSV. Aktiv für AMD/Intel oder bei
-  `PULSE_HQ_DISABLE_ZERO_COPY=1`. Hat zusätzlich einen **NVIDIA-„BGR-direct"-Fastpath** (BGRA-Bytes 1:1 in
-  NVENC-Frame ohne swscale).
-
-**AMD kann NICHT zero-copy** (2026-05-20, hart verifiziert): `h264_amf` stürzt auf D3D11-Surface-Input reproduzierbar
-mit Integer-Divide-by-Zero in der AMF-Runtime ab (`SubmitInput`, Frame 0) — dokumentierter AMD-Treiber-Bug, AMF-Issue
-[#455](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/455). Bind-Flags, Auflösung und NV12-vs-BGRA als Ursache
-ausgeschlossen (Probe `examples/probe_d3d11.rs`); identische Encoder-Config mit Software-NV12-Surface läuft sauber bei
-60 fps. Darum: AMD/Intel → CPU-Pfad, Punkt. **Dispatch-Detail:** `select_adapter()` liefert auf Multi-GPU den
-`HIGH_PERFORMANCE`-Slot (dGPU), nicht zwingend die Display-/Capture-GPU. `run_pipeline` schickt `nvidia` an
-`pipeline_hw`; `pipeline_hw::run` prüft dann die ECHTE WGC-D3D11-Device-GPU (`device_vendor`) und delegiert bei
-!=nvidia selbst zurück an `run_cpu_pipeline`. Auf einer reinen AMD-Box greift schon `run_pipeline` direkt zum CPU-Pfad.
-
-Env-Overrides (Test/Debug):
-- `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU
-  (dGPU+iGPU) der einzige Weg den AMF/QSV-Pfad zu validieren ohne den Default umzustellen.
-- `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt CPU-Pfad auch auf NVIDIA. Für A/B-Debugging.
-- `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
-
-Tests: `cargo build --release` baut + DLL-Copy; Smoke via `examples/test_driver.rs` —
-`cargo run --release --example test_driver -- health|video_only|audio_mux|av1_mux|hevc_mux [rtmp_url]`. Erwartet
-MediaMTX auf `rtmp://localhost:1935/<path>` (lokal: `mediamtx-dist/v1.18.1/mediamtx.exe mediamtx-dist/v1.18.1/mediamtx.yml`).
-`video_only` läuft Capture + Encode + Push 10s, validiert `state=live` + ≥1 `fps`-Event; `audio_mux` zusätzlich Opus-
-Spur. Logs landen in `target/test-driver-<scenario>-<unix-ts>.log`. **Achtung**: DLL-Copy schlägt fehl wenn ein
-laufender Sidecar die alten DLLs hält — Build kennt die exe-Lock-Datei, gibt aber nur Warning auf die DLLs (Build
-selbst läuft trotzdem fertig, nur die kopierten DLLs sind dann stale).
-
-**TLS/RTMPS-Fußnote**: FFmpegs Schannel-Backend auf Windows ist strict-verify by default — `tls_verify=0` MUSS gesetzt
-sein wenn MediaMTX self-signed nutzt (Pulse-Default, Token in URL ist die echte Auth). Sonst killt FFmpeg den Push
-nach dem TLS-Handshake mit „Writing encrypted data to socket failed" (sieht aus wie ein Network-Bug, ist aber
-Cert-Verification — `encoder.rs::create` setzt das automatisch bei `rtmps://`).
+**Windows-HQ-Sidecar** (`streaming/win-hq-sidecar/`): Rust-Bin, spricht dasselbe stdio-JSON-RPC wie der Linux-GSR-Sidecar
+(gleiche Ops/Events/Response-Shapes). Capture = `windows-capture` (WGC), Audio = `wasapi`, Encode/Mux = `ffmpeg-next`
+gegen vendored BtbN-LGPL-DLLs. Zwei Encode-Pfade: **NVIDIA D3D11-Zero-Copy** vs. **CPU-Fallback** (AMD+Intel — AMD
+*kann* kein Zero-Copy, `h264_amf`-Treiberbug). **Voller Aufbau, Encode-Pfad-Details, AMD-Bug, Env-Overrides, Tests,
+TLS/RTMPS-Fußnote → `streaming/win-hq-sidecar/README.md`.** Pfad-Entscheid-Recherche: `WINDOWS_HQ_SIDECAR.md` (Root).
 
 **Settings-Persistenz (Electron)**: `desktop/electron/store.ts` = hand-rolled Key-Value-Store (**bewusst kein `electron-store`**
 — ESM-only in neueren Versionen, gibt CJS/ESM-Friktion mit dem esbuild-Bundle). `<userData>/pulse-stream.json`, beim Start
@@ -254,59 +184,36 @@ Sidecar-Ops als Buttons.
 
 ## Flatpak-Packaging — `packaging/`
 
-`com.unicutmedia.Pulse`, `flatpak-builder`-Manifest `packaging/com.unicutmedia.Pulse.yml` (basiert aufs GSR-Streamer-Manifest, Qt raus / Electron + Python-Sidecar rein).
-- Runtime `org.freedesktop.Platform//24.08` + `base: org.electronjs.Electron2.BaseApp//24.08` (liefert `zypak-wrapper` — Chromiums setuid-Sandbox geht im Flatpak nicht).
-- Module: (1) `ffmpeg` n8.1.1 mit NVENC/ffnvcodec/vaapi/vulkan/libx264/libopus (verbatim aus dem GSR-Manifest — die
-  Runtime-FFmpeg hat kein NVENC); (2) `gpu-screen-recorder` aus `repo.dec05eba.com` (HEAD — für Distribution pinnen) +
-  die zwei `streaming/patches/` (FLV-Opus-Whitelist, Vulkan-Encoder-Stub); (3) `pulse`: Electron-42-Binary aus dem
-  GitHub-Release **mit `strip-components: 0`** — das Release-Zip ist ein flacher Baum mit `locales/`+`resources/`; der
-  flatpak-builder-Default `strip-components: 1` plättet die zwei Verzeichnisse → Electron findet `resources/default_app.asar`
-  nicht → Exit 1 *bevor `main.cjs` läuft* (das war der „startet nicht"-Bug). Sidecar-`.py` → `/app/share/pulse/gsr-sidecar/`,
-  `desktop/electron/dist/{main,preload}.cjs` → `/app/pulse/`, `icon.png` → `/app/icon.png`.
-- **Web wird NICHT mitgepackt** — die App lädt `https://pulse.unicutmedia.com` remote. Web-Fixes sofort live; nur native
-  Änderungen (Electron-main/preload, Sidecar, GSR-Binary) brauchen einen Rebuild.
-- Launcher `/app/bin/pulse`: setzt `GSR_BINARY`/`PULSE_SIDECAR_PY`/`PULSE_PYTHON`, hängt `--ozone-platform-hint=auto`
-  an (Manifest mountet `--socket=wayland` *und* `--socket=x11` — Electron wählt selbst), `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`. Override `PULSE_OZONE=x11|wayland`.
-- Bauen (User-Scope, kein sudo): `packaging/build.fish`. Erster Build ~15–30 min (FFmpeg + GSR aus Source). Danach `flatpak run com.unicutmedia.Pulse`.
-- Distribution / Auto-Update: signiertes OSTree-Repo (archive-z2, `build-update-repo --generate-static-deltas --prune
-  --prune-depth=3`) → rsync → VPS `~/pulse/flatpak-repo/` → `pulse_web`-nginx served `https://pulse.unicutmedia.com/flatpak/`.
-  Empfänger: einmal `flatpak install --user …/com.unicutmedia.Pulse.flatpakref`, danach `flatpak update`. Signing-Key
-  passwortlos, derselbe Key auf Empfänger-Seite via `.flatpakref` gepinned — Verlust = Empfänger lehnt künftige Updates ab.
-- **Automatik:** `.github/workflows/flatpak.yml` baut + signiert + rsynct bei Pushes auf `main` die native Flatpak-Inhalte
-  ändern (gleicher Pfad-Filter wie der alte pre-push-Hook). Erstinvest ~30 min (FFmpeg+GSR-from-source), gecached ~5 min.
-  Braucht 3 Repo-Secrets: `FLATPAK_GPG_PRIVATE_KEY` (ASCII-armored Export des Signing-Keys), `VPS_SSH_PRIVATE_KEY`
-  (CI-dedizierter SSH-Key auf der VPS in `authorized_keys`), `VPS_KNOWN_HOSTS` (`ssh-keyscan 77.42.71.166`). Setup-Details
-  `packaging/README.md`. `.githooks/pre-push` ist als Notfall-Fallback umgestellt: nur noch aktiv mit `PULSE_FORCE_LOCAL_PUBLISH=1`,
-  sonst hint-und-skip (sonst racen Hook + CI auf den gleichen rsync-Pfad). `packaging/publish.fish` läuft unverändert und ist
-  was der CI-Workflow nachbildet — zum lokalen Bauen weiterhin nutzbar wenn der Key vorhanden ist.
-- **App startet nicht (Exit 1, kaum Output):** erst `flatpak run --command=sh com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'`
-  — fehlen die, ist's wieder `strip-components`. Sonst meist GPU/Wayland auf NVIDIA → `PULSE_OZONE=x11 flatpak run …`, oder `--disable-gpu`/`--disable-gpu-sandbox` an die `zypak-wrapper`-Zeile.
+`com.unicutmedia.Pulse` (`flatpak-builder`-Manifest `packaging/com.unicutmedia.Pulse.yml`). Bündelt das Electron-42-Binary
++ den Python-GSR-Sidecar + einen custom `gpu-screen-recorder` (FFmpeg-mit-NVENC + GSR-from-source + die zwei
+`streaming/patches/`). **Web wird NICHT mitgepackt** — die App lädt `https://pulse.unicutmedia.com` remote, Web-Fixes sind
+sofort live; nur native Änderungen (Electron-main/preload, Sidecar, GSR-Binary) brauchen einen Rebuild. Lokal bauen:
+`packaging/build.fish`. Auto-Publish ins signierte OSTree-Repo bei `main`-Pushes, die native Flatpak-Inhalte ändern, via
+`.github/workflows/flatpak.yml`.
+**Häufigster Crash:** das Electron-Binary muss mit `strip-components: 0` entpackt werden — der flatpak-builder-Default `1`
+plättet `locales/`+`resources/` → Electron findet `resources/default_app.asar` nicht → Exit 1 vor `main.cjs`.
+Voll-Doku (Signing-Key, Distribution, Auto-Update, Troubleshooting) → `packaging/README.md`.
 
-## Produktiv-Deployment (Hetzner-VPS) — Details `infra/prod/DEPLOY.md`
+## Produktiv-Deployment (Hetzner-VPS) — Voll-Doku `infra/prod/DEPLOY.md`
 
 Läuft auf `michael@77.42.71.166` (neben Caddy + anderen Apps), erreichbar **https://pulse.unicutmedia.com**.
-Ein Compose-Stack (`name: pulse`) in `~/pulse/infra/prod/`: `pulse_postgres` + `pulse_redis` (eigene DB/Cache/Volumes),
-`pulse_auth`/`pulse_chat_gateway`/`pulse_voice_signaling`/`pulse_media_svc`/`pulse_mediamtx_auth_hook`/`pulse_web`
-(GHCR `ghcr.io/oblivion8282-1337/pulse-*:latest`), `pulse_migrate_auth`/`pulse_migrate_chat` (`alembic upgrade head`),
+Ein Compose-Stack (`name: pulse`) in `~/pulse/infra/prod/`: die 6 Service-Container (GHCR
+`ghcr.io/oblivion8282-1337/pulse-*:latest`), `pulse_migrate_{auth,chat}` (`alembic upgrade head`),
 `pulse_mediamtx` + `pulse_livekit` (`network_mode: host`, gepinnt), `pulse_watchtower` (`--scope pulse`, 5min).
-- **Routing:** Caddy (`~/caddy/Caddyfile`, `pulse.unicutmedia.com { reverse_proxy host.docker.internal:8100 }`, LE-Cert)
-  → `pulse_web` nginx (`infra/prod/web-nginx.conf`, im Image gebacken) → `/api/{auth,chat,ws,voice}/*` an die Services,
-  `/whep/*`+`/hls/*` an MediaMTX, `/livekit/*` an LiveKit. **Diese host-Routen nutzen statisches `proxy_pass
-  http://host.docker.internal:PORT/`** (nicht Variable+Resolver — Dockers `127.0.0.11` kennt `host.docker.internal` nicht → wäre 502).
-- **Auto-Update:** push → `main` → `.github/workflows/ci.yml` baut+pusht die 6 Images nach GHCR (`:latest`+`:sha`, nach
+- **Auto-Update:** push → `main` → `.github/workflows/ci.yml` baut+pusht die Images nach GHCR (`:latest`+`:sha`, nach
   grünen Tests) → `pulse_watchtower` zieht `:latest` ≤5 min später. Struktur-Änderungen (neuer Service / Env-Var /
   Compose-/nginx-/MediaMTX-/LiveKit-Config): `rsync infra/ → ~/pulse/infra/` + `cd ~/pulse/infra/prod && docker compose up -d`.
-- **Secrets:** nur auf dem Server in `~/pulse/infra/prod/.env` (gitignored, aus `.env.example`) + `secrets/jwt_*.pem`.
-  **PEM-Files müssen `chmod 0644`** sein (Container = uid 10001). LiveKit-Keys: Name `pulse-prod` (in `livekit.yaml` +
-  `LIVEKIT_API_KEY`), Secret via `LIVEKIT_KEYS` env.
-- **Avatar-Volume:** `pulse_avatars` → `pulse_auth:/app/services/auth/uploads`. `services/*/uploads` ist in `.dockerignore`
-  (nicht im Image); `Dockerfile.service` legt `uploads/avatars` *nach* `USER app` an, damit ein frisches leeres Named-Volume
-  beim Seed `app`-Ownership erbt (sonst `root:root` → uid 10001 kann nicht schreiben → Avatar-Upload 500 `PermissionError`).
-  Fresh-Deploy: prüfen Volume = `app:app`, sonst `docker exec -u root pulse_auth chown -R 10001:10001 /app/services/auth/uploads`.
-- **UFW:** öffentlich offen `1935/tcp` (RTMP), `1936/tcp` (RTMPS), `8890/udp` (SRT), `8189/udp` (MediaMTX-ICE), `7881/tcp`+`7882:7892/udp`
-  (LiveKit-RTC); 80/443/8888/8889 schon offen. Nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8 to any port <p> proto tcp`):
-  `7880` (LiveKit-Signaling), `9997` (MediaMTX-API) — sonst blockt `INPUT DROP` den Bridge→Host-Weg den `pulse_web` + `pulse_media_svc` brauchen.
-- Electron-App lädt `https://pulse.unicutmedia.com` (Web-Fixes sofort sichtbar); GSR-Sidecar läuft lokal.
+- **Routing:** Caddy (`~/caddy/Caddyfile`, vhost `pulse.unicutmedia.com` → `pulse_web:80`, LE-Cert) → `pulse_web` nginx
+  (`infra/prod/web-nginx.conf`, im Image gebacken) → `/api/{auth,chat,ws,voice}/*` an die Services, `/whep/*`+`/hls/*` an
+  MediaMTX, `/livekit/*` an LiveKit. Die nginx-Routen zu den host-Network-Diensten (MediaMTX/LiveKit) nutzen **statisches**
+  `proxy_pass http://host.docker.internal:PORT/` (nicht Variable+Resolver — Dockers `127.0.0.11` kennt
+  `host.docker.internal` nicht → wäre 502).
+- **Gotchas:** Secrets nur server-seitig in `~/pulse/infra/prod/.env` (gitignored, aus `.env.example`) + `secrets/jwt_*.pem`
+  — **PEM-Files `chmod 0644`** (Container = uid 10001). Avatar-Volume `pulse_avatars`: bei Fresh-Deploy prüfen dass es
+  `app:app` gehört, sonst `docker exec -u root pulse_auth chown -R 10001:10001 /app/services/auth/uploads` (sonst
+  Avatar-Upload 500 `PermissionError`). UFW: LiveKit/MediaMTX-Ports öffentlich offen, aber `7880` (LiveKit-Signaling) +
+  `9997` (MediaMTX-API) nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8 …`) — sonst blockt `INPUT DROP` den
+  Bridge→Host-Weg, den `pulse_web` + `pulse_media_svc` brauchen.
 
 ## Port-Mapping (lokales Dev)
 
@@ -324,23 +231,16 @@ Ein Compose-Stack (`name: pulse`) in `~/pulse/infra/prod/`: `pulse_postgres` + `
 | MediaMTX | 1935/1936/8888/8889/8890/8189/9997 | RTMP/RTMPS/HLS/WHEP/SRT/ICE/API — `streaming/server/docker-compose.yml`, `network_mode: host`. API (9997) nur localhost. Auth → `authHTTP` → :8005 |
 
 ### Service-Start (Env aus `.env`; detached, überlebt Agent-Shutdown)
-Gemeinsam: `REDIS_URL=redis://localhost:6380/0`, `AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json`.
-- **auth / chat-gateway**: zusätzlich `POSTGRES_PASSWORD`, `JWT_PRIVATE_KEY_FILE`+`JWT_PUBLIC_KEY_FILE` (absolute Pfade zu `secrets/jwt_*.pem`); chat-gateway zusätzlich `MEDIA_SVC_URL=http://127.0.0.1:8004`.
-- **voice-signaling**: dieselben LiveKit-Keys wie `infra/livekit/livekit.yaml` / `.env` (sonst „invalid token: error in
-  cryptographic primitive" + Webhook-Sig-Fail): `LIVEKIT_API_KEY=devkey`, `LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret`,
-  `LIVEKIT_URL=ws://localhost:7880`. `.env` + `livekit.yaml` sind die Single Source of Truth (Dev-Werte, kein Geheimnis).
+
+Am einfachsten: **`scripts/dev-up.fish`** bringt den ganzen Dev-Stack hoch (Postgres/Redis/LiveKit/MediaMTX + die 5
+uvicorns mit `--reload` + Vite + Electron-Dev). Gegenstück: `dev-down.fish`. Manueller Einzelstart, falls nötig — Env
+gemeinsam: `REDIS_URL=redis://localhost:6380/0`, `AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json`.
+- **auth / chat-gateway**: zusätzlich `POSTGRES_PASSWORD`, `JWT_PRIVATE_KEY_FILE`+`JWT_PUBLIC_KEY_FILE` (absolute Pfade zu `secrets/jwt_*.pem`); chat-gateway zusätzlich `MEDIA_SVC_URL=http://127.0.0.1:8004`. Account-Selbstlöschung (`DELETE /me`) braucht `INTERNAL_SERVICE_SECRET` (identisch in auth+chat) + `CHAT_GATEWAY_URL` — sonst 503.
+- **voice-signaling**: dieselben LiveKit-Keys wie `infra/livekit/livekit.yaml` / `.env` (sonst „invalid token: error in cryptographic primitive" + Webhook-Sig-Fail): `LIVEKIT_API_KEY=devkey`, `LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret`, `LIVEKIT_URL=ws://localhost:7880`. `.env` + `livekit.yaml` sind die Single Source of Truth (Dev-Werte, kein Geheimnis).
 - **media-svc**: zusätzlich `MEDIAMTX_API_URL=http://localhost:9997/v3/paths/list`. Läuft MediaMTX nicht → Poller loggt nur `mediamtx_poll_failed`, kein Crash.
 
-Muster (Beispiel chat-gateway):
-```bash
-pkill -f "uvicorn dcc_chat_gateway"
-cd services/chat-gateway && \
-POSTGRES_PASSWORD=... REDIS_URL=redis://localhost:6380/0 \
-AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json MEDIA_SVC_URL=http://127.0.0.1:8004 \
-setsid nohup uv run uvicorn dcc_chat_gateway.app:app --host 127.0.0.1 --port 8002 \
-  > /tmp/dcc-chat.log 2>&1 < /dev/null & disown
-```
-MediaMTX lokal: `docker compose -f streaming/server/docker-compose.yml up -d` (sonst kein live `authHTTP`-Flow). LiveKit: `docker compose --profile voice up -d`.
+Einzelne Infra-Container ohne `dev-up.fish`: MediaMTX `docker compose -f streaming/server/docker-compose.yml up -d`,
+LiveKit `docker compose --profile voice up -d`.
 
 ## Tests
 
