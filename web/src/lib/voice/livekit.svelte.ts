@@ -274,6 +274,7 @@ class VoiceRoom {
     this.#audioEls.deafened = this.deafened;
     this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
     this.#audioEls.setUserVolumes(settings.voice.userVolumes);
+    this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
     this.#wireEvents(room);
 
     try {
@@ -653,6 +654,12 @@ class VoiceRoom {
    *  that user. Persisting happens in `settings.setUserVolume` — call both. */
   setUserVolume(userId: string, volume: number): void {
     this.#audioEls.setUserVolume(userId, volume);
+  }
+
+  /** Live-toggle the playback peak limiter on all subscribed tracks.
+   *  Persisting happens in `settings.setLimiterEnabled` — call both. */
+  setLimiterEnabled(on: boolean): void {
+    this.#audioEls.setLimiterEnabled(on);
   }
 
   /**

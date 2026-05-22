@@ -20,6 +20,12 @@
     if (voice.connected) void voice.applyNoiseFilter();
   }
 
+  function onLimiterToggle(e: Event) {
+    const on = (e.currentTarget as HTMLInputElement).checked;
+    settings.setLimiterEnabled(on);
+    voice.setLimiterEnabled(on);
+  }
+
   // Live-display the slider value during drag (oninput), but only persist the
   // final value on release (onchange) so we don't hammer localStorage per pixel.
   let bitrateDisplay = $state(settings.audio.voiceBitrateKbps);
@@ -176,6 +182,22 @@
     </select>
   </div>
 
+  <!-- Lautstärke-Limiter (Wiedergabe) -->
+  <div class="flex flex-col gap-2">
+    <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-limiter">
+      <div>
+        <span class="text-text-bright text-sm font-medium">Lautstärke-Limiter</span>
+        <p class="text-text-muted text-xs">Fängt Spitzen ab, wenn jemand plötzlich sehr laut wird — schützt deine Ohren, ohne normales Sprechen zu verändern.</p>
+      </div>
+      <input
+        type="checkbox"
+        checked={settings.audio.limiterEnabled}
+        onchange={onLimiterToggle}
+        class="accent-primary size-5 md:size-4"
+      />
+    </label>
+  </div>
+
   <!-- Rauschunterdrückung -->
   <div class="flex flex-col gap-2">
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-noise-suppression">
@@ -310,8 +332,8 @@
     <InfoIcon class="text-primary/80 mt-0.5 size-3.5 shrink-0" />
     <p class="text-text-muted text-xs leading-relaxed">
       <span class="text-text-base">Bitrate, Stereo und Echo/Auto-Gain</span> greifen erst, wenn du das nächste Mal
-      einem Sprach-Kanal beitrittst. <span class="text-text-base">Rauschunterdrückung</span> und
-      <span class="text-text-base">Ein-/Ausgabegerät</span> wirken sofort.
+      einem Sprach-Kanal beitrittst. <span class="text-text-base">Rauschunterdrückung</span>,
+      <span class="text-text-base">Limiter</span> und <span class="text-text-base">Ein-/Ausgabegerät</span> wirken sofort.
     </p>
   </div>
 </div>

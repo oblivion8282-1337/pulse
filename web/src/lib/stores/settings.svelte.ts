@@ -75,6 +75,9 @@ type AudioSettings = {
   /** Linear gain applied to your own mic after the noise filter, before the
    *  Opus encoder. 1.0 = pass-through. Other listeners hear this. */
   inputMakeupGain: number;
+  /** Per-remote-user peak limiter on the playback side. Catches participants
+   *  who suddenly get very loud before it reaches your speakers/ears. */
+  limiterEnabled: boolean;
 };
 
 type VoiceSettings = {
@@ -156,7 +159,8 @@ const DEFAULTS: PersistedSettings = {
     noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
     voiceBitrateKbps: 128,
     stereo: false,
-    inputMakeupGain: INPUT_MAKEUP_DEFAULT
+    inputMakeupGain: INPUT_MAKEUP_DEFAULT,
+    limiterEnabled: false
   },
   voice: {
     pttMode: false,
@@ -346,7 +350,8 @@ function load(): PersistedSettings {
         noiseGateThresholdDb: clampGateDb(a.noiseGateThresholdDb),
         voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
         stereo: bool(a.stereo, da.stereo),
-        inputMakeupGain: clampInputMakeup(a.inputMakeupGain)
+        inputMakeupGain: clampInputMakeup(a.inputMakeupGain),
+        limiterEnabled: bool(a.limiterEnabled, da.limiterEnabled)
       },
       voice: {
         pttMode: bool(v.pttMode, dv.pttMode),
@@ -488,6 +493,11 @@ class SettingsStore {
 
   setInputMakeupGain(v: number): void {
     this.audio.inputMakeupGain = clampInputMakeup(v);
+    this.#persist();
+  }
+
+  setLimiterEnabled(v: boolean): void {
+    this.audio.limiterEnabled = v;
     this.#persist();
   }
 

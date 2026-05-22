@@ -9,10 +9,14 @@ interface AudioNodeBundle {
    *  boosts above 100 %, removed again when they reset. */
   compressor: DynamicsCompressorNode | null;
   gain: GainNode;
+  /** Null while the playback limiter is off. When on, sits at the tail of the
+   *  chain (gain → limiter → destination) so it catches the final post-makeup
+   *  level — a participant who suddenly shouts can't blow past your ears. */
+  limiter: DynamicsCompressorNode | null;
   /** Muted <audio> sink that keeps Chromium's WebRTC decoder running. Without
    *  it, MediaStreamAudioSourceNode produces no output for RTCPeerConnection
    *  tracks — known Chromium bug. We never hear this element (muted=true);
-   *  the audible path is source → [compressor →] gain → ctx.destination. */
+   *  the audible path is source → [compressor →] gain → [limiter →] ctx.destination. */
   anchor: HTMLAudioElement;
   userId: string;
 }
@@ -22,7 +26,9 @@ interface AudioNodeBundle {
  * screen-share — those live in ScreenShareTile). Default path is a 1:1
  * pass-through `source → gain → destination`; a DynamicsCompressorNode is
  * spliced in only while a user is boosted >100 %, to catch the clipping
- * linear gain would otherwise produce on loud speakers.
+ * linear gain would otherwise produce on loud speakers. A second, optional
+ * DynamicsCompressorNode (brick-wall limiter) can be spliced into the tail
+ * via `setLimiterEnabled` to clamp participants who suddenly get very loud.
  *
  * Why not the previous `<audio>` approach: `HTMLMediaElement.volume` is
  * spec-clamped to 0..1, so a per-user "louder than 100 %" slider had no way
@@ -41,6 +47,16 @@ export class RemoteAudioElements {
     attack: 0.003,
     release: 0.25
   } as const;
+  /** Peak limiter for the playback tail. Hard knee + max ratio = brick-wall:
+   *  transparent on normal speech, clamps sudden loud bursts at the threshold.
+   *  Fast attack so a shout is caught within a few ms; per-user toggle. */
+  static readonly LIMITER = {
+    threshold: -6,
+    knee: 0,
+    ratio: 20,
+    attack: 0.003,
+    release: 0.1
+  } as const;
   /** Compensates for the Chromium-side level loss when WebRTC audio is routed
    *  through MediaStreamAudioSourceNode instead of direct HTMLAudioElement
    *  playback, plus the sender-side AGC being off while RNNoise is the active
@@ -48,6 +64,8 @@ export class RemoteAudioElements {
   static readonly DEFAULT_MAKEUP_GAIN = 4.0;
   deafened = false;
   outputDeviceId = '';
+  /** Whether the playback peak limiter is spliced into each node's tail. */
+  #limiterEnabled = false;
 
   #ensureContext(): AudioContext {
     if (this.#ctx) return this.#ctx;
@@ -80,7 +98,7 @@ export class RemoteAudioElements {
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
 
-    const node: AudioNodeBundle = { source, compressor: null, gain, anchor, userId };
+    const node: AudioNodeBundle = { source, compressor: null, gain, limiter: null, anchor, userId };
     source.connect(gain);
     this.#syncNode(node);
     this.#nodes.set(sid, node);
@@ -94,6 +112,7 @@ export class RemoteAudioElements {
     try { node.source.disconnect(); } catch { /* already gone */ }
     try { node.compressor?.disconnect(); } catch { /* already gone */ }
     try { node.gain.disconnect(); } catch { /* already gone */ }
+    try { node.limiter?.disconnect(); } catch { /* already gone */ }
     node.anchor.srcObject = null;
     node.anchor.remove();
     this.#nodes.delete(sid);
@@ -149,20 +168,26 @@ export class RemoteAudioElements {
     return userMultiplier * RemoteAudioElements.DEFAULT_MAKEUP_GAIN;
   }
 
+  /** Toggle the playback peak limiter for every current + future track. */
+  setLimiterEnabled(on: boolean): void {
+    this.#limiterEnabled = on;
+    const ctx = this.#ctx;
+    if (!ctx) return;
+    for (const node of this.#nodes.values()) this.#applyLimiterTail(node, ctx);
+  }
+
   /** Apply the current effective gain to `node` and splice the compressor in
    *  (when the user-facing volume is >100 %) or out (otherwise). The makeup
    *  factor is intentionally excluded from the compressor trigger — otherwise
    *  every track would be compressed at default volume, which is the bug this
    *  whole branch exists to fix. Idempotent. */
   #syncNode(node: AudioNodeBundle): void {
-    const g = this.#computeGain(node.userId);
-    node.gain.gain.value = g;
-    const userMultiplier = this.#userVolumes.get(node.userId) ?? 1;
-    const needsCompressor = userMultiplier > 1;
+    const ctx = this.#ctx;
+    if (!ctx) return;
+    node.gain.gain.value = this.#computeGain(node.userId);
+    const needsCompressor = (this.#userVolumes.get(node.userId) ?? 1) > 1;
     if (needsCompressor && !node.compressor) {
       try { node.source.disconnect(node.gain); } catch { /* already detached */ }
-      const ctx = this.#ctx;
-      if (!ctx) return;
       const comp = ctx.createDynamicsCompressor();
       const c = RemoteAudioElements.COMPRESSOR;
       comp.threshold.value = c.threshold;
@@ -178,6 +203,32 @@ export class RemoteAudioElements {
       try { node.compressor.disconnect(); } catch { /* */ }
       node.compressor = null;
       node.source.connect(node.gain);
+    }
+    this.#applyLimiterTail(node, ctx);
+  }
+
+  /** Splice the peak limiter into `node`'s tail (gain → limiter → destination)
+   *  or remove it (gain → destination), matching `#limiterEnabled`. Idempotent
+   *  — only rewires when the actual state differs, so a plain volume change
+   *  doesn't glitch the graph. */
+  #applyLimiterTail(node: AudioNodeBundle, ctx: AudioContext): void {
+    if (this.#limiterEnabled && !node.limiter) {
+      try { node.gain.disconnect(ctx.destination); } catch { /* not connected */ }
+      const lim = ctx.createDynamicsCompressor();
+      const l = RemoteAudioElements.LIMITER;
+      lim.threshold.value = l.threshold;
+      lim.knee.value = l.knee;
+      lim.ratio.value = l.ratio;
+      lim.attack.value = l.attack;
+      lim.release.value = l.release;
+      node.gain.connect(lim);
+      lim.connect(ctx.destination);
+      node.limiter = lim;
+    } else if (!this.#limiterEnabled && node.limiter) {
+      try { node.gain.disconnect(node.limiter); } catch { /* */ }
+      try { node.limiter.disconnect(); } catch { /* */ }
+      node.limiter = null;
+      node.gain.connect(ctx.destination);
     }
   }
 
