@@ -381,7 +381,7 @@
       <button
         type="button"
         onclick={stop}
-        class="flex items-center justify-center rounded-full bg-black/55 p-2.5 text-white backdrop-blur-sm hover:bg-red-600 md:p-1.5"
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-red-600 md:p-1.5"
         aria-label="Watch Party beenden"
         title="Watch Party beenden"
         data-testid="watch-party-stop"

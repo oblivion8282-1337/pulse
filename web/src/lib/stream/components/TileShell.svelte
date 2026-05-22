@@ -130,9 +130,10 @@
     `transition-opacity duration-300 ${hudEffective ? 'opacity-100' : 'pointer-events-none opacity-0'}`
   );
 
-  // Runde Icon-Buttons: auf Touch ≥44px Trefferfläche, auf Desktop kompakt.
+  // Runde Icon-Buttons: auf Touch ≥44px Trefferfläche (p-3 + size-5), auf
+  // Desktop kompakt (p-1.5 + size-3.5).
   const ICON_BTN =
-    'flex items-center justify-center rounded-full bg-black/55 p-2.5 text-white backdrop-blur-sm hover:bg-black/75 md:p-1.5';
+    'flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-black/75 md:p-1.5';
   const ICON_SIZE = 'size-5 md:size-3.5';
 
   function pokeHud(): void {
@@ -243,8 +244,12 @@
         </button>
       {/if}
 
-      <!-- Control-Leiste unten rechts -->
-      <div class="absolute bottom-2 right-2 flex items-center gap-1.5 sm:gap-2 {fadeClass}">
+      <!-- Control-Leiste unten rechts. flex-wrap: bei vielen Buttons auf
+           schmalen Phones zieht die Leiste eine zweite Zeile nach oben,
+           statt aus dem Tile zu laufen. -->
+      <div
+        class="absolute bottom-2 right-2 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-end gap-1.5 sm:gap-2 {fadeClass}"
+      >
         {#if volume !== undefined}
           <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
             <button
