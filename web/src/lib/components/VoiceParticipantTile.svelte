@@ -153,7 +153,7 @@
             <span
               role="button"
               tabindex="0"
-              class="absolute -bottom-3.5 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-md bg-red-600 px-2.5 py-1 text-xs font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
+              class="absolute -bottom-2 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded-md bg-red-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
               data-testid="voice-participant-live-badge"
               title={isHqStreaming && isScreenSharing
                 ? 'HQ-Stream + Bildschirm öffnen'
