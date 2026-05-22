@@ -360,10 +360,18 @@
       {#if isFullscreen && chatOpen}
         {@render chatOverlay?.()}
       {/if}
+      {#if chatOpen && !isFullscreen && viewport.isMobile}
+        <!-- Mobile: der Chat würde als Seitenpanel das Video auf einen
+             Streifen quetschen → stattdessen Vollflächen-Overlay über dem
+             Video. Zurück zum Stream über den X-Button im Chat-Header. -->
+        <div class="absolute inset-0 z-20">
+          {@render chatPanel?.()}
+        </div>
+      {/if}
     {/if}
   </div>
 
-  {#if !compact && chatOpen && !isFullscreen}
+  {#if !compact && chatOpen && !isFullscreen && !viewport.isMobile}
     {@render chatPanel?.()}
   {/if}
 </div>

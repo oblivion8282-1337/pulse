@@ -370,7 +370,7 @@
     {/if}
   {/snippet}
   {#snippet chatPanel()}
-    <StreamChatPanel {channelId} streamerId={userId} />
+    <StreamChatPanel {channelId} streamerId={userId} onClose={() => (chatOpen = false)} />
   {/snippet}
   {#snippet chatOverlay()}
     <StreamChatOverlay {channelId} streamerId={userId} />

@@ -88,7 +88,7 @@
 </script>
 
 <aside
-  class="glass-panel flex h-full w-full max-w-xs flex-col overflow-hidden border-l border-border md:w-72"
+  class="glass-panel flex h-full w-full flex-col overflow-hidden border-l border-border md:w-72"
   data-testid="watch-chat-panel"
 >
   <header class="flex h-14 items-center gap-2 border-b border-border px-3">
@@ -97,12 +97,13 @@
     {#if onClose}
       <button
         type="button"
-        class="ml-auto rounded-full p-1.5 transition-colors hover:bg-bg-hover hover:text-primary"
+        class="ml-auto rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:p-1.5"
         onclick={onClose}
-        aria-label="Watch-Chat schließen"
+        aria-label="Watch-Chat schließen — zurück zum Stream"
+        title="Zurück zum Stream"
         data-testid="watch-chat-close"
       >
-        <XIcon class="text-text-muted size-4" />
+        <XIcon class="text-text-muted size-5 md:size-4" />
       </button>
     {/if}
   </header>

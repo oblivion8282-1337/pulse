@@ -391,6 +391,6 @@
     {/if}
   {/snippet}
   {#snippet chatPanel()}
-    <WatchChatPanel {channelId} />
+    <WatchChatPanel {channelId} onClose={() => (chatOpen = false)} />
   {/snippet}
 </TileShell>

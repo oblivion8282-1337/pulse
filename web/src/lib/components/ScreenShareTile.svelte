@@ -303,7 +303,9 @@
       <audio bind:this={audioEl} autoplay style="display:none"></audio>
     {/snippet}
     {#snippet chatPanel()}
-      {#if streamerId}<StreamChatPanel {channelId} {streamerId} />{/if}
+      {#if streamerId}
+        <StreamChatPanel {channelId} {streamerId} onClose={() => (chatOpen = false)} />
+      {/if}
     {/snippet}
     {#snippet chatOverlay()}
       {#if streamerId}
