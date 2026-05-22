@@ -129,7 +129,7 @@
         'Wenn aus, kann nur der Server-Owner Einladungs-Codes für seinen Server erstellen.'
       )}
 
-      <div class="flex items-start justify-between gap-4 rounded-xl border border-border bg-bg-hover/30 p-3">
+      <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">Sound-Upload-Limit pro Datei</div>
           <div class="text-text-muted text-xs mt-0.5">
