@@ -135,7 +135,7 @@
               aria-hidden="true"
             ></span>
           {/if}
-          <Avatar.Root class="relative size-20">
+          <Avatar.Root class="relative size-20 {isLive ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-background' : ''}">
             {#if avatarSrc}
               <Avatar.Image src={avatarSrc} alt={p.name} />
             {/if}
@@ -143,6 +143,27 @@
               {initial}
             </Avatar.Fallback>
           </Avatar.Root>
+          {#if isLive}
+            <span
+              role="button"
+              tabindex="0"
+              class="absolute -bottom-2 left-1/2 z-10 -translate-x-1/2 cursor-pointer rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold leading-none text-white hover:bg-red-500"
+              data-testid="voice-participant-live-badge"
+              title={isHqStreaming && isScreenSharing
+                ? 'HQ-Stream + Bildschirm öffnen'
+                : isHqStreaming
+                  ? 'HQ-Stream öffnen'
+                  : 'Bildschirm öffnen'}
+              aria-label="{p.name}s Stream öffnen"
+              onclick={(e) => { e.stopPropagation(); openLive(); }}
+              onkeydown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault();
+                e.stopPropagation();
+                openLive();
+              }}
+            >LIVE</span>
+          {/if}
         </div>
         <div class="flex items-center gap-1 text-sm md:text-xs">
           <span
@@ -177,7 +198,7 @@
             </span>
           {/if}
         </div>
-        {#if isPartyHost || isLive || hasCam}
+        {#if isPartyHost || hasCam}
           <div class="flex flex-wrap items-center justify-center gap-1">
             {#if isPartyHost}
               <span
@@ -195,27 +216,6 @@
                   openParty();
                 }}
               >PARTY</span>
-            {/if}
-            {#if isLive}
-              <span
-                role="button"
-                tabindex="0"
-                class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white hover:bg-red-500 cursor-pointer"
-                data-testid="voice-participant-live-badge"
-                title={isHqStreaming && isScreenSharing
-                  ? 'HQ-Stream + Bildschirm öffnen'
-                  : isHqStreaming
-                    ? 'HQ-Stream öffnen'
-                    : 'Bildschirm öffnen'}
-                aria-label="{p.name}s Stream öffnen"
-                onclick={(e) => { e.stopPropagation(); openLive(); }}
-                onkeydown={(e) => {
-                  if (e.key !== 'Enter' && e.key !== ' ') return;
-                  e.preventDefault();
-                  e.stopPropagation();
-                  openLive();
-                }}
-              >LIVE</span>
             {/if}
             {#if hasCam}
               <span
