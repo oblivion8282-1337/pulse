@@ -62,10 +62,19 @@
     canDetach?: boolean;
     /** Filmstrip-Kachel im Fokus-Modus. */
     compact?: boolean;
-    onActivate?: () => void;
+    /** Diese Kachel ist die fokussierte (große). */
+    focused?: boolean;
+    onToggleFocus?: () => void;
   }
 
-  let { channelId, party, canDetach = true, compact = false, onActivate }: Props = $props();
+  let {
+    channelId,
+    party,
+    canDetach = true,
+    compact = false,
+    focused = false,
+    onToggleFocus
+  }: Props = $props();
 
   // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
   let chatOpen = $state(false);
@@ -336,7 +345,8 @@
   onDetach={canDetach ? handleDetach : undefined}
   onHide={() => openedTiles.closeParty(channelId)}
   {compact}
-  {onActivate}
+  {focused}
+  {onToggleFocus}
 >
   {#snippet media()}
     <div class="relative min-h-0 w-full flex-1 bg-black">

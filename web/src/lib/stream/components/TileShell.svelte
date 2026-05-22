@@ -1,19 +1,22 @@
 <!--
   TileShell — gemeinsame Chrome für alle Video-Kacheln eines Voice-Channels
   (HQ-Stream, Screenshare, Webcam, Watch Party). Trägt Rahmen, Name-Pille,
-  Auto-Fade-/Tap-HUD, Control-Leiste, Stats-Toggle, Fullscreen, Hide, Detach
-  und die Chat-Slots. Die vier Tile-Komponenten liefern nur ihren Video-
-  Inhalt + kind-spezifische Stücke als Snippets — keine Chrome mehr bei ihnen.
+  Auto-Fade-/Tap-HUD, Control-Leiste, Stats-Toggle, Fullscreen, Hide, Detach,
+  Fokus-Umschalter und die Chat-Slots. Die vier Tile-Komponenten liefern nur
+  ihren Video-Inhalt + kind-spezifische Stücke als Snippets.
 
   HUD-Modi:
    * Fade (Default): Maus-Bewegung zeigt das HUD, nach 2,5 s ohne Aktivität
      fadet es weg. Auf Touch: Tap aufs Video togglet es (kein Zeit-Fade).
-   * staticHud (Watch Party): das HUD bleibt sichtbar, kein Catcher-Layer —
-     ein transparenter Klick-Fänger über dem YouTube/Twitch-iframe würde
-     dessen native Player-Controls blockieren.
+   * staticHud (Watch Party): HUD bleibt sichtbar, kein Catcher-Layer — ein
+     transparenter Klick-Fänger über dem YouTube/Twitch-iframe würde dessen
+     native Player-Controls blockieren.
 
-  compact: Filmstrip-Kachel im Fokus-Modus — kein HUD, das ganze Tile ist
-  ein Button der `onActivate` feuert (= in den Fokus holen).
+  compact (Filmstrip-Kachel im Fokus-Modus): kein HUD, das ganze Tile ist ein
+  Button der `onToggleFocus` feuert. Wichtig: das `media`-Snippet liegt IMMER
+  an derselben Stelle im DOM — `compact` tauscht nur die Chrome darüber, nie
+  das Video selbst. Ein Umschalten des Fokus darf die WHEP-/LiveKit-Verbindung
+  nicht neu aufbauen.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -29,6 +32,8 @@
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import ActivityIcon from '@lucide/svelte/icons/activity';
+  import FocusIcon from '@lucide/svelte/icons/focus';
+  import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
   import XIcon from '@lucide/svelte/icons/x';
   import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
   import { VOLUME_BOOST_MAX } from '../volumeBoost';
@@ -55,7 +60,8 @@
     onDetach,
     onHide,
     compact = false,
-    onActivate,
+    focused = false,
+    onToggleFocus,
     media,
     overlay,
     stats,
@@ -89,9 +95,12 @@
     onToggleChat?: () => void;
     onDetach?: () => void;
     onHide?: () => void;
-    /** Filmstrip-Modus: kein HUD, ganzes Tile = Fokus-Button. */
+    /** Filmstrip-Kachel im Fokus-Modus: kein HUD, ganzes Tile = Fokus-Button. */
     compact?: boolean;
-    onActivate?: () => void;
+    /** Diese Kachel ist die fokussierte (große) im Fokus-Modus. */
+    focused?: boolean;
+    /** Gesetzt → Fokus-Umschalter sichtbar. compact: ganzes Tile feuert ihn. */
+    onToggleFocus?: () => void;
     media: Snippet;
     overlay?: Snippet;
     stats?: Snippet;
@@ -127,7 +136,7 @@
   const ICON_SIZE = 'size-5 md:size-3.5';
 
   function pokeHud(): void {
-    if (viewport.isMobile || staticHud) return;
+    if (viewport.isMobile || staticHud || compact) return;
     hudVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
@@ -159,47 +168,38 @@
   });
 </script>
 
-{#if compact}
-  <!-- Filmstrip-Kachel: das ganze Tile ist ein Fokus-Button. -->
-  <div
-    bind:this={containerEl}
-    class="bg-bg-chat relative flex h-full overflow-hidden rounded-xl border border-border"
-    data-testid={containerTestid}
-    data-identity={identity}
-  >
-    <button
-      type="button"
-      onclick={() => onActivate?.()}
-      class="group relative flex min-w-0 flex-1"
-      aria-label={`${name} in den Fokus holen`}
-      data-testid={`${testidPrefix}-focus`}
-    >
-      {@render media()}
-      <div class="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10"></div>
-      <div
-        class="absolute bottom-1 left-1 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white"
-      >
-        <KindIcon class="size-2.5 {kindIconColor}" />
-        <span class="max-w-24 truncate">{name}</span>
-      </div>
-    </button>
-  </div>
-{:else}
-  <div
-    bind:this={containerEl}
-    class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
-    data-testid={containerTestid}
-    data-identity={identity}
-  >
-    <div class="relative flex min-w-0 flex-1 flex-col" onmousemove={pokeHud} role="presentation">
-      {@render media()}
-      {@render overlay?.()}
+<div
+  bind:this={containerEl}
+  class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
+  data-testid={containerTestid}
+  data-identity={identity}
+>
+  <div class="relative flex min-w-0 flex-1 flex-col" onmousemove={pokeHud} role="presentation">
+    {@render media()}
+    {@render overlay?.()}
 
+    {#if compact}
+      <!-- Filmstrip-Kachel: das ganze Tile ist ein Fokus-Button. -->
+      <button
+        type="button"
+        onclick={() => onToggleFocus?.()}
+        class="group absolute inset-0 flex items-end"
+        aria-label={`${name} in den Fokus holen`}
+        data-testid={`${testidPrefix}-focus`}
+      >
+        <div class="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10"></div>
+        <div
+          class="relative m-1 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white"
+        >
+          <KindIcon class="size-2.5 {kindIconColor}" />
+          <span class="max-w-24 truncate">{name}</span>
+        </div>
+      </button>
+    {:else}
       {#if !staticHud}
         <!-- Transparenter Klick-Fänger über dem Video (nicht über iframes!):
              fängt Tap-to-Toggle (Mobile) + Doppelklick-Fullscreen (Desktop).
-             Liegt im DOM vor dem HUD → HUD-Buttons stacken darüber und
-             fangen ihre eigenen Klicks. -->
+             Vor dem HUD im DOM → HUD-Buttons stacken darüber. -->
         <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
         <div
           class="absolute inset-0 cursor-pointer"
@@ -324,6 +324,20 @@
             <ExternalLinkIcon class={ICON_SIZE} />
           </button>
         {/if}
+        {#if onToggleFocus}
+          <button
+            type="button"
+            onclick={() => onToggleFocus?.()}
+            class={ICON_BTN}
+            aria-label={focused ? 'Zurück zum Raster' : 'In den Fokus holen'}
+            title={focused ? 'Zurück zum Raster' : 'In den Fokus'}
+            data-testid={`${testidPrefix}-focus-toggle`}
+          >
+            {#if focused}<LayoutGridIcon class={ICON_SIZE} />{:else}<FocusIcon
+                class={ICON_SIZE}
+              />{/if}
+          </button>
+        {/if}
         <button
           type="button"
           onclick={toggleFs}
@@ -341,10 +355,10 @@
       {#if isFullscreen && chatOpen}
         {@render chatOverlay?.()}
       {/if}
-    </div>
-
-    {#if chatOpen && !isFullscreen}
-      {@render chatPanel?.()}
     {/if}
   </div>
-{/if}
+
+  {#if !compact && chatOpen && !isFullscreen}
+    {@render chatPanel?.()}
+  {/if}
+</div>

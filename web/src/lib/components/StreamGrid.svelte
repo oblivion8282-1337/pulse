@@ -4,8 +4,13 @@
   Mountet pro Tile-Kind nur was der Viewer explizit über die Sidebar- oder
   Voice-Tile-Badges geöffnet hat (`openedTiles`). Schliessen läuft pro Tile
   über ein Close-X; das "Alle schließen"-Sammel-X sitzt im VoiceChannelView-
-  Header. Detached Tiles erscheinen NICHT als Placeholder — andocken läuft
-  über den "Wieder andocken"-Button im Popup-Fenster selbst.
+  Header. Detached Tiles erscheinen NICHT als Placeholder.
+
+  Layout: Raster (gleich große Kacheln) ODER Fokus-Modus — eine Kachel groß,
+  der Rest als Filmstrip-Zeile darunter. Umschalten über den Fokus-Button im
+  jeweiligen Tile-HUD. Alle Kacheln liegen in EINEM Grid-Container, damit ein
+  Fokus-Wechsel nur Grid-Platzierung + `compact` umschaltet — die Tile-
+  Komponenten bleiben gemountet (kein WHEP-/LiveKit-Neuaufbau).
 -->
 <script lang="ts">
   import RocketIcon from '@lucide/svelte/icons/rocket';
@@ -24,6 +29,7 @@
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
 
   let { channel }: { channel: Channel } = $props();
@@ -71,20 +77,57 @@
   });
   let hqStreaming = $derived(hqStreamers.length > 0);
 
-  let videoTileCount = $derived(
-    openHqIds.length + openScreens.length + openCameras.length + (showParty ? 1 : 0)
+  // Stabile Tile-Keys in Render-Reihenfolge (Party · HQ · Screens · Cams).
+  let tileKeys = $derived([
+    ...(showParty ? ['party'] : []),
+    ...openHqIds.map((u) => `hq:${u}`),
+    ...openScreens.map((s) => `screen:${s.identity}`),
+    ...openCameras.map((c) => `cam:${c.identity}`)
+  ]);
+  let videoTileCount = $derived(tileKeys.length);
+
+  // --- Fokus-Modus -----------------------------------------------------
+  // `focusedKey` ist der Wunsch; `focusMode` prüft zusätzlich, dass es ≥2
+  // Kacheln gibt und die fokussierte noch existiert (sonst Raster).
+  let focusedKey = $state<string | null>(null);
+  let focusMode = $derived(
+    focusedKey !== null && videoTileCount > 1 && tileKeys.includes(focusedKey)
   );
-  // Inline grid-template-columns — Tailwind's class-interpolation could leave
-  // stale `grid-cols-2` behind after a detach drops the count to 1, so we use
-  // a direct style binding instead. `max(1, …)` keeps the grid valid when the
-  // viewer just closed everything (videoTileCount briefly 0 before unmount).
-  let gridColumns = $derived.by(() => {
-    // Mobil: immer 1 Spalte — ein Video-Tile in einer 2-Spalten-Grid auf
-    // ~393px wäre unbrauchbar klein. Mehrere Tiles teilen sich die Höhe
-    // (auto-rows-fr), jedes über die volle Breite.
-    if (viewport.isMobile) return 'minmax(0, 1fr)';
-    const cols = videoTileCount <= 1 ? 1 : videoTileCount <= 4 ? 2 : videoTileCount <= 9 ? 3 : 4;
-    return `repeat(${cols}, minmax(0, 1fr))`;
+
+  // Fokus bei Channel-Wechsel zurücksetzen.
+  $effect(() => {
+    channel.id;
+    untrack(() => {
+      focusedKey = null;
+    });
+  });
+
+  /** Handler für den Fokus-Umschalter eines Tiles. Bei nur einer Kachel:
+   *  undefined → kein Button. */
+  function focusHandler(key: string): (() => void) | undefined {
+    if (videoTileCount <= 1) return undefined;
+    return () => {
+      focusedKey = focusMode && focusedKey === key ? null : key;
+    };
+  }
+  /** Inline-Grid-Platzierung: die fokussierte Kachel spannt die obere Zeile. */
+  function cellStyle(key: string): string {
+    return focusMode && focusedKey === key ? 'grid-column: 1 / -1; grid-row: 1;' : '';
+  }
+
+  // Inline grid-template — Tailwind-Klassen-Interpolation könnte stale
+  // `grid-cols-*` zurücklassen, daher direkt als Style-Binding.
+  let gridStyle = $derived.by(() => {
+    if (focusMode) {
+      const n = Math.max(1, videoTileCount - 1);
+      const strip = viewport.isMobile ? '4.75rem' : '6.5rem';
+      return `grid-template-columns: repeat(${n}, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) ${strip};`;
+    }
+    // Mobil: immer 1 Spalte; mehrere Tiles teilen sich die Höhe (auto-rows-fr).
+    if (viewport.isMobile) return 'grid-template-columns: minmax(0, 1fr);';
+    const cols =
+      videoTileCount <= 1 ? 1 : videoTileCount <= 4 ? 2 : videoTileCount <= 9 ? 3 : 4;
+    return `grid-template-columns: repeat(${cols}, minmax(0, 1fr));`;
   });
 </script>
 
@@ -97,37 +140,71 @@
   {/if}
 
   <div
-    class="grid min-h-0 flex-1 auto-rows-fr gap-2"
-    style="grid-template-columns: {gridColumns};"
+    class="grid min-h-0 flex-1 gap-2 {focusMode ? '' : 'auto-rows-fr'}"
+    style={gridStyle}
     data-testid="stream-grid"
+    data-focus-mode={focusMode}
   >
     {#if showParty}
-      <WatchPartyTile channelId={channel.id} party={watchPartyState!} />
+      <div class="min-h-0 min-w-0" style={cellStyle('party')}>
+        <WatchPartyTile
+          channelId={channel.id}
+          party={watchPartyState!}
+          compact={focusMode && focusedKey !== 'party'}
+          focused={focusMode && focusedKey === 'party'}
+          onToggleFocus={focusHandler('party')}
+        />
+      </div>
     {/if}
     {#each openHqIds as uid (uid)}
-      <WhepPlayer channelId={channel.id} userId={uid} name={userCache.displayName(uid)} />
+      {@const key = `hq:${uid}`}
+      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
+        <WhepPlayer
+          channelId={channel.id}
+          userId={uid}
+          name={userCache.displayName(uid)}
+          compact={focusMode && focusedKey !== key}
+          focused={focusMode && focusedKey === key}
+          onToggleFocus={focusHandler(key)}
+        />
+      </div>
     {/each}
     {#each openScreens as st (st.identity)}
-      <ScreenShareTile
-        channelId={channel.id}
-        streamerId={userIdFromIdentity(st.identity)}
-        track={st.track}
-        audioTrack={st.audioTrack}
-        name={st.name}
-        identity={st.identity}
-      />
+      {@const key = `screen:${st.identity}`}
+      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
+        <ScreenShareTile
+          channelId={channel.id}
+          streamerId={userIdFromIdentity(st.identity)}
+          track={st.track}
+          audioTrack={st.audioTrack}
+          name={st.name}
+          identity={st.identity}
+          compact={focusMode && focusedKey !== key}
+          focused={focusMode && focusedKey === key}
+          onToggleFocus={focusHandler(key)}
+        />
+      </div>
     {/each}
     {#each openCameras as ct (ct.identity)}
-      <CameraTile
-        channelId={channel.id}
-        track={ct.track}
-        name={ct.name}
-        identity={ct.identity}
-      />
+      {@const key = `cam:${ct.identity}`}
+      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
+        <CameraTile
+          channelId={channel.id}
+          track={ct.track}
+          name={ct.name}
+          identity={ct.identity}
+          compact={focusMode && focusedKey !== key}
+          focused={focusMode && focusedKey === key}
+          onToggleFocus={focusHandler(key)}
+        />
+      </div>
     {/each}
   </div>
 
-  <div class="flex shrink-0 flex-wrap items-center justify-center gap-3 py-1" data-testid="voice-participants">
+  <div
+    class="flex shrink-0 flex-wrap items-center justify-center gap-3 py-1"
+    data-testid="voice-participants"
+  >
     {#each voice.participants as p (p.identity)}
       <VoiceParticipantTile {p} channelId={channel.id} guildId={channel.guild_id} />
     {/each}

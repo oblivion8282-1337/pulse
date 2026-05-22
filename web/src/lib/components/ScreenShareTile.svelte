@@ -30,7 +30,8 @@
     name,
     identity,
     compact = false,
-    onActivate
+    focused = false,
+    onToggleFocus
   }: {
     /** Voice channel this share lives in — needed for the per-streamer chat. */
     channelId: string;
@@ -42,7 +43,9 @@
     identity: string;
     /** Filmstrip-Kachel im Fokus-Modus. */
     compact?: boolean;
-    onActivate?: () => void;
+    /** Diese Kachel ist die fokussierte (große). */
+    focused?: boolean;
+    onToggleFocus?: () => void;
   } = $props();
 
   // Twitch-style in-tile chat — TileShell rendert Panel/Overlay je nach
@@ -283,7 +286,8 @@
     onDetach={docPipAvailable ? () => void openDocPip() : undefined}
     onHide={() => openedTiles.close('screen', channelId, identity)}
     {compact}
-    {onActivate}
+    {focused}
+    {onToggleFocus}
     stats={statsPill}
   >
     {#snippet media()}

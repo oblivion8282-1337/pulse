@@ -42,7 +42,8 @@
     canDetach = true,
     canHide = true,
     compact = false,
-    onActivate
+    focused = false,
+    onToggleFocus
   }: {
     channelId: string;
     userId: string;
@@ -53,7 +54,9 @@
     canHide?: boolean;
     /** Filmstrip-Kachel im Fokus-Modus. */
     compact?: boolean;
-    onActivate?: () => void;
+    /** Diese Kachel ist die fokussierte (große). */
+    focused?: boolean;
+    onToggleFocus?: () => void;
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -330,7 +333,8 @@
   onDetach={canDetach ? handleDetach : undefined}
   onHide={canHide ? () => openedTiles.close('hq', channelId, userId) : undefined}
   {compact}
-  {onActivate}
+  {focused}
+  {onToggleFocus}
   stats={statsPill}
 >
   {#snippet media()}

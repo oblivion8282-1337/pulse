@@ -15,7 +15,8 @@
     name,
     identity,
     compact = false,
-    onActivate
+    focused = false,
+    onToggleFocus
   }: {
     channelId: string;
     track: RemoteVideoTrack;
@@ -23,7 +24,9 @@
     identity: string;
     /** Filmstrip-Kachel im Fokus-Modus. */
     compact?: boolean;
-    onActivate?: () => void;
+    /** Diese Kachel ist die fokussierte (große). */
+    focused?: boolean;
+    onToggleFocus?: () => void;
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -46,7 +49,8 @@
   video={videoEl}
   onHide={() => openedTiles.close('cam', channelId, identity)}
   {compact}
-  {onActivate}
+  {focused}
+  {onToggleFocus}
 >
   {#snippet media()}
     <!-- svelte-ignore a11y_media_has_caption -->
