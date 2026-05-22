@@ -17,6 +17,7 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
+  import { viewport } from '$lib/stores/viewport.svelte';
 
   type SettingsTab =
     | 'appearance'
@@ -42,7 +43,9 @@
   $effect(() => {
     if (open) {
       untrack(() => {
-        activeTab = initialTab;
+        const desktopOnlyIds = tabs.filter((t) => t.desktopOnly).map((t) => t.id);
+        activeTab =
+          viewport.isMobile && desktopOnlyIds.includes(initialTab) ? 'audio-video' : initialTab;
         mobileView = 'list';
         sounds.play('ui.modal_open');
       });
@@ -54,17 +57,19 @@
     mobileView = 'detail';
   }
 
-  const tabs: { id: SettingsTab; label: string; icon: typeof MicIcon }[] = [
+  const tabs: { id: SettingsTab; label: string; icon: typeof MicIcon; desktopOnly?: true }[] = [
     { id: 'appearance', label: 'Erscheinungsbild', icon: PaletteIcon },
     { id: 'audio-video', label: 'Sprache & Video', icon: MicIcon },
-    { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon },
+    { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon, desktopOnly: true },
     { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon },
     { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
-    { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon },
+    { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon, desktopOnly: true },
     { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
   ];
 
-  let activeLabel = $derived(tabs.find((t) => t.id === activeTab)?.label ?? '');
+  let visibleTabs = $derived(tabs.filter((t) => !t.desktopOnly || !viewport.isMobile));
+
+  let activeLabel = $derived(visibleTabs.find((t) => t.id === activeTab)?.label ?? '');
 </script>
 
 <Dialog.Root bind:open>
@@ -86,7 +91,7 @@
       <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
         Einstellungen
       </p>
-      {#each tabs as t (t.id)}
+      {#each visibleTabs as t (t.id)}
         <button
           type="button"
           onclick={() => selectTab(t.id)}

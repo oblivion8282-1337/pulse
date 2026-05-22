@@ -263,7 +263,9 @@
   {#if channel}
     <MessageInput
       channelId={channel.id}
-      placeholder={`Nachricht ${headerKind === 'dm' ? 'an' : 'in'} ${namePrefix}${channel.name}`}
+      placeholder={viewport.isMobile
+        ? `${namePrefix}${channel.name}`
+        : `Nachricht ${headerKind === 'dm' ? 'an' : 'in'} ${namePrefix}${channel.name}`}
       onSend={handleSend}
       replyTo={replyBanner}
       onCancelReply={cancelReply}

@@ -146,7 +146,7 @@
 </script>
 
 <form
-  class="px-4 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:pb-5"
+  class="px-2 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:px-4 md:pb-5"
   ondragenter={onDragEnter}
   ondragover={onDragOver}
   ondragleave={onDragLeave}
@@ -174,9 +174,11 @@
 
   <AttachmentPreviewStrip {pending} onRemove={removeAttachment} />
 
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div
-    class="bg-bg-input relative flex items-end gap-2 border border-border px-4 py-3 backdrop-blur-sm
+    class="bg-bg-input relative flex items-center gap-1.5 border border-border px-3 py-3.5 backdrop-blur-sm md:items-end md:gap-2 md:px-4 md:py-3
            {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
+    onclick={() => textarea?.focus()}
   >
     {#if isDragging}
       <div
@@ -216,7 +218,7 @@
       onpaste={onPaste}
       onblur={() => mentionOverlay?.close()}
       {placeholder}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[1.5rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[2rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none md:min-h-[1.5rem]"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
