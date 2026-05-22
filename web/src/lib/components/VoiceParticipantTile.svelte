@@ -169,7 +169,7 @@
             </Avatar.Fallback>
           </Avatar.Root>
           {#if isLive || isPartyHost || hasCam}
-            <div class="absolute -bottom-2 left-1/2 z-10 flex -translate-x-1/2 gap-1">
+            <div class="absolute -bottom-2 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1">
               {#if isLive}
                 <span
                   role="button"
