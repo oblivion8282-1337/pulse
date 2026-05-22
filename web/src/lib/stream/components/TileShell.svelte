@@ -39,6 +39,7 @@
     kind,
     containerTestid,
     testidPrefix,
+    identity,
     name,
     nameTestid,
     video = null,
@@ -68,6 +69,8 @@
     containerTestid: string;
     /** Prefix für alle inneren Testids: `${prefix}-mute`, `-fullscreen`, … */
     testidPrefix: string;
+    /** Optionales data-identity am Container (Screenshare/Webcam-LiveKit-ID). */
+    identity?: string;
     name: string;
     nameTestid?: string;
     /** <video>-Element für den iOS-Fullscreen-Fallback. iframe → null. */
@@ -162,6 +165,7 @@
     bind:this={containerEl}
     class="bg-bg-chat relative flex h-full overflow-hidden rounded-xl border border-border"
     data-testid={containerTestid}
+    data-identity={identity}
   >
     <button
       type="button"
@@ -185,6 +189,7 @@
     bind:this={containerEl}
     class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
     data-testid={containerTestid}
+    data-identity={identity}
   >
     <div class="relative flex min-w-0 flex-1 flex-col" onmousemove={pokeHud} role="presentation">
       {@render media()}

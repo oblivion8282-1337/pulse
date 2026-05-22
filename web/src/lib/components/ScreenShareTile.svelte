@@ -1,25 +1,26 @@
+<!--
+  ScreenShareTile — playback of a remote LiveKit screen-share (Browser-Pfad).
+
+  Chrome (HUD, Buttons, Fullscreen, Stats-Pille, Chat-Slots) liegt in
+  `TileShell`. Hier nur: LiveKit-Track-Attach, Audio-Boost-Graph, Receive-
+  Stats und Document-Picture-in-Picture (das ganze Tile in ein OS-Floating-
+  Fenster mounten — selber JS-Context, Track bleibt direkt nutzbar).
+-->
 <script lang="ts">
   import { onMount, onDestroy, mount, unmount } from 'svelte';
   import type { RemoteAudioTrack, RemoteVideoTrack } from 'livekit-client';
-  import MonitorIcon from '@lucide/svelte/icons/monitor';
   import { ReceiveStatsReader, type ReceiveStats } from '$lib/voice/screenShareStats';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import VolumeXIcon from '@lucide/svelte/icons/volume-x';
-  import MaximizeIcon from '@lucide/svelte/icons/maximize';
-  import MinimizeIcon from '@lucide/svelte/icons/minimize';
-  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
-  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { toggleFullscreen, isDocFullscreen } from '$lib/stream/fullscreen';
-  import { VolumeBoost, VOLUME_BOOST_MAX } from '$lib/stream/volumeBoost';
+  import { VolumeBoost } from '$lib/stream/volumeBoost';
   import StreamChatOverlay from '$lib/stream/components/StreamChatOverlay.svelte';
   import StreamChatInlineInput from '$lib/stream/components/StreamChatInlineInput.svelte';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
   import ScreenShareDocPipView from '$lib/stream/components/ScreenShareDocPipView.svelte';
+  import TileShell from '$lib/stream/components/TileShell.svelte';
   import { getDocPip, docPipSupported, adoptDocStyles } from '$lib/stream/docpip';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
-  import XIcon from '@lucide/svelte/icons/x';
+  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
 
   let {
     channelId,
@@ -27,7 +28,9 @@
     track,
     audioTrack,
     name,
-    identity
+    identity,
+    compact = false,
+    onActivate
   }: {
     /** Voice channel this share lives in — needed for the per-streamer chat. */
     channelId: string;
@@ -37,36 +40,34 @@
     audioTrack?: RemoteAudioTrack;
     name: string;
     identity: string;
+    /** Filmstrip-Kachel im Fokus-Modus. */
+    compact?: boolean;
+    onActivate?: () => void;
   } = $props();
 
-  // Twitch-style in-tile chat — mirrors WhepPlayer's chatOpen flow so the
-  // overlay + inline input come along into fullscreen.
+  // Twitch-style in-tile chat — TileShell rendert Panel/Overlay je nach
+  // Fullscreen, hier nur der Toggle-State.
   let chatOpen = $state(false);
 
-  let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let audioEl = $state<HTMLAudioElement | null>(null);
   let volume = $state(100);
   // Remembers last non-zero volume so the mute toggle can restore it.
   let prevVolume = $state(100);
   let localBlocked = $state(false);
-  let isFullscreen = $state(false);
-  // Document-PiP: das ganze Tile (Video + Chat + Reattach-Button) wird in ein
-  // separates OS-Floating-Fenster geMOUNTET. Selber JS-Context, Track bleibt
-  // direkt nutzbar.
+  // Document-PiP: das ganze Tile wird in ein separates OS-Floating-Fenster
+  // geMOUNTET. Selber JS-Context, Track bleibt direkt nutzbar.
   let isDocPip = $state(false);
   const docPipAvailable = docPipSupported();
   let pipWindow: Window | null = null;
-  // Svelte 5 mount() liefert `Exports` — generic Record-Typ, intern für uns
-  // ein opakes Handle das unmount() später wieder frisst.
+  // Svelte 5 mount() liefert `Exports` — opakes Handle das unmount() frisst.
   let pipMount: Record<string, unknown> | null = null;
   const audioBlocked = $derived(localBlocked || voice.audioBlocked);
   // Lazy Web-Audio-Routing für >100%-Boost — `audioTrack.setVolume()` würde
   // sonst nur el.volume setzen, das HTML-spec-seitig auf 1.0 gecappt ist.
   let boost: VolumeBoost | null = null;
 
-  // Stats-Overlay (codec/res/fps/bitrate) — analog zum WHEP-Player-HUD.
-  // 1 Hz Poller über RemoteVideoTrack.getRTCStatsReport().
+  // Stats-Overlay (codec/res/fps/bitrate) — 1 Hz über RemoteVideoTrack.
   let stats = $state<ReceiveStats | null>(null);
   const statsReader = new ReceiveStatsReader();
   let statsTimer: ReturnType<typeof setInterval> | null = null;
@@ -75,10 +76,6 @@
     const v = volume / 100;
     if (audioEl && !audioEl.muted) audioEl.volume = Math.min(1.0, v);
     boost?.setVolume(v);
-  }
-
-  function handleToggleFullscreen() {
-    toggleFullscreen(containerEl, videoEl);
   }
 
   async function openDocPip(): Promise<void> {
@@ -118,14 +115,7 @@
       pipWindow = win;
       pipMount = mount(ScreenShareDocPipView, {
         target: win.document.body,
-        props: {
-          track,
-          audioTrack,
-          streamerId,
-          channelId,
-          name,
-          onReattach: reattachDocPip
-        }
+        props: { track, audioTrack, streamerId, channelId, name, onReattach: reattachDocPip }
       });
       win.addEventListener('pagehide', reattachDocPip);
     } catch (e) {
@@ -230,35 +220,22 @@
     }
   }
 
-  onMount(() => {
-    function onFsChange() {
-      isFullscreen = isDocFullscreen();
-    }
-    document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
-  });
-
   onDestroy(() => {
-    // Falls das Tile demountet wird (Channel-Wechsel, Stream beendet) während
-    // ein PiP-Fenster offen ist: erst den Mount aufräumen, dann das Fenster
-    // schließen — sonst überlebt das Popup ohne Source.
+    // Tile demountet (Channel-Wechsel, Stream beendet) während ein PiP-Fenster
+    // offen ist: erst Mount aufräumen, dann Fenster schließen.
     reattachDocPip();
     boost?.dispose();
     boost = null;
   });
 </script>
 
-<div
-  bind:this={containerEl}
-  class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
-  data-testid="screen-share-tile"
-  data-identity={identity}
->
-  {#if isDocPip}
-    <div
-      class="flex h-full w-full flex-col items-center justify-center gap-2 border border-dashed border-border bg-bg-chat p-6 text-center"
-      data-testid="screen-share-detached-placeholder"
-    >
+{#if isDocPip}
+  <div
+    class="bg-bg-chat flex h-full flex-col items-center justify-center gap-2 overflow-hidden rounded-2xl border border-dashed border-border p-6 text-center"
+    data-testid="screen-share-tile"
+    data-identity={identity}
+  >
+    <div class="flex flex-col items-center gap-2" data-testid="screen-share-detached-placeholder">
       <ExternalLinkIcon class="text-text-muted size-10 opacity-50" />
       <p class="text-text-bright text-sm font-medium">Stream in eigenem Fenster</p>
       <p class="text-text-muted text-xs">{name}</p>
@@ -268,31 +245,12 @@
         class="bg-primary hover:bg-primary/90 mt-1 rounded-full px-3 py-1 text-xs font-semibold text-white"
       >Wieder andocken</button>
     </div>
-  {:else}
-  <div class="relative flex min-w-0 flex-1 flex-col">
-  <!-- svelte-ignore a11y_media_has_caption -->
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-  <video
-    bind:this={videoEl}
-    autoplay
-    playsinline
-    class="h-full w-full cursor-pointer object-contain"
-    onclick={handleToggleFullscreen}
-    title="Klicken für Vollbild / Esc zum Verlassen"
-  ></video>
-
-  <!-- hidden audio element for screen-share audio track -->
-  <!-- svelte-ignore a11y_media_has_caption -->
-  <audio bind:this={audioEl} autoplay style="display:none"></audio>
-
-  <div class="absolute bottom-2 left-2 flex items-center gap-1.5">
-    <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm">
-      <MonitorIcon class="size-3" />
-      <span class="max-w-32 truncate">{name}</span>
-    </div>
+  </div>
+{:else}
+  {#snippet statsPill()}
     {#if stats}
       <div
-        class="hidden items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] tabular-nums text-white backdrop-blur-sm sm:flex"
+        class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] tabular-nums text-white backdrop-blur-sm"
         data-testid="screen-share-receive-stats"
         title={`Codec: ${stats.codec}\nAuflösung: ${stats.res}\nFPS: ${stats.fps}\nBitrate: ${stats.bitrate}`}
       >
@@ -305,114 +263,49 @@
         <span>{stats.bitrate}</span>
       </div>
     {/if}
-  </div>
+  {/snippet}
 
-  <button
-    type="button"
-    onclick={() => openedTiles.close('screen', channelId, identity)}
-    class="absolute right-2 top-2 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
-    aria-label="Stream ausblenden"
-    title="Diesen Stream ausblenden"
-    data-testid="screen-share-hide"
+  <TileShell
+    kind="screen"
+    containerTestid="screen-share-tile"
+    testidPrefix="screen-share"
+    {identity}
+    {name}
+    video={videoEl}
+    forceHud={audioBlocked}
+    volume={audioTrack ? volume : undefined}
+    onVolumeChange={handleVolume}
+    onToggleMute={toggleMute}
+    audioBlocked={!!audioTrack && audioBlocked}
+    onEnableAudio={enableAudio}
+    {chatOpen}
+    onToggleChat={streamerId ? () => (chatOpen = !chatOpen) : undefined}
+    onDetach={docPipAvailable ? () => void openDocPip() : undefined}
+    onHide={() => openedTiles.close('screen', channelId, identity)}
+    {compact}
+    {onActivate}
+    stats={statsPill}
   >
-    <XIcon class="size-3.5" />
-  </button>
-
-  {#if isFullscreen && chatOpen && streamerId}
-    <StreamChatOverlay {channelId} {streamerId} />
-    <StreamChatInlineInput {channelId} {streamerId} />
-  {/if}
-
-  <!-- Zusammenhängende Control-Reihe unten rechts — gleiche Anordnung wie
-       beim WhepPlayer-HUD: Volume-Pill, "Ton aktivieren", Chat-Toggle,
-       Detach, Fullscreen-Toggle. -->
-  <div class="absolute bottom-2 right-2 flex items-center gap-1.5">
-    {#if audioTrack}
-      <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
-        <button
-          type="button"
-          onclick={toggleMute}
-          class="flex items-center text-white hover:text-white/70"
-          aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
-          data-testid="screen-share-mute"
-        >
-          {#if volume === 0}
-            <VolumeXIcon class="size-3" />
-          {:else}
-            <Volume2Icon class="size-3" />
-          {/if}
-        </button>
-        <input
-          type="range"
-          min="0"
-          max={VOLUME_BOOST_MAX}
-          value={volume}
-          oninput={handleVolume}
-          class="w-24 accent-white sm:w-20"
-          aria-label="Lautstärke des geteilten Bildschirms"
-          data-testid="screen-share-volume"
-        />
-        <span
-          class="w-9 text-right font-mono text-[11px] tabular-nums text-white/85"
-          data-testid="screen-share-volume-percent"
-        >{volume}%</span>
-      </div>
-    {/if}
-    {#if audioTrack && audioBlocked}
-      <button
-        type="button"
-        onclick={enableAudio}
-        class="flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-500"
-        data-testid="screen-share-unblock-audio"
-      >
-        <VolumeXIcon class="size-3" />
-        Ton aktivieren
-      </button>
-    {/if}
-    {#if streamerId}
-      <button
-        type="button"
-        onclick={() => (chatOpen = !chatOpen)}
-        class="flex items-center justify-center rounded-full p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'ring-2 ring-primary bg-black/55' : 'bg-black/55'}"
-        aria-label={chatOpen ? 'Live-Chat schließen' : 'Live-Chat öffnen'}
-        aria-pressed={chatOpen}
-        title={chatOpen ? 'Live-Chat schließen' : 'Live-Chat'}
-        data-testid="screen-share-chat-toggle"
-      >
-        <MessageSquareIcon class="size-3.5" />
-      </button>
-    {/if}
-    {#if docPipAvailable && !isFullscreen}
-      <button
-        type="button"
-        onclick={() => void openDocPip()}
-        class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
-        aria-label="Stream in eigenem Fenster"
-        title="In eigenem Fenster öffnen"
-        data-testid="screen-share-detach"
-      >
-        <ExternalLinkIcon class="size-3.5" />
-      </button>
-    {/if}
-    <button
-      type="button"
-      onclick={handleToggleFullscreen}
-      class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
-      aria-label={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
-      title={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
-      data-testid="screen-share-fullscreen"
-    >
-      {#if isFullscreen}
-        <MinimizeIcon class="size-3.5" />
-      {:else}
-        <MaximizeIcon class="size-3.5" />
+    {#snippet media()}
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        bind:this={videoEl}
+        autoplay
+        playsinline
+        class="h-full w-full bg-black object-contain"
+      ></video>
+      <!-- hidden audio element for screen-share audio track -->
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <audio bind:this={audioEl} autoplay style="display:none"></audio>
+    {/snippet}
+    {#snippet chatPanel()}
+      {#if streamerId}<StreamChatPanel {channelId} {streamerId} />{/if}
+    {/snippet}
+    {#snippet chatOverlay()}
+      {#if streamerId}
+        <StreamChatOverlay {channelId} {streamerId} />
+        <StreamChatInlineInput {channelId} {streamerId} />
       {/if}
-    </button>
-  </div>
-  </div>
-
-  {#if chatOpen && !isFullscreen && streamerId}
-    <StreamChatPanel {channelId} {streamerId} />
-  {/if}
-  {/if}
-</div>
+    {/snippet}
+  </TileShell>
+{/if}

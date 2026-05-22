@@ -1,7 +1,7 @@
 <!--
   WhepPlayer — plays back a channel's HQ stream (GSR → MediaMTX) over WHEP (T4).
 
-  Props: `{ channelId }` — the component fetches the WHEP URL itself via
+  Props: `{ channelId, userId }` — the component fetches the WHEP URL itself via
   `chatApi.getWhepUrl(channelId)` (membership-gated chat-gateway proxy) and
   then runs the WHEP handshake (`$lib/stream/whep.ts`).
 
@@ -12,49 +12,54 @@
     DELETE the WHEP resource.
 
   Audio: a stream viewer wants to *hear* the stream, so the `<video>` is not
-  muted. Browsers may still block autoplay-with-sound → a "click to enable"
-  overlay (same idea as the LiveKit `audioBlocked` overlay in VoiceChannelView).
+  muted. Browsers may still block autoplay-with-sound → `audioBlocked`.
+
+  Die gesamte Chrome (HUD, Buttons, Fullscreen, Stats-Pille, Chat-Slots) liegt
+  in `TileShell` — diese Component hält nur noch WHEP-Verbindung + Audio-Graph.
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
-  import { WhepStatsReader, type StreamStats } from '../whep-stats';
-  import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
+  import { WhepStatsReader, formatDiagnostic, type StreamStats } from '../whep-stats';
   import { VolumeBoost } from '../volumeBoost';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
   import StreamChatPanel from './StreamChatPanel.svelte';
-  import WhepHud from './WhepHud.svelte';
+  import TileShell from './TileShell.svelte';
   import { detachedStreams } from '../detach.svelte';
   import { openedTiles } from '../openedTiles.svelte';
   import { toast } from 'svelte-sonner';
-  import XIcon from '@lucide/svelte/icons/x';
+  import LoaderIcon from '@lucide/svelte/icons/loader-circle';
+  import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
+  import ClipboardIcon from '@lucide/svelte/icons/clipboard';
+  import CheckIcon from '@lucide/svelte/icons/check';
 
   let {
     channelId,
     userId,
     name,
     canDetach = true,
-    canHide = true
+    canHide = true,
+    compact = false,
+    onActivate
   }: {
     channelId: string;
     userId: string;
     name?: string;
-    /** Wenn false, kein Detach-Button im HUD — z.B. im bereits entkoppelten
-     *  Popup-Fenster wäre ein weiteres Detach sinnlos. */
+    /** Wenn false, kein Detach-Button — z.B. im bereits entkoppelten Popup. */
     canDetach?: boolean;
-    /** Wenn false, kein lokaler Hide-Button — im Popup-Fenster sinnlos. */
+    /** Wenn false, kein Hide-Button — im Popup-Fenster sinnlos. */
     canHide?: boolean;
+    /** Filmstrip-Kachel im Fokus-Modus. */
+    compact?: boolean;
+    onActivate?: () => void;
   } = $props();
 
-  let containerEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
   let volume = $state(100);
   // Remembers last non-zero volume so the mute toggle can restore it.
   let prevVolume = $state(100);
-  let isFullscreen = $state(false);
-  // Inline-Side-Chat (außerhalb Fullscreen) / Twitch-Style-Overlay (im Fullscreen).
   let chatOpen = $state(false);
 
   function handleDetach(): void {
@@ -65,6 +70,7 @@
       });
     }
   }
+
   let boost: VolumeBoost | null = null;
   function applyVolume() {
     const v = volume / 100;
@@ -72,23 +78,6 @@
     // el.volume regelt (auf [0, 1] geclampt — >100% gibt's da nicht).
     if (videoEl && !videoEl.muted) videoEl.volume = Math.min(1.0, v);
     boost?.setVolume(v);
-  }
-
-  // Twitch-Style HUD-Auto-Hide: nach ~2.5s ohne Maus-/Touch-Aktivität fadet
-  // Stats/Name/Control-Reihe weg. WhepHud erzwingt selbst Sichtbarkeit
-  // solange audioBlocked oder stats.frozen — Bubbles + Inline-Input sind
-  // außerhalb der HUD-Group und faden unabhängig.
-  let hudVisible = $state(true);
-  let hideTimer: ReturnType<typeof setTimeout> | null = null;
-  const HUD_HIDE_AFTER_MS = 2500;
-  function pokeHud() {
-    hudVisible = true;
-    if (hideTimer) clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => { hudVisible = false; }, HUD_HIDE_AFTER_MS);
-  }
-
-  function handleToggleFullscreen() {
-    toggleFullscreen(containerEl, videoEl);
   }
 
   function handleVolume(e: Event) {
@@ -111,6 +100,24 @@
   let detail = $state<string>('');
   let audioBlocked = $state(false);
   let stats = $state<StreamStats | null>(null);
+
+  // Stats-Diagnose in die Zwischenablage (Button in der Stats-Pille).
+  let copied = $state(false);
+  let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+  async function copyDiagnostic() {
+    if (!stats) return;
+    try {
+      await navigator.clipboard.writeText(formatDiagnostic(stats.diagnostic, { name }));
+      copied = true;
+      if (copyResetTimer) clearTimeout(copyResetTimer);
+      copyResetTimer = setTimeout(() => {
+        copied = false;
+        copyResetTimer = null;
+      }, 1500);
+    } catch {
+      /* clipboard API kann in non-secure-Contexts failen — silent */
+    }
+  }
 
   // Retry backoff: publisher may not be online yet (404) or transient net loss.
   const RETRY_MS = [1000, 2000, 3000, 5000, 5000];
@@ -211,7 +218,9 @@
       // Video ist muted, also autoplay-tauglich; der Audio-Block hängt jetzt
       // am AudioContext (kann suspended sein bevor der User klickt).
       statsReader.reset();
-      void videoEl?.play().catch(() => { /* muted media should autoplay */ });
+      void videoEl?.play().catch(() => {
+        /* muted media should autoplay */
+      });
       audioBlocked = !!boost?.suspended;
       statsTimer = setInterval(async () => {
         const cur = session;
@@ -252,84 +261,115 @@
 
   onMount(() => {
     boost = new VolumeBoost();
-    boost.onStateChange = (suspended) => { audioBlocked = suspended; };
-    pokeHud();
-    function onFsChange() {
-      isFullscreen = isDocFullscreen();
-    }
-    document.addEventListener('fullscreenchange', onFsChange);
-    return () => document.removeEventListener('fullscreenchange', onFsChange);
+    boost.onStateChange = (suspended) => {
+      audioBlocked = suspended;
+    };
   });
 
   onDestroy(() => {
     disposed = true;
     void teardown();
     boost?.dispose();
-    if (hideTimer) clearTimeout(hideTimer);
+    if (copyResetTimer) clearTimeout(copyResetTimer);
   });
 </script>
 
-<div
-  bind:this={containerEl}
-  class="bg-bg-chat flex h-full overflow-hidden rounded-2xl border border-border"
-  data-testid="hq-stream-player"
-  data-channel-id={channelId}
+<!-- Stats-Pille: Codec/FPS/Bitrate + Freeze/Stutter-Warnung. Positionierung
+     übernimmt TileShell, hier nur der Pillen-Inhalt. -->
+{#snippet statsPill()}
+  {#if phase === 'playing' && stats}
+    <div
+      class="flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-[11px] text-white backdrop-blur-sm {stats.frozen
+        ? 'animate-pulse bg-red-700/80'
+        : 'bg-black/55'}"
+      data-testid="hq-stream-stats"
+      data-frozen={stats.frozen}
+    >
+      <span>{stats.res}</span><span>·</span><span>{stats.fps}</span><span>·</span><span
+        >{stats.bitrate}</span
+      ><span>·</span><span>{stats.codec}</span>
+      {#if stats.frozen}
+        <span class="ml-1 font-sans font-semibold uppercase tracking-wide"
+          >freeze {stats.freezeSeconds.toFixed(0)}s</span
+        >
+      {:else if stats.microStutters > 0}
+        <span
+          class="ml-1 font-sans text-amber-300"
+          title="Mikro-Stutter seit Verbindungsstart (Chromium freezeCount)"
+        >⚠ {stats.microStutters}</span>
+      {/if}
+      <button
+        type="button"
+        onclick={copyDiagnostic}
+        class="ml-1 -mr-0.5 flex size-4 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
+        aria-label="Stream-Diagnose in die Zwischenablage kopieren"
+        title={copied ? 'Diagnose kopiert' : 'Diagnose kopieren'}
+        data-testid="hq-stream-stats-copy"
+      >
+        {#if copied}<CheckIcon class="size-3" />{:else}<ClipboardIcon class="size-3" />{/if}
+      </button>
+    </div>
+  {/if}
+{/snippet}
+
+<TileShell
+  kind="hq"
+  containerTestid="hq-stream-player"
+  testidPrefix="hq-stream"
+  name={name ?? 'Stream'}
+  nameTestid="hq-stream-streamer-name"
+  video={videoEl}
+  forceHud={audioBlocked}
+  {volume}
+  onVolumeChange={handleVolume}
+  onToggleMute={toggleMute}
+  {audioBlocked}
+  onEnableAudio={enableAudio}
+  {chatOpen}
+  onToggleChat={() => (chatOpen = !chatOpen)}
+  onDetach={canDetach ? handleDetach : undefined}
+  onHide={canHide ? () => openedTiles.close('hq', channelId, userId) : undefined}
+  {compact}
+  {onActivate}
+  stats={statsPill}
 >
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_noninteractive_element_interactions -->
-  <div
-    class="relative flex min-w-0 flex-1 flex-col"
-    onmousemove={pokeHud}
-    ontouchstart={pokeHud}
-    role="presentation"
-  >
+  {#snippet media()}
     <!-- svelte-ignore a11y_media_has_caption -->
     <video
       bind:this={videoEl}
       autoplay
       playsinline
-      class="h-full w-full cursor-pointer bg-black object-contain"
-      onclick={handleToggleFullscreen}
-      title="Klicken für Vollbild / Esc zum Verlassen"
+      class="h-full w-full bg-black object-contain"
     ></video>
-
-    {#if canHide}
-      <button
-        type="button"
-        onclick={() => openedTiles.close('hq', channelId, userId)}
-        class="absolute right-2 top-2 z-10 flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-red-600"
-        aria-label="Stream ausblenden"
-        title="Diesen Stream ausblenden"
-        data-testid="hq-stream-hide"
+  {/snippet}
+  {#snippet overlay()}
+    {#if phase === 'connecting' || phase === 'retrying'}
+      <div
+        class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/55 text-white"
       >
-        <XIcon class="size-3.5" />
-      </button>
+        <LoaderIcon class="size-7 animate-spin" />
+        <p class="text-sm">
+          {phase === 'retrying' ? 'Warte auf den Stream…' : 'Verbinde mit dem Stream…'}
+        </p>
+        {#if detail && phase === 'retrying'}
+          <p class="max-w-sm text-center text-[11px] text-white/60">{detail}</p>
+        {/if}
+      </div>
+    {:else if phase === 'error'}
+      <div
+        class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/65 text-red-200"
+      >
+        <AlertTriangleIcon class="size-7" />
+        <p class="text-sm">Stream konnte nicht geladen werden</p>
+        {#if detail}<p class="max-w-sm text-center text-[11px] text-red-200/70">{detail}</p>{/if}
+      </div>
     {/if}
-
-    <WhepHud
-      {phase}
-      {detail}
-      {name}
-      {stats}
-      {volume}
-      {audioBlocked}
-      {isFullscreen}
-      {chatOpen}
-      visible={hudVisible}
-      onToggleFullscreen={handleToggleFullscreen}
-      onToggleChat={() => (chatOpen = !chatOpen)}
-      onToggleMute={toggleMute}
-      onVolumeChange={handleVolume}
-      onEnableAudio={enableAudio}
-      onDetach={canDetach ? handleDetach : undefined}
-    />
-
-    {#if isFullscreen && chatOpen}
-      <StreamChatOverlay {channelId} streamerId={userId} />
-      <StreamChatInlineInput {channelId} streamerId={userId} />
-    {/if}
-  </div>
-
-  {#if chatOpen && !isFullscreen}
+  {/snippet}
+  {#snippet chatPanel()}
     <StreamChatPanel {channelId} streamerId={userId} />
-  {/if}
-</div>
+  {/snippet}
+  {#snippet chatOverlay()}
+    <StreamChatOverlay {channelId} streamerId={userId} />
+    <StreamChatInlineInput {channelId} streamerId={userId} />
+  {/snippet}
+</TileShell>
