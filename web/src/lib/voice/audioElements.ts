@@ -103,7 +103,9 @@ export class RemoteAudioElements {
     this.#syncNode(node);
     this.#nodes.set(sid, node);
 
-    if (ctx.state === 'suspended') void ctx.resume().catch(onBlocked);
+    if (ctx.state === 'suspended') {
+      void ctx.resume().then(() => { if (ctx.state !== 'running') onBlocked(); }).catch(() => onBlocked());
+    }
   }
 
   detach(sid: string): void {
