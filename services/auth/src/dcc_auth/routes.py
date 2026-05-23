@@ -37,6 +37,7 @@ from dcc_auth.security import (
     verify_password,
 )
 from dcc_auth.snowflake import next_id
+from dcc_auth.username_suggestions import suggest_usernames as _suggest_usernames
 
 router = APIRouter()
 log = structlog.get_logger(__name__)
@@ -167,8 +168,28 @@ async def register(
         await session.flush()
     except IntegrityError as exc:
         await session.rollback()
+        # Disambiguate: was the conflict the username, the email, or both?
+        # We re-query so the 409 body can carry concrete suggestions when
+        # the username is taken (the common case for popular handles).
+        u_taken = await session.scalar(
+            select(func.count()).select_from(User).where(User.username == payload.username)
+        )
+        e_taken = await session.scalar(
+            select(func.count()).select_from(User).where(User.email == payload.email.lower())
+        )
+        if u_taken:
+            suggestions = await _suggest_usernames(session, payload.username)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={"error": "username_taken", "suggestions": suggestions},
+            ) from exc
+        if e_taken:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail={"error": "email_taken"}
+            ) from exc
+        # Shouldn't happen — another unique constraint we don't know about.
         raise HTTPException(
-            status.HTTP_409_CONFLICT, detail="username or email already taken"
+            status.HTTP_409_CONFLICT, detail="conflict"
         ) from exc
 
     # Bootstrap: the first user on a fresh deploy becomes a global admin

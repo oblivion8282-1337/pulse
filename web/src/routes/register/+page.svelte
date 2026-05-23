@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { register, me } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
+  import { ApiError } from '$lib/api/client';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
@@ -14,11 +15,13 @@
   let password = $state('');
   let displayName = $state('');
   let error = $state<string | null>(null);
+  let suggestions = $state<string[]>([]);
   let busy = $state(false);
 
   async function submit(e: Event) {
     e.preventDefault();
     error = null;
+    suggestions = [];
     busy = true;
     try {
       await register({
@@ -30,10 +33,33 @@
       auth.setUser(await me());
       await goto('/app');
     } catch (err) {
-      error = (err as Error).message;
+      // Surface the structured 409 bodies the backend now sends:
+      //   { detail: { error: "username_taken", suggestions: [...] } }
+      //   { detail: { error: "email_taken" } }
+      // Everything else falls back to the generic message.
+      if (err instanceof ApiError && err.status === 409) {
+        const body = err.body as { detail?: { error?: string; suggestions?: string[] } } | null;
+        const d = body?.detail;
+        if (d?.error === 'username_taken') {
+          error = 'Dieser Benutzername ist schon vergeben.';
+          suggestions = Array.isArray(d.suggestions) ? d.suggestions : [];
+        } else if (d?.error === 'email_taken') {
+          error = 'Diese E-Mail ist bereits registriert.';
+        } else {
+          error = (err as Error).message;
+        }
+      } else {
+        error = (err as Error).message;
+      }
     } finally {
       busy = false;
     }
+  }
+
+  function pickSuggestion(s: string) {
+    username = s;
+    error = null;
+    suggestions = [];
   }
 </script>
 
@@ -115,7 +141,24 @@
       {#if error}
         <Alert.Root variant="destructive" data-testid="reg-error">
           <OctagonXIcon />
-          <Alert.Description>{error}</Alert.Description>
+          <Alert.Description>
+            {error}
+            {#if suggestions.length > 0}
+              <div class="mt-2 flex flex-wrap gap-2" data-testid="reg-suggestions">
+                <span class="text-sm">Vorschläge:</span>
+                {#each suggestions as s (s)}
+                  <button
+                    type="button"
+                    class="rounded-md border border-current/40 bg-card/60 px-2 py-0.5 text-sm font-medium hover:bg-card"
+                    onclick={() => pickSuggestion(s)}
+                    data-testid="reg-suggestion"
+                  >
+                    {s}
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </Alert.Description>
         </Alert.Root>
       {/if}
 

@@ -64,6 +64,49 @@ async def test_register_rejects_duplicate(client):
 
 
 @pytest.mark.asyncio
+async def test_register_username_taken_returns_suggestions(client):
+    """Username collision → 409 with detail={error, suggestions}.
+    Suggestions are free, fit the username pattern, start with the
+    requested base, and there's at least one."""
+    r1 = await client.post("/register", json=REG_PAYLOAD)
+    assert r1.status_code == 201
+    # Same username, different email so only username collides.
+    r2 = await client.post(
+        "/register",
+        json={**REG_PAYLOAD, "email": "other@dcc-test.example.com"},
+    )
+    assert r2.status_code == 409
+    detail = r2.json()["detail"]
+    assert detail["error"] == "username_taken"
+    suggestions = detail["suggestions"]
+    assert isinstance(suggestions, list)
+    assert len(suggestions) >= 1
+    base = REG_PAYLOAD["username"]
+    import re
+
+    pat = re.compile(r"^[a-zA-Z0-9_.-]{3,32}$")
+    for s in suggestions:
+        assert s.startswith(base)
+        assert pat.match(s), s
+
+
+@pytest.mark.asyncio
+async def test_register_email_taken_returns_error(client):
+    """Email collision (different username) → 409 with error=email_taken,
+    no suggestions (those are for the username case)."""
+    r1 = await client.post("/register", json=REG_PAYLOAD)
+    assert r1.status_code == 201
+    r2 = await client.post(
+        "/register",
+        json={**REG_PAYLOAD, "username": "different_handle"},
+    )
+    assert r2.status_code == 409
+    detail = r2.json()["detail"]
+    assert detail["error"] == "email_taken"
+    assert "suggestions" not in detail
+
+
+@pytest.mark.asyncio
 async def test_register_rejects_invalid_username(client):
     bad = {**REG_PAYLOAD, "username": "a"}  # too short
     r = await client.post("/register", json=bad)

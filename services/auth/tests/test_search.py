@@ -111,6 +111,71 @@ async def test_search_hides_undiscoverable_users(
 
 
 @pytest.mark.asyncio
+async def test_search_matches_display_name(client, session_factory):
+    """A user whose handle is cryptic but whose display_name starts with
+    the query must still be findable — covers the "wanted name was
+    taken, fell back to user_42" scenario."""
+    caller = await _register(client, "alice")
+
+    from dcc_auth.models import User
+    from dcc_auth.snowflake import next_id
+
+    async with session_factory() as s:
+        s.add(
+            User(
+                id=next_id(),
+                username="user_42",
+                email="u42@dcc-test.example.com",
+                password_hash="$argon2id$placeholder",
+                display_name="Alex Maier",
+            )
+        )
+        await s.commit()
+
+    r = await client.get("/users/search?q=ale", headers=_bearer(caller))
+    assert r.status_code == 200
+    names = [u["username"] for u in r.json()]
+    assert "user_42" in names
+
+
+@pytest.mark.asyncio
+async def test_search_username_ranks_above_display_name(client, session_factory):
+    """If both a username and a display_name match, the username hit
+    must come first — exact-handle is what the searcher most likely meant."""
+    caller = await _register(client, "alice")
+
+    from dcc_auth.models import User
+    from dcc_auth.snowflake import next_id
+
+    async with session_factory() as s:
+        s.add(
+            User(
+                id=next_id(),
+                username="zzz_user",
+                email="z@dcc-test.example.com",
+                password_hash="$argon2id$placeholder",
+                display_name="Bobby",  # display starts with "bob"
+            )
+        )
+        s.add(
+            User(
+                id=next_id(),
+                username="bob",  # username starts with "bob"
+                email="b@dcc-test.example.com",
+                password_hash="$argon2id$placeholder",
+                display_name="Robert",
+            )
+        )
+        await s.commit()
+
+    r = await client.get("/users/search?q=bob", headers=_bearer(caller))
+    assert r.status_code == 200
+    names = [u["username"] for u in r.json()]
+    # bob (username match) must precede zzz_user (display_name match)
+    assert names.index("bob") < names.index("zzz_user")
+
+
+@pytest.mark.asyncio
 async def test_search_query_too_short_400(client):
     caller = await _register(client, "alice")
     r = await client.get("/users/search?q=a", headers=_bearer(caller))

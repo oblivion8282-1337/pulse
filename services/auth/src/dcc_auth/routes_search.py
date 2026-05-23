@@ -22,7 +22,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import case, func, or_, select
 
 import dcc_auth.config as _config
 from dcc_auth.db import SessionDep
@@ -44,11 +44,13 @@ async def search_users(
     current: Annotated[User, Depends(_get_current_user)],
     limit: int = 20,
 ):
-    """Case-insensitive *prefix* match on ``username``.
+    """Case-insensitive *prefix* match on ``username`` OR ``display_name``.
 
-    Prefix-only (not full-text) keeps the query indexable + matches
-    Discord's behaviour: users get pinged when their handle is the
-    leading characters. ``q`` must be at least 2 chars (1-char queries
+    Prefix-only (not full-text) keeps the query indexable. Display-name
+    is included so a user can be found by their visible name even when
+    the @handle is something cryptic (``alex_42``). Username matches
+    rank above display-name matches so the exact-handle hit is at the
+    top of the list. ``q`` must be at least 2 chars (1-char queries
     would just dump the whole alphabet bucket); ``limit`` is hard-
     capped at 50 to keep responses small.
     """
@@ -66,19 +68,22 @@ async def search_users(
     if limit > 50:
         limit = 50
 
-    # Case-insensitive prefix match via LOWER(...) LIKE 'needle%'. The
-    # `||` operator works on both Postgres and SQLite, so the same
-    # statement runs against the test backend without a dialect split.
+    # Case-insensitive prefix on both fields. ``display_name`` is nullable —
+    # ``LOWER(NULL) LIKE pattern`` evaluates to NULL which the WHERE drops,
+    # so no COALESCE is needed. Username matches sort first (CASE-rank 0),
+    # then display-name-only matches (rank 1), each block by username.
     pattern = needle.lower() + "%"
+    username_match = func.lower(User.username).like(pattern)
+    display_match = func.lower(User.display_name).like(pattern)
     stmt = (
         select(User)
         .where(
-            func.lower(User.username).like(pattern),
+            or_(username_match, display_match),
             User.discoverable.is_(True),
             User.disabled.is_(False),
             User.id != current.id,
         )
-        .order_by(User.username)
+        .order_by(case((username_match, 0), else_=1), User.username)
         .limit(limit)
     )
     rows = (await session.execute(stmt)).scalars().all()
