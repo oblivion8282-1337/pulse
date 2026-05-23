@@ -1,6 +1,6 @@
 # Pulse Plugin-System — Roadmap
 
-Stand: 2026-05-24
+Stand: 2026-05-24 (Schritt 5 fertig)
 
 Manifest-Spezifikation: [`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
 
@@ -160,11 +160,88 @@ Was bewusst NICHT in Schritt 4:
 - **Isolation/Sandboxing** — Plugins laufen im Host-Prozess. Schritt 5
   evaluiert Subinterpreter vs. signed-only.
 
-### Schritt 5 — Permission-Gate + Sandboxing (geplant)
+### Schritt 5 — Permission-Gate + Soft-Sandbox + Lifecycle-Hooks — fertig
 
-Loader weist Registrations zurück, die NICHT in `[plugin.uses]` stehen —
-"Manifest-vs-Code"-Drift-Schutz. Außerdem: signierte Plugins, optionaler
-Subinterpreter.
+Branch: `feat/plugin-permissions-sandbox`.
+
+**Realistic-Scope-Disclaimer.** Eine *echte* Sandbox (WASM, Subinterpreter,
+Process-Isolation) wäre für **Stufe A** (interne / vertraute Plugins)
+überdimensioniert. Schritt 5 baut deshalb eine **Soft-Sandbox** —
+capability-passing + Manifest-vs-Code-Konsistenzprüfung. Reicht gegen
+*versehentliche* Capability-Inflation. Reicht *nicht* gegen *bösartige*
+Plugins; die wären Stufe B und brauchen einen der Pfade in
+`memory/plugin-sandbox-future.md` (Bot-API → WASM).
+
+Was sich geändert hat:
+
+* **Backend Permission-Gate**
+  (`services/chat-gateway/src/dcc_chat_gateway/plugins/permissions.py`,
+  126 Z., neu):
+  * `PluginPermissionError` mit den verletzten Op-/Channel-Listen.
+  * `resolve_permission_mode()` liest `$PULSE_PLUGIN_PERMISSIONS` —
+    `strict` (Default) / `warn` / `off`. Unbekannte Werte → strict.
+  * `compute_violations()` als pure Funktion (Set-Differenz).
+  * Eingehakt in `registry.py::PluginManager.activate()`: nach
+    `register()` Diff der Registries gegen die Whitelist; bei Verletzung
+    im strict-Modus alle in dieser Activation-Phase neuen Einträge
+    revertiert (`unregister_ws_op` / `unregister_channel_handler`),
+    dann `PluginPermissionError`.
+* **Activation-Lifecycle (Backend)**: `register()` darf
+  `{"deactivate": fn}` zurückgeben. `fn` läuft beim Deactivate *vor*
+  dem Registry-Rollback (Plugin sieht eigene Ops noch live). Exception
+  im Hook → log + swallow, Rollback geht weiter.
+* **Frontend Permission-Gate** (`web/src/lib/plugins/registry.ts`,
+  244 Z.):
+  * `PluginPermissionError` + `resolvePluginPermissionMode()` (analog
+    zum Backend; liest `import.meta.env.PULSE_PLUGIN_PERMISSIONS`
+    bzw. `globalThis.PULSE_PLUGIN_PERMISSIONS` für Tests).
+  * `activatePlugin()` diff'd gegen `manifest.uses.ws_ops` +
+    `uses.settings_sections`, bei Verletzung im strict-Modus
+    `unregisterWsHandler` für jeden neuen Handler + `failedActivate`-
+    Flag auf dem Record + console.error + raise. Settings-Sections
+    bleiben (keine `unregister`-API — Schritt 3-Design).
+  * `deactivatePlugin()` Hook läuft jetzt *vor* dem Rollback (analog
+    Backend). Exception → console.error + swallow.
+* **`hello`-Plugin**: hat schon vorher `ws_ops = ["hello:ping"]`
+  deklariert; nichts zu tun.
+* **Tests (Backend)**:
+  `services/chat-gateway/tests/test_plugin_permissions.py` (11 Tests,
+  alle grün) deckt: strict-default-blocks-undeclared (mit Rollback-
+  Verifikation), strict-allows-declared, strict-no-uses-block (leere
+  Whitelist blockt alles), warn-mode-keeps-+-logs, off-mode-silently-
+  accepts, unknown-mode-falls-back-to-strict, deactivate-hook-runs-
+  before-rollback, deactivate-hook-exception-doesn't-block, register-
+  returning-garbage-warns-but-activates, channel-violations,
+  real-hello-plugin-passes-gate. Existing `test_plugin_loader.py`
+  (16 Tests) noch grün — Helper `_make_plugin` wurde so angepasst dass
+  die Plugins ihre Ops jetzt im Manifest deklarieren (verhaltens-neutral
+  für den Loader-Pfad, nur der Permission-Gate würde sonst dazwischen
+  funken).
+* **Tests (Frontend)**: `pnpm check` + `pnpm build` grün (kein Vitest —
+  Soft-Sandbox-Logik ist über die Backend-Tests covered, das Frontend
+  spiegelt das Modell 1:1).
+* **Memory-Doku** für Stufe-B-Pfade:
+  `memory/plugin-sandbox-future.md` skizziert die vier Optionen
+  (Bot-API, WASM, Subinterpreter, iframe), den empfohlenen Pfad
+  (erst Bot-API, dann WASM, Subinterpreter skippen) und welche heutigen
+  Code-Hooks Stufe-B-ready bleiben (`[plugin.uses]` als
+  capability-Liste; `PluginManager.activate` als Erweiterungspunkt).
+
+Was bewusst NICHT in Schritt 5:
+
+* **Schritt 5b — Bot-API für externe Plugins.** Eigener
+  Service `services/bot-api/`, Webhook + WS-Relay Modus, Bot-Token-Modell
+  in `auth.bots`, Scope-basierte Capabilities. Out-of-process =
+  niedrigster Aufwand für echte Isolation. Skizze in
+  `memory/plugin-sandbox-future.md` (Option A).
+* **Schritt 5c — WASM-Plugin-Host.** `services/wasm-host/` mit
+  Wasmtime-Embedding + `pulse-plugin-api.wit`. Echte Memory-Isolation
+  in-process, aber großer Aufwand + Plugin-Autoren brauchen
+  WASM-fähigen Compiler. Erst wenn Latenz-kritische in-process-Plugins
+  gebraucht werden (Voice-Effects o.ä.). Option B in der Memory-Doku.
+* **Signierte Plugins / Marketplace.** Erst wenn Stufe B kommt.
+* **Persistierter Activate-State** — alle gefundenen Plugins werden
+  auto-aktiviert. `plugin_settings`-Tabelle + Admin-UI = Schritt 6.
 
 ## Plugin-Punkte (Status-Tabelle)
 
@@ -175,7 +252,10 @@ Subinterpreter.
 | Channel-Subscription | — | ✅ (2) | 2 |
 | Settings-Section | ✅ (3) | — (3b geplant) | 3 |
 | Plugin-Manifest + Loader | ✅ (4) | ✅ (4) | 4 |
-| Permission-Gate auf `[plugin.uses]` | — | — | 5 |
-| UI-Slot/Component | — | — | 5 |
-| Migrations | — | — | 5 |
+| Permission-Gate auf `[plugin.uses]` | ✅ (5) | ✅ (5) | 5 |
+| Activation-Lifecycle (`deactivate`-Hook) | ✅ (5) | ✅ (5) | 5 |
+| Bot-API (out-of-process, Stufe B) | — | — | 5b (geplant) |
+| WASM-Plugin-Host (in-process, isoliert) | — | — | 5c (geplant) |
+| UI-Slot/Component | — | — | 6 |
+| Migrations | — | — | 6 |
 | Plugin-Admin-UI + persistierter Activate-State | — | — | 6 |

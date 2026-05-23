@@ -15,7 +15,11 @@ const manifest: PluginManifest = {
   description: 'Ping/Pong-Demo, beweist dass der Plugin-Loader läuft',
   scope: { type: 'global' },
   uses: {
-    ws_ops: ['hello:ping'],
+    // ws_ops listet alle Op-Codes, die das Plugin in der Dispatch-Registry
+    // registriert — Backend `hello:ping`-Handler + Frontend `hello:pong`-
+    // Handler durchlaufen den Schritt-5-Permission-Gate und müssen hier
+    // stehen. ws_emit_ops ist informativ und dokumentiert was gesendet wird.
+    ws_ops: ['hello:ping', 'hello:pong'],
     ws_emit_ops: ['hello:pong'],
     channels: [],
     settings_sections: [],

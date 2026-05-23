@@ -1,4 +1,4 @@
-"""Pulse backend plugin loader (Schritt 4 Plugin-System).
+"""Pulse backend plugin loader (Schritt 4 + 5 Plugin-System).
 
 Scans a configured plugin directory, parses ``plugin.toml`` manifests, and
 calls each plugin's ``register()`` entrypoint. Plugins register WS ops +
@@ -8,6 +8,15 @@ pub/sub channel handlers via the Schritt-2 decorators
 loader only takes care of *finding* and *invoking* the plugin code, plus
 tracking what each plugin registered so a later `deactivate(name)` call can
 roll the registrations back.
+
+Schritt-5 additions
+-------------------
+* Permission gate against ``[plugin.uses]`` (see :mod:`.permissions` and
+  ``docs/PLUGIN_ROADMAP.md``). Strict by default; tunable via
+  ``$PULSE_PLUGIN_PERMISSIONS=strict|warn|off``.
+* Activation lifecycle: a plugin's ``register()`` may return
+  ``{"deactivate": fn}``; ``fn`` runs before the registry rollback when
+  the loader deactivates the plugin.
 
 Discovery
 ---------
@@ -26,6 +35,8 @@ Public API
 * :func:`load_directory(path)` — load every plugin in ``path``
 * :class:`PluginManager`       — full lifecycle (activate/deactivate)
 * :class:`PluginManifest`      — pydantic model for parsed ``plugin.toml``
+* :class:`PluginPermissionError` — raised in ``strict`` mode when a plugin
+  registers an undeclared interface
 """
 
 from __future__ import annotations
@@ -44,14 +55,23 @@ from dcc_chat_gateway.plugins.manifest import (
     PluginUses,
     parse_manifest,
 )
+from dcc_chat_gateway.plugins.permissions import (
+    DEFAULT_PERMISSION_MODE,
+    PermissionMode,
+    PluginPermissionError,
+    resolve_permission_mode,
+)
 from dcc_chat_gateway.plugins.registry import PluginManager, PluginRecord, get_manager
 
 __all__ = [
+    "DEFAULT_PERMISSION_MODE",
     "DEFAULT_PLUGIN_API",
     "IncompatibleApiError",
+    "PermissionMode",
     "PluginLoadError",
     "PluginManager",
     "PluginManifest",
+    "PluginPermissionError",
     "PluginRecord",
     "PluginScope",
     "PluginUses",
@@ -60,4 +80,5 @@ __all__ = [
     "load_all",
     "load_directory",
     "parse_manifest",
+    "resolve_permission_mode",
 ]

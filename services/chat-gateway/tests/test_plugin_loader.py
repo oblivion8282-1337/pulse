@@ -192,7 +192,14 @@ def _make_plugin(
     tmp_path: Path, name: str, backend: str | None = "backend:register"
 ) -> Path:
     """Write a minimal plugin to ``tmp_path/<name>/``. The backend module
-    registers an op ``<name>:ping`` so we can verify the registration."""
+    registers an op ``<name>:ping`` so we can verify the registration.
+
+    The Schritt-5 permission gate (strict by default) requires the op to
+    be declared in ``[plugin.uses].ws_ops`` — we add it for the
+    ``register()``-backed variant so these tests keep exercising the loader,
+    not the permission gate. Tests that *want* to exercise the gate live
+    in ``test_plugin_permissions.py``.
+    """
     d = tmp_path / name
     d.mkdir()
     ep = (
@@ -200,12 +207,18 @@ def _make_plugin(
         if backend is not None
         else ""
     )
+    uses_block = ""
+    if backend == "backend:register":
+        uses_block = (
+            "\n[plugin.uses]\n"
+            f'ws_ops = ["{name}:ping"]\n'
+        )
     (d / "plugin.toml").write_text(textwrap.dedent(f'''
         [plugin]
         name = "{name}"
         version = "0.0.1"
         api = "1"
-
+        {uses_block}
         [plugin.entrypoints]
         {ep}
     ''').strip() + "\n")

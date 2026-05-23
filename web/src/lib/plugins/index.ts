@@ -17,8 +17,11 @@ export {
   deactivatePlugin,
   getPlugin,
   listPlugins,
-  registerSettingsSection
+  PluginPermissionError,
+  registerSettingsSection,
+  resolvePluginPermissionMode
 } from './registry';
+export type { PluginPermissionMode, PluginRecord } from './registry';
 export type {
   PluginDeactivateFn,
   PluginEntryModule,

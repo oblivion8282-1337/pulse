@@ -7,12 +7,25 @@ The :class:`PluginManager` is the *runtime* state matching what the
 * whether it's currently activated
 * the set of WS ops + channel handlers it registered while activated
   (so deactivate can roll them back cleanly)
+* (Schritt 5) the optional ``deactivate()`` callback the plugin's
+  ``register()`` returned — runs before the registry rollback.
 
 The dispatch registries themselves (`ws_ops_registry._handlers` and
 `pubsub_channel_registry._handlers`) are *not* aware of which plugin
 registered which entry. We snapshot the registry state before/after
 ``register()`` runs to figure out the diff — this avoids changing the
 registry's public API for plugin attribution.
+
+Schritt 5 — permission gate
+---------------------------
+After the ``register()`` diff is captured, we cross-check it against the
+manifest's ``[plugin.uses]`` whitelist. In ``strict`` mode (default) an
+undeclared op or channel rolls back the registrations and raises
+:class:`~.permissions.PluginPermissionError`; ``warn`` logs but accepts;
+``off`` skips the check. Mode is read fresh on each ``activate()`` from
+``$PULSE_PLUGIN_PERMISSIONS``. The pure-functional bits (mode resolver,
+violation diff, error type) live in :mod:`.permissions` so this module
+stays focused on lifecycle.
 
 Concurrent activate/deactivate isn't supported (and isn't needed — the
 loader runs at app startup; UI activation is single-user). The manager
@@ -24,11 +37,17 @@ from __future__ import annotations
 import importlib.util
 import logging
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
 
 from dcc_chat_gateway.plugins.manifest import PluginManifest
+from dcc_chat_gateway.plugins.permissions import (
+    PluginPermissionError,
+    compute_violations,
+    resolve_permission_mode,
+)
 from dcc_chat_gateway.pubsub_channel_registry import (
     registered_channels,
     unregister_channel_handler,
@@ -53,6 +72,12 @@ class PluginRecord:
     # around the plugin's `register()` call.
     registered_ws_ops: set[str] = field(default_factory=set)
     registered_channels: set[str] = field(default_factory=set)
+    # Optional plugin-supplied cleanup callback. The plugin's `register()`
+    # may return ``{"deactivate": fn}``; the loader stashes ``fn`` here and
+    # calls it from :meth:`deactivate` *before* the registry diff is rolled
+    # back, so the plugin sees its own ops/channels still live during its
+    # cleanup (e.g. to send a final farewell frame).
+    deactivate_hook: Callable[[], None] | None = None
 
 
 class PluginManager:
@@ -130,16 +155,56 @@ class PluginManager:
                 raise AttributeError(
                     f"plugin {name!r}: {ep!r} did not resolve to a callable"
                 )
-            register_fn()
+            result = register_fn()
 
-            rec.registered_ws_ops = set(registered_ops()) - before_ops
-            rec.registered_channels = set(registered_channels()) - before_channels
+            new_ops = set(registered_ops()) - before_ops
+            new_channels = set(registered_channels()) - before_channels
+
+            # ---- Schritt-5 permission gate -------------------------------
+            # Compare what the plugin actually registered against the
+            # manifest's `[plugin.uses]` whitelist. Any registration not on
+            # the list is an undeclared capability — in ``strict`` mode we
+            # roll back and raise; in ``warn`` we log but accept. ``off``
+            # short-circuits the whole check (Schritt-4 behaviour).
+            mode = resolve_permission_mode()
+            undeclared_ops, undeclared_channels = compute_violations(
+                declared_ops=set(rec.manifest.uses.ws_ops),
+                declared_channels=set(rec.manifest.uses.channels),
+                new_ops=new_ops,
+                new_channels=new_channels,
+            )
+            if (undeclared_ops or undeclared_channels) and mode != "off":
+                if mode == "strict":
+                    # Roll back every new registration before raising so
+                    # the dispatch tables can't observe a half-activated
+                    # plugin.
+                    for op in new_ops:
+                        unregister_ws_op(op)
+                    for ch in new_channels:
+                        unregister_channel_handler(ch)
+                    raise PluginPermissionError(
+                        name, undeclared_ops, undeclared_channels
+                    )
+                # warn: log but keep — useful during plugin authoring.
+                log.warning(
+                    "plugin %s: undeclared registrations (mode=warn) "
+                    "ops=%s channels=%s",
+                    name,
+                    sorted(undeclared_ops),
+                    sorted(undeclared_channels),
+                )
+
+            rec.registered_ws_ops = new_ops
+            rec.registered_channels = new_channels
+            rec.deactivate_hook = _extract_deactivate_hook(name, result)
             rec.activated = True
             log.info(
-                "plugin %s activated (ws_ops=%d channels=%d)",
+                "plugin %s activated (ws_ops=%d channels=%d hook=%s mode=%s)",
                 name,
                 len(rec.registered_ws_ops),
                 len(rec.registered_channels),
+                rec.deactivate_hook is not None,
+                mode,
             )
             return rec
         except Exception:
@@ -150,18 +215,31 @@ class PluginManager:
         """Remove every WS op + channel handler the plugin registered.
 
         Idempotent — deactivating an already-inactive plugin is a no-op.
+
+        Order matters: the plugin's own ``deactivate()`` hook (returned
+        from its ``register()``) runs *before* the loader rolls back the
+        registry diff. That lets the plugin observe its own ops/channels
+        still live for the duration of cleanup (e.g. to broadcast a final
+        frame). A hook exception is logged + swallowed — rollback must
+        always complete.
         """
         rec = self._records.get(name)
         if rec is None:
             raise KeyError(f"unknown plugin: {name!r}")
         if not rec.activated:
             return rec
+        if rec.deactivate_hook is not None:
+            try:
+                rec.deactivate_hook()
+            except Exception:  # noqa: BLE001
+                log.exception("plugin %s: deactivate hook raised", name)
         for op in list(rec.registered_ws_ops):
             unregister_ws_op(op)
         for ch in list(rec.registered_channels):
             unregister_channel_handler(ch)
         rec.registered_ws_ops.clear()
         rec.registered_channels.clear()
+        rec.deactivate_hook = None
         rec.activated = False
         log.info("plugin %s deactivated", name)
         return rec
@@ -200,6 +278,43 @@ def _reset_for_tests() -> None:
     # up the file from disk instead of the cached module object.
     for key in [k for k in sys.modules if k.startswith("pulse_plugin.")]:
         sys.modules.pop(key, None)
+
+
+def _extract_deactivate_hook(
+    plugin_name: str, result: object
+) -> Callable[[], None] | None:
+    """Pull an optional ``deactivate`` callable out of what ``register()``
+    returned. Accepted shapes:
+
+    * ``None``                        — no hook (most plugins).
+    * ``{"deactivate": fn}``          — explicit dict form, mirrors the
+      frontend's ``{ deactivate?: () => void }``.
+
+    Anything else logs a warning and is ignored — silently dropping the
+    return value would hide a typo in the plugin code.
+    """
+    if result is None:
+        return None
+    if isinstance(result, dict):
+        hook = result.get("deactivate")
+        if hook is None:
+            return None
+        if callable(hook):
+            return hook  # type: ignore[return-value]
+        log.warning(
+            "plugin %s: register() returned dict with non-callable "
+            "'deactivate' (%r); ignoring",
+            plugin_name,
+            type(hook).__name__,
+        )
+        return None
+    log.warning(
+        "plugin %s: register() returned %r; expected None or "
+        "{'deactivate': callable}",
+        plugin_name,
+        type(result).__name__,
+    )
+    return None
 
 
 def _load_plugin_module(
