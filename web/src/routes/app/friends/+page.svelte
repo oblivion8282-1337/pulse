@@ -83,7 +83,10 @@
       <nav class="flex flex-wrap gap-1" data-testid="friends-tabs">
         {#each TABS as t (t.key)}
           {@const isActive = activeTab === t.key}
-          {@const badge = t.key === 'pending' ? friendRequests.incomingList.length : 0}
+          {@const badge =
+            t.key === 'pending'
+              ? friendRequests.incomingList.length + friendRequests.outgoingList.length
+              : 0}
           <button
             type="button"
             class="hover:bg-bg-hover relative rounded-md px-3 py-1 text-sm font-medium transition-colors {isActive

@@ -1,0 +1,482 @@
+<!doctype html>
+<html lang="de" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Friends/DM-Sidebar Layout-Varianten</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg-base:#0a0a0c;
+  --bg-elev:#15151a;
+  --bg-hover:rgba(255,255,255,.04);
+  --bg-glass:rgba(255,255,255,.03);
+  --border:rgba(255,255,255,.08);
+  --border-strong:rgba(255,255,255,.14);
+  --text-bright:#f4f5f7;
+  --text:#c8cad0;
+  --text-muted:#7a7c84;
+  --primary:#5c7cfa;
+  --accent-soft:rgba(92,124,250,.18);
+  --rose:#f43f5e;
+  --emerald:#10b981;
+  --amber:#f59e0b;
+  --sans:'Plus Jakarta Sans','Plus Jakarta Sans Variable',system-ui,sans-serif;
+}
+html,body{
+  height:100%;
+  background:var(--bg-base);
+  color:var(--text);
+  font-family:var(--sans);
+  font-size:14px;
+  line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.page{
+  max-width:1500px;
+  margin:0 auto;
+  padding:40px 24px 80px;
+}
+.intro{
+  margin-bottom:36px;
+}
+.intro h1{
+  color:var(--text-bright);
+  font-size:28px;
+  font-weight:800;
+  letter-spacing:-.02em;
+  margin-bottom:8px;
+}
+.intro p{
+  color:var(--text-muted);
+  max-width:780px;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr));
+  gap:32px;
+}
+.variant{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+}
+.variant-head{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+}
+.variant-head .num{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:24px;
+  height:24px;
+  border-radius:6px;
+  background:var(--accent-soft);
+  color:var(--primary);
+  font-weight:700;
+  font-size:12px;
+}
+.variant-head h2{
+  color:var(--text-bright);
+  font-size:16px;
+  font-weight:700;
+}
+.variant-desc{
+  color:var(--text-muted);
+  font-size:13px;
+  margin-bottom:4px;
+  min-height:42px;
+}
+
+/* ---- sidebar mock ---- */
+.sidebar{
+  background:linear-gradient(180deg,var(--bg-elev) 0%,#0f0f13 100%);
+  border:1px solid var(--border);
+  border-radius:16px;
+  overflow:hidden;
+  display:flex;
+  flex-direction:column;
+  height:560px;
+  backdrop-filter:blur(20px);
+}
+.sb-header{
+  padding:14px 16px 12px;
+  color:var(--text-bright);
+  font-weight:700;
+  font-size:15px;
+  letter-spacing:-.01em;
+  border-bottom:1px solid var(--border);
+}
+.sb-body{
+  flex:1;
+  padding:8px;
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  overflow:hidden;
+}
+.sb-label{
+  color:var(--text-muted);
+  font-size:10px;
+  font-weight:700;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  padding:14px 12px 6px;
+}
+
+/* generic row */
+.row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:8px 10px;
+  border-radius:10px;
+  cursor:pointer;
+  font-size:13px;
+  font-weight:500;
+}
+.row:hover{ background:var(--bg-hover); }
+.row .icon{
+  width:18px;
+  height:18px;
+  flex-shrink:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--text-muted);
+}
+.row .label{
+  color:var(--text);
+  flex:1;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.row .badge{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:18px;
+  height:18px;
+  padding:0 6px;
+  background:var(--rose);
+  color:#fff;
+  font-size:10px;
+  font-weight:700;
+  border-radius:999px;
+}
+.row.active{
+  background:var(--accent-soft);
+  color:var(--primary);
+}
+.row.active .icon,
+.row.active .label{ color:var(--primary); font-weight:600; }
+
+/* avatar */
+.avatar{
+  width:24px;
+  height:24px;
+  border-radius:50%;
+  flex-shrink:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  color:#fff;
+  font-size:11px;
+  font-weight:700;
+  background:linear-gradient(135deg,#5c7cfa,#8b5cf6);
+}
+.avatar.alice{ background:linear-gradient(135deg,#ec4899,#f43f5e); }
+.avatar.bob{ background:linear-gradient(135deg,#10b981,#06b6d4); }
+.avatar.charlie{ background:linear-gradient(135deg,#f59e0b,#f43f5e); }
+.avatar.dora{ background:linear-gradient(135deg,#8b5cf6,#5c7cfa); }
+
+/* status dot on avatar */
+.with-dot{ position:relative; }
+.with-dot .dot{
+  position:absolute;
+  right:-2px;
+  bottom:-2px;
+  width:9px;
+  height:9px;
+  border-radius:50%;
+  border:2px solid var(--bg-elev);
+}
+.dot.online{ background:var(--emerald); }
+.dot.idle{ background:var(--amber); }
+.dot.offline{ background:var(--text-muted); }
+
+/* ---- variant 2: friends as card ---- */
+.friends-card{
+  margin:8px 4px;
+  padding:2px;
+  border:1px solid var(--border-strong);
+  border-radius:14px;
+  background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));
+  box-shadow:0 1px 0 0 rgba(255,255,255,.04) inset;
+}
+.friends-card .row{
+  margin:0;
+  padding:10px 12px;
+}
+
+/* ---- variant 3: hr separator ---- */
+.hr{
+  height:1px;
+  background:var(--border);
+  margin:14px 12px 4px;
+}
+
+/* footer of sidebar */
+.sb-footer{
+  border-top:1px solid var(--border);
+  padding:10px 12px;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.sb-footer .me{
+  flex:1;
+  color:var(--text);
+  font-size:12px;
+  font-weight:600;
+}
+.sb-footer .small{
+  font-size:10px;
+  color:var(--text-muted);
+  font-weight:500;
+}
+
+/* unread dot */
+.unread{
+  width:6px;
+  height:6px;
+  border-radius:50%;
+  background:var(--primary);
+  margin-left:auto;
+  flex-shrink:0;
+}
+
+/* tags / notes */
+.note{
+  margin-top:8px;
+  padding:10px 14px;
+  background:var(--bg-glass);
+  border:1px solid var(--border);
+  border-radius:10px;
+  font-size:12px;
+  color:var(--text-muted);
+  line-height:1.5;
+}
+.note b{ color:var(--text); }
+
+.legend{
+  margin-top:48px;
+  padding:18px 22px;
+  background:var(--bg-glass);
+  border:1px solid var(--border);
+  border-radius:14px;
+}
+.legend h3{
+  color:var(--text-bright);
+  font-size:14px;
+  margin-bottom:6px;
+}
+.legend p{
+  font-size:13px;
+  color:var(--text-muted);
+}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="intro">
+    <h1>Friends/DM-Sidebar — Layout-Varianten</h1>
+    <p>Drei Vorschläge zur visuellen Trennung zwischen <b>Freunden</b> und <b>Direktnachrichten</b> im <code>@me</code>-Bereich. Aktueller Stand: Friends-Link liegt unter dem Header „Direktnachrichten" — das vermischt die Begriffe.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- ============= VARIANTE 1 ============= -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="num">1</span>
+        <h2>Neutraler Header + zwei Sektionen</h2>
+      </div>
+      <p class="variant-desc">Sidebar-Header wird neutral („@me"). Darunter zwei klar getrennte beschriftete Sektionen.</p>
+
+      <div class="sidebar">
+        <div class="sb-header">@me</div>
+        <div class="sb-body">
+
+          <div class="sb-label">Freunde</div>
+          <div class="row active">
+            <span class="icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            <span class="label">Freunde</span>
+            <span class="badge">2</span>
+          </div>
+
+          <div class="sb-label">Direktnachrichten</div>
+          <div class="row">
+            <span class="avatar alice">A</span>
+            <span class="label">Alice</span>
+            <span class="unread"></span>
+          </div>
+          <div class="row">
+            <span class="avatar bob">B</span>
+            <span class="label">Bob</span>
+          </div>
+          <div class="row">
+            <span class="avatar charlie">C</span>
+            <span class="label">Charlie</span>
+          </div>
+          <div class="row">
+            <span class="avatar dora">D</span>
+            <span class="label">Dora</span>
+          </div>
+        </div>
+        <div class="sb-footer">
+          <span class="with-dot"><span class="avatar">M</span><span class="dot online"></span></span>
+          <div>
+            <div class="me">Michael</div>
+            <div class="small">Online</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>Pro:</b> Begrifflich sauber — Header ist neutral, Friends + DMs sind zwei eigene Kapitel.<br>
+        <b>Contra:</b> Verlangt eine umbenannte Sidebar-Überschrift („@me" ist Discord-Jargon).
+      </div>
+    </div>
+
+    <!-- ============= VARIANTE 2 ============= -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="num">2</span>
+        <h2>Friends als Card oben, DMs darunter</h2>
+      </div>
+      <p class="variant-desc">Friends-Link wird visuell zu einer prominenten Card mit Border + Glow. DMs darunter mit eigenem Section-Label.</p>
+
+      <div class="sidebar">
+        <div class="sb-header">Direktnachrichten</div>
+        <div class="sb-body">
+
+          <div class="friends-card">
+            <div class="row active">
+              <span class="icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              </span>
+              <span class="label">Freunde</span>
+              <span class="badge">2</span>
+            </div>
+          </div>
+
+          <div class="sb-label">Deine Chats</div>
+          <div class="row">
+            <span class="avatar alice">A</span>
+            <span class="label">Alice</span>
+            <span class="unread"></span>
+          </div>
+          <div class="row">
+            <span class="avatar bob">B</span>
+            <span class="label">Bob</span>
+          </div>
+          <div class="row">
+            <span class="avatar charlie">C</span>
+            <span class="label">Charlie</span>
+          </div>
+          <div class="row">
+            <span class="avatar dora">D</span>
+            <span class="label">Dora</span>
+          </div>
+        </div>
+        <div class="sb-footer">
+          <span class="with-dot"><span class="avatar">M</span><span class="dot online"></span></span>
+          <div>
+            <div class="me">Michael</div>
+            <div class="small">Online</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>Pro:</b> Friends visuell stark abgesetzt — Card hebt sich klar von der DM-Liste ab.<br>
+        <b>Contra:</b> Wenn mal mehr „über DMs hinaus"-Module dazukommen (Stage, Forum…), wird's eng.
+      </div>
+    </div>
+
+    <!-- ============= VARIANTE 3 ============= -->
+    <div class="variant">
+      <div class="variant-head">
+        <span class="num">3</span>
+        <h2>Trennlinie zwischen Friends und DM-Liste</h2>
+      </div>
+      <p class="variant-desc">Friends bleibt als Link oben; danach eine echte horizontale Linie, dann der DM-Header. Minimaler Eingriff.</p>
+
+      <div class="sidebar">
+        <div class="sb-header">Direktnachrichten</div>
+        <div class="sb-body">
+
+          <div class="row active">
+            <span class="icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            </span>
+            <span class="label">Freunde</span>
+            <span class="badge">2</span>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="sb-label">Chats</div>
+          <div class="row">
+            <span class="avatar alice">A</span>
+            <span class="label">Alice</span>
+            <span class="unread"></span>
+          </div>
+          <div class="row">
+            <span class="avatar bob">B</span>
+            <span class="label">Bob</span>
+          </div>
+          <div class="row">
+            <span class="avatar charlie">C</span>
+            <span class="label">Charlie</span>
+          </div>
+          <div class="row">
+            <span class="avatar dora">D</span>
+            <span class="label">Dora</span>
+          </div>
+        </div>
+        <div class="sb-footer">
+          <span class="with-dot"><span class="avatar">M</span><span class="dot online"></span></span>
+          <div>
+            <div class="me">Michael</div>
+            <div class="small">Online</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note">
+        <b>Pro:</b> Kleinster Eingriff — Header bleibt, Friends bleibt prominent, Trennlinie macht den Cut.<br>
+        <b>Contra:</b> Subtilste Lösung — eilige User übersehen die Linie schnell.
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <h3>Vergleich</h3>
+    <p><b>1</b> — strukturell am saubersten, braucht Header-Umbenennung. &nbsp; <b>2</b> — visuell am stärksten, Friends wirkt wie eigenes Modul. &nbsp; <b>3</b> — minimal-invasiv, behält die heutige Hierarchie.</p>
+  </div>
+
+</div>
+</body>
+</html>

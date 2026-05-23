@@ -9,6 +9,8 @@
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import * as Avatar from '$lib/components/ui/avatar/index.js';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import { friendsApi, type UserSearchHit } from '$lib/api/friends';
   import { friends } from '$lib/stores/friends.svelte';
@@ -91,11 +93,10 @@
   <p class="text-text-muted text-sm">
     Suche per Nutzername (mind. 2 Zeichen). Treffer kommen aus der Pulse-Instanz.
   </p>
-  <input
+  <Input
     type="text"
     bind:value={query}
     placeholder="z. B. alice"
-    class="bg-bg-elev text-text-bright placeholder:text-text-muted focus:ring-primary rounded-lg px-3 py-2 text-sm outline-none focus:ring-2"
     data-testid="add-friend-input"
     autocomplete="off"
   />
@@ -118,15 +119,14 @@
       data-testid="search-hit"
       data-user-id={h.id}
     >
-      {#if avatar}
-        <img src={avatar} alt="" class="size-9 rounded-full object-cover" />
-      {:else}
-        <div
-          class="bg-bg-elev text-text-bright flex size-9 items-center justify-center rounded-full text-sm font-semibold"
-        >
+      <Avatar.Root class="size-9 shrink-0">
+        {#if avatar}
+          <Avatar.Image src={avatar} alt="" />
+        {/if}
+        <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
           {(h.display_name ?? h.username).slice(0, 1).toUpperCase()}
-        </div>
-      {/if}
+        </Avatar.Fallback>
+      </Avatar.Root>
       <div class="min-w-0 flex-1">
         <p class="text-text-bright truncate text-sm font-semibold">
           {h.display_name ?? h.username}

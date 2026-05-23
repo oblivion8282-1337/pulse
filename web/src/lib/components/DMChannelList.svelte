@@ -38,10 +38,15 @@
   data-testid="dm-channel-list"
 >
   <header class="text-text-bright flex h-12 items-center px-4 pt-3">
-    <span class="truncate text-base font-bold tracking-tight">Direktnachrichten</span>
+    <span class="truncate text-base font-bold tracking-tight">@me</span>
   </header>
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
+    <p
+      class="text-text-muted px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider"
+    >
+      Freunde
+    </p>
     <button
       class="group flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
       data-active={friendsActive}

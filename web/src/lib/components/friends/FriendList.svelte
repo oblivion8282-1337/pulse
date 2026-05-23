@@ -19,6 +19,7 @@
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
+  import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { presence } from '$lib/stores/presence.svelte';
@@ -82,15 +83,14 @@
       data-user-id={f.user_id}
     >
       <div class="relative shrink-0">
-        {#if avatar}
-          <img src={avatar} alt="" class="size-9 rounded-full object-cover" />
-        {:else}
-          <div
-            class="bg-bg-elev text-text-bright flex size-9 items-center justify-center rounded-full text-sm font-semibold"
-          >
+        <Avatar.Root class="size-9">
+          {#if avatar}
+            <Avatar.Image src={avatar} alt="" />
+          {/if}
+          <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
             {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
-          </div>
-        {/if}
+          </Avatar.Fallback>
+        </Avatar.Root>
         <StatusDot {status} class="ring-bg-base absolute -right-0.5 -bottom-0.5 size-3 ring-2" />
       </div>
       <div class="min-w-0 flex-1">

@@ -16,6 +16,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { friendsApi } from '$lib/api/friends';
   import { safeAvatarUrl } from '$lib/avatar';
+  import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { toast } from 'svelte-sonner';
 
   $effect(() => {
@@ -72,15 +73,14 @@
         data-testid="pending-in-row"
         data-request-id={r.id}
       >
-        {#if avatar}
-          <img src={avatar} alt="" class="size-9 rounded-full object-cover" />
-        {:else}
-          <div
-            class="bg-bg-elev text-text-bright flex size-9 items-center justify-center rounded-full text-sm font-semibold"
-          >
+        <Avatar.Root class="size-9 shrink-0">
+          {#if avatar}
+            <Avatar.Image src={avatar} alt="" />
+          {/if}
+          <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
             {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
-          </div>
-        {/if}
+          </Avatar.Fallback>
+        </Avatar.Root>
         <div class="min-w-0 flex-1">
           <p class="text-text-bright truncate text-sm font-semibold">
             {u?.display_name ?? u?.username ?? '…'}
@@ -125,15 +125,14 @@
         data-testid="pending-out-row"
         data-request-id={r.id}
       >
-        {#if avatar}
-          <img src={avatar} alt="" class="size-9 rounded-full object-cover" />
-        {:else}
-          <div
-            class="bg-bg-elev text-text-bright flex size-9 items-center justify-center rounded-full text-sm font-semibold"
-          >
+        <Avatar.Root class="size-9 shrink-0">
+          {#if avatar}
+            <Avatar.Image src={avatar} alt="" />
+          {/if}
+          <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
             {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
-          </div>
-        {/if}
+          </Avatar.Fallback>
+        </Avatar.Root>
         <div class="min-w-0 flex-1">
           <p class="text-text-bright truncate text-sm font-semibold">
             {u?.display_name ?? u?.username ?? '…'}
