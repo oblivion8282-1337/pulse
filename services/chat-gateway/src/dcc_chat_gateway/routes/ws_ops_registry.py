@@ -1,0 +1,120 @@
+"""WS client→server op-handler registry (Plugin-System Schritt 2).
+
+The op-loop in :mod:`routes.ws_ops` used to be a 9-way if/elif switch. To let
+plugins (later, Schritt 4) plug in new client-side ops without touching the
+core dispatcher, both halves of the dispatch — *where to send a known op* and
+*how to discover them* — live behind a registry.
+
+Design notes
+------------
+* :class:`WSOpContext` carries the per-connection local state that handlers
+  need to read **and mutate**. ``subscribed`` (dict) and ``hosted_parties``
+  (set) are already mutable; ``current_voice_channel`` would otherwise need a
+  return-value channel back into the loop, so we expose it as a plain
+  attribute on the context — handlers reassign ``ctx.current_voice_channel``
+  the same way the inline branch used to reassign the local variable.
+
+* :func:`register_ws_op` works as decorator *or* as a direct call. Plugins
+  will read better as decorators::
+
+      @register_ws_op("tamagotchi:feed")
+      async def handle_feed(ctx: WSOpContext, msg: dict) -> None:
+          ...
+
+  Internal handlers in :mod:`routes.ws_ops_handlers` register at import time
+  with the direct form so the wiring is obvious in the module.
+
+* Last writer wins. We do not warn on override — that's the contract a
+  plugin needs to override a core op for an A/B experiment. Tests cover the
+  override case to keep the contract honest.
+
+Behaviour-neutral: the dispatcher in :mod:`routes.ws_ops` keeps the same
+unknown-op error frame (``code 4007``) when ``get_handler`` returns ``None``.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
+    from redis.asyncio import Redis
+
+    from dcc_chat_gateway.pubsub import ConnectionManager
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+
+@dataclass
+class WSOpContext:
+    """Per-connection state shared between handlers and the dispatcher loop.
+
+    Mutable fields (``subscribed``, ``hosted_parties``, ``current_voice_channel``)
+    are read+written by individual handlers; the dispatcher's ``finally`` block
+    reads them once more during cleanup.
+    """
+
+    websocket: "WebSocket"
+    user: "AuthenticatedUser"
+    manager: "ConnectionManager"
+    redis: "Redis"
+    # cid (str) → guild_id (int) for guild text channels, None for DMs.
+    # See routes/ws_ops.py for the original semantics — preserved 1:1.
+    subscribed: dict[str, int | None] = field(default_factory=dict)
+    # Channel ids of watch parties this socket has started.
+    hosted_parties: set[str] = field(default_factory=set)
+    # Voice channel id (as string) the user is currently in, as reported by
+    # voice_self_state. ``None`` when not in a voice channel.
+    current_voice_channel: str | None = None
+
+
+WSOpHandler = Callable[[WSOpContext, dict[str, Any]], Awaitable[None]]
+
+
+_handlers: dict[str, WSOpHandler] = {}
+
+
+def register_ws_op(
+    op: str, handler: WSOpHandler | None = None
+) -> WSOpHandler | Callable[[WSOpHandler], WSOpHandler]:
+    """Register ``handler`` under name ``op``.
+
+    Two call styles, both supported deliberately so plugin authors and core
+    code can pick the one that reads better in context:
+
+    Direct::
+        register_ws_op("foo", handle_foo)
+
+    Decorator::
+        @register_ws_op("foo")
+        async def handle_foo(ctx, msg): ...
+
+    A second registration for the same ``op`` overrides the first (last-writer-
+    wins). The previous handler is silently dropped — tests in
+    ``test_ws_op_registry.py`` lock this in.
+    """
+    if handler is not None:
+        _handlers[op] = handler
+        return handler
+
+    def _deco(fn: WSOpHandler) -> WSOpHandler:
+        _handlers[op] = fn
+        return fn
+
+    return _deco
+
+
+def get_handler(op: str) -> WSOpHandler | None:
+    """Return the handler for ``op`` or ``None`` for unknown ops."""
+    return _handlers.get(op)
+
+
+def registered_ops() -> list[str]:
+    """List of currently-registered op names. Test/debug helper."""
+    return sorted(_handlers)
+
+
+def _clear_for_tests() -> None:
+    """Wipe the registry. Tests use this to start from a known state."""
+    _handlers.clear()
