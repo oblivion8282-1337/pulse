@@ -18,10 +18,13 @@
   import XIcon from '@lucide/svelte/icons/x';
   import CheckIcon from '@lucide/svelte/icons/check';
   import BanIcon from '@lucide/svelte/icons/ban';
+  import MailPlusIcon from '@lucide/svelte/icons/mail-plus';
+  import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import { friends } from '$lib/stores/friends.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { blocks } from '$lib/stores/blocks.svelte';
   import * as actions from './popoverActions';
+  import InviteToServerSubmenu from './InviteToServerSubmenu.svelte';
 
   let {
     userId,
@@ -38,10 +41,14 @@
   } = $props();
 
   let working = $state(false);
+  let inviteSubmenuOpen = $state(false);
 
   // Reset on close.
   $effect(() => {
-    if (!popoverOpen) working = false;
+    if (!popoverOpen) {
+      working = false;
+      inviteSubmenuOpen = false;
+    }
   });
 
   let isBlocked = $derived(blocks.has(userId));
@@ -94,6 +101,24 @@
       <span>Entblockieren</span>
     </button>
   {:else if isFriend}
+    <button
+      type="button"
+      class={btnNormal}
+      onclick={() => (inviteSubmenuOpen = !inviteSubmenuOpen)}
+      disabled={working}
+      data-testid="popover-invite-to-server-btn"
+    >
+      <MailPlusIcon class="size-4" />
+      <span class="flex-1">Zu Server einladen</span>
+      <ChevronDownIcon class="size-3 transition-transform {inviteSubmenuOpen ? 'rotate-180' : ''}" />
+    </button>
+    {#if inviteSubmenuOpen}
+      <InviteToServerSubmenu
+        friendUserId={userId}
+        friendName={displayName}
+        onDone={() => { inviteSubmenuOpen = false; onClose(); }}
+      />
+    {/if}
     <button
       type="button"
       class={btnDanger}

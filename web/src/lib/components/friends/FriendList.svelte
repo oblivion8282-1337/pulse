@@ -20,6 +20,7 @@
   import UserMinusIcon from '@lucide/svelte/icons/user-minus';
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import UserProfilePopover from '$lib/components/UserProfilePopover.svelte';
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { presence } from '$lib/stores/presence.svelte';
@@ -82,23 +83,38 @@
       data-testid="friend-row"
       data-user-id={f.user_id}
     >
-      <div class="relative shrink-0">
-        <Avatar.Root class="size-9">
-          {#if avatar}
-            <Avatar.Image src={avatar} alt="" />
-          {/if}
-          <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
-            {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
-          </Avatar.Fallback>
-        </Avatar.Root>
-        <StatusDot {status} class="ring-bg-base absolute -right-0.5 -bottom-0.5 size-3 ring-2" />
-      </div>
-      <div class="min-w-0 flex-1">
-        <p class="text-text-bright truncate text-sm font-semibold">
-          {u?.display_name ?? u?.username ?? '…'}
-        </p>
-        <p class="text-text-muted truncate text-xs">{status}</p>
-      </div>
+      <UserProfilePopover
+        userId={f.user_id}
+        displayName={u?.display_name ?? u?.username ?? '…'}
+        avatarUrl={avatar}
+      >
+        {#snippet children({ props })}
+          <button
+            {...props}
+            type="button"
+            class="flex min-w-0 flex-1 items-center gap-3 text-left"
+            data-testid="friend-profile-trigger"
+          >
+            <div class="relative shrink-0">
+              <Avatar.Root class="size-9">
+                {#if avatar}
+                  <Avatar.Image src={avatar} alt="" />
+                {/if}
+                <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
+                  {(u?.display_name ?? u?.username ?? '?').slice(0, 1).toUpperCase()}
+                </Avatar.Fallback>
+              </Avatar.Root>
+              <StatusDot {status} class="ring-bg-base absolute -right-0.5 -bottom-0.5 size-3 ring-2" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-text-bright truncate text-sm font-semibold">
+                {u?.display_name ?? u?.username ?? '…'}
+              </p>
+              <p class="text-text-muted truncate text-xs">{status}</p>
+            </div>
+          </button>
+        {/snippet}
+      </UserProfilePopover>
       <Button
         size="sm"
         variant="ghost"

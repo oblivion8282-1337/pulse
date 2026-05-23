@@ -6,6 +6,7 @@
   import MessageActionSheet from './MessageActionSheet.svelte';
   import MessageAttachments from './MessageAttachments.svelte';
   import MessageReactions from './MessageReactions.svelte';
+  import InviteEmbed from './InviteEmbed.svelte';
   import { renderMessage } from './messageRender';
   import { longpress } from '$lib/utils/longpress';
 
@@ -49,6 +50,19 @@
   const reactions = $derived(message.reactions ?? []);
   const attachments = $derived(message.attachments ?? []);
   const isEdited = $derived(!!message.edited_at);
+
+  // Invite-Embed-Detection: extract the first /invite/<code> from the content.
+  const INVITE_RE = /(?:https?:\/\/[^\s]+)?\/invite\/([A-Za-z0-9]{8})\b/;
+  const inviteCode = $derived.by(() => {
+    const m = message.content.match(INVITE_RE);
+    return m ? m[1] : null;
+  });
+  // Suppress the raw text entirely when the message is *only* the invite link
+  // (possibly with surrounding whitespace).
+  const isInviteOnly = $derived.by(() => {
+    if (!inviteCode) return false;
+    return message.content.trim().replace(INVITE_RE, '').trim() === '';
+  });
   // Optimistic copy still awaiting its server echo — it has no real id yet,
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
@@ -127,13 +141,16 @@
       Enter zum Speichern · Esc zum Abbrechen
     </div>
   {:else}
-    {#if message.content}
+    {#if message.content && !isInviteOnly}
       <div class="text-text-base break-words text-[15px]" data-testid="message-content">
         {@html html}
         {#if isEdited}
           <span class="text-text-muted text-[10px]" title={message.edited_at ?? ''}>(bearbeitet)</span>
         {/if}
       </div>
+    {/if}
+    {#if inviteCode}
+      <InviteEmbed code={inviteCode} />
     {/if}
     <MessageAttachments {attachments} />
     <MessageReactions reactions={reactions} onToggle={handleToggle} />
