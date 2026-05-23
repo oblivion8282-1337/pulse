@@ -2,6 +2,8 @@
 
 Stand: 2026-05-24
 
+Manifest-Spezifikation: [`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
+
 Ziel: ein opt-in Plugin-System für Pulse, das Drittentwickler nutzen können,
 ohne den Core-Source zu forken. Symmetrisches Design Backend/Frontend; jeder
 "Plugin-Punkt" ist eine Runtime-Registry, in die ein Plugin-Modul beim Import
@@ -96,18 +98,73 @@ Was noch offen ist:
   (`schema.parse(raw)` + try/catch + fallback). Bei Bedarf später ein
   natives `schema?: BaseSchema<T>`-Feld nachschieben.
 
-### Schritt 4 — Plugin-Loader (geplant)
+### Schritt 4 — Plugin-Manifest + Loader — fertig
 
-Ein `pluginRegistry` mit `loadPlugin(url|name)` der dynamisch importiert,
-isoliert wenn nötig (Iframe-Sandbox? Web-Worker?). Dependency-Graph: Plugin
-deklariert die benötigten Pulse-Versions-Bereiche. Lifecycle:
-`onLoad/onUnload`.
+Branch: `feat/plugin-manifest-loader`. Manifest-Spec:
+[`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
 
-### Schritt 5 — Backend-Plugin-Loader (geplant)
+Backend (`services/chat-gateway/src/dcc_chat_gateway/plugins/`):
 
-Analog im Backend: dynamische Python-Module mit `@register_ws_op`-Decorator
-+ Schema-Registration. Sicherheit: nur signierte Plugins, sandbox-fähig
-(separater Subinterpreter?).
+- `manifest.py` (144 Z.) — pydantic-Modell für `plugin.toml`; akzeptiert
+  Schema-API `"1"`. Validierung: `name` matched `^[a-z][a-z0-9_-]{1,31}$`,
+  `IncompatibleApiError` bei falscher Major-Version.
+- `loader.py` (153 Z.) — `discover_plugins_dir()` (env-Override
+  `PULSE_PLUGINS_DIR` → Repo-Walk-Up nach `plugins/`), `load_directory()`,
+  `load_all()`. Pro-Plugin-Fehler werden geloggt + geskippt; ein kaputtes
+  Plugin gated nie die anderen.
+- `registry.py` (236 Z.) — `PluginManager` mit `add`/`activate`/`deactivate`.
+  Activate snapshottet `registered_ops()`/`registered_channels()` vor +
+  nach `register()`-Call, der Diff ist die Tracking-Liste für Deactivate.
+  Module werden über `pulse_plugin.<name>.<module>`-Synthetic-Key per
+  `spec_from_file_location` geladen — kein Cache-by-bare-name-Hazard.
+- `routes/ws_ops_registry.py` + `pubsub_channel_registry.py` haben jetzt
+  ein `unregister_*`-Pendant (für den Plugin-Deactivate-Pfad).
+- `app.py` Lifespan ruft `load_plugins()` nach den Background-Tasks auf;
+  fail-tolerant (Exception schluckt + loggt, kein Boot-Block).
+
+Frontend (`web/src/lib/plugins/`):
+
+- `manifest-types.ts` (61 Z.) — TS-Spiegel des Python-Modells.
+- `registry.ts` (134 Z.) — `addPlugin`/`activatePlugin`/`deactivatePlugin`.
+  Diff-Tracking via `listWsHandlers()` + `listSections()` Snapshot.
+- `loader.ts` (112 Z.) — `import.meta.glob('/../plugins/*/manifest.ts')`
+  eager für Manifeste, lazy für die Frontend-Entries. Verzeichnis-Walk im
+  Browser nicht möglich → jedes Plugin liefert sein `manifest.ts` als
+  TS-Spiegel der TOML (CI-Sync später).
+- `+layout.svelte` ruft `loadAll()` einmal `onMount` auf.
+
+Skelett-Plugin `plugins/hello/`:
+
+- `plugin.toml` (TOML-Manifest), `backend.py` (registriert `hello:ping` →
+  antwortet mit `hello:pong`), `manifest.ts` (Frontend-Mirror der TOML),
+  `frontend.ts` (registriert `hello:pong`-Handler, logged ans Console).
+
+Tests:
+
+- `services/chat-gateway/tests/test_plugin_loader.py` (16 Tests) deckt
+  Manifest-Parsing (minimal/full/wrong-api/bad-name/missing-table),
+  Discovery (env-var/walk-up), PluginManager-Lifecycle (activate registers,
+  deactivate rolls back, idempotent, frontend-only-Plugins, mismatched
+  Directory-Name, one-bad-plugin-doesn't-block-others) und ein
+  End-to-End-Test, der das echte `plugins/hello/` lädt und verifiziert,
+  dass `hello:ping` registriert ist.
+
+Was bewusst NICHT in Schritt 4:
+
+- **Permission-Gate auf `[plugin.uses]`** — die Listen werden geparst und
+  gespeichert, aber der Loader weist (noch) nichts zurück, was nicht in
+  der Whitelist steht. Schritt 5.
+- **Persistierter Activate-State** — alle gefundenen Plugins werden
+  auto-aktiviert. Eine `plugin_settings`-Tabelle mit On/Off-Flag pro
+  Plugin kommt in Schritt 6 (mit dazu: das Admin-UI für Plugins).
+- **Isolation/Sandboxing** — Plugins laufen im Host-Prozess. Schritt 5
+  evaluiert Subinterpreter vs. signed-only.
+
+### Schritt 5 — Permission-Gate + Sandboxing (geplant)
+
+Loader weist Registrations zurück, die NICHT in `[plugin.uses]` stehen —
+"Manifest-vs-Code"-Drift-Schutz. Außerdem: signierte Plugins, optionaler
+Subinterpreter.
 
 ## Plugin-Punkte (Status-Tabelle)
 
@@ -117,5 +174,8 @@ Analog im Backend: dynamische Python-Module mit `@register_ws_op`-Decorator
 | WS-Op-Handler | ✅ (2c) | ✅ (2) | 2 |
 | Channel-Subscription | — | ✅ (2) | 2 |
 | Settings-Section | ✅ (3) | — (3b geplant) | 3 |
-| UI-Slot/Component | — | — | 4 |
-| Migrations | — | — | 4/5 |
+| Plugin-Manifest + Loader | ✅ (4) | ✅ (4) | 4 |
+| Permission-Gate auf `[plugin.uses]` | — | — | 5 |
+| UI-Slot/Component | — | — | 5 |
+| Migrations | — | — | 5 |
+| Plugin-Admin-UI + persistierter Activate-State | — | — | 6 |

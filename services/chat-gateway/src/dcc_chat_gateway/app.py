@@ -15,6 +15,7 @@ from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.presence_status import idle_sweeper_loop
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import engine
+from dcc_chat_gateway.plugins import load_all as load_plugins
 from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
@@ -99,6 +100,14 @@ async def lifespan(app: FastAPI):
         idle_sweeper = asyncio.create_task(
             idle_sweeper_loop(redis), name="dcc-presence-idle-sweeper"
         )
+        # Plugin-System Schritt 4: discover + activate plugins in the
+        # configured plugin directory. Behaviour-neutral when no plugin
+        # is present (empty repo `plugins/` ⇒ no-op). Errors per-plugin
+        # are logged and the rest of startup proceeds.
+        try:
+            load_plugins()
+        except Exception:  # noqa: BLE001
+            log.exception("plugin loader failed; continuing without plugins")
     try:
         yield
     finally:

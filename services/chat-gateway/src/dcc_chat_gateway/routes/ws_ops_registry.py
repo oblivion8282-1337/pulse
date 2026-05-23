@@ -110,6 +110,14 @@ def get_handler(op: str) -> WSOpHandler | None:
     return _handlers.get(op)
 
 
+def unregister_ws_op(op: str) -> bool:
+    """Drop the registration for ``op``. Returns ``True`` if a handler was
+    removed, ``False`` if there was nothing to remove. Used by the Schritt-4
+    plugin loader on `deactivate(name)` to roll back a plugin's registrations.
+    """
+    return _handlers.pop(op, None) is not None
+
+
 def registered_ops() -> list[str]:
     """List of currently-registered op names. Test/debug helper."""
     return sorted(_handlers)

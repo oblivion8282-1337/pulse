@@ -90,6 +90,14 @@ def get_channel_handler(channel: str) -> ChannelHandler | None:
     return None
 
 
+def unregister_channel_handler(channel: str) -> bool:
+    """Drop the registration for ``channel``. Returns ``True`` if a handler
+    was removed, ``False`` otherwise. Used by the Schritt-4 plugin loader to
+    roll back a plugin's pub/sub channel handlers on deactivate.
+    """
+    return _handlers.pop(channel, None) is not None
+
+
 def registered_channels() -> list[str]:
     """List of currently-registered channel names (incl. patterns)."""
     return sorted(_handlers)
