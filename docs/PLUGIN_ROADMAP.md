@@ -1,6 +1,6 @@
 # Pulse Plugin-System — Roadmap
 
-Stand: 2026-05-24 (Schritt 5 fertig)
+Stand: 2026-05-24 (Schritt 6 fertig)
 
 Manifest-Spezifikation: [`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
 
@@ -243,6 +243,62 @@ Was bewusst NICHT in Schritt 5:
 * **Persistierter Activate-State** — alle gefundenen Plugins werden
   auto-aktiviert. `plugin_settings`-Tabelle + Admin-UI = Schritt 6.
 
+### Schritt 6 — Plugin-Manager-UI + persistierter Activate-State — fertig
+
+Branch: `feat/plugin-manager-ui`.
+
+Was sich geändert hat:
+
+* **Konflikt-Detektor** (`web/src/lib/plugins/conflict-detector.ts`, 108 Z.,
+  neu): pure-Function Set-Differenz über die `[plugin.uses]`-Whitelists.
+  Returnt `Conflict[]` mit `{kind, resource, plugins}` für jede Ressource
+  (`ws_ops` / `channels` / `settings_sections` / `ui_slots`), die von ≥2
+  Plugins deklariert ist. Optionaler `activeNames`-Filter, sodass das UI
+  zwischen "Konflikt zwischen aktiven Plugins" (= echtes Problem) und
+  "Hint zwischen inaktiven Plugins" unterscheiden kann.
+* **Persistierter Activation-State** (`web/src/lib/plugins/activation-
+  state.svelte.ts`, 70 Z., neu): nutzt `registerSettingsSection('plugins',
+  { defaults: { activated: ['hello'] }, onSignOut: 'reset', version: 1 })`
+  aus Schritt 3. API: `isPluginActivated/listActivatedPlugins/
+  markPluginActivated/markPluginDeactivated`. `parse(raw)` validiert das
+  persistierte Format defensiv.
+* **Loader-Anpassung** (`web/src/lib/plugins/loader.ts`, 147 Z.): vorher
+  wurden alle entdeckten Plugins auto-aktiviert. Jetzt:
+  `addPlugin()` läuft immer (damit das UI das Plugin listen kann),
+  `activatePlugin()` nur wenn `isPluginActivated(name)` true ist. Default
+  `['hello']` hält den Schritt-4-Smoketest am Leben. Neue Funktion
+  `setPluginActivated(name, active)` für UI-Toggles: persistiert *nach*
+  erfolgreichem activate/deactivate (verhindert inkonsistenten State bei
+  Exceptions).
+* **Settings-Panel** (`web/src/lib/components/settings/SettingsPlugins.svelte`,
+  236 Z., neu): Karten-Liste aller installierten Plugins. Pro Karte
+  Name + Version + Author + Description, Tags für jede deklarierte
+  `[plugin.uses]`-Schnittstelle (`ws_ops`, `channels`, `settings_sections`,
+  `ui_slots`), Toggle-Button. Konflikte erscheinen als bernsteinfarbene
+  Warning-Box oben + die geteilten Slots werden in den Karten bernsteinfarben
+  hervorgehoben + per Karte gibt's eine kompakte "geteilte Slots mit X"-
+  Sektion. Toggle wirft Toast bei Fehler (Permission-Gate-Rejection,
+  Activate-Hook-Exception). Refresh-Button für Hot-Reload-Vorbereitung.
+* **SettingsDialog-Integration** (`web/src/lib/components/SettingsDialog.svelte`):
+  neuer Tab `'plugins'` mit Puzzle-Icon, als letzter Eintrag in der Nav-
+  Liste (nach Privatsphäre/Sicherheit). Mobile-Drilldown funktioniert
+  automatisch (das ist generisch).
+
+Was bewusst NICHT in Schritt 6:
+
+- **Beziehungs-Graph** (SVG mit Plugins links + Ressourcen rechts +
+  Pfeilen) aus dem ursprünglichen Mockup-Konzept — die Tag-Liste +
+  Konflikt-Highlight liefert die gleiche Information lesbarer.
+- **Backend-Plugin-Liste-Endpoint** (`GET /api/chat/plugins`) — das
+  Frontend nutzt `import.meta.glob` für Discovery, der Endpoint wäre
+  doppelte Datenhaltung. Wenn ein Admin-Read-Only-View „welche Plugins
+  hat der Server installiert" gewünscht ist, später in Schritt 7.
+- **Hot-Reload** (Plugin dynamisch ohne Page-Reload nachladen).
+  Refresh-Button im UI ruft `listPlugins()` neu auf, aber die
+  `import.meta.glob`-Map ist Build-fixiert; neue Plugins nach `pnpm dev`-
+  Start sind erst nach HMR-Tick verfügbar.
+- **UI-Slot/Component-Punkt** + **Migrations** — bleiben für Schritt 7.
+
 ## Plugin-Punkte (Status-Tabelle)
 
 | Punkt | Frontend | Backend | Plan-Schritt |
@@ -254,8 +310,9 @@ Was bewusst NICHT in Schritt 5:
 | Plugin-Manifest + Loader | ✅ (4) | ✅ (4) | 4 |
 | Permission-Gate auf `[plugin.uses]` | ✅ (5) | ✅ (5) | 5 |
 | Activation-Lifecycle (`deactivate`-Hook) | ✅ (5) | ✅ (5) | 5 |
+| Plugin-Manager-UI + Konflikt-Detektor | ✅ (6) | — | 6 |
+| Persistierter Activate-State | ✅ (6) | — | 6 |
 | Bot-API (out-of-process, Stufe B) | — | — | 5b (geplant) |
 | WASM-Plugin-Host (in-process, isoliert) | — | — | 5c (geplant) |
-| UI-Slot/Component | — | — | 6 |
-| Migrations | — | — | 6 |
-| Plugin-Admin-UI + persistierter Activate-State | — | — | 6 |
+| UI-Slot/Component | — | — | 7 (geplant) |
+| Migrations | — | — | 7 (geplant) |

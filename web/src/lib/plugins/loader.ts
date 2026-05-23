@@ -18,7 +18,12 @@
  * Failure mode: per-plugin errors are logged + skipped. The loader never
  * throws — a bad plugin must not gate the app's boot path.
  */
-import { addPlugin, activatePlugin } from './registry';
+import { activatePlugin, addPlugin, deactivatePlugin } from './registry';
+import {
+  isPluginActivated,
+  markPluginActivated,
+  markPluginDeactivated
+} from './activation-state.svelte';
 import type { PluginEntryModule, PluginManifest } from './manifest-types';
 
 // Vite glob — eager so the manifests are part of the initial bundle. Each
@@ -69,8 +74,11 @@ export function discoverPlugins(): Map<string, DiscoveredPlugin> {
 }
 
 /** Discover every plugin, register them with the runtime registry, and
- *  activate the ones that have a frontend entry. Backend-only plugins are
- *  registered with the manifest but not activated on the frontend.
+ *  activate the ones marked active in the persisted Plugin-Settings-Section
+ *  (Schritt 6). Backend-only plugins are registered with the manifest but
+ *  not activated on the frontend. Inaktive Plugins erscheinen weiter im
+ *  Plugin-Manager-UI (das nutzt `listPlugins()`); ihr `frontend.ts` wird
+ *  erst beim Toggle dynamisch importiert.
  *
  *  Returns the list of names that activated successfully. */
 export async function loadAll(): Promise<string[]> {
@@ -86,23 +94,54 @@ export async function loadAll(): Promise<string[]> {
       }
       continue;
     }
-    const loader = entryModules[info.entryPath];
-    if (!loader) {
+    const entryLoader = entryModules[info.entryPath];
+    if (!entryLoader) {
       console.error(`[plugins] ${name}: no entry loader for ${info.entryPath}`);
       continue;
     }
     try {
-      addPlugin({ manifest: info.manifest, entry: loader });
+      addPlugin({ manifest: info.manifest, entry: entryLoader });
+    } catch (err) {
+      console.error(`[plugins] ${name}: add failed`, err);
+      continue;
+    }
+    if (!isPluginActivated(name)) {
+      // Persistierter State sagt: bleibt aus. Nur als Record vorhanden,
+      // damit das Plugin-Manager-UI es anzeigen und togglen kann.
+      continue;
+    }
+    try {
       await activatePlugin(name);
       activated.push(name);
     } catch (err) {
-      console.error(`[plugins] ${name}: load failed`, err);
+      console.error(`[plugins] ${name}: activate failed`, err);
     }
   }
+  // Self-Heal: falls discoverte Plugins existieren, die noch nicht in der
+  // Activation-Liste sind und gleichzeitig der Bootstrap-Default-Liste
+  // (z.B. `hello`) angehören, sind sie via `isPluginActivated` schon
+  // berücksichtigt — siehe `activation-state.svelte.ts`. Nichts zu tun.
   if (activated.length > 0) {
     console.info(`[plugins] activated: ${activated.join(', ')}`);
   }
   return activated;
+}
+
+/** Toggle ein Plugin und persistiert den Activation-State. Wird vom
+ *  Plugin-Manager-UI aufgerufen. Wirft die Fehler der activate/deactivate-
+ *  Pfade weiter, sodass das UI sie als Toast anzeigen kann.
+ *
+ *  Persistiere den State erst NACH dem erfolgreichen Activate/Deactivate —
+ *  sonst hätten wir bei einer Exception einen inkonsistenten Persist-Stand
+ *  (UI denkt "aktiv", Registry sagt "tot"). */
+export async function setPluginActivated(name: string, active: boolean): Promise<void> {
+  if (active) {
+    await activatePlugin(name);
+    markPluginActivated(name);
+  } else {
+    await deactivatePlugin(name);
+    markPluginDeactivated(name);
+  }
 }
 
 function noFrontendEntry(name: string): () => Promise<PluginEntryModule> {

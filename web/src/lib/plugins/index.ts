@@ -10,7 +10,7 @@
  * tools use `discoverPlugins` + `activatePlugin` / `deactivatePlugin`
  * directly.
  */
-export { discoverPlugins, loadAll } from './loader';
+export { discoverPlugins, loadAll, setPluginActivated } from './loader';
 export {
   activatePlugin,
   addPlugin,
@@ -31,3 +31,14 @@ export type {
   PluginUses,
   ScopeType
 } from './manifest-types';
+export {
+  conflictsByPlugin,
+  conflictKindLabel,
+  detectConflicts
+} from './conflict-detector';
+export type { Conflict, ConflictResourceKind } from './conflict-detector';
+export {
+  isPluginActivated,
+  listActivatedPlugins,
+  pluginActivation
+} from './activation-state.svelte';
