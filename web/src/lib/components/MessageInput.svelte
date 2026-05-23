@@ -174,11 +174,9 @@
 
   <AttachmentPreviewStrip {pending} onRemove={removeAttachment} />
 
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div
     class="bg-bg-input relative flex items-center gap-1.5 border border-border px-3 py-3.5 backdrop-blur-sm md:items-end md:gap-2 md:px-4 md:py-3
            {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
-    onclick={() => textarea?.focus()}
   >
     {#if isDragging}
       <div
