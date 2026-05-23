@@ -69,6 +69,15 @@ process.env.PULSE_APP_VERSION = APP_VERSION;
 // Muss VOR app.whenReady() laufen.
 app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
 
+// Linux: Wayland-app_id / X11-WM_CLASS auf den Desktop-File-Namen ziehen, sonst
+// fällt Chromium auf "electron" zurück → das Fenster matcht nicht
+// `com.unicutmedia.Pulse.desktop`, und Wayland-Compositoren (Niri, Hyprland,
+// Plasma …) zeigen kein App-Icon in der Taskleiste. Der Flatpak-Launcher gibt
+// dasselbe Flag mit; diese Zeile deckt Dev-Builds & nicht-Flatpak-Starts ab.
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('class', 'com.unicutmedia.Pulse');
+}
+
 // Which web app to load: the local Vite dev server only when PULSE_DEV_URL is
 // explicitly set (frontend development) — otherwise the live deployed app, so a
 // web-side fix is visible immediately, no Electron re-release needed (the GSR

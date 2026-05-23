@@ -9,4 +9,4 @@ Terminal=false
 Categories=Network;Chat;InstantMessaging;AudioVideo;
 Keywords=chat;voice;voip;stream;screen share;discord;
 StartupNotify=true
-StartupWMClass=Pulse
+StartupWMClass=com.unicutmedia.Pulse
