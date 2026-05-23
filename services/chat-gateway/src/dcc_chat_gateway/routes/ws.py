@@ -350,6 +350,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # point are live-applied in the manager's listener from
     # ``guild_member_added`` / ``guild_deleted`` events.
     await manager.set_guild_membership(websocket, guild_ids)
+    if manager.user_socket_count(user.id) == 1:
+        try:
+            await manager.broadcast_presence_update(str(user.id), online=True)
+        except Exception:  # noqa: BLE001
+            log.exception("broadcast_presence_update(online=True) failed for user=%s", user.id)
 
     # HQ streaming + watch parties only happen in voice channels, so the
     # relevant channel set is the same one. Force-mute / force-deafen
@@ -374,6 +379,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "stream_states": stream_states,
             "watch_states": watch_states,
             "voice_overrides": voice_overrides,
+            "online_user_ids": manager.online_user_ids(),
         }
     )
 
@@ -763,6 +769,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         # channel switch, X-on-tile) end the party via the watch_stop op;
         # everything else falls through to the 6h Redis TTL.
         await manager.remove_socket(websocket)
+        if manager.user_socket_count(user.id) == 0:
+            try:
+                await manager.broadcast_presence_update(str(user.id), online=False)
+            except Exception:  # noqa: BLE001
+                log.exception("broadcast_presence_update(online=False) failed for user=%s", user.id)
         # If this was the user's last open socket, drop their self-mute state.
         # Without this, voice:user_state:<id> lingers for the full 6h TTL and
         # the user keeps appearing as muted to everyone after they disconnect.

@@ -718,6 +718,23 @@ class ConnectionManager:
         hosted watch parties (only true if this was their last socket)."""
         return len(self._user_conns.get(user_id, ()))
 
+    def online_user_ids(self) -> list[str]:
+        """Return user_ids of all currently-connected users (at least one open
+        socket). Called once per ready frame — stale by a few ms at worst,
+        which is acceptable for presence seeding."""
+        return [str(uid) for uid, socks in self._user_conns.items() if socks]
+
+    async def broadcast_presence_update(self, user_id: str, *, online: bool) -> None:
+        """Publish a presence_update event on guild:events so every connected
+        client can update its online/offline member grouping in real time."""
+        await self._redis.publish(
+            GUILD_EVENTS_CHANNEL,
+            json.dumps(
+                {"op": "presence_update", "user_id": user_id, "online": online},
+                separators=(",", ":"),
+            ),
+        )
+
     # Per-socket send timeout during fan-out: a slow/stuck client must not hold
     # up delivery to everyone else on the channel (head-of-line blocking).
     _SEND_TIMEOUT_SECONDS = 5.0

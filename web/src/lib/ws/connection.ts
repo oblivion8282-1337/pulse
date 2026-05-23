@@ -35,6 +35,7 @@ import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
+import { presence } from '$lib/stores/presence.svelte';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import type { DMChannel, Guild, Message } from '$lib/api/types';
@@ -88,6 +89,7 @@ type ServerEvent =
       voice_states?: VoiceChannelState[];
       stream_states?: StreamChannelState[];
       watch_states?: WatchChannelEntry[];
+      online_user_ids?: string[];
       voice_overrides?: {
         channel_id: string;
         user_id: string;
@@ -158,6 +160,7 @@ type ServerEvent =
       user_id: string;
     }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
+  | { op: 'presence_update'; user_id: string; online: boolean }
   | {
       op: 'stream_chat_message';
       channel_id: string;
@@ -473,6 +476,7 @@ export class GatewayConnection {
       evt.op !== 'guild_ban_added' &&
       evt.op !== 'guild_ban_removed' &&
       evt.op !== 'mention_added' &&
+      evt.op !== 'presence_update' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -520,6 +524,7 @@ export class GatewayConnection {
         voicePresence.seedOverrides(evt.voice_overrides ?? []);
         streamPresence.seed(evt.stream_states ?? []);
         watchPartyPresence.seed(evt.watch_states ?? []);
+        presence.seed(evt.online_user_ids ?? []);
         this._readyDone = true;
         // Replay buffered lifecycle events now that guilds.byId is populated.
         for (const buffered of this._preReadyBuffer) {
@@ -743,6 +748,9 @@ export class GatewayConnection {
         }
         break;
       }
+      case 'presence_update':
+        presence.apply(evt.user_id, evt.online);
+        break;
       case 'stream_state':
         streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
         // Stream gone → lokaler Chat-State für absente Streamer auch raus

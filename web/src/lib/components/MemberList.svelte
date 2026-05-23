@@ -16,6 +16,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
+  import { presence } from '$lib/stores/presence.svelte';
   import { rolesApi } from '$lib/api/roles';
   import { Perm } from '$lib/permissions/bitfield';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
@@ -88,33 +89,38 @@
       });
   }
 
-  type MemberGroup = { hoist: string | null; position: number; members: Member[] };
+  type MemberGroup = { hoist: string | null; position: number; members: Member[]; offline?: boolean };
 
-  /** Group members by their top hoist role (highest-position role with
-   * ``hoist=true``). Members without one fall into the ``null`` bucket,
-   * which renders as "Online". Groups are sorted by position desc so
-   * the top-most hoist role appears first. Within a group, members are
-   * alphabetised by display name. */
+  /** Group members by online/offline, then by hoist role within the online
+   * section. Offline members collapse into a single group at the bottom.
+   * Groups are sorted by hoist-role position desc; within a group members
+   * are alphabetised by display name. */
   let groupedMembers = $derived.by<MemberGroup[]>(() => {
-    const byHoist = new Map<string, MemberGroup>();
+    const online: Member[] = [];
+    const offline: Member[] = [];
     for (const m of members) {
+      if (presence.isOnline(m.user_id)) online.push(m);
+      else offline.push(m);
+    }
+
+    const byHoist = new Map<string, MemberGroup>();
+    for (const m of online) {
       const ids = memberRoles.for(guildId, m.user_id);
       const top = roles.topHoistRole(guildId, ids);
       const key = top?.id ?? '__none__';
       if (!byHoist.has(key)) {
-        byHoist.set(key, {
-          hoist: top?.name ?? null,
-          position: top?.position ?? -1,
-          members: []
-        });
+        byHoist.set(key, { hoist: top?.name ?? null, position: top?.position ?? -1, members: [] });
       }
       byHoist.get(key)!.members.push(m);
     }
-    const groups = [...byHoist.values()].sort((a, b) => b.position - a.position);
-    for (const g of groups) {
+    const onlineGroups = [...byHoist.values()].sort((a, b) => b.position - a.position);
+    for (const g of onlineGroups) {
       g.members.sort((a, b) => displayName(a).localeCompare(displayName(b)));
     }
-    return groups;
+
+    if (offline.length === 0) return onlineGroups;
+    offline.sort((a, b) => displayName(a).localeCompare(displayName(b)));
+    return [...onlineGroups, { hoist: null, position: -999, members: offline, offline: true }];
   });
 
   /** "#RRGGBB" string for the top-coloured role this member holds, or
@@ -252,7 +258,7 @@
     {:else}
       {#each groupedMembers as group (group.hoist ?? '__none__')}
         <div class="text-text-muted mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wide first:mt-0">
-          {group.hoist ?? 'Online'} — {group.members.length}
+          {group.offline ? 'Offline' : (group.hoist ?? 'Online')} — {group.members.length}
         </div>
         {#each group.members as m (m.user_id)}
         {@const name = displayName(m)}
@@ -277,7 +283,7 @@
           {...ctxProps}
           {...props}
           type="button"
-          class="hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors data-[state=open]:bg-bg-hover"
+          class="hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors data-[state=open]:bg-bg-hover {group.offline ? 'opacity-50' : ''}"
           data-testid="member-item"
           data-user-id={m.user_id}
           oncontextmenu={() => {
