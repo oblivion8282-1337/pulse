@@ -1,0 +1,6 @@
+{
+  "name": "Pulse",
+  "main": "main.cjs",
+  "version": "0.1.0",
+  "desktopName": "com.unicutmedia.Pulse.desktop"
+}

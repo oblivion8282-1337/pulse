@@ -181,10 +181,16 @@ modules:
       - cp -a electron/. /app/electron/
       - rm -f /app/electron/chrome-sandbox
       # The Electron app (esbuild bundle). main.ts reads icon.png at ../icon.png
-      # relative to its own dir → install it at /app/icon.png.
+      # relative to its own dir → install it at /app/icon.png. The package.json
+      # carries `desktopName: "com.unicutmedia.Pulse.desktop"` — Electron reads
+      # that on startup and uses the stem as the Wayland app_id. Without it the
+      # window's app_id falls back to "electron" and Wayland compositors
+      # (Niri/Hyprland/Plasma) can't match it to the .desktop file → no icon in
+      # the taskbar. (`--class=…` in the launcher only covers X11/XWayland.)
       - install -d /app/pulse
       - install -m644 app-dist/main.cjs /app/pulse/main.cjs
       - install -m644 app-dist/preload.cjs /app/pulse/preload.cjs
+      - install -m644 packaging/pulse-app.package.json /app/pulse/package.json
       - install -Dm644 icon.png /app/icon.png
       # The pure-stdlib Python GSR sidecar — path matches sidecar.ts's Flatpak default.
       - install -d /app/share/pulse/gsr-sidecar

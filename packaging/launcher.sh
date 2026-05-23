@@ -30,8 +30,11 @@ else
   set -- "$@" --ozone-platform="$PULSE_OZONE"
 fi
 
-# Chromium-Flag --class setzt sowohl X11 WM_CLASS als auch Wayland app_id auf
-# `com.unicutmedia.Pulse` — damit matcht das Fenster die Desktop-Datei und die
-# Taskleiste/App-Launcher zeigt das Pulse-Icon. Ohne den Flag setzt Chromium
-# unter Wayland die app_id auf "electron" (Binary-Name) → kein Icon-Match.
-exec zypak-wrapper /app/electron/electron --class=com.unicutmedia.Pulse /app/pulse/main.cjs "$@"
+# Electron mit dem App-Verzeichnis starten (NICHT mit main.cjs als Dateipfad!) —
+# nur dann liest es `/app/pulse/package.json` ein und greift `desktopName` →
+# Wayland-`app_id` = `com.unicutmedia.Pulse` (statt "electron"). Wird stattdessen
+# die `main.cjs` direkt übergeben, ignoriert Electron die package.json daneben
+# und Compositoren (Niri/Hyprland/Plasma) können das Fenster nicht der
+# `.desktop`-Datei zuordnen → kein App-Icon in der Taskleiste.
+# `--class=…` deckt zusätzlich X11/XWayland (WM_CLASS) ab.
+exec zypak-wrapper /app/electron/electron --class=com.unicutmedia.Pulse /app/pulse "$@"
