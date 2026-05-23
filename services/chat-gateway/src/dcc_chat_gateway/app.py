@@ -75,13 +75,14 @@ async def lifespan(app: FastAPI):
     else:
         redis = Redis.from_url(settings.redis_url, decode_responses=False)
         manager = ConnectionManager(redis)
-        # Wire the permission filter's DB access through ``routes.ws`` —
-        # tests rebind ``routes.ws.SessionLocal`` to a file-backed DB, and
+        # Wire the permission filter's DB access through ``routes.ws_ops`` —
+        # tests rebind ``routes.ws_ops.SessionLocal`` to a file-backed DB
+        # (that module owns the WS op-loop's DB access since Phase B), and
         # this indirection lets the manager pick up the same factory the
         # WS endpoint already uses. Late import dodges the routes ↔ pubsub
         # circular dependency at module load.
-        from dcc_chat_gateway.routes import ws as _routes_ws
-        manager.set_session_factory(lambda: _routes_ws.SessionLocal())
+        from dcc_chat_gateway.routes import ws_ops as _routes_ws_ops
+        manager.set_session_factory(lambda: _routes_ws_ops.SessionLocal())
         await manager.start()
         app.state.redis = redis
         app.state.connection_manager = manager

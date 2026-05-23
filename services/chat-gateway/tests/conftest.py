@@ -137,13 +137,16 @@ async def app(session_factory, _auth_signer):
     REST-side `post_message` checks the manager for None before
     publishing, so we install a real one for those tests.
     """
-    import dcc_chat_gateway.routes.ws as routes_ws
+    import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
+    import dcc_chat_gateway.routes.ws_ready as routes_ws_ready
     from redis.asyncio import Redis
 
     from dcc_chat_gateway.pubsub import ConnectionManager
 
-    original_factory = routes_ws.SessionLocal
-    routes_ws.SessionLocal = session_factory
+    original_factory_ops = routes_ws_ops.SessionLocal
+    original_factory_ready = routes_ws_ready.SessionLocal
+    routes_ws_ops.SessionLocal = session_factory
+    routes_ws_ready.SessionLocal = session_factory
 
     application = create_app(skip_redis=True)
     redis = Redis.from_url(_TEST_SETTINGS.redis_url, decode_responses=False)
@@ -167,7 +170,8 @@ async def app(session_factory, _auth_signer):
             await redis.aclose()
         except Exception:
             pass
-        routes_ws.SessionLocal = original_factory
+        routes_ws_ops.SessionLocal = original_factory_ops
+        routes_ws_ready.SessionLocal = original_factory_ready
 
 
 @pytest_asyncio.fixture
@@ -186,7 +190,8 @@ async def ws_app(_auth_signer, tmp_path):
     ConnectionManager is created by the production lifespan inside that
     same loop, avoiding cross-loop Redis issues.
     """
-    import dcc_chat_gateway.routes.ws as routes_ws
+    import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
+    import dcc_chat_gateway.routes.ws_ready as routes_ws_ready
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     db_url = f"sqlite+aiosqlite:///{tmp_path / 'ws_test.db'}"
@@ -205,8 +210,10 @@ async def ws_app(_auth_signer, tmp_path):
     runtime_engine = create_async_engine(db_url, future=True)
     runtime_factory = async_sessionmaker(runtime_engine, expire_on_commit=False)
 
-    original_factory = routes_ws.SessionLocal
-    routes_ws.SessionLocal = runtime_factory
+    original_factory_ops = routes_ws_ops.SessionLocal
+    original_factory_ready = routes_ws_ready.SessionLocal
+    routes_ws_ops.SessionLocal = runtime_factory
+    routes_ws_ready.SessionLocal = runtime_factory
 
     application = create_app(skip_redis=False)
 
@@ -219,7 +226,8 @@ async def ws_app(_auth_signer, tmp_path):
         yield application
     finally:
         application.dependency_overrides.clear()
-        routes_ws.SessionLocal = original_factory
+        routes_ws_ops.SessionLocal = original_factory_ops
+        routes_ws_ready.SessionLocal = original_factory_ready
         try:
             await runtime_engine.dispose()
         except Exception:

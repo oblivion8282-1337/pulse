@@ -212,9 +212,9 @@ async def fan_out_mention_push(
 ) -> None:
     """Build the canonical mention payload + push it to each user.
 
-    Opens its own DB session (via ``routes.ws.SessionLocal``) so the
+    Opens its own DB session (via ``routes.ws_ops.SessionLocal``) so the
     sub-cleanup work on a dead-endpoint hit doesn't ride the
-    calling route's transaction. Tests rebind ``routes.ws.SessionLocal``
+    calling route's transaction. Tests rebind ``routes.ws_ops.SessionLocal``
     to their fixture's sessionmaker; production uses the prod factory.
 
     Never raises — push failures, missing VAPID, or an empty subscription
@@ -239,10 +239,10 @@ async def fan_out_mention_push(
         "author_name": author_name or "",
         "icon": None,  # chat-gateway has no avatar URL; FE/SW fallback.
     }
-    # Late import: routes.ws → push would cycle.
-    from dcc_chat_gateway.routes import ws as _routes_ws
+    # Late import: routes.ws_ops → push would cycle.
+    from dcc_chat_gateway.routes import ws_ops as _routes_ws_ops
 
-    async with _routes_ws.SessionLocal() as session:
+    async with _routes_ws_ops.SessionLocal() as session:
         for uid in user_ids:
             try:
                 await send_push_to_user(uid, payload_base, session)
