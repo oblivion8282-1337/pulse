@@ -78,10 +78,14 @@ async def _publish_member_added(request: Request, guild_id: int, user_id: int) -
     """Tell every connected client that a user joined a guild. A client whose
     own id matches re-hydrates so its WS session starts tracking the new guild
     (voice presence, channel-lifecycle events)."""
+    from dcc_shared.events import GuildMemberAddedEvent
+
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(
-            {"op": "guild_member_added", "guild_id": str(guild_id), "user_id": str(user_id)}
+            GuildMemberAddedEvent(
+                guild_id=str(guild_id), user_id=str(user_id)
+            )
         )
 
 

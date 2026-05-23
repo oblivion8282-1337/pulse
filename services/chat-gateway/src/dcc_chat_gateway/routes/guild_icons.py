@@ -30,6 +30,7 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes.guilds import _guild_dict, _publish_guild_event
 from dcc_chat_gateway.schemas import GuildOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_shared.events import GuildUpdatedEvent
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -94,7 +95,7 @@ async def upload_icon(
     await session.refresh(guild)
 
     await _publish_guild_event(
-        request, {"op": "guild_updated", "guild": _guild_dict(guild)}
+        request, GuildUpdatedEvent(guild=_guild_dict(guild))
     )
     log.info("guild_icon_uploaded", guild_id=guild.id, user_id=current.id)
     return guild
@@ -121,7 +122,7 @@ async def delete_icon(
     guild.icon_url = None
     await session.commit()
     await _publish_guild_event(
-        request, {"op": "guild_updated", "guild": _guild_dict(guild)}
+        request, GuildUpdatedEvent(guild=_guild_dict(guild))
     )
     log.info("guild_icon_deleted", guild_id=guild.id, user_id=current.id)
 

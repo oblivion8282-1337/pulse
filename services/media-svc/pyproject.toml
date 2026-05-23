@@ -12,6 +12,7 @@ dependencies = [
     "httpx>=0.27",
     "structlog>=24.4",
     "redis>=5.0",
+    "dcc-shared",
 ]
 
 [project.optional-dependencies]

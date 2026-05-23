@@ -49,6 +49,7 @@ from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import StreamChatMessageEvent, StreamChatMessagePayload
 
 log = logging.getLogger(__name__)
 
@@ -161,12 +162,11 @@ async def post_stream_chat(
         try:
             await mgr.publish(
                 str(channel_id),
-                {
-                    "op": "stream_chat_message",
-                    "channel_id": str(channel_id),
-                    "streamer_id": str(streamer_id),
-                    "message": entry,
-                },
+                StreamChatMessageEvent(
+                    channel_id=str(channel_id),
+                    streamer_id=str(streamer_id),
+                    message=StreamChatMessagePayload(**entry),
+                ),
             )
         except Exception:
             log.exception("stream_chat publish failed for channel %s", channel_id)

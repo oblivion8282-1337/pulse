@@ -284,10 +284,12 @@ async def purge_user(
     # Broadcast guild_deleted *after* commit so subscribers can't see
     # an inconsistent half-state if they round-trip back to the API.
     if manager is not None:
+        from dcc_shared.events import GuildDeletedEvent
+
         for gid in deleted_guild_ids:
             try:
                 await manager.publish_guild_event(
-                    {"op": "guild_deleted", "guild_id": str(gid)}
+                    GuildDeletedEvent(guild_id=str(gid))
                 )
             except Exception:  # noqa: BLE001
                 log.warning("purge: guild_deleted publish failed", exc_info=True)

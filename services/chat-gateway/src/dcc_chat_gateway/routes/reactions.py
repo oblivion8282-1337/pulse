@@ -24,6 +24,7 @@ from dcc_chat_gateway.permissions import (
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.routes.messages import _broadcast
 from dcc_chat_gateway.security import CurrentUser
+from dcc_shared.events import ReactionAddEvent, ReactionData, ReactionRemoveEvent
 
 log = logging.getLogger(__name__)
 
@@ -85,15 +86,14 @@ async def add_reaction(
     await _broadcast(
         request,
         msg.channel_id,
-        {
-            "op": "reaction_add",
-            "data": {
-                "message_id": str(msg.id),
-                "channel_id": str(msg.channel_id),
-                "user_id": str(current.id),
-                "emoji": emoji_n,
-            },
-        },
+        ReactionAddEvent(
+            data=ReactionData(
+                message_id=str(msg.id),
+                channel_id=str(msg.channel_id),
+                user_id=str(current.id),
+                emoji=emoji_n,
+            )
+        ),
     )
     return None
 
@@ -129,14 +129,13 @@ async def remove_reaction(
     await _broadcast(
         request,
         msg.channel_id,
-        {
-            "op": "reaction_remove",
-            "data": {
-                "message_id": str(msg.id),
-                "channel_id": str(msg.channel_id),
-                "user_id": str(current.id),
-                "emoji": emoji_n,
-            },
-        },
+        ReactionRemoveEvent(
+            data=ReactionData(
+                message_id=str(msg.id),
+                channel_id=str(msg.channel_id),
+                user_id=str(current.id),
+                emoji=emoji_n,
+            )
+        ),
     )
     return None

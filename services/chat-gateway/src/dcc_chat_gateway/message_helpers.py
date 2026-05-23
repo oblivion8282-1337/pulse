@@ -21,12 +21,14 @@ Three exports here:
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import Message, MessageReaction
+from dcc_shared.events import _EventBase
 
 log = logging.getLogger(__name__)
 
@@ -95,8 +97,17 @@ def serialize_message(
     }
 
 
-async def broadcast(request: Request, channel_id: int, payload: dict) -> None:
-    """Best-effort publish to the channel's WS subscribers — never raises."""
+async def broadcast(
+    request: Request,
+    channel_id: int,
+    payload: dict[str, Any] | _EventBase,
+) -> None:
+    """Best-effort publish to the channel's WS subscribers — never raises.
+
+    ``payload`` may be either a raw dict (legacy callers) or one of the
+    ``dcc_shared.events`` Pydantic models — the manager converts on
+    publish.
+    """
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return

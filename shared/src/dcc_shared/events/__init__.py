@@ -1,0 +1,223 @@
+"""Event-Schema-Registry für Pulse Redis Pub/Sub-Events.
+
+Single source of truth for every WebSocket envelope that flows over a
+Redis pub/sub channel. Publishers (REST routes, ws ops, voice-signaling,
+media-svc) construct one of the ``*Event`` / ``*Snapshot`` models;
+subscribers (chat-gateway's listener) validate the incoming dict against
+this registry.
+
+# Channel → ops map (the "where can which op show up" inventory)
+
+* ``chat:channel:<id>`` (per-channel pubsub; listener auto-wraps bare
+  message dicts as ``op="message"``):
+    - ``message``, ``message_update``, ``message_delete``
+    - ``reaction_add``, ``reaction_remove``
+    - ``stream_chat_message``, ``watch_chat_message``
+
+* ``user:events`` (direct-delivery to one user — wrapper adds
+  ``_target_user_id`` for routing, stripped by listener):
+    - ``mention_added``
+    - ``friend_request_received`` / ``friend_request_accepted``
+      / ``friend_request_declined`` / ``friend_request_cancelled``
+    - ``friend_removed``
+    - ``user_blocked`` / ``user_unblocked``
+    - ``presence_status_changed`` (sender's own sockets, real status)
+
+* ``guild:events`` (wide broadcast; listener filters by guild membership):
+    - ``channel_created`` / ``channel_updated`` / ``channel_deleted``
+    - ``channel_permissions_updated``
+    - ``guild_updated`` / ``guild_deleted``
+    - ``guild_member_added`` / ``guild_member_updated`` /
+      ``guild_member_removed``
+    - ``guild_ban_added`` / ``guild_ban_removed``
+    - ``role_created`` / ``role_updated`` / ``role_deleted``
+    - ``member_roles_updated``
+    - ``permissions_updated``
+    - ``guild_sound_updated``
+    - ``channel_bump`` / ``dm_bump``
+    - ``presence_update``
+    - ``presence_status_changed`` (everyone else, masked; carries
+      ``_sender_user_id`` for listener filtering)
+
+* ``voice:events`` (mixed: bare snapshot AND op envelopes):
+    - bare snapshot ``VoiceStateSnapshot`` — listener tags as ``voice_state``
+    - ``voice_disconnect``, ``voice_override`` — listener forwards verbatim
+
+* ``stream:events`` (always bare; listener tags as ``stream_state``):
+    - bare snapshot ``StreamStateSnapshot``
+
+* ``watch:events`` (always bare; listener tags as ``watch_state``):
+    - bare snapshot ``WatchStateSnapshot``
+
+The registry below holds *only* op-discriminated envelopes. Bare-snapshot
+shapes are exported for type hints but live outside ``EVENT_REGISTRY`` —
+they don't carry the discriminator the registry keys on.
+"""
+
+from __future__ import annotations
+
+from dcc_shared.events._base import _EventBase
+from dcc_shared.events.chat import (
+    ChannelBumpEvent,
+    DmBumpEvent,
+    MentionAddedData,
+    MentionAddedEvent,
+    MessageDeleteData,
+    MessageDeleteEvent,
+    MessageEvent,
+    MessageUpdateEvent,
+    ReactionAddEvent,
+    ReactionData,
+    ReactionRemoveEvent,
+    StreamChatMessageEvent,
+    StreamChatMessagePayload,
+    WatchChatMessageEvent,
+)
+from dcc_shared.events.friends import (
+    FriendRemovedEvent,
+    FriendRequestAcceptedEvent,
+    FriendRequestCancelledEvent,
+    FriendRequestDeclinedEvent,
+    FriendRequestReceivedEvent,
+    UserBlockedEvent,
+    UserUnblockedEvent,
+)
+from dcc_shared.events.guild import (
+    ChannelCreatedEvent,
+    ChannelDeletedEvent,
+    ChannelPermissionsUpdatedEvent,
+    ChannelUpdatedEvent,
+    GuildBanAddedEvent,
+    GuildBanRemovedEvent,
+    GuildDeletedEvent,
+    GuildMemberAddedEvent,
+    GuildMemberRemovedEvent,
+    GuildMemberUpdatedEvent,
+    GuildSoundUpdatedEvent,
+    GuildUpdatedEvent,
+    MemberRolesUpdatedEvent,
+    PermissionsUpdatedEvent,
+    RoleCreatedEvent,
+    RoleDeletedEvent,
+    RoleUpdatedEvent,
+)
+from dcc_shared.events.presence import (
+    PresenceStatusChangedEvent,
+    PresenceStatusData,
+    PresenceUpdateEvent,
+)
+from dcc_shared.events.stream import StreamStateSnapshot, WatchStateSnapshot
+from dcc_shared.events.voice import (
+    VoiceDisconnectEvent,
+    VoiceOverrideEvent,
+    VoiceStateSnapshot,
+)
+
+# Master registry — op-code → model class. Used by the listener to
+# validate every inbound envelope before fan-out. Bare-snapshot shapes
+# (VoiceStateSnapshot, StreamStateSnapshot, WatchStateSnapshot) are
+# NOT in here — they don't carry an ``op`` discriminator.
+EVENT_REGISTRY: dict[str, type[_EventBase]] = {
+    # ---- chat-channel envelopes
+    "message": MessageEvent,
+    "message_update": MessageUpdateEvent,
+    "message_delete": MessageDeleteEvent,
+    "reaction_add": ReactionAddEvent,
+    "reaction_remove": ReactionRemoveEvent,
+    "stream_chat_message": StreamChatMessageEvent,
+    "watch_chat_message": WatchChatMessageEvent,
+    # ---- channel-bump / dm-bump (cross-channel notification)
+    "channel_bump": ChannelBumpEvent,
+    "dm_bump": DmBumpEvent,
+    # ---- direct-delivery (user:events)
+    "mention_added": MentionAddedEvent,
+    "friend_request_received": FriendRequestReceivedEvent,
+    "friend_request_accepted": FriendRequestAcceptedEvent,
+    "friend_request_declined": FriendRequestDeclinedEvent,
+    "friend_request_cancelled": FriendRequestCancelledEvent,
+    "friend_removed": FriendRemovedEvent,
+    "user_blocked": UserBlockedEvent,
+    "user_unblocked": UserUnblockedEvent,
+    # ---- guild lifecycle
+    "channel_created": ChannelCreatedEvent,
+    "channel_updated": ChannelUpdatedEvent,
+    "channel_deleted": ChannelDeletedEvent,
+    "channel_permissions_updated": ChannelPermissionsUpdatedEvent,
+    "guild_updated": GuildUpdatedEvent,
+    "guild_deleted": GuildDeletedEvent,
+    "guild_member_added": GuildMemberAddedEvent,
+    "guild_member_updated": GuildMemberUpdatedEvent,
+    "guild_member_removed": GuildMemberRemovedEvent,
+    "guild_ban_added": GuildBanAddedEvent,
+    "guild_ban_removed": GuildBanRemovedEvent,
+    "role_created": RoleCreatedEvent,
+    "role_updated": RoleUpdatedEvent,
+    "role_deleted": RoleDeletedEvent,
+    "member_roles_updated": MemberRolesUpdatedEvent,
+    "permissions_updated": PermissionsUpdatedEvent,
+    "guild_sound_updated": GuildSoundUpdatedEvent,
+    # ---- presence
+    "presence_update": PresenceUpdateEvent,
+    "presence_status_changed": PresenceStatusChangedEvent,
+    # ---- voice (admin overrides; the voice_state snapshot is bare)
+    "voice_disconnect": VoiceDisconnectEvent,
+    "voice_override": VoiceOverrideEvent,
+}
+
+
+__all__ = [
+    "EVENT_REGISTRY",
+    "_EventBase",
+    # chat
+    "ChannelBumpEvent",
+    "DmBumpEvent",
+    "MentionAddedData",
+    "MentionAddedEvent",
+    "MessageDeleteData",
+    "MessageDeleteEvent",
+    "MessageEvent",
+    "MessageUpdateEvent",
+    "ReactionAddEvent",
+    "ReactionData",
+    "ReactionRemoveEvent",
+    "StreamChatMessageEvent",
+    "StreamChatMessagePayload",
+    "WatchChatMessageEvent",
+    # friends
+    "FriendRemovedEvent",
+    "FriendRequestAcceptedEvent",
+    "FriendRequestCancelledEvent",
+    "FriendRequestDeclinedEvent",
+    "FriendRequestReceivedEvent",
+    "UserBlockedEvent",
+    "UserUnblockedEvent",
+    # guild
+    "ChannelCreatedEvent",
+    "ChannelDeletedEvent",
+    "ChannelPermissionsUpdatedEvent",
+    "ChannelUpdatedEvent",
+    "GuildBanAddedEvent",
+    "GuildBanRemovedEvent",
+    "GuildDeletedEvent",
+    "GuildMemberAddedEvent",
+    "GuildMemberRemovedEvent",
+    "GuildMemberUpdatedEvent",
+    "GuildSoundUpdatedEvent",
+    "GuildUpdatedEvent",
+    "MemberRolesUpdatedEvent",
+    "PermissionsUpdatedEvent",
+    "RoleCreatedEvent",
+    "RoleDeletedEvent",
+    "RoleUpdatedEvent",
+    # presence
+    "PresenceStatusChangedEvent",
+    "PresenceStatusData",
+    "PresenceUpdateEvent",
+    # stream + watch (bare snapshots)
+    "StreamStateSnapshot",
+    "WatchStateSnapshot",
+    # voice
+    "VoiceDisconnectEvent",
+    "VoiceOverrideEvent",
+    "VoiceStateSnapshot",
+]

@@ -627,6 +627,7 @@ name = "dcc-media-svc"
 version = "0.1.0"
 source = { editable = "services/media-svc" }
 dependencies = [
+    { name = "dcc-shared" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pydantic" },
@@ -646,6 +647,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dcc-shared", editable = "shared" },
     { name = "fastapi", specifier = ">=0.115,<0.137" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
@@ -700,6 +702,12 @@ provides-extras = ["dev"]
 name = "dcc-shared"
 version = "0.1.0"
 source = { editable = "shared" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pydantic", specifier = ">=2.7" }]
 
 [[package]]
 name = "dcc-voice-signaling"

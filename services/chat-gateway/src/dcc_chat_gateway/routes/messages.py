@@ -64,6 +64,13 @@ from dcc_chat_gateway.routes.attachments import (
 from dcc_chat_gateway.schemas import MessageEditIn, MessageIn, MessageOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import (
+    ChannelBumpEvent,
+    DmBumpEvent,
+    MessageDeleteData,
+    MessageDeleteEvent,
+    MessageUpdateEvent,
+)
 
 log = logging.getLogger(__name__)
 
@@ -285,13 +292,12 @@ async def post_message(
             # unread in the sidebar. Payload is intentionally minimal —
             # no content.
             await mgr.publish_guild_event(
-                {
-                    "op": "channel_bump",
-                    "guild_id": str(ch.guild_id),
-                    "channel_id": str(channel_id),
-                    "message_id": str(msg.id),
-                    "author_id": str(current.id),
-                }
+                ChannelBumpEvent(
+                    guild_id=str(ch.guild_id),
+                    channel_id=str(channel_id),
+                    message_id=str(msg.id),
+                    author_id=str(current.id),
+                )
             )
         else:
             # DM equivalent. ``user_a_id``/``user_b_id`` are carried in the
@@ -300,14 +306,13 @@ async def post_message(
             # this fans to every connected socket). MVP-acceptable for
             # low user counts; tighten later if it matters.
             await mgr.publish_guild_event(
-                {
-                    "op": "dm_bump",
-                    "channel_id": str(channel_id),
-                    "user_a_id": str(ch.user_a_id),
-                    "user_b_id": str(ch.user_b_id),
-                    "message_id": str(msg.id),
-                    "author_id": str(current.id),
-                }
+                DmBumpEvent(
+                    channel_id=str(channel_id),
+                    user_a_id=str(ch.user_a_id),
+                    user_b_id=str(ch.user_b_id),
+                    message_id=str(msg.id),
+                    author_id=str(current.id),
+                )
             )
     msg.reactions = []  # type: ignore[attr-defined]
     msg.attachments = atts  # type: ignore[attr-defined]
@@ -421,7 +426,9 @@ async def edit_message(
     payload_out = serialize_message(
         msg, reactions, attachments=atts_serial, mentions=mentions_serial
     )
-    await _broadcast(request, msg.channel_id, {"op": "message_update", "data": payload_out})
+    await _broadcast(
+        request, msg.channel_id, MessageUpdateEvent(data=payload_out)
+    )
     # Only fan out mention_added for *newly* added markers — user, role or
     # everyone alike. ``fan_out_mention_events`` then expands + VIEW-filters
     # the new set and returns the concrete recipients for the push fan-out.
@@ -493,7 +500,11 @@ async def delete_message(
     await _broadcast(
         request,
         msg.channel_id,
-        {"op": "message_delete", "data": {"id": str(msg.id), "channel_id": str(msg.channel_id)}},
+        MessageDeleteEvent(
+            data=MessageDeleteData(
+                id=str(msg.id), channel_id=str(msg.channel_id)
+            )
+        ),
     )
     return None
 

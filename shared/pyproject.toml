@@ -3,7 +3,12 @@ name = "dcc-shared"
 version = "0.1.0"
 description = "Shared utilities for Discord-Clone services"
 requires-python = ">=3.13,<3.15"
-dependencies = []
+dependencies = [
+    # Event-Schema-Registry (dcc_shared.events) uses Pydantic v2 BaseModels.
+    # Every Pulse service already pulls pydantic transitively (FastAPI), so
+    # this is a hard-pin of an existing dep, not a new one.
+    "pydantic>=2.7",
+]
 
 [build-system]
 requires = ["hatchling"]

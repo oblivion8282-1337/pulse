@@ -35,6 +35,12 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import (
+    RoleCreatedEvent,
+    RoleDeletedEvent,
+    RoleUpdatedEvent,
+    _EventBase,
+)
 
 router = APIRouter()
 
@@ -54,7 +60,9 @@ def _role_dict(role: Role) -> dict[str, object]:
     }
 
 
-async def _publish(request: Request, envelope: dict[str, object]) -> None:
+async def _publish(
+    request: Request, envelope: _EventBase | dict[str, object]
+) -> None:
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(envelope)
@@ -120,7 +128,7 @@ async def create_role(
     session.add(role)
     await session.commit()
     await session.refresh(role)
-    await _publish(request, {"op": "role_created", "role": _role_dict(role)})
+    await _publish(request, RoleCreatedEvent(role=_role_dict(role)))
     return role
 
 
@@ -166,7 +174,7 @@ async def patch_role(
 
     await session.commit()
     await session.refresh(role)
-    await _publish(request, {"op": "role_updated", "role": _role_dict(role)})
+    await _publish(request, RoleUpdatedEvent(role=_role_dict(role)))
     return role
 
 
@@ -203,11 +211,9 @@ async def delete_role(
     await session.commit()
     await _publish(
         request,
-        {
-            "op": "role_deleted",
-            "guild_id": str(guild_id),
-            "role_id": str(role_id),
-        },
+        RoleDeletedEvent(
+            guild_id=str(guild_id), role_id=str(role_id)
+        ),
     )
 
 
@@ -250,7 +256,7 @@ async def update_role_positions(
     await session.commit()
     for role in rows.values():
         await session.refresh(role)
-        await _publish(request, {"op": "role_updated", "role": _role_dict(role)})
+        await _publish(request, RoleUpdatedEvent(role=_role_dict(role)))
     return list(rows.values())
 
 

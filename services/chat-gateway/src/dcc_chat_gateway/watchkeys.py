@@ -27,6 +27,8 @@ import time
 
 from redis.asyncio import Redis
 
+from dcc_shared.events import WatchStateSnapshot
+
 WATCH_STATE_KEY = "watch:channel-{channel_id}"
 WATCH_EVENTS_CHANNEL = "watch:events"
 WATCH_TTL_SECONDS = 6 * 3600
@@ -74,16 +76,18 @@ async def write_state(redis: Redis, channel_id: str, state: dict) -> None:
         json.dumps(state, separators=(",", ":")),
         ex=WATCH_TTL_SECONDS,
     )
+    snapshot = WatchStateSnapshot(channel_id=channel_id, state=state)
     await redis.publish(
         WATCH_EVENTS_CHANNEL,
-        json.dumps({"channel_id": channel_id, "state": state}, separators=(",", ":")),
+        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
     )
 
 
 async def delete_state(redis: Redis, channel_id: str) -> None:
     """Delete state + publish a null-state stop event."""
     await redis.delete(WATCH_STATE_KEY.format(channel_id=channel_id))
+    snapshot = WatchStateSnapshot(channel_id=channel_id, state=None)
     await redis.publish(
         WATCH_EVENTS_CHANNEL,
-        json.dumps({"channel_id": channel_id, "state": None}, separators=(",", ":")),
+        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
     )

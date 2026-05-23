@@ -48,6 +48,7 @@ from dcc_chat_gateway.presence_status import (
 )
 from dcc_chat_gateway.push import fan_out_mention_push
 from dcc_chat_gateway.routes import ws_watch
+from dcc_shared.events import ChannelBumpEvent, DmBumpEvent
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
 from dcc_chat_gateway.security import AuthenticatedUser
@@ -428,27 +429,25 @@ async def run_session_op_loop(
                 if guild_id_for_bump is not None:
                     try:
                         await manager.publish_guild_event(
-                            {
-                                "op": "channel_bump",
-                                "guild_id": str(guild_id_for_bump),
-                                "channel_id": cid,
-                                "message_id": str(persisted.id),
-                                "author_id": str(user.id),
-                            }
+                            ChannelBumpEvent(
+                                guild_id=str(guild_id_for_bump),
+                                channel_id=cid,
+                                message_id=str(persisted.id),
+                                author_id=str(user.id),
+                            )
                         )
                     except Exception:
                         log.exception("ws guild_event publish failed for channel %s", cid)
                 elif kind == "dm" and dm_pair is not None:
                     try:
                         await manager.publish_guild_event(
-                            {
-                                "op": "dm_bump",
-                                "channel_id": cid,
-                                "user_a_id": str(dm_pair[0]),
-                                "user_b_id": str(dm_pair[1]),
-                                "message_id": str(persisted.id),
-                                "author_id": str(user.id),
-                            }
+                            DmBumpEvent(
+                                channel_id=cid,
+                                user_a_id=str(dm_pair[0]),
+                                user_b_id=str(dm_pair[1]),
+                                message_id=str(persisted.id),
+                                author_id=str(user.id),
+                            )
                         )
                     except Exception:
                         log.exception("ws dm_bump publish failed for channel %s", cid)

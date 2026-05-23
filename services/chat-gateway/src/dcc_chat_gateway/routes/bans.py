@@ -30,6 +30,11 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
+from dcc_shared.events import (
+    GuildBanAddedEvent,
+    GuildBanRemovedEvent,
+    GuildMemberRemovedEvent,
+)
 
 router = APIRouter()
 
@@ -51,14 +56,19 @@ async def _publish_ban_event(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return
-    payload: dict[str, object] = {
-        "op": op,
-        "guild_id": str(guild_id),
-        "user_id": str(user_id),
-    }
-    if op == "guild_ban_added" and reason is not None:
-        payload["reason"] = reason
-    await mgr.publish_guild_event(payload)
+    if op == "guild_ban_added":
+        envelope = GuildBanAddedEvent(
+            guild_id=str(guild_id),
+            user_id=str(user_id),
+            reason=reason,
+        )
+    elif op == "guild_ban_removed":
+        envelope = GuildBanRemovedEvent(
+            guild_id=str(guild_id), user_id=str(user_id)
+        )
+    else:
+        raise ValueError(f"unknown ban op: {op!r}")
+    await mgr.publish_guild_event(envelope)
 
 
 async def _publish_member_removed(
@@ -71,11 +81,9 @@ async def _publish_member_removed(
     if mgr is None:
         return
     await mgr.publish_guild_event(
-        {
-            "op": "guild_member_removed",
-            "guild_id": str(guild_id),
-            "user_id": str(user_id),
-        }
+        GuildMemberRemovedEvent(
+            guild_id=str(guild_id), user_id=str(user_id)
+        )
     )
 
 
