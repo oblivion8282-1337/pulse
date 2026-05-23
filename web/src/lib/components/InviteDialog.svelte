@@ -6,6 +6,7 @@
   import { chatApi } from '$lib/api/chat';
   import type { Invite } from '$lib/api/types';
   import InviteListItem from './InviteListItem.svelte';
+  import InviteFriendPicker from './InviteFriendPicker.svelte';
 
   let {
     open = false,
@@ -145,6 +146,10 @@
           </select>
         </div>
       </div>
+
+      {#if invite}
+        <InviteFriendPicker inviteCode={invite.code} disabled={busy} />
+      {/if}
 
       {#if invites.length > 0}
         <div class="space-y-1">
