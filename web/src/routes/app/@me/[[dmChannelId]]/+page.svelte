@@ -276,6 +276,8 @@
       onSend={sendMessage}
       headerKind="dm"
       showMemberList={false}
+      composerDisabled={activeDM.can_send === false}
+      composerDisabledReason="Du kannst dieser Person aktuell keine Nachrichten senden."
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}

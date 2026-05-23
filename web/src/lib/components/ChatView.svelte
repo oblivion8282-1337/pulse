@@ -6,6 +6,7 @@
   import MessageItem from './MessageItem.svelte';
   import MessageInput from './MessageInput.svelte';
   import MemberList from './MemberList.svelte';
+  import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -23,6 +24,8 @@
     isOwner = false,
     headerKind = 'channel',
     showMemberList = true,
+    composerDisabled = false,
+    composerDisabledReason = '',
     onEditMessage,
     onDeleteMessage,
     onToggleReaction
@@ -35,6 +38,10 @@
     headerKind?: 'channel' | 'dm';
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
+    /** Lock the composer (no typing, no submit). Drives the DM hard-cut
+     *  foundation — friendship lost or block in place. */
+    composerDisabled?: boolean;
+    composerDisabledReason?: string;
     onEditMessage: (m: Message, newContent: string) => void;
     onDeleteMessage: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
@@ -261,6 +268,9 @@
   </div>
 
   {#if channel}
+    {#if composerDisabled && composerDisabledReason}
+      <ComposerDisabledBanner reason={composerDisabledReason} />
+    {/if}
     <MessageInput
       channelId={channel.id}
       placeholder={viewport.isMobile
@@ -269,6 +279,8 @@
       onSend={handleSend}
       replyTo={replyBanner}
       onCancelReply={cancelReply}
+      disabled={composerDisabled}
+      disabledReason={composerDisabledReason}
     />
   {/if}
 </section>

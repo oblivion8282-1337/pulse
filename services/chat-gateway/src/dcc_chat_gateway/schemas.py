@@ -229,12 +229,19 @@ class DMChannelOut(BaseModel):
     computed in the route handler from ``user_a_id`` / ``user_b_id``.
     Sorting by recency is done client-side on ``last_message_id``
     (snowflake IDs are time-ordered, so no separate timestamp needed).
+
+    ``can_send`` is True iff the caller may currently post into this DM
+    (friendship still exists + no block in either direction). Allows
+    the FE to gate the composer without a follow-up call. Recomputed
+    per response since friendship/block state is mutable. False also
+    when the DM existed pre-friend-cut and now sits as a tombstone.
     """
 
     id: int
     other_user_id: int
     last_message_id: int | None = None
     created_at: datetime
+    can_send: bool = True
 
     @field_serializer("id", "other_user_id", "last_message_id")
     def _ser_ids(self, v: int | None) -> str | None:

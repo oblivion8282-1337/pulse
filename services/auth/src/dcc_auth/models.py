@@ -51,6 +51,13 @@ class User(Base):
     disabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
+    # User-search opt-out. Default true preserves pre-feature visibility for
+    # accounts created before migration 0011. chat-gateway's
+    # ``user_privacy.show_in_search`` is the editing UI; it mirrors writes
+    # here via an internal HTTP call so search filtering stays a single query.
+    discoverable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
     # Account-recovery / 2FA columns (migration 0006).
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

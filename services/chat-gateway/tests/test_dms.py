@@ -18,9 +18,10 @@ async def _register_user(_auth_signer, uid: int | None = None) -> tuple[str, int
 
 
 @pytest.mark.asyncio
-async def test_create_dm_channel_returns_201(client, _auth_signer):
+async def test_create_dm_channel_returns_201(client, _auth_signer, friend_pair):
     t_a, uid_a = await _register_user(_auth_signer)
     _, uid_b = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     r = await client.post(
         "/dm-channels",
         json={"target_user_id": str(uid_b)},
@@ -31,13 +32,15 @@ async def test_create_dm_channel_returns_201(client, _auth_signer):
     assert isinstance(body["id"], str)  # snowflake → string over the wire
     assert body["other_user_id"] == str(uid_b)
     assert body["last_message_id"] is None
+    assert body["can_send"] is True
 
 
 @pytest.mark.asyncio
-async def test_create_dm_channel_idempotent(client, _auth_signer):
+async def test_create_dm_channel_idempotent(client, _auth_signer, friend_pair):
     """Same (a, b) returns the existing channel; same id; status 201 still."""
-    t_a, _ = await _register_user(_auth_signer)
+    t_a, uid_a = await _register_user(_auth_signer)
     _, uid_b = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     r1 = await client.post(
         "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
     )
@@ -50,10 +53,11 @@ async def test_create_dm_channel_idempotent(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_channel_sorted_pair_invariant(client, _auth_signer):
+async def test_dm_channel_sorted_pair_invariant(client, _auth_signer, friend_pair):
     """A→B and B→A must resolve to the same channel id."""
     t_a, uid_a = await _register_user(_auth_signer)
     t_b, uid_b = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     ra = await client.post(
         "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
     )
@@ -85,10 +89,14 @@ async def test_create_dm_channel_requires_auth(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_list_dm_channels_only_includes_caller(client, _auth_signer):
-    t_a, _ = await _register_user(_auth_signer)
+async def test_list_dm_channels_only_includes_caller(
+    client, _auth_signer, friend_pair
+):
+    t_a, uid_a = await _register_user(_auth_signer)
     t_b, uid_b = await _register_user(_auth_signer)
     t_c, uid_c = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    await friend_pair(uid_b, uid_c)
     # A↔B
     await client.post(
         "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
@@ -105,9 +113,10 @@ async def test_list_dm_channels_only_includes_caller(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_get_dm_channel_as_member(client, _auth_signer):
-    t_a, _ = await _register_user(_auth_signer)
+async def test_get_dm_channel_as_member(client, _auth_signer, friend_pair):
+    t_a, uid_a = await _register_user(_auth_signer)
     _, uid_b = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     r = await client.post(
         "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
     )
@@ -118,11 +127,12 @@ async def test_get_dm_channel_as_member(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_get_dm_channel_non_member_404(client, _auth_signer):
+async def test_get_dm_channel_non_member_404(client, _auth_signer, friend_pair):
     """Non-members get 404 (not 403) to avoid leaking channel existence."""
-    t_a, _ = await _register_user(_auth_signer)
+    t_a, uid_a = await _register_user(_auth_signer)
     _, uid_b = await _register_user(_auth_signer)
     t_c, _ = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     r = await client.post(
         "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
     )
@@ -144,9 +154,10 @@ async def test_get_dm_channel_not_found(client, _auth_signer):
 # rules (DM membership instead of guild membership).
 
 
-async def _make_dm(client, _auth_signer):
+async def _make_dm(client, _auth_signer, friend_pair):
     t_a, uid_a = await _register_user(_auth_signer)
     t_b, uid_b = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     r = await client.post(
         "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
     )
@@ -154,8 +165,8 @@ async def _make_dm(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_post_and_list_messages(client, _auth_signer):
-    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer)
+async def test_dm_post_and_list_messages(client, _auth_signer, friend_pair):
+    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     r = await client.post(
         f"/channels/{dm_id}/messages",
         json={"content": "hallo b"},
@@ -176,9 +187,9 @@ async def test_dm_post_and_list_messages(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_non_member_cannot_post_or_list(client, _auth_signer):
+async def test_dm_non_member_cannot_post_or_list(client, _auth_signer, friend_pair):
     """Non-member gets 404 (not 403) on a DM channel — see resolve_channel_or_raise."""
-    _, _, _, _, dm_id = await _make_dm(client, _auth_signer)
+    _, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     t_c, _ = await _register_user(_auth_signer)
     rp = await client.post(
         f"/channels/{dm_id}/messages",
@@ -191,9 +202,9 @@ async def test_dm_non_member_cannot_post_or_list(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_post_message_bumps_last_message_id(client, _auth_signer):
+async def test_dm_post_message_bumps_last_message_id(client, _auth_signer, friend_pair):
     """The DM list sorts by last_message_id; posting a message must bump it."""
-    t_a, _, _, uid_b, dm_id = await _make_dm(client, _auth_signer)
+    t_a, _, _, uid_b, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     # Before: last_message_id is null in the list.
     r0 = await client.get("/dm-channels", headers=auth(t_a))
     assert r0.json()[0]["last_message_id"] is None
@@ -210,8 +221,8 @@ async def test_dm_post_message_bumps_last_message_id(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_edit_message_author_only(client, _auth_signer):
-    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer)
+async def test_dm_edit_message_author_only(client, _auth_signer, friend_pair):
+    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     r = await client.post(
         f"/channels/{dm_id}/messages",
         json={"content": "v1"},
@@ -232,9 +243,9 @@ async def test_dm_edit_message_author_only(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_delete_message_no_owner_override(client, _auth_signer):
+async def test_dm_delete_message_no_owner_override(client, _auth_signer, friend_pair):
     """In a DM there is no guild owner — only the author may delete."""
-    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer)
+    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     r = await client.post(
         f"/channels/{dm_id}/messages",
         json={"content": "to be deleted"},
@@ -250,9 +261,9 @@ async def test_dm_delete_message_no_owner_override(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_reply_target_must_be_in_same_channel(client, _auth_signer):
+async def test_dm_reply_target_must_be_in_same_channel(client, _auth_signer, friend_pair):
     """Reply-to validation works for DMs the same way as guild channels."""
-    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer)
+    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     r1 = await client.post(
         f"/channels/{dm_id}/messages",
         json={"content": "parent"},

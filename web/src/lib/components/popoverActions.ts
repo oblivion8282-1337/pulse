@@ -9,9 +9,12 @@
 import { toast } from 'svelte-sonner';
 import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
+import { friendsApi } from '$lib/api/friends';
 import { setVoiceOverride, disconnectFromVoice } from '$lib/api/voice';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
+import { friends } from '$lib/stores/friends.svelte';
+import { blocks } from '$lib/stores/blocks.svelte';
 
 export interface ActionCtx {
   userId: string;
@@ -148,6 +151,125 @@ export async function ban(ctx: ActionCtx): Promise<void> {
     ctx.onAction?.();
   } catch (err) {
     toast.error('Sperren fehlgeschlagen', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function sendFriendRequest(ctx: ActionCtx): Promise<void> {
+  if (ctx.isSelf || ctx.isWorking()) return;
+  ctx.setWorking(true);
+  try {
+    const res = await friendsApi.sendFriendRequest(ctx.userId);
+    if ('auto_accepted' in res && res.auto_accepted) {
+      friends.add(ctx.userId, res.friendship.since);
+      toast.success(`${ctx.displayName} ist jetzt dein Freund!`);
+    } else {
+      toast.success(`Freundschaftsanfrage an ${ctx.displayName} gesendet`);
+    }
+  } catch (err) {
+    toast.error('Anfrage konnte nicht gesendet werden', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function cancelFriendRequest(ctx: ActionCtx, reqId: string): Promise<void> {
+  if (ctx.isWorking()) return;
+  ctx.setWorking(true);
+  try {
+    await friendsApi.cancelRequest(reqId);
+    toast.success('Anfrage zurückgezogen');
+  } catch (err) {
+    toast.error('Anfrage konnte nicht zurückgezogen werden', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function acceptFriendRequest(ctx: ActionCtx, reqId: string): Promise<void> {
+  if (ctx.isWorking()) return;
+  ctx.setWorking(true);
+  try {
+    const friendship = await friendsApi.acceptRequest(reqId);
+    friends.add(ctx.userId, friendship.since);
+    toast.success(`${ctx.displayName} ist jetzt dein Freund!`);
+  } catch (err) {
+    toast.error('Annehmen fehlgeschlagen', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function declineFriendRequest(ctx: ActionCtx, reqId: string): Promise<void> {
+  if (ctx.isWorking()) return;
+  ctx.setWorking(true);
+  try {
+    await friendsApi.declineRequest(reqId);
+    toast.success('Anfrage abgelehnt');
+  } catch (err) {
+    toast.error('Ablehnen fehlgeschlagen', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function removeFriend(ctx: ActionCtx): Promise<void> {
+  if (ctx.isSelf || ctx.isWorking()) return;
+  if (!confirm(`${ctx.displayName} aus der Freundesliste entfernen?`)) return;
+  ctx.setWorking(true);
+  try {
+    await friendsApi.removeFriend(ctx.userId);
+    friends.remove(ctx.userId);
+    toast.success(`${ctx.displayName} entfernt`);
+    ctx.close();
+  } catch (err) {
+    toast.error('Entfernen fehlgeschlagen', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function blockUser(ctx: ActionCtx): Promise<void> {
+  if (ctx.isSelf || ctx.isWorking()) return;
+  if (!confirm(`${ctx.displayName} blockieren?`)) return;
+  ctx.setWorking(true);
+  try {
+    const result = await friendsApi.blockUser(ctx.userId);
+    blocks.add(ctx.userId, result.since);
+    friends.remove(ctx.userId);
+    toast.success(`${ctx.displayName} blockiert`);
+    ctx.close();
+  } catch (err) {
+    toast.error('Blockieren fehlgeschlagen', {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function unblockUser(ctx: ActionCtx): Promise<void> {
+  if (ctx.isSelf || ctx.isWorking()) return;
+  ctx.setWorking(true);
+  try {
+    await friendsApi.unblockUser(ctx.userId);
+    blocks.remove(ctx.userId);
+    toast.success(`${ctx.displayName} entblockiert`);
+  } catch (err) {
+    toast.error('Entblockieren fehlgeschlagen', {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {

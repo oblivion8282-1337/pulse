@@ -28,14 +28,22 @@ import {
 } from '$lib/stores/watchPartyPresence.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import { userCache } from '$lib/stores/users.svelte';
-import { fireInPageNotification } from '$lib/notifications/inPage';
+import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
 import { sounds } from '$lib/sounds/engine';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
-import { presence } from '$lib/stores/presence.svelte';
+import {
+  presence,
+  type PresenceStatus,
+  type OwnPresenceStatus
+} from '$lib/stores/presence.svelte';
+import { friends } from '$lib/stores/friends.svelte';
+import { friendRequests, type FriendRequest } from '$lib/stores/friendRequests.svelte';
+import { blocks } from '$lib/stores/blocks.svelte';
+import { privacy, type PrivacySettings } from '$lib/stores/privacy.svelte';
 import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import type { DMChannel, Guild, Message } from '$lib/api/types';
@@ -96,6 +104,15 @@ type ServerEvent =
         muted: boolean;
         deafened: boolean;
       }[];
+      // Etappe 4 friend-system payload — all optional so older mocked
+      // ready frames in tests keep validating cleanly.
+      friends?: { user_id: string; since: string }[];
+      friend_requests_in?: FriendRequest[];
+      friend_requests_out?: FriendRequest[];
+      blocked_user_ids?: string[];
+      privacy?: PrivacySettings;
+      presence_status?: OwnPresenceStatus;
+      user_presence_statuses?: Record<string, PresenceStatus>;
     }
   | { op: 'message'; data: Message }
   | { op: 'message_update'; data: Message }
@@ -201,6 +218,21 @@ type ServerEvent =
       // the wire — see CLAUDE.md) and emits null for the DM case.
       data: { channel_id: string; message_id: string; guild_id: string | null };
     }
+  // ---- Etappe 4 friend system ------------------------------------------
+  | { op: 'friend_request_received'; data: FriendRequest }
+  | {
+      op: 'friend_request_accepted';
+      data: { request_id: string; friendship: { user_id: string; since: string } };
+    }
+  | { op: 'friend_request_declined'; data: { request_id: string } }
+  | { op: 'friend_request_cancelled'; data: { request_id: string } }
+  | { op: 'friend_removed'; data: { user_id: string } }
+  | { op: 'user_blocked'; data: { user_id: string } }
+  | { op: 'user_unblocked'; data: { user_id: string } }
+  | {
+      op: 'presence_status_changed';
+      data: { user_id: string; status: PresenceStatus | 'invisible' };
+    }
   | { op: 'error'; code: number; msg: string };
 
 type ClientEvent =
@@ -221,7 +253,8 @@ type ClientEvent =
       action: 'play' | 'pause' | 'seek';
       position: number;
     }
-  | { op: 'watch_heartbeat'; channel_id: string; position: number };
+  | { op: 'watch_heartbeat'; channel_id: string; position: number }
+  | { op: 'activity' };
 
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 
@@ -477,6 +510,14 @@ export class GatewayConnection {
       evt.op !== 'guild_ban_removed' &&
       evt.op !== 'mention_added' &&
       evt.op !== 'presence_update' &&
+      evt.op !== 'friend_request_received' &&
+      evt.op !== 'friend_request_accepted' &&
+      evt.op !== 'friend_request_declined' &&
+      evt.op !== 'friend_request_cancelled' &&
+      evt.op !== 'friend_removed' &&
+      evt.op !== 'user_blocked' &&
+      evt.op !== 'user_unblocked' &&
+      evt.op !== 'presence_status_changed' &&
       evt.op !== 'error'
     ) {
       this._preReadyBuffer.push(evt);
@@ -525,6 +566,22 @@ export class GatewayConnection {
         streamPresence.seed(evt.stream_states ?? []);
         watchPartyPresence.seed(evt.watch_states ?? []);
         presence.seed(evt.online_user_ids ?? []);
+        // Etappe 4 friend-system seeding. All fields optional in the
+        // ready frame for back-compat with older mocked tests; we fall
+        // through to clean defaults when absent.
+        friends.seedAll(evt.friends ?? []);
+        friendRequests.seedAll({
+          incoming: evt.friend_requests_in ?? [],
+          outgoing: evt.friend_requests_out ?? []
+        });
+        blocks.seedAll(evt.blocked_user_ids ?? []);
+        if (evt.privacy) privacy.seed(evt.privacy);
+        if (evt.user_presence_statuses || evt.presence_status) {
+          presence.seedStatuses(
+            evt.user_presence_statuses ?? {},
+            evt.presence_status ?? 'online'
+          );
+        }
         this._readyDone = true;
         // Replay buffered lifecycle events now that guilds.byId is populated.
         for (const buffered of this._preReadyBuffer) {
@@ -579,7 +636,7 @@ export class GatewayConnection {
           if (this.subs.has(evt.channel_id)) {
             readState.markRead(evt.channel_id, evt.message_id);
           } else if (!_recentMentions.has(evt.message_id)) {
-            sounds.play('notification.message', { guildId: evt.guild_id });
+            if (!isDnd()) sounds.play('notification.message', { guildId: evt.guild_id });
           }
         }
         break;
@@ -618,15 +675,17 @@ export class GatewayConnection {
               ? ` von @${cached.display_name ?? cached.username}`
               : '';
             const channelId = evt.channel_id;
-            toast.message(`Neue Nachricht${senderLabel}`, {
-              action: {
-                label: 'Öffnen',
-                onClick: () => {
-                  void goto(`/app/@me/${channelId}`);
+            if (!isDnd()) {
+              toast.message(`Neue Nachricht${senderLabel}`, {
+                action: {
+                  label: 'Öffnen',
+                  onClick: () => {
+                    void goto(`/app/@me/${channelId}`);
+                  }
                 }
-              }
-            });
-            if (!_recentMentions.has(evt.message_id)) {
+              });
+            }
+            if (!_recentMentions.has(evt.message_id) && !isDnd()) {
               sounds.play('notification.dm');
             }
           }
@@ -827,7 +886,7 @@ export class GatewayConnection {
           // (a sound for the focused channel is just noise).
           readState.markRead(channel_id, message_id);
         } else {
-          sounds.play('notification.mention', { guildId: guild_id });
+          if (!isDnd()) sounds.play('notification.mention', { guildId: guild_id });
         }
         // In-page notification (only fires when tab is in background — the
         // helper gates on visibility + settings). The matching push from the
@@ -857,6 +916,59 @@ export class GatewayConnection {
           messageId: message_id,
           guildId: guild_id
         });
+        break;
+      }
+      // ---- Etappe 4 friend system -----------------------------------
+      case 'friend_request_received':
+        friendRequests.addIncoming(evt.data);
+        userCache.queue(evt.data.sender_id);
+        break;
+      case 'friend_request_accepted':
+        // Sent to BOTH sides. The ``friendship.user_id`` is the *other*
+        // party (server flips it per receiver). Drop the request from
+        // either pending bucket, add to friends, refresh the DM list so
+        // ``can_send`` flips (friendship just opened the gate).
+        friendRequests.removeById(evt.data.request_id);
+        friends.add(evt.data.friendship.user_id, evt.data.friendship.since);
+        userCache.queue(evt.data.friendship.user_id);
+        void directMessages.hydrate().catch(() => undefined);
+        break;
+      case 'friend_request_declined':
+        // Sender-only fan-out → the row sits in our outgoing bucket.
+        friendRequests.removeOutgoing(evt.data.request_id);
+        break;
+      case 'friend_request_cancelled':
+        // Receiver-only fan-out → row sits in our incoming bucket.
+        friendRequests.removeIncoming(evt.data.request_id);
+        break;
+      case 'friend_removed':
+        friends.remove(evt.data.user_id);
+        void directMessages.hydrate().catch(() => undefined);
+        break;
+      case 'user_blocked':
+        blocks.add(evt.data.user_id);
+        // Block tears down friendship server-side; the matching
+        // friend_removed is fanned out only to the other party. Mirror
+        // the local drop here so our friend list stays consistent
+        // without waiting for the next reconnect.
+        friends.remove(evt.data.user_id);
+        void directMessages.hydrate().catch(() => undefined);
+        break;
+      case 'user_unblocked':
+        blocks.remove(evt.data.user_id);
+        break;
+      case 'presence_status_changed': {
+        const me = auth.user?.id;
+        if (me && evt.data.user_id === me) {
+          // Own envelope carries the REAL status (incl. "invisible").
+          presence.setOwnStatus(evt.data.status as OwnPresenceStatus);
+        } else {
+          // Peer envelope is already masked server-side (invisible → offline).
+          presence.applyStatusChange(
+            evt.data.user_id,
+            evt.data.status as PresenceStatus
+          );
+        }
         break;
       }
     }
@@ -974,6 +1086,14 @@ export class GatewayConnection {
    * the write to ≤1 / 2s; sending faster is harmless but wasteful. */
   sendWatchHeartbeat(channelId: string, position: number): boolean {
     return this._sendRaw({ op: 'watch_heartbeat', channel_id: channelId, position });
+  }
+
+  /** Fire-and-forget ``activity`` heartbeat. The gateway uses it to bump
+   *  the user's presence:activity ZSET (idle-sweeper input) and to flip
+   *  ``idle`` back to ``online``. Silently no-ops when the socket isn't
+   *  open — the next user signal will retry once the WS reconnects. */
+  sendActivity(): boolean {
+    return this._sendRaw({ op: 'activity' });
   }
 
   private _sendRaw(evt: ClientEvent): boolean {

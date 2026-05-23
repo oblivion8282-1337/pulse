@@ -317,6 +317,25 @@ async def fan_out_mention_events(
     )
     if not targets:
         return set()
+    # Etappe-2 block filter: a receiver who blocked the author (in either
+    # direction) must not get a mention_added envelope — the channel-scoped
+    # `message` envelope still fans out (no per-user channel hide today),
+    # but the cross-channel counter bump is gated. Per-socket cache fast
+    # path first; cold-cache receivers fall through to a single DB query.
+    from dcc_chat_gateway.friend_events import is_blocked_between
+
+    filtered: set[int] = set()
+    for uid in targets:
+        if mgr.is_blocked_by_any_socket(uid, author_id):
+            continue
+        # Offline / cold-cache receivers: DB hop. With small target sets
+        # (mentions are bounded by VIEW_CHANNEL members) this is fine; if
+        # this becomes a hotspot it can be batched into a single SELECT.
+        if await is_blocked_between(session, uid, author_id):
+            continue
+        filtered.add(uid)
+    if not filtered:
+        return set()
     envelope = {
         "op": "mention_added",
         "data": {
@@ -325,12 +344,12 @@ async def fan_out_mention_events(
             "guild_id": str(guild_id) if guild_id is not None else None,
         },
     }
-    for uid in targets:
+    for uid in filtered:
         try:
             await mgr.publish_user_event(uid, envelope)
         except Exception:
             log.exception("publish_user_event failed for user %s", uid)
-    return targets
+    return filtered
 
 
 __all__ = [

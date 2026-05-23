@@ -64,6 +64,31 @@ type PushPayload = {
   icon?: string | null;
 };
 
+/**
+ * Read the DND flag from IndexedDB (set by StatusPicker on status changes).
+ * Falls back to ``false`` on any error (show notification by default).
+ */
+function readDndFromIdb(): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    try {
+      const req = indexedDB.open('pulse_presence', 1);
+      req.onupgradeneeded = () => {
+        req.result.createObjectStore('status');
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        const tx = db.transaction('status', 'readonly');
+        const get = tx.objectStore('status').get('dnd');
+        get.onsuccess = () => resolve(get.result === true);
+        get.onerror = () => resolve(false);
+      };
+      req.onerror = () => resolve(false);
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 sw.addEventListener('push', (event) => {
   let payload: PushPayload = {};
   try {
@@ -82,16 +107,20 @@ sw.addEventListener('push', (event) => {
     message_id: payload.message_id ?? null
   };
   event.waitUntil(
-    sw.registration.showNotification(title, {
-      body,
-      icon: payload.icon ?? '/pulse-mark.svg',
-      badge: '/pulse-mark-white.svg',
-      tag,
-      // Re-fire the OS-level UI even when the same tag is reused (multiple
-      // mentions in the same channel still chime + show again).
-      renotify: true,
-      requireInteraction: false,
-      data
+    readDndFromIdb().then((dnd) => {
+      // DND: skip showNotification — badge counters keep incrementing server-side.
+      if (dnd) return;
+      return sw.registration.showNotification(title, {
+        body,
+        icon: payload.icon ?? '/pulse-mark.svg',
+        badge: '/pulse-mark-white.svg',
+        tag,
+        // Re-fire the OS-level UI even when the same tag is reused (multiple
+        // mentions in the same channel still chime + show again).
+        renotify: true,
+        requireInteraction: false,
+        data
+      });
     })
   );
 });

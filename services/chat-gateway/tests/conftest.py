@@ -246,6 +246,58 @@ def make_auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest_asyncio.fixture
+async def friend_pair(session_factory):
+    """Factory: install a Friendship row between (uid_a, uid_b).
+
+    Etappe-2 added a hard friend-gate to ``POST /dm-channels`` (and the
+    DM send-path) — tests that just want to use a DM as a "two-user
+    fan-out vehicle" wire up the friendship via this fixture, NOT via
+    a full /friend-requests → /accept round-trip (which would publish
+    extra WS events into the test's event stream).
+
+    Usage:
+        async def test_thing(client, _auth_signer, friend_pair):
+            t_a, uid_a = await _register(...)
+            t_b, uid_b = await _register(...)
+            await friend_pair(uid_a, uid_b)
+            # now POST /dm-channels works between them
+    """
+    from dcc_chat_gateway.models import Friendship
+
+    async def _install(uid_a: int, uid_b: int) -> None:
+        lo, hi = sorted((uid_a, uid_b))
+        async with session_factory() as s:
+            s.add(Friendship(user_a_id=lo, user_b_id=hi))
+            await s.commit()
+
+    return _install
+
+
+def install_friendship_sync(db_url: str, uid_a: int, uid_b: int) -> None:
+    """Synchronously install a friendship row (for ws_app tests).
+
+    ws_app uses its own runtime engine on a temp-file SQLite; this helper
+    spawns a short-lived sync engine against the same URL so test setup
+    can wire up friendships without going through REST (and without
+    importing the chat-gateway's async session machinery cross-loop).
+    """
+    from sqlalchemy import create_engine
+
+    sync_url = db_url.replace("+aiosqlite", "")
+    eng = create_engine(sync_url, future=True)
+    lo, hi = sorted((uid_a, uid_b))
+    try:
+        with eng.begin() as conn:
+            conn.exec_driver_sql(
+                "INSERT INTO friendships (user_a_id, user_b_id, created_at) "
+                "VALUES (?, ?, CURRENT_TIMESTAMP)",
+                (lo, hi),
+            )
+    finally:
+        eng.dispose()
+
+
 def receive_skipping(ws, ignore: set[str] = frozenset({"presence_update"})):
     """Receive the next JSON frame, transparently dropping ops in ``ignore``.
 

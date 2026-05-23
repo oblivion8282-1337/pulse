@@ -8,9 +8,11 @@ from dcc_chat_gateway.routes import (
     admin,
     attachments,
     bans,
+    blocks,
     capabilities,
     channels,
     dms,
+    friends,
     guild_icons,
     guilds,
     internal,
@@ -18,6 +20,8 @@ from dcc_chat_gateway.routes import (
     messages,
     notifications,
     permission_overwrites,
+    presence,
+    privacy,
     reactions,
     role_members,
     roles,
@@ -35,6 +39,9 @@ router.include_router(bans.router)
 router.include_router(guild_icons.router)
 router.include_router(channels.router)
 router.include_router(dms.router)
+router.include_router(friends.router)
+router.include_router(blocks.router)
+router.include_router(privacy.router)
 router.include_router(invites.router)
 router.include_router(roles.router)
 router.include_router(role_members.router)
@@ -49,6 +56,7 @@ router.include_router(watch.router)
 router.include_router(attachments.router)
 router.include_router(capabilities.router)
 router.include_router(notifications.router)
+router.include_router(presence.router)
 router.include_router(admin.router)
 router.include_router(internal.router)
 router.include_router(ws.router)

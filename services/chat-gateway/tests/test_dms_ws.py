@@ -12,7 +12,9 @@ import random
 import pytest
 from starlette.testclient import TestClient
 
-from .conftest import receive_skipping
+import dcc_chat_gateway.config as chat_cfg
+
+from .conftest import install_friendship_sync, receive_skipping
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -20,11 +22,17 @@ def _auth(token: str) -> dict[str, str]:
 
 
 def _bootstrap_dm_sync(tc: TestClient, signer) -> tuple[str, int, str, int, str]:
-    """Create two users + a DM channel between them; return tokens + ids."""
+    """Create two users + a DM channel between them; return tokens + ids.
+
+    Etappe-2: pre-installs a Friendship row (raw SQL into the ws_app's
+    tmp-file SQLite) so the friend-gated /dm-channels endpoint lets the
+    create through. Tests that exercise the friend-gate explicitly skip
+    this helper and call install_friendship_sync directly."""
     uid_a = random.randint(1, 1_000_000)
     uid_b = random.randint(1, 1_000_000)
     t_a = signer.issue_access(uid_a, f"a{uid_a}")
     t_b = signer.issue_access(uid_b, f"b{uid_b}")
+    install_friendship_sync(chat_cfg.get_settings().database_url, uid_a, uid_b)
     r = tc.post(
         "/dm-channels", json={"target_user_id": uid_b}, headers=_auth(t_a)
     )

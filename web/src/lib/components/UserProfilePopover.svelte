@@ -21,6 +21,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import NicknameDialog from './NicknameDialog.svelte';
   import PopoverActions from './PopoverActions.svelte';
+  import PopoverFriendActions from './PopoverFriendActions.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
@@ -122,6 +123,16 @@
         onClose={close}
         onOpenNickDialog={() => (nickDialogOpen = true)}
       />
+
+      {#if !isSelf}
+        <PopoverFriendActions
+          {userId}
+          {displayName}
+          popoverOpen={open}
+          onClose={close}
+          {onAction}
+        />
+      {/if}
 
       {#if extra}
         <div class="mt-3">

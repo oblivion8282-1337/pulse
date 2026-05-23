@@ -16,6 +16,12 @@
 import { goto } from '$app/navigation';
 import { isElectron } from '$lib/platform/runtime';
 import { settings } from '$lib/stores/settings.svelte';
+import { presence } from '$lib/stores/presence.svelte';
+
+/** True when the user has set DND — callers should suppress sounds + toasts. */
+export function isDnd(): boolean {
+  return presence.myStatus === 'dnd';
+}
 
 export type NotifyKind = 'mention' | 'dm';
 
@@ -36,6 +42,8 @@ function buildTargetUrl(channelId: string, guildId: string | null): string {
 }
 
 function shouldFire(kind: NotifyKind): boolean {
+  // DND suppresses both toasts and browser notifications.
+  if (presence.myStatus === 'dnd') return false;
   if (kind === 'mention' && !settings.notifications.onMention) return false;
   if (kind === 'dm' && !settings.notifications.onDM) return false;
   return true;

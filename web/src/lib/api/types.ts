@@ -103,6 +103,15 @@ export type DMChannel = {
   other_user_id: string;
   last_message_id: string | null;
   created_at: string;
+  /**
+   * Server-resolved gate: true iff a friendship exists AND no block sits
+   * between the two users in either direction. Drives the hard-cut DM
+   * composer disable (Etappe 4). Refreshed on every WS ``ready`` frame
+   * and after friendship / block lifecycle events via DM-list re-hydrate.
+   * Optional in the type to stay backwards-compat with older test payloads
+   * (treat undefined as ``true`` to avoid false-positive disables).
+   */
+  can_send?: boolean;
 };
 
 export type Member = {

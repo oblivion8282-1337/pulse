@@ -55,6 +55,20 @@ from sqlalchemy import or_, select, update
 
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionLocal
+from dcc_chat_gateway.friend_events import (
+    load_blocks_in,
+    load_blocks_out,
+)
+from dcc_chat_gateway.friend_helpers import (
+    block_exists_either_way,
+    friendship_exists,
+)
+from dcc_chat_gateway.friend_privacy import (
+    DEFAULT_DM_POLICY,
+    DEFAULT_FRIEND_REQ_POLICY,
+    DEFAULT_SHOW_IN_SEARCH,
+)
+from dcc_chat_gateway.friend_schemas import FriendRequestOut
 from dcc_chat_gateway.mentions import (
     MENTION_EVERYONE_RE,
     fan_out_mention_events,
@@ -67,12 +81,14 @@ from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     Channel,
     DirectMessageChannel,
+    FriendRequest,
     Guild,
     GuildMember,
     GuildSoundOverride,
     MemberRole,
     Message,
     Role,
+    UserPrivacy,
 )
 from dcc_chat_gateway.permissions import (
     resolve_guild_permissions_from_snapshot,
@@ -82,6 +98,16 @@ from dcc_chat_gateway.push import fan_out_mention_push
 from dcc_chat_gateway.routes import ws_watch
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.messages import serialize_message
+from dcc_chat_gateway.presence_status import (
+    STATUS_DND,
+    STATUS_INVISIBLE,
+    STATUS_ONLINE,
+    broadcast_presence_status_changed,
+    get_presence_status,
+    get_presence_statuses_bulk,
+    set_presence_status,
+    update_activity,
+)
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
 from dcc_chat_gateway.snowflake import next_id
 
@@ -329,19 +355,76 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             )
         )
         dm_rows = list((await session.execute(dm_stmt)).scalars())
-        dm_channels = [
-            {
-                "id": str(d.id),
-                "other_user_id": str(
-                    d.user_b_id if d.user_a_id == user.id else d.user_a_id
-                ),
-                "last_message_id": (
-                    str(d.last_message_id) if d.last_message_id is not None else None
-                ),
-                "created_at": d.created_at.isoformat(),
-            }
-            for d in dm_rows
-        ]
+
+        # ---- Etappe-2 friend-system payload (friends / pending requests /
+        # blocks / privacy). Loaded as a single small batch so the Ready
+        # round-trip stays one DB chunk. ``friend_set`` + ``blocks_*`` feed
+        # both the Ready frame AND the ConnectionManager's per-socket caches
+        # (hydrated below). ``friend_since`` is the per-friend "since"
+        # timestamp that the FE shows on the friends panel — built in the
+        # same SELECT to avoid an N+1.
+        from dcc_chat_gateway.models import Friendship as _Friendship
+
+        friendship_rows = list(
+            (
+                await session.execute(
+                    select(_Friendship).where(
+                        or_(
+                            _Friendship.user_a_id == user.id,
+                            _Friendship.user_b_id == user.id,
+                        )
+                    )
+                )
+            ).scalars()
+        )
+        friend_since: dict[int, str] = {}
+        friend_set: set[int] = set()
+        for fr in friendship_rows:
+            other = fr.user_b_id if fr.user_a_id == user.id else fr.user_a_id
+            friend_set.add(other)
+            friend_since[other] = fr.created_at.isoformat()
+        blocks_out_set = await load_blocks_out(session, user.id)
+        blocks_in_set = await load_blocks_in(session, user.id)
+        req_in_rows = list(
+            (
+                await session.execute(
+                    select(FriendRequest)
+                    .where(FriendRequest.receiver_id == user.id)
+                    .order_by(FriendRequest.created_at.desc())
+                )
+            ).scalars()
+        )
+        req_out_rows = list(
+            (
+                await session.execute(
+                    select(FriendRequest)
+                    .where(FriendRequest.sender_id == user.id)
+                    .order_by(FriendRequest.created_at.desc())
+                )
+            ).scalars()
+        )
+        privacy_row = await session.get(UserPrivacy, user.id)
+        # ``can_send`` per DM = friendship + no block. We already have both
+        # sets; intersect in-memory.
+        dm_channels = []
+        for d in dm_rows:
+            other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
+            can_send = (
+                other in friend_set
+                and other not in blocks_out_set
+                and other not in blocks_in_set
+            )
+            dm_channels.append(
+                {
+                    "id": str(d.id),
+                    "other_user_id": str(other),
+                    "last_message_id": (
+                        str(d.last_message_id) if d.last_message_id is not None else None
+                    ),
+                    "created_at": d.created_at.isoformat(),
+                    "can_send": can_send,
+                }
+            )
 
     # Hand the manager this socket's guild membership so precise cache
     # invalidation (on role mutations, guild_updated, etc.) only busts the
@@ -357,12 +440,68 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # who's currently muted by a mod without waiting for the next toggle.
     # All four are independent Redis reads — gather them so a slow Redis
     # roundtrip doesn't get multiplied by four.
+    redis = websocket.app.state.redis
     voice_states, stream_states, watch_states, voice_overrides = await asyncio.gather(
         manager.voice_states_for(voice_channel_ids),
         manager.stream_states_for(voice_channel_ids),
         manager.watch_states_for(voice_channel_ids),
         manager.voice_overrides_for(voice_channel_ids),
     )
+
+    # Etappe-3 presence status: own status (real) + visible users' statuses
+    # (masked). We batch-read for friends + guild members to build the map.
+    # Visible peers: union of confirmed friends and all guild members.
+    all_peer_ids: set[int] = set(friend_set)
+    if guild_ids:
+        async with SessionLocal() as session:
+            from sqlalchemy import select as _select
+
+            from dcc_chat_gateway.models import GuildMember as _GM
+
+            peer_rows = list(
+                (
+                    await session.execute(
+                        _select(_GM.user_id).where(
+                            _GM.guild_id.in_(guild_ids),
+                            _GM.user_id != user.id,
+                        )
+                    )
+                ).scalars()
+            )
+            all_peer_ids.update(peer_rows)
+
+    own_presence_status = await get_presence_status(redis, user.id)
+    peer_statuses_raw = await get_presence_statuses_bulk(redis, list(all_peer_ids))
+    # Mask invisible → offline for all peers (own status is delivered real).
+    from dcc_chat_gateway.presence_status import _mask as _psmask
+
+    user_presence_statuses: dict[str, str] = {
+        str(uid): _psmask(st) for uid, st in peer_statuses_raw.items()
+    }
+
+    # Hydrate the per-socket friend/block caches in the same loop so the
+    # very first mention fan-out / presence broadcast against this socket
+    # sees a warm state (no DB round-trip).
+    await manager.hydrate_friend_caches(
+        websocket,
+        friends=friend_set,
+        blocks_out=blocks_out_set,
+        blocks_in=blocks_in_set,
+    )
+
+    # Privacy row: defaults when no row exists yet (fresh account).
+    if privacy_row is None:
+        privacy_dict = {
+            "dm_policy": DEFAULT_DM_POLICY,
+            "friend_request_policy": DEFAULT_FRIEND_REQ_POLICY,
+            "show_in_search": DEFAULT_SHOW_IN_SEARCH,
+        }
+    else:
+        privacy_dict = {
+            "dm_policy": privacy_row.dm_policy,
+            "friend_request_policy": privacy_row.friend_request_policy,
+            "show_in_search": privacy_row.show_in_search,
+        }
 
     await websocket.send_json(
         {
@@ -375,6 +514,27 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "watch_states": watch_states,
             "voice_overrides": voice_overrides,
             "online_user_ids": manager.online_user_ids(),
+            # Etappe 2 friend-system Ready payload — clients seed their
+            # stores from this and live-sync via the lifecycle WS events.
+            "friends": [
+                {"user_id": str(uid), "since": friend_since[uid]}
+                for uid in sorted(friend_set)
+            ],
+            "friend_requests_in": [
+                FriendRequestOut.model_validate(r).model_dump(mode="json")
+                for r in req_in_rows
+            ],
+            "friend_requests_out": [
+                FriendRequestOut.model_validate(r).model_dump(mode="json")
+                for r in req_out_rows
+            ],
+            "blocked_user_ids": [str(u) for u in sorted(blocks_out_set)],
+            "privacy": privacy_dict,
+            # Etappe-3 presence status payload.
+            # ``presence_status``: the caller's own real status (never masked).
+            # ``user_presence_statuses``: map of visible peers → masked status.
+            "presence_status": own_presence_status,
+            "user_presence_statuses": user_presence_statuses,
         }
     )
 
@@ -547,6 +707,24 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                             {"op": "error", "code": 4006, "msg": "channel not accessible"}
                         )
                         continue
+                    # Etappe 2 friend-gate for DMs (mirrors routes/messages.py
+                    # POST /channels/{id}/messages). A historical DM (pre-
+                    # friend-cut) cannot send any more. Errors share the same
+                    # 4014 code so the FE can branch on the detail string.
+                    if kind == "dm" and dm_pair is not None:
+                        other = (
+                            dm_pair[1] if dm_pair[0] == user.id else dm_pair[0]
+                        )
+                        if await block_exists_either_way(session, user.id, other):
+                            await websocket.send_json(
+                                {"op": "error", "code": 4014, "msg": "blocked"}
+                            )
+                            continue
+                        if not await friendship_exists(session, user.id, other):
+                            await websocket.send_json(
+                                {"op": "error", "code": 4014, "msg": "not_friends"}
+                            )
+                            continue
                     # SEND_MESSAGES gate for guild channels. Mirrors the REST
                     # `POST /channels/{id}/messages` check; DMs bypass (no
                     # channel overwrites apply). VIEW_CHANNEL alone is not
@@ -760,6 +938,25 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                 await ws_watch.handle_control(websocket, user, msg)
             elif op == "watch_heartbeat":
                 await ws_watch.handle_heartbeat(websocket, user, msg)
+            elif op == "activity":
+                # Etappe-3: client heartbeat / mouse-move / key-press.
+                # Update the presence:activity ZSET and, if the user's current
+                # status is ``idle``, flip it back to ``online`` and broadcast.
+                # DND / invisible are manual overrides — not overwritten.
+                try:
+                    await update_activity(redis, user.id)
+                    current_status = await get_presence_status(redis, user.id)
+                    if current_status == STATUS_ONLINE:
+                        pass  # already online, nothing to broadcast
+                    elif current_status not in (STATUS_DND, STATUS_INVISIBLE):
+                        # Was idle → return to online
+                        await set_presence_status(redis, user.id, STATUS_ONLINE)
+                        await broadcast_presence_status_changed(
+                            manager, redis, user.id, STATUS_ONLINE
+                        )
+                except Exception:  # noqa: BLE001
+                    log.exception("activity op failed for user=%s", user.id)
+                # No reply — lightweight, fire-and-forget
             else:
                 await websocket.send_json({"op": "error", "code": 4007, "msg": f"unknown op: {op}"})
     finally:

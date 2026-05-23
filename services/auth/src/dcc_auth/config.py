@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     # (messages purged too). Keep the bucket *very* tight — a stolen access
     # token shouldn't be able to nuke an account before the user notices.
     rate_limit_account_delete: str = "3/hour"
+    # User-search (``GET /users/search``). 30/min/user is generous enough
+    # for autocomplete-style "type-then-fetch" UIs but blocks bulk
+    # username enumeration. The endpoint is also gated by
+    # ``users.discoverable`` (opt-out) so the limit is the second line of
+    # defence, not the first.
+    rate_limit_user_search: str = "30/minute"
 
     # Cross-service: auth → chat-gateway. ``DELETE /me`` calls
     # ``POST {chat_gateway_url}/internal/users/{id}/purge`` to hard-delete the
@@ -164,6 +170,7 @@ class Settings(BaseSettings):
         "rate_limit_webauthn_register",
         "rate_limit_webauthn_login",
         "rate_limit_account_delete",
+        "rate_limit_user_search",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

@@ -37,9 +37,10 @@ async def _make_guild_with_channel(client, _auth_signer):
     return t1, uid1, t2, uid2, c["id"]
 
 
-async def _make_dm(client, _auth_signer):
+async def _make_dm(client, _auth_signer, friend_pair):
     t_a, uid_a = await _register_user(_auth_signer)
     t_b, uid_b = await _register_user(_auth_signer)
+    await friend_pair(uid_a, uid_b)
     dm = (
         await client.post(
             "/dm-channels", json={"target_user_id": str(uid_b)}, headers=auth(t_a)
@@ -69,10 +70,10 @@ async def test_guild_reaction_add_and_remove(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_reaction_add_and_remove(client, _auth_signer):
+async def test_dm_reaction_add_and_remove(client, _auth_signer, friend_pair):
     """Regression: DM reactions used to always 404 because reactions.py
     looked up the channel in the guild ``Channel`` table only."""
-    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer)
+    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     msg = (
         await client.post(
             f"/channels/{dm_id}/messages", json={"content": "dm hi"}, headers=auth(t_a)
@@ -91,9 +92,9 @@ async def test_dm_reaction_add_and_remove(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_non_member_cannot_react_to_dm(client, _auth_signer):
+async def test_non_member_cannot_react_to_dm(client, _auth_signer, friend_pair):
     """A third user (not in the DM) gets 404 — same status as listing the DM."""
-    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer)
+    t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     msg = (
         await client.post(
             f"/channels/{dm_id}/messages", json={"content": "private"}, headers=auth(t_a)

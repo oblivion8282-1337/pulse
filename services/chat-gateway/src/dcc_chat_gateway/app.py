@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
+from dcc_chat_gateway.presence_status import idle_sweeper_loop
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import engine
 from dcc_chat_gateway.pubsub import ConnectionManager
@@ -66,6 +67,7 @@ async def lifespan(app: FastAPI):
     supervisor: asyncio.Task | None = None
     reaper: asyncio.Task | None = None
     push_cleanup: asyncio.Task | None = None
+    idle_sweeper: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -91,11 +93,16 @@ async def lifespan(app: FastAPI):
         push_cleanup = asyncio.create_task(
             push_cleanup_loop(settings, engine), name="dcc-push-subscription-cleanup"
         )
+        # Presence idle sweeper — demotes ``online`` users with stale
+        # activity to ``idle`` (Etappe 3).
+        idle_sweeper = asyncio.create_task(
+            idle_sweeper_loop(redis), name="dcc-presence-idle-sweeper"
+        )
     try:
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper, push_cleanup):
+            for task in (supervisor, reaper, push_cleanup, idle_sweeper):
                 if task is not None:
                     task.cancel()
                     try:

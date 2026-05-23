@@ -30,6 +30,8 @@ from dcc_chat_gateway.models import (
     MENTION_TYPE_USER,
     Channel,
     DirectMessageChannel,
+    FriendRequest,
+    Friendship,
     Guild,
     GuildBan,
     GuildMember,
@@ -39,6 +41,8 @@ from dcc_chat_gateway.models import (
     MessageMention,
     MessageReaction,
     PermissionOverwrite,
+    UserBlock,
+    UserPrivacy,
     WebPushSubscription,
 )
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
@@ -190,6 +194,37 @@ async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
     # whole channel + every message in it).
     dm_ids = await _collect_dm_channel_ids(session, user_id)
     await _delete_dm_channels(session, dm_ids)
+
+    # 10. Friendship system (Etappe 1): friendships, pending friend-
+    # requests, blocks both directions, privacy row. Same pattern as
+    # the DM cleanup — drop every row that mentions the user.
+    await session.execute(
+        sa_delete(Friendship).where(
+            or_(
+                Friendship.user_a_id == user_id,
+                Friendship.user_b_id == user_id,
+            )
+        )
+    )
+    await session.execute(
+        sa_delete(FriendRequest).where(
+            or_(
+                FriendRequest.sender_id == user_id,
+                FriendRequest.receiver_id == user_id,
+            )
+        )
+    )
+    await session.execute(
+        sa_delete(UserBlock).where(
+            or_(
+                UserBlock.blocker_id == user_id,
+                UserBlock.blocked_id == user_id,
+            )
+        )
+    )
+    await session.execute(
+        sa_delete(UserPrivacy).where(UserPrivacy.user_id == user_id)
+    )
 
     return owned_guild_ids
 

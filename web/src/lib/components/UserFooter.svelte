@@ -15,6 +15,7 @@
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
   import AvatarUploadDialog from './AvatarUploadDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
+  import StatusPicker from './StatusPicker.svelte';
   import ImagePlusIcon from '@lucide/svelte/icons/image-plus';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SettingsIcon from '@lucide/svelte/icons/settings';
@@ -160,5 +161,6 @@
         {@render menuItems()}
       </DropdownMenu.Content>
     </DropdownMenu.Root>
+    <StatusPicker />
   </div>
 {/if}

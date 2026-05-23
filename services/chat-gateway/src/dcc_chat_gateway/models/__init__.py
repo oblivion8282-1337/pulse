@@ -13,6 +13,12 @@ from dcc_chat_gateway.models.channels import (
     Channel,
     DirectMessageChannel,
 )
+from dcc_chat_gateway.models.friendships import (
+    FriendRequest,
+    Friendship,
+    UserBlock,
+    UserPrivacy,
+)
 from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
 from dcc_chat_gateway.models.messages import (
     MENTION_EVERYONE_TARGET_ID,
@@ -39,6 +45,8 @@ __all__ = [
     "Channel",
     "ChatSettings",
     "DirectMessageChannel",
+    "FriendRequest",
+    "Friendship",
     "Guild",
     "GuildBan",
     "GuildInvite",
@@ -51,5 +59,7 @@ __all__ = [
     "MessageReaction",
     "PermissionOverwrite",
     "Role",
+    "UserBlock",
+    "UserPrivacy",
     "WebPushSubscription",
 ]

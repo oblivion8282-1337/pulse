@@ -7,6 +7,7 @@
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -61,6 +62,11 @@
     ]);
     hydrated = true;
 
+    // Etappe 4: presence activity heartbeat. Throttled (≤1/60s) fire-and-
+    // forget op that keeps the user off the idle sweeper. Wired up here
+    // so it lives exactly as long as the /app session.
+    initActivityHeartbeat();
+
     // Channel-prefetch: now that Ready has populated guilds.byId, kick off
     // a `listChannels` for every guild in the background. Fire-and-forget
     // — the user can navigate the moment the layout paints, and whichever
@@ -102,6 +108,7 @@
   });
 
   onDestroy(() => {
+    disposeActivityHeartbeat();
     gateway.disconnect();
     void import('$lib/voice/livekit.svelte').then(({ voice }) => voice.disconnect());
     if (typeof document !== 'undefined') document.title = 'Pulse';

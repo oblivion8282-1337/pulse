@@ -7,6 +7,7 @@
   import SettingsSounds from './settings/SettingsSounds.svelte';
   import SettingsSecurity from './settings/SettingsSecurity.svelte';
   import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
+  import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -14,6 +15,7 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import KeyboardIcon from '@lucide/svelte/icons/keyboard';
   import ShieldIcon from '@lucide/svelte/icons/shield';
+  import LockIcon from '@lucide/svelte/icons/lock';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
@@ -26,7 +28,8 @@
     | 'notifications'
     | 'sounds'
     | 'keyboard'
-    | 'security';
+    | 'security'
+    | 'privacy';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -64,6 +67,7 @@
     { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon },
     { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
     { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon, desktopOnly: true },
+    { id: 'privacy', label: 'Privatsphäre', icon: LockIcon },
     { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
   ];
 
@@ -139,6 +143,8 @@
           <SettingsSounds />
         {:else if activeTab === 'keyboard'}
           <SettingsKeyboard />
+        {:else if activeTab === 'privacy'}
+          <SettingsPrivacy />
         {:else}
           <SettingsSecurity />
         {/if}

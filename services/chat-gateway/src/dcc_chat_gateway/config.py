@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     voice_signaling_timeout_s: float = 3.0
     internal_service_secret: str = ""
 
+    # auth-svc base URL — used by the privacy route to mirror
+    # ``show_in_search`` flips over to ``auth.users.discoverable``. The
+    # call uses ``internal_service_secret`` for auth (single shared secret
+    # across all service-to-service traffic). Failure to reach auth-svc
+    # is logged + swallowed: chat-gateway has already committed the user
+    # privacy row, the auth side will be reconciled on the next flip or
+    # by a manual operator nudge.
+    auth_svc_url: str = "http://127.0.0.1:8001"
+    auth_svc_timeout_s: float = 3.0
+
     snowflake_worker_id_chat: int = Field(default=2, ge=0, le=1023)
 
     # Guild-icon uploads (owner-only). Resized to 256px webp, served via

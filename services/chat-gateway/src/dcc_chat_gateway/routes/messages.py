@@ -20,6 +20,10 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.friend_helpers import (
+    block_exists_either_way,
+    friendship_exists,
+)
 from dcc_chat_gateway.mentions import (
     MENTION_EVERYONE_RE as _MENTION_EVERYONE_RE,
 )
@@ -137,6 +141,19 @@ async def post_message(
     if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
         # Voice channels reject text posts. DM channels are always text-only.
         raise HTTPException(404, detail="text channel not found")
+    if kind == "dm":
+        # Etappe 2 friend-gate: a DM send requires both sides to still be
+        # friends with no block in either direction. Pre-existing rows from
+        # Phase 1 stay in the table but become send-locked (tombstone) when
+        # one party unfriends or blocks. The 403 detail mirrors the create
+        # endpoint so clients can branch on the same string set.
+        other = ch.user_b_id if ch.user_a_id == current.id else ch.user_a_id
+        if await block_exists_either_way(session, current.id, other):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="blocked")
+        if not await friendship_exists(session, current.id, other):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, detail="not_friends"
+            )
     # SEND_MESSAGES + MENTION_EVERYONE gates (guild channels only — DMs have
     # no permission overlay). Resolve once and bit-check locally.
     perms = 0  # DM-path default; mentions.filter_to_valid treats it as

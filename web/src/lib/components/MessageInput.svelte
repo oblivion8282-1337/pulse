@@ -21,13 +21,23 @@
     placeholder = 'Nachricht senden',
     onSend,
     replyTo = null,
-    onCancelReply
+    onCancelReply,
+    disabled = false,
+    disabledReason = ''
   }: {
     channelId?: string | null;
     placeholder?: string;
     onSend: (text: string, attachmentIds: string[]) => void;
     replyTo?: { id: string; author: string; snippet: string } | null;
     onCancelReply?: () => void;
+    /** When true the input, attachment button and submit are inert. Used
+     *  by the DM hard-cut foundation (Etappe 4): DMs without a confirmed
+     *  friendship freeze the composer until friendship resumes. The
+     *  banner UI lives in Etappe 5 — this prop only locks the form. */
+    disabled?: boolean;
+    /** Optional explanatory text shown in the input's placeholder when
+     *  ``disabled`` is true (otherwise unused). */
+    disabledReason?: string;
   } = $props();
 
   const attachmentsEnabled = $derived(channelId !== null);
@@ -58,7 +68,12 @@
   });
 
   const anyUploading = $derived(pending.some((p) => p.state === 'uploading' || p.state === 'queued'));
-  const sendDisabled = $derived((text.trim().length === 0 && pending.length === 0) || anyUploading);
+  const sendDisabled = $derived(
+    disabled || (text.trim().length === 0 && pending.length === 0) || anyUploading
+  );
+  const effectivePlaceholder = $derived(
+    disabled && disabledReason ? disabledReason : placeholder
+  );
 
   function addFiles(files: FileList | File[]): void {
     if (!channelId) return; // attachmentsEnabled=false → ignore drops/pastes silently
@@ -215,8 +230,9 @@
       onclick={() => mentionOverlay?.update()}
       onpaste={onPaste}
       onblur={() => mentionOverlay?.close()}
-      {placeholder}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[2rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none md:min-h-[1.5rem]"
+      placeholder={effectivePlaceholder}
+      {disabled}
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[2rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-[1.5rem]"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
