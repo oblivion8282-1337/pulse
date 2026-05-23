@@ -12,6 +12,8 @@ import random
 import pytest
 from starlette.testclient import TestClient
 
+from .conftest import receive_skipping
+
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
@@ -103,8 +105,8 @@ async def test_ws_dm_send_and_fanout(ws_app, _auth_signer):
                 tc.websocket_connect(f"/ws?token={t_a}") as ws_a,
                 tc.websocket_connect(f"/ws?token={t_b}") as ws_b,
             ):
-                ws_a.receive_json()
-                ws_b.receive_json()
+                receive_skipping(ws_a)  # ready
+                receive_skipping(ws_b)  # ready
                 ws_a.send_json({"op": "subscribe", "channel_id": dm_id})
                 ws_b.send_json({"op": "subscribe", "channel_id": dm_id})
 
@@ -117,14 +119,14 @@ async def test_ws_dm_send_and_fanout(ws_app, _auth_signer):
                     }
                 )
 
-                msgs_a = [ws_a.receive_json() for _ in range(2)]
+                msgs_a = [receive_skipping(ws_a) for _ in range(2)]
                 ops_a = [m["op"] for m in msgs_a]
                 assert "message_ack" in ops_a
                 assert "message" in ops_a
                 ack = next(m for m in msgs_a if m["op"] == "message_ack")
                 assert ack["nonce"] == "dm-n1"
 
-                got = ws_b.receive_json()
+                got = receive_skipping(ws_b)
                 assert got["op"] == "message"
                 assert got["data"]["content"] == "hallo per dm"
                 assert got["data"]["channel_id"] == dm_id
@@ -144,8 +146,8 @@ async def test_ws_dm_send_publishes_dm_bump(ws_app, _auth_signer):
                 tc.websocket_connect(f"/ws?token={t_a}") as ws_a,
                 tc.websocket_connect(f"/ws?token={t_b}") as ws_b,
             ):
-                ws_a.receive_json()
-                ws_b.receive_json()
+                receive_skipping(ws_a)  # ready
+                receive_skipping(ws_b)  # ready
                 # A sends without subscribing — exercises the slow path
                 # (membership resolved + dm_pair filled from the DM object).
                 ws_a.send_json(
@@ -161,7 +163,7 @@ async def test_ws_dm_send_publishes_dm_bump(ws_app, _auth_signer):
                 seen_ack = False
                 seen_bump = False
                 for _ in range(2):
-                    m = ws_a.receive_json()
+                    m = receive_skipping(ws_a)
                     if m["op"] == "message_ack":
                         seen_ack = True
                     elif m["op"] == "dm_bump":
@@ -174,7 +176,7 @@ async def test_ws_dm_send_publishes_dm_bump(ws_app, _auth_signer):
                         seen_bump = True
                 assert seen_ack and seen_bump
                 # B also sees the dm_bump (fanned to all connections).
-                b_bump = ws_b.receive_json()
+                b_bump = receive_skipping(ws_b)
                 assert b_bump["op"] == "dm_bump"
                 assert b_bump["channel_id"] == dm_id
 

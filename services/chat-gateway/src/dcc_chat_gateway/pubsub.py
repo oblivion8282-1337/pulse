@@ -978,6 +978,24 @@ class ConnectionManager:
                     # than blasted to every connected socket. Other ops keep
                     # the wide broadcast pattern they were built on.
                     targets = self._filter_targets_by_guild(payload, targets)
+                    # ``presence_update`` is broadcast to *every* connected
+                    # socket so clients learn about online/offline transitions
+                    # in any guild they share — but we never deliver the event
+                    # for our OWN user to OUR sockets. Semantically meaningless
+                    # (the client trivially knows it's online), and avoids the
+                    # listener-loop racing the first-connect event ahead of
+                    # this socket's own ``ready`` frame.
+                    if payload.get("op") == "presence_update":
+                        try:
+                            self_uid = int(payload.get("user_id", "0"))
+                        except (TypeError, ValueError):
+                            self_uid = 0
+                        if self_uid:
+                            targets = [
+                                ws for ws in targets
+                                if (u := self._ws_user.get(ws)) is None
+                                or u.id != self_uid
+                            ]
                     # ``channel_bump`` carries no body, but still flags a
                     # channel as unread + plays a ping sound. On top of the
                     # guild-member scoping above, gate it on VIEW_CHANNEL so a

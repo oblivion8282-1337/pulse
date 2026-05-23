@@ -15,6 +15,8 @@ import random
 import pytest
 from starlette.testclient import TestClient
 
+from .conftest import receive_skipping
+
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
@@ -74,8 +76,8 @@ async def test_ws_send_and_fanout(ws_app, _auth_signer):
                 tc.websocket_connect(f"/ws?token={owner_token}") as ws1,
                 tc.websocket_connect(f"/ws?token={member_token}") as ws2,
             ):
-                ws1.receive_json()  # ready
-                ws2.receive_json()
+                receive_skipping(ws1)  # ready
+                receive_skipping(ws2)  # ready
 
                 ws1.send_json({"op": "subscribe", "channel_id": channel_id})
                 ws2.send_json({"op": "subscribe", "channel_id": channel_id})
@@ -90,14 +92,14 @@ async def test_ws_send_and_fanout(ws_app, _auth_signer):
                 )
 
                 # Author gets ack + the broadcast (order is not guaranteed).
-                msgs1 = [ws1.receive_json() for _ in range(2)]
+                msgs1 = [receive_skipping(ws1) for _ in range(2)]
                 ops1 = [m["op"] for m in msgs1]
                 assert "message_ack" in ops1
                 assert "message" in ops1
                 ack = next(m for m in msgs1 if m["op"] == "message_ack")
                 assert ack["nonce"] == "n1"
 
-                got = ws2.receive_json()
+                got = receive_skipping(ws2)
                 assert got["op"] == "message"
                 assert got["data"]["content"] == "hello world"
 

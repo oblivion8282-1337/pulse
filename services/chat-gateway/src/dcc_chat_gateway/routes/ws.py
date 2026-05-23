@@ -350,11 +350,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # point are live-applied in the manager's listener from
     # ``guild_member_added`` / ``guild_deleted`` events.
     await manager.set_guild_membership(websocket, guild_ids)
-    if manager.user_socket_count(user.id) == 1:
-        try:
-            await manager.broadcast_presence_update(str(user.id), online=True)
-        except Exception:  # noqa: BLE001
-            log.exception("broadcast_presence_update(online=True) failed for user=%s", user.id)
 
     # HQ streaming + watch parties only happen in voice channels, so the
     # relevant channel set is the same one. Force-mute / force-deafen
@@ -382,6 +377,17 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             "online_user_ids": manager.online_user_ids(),
         }
     )
+
+    # Presence broadcast goes out AFTER `ready` so the listener loop cannot
+    # race a ``presence_update`` ahead of this socket's own ``ready`` frame
+    # (Redis publish + fan-out runs concurrently with this coroutine, and
+    # the listener would otherwise deliver our own first-connect event to
+    # us before we've sent ready).
+    if manager.user_socket_count(user.id) == 1:
+        try:
+            await manager.broadcast_presence_update(str(user.id), online=True)
+        except Exception:  # noqa: BLE001
+            log.exception("broadcast_presence_update(online=True) failed for user=%s", user.id)
 
     try:
         while True:

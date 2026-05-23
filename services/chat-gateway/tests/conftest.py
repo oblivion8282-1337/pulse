@@ -244,3 +244,18 @@ async def admin_token(_auth_signer):
 
 def make_auth_header(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def receive_skipping(ws, ignore: set[str] = frozenset({"presence_update"})):
+    """Receive the next JSON frame, transparently dropping ops in ``ignore``.
+
+    Presence broadcasts cross every connected socket of every other user, so
+    any test that opens a second WS while the first is still around now sees a
+    ``presence_update`` frame mixed into the per-test fan-out stream. The
+    payload itself is not what these tests are exercising, so just skip it.
+    """
+    while True:
+        m = ws.receive_json()
+        if m.get("op") in ignore:
+            continue
+        return m
