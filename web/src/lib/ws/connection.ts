@@ -5,275 +5,59 @@
  * - Re-subscribes to remembered channels after reconnect
  * - Refreshes the access token before each connect attempt
  * - On a 4001 close (expired/invalid token) forces a token refresh first
+ *
+ * The op-switch lives in `handlers/*` (Phase 2c of the plugin-system
+ * plan). This file owns connection lifecycle, the pre-ready buffer,
+ * send helpers and the `gateway.on()` listener fan-out. Adding a new
+ * server op = add a variant to `handlers/types.ts` + a handler in the
+ * matching domain module; this file stays untouched. Gap-fill +
+ * voice-join/leave-sounds live in their own sibling modules
+ * (`gapFill.ts`, `voiceDiff.ts`).
  */
 
 import { currentAccessToken } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
-import { messages } from '$lib/stores/messages.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
-import { directMessages } from '$lib/stores/directMessages.svelte';
 import { auth } from '$lib/stores/auth.svelte';
-import {
-  voicePresence,
-  type UserVoiceState,
-  type VoiceChannelState
-} from '$lib/stores/voicePresence.svelte';
-import { streamPresence, type StreamChannelState } from '$lib/stores/streamPresence.svelte';
-import { streamChat, type StreamChatMessage } from '$lib/stores/streamChat.svelte';
-import { watchChat, type WatchChatMessage } from '$lib/stores/watchChat.svelte';
-import {
-  watchPartyPresence,
-  type WatchChannelEntry,
-  type WatchPartyState
-} from '$lib/stores/watchPartyPresence.svelte';
-import { readState } from '$lib/stores/readState.svelte';
-import { userCache } from '$lib/stores/users.svelte';
-import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
 import { sounds } from '$lib/sounds/engine';
-import { capabilities } from '$lib/stores/capabilities.svelte';
-import { guildSounds } from '$lib/stores/guildSounds.svelte';
-import { roles } from '$lib/stores/roles.svelte';
-import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
-import { memberRoles } from '$lib/stores/memberRoles.svelte';
-import {
-  presence,
-  type PresenceStatus,
-  type OwnPresenceStatus
-} from '$lib/stores/presence.svelte';
-import { friends } from '$lib/stores/friends.svelte';
-import { friendRequests, type FriendRequest } from '$lib/stores/friendRequests.svelte';
-import { blocks } from '$lib/stores/blocks.svelte';
-import { privacy, type PrivacySettings } from '$lib/stores/privacy.svelte';
-import { goto } from '$app/navigation';
-import { toast } from 'svelte-sonner';
-import type { DMChannel, Guild, Message } from '$lib/api/types';
-import type { Role as RolePayload, Overwrite as OverwritePayload } from '$lib/api/roles';
+import { dispatch } from './handler-registry';
+import { registerAllHandlers } from './handlers';
+import { gapFillAll, gapFillChannel } from './gapFill';
+import { fireVoiceDiff } from './voiceDiff';
+import type { ServerEvent, ClientEvent } from './handlers/types';
 
-export type ChannelPayload = {
-  id: string;
-  guild_id: string;
-  name: string;
-  type: number;
-  position: number;
-  topic: string | null;
-  created_at?: string;
-};
-
-export type GuildPayload = {
-  id: string;
-  name: string;
-  icon_url: string | null;
-  owner_id: string;
-};
-
-type ReactionEvent = {
-  message_id: string;
-  channel_id: string;
-  user_id: string;
-  emoji: string;
-};
-
-/** Per-guild slice of the ready frame. The role/permission fields were
- * added in Phase 3 (server-side); older payloads (e.g. mocked tests) may
- * still omit them. */
-export type ReadyGuild = {
-  id: string;
-  name: string;
-  icon_url?: string | null;
-  created_at?: string;
-  owner_id?: string;
-  my_permissions?: string;
-  my_role_ids?: string[];
-  roles?: RolePayload[];
-  sound_overrides?: { sound_id: string; url: string }[];
-};
-
-type ServerEvent =
-  | {
-      op: 'ready';
-      user_id: string;
-      guilds: ReadyGuild[];
-      dm_channels?: DMChannel[];
-      voice_states?: VoiceChannelState[];
-      stream_states?: StreamChannelState[];
-      watch_states?: WatchChannelEntry[];
-      online_user_ids?: string[];
-      voice_overrides?: {
-        channel_id: string;
-        user_id: string;
-        muted: boolean;
-        deafened: boolean;
-      }[];
-      // Etappe 4 friend-system payload — all optional so older mocked
-      // ready frames in tests keep validating cleanly.
-      friends?: { user_id: string; since: string }[];
-      friend_requests_in?: FriendRequest[];
-      friend_requests_out?: FriendRequest[];
-      blocked_user_ids?: string[];
-      privacy?: PrivacySettings;
-      presence_status?: OwnPresenceStatus;
-      user_presence_statuses?: Record<string, PresenceStatus>;
-    }
-  | { op: 'message'; data: Message }
-  | { op: 'message_update'; data: Message }
-  | { op: 'message_delete'; data: { id: string; channel_id: string } }
-  | { op: 'reaction_add'; data: ReactionEvent }
-  | { op: 'reaction_remove'; data: ReactionEvent }
-  | { op: 'message_ack'; nonce: string | null; id: string }
-  | { op: 'channel_created'; channel: ChannelPayload }
-  | { op: 'channel_updated'; channel: ChannelPayload }
-  | { op: 'channel_deleted'; guild_id: string; channel_id: string }
-  | {
-      op: 'channel_bump';
-      guild_id: string;
-      channel_id: string;
-      message_id: string;
-      author_id: string;
-    }
-  | {
-      // DM activity envelope. Carries the (a, b) pair so each receiving
-      // client decides locally whether it's a member; non-members ignore.
-      op: 'dm_bump';
-      channel_id: string;
-      user_a_id: string;
-      user_b_id: string;
-      message_id: string;
-      author_id: string;
-    }
-  | { op: 'guild_updated'; guild: GuildPayload }
-  | { op: 'guild_deleted'; guild_id: string }
-  | { op: 'guild_member_added'; guild_id: string; user_id: string }
-  | { op: 'guild_member_removed'; guild_id: string; user_id: string }
-  | {
-      op: 'guild_ban_added';
-      guild_id: string;
-      user_id: string;
-      reason?: string | null;
-    }
-  | { op: 'guild_ban_removed'; guild_id: string; user_id: string }
-  | {
-      op: 'guild_member_updated';
-      guild_id: string;
-      user_id: string;
-      nickname: string | null;
-    }
-  | {
-      op: 'voice_state';
-      channel_id: string;
-      user_ids: string[];
-      streaming_user_ids?: string[];
-      user_states?: Record<string, UserVoiceState>;
-    }
-  | {
-      op: 'voice_override';
-      channel_id: string;
-      user_id: string;
-      muted: boolean;
-      deafened: boolean;
-    }
-  | {
-      op: 'voice_disconnect';
-      channel_id: string;
-      user_id: string;
-    }
-  | { op: 'stream_state'; channel_id: string; user_ids: string[] }
-  | { op: 'presence_update'; user_id: string; online: boolean }
-  | {
-      op: 'stream_chat_message';
-      channel_id: string;
-      streamer_id: string;
-      message: StreamChatMessage;
-    }
-  | { op: 'watch_state'; channel_id: string; state: WatchPartyState | null }
-  | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
-  | {
-      op: 'permissions_updated';
-      allow_guild_creation: boolean;
-      allow_member_invites: boolean;
-      guild_sound_max_size_bytes?: number;
-    }
-  | {
-      op: 'guild_sound_updated';
-      guild_id: string;
-      sound_id: string;
-      removed: boolean;
-    }
-  | { op: 'role_created'; role: RolePayload }
-  | { op: 'role_updated'; role: RolePayload }
-  | { op: 'role_deleted'; guild_id: string; role_id: string }
-  | { op: 'member_roles_updated'; guild_id: string; user_id: string }
-  | {
-      op: 'channel_permissions_updated';
-      guild_id: string;
-      channel_id: string;
-      overwrites: OverwritePayload[];
-    }
-  | {
-      // Per-user mention notification — fanned out only to sockets owned
-      // by mentioned users, so we can bump the channel's mention counter
-      // even if the user isn't currently viewing or subscribed to it.
-      op: 'mention_added';
-      // `guild_id` is null for DMs (the channel isn't part of a guild). The
-      // backend stringifies guild_id when present (Snowflake-as-string across
-      // the wire — see CLAUDE.md) and emits null for the DM case.
-      data: { channel_id: string; message_id: string; guild_id: string | null };
-    }
-  // ---- Etappe 4 friend system ------------------------------------------
-  | { op: 'friend_request_received'; data: FriendRequest }
-  | {
-      op: 'friend_request_accepted';
-      data: { request_id: string; friendship: { user_id: string; since: string } };
-    }
-  | { op: 'friend_request_declined'; data: { request_id: string } }
-  | { op: 'friend_request_cancelled'; data: { request_id: string } }
-  | { op: 'friend_removed'; data: { user_id: string } }
-  | { op: 'user_blocked'; data: { user_id: string } }
-  | { op: 'user_unblocked'; data: { user_id: string } }
-  | {
-      op: 'presence_status_changed';
-      data: { user_id: string; status: PresenceStatus | 'invisible' };
-    }
-  | { op: 'error'; code: number; msg: string };
-
-type ClientEvent =
-  | { op: 'subscribe'; channel_id: string }
-  | { op: 'unsubscribe'; channel_id: string }
-  | { op: 'send'; channel_id: string; content: string; nonce: string; reply_to_id?: string | null }
-  | {
-      op: 'voice_self_state';
-      channel_id: string | null;
-      mic_muted: boolean;
-      deafened: boolean;
-    }
-  | { op: 'watch_start'; channel_id: string; source_url: string }
-  | { op: 'watch_stop'; channel_id: string }
-  | {
-      op: 'watch_control';
-      channel_id: string;
-      action: 'play' | 'pause' | 'seek';
-      position: number;
-    }
-  | { op: 'watch_heartbeat'; channel_id: string; position: number }
-  | { op: 'activity' };
+// Re-exports so existing import sites (`import type { ChannelPayload } from
+// '$lib/ws/connection'`) keep working without ripple changes.
+export type {
+  ServerEvent,
+  ClientEvent,
+  ChannelPayload,
+  GuildPayload,
+  ReadyGuild
+} from './handlers/types';
 
 const BACKOFF_MS = [1000, 2000, 5000, 10000, 30000];
 
-// Sound-suppression: when a `mention_added` arrives, we record its message_id
-// briefly so the matching `channel_bump` / `dm_bump` (which fan out separately)
-// doesn't fire the generic message/dm sound on top of the mention chime.
-// The reverse order is best-effort — if the bump arrives first, both play.
-const MENTION_SUPPRESSION_MS = 1500;
-const _recentMentions = new Set<string>();
-function _markRecentMention(messageId: string): void {
-  _recentMentions.add(messageId);
-  setTimeout(() => _recentMentions.delete(messageId), MENTION_SUPPRESSION_MS);
-}
+// Ops that get held back until `ready` has populated guilds.byId. Every
+// other op is safe to dispatch immediately. Listed as the *small* side
+// (buffer-9 vs deliver-34) so adding a new safe-to-deliver op is a no-op
+// here. Anything that walks `guilds.byId` / `guilds.channelsByGuild`
+// needs to be added (channel + guild lifecycle, sound refresh).
+const BUFFER_BEFORE_READY: ReadonlySet<ServerEvent['op']> = new Set([
+  'channel_created',
+  'channel_updated',
+  'channel_deleted',
+  'channel_bump',
+  'dm_bump',
+  'guild_updated',
+  'guild_deleted',
+  'guild_member_added',
+  'guild_sound_updated'
+]);
 
 export type WsListener = (evt: ServerEvent) => void;
-
 /** Optional hook fired when the channel the user is viewing gets deleted. */
 export type ChannelDeletedHook = (guildId: string, channelId: string) => void;
-
 /** Optional hook fired when the guild the user is viewing gets deleted. */
 export type GuildDeletedHook = (guildId: string) => void;
 
@@ -296,10 +80,37 @@ export class GatewayConnection {
   private _preReadyBuffer: ServerEvent[] = [];
   // Resolved when the *current* connection's Ready frame has been processed.
   // The /app layout awaits this so it doesn't render with an empty
-  // `guilds.byId` between WS-open and Ready arrival (which would flash a
-  // blank GuildRail). Replaced on each new connection.
+  // `guilds.byId` between WS-open and Ready arrival. Replaced on each connect.
   private _readyPromise: Promise<void> | null = null;
   private _readyResolve: (() => void) | null = null;
+
+  constructor() {
+    registerAllHandlers(
+      {
+        subs: this.subs,
+        unsubscribe: (cid) => this.unsubscribe(cid),
+        fireChannelDeleted: (gid, cid) => {
+          for (const h of this.channelDeletedHooks) h(gid, cid);
+        },
+        fireGuildDeleted: (gid) => {
+          for (const h of this.guildDeletedHooks) h(gid);
+        },
+        fireVoiceDiff
+      },
+      { onReadySeeded: () => this._finishReady() }
+    );
+  }
+
+  private _finishReady(): void {
+    if (this._readyResolve) {
+      this._readyResolve();
+      this._readyResolve = null;
+    }
+    this._readyDone = true;
+    // Replay buffered lifecycle events now that guilds.byId is populated.
+    for (const buffered of this._preReadyBuffer) void dispatch(buffered);
+    this._preReadyBuffer = [];
+  }
 
   on(listener: WsListener): () => void {
     this.listeners.add(listener);
@@ -320,8 +131,8 @@ export class GatewayConnection {
     this.wantConnected = true;
     if (this.ws && this.ws.readyState <= 1) return;
     if (this.connectPromise) return this.connectPromise;
-    // Fresh Ready promise for this connection. Resolved in the `case 'ready'`
-    // branch of `_handle`; rejected if the dial fails.
+    // Fresh Ready promise for this connection. Resolved by the ready
+    // handler via `_finishReady`; rejected if the dial fails.
     this._readyPromise = new Promise((resolve) => {
       this._readyResolve = resolve;
     });
@@ -386,13 +197,13 @@ export class GatewayConnection {
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           voice.resyncSelfState();
         });
-        // Backfill anything that arrived during the disconnect via the REST
-        // gap-fill endpoint (`?after=<lastSeenId>`). Done *after* re-subscribing
-        // so any new WS-pushed message racing the REST call gets deduped by
-        // mergeGap (id + nonce). Token expiry triggers a close every
+        // Backfill anything that arrived during the disconnect via REST
+        // (`?after=<lastSeenId>`). Done *after* re-subscribing so any new
+        // WS-pushed message racing the REST call gets deduped by mergeGap
+        // (id + nonce). Token expiry triggers a close every
         // jwt_access_ttl_seconds (=15min); without this the user sees the
         // chat blink on every cycle.
-        void this._gapFillAll();
+        void gapFillAll(this.subs);
         resolve();
       });
       ws.addEventListener('message', (event) => {
@@ -418,560 +229,19 @@ export class GatewayConnection {
     });
   }
 
-  /** Per-channel gap-fill on reconnect. For each subscribed channel whose
-   *  history we've already loaded, fetch `?after=<lastSeenId>` and merge.
-   *  If a single gap exceeds GAP_FILL_LIMIT the safe move is to drop the
-   *  channel's cache so the page-effect in
-   *  `routes/app/.../+page.svelte` triggers a full reload — better a single
-   *  visible reload than a silent hole. Channels that aren't loaded yet
-   *  (e.g. user never opened them in this session) need no work; their
-   *  first switchTo will REST-fetch normally. */
-  private async _gapFillAll(): Promise<void> {
-    for (const cid of this.subs) {
-      await this._gapFillChannel(cid, false);
-    }
-  }
-
-  /** Gap-fill a single, already-cached channel after (re)subscribing — used
-   *  by the channel-switch path. Re-opening a channel whose history was
-   *  loaded earlier this session would otherwise miss every message that
-   *  arrived while its WS subscription was dropped (the subscription is
-   *  released on switch-away, and `loadedChannels` short-circuits the
-   *  REST-fetch on the way back). Safe to call right after `subscribe()`:
-   *  a WS push racing the REST call dedupes via `mergeGap` (id + nonce). */
+  /** Gap-fill a single channel after (re)subscribing — used by the
+   *  channel-switch path. See `gapFill.ts` for details. */
   async gapFill(channelId: string): Promise<void> {
-    await this._gapFillChannel(channelId, true);
-  }
-
-  private async _gapFillChannel(cid: string, refetchOnOverflow: boolean): Promise<void> {
-    const GAP_FILL_LIMIT = 100;
-    const lastId = messages.lastPersistedId(cid);
-    if (!lastId) return;
-    const { chatApi } = await import('$lib/api/chat');
-    try {
-      // Fetch the latest page rather than a bare `?after` slice: it backfills
-      // new messages (`mergeGap`) AND lets `reconcile` re-sync reactions /
-      // edits that landed on messages we already hold — a `?after` page
-      // never sees changes on existing rows.
-      const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
-      if (!page.length) return;
-      // `listMessages` returns newest-first → its last entry is the oldest.
-      const oldestFetched = page[page.length - 1].id;
-      if (page.length >= GAP_FILL_LIMIT && oldestFetched > lastId) {
-        // Even the oldest row on the page is newer than anything we hold —
-        // the gap exceeds one page; older missed messages would be lost.
-        if (refetchOnOverflow) {
-          // Channel-switch path: no page-effect reload to fall back to, so
-          // adopt the latest page as the new history.
-          messages.setInitial(cid, page);
-        } else {
-          // Reconnect path: drop the cache so the page-effect in
-          // `routes/app/.../+page.svelte` triggers a full reload — better a
-          // single visible reload than a silent hole.
-          messages.clearChannel(cid);
-        }
-        return;
-      }
-      messages.mergeGap(cid, page);
-      messages.reconcile(cid, page);
-    } catch {
-      // Best-effort. A 401 means the token already rotated again (unlikely
-      // but possible); the next reconnect/switch will retry.
-    }
+    await gapFillChannel(channelId, true);
   }
 
   private _handle(evt: ServerEvent): void {
-    // Buffer lifecycle events that arrive before `ready` has populated guilds.byId.
-    if (
-      !this._readyDone &&
-      evt.op !== 'ready' &&
-      evt.op !== 'message' &&
-      evt.op !== 'message_update' &&
-      evt.op !== 'message_delete' &&
-      evt.op !== 'reaction_add' &&
-      evt.op !== 'reaction_remove' &&
-      evt.op !== 'message_ack' &&
-      evt.op !== 'voice_state' &&
-      evt.op !== 'voice_override' &&
-      evt.op !== 'voice_disconnect' &&
-      evt.op !== 'stream_state' &&
-      evt.op !== 'stream_chat_message' &&
-      evt.op !== 'watch_state' &&
-      evt.op !== 'watch_chat_message' &&
-      evt.op !== 'permissions_updated' &&
-      evt.op !== 'role_created' &&
-      evt.op !== 'role_updated' &&
-      evt.op !== 'role_deleted' &&
-      evt.op !== 'member_roles_updated' &&
-      evt.op !== 'channel_permissions_updated' &&
-      evt.op !== 'guild_member_updated' &&
-      evt.op !== 'guild_member_removed' &&
-      evt.op !== 'guild_ban_added' &&
-      evt.op !== 'guild_ban_removed' &&
-      evt.op !== 'mention_added' &&
-      evt.op !== 'presence_update' &&
-      evt.op !== 'friend_request_received' &&
-      evt.op !== 'friend_request_accepted' &&
-      evt.op !== 'friend_request_declined' &&
-      evt.op !== 'friend_request_cancelled' &&
-      evt.op !== 'friend_removed' &&
-      evt.op !== 'user_blocked' &&
-      evt.op !== 'user_unblocked' &&
-      evt.op !== 'presence_status_changed' &&
-      evt.op !== 'error'
-    ) {
+    // Buffer lifecycle events that arrive before `ready` populated guilds.byId.
+    if (!this._readyDone && BUFFER_BEFORE_READY.has(evt.op)) {
       this._preReadyBuffer.push(evt);
       return;
     }
-
-    switch (evt.op) {
-      case 'ready':
-        // The Ready frame is now the single source of truth for the guild
-        // list — `+layout.svelte` no longer fires a parallel `GET /guilds`.
-        // We upsert each guild (so a reconnect picks up renames/icon-changes
-        // that happened while we were offline) and reap stale entries that
-        // are no longer in the user's set (e.g. removed from a guild during
-        // the disconnect). Lifecycle events that arrived before Ready are
-        // still replayed below from the pre-ready buffer.
-        {
-          const seen = new Set<string>();
-          for (const g of evt.guilds) {
-            seen.add(g.id);
-            const existing = guilds.byId[g.id];
-            guilds.byId[g.id] = {
-              ...(existing ?? {}),
-              ...g,
-              icon_url: g.icon_url ?? existing?.icon_url ?? null,
-              created_at: g.created_at ?? existing?.created_at ?? '',
-              owner_id: g.owner_id ?? existing?.owner_id ?? ''
-            } as Guild;
-          }
-          for (const gid of Object.keys(guilds.byId)) {
-            if (!seen.has(gid)) guilds.remove(gid);
-          }
-          guilds.loaded = true;
-        }
-        if (this._readyResolve) {
-          this._readyResolve();
-          this._readyResolve = null;
-        }
-        // The role payload is part of the ready envelope, not REST, so it's
-        // populated here (the hydrate() pass on the REST side does not return
-        // roles — they only come from /guilds/{id}/roles or this frame).
-        roles.seedFromReady(evt.guilds);
-        guildSounds.seedFromReady(evt.guilds);
-        if (evt.dm_channels) directMessages.seed(evt.dm_channels);
-        if (evt.voice_states) voicePresence.seed(evt.voice_states);
-        voicePresence.seedOverrides(evt.voice_overrides ?? []);
-        streamPresence.seed(evt.stream_states ?? []);
-        watchPartyPresence.seed(evt.watch_states ?? []);
-        presence.seed(evt.online_user_ids ?? []);
-        // Etappe 4 friend-system seeding. All fields optional in the
-        // ready frame for back-compat with older mocked tests; we fall
-        // through to clean defaults when absent.
-        friends.seedAll(evt.friends ?? []);
-        friendRequests.seedAll({
-          incoming: evt.friend_requests_in ?? [],
-          outgoing: evt.friend_requests_out ?? []
-        });
-        blocks.seedAll(evt.blocked_user_ids ?? []);
-        if (evt.privacy) privacy.seed(evt.privacy);
-        if (evt.user_presence_statuses || evt.presence_status) {
-          presence.seedStatuses(
-            evt.user_presence_statuses ?? {},
-            evt.presence_status ?? 'online'
-          );
-        }
-        this._readyDone = true;
-        // Replay buffered lifecycle events now that guilds.byId is populated.
-        for (const buffered of this._preReadyBuffer) {
-          this._handle(buffered);
-        }
-        this._preReadyBuffer = [];
-        break;
-      case 'message':
-        messages.upsert(evt.data);
-        // Own messages don't make a channel unread for ourselves.
-        if (evt.data.author_id !== auth.user?.id) {
-          readState.recordSeen(evt.data.channel_id, evt.data.id);
-          // We only get this op for channels we're subscribed to — i.e. the
-          // one we're currently viewing — so it's safe to also mark it read.
-          if (this.subs.has(evt.data.channel_id)) {
-            readState.markRead(evt.data.channel_id, evt.data.id);
-          }
-        }
-        break;
-      case 'message_update':
-        messages.update(evt.data);
-        break;
-      case 'message_delete':
-        messages.remove(evt.data.channel_id, evt.data.id);
-        break;
-      case 'reaction_add':
-        messages.applyReaction(evt.data, +1);
-        break;
-      case 'reaction_remove':
-        messages.applyReaction(evt.data, -1);
-        break;
-      case 'channel_created':
-        if (guilds.byId[evt.channel.guild_id]) guilds.addChannel(evt.channel);
-        break;
-      case 'channel_updated':
-        if (guilds.byId[evt.channel.guild_id]) guilds.updateChannel(evt.channel);
-        break;
-      case 'channel_deleted':
-        if (guilds.byId[evt.guild_id]) {
-          guilds.removeChannel(evt.channel_id);
-          this.unsubscribe(evt.channel_id);
-          messages.clearChannel(evt.channel_id);
-          for (const h of this.channelDeletedHooks) h(evt.guild_id, evt.channel_id);
-        }
-        break;
-      case 'channel_bump':
-        if (evt.author_id !== auth.user?.id && guilds.byId[evt.guild_id]) {
-          readState.recordSeen(evt.channel_id, evt.message_id);
-          // If we're currently viewing this channel the message op already
-          // ran the markRead — but in case the bump arrived first, do it
-          // again here. markRead is idempotent.
-          if (this.subs.has(evt.channel_id)) {
-            readState.markRead(evt.channel_id, evt.message_id);
-          } else if (!_recentMentions.has(evt.message_id)) {
-            if (!isDnd()) sounds.play('notification.message', { guildId: evt.guild_id });
-          }
-        }
-        break;
-      case 'dm_bump': {
-        // We get this fanned to every connected socket — first decide if
-        // we're a member (one of the two user ids). Non-members ignore.
-        const me = auth.user?.id;
-        if (!me) break;
-        const isMember = evt.user_a_id === me || evt.user_b_id === me;
-        if (!isMember) break;
-        // Upsert: bumps an existing DM's last_message_id, or creates the
-        // record if the other side just opened a new DM with us (we
-        // wouldn't have it in the store yet otherwise).
-        directMessages.upsertFromBump({
-          channel_id: evt.channel_id,
-          user_a_id: evt.user_a_id,
-          user_b_id: evt.user_b_id,
-          message_id: evt.message_id,
-          currentUserId: me
-        });
-        if (evt.author_id !== me) {
-          readState.recordSeen(evt.channel_id, evt.message_id);
-          if (this.subs.has(evt.channel_id)) {
-            // Already viewing this DM — mark read, no toast.
-            readState.markRead(evt.channel_id, evt.message_id);
-          } else {
-            // Not currently in this DM. Toast the user. We intentionally
-            // surface only the sender's name, not the message content,
-            // so the UX stays identical when DMs go E2EE in Phase 2.
-            // userCache.queue is debounced; if the sender isn't in cache
-            // yet (we've never rendered them anywhere) we just drop the
-            // name from the toast rather than show a "…" placeholder.
-            userCache.queue(evt.author_id);
-            const cached = userCache.get(evt.author_id);
-            const senderLabel = cached
-              ? ` von @${cached.display_name ?? cached.username}`
-              : '';
-            const channelId = evt.channel_id;
-            if (!isDnd()) {
-              toast.message(`Neue Nachricht${senderLabel}`, {
-                action: {
-                  label: 'Öffnen',
-                  onClick: () => {
-                    void goto(`/app/@me/${channelId}`);
-                  }
-                }
-              });
-            }
-            if (!_recentMentions.has(evt.message_id) && !isDnd()) {
-              sounds.play('notification.dm');
-            }
-          }
-        }
-        break;
-      }
-      case 'guild_updated':
-        if (guilds.byId[evt.guild.id]) guilds.updateGuild(evt.guild);
-        break;
-      case 'guild_deleted':
-        if (guilds.byId[evt.guild_id]) {
-          // Drop every WS subscription for channels in that guild — they're
-          // gone server-side and would otherwise leak in `this.subs`. We walk
-          // both `subs` *and* `channelsByGuild` because the former may contain
-          // ids the client never navigated to (only got via WS push).
-          const channelIds = new Set<string>(
-            (guilds.channelsByGuild[evt.guild_id] ?? []).map((c) => c.id),
-          );
-          for (const subId of this.subs) {
-            if (channelIds.has(subId)) this.unsubscribe(subId);
-          }
-          for (const id of channelIds) messages.clearChannel(id);
-          guilds.remove(evt.guild_id);
-          guildSounds.remove(evt.guild_id);
-          for (const h of this.guildDeletedHooks) h(evt.guild_id);
-        }
-        break;
-      case 'guild_member_removed':
-        if (auth.user && evt.user_id === auth.user.id) {
-          // The kicked user is us. Drop the guild locally — mirrors the
-          // ``guild_deleted`` cleanup path (subscriptions, messages,
-          // navigation hook). The WS itself isn't force-closed; the next
-          // membership-gated REST call will 403 naturally.
-          if (guilds.byId[evt.guild_id]) {
-            const channelIds = new Set<string>(
-              (guilds.channelsByGuild[evt.guild_id] ?? []).map((c) => c.id)
-            );
-            for (const subId of this.subs) {
-              if (channelIds.has(subId)) this.unsubscribe(subId);
-            }
-            for (const id of channelIds) messages.clearChannel(id);
-            guilds.remove(evt.guild_id);
-            for (const h of this.guildDeletedHooks) h(evt.guild_id);
-          }
-        }
-        // Either way, an open MemberList re-renders via its local
-        // gateway.on listener (which re-fetches on this op).
-        break;
-      case 'guild_member_added':
-        if (auth.user && evt.user_id === auth.user.id) {
-          // We just joined a guild on another tab / via an invite — re-hydrate
-          // so this WS session starts tracking it (voice presence, channel
-          // lifecycle, role list, sound overrides). loadChannels + role +
-          // sound fetches are best-effort.
-          guildSounds.ensureSlot(evt.guild_id);
-          void guildSounds.refresh(evt.guild_id);
-          void guilds.hydrate().then(() => {
-            void guilds.loadChannels(evt.guild_id).catch(() => undefined);
-            // Pull the role list + recompute resolved perms — without this
-            // the UI gates stay locked until the next WS reconnect.
-            import('$lib/api/roles').then(({ rolesApi }) => {
-              rolesApi
-                .list(evt.guild_id)
-                .then((rows) => {
-                  for (const r of rows) roles.upsertRole(r);
-                  roles.recomputeGuild(evt.guild_id);
-                })
-                .catch(() => undefined);
-            });
-          });
-        }
-        break;
-      case 'voice_state': {
-        const oldIds = voicePresence.byChannel[evt.channel_id] ?? [];
-        voicePresence.apply(
-          evt.channel_id,
-          evt.user_ids,
-          evt.streaming_user_ids,
-          evt.user_states
-        );
-        this._fireVoiceDiff(evt.channel_id, oldIds, evt.user_ids);
-        break;
-      }
-      case 'voice_disconnect': {
-        // Server admin yanked someone out of voice. If that's us in the
-        // channel we're connected to, drop the LiveKit room locally —
-        // LiveKit may have already removed the participant, but the
-        // explicit disconnect ensures our UI state catches up
-        // immediately instead of waiting for the close event.
-        if (auth.user?.id === evt.user_id) {
-          void import('$lib/voice/livekit.svelte').then(({ voice }) => {
-            if (voice.channelId !== evt.channel_id) return;
-            void voice.disconnect();
-          });
-        }
-        break;
-      }
-      case 'voice_override': {
-        voicePresence.applyOverride(
-          evt.channel_id,
-          evt.user_id,
-          evt.muted,
-          evt.deafened
-        );
-        // Deafen enforcement is *soft* — LiveKit's per-participant
-        // permission model doesn't gate inbound subscriptions, only
-        // outbound publishes. We drive voice.setDeafened so the local
-        // audio output mutes and the toggle is disabled, but a
-        // tampered client could still play subscribed audio. Same
-        // trust model as Discord's server-deafen. Mute is server-
-        // enforced via LiveKit publish-permissions (see voice-
-        // signaling/_livekit_update_participant).
-        // Lazy-imported to avoid the circular dep with voice/livekit.
-        if (auth.user?.id === evt.user_id) {
-          void import('$lib/voice/livekit.svelte').then(({ voice }) => {
-            if (voice.channelId !== evt.channel_id) return;
-            if (evt.deafened !== voice.deafened) voice.setDeafened(evt.deafened);
-          });
-        }
-        break;
-      }
-      case 'presence_update':
-        presence.apply(evt.user_id, evt.online);
-        break;
-      case 'stream_state':
-        streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
-        // Stream gone → lokaler Chat-State für absente Streamer auch raus
-        // (ephemer pro Plan; Server-Liste lebt noch 6h via TTL, aber UX-seitig
-        // verschwindet der Chat sofort mit dem Stream).
-        streamChat.pruneAbsent(evt.channel_id, evt.user_ids ?? []);
-        break;
-      case 'stream_chat_message':
-        streamChat.apply(evt.channel_id, evt.streamer_id, evt.message);
-        break;
-      case 'watch_state':
-        watchPartyPresence.apply(evt.channel_id, evt.state);
-        if (evt.state === null) watchChat.clear(evt.channel_id);
-        break;
-      case 'watch_chat_message':
-        watchChat.apply(evt.channel_id, evt.message);
-        break;
-      case 'permissions_updated':
-        capabilities.apply({
-          allow_guild_creation: evt.allow_guild_creation,
-          allow_member_invites: evt.allow_member_invites,
-          guild_sound_max_size_bytes: evt.guild_sound_max_size_bytes
-        });
-        break;
-      case 'guild_sound_updated':
-        // Either side could go silent if we don't refresh promptly — a stale
-        // presigned URL still points at the old MinIO object (deletion
-        // 4xxs) or just expires. Re-fetch the guild's full sound list:
-        // /sounds is cheap (≤13 rows) and gives us all fresh URLs in one
-        // call regardless of how many overrides changed at once.
-        if (guilds.byId[evt.guild_id]) {
-          void guildSounds.refresh(evt.guild_id);
-        }
-        break;
-      case 'role_created':
-      case 'role_updated':
-        roles.upsertRole(evt.role);
-        break;
-      case 'role_deleted':
-        roles.removeRole(evt.guild_id, evt.role_id);
-        break;
-      case 'member_roles_updated':
-        // Only the target user's role list changed. If we are them, the
-        // resolved-permissions store needs to re-pull. Either way, drop
-        // the lazy cache for this (guild, user) so the next access
-        // re-fetches with the new state — and immediately kick off the
-        // refetch via `ensure` so MemberList's hoist-group + colour
-        // re-derive correctly instead of falling back to "Online" /
-        // default colour until the user navigates.
-        if (auth.user?.id === evt.user_id) {
-          void roles.refreshMyRoles(evt.guild_id);
-        }
-        memberRoles.invalidate(evt.guild_id, evt.user_id);
-        void memberRoles.ensure(evt.guild_id, evt.user_id).catch(() => undefined);
-        break;
-      case 'channel_permissions_updated':
-        channelPermissions.apply(evt.channel_id, evt.overwrites);
-        break;
-      case 'mention_added': {
-        // Per-user notification fanned out only to mentioned sockets. We
-        // intentionally drive the unread-mention badge from THIS event
-        // only (not from `message.mentions`) so the counter logic stays
-        // idempotent: the backend deduplicates the recipient set, we
-        // don't have to. If the user is actively viewing the channel,
-        // the inline `markRead` below clears the counter immediately.
-        const { channel_id, message_id, guild_id } = evt.data;
-        const viewingMentioned = this.subs.has(channel_id);
-        readState.incMention(channel_id);
-        // Record before the matching channel_bump/dm_bump arrives so the
-        // generic sound is suppressed.
-        _markRecentMention(message_id);
-        if (viewingMentioned) {
-          // Already looking at the channel — clear the counter, no chime
-          // (a sound for the focused channel is just noise).
-          readState.markRead(channel_id, message_id);
-        } else {
-          if (!isDnd()) sounds.play('notification.mention', { guildId: guild_id });
-        }
-        // In-page notification (only fires when tab is in background — the
-        // helper gates on visibility + settings). The matching push from the
-        // SW collapses on the shared `message_id` tag, so the user sees one
-        // popup at most. Look up the message we just received for body text;
-        // it may not be in the local store yet if the user has never opened
-        // the channel — in that case we fall back to a generic body.
-        const msg = messages.for(channel_id).find((m) => m.id === message_id);
-        const author = msg
-          ? userCache.get(msg.author_id) ?? null
-          : null;
-        const authorName = author?.display_name ?? author?.username ?? 'Jemand';
-        const snippet = msg?.content?.slice(0, 140) ?? 'hat dich erwähnt';
-        const channelName = (() => {
-          if (guild_id) {
-            const list = guilds.channelsByGuild[guild_id] ?? [];
-            const c = list.find((x) => x.id === channel_id);
-            return c?.name ? `#${c.name}` : 'einem Kanal';
-          }
-          return 'einer Direktnachricht';
-        })();
-        fireInPageNotification({
-          kind: guild_id ? 'mention' : 'dm',
-          title: `${authorName} in ${channelName}`,
-          body: snippet,
-          channelId: channel_id,
-          messageId: message_id,
-          guildId: guild_id
-        });
-        break;
-      }
-      // ---- Etappe 4 friend system -----------------------------------
-      case 'friend_request_received':
-        friendRequests.addIncoming(evt.data);
-        userCache.queue(evt.data.sender_id);
-        break;
-      case 'friend_request_accepted':
-        // Sent to BOTH sides. The ``friendship.user_id`` is the *other*
-        // party (server flips it per receiver). Drop the request from
-        // either pending bucket, add to friends, refresh the DM list so
-        // ``can_send`` flips (friendship just opened the gate).
-        friendRequests.removeById(evt.data.request_id);
-        friends.add(evt.data.friendship.user_id, evt.data.friendship.since);
-        userCache.queue(evt.data.friendship.user_id);
-        void directMessages.hydrate().catch(() => undefined);
-        break;
-      case 'friend_request_declined':
-        // Sender-only fan-out → the row sits in our outgoing bucket.
-        friendRequests.removeOutgoing(evt.data.request_id);
-        break;
-      case 'friend_request_cancelled':
-        // Receiver-only fan-out → row sits in our incoming bucket.
-        friendRequests.removeIncoming(evt.data.request_id);
-        break;
-      case 'friend_removed':
-        friends.remove(evt.data.user_id);
-        void directMessages.hydrate().catch(() => undefined);
-        break;
-      case 'user_blocked':
-        blocks.add(evt.data.user_id);
-        // Block tears down friendship server-side; the matching
-        // friend_removed is fanned out only to the other party. Mirror
-        // the local drop here so our friend list stays consistent
-        // without waiting for the next reconnect.
-        friends.remove(evt.data.user_id);
-        void directMessages.hydrate().catch(() => undefined);
-        break;
-      case 'user_unblocked':
-        blocks.remove(evt.data.user_id);
-        break;
-      case 'presence_status_changed': {
-        const me = auth.user?.id;
-        if (me && evt.data.user_id === me) {
-          // Own envelope carries the REAL status (incl. "invisible").
-          presence.setOwnStatus(evt.data.status as OwnPresenceStatus);
-        } else {
-          // Peer envelope is already masked server-side (invisible → offline).
-          presence.applyStatusChange(
-            evt.data.user_id,
-            evt.data.status as PresenceStatus
-          );
-        }
-        break;
-      }
-    }
+    void dispatch(evt);
   }
 
   private _scheduleReconnect(): void {
@@ -1028,30 +298,8 @@ export class GatewayConnection {
     return queued;
   }
 
-  /** Fire join/leave sounds for *other* users in *our* voice channel. The
-   *  initial roster after our own connect arrives as a diff against a snapshot
-   *  that already contains those users (gateway pushed voice_state to us as a
-   *  guild member before we joined voice), so no spurious join-sounds. */
-  private _fireVoiceDiff(channelId: string, oldIds: string[], newIds: string[]): void {
-    // Lazy import to avoid the circular dep with voice/livekit.
-    void import('$lib/voice/livekit.svelte').then(({ voice }) => {
-      if (voice.channelId !== channelId) return;
-      const me = auth.user?.id;
-      const oldSet = new Set(oldIds);
-      const newSet = new Set(newIds);
-      const gid = guilds.guildIdForChannel(channelId);
-      for (const uid of newIds) {
-        if (uid !== me && !oldSet.has(uid)) sounds.play('voice.user_join', { guildId: gid });
-      }
-      for (const uid of oldIds) {
-        if (uid !== me && !newSet.has(uid)) sounds.play('voice.user_leave', { guildId: gid });
-      }
-    });
-  }
-
-  /** Report the local user's mute/deafen state to the gateway so it can fan
-   * it out to every other connected client. `channelId` is the voice channel
-   * the user is currently in, or `null` to clear state on disconnect. */
+  /** Report mute/deafen state to the gateway → fanned out to every other
+   * client. `channelId` is null when clearing on disconnect. */
   sendVoiceSelfState(channelId: string | null, micMuted: boolean, deafened: boolean): boolean {
     return this._sendRaw({
       op: 'voice_self_state',
@@ -1061,18 +309,15 @@ export class GatewayConnection {
     });
   }
 
-  /** Kick off a watch party in this voice channel. Server validates `sourceUrl`
-   * and rejects with `{op:"error", code: 4013}` if it's an unsupported source,
-   * `4014` if a party is already active in the channel. */
+  /** Kick off a watch party. Server may reject with `{op:'error', code:4013}`
+   * (unsupported source) or `4014` (party already active). */
   startWatchParty(channelId: string, sourceUrl: string): boolean {
     return this._sendRaw({ op: 'watch_start', channel_id: channelId, source_url: sourceUrl });
   }
-
-  /** Host-only stop. Server replies with `{op:"watch_state", state: null}`. */
+  /** Host-only stop. Server replies with `{op:'watch_state', state:null}`. */
   stopWatchParty(channelId: string): boolean {
     return this._sendRaw({ op: 'watch_stop', channel_id: channelId });
   }
-
   /** Host-only play/pause/seek. Server broadcasts the resulting `watch_state`. */
   sendWatchControl(
     channelId: string,
@@ -1081,17 +326,14 @@ export class GatewayConnection {
   ): boolean {
     return this._sendRaw({ op: 'watch_control', channel_id: channelId, action, position });
   }
-
-  /** Host emits this every ~3s so viewers can correct drift. Server debounces
+  /** Host heartbeat every ~3s so viewers can correct drift. Server debounces
    * the write to ≤1 / 2s; sending faster is harmless but wasteful. */
   sendWatchHeartbeat(channelId: string, position: number): boolean {
     return this._sendRaw({ op: 'watch_heartbeat', channel_id: channelId, position });
   }
 
-  /** Fire-and-forget ``activity`` heartbeat. The gateway uses it to bump
-   *  the user's presence:activity ZSET (idle-sweeper input) and to flip
-   *  ``idle`` back to ``online``. Silently no-ops when the socket isn't
-   *  open — the next user signal will retry once the WS reconnects. */
+  /** Fire-and-forget activity heartbeat — bumps presence:activity ZSET and
+   *  flips `idle` → `online`. No-op when the socket isn't open. */
   sendActivity(): boolean {
     return this._sendRaw({ op: 'activity' });
   }

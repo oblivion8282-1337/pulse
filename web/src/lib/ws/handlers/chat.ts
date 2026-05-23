@@ -1,0 +1,184 @@
+/**
+ * Chat-domain handlers: `message`, `message_update`, `message_delete`,
+ * `reaction_add`, `reaction_remove`, `channel_bump`, `dm_bump`,
+ * `mention_added`, `stream_chat_message`, `watch_chat_message`.
+ *
+ * Sound + read-state logic lives here because every chat-shaped event
+ * touches the same two: bump the channel's last-seen pointer, optionally
+ * play a notification chime, optionally surface a toast / in-page
+ * notification. Mention suppression is shared with this module so the
+ * chime + bump sound don't double up.
+ */
+import { messages } from '$lib/stores/messages.svelte';
+import { directMessages } from '$lib/stores/directMessages.svelte';
+import { streamChat } from '$lib/stores/streamChat.svelte';
+import { watchChat } from '$lib/stores/watchChat.svelte';
+import { readState } from '$lib/stores/readState.svelte';
+import { userCache } from '$lib/stores/users.svelte';
+import { auth } from '$lib/stores/auth.svelte';
+import { guilds } from '$lib/stores/guilds.svelte';
+import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
+import { sounds } from '$lib/sounds/engine';
+import { goto } from '$app/navigation';
+import { toast } from 'svelte-sonner';
+import { registerWsHandler } from '../handler-registry';
+import { isRecentMention, markRecentMention } from './_mentionSuppression';
+import type { HandlerContext } from './context';
+
+export function register(ctx: HandlerContext): void {
+  registerWsHandler('message', (evt) => {
+    messages.upsert(evt.data);
+    // Own messages don't make a channel unread for ourselves.
+    if (evt.data.author_id !== auth.user?.id) {
+      readState.recordSeen(evt.data.channel_id, evt.data.id);
+      // We only get this op for channels we're subscribed to — i.e. the
+      // one we're currently viewing — so it's safe to also mark it read.
+      if (ctx.subs.has(evt.data.channel_id)) {
+        readState.markRead(evt.data.channel_id, evt.data.id);
+      }
+    }
+  });
+
+  registerWsHandler('message_update', (evt) => {
+    messages.update(evt.data);
+  });
+
+  registerWsHandler('message_delete', (evt) => {
+    messages.remove(evt.data.channel_id, evt.data.id);
+  });
+
+  registerWsHandler('reaction_add', (evt) => {
+    messages.applyReaction(evt.data, +1);
+  });
+
+  registerWsHandler('reaction_remove', (evt) => {
+    messages.applyReaction(evt.data, -1);
+  });
+
+  registerWsHandler('message_ack', () => {
+    // No-op on the dispatcher side: the send/ack flow is handled by the
+    // optimistic-send path in messages store, not via the registry.
+  });
+
+  registerWsHandler('channel_bump', (evt) => {
+    if (evt.author_id !== auth.user?.id && guilds.byId[evt.guild_id]) {
+      readState.recordSeen(evt.channel_id, evt.message_id);
+      // If we're currently viewing this channel the message op already
+      // ran the markRead — but in case the bump arrived first, do it
+      // again here. markRead is idempotent.
+      if (ctx.subs.has(evt.channel_id)) {
+        readState.markRead(evt.channel_id, evt.message_id);
+      } else if (!isRecentMention(evt.message_id)) {
+        if (!isDnd()) sounds.play('notification.message', { guildId: evt.guild_id });
+      }
+    }
+  });
+
+  registerWsHandler('dm_bump', (evt) => {
+    // We get this fanned to every connected socket — first decide if
+    // we're a member (one of the two user ids). Non-members ignore.
+    const me = auth.user?.id;
+    if (!me) return;
+    const isMember = evt.user_a_id === me || evt.user_b_id === me;
+    if (!isMember) return;
+    // Upsert: bumps an existing DM's last_message_id, or creates the
+    // record if the other side just opened a new DM with us (we
+    // wouldn't have it in the store yet otherwise).
+    directMessages.upsertFromBump({
+      channel_id: evt.channel_id,
+      user_a_id: evt.user_a_id,
+      user_b_id: evt.user_b_id,
+      message_id: evt.message_id,
+      currentUserId: me
+    });
+    if (evt.author_id !== me) {
+      readState.recordSeen(evt.channel_id, evt.message_id);
+      if (ctx.subs.has(evt.channel_id)) {
+        // Already viewing this DM — mark read, no toast.
+        readState.markRead(evt.channel_id, evt.message_id);
+      } else {
+        // Not currently in this DM. Toast the user. We intentionally
+        // surface only the sender's name, not the message content,
+        // so the UX stays identical when DMs go E2EE in Phase 2.
+        // userCache.queue is debounced; if the sender isn't in cache
+        // yet (we've never rendered them anywhere) we just drop the
+        // name from the toast rather than show a "…" placeholder.
+        userCache.queue(evt.author_id);
+        const cached = userCache.get(evt.author_id);
+        const senderLabel = cached
+          ? ` von @${cached.display_name ?? cached.username}`
+          : '';
+        const channelId = evt.channel_id;
+        if (!isDnd()) {
+          toast.message(`Neue Nachricht${senderLabel}`, {
+            action: {
+              label: 'Öffnen',
+              onClick: () => {
+                void goto(`/app/@me/${channelId}`);
+              }
+            }
+          });
+        }
+        if (!isRecentMention(evt.message_id) && !isDnd()) {
+          sounds.play('notification.dm');
+        }
+      }
+    }
+  });
+
+  registerWsHandler('mention_added', (evt) => {
+    // Per-user notification fanned out only to mentioned sockets. We
+    // intentionally drive the unread-mention badge from THIS event
+    // only (not from `message.mentions`) so the counter logic stays
+    // idempotent: the backend deduplicates the recipient set, we
+    // don't have to. If the user is actively viewing the channel,
+    // the inline `markRead` below clears the counter immediately.
+    const { channel_id, message_id, guild_id } = evt.data;
+    const viewingMentioned = ctx.subs.has(channel_id);
+    readState.incMention(channel_id);
+    // Record before the matching channel_bump/dm_bump arrives so the
+    // generic sound is suppressed.
+    markRecentMention(message_id);
+    if (viewingMentioned) {
+      // Already looking at the channel — clear the counter, no chime
+      // (a sound for the focused channel is just noise).
+      readState.markRead(channel_id, message_id);
+    } else {
+      if (!isDnd()) sounds.play('notification.mention', { guildId: guild_id });
+    }
+    // In-page notification (only fires when tab is in background — the
+    // helper gates on visibility + settings). The matching push from the
+    // SW collapses on the shared `message_id` tag, so the user sees one
+    // popup at most. Look up the message we just received for body text;
+    // it may not be in the local store yet if the user has never opened
+    // the channel — in that case we fall back to a generic body.
+    const msg = messages.for(channel_id).find((m) => m.id === message_id);
+    const author = msg ? userCache.get(msg.author_id) ?? null : null;
+    const authorName = author?.display_name ?? author?.username ?? 'Jemand';
+    const snippet = msg?.content?.slice(0, 140) ?? 'hat dich erwähnt';
+    const channelName = (() => {
+      if (guild_id) {
+        const list = guilds.channelsByGuild[guild_id] ?? [];
+        const c = list.find((x) => x.id === channel_id);
+        return c?.name ? `#${c.name}` : 'einem Kanal';
+      }
+      return 'einer Direktnachricht';
+    })();
+    fireInPageNotification({
+      kind: guild_id ? 'mention' : 'dm',
+      title: `${authorName} in ${channelName}`,
+      body: snippet,
+      channelId: channel_id,
+      messageId: message_id,
+      guildId: guild_id
+    });
+  });
+
+  registerWsHandler('stream_chat_message', (evt) => {
+    streamChat.apply(evt.channel_id, evt.streamer_id, evt.message);
+  });
+
+  registerWsHandler('watch_chat_message', (evt) => {
+    watchChat.apply(evt.channel_id, evt.message);
+  });
+}
