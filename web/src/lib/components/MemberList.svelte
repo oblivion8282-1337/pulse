@@ -256,7 +256,7 @@
     {:else if error}
       <p class="px-3 py-4 text-xs text-red-400">{error}</p>
     {:else}
-      {#each groupedMembers as group (group.hoist ?? '__none__')}
+      {#each groupedMembers as group (group.offline ? '__offline__' : (group.hoist ?? '__none__'))}
         <div class="text-text-muted mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wide first:mt-0">
           {group.offline ? 'Offline' : (group.hoist ?? 'Online')} — {group.members.length}
         </div>
