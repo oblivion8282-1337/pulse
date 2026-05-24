@@ -19,6 +19,7 @@ import { friendRequests } from './friendRequests.svelte';
 import { blocks } from './blocks.svelte';
 import { privacy } from './privacy.svelte';
 import { presence } from './presence.svelte';
+import { resetGuildPluginsCache } from '$lib/plugins';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 
@@ -109,6 +110,7 @@ class AuthStore {
     blocks.clear();
     privacy.clear();
     presence.clear();
+    resetGuildPluginsCache();
     settings.resetUserScoped();
     void goto('/login');
   }

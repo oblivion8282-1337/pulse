@@ -1,0 +1,186 @@
+/**
+ * End-to-end coverage for the Plugin-Admin-Aktivierungs-UI (PR2):
+ *
+ *   1. User-Settings haben KEINEN Plugin-Tab mehr (Regression-Guard für
+ *      die alte per-User-Activation, die in PR2 weg ist).
+ *   2. Bootstrap-Admin sieht die AdminPlugins-Section auf /app/admin,
+ *      kann ein Plugin in die Allowlist toggeln und das Toggle persistiert.
+ *   3. Guild-Admin sieht den `plugins`-Tab im GuildSettingsDialog,
+ *      kann ein Allowlist-Plugin pro Guild togglen. `hello` ist disabled.
+ *   4. Regulärer User sieht weder den Plugin-Tab im Guild-Settings noch
+ *      die AdminPlugins-Section (kein MANAGE_GUILD, kein is_admin).
+ *
+ * Die is_admin-Promotion + Guild-Erstellung übernimmt der serialisierte
+ * Flow analog zu `admin.spec.ts` und `roles.spec.ts`.
+ */
+
+import { test, expect, type BrowserContext, type Page } from '@playwright/test';
+import { execSync } from 'node:child_process';
+
+function detectExec(): string {
+  if (process.env.DOCKER_CMD) return process.env.DOCKER_CMD;
+  try {
+    execSync('docker --version', { stdio: 'ignore' });
+    return 'docker';
+  } catch {
+    return 'podman';
+  }
+}
+const CONTAINER_EXEC = detectExec();
+
+const ts = Date.now();
+const ADMIN = {
+  username: `plug_admin_${ts}`,
+  email: `plug_admin_${ts}@dcc-test.example.com`,
+  password: 'plug-secret-pass'
+};
+const REGULAR = {
+  username: `plug_user_${ts}`,
+  email: `plug_user_${ts}@dcc-test.example.com`,
+  password: 'plug-secret-pass'
+};
+
+async function register(page: Page, u: typeof ADMIN) {
+  await page.goto('/register');
+  await page.getByTestId('reg-username').fill(u.username);
+  await page.getByTestId('reg-email').fill(u.email);
+  await page.getByTestId('reg-password').fill(u.password);
+  await page.getByTestId('reg-submit').click();
+  await page.waitForURL(/\/app/);
+}
+
+async function login(page: Page, identifier: string, password: string) {
+  await page.goto('/login');
+  await page.getByTestId('login-identifier').fill(identifier);
+  await page.getByTestId('login-password').fill(password);
+  await page.getByTestId('login-submit').click();
+  await page.waitForURL(/\/app/);
+}
+
+function promoteToAdmin(username: string) {
+  execSync(
+    `${CONTAINER_EXEC} exec -i dcc_night_postgres psql -U dcc -d dcc_test -c "UPDATE auth.users SET is_admin=true WHERE username='${username}'"`,
+    { stdio: 'ignore' }
+  );
+}
+
+test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
+  let adminCtx: BrowserContext;
+  let regularCtx: BrowserContext;
+  let admin: Page;
+  let regular: Page;
+  let guildId = '';
+
+  test.beforeAll(async ({ browser }) => {
+    adminCtx = await browser.newContext();
+    regularCtx = await browser.newContext();
+    admin = await adminCtx.newPage();
+    regular = await regularCtx.newPage();
+  });
+
+  test.afterAll(async () => {
+    await adminCtx.close();
+    await regularCtx.close();
+  });
+
+  test('both users register', async () => {
+    // Burn the bootstrap-admin slot so neither test user is auto-promoted.
+    const bootCtx = await admin.context().browser()!.newContext();
+    const bootPage = await bootCtx.newPage();
+    await register(bootPage, {
+      username: `bootstrap_plug_${ts}`,
+      email: `bootstrap_plug_${ts}@dcc-test.example.com`,
+      password: 'plug-secret-pass'
+    });
+    await bootCtx.close();
+
+    await register(admin, ADMIN);
+    await register(regular, REGULAR);
+  });
+
+  test('user settings have no plugin tab', async () => {
+    // Settings sind über UserFooter (Zahnrad) erreichbar — Tab muss fehlen.
+    await regular.getByTestId('user-footer-trigger').click();
+    await regular.getByTestId('open-settings').click();
+    await expect(regular.getByTestId('settings-dialog')).toBeVisible();
+    await expect(regular.getByTestId('settings-tab-plugins')).toHaveCount(0);
+    await regular.keyboard.press('Escape');
+  });
+
+  test('admin promotion + AdminPlugins section visible', async () => {
+    promoteToAdmin(ADMIN.username);
+    // Re-login to pick up the admin claim in a fresh JWT.
+    await admin.goto('/login');
+    await admin.evaluate(() => localStorage.clear());
+    await login(admin, ADMIN.username, ADMIN.password);
+
+    await admin.getByTestId('user-footer-trigger').click();
+    await admin.getByTestId('open-admin').click();
+    await admin.waitForURL(/\/app\/admin/);
+    await expect(admin.getByTestId('admin-plugins')).toBeVisible();
+    // `hello` ist Bootstrap-System-Plugin und immer in der Allowlist.
+    await expect(admin.getByTestId('admin-plugin-row-hello')).toBeVisible();
+    // Hello-Toggle ist disabled.
+    const helloToggle = admin.getByTestId('admin-plugin-toggle-hello');
+    await expect(helloToggle).toBeDisabled();
+  });
+
+  test('admin allows tamagotchi via allowlist toggle', async () => {
+    // Tamagotchi ist per Default NICHT in der Allowlist (Migration 0020
+    // seedet nur hello). Toggle muss also OFF starten.
+    const row = admin.getByTestId('admin-plugin-row-tamagotchi');
+    await expect(row).toBeVisible();
+    const toggle = admin.getByTestId('admin-plugin-toggle-tamagotchi');
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 5_000 });
+    // Reload bestätigt Server-Persistenz.
+    await admin.reload();
+    await expect(
+      admin.getByTestId('admin-plugin-toggle-tamagotchi')
+    ).toHaveAttribute('aria-checked', 'true', { timeout: 5_000 });
+  });
+
+  test('admin creates a guild for the guild-toggle tests', async () => {
+    // Admin hat `allow_guild_creation`-Bypass via is_admin (Backend).
+    // `/app` (Root) zeigt das Empty-State-Panel mit `empty-create-guild`,
+    // wenn der User noch keinen Server hat — nicht zu verwechseln mit
+    // `/app/@me` (DM-Liste).
+    await admin.goto('/app');
+    await admin.getByTestId('empty-create-guild').click();
+    await admin.getByTestId('create-guild-choice').click();
+    await admin.getByTestId('create-guild-name').fill(`Plug Guild ${ts}`);
+    await admin.getByTestId('create-guild-submit').click();
+    await admin.waitForURL(/\/app\/guilds\/(\d+)\/channels\/(\d+)/);
+    const m = admin.url().match(/\/app\/guilds\/(\d+)/);
+    guildId = m![1];
+  });
+
+  test('guild-owner sees the plugins tab and can toggle tamagotchi', async () => {
+    // Guild-Settings über Context-Menu auf der Guild-Rail öffnen.
+    await admin.getByTestId(`guild-${guildId}`).click({ button: 'right' });
+    await admin.getByTestId('guild-settings').click();
+    await expect(admin.getByTestId('guild-settings-dialog')).toBeVisible();
+    await expect(admin.getByTestId('settings-tab-plugins')).toBeVisible();
+    await admin.getByTestId('settings-tab-plugins').click();
+    await expect(admin.getByTestId('guild-plugins-panel')).toBeVisible();
+    // `hello` ist nicht togglebar (Backend 409, UI disabled).
+    await expect(
+      admin.getByTestId('guild-plugin-toggle-hello')
+    ).toBeDisabled();
+    // Tamagotchi: erst aus, dann anschalten.
+    const tamagotchi = admin.getByTestId('guild-plugin-toggle-tamagotchi');
+    await expect(tamagotchi).toHaveAttribute('aria-checked', 'false');
+    await tamagotchi.click();
+    await expect(tamagotchi).toHaveAttribute('aria-checked', 'true', {
+      timeout: 5_000
+    });
+    await admin.keyboard.press('Escape');
+  });
+
+  test('regular user (non-admin, non-member) cannot reach admin panel', async () => {
+    // Direkter Navigations-Versuch → Client-Redirect zurück auf /app/@me.
+    await regular.goto('/app/admin');
+    await regular.waitForURL(/\/app\/@me/);
+  });
+});

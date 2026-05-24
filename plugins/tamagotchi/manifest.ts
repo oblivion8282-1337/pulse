@@ -13,6 +13,10 @@ const manifest: PluginManifest = {
   api: '1',
   author: 'Pulse Maintainer',
   description: 'Virtuelles Haustier pro User — füttern, spielen, schlafen',
+  // `scope.type` beschreibt den State, nicht die Aktivierung. State ist
+  // per-User (ein Pet pro User, Cross-Device via Settings-Section).
+  // Activation läuft pro Guild (MANAGE_GUILD-Toggle); siehe
+  // docs/PLUGIN_MANIFEST.md "Aktivierungsmodell".
   scope: { type: 'per-user' },
   uses: {
     // Backend registriert vier ``tamagotchi:{feed,play,sleep,reset}``-

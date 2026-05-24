@@ -11,9 +11,11 @@
   Persistierung läuft komplett über die Settings-Section
   (`registerSettingsSection('tamagotchi', …)` in `frontend.ts`).
 
-  Wird heute nur eingebunden, wenn das Plugin aktiviert ist; das
-  konditionale Mount macht der Sidebar-Footer (siehe
-  `web/src/lib/components/SidebarFooter.svelte`).
+  Wird nur eingebunden, wenn das Plugin für die aktuelle Guild aktiviert
+  ist (Pro-Guild-Toggle, MANAGE_GUILD-Admin) — das konditionale Mount macht
+  der Sidebar-Footer (siehe `web/src/lib/components/SidebarFooter.svelte`).
+  Die `guildId`-Prop wandert mit jeder Aktion (`feed`/`play`/…) ins
+  Plugin-Op-Payload, das das Backend für den Op-Gate braucht.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -27,6 +29,8 @@
     getPetStore
   } from '../frontend';
   import { applyDecay, emojiOf, moodOf, type PetState } from '../store';
+
+  let { guildId }: { guildId: string } = $props();
   // Bewusst keine Lucide-Imports: das Plugin lebt unter `plugins/` und ist
   // kein pnpm-Workspace-Member — es kann nicht auf `web/node_modules` zugreifen.
   // Plugin-Autoren *könnten* eigene Deps mitbringen (eigene package.json +
@@ -180,7 +184,7 @@
     <div class="flex gap-1">
       <button
         type="button"
-        onclick={feed}
+        onclick={() => feed(guildId)}
         class="hover:bg-bg-hover text-text-bright flex flex-1 flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors"
         title="Füttern"
         data-testid="tamagotchi-feed"
@@ -190,7 +194,7 @@
       </button>
       <button
         type="button"
-        onclick={play}
+        onclick={() => play(guildId)}
         class="hover:bg-bg-hover text-text-bright flex flex-1 flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors"
         title="Spielen"
         data-testid="tamagotchi-play"
@@ -200,7 +204,7 @@
       </button>
       <button
         type="button"
-        onclick={sleep}
+        onclick={() => sleep(guildId)}
         class="hover:bg-bg-hover text-text-bright flex flex-1 flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors"
         title="Schlafen"
         data-testid="tamagotchi-sleep"
@@ -210,7 +214,7 @@
       </button>
       <button
         type="button"
-        onclick={reset}
+        onclick={() => reset(guildId)}
         class="hover:bg-bg-hover text-text-muted hover:text-rose-400 flex shrink-0 items-center justify-center rounded-lg p-1.5 text-base leading-none transition-colors"
         title="Reset"
         data-testid="tamagotchi-reset"

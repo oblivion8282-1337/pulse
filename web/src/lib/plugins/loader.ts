@@ -17,13 +17,21 @@
  *
  * Failure mode: per-plugin errors are logged + skipped. The loader never
  * throws — a bad plugin must not gate the app's boot path.
+ *
+ * Activation-Modell (seit Plugin-Admin-Aktivierungs-PR)
+ * -----------------------------------------------------
+ * Es gibt **keinen per-User-Activation-State mehr**. Der Frontend-Loader
+ * registriert beim Boot jedes entdeckte Plugin in der Runtime-Registry
+ * (Handler/Sections binden sich an). UI-Rendering pro Guild prüft danach
+ * den `guild-activation.svelte.ts`-Store (Server-State, MANAGE_GUILD-
+ * Admin-gepflegt). Plugin-Ops, die ohne Guild-Aktivierung gesendet
+ * werden, blockt der Backend-Op-Gate (4040–4043).
+ *
+ * Backend-only-Plugins (kein `frontend.ts`) werden mit einem No-Op-Entry
+ * registriert, damit `listPlugins()` sie für eventuelle UI-Inspektion
+ * (z.B. Admin-Panel) listen kann.
  */
-import { activatePlugin, addPlugin, deactivatePlugin } from './registry';
-import {
-  isPluginActivated,
-  markPluginActivated,
-  markPluginDeactivated
-} from './activation-state.svelte';
+import { activatePlugin, addPlugin } from './registry';
 import type { PluginEntryModule, PluginManifest } from './manifest-types';
 
 // Vite glob — eager so the manifests are part of the initial bundle. Each
@@ -73,12 +81,14 @@ export function discoverPlugins(): Map<string, DiscoveredPlugin> {
   return out;
 }
 
-/** Discover every plugin, register them with the runtime registry, and
- *  activate the ones marked active in the persisted Plugin-Settings-Section
- *  (Schritt 6). Backend-only plugins are registered with the manifest but
- *  not activated on the frontend. Inaktive Plugins erscheinen weiter im
- *  Plugin-Manager-UI (das nutzt `listPlugins()`); ihr `frontend.ts` wird
- *  erst beim Toggle dynamisch importiert.
+/** Discover every plugin, register it in the runtime registry, and
+ *  activate its frontend entry. Pro-Guild-Sichtbarkeit der UI-Slots
+ *  läuft NICHT mehr über diesen Loader — sie wird vom `guild-activation`-
+ *  Store entschieden. Der Loader sorgt nur dafür, dass Plugin-Handler/
+ *  Sections bei laufender App verfügbar sind, sobald sie benötigt werden.
+ *
+ *  Backend-only Plugins (kein `frontend.ts`) werden registriert, aber
+ *  nicht aktiviert (kein Entry zu laden).
  *
  *  Returns the list of names that activated successfully. */
 export async function loadAll(): Promise<string[]> {
@@ -105,11 +115,6 @@ export async function loadAll(): Promise<string[]> {
       console.error(`[plugins] ${name}: add failed`, err);
       continue;
     }
-    if (!isPluginActivated(name)) {
-      // Persistierter State sagt: bleibt aus. Nur als Record vorhanden,
-      // damit das Plugin-Manager-UI es anzeigen und togglen kann.
-      continue;
-    }
     try {
       await activatePlugin(name);
       activated.push(name);
@@ -117,31 +122,10 @@ export async function loadAll(): Promise<string[]> {
       console.error(`[plugins] ${name}: activate failed`, err);
     }
   }
-  // Self-Heal: falls discoverte Plugins existieren, die noch nicht in der
-  // Activation-Liste sind und gleichzeitig der Bootstrap-Default-Liste
-  // (z.B. `hello`) angehören, sind sie via `isPluginActivated` schon
-  // berücksichtigt — siehe `activation-state.svelte.ts`. Nichts zu tun.
   if (activated.length > 0) {
     console.info(`[plugins] activated: ${activated.join(', ')}`);
   }
   return activated;
-}
-
-/** Toggle ein Plugin und persistiert den Activation-State. Wird vom
- *  Plugin-Manager-UI aufgerufen. Wirft die Fehler der activate/deactivate-
- *  Pfade weiter, sodass das UI sie als Toast anzeigen kann.
- *
- *  Persistiere den State erst NACH dem erfolgreichen Activate/Deactivate —
- *  sonst hätten wir bei einer Exception einen inkonsistenten Persist-Stand
- *  (UI denkt "aktiv", Registry sagt "tot"). */
-export async function setPluginActivated(name: string, active: boolean): Promise<void> {
-  if (active) {
-    await activatePlugin(name);
-    markPluginActivated(name);
-  } else {
-    await deactivatePlugin(name);
-    markPluginDeactivated(name);
-  }
 }
 
 function noFrontendEntry(name: string): () => Promise<PluginEntryModule> {

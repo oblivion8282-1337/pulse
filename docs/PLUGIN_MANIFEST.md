@@ -33,6 +33,13 @@ description = "Virtuelles Haustier pro User"  # optional, frei
 #   "per-user"   — State pro User (Settings-Section, lokal/synced)
 #   "per-guild"  — State pro Server (Backend-Storage)
 #   "global"     — singleton Plugin-State
+#
+# Wichtig: `scope.type` beschreibt den **State**, nicht die **Aktivierung**.
+# Aktivierung läuft seit dem Plugin-Admin-Aktivierungs-PR immer als
+# Zwei-Ebenen-Modell (Allowlist + Pro-Guild-Toggle), unabhängig vom Scope.
+# Ein `per-user`-Plugin kann also auf einzelnen Servern aktiviert sein,
+# während der User-State (z.B. ein Tamagotchi pro User) Server-übergreifend
+# geteilt wird.
 type = "per-user"
 
 [plugin.uses]
@@ -273,4 +280,35 @@ Allowlist- + Guild-Toggle-Mutationen **wirken nicht überall sofort**:
   invalidiert den Cache-Slot der bearbeiteten `(guild_id, plugin_name)`
   im selben Prozess sofort — eine UI-Aktion greift also für den
   pushenden Pod ohne TTL-Lag. **Multi-Pod-Setup** würde Redis-Pub/Sub
-  brauchen, damit alle Pods invalidieren; das ist PR2.
+  brauchen, damit alle Pods invalidieren; offen, dokumentiert in der
+  Roadmap.
+
+### Frontend-Sichtbarkeit (Plugin-UI pro Guild)
+
+* Beim App-Boot registriert der Frontend-Loader (`web/src/lib/plugins/loader.ts`)
+  **alle** entdeckten Plugins in der Runtime-Registry — kein per-User-
+  Activation-Filter mehr. Handler/Settings-Sections sind ab Boot
+  verfügbar.
+* Pro-Guild-Sichtbarkeit der UI-Slots (z.B. das Tamagotchi-Widget im
+  SidebarFooter) wird über
+  `web/src/lib/plugins/guild-activation.svelte.ts` entschieden: beim
+  Guild-Mount fetcht die ChannelList einmalig
+  `GET /guilds/{id}/plugins` und cached die `enabled`-Namen pro Guild.
+* UI-Komponenten prüfen mit `isPluginEnabledForGuild(guildId, name)`,
+  ob sie rendern dürfen. DMs/Friends-Kontext (`guildId === ''`) ist
+  per Konvention plugin-frei.
+* **Bekannte Limitation**: kein Server-Push für Toggle-Änderungen.
+  Wenn ein Admin in einer anderen Session ein Plugin abschaltet, sieht
+  der Client das erst beim nächsten Guild-Mount/Reload. Akzeptabel; ein
+  späterer WS-Event-Pfad würde das beheben.
+
+### Frontend-UI (Aktivierungs-Management)
+
+* **Server-Admin (Bootstrap-Admin)**: `/app/admin` → Sektion *Plugins*
+  (`AdminPlugins.svelte`) — Toggle pro Plugin in/aus der Allowlist.
+  `hello` ist hart drin (Toggle disabled).
+* **Server-Admin (Guild-Admin)**: Server-Einstellungen-Dialog → Tab
+  *Plugins* (`GuildPluginsEditor.svelte`) — Toggle pro Allowlist-Plugin
+  für die jeweilige Guild. Sichtbar nur mit `MANAGE_GUILD`.
+* **User-Settings** haben **keinen** Plugin-Tab mehr. Plugin-Auswahl
+  ist Server-Sache, nicht User-Sache.

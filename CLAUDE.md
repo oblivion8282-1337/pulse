@@ -210,6 +210,16 @@ Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4040 (allowlist), 4
 **Hot-Reload bewusst NICHT**: Allowlist-Mutationen brauchen Service-Restart (Snapshot in
 `app.state.plugin_allowlist`), Guild-Toggle-Mutationen wirken nach ≤60 s (Cache-TTL).
 
+**Frontend-Aktivierungs-State (UI)**: Loader (`web/src/lib/plugins/loader.ts`) registriert beim Boot
+**alle** entdeckten Plugins (kein per-User-Activation-Filter — `activation-state.svelte.ts` ist weg).
+Pro-Guild-UI-Sichtbarkeit prüft `guild-activation.svelte.ts` (`Map<guildId, Set<enabledNames>>`,
+beim Guild-Mount aus `GET /guilds/{id}/plugins` befüllt, Reset bei Sign-Out). UI-Komponenten checken
+mit `isPluginEnabledForGuild(guildId, name)`. **DMs/Friends-Kontext = plugin-frei** (`guildId === ''`).
+Admin-UI: `AdminPlugins.svelte` (Allowlist) auf `/app/admin`, `GuildPluginsEditor.svelte` (Pro-Guild)
+als Tab im `GuildSettingsDialog`. Es gibt **keinen Plugin-Tab in den User-Settings** mehr.
+**Bekannte Limitation**: kein Server-Push für Toggle-Änderungen — Cross-Session-Updates sieht der
+Client erst beim nächsten Guild-Mount/Reload.
+
 ## Flatpak-Packaging — `packaging/`
 
 `com.unicutmedia.Pulse` (`flatpak-builder`-Manifest `packaging/com.unicutmedia.Pulse.yml`). Bündelt das Electron-42-Binary

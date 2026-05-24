@@ -4,18 +4,27 @@
  * Bindet drei Plugin-Punkte zusammen:
  *
  * 1. **Settings-Section** ``'tamagotchi'`` (Schritt 3) — hält den Pet-State
- *    pro User in `localStorage`. `onSignOut: 'reset'` setzt den Pet zurück,
- *    sobald ein anderer User auf dem Gerät einloggt.
+ *    pro User in `localStorage` + serverseitig in `user_preferences`
+ *    (Schritt 3b, Cross-Device). `onSignOut: 'reset'` setzt den Pet
+ *    zurück, sobald ein anderer User auf dem Gerät einloggt.
+ *
+ *    Hinweis zur Aktivierung: Seit dem Plugin-Admin-Aktivierungs-PR ist
+ *    die **Aktivierung** von Tamagotchi pro Guild (Server-Admin mit
+ *    `MANAGE_GUILD`). Der **State** (das Haustier selbst) bleibt aber
+ *    weiterhin per-User — ein User hat ein Tamagotchi, egal auf wie
+ *    vielen Servern es freigeschaltet ist. Pro-Guild-Pets (separate Pets
+ *    pro Server) wären eine spätere PR.
  *
  * 2. **WS-Handler** für `tamagotchi:ack` (Schritt 2c) — empfängt die
- *    Server-Bestätigung jeder Aktion und loggt sie. Realer UX-Mehrwert
- *    kommt mit Schritt 3b (server-side `user_preferences` für
- *    Cross-Device-Sync), wo der ack die State-Quelle würde.
+ *    Server-Bestätigung jeder Aktion und loggt sie.
  *
  * 3. **WS-Outbound** über `gateway.sendPluginOp` — die Aktion läuft dem
- *    optimistischen Client-Update *parallel* hinterher. Wenn der WS gerade
- *    offline ist, schluckt `sendPluginOp` die Frame; das ist OK, weil der
- *    State client-seitig schon angewendet wurde.
+ *    optimistischen Client-Update *parallel* hinterher. Seit dem
+ *    Plugin-Admin-Aktivierungs-PR muss jede Plugin-Op ein `guild_id`-
+ *    Feld im Payload führen; der Backend-Op-Gate lehnt fehlende
+ *    `guild_id` mit Close-Code 4041 ab. Wenn der WS gerade offline ist,
+ *    schluckt `sendPluginOp` die Frame; das ist OK, weil der State
+ *    client-seitig schon angewendet wurde.
  *
  * Lazy-loaded vom Plugin-Loader; die `default export`-Funktion ist der
  * `register()`-Hook im Plugin-Entry-Contract (manifest-types.ts).
@@ -64,14 +73,16 @@ export function getPetStore(): SectionStore<PetState> | null {
 
 /** Wendet eine Aktion sofort lokal an + sendet sie ans Backend.
  *
- *  Optimistic-update first → Server-Ack zweitrangig. Der Tamagotchi-State
- *  ist nicht server-authoritative (für jetzt — Schritt 3b wäre der Pfad).
- *  Wir senden trotzdem die Op, damit:
- *    1. Der Backend-Permission-Gate-Test eine echte Last sieht.
- *    2. Server-side-Logging die Aktion erfasst.
- *    3. Schritt 3b nur das Backend-Verhalten ändern muss, nicht den Client.
- */
+ *  Optimistic-update first → Server-Ack zweitrangig. Wir senden trotzdem
+ *  die Op, damit der Backend-Permission-Gate-Test eine echte Last sieht
+ *  und Server-side-Logging die Aktion erfasst.
+ *
+ *  `guildId` ist seit dem Plugin-Admin-Aktivierungs-PR Pflichtfeld. Bei
+ *  leerer `guildId` (DM-Kontext) senden wir nichts — das Backend würde
+ *  den Op eh mit 4041 ablehnen, und das Widget rendert in DMs sowieso
+ *  nicht (`SidebarFooter.svelte`). */
 function applyLocalAction(
+  guildId: string,
   action: 'feed' | 'play' | 'sleep' | 'reset',
   transform: (s: PetState) => PetState
 ): void {
@@ -80,23 +91,27 @@ function applyLocalAction(
     return;
   }
   petStore.replace(transform(petStore.value));
-  gateway.sendPluginOp(`tamagotchi:${action}`);
+  if (!guildId) {
+    console.warn('[tamagotchi] action without guild context, skipping send:', action);
+    return;
+  }
+  gateway.sendPluginOp(`tamagotchi:${action}`, { guild_id: guildId });
 }
 
-export function feed(): void {
-  applyLocalAction('feed', feedTx);
+export function feed(guildId: string): void {
+  applyLocalAction(guildId, 'feed', feedTx);
 }
 
-export function play(): void {
-  applyLocalAction('play', playTx);
+export function play(guildId: string): void {
+  applyLocalAction(guildId, 'play', playTx);
 }
 
-export function sleep(): void {
-  applyLocalAction('sleep', sleepTx);
+export function sleep(guildId: string): void {
+  applyLocalAction(guildId, 'sleep', sleepTx);
 }
 
-export function reset(): void {
-  applyLocalAction('reset', () => resetTx());
+export function reset(guildId: string): void {
+  applyLocalAction(guildId, 'reset', () => resetTx());
 }
 
 /** Rename in der Settings-Section persistieren — der Server interessiert
@@ -118,8 +133,9 @@ export function refreshDecay(): void {
 
 /** Plugin-Entry. Idempotent — re-registriert dieselbe Section + denselben
  *  Handler. Wird vom Frontend-Loader (`web/src/lib/plugins/loader.ts`)
- *  aufgerufen, sobald das Plugin als aktiviert markiert wurde
- *  (`activation-state.svelte.ts`). */
+ *  beim App-Boot aufgerufen. Die Pro-Guild-UI-Sichtbarkeit (Widget
+ *  rendert nur wenn Plugin für die aktuelle Guild aktiviert) wird vom
+ *  `SidebarFooter`-Container geprüft, nicht hier. */
 export default function register(): void {
   petStore = registerSettingsSection<PetState>('tamagotchi', {
     defaults: { ...DEFAULT_PET, lastUpdatedAt: Date.now() },
@@ -139,7 +155,7 @@ export default function register(): void {
   });
 
   registerWsHandler('tamagotchi:ack' as never, ((evt: TamagotchiAckPayload) => {
-    // Heute nur Log — Schritt 3b würde hier z.B. den Server-State
+    // Heute nur Log — eine spätere PR würde hier z.B. den Server-State
     // appliyen (`petStore?.replace(evt.state)`).
     console.debug('[tamagotchi] ack', evt.action);
   }) as never);

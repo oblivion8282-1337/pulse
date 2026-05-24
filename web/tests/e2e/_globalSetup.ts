@@ -120,6 +120,12 @@ async function truncateDb(env: NodeJS.ProcessEnv) {
       auth.refresh_tokens,
       auth.users
     RESTART IDENTITY CASCADE;
+    -- Plugin-Allowlist + Pro-Guild-Toggles dürfen NICHT zwischen Test-
+    -- Runs lecken (sonst sieht der nächste plugins.spec.ts schon einen
+    -- "tamagotchi"-Allowlist-Eintrag vom letzten Run). Allowlist auf
+    -- den Migrations-Seed (hello-only) zurücksetzen; guild_plugins ist
+    -- via Cascade von chat.guilds schon weg.
+    DELETE FROM chat.instance_plugin_allowlist WHERE plugin_name <> 'hello';
     UPDATE chat.chat_settings SET
       dm_attachment_max_size_bytes = 26214400,
       dm_attachment_max_count_per_message = 4,

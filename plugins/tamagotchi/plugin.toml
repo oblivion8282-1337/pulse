@@ -20,8 +20,14 @@ author = "Pulse Maintainer"
 description = "Virtuelles Haustier pro User — füttern, spielen, schlafen"
 
 [plugin.scope]
-# State lebt vorerst pro User in der Frontend-Settings-Section (localStorage).
-# Cross-Device-Sync käme über Schritt 3b (server-side `user_preferences`).
+# `scope.type` beschreibt den **State**, nicht die Aktivierung. State lebt
+# pro User: ein User hat ein Tamagotchi, egal auf wie vielen Servern es
+# freigeschaltet ist (Settings-Section + Cross-Device-Sync über Schritt 3b
+# / `user_preferences`).
+#
+# **Activation** läuft seit dem Plugin-Admin-Aktivierungs-PR pro Guild
+# (`MANAGE_GUILD`-Toggle). Das Manifest-Schema kennt heute kein separates
+# `activation`-Feld — siehe `docs/PLUGIN_MANIFEST.md` "Aktivierungsmodell".
 type = "per-user"
 
 # `ws_ops` muss alle Op-Codes enthalten, die das Plugin in einer der

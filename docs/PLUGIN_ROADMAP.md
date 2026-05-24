@@ -577,16 +577,60 @@ Alle 537 chat-gateway-Tests grün (497 Bestand + 40 neu).
 
 **Was bewusst NICHT in PR1:**
 
-* **Frontend-UI** für Allowlist + Guild-Toggles — PR2.
+* **Frontend-UI** für Allowlist + Guild-Toggles — PR2 ✅.
 * **Entfernung des alten per-User-Activation-States** im Frontend
   (`activation-state.svelte.ts` + `user_preferences.section=plugins`)
-  — PR2. PR1 schreibt das Backend so um, dass es den alten State
-  ignoriert; das Frontend schreibt weiter (totes Ende für die
-  Backend-Aktivierung), bis PR2 die UI entfernt.
+  — PR2 ✅.
 * **Tamagotchi-Server-State** über die Toggle-Tabelle hinaus
   (z.B. pro-Guild-Pets) — PR3.
 * **Cache-Invalidation per Pub/Sub** beim Guild-Toggle — Trade-off,
   ein zweiter PR-Wert. Heute: max. 60 s Lag.
+
+### PR2 (Frontend-UI) — fertig
+
+Frontend-Seite des Plugin-Admin-Aktivierungs-Modells. Entfernt das alte
+per-User-Plugin-Settings-Panel komplett und ersetzt es durch zwei neue
+Admin-UIs + einen Pro-Guild-Aktivierungs-Store.
+
+* **Entfernt**:
+  * `web/src/lib/components/settings/SettingsPlugins.svelte`
+  * `web/src/lib/plugins/activation-state.svelte.ts` (per-User-Activation,
+    inkl. `setPluginActivated`/`pluginActivation`/`markPluginActivated`/
+    `markPluginDeactivated`)
+  * `plugins`-Tab + `setPluginActivated`-Re-Export aus
+    `SettingsDialog.svelte` und `web/src/lib/plugins/index.ts`.
+
+* **Neu**:
+  * **API-Clients**: `web/src/lib/api/admin-plugins.ts` (Allowlist) +
+    `web/src/lib/api/guild-plugins.ts` (Pro-Guild-Toggle).
+  * **Admin-UI**: `web/src/lib/components/admin/AdminPlugins.svelte`,
+    eingehängt unter `/app/admin` nach `AdminPermissions`. Bootstrap-
+    Admin-only (`is_admin=true`). Toggle-Liste mit Hello-disabled.
+  * **Guild-Settings-Tab**: `web/src/lib/components/settings/GuildPluginsEditor.svelte`,
+    Tab `plugins` im `GuildSettingsDialog`. Sichtbar mit `MANAGE_GUILD`.
+  * **Pro-Guild-Activation-Store**:
+    `web/src/lib/plugins/guild-activation.svelte.ts` — `Map<guildId,
+    Set<enabledNames>>`, beim Guild-Mount via `ensureGuildPluginsLoaded`
+    in `ChannelList.svelte` befüllt. Optimistic-Patch-Hook
+    `setGuildPluginEnabled` für direkte UI-Updates nach Toggle.
+    `resetGuildPluginsCache` läuft beim Sign-Out (in `auth.svelte.ts`).
+  * **Plugin-Loader-Refactor**: `web/src/lib/plugins/loader.ts` aktiviert
+    beim Boot alle entdeckten Plugins (kein per-User-Filter mehr).
+    Pro-Guild-Sichtbarkeit prüfen die UI-Komponenten selbst.
+  * **Tamagotchi-Update**: `plugins/tamagotchi/frontend.ts`-Aktionen
+    nehmen `guildId`-Parameter und senden ihn als `payload.guild_id` an
+    `gateway.sendPluginOp`. `TamagotchiWidget` erhält `guildId`-Prop;
+    `SidebarFooter` reicht sie durch. Im DM-Kontext (`guildId === ''`)
+    rendert das Widget nicht.
+
+* **Bekannte Trade-offs**:
+  * Kein Server-Push für Plugin-Toggle-Änderungen — Stale-State
+    überlebt bis zum nächsten Guild-Mount/Reload. Späterer
+    `plugin_state_changed`-WS-Event wäre der Pfad.
+  * Tamagotchi-Manifest-Schema kennt kein separates `activation`-Feld
+    (Pydantic-Model hat `extra="forbid"`). State-Scope bleibt
+    `per-user`; Activation-Modell ist in `docs/PLUGIN_MANIFEST.md`
+    dokumentiert.
 
 ## Plugin-Punkte (Status-Tabelle)
 
@@ -604,8 +648,8 @@ Alle 537 chat-gateway-Tests grün (497 Bestand + 40 neu).
 | Plugin-Manager-UI + Konflikt-Detektor | ✅ (6) | — | 6 |
 | Persistierter Activate-State | ✅ (6) | — | 6 |
 | Reference-Plugin (Tamagotchi) | ✅ (7) | ✅ (7) | 7 |
-| Plugin-Admin-Allowlist (Instanz) | PR2 (UI) | ✅ (Backend) | Admin-Activation |
-| Pro-Guild-Plugin-Toggle (MANAGE_GUILD) | PR2 (UI) | ✅ (Backend) | Admin-Activation |
+| Plugin-Admin-Allowlist (Instanz) | ✅ (PR2 UI) | ✅ (PR1 Backend) | Admin-Activation |
+| Pro-Guild-Plugin-Toggle (MANAGE_GUILD) | ✅ (PR2 UI) | ✅ (PR1 Backend) | Admin-Activation |
 | Bot-API (out-of-process, Stufe B) | — | — | 5b (geplant) |
 | WASM-Plugin-Host (in-process, isoliert) | — | — | 5c (geplant) |
 | UI-Slot/Component | — | — | 8 (geplant) |
