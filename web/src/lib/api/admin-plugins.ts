@@ -9,9 +9,11 @@
  *  * `DELETE /api/chat/admin/plugins/{name}` — Aus Allowlist entfernen
  *    + alle `guild_plugins`-Toggles cascade-löschen. `hello` → 409.
  *
- * Allowlist-Mutationen brauchen einen Service-Restart, bevor sie sich
- * im Loader/Op-Gate auswirken (siehe Backend-Doku). Das UI zeigt
- * deshalb nach jedem PUT/DELETE einen Hinweis "Wirkt erst nach Restart".
+ * Allowlist-Mutationen wirken seit dem Hot-Reload-Patch live im
+ * laufenden chat-gateway — der PUT/DELETE-Handler aktualisiert den
+ * Snapshot ``app.state.plugin_allowlist`` direkt + ruft den
+ * Plugin-Loader. ``requires_restart`` bleibt im Response-Schema (heute
+ * hardcoded ``false``) als Vorbereitung für Multi-Pod-Setups (Stufe B).
  */
 import { request } from './client';
 

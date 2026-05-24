@@ -21,18 +21,30 @@ Endpunkte
 
 Activation-Hot-Reload
 ~~~~~~~~~~~~~~~~~~~~~
-Allowlist-Mutationen brauchen einen Service-Restart, bevor sie in den
-laufenden Loader greifen. Der WS-Op-Dispatcher liest aus
-``app.state.plugin_allowlist`` (Snapshot zur Lifespan-Zeit) — neue
-Plugin-Ops würden ohne Restart vom Gate geblockt. Dokumentiert in
-``plugins/loader.py`` + ``docs/PLUGIN_ROADMAP.md``.
+PUT/DELETE wirken **live**: der PUT-Handler ruft den Plugin-Loader
+(``activate_plugin``), abonniert die im Manifest deklarierten Pub/Sub-
+Channels nach und aktualisiert den ``app.state.plugin_allowlist``-
+Snapshot unter Lock. DELETE entfernt den Plugin-Namen aus dem Snapshot
+(WS-Op-Gate rejected ab dann sofort) und putzt den Per-Guild-Toggle-
+Cache. Die im Loader-Lauf registrierten Op-/Channel-Handler bleiben
+inert im Dispatch-Dict — siehe ``plugins/loader.deactivate_plugin`` für
+die Trade-off-Begründung.
+
+Multi-Pod-Setup bekommt zusätzlich einen Redis-Pub/Sub-Notify
+``plugin:allowlist:changed`` mit ``{op, name, actor_id}``-Payload
+publisht; der Subscribe-Pfad (jeder Pod refresht seinen Snapshot) ist
+Vorbereitung für Stufe B und heute **nicht** verdrahtet — Single-Pod-
+Prod-Setup braucht ihn nicht. Der Publish ist trivial und schadet auch
+in Single-Pod nicht (keine Subscriber).
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete
 
@@ -50,6 +62,12 @@ from dcc_chat_gateway.models import GuildPlugin
 # String-Konstante ohne Side-Effects.
 from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
 from dcc_chat_gateway.security import AdminUser
+
+log = logging.getLogger(__name__)
+
+# Redis-Channel für Cross-Pod-Allowlist-Notifications. Publish-Only —
+# kein Subscriber in dieser Codebase (Stufe-B-Vorbereitung).
+ALLOWLIST_CHANGED_CHANNEL = "plugin:allowlist:changed"
 
 router = APIRouter(prefix="/admin/plugins")
 
@@ -71,11 +89,18 @@ class PluginAllowlistEntry(BaseModel):
 
 
 class PluginAllowlistPutOut(BaseModel):
-    """Antwort auf einen erfolgreichen PUT."""
+    """Antwort auf einen erfolgreichen PUT.
+
+    ``requires_restart`` steht seit dem Hot-Reload-Patch (Single-Pod) auf
+    ``False`` — Plugin-Ops sind sofort nach dem PUT zugelassen. Das Feld
+    bleibt im Response-Schema, damit die Admin-UI für Multi-Pod-Setups
+    (Stufe B) später ein klares "noch nicht überall ausgerollt"-Signal
+    hat. Heute hardcoded auf ``False``.
+    """
 
     plugin_name: str
     in_allowlist: bool = True
-    requires_restart: bool = True
+    requires_restart: bool = False
 
 
 def _validate_plugin_name(name: str) -> str:
@@ -124,15 +149,36 @@ async def list_plugins(session: SessionDep, _actor: AdminUser):
 
 @router.put("/{name}", response_model=PluginAllowlistPutOut)
 async def add_plugin_to_allowlist(
-    name: str, session: SessionDep, actor: AdminUser
+    name: str, request: Request, session: SessionDep, actor: AdminUser
 ):
-    """In die Allowlist eintragen. Idempotent.
+    """In die Allowlist eintragen + live aktivieren. Idempotent.
 
     Plugin muss in der Discovery existieren — sonst 404. Verhindert
     Tippfehler, die "leere" Allowlist-Einträge produzieren würden.
+
+    Hot-Reload-Schritte (in dieser Reihenfolge, alle nach erfolgreichem
+    DB-Commit):
+
+    1. ``activate_plugin(name)`` lädt das Backend-Modul + ruft
+       ``register()`` → WS-Op- und Channel-Handler landen in den
+       Dispatch-Registries. Idempotent: ein schon aktives Plugin wird
+       vom Manager als no-op behandelt.
+    2. ``update_plugin_allowlist_snapshot(add=name)`` setzt den
+       ``app.state.plugin_allowlist``-Snapshot unter Lock.
+    3. Plugin-Channels aus dem Manifest werden bei der
+       ConnectionManager-Pub/Sub-Subscription nachgereicht (idempotent
+       bei Redis — ein zweiter ``SUBSCRIBE`` ist no-op).
+    4. Cross-Pod-Notify auf ``plugin:allowlist:changed``. Failure
+       loggen + ignorieren — der lokale Pod ist schon konsistent.
     """
-    from dcc_chat_gateway.plugins.allowlist import add_to_allowlist
-    from dcc_chat_gateway.plugins.loader import discover_manifests
+    from dcc_chat_gateway.plugins.allowlist import (
+        add_to_allowlist,
+        update_plugin_allowlist_snapshot,
+    )
+    from dcc_chat_gateway.plugins.loader import (
+        activate_plugin,
+        discover_manifests,
+    )
 
     _validate_plugin_name(name)
     discovered = {m.name for m in discover_manifests()}
@@ -141,19 +187,69 @@ async def add_plugin_to_allowlist(
             status.HTTP_404_NOT_FOUND, detail="plugin_not_discovered"
         )
     await add_to_allowlist(session, name, added_by_user_id=actor.id)
+
+    # ---- Hot-Reload ----------------------------------------------------
+    manifest = activate_plugin(name)
+    if manifest is None:
+        # Double-Check: Discovery hatte ihn oben gefunden, aber der
+        # Loader-Aktivierungspfad nicht. Sehr selten (z.B. Plugin-Datei
+        # wurde zwischen den beiden Calls gelöscht). DB-Insert
+        # rückgängig zu machen wäre Overkill — der Admin kann den
+        # Eintrag per DELETE wieder rausnehmen.
+        log.warning(
+            "admin PUT /admin/plugins/%s: activation returned None "
+            "(plugin file race?); allowlist row persisted",
+            name,
+        )
+    await update_plugin_allowlist_snapshot(request.app, add=name)
+
+    # Plugin-Channel-Subscribe nachreichen, damit publish→fan-out direkt
+    # nach dem PUT funktioniert (sonst würden die ersten Events ins
+    # Leere laufen, weil der ConnectionManager den Channel nicht hört).
+    if manifest is not None and manifest.uses.channels:
+        manager = getattr(request.app.state, "connection_manager", None)
+        if manager is not None:
+            try:
+                await manager.subscribe_plugin_channels(
+                    list(manifest.uses.channels)
+                )
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "admin PUT /admin/plugins/%s: plugin-channel "
+                    "subscribe failed; broadcasts may not reach clients",
+                    name,
+                )
+
+    await _publish_allowlist_changed(request, op="add", name=name, actor_id=actor.id)
     return PluginAllowlistPutOut(plugin_name=name)
 
 
 @router.delete("/{name}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_plugin_from_allowlist(
-    name: str, session: SessionDep, _actor: AdminUser
+    name: str, request: Request, session: SessionDep, actor: AdminUser
 ):
     """Aus der Allowlist entfernen + alle Guild-Toggles cascade-löschen.
 
     ``hello`` ist nicht entfernbar (Loader-Smoketest + Frontend-Default)
     — 409.
+
+    Hot-Reload-Schritte (alle nach erfolgreichem DB-Commit):
+
+    1. ``update_plugin_allowlist_snapshot(remove=name)`` zieht den
+       Namen aus dem ``app.state.plugin_allowlist``-Snapshot — der
+       WS-Op-Gate rejected ab sofort jede Op des Plugins mit Code 4040.
+    2. ``PluginManager.forget(name)`` deaktiviert die im Loader-Lauf
+       registrierten Handler und wirft den Record weg. Beim nächsten
+       PUT würde ``activate_plugin`` über den Filesystem-Rescan einen
+       frischen Record bauen.
+    3. WS-Op-Gate-Cache wird für dieses Plugin entleert (sonst kann
+       eine Toggle-Lookup bis zu 60 s nachhinken).
+    4. Cross-Pod-Notify auf ``plugin:allowlist:changed``.
     """
-    from dcc_chat_gateway.plugins.allowlist import remove_from_allowlist
+    from dcc_chat_gateway.plugins.allowlist import (
+        remove_from_allowlist,
+        update_plugin_allowlist_snapshot,
+    )
 
     _validate_plugin_name(name)
     if name == HELLO_PLUGIN_NAME:
@@ -173,20 +269,25 @@ async def remove_plugin_from_allowlist(
         # War nicht in der Allowlist — idempotent: keine Daten geändert,
         # trotzdem 204 (DELETE-Konvention).
         await session.commit()
-    # Hot-Reload-Hinweis: wir setzen den Snapshot auf ``app.state``
-    # bewusst NICHT um. Plugin-Ops auf entferntem Plugin werden bis
-    # zum Restart noch durchgelassen, aber der Loader-State (registry)
-    # ist gleich — Worst Case ist eine Op, die im Backend nichts macht.
-    # Doku in ``plugins/loader.py``.
+
+    # ---- Hot-Reload ----------------------------------------------------
+    # 1. Snapshot zuerst, damit konkurrente WS-Ops das Plugin schon nach
+    #    dem ersten Yield-Punkt nicht mehr durchkommen.
+    await update_plugin_allowlist_snapshot(request.app, remove=name)
+    # 2. Manager-Record + Registry-Diff entfernen.
     _drop_manager_record(name)
-    # WS-Op-Gate-Cache: zu lehrnen entferntes Plugin sind alle
-    # `(guild_id, name)`-Cache-Slots stale. Wir können nur die in
-    # diesem Prozess invalidieren — der Cache ist nicht per-guild
-    # indexiert, also iterieren wir einmal über das Dict.
+    # 3. WS-Op-Gate-Cache invalidieren — der Cache ist (guild_id, name)-
+    #    keyed, und ein DELETE betrifft alle Guilds. Wir nutzen den
+    #    schon existierenden Helper, der eine Variante "alle Slots eines
+    #    Plugins" hat (über ein zweites Loop über die Keys).
     from dcc_chat_gateway.plugins.ws_op_gate import _cache
 
     for key in [k for k in _cache if k[1] == name]:
         _cache.pop(key, None)
+
+    await _publish_allowlist_changed(
+        request, op="remove", name=name, actor_id=actor.id
+    )
     return None
 
 
@@ -195,14 +296,44 @@ def _drop_manager_record(name: str) -> None:
 
     Der Loader hat das Plugin beim Startup eingetragen (auch wenn es
     nicht aktiviert wurde — Admin-UI braucht es als sichtbaren Eintrag).
-    Beim Allowlist-Remove wäre die Reaktivierung nach erneutem Add ein
-    Hot-Reload-Pfad, der heute bewusst NICHT unterstützt wird. Lieber
-    Record komplett vergessen — beim nächsten Startup baut der Loader
-    ihn ohnehin neu auf, falls das Plugin wieder allowed wird.
+    ``forget()`` deaktiviert das Plugin (rollt Op-/Channel-Registries
+    zurück) und entfernt den Record. Ein späterer Re-Add holt sich das
+    Plugin via ``activate_plugin`` neu aus der Discovery.
     """
     from dcc_chat_gateway.plugins.registry import get_manager
 
     get_manager().forget(name)
 
 
-__all__ = ["router"]
+async def _publish_allowlist_changed(
+    request: Request, *, op: str, name: str, actor_id: int | None
+) -> None:
+    """Cross-Pod-Notify auf ``plugin:allowlist:changed``.
+
+    Publish-Only — kein Subscriber in dieser Codebase
+    (Stufe-B-Vorbereitung für Multi-Pod-Setups). Failure-Modes:
+
+    * Kein Redis am ``app.state`` (REST-Test-Fixture, ``skip_redis``
+      branch) → silent skip.
+    * Redis-Connection-Error → loggen + ignorieren. Der lokale Snapshot
+      ist schon konsistent; der Notify wäre nur für andere Pods relevant.
+    """
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        return
+    payload = json.dumps(
+        {"op": op, "name": name, "actor_id": actor_id},
+        separators=(",", ":"),
+    )
+    try:
+        await redis.publish(ALLOWLIST_CHANGED_CHANNEL, payload)
+    except Exception:  # noqa: BLE001
+        log.exception(
+            "admin %s /admin/plugins/%s: cross-pod notify publish failed "
+            "(local snapshot already updated)",
+            op.upper(),
+            name,
+        )
+
+
+__all__ = ["ALLOWLIST_CHANGED_CHANNEL", "router"]

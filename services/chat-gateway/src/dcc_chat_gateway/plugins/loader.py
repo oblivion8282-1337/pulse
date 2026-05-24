@@ -16,13 +16,20 @@ Sections werden nicht in die Dispatch-Registries eingetragen.
 
 Hot-Reload
 ~~~~~~~~~~
-Allowlist-Mutationen über die Admin-API **wirken erst nach einem
-Service-Restart**. Hot-Reload wäre riskant (laufende WS-Verbindungen
-haben Snapshots der Op-Registries im Zustand zur Connect-Zeit; neue
-Plugin-Ops mitten in einer Session führen leicht zu Verwirrung). Wenn
-das später nötig wird: eine Pub/Sub-Channel ``plugin:allowlist`` mit
-``loader.refresh()``-Signal wäre der Pfad. Heute: Doku-Hinweis und
-fertig.
+Allowlist-Mutationen über die Admin-API werden **live im laufenden
+Prozess wirksam**: der PUT-Handler ruft :func:`activate_plugin` (lädt
++ ``register()``-Diff → Op-/Channel-Registries) und aktualisiert den
+``app.state.plugin_allowlist``-Snapshot unter Lock; der DELETE-Handler
+entfernt den Namen nur aus dem Snapshot — die im Loader-Lauf
+registrierten Op-Handler bleiben im Dispatch-Dict, sind aber durch das
+Allowlist-Gate (``ws_op_gate``) effektiv inert (siehe Doku in
+:func:`deactivate_plugin` für den Trade-off).
+
+Multi-Pod-Setup bekommt zusätzlich eine Redis-Pub/Sub-Notify
+``plugin:allowlist:changed`` vom mutierenden Pod publisht; der
+Subscribe-Pfad (jeder Pod refresht seinen Snapshot) ist Vorbereitung
+für Stufe B und heute **nicht** verdrahtet (Single-Pod-Prod-Setup
+braucht ihn noch nicht — ``infra/prod/DEPLOY.md``).
 
 Hello-Self-Heal
 ~~~~~~~~~~~~~~~
@@ -62,6 +69,8 @@ __all__ = [
     "DEFAULT_PLUGIN_API",
     "LoadResult",
     "PluginLoadError",
+    "activate_plugin",
+    "deactivate_plugin",
     "discover_plugins_dir",
     "discover_manifests",
     "load_all",
@@ -328,3 +337,105 @@ def load_all_with_allowlist(
         log.info("no plugin directory discovered; plugin loader idle")
         return LoadResult()
     return load_directory_with_allowlist(path, allowed, manager=manager)
+
+
+def activate_plugin(
+    plugin_name: str, *, manager: PluginManager | None = None
+) -> PluginManifest | None:
+    """Live-Aktivierung eines einzelnen Plugins (Hot-Reload-Pfad).
+
+    Vom Admin-PUT aufgerufen, **nachdem** der DB-Insert in die Allowlist
+    committed wurde. Macht:
+
+    1. Wenn der :class:`PluginManager` das Plugin schon kennt (Loader
+       hatte es beim Startup discovered, aber als nicht-allowed
+       übersprungen) → ``mgr.activate(name)`` reicht. Idempotent: ein
+       schon aktives Plugin wird vom Manager als no-op behandelt.
+    2. Sonst Filesystem-Rescan: neue Plugins, die nach dem letzten
+       Loader-Lauf in ``plugins/`` gelandet sind, kommen so rein. Wir
+       parsen das Manifest neu und rufen ``mgr.add`` + ``mgr.activate``.
+
+    Returnt das Manifest des aktivierten Plugins oder ``None``, wenn das
+    Plugin weder im Manager noch in der aktuellen Discovery zu finden
+    ist (der PUT-Handler hat das eigentlich schon mit 404 abgefangen —
+    Double-Check für den Fall, dass jemand den Loader direkt aufruft).
+    """
+    mgr = manager if manager is not None else get_manager()
+    rec = mgr.get(plugin_name)
+    if rec is not None:
+        try:
+            mgr.activate(plugin_name)
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "activate_plugin(%s): activation failed", plugin_name
+            )
+            return None
+        return rec.manifest
+
+    # Plugin war nicht im Manager — Rescan des Plugin-Dirs. Selten:
+    # passiert nur, wenn ein Plugin nach Lifespan-Discovery hot ins
+    # ``plugins/``-Verzeichnis dropped wurde.
+    path = discover_plugins_dir()
+    if path is None:
+        log.warning(
+            "activate_plugin(%s): no plugin directory discovered",
+            plugin_name,
+        )
+        return None
+    for directory, manifest in _parse_manifests_in_dir(path):
+        if manifest.name != plugin_name:
+            continue
+        try:
+            mgr.add(manifest, directory)
+        except ValueError:
+            # Race: zwischen ``mgr.get`` oben und hier reingerutscht.
+            # Idempotent: einfach aktivieren.
+            pass
+        try:
+            mgr.activate(plugin_name)
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "activate_plugin(%s): activation failed after rescan",
+                plugin_name,
+            )
+            return None
+        return manifest
+
+    log.warning(
+        "activate_plugin(%s): not found in discovery", plugin_name
+    )
+    return None
+
+
+def deactivate_plugin(
+    plugin_name: str, *, manager: PluginManager | None = None
+) -> None:
+    """Pendant zu :func:`activate_plugin` — heute bewusst no-op.
+
+    Trade-off-Doku
+    --------------
+    Wir könnten ``mgr.deactivate(plugin_name)`` rufen, was die im
+    Plugin registrierten Ops/Channels aus den Dispatch-Registries
+    räumt. Praktisches Problem: derselbe Process-State kann später
+    durch ein erneutes ``PUT`` wieder aktiviert werden — wir hätten
+    dann eine Race zwischen "alte Handler weg, neue Handler kommen
+    rein" und WS-Frames die in dieser Lücke ankommen. Außerdem leakt
+    der Plugin-Modulcode in ``sys.modules`` (Python kann Module nicht
+    sauber entladen), sodass ein zweiter Aktivierungspfad ohnehin
+    keinen frischen Import bekommen würde.
+
+    Pragmatischer Pfad: Handler bleiben registriert, der WS-Op-Gate
+    rejected Plugin-Ops aber sofort über den
+    ``app.state.plugin_allowlist``-Snapshot — eine Allowlist-Entfernung
+    wirkt also funktional als "Plugin off", auch wenn intern die
+    Registries nicht aufgeräumt sind. Bei einem späteren Re-Add greifen
+    die alten Handler weiter (idempotent: ``register_ws_op`` ist
+    last-writer-wins, kein Drift).
+
+    Volles ``deactivate()`` machen wir nur in Tests + beim
+    Service-Shutdown (:meth:`PluginManager.deactivate_all`).
+    """
+    _ = plugin_name
+    _ = manager
+    # Bewusst kein Aufruf — siehe Doku-String oben.
+    return None

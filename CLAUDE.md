@@ -207,8 +207,15 @@ Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4040 (allowlist), 4
 4042 (non-member), 4043 (nicht aktiviert). **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen**
 (außer `hello:*`).
 
-**Hot-Reload bewusst NICHT**: Allowlist-Mutationen brauchen Service-Restart (Snapshot in
-`app.state.plugin_allowlist`), Guild-Toggle-Mutationen wirken nach ≤60 s (Cache-TTL).
+**Hot-Reload**: Admin-PUT/DELETE auf `/admin/plugins/{name}` wirken **live** (Single-Pod) — der PUT
+ruft `plugins.loader.activate_plugin` (lädt Backend + `register()`) und aktualisiert
+`app.state.plugin_allowlist` unter `asyncio.Lock`; DELETE entfernt aus dem Snapshot + ruft
+`PluginManager.forget` (Op-/Channel-Registries werden ausgerollt). Cross-Pod-Notify auf
+`plugin:allowlist:changed` ist Publish-Only (Stufe-B-Vorbereitung, kein Subscriber). Guild-Toggle-
+Mutationen wirken nach ≤60 s (`ws_op_gate`-Cache-TTL). Trade-off bei DELETE: die im Loader-Lauf
+registrierten WS-Op-Handler bleiben im Dispatch-Dict, sind aber durch das Allowlist-Gate sofort
+inert — siehe `plugins/loader.deactivate_plugin` für die Begründung (Python-Module nicht sauber
+entladbar, Re-Add-Race vermieden).
 
 **Frontend-Aktivierungs-State (UI)**: Loader (`web/src/lib/plugins/loader.ts`) registriert beim Boot
 **alle** entdeckten Plugins (kein per-User-Activation-Filter — `activation-state.svelte.ts` ist weg).

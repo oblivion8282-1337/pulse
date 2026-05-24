@@ -566,10 +566,26 @@ ab jetzt ein **`guild_id: SnowflakeId`-Pflichtfeld** im Payload (außer
 würden ohne PR2-Frontend-Update jetzt 4041 zurück bekommen — der
 bewusste Backend-vor-Frontend-Cut.
 
-**Hot-Reload bewusst NICHT** — Allowlist-Mutationen brauchen einen
-Service-Restart, Guild-Toggle-Mutationen wirken nach max. 60 s (Cache-
-TTL). Dokumentiert in `plugins/loader.py` und `plugins/ws_op_gate.py`.
-Redis-Pub/Sub-basierte Cache-Invalidation wäre PR2-Erweiterung.
+**Hot-Reload (PR4-Followup, 2026-05-24).** Admin-PUT/DELETE wirken
+**live** im laufenden chat-gateway: der PUT-Handler ruft
+`plugins.loader.activate_plugin` (Idempotent — lädt Backend + ruft
+`register()`), aktualisiert `app.state.plugin_allowlist` unter
+`asyncio.Lock` (Helper `plugins.allowlist.update_plugin_allowlist_snapshot`)
+und subscribt die im Manifest deklarierten Plugin-Channels nach. DELETE
+entfernt den Namen aus dem Snapshot, ruft `PluginManager.forget`
+(Op-/Channel-Registries werden ausgerollt) und putzt den
+WS-Op-Gate-Cache für das Plugin. Zusätzlich publisht jeder PUT/DELETE
+auf `plugin:allowlist:changed` (Stufe-B-Vorbereitung für Multi-Pod;
+heute kein Subscriber). Guild-Toggle-Mutationen wirken weiterhin nach
+≤60 s über den Cache-TTL — `guild_plugins.py` invalidiert die Zelle
+beim Toggle.
+
+Trade-off (DELETE): Im Loader-Lauf registrierte WS-Op- und
+Channel-Handler werden via `PluginManager.forget` aus den Registries
+gerollt; bei einem späteren Re-Add re-discovered `activate_plugin`
+das Plugin via Filesystem-Rescan. Vollständige Modul-Entladung ist in
+Python nicht sauber möglich, deshalb dokumentiert in
+`plugins/loader.deactivate_plugin` (no-op + Trade-off-Begründung).
 
 **Tests:** `test_admin_plugins.py` (12), `test_guild_plugins.py` (10),
 `test_plugin_ws_op_gate.py` (13), `test_plugin_loader_allowlist.py` (5).

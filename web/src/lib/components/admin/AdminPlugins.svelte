@@ -8,9 +8,9 @@
   → 409). Wir zeigen ihn als disabled mit Hinweis "Immer erlaubt
   (System-Plugin)".
 
-  Wichtig: Allowlist-Mutationen wirken sich erst nach einem Service-
-  Restart im Loader/Op-Gate aus (siehe Backend `routes/admin_plugins.py`).
-  Der Toast nach jeder Aktion sagt das.
+  Seit dem Hot-Reload-Patch (PR4-Followup) wirken Allowlist-Mutationen
+  live im laufenden chat-gateway — der PUT/DELETE-Handler aktualisiert
+  den ``app.state.plugin_allowlist``-Snapshot direkt. Kein Restart nötig.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -69,8 +69,8 @@
       }
       toast.success(
         target
-          ? `Plugin "${name}" erlaubt — Restart aktiviert es im Loader`
-          : `Plugin "${name}" nicht mehr erlaubt — Restart entlädt es`
+          ? `Plugin "${name}" erlaubt — sofort aktiviert`
+          : `Plugin "${name}" nicht mehr erlaubt — sofort deaktiviert`
       );
     } catch (e) {
       // Revert.
@@ -95,8 +95,7 @@
         Welche Plugins auf dieser Pulse-Instanz überhaupt geladen werden dürfen.
         Pro Server entscheiden Server-Admins separat über
         <em>Server-Einstellungen → Plugins</em>, welche der freigegebenen
-        Plugins dort aktiv sind. Aktivierungen wirken erst nach einem
-        Service-Restart.
+        Plugins dort aktiv sind. Änderungen wirken sofort.
       </p>
     </div>
   </div>
