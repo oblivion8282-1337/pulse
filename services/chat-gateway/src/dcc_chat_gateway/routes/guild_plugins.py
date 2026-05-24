@@ -26,11 +26,13 @@ Das Hello-Plugin gilt instanzweit als immer aktiv (Loader-Smoketest).
 
 from __future__ import annotations
 
+import logging
 import re
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from dcc_shared.events import GuildPluginsChangedEvent
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -48,7 +50,37 @@ from dcc_chat_gateway.plugins.state_store import get_state
 from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
 from dcc_chat_gateway.security import CurrentUser
 
+log = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/guilds/{guild_id}/plugins")
+
+
+async def _publish_guild_plugins_changed(
+    request: Request, *, guild_id: int, plugin_name: str, enabled: bool
+) -> None:
+    """Publish ``guild_plugins_changed`` für alle Member dieser Guild.
+
+    Wir piggybacken auf den existierenden ``guild:events``-Channel, weil
+    der Listener-Filter ``_GUILD_MEMBER_SCOPED_OPS`` das Event automatisch
+    auf die Guild-Member zuschneidet — kein eigener Channel + eigener
+    Handler nötig. Failure (Redis weg / Test-Fixture ohne Redis) darf
+    den PUT/DELETE nicht killen: der DB-Commit ist die Wahrheit, der
+    WS-Push nur "live UI nice-to-have".
+    """
+    manager = getattr(request.app.state, "connection_manager", None)
+    if manager is None:
+        return
+    envelope = GuildPluginsChangedEvent(
+        guild_id=str(guild_id), plugin_name=plugin_name, enabled=enabled
+    )
+    try:
+        await manager.publish_guild_event(envelope)
+    except Exception:  # noqa: BLE001
+        log.exception(
+            "guild_plugins_changed publish failed "
+            "(guild=%s plugin=%s enabled=%s); local DB already committed",
+            guild_id, plugin_name, enabled,
+        )
 
 
 _PLUGIN_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{1,31}$")
@@ -124,6 +156,7 @@ async def toggle_guild_plugin(
     guild_id: int,
     name: str,
     payload: GuildPluginTogglePayload,
+    request: Request,
     session: SessionDep,
     current: CurrentUser,
 ):
@@ -170,6 +203,16 @@ async def toggle_guild_plugin(
         row.enabled_by_user_id = current.id
     await session.commit()
     invalidate_guild_plugin_cache(guild_id, name)
+    # WS-Push an alle Guild-Member, damit ihr Frontend-Cache live
+    # invalidiert wird (sonst sähen sie das Plugin erst beim nächsten
+    # Guild-Mount). Auf ``guild:events`` — der Listener-Filter scoped
+    # per ``_GUILD_MEMBER_SCOPED_OPS`` automatisch auf Member.
+    await _publish_guild_plugins_changed(
+        request,
+        guild_id=guild_id,
+        plugin_name=name,
+        enabled=row.enabled,
+    )
     return GuildPluginEntry(plugin_name=name, enabled=row.enabled)
 
 

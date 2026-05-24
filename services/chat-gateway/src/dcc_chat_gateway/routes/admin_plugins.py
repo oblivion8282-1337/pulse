@@ -40,16 +40,20 @@ in Single-Pod nicht (keine Subscriber).
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import GuildPlugin
+from dcc_chat_gateway.routes.admin_plugins_publish import (
+    ALLOWLIST_CHANGED_CHANNEL,
+    publish_allowlist_changed,
+    publish_guild_plugins_disabled,
+)
 
 # Plugin-Module werden **innerhalb** der Route-Funktionen importiert,
 # weil ``dcc_chat_gateway.plugins.registry`` während des App-Bootstraps
@@ -64,10 +68,6 @@ from dcc_chat_gateway.plugins.allowlist import HELLO_PLUGIN_NAME
 from dcc_chat_gateway.security import AdminUser
 
 log = logging.getLogger(__name__)
-
-# Redis-Channel für Cross-Pod-Allowlist-Notifications. Publish-Only —
-# kein Subscriber in dieser Codebase (Stufe-B-Vorbereitung).
-ALLOWLIST_CHANGED_CHANNEL = "plugin:allowlist:changed"
 
 router = APIRouter(prefix="/admin/plugins")
 
@@ -220,7 +220,7 @@ async def add_plugin_to_allowlist(
                     name,
                 )
 
-    await _publish_allowlist_changed(request, op="add", name=name, actor_id=actor.id)
+    await publish_allowlist_changed(request, op="add", name=name, actor_id=actor.id)
     return PluginAllowlistPutOut(plugin_name=name)
 
 
@@ -259,8 +259,16 @@ async def remove_plugin_from_allowlist(
     # Manueller Cascade über die zwei Tabellen — es gibt keinen DB-FK
     # zwischen instance_plugin_allowlist und guild_plugins (die haben
     # nur das ``plugin_name``-Feld als logische Brücke). Erst die
-    # Toggle-Rows weg, dann die Allowlist-Row — falls der zweite Schritt
-    # failt, hinterlassen wir keinen orphan Toggle-Set.
+    # betroffenen Guild-IDs einsammeln (für den WS-Push gleich darunter),
+    # dann die Toggle-Rows weg, dann die Allowlist-Row — failt der zweite
+    # Schritt, hinterlassen wir keinen orphan Toggle-Set.
+    affected_guilds_rows = await session.execute(
+        select(GuildPlugin.guild_id).where(
+            GuildPlugin.plugin_name == name,
+            GuildPlugin.enabled.is_(True),
+        )
+    )
+    affected_guild_ids = [int(g) for g in affected_guilds_rows.scalars().all()]
     await session.execute(
         delete(GuildPlugin).where(GuildPlugin.plugin_name == name)
     )
@@ -285,7 +293,15 @@ async def remove_plugin_from_allowlist(
     for key in [k for k in _cache if k[1] == name]:
         _cache.pop(key, None)
 
-    await _publish_allowlist_changed(
+    # 4. Pro Guild, die das Plugin aktiv hatte, ein
+    #    ``guild_plugins_changed``-Event pushen (enabled=False), damit
+    #    die Frontend-Caches der jeweiligen Guild-Member sofort den
+    #    Plugin-Slot zumachen.
+    await publish_guild_plugins_disabled(
+        request, guild_ids=affected_guild_ids, plugin_name=name
+    )
+
+    await publish_allowlist_changed(
         request, op="remove", name=name, actor_id=actor.id
     )
     return None
@@ -303,37 +319,6 @@ def _drop_manager_record(name: str) -> None:
     from dcc_chat_gateway.plugins.registry import get_manager
 
     get_manager().forget(name)
-
-
-async def _publish_allowlist_changed(
-    request: Request, *, op: str, name: str, actor_id: int | None
-) -> None:
-    """Cross-Pod-Notify auf ``plugin:allowlist:changed``.
-
-    Publish-Only — kein Subscriber in dieser Codebase
-    (Stufe-B-Vorbereitung für Multi-Pod-Setups). Failure-Modes:
-
-    * Kein Redis am ``app.state`` (REST-Test-Fixture, ``skip_redis``
-      branch) → silent skip.
-    * Redis-Connection-Error → loggen + ignorieren. Der lokale Snapshot
-      ist schon konsistent; der Notify wäre nur für andere Pods relevant.
-    """
-    redis = getattr(request.app.state, "redis", None)
-    if redis is None:
-        return
-    payload = json.dumps(
-        {"op": op, "name": name, "actor_id": actor_id},
-        separators=(",", ":"),
-    )
-    try:
-        await redis.publish(ALLOWLIST_CHANGED_CHANNEL, payload)
-    except Exception:  # noqa: BLE001
-        log.exception(
-            "admin %s /admin/plugins/%s: cross-pod notify publish failed "
-            "(local snapshot already updated)",
-            op.upper(),
-            name,
-        )
 
 
 __all__ = ["ALLOWLIST_CHANGED_CHANNEL", "router"]

@@ -297,10 +297,17 @@ Allowlist- + Guild-Toggle-Mutationen **wirken nicht überall sofort**:
 * UI-Komponenten prüfen mit `isPluginEnabledForGuild(guildId, name)`,
   ob sie rendern dürfen. DMs/Friends-Kontext (`guildId === ''`) ist
   per Konvention plugin-frei.
-* **Bekannte Limitation**: kein Server-Push für Toggle-Änderungen.
-  Wenn ein Admin in einer anderen Session ein Plugin abschaltet, sieht
-  der Client das erst beim nächsten Guild-Mount/Reload. Akzeptabel; ein
-  späterer WS-Event-Pfad würde das beheben.
+* **Live-Toggle-Push**: PUT `/guilds/{id}/plugins/{name}` und DELETE
+  `/admin/plugins/{name}` pushen ein
+  `{op: "guild_plugins_changed", guild_id, plugin_name, enabled}`-Event
+  auf den `guild:events`-Redis-Channel. Der Listener-Filter
+  (`_GUILD_MEMBER_SCOPED_OPS`) scoped es auf Guild-Member, sodass Outsider
+  nichts mitkriegen. Frontend-Handler (`web/src/lib/ws/handlers/guild.ts`)
+  patcht `guild-activation`-Cache via `setGuildPluginEnabled` — aber nur,
+  wenn der Slot schon gemountet ist. Bei DELETE pusht das Backend ein
+  Event pro Guild, die das Plugin aktiv hatte (jeweils mit
+  `enabled=false`). Effekt: ein Admin-Toggle auf Device A landet ohne
+  F5 in der UI aller anderen Member-Devices.
 
 ### Frontend-UI (Aktivierungs-Management)
 

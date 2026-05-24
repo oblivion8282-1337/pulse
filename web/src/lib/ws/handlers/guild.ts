@@ -10,6 +10,10 @@ import { roles } from '$lib/stores/roles.svelte';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
+import {
+  guildPluginActivation,
+  setGuildPluginEnabled
+} from '$lib/plugins/guild-activation.svelte';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
@@ -63,6 +67,22 @@ export function register(ctx: HandlerContext): void {
     }
     memberRoles.invalidate(evt.guild_id, evt.user_id);
     void memberRoles.ensure(evt.guild_id, evt.user_id).catch(() => undefined);
+  });
+
+  // Guild-Admin hat ein Plugin auf der Guild getoggelt — oder der
+  // Bootstrap-Admin hat es instanzweit deaktiviert (enabled=false).
+  // Wenn die Guild bereits im Cache liegt, patchen wir den Slot
+  // direkt (spart einen HTTP-Roundtrip + matcht den Optimistic-Path
+  // im GuildPluginsEditor). Wenn die Guild noch NIE gemountet wurde,
+  // ist der Slot leer — wir lassen ihn leer, damit das nächste
+  // `ensureGuildPluginsLoaded` einmal komplett vom Server lädt, statt
+  // einen lückenhaften Single-Plugin-Slot zu hinterlassen (der den
+  // Cache-Check in `ensureGuildPluginsLoaded` als "schon geladen"
+  // täuschen würde).
+  registerWsHandler('guild_plugins_changed', (evt) => {
+    const cached = guildPluginActivation.enabledByGuild[evt.guild_id];
+    if (cached === undefined) return;
+    setGuildPluginEnabled(evt.guild_id, evt.plugin_name, evt.enabled);
   });
 
   registerWsHandler('guild_sound_updated', (evt) => {

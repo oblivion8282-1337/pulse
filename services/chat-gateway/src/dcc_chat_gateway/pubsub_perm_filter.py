@@ -219,6 +219,10 @@ class _PermFilterMixin:
             "guild_ban_added",
             "guild_ban_removed",
             "channel_bump",
+            # Plugin-Toggle-Push (per-guild): nur Member sollen ihren
+            # ``guild-activation``-Cache invalidieren; Outsider haben
+            # gar keinen Slot für die Guild.
+            "guild_plugins_changed",
         }
     )
 

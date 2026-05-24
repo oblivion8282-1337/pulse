@@ -19,13 +19,16 @@
  * immer mit `enabled=true` zurückgeliefert; wir tragen ihn deshalb auch
  * mit ein, sodass `isPluginEnabledForGuild(g, 'hello') === true` gilt.
  *
- * Stale-State
- * -----------
- * Wenn ein Guild-Admin in einer anderen Browser-Session/Device das
- * Plugin abschaltet, sieht dieser Client es erst beim nächsten
- * `ensureLoaded(guildId)`-Call (Guild-Switch) — wir haben heute keinen
- * Server-Push für Plugin-Toggle-Änderungen. Akzeptabel für jetzt;
- * dokumentiert in `docs/PLUGIN_ROADMAP.md`.
+ * Live-Updates
+ * ------------
+ * Beim PUT auf `/guilds/{id}/plugins/{name}` bzw. DELETE auf
+ * `/admin/plugins/{name}` pusht das Backend ein `guild_plugins_changed`-
+ * Event auf `guild:events` (per-Op-Membership-Scoping greift, nur
+ * Member kriegen es). Der WS-Handler in `lib/ws/handlers/guild.ts`
+ * patcht den Cache via `setGuildPluginEnabled`, wenn der Slot schon
+ * geladen ist; sonst no-op (der nächste `ensureLoaded` zieht den
+ * vollständigen Stand). So sieht jeder Mitspieler live, wenn der
+ * Guild-Admin ein Plugin an- oder abschaltet — ohne F5.
  *
  * DM-Kontext
  * ----------

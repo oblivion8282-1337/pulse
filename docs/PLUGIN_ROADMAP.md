@@ -640,9 +640,11 @@ Admin-UIs + einen Pro-Guild-Aktivierungs-Store.
     rendert das Widget nicht.
 
 * **Bekannte Trade-offs**:
-  * Kein Server-Push für Plugin-Toggle-Änderungen — Stale-State
-    überlebt bis zum nächsten Guild-Mount/Reload. Späterer
-    `plugin_state_changed`-WS-Event wäre der Pfad.
+  * ~~Kein Server-Push für Plugin-Toggle-Änderungen~~ — **nachgereicht**:
+    PUT/DELETE pushen jetzt `guild_plugins_changed` an alle Guild-Member
+    via `guild:events` (siehe `docs/PLUGIN_MANIFEST.md` und
+    `lib/ws/handlers/guild.ts`). DELETE auf der Admin-Allowlist pusht
+    pro betroffener Guild ein eigenes Event mit `enabled=false`.
   * Tamagotchi-Manifest-Schema kennt kein separates `activation`-Feld
     (Pydantic-Model hat `extra="forbid"`). State-Scope bleibt
     `per-user`; Activation-Modell ist in `docs/PLUGIN_MANIFEST.md`

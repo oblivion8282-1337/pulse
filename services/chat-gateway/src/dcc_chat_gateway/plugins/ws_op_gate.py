@@ -4,8 +4,12 @@ Plugin-Ops sind colon-namespaced (``tamagotchi:feed``). Vor jedem
 solchen Op prüft der Dispatcher:
 
 1. **Allowlist-Snapshot**: Plugin muss in ``app.state.plugin_allowlist``
-   stehen (Snapshot aus der DB zur Lifespan-Zeit; Hot-Reload bewusst
-   nicht unterstützt).
+   stehen. Der Snapshot wird beim Lifespan-Start aus der DB gefüllt UND
+   live aktualisiert durch die Admin-PUT/DELETE-Endpunkte
+   (``routes/admin_plugins.py``): nach einem erfolgreichen DB-Commit
+   ruft der Handler ``update_plugin_allowlist_snapshot(add=/remove=)``
+   unter Lock, sodass der WS-Op-Gate ohne Service-Restart sofort
+   weiß, dass das Plugin (de)aktiviert ist.
 2. **Guild-Membership**: Caller muss Mitglied der ``guild_id`` aus dem
    Payload sein.
 3. **Guild-Toggle**: ``chat.guild_plugins.enabled = True`` für
