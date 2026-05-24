@@ -18,8 +18,12 @@ COPY desktop/package.json desktop/package.json
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 
-# web source → build
+# web source + plugin manifests → build
+# plugins/ wird via `import.meta.glob('/../plugins/*/manifest.ts')` aus
+# web/src/lib/plugins/loader.ts beim Vite-Build aufgelöst. Ohne plugins/
+# im Build-Kontext ist der Plugin-Manager im UI leer.
 COPY web/ web/
+COPY plugins/ plugins/
 RUN pnpm --filter @dcc/web build
 
 # ── runtime ──────────────────────────────────────────────────────────────────
