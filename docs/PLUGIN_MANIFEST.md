@@ -232,8 +232,8 @@ Plugin-Ops (Format `<plugin>:<action>`, z.B. `tamagotchi:feed`) brauchen
 ab jetzt ein **Pflichtfeld `guild_id`** im Payload — die Snowflake-ID
 des Servers, auf dem die Aktion stattfindet. Der WS-Op-Gate
 (`plugins/ws_op_gate.py`) lehnt fehlende `guild_id` mit Error-Code
-`4014` ab; fehlende Membership → `4015`; Plugin nicht für die Guild
-aktiviert → `4016`. Übers Wire ist `guild_id` ein **String** (JS-`Number`-
+`4041` ab; fehlende Membership → `4042`; Plugin nicht für die Guild
+aktiviert → `4043`. Übers Wire ist `guild_id` ein **String** (JS-`Number`-
 Präzisions-Grenze), Backend coerced toleranten Pfad zu int.
 
 Das Hello-Plugin (`hello:*`) ist der Sonderfall:
@@ -262,13 +262,15 @@ Das Hello-Plugin (`hello:*`) ist der Sonderfall:
 
 ### Hot-Reload-Verhalten
 
-Allowlist + Guild-Toggle-Mutationen **wirken nicht sofort**:
+Allowlist- + Guild-Toggle-Mutationen **wirken nicht überall sofort**:
 
 * **Allowlist-Mutation** → Plugin-Op-Gate liest aus
   `app.state.plugin_allowlist` (Snapshot zur Lifespan-Zeit). Neue
   Plugins werden vom Loader erst beim **nächsten Service-Restart**
-  registriert. Bis dahin: 4013 für jeden Op auf neuen Plugins.
+  registriert. Bis dahin: 4040 für jeden Op auf neuen Plugins.
 * **Guild-Toggle-Mutation** → WS-Op-Gate cached den Toggle-Status mit
-  60 s TTL pro `(guild_id, plugin_name)`. Eine Änderung greift also
-  innerhalb von max. 60 s — gut genug für PR1. Echtzeit-Invalidation
-  über Redis-Pub/Sub wäre PR2.
+  60 s TTL pro `(guild_id, plugin_name)`. Der PUT-Toggle-Endpoint
+  invalidiert den Cache-Slot der bearbeiteten `(guild_id, plugin_name)`
+  im selben Prozess sofort — eine UI-Aktion greift also für den
+  pushenden Pod ohne TTL-Lag. **Multi-Pod-Setup** würde Redis-Pub/Sub
+  brauchen, damit alle Pods invalidieren; das ist PR2.

@@ -551,8 +551,11 @@ Loader-Smoketest.
   `PUT /guilds/{id}/plugins/{name}`.
 * **`routes/ws_ops.py`** Dispatcher — vor jedem Handler-Call mit
   colon-namespaced Op läuft `check_plugin_op_gate`. Error-Frames:
-  4013 (allowlist), 4014 (guild_id fehlt), 4015 (non-member), 4016
-  (plugin not enabled).
+  4040 (allowlist), 4041 (guild_id fehlt), 4042 (non-member), 4043
+  (plugin not enabled). Block 4040–4043 ist plugin-exklusiv (vorher
+  nutzte ein erster Wurf 4013–4016, die aber mit ws_op_send /
+  ws_watch kollidierten — vgl. Code-Audit in
+  `plugins/ws_op_gate.py`).
 * **`app.py`** Lifespan — `ensure_hello_in_allowlist` + Allowlist-
   Snapshot in `app.state.plugin_allowlist` (frozenset) + Loader-Call
   mit dem Snapshot.
@@ -560,7 +563,7 @@ Loader-Smoketest.
 **Plugin-Op-Konvention (NEU).** Colon-namespaced Plugin-Ops brauchen
 ab jetzt ein **`guild_id: SnowflakeId`-Pflichtfeld** im Payload (außer
 `hello:*`). Frontend liefert das in PR2 mit. Tamagotchi-Plugin-Ops
-würden ohne PR2-Frontend-Update jetzt 4014 zurück bekommen — der
+würden ohne PR2-Frontend-Update jetzt 4041 zurück bekommen — der
 bewusste Backend-vor-Frontend-Cut.
 
 **Hot-Reload bewusst NICHT** — Allowlist-Mutationen brauchen einen

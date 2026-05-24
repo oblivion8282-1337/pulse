@@ -179,6 +179,14 @@ async def remove_plugin_from_allowlist(
     # ist gleich — Worst Case ist eine Op, die im Backend nichts macht.
     # Doku in ``plugins/loader.py``.
     _drop_manager_record(name)
+    # WS-Op-Gate-Cache: zu lehrnen entferntes Plugin sind alle
+    # `(guild_id, name)`-Cache-Slots stale. Wir können nur die in
+    # diesem Prozess invalidieren — der Cache ist nicht per-guild
+    # indexiert, also iterieren wir einmal über das Dict.
+    from dcc_chat_gateway.plugins.ws_op_gate import _cache
+
+    for key in [k for k in _cache if k[1] == name]:
+        _cache.pop(key, None)
     return None
 
 
@@ -189,29 +197,12 @@ def _drop_manager_record(name: str) -> None:
     nicht aktiviert wurde — Admin-UI braucht es als sichtbaren Eintrag).
     Beim Allowlist-Remove wäre die Reaktivierung nach erneutem Add ein
     Hot-Reload-Pfad, der heute bewusst NICHT unterstützt wird. Lieber
-    Record stillschweigend droppen — beim nächsten Startup baut der
-    Loader ihn ohnehin neu auf, falls das Plugin wieder allowed wird.
+    Record komplett vergessen — beim nächsten Startup baut der Loader
+    ihn ohnehin neu auf, falls das Plugin wieder allowed wird.
     """
     from dcc_chat_gateway.plugins.registry import get_manager
 
-    mgr = get_manager()
-    rec = mgr.get(name)
-    if rec is None:
-        return
-    if rec.activated:
-        try:
-            mgr.deactivate(name)
-        except Exception:  # noqa: BLE001
-            # deactivate ist best-effort; ein Hook-Fehler darf den
-            # DELETE-Endpoint nicht failen lassen.
-            pass
-    # PluginManager hat keinen public ``forget()`` — wir greifen
-    # direkt ins ``_records``-Dict. Alternative wäre ein neues API in
-    # registry.py, aber das ist ein Single-Site-Hack für einen
-    # Stufe-A-Pfad.
-    mgr._records.pop(name, None)  # noqa: SLF001
-    # Kein Re-Import nötig — beim Restart läuft load_all_with_allowlist
-    # erneut und das Plugin landet wieder im Manager, falls erlaubt.
+    get_manager().forget(name)
 
 
 __all__ = ["router"]

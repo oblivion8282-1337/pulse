@@ -203,8 +203,8 @@ Migrations-Seed in `0020`), nicht entfernbar (409), nicht togglebar pro Guild (4
 `hello:*` bypassen Membership + Guild-Toggle.
 
 **WS-Op-Gate** (`plugins/ws_op_gate.py`): vor jedem Plugin-Op-Dispatch — Allowlist + Membership +
-Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4013 (allowlist), 4014 (`guild_id` fehlt),
-4015 (non-member), 4016 (nicht aktiviert). **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen**
+Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4040 (allowlist), 4041 (`guild_id` fehlt),
+4042 (non-member), 4043 (nicht aktiviert). **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen**
 (außer `hello:*`).
 
 **Hot-Reload bewusst NICHT**: Allowlist-Mutationen brauchen Service-Restart (Snapshot in

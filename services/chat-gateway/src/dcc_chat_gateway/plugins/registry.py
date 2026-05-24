@@ -244,6 +244,41 @@ class PluginManager:
         log.info("plugin %s deactivated", name)
         return rec
 
+    def forget(self, name: str) -> bool:
+        """Drop the manager's record for ``name`` entirely.
+
+        Stronger than :meth:`deactivate` — that one rolls back the
+        registry diff but keeps the :class:`PluginRecord` around (so
+        a later :meth:`activate` doesn't need to re-discover the
+        plugin). :meth:`forget` removes the record completely; the
+        next time the loader runs (after a service restart), the
+        record gets rebuilt from disk.
+
+        Used by the admin-API ``DELETE /admin/plugins/{name}`` path
+        when a plugin flies out of the instance allowlist: we want
+        the manager to forget it ever existed so an accidental
+        re-add doesn't reactivate stale state.
+
+        Returns ``True`` if a record was removed, ``False`` otherwise.
+        Best-effort: if the plugin was still activated, we try
+        :meth:`deactivate` first and swallow any errors — forgetting
+        must always succeed.
+        """
+        rec = self._records.get(name)
+        if rec is None:
+            return False
+        if rec.activated:
+            try:
+                self.deactivate(name)
+            except Exception:  # noqa: BLE001
+                log.exception(
+                    "plugin %s: deactivate during forget failed; "
+                    "dropping record anyway",
+                    name,
+                )
+        self._records.pop(name, None)
+        return True
+
     def deactivate_all(self) -> None:
         for name in list(self._records):
             try:

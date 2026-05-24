@@ -66,7 +66,7 @@ async def test_gate_blocks_plugin_not_in_allowlist(session_factory):
             allowlist=frozenset(),
         )
     assert decision.allowed is False
-    assert decision.error_code == 4013
+    assert decision.error_code == 4040
 
 
 @pytest.mark.asyncio
@@ -80,7 +80,7 @@ async def test_gate_blocks_missing_guild_id(session_factory):
             allowlist=frozenset({"tamagotchi"}),
         )
     assert decision.allowed is False
-    assert decision.error_code == 4014
+    assert decision.error_code == 4041
 
 
 @pytest.mark.asyncio
@@ -97,7 +97,7 @@ async def test_gate_blocks_non_member(session_factory):
             allowlist=frozenset({"tamagotchi"}),
         )
     assert decision.allowed is False
-    assert decision.error_code == 4015
+    assert decision.error_code == 4042
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_gate_blocks_plugin_disabled_for_guild(session_factory):
             allowlist=frozenset({"tamagotchi"}),
         )
     assert decision.allowed is False
-    assert decision.error_code == 4016
+    assert decision.error_code == 4043
 
 
 @pytest.mark.asyncio
@@ -196,7 +196,7 @@ async def test_gate_hello_still_needs_allowlist(session_factory):
             allowlist=frozenset(),
         )
     assert decision.allowed is False
-    assert decision.error_code == 4013
+    assert decision.error_code == 4040
 
 
 @pytest.mark.asyncio

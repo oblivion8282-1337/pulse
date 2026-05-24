@@ -129,8 +129,13 @@ async def toggle_guild_plugin(
     * Plugin muss in der Allowlist sein, sonst 404 ``plugin_not_allowed``.
     * ``hello`` ist nicht togglebar → 409.
     * MANAGE_GUILD-Gate.
+    * Nach erfolgreichem Write wird der WS-Op-Gate-Cache für
+      `(guild_id, name)` im selben Prozess invalidiert, sodass eine
+      UI-Aktion ohne 60 s TTL-Lag wirkt. Multi-Pod-Setup → Redis-
+      Pub/Sub-basierte Invalidation (PR2).
     """
     from dcc_chat_gateway.plugins.allowlist import list_allowed_names
+    from dcc_chat_gateway.plugins.ws_op_gate import invalidate_guild_plugin_cache
 
     _validate_plugin_name(name)
     if name == HELLO_PLUGIN_NAME:
@@ -161,6 +166,7 @@ async def toggle_guild_plugin(
         row.enabled = payload.enabled
         row.enabled_by_user_id = current.id
     await session.commit()
+    invalidate_guild_plugin_cache(guild_id, name)
     return GuildPluginEntry(plugin_name=name, enabled=row.enabled)
 
 
