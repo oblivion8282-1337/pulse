@@ -182,6 +182,34 @@ ist der aktive Pfad. Ebenfalls TODO: Notifications-IPC in `main.ts`.
 `isDesktop()` (Alias), `isLinux()` (UA-basiert). Dev-Test-Route `/app/dev/stream` (nicht im Menü) = Diagnose-Page mit allen
 Sidecar-Ops als Buttons.
 
+## Plugin-System (Stufe A)
+
+Top-Level `plugins/` mit Referenz-Plugins `hello` + `tamagotchi`. Manifest = `plugin.toml` (Backend) +
+`manifest.ts` (Frontend-Spiegel, manuell synchron halten — Browser hat kein TOML). Backend-Loader
+`chat_gateway/plugins/loader.py` (Discovery beim Startup), Frontend-Loader `web/src/lib/plugins/loader.ts`.
+Plugin-Ops sind **colon-namespaced** (`tamagotchi:feed`) — der Listener-Validator bypasst sie via `:`.
+Outbound: `gateway.sendPluginOp(...)`. **`web/Dockerfile` kopiert `plugins/` ins Image** (sonst keine
+Discovery in Prod). Stufe B (Bot-API) + C (WASM) skizziert in `docs/PLUGIN_ROADMAP.md`, nicht gebaut.
+
+**Aktivierungsmodell (zwei Ebenen, ab Plugin-Admin-Activation-PR)** — KEINE per-User-Aktivierung mehr:
+
+1. **Instanz-Allowlist** (`chat.instance_plugin_allowlist`, Bootstrap-Admin (`is_admin=true`)) — was darf
+   auf der Instanz laufen? Loader registriert **nur Allowlist-Plugins**. API: `GET/PUT/DELETE /admin/plugins[/{name}]`.
+2. **Pro-Guild-Toggle** (`chat.guild_plugins`, Guild-Admin mit `MANAGE_GUILD`) — pro Server an/aus.
+   API: `GET /guilds/{id}/plugins`, `PUT /guilds/{id}/plugins/{name}`.
+
+**`hello` ist Sonderfall**: immer in der Allowlist (Loader-Self-Heal in `plugins/allowlist.py` +
+Migrations-Seed in `0020`), nicht entfernbar (409), nicht togglebar pro Guild (409). Plugin-Ops
+`hello:*` bypassen Membership + Guild-Toggle.
+
+**WS-Op-Gate** (`plugins/ws_op_gate.py`): vor jedem Plugin-Op-Dispatch — Allowlist + Membership +
+Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4013 (allowlist), 4014 (`guild_id` fehlt),
+4015 (non-member), 4016 (nicht aktiviert). **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen**
+(außer `hello:*`).
+
+**Hot-Reload bewusst NICHT**: Allowlist-Mutationen brauchen Service-Restart (Snapshot in
+`app.state.plugin_allowlist`), Guild-Toggle-Mutationen wirken nach ≤60 s (Cache-TTL).
+
 ## Flatpak-Packaging — `packaging/`
 
 `com.unicutmedia.Pulse` (`flatpak-builder`-Manifest `packaging/com.unicutmedia.Pulse.yml`). Bündelt das Electron-42-Binary

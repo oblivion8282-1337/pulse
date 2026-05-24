@@ -12,10 +12,14 @@ from redis.asyncio import Redis
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
-from dcc_chat_gateway.presence_status import idle_sweeper_loop
 from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.db import engine
-from dcc_chat_gateway.plugins import load_all as load_plugins
+from dcc_chat_gateway.db import SessionLocal, engine
+from dcc_chat_gateway.plugins import (
+    ensure_hello_in_allowlist,
+    list_allowed_names,
+    load_all_with_allowlist,
+)
+from dcc_chat_gateway.presence_status import idle_sweeper_loop
 from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.push import ensure_vapid
 from dcc_chat_gateway.routes import router
@@ -100,17 +104,26 @@ async def lifespan(app: FastAPI):
         idle_sweeper = asyncio.create_task(
             idle_sweeper_loop(redis), name="dcc-presence-idle-sweeper"
         )
-        # Plugin-System Schritt 4 + 5: discover + activate plugins in the
-        # configured plugin directory. Behaviour-neutral when no plugin
-        # is present (empty repo `plugins/` ⇒ no-op). Errors per-plugin
-        # (incl. PluginPermissionError from the Schritt-5 gate) are logged
-        # and the rest of startup proceeds. Mode is read from
-        # ``$PULSE_PLUGIN_PERMISSIONS`` — see
-        # ``dcc_chat_gateway.plugins.permissions`` for the contract.
+        # Plugin-System: Allowlist-gegateter Load.
+        # 1. Self-Heal: ``hello`` muss immer in der Allowlist sein.
+        # 2. Allowlist-Snapshot aus der DB lesen.
+        # 3. Plugin-Loader mit Snapshot aufrufen — nur erlaubte Plugins
+        #    werden aktiviert; entdeckte aber nicht-erlaubte bleiben für
+        #    die Admin-API sichtbar.
+        # Snapshot landet auf ``app.state.plugin_allowlist`` (frozenset),
+        # damit der WS-Op-Gate ohne DB-Hit pro Op prüfen kann.
+        # Errors pro Plugin werden geloggt; die Lifespan startet auch
+        # bei Plugin-Fehlern durch. Mode für den Permission-Gate (intern):
+        # ``$PULSE_PLUGIN_PERMISSIONS`` — siehe ``plugins.permissions``.
         try:
-            load_plugins()
+            async with SessionLocal() as session:
+                await ensure_hello_in_allowlist(session)
+                allowed = await list_allowed_names(session)
+            app.state.plugin_allowlist = frozenset(allowed)
+            load_all_with_allowlist(allowed)
         except Exception:  # noqa: BLE001
             log.exception("plugin loader failed; continuing without plugins")
+            app.state.plugin_allowlist = frozenset()
     try:
         yield
     finally:
@@ -139,6 +152,10 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     settings = get_settings()
     app = FastAPI(title="dcc-chat-gateway", version="0.1.0", lifespan=lifespan)
     app.state.skip_redis = skip_redis
+    # Default-Snapshot, damit Tests ohne Lifespan (REST-only-Fixture)
+    # ein definiertes ``plugin_allowlist`` lesen können. Die Lifespan
+    # überschreibt das mit dem DB-Snapshot.
+    app.state.plugin_allowlist = frozenset()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,

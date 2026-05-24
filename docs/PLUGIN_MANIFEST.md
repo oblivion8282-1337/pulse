@@ -210,3 +210,65 @@ Erwartete Server-Antwort:
 * **Migration-API** für Plugin-DB-Tabellen — Schritt 4/5.
 * **UI-Slot-Registry** — `[plugin.uses].ui_slots` ist nur deklariert;
   die Slot-Registry selbst existiert noch nicht (Schritt 4/5 in Roadmap).
+
+## Aktivierungsmodell (Admin + Guild)
+
+Seit dem Plugin-Admin-Aktivierungs-PR ist die Plugin-Aktivierung **kein
+per-User-State mehr**, sondern zwei Admin-gepflegte Ebenen:
+
+1. **Instanz-Allowlist** (`chat.instance_plugin_allowlist`, vom
+   Bootstrap-Admin (`auth.users.is_admin = true`) gepflegt). Was darf
+   auf dieser Pulse-Instanz überhaupt geladen werden? Der chat-gateway-
+   Loader importiert beim Startup **nur Plugins aus der Allowlist** und
+   registriert deren WS-Ops/Channels/Settings-Sections.
+2. **Pro-Guild-Toggle** (`chat.guild_plugins`, vom Guild-Admin mit
+   `MANAGE_GUILD`-Permission). Pro Server: ist ein Allowlist-erlaubtes
+   Plugin auf diesem Server aktiv? Der WS-Op-Dispatcher gated jeden
+   colon-namespaced Plugin-Op gegen dieses Toggle.
+
+### Plugin-Ops müssen `guild_id` führen
+
+Plugin-Ops (Format `<plugin>:<action>`, z.B. `tamagotchi:feed`) brauchen
+ab jetzt ein **Pflichtfeld `guild_id`** im Payload — die Snowflake-ID
+des Servers, auf dem die Aktion stattfindet. Der WS-Op-Gate
+(`plugins/ws_op_gate.py`) lehnt fehlende `guild_id` mit Error-Code
+`4014` ab; fehlende Membership → `4015`; Plugin nicht für die Guild
+aktiviert → `4016`. Übers Wire ist `guild_id` ein **String** (JS-`Number`-
+Präzisions-Grenze), Backend coerced toleranten Pfad zu int.
+
+Das Hello-Plugin (`hello:*`) ist der Sonderfall:
+
+* `hello` ist **fest in der Allowlist** (Loader-Self-Heal beim Startup
+  + Migrations-Seed) und kann vom Admin nicht entfernt werden (DELETE
+  → 409).
+* `hello`-Ops umgehen das Guild-Gate komplett — kein `guild_id`-Feld
+  nötig, kein Membership-Check, kein Guild-Toggle. Das hält den
+  Loader-Smoketest unabhängig von Guild-Setup.
+
+### Admin-API (Bootstrap-Admin, JWT `admin: true`)
+
+| Endpunkt | Effekt |
+|---|---|
+| `GET /admin/plugins` | Discovery ∪ Allowlist. Pro Plugin: `in_discovery`, `in_allowlist`, `version`, `description` |
+| `PUT /admin/plugins/{name}` | In die Allowlist eintragen. 404 wenn `name` nicht in der Discovery existiert. Idempotent |
+| `DELETE /admin/plugins/{name}` | Aus der Allowlist entfernen + alle `guild_plugins`-Rows mit raus. 409 für `hello` |
+
+### Guild-API (`MANAGE_GUILD`, Owner-Bypass)
+
+| Endpunkt | Effekt |
+|---|---|
+| `GET /guilds/{id}/plugins` | Pro Allowlist-Plugin: `{plugin_name, enabled}`. `hello` immer `enabled=true`. Caller muss Mitglied sein |
+| `PUT /guilds/{id}/plugins/{name}` | Toggle. Body `{enabled: bool}`. 404 wenn nicht in Allowlist, 409 für `hello` |
+
+### Hot-Reload-Verhalten
+
+Allowlist + Guild-Toggle-Mutationen **wirken nicht sofort**:
+
+* **Allowlist-Mutation** → Plugin-Op-Gate liest aus
+  `app.state.plugin_allowlist` (Snapshot zur Lifespan-Zeit). Neue
+  Plugins werden vom Loader erst beim **nächsten Service-Restart**
+  registriert. Bis dahin: 4013 für jeden Op auf neuen Plugins.
+* **Guild-Toggle-Mutation** → WS-Op-Gate cached den Toggle-Status mit
+  60 s TTL pro `(guild_id, plugin_name)`. Eine Änderung greift also
+  innerhalb von max. 60 s — gut genug für PR1. Echtzeit-Invalidation
+  über Redis-Pub/Sub wäre PR2.
