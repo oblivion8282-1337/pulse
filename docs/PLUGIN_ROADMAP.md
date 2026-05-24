@@ -18,6 +18,55 @@ Backend-Pendant: `shared/dcc_shared/events.py` exportiert eine Registry für
 `{op, schema, version}`-Tupel; alle WS-Op-Payloads werden über sie validiert.
 Plugins können neue Ops registrieren, ohne `events.py` zu patchen.
 
+### Schritt 1b — Listener-side strict validation — fertig
+
+Branch: `feat/listener-strict-validation`.
+
+Schritt 1 hat den **Publisher-Pfad** auf die Registry migriert; jeder REST-
+Route- / voice-signaling- / media-svc-Publisher baut sein Event jetzt als
+Pydantic-Modell. Diese Etappe schließt den **Subscriber-Pfad**: jedes
+eingehende Redis-Pub/Sub-Event wird im chat-gateway-Listener gegen
+`EVENT_REGISTRY` validiert, bevor es an die lokalen Sockets fan-outed wird.
+
+Was sich geändert hat:
+
+- `services/chat-gateway/src/dcc_chat_gateway/pubsub_event_validation.py`
+  (~110 Z., neu): `validate_event(op, payload) → (is_valid, error_msg)` +
+  `maybe_drop(op, payload, channel) → bool`. Mode-resolver liest
+  `PULSE_EVENT_VALIDATION` (env, default `strict`).
+- `pubsub_channel_handlers.py` + `pubsub_channel_guild.py`: jeder
+  op-discriminated Branch ruft jetzt `maybe_drop()` vor dem eigentlichen
+  Processing. Bare-Snapshot-Pfade (`voice:events` ohne `op`, `stream:events`,
+  `watch:events`) bleiben unangetastet — die Snapshots sind nicht im
+  `EVENT_REGISTRY` (sie tragen keinen Discriminator) und werden vom Listener
+  selbst auf der Outbound-Seite mit `op` versehen.
+- Tests: `services/chat-gateway/tests/test_event_validation.py` (23 Tests),
+  482 chat-gateway-Tests grün (459 vorher + 23 neu).
+
+Validation-Modes (`PULSE_EVENT_VALIDATION`):
+
+- `strict` (Default) — invalid event → drop + ERROR log. Production-Default.
+- `warn` — invalid event → WARNING log, aber weiterverarbeitet. Sanfte
+  Migration: Schema-Drift sichtbar machen ohne sofort zu droppen.
+- `off` — kein Validation-Overhead. Für Setups, wo der Listener vor dem
+  Publisher upgegradet wird und ein paar Sekunden Drift unkritisch sind.
+- Unknown / unset → fällt auf `strict` zurück.
+
+Sonder-Behandlung:
+
+- **Plugin-Ops** (Op-Code enthält `:`, z.B. `tamagotchi:ack`) bypassen die
+  Validation. Plugins registrieren ihre eigenen Ops; die Core-Registry
+  weiß nichts davon, und ohne diesen Bypass würde Phase 1b den ganzen
+  Plugin-Pfad blockieren.
+- **Unknown Core-Ops** (Op-Code ist nicht namespaced, aber nicht im
+  Registry): werden mit einer WARNING durchgelassen. Schützt vor
+  Block-by-Skew, wenn ein neuer Op-Publisher schon deployt ist, der
+  Listener aber noch alt. Echtes Drift-Symptom als Log raus.
+- **Bare Snapshots** (kein `op`-Feld): Caller (Channel-Handler) ruft
+  `maybe_drop` für solche Payloads gar nicht erst auf — die
+  `VoiceStateSnapshot` / `StreamStateSnapshot` / `WatchStateSnapshot`-
+  Form ist Registry-frei by design.
+
 ### Schritt 2 — Backend Op- + Channel-Handler-Registries — fertig (d93cbeb)
 
 Branch: `feat/ws-handler-registry-backend`, merged.
@@ -370,6 +419,7 @@ Was bewusst NICHT in Schritt 7:
 | Punkt | Frontend | Backend | Plan-Schritt |
 |---|---|---|---|
 | WS-Event-Schemas | ✅ | ✅ | 1 |
+| Listener strict validation | — | ✅ (1b) | 1b |
 | WS-Op-Handler | ✅ (2c) | ✅ (2) | 2 |
 | Channel-Subscription | — | ✅ (2) | 2 |
 | Settings-Section | ✅ (3) | — (3b geplant) | 3 |

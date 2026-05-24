@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 from dcc_chat_gateway.pubsub_channel_registry import register_channel_handler
 from dcc_chat_gateway.pubsub_channels import GUILD_EVENTS_CHANNEL
+from dcc_chat_gateway.pubsub_event_validation import maybe_drop
 
 if TYPE_CHECKING:
     from dcc_chat_gateway.pubsub import ConnectionManager
@@ -57,6 +58,14 @@ async def handle_guild_events(
     payload = manager._decode_payload(msg["data"], GUILD_EVENTS_CHANNEL)
     if not isinstance(payload, dict) or "op" not in payload:
         log.warning("guild:events malformed or missing op: %r", payload)
+        return
+    # Schema validation runs BEFORE the membership-update + invalidation
+    # side effects so a malformed event in strict mode never mutates the
+    # per-socket caches. ``presence_status_changed`` carries an alias
+    # ``_sender_user_id`` that the model knows about (via Field(alias=…)),
+    # so validation works at this point — the pop() below is only for
+    # downstream code that wants the value out of the dict.
+    if maybe_drop(payload["op"], payload, GUILD_EVENTS_CHANNEL):
         return
     manager._apply_guild_membership_update(payload)
     manager._maybe_invalidate(payload)

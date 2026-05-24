@@ -30,6 +30,7 @@ from dcc_chat_gateway.pubsub_channels import (
     USER_EVENTS_CHANNEL,
     VOICE_EVENTS_CHANNEL,
 )
+from dcc_chat_gateway.pubsub_event_validation import maybe_drop
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL
 
 # Side-effect: registers ``guild:events`` — kept in its own module so this
@@ -71,6 +72,8 @@ async def handle_voice_events(
     # and broadcast as a dedicated envelope rather than the snapshot path
     # below.
     if payload.get("op") == "voice_disconnect":
+        if maybe_drop("voice_disconnect", payload, VOICE_EVENTS_CHANNEL):
+            return
         voice_cid = str(payload.get("channel_id"))
         envelope = {
             "op": "voice_disconnect",
@@ -90,6 +93,8 @@ async def handle_voice_events(
         await manager._fan_out(targets, envelope)
         return
     if payload.get("op") == "voice_override":
+        if maybe_drop("voice_override", payload, VOICE_EVENTS_CHANNEL):
+            return
         voice_cid = str(payload.get("channel_id"))
         envelope = {
             "op": "voice_override",
@@ -226,6 +231,12 @@ async def handle_user_events(
     except (TypeError, ValueError):
         log.warning("user:events bad _target_user_id: %r", target_uid_raw)
         return
+    # Schema validation runs AFTER stripping the routing-only
+    # ``_target_user_id`` field — the event models don't know about it
+    # (it's a listener-side wrapper, not part of the envelope schema).
+    op = payload.get("op")
+    if op and maybe_drop(op, payload, USER_EVENTS_CHANNEL):
+        return
     # Friend/block lifecycle events (Etappe 2) update the per-socket
     # caches BEFORE fan-out so a follow-up mention/presence filter sees
     # the new state without waiting for the round-trip of a re-hydration
@@ -263,8 +274,12 @@ async def handle_chat_channel(
     # reaction_add / reaction_remove).
     if isinstance(payload, dict) and "op" in payload:
         envelope = payload
+        if maybe_drop(envelope["op"], envelope, f"chat:channel:{channel_id}"):
+            return
     else:
         envelope = {"op": "message", "data": payload}
+        if maybe_drop("message", envelope, f"chat:channel:{channel_id}"):
+            return
     async with manager._lock:
         raw_targets = list(manager._subs.get(channel_id, ()))
     targets = await manager._filter_by_view_channel(raw_targets, channel_id)
