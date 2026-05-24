@@ -199,6 +199,12 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "sound_id": "join",
         "removed": False,
     },
+    "guild_plugins_changed": {
+        "op": "guild_plugins_changed",
+        "guild_id": "5",
+        "plugin_name": "tamagotchi",
+        "enabled": True,
+    },
     "presence_update": {
         "op": "presence_update",
         "user_id": "3",
