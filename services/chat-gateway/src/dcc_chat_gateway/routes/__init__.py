@@ -20,6 +20,7 @@ from dcc_chat_gateway.routes import (
     messages,
     notifications,
     permission_overwrites,
+    preferences,
     presence,
     privacy,
     reactions,
@@ -42,6 +43,7 @@ router.include_router(dms.router)
 router.include_router(friends.router)
 router.include_router(blocks.router)
 router.include_router(privacy.router)
+router.include_router(preferences.router)
 router.include_router(invites.router)
 router.include_router(roles.router)
 router.include_router(role_members.router)

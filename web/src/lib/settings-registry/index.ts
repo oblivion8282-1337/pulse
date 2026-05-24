@@ -25,6 +25,12 @@ export {
   runSignOutHooks,
   bindPersistence,
   schedulePersist,
-  flushPersist
+  flushPersist,
+  hydrateServerSections
 } from './registry.svelte';
-export type { SectionConfig, SectionStore, SignOutPolicy } from './types';
+export type {
+  PersistenceMode,
+  SectionConfig,
+  SectionStore,
+  SignOutPolicy
+} from './types';

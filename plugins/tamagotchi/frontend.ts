@@ -127,8 +127,15 @@ export default function register(): void {
     // bekäme der nächste User auf dem Gerät einen "vererbten" Pipsi.
     onSignOut: 'reset',
     version: 1,
-    // Defensives Parsen — schützt vor korrumpiertem localStorage-Blob.
-    parse: parsePet
+    // Defensives Parsen — schützt vor korrumpiertem persistierten Blob
+    // (lokal oder von /preferences geliefert).
+    parse: parsePet,
+    // Schritt 3b: Pet-State wird beim Login pro User vom Backend
+    // gezogen — der Pipsi auf dem Handy ist derselbe wie auf dem
+    // Desktop. Mutations gehen debounced (~2.5s) als
+    // PUT /preferences/tamagotchi raus, sodass z.B. ein "Füttern"-
+    // Spam nicht jede Sekunde eine HTTP-Request löst.
+    persistence: 'server'
   });
 
   registerWsHandler('tamagotchi:ack' as never, ((evt: TamagotchiAckPayload) => {

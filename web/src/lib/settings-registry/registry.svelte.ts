@@ -14,7 +14,12 @@
  * `SettingsStore` facade re-exposes each section as a typed property for
  * the existing component imports (`settings.audio.bitrate` etc.).
  */
-import type { SectionConfig, SectionStore, SignOutPolicy } from './types';
+import type { PersistenceMode, SectionConfig, SectionStore, SignOutPolicy } from './types';
+import {
+  fetchAllPreferences,
+  flushAllPending,
+  schedulePushSection
+} from './server-sync';
 
 const STORAGE_KEY = 'dcc.settings';
 /** Persist debounce window. The pre-registry code persisted synchronously
@@ -80,13 +85,33 @@ function readRoot(): Record<string, unknown> {
   return getHandle().read();
 }
 
+/** Resolve the effective persistence mode for a section. Default
+ *  ``'local'`` keeps every pre-Schritt-3b section unchanged. */
+function modeOf(config: AnyConfig): PersistenceMode {
+  return config.persistence ?? 'local';
+}
+
+function writesLocal(mode: PersistenceMode): boolean {
+  return mode === 'local' || mode === 'both';
+}
+
+function writesServer(mode: PersistenceMode): boolean {
+  return mode === 'server' || mode === 'both';
+}
+
 /** Snapshot all registered sections into a single blob + write it. Sections
  *  that registered before bindPersistence ran would be lost; that's why
- *  bindPersistence must be called first in the boot path. */
+ *  bindPersistence must be called first in the boot path.
+ *
+ *  Server-only sections (``persistence: 'server'``) are excluded from
+ *  the localStorage blob — they live exclusively in
+ *  ``user_preferences``. ``'both'`` mode still writes locally (it's
+ *  the offline-resilience opt-in). */
 function persistAll(): void {
   const blob: Record<string, unknown> = {};
   const meta: Record<string, number> = {};
   for (const [name, reg] of sections.entries()) {
+    if (!writesLocal(modeOf(reg.config))) continue;
     blob[name] = reg.store.snapshot();
     if (reg.config.version !== undefined) meta[`${name}_version`] = reg.config.version;
   }
@@ -179,12 +204,21 @@ function makeSectionStore<T>(
 ): SectionStore<T> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let _value: T = $state(initial) as any;
+  const mode = modeOf(config as AnyConfig);
 
   function snapshot(): T {
     // JSON-roundtrip strips the `$state` proxy so the persisted blob is
     // a plain object — JSON.stringify on a runed proxy works but `===`
     // identity in tests gets confusing if we leak the proxy.
     return JSON.parse(JSON.stringify(_value)) as T;
+  }
+
+  /** Persist after every mutation. ``schedulePersist`` writes the local
+   *  blob (no-op for server-only sections); ``schedulePushSection``
+   *  fires the debounced server PUT for server / both modes. */
+  function onMutate(): void {
+    schedulePersist();
+    if (writesServer(mode)) schedulePushSection(name, snapshot);
   }
 
   const store: SectionStore<T> = {
@@ -197,19 +231,19 @@ function makeSectionStore<T>(
     },
     set(key, val) {
       _value[key] = val;
-      schedulePersist();
+      onMutate();
     },
     patch(partial) {
       Object.assign(_value as object, partial);
-      schedulePersist();
+      onMutate();
     },
     replace(next) {
       _value = next;
-      schedulePersist();
+      onMutate();
     },
     reset() {
       _value = cloneDefaults(config.defaults);
-      schedulePersist();
+      onMutate();
     },
     snapshot,
     /** Apply the configured sign-out policy. Called from `auth.signOut()` via
@@ -250,8 +284,55 @@ export function listSections(): string[] {
   return Array.from(sections.keys());
 }
 
-/** Run all registered sign-out hooks. Called from `auth.signOut()`. */
+/** Hydrate every server-backed section from the backend.
+ *
+ * Called once on sign-in (and on hydrate of a persisted session). Does
+ * a single bulk GET against ``/preferences``, then for each registered
+ * section with ``persistence: 'server' | 'both'`` looks up its slice
+ * and applies it via ``store.replace(parsed)``. Sections without a
+ * server row keep their current (defaults / local) value.
+ *
+ * The ``parse`` hook still runs — the wire format is opaque JSON, so
+ * the section's clamper is the only thing standing between a
+ * corrupted server row and the rune-tracked state.
+ *
+ * Returns the set of section names that were hydrated, mostly for
+ * testing / debug logging. */
+export async function hydrateServerSections(): Promise<string[]> {
+  const serverSections = Array.from(sections.entries()).filter(([, reg]) =>
+    writesServer(modeOf(reg.config))
+  );
+  if (serverSections.length === 0) return [];
+  const all = await fetchAllPreferences();
+  const hydrated: string[] = [];
+  for (const [name, reg] of serverSections) {
+    const row = all[name];
+    if (row === undefined) continue;
+    const raw = row.value;
+    let parsed: unknown;
+    try {
+      parsed = reg.config.parse ? reg.config.parse(raw) : mergeShallow(reg.config.defaults, raw as Partial<unknown>);
+    } catch (err) {
+      console.warn('[settings-registry] parse failed during hydrate', name, err);
+      continue;
+    }
+    reg.store.replace(parsed);
+    hydrated.push(name);
+  }
+  return hydrated;
+}
+
+/** Run all registered sign-out hooks. Called from `auth.signOut()`.
+ *
+ * Server-backed sections get their pending pushes flushed *before*
+ * the sign-out policy fires — otherwise a debounced write could land
+ * on the server after the next user signs in and accidentally clobber
+ * their data with the previous user's state. The flush is best-effort
+ * (auth token may already be gone). */
 export function runSignOutHooks(): void {
+  // Fire-and-forget: don't block sign-out on a slow network. The flush
+  // itself is best-effort and tolerates a 401 (token already cleared).
+  void flushAllPending();
   for (const reg of sections.values()) reg.store.applySignOut();
   flushPersist();
 }

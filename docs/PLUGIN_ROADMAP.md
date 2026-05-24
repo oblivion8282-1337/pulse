@@ -1,6 +1,6 @@
 # Pulse Plugin-System — Roadmap
 
-Stand: 2026-05-24 (Schritt 7 fertig)
+Stand: 2026-05-24 (Schritt 3b fertig — **letzter Schritt im Plan**)
 
 Manifest-Spezifikation: [`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
 
@@ -134,18 +134,108 @@ tama.patch({ hunger: 0, lastFedAt: Date.now() });
 
 Was noch offen ist:
 
-- **Schritt 3b — Backend-Pendant (server-side `user_preferences`):** für
-  Plugins, deren Section-State **zwischen Devices syncen** soll, braucht's
-  eine `user_preferences`-Tabelle in auth-svc oder chat-gateway. Bewusst
-  geskippt; Plan: eigene Tabelle `user_preferences(user_id, namespace,
-  payload jsonb, version, updated_at)` mit `GET/PATCH /me/preferences/<ns>`
-  + WS-Push (`user_preferences_updated`) für Cross-Device-Sync. Für jetzt
-  bleibt jede Section device-local in `localStorage`.
 - **valibot-Schemas:** `SectionConfig` hat schon einen optionalen `parse`-
   Hook, aber kein dediziertes `schema: Schema<T>`. Den Pulse-Stack-üblichen
   valibot-Pfad kann ein Plugin bereits selbst in `parse(raw)` einbauen
   (`schema.parse(raw)` + try/catch + fallback). Bei Bedarf später ein
   natives `schema?: BaseSchema<T>`-Feld nachschieben.
+
+### Schritt 3b — Backend `user_preferences` + Cross-Device-Sync — fertig
+
+Branch: `feat/backend-user-preferences`.
+
+Schritt 3 hat die Section-Registry als reine `localStorage`-Persistenz
+gebaut → Pet auf Mobile != Pet auf Desktop. Diese Etappe legt die
+**server-side Mirror-Tabelle** drauf, opt-in pro Section, sodass
+Plugins (und in Zukunft auch Built-in-Sections wie Shortcuts) zwischen
+Devices syncen können.
+
+Backend (`services/chat-gateway/`):
+
+- **Tabelle `user_preferences`** (Migration `0019_user_preferences`,
+  Schema `chat`): Composite-PK `(user_id, section_name)`, `value` =
+  `JSON` (Postgres `jsonb`, SQLite `JSON`), `version` für Optimistic-
+  Concurrency, `updated_at` mit `server_default=now() + onupdate=now()`.
+  Sekundär-Index `ix_user_preferences_user` für den Bulk-GET-Pfad.
+  ORM-Model in `models/user_preferences.py` (~85 Z.); in
+  `models/__init__.py` re-exportiert.
+- **Routen** (`routes/preferences.py`, ~200 Z.):
+  - `GET    /preferences` → `{section_name: {value, version}}` für
+    den Caller. Empty-Map für Fresh-Accounts.
+  - `GET    /preferences/{section}` → `{value, version, updated_at}`,
+    404 wenn kein Row (Client fällt auf Defaults zurück).
+  - `PUT    /preferences/{section}` → Upsert. Body `{value, version?}`.
+    Optional `If-Match: <version>` Header → 412 bei Mismatch (echte
+    Optimistic-Concurrency), Insert ignoriert den Header.
+  - `DELETE /preferences/{section}` → 204, idempotent.
+  - Section-Name-Validation: `^[a-z][a-z0-9_:-]{0,63}$` (colon erlaubt
+    für namespaced sections wie `"tamagotchi:state"`).
+- **User-Purge-Hook**: `user_purge.py` löscht `UserPreference`-Rows
+  des gelöschten Users; sonst würden Plugin-Daten als "tote Rows"
+  überleben.
+- **Tests** (`tests/test_user_preferences.py`, 15 Tests, alle grün):
+  GET-empty, PUT-Roundtrip + Version-Bump, GET-404, DELETE-then-GET
+  (404 + bulk-empty), DELETE-idempotent, Auth-required (401/403),
+  Cross-User-Isolation (A schreibt → B sieht nichts), invalid section
+  names → 400, namespaced names OK, If-Match matching/mismatched/
+  ignored-on-insert/quoted-etag, DB-Row matches response.
+
+Frontend (`web/src/lib/settings-registry/`):
+
+- **`SectionConfig.persistence`** als neues optionales Feld
+  (`'local' | 'server' | 'both'`, default `'local'`). Existierende
+  Sections sind unverändert.
+- **`server-sync.ts`** (neu, ~140 Z.): debounced PUT pro Section
+  (2.5s), Bulk-GET-Hydration, Flush-on-Sign-Out. Auth via
+  `loadTokens()`, Fail-Tolerance ist `console.warn`-Pfad (keine
+  Toasts) — der lokale Store of record bleibt entweder
+  `localStorage` (mode `'both'`) oder die in-memory-Rune (mode
+  `'server'`).
+- **`registry.svelte.ts`** Anpassungen: `persistAll()` skippt
+  Server-only-Sections, jeder Setter ruft beide Persistenz-Pfade
+  parallel (`schedulePersist()` + `schedulePushSection()`).
+  `hydrateServerSections()` macht den Bulk-GET einmal und applied
+  pro Section über `store.replace(parsed)`. `runSignOutHooks()`
+  flusht pending PUTs *vor* der Sign-Out-Policy, damit der nächste
+  User auf dem Gerät nicht den State des Vorgängers überschrieben
+  bekommt.
+- **Auth-Flow** (`stores/auth.svelte.ts`): `_doHydrate()` +
+  `setUser()` rufen `hydrateServerSections()` voidly auf. Best-
+  effort: ein Netz-Aussetzer hinterlässt nur die lokale Slice
+  (oder die Defaults), die nächste Mutation pusht sie wieder hoch.
+- **Tamagotchi-Plugin** (`plugins/tamagotchi/frontend.ts`): von
+  Schritt 7s `persistence: undefined` (= local) auf `persistence:
+  'server'` umgestellt. Demo, dass der Pet-State über Geräte hinweg
+  syncen kann. State-Quelle bleibt der Frontend-Decay-Algorithmus —
+  das Backend ist nur Mirror.
+
+Persistence-Modes:
+
+- `'local'` (Default) — `localStorage` only. Existierende Sections.
+- `'server'` — backend `user_preferences` only. Cross-Device-Sync;
+  ohne Netz fallen die Defaults zurück.
+- `'both'`  — beide Stores. Server gewinnt beim Sign-In
+  (hydratisiert über `replace`), `localStorage` ist Offline-Cache.
+
+Bewusst NICHT in Schritt 3b:
+
+- **WS-Push für Cross-Device-Sync** (`user_preferences_updated`):
+  zwei Geräte desselben Users sehen Änderungen erst beim nächsten
+  Refresh. Reicht für Pet-State; bei Echtzeit-Geräte-Sync (zwei
+  offene Tabs gleichzeitig) wäre der Pfad ein Pub/Sub-Event aus der
+  PUT-Route. Hook ist da — `manager.publish(...)` aus der Route
+  ist eine 10-Z.-Erweiterung.
+- **Migrations für Server-Sections**: das `version`-Feld auf der
+  Tabelle existiert, aber das Frontend-`migrate()` läuft heute nur
+  gegen den `_meta.<name>_version`-Counter im localStorage-Blob, nicht
+  gegen den Server-Row-`version`. Bei Schema-Bumps muss das Plugin
+  selber im `parse()` migrieren.
+- **`allowed_sections`-Whitelist**: jeder authentifizierte User darf
+  jede Section beschreiben (Section-Name-Validation ist nur ein
+  Charset-Check). Bei Bedarf wäre ein `[plugin.uses].preferences_
+  sections`-Manifest-Feld + Resolver der nächste Schritt — heute
+  ist die Tabelle Plugin-internes State-Storage, kein Capability-
+  Punkt.
 
 ### Schritt 4 — Plugin-Manifest + Loader — fertig
 
@@ -422,7 +512,8 @@ Was bewusst NICHT in Schritt 7:
 | Listener strict validation | — | ✅ (1b) | 1b |
 | WS-Op-Handler | ✅ (2c) | ✅ (2) | 2 |
 | Channel-Subscription | — | ✅ (2) | 2 |
-| Settings-Section | ✅ (3) | — (3b geplant) | 3 |
+| Settings-Section | ✅ (3) | ✅ (3b) | 3 |
+| Server-side `user_preferences` + Cross-Device-Sync | ✅ (3b) | ✅ (3b) | 3b |
 | Plugin-Manifest + Loader | ✅ (4) | ✅ (4) | 4 |
 | Permission-Gate auf `[plugin.uses]` | ✅ (5) | ✅ (5) | 5 |
 | Activation-Lifecycle (`deactivate`-Hook) | ✅ (5) | ✅ (5) | 5 |

@@ -42,6 +42,7 @@ from dcc_chat_gateway.models import (
     MessageReaction,
     PermissionOverwrite,
     UserBlock,
+    UserPreference,
     UserPrivacy,
     WebPushSubscription,
 )
@@ -224,6 +225,11 @@ async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
     )
     await session.execute(
         sa_delete(UserPrivacy).where(UserPrivacy.user_id == user_id)
+    )
+
+    # 11. User-preferences (Schritt 3b plugin/server-side-sync rows).
+    await session.execute(
+        sa_delete(UserPreference).where(UserPreference.user_id == user_id)
     )
 
     return owned_guild_ids

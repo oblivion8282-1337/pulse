@@ -13,6 +13,7 @@ import { channelPermissions } from './channelPermissions.svelte';
 import { memberRoles } from './memberRoles.svelte';
 import { capabilities } from './capabilities.svelte';
 import { settings } from './settings.svelte';
+import { hydrateServerSections } from '$lib/settings-registry';
 import { friends } from './friends.svelte';
 import { friendRequests } from './friendRequests.svelte';
 import { blocks } from './blocks.svelte';
@@ -57,7 +58,14 @@ class AuthStore {
     this.loading = true;
     try {
       this.user = await me();
-      if (this.user) readState.hydrateForUser(this.user.id);
+      if (this.user) {
+        readState.hydrateForUser(this.user.id);
+        // Schritt 3b: pull server-backed settings sections so plugins
+        // that opted into cross-device sync see the latest state.
+        // Best-effort; a network blip just leaves the local slice in
+        // place, the next mutation will push it back up.
+        void hydrateServerSections();
+      }
     } catch {
       clearTokens();
       this.user = null;
@@ -70,6 +78,10 @@ class AuthStore {
   setUser(user: User): void {
     this.user = user;
     readState.hydrateForUser(user.id);
+    // Same Schritt-3b cross-device hydrate as in _doHydrate. Triggered
+    // by the login flow's `auth.setUser(...)` call right after the
+    // tokens are saved.
+    void hydrateServerSections();
   }
 
   signOut(): void {

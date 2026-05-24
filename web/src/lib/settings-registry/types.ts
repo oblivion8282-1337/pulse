@@ -22,6 +22,23 @@ export type SignOutPolicy<T> =
   | Partial<T>
   | ((state: T) => T);
 
+/**
+ * Persistence mode for a section (Plugin-System Schritt 3b).
+ *
+ * - `'local'`  — `localStorage` only. **Default**; matches the
+ *                pre-3b behaviour, every existing section keeps this.
+ * - `'server'` — backend ``user_preferences`` row only. Hydrated from
+ *                server on sign-in, debounced PUT on each mutation.
+ *                The localStorage slice is *not* written to disk.
+ *                Best for cross-device-synced plugin state where
+ *                staleness > duplication is the failure mode you
+ *                want.
+ * - `'both'`   — write to both. Server hydration wins on sign-in
+ *                (overwrites the local slice). Useful when a plugin
+ *                wants offline-resilience plus cross-device sync.
+ */
+export type PersistenceMode = 'local' | 'server' | 'both';
+
 export interface SectionConfig<T> {
   /** Initial state on first run (and on `reset`). Deep-cloned per registration
    *  so the registry never mutates the caller's object. */
@@ -39,6 +56,11 @@ export interface SectionConfig<T> {
    *  drop-unknown-keys etc. If omitted the registry shallow-merges the
    *  stored slice over `defaults`. */
   parse?: (raw: unknown) => T;
+  /** Where this section's state lives. **Default `'local'`** — keeps
+   *  every existing section's behaviour unchanged. Plugins that need
+   *  cross-device sync opt in with `'server'` or `'both'`. See
+   *  ``PersistenceMode`` for the semantics. */
+  persistence?: PersistenceMode;
 }
 
 /**
