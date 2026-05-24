@@ -371,5 +371,5 @@
     {/if}
   </nav>
 
-  <SidebarFooter guildId={guild?.id ?? ''} />
+  <SidebarFooter />
 </aside>

@@ -312,3 +312,82 @@ Allowlist- + Guild-Toggle-Mutationen **wirken nicht überall sofort**:
   für die jeweilige Guild. Sichtbar nur mit `MANAGE_GUILD`.
 * **User-Settings** haben **keinen** Plugin-Tab mehr. Plugin-Auswahl
   ist Server-Sache, nicht User-Sache.
+
+## State-Scope (PR3)
+
+`plugin.scope.type` beschreibt den **State-Scope** — wo das Plugin
+seinen persistierten State ablegt. Der **Activation-Scope** läuft
+unabhängig davon immer als zweistufige Admin-Allowlist + Pro-Guild-
+Toggle (siehe oben).
+
+| State-Scope | Storage | Sichtbarkeit | Beispiel |
+|---|---|---|---|
+| `per-user` | `chat.user_preferences` (Section-Name = Plugin-Name) | ein User → ein State, geräteübergreifend | Anzeige-Einstellungen, persönlicher Notizblock |
+| `per-guild` | `chat.guild_plugin_state` (PK = `guild_id, plugin_name`) | ein Server → ein State, geteilt unter allen Mitgliedern | Tamagotchi, Server-Counter, Server-Pets |
+| `global` | Plugin-eigene Tabellen (Plugin braucht Migration) | instanzweit single-state | Welcome-Bot mit zentralem Template-Pool |
+
+### `per-guild` Storage-API (PR3)
+
+Plugins mit `scope.type = "per-guild"` nutzen die Helper in
+`services/chat-gateway/src/dcc_chat_gateway/plugins/state_store.py`:
+
+```python
+from dcc_chat_gateway.plugins.state_store import (
+    apply_atomic_update,
+    get_state,
+)
+
+# Lesen
+raw = await get_state(session, guild_id, "myplugin")  # dict | None
+
+# Atomic Mutate (race-safe: SELECT FOR UPDATE → mutate → UPDATE)
+def _bump_counter(state: dict) -> dict:
+    state["count"] = state.get("count", 0) + 1
+    return state
+
+new_state = await apply_atomic_update(
+    session,
+    guild_id=guild_id,
+    plugin_name="myplugin",
+    default_state={"count": 0},
+    mutate=_bump_counter,
+    actor_user_id=user_id,
+)
+```
+
+Concurrency-Garantie: N parallele `apply_atomic_update`-Aufrufe
+sehen den jeweils vorherigen End-State (Row-Lock unter Postgres,
+File-DB-Serialisierung unter SQLite).
+
+### Server-Broadcast für `per-guild`-State
+
+`per-guild`-State-Mutationen werden in der Regel via Redis-Pub/Sub an
+alle Online-Guild-Mitglieder gebroadcastet. Convention:
+
+* **Channel-Name**: `plugin:<plugin_name>:events`. Im Manifest unter
+  `[plugin.uses].channels` deklariert (Permission-Gate verlangt das).
+* **Channel-Handler**: registriert via `register_channel_handler` im
+  Plugin-`register()`. Filter auf `manager._ws_guilds` für
+  Guild-Membership-Scoping (siehe `plugins/tamagotchi/backend.py`
+  als Template).
+* **Subscribe**: der ConnectionManager subscribt seine Built-in-
+  Channels bei `start()`; Plugin-Channels werden nach dem
+  `load_all_with_allowlist`-Aufruf im Lifespan via
+  `manager.subscribe_plugin_channels(...)` nachgereicht. Plugin-
+  Autoren brauchen den Subscribe-Call nicht selbst zu machen — der
+  Channel-Name im Manifest reicht.
+
+### State-vs-Activation-Independenz
+
+Vor PR3 waren Aktivierungs- und State-Scope manchmal verwechselt.
+Beispiel:
+
+* Tamagotchi (PR2): `scope.type = "per-user"` (Pet-State pro User in
+  `user_preferences`), Activation per-guild (Admin schaltet auf
+  Server X frei). Ein User hatte sein eigenes Pet, das er auf jedem
+  freigeschalteten Server sah.
+* Tamagotchi (PR3): `scope.type = "per-guild"`. Ein Pet pro Server,
+  geteilt zwischen allen Mitgliedern. Activation weiterhin per-guild.
+
+Der State-Scope-Wechsel war eine bewusste Plugin-Design-Entscheidung,
+nicht eine erzwungene Konsequenz des Aktivierungsmodells.

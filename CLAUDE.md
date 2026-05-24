@@ -217,6 +217,19 @@ beim Guild-Mount aus `GET /guilds/{id}/plugins` befüllt, Reset bei Sign-Out). U
 mit `isPluginEnabledForGuild(guildId, name)`. **DMs/Friends-Kontext = plugin-frei** (`guildId === ''`).
 Admin-UI: `AdminPlugins.svelte` (Allowlist) auf `/app/admin`, `GuildPluginsEditor.svelte` (Pro-Guild)
 als Tab im `GuildSettingsDialog`. Es gibt **keinen Plugin-Tab in den User-Settings** mehr.
+
+**Plugin-State-Storage (PR3)**: `scope.type` im Manifest ist **State-Scope**, nicht Activation-Scope.
+Per-User-State → `chat.user_preferences` (Section-Name = Plugin-Name); Per-Guild-State →
+`chat.guild_plugin_state` ((guild_id, plugin_name) → JSONB, Migration 0021). Helper
+`plugins/state_store.py::apply_atomic_update` macht race-safe Mutate (SELECT FOR UPDATE auf Postgres,
+File-DB-Serialisierung auf SQLite). Cross-Pod-Broadcasts laufen auf `plugin:<name>:events`-Redis-
+Channel; im Manifest unter `[plugin.uses].channels` deklarieren, dann subscribt der Lifespan via
+`ConnectionManager.subscribe_plugin_channels` nach dem Loader-Run. Channel-Handler filtert Targets
+über `_ws_guilds` (Guild-Membership). Beispiel: `plugins/tamagotchi/backend.py` — Pet pro Guild,
+alle Mitglieder füttern; Widget in der **rechten Sidebar der Channel-Page** (`<aside data-testid=
+"guild-plugin-rail">`), nicht mehr im `SidebarFooter`. **Plugin-Backend muss DB-Session über
+`ctx.manager._session_factory` holen** (nicht direkt `from dcc_chat_gateway.db import SessionLocal`),
+sonst sehen ws_app-Tests die ungepatchte Memory-DB.
 **Bekannte Limitation**: kein Server-Push für Toggle-Änderungen — Cross-Session-Updates sieht der
 Client erst beim nächsten Guild-Mount/Reload.
 

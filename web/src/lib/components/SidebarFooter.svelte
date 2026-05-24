@@ -12,35 +12,18 @@
   und VoiceChannelView rendern sie stattdessen als fixe Leiste über dem
   Composer (siehe dort).
 
-  guildId-Prop: Plugin-Widgets (z.B. Tamagotchi) sind seit der
-  Admin-Activation per Guild gegated. Im DM/Friends-Kontext ist die
-  Prop `''` und Plugin-UI rendert nicht — Plugin-Ops wären ohne
-  Guild-Toggle eh vom Backend geblockt (4041/4043).
+  Hinweis: vor PR3 hing das Tamagotchi-Widget hier dran (Per-User-Pet).
+  Mit PR3 ist das Pet pro Guild geteilt und wandert in die rechte
+  Sidebar der Channel-Page (s. ``channels/[channelId]/+page.svelte``).
+  SidebarFooter ist wieder auf Voice + User-Identity reduziert.
 -->
 <script lang="ts">
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import UserFooter from './UserFooter.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { isPluginEnabledForGuild } from '$lib/plugins';
-  import TamagotchiWidget from '../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
-
-  let { guildId = '' }: { guildId?: string } = $props();
-
-  // Tamagotchi-Widget = erstes echtes Pulse-Plugin (Schritt 7). Bewusst
-  // hardcoded gemountet — der UI-Slot-Plugin-Punkt kommt erst in einem
-  // späteren Schritt. Conditional auf den Pro-Guild-Activation-State:
-  // - Mobile: nie (Drawer zu eng).
-  // - DM/Friends (`guildId === ''`): nie (Plugins gelten nicht für DMs).
-  // - Guild ohne aktiviertes Tamagotchi: nie.
-  const tamagotchiActive = $derived(
-    !viewport.isMobile && !!guildId && isPluginEnabledForGuild(guildId, 'tamagotchi')
-  );
 </script>
 
-{#if tamagotchiActive}
-  <TamagotchiWidget {guildId} />
-{/if}
 {#if (voice.connected || voice.connecting) && !viewport.isMobile}
   <VoiceControlBar />
 {/if}

@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import re
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -38,6 +40,7 @@ from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
 )
+from dcc_chat_gateway.plugins.state_store import get_state
 
 # Plugin-Constants sind side-effect-frei und dürfen Top-Level rein
 # (vgl. admin_plugins.py — die Funktionen ``list_allowed_names`` etc.
@@ -168,6 +171,82 @@ async def toggle_guild_plugin(
     await session.commit()
     invalidate_guild_plugin_cache(guild_id, name)
     return GuildPluginEntry(plugin_name=name, enabled=row.enabled)
+
+
+class TamagotchiState(BaseModel):
+    """Server-shared Tamagotchi-Pet (Plugin-System PR3).
+
+    Schema gespiegelt zwischen Backend (``plugins/tamagotchi/backend.py``
+    ``DEFAULT_STATE``) und Frontend (``plugins/tamagotchi/store.ts``).
+    Stats sind 0–100, ``lastUpdatedAt`` ist ISO-8601.
+    """
+
+    name: str
+    hunger: int
+    happiness: int
+    energy: int
+    lastUpdatedAt: str
+
+
+# Default-State für den HTTP-Endpoint, wenn noch keine DB-Row existiert.
+# Bewusst NICHT in der DB persistieren (kein Insert beim GET) — die Row
+# entsteht erst beim ersten Mutate-Op. So leakt ein nur-Reader-User keine
+# leere Row pro Guild in die Tabelle.
+_DEFAULT_TAMAGOTCHI = {
+    "name": "Tamagotchi",
+    "hunger": 80,
+    "happiness": 80,
+    "energy": 80,
+    "lastUpdatedAt": "1970-01-01T00:00:00+00:00",
+}
+
+
+def _coerce_tamagotchi_state(raw: dict[str, Any]) -> TamagotchiState:
+    """Verschmelze Persisted-State mit Defaults + clampt Stats auf 0–100.
+
+    Schutz gegen Schema-Drift bei alten Rows; gleicher Pfad wie der
+    ``_merge_defaults`` im Backend-Handler, hier nochmal für den
+    Read-Pfad (HTTP-GET geht NICHT durch den Mutator).
+    """
+    merged: dict[str, Any] = dict(_DEFAULT_TAMAGOTCHI)
+    merged.update(raw or {})
+    for k in ("hunger", "happiness", "energy"):
+        try:
+            v = int(merged.get(k, 80))
+        except (TypeError, ValueError):
+            v = 80
+        merged[k] = max(0, min(100, v))
+    if not isinstance(merged.get("name"), str) or not merged["name"]:
+        merged["name"] = _DEFAULT_TAMAGOTCHI["name"]
+    if not isinstance(merged.get("lastUpdatedAt"), str):
+        merged["lastUpdatedAt"] = _DEFAULT_TAMAGOTCHI["lastUpdatedAt"]
+    return TamagotchiState(
+        name=merged["name"],
+        hunger=merged["hunger"],
+        happiness=merged["happiness"],
+        energy=merged["energy"],
+        lastUpdatedAt=merged["lastUpdatedAt"],
+    )
+
+
+@router.get("/tamagotchi/state", response_model=TamagotchiState)
+async def get_tamagotchi_state(
+    guild_id: int, session: SessionDep, current: CurrentUser
+):
+    """Aktueller Tamagotchi-State der Guild (PR3 "Server-shared Pet").
+
+    Lesen reicht Guild-Mitgliedschaft (kein MANAGE_GUILD). Wenn noch kein
+    Pet existiert (nie ein Op auf der Guild), gibt der Endpoint den
+    Default-State zurück — **ohne** DB-Insert. Die Row entsteht erst
+    beim ersten Mutate-Op (``tamagotchi:{feed,play,sleep,reset}``).
+    """
+    from dcc_chat_gateway.routes._deps import require_member
+
+    await require_member(session, guild_id, current.id)
+    raw = await get_state(session, guild_id, "tamagotchi")
+    if raw is None:
+        return TamagotchiState(**_DEFAULT_TAMAGOTCHI)
+    return _coerce_tamagotchi_state(raw)
 
 
 __all__ = ["router"]

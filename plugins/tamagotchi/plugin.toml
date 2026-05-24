@@ -1,54 +1,69 @@
-# Pulse Tamagotchi-Plugin — Schritt-7 Reference-Plugin.
+# Pulse Tamagotchi-Plugin — Schritt-7 Reference-Plugin, PR3-aktualisiert.
 #
-# Erstes echtes Pulse-Plugin (nach dem hello/-Skelett), das alle vier
-# Plugin-Punkte berührt:
+# Erstes echtes Pulse-Plugin mit allen vier Plugin-Punkten:
 #
-#   * Settings-Section ``tamagotchi``        — per-user Pet-State (Name,
-#                                              Hunger/Glück/Energie, lastUpdatedAt)
 #   * WS-Ops ``tamagotchi:{feed,play,sleep,reset}`` — Client → Server-Aktionen
-#   * WS-Emit-Op ``tamagotchi:ack``          — Server-Echo (bestätigt die Aktion)
-#   * UI-Widget                              — Sidebar-Card im SidebarFooter
+#   * WS-Emit-Op ``tamagotchi:state_update``       — Server → alle Guild-Member
+#                                                    nach jeder Mutation
+#   * Redis-Channel ``plugin:tamagotchi:events``   — Cross-Pod-Broadcast für
+#                                                    State-Updates
+#   * UI-Widget                                    — Rechte Sidebar in der
+#                                                    Channel-Page (Guild-View)
 #
-# Spec: docs/PLUGIN_MANIFEST.md. Permission-Gate (Schritt 5) verlangt,
-# dass jede registrierte WS-Op + Settings-Section in `[plugin.uses]` steht.
+# **Server-shared State (PR3)**: Pro Guild gibt es **ein** Tamagotchi-Pet, das
+# alle Mitglieder gemeinsam füttern, spielen lassen, schlafen schicken und
+# zurücksetzen. State lebt in ``chat.guild_plugin_state``; jede Mutation
+# wird atomar auf dem Server angewendet (SELECT FOR UPDATE + Mutate +
+# UPDATE) und per Redis-Pub/Sub an alle Online-Mitglieder broadcasted.
+# Frontend zeigt Local-Update sofort (Optimistic-UI) und ersetzt mit dem
+# authoritativen Server-State bei Ankunft des ``tamagotchi:state_update``-
+# Frames.
 
 [plugin]
 name = "tamagotchi"
-version = "0.1.0"
+version = "0.2.0"
 api = "1"
 author = "Pulse Maintainer"
-description = "Virtuelles Haustier pro User — füttern, spielen, schlafen"
+description = "Virtuelles Server-Haustier — alle Mitglieder füttern es gemeinsam"
 
 [plugin.scope]
-# `scope.type` beschreibt den **State**, nicht die Aktivierung. State lebt
-# pro User: ein User hat ein Tamagotchi, egal auf wie vielen Servern es
-# freigeschaltet ist (Settings-Section + Cross-Device-Sync über Schritt 3b
-# / `user_preferences`).
+# `scope.type` beschreibt seit PR3 den **State**-Scope. Vorher: per-user
+# (ein Pet pro User, Settings-Section + Cross-Device-Sync). PR3: per-guild —
+# ein Pet pro Guild, geteilt unter allen Mitgliedern.
 #
-# **Activation** läuft seit dem Plugin-Admin-Aktivierungs-PR pro Guild
-# (`MANAGE_GUILD`-Toggle). Das Manifest-Schema kennt heute kein separates
-# `activation`-Feld — siehe `docs/PLUGIN_MANIFEST.md` "Aktivierungsmodell".
-type = "per-user"
+# **Activation** läuft (wie seit dem Plugin-Admin-Aktivierungs-PR) ebenfalls
+# pro Guild (`MANAGE_GUILD`-Toggle). State-Scope + Activation-Scope sind
+# damit identisch — das Manifest-Schema kennt heute kein separates
+# ``activation``-Feld, siehe `docs/PLUGIN_MANIFEST.md` "Aktivierungs- vs
+# State-Scope".
+type = "per-guild"
 
 # `ws_ops` muss alle Op-Codes enthalten, die das Plugin in einer der
-# Dispatch-Registries registriert (Permission-Gate). Das Backend registriert
-# vier ``tamagotchi:{feed,play,sleep,reset}``-Incoming-Handler; das Frontend
-# registriert einen ``tamagotchi:ack``-Incoming-Handler für die Server-
-# Bestätigung. Alle fünf gehen durch dieselbe Registry.
+# Dispatch-Registries registriert (Permission-Gate). Backend registriert
+# vier ``tamagotchi:{feed,play,sleep,reset}``-Incoming-Handler; das
+# Frontend registriert einen ``tamagotchi:state_update``-Incoming-Handler
+# für die Server-Broadcasts. Alle fünf gehen durch dieselbe Registry.
 #
-# `ws_emit_ops` ist rein informativ (kein Permission-Gate, kein
-# Registry-Eintrag) und dokumentiert was an Clients/Server gesendet wird.
+# `channels` enthält den Redis-Pub/Sub-Channel, den das Plugin im
+# `register()`-Hook registriert. Der ConnectionManager subscribt diesen
+# Channel zusätzlich zu seinen Built-ins (siehe `app.py` Lifespan).
+#
+# `ws_emit_ops` ist rein informativ — dokumentiert die Outbound-Ops.
 [plugin.uses]
 ws_ops = [
   "tamagotchi:feed",
   "tamagotchi:play",
   "tamagotchi:sleep",
   "tamagotchi:reset",
-  "tamagotchi:ack"
+  "tamagotchi:state_update"
 ]
-ws_emit_ops = ["tamagotchi:ack"]
-channels = []
-settings_sections = ["tamagotchi"]
+ws_emit_ops = ["tamagotchi:state_update"]
+channels = ["plugin:tamagotchi:events"]
+# Keine Settings-Section mehr seit PR3 — State lebt server-seitig, nicht
+# in `user_preferences`. Der alte Section-Name ``tamagotchi`` ist deprecated
+# und wird vom Frontend nicht mehr registriert (existierender Server-State
+# bleibt als toter Datenmüll liegen, kein Migration-Drop nötig).
+settings_sections = []
 ui_slots = []
 
 [plugin.entrypoints]

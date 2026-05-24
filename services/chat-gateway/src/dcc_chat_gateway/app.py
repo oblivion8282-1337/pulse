@@ -13,7 +13,7 @@ from redis.asyncio import Redis
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.db import SessionLocal, engine
+from dcc_chat_gateway.db import engine
 from dcc_chat_gateway.plugins import (
     ensure_hello_in_allowlist,
     list_allowed_names,
@@ -115,12 +115,36 @@ async def lifespan(app: FastAPI):
         # Errors pro Plugin werden geloggt; die Lifespan startet auch
         # bei Plugin-Fehlern durch. Mode für den Permission-Gate (intern):
         # ``$PULSE_PLUGIN_PERMISSIONS`` — siehe ``plugins.permissions``.
+        # Den Plugin-Loader auf demselben SessionLocal laufen lassen,
+        # den der WS-Op-Pfad nutzt. Tests patchen ``routes.ws_ops.SessionLocal``
+        # auf eine file-backed DB; der direkte Import ``dcc_chat_gateway.db.
+        # SessionLocal`` würde die Memory-DB-Factory einsammeln (die nie
+        # gepatched wird) — Lifespan würde scheitern und die Allowlist
+        # bliebe leer. Same indirection as ``manager.set_session_factory``
+        # weiter oben.
         try:
-            async with SessionLocal() as session:
+            async with _routes_ws_ops.SessionLocal() as session:
                 await ensure_hello_in_allowlist(session)
                 allowed = await list_allowed_names(session)
             app.state.plugin_allowlist = frozenset(allowed)
-            load_all_with_allowlist(allowed)
+            result = load_all_with_allowlist(allowed)
+            # Plugin-System PR3: Plugins können eigene Pub/Sub-Channels
+            # deklarieren (``[plugin.uses].channels`` im Manifest).
+            # ConnectionManager subscribt seine Built-ins bei ``start()`` —
+            # die Plugin-Channels werden hier nachgereicht, damit der
+            # ``_listen``-Loop sie auch empfängt.
+            extra_channels: list[str] = []
+            for manifest in result.loaded:
+                extra_channels.extend(manifest.uses.channels)
+            if extra_channels and manager is not None:
+                try:
+                    await manager.subscribe_plugin_channels(
+                        list(dict.fromkeys(extra_channels))
+                    )
+                except Exception:  # noqa: BLE001
+                    log.exception(
+                        "plugin channel subscribe failed; broadcasts may not reach clients"
+                    )
         except Exception:  # noqa: BLE001
             log.exception("plugin loader failed; continuing without plugins")
             app.state.plugin_allowlist = frozenset()

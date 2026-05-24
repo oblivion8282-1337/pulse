@@ -295,6 +295,28 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             json.dumps(wrapped, separators=(",", ":")),
         )
 
+    async def subscribe_plugin_channels(self, channels: list[str]) -> None:
+        """Subscribe zusätzliche, vom Plugin-System deklarierte Channels.
+
+        Der Manager kennt seine Built-in-Channels bei ``start()`` (voice/
+        guild/stream/watch/user). Plugins (Plugin-System PR3+) deklarieren
+        eigene Channels in ``[plugin.uses].channels`` ihres Manifests; die
+        Lifespan ruft das hier nach ``load_all_with_allowlist`` mit der
+        Liste auf, damit der ``_listen``-Loop sie auch wirklich empfängt.
+
+        Idempotent — Redis akzeptiert Re-Subscribes ohne Fehler. Leere
+        Liste = no-op.
+        """
+        if not channels:
+            return
+        # ``subscribe(*args)`` akzeptiert N positional channel-names.
+        await self._pubsub.subscribe(*channels)
+        log.info(
+            "pubsub: subscribed %d additional plugin channel(s): %s",
+            len(channels),
+            sorted(channels),
+        )
+
     def listener_alive(self) -> bool:
         """True iff the background listener task is running. The lifespan
         supervisor polls this to restart a crashed manager."""

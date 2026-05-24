@@ -183,4 +183,32 @@ test.describe.serial('Plugin-Admin-Aktivierung E2E', () => {
     await regular.goto('/app/admin');
     await regular.waitForURL(/\/app\/@me/);
   });
+
+  test('tamagotchi widget mounts in guild + feed-click updates stat (PR3 roundtrip)', async () => {
+    // Mit dem aktivierten Plugin (vorheriger Test) und der Guild von
+    // `admin creates a guild` sollte das Widget in der rechten Sidebar
+    // der Channel-Page auftauchen. Wir navigieren explizit zur Guild +
+    // einem Channel (Owner-Guild → mindestens `general`).
+    await admin.goto(`/app/guilds/${guildId}/channels/_`);
+    // _-Channel → Auto-Redirect auf den ersten Text-Channel.
+    await admin.waitForURL(/\/app\/guilds\/\d+\/channels\/\d+/);
+
+    // Widget muss sichtbar sein (Plugin ist freigeschaltet auf der Guild).
+    const widget = admin.getByTestId('tamagotchi-widget');
+    await expect(widget).toBeVisible({ timeout: 5_000 });
+
+    // Hunger-Bar liest sich initial als 80 (Default-Pet, ohne vorherigen
+    // Op auf der Guild). Wir lesen den aria-valuenow.
+    const hungerBar = admin.getByTestId('tamagotchi-bar-hunger');
+    await expect(hungerBar).toHaveAttribute('aria-valuenow', '80', {
+      timeout: 5_000
+    });
+
+    // Feed klicken → Optimistic UI auf 100 sofort; nach Server-Echo
+    // bleibt's bei 100 (Backend cappt bei 100, 80+20=100).
+    await admin.getByTestId('tamagotchi-feed').click();
+    await expect(hungerBar).toHaveAttribute('aria-valuenow', '100', {
+      timeout: 5_000
+    });
+  });
 });

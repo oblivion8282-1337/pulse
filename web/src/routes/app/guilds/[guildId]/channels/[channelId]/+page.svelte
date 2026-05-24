@@ -6,6 +6,8 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import { isPluginEnabledForGuild } from '$lib/plugins';
+  import TamagotchiWidget from '../../../../../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import CreateChannelDialog from '$lib/components/CreateChannelDialog.svelte';
@@ -38,6 +40,15 @@
   );
   let isVoiceChannel = $derived(activeChannel?.type === 1);
   let visibleMessages = $derived(messages.for(channelId));
+  // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
+  // aktiviert (MANAGE_GUILD-Admin-Toggle, siehe `guildPluginsApi`).
+  // Auf Mobil weggelassen — die rechte Sidebar ist dort zu eng.
+  let showTamagotchi = $derived(
+    !viewport.isMobile &&
+      !!guildId &&
+      !isVoiceChannel &&
+      isPluginEnabledForGuild(guildId, 'tamagotchi')
+  );
 
   let creatingGuild = $state(false);
   let creatingChannel = $state(false);
@@ -421,6 +432,28 @@
       onToggleReaction={toggleReaction}
     />
   {/if}
+{/if}
+
+<!--
+  Server-shared Plugin-Rail (rechts neben ChatView/MemberList). Heute nur
+  Tamagotchi; ein weiteres Plugin würde sich hier reihen. Bewusst NICHT
+  über das alte UI-Slot-Pattern, weil es das erst in einem späteren PR
+  geben wird. Mobile + Voice-Channels haben kein Widget — Begründung
+  liegt im `showTamagotchi`-Derived oben.
+
+  Die Width-Klasse ist absichtlich schmal (`w-56`) damit die ChatView
+  + MemberList den meisten Raum behalten.
+-->
+{#if showTamagotchi && activeChannel}
+  <aside
+    class="border-border bg-bg-chat hidden h-full w-56 shrink-0 flex-col gap-2 overflow-y-auto border-l p-2 md:flex md:rounded-2xl md:border-0"
+    data-testid="guild-plugin-rail"
+  >
+    <h2 class="text-text-muted px-2 pt-1 text-xs font-bold uppercase tracking-wide">
+      Server-Pets
+    </h2>
+    <TamagotchiWidget {guildId} />
+  </aside>
 {/if}
 
 <CreateGuildDialog

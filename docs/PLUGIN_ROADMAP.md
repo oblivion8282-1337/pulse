@@ -632,6 +632,83 @@ Admin-UIs + einen Pro-Guild-Aktivierungs-Store.
     `per-user`; Activation-Modell ist in `docs/PLUGIN_MANIFEST.md`
     dokumentiert.
 
+### PR3 (Tamagotchi-Server-State) — fertig
+
+Macht das Tamagotchi-Pet **pro Guild geteilt**: ein Pet pro Server,
+alle Mitglieder füttern/spielen/schlafen gemeinsam. Pet-State wandert
+aus dem Frontend (`user_preferences`-Section) ins Backend
+(`chat.guild_plugin_state`-Tabelle); jeder Klick wird live an alle
+Guild-Member gepusht.
+
+* **Backend**:
+  * Migration `0021_guild_plugin_state` — generische
+    `(guild_id, plugin_name) → JSONB`-Tabelle.
+  * `models/plugin_activation.py::GuildPluginState`.
+  * `plugins/state_store.py` — `apply_atomic_update` mit row-level
+    Lock (Postgres `SELECT FOR UPDATE`, SQLite-File-DB-Serialisierung)
+    + Default-Row-Auto-Create via dialect-aware Upsert.
+  * `plugins/tamagotchi/backend.py` komplett ersetzt: WS-Op-Handler
+    für `tamagotchi:{feed,play,sleep,reset}` mutieren atomar +
+    publishen `tamagotchi:state_update` auf
+    `plugin:tamagotchi:events`-Redis-Channel. Channel-Handler im
+    selben Modul fan-outet an Guild-Member (`_ws_guilds`-Filter).
+  * `pubsub.ConnectionManager.subscribe_plugin_channels` — Plugin-
+    Channels nachträglich zum Subscribe-Set des Listeners hinzufügen.
+  * App.py-Lifespan: sammelt `[plugin.uses].channels` aller geladenen
+    Plugins + ruft `subscribe_plugin_channels`. Plugin-Loader-Pfad
+    nutzt jetzt `routes.ws_ops.SessionLocal` statt
+    `db.SessionLocal` direkt — damit ws_app-Tests gepatched DB sehen.
+  * HTTP-Endpoint `GET /guilds/{id}/plugins/tamagotchi/state` in
+    `routes/guild_plugins.py` — liest persistierten State oder gibt
+    Default zurück (ohne Insert).
+  * Backend-Plugin nutzt `ctx.manager._session_factory` statt
+    direktem `db.SessionLocal`-Import (damit Tests die DB patchen
+    können wie beim Permission-Filter).
+
+* **Frontend**:
+  * `plugins/tamagotchi/pet-store.svelte.ts` — `$state`-Map pro Guild.
+  * `plugins/tamagotchi/frontend.ts` umgeschrieben: kein
+    `registerSettingsSection` mehr, dafür `ensurePetLoaded(guildId)`
+    (HTTP-Fetch beim Widget-Mount) + WS-Handler
+    `tamagotchi:state_update` (Live-Server-Echo).
+  * `plugins/tamagotchi/store.ts` Pure-Logic auf Type-Defs +
+    Mood/Emoji-Helpers reduziert (Decay-Mathematik weg — Server ist
+    Source-of-Truth).
+  * `TamagotchiWidget.svelte` neu: zeigt pro-Guild-Pet, Hunger HOCH =
+    satt (Backend-Schema flip), Rename-UI raus (keine Op dafür),
+    Hinweistext "Server-Pet — alle Mitglieder können füttern".
+  * Widget-Position: raus aus `SidebarFooter.svelte`, rein in
+    `/app/guilds/[guildId]/channels/[channelId]/+page.svelte` als
+    eigene `<aside>`-Spalte (`data-testid="guild-plugin-rail"`,
+    w-56, md+ only). **Begründung**: PR3 macht das Pet zum
+    Server-Asset; gehört konzeptionell zur Guild-Sidebar, nicht zum
+    User-Footer.
+
+* **Manifest-Update**:
+  * `plugin.toml`/`manifest.ts` bumped auf Version `0.2.0`.
+  * `scope.type` = `per-guild` (war `per-user`).
+  * `[plugin.uses].ws_ops` ersetzt `tamagotchi:ack` durch
+    `tamagotchi:state_update`.
+  * `channels = ["plugin:tamagotchi:events"]`.
+  * `settings_sections = []` (Section deprecated; alte
+    `user_preferences`-Section bleibt als toter Datenmüll im Backend
+    — kein Migration-Drop nötig).
+
+* **Bekannte Trade-offs**:
+  * Keine Rename-Op — Default-Name "Tamagotchi" bleibt fix. Rename
+    wäre eine eigene WS-Op mit MANAGE_GUILD-Gate (out-of-scope für
+    PR3, in der Aufgabe bewusst abgelehnt).
+  * Keine Decay-Mechanik mehr im Frontend (war pre-PR3 client-side
+    `applyDecay`). Eine Server-side-Decay-Loop wäre eine eigene
+    Erweiterung.
+  * Alter `user_preferences`-State der Section `tamagotchi` bleibt im
+    Backend als toter Datenmüll. Migration zum Droppen wäre
+    over-engineering für PR3.
+  * Concurrency-Test (`asyncio.gather` von 5 parallelen feeds) läuft
+    via SQLite-File-Serialisierung; echtes Postgres-Row-Lock-
+    Verhalten ist via `SELECT FOR UPDATE` dialect-aware, aber wird
+    in Tests nicht getriggert.
+
 ## Plugin-Punkte (Status-Tabelle)
 
 | Punkt | Frontend | Backend | Plan-Schritt |
@@ -650,6 +727,7 @@ Admin-UIs + einen Pro-Guild-Aktivierungs-Store.
 | Reference-Plugin (Tamagotchi) | ✅ (7) | ✅ (7) | 7 |
 | Plugin-Admin-Allowlist (Instanz) | ✅ (PR2 UI) | ✅ (PR1 Backend) | Admin-Activation |
 | Pro-Guild-Plugin-Toggle (MANAGE_GUILD) | ✅ (PR2 UI) | ✅ (PR1 Backend) | Admin-Activation |
+| Per-Guild Plugin-State + Broadcast (Tamagotchi-shared) | ✅ (PR3) | ✅ (PR3) | PR3 |
 | Bot-API (out-of-process, Stufe B) | — | — | 5b (geplant) |
 | WASM-Plugin-Host (in-process, isoliert) | — | — | 5c (geplant) |
 | UI-Slot/Component | — | — | 8 (geplant) |

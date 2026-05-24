@@ -25,6 +25,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -33,7 +34,9 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Text,
     func,
+    text,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Mapped, mapped_column
 
 from dcc_chat_gateway.db import Base
@@ -101,4 +104,61 @@ class GuildPlugin(Base):
     )
 
 
-__all__ = ["GuildPlugin", "InstancePluginAllowlist"]
+class GuildPluginState(Base):
+    """Generic per-guild plugin state blob (Plugin-System PR3 "shared state").
+
+    Eine Row pro ``(guild_id, plugin_name)``: das Plugin entscheidet
+    selbst, welche Form ``state`` hat — JSONB unter Postgres, generisches
+    JSON in Tests (siehe Migration 0021). Erster Konsument ist
+    ``tamagotchi`` (ein Pet pro Guild, alle Member füttern es gemeinsam);
+    weitere Plugins können dieselbe Tabelle wiederverwenden.
+
+    Atomic-Updates laufen unter Postgres bevorzugt über
+    ``jsonb_set(...) RETURNING state`` (siehe
+    ``plugins/handlers/tamagotchi.py``); SQLite (Tests) fällt auf
+    Read-Modify-Write mit row-lock zurück. Beide Pfade liegen
+    plugin-spezifisch im Handler, nicht hier — das Model ist
+    state-agnostisch.
+
+    Cross-Service-Grenze: kein FK auf ``auth.users`` (``updated_by_user_id``
+    bleibt nullable für System-Inserts).
+    """
+
+    __tablename__ = "guild_plugin_state"
+
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("guilds.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    plugin_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # JSONB unter Postgres, JSON-Fallback unter SQLite. ``dict``-Type
+    # für SQLAlchemy reicht; konkrete Pydantic-Validation passiert im
+    # Handler. ``default=dict`` damit ein .add() ohne ``state``-Argument
+    # keinen NULL setzt — die Migration hat einen ``'{}'``-server_default,
+    # aber expliziter Python-Default ist robuster.
+    state: Mapped[dict] = mapped_column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"),
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    updated_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "guild_id", "plugin_name", name="pk_guild_plugin_state"
+        ),
+        Index("ix_guild_plugin_state_plugin", "plugin_name"),
+    )
+
+
+__all__ = ["GuildPlugin", "GuildPluginState", "InstancePluginAllowlist"]
