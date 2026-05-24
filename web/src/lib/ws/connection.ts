@@ -338,6 +338,29 @@ export class GatewayConnection {
     return this._sendRaw({ op: 'activity' });
   }
 
+  /** Generic plugin-op outbound channel.
+   *
+   *  Lets a Pulse-Plugin push an op-frame that isn't part of the core
+   *  `ClientEvent` union — required because plugin op-codes are runtime-
+   *  registered (the union can't enumerate them at build time). The op
+   *  must be a colon-namespaced string (e.g. ``tamagotchi:feed``); we
+   *  refuse bare names so a plugin can't accidentally collide with a
+   *  built-in op (``send``, ``subscribe``, …).
+   *
+   *  Backend permission gate (Schritt 5) verifies that the chat-gateway
+   *  has a registered handler for the op — unregistered ops yield a
+   *  `code 4007` error frame back to this socket. */
+  sendPluginOp(op: string, payload?: Record<string, unknown>): boolean {
+    if (!op.includes(':')) {
+      console.warn('[ws] sendPluginOp: op must be namespaced (e.g. "plugin:action"), got', op);
+      return false;
+    }
+    // Cast through unknown — the runtime contract is that the gateway
+    // accepts any op-frame; the type union is just a build-time guard for
+    // core ops. Plugins live outside that union.
+    return this._sendRaw({ op, ...(payload ?? {}) } as unknown as ClientEvent);
+  }
+
   private _sendRaw(evt: ClientEvent): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(evt));

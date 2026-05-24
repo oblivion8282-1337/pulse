@@ -1,6 +1,6 @@
 # Pulse Plugin-System — Roadmap
 
-Stand: 2026-05-24 (Schritt 6 fertig)
+Stand: 2026-05-24 (Schritt 7 fertig)
 
 Manifest-Spezifikation: [`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
 
@@ -297,7 +297,73 @@ Was bewusst NICHT in Schritt 6:
   Refresh-Button im UI ruft `listPlugins()` neu auf, aber die
   `import.meta.glob`-Map ist Build-fixiert; neue Plugins nach `pnpm dev`-
   Start sind erst nach HMR-Tick verfügbar.
-- **UI-Slot/Component-Punkt** + **Migrations** — bleiben für Schritt 7.
+- **UI-Slot/Component-Punkt** + **Migrations** — bleiben für Schritt 8.
+
+### Schritt 7 — Tamagotchi-Reference-Plugin — fertig
+
+Branch: `feat/example-tamagotchi-plugin`.
+
+Erstes echtes Pulse-Plugin (nach dem `hello/`-Skelett, das nur Ping/Pong macht).
+Übt **alle vier** Plugin-Punkte gleichzeitig aus und dient ab jetzt als
+Copy-Paste-Vorlage für eigene Plugins.
+
+* **Plugin-Verzeichnis** `plugins/tamagotchi/`:
+  * `plugin.toml` — Manifest mit `ws_ops = [tamagotchi:{feed,play,sleep,reset,ack}]`,
+    `settings_sections = ["tamagotchi"]`, `scope.type = "per-user"`.
+  * `backend.py` (98 Z.) — registriert vier Action-Ops (`feed`/`play`/`sleep`/
+    `reset`), echo't jede mit einem `tamagotchi:ack`-Frame zurück. State lebt
+    *client-seitig* (siehe `store.ts`); das Backend ist heute nur Echo —
+    Schritt 3b (server-side `user_preferences`) wäre der Pfad für Cross-Device-
+    Sync, der diesen Echo zur State-Quelle macht.
+  * `manifest.ts` — Frontend-Spiegel des TOML (Browser hat kein TOML-Parser).
+  * `frontend.ts` (148 Z.) — registriert die Settings-Section `tamagotchi`
+    (parser-validiert via `parsePet`), den `tamagotchi:ack`-WS-Handler, und
+    exportiert `feed/play/sleep/reset/rename/refreshDecay/getPetStore`. Jeder
+    Action-Call läuft optimistic-update first, sendet die WS-Op über
+    `gateway.sendPluginOp` parallel. `deactivate()`-Hook räumt den Handler ab
+    und nullt das Modul-Singleton.
+  * `store.ts` (190 Z.) — pure Decay-Logik (Hunger/Glück/Energie, 0–100), keine
+    Svelte-/DOM-Dep. `applyDecay(state, now)` ist die Schlüsselfunktion: Stats
+    werden *beim Lesen* mit der seit `lastUpdatedAt` verstrichenen Zeit
+    durchgerechnet → kein `setInterval` nötig.
+  * `components/TamagotchiWidget.svelte` (227 Z.) — kleines Card-UI im
+    Sidebar-Footer. Emoji-Avatar pro Mood (🐣/🐤/😴/🍽️/🥺/💤), drei
+    Progress-Bars, vier Action-Buttons. Bewusst **keine Lucide-Imports**, weil
+    `plugins/` kein pnpm-Workspace-Member ist → Unicode-Glyphen statt Icon-Komponenten.
+* **`sendPluginOp` auf `GatewayConnection`** (`web/src/lib/ws/connection.ts`):
+  generischer Outbound-Pfad für Plugin-Ops. Verlangt einen colon-namespaced
+  Op-Code (`plugin:action`) — schützt vor versehentlicher Kollision mit
+  Built-in-Ops (`send`/`subscribe`/…). Cast through `unknown`, weil
+  `ClientEvent` plugin ops zur Build-Time nicht kennt.
+* **Default-aktiv**: `web/src/lib/plugins/activation-state.svelte.ts` listet
+  `tamagotchi` neben `hello` in `DEFAULT_ACTIVATED` — frische Installationen
+  sehen das Widget direkt. User kann's im Plugin-Manager
+  (`/Einstellungen → Plugins`) toggeln; der persistierte State überschreibt
+  den Default.
+* **Sidebar-Mount** (`web/src/lib/components/SidebarFooter.svelte`):
+  Widget conditional gerendert, gegated auf
+  `!viewport.isMobile && pluginActivation.activated.includes('tamagotchi')`.
+  Hardcodet, weil der UI-Slot-Plugin-Punkt erst in Schritt 8 kommt — wir
+  wollen einen sichtbaren Beweis-of-Concept, kein Slot-Framework.
+* **Tests** (`services/chat-gateway/tests/test_plugin_tamagotchi.py`, 4 Tests,
+  alle grün): Plugin lädt via Discovery + ist active, Permission-Gate
+  (strict) akzeptiert das Manifest, Deactivate rollt alle Ops weg, feed-
+  Handler acked via Fake-Socket. Das `_isolate_registries`-Fixture wipet
+  Plugin-Ops *vor* dem Snapshot, um Test-Reihenfolge-Leak aus
+  FastAPI-Lifespan-Tests (die `load_all()` triggern könnten) zu absorbieren.
+
+Was bewusst NICHT in Schritt 7:
+
+* **Server-side State-Persistenz** — Tamagotchi-State lebt nur in
+  `localStorage`, ist also pro Device. Schritt 3b (`user_preferences`-Tabelle)
+  wäre der Pfad für Cross-Device-Sync; der Echo-Ack ist schon der Hook.
+* **Tod / Wiederbelebung** — `alive: boolean` ist im State-Modell vorhanden,
+  aber heute immer `true`. Eine echte "Pet stirbt nach 3 Tagen Hunger 100"-
+  Mechanik wäre Schritt 7+.
+* **UI-Slot-Registry** — das Widget wird hardcoded im `SidebarFooter`
+  gemountet. Plugin-Punkt `[plugin.uses].ui_slots` ist deklariert (leer für
+  Tamagotchi), die Slot-Registry selbst existiert noch nicht.
+* **Notifications** — keine "dein Pet hat Hunger"-Push-Notification.
 
 ## Plugin-Punkte (Status-Tabelle)
 
@@ -312,7 +378,8 @@ Was bewusst NICHT in Schritt 6:
 | Activation-Lifecycle (`deactivate`-Hook) | ✅ (5) | ✅ (5) | 5 |
 | Plugin-Manager-UI + Konflikt-Detektor | ✅ (6) | — | 6 |
 | Persistierter Activate-State | ✅ (6) | — | 6 |
+| Reference-Plugin (Tamagotchi) | ✅ (7) | ✅ (7) | 7 |
 | Bot-API (out-of-process, Stufe B) | — | — | 5b (geplant) |
 | WASM-Plugin-Host (in-process, isoliert) | — | — | 5c (geplant) |
-| UI-Slot/Component | — | — | 7 (geplant) |
-| Migrations | — | — | 7 (geplant) |
+| UI-Slot/Component | — | — | 8 (geplant) |
+| Migrations | — | — | 8 (geplant) |

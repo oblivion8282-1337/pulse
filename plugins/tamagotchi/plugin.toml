@@ -1,0 +1,50 @@
+# Pulse Tamagotchi-Plugin — Schritt-7 Reference-Plugin.
+#
+# Erstes echtes Pulse-Plugin (nach dem hello/-Skelett), das alle vier
+# Plugin-Punkte berührt:
+#
+#   * Settings-Section ``tamagotchi``        — per-user Pet-State (Name,
+#                                              Hunger/Glück/Energie, lastUpdatedAt)
+#   * WS-Ops ``tamagotchi:{feed,play,sleep,reset}`` — Client → Server-Aktionen
+#   * WS-Emit-Op ``tamagotchi:ack``          — Server-Echo (bestätigt die Aktion)
+#   * UI-Widget                              — Sidebar-Card im SidebarFooter
+#
+# Spec: docs/PLUGIN_MANIFEST.md. Permission-Gate (Schritt 5) verlangt,
+# dass jede registrierte WS-Op + Settings-Section in `[plugin.uses]` steht.
+
+[plugin]
+name = "tamagotchi"
+version = "0.1.0"
+api = "1"
+author = "Pulse Maintainer"
+description = "Virtuelles Haustier pro User — füttern, spielen, schlafen"
+
+[plugin.scope]
+# State lebt vorerst pro User in der Frontend-Settings-Section (localStorage).
+# Cross-Device-Sync käme über Schritt 3b (server-side `user_preferences`).
+type = "per-user"
+
+# `ws_ops` muss alle Op-Codes enthalten, die das Plugin in einer der
+# Dispatch-Registries registriert (Permission-Gate). Das Backend registriert
+# vier ``tamagotchi:{feed,play,sleep,reset}``-Incoming-Handler; das Frontend
+# registriert einen ``tamagotchi:ack``-Incoming-Handler für die Server-
+# Bestätigung. Alle fünf gehen durch dieselbe Registry.
+#
+# `ws_emit_ops` ist rein informativ (kein Permission-Gate, kein
+# Registry-Eintrag) und dokumentiert was an Clients/Server gesendet wird.
+[plugin.uses]
+ws_ops = [
+  "tamagotchi:feed",
+  "tamagotchi:play",
+  "tamagotchi:sleep",
+  "tamagotchi:reset",
+  "tamagotchi:ack"
+]
+ws_emit_ops = ["tamagotchi:ack"]
+channels = []
+settings_sections = ["tamagotchi"]
+ui_slots = []
+
+[plugin.entrypoints]
+backend = "backend:register"
+frontend = "frontend.ts"

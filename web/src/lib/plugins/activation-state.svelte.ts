@@ -19,7 +19,12 @@ interface PluginActivationSection {
   activated: string[];
 }
 
-const DEFAULT_ACTIVATED = ['hello'];
+// `hello` ist das Loader-Smoketest-Skelett (Schritt 4). `tamagotchi` ist
+// das erste echte Reference-Plugin (Schritt 7) und default-activated, damit
+// Reviewer/User die UI sofort sehen. Wer es nicht will, schaltet's im
+// Plugin-Manager (`/Einstellungen → Plugins`) aus — der persistierte
+// State überschreibt diesen Default beim nächsten Boot.
+const DEFAULT_ACTIVATED = ['hello', 'tamagotchi'];
 
 const store = registerSettingsSection<PluginActivationSection>('plugins', {
   defaults: { activated: [...DEFAULT_ACTIVATED] },
