@@ -903,7 +903,7 @@ code{
       <div class="demo-flow">
         <div class="flow-row">
           <div class="step">1</div>
-          <div class="what"><b>Plugin aktivieren</b><br/><span>User schaltet "Tamagotchi" in den Einstellungen ein &mdash; oder Server-Admin macht das für alle.</span></div>
+          <div class="what"><b>Plugin freischalten + aktivieren</b><br/><span>Bootstrap-Admin nimmt "Tamagotchi" in die Instanz-Allowlist auf, Server-Admin schaltet es im Server-Settings-Tab "Plugins" für seinen Server an. Reguläre Mitglieder sehen das Widget automatisch &mdash; keinen eigenen Toggle.</span></div>
         </div>
         <div class="flow-row">
           <div class="step">2</div>
@@ -919,7 +919,7 @@ code{
         </div>
         <div class="flow-row">
           <div class="step">5</div>
-          <div class="what"><b>Daten bleiben isoliert</b><br/><span>Hunger/Glück landen in einer eigenen kleinen Schublade. Wird das Plugin deinstalliert, sind sie sauber weg.</span></div>
+          <div class="what"><b>Server-shared State</b><br/><span>Es gibt <em>ein</em> Tamagotchi pro Server, das alle Mitglieder gemeinsam füttern. Hunger/Glück leben in einer eigenen Server-Schublade (<code>guild_plugin_state</code>); jede Aktion wird atomar gespeichert und live an alle Mitglieder gepusht. Wird das Plugin aus der Allowlist entfernt, ist der State sauber weg.</span></div>
         </div>
       </div>
 
@@ -1204,7 +1204,7 @@ code{
     <p class="sub">
       Weil jedes Plugin im Manifest deklariert, was es <strong>liest</strong> und was es <strong>schreibt</strong>,
       kann Pulse die Beziehungen automatisch sichtbar machen &mdash; mit Konflikt-Warnung, wo zwei Plugins
-      um dasselbe streiten. Der User sieht <strong>vorher</strong>, dass es Ärger geben könnte, nicht erst,
+      um dasselbe streiten. Der Admin sieht <strong>vorher</strong>, dass es Ärger geben könnte, nicht erst,
       wenn der Status flackert.
     </p>
 
@@ -1365,7 +1365,7 @@ code{
         </div>
         <div class="resolver-opt">
           <b>Eins deaktivieren</b>
-          <span>Du wählst, welches der beiden Plugins du behalten willst &mdash; das andere wird ausgeschaltet.</span>
+          <span>Der Admin wählt, welches der beiden Plugins er behalten will &mdash; das andere wird im Allowlist- oder Server-Settings-Tab ausgeschaltet.</span>
         </div>
       </div>
     </div>
