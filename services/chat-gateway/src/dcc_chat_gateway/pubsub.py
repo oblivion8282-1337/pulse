@@ -16,6 +16,7 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Any
 
+from dcc_shared.events import _EventBase
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
 from fastapi import WebSocket
@@ -232,22 +233,50 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
                 if not self._subs[cid]:
                     del self._subs[cid]
 
-    async def publish(self, channel_id: str, payload: dict[str, Any]) -> None:
+    @staticmethod
+    def _to_wire(payload: dict[str, Any] | _EventBase) -> dict[str, Any]:
+        """Accept either a raw dict (legacy callers) or one of the
+        ``dcc_shared.events`` Pydantic models — return the JSON-mode dict
+        that gets serialised to Redis. ``model_dump(mode="json")`` honours
+        ``serialize_by_alias=True`` so wire-format aliases survive
+        (e.g. ``_sender_user_id`` on ``presence_status_changed``).
+
+        ``exclude_none=True`` is intentionally NOT set: an explicit
+        ``None`` (e.g. ``watch_state`` snapshot with ``state=None`` ==
+        "party stopped") is meaningful on the wire and must round-trip.
+        Models that want a field omitted-when-default should use
+        ``Field(default=..., exclude=True)`` instead.
+        """
+        if isinstance(payload, _EventBase):
+            return payload.model_dump(mode="json")
+        return payload
+
+    async def publish(
+        self, channel_id: str, payload: dict[str, Any] | _EventBase
+    ) -> None:
         await self._redis.publish(
             CHANNEL_KEY.format(channel_id=channel_id),
-            json.dumps(payload, separators=(",", ":")),
+            json.dumps(self._to_wire(payload), separators=(",", ":")),
         )
 
-    async def publish_guild_event(self, envelope: dict[str, Any]) -> None:
+    async def publish_guild_event(
+        self, envelope: dict[str, Any] | _EventBase
+    ) -> None:
         """Publish a guild-lifecycle envelope (with its own `op`) for fan-out
-        to every connected WebSocket. See ``GUILD_EVENTS_CHANNEL``."""
+        to every connected WebSocket. See ``GUILD_EVENTS_CHANNEL``.
+
+        Accepts either a raw dict (legacy callers, gradually migrated) or
+        one of the ``dcc_shared.events`` Pydantic models — the latter is
+        the preferred path going forward."""
         await self._redis.publish(
             GUILD_EVENTS_CHANNEL,
-            json.dumps(envelope, separators=(",", ":")),
+            json.dumps(self._to_wire(envelope), separators=(",", ":")),
         )
 
     async def publish_user_event(
-        self, target_user_id: int | str, envelope: dict[str, Any]
+        self,
+        target_user_id: int | str,
+        envelope: dict[str, Any] | _EventBase,
     ) -> None:
         """Publish a direct-delivery envelope routed to one specific user.
 
@@ -256,8 +285,10 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         Used for cross-channel notifications (mention-counter increment etc.)
         where the recipient may not be subscribed to the originating channel.
         See ``USER_EVENTS_CHANNEL``.
+
+        Accepts both raw dicts (legacy) and ``dcc_shared.events`` models.
         """
-        wrapped = dict(envelope)
+        wrapped = dict(self._to_wire(envelope))
         wrapped["_target_user_id"] = str(target_user_id)
         await self._redis.publish(
             USER_EVENTS_CHANNEL,
@@ -402,7 +433,17 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
     async def _republish_voice_channel(self, channel_id: str) -> None:
         """Publish a fresh voice:events snapshot for the given channel. Used
         after writing per-user state — voice-signaling owns membership-driven
-        publishes; we own state-driven ones."""
+        publishes; we own state-driven ones.
+
+        Note: the snapshot includes the enriched ``user_states`` field, which
+        ``VoiceStateSnapshot`` doesn't carry — that's intentional. The
+        listener wraps the bare-snapshot side for voice-signaling, but our
+        own re-publish path already has the per-user states resolved, so we
+        emit them inline so the listener trusts them rather than re-fetching.
+        We publish as a raw dict here (the field is outside the snapshot
+        schema) — when the listener sees ``user_states`` it skips the
+        ``user_voice_states_for`` re-hydration.
+        """
         state = await self.voice_state_for(channel_id)
         await self._redis.publish(
             VOICE_EVENTS_CHANNEL,
@@ -459,10 +500,10 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
     async def broadcast_presence_update(self, user_id: str, *, online: bool) -> None:
         """Publish a presence_update event on guild:events so every connected
         client can update its online/offline member grouping in real time."""
+        from dcc_shared.events import PresenceUpdateEvent
+
+        envelope = PresenceUpdateEvent(user_id=user_id, online=online)
         await self._redis.publish(
             GUILD_EVENTS_CHANNEL,
-            json.dumps(
-                {"op": "presence_update", "user_id": user_id, "online": online},
-                separators=(",", ":"),
-            ),
+            json.dumps(envelope.model_dump(mode="json"), separators=(",", ":")),
         )

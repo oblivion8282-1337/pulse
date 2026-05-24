@@ -108,9 +108,12 @@ async def _list_known_channels(redis: Redis) -> set[str]:
 
 
 async def _publish_event(redis: Redis, channel_id: str, user_ids: list[str]) -> None:
+    from dcc_shared.events import StreamStateSnapshot
+
+    snapshot = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids)
     await redis.publish(
         STREAM_EVENTS_CHANNEL,
-        json.dumps({"channel_id": channel_id, "user_ids": user_ids}, separators=(",", ":")),
+        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
     )
 
 

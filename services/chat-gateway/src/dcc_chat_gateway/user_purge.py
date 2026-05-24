@@ -42,6 +42,7 @@ from dcc_chat_gateway.models import (
     MessageReaction,
     PermissionOverwrite,
     UserBlock,
+    UserPreference,
     UserPrivacy,
     WebPushSubscription,
 )
@@ -226,6 +227,11 @@ async def _purge_db(session: AsyncSession, user_id: int) -> list[int]:
         sa_delete(UserPrivacy).where(UserPrivacy.user_id == user_id)
     )
 
+    # 11. User-preferences (Schritt 3b plugin/server-side-sync rows).
+    await session.execute(
+        sa_delete(UserPreference).where(UserPreference.user_id == user_id)
+    )
+
     return owned_guild_ids
 
 
@@ -284,10 +290,12 @@ async def purge_user(
     # Broadcast guild_deleted *after* commit so subscribers can't see
     # an inconsistent half-state if they round-trip back to the API.
     if manager is not None:
+        from dcc_shared.events import GuildDeletedEvent
+
         for gid in deleted_guild_ids:
             try:
                 await manager.publish_guild_event(
-                    {"op": "guild_deleted", "guild_id": str(gid)}
+                    GuildDeletedEvent(guild_id=str(gid))
                 )
             except Exception:  # noqa: BLE001
                 log.warning("purge: guild_deleted publish failed", exc_info=True)

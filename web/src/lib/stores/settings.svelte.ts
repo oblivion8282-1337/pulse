@@ -1,527 +1,236 @@
-import type { VideoCodec } from 'livekit-client';
+/**
+ * Public settings facade — registers the 8 built-in sections with the
+ * registry and re-exposes them as named properties so existing component
+ * code (`settings.audio.bitrate`, `settings.setTheme(…)`) keeps working
+ * unchanged.
+ *
+ * The actual reactive state + persistence lives in
+ * `lib/settings-registry/` (Phase 3 Plugin-System-Plan). This file is the
+ * thin compatibility shim — plugins should NOT import from here; use
+ * `$lib/settings-registry` directly.
+ */
 import { setMode } from 'mode-watcher';
 import {
-  DEFAULT_SOUNDS,
-  clampSoundVolume,
-  parseSounds,
-  type SoundCategoryKey,
-  type SoundsSettings
-} from '$lib/sounds/persistence';
+  bindPersistence,
+  registerSettingsSection,
+  runSignOutHooks,
+  type SectionStore
+} from '$lib/settings-registry';
+import { APPEARANCE_SECTION, type ThemePreference } from '$lib/settings-registry/sections/appearance';
 import {
-  DEFAULT_SHORTCUTS,
-  parseShortcuts,
-  type ShortcutsSettings
-} from '$lib/shortcuts/persistence';
+  AUDIO_SECTION,
+  clampBitrate,
+  clampGateDb,
+  clampInputMakeup,
+  type AudioSettings,
+  type NoiseSuppressionMode,
+  VOICE_BITRATE_MIN,
+  VOICE_BITRATE_MAX,
+  VOICE_BITRATE_STEREO_MIN,
+  NOISE_GATE_DB_MIN,
+  NOISE_GATE_DB_MAX,
+  NOISE_GATE_DB_DEFAULT,
+  INPUT_MAKEUP_MIN,
+  INPUT_MAKEUP_MAX,
+  INPUT_MAKEUP_DEFAULT
+} from '$lib/settings-registry/sections/audio';
+import {
+  VOICE_SECTION,
+  clampUserVolume,
+  capUserVolumes,
+  type VoiceSettings,
+  USER_VOLUME_MIN,
+  USER_VOLUME_MAX
+} from '$lib/settings-registry/sections/voice';
+import {
+  SCREEN_SHARE_SECTION,
+  type ScreenShareCodec,
+  type ScreenShareResolution,
+  type ScreenShareSettings,
+  clampScreenShareFps,
+  SCREEN_SHARE_BITRATE_MIN,
+  SCREEN_SHARE_BITRATE_MAX,
+  SCREEN_SHARE_FPS_MIN,
+  SCREEN_SHARE_FPS_MAX
+} from '$lib/settings-registry/sections/screenShare';
+import {
+  STREAM_CHAT_SECTION,
+  type StreamChatSettings
+} from '$lib/settings-registry/sections/streamChat';
+import {
+  NOTIFICATIONS_SECTION,
+  type NotificationSettings
+} from '$lib/settings-registry/sections/notifications';
+import { SOUNDS_SECTION } from '$lib/settings-registry/sections/sounds';
+import { SHORTCUTS_SECTION } from '$lib/settings-registry/sections/shortcuts';
+import { clampSoundVolume, type SoundCategoryKey, type SoundsSettings } from '$lib/sounds/persistence';
+import { DEFAULT_SHORTCUTS, type ShortcutsSettings } from '$lib/shortcuts/persistence';
 import type { ActionId } from '$lib/shortcuts/actions';
 
-// --- screen-share types (kept identical to the previous screenShareSettings) ---
-
-// VP8/VP9 sind 2026-05-19 raus: H.264 hat überall HW-Encoder (NVENC/QSV/
-// VideoToolbox), AV1 deckt das moderne High-Quality-Segment ab. VP9 wäre
-// CPU-only auf praktisch jedem Setup und VP8 ist veraltet — beide nehmen
-// nur UI-Platz weg.
-export type ScreenShareCodec = Extract<VideoCodec, 'h264' | 'av1'>;
-export type ScreenShareResolution = 'native' | '1080p' | '720p' | '480p';
-// Frei wählbar als Number-Input. SCREEN_SHARE_FPS_MAX ist ein Sanity-Cap
-// (kein Browser/Encoder schafft das wirklich) — schützt vor NaN/Infinity
-// und unrealistischen Eingaben, ohne den User künstlich zu beschneiden.
-
-export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
-
-export type ThemePreference = 'light' | 'dark' | 'system';
+export type {
+  NoiseSuppressionMode,
+  ThemePreference,
+  ScreenShareCodec,
+  ScreenShareResolution
+};
 
 const STORAGE_KEY = 'dcc.settings';
 const LEGACY_SCREENSHARE_KEY = 'dcc.screenShareSettings';
 
-const VOICE_BITRATE_MIN = 16;
-const VOICE_BITRATE_MAX = 256;
-const VOICE_BITRATE_STEREO_MIN = 32;
-
-// Hard noise-gate (open-threshold in dB) used by the 'rnnoise_gated' mode.
-// -60 = very sensitive (lets near-whispered speech through, gates almost nothing),
-// -20 = only loud speech opens the gate. -45 is a reasonable default for a quiet
-// home office; users in noisy rooms will want it closer to -30.
-const NOISE_GATE_DB_MIN = -60;
-const NOISE_GATE_DB_MAX = -20;
-const NOISE_GATE_DB_DEFAULT = -45;
-
-// Cap for the LiveKit screen-share bitrate. Fan-out via SFU means the server
-// pays N×bitrate egress per channel — keep this low even when raising the HQ
-// cap, since voice channels regularly have multiple listeners.
-const SCREEN_SHARE_BITRATE_MIN = 1;
-const SCREEN_SHARE_BITRATE_MAX = 10;
-export const SCREEN_SHARE_FPS_MIN = 1;
-export const SCREEN_SHARE_FPS_MAX = 240;
-const SCREEN_SHARE_FPS_DEFAULT = 30;
-
-const VALID_CODECS: ScreenShareCodec[] = ['h264', 'av1'];
-const VALID_RESOLUTIONS: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
-const VALID_NS: NoiseSuppressionMode[] = ['off', 'rnnoise_gated'];
-const VALID_THEMES: ThemePreference[] = ['light', 'dark', 'system'];
-
-type AudioSettings = {
-  inputDeviceId: string;
-  inputDeviceLabel: string;
-  outputDeviceId: string;
-  outputDeviceLabel: string;
-  echoCancellation: boolean;
-  autoGainControl: boolean;
-  noiseSuppression: NoiseSuppressionMode;
-  /** Open-threshold (dB) for the 'rnnoise_gated' mode. Below this the post-
-   *  RNNoise audio is muted entirely. Ignored when noise-suppression is 'off'. */
-  noiseGateThresholdDb: number;
-  voiceBitrateKbps: number;
-  stereo: boolean;
-  /** Linear gain applied to your own mic after the noise filter, before the
-   *  Opus encoder. 1.0 = pass-through. Other listeners hear this. */
-  inputMakeupGain: number;
-  /** Per-remote-user peak limiter on the playback side. Catches participants
-   *  who suddenly get very loud before it reaches your speakers/ears. */
-  limiterEnabled: boolean;
-};
-
-type VoiceSettings = {
-  pttMode: boolean;
-  pttKey: string;
-  /** Per-remote-user output gain. Key = Snowflake user ID (string). Value =
-   *  linear gain factor 0..4 (0 = mute, 1.0 = unchanged, 4.0 = +12 dB before
-   *  the compressor catches it). Default (1.0) entries are not persisted. */
-  userVolumes: Record<string, number>;
-};
-
-const USER_VOLUME_MIN = 0;
-const USER_VOLUME_MAX = 4;
-
-// Sender-side linear gain on the local mic AFTER the noise filter, BEFORE the
-// encoder. 0.5 = -6 dB (hot mic → quieter), 1.0 = pass-through, 4.0 = +12 dB.
-const INPUT_MAKEUP_MIN = 0.5;
-const INPUT_MAKEUP_MAX = 4;
-const INPUT_MAKEUP_DEFAULT = 1;
-/** Hard cap to keep the persisted record bounded — entries beyond this are
- *  FIFO-dropped at write time. Tuned for "you'll never adjust this many
- *  unique users on purpose" rather than a precise LRU. */
-const MAX_USER_VOLUMES = 256;
-
-type AppearanceSettings = {
-  theme: ThemePreference;
-};
-
-type ScreenShareSettings = {
-  codec: ScreenShareCodec;
-  resolution: ScreenShareResolution;
-  fps: number;
-  bitrateMbps: number;
-  contentHint: 'motion' | 'detail';
-};
-
-type StreamChatSettings = {
-  /** Seitliches Stream-Chat-Panel offen (User-Toggle, default desktop).
-   *  Fullscreen-Overlay über dem Video ist nicht persistiert — pro Player
-   *  per Toggle-Button, defaultet immer auf aus. */
-  panelOpen: boolean;
-};
-
-/** User-facing notification preferences. `browserPushEnabled` is a *user
- *  intent* flag — the actual subscription state lives in the PushManager.
- *  Toggling it kicks off `requestPushPermission()` / `unsubscribeUser()`;
- *  on permission-denied the flag flips back to false so the UI stays honest.
- *  Sub-toggles gate the local in-page fallback path (Service-Worker pushes
- *  are server-driven and not filtered client-side — the server respects
- *  per-user prefs sent via the subscribe call once that endpoint exists).
- *  Sound playback used to live here as `soundEnabled` (placeholder; never
- *  gated real audio); that flag is gone, replaced by the `sounds` block. */
-type NotificationSettings = {
-  browserPushEnabled: boolean;
-  onMention: boolean;
-  onDM: boolean;
-};
-
-type PersistedSettings = {
-  audio: AudioSettings;
-  voice: VoiceSettings;
-  screenShare: ScreenShareSettings;
-  streamChat: StreamChatSettings;
-  appearance: AppearanceSettings;
-  notifications: NotificationSettings;
-  sounds: SoundsSettings;
-  shortcuts: ShortcutsSettings;
-};
-
-const DEFAULTS: PersistedSettings = {
-  audio: {
-    inputDeviceId: '',
-    inputDeviceLabel: '',
-    outputDeviceId: '',
-    outputDeviceLabel: '',
-    echoCancellation: true,
-    autoGainControl: false,
-    noiseSuppression: 'rnnoise_gated',
-    noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
-    voiceBitrateKbps: 128,
-    stereo: false,
-    inputMakeupGain: INPUT_MAKEUP_DEFAULT,
-    limiterEnabled: false
-  },
-  voice: {
-    pttMode: false,
-    pttKey: 'v',
-    userVolumes: {}
-  },
-  screenShare: {
-    codec: 'h264',
-    resolution: '1080p',
-    fps: SCREEN_SHARE_FPS_DEFAULT,
-    bitrateMbps: 4,
-    contentHint: 'motion'
-  },
-  streamChat: {
-    panelOpen: true
-  },
-  appearance: {
-    theme: 'system'
-  },
-  notifications: {
-    // Explicit opt-in: requesting permission requires a user gesture and we
-    // don't want to fire it ambiently. The other sub-toggles default ON so
-    // once the user opts in, mentions + DMs both alert by default.
-    browserPushEnabled: false,
-    onMention: true,
-    onDM: true
-  },
-  sounds: { ...DEFAULT_SOUNDS },
-  shortcuts: { ...DEFAULT_SHORTCUTS }
-};
-
-function clampBitrate(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULTS.audio.voiceBitrateKbps;
-  return Math.min(VOICE_BITRATE_MAX, Math.max(VOICE_BITRATE_MIN, Math.round(v)));
-}
-
-function clampGateDb(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return NOISE_GATE_DB_DEFAULT;
-  return Math.min(NOISE_GATE_DB_MAX, Math.max(NOISE_GATE_DB_MIN, Math.round(v)));
-}
-
-function clampInputMakeup(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return INPUT_MAKEUP_DEFAULT;
-  return Math.min(INPUT_MAKEUP_MAX, Math.max(INPUT_MAKEUP_MIN, v));
-}
-
-function clampScreenShareFps(v: unknown): number {
-  if (typeof v !== 'number' || !Number.isFinite(v)) return SCREEN_SHARE_FPS_DEFAULT;
-  return Math.min(SCREEN_SHARE_FPS_MAX, Math.max(SCREEN_SHARE_FPS_MIN, Math.round(v)));
-}
-
-function str(v: unknown, fallback: string): string {
-  return typeof v === 'string' ? v : fallback;
-}
-
-function parseTheme(v: unknown): ThemePreference {
-  return VALID_THEMES.includes(v as ThemePreference) ? (v as ThemePreference) : DEFAULTS.appearance.theme;
-}
-
-function bool(v: unknown, fallback: boolean): boolean {
-  return typeof v === 'boolean' ? v : fallback;
-}
-
-function clampUserVolume(v: number): number {
-  return Math.min(USER_VOLUME_MAX, Math.max(USER_VOLUME_MIN, v));
-}
-
-function parseUserVolumes(raw: unknown): Record<string, number> {
-  if (raw === null || typeof raw !== 'object') return {};
-  const out: Record<string, number> = {};
-  for (const [k, val] of Object.entries(raw as Record<string, unknown>)) {
-    if (typeof k !== 'string' || k.length === 0) continue;
-    if (typeof val !== 'number' || !Number.isFinite(val)) continue;
-    const clamped = clampUserVolume(val);
-    if (clamped !== 1) out[k] = clamped;
-  }
-  return capUserVolumes(out);
-}
-
-function capUserVolumes(map: Record<string, number>): Record<string, number> {
-  const keys = Object.keys(map);
-  if (keys.length <= MAX_USER_VOLUMES) return map;
-  const drop = keys.length - MAX_USER_VOLUMES;
-  for (let i = 0; i < drop; i++) delete map[keys[i]];
-  return map;
-}
-
-function readLegacyScreenShare(): Partial<ScreenShareSettings> | null {
+/** Pre-registration: if a legacy `dcc.screenShareSettings` blob exists and
+ *  there's no `dcc.settings` yet, fold the legacy data into the root blob
+ *  under `screenShare` so `parseScreenShare` picks it up on first register.
+ *  Returns whether a legacy entry was migrated (so we can clean it up). */
+function migrateLegacyScreenShare(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  if (localStorage.getItem(STORAGE_KEY) !== null) return false;
+  const legacy = localStorage.getItem(LEGACY_SCREENSHARE_KEY);
+  if (!legacy) return false;
   try {
-    const raw = localStorage.getItem(LEGACY_SCREENSHARE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as Partial<ScreenShareSettings>;
+    const parsed = JSON.parse(legacy);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ screenShare: parsed }));
+    return true;
   } catch {
-    return null;
+    return false;
   }
 }
 
-function parseScreenShare(raw: Partial<ScreenShareSettings> | undefined | null): ScreenShareSettings {
-  const d = DEFAULTS.screenShare;
-  const p = raw ?? {};
-  // Migration: gespeicherte 'vp8'/'vp9'-Codec-Settings (Pre-2026-05-19) auf
-  // 'h264' falten — die beiden Codecs sind aus der Auswahl raus, müssen
-  // beim Lesen aber sanft auf einen gültigen Wert mappen statt zu errorn.
-  // Cast via `unknown` damit der Migrations-String-Vergleich nicht durch das
-  // engere `ScreenShareCodec`-Type weg-narrowt wird.
-  const rawCodec = p.codec as unknown as string | undefined;
-  const codec: ScreenShareCodec = VALID_CODECS.includes(rawCodec as ScreenShareCodec)
-    ? (rawCodec as ScreenShareCodec)
-    : rawCodec === 'vp8' || rawCodec === 'vp9'
-      ? 'h264'
-      : d.codec;
-  return {
-    codec,
-    resolution: VALID_RESOLUTIONS.includes(p.resolution as ScreenShareResolution)
-      ? (p.resolution as ScreenShareResolution)
-      : d.resolution,
-    fps: clampScreenShareFps(p.fps),
-    bitrateMbps:
-      typeof p.bitrateMbps === 'number' &&
-      p.bitrateMbps >= SCREEN_SHARE_BITRATE_MIN &&
-      p.bitrateMbps <= SCREEN_SHARE_BITRATE_MAX
-        ? p.bitrateMbps
-        : d.bitrateMbps,
-    contentHint: p.contentHint === 'detail' || p.contentHint === 'motion' ? p.contentHint : d.contentHint
-  };
-}
+const legacyMigrated = migrateLegacyScreenShare();
 
-function parseStreamChat(raw: Partial<StreamChatSettings> | undefined | null): StreamChatSettings {
-  const d = DEFAULTS.streamChat;
-  const p = raw ?? {};
-  return { panelOpen: bool(p.panelOpen, d.panelOpen) };
-}
-
-function parseNotifications(
-  raw: Partial<NotificationSettings> | undefined | null
-): NotificationSettings {
-  const d = DEFAULTS.notifications;
-  const p = raw ?? {};
-  return {
-    browserPushEnabled: bool(p.browserPushEnabled, d.browserPushEnabled),
-    onMention: bool(p.onMention, d.onMention),
-    onDM: bool(p.onDM, d.onDM)
-  };
-}
-
-function load(): PersistedSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      // Migration: pull the screen-share block out of the legacy key if present.
-      const legacy = readLegacyScreenShare();
-      return {
-        audio: { ...DEFAULTS.audio },
-        voice: { ...DEFAULTS.voice },
-        screenShare: parseScreenShare(legacy),
-        streamChat: { ...DEFAULTS.streamChat },
-        appearance: { ...DEFAULTS.appearance },
-        notifications: { ...DEFAULTS.notifications },
-        sounds: parseSounds(null),
-        shortcuts: { ...DEFAULT_SHORTCUTS }
-      };
+// Bind default localStorage persistence (registry idempotently no-ops on SSR).
+bindPersistence({
+  read() {
+    if (typeof localStorage === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      const p = JSON.parse(raw);
+      return p && typeof p === 'object' ? p : {};
+    } catch {
+      return {};
     }
-    const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
-    const a = (parsed.audio ?? {}) as Partial<AudioSettings>;
-    const v = (parsed.voice ?? {}) as Partial<VoiceSettings>;
-    const ap = (parsed.appearance ?? {}) as Partial<AppearanceSettings>;
-    const da = DEFAULTS.audio;
-    const dv = DEFAULTS.voice;
-    return {
-      audio: {
-        inputDeviceId: str(a.inputDeviceId, da.inputDeviceId),
-        inputDeviceLabel: str(a.inputDeviceLabel, da.inputDeviceLabel),
-        outputDeviceId: str(a.outputDeviceId, da.outputDeviceId),
-        outputDeviceLabel: str(a.outputDeviceLabel, da.outputDeviceLabel),
-        echoCancellation: bool(a.echoCancellation, da.echoCancellation),
-        autoGainControl: bool(a.autoGainControl, da.autoGainControl),
-        // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'
-        // (DFN3 was removed 2026-05-16). Any non-'off' legacy value indicates the
-        // user wanted *some* filter on — map to the unified gated mode. Unknown
-        // strings fall back to default.
-        noiseSuppression:
-          a.noiseSuppression === 'off'
-            ? 'off'
-            : typeof a.noiseSuppression === 'string'
-              ? 'rnnoise_gated'
-              : da.noiseSuppression,
-        noiseGateThresholdDb: clampGateDb(a.noiseGateThresholdDb),
-        voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
-        stereo: bool(a.stereo, da.stereo),
-        inputMakeupGain: clampInputMakeup(a.inputMakeupGain),
-        limiterEnabled: bool(a.limiterEnabled, da.limiterEnabled)
-      },
-      voice: {
-        pttMode: bool(v.pttMode, dv.pttMode),
-        pttKey: typeof v.pttKey === 'string' && v.pttKey.length > 0 ? v.pttKey.toLowerCase() : dv.pttKey,
-        userVolumes: parseUserVolumes(v.userVolumes)
-      },
-      screenShare: parseScreenShare(parsed.screenShare),
-      streamChat: parseStreamChat(parsed.streamChat),
-      appearance: { theme: parseTheme(ap.theme) },
-      notifications: parseNotifications(parsed.notifications),
-      sounds: parseSounds(parsed.sounds),
-      shortcuts: parseShortcuts(parsed.shortcuts)
-    };
-  } catch {
-    return {
-      audio: { ...DEFAULTS.audio },
-      voice: { ...DEFAULTS.voice },
-      screenShare: { ...DEFAULTS.screenShare },
-      streamChat: { ...DEFAULTS.streamChat },
-      appearance: { ...DEFAULTS.appearance },
-      notifications: { ...DEFAULTS.notifications },
-      sounds: parseSounds(null),
-      shortcuts: { ...DEFAULT_SHORTCUTS }
-    };
+  },
+  write(blob) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
+      if (legacyMigrated) localStorage.removeItem(LEGACY_SCREENSHARE_KEY);
+    } catch {
+      /* quota */
+    }
   }
-}
+});
 
 class SettingsStore {
-  audio = $state<AudioSettings>({ ...DEFAULTS.audio });
-  voice = $state<VoiceSettings>({ ...DEFAULTS.voice });
-  screenShare = $state<ScreenShareSettings>({ ...DEFAULTS.screenShare });
-  streamChat = $state<StreamChatSettings>({ ...DEFAULTS.streamChat });
-  appearance = $state<AppearanceSettings>({ ...DEFAULTS.appearance });
-  notifications = $state<NotificationSettings>({ ...DEFAULTS.notifications });
-  sounds = $state<SoundsSettings>({ ...DEFAULT_SOUNDS });
-  shortcuts = $state<ShortcutsSettings>({ ...DEFAULT_SHORTCUTS });
-
-  /** True if a legacy `dcc.screenShareSettings` key was migrated and can be cleared. */
-  #legacyMigrated = false;
+  // Section handles — built-in sections register at module-init time below.
+  #appearance: SectionStore<{ theme: ThemePreference }>;
+  #audio: SectionStore<AudioSettings>;
+  #voice: SectionStore<VoiceSettings>;
+  #screenShare: SectionStore<ScreenShareSettings>;
+  #streamChat: SectionStore<StreamChatSettings>;
+  #notifications: SectionStore<NotificationSettings>;
+  #sounds: SectionStore<SoundsSettings>;
+  #shortcuts: SectionStore<ShortcutsSettings>;
 
   constructor() {
-    const s = load();
-    this.audio = s.audio;
-    this.voice = s.voice;
-    this.screenShare = s.screenShare;
-    this.streamChat = s.streamChat;
-    this.appearance = s.appearance;
-    this.notifications = s.notifications;
-    this.sounds = s.sounds;
-    this.shortcuts = s.shortcuts;
-    if (typeof localStorage !== 'undefined') {
-      this.#legacyMigrated =
-        localStorage.getItem(STORAGE_KEY) === null && localStorage.getItem(LEGACY_SCREENSHARE_KEY) !== null;
-    }
+    this.#appearance = registerSettingsSection('appearance', APPEARANCE_SECTION);
+    this.#audio = registerSettingsSection('audio', AUDIO_SECTION);
+    this.#voice = registerSettingsSection('voice', VOICE_SECTION);
+    this.#screenShare = registerSettingsSection('screenShare', SCREEN_SHARE_SECTION);
+    this.#streamChat = registerSettingsSection('streamChat', STREAM_CHAT_SECTION);
+    this.#notifications = registerSettingsSection('notifications', NOTIFICATIONS_SECTION);
+    this.#sounds = registerSettingsSection('sounds', SOUNDS_SECTION);
+    this.#shortcuts = registerSettingsSection('shortcuts', SHORTCUTS_SECTION);
   }
 
-  /** Pushes the persisted theme preference into mode-watcher (sets the `.dark`
-      class on <html>; `system` follows + tracks `prefers-color-scheme`). Call
-      once early on app start. */
+  // --- reactive read accessors (delegate to the underlying rune store) ---
+  // Each getter is a thin pass-through so the existing component imports
+  // (`settings.audio.bitrate`) keep their reactivity — `value` is the
+  // `$state`-tracked source from the registry.
+  get appearance() {
+    return this.#appearance.value;
+  }
+  get audio() {
+    return this.#audio.value;
+  }
+  get voice() {
+    return this.#voice.value;
+  }
+  get screenShare() {
+    return this.#screenShare.value;
+  }
+  get streamChat() {
+    return this.#streamChat.value;
+  }
+  get notifications() {
+    return this.#notifications.value;
+  }
+  get sounds() {
+    return this.#sounds.value;
+  }
+  get shortcuts() {
+    return this.#shortcuts.value;
+  }
+
+  /** Pushes the persisted theme preference into mode-watcher. Call once
+   *  early on app start. */
   applyTheme(): void {
     setMode(this.appearance.theme);
   }
 
-  #persist(): void {
-    try {
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({
-          audio: this.audio,
-          voice: this.voice,
-          screenShare: this.screenShare,
-          streamChat: this.streamChat,
-          appearance: this.appearance,
-          notifications: this.notifications,
-          sounds: this.sounds,
-          shortcuts: this.shortcuts
-        })
-      );
-      if (this.#legacyMigrated) {
-        localStorage.removeItem(LEGACY_SCREENSHARE_KEY);
-        this.#legacyMigrated = false;
-      }
-    } catch {
-      /* ignore quota errors */
-    }
-  }
-
   // --- appearance setters ---
-
   setTheme(v: ThemePreference): void {
-    this.appearance.theme = v;
+    this.#appearance.set('theme', v);
     setMode(v);
-    this.#persist();
   }
 
   // --- audio setters ---
-
   setInputDevice(id: string, label: string): void {
-    this.audio.inputDeviceId = id;
-    this.audio.inputDeviceLabel = label;
-    this.#persist();
+    this.#audio.patch({ inputDeviceId: id, inputDeviceLabel: label });
   }
-
   setOutputDevice(id: string, label: string): void {
-    this.audio.outputDeviceId = id;
-    this.audio.outputDeviceLabel = label;
-    this.#persist();
+    this.#audio.patch({ outputDeviceId: id, outputDeviceLabel: label });
   }
-
   setEchoCancellation(v: boolean): void {
-    this.audio.echoCancellation = v;
-    this.#persist();
+    this.#audio.set('echoCancellation', v);
   }
-
   setAutoGainControl(v: boolean): void {
-    this.audio.autoGainControl = v;
-    this.#persist();
+    this.#audio.set('autoGainControl', v);
   }
-
   setNoiseSuppression(v: NoiseSuppressionMode): void {
-    this.audio.noiseSuppression = v;
-    this.#persist();
+    this.#audio.set('noiseSuppression', v);
   }
-
   setNoiseGateThresholdDb(v: number): void {
-    this.audio.noiseGateThresholdDb = clampGateDb(v);
-    this.#persist();
+    this.#audio.set('noiseGateThresholdDb', clampGateDb(v));
   }
-
   setVoiceBitrateKbps(v: number): void {
-    this.audio.voiceBitrateKbps = clampBitrate(v);
-    this.#persist();
+    this.#audio.set('voiceBitrateKbps', clampBitrate(v));
   }
-
   setStereo(v: boolean): void {
-    this.audio.stereo = v;
-    this.#persist();
+    this.#audio.set('stereo', v);
   }
-
   setInputMakeupGain(v: number): void {
-    this.audio.inputMakeupGain = clampInputMakeup(v);
-    this.#persist();
+    this.#audio.set('inputMakeupGain', clampInputMakeup(v));
   }
-
   setLimiterEnabled(v: boolean): void {
-    this.audio.limiterEnabled = v;
-    this.#persist();
+    this.#audio.set('limiterEnabled', v);
   }
 
   // --- voice / PTT setters ---
-
   setPttMode(v: boolean): void {
-    this.voice.pttMode = v;
-    this.#persist();
+    this.#voice.set('pttMode', v);
   }
-
   setPttKey(v: string): void {
     const key = v.trim().toLowerCase();
     if (key.length === 0) return;
-    this.voice.pttKey = key;
-    this.#persist();
+    this.#voice.set('pttKey', key);
   }
-
   /** Set per-user output gain (0..4). 1.0 is removed from storage (default). */
   setUserVolume(userId: string, v: number): void {
     if (typeof userId !== 'string' || userId.length === 0) return;
     const clamped = clampUserVolume(v);
-    // Reassign the whole object so Svelte runes pick up the change. Without
-    // this, mutations on a $state-tracked Record aren't reactive.
-    const next = { ...this.voice.userVolumes };
+    // Reassign the whole record so the rune picks up the change.
+    const next = { ...this.#voice.value.userVolumes };
     if (clamped === 1) delete next[userId];
     else {
       // Re-insert so the most-recently-touched key is at the end — gives FIFO
@@ -529,127 +238,88 @@ class SettingsStore {
       delete next[userId];
       next[userId] = clamped;
     }
-    this.voice.userVolumes = capUserVolumes(next);
-    this.#persist();
+    this.#voice.set('userVolumes', capUserVolumes(next));
   }
-
   getUserVolume(userId: string): number {
-    return this.voice.userVolumes[userId] ?? 1;
+    return this.#voice.value.userVolumes[userId] ?? 1;
   }
 
   // --- screen-share setters ---
-
   setScreenShareCodec(v: ScreenShareCodec): void {
-    this.screenShare.codec = v;
-    this.#persist();
+    this.#screenShare.set('codec', v);
   }
-
   setScreenShareResolution(v: ScreenShareResolution): void {
-    this.screenShare.resolution = v;
-    this.#persist();
+    this.#screenShare.set('resolution', v);
   }
-
   setScreenShareFps(v: number): void {
-    this.screenShare.fps = clampScreenShareFps(v);
-    this.#persist();
+    this.#screenShare.set('fps', clampScreenShareFps(v));
   }
-
   setScreenShareBitrateMbps(v: number): void {
-    this.screenShare.bitrateMbps = Math.min(
-      SCREEN_SHARE_BITRATE_MAX,
-      Math.max(SCREEN_SHARE_BITRATE_MIN, v),
+    this.#screenShare.set(
+      'bitrateMbps',
+      Math.min(SCREEN_SHARE_BITRATE_MAX, Math.max(SCREEN_SHARE_BITRATE_MIN, v))
     );
-    this.#persist();
   }
-
   setScreenShareContentHint(v: 'motion' | 'detail'): void {
-    this.screenShare.contentHint = v;
-    this.#persist();
+    this.#screenShare.set('contentHint', v);
   }
 
   // --- stream-chat setters ---
-
   setStreamChatPanelOpen(v: boolean): void {
-    this.streamChat.panelOpen = v;
-    this.#persist();
+    this.#streamChat.set('panelOpen', v);
   }
 
   // --- notification setters ---
-
-  /** Reflect the result of the permission round-trip. UI calls this *after*
-   *  `requestPushPermission()` resolves (or on a denied/dismissed answer)
-   *  so the toggle ends up matching reality. */
   setBrowserPushEnabled(v: boolean): void {
-    this.notifications.browserPushEnabled = v;
-    this.#persist();
+    this.#notifications.set('browserPushEnabled', v);
   }
-
   setNotifyOnMention(v: boolean): void {
-    this.notifications.onMention = v;
-    this.#persist();
+    this.#notifications.set('onMention', v);
   }
-
   setNotifyOnDM(v: boolean): void {
-    this.notifications.onDM = v;
-    this.#persist();
+    this.#notifications.set('onDM', v);
   }
 
   // --- sounds setters ---
-
   setSoundsMasterEnabled(v: boolean): void {
-    this.sounds.masterEnabled = v;
-    this.#persist();
+    this.#sounds.set('masterEnabled', v);
   }
-
   setSoundsMasterVolume(v: number): void {
-    this.sounds.masterVolume = clampSoundVolume(v);
-    this.#persist();
+    this.#sounds.set('masterVolume', clampSoundVolume(v));
   }
-
   setSoundCategoryEnabled(cat: SoundCategoryKey, v: boolean): void {
-    this.sounds[cat].enabled = v;
-    this.#persist();
+    // Nested record: rebuild the category object so the rune notices.
+    this.#sounds.patch({ [cat]: { ...this.#sounds.value[cat], enabled: v } } as Partial<SoundsSettings>);
   }
-
   setSoundCategoryVolume(cat: SoundCategoryKey, v: number): void {
-    this.sounds[cat].volume = clampSoundVolume(v);
-    this.#persist();
+    this.#sounds.patch({
+      [cat]: { ...this.#sounds.value[cat], volume: clampSoundVolume(v) }
+    } as Partial<SoundsSettings>);
   }
 
   // --- shortcut setters ---
-
   setShortcutBinding(id: ActionId, combo: string): void {
-    this.shortcuts = { overrides: { ...this.shortcuts.overrides, [id]: combo } };
-    this.#persist();
+    this.#shortcuts.replace({ overrides: { ...this.#shortcuts.value.overrides, [id]: combo } });
   }
-
   /** Explicitly unbind an action (binding is `null` — no key fires it). */
   unbindShortcut(id: ActionId): void {
-    this.shortcuts = { overrides: { ...this.shortcuts.overrides, [id]: null } };
-    this.#persist();
+    this.#shortcuts.replace({ overrides: { ...this.#shortcuts.value.overrides, [id]: null } });
   }
-
   /** Drop the override so the built-in default applies again. */
   resetShortcut(id: ActionId): void {
-    const next = { ...this.shortcuts.overrides };
+    const next = { ...this.#shortcuts.value.overrides };
     delete next[id];
-    this.shortcuts = { overrides: next };
-    this.#persist();
+    this.#shortcuts.replace({ overrides: next });
   }
-
   resetAllShortcuts(): void {
-    this.shortcuts = { ...DEFAULT_SHORTCUTS };
-    this.#persist();
+    this.#shortcuts.replace({ ...DEFAULT_SHORTCUTS });
   }
 
-  /** Reset state that's user-scoped despite living in device-level localStorage.
-   *  Currently: `notifications.browserPushEnabled` — the toggle reflects a
-   *  Push-Manager subscription bound to a specific user_id, so on sign-out the
-   *  next user shouldn't see "on" inherited from the previous account. Other
-   *  settings (audio, video, theme) stay because they describe the device. */
+  /** Run every registered section's sign-out policy. Replaces the old
+   *  hard-coded `resetUserScoped()` — plugin sections participate
+   *  automatically via their `onSignOut` config. */
   resetUserScoped(): void {
-    this.notifications.browserPushEnabled = false;
-    this.#persist();
+    runSignOutHooks();
   }
 }
 
@@ -663,9 +333,11 @@ export {
   NOISE_GATE_DB_DEFAULT,
   SCREEN_SHARE_BITRATE_MIN,
   SCREEN_SHARE_BITRATE_MAX,
+  SCREEN_SHARE_FPS_MIN,
+  SCREEN_SHARE_FPS_MAX,
   USER_VOLUME_MIN,
   USER_VOLUME_MAX,
   INPUT_MAKEUP_MIN,
   INPUT_MAKEUP_MAX,
-  INPUT_MAKEUP_DEFAULT,
+  INPUT_MAKEUP_DEFAULT
 };

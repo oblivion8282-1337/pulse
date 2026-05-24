@@ -50,13 +50,41 @@ async def publish_friend_event(
     already committed by the time we get here).
 
     Wire shape mirrors ``mention_added``: ``{"op": "...", "data": {...}}``.
+
+    Implementation: callers pass the op-string + raw data dict; we look
+    up the matching ``dcc_shared.events`` model in ``EVENT_REGISTRY``
+    when one exists, so the envelope gets validated before publish.
+    Unknown ops fall back to the legacy raw-dict path — keeps the
+    helper callable for tests that spy on it with arbitrary ops.
     """
+    from dcc_shared.events import EVENT_REGISTRY
+
     mgr = _resolve_manager(conn_or_manager)
     if mgr is None:
         return
-    envelope: dict[str, Any] = {"op": op}
-    if data is not None:
-        envelope["data"] = data
+    envelope: dict[str, Any] | Any
+    model_cls = EVENT_REGISTRY.get(op)
+    if model_cls is not None:
+        # Wire-shape: ``{op, data}`` for friend/block ops. Building the
+        # model validates the data subfield structure (where typed) AND
+        # locks the discriminator at the schema-registry value.
+        try:
+            envelope = model_cls(data=data if data is not None else {})
+        except Exception:  # noqa: BLE001
+            # Data shape mismatch — log and fall back to the raw envelope
+            # so a publisher bug doesn't silently drop the event.
+            log.exception(
+                "publish_friend_event(%s) schema-validation failed; "
+                "falling back to raw dict",
+                op,
+            )
+            envelope = {"op": op}
+            if data is not None:
+                envelope["data"] = data
+    else:
+        envelope = {"op": op}
+        if data is not None:
+            envelope["data"] = data
     try:
         await mgr.publish_user_event(target_user_id, envelope)
     except Exception:  # noqa: BLE001 — best-effort fan-out

@@ -140,22 +140,22 @@ def _receiver() -> WebhookReceiver:
 
 
 async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
+    from dcc_shared.events import VoiceStateSnapshot
+
     pipe = redis.pipeline(transaction=False)
     pipe.smembers(room_key(room_name))
     pipe.smembers(streaming_key(room_name))
     members_raw, streamers_raw = await pipe.execute()
     user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members_raw)
     streaming_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in streamers_raw)
+    snapshot = VoiceStateSnapshot(
+        channel_id=channel_id,
+        user_ids=user_ids,
+        streaming_user_ids=streaming_user_ids,
+    )
     await redis.publish(
         VOICE_EVENTS_CHANNEL,
-        json.dumps(
-            {
-                "channel_id": channel_id,
-                "user_ids": user_ids,
-                "streaming_user_ids": streaming_user_ids,
-            },
-            separators=(",", ":"),
-        ),
+        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
     )
 
 

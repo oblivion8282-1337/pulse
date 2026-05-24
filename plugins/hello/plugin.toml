@@ -1,0 +1,36 @@
+# Pulse Hello-Plugin — Schritt-4 Skelett.
+#
+# Beweist, dass der Plugin-Loader läuft: registriert eine "hello:ping"-Op,
+# antwortet mit "hello:pong" zurück an den Client. KEINE Persistenz, kein
+# Side-Effect — der Sinn ist Loader-Smoke-Test, nichts weiter.
+#
+# Spec für das Format: docs/PLUGIN_MANIFEST.md
+
+[plugin]
+name = "hello"
+version = "0.1.0"
+api = "1"
+author = "Pulse Maintainer"
+description = "Ping/Pong-Demo, beweist dass der Plugin-Loader läuft"
+
+[plugin.scope]
+type = "global"
+
+# `ws_ops` listet alle Op-Codes, die das Plugin in den Dispatch-Registries
+# registriert — Schritt-5-Permission-Gate prüft das. Backend registriert
+# `hello:ping` als incoming-Handler; Frontend registriert `hello:pong` als
+# incoming-Event-Handler (auf den vom Backend gesendeten Pong). Beide gehen
+# durch denselben Registry-Mechanismus → beide in `ws_ops`.
+#
+# `ws_emit_ops` ist rein informativ + dokumentiert was das Plugin *sendet*
+# (keine Registry-Eintragung, also nicht im Permission-Gate).
+[plugin.uses]
+ws_ops = ["hello:ping", "hello:pong"]
+ws_emit_ops = ["hello:pong"]
+channels = []
+settings_sections = []
+ui_slots = []
+
+[plugin.entrypoints]
+backend = "backend:register"
+frontend = "frontend.ts"

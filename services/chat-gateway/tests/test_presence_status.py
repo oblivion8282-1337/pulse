@@ -90,6 +90,11 @@ async def test_put_presence_status_broadcasts(app, _auth_signer, redis_client):
     published: list[tuple] = []
 
     async def _cap(target_user_id, envelope):
+        # publish_*_event now accepts either raw dicts (legacy) or
+        # dcc_shared.events Pydantic models — normalise to dict for the
+        # spy so assertions stay wire-shape-truthful.
+        if hasattr(envelope, "model_dump"):
+            envelope = envelope.model_dump(mode="json")
         published.append((str(target_user_id), dict(envelope)))
 
     import httpx
@@ -136,6 +141,10 @@ async def test_invisible_broadcast_shows_offline_to_others(app, _auth_signer, re
     guild_publishes: list[str] = []
 
     async def _cap_user(target_user_id, envelope):
+        # See note in test_put_presence_status_broadcasts — publish_*_event
+        # accepts dict|_EventBase; normalise to dict for the spy.
+        if hasattr(envelope, "model_dump"):
+            envelope = envelope.model_dump(mode="json")
         user_events.append((str(target_user_id), dict(envelope)))
 
     import httpx

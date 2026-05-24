@@ -33,6 +33,7 @@ from dcc_chat_gateway.models.messages import (
 from dcc_chat_gateway.models.notifications import WebPushSubscription
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 from dcc_chat_gateway.models.sounds import GuildSoundOverride
+from dcc_chat_gateway.models.user_preferences import UserPreference
 
 __all__ = [
     "CHANNEL_TYPE_TEXT",
@@ -60,6 +61,7 @@ __all__ = [
     "PermissionOverwrite",
     "Role",
     "UserBlock",
+    "UserPreference",
     "UserPrivacy",
     "WebPushSubscription",
 ]

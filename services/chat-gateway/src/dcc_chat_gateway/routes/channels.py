@@ -13,6 +13,12 @@ from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import (
+    ChannelCreatedEvent,
+    ChannelDeletedEvent,
+    ChannelUpdatedEvent,
+    _EventBase,
+)
 
 router = APIRouter()
 
@@ -31,7 +37,9 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
     }
 
 
-async def _publish_guild_event(request: Request, envelope: dict[str, object]) -> None:
+async def _publish_guild_event(
+    request: Request, envelope: _EventBase | dict[str, object]
+) -> None:
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(envelope)
@@ -65,7 +73,7 @@ async def create_channel(
     await session.commit()
     await session.refresh(channel)
     await _publish_guild_event(
-        request, {"op": "channel_created", "channel": _channel_dict(channel)}
+        request, ChannelCreatedEvent(channel=_channel_dict(channel))
     )
     return channel
 
@@ -160,11 +168,9 @@ async def delete_channel(
     await session.commit()
     await _publish_guild_event(
         request,
-        {
-            "op": "channel_deleted",
-            "guild_id": str(guild_id),
-            "channel_id": str(channel_id),
-        },
+        ChannelDeletedEvent(
+            guild_id=str(guild_id), channel_id=str(channel_id)
+        ),
     )
 
 
@@ -193,6 +199,6 @@ async def patch_channel(
     await session.commit()
     await session.refresh(channel)
     await _publish_guild_event(
-        request, {"op": "channel_updated", "channel": _channel_dict(channel)}
+        request, ChannelUpdatedEvent(channel=_channel_dict(channel))
     )
     return channel

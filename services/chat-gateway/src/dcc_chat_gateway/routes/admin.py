@@ -230,14 +230,15 @@ async def patch_permissions(
         await session.refresh(row)
         # Push the new flags out so connected clients can re-gate their
         # create-guild / create-invite buttons without a page reload.
+        from dcc_shared.events import PermissionsUpdatedEvent
+
         await _broadcast(
             request,
-            {
-                "op": "permissions_updated",
-                "allow_guild_creation": row.allow_guild_creation,
-                "allow_member_invites": row.allow_member_invites,
-                "guild_sound_max_size_bytes": row.guild_sound_max_size_bytes,
-            },
+            PermissionsUpdatedEvent(
+                allow_guild_creation=row.allow_guild_creation,
+                allow_member_invites=row.allow_member_invites,
+                guild_sound_max_size_bytes=row.guild_sound_max_size_bytes,
+            ),
         )
     return row
 

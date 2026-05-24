@@ -32,6 +32,7 @@ from dcc_chat_gateway.sounds import (
     VALID_SOUND_IDS,
     storage_key,
 )
+from dcc_shared.events import GuildSoundUpdatedEvent
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
@@ -78,12 +79,11 @@ async def _publish_sound_event(
     if mgr is None:
         return
     await mgr.publish_guild_event(
-        {
-            "op": "guild_sound_updated",
-            "guild_id": str(guild_id),
-            "sound_id": sound_id,
-            "removed": removed,
-        }
+        GuildSoundUpdatedEvent(
+            guild_id=str(guild_id),
+            sound_id=sound_id,
+            removed=removed,
+        )
     )
 
 

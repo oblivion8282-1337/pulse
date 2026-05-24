@@ -127,16 +127,16 @@ async def set_voice_override(
             sources=new_sources,
         )
 
+    from dcc_shared.events import VoiceOverrideEvent
+
+    envelope = VoiceOverrideEvent(
+        channel_id=channel_id,
+        user_id=user_id,
+        muted=next_state["muted"],
+        deafened=next_state["deafened"],
+    )
     await redis.publish(
         voice_routes._VOICE_EVENTS_CHANNEL,
-        json.dumps(
-            {
-                "op": "voice_override",
-                "channel_id": channel_id,
-                "user_id": user_id,
-                "muted": next_state["muted"],
-                "deafened": next_state["deafened"],
-            }
-        ),
+        json.dumps(envelope.model_dump(mode="json")),
     )
     return {"muted": next_state["muted"], "deafened": next_state["deafened"]}

@@ -27,6 +27,7 @@ from dcc_chat_gateway.permissions import (
 )
 from dcc_chat_gateway.schemas import OverwriteIn, OverwriteOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_shared.events import ChannelPermissionsUpdatedEvent
 
 router = APIRouter()
 
@@ -46,12 +47,11 @@ async def _publish(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(
-            {
-                "op": "channel_permissions_updated",
-                "channel_id": str(channel_id),
-                "guild_id": str(guild_id),
-                "overwrites": overwrites,
-            }
+            ChannelPermissionsUpdatedEvent(
+                channel_id=str(channel_id),
+                guild_id=str(guild_id),
+                overwrites=overwrites,
+            )
         )
 
 

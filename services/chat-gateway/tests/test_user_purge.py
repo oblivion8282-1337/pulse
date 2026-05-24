@@ -288,8 +288,13 @@ async def test_purge_publishes_guild_deleted_event(
     manager = app.state.connection_manager
     original = manager.publish_guild_event
 
-    async def _capture(envelope: dict[str, Any]) -> None:
-        captured.append(envelope)
+    async def _capture(envelope) -> None:
+        # publish_guild_event now accepts dict | dcc_shared.events models
+        # — normalise to dict so assertions can use ``.get()``.
+        if hasattr(envelope, "model_dump"):
+            captured.append(envelope.model_dump(mode="json"))
+        else:
+            captured.append(envelope)
         await original(envelope)
 
     monkeypatch.setattr(manager, "publish_guild_event", _capture)

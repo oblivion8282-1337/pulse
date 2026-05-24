@@ -59,14 +59,13 @@ async def disconnect_from_voice(
 
     await voice_routes._livekit_remove_participant(channel_id, user_id)
 
+    from dcc_shared.events import VoiceDisconnectEvent
+
+    envelope = VoiceDisconnectEvent(
+        channel_id=channel_id, user_id=user_id
+    )
     await redis.publish(
         voice_routes._VOICE_EVENTS_CHANNEL,
-        json.dumps(
-            {
-                "op": "voice_disconnect",
-                "channel_id": channel_id,
-                "user_id": user_id,
-            }
-        ),
+        json.dumps(envelope.model_dump(mode="json")),
     )
     return {"disconnected": True}

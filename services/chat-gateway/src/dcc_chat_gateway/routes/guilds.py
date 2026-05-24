@@ -32,6 +32,14 @@ from dcc_chat_gateway.schemas import (
 from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import (
+    GuildDeletedEvent,
+    GuildMemberAddedEvent,
+    GuildMemberRemovedEvent,
+    GuildMemberUpdatedEvent,
+    GuildUpdatedEvent,
+    _EventBase,
+)
 
 router = APIRouter()
 
@@ -47,7 +55,9 @@ def _guild_dict(guild: Guild) -> dict[str, object]:
     }
 
 
-async def _publish_guild_event(request: Request, envelope: dict[str, object]) -> None:
+async def _publish_guild_event(
+    request: Request, envelope: _EventBase | dict[str, object]
+) -> None:
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(envelope)
@@ -143,7 +153,7 @@ async def patch_guild(
     await session.commit()
     await session.refresh(guild)
     await _publish_guild_event(
-        request, {"op": "guild_updated", "guild": _guild_dict(guild)}
+        request, GuildUpdatedEvent(guild=_guild_dict(guild))
     )
     return guild
 
@@ -183,7 +193,7 @@ async def delete_guild(
     await session.delete(guild)
     await session.commit()
     await _publish_guild_event(
-        request, {"op": "guild_deleted", "guild_id": str(guild_id)}
+        request, GuildDeletedEvent(guild_id=str(guild_id))
     )
 
 
@@ -233,7 +243,7 @@ async def transfer_ownership(
     await session.commit()
     await session.refresh(guild)
     await _publish_guild_event(
-        request, {"op": "guild_updated", "guild": _guild_dict(guild)}
+        request, GuildUpdatedEvent(guild=_guild_dict(guild))
     )
     return guild
 
@@ -286,11 +296,10 @@ async def add_member(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(
-            {
-                "op": "guild_member_added",
-                "guild_id": str(guild_id),
-                "user_id": str(payload.user_id),
-            }
+            GuildMemberAddedEvent(
+                guild_id=str(guild_id),
+                user_id=str(payload.user_id),
+            )
         )
     return member
 
@@ -315,12 +324,11 @@ async def _publish_member_updated(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(
-            {
-                "op": "guild_member_updated",
-                "guild_id": str(guild_id),
-                "user_id": str(user_id),
-                "nickname": nickname,
-            }
+            GuildMemberUpdatedEvent(
+                guild_id=str(guild_id),
+                user_id=str(user_id),
+                nickname=nickname,
+            )
         )
 
 
@@ -448,11 +456,9 @@ async def kick_member(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(
-            {
-                "op": "guild_member_removed",
-                "guild_id": str(guild_id),
-                "user_id": str(user_id),
-            }
+            GuildMemberRemovedEvent(
+                guild_id=str(guild_id), user_id=str(user_id)
+            )
         )
 
 

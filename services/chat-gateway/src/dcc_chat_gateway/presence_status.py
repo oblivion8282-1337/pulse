@@ -120,16 +120,19 @@ async def broadcast_presence_status_changed(
     """
     import json
 
-    from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL, USER_EVENTS_CHANNEL
+    from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL
+    from dcc_shared.events import (
+        PresenceStatusChangedEvent,
+        PresenceStatusData,
+    )
 
     uid_str = str(user_id)
     masked = _mask(status)
 
-    # 1. Own sockets — real status
-    own_envelope = {
-        "op": "presence_status_changed",
-        "data": {"user_id": uid_str, "status": status},
-    }
+    # 1. Own sockets — real status (no sender_user_id field).
+    own_envelope = PresenceStatusChangedEvent(
+        data=PresenceStatusData(user_id=uid_str, status=status),
+    )
     await manager.publish_user_event(user_id, own_envelope)
 
     # 2. Everyone else — masked status, through the guild:events fan-out
@@ -137,14 +140,13 @@ async def broadcast_presence_status_changed(
     #    in _listen, so this only reaches other users; the visibility filter
     #    there (block-aware) already runs on presence_update — we reuse it
     #    for the new op by publishing on the same channel).
-    guild_envelope = {
-        "op": "presence_status_changed",
-        "data": {"user_id": uid_str, "status": masked},
-        "_sender_user_id": uid_str,
-    }
+    guild_envelope = PresenceStatusChangedEvent(
+        data=PresenceStatusData(user_id=uid_str, status=masked),
+        sender_user_id=uid_str,
+    )
     await redis.publish(
         GUILD_EVENTS_CHANNEL,
-        json.dumps(guild_envelope, separators=(",", ":")),
+        json.dumps(guild_envelope.model_dump(mode="json"), separators=(",", ":")),
     )
 
 
@@ -191,16 +193,22 @@ async def _run_sweep(redis: Redis) -> None:
                 import json
 
                 from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL
+                from dcc_shared.events import (
+                    PresenceStatusChangedEvent,
+                    PresenceStatusData,
+                )
 
                 masked = _mask(STATUS_IDLE)  # idle stays idle (not invisible)
-                guild_envelope = {
-                    "op": "presence_status_changed",
-                    "data": {"user_id": str(uid), "status": masked},
-                    "_sender_user_id": str(uid),
-                }
+                guild_envelope = PresenceStatusChangedEvent(
+                    data=PresenceStatusData(user_id=str(uid), status=masked),
+                    sender_user_id=str(uid),
+                )
                 await redis.publish(
                     GUILD_EVENTS_CHANNEL,
-                    json.dumps(guild_envelope, separators=(",", ":")),
+                    json.dumps(
+                        guild_envelope.model_dump(mode="json"),
+                        separators=(",", ":"),
+                    ),
                 )
             except Exception:  # noqa: BLE001
                 log.exception("idle_sweeper broadcast failed for user=%s", uid)

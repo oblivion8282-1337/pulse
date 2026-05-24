@@ -137,15 +137,25 @@ async def app(session_factory, _auth_signer):
     REST-side `post_message` checks the manager for None before
     publishing, so we install a real one for those tests.
     """
+    import dcc_chat_gateway.routes.ws_op_send as routes_ws_op_send
     import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
+    import dcc_chat_gateway.routes.ws_ops_handlers as routes_ws_ops_handlers
     import dcc_chat_gateway.routes.ws_ready as routes_ws_ready
     from redis.asyncio import Redis
 
     from dcc_chat_gateway.pubsub import ConnectionManager
 
+    # Schritt 2 (op-handler-registry) split the old single ws_ops.SessionLocal
+    # across per-handler modules that each import SessionLocal directly.
+    # ws_ops still re-exports it for push.py + app.py consumers, so we patch
+    # every site to keep the SQLite test factory honoured.
     original_factory_ops = routes_ws_ops.SessionLocal
+    original_factory_handlers = routes_ws_ops_handlers.SessionLocal
+    original_factory_send = routes_ws_op_send.SessionLocal
     original_factory_ready = routes_ws_ready.SessionLocal
     routes_ws_ops.SessionLocal = session_factory
+    routes_ws_ops_handlers.SessionLocal = session_factory
+    routes_ws_op_send.SessionLocal = session_factory
     routes_ws_ready.SessionLocal = session_factory
 
     application = create_app(skip_redis=True)
@@ -171,6 +181,8 @@ async def app(session_factory, _auth_signer):
         except Exception:
             pass
         routes_ws_ops.SessionLocal = original_factory_ops
+        routes_ws_ops_handlers.SessionLocal = original_factory_handlers
+        routes_ws_op_send.SessionLocal = original_factory_send
         routes_ws_ready.SessionLocal = original_factory_ready
 
 
@@ -190,7 +202,9 @@ async def ws_app(_auth_signer, tmp_path):
     ConnectionManager is created by the production lifespan inside that
     same loop, avoiding cross-loop Redis issues.
     """
+    import dcc_chat_gateway.routes.ws_op_send as routes_ws_op_send
     import dcc_chat_gateway.routes.ws_ops as routes_ws_ops
+    import dcc_chat_gateway.routes.ws_ops_handlers as routes_ws_ops_handlers
     import dcc_chat_gateway.routes.ws_ready as routes_ws_ready
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -210,9 +224,16 @@ async def ws_app(_auth_signer, tmp_path):
     runtime_engine = create_async_engine(db_url, future=True)
     runtime_factory = async_sessionmaker(runtime_engine, expire_on_commit=False)
 
+    # See `app` fixture above — Schritt 2 split SessionLocal across multiple
+    # ws_ops modules; all need the test-time factory patched in (ws_ops still
+    # re-exports it for push.py + app.py).
     original_factory_ops = routes_ws_ops.SessionLocal
+    original_factory_handlers = routes_ws_ops_handlers.SessionLocal
+    original_factory_send = routes_ws_op_send.SessionLocal
     original_factory_ready = routes_ws_ready.SessionLocal
     routes_ws_ops.SessionLocal = runtime_factory
+    routes_ws_ops_handlers.SessionLocal = runtime_factory
+    routes_ws_op_send.SessionLocal = runtime_factory
     routes_ws_ready.SessionLocal = runtime_factory
 
     application = create_app(skip_redis=False)
@@ -227,6 +248,8 @@ async def ws_app(_auth_signer, tmp_path):
     finally:
         application.dependency_overrides.clear()
         routes_ws_ops.SessionLocal = original_factory_ops
+        routes_ws_ops_handlers.SessionLocal = original_factory_handlers
+        routes_ws_op_send.SessionLocal = original_factory_send
         routes_ws_ready.SessionLocal = original_factory_ready
         try:
             await runtime_engine.dispose()

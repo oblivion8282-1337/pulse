@@ -21,6 +21,7 @@ from dcc_chat_gateway.permissions import (
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import RoleOut
 from dcc_chat_gateway.security import CurrentUser
+from dcc_shared.events import MemberRolesUpdatedEvent
 
 router = APIRouter()
 
@@ -31,11 +32,9 @@ async def _publish_member_roles_updated(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await mgr.publish_guild_event(
-            {
-                "op": "member_roles_updated",
-                "guild_id": str(guild_id),
-                "user_id": str(user_id),
-            }
+            MemberRolesUpdatedEvent(
+                guild_id=str(guild_id), user_id=str(user_id)
+            )
         )
 
 

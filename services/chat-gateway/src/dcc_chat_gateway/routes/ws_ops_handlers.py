@@ -1,0 +1,200 @@
+"""Built-in WS op handlers (Plugin-System Schritt 2).
+
+Hosts the handlers for the short, hand-rolled ops that used to live as
+``elif`` branches inside ``routes/ws_ops.py``'s op-loop. The longer ``send``
+op gets its own module (``ws_op_send.py``). Watch-party ops still delegate
+into :mod:`routes.ws_watch` — the registry entry just adapts the signature.
+
+Importing this module side-effects all registrations through
+:func:`register_ws_op`. The dispatcher in :mod:`routes.ws_ops` imports it
+once at module import time so the registry is populated before any
+WebSocket loop runs.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from dcc_shared.permission_resolver import has_permission
+from dcc_shared.permissions import Permissions
+
+from dcc_chat_gateway.db import SessionLocal
+from dcc_chat_gateway.models import (
+    CHANNEL_TYPE_TEXT,
+    CHANNEL_TYPE_VOICE,
+)
+from dcc_chat_gateway.permissions import resolve_permissions
+from dcc_chat_gateway.presence_status import (
+    STATUS_DND,
+    STATUS_INVISIBLE,
+    STATUS_ONLINE,
+    broadcast_presence_status_changed,
+    get_presence_status,
+    set_presence_status,
+    update_activity,
+)
+from dcc_chat_gateway.routes import ws_watch
+from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
+from dcc_chat_gateway.routes.ws_op_send import handle_send
+from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, register_ws_op
+
+log = logging.getLogger(__name__)
+
+
+def _channel_id(value: object) -> int | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
+
+@register_ws_op("subscribe")
+async def handle_subscribe(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    cid_int = _channel_id(msg.get("channel_id"))
+    if cid_int is None:
+        await ctx.websocket.send_json(
+            {"op": "error", "code": 4003, "msg": "channel_id required"}
+        )
+        return
+    cid = str(cid_int)
+    # DM channels go through the same /ws subscribe path as guild channels —
+    # resolve_channel_for_user enforces the right access check (guild
+    # membership vs DM membership). For guild channels we additionally
+    # require VIEW_CHANNEL — otherwise subscribe would succeed but the
+    # broadcast filter would drop every message later, producing a
+    # confusing silent-channel UX.
+    async with SessionLocal() as session:
+        resolved = await resolve_channel_for_user(session, cid_int, ctx.user.id)
+        if resolved is None:
+            await ctx.websocket.send_json(
+                {"op": "error", "code": 4004, "msg": "channel not accessible"}
+            )
+            return
+        kind, ch = resolved
+        # Text-channel subscribes get the VIEW_CHANNEL gate so silent-channel
+        # UX doesn't bite the user. Voice channels subscribe via this same
+        # path (for stream_chat_message fan-out) and must NOT be gated —
+        # denying VIEW on a voice channel still lets you join the voice room
+        # (the CONNECT bit is the real voice-join gate). Live filter at
+        # fan-out time catches any remaining mismatch.
+        if kind == "guild" and ch.type == CHANNEL_TYPE_TEXT:
+            perms = await resolve_permissions(session, ctx.user, ch.guild_id, cid_int)
+            if not has_permission(perms, Permissions.VIEW_CHANNEL):
+                await ctx.websocket.send_json(
+                    {"op": "error", "code": 4012, "msg": "channel not accessible"}
+                )
+                return
+    await ctx.manager.subscribe(ctx.websocket, cid)
+    # Voice channels are subscribed (for stream_chat_message fanout) but
+    # never enter the local ``subscribed`` map, so the send fast-path can't
+    # post regular messages to them — the slow path rejects them via the
+    # same CHANNEL_TYPE_TEXT check.
+    if kind == "guild" and ch.type != CHANNEL_TYPE_TEXT:
+        return
+    ctx.subscribed[cid] = ch.guild_id if kind == "guild" else None
+
+
+@register_ws_op("unsubscribe")
+async def handle_unsubscribe(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    cid_int = _channel_id(msg.get("channel_id"))
+    if cid_int is None:
+        return
+    cid = str(cid_int)
+    await ctx.manager.unsubscribe(ctx.websocket, cid)
+    ctx.subscribed.pop(cid, None)
+
+
+@register_ws_op("voice_self_state")
+async def handle_voice_self_state(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    cid_raw = msg.get("channel_id")
+    cid_int: int | None = None
+    if cid_raw is not None:
+        cid_int = _channel_id(cid_raw)
+        if cid_int is None:
+            await ctx.websocket.send_json(
+                {"op": "error", "code": 4011, "msg": "invalid channel_id"}
+            )
+            return
+    mic_muted = bool(msg.get("mic_muted"))
+    deafened = bool(msg.get("deafened"))
+    cid_str: str | None = None
+    if cid_int is not None:
+        # Validate membership only when a channel id is given. We require
+        # the channel to be a voice channel — text channels have no voice
+        # state.
+        async with SessionLocal() as session:
+            channel = await channel_membership(session, cid_int, ctx.user.id)
+        if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+            await ctx.websocket.send_json(
+                {"op": "error", "code": 4004, "msg": "channel not accessible"}
+            )
+            return
+        cid_str = str(cid_int)
+    ctx.current_voice_channel = cid_str
+    try:
+        await ctx.manager.set_user_voice_state(
+            str(ctx.user.id), mic_muted, deafened, cid_str
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("voice_self_state write failed for user=%s", ctx.user.id)
+
+
+@register_ws_op("watch_start")
+async def handle_watch_start(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_start(
+        ctx.websocket,
+        ctx.user,
+        msg,
+        session_factory=SessionLocal,
+        hosted_parties=ctx.hosted_parties,
+    )
+
+
+@register_ws_op("watch_stop")
+async def handle_watch_stop(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_stop(
+        ctx.websocket, ctx.user, msg, hosted_parties=ctx.hosted_parties
+    )
+
+
+@register_ws_op("watch_control")
+async def handle_watch_control(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_control(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("watch_heartbeat")
+async def handle_watch_heartbeat(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_heartbeat(ctx.websocket, ctx.user, msg)
+
+
+@register_ws_op("activity")
+async def handle_activity(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """Etappe-3 client heartbeat / mouse-move / key-press.
+
+    Updates the presence:activity ZSET and, if the user's current status is
+    ``idle``, flips it back to ``online`` and broadcasts. ``dnd`` and
+    ``invisible`` are manual overrides — not overwritten.
+    """
+    try:
+        await update_activity(ctx.redis, ctx.user.id)
+        current_status = await get_presence_status(ctx.redis, ctx.user.id)
+        if current_status == STATUS_ONLINE:
+            pass  # already online, nothing to broadcast
+        elif current_status not in (STATUS_DND, STATUS_INVISIBLE):
+            # Was idle → return to online
+            await set_presence_status(ctx.redis, ctx.user.id, STATUS_ONLINE)
+            await broadcast_presence_status_changed(
+                ctx.manager, ctx.redis, ctx.user.id, STATUS_ONLINE
+            )
+    except Exception:  # noqa: BLE001
+        log.exception("activity op failed for user=%s", ctx.user.id)
+    # No reply — lightweight, fire-and-forget.
+
+
+# ``send`` op is registered in routes.ws_op_send. Re-register here so
+# importing this module wires every built-in op in one shot.
+register_ws_op("send", handle_send)

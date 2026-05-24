@@ -336,14 +336,15 @@ async def fan_out_mention_events(
         filtered.add(uid)
     if not filtered:
         return set()
-    envelope = {
-        "op": "mention_added",
-        "data": {
-            "channel_id": str(channel_id),
-            "message_id": str(message_id),
-            "guild_id": str(guild_id) if guild_id is not None else None,
-        },
-    }
+    from dcc_shared.events import MentionAddedData, MentionAddedEvent
+
+    envelope = MentionAddedEvent(
+        data=MentionAddedData(
+            channel_id=str(channel_id),
+            message_id=str(message_id),
+            guild_id=str(guild_id) if guild_id is not None else None,
+        ),
+    )
     for uid in filtered:
         try:
             await mgr.publish_user_event(uid, envelope)

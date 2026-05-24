@@ -6,6 +6,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { initDesktopPtt } from '$lib/platform/ptt';
   import { initStream } from '$lib/stream/state.svelte';
+  import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
 
   let { children } = $props();
@@ -28,6 +29,10 @@
     void initStream().then((d) => {
       disposeStream = d;
     });
+    // Plugin-System Schritt 4: discover + activate plugins. Per-plugin
+    // failures are caught inside loadAll(); this top-level guard is just
+    // belt-and-suspenders so a broken plugin can never break boot.
+    void loadPlugins().catch((err) => console.error('[plugins] loadAll failed', err));
     return () => {
       disposePtt?.();
       disposeStream?.();
