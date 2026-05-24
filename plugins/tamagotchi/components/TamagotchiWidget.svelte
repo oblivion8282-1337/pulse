@@ -1,77 +1,53 @@
 <!--
-  Tamagotchi-Widget (Pulse Plugin-System Schritt 7).
+  Tamagotchi-Widget (Pulse Plugin-System PR3 "Server-shared Pet").
 
-  Kleines Card-UI das die drei Stats (Hunger/Glück/Energie) reaktiv anzeigt
-  und Aktionen (Füttern/Spielen/Schlafen/Reset) anbietet. Stats werden
-  jedes Mal mit `applyDecay()` durchgereicht, *bevor* sie gerendert
-  werden — kein `setInterval` und kein Hintergrund-Tick: ein Reactive-
-  Effekt re-running, wenn der User die Karte ansieht und z.B. eine Aktion
-  klickt, reicht für ein Schauf­enster-Tamagotchi.
+  Pro Guild gibt es **ein** Pet, das alle Mitglieder gemeinsam füttern.
+  Beim Mount fetchen wir den Server-State; danach kommen Live-Updates
+  via WS-Handler in `frontend.ts`. Action-Klicks zeigen optimistisch
+  den neuen Wert und schicken die WS-Op; der Server-Broadcast
+  überschreibt mit dem authoritativen State.
 
-  Persistierung läuft komplett über die Settings-Section
-  (`registerSettingsSection('tamagotchi', …)` in `frontend.ts`).
-
-  Wird heute nur eingebunden, wenn das Plugin aktiviert ist; das
-  konditionale Mount macht der Sidebar-Footer (siehe
-  `web/src/lib/components/SidebarFooter.svelte`).
+  Wird nur eingebunden, wenn das Plugin für die aktuelle Guild
+  aktiviert ist (Pro-Guild-Toggle, MANAGE_GUILD-Admin). Das konditionale
+  Mount macht der Parent (s. channel/+page.svelte) — das Widget vertraut
+  drauf, dass `guildId` immer gesetzt ist.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
+    ensurePetLoaded,
     feed,
+    getPetForGuild,
     play,
-    refreshDecay,
-    rename,
     reset,
-    sleep,
-    getPetStore
+    sleep
   } from '../frontend';
-  import { applyDecay, emojiOf, moodOf, type PetState } from '../store';
-  // Bewusst keine Lucide-Imports: das Plugin lebt unter `plugins/` und ist
-  // kein pnpm-Workspace-Member — es kann nicht auf `web/node_modules` zugreifen.
-  // Plugin-Autoren *könnten* eigene Deps mitbringen (eigene package.json +
-  // bundling-step), aber für Schritt 7 reicht's mit Emoji-Glyphen. Die
-  // Pulse-Tonalität (Dark-Themed, leicht verspielt) trägt Emojis sowieso gut.
+  import { emojiOf, moodOf, type PetState } from '../store';
 
-  // Section-Store lazy resolven — falls das Plugin nicht aktiviert ist,
-  // ist `getPetStore()` null und wir rendern einen Hint-Block.
-  const store = $derived(getPetStore());
+  let { guildId }: { guildId: string } = $props();
 
-  // Live-Decay: bei jedem Re-Render holen wir den aktuellen Decay-Snapshot
-  // (pure Funktion, billig). Das *persistiert* den Decay nicht — das
-  // erledigen die Action-Buttons + ein einmaliger `refreshDecay()` beim
-  // Mount, damit der gespeicherte State nicht zu weit hinterherhinkt.
-  const pet = $derived<PetState | null>(
-    store ? applyDecay(store.value) : null
-  );
-
+  // Reaktiv: bei jedem Wechsel von guildId oder State-Update läuft das
+  // neu. `getPetForGuild` ist eine Funktion, aber sie liest den
+  // ``$state``-Store unter der Haube → Svelte 5 trackt das.
+  const pet = $derived<PetState | null>(getPetForGuild(guildId));
   const mood = $derived(pet ? moodOf(pet) : 'zufrieden');
   const emoji = $derived(emojiOf(mood));
 
-  let editingName = $state(false);
-  let nameDraft = $state('');
-
   onMount(() => {
-    refreshDecay();
+    void ensurePetLoaded(guildId);
   });
 
-  function startRename() {
-    if (!pet) return;
-    nameDraft = pet.name;
-    editingName = true;
-  }
-
-  function commitRename() {
-    rename(nameDraft);
-    editingName = false;
-  }
-
-  function cancelRename() {
-    editingName = false;
-  }
+  // Wenn guildId mid-flight wechselt (z.B. User wechselt Server),
+  // lade auch das neue Pet — der `$derived` würde sonst beim ersten
+  // Render `null` zeigen, bis ein anderes Event den Fetch triggert.
+  $effect(() => {
+    void ensurePetLoaded(guildId);
+  });
 
   function statColor(value: number, kind: 'good' | 'bad'): string {
-    // "bad" = hoher Wert ist schlecht (Hunger). "good" = hoher Wert ist gut.
+    // "bad" = niedriger Wert ist schlecht. PR3: HOHER Hunger-Wert = satt
+    // (Backend-Schema: hunger 100 = satt, 0 = am Verhungern), also gilt
+    // für alle drei Stats: HOHER Wert = gut.
     const normalized = kind === 'bad' ? 100 - value : value;
     if (normalized >= 60) return 'bg-emerald-500';
     if (normalized >= 30) return 'bg-amber-500';
@@ -80,15 +56,13 @@
 </script>
 
 <section
-  class="border-border bg-bg-input/60 m-2 flex shrink-0 flex-col gap-3 rounded-2xl border p-3"
+  class="border-border bg-bg-input/60 flex shrink-0 flex-col gap-3 rounded-2xl border p-3"
   data-testid="tamagotchi-widget"
 >
-  {#if !pet || !store}
+  {#if !pet}
     <div class="flex items-center gap-2">
       <span class="text-text-muted text-sm" aria-hidden="true">🫥</span>
-      <p class="text-text-muted text-xs">
-        Tamagotchi-Plugin nicht aktiviert.
-      </p>
+      <p class="text-text-muted text-xs">Lade Tamagotchi…</p>
     </div>
   {:else}
     <div class="flex items-start gap-3">
@@ -99,58 +73,24 @@
         {emoji}
       </div>
       <div class="flex min-w-0 flex-1 flex-col">
-        {#if editingName}
-          <form
-            class="flex items-center gap-1"
-            onsubmit={(e) => {
-              e.preventDefault();
-              commitRename();
-            }}
-          >
-            <input
-              type="text"
-              bind:value={nameDraft}
-              maxlength="32"
-              class="bg-bg-base text-text-bright min-w-0 flex-1 rounded-md border border-border px-1.5 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-              data-testid="tamagotchi-name-input"
-            />
-            <button
-              type="submit"
-              class="hover:bg-bg-hover rounded-md p-1 text-sm leading-none text-emerald-500"
-              aria-label="Namen speichern"
-            >✓</button>
-            <button
-              type="button"
-              onclick={cancelRename}
-              class="hover:bg-bg-hover rounded-md p-1 text-sm leading-none text-rose-400"
-              aria-label="Abbrechen"
-            >✕</button>
-          </form>
-        {:else}
-          <div class="flex min-w-0 items-center gap-1.5">
-            <span
-              class="text-text-bright truncate text-sm font-semibold"
-              data-testid="tamagotchi-name"
-            >
-              {pet.name}
-            </span>
-            <button
-              type="button"
-              onclick={startRename}
-              class="hover:bg-bg-hover text-text-muted hover:text-text-bright shrink-0 rounded-md px-1 text-xs leading-none"
-              aria-label="Umbenennen"
-            >✎</button>
-          </div>
-        {/if}
+        <span
+          class="text-text-bright truncate text-sm font-semibold"
+          data-testid="tamagotchi-name"
+        >
+          {pet.name}
+        </span>
         <span class="text-text-muted text-xs lowercase" data-testid="tamagotchi-mood">
           {mood}
+        </span>
+        <span class="text-text-muted text-[10px] italic">
+          Server-Pet — alle Mitglieder können füttern
         </span>
       </div>
     </div>
 
     <div class="flex flex-col gap-1.5">
       {#each [
-        { label: 'Hunger', value: pet.hunger, kind: 'bad' as const, testid: 'hunger' },
+        { label: 'Hunger', value: pet.hunger, kind: 'good' as const, testid: 'hunger' },
         { label: 'Glück', value: pet.happiness, kind: 'good' as const, testid: 'happiness' },
         { label: 'Energie', value: pet.energy, kind: 'good' as const, testid: 'energy' }
       ] as bar (bar.label)}
@@ -180,7 +120,7 @@
     <div class="flex gap-1">
       <button
         type="button"
-        onclick={feed}
+        onclick={() => feed(guildId)}
         class="hover:bg-bg-hover text-text-bright flex flex-1 flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors"
         title="Füttern"
         data-testid="tamagotchi-feed"
@@ -190,7 +130,7 @@
       </button>
       <button
         type="button"
-        onclick={play}
+        onclick={() => play(guildId)}
         class="hover:bg-bg-hover text-text-bright flex flex-1 flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors"
         title="Spielen"
         data-testid="tamagotchi-play"
@@ -200,7 +140,7 @@
       </button>
       <button
         type="button"
-        onclick={sleep}
+        onclick={() => sleep(guildId)}
         class="hover:bg-bg-hover text-text-bright flex flex-1 flex-col items-center gap-0.5 rounded-lg p-1.5 text-xs transition-colors"
         title="Schlafen"
         data-testid="tamagotchi-sleep"
@@ -210,7 +150,7 @@
       </button>
       <button
         type="button"
-        onclick={reset}
+        onclick={() => reset(guildId)}
         class="hover:bg-bg-hover text-text-muted hover:text-rose-400 flex shrink-0 items-center justify-center rounded-lg p-1.5 text-base leading-none transition-colors"
         title="Reset"
         data-testid="tamagotchi-reset"

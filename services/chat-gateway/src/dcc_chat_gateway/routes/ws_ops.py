@@ -30,6 +30,7 @@ from dcc_chat_gateway.db import SessionLocal  # noqa: F401
 # Import for side-effects: each handler in this module registers itself with
 # the WS op-registry at import time, so by the time we enter the op-loop the
 # registry is fully populated.
+from dcc_chat_gateway.plugins.ws_op_gate import check_plugin_op_gate, parse_plugin_op
 from dcc_chat_gateway.routes import ws_ops_handlers  # noqa: F401
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, get_handler
 from dcc_chat_gateway.security import AuthenticatedUser
@@ -110,6 +111,32 @@ async def run_session_op_loop(
                     {"op": "error", "code": 4007, "msg": f"unknown op: {op}"}
                 )
                 continue
+            # Plugin-Op-Gate: colon-namespaced Ops müssen durch
+            # Allowlist + Guild-Membership + Guild-Toggle. ``hello:*``
+            # ist nur durch die Allowlist gegated; alle anderen Plugins
+            # brauchen guild_id im Payload. Siehe
+            # ``plugins.ws_op_gate.check_plugin_op_gate`` für Details.
+            if isinstance(op, str) and parse_plugin_op(op) is not None:
+                allowlist = getattr(
+                    websocket.app.state, "plugin_allowlist", frozenset()
+                )
+                async with SessionLocal() as gate_session:
+                    decision = await check_plugin_op_gate(
+                        session=gate_session,
+                        op=op,
+                        payload=msg,
+                        user_id=user.id,
+                        allowlist=allowlist,
+                    )
+                if not decision.allowed:
+                    await websocket.send_json(
+                        {
+                            "op": "error",
+                            "code": decision.error_code,
+                            "msg": decision.error_msg,
+                        }
+                    )
+                    continue
             await handler(ctx, msg)
     finally:
         if expiry_task is not None:

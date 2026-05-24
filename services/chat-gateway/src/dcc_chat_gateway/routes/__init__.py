@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from dcc_chat_gateway.routes import (
     admin,
+    admin_plugins,
     attachments,
     bans,
     blocks,
@@ -14,6 +15,7 @@ from dcc_chat_gateway.routes import (
     dms,
     friends,
     guild_icons,
+    guild_plugins,
     guilds,
     internal,
     invites,
@@ -60,6 +62,8 @@ router.include_router(capabilities.router)
 router.include_router(notifications.router)
 router.include_router(presence.router)
 router.include_router(admin.router)
+router.include_router(admin_plugins.router)
+router.include_router(guild_plugins.router)
 router.include_router(internal.router)
 router.include_router(ws.router)
 

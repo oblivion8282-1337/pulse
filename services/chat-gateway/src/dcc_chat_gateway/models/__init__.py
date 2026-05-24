@@ -31,6 +31,11 @@ from dcc_chat_gateway.models.messages import (
     MessageReaction,
 )
 from dcc_chat_gateway.models.notifications import WebPushSubscription
+from dcc_chat_gateway.models.plugin_activation import (
+    GuildPlugin,
+    GuildPluginState,
+    InstancePluginAllowlist,
+)
 from dcc_chat_gateway.models.roles import MemberRole, PermissionOverwrite, Role
 from dcc_chat_gateway.models.sounds import GuildSoundOverride
 from dcc_chat_gateway.models.user_preferences import UserPreference
@@ -52,7 +57,10 @@ __all__ = [
     "GuildBan",
     "GuildInvite",
     "GuildMember",
+    "GuildPlugin",
+    "GuildPluginState",
     "GuildSoundOverride",
+    "InstancePluginAllowlist",
     "MemberRole",
     "Message",
     "MessageAttachment",

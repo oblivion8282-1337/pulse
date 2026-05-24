@@ -33,6 +33,13 @@ description = "Virtuelles Haustier pro User"  # optional, frei
 #   "per-user"   — State pro User (Settings-Section, lokal/synced)
 #   "per-guild"  — State pro Server (Backend-Storage)
 #   "global"     — singleton Plugin-State
+#
+# Wichtig: `scope.type` beschreibt den **State**, nicht die **Aktivierung**.
+# Aktivierung läuft seit dem Plugin-Admin-Aktivierungs-PR immer als
+# Zwei-Ebenen-Modell (Allowlist + Pro-Guild-Toggle), unabhängig vom Scope.
+# Ein `per-user`-Plugin kann also auf einzelnen Servern aktiviert sein,
+# während der User-State (z.B. ein Tamagotchi pro User) Server-übergreifend
+# geteilt wird.
 type = "per-user"
 
 [plugin.uses]
@@ -210,3 +217,184 @@ Erwartete Server-Antwort:
 * **Migration-API** für Plugin-DB-Tabellen — Schritt 4/5.
 * **UI-Slot-Registry** — `[plugin.uses].ui_slots` ist nur deklariert;
   die Slot-Registry selbst existiert noch nicht (Schritt 4/5 in Roadmap).
+
+## Aktivierungsmodell (Admin + Guild)
+
+Seit dem Plugin-Admin-Aktivierungs-PR ist die Plugin-Aktivierung **kein
+per-User-State mehr**, sondern zwei Admin-gepflegte Ebenen:
+
+1. **Instanz-Allowlist** (`chat.instance_plugin_allowlist`, vom
+   Bootstrap-Admin (`auth.users.is_admin = true`) gepflegt). Was darf
+   auf dieser Pulse-Instanz überhaupt geladen werden? Der chat-gateway-
+   Loader importiert beim Startup **nur Plugins aus der Allowlist** und
+   registriert deren WS-Ops/Channels/Settings-Sections.
+2. **Pro-Guild-Toggle** (`chat.guild_plugins`, vom Guild-Admin mit
+   `MANAGE_GUILD`-Permission). Pro Server: ist ein Allowlist-erlaubtes
+   Plugin auf diesem Server aktiv? Der WS-Op-Dispatcher gated jeden
+   colon-namespaced Plugin-Op gegen dieses Toggle.
+
+### Plugin-Ops müssen `guild_id` führen
+
+Plugin-Ops (Format `<plugin>:<action>`, z.B. `tamagotchi:feed`) brauchen
+ab jetzt ein **Pflichtfeld `guild_id`** im Payload — die Snowflake-ID
+des Servers, auf dem die Aktion stattfindet. Der WS-Op-Gate
+(`plugins/ws_op_gate.py`) lehnt fehlende `guild_id` mit Error-Code
+`4041` ab; fehlende Membership → `4042`; Plugin nicht für die Guild
+aktiviert → `4043`. Übers Wire ist `guild_id` ein **String** (JS-`Number`-
+Präzisions-Grenze), Backend coerced toleranten Pfad zu int.
+
+Das Hello-Plugin (`hello:*`) ist der Sonderfall:
+
+* `hello` ist **fest in der Allowlist** (Loader-Self-Heal beim Startup
+  + Migrations-Seed) und kann vom Admin nicht entfernt werden (DELETE
+  → 409).
+* `hello`-Ops umgehen das Guild-Gate komplett — kein `guild_id`-Feld
+  nötig, kein Membership-Check, kein Guild-Toggle. Das hält den
+  Loader-Smoketest unabhängig von Guild-Setup.
+
+### Admin-API (Bootstrap-Admin, JWT `admin: true`)
+
+| Endpunkt | Effekt |
+|---|---|
+| `GET /admin/plugins` | Discovery ∪ Allowlist. Pro Plugin: `in_discovery`, `in_allowlist`, `version`, `description` |
+| `PUT /admin/plugins/{name}` | In die Allowlist eintragen. 404 wenn `name` nicht in der Discovery existiert. Idempotent |
+| `DELETE /admin/plugins/{name}` | Aus der Allowlist entfernen + alle `guild_plugins`-Rows mit raus. 409 für `hello` |
+
+### Guild-API (`MANAGE_GUILD`, Owner-Bypass)
+
+| Endpunkt | Effekt |
+|---|---|
+| `GET /guilds/{id}/plugins` | Pro Allowlist-Plugin: `{plugin_name, enabled}`. `hello` immer `enabled=true`. Caller muss Mitglied sein |
+| `PUT /guilds/{id}/plugins/{name}` | Toggle. Body `{enabled: bool}`. 404 wenn nicht in Allowlist, 409 für `hello` |
+
+### Hot-Reload-Verhalten
+
+Allowlist- + Guild-Toggle-Mutationen **wirken nicht überall sofort**:
+
+* **Allowlist-Mutation** → Plugin-Op-Gate liest aus
+  `app.state.plugin_allowlist` (Snapshot zur Lifespan-Zeit). Neue
+  Plugins werden vom Loader erst beim **nächsten Service-Restart**
+  registriert. Bis dahin: 4040 für jeden Op auf neuen Plugins.
+* **Guild-Toggle-Mutation** → WS-Op-Gate cached den Toggle-Status mit
+  60 s TTL pro `(guild_id, plugin_name)`. Der PUT-Toggle-Endpoint
+  invalidiert den Cache-Slot der bearbeiteten `(guild_id, plugin_name)`
+  im selben Prozess sofort — eine UI-Aktion greift also für den
+  pushenden Pod ohne TTL-Lag. **Multi-Pod-Setup** würde Redis-Pub/Sub
+  brauchen, damit alle Pods invalidieren; offen, dokumentiert in der
+  Roadmap.
+
+### Frontend-Sichtbarkeit (Plugin-UI pro Guild)
+
+* Beim App-Boot registriert der Frontend-Loader (`web/src/lib/plugins/loader.ts`)
+  **alle** entdeckten Plugins in der Runtime-Registry — kein per-User-
+  Activation-Filter mehr. Handler/Settings-Sections sind ab Boot
+  verfügbar.
+* Pro-Guild-Sichtbarkeit der UI-Slots (z.B. das Tamagotchi-Widget im
+  SidebarFooter) wird über
+  `web/src/lib/plugins/guild-activation.svelte.ts` entschieden: beim
+  Guild-Mount fetcht die ChannelList einmalig
+  `GET /guilds/{id}/plugins` und cached die `enabled`-Namen pro Guild.
+* UI-Komponenten prüfen mit `isPluginEnabledForGuild(guildId, name)`,
+  ob sie rendern dürfen. DMs/Friends-Kontext (`guildId === ''`) ist
+  per Konvention plugin-frei.
+* **Live-Toggle-Push**: PUT `/guilds/{id}/plugins/{name}` und DELETE
+  `/admin/plugins/{name}` pushen ein
+  `{op: "guild_plugins_changed", guild_id, plugin_name, enabled}`-Event
+  auf den `guild:events`-Redis-Channel. Der Listener-Filter
+  (`_GUILD_MEMBER_SCOPED_OPS`) scoped es auf Guild-Member, sodass Outsider
+  nichts mitkriegen. Frontend-Handler (`web/src/lib/ws/handlers/guild.ts`)
+  patcht `guild-activation`-Cache via `setGuildPluginEnabled` — aber nur,
+  wenn der Slot schon gemountet ist. Bei DELETE pusht das Backend ein
+  Event pro Guild, die das Plugin aktiv hatte (jeweils mit
+  `enabled=false`). Effekt: ein Admin-Toggle auf Device A landet ohne
+  F5 in der UI aller anderen Member-Devices.
+
+### Frontend-UI (Aktivierungs-Management)
+
+* **Server-Admin (Bootstrap-Admin)**: `/app/admin` → Sektion *Plugins*
+  (`AdminPlugins.svelte`) — Toggle pro Plugin in/aus der Allowlist.
+  `hello` ist hart drin (Toggle disabled).
+* **Server-Admin (Guild-Admin)**: Server-Einstellungen-Dialog → Tab
+  *Plugins* (`GuildPluginsEditor.svelte`) — Toggle pro Allowlist-Plugin
+  für die jeweilige Guild. Sichtbar nur mit `MANAGE_GUILD`.
+* **User-Settings** haben **keinen** Plugin-Tab mehr. Plugin-Auswahl
+  ist Server-Sache, nicht User-Sache.
+
+## State-Scope (PR3)
+
+`plugin.scope.type` beschreibt den **State-Scope** — wo das Plugin
+seinen persistierten State ablegt. Der **Activation-Scope** läuft
+unabhängig davon immer als zweistufige Admin-Allowlist + Pro-Guild-
+Toggle (siehe oben).
+
+| State-Scope | Storage | Sichtbarkeit | Beispiel |
+|---|---|---|---|
+| `per-user` | `chat.user_preferences` (Section-Name = Plugin-Name) | ein User → ein State, geräteübergreifend | Anzeige-Einstellungen, persönlicher Notizblock |
+| `per-guild` | `chat.guild_plugin_state` (PK = `guild_id, plugin_name`) | ein Server → ein State, geteilt unter allen Mitgliedern | Tamagotchi, Server-Counter, Server-Pets |
+| `global` | Plugin-eigene Tabellen (Plugin braucht Migration) | instanzweit single-state | Welcome-Bot mit zentralem Template-Pool |
+
+### `per-guild` Storage-API (PR3)
+
+Plugins mit `scope.type = "per-guild"` nutzen die Helper in
+`services/chat-gateway/src/dcc_chat_gateway/plugins/state_store.py`:
+
+```python
+from dcc_chat_gateway.plugins.state_store import (
+    apply_atomic_update,
+    get_state,
+)
+
+# Lesen
+raw = await get_state(session, guild_id, "myplugin")  # dict | None
+
+# Atomic Mutate (race-safe: SELECT FOR UPDATE → mutate → UPDATE)
+def _bump_counter(state: dict) -> dict:
+    state["count"] = state.get("count", 0) + 1
+    return state
+
+new_state = await apply_atomic_update(
+    session,
+    guild_id=guild_id,
+    plugin_name="myplugin",
+    default_state={"count": 0},
+    mutate=_bump_counter,
+    actor_user_id=user_id,
+)
+```
+
+Concurrency-Garantie: N parallele `apply_atomic_update`-Aufrufe
+sehen den jeweils vorherigen End-State (Row-Lock unter Postgres,
+File-DB-Serialisierung unter SQLite).
+
+### Server-Broadcast für `per-guild`-State
+
+`per-guild`-State-Mutationen werden in der Regel via Redis-Pub/Sub an
+alle Online-Guild-Mitglieder gebroadcastet. Convention:
+
+* **Channel-Name**: `plugin:<plugin_name>:events`. Im Manifest unter
+  `[plugin.uses].channels` deklariert (Permission-Gate verlangt das).
+* **Channel-Handler**: registriert via `register_channel_handler` im
+  Plugin-`register()`. Filter auf `manager._ws_guilds` für
+  Guild-Membership-Scoping (siehe `plugins/tamagotchi/backend.py`
+  als Template).
+* **Subscribe**: der ConnectionManager subscribt seine Built-in-
+  Channels bei `start()`; Plugin-Channels werden nach dem
+  `load_all_with_allowlist`-Aufruf im Lifespan via
+  `manager.subscribe_plugin_channels(...)` nachgereicht. Plugin-
+  Autoren brauchen den Subscribe-Call nicht selbst zu machen — der
+  Channel-Name im Manifest reicht.
+
+### State-vs-Activation-Independenz
+
+Vor PR3 waren Aktivierungs- und State-Scope manchmal verwechselt.
+Beispiel:
+
+* Tamagotchi (PR2): `scope.type = "per-user"` (Pet-State pro User in
+  `user_preferences`), Activation per-guild (Admin schaltet auf
+  Server X frei). Ein User hatte sein eigenes Pet, das er auf jedem
+  freigeschalteten Server sah.
+* Tamagotchi (PR3): `scope.type = "per-guild"`. Ein Pet pro Server,
+  geteilt zwischen allen Mitgliedern. Activation weiterhin per-guild.
+
+Der State-Scope-Wechsel war eine bewusste Plugin-Design-Entscheidung,
+nicht eine erzwungene Konsequenz des Aktivierungsmodells.

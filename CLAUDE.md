@@ -182,6 +182,64 @@ ist der aktive Pfad. Ebenfalls TODO: Notifications-IPC in `main.ts`.
 `isDesktop()` (Alias), `isLinux()` (UA-basiert). Dev-Test-Route `/app/dev/stream` (nicht im Menü) = Diagnose-Page mit allen
 Sidecar-Ops als Buttons.
 
+## Plugin-System (Stufe A)
+
+Top-Level `plugins/` mit Referenz-Plugins `hello` + `tamagotchi`. Manifest = `plugin.toml` (Backend) +
+`manifest.ts` (Frontend-Spiegel, manuell synchron halten — Browser hat kein TOML). Backend-Loader
+`chat_gateway/plugins/loader.py` (Discovery beim Startup), Frontend-Loader `web/src/lib/plugins/loader.ts`.
+Plugin-Ops sind **colon-namespaced** (`tamagotchi:feed`) — der Listener-Validator bypasst sie via `:`.
+Outbound: `gateway.sendPluginOp(...)`. **`web/Dockerfile` kopiert `plugins/` ins Image** (sonst keine
+Discovery in Prod). Stufe B (Bot-API) + C (WASM) skizziert in `docs/PLUGIN_ROADMAP.md`, nicht gebaut.
+
+**Aktivierungsmodell (zwei Ebenen, ab Plugin-Admin-Activation-PR)** — KEINE per-User-Aktivierung mehr:
+
+1. **Instanz-Allowlist** (`chat.instance_plugin_allowlist`, Bootstrap-Admin (`is_admin=true`)) — was darf
+   auf der Instanz laufen? Loader registriert **nur Allowlist-Plugins**. API: `GET/PUT/DELETE /admin/plugins[/{name}]`.
+2. **Pro-Guild-Toggle** (`chat.guild_plugins`, Guild-Admin mit `MANAGE_GUILD`) — pro Server an/aus.
+   API: `GET /guilds/{id}/plugins`, `PUT /guilds/{id}/plugins/{name}`.
+
+**`hello` ist Sonderfall**: immer in der Allowlist (Loader-Self-Heal in `plugins/allowlist.py` +
+Migrations-Seed in `0020`), nicht entfernbar (409), nicht togglebar pro Guild (409). Plugin-Ops
+`hello:*` bypassen Membership + Guild-Toggle.
+
+**WS-Op-Gate** (`plugins/ws_op_gate.py`): vor jedem Plugin-Op-Dispatch — Allowlist + Membership +
+Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4040 (allowlist), 4041 (`guild_id` fehlt),
+4042 (non-member), 4043 (nicht aktiviert). **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen**
+(außer `hello:*`).
+
+**Hot-Reload**: Admin-PUT/DELETE auf `/admin/plugins/{name}` wirken **live** (Single-Pod) — der PUT
+ruft `plugins.loader.activate_plugin` (lädt Backend + `register()`) und aktualisiert
+`app.state.plugin_allowlist` unter `asyncio.Lock`; DELETE entfernt aus dem Snapshot + ruft
+`PluginManager.forget` (Op-/Channel-Registries werden ausgerollt). Cross-Pod-Notify auf
+`plugin:allowlist:changed` ist Publish-Only (Stufe-B-Vorbereitung, kein Subscriber). Guild-Toggle-
+Mutationen wirken nach ≤60 s (`ws_op_gate`-Cache-TTL). Trade-off bei DELETE: die im Loader-Lauf
+registrierten WS-Op-Handler bleiben im Dispatch-Dict, sind aber durch das Allowlist-Gate sofort
+inert — siehe `plugins/loader.deactivate_plugin` für die Begründung (Python-Module nicht sauber
+entladbar, Re-Add-Race vermieden).
+
+**Frontend-Aktivierungs-State (UI)**: Loader (`web/src/lib/plugins/loader.ts`) registriert beim Boot
+**alle** entdeckten Plugins (kein per-User-Activation-Filter — `activation-state.svelte.ts` ist weg).
+Pro-Guild-UI-Sichtbarkeit prüft `guild-activation.svelte.ts` (`Map<guildId, Set<enabledNames>>`,
+beim Guild-Mount aus `GET /guilds/{id}/plugins` befüllt, Reset bei Sign-Out). UI-Komponenten checken
+mit `isPluginEnabledForGuild(guildId, name)`. **DMs/Friends-Kontext = plugin-frei** (`guildId === ''`).
+Admin-UI: `AdminPlugins.svelte` (Allowlist) auf `/app/admin`, `GuildPluginsEditor.svelte` (Pro-Guild)
+als Tab im `GuildSettingsDialog`. Es gibt **keinen Plugin-Tab in den User-Settings** mehr.
+
+**Plugin-State-Storage (PR3)**: `scope.type` im Manifest ist **State-Scope**, nicht Activation-Scope.
+Per-User-State → `chat.user_preferences` (Section-Name = Plugin-Name); Per-Guild-State →
+`chat.guild_plugin_state` ((guild_id, plugin_name) → JSONB, Migration 0021). Helper
+`plugins/state_store.py::apply_atomic_update` macht race-safe Mutate (SELECT FOR UPDATE auf Postgres,
+File-DB-Serialisierung auf SQLite). Cross-Pod-Broadcasts laufen auf `plugin:<name>:events`-Redis-
+Channel; im Manifest unter `[plugin.uses].channels` deklarieren, dann subscribt der Lifespan via
+`ConnectionManager.subscribe_plugin_channels` nach dem Loader-Run. Channel-Handler filtert Targets
+über `_ws_guilds` (Guild-Membership). Beispiel: `plugins/tamagotchi/backend.py` — Pet pro Guild,
+alle Mitglieder füttern; Widget in der **rechten Sidebar der Channel-Page** (`<aside data-testid=
+"guild-plugin-rail">`), nicht mehr im `SidebarFooter`. **Plugin-Backend muss DB-Session über
+`ctx.manager._session_factory` holen** (nicht direkt `from dcc_chat_gateway.db import SessionLocal`),
+sonst sehen ws_app-Tests die ungepatchte Memory-DB.
+**Bekannte Limitation**: kein Server-Push für Toggle-Änderungen — Cross-Session-Updates sieht der
+Client erst beim nächsten Guild-Mount/Reload.
+
 ## Flatpak-Packaging — `packaging/`
 
 `com.unicutmedia.Pulse` (`flatpak-builder`-Manifest `packaging/com.unicutmedia.Pulse.yml`). Bündelt das Electron-42-Binary

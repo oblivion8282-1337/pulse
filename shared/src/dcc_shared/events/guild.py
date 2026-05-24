@@ -146,3 +146,24 @@ class GuildSoundUpdatedEvent(_EventBase):
     guild_id: str
     sound_id: str
     removed: bool
+
+
+# ---- Plugin-System (Pro-Guild-Toggle) --------------------------------------
+
+
+class GuildPluginsChangedEvent(_EventBase):
+    """Guild-Admin hat ein Plugin auf der Guild ein-/ausgeschaltet.
+
+    Wird vom PUT/DELETE-Pfad (``routes/guild_plugins.py`` +
+    ``routes/admin_plugins.py``) publisht, damit alle Guild-Member ihren
+    ``guild-activation``-Cache live invalidieren können — ohne F5.
+
+    Op ist **nicht** colon-namespaced: das ist ein Core-Event über einen
+    Plugin-Effekt, kein Plugin-eigener Op-Code. Der Listener-Validator
+    behandelt es normal (kein ``:``-Bypass).
+    """
+
+    op: Literal["guild_plugins_changed"] = "guild_plugins_changed"
+    guild_id: str
+    plugin_name: str
+    enabled: bool

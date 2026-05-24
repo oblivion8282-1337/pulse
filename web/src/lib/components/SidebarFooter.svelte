@@ -11,29 +11,19 @@
   das Burger-Menü erreichbar. Darum auf Mobil HIER ausgeblendet; ChatView
   und VoiceChannelView rendern sie stattdessen als fixe Leiste über dem
   Composer (siehe dort).
+
+  Hinweis: vor PR3 hing das Tamagotchi-Widget hier dran (Per-User-Pet).
+  Mit PR3 ist das Pet pro Guild geteilt und wandert in die rechte
+  Sidebar der Channel-Page (s. ``channels/[channelId]/+page.svelte``).
+  SidebarFooter ist wieder auf Voice + User-Identity reduziert.
 -->
 <script lang="ts">
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from './VoiceControlBar.svelte';
   import UserFooter from './UserFooter.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { pluginActivation } from '$lib/plugins';
-  import TamagotchiWidget from '../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
-
-  // Tamagotchi-Widget = erstes echtes Pulse-Plugin (Schritt 7). Bewusst
-  // hardcoded gemountet — der UI-Slot-Plugin-Punkt kommt erst in einem
-  // späteren Schritt. Conditional auf den persistierten Activation-State
-  // → wenn der User das Plugin im Plugin-Manager-UI ausschaltet,
-  // verschwindet die Karte beim nächsten Reactive-Tick. Nur Desktop, weil
-  // der Mobile-Drawer eh viel zu eng für so eine zusätzliche Karte ist.
-  const tamagotchiActive = $derived(
-    !viewport.isMobile && pluginActivation.activated.includes('tamagotchi')
-  );
 </script>
 
-{#if tamagotchiActive}
-  <TamagotchiWidget />
-{/if}
 {#if (voice.connected || voice.connecting) && !viewport.isMobile}
   <VoiceControlBar />
 {/if}

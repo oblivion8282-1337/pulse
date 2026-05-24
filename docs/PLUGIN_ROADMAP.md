@@ -1,6 +1,6 @@
 # Pulse Plugin-System — Roadmap
 
-Stand: 2026-05-24 (Schritt 3b fertig — **letzter Schritt im Plan**)
+Stand: 2026-05-24 (Schritt 3b fertig + Plugin-Admin-Aktivierungs-PR1 (Backend) fertig)
 
 Manifest-Spezifikation: [`PLUGIN_MANIFEST.md`](./PLUGIN_MANIFEST.md).
 
@@ -504,6 +504,229 @@ Was bewusst NICHT in Schritt 7:
   Tamagotchi), die Slot-Registry selbst existiert noch nicht.
 * **Notifications** — keine "dein Pet hat Hunger"-Push-Notification.
 
+### Schritt "Plugin-Admin-Aktivierung" — PR1 (Backend) fertig
+
+Branch: `feature/plugin-admin-activation-backend`.
+
+**Problem.** Schritt 6 hat Aktivierung pro User in
+`web/src/lib/plugins/activation-state.svelte.ts` gespeichert (User
+entscheidet selbst, welche Plugins er sieht). Für ein Discord-artiges
+Server-Modell ist das falsch — Plugins sollen vom Instanz-Admin
+freigegeben und vom Guild-Admin pro Server toggelt werden.
+
+**Zwei-Ebenen-Modell.**
+
+1. **Instanz-Allowlist** (`chat.instance_plugin_allowlist`, Bootstrap-
+   Admin (`auth.users.is_admin = true`)): welche Plugins dürfen auf
+   dieser Pulse-Instanz überhaupt laufen?
+2. **Pro-Guild-Toggle** (`chat.guild_plugins`, Guild-Admin mit
+   `MANAGE_GUILD`): pro Server, welche Allowlist-Plugins sind aktiv?
+
+**`hello` als Sonderfall** — instanzweit immer aktiv, nicht entfernbar
+aus Allowlist (409), nicht togglebar pro Guild (409). Schützt den
+Loader-Smoketest.
+
+**Backend-Komponenten (PR1):**
+
+* **Migration `0020_plugin_admin_activation`**: zwei Tabellen + Seed
+  `hello` in Allowlist.
+* **`models/plugin_activation.py`** — `InstancePluginAllowlist`,
+  `GuildPlugin` (kein FK auf `auth.users` — cross-service-Grenze).
+* **`plugins/allowlist.py`** — `add_to_allowlist` /
+  `remove_from_allowlist` / `list_allowed_names` /
+  `ensure_hello_in_allowlist` (Self-Heal beim Startup). Dialect-aware
+  Upsert (Postgres `ON CONFLICT DO NOTHING`, SQLite Read-then-Write).
+* **`plugins/loader.py`** Refactor — `load_all_with_allowlist(allowed)`
+  + `load_directory_with_allowlist(path, allowed)`. Nur Plugins in
+  `allowed` werden aktiviert; nicht-erlaubte landen in
+  `LoadResult.discovered_but_not_allowed` (für die Admin-UI).
+  `discover_manifests()` ist der pure-Discovery-Pfad für die
+  Admin-API.
+* **`plugins/ws_op_gate.py`** — `check_plugin_op_gate(...)` mit
+  Allowlist + Membership + Guild-Toggle. 60s-TTL-LRU-Cache für die
+  Toggle-Reads (DB-Hit pro WS-Op vermeiden — Trade-off ist
+  ≤60 s Toggle-Lag).
+* **`routes/admin_plugins.py`** — `GET/PUT/DELETE /admin/plugins[/{name}]`.
+* **`routes/guild_plugins.py`** — `GET /guilds/{id}/plugins` +
+  `PUT /guilds/{id}/plugins/{name}`.
+* **`routes/ws_ops.py`** Dispatcher — vor jedem Handler-Call mit
+  colon-namespaced Op läuft `check_plugin_op_gate`. Error-Frames:
+  4040 (allowlist), 4041 (guild_id fehlt), 4042 (non-member), 4043
+  (plugin not enabled). Block 4040–4043 ist plugin-exklusiv (vorher
+  nutzte ein erster Wurf 4013–4016, die aber mit ws_op_send /
+  ws_watch kollidierten — vgl. Code-Audit in
+  `plugins/ws_op_gate.py`).
+* **`app.py`** Lifespan — `ensure_hello_in_allowlist` + Allowlist-
+  Snapshot in `app.state.plugin_allowlist` (frozenset) + Loader-Call
+  mit dem Snapshot.
+
+**Plugin-Op-Konvention (NEU).** Colon-namespaced Plugin-Ops brauchen
+ab jetzt ein **`guild_id: SnowflakeId`-Pflichtfeld** im Payload (außer
+`hello:*`). Frontend liefert das in PR2 mit. Tamagotchi-Plugin-Ops
+würden ohne PR2-Frontend-Update jetzt 4041 zurück bekommen — der
+bewusste Backend-vor-Frontend-Cut.
+
+**Hot-Reload (PR4-Followup, 2026-05-24).** Admin-PUT/DELETE wirken
+**live** im laufenden chat-gateway: der PUT-Handler ruft
+`plugins.loader.activate_plugin` (Idempotent — lädt Backend + ruft
+`register()`), aktualisiert `app.state.plugin_allowlist` unter
+`asyncio.Lock` (Helper `plugins.allowlist.update_plugin_allowlist_snapshot`)
+und subscribt die im Manifest deklarierten Plugin-Channels nach. DELETE
+entfernt den Namen aus dem Snapshot, ruft `PluginManager.forget`
+(Op-/Channel-Registries werden ausgerollt) und putzt den
+WS-Op-Gate-Cache für das Plugin. Zusätzlich publisht jeder PUT/DELETE
+auf `plugin:allowlist:changed` (Stufe-B-Vorbereitung für Multi-Pod;
+heute kein Subscriber). Guild-Toggle-Mutationen wirken weiterhin nach
+≤60 s über den Cache-TTL — `guild_plugins.py` invalidiert die Zelle
+beim Toggle.
+
+Trade-off (DELETE): Im Loader-Lauf registrierte WS-Op- und
+Channel-Handler werden via `PluginManager.forget` aus den Registries
+gerollt; bei einem späteren Re-Add re-discovered `activate_plugin`
+das Plugin via Filesystem-Rescan. Vollständige Modul-Entladung ist in
+Python nicht sauber möglich, deshalb dokumentiert in
+`plugins/loader.deactivate_plugin` (no-op + Trade-off-Begründung).
+
+**Tests:** `test_admin_plugins.py` (12), `test_guild_plugins.py` (10),
+`test_plugin_ws_op_gate.py` (13), `test_plugin_loader_allowlist.py` (5).
+Alle 537 chat-gateway-Tests grün (497 Bestand + 40 neu).
+
+**Was bewusst NICHT in PR1:**
+
+* **Frontend-UI** für Allowlist + Guild-Toggles — PR2 ✅.
+* **Entfernung des alten per-User-Activation-States** im Frontend
+  (`activation-state.svelte.ts` + `user_preferences.section=plugins`)
+  — PR2 ✅.
+* **Tamagotchi-Server-State** über die Toggle-Tabelle hinaus
+  (z.B. pro-Guild-Pets) — PR3.
+* **Cache-Invalidation per Pub/Sub** beim Guild-Toggle — Trade-off,
+  ein zweiter PR-Wert. Heute: max. 60 s Lag.
+
+### PR2 (Frontend-UI) — fertig
+
+Frontend-Seite des Plugin-Admin-Aktivierungs-Modells. Entfernt das alte
+per-User-Plugin-Settings-Panel komplett und ersetzt es durch zwei neue
+Admin-UIs + einen Pro-Guild-Aktivierungs-Store.
+
+* **Entfernt**:
+  * `web/src/lib/components/settings/SettingsPlugins.svelte`
+  * `web/src/lib/plugins/activation-state.svelte.ts` (per-User-Activation,
+    inkl. `setPluginActivated`/`pluginActivation`/`markPluginActivated`/
+    `markPluginDeactivated`)
+  * `plugins`-Tab + `setPluginActivated`-Re-Export aus
+    `SettingsDialog.svelte` und `web/src/lib/plugins/index.ts`.
+
+* **Neu**:
+  * **API-Clients**: `web/src/lib/api/admin-plugins.ts` (Allowlist) +
+    `web/src/lib/api/guild-plugins.ts` (Pro-Guild-Toggle).
+  * **Admin-UI**: `web/src/lib/components/admin/AdminPlugins.svelte`,
+    eingehängt unter `/app/admin` nach `AdminPermissions`. Bootstrap-
+    Admin-only (`is_admin=true`). Toggle-Liste mit Hello-disabled.
+  * **Guild-Settings-Tab**: `web/src/lib/components/settings/GuildPluginsEditor.svelte`,
+    Tab `plugins` im `GuildSettingsDialog`. Sichtbar mit `MANAGE_GUILD`.
+  * **Pro-Guild-Activation-Store**:
+    `web/src/lib/plugins/guild-activation.svelte.ts` — `Map<guildId,
+    Set<enabledNames>>`, beim Guild-Mount via `ensureGuildPluginsLoaded`
+    in `ChannelList.svelte` befüllt. Optimistic-Patch-Hook
+    `setGuildPluginEnabled` für direkte UI-Updates nach Toggle.
+    `resetGuildPluginsCache` läuft beim Sign-Out (in `auth.svelte.ts`).
+  * **Plugin-Loader-Refactor**: `web/src/lib/plugins/loader.ts` aktiviert
+    beim Boot alle entdeckten Plugins (kein per-User-Filter mehr).
+    Pro-Guild-Sichtbarkeit prüfen die UI-Komponenten selbst.
+  * **Tamagotchi-Update**: `plugins/tamagotchi/frontend.ts`-Aktionen
+    nehmen `guildId`-Parameter und senden ihn als `payload.guild_id` an
+    `gateway.sendPluginOp`. `TamagotchiWidget` erhält `guildId`-Prop;
+    `SidebarFooter` reicht sie durch. Im DM-Kontext (`guildId === ''`)
+    rendert das Widget nicht.
+
+* **Bekannte Trade-offs**:
+  * ~~Kein Server-Push für Plugin-Toggle-Änderungen~~ — **nachgereicht**:
+    PUT/DELETE pushen jetzt `guild_plugins_changed` an alle Guild-Member
+    via `guild:events` (siehe `docs/PLUGIN_MANIFEST.md` und
+    `lib/ws/handlers/guild.ts`). DELETE auf der Admin-Allowlist pusht
+    pro betroffener Guild ein eigenes Event mit `enabled=false`.
+  * Tamagotchi-Manifest-Schema kennt kein separates `activation`-Feld
+    (Pydantic-Model hat `extra="forbid"`). State-Scope bleibt
+    `per-user`; Activation-Modell ist in `docs/PLUGIN_MANIFEST.md`
+    dokumentiert.
+
+### PR3 (Tamagotchi-Server-State) — fertig
+
+Macht das Tamagotchi-Pet **pro Guild geteilt**: ein Pet pro Server,
+alle Mitglieder füttern/spielen/schlafen gemeinsam. Pet-State wandert
+aus dem Frontend (`user_preferences`-Section) ins Backend
+(`chat.guild_plugin_state`-Tabelle); jeder Klick wird live an alle
+Guild-Member gepusht.
+
+* **Backend**:
+  * Migration `0021_guild_plugin_state` — generische
+    `(guild_id, plugin_name) → JSONB`-Tabelle.
+  * `models/plugin_activation.py::GuildPluginState`.
+  * `plugins/state_store.py` — `apply_atomic_update` mit row-level
+    Lock (Postgres `SELECT FOR UPDATE`, SQLite-File-DB-Serialisierung)
+    + Default-Row-Auto-Create via dialect-aware Upsert.
+  * `plugins/tamagotchi/backend.py` komplett ersetzt: WS-Op-Handler
+    für `tamagotchi:{feed,play,sleep,reset}` mutieren atomar +
+    publishen `tamagotchi:state_update` auf
+    `plugin:tamagotchi:events`-Redis-Channel. Channel-Handler im
+    selben Modul fan-outet an Guild-Member (`_ws_guilds`-Filter).
+  * `pubsub.ConnectionManager.subscribe_plugin_channels` — Plugin-
+    Channels nachträglich zum Subscribe-Set des Listeners hinzufügen.
+  * App.py-Lifespan: sammelt `[plugin.uses].channels` aller geladenen
+    Plugins + ruft `subscribe_plugin_channels`. Plugin-Loader-Pfad
+    nutzt jetzt `routes.ws_ops.SessionLocal` statt
+    `db.SessionLocal` direkt — damit ws_app-Tests gepatched DB sehen.
+  * HTTP-Endpoint `GET /guilds/{id}/plugins/tamagotchi/state` in
+    `routes/guild_plugins.py` — liest persistierten State oder gibt
+    Default zurück (ohne Insert).
+  * Backend-Plugin nutzt `ctx.manager._session_factory` statt
+    direktem `db.SessionLocal`-Import (damit Tests die DB patchen
+    können wie beim Permission-Filter).
+
+* **Frontend**:
+  * `plugins/tamagotchi/pet-store.svelte.ts` — `$state`-Map pro Guild.
+  * `plugins/tamagotchi/frontend.ts` umgeschrieben: kein
+    `registerSettingsSection` mehr, dafür `ensurePetLoaded(guildId)`
+    (HTTP-Fetch beim Widget-Mount) + WS-Handler
+    `tamagotchi:state_update` (Live-Server-Echo).
+  * `plugins/tamagotchi/store.ts` Pure-Logic auf Type-Defs +
+    Mood/Emoji-Helpers reduziert (Decay-Mathematik weg — Server ist
+    Source-of-Truth).
+  * `TamagotchiWidget.svelte` neu: zeigt pro-Guild-Pet, Hunger HOCH =
+    satt (Backend-Schema flip), Rename-UI raus (keine Op dafür),
+    Hinweistext "Server-Pet — alle Mitglieder können füttern".
+  * Widget-Position: raus aus `SidebarFooter.svelte`, rein in
+    `/app/guilds/[guildId]/channels/[channelId]/+page.svelte` als
+    eigene `<aside>`-Spalte (`data-testid="guild-plugin-rail"`,
+    w-56, md+ only). **Begründung**: PR3 macht das Pet zum
+    Server-Asset; gehört konzeptionell zur Guild-Sidebar, nicht zum
+    User-Footer.
+
+* **Manifest-Update**:
+  * `plugin.toml`/`manifest.ts` bumped auf Version `0.2.0`.
+  * `scope.type` = `per-guild` (war `per-user`).
+  * `[plugin.uses].ws_ops` ersetzt `tamagotchi:ack` durch
+    `tamagotchi:state_update`.
+  * `channels = ["plugin:tamagotchi:events"]`.
+  * `settings_sections = []` (Section deprecated; alte
+    `user_preferences`-Section bleibt als toter Datenmüll im Backend
+    — kein Migration-Drop nötig).
+
+* **Bekannte Trade-offs**:
+  * Keine Rename-Op — Default-Name "Tamagotchi" bleibt fix. Rename
+    wäre eine eigene WS-Op mit MANAGE_GUILD-Gate (out-of-scope für
+    PR3, in der Aufgabe bewusst abgelehnt).
+  * Keine Decay-Mechanik mehr im Frontend (war pre-PR3 client-side
+    `applyDecay`). Eine Server-side-Decay-Loop wäre eine eigene
+    Erweiterung.
+  * Alter `user_preferences`-State der Section `tamagotchi` bleibt im
+    Backend als toter Datenmüll. Migration zum Droppen wäre
+    over-engineering für PR3.
+  * Concurrency-Test (`asyncio.gather` von 5 parallelen feeds) läuft
+    via SQLite-File-Serialisierung; echtes Postgres-Row-Lock-
+    Verhalten ist via `SELECT FOR UPDATE` dialect-aware, aber wird
+    in Tests nicht getriggert.
+
 ## Plugin-Punkte (Status-Tabelle)
 
 | Punkt | Frontend | Backend | Plan-Schritt |
@@ -520,6 +743,9 @@ Was bewusst NICHT in Schritt 7:
 | Plugin-Manager-UI + Konflikt-Detektor | ✅ (6) | — | 6 |
 | Persistierter Activate-State | ✅ (6) | — | 6 |
 | Reference-Plugin (Tamagotchi) | ✅ (7) | ✅ (7) | 7 |
+| Plugin-Admin-Allowlist (Instanz) | ✅ (PR2 UI) | ✅ (PR1 Backend) | Admin-Activation |
+| Pro-Guild-Plugin-Toggle (MANAGE_GUILD) | ✅ (PR2 UI) | ✅ (PR1 Backend) | Admin-Activation |
+| Per-Guild Plugin-State + Broadcast (Tamagotchi-shared) | ✅ (PR3) | ✅ (PR3) | PR3 |
 | Bot-API (out-of-process, Stufe B) | — | — | 5b (geplant) |
 | WASM-Plugin-Host (in-process, isoliert) | — | — | 5c (geplant) |
 | UI-Slot/Component | — | — | 8 (geplant) |

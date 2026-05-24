@@ -8,7 +8,6 @@
   import SettingsSecurity from './settings/SettingsSecurity.svelte';
   import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
   import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
-  import SettingsPlugins from './settings/SettingsPlugins.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -17,7 +16,6 @@
   import KeyboardIcon from '@lucide/svelte/icons/keyboard';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import LockIcon from '@lucide/svelte/icons/lock';
-  import PuzzleIcon from '@lucide/svelte/icons/puzzle';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
@@ -31,8 +29,7 @@
     | 'sounds'
     | 'keyboard'
     | 'security'
-    | 'privacy'
-    | 'plugins';
+    | 'privacy';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -71,8 +68,7 @@
     { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
     { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon, desktopOnly: true },
     { id: 'privacy', label: 'Privatsphäre', icon: LockIcon },
-    { id: 'security', label: 'Sicherheit', icon: ShieldIcon },
-    { id: 'plugins', label: 'Plugins', icon: PuzzleIcon }
+    { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
   ];
 
   let visibleTabs = $derived(tabs.filter((t) => !t.desktopOnly || !viewport.isMobile));
@@ -149,8 +145,6 @@
           <SettingsKeyboard />
         {:else if activeTab === 'privacy'}
           <SettingsPrivacy />
-        {:else if activeTab === 'plugins'}
-          <SettingsPlugins />
         {:else}
           <SettingsSecurity />
         {/if}
