@@ -93,7 +93,7 @@ async def test_me_via_cookie(client):
     """GET /me authenticated via session cookie (no Authorization header)."""
     login_r = await _register_and_login(client)
     sid = login_r.cookies["pulse_session"]
-    r = await client.get("/me", cookies={"pulse_session": sid})
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
     assert r.status_code == 200, r.text
     assert r.json()["email"] == _REG["email"]
 
@@ -122,7 +122,7 @@ async def test_expired_session_returns_401(client, session_factory):
         row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
         await db.commit()
 
-    r = await client.get("/me", cookies={"pulse_session": sid_str})
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid_str}"})
     assert r.status_code == 401
 
 
@@ -138,7 +138,7 @@ async def test_revoke_session_works_immediately(client, session_factory):
         assert revoked is True
         await db.commit()
 
-    r = await client.get("/me", cookies={"pulse_session": sid_str})
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid_str}"})
     assert r.status_code == 401
 
 
@@ -164,7 +164,7 @@ async def test_revoke_all_for_user(client, session_factory):
     assert count >= 2
 
     for sid in (sid1, sid2):
-        r = await client.get("/me", cookies={"pulse_session": sid})
+        r = await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
         assert r.status_code == 401, f"session {sid} should be revoked"
 
 
@@ -180,7 +180,7 @@ async def test_logout_clears_cookie(client):
     r = await client.post(
         "/logout",
         json={"refresh_token": login_r.json()["refresh_token"]},
-        cookies={"pulse_session": sid},
+        headers={"Cookie": f"pulse_session={sid}"},
     )
     assert r.status_code == 200
     set_cookie = r.headers.get("set-cookie", "")
@@ -199,11 +199,11 @@ async def test_logout_revokes_cookie_session(client, session_factory):
     await client.post(
         "/logout",
         json={"refresh_token": login_r.json()["refresh_token"]},
-        cookies={"pulse_session": sid},
+        headers={"Cookie": f"pulse_session={sid}"},
     )
 
     # Cookie auth should now fail
-    r = await client.get("/me", cookies={"pulse_session": sid})
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
     assert r.status_code == 401
 
 
@@ -216,11 +216,11 @@ async def test_logout_without_refresh_token(client):
     r = await client.post(
         "/logout",
         json={},
-        cookies={"pulse_session": sid},
+        headers={"Cookie": f"pulse_session={sid}"},
     )
     assert r.status_code == 200
 
-    r2 = await client.get("/me", cookies={"pulse_session": sid})
+    r2 = await client.get("/me", headers={"Cookie": f"pulse_session={sid}"})
     assert r2.status_code == 401
 
 

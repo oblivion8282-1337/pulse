@@ -231,6 +231,7 @@ async def test_run_once_keeps_usable_and_never_touches_backup_codes(
         "password_reset_tokens": 0,
         "email_verification_tokens": 0,
         "refresh_tokens_revoked": 0,
+        "user_sessions_expired": 0,
     }
 
     async with session_factory() as s:

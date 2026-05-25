@@ -112,30 +112,63 @@ def _hash_ip(request: Request) -> str:
 
 
 async def _get_current_user(
+    request: Request,
     session: SessionDep,
     authorization: str | None = Header(default=None),
     signer: JwtSigner = Depends(_signer_dep),
 ) -> User:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
-    try:
-        payload = signer.decode(token, expected_type="access")
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
-    try:
-        user_id = int(payload["sub"])
-    except (KeyError, ValueError) as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token payload") from exc
-    user = await session.get(User, user_id)
-    if user is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
-    if user.disabled:
-        # Existing access tokens of disabled users remain technically valid
-        # (no global revocation), but every protected route must reject them
-        # — otherwise a disabled admin keeps full access until the ≤15 min TTL.
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
-    return user
+    """Authenticate via Bearer token OR browser-session cookie.
+
+    JWT Bearer takes precedence; if absent, the ``pulse_session`` cookie is
+    tried.  Both paths are cloud-internal.
+    """
+    # --- JWT path ---
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        try:
+            payload = signer.decode(token, expected_type="access")
+        except jwt.PyJWTError as exc:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+        try:
+            user_id = int(payload["sub"])
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="invalid token payload"
+            ) from exc
+        user = await session.get(User, user_id)
+        if user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+        if user.disabled:
+            # Existing access tokens of disabled users remain technically valid
+            # (no global revocation), but every protected route must reject them
+            # — otherwise a disabled admin keeps full access until the ≤15 min TTL.
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
+        return user
+
+    # --- Cookie path ---
+    from dcc_auth.browser_sessions import validate_session as _validate_session
+
+    raw = request.cookies.get("pulse_session")
+    if raw:
+        try:
+            sid = uuid.UUID(raw)
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="invalid session cookie"
+            )
+        row = await _validate_session(session, sid)
+        if row is None:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="session expired or not found"
+            )
+        user = await session.get(User, row.user_id)
+        if user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+        if user.disabled or user.is_suspended:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
+        return user
+
+    raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
 
 
 @router.post("/register", response_model=TokensOut, status_code=status.HTTP_201_CREATED)
