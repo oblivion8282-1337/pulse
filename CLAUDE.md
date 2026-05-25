@@ -303,6 +303,7 @@ LiveKit `docker compose --profile voice up -d`.
 ## Tests
 
 - Backend: `REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest -q`. Pro-Service-Tests unter `services/*/tests/` (MediaMTX/LiveKit gemockt; Redis-Index `/1`).
+- **Flake-Retry (Übergangslösung)**: CI-pytest läuft mit `--reruns 2 --reruns-delay 1 --only-rerun "AssertionError" --only-rerun "RuntimeError"` (nur transiente Logik-Fehler, keine Setup-Bugs). Root-Cause: Cache-Mutation-Races (z.B. `test_send_in_dm_after_unfriend_403`) sollten mit dem `SELECT FOR UPDATE`-Pattern aus `plugins/state_store.py::apply_atomic_update` gefixt werden statt auf Retry zu vertrauen.
 - Frontend: `cd web && pnpm check && pnpm build` (0 Errors / 0 Warnings) + `pnpm exec playwright test`. Kein Vitest/Unit — nur Playwright-E2E.
 - E2E-DB = `dcc_test` (separat im selben Postgres-Container; `_globalSetup.ts` legt sie an + migriert + truncated **nur sie**). Die Dev-DB `dcc` wird **nie** angefasst. Test-Redis-Index `/1`. `email-validator` blockt `*.test`-TLDs → Tests nutzen `dcc-test.example.com`.
 - **Manuell, nicht automatisiert**: echter GSR-`start` (Portal-Dialog + realer Push), Electron-GUI-Sichttest (Voice + Settings-Round-Trip), HQ-Stream-E2E (2 Clients, einer sieht den WHEP-Player).
