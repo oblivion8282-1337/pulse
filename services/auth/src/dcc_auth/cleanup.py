@@ -2,25 +2,26 @@
 
 Three cohorts get swept once per day:
 
-  * ``password_reset_tokens`` — expired ``expires_at`` plus a grace window
+  * ``password_reset_tokens`` -- expired ``expires_at`` plus a grace window
     (defaults to 7 d) so a support engineer can still introspect a recent
     reset attempt. Used tokens fall out the same way: their ``expires_at``
     is set at issue time, so they age out alongside the unused ones.
-  * ``email_verification_tokens`` — same shape, same grace.
-  * ``refresh_tokens`` — only the *revoked* rows (``revoked_at IS NOT NULL``)
+  * ``email_verification_tokens`` -- same shape, same grace.
+  * ``refresh_tokens`` -- only the *revoked* rows (``revoked_at IS NOT NULL``)
     older than ``token_cleanup_grace_days_revoked`` (default 30 d). Active /
     unexpired refresh tokens are kept regardless of age; the JWT itself
     carries the expiry the verifier checks.
+  * ``username_reservations`` -- rows whose ``released_at`` has passed (Block 1.D).
 
 What we deliberately do **not** touch:
 
-  * ``user_backup_codes`` — even ``used_at`` rows stay until the user
-    disables 2FA (which cascades them). They're audit-trail.
-  * Non-revoked ``refresh_tokens`` rows past their ``expires_at`` — same
+  * ``user_backup_codes`` -- even ``used_at`` rows stay until the user
+    disables 2FA (which cascades them). They are audit-trail.
+  * Non-revoked ``refresh_tokens`` rows past their ``expires_at`` -- same
     story, cheap to keep, useful for forensics. We can extend the sweep
     later once a concrete need shows up.
 
-No APScheduler / no extra dep — ``asyncio.sleep`` in a supervised loop
+No APScheduler / no extra dep -- ``asyncio.sleep`` in a supervised loop
 is enough at one tick per day.
 """
 
@@ -35,7 +36,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from dcc_auth.browser_sessions import purge_expired_sessions
 from dcc_auth.config import Settings
-from dcc_auth.models import EmailVerificationToken, PasswordResetToken, RefreshToken
+from dcc_auth.models import (
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
+    UsernameReservation,
+)
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +70,9 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
                 RefreshToken.revoked_at < revoked_cutoff,
             )
         )
+        ur_res = await session.execute(
+            sa_delete(UsernameReservation).where(UsernameReservation.released_at <= now)
+        )
         us_deleted = await purge_expired_sessions(session)
         await session.commit()
 
@@ -72,14 +81,16 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
         "email_verification_tokens": ev_res.rowcount or 0,
         "refresh_tokens_revoked": rt_res.rowcount or 0,
         "user_sessions_expired": us_deleted,
+        "username_reservations_expired": ur_res.rowcount or 0,
     }
     log.info(
         "token_cleanup_done password_reset=%d email_verification=%d "
-        "refresh_revoked=%d user_sessions=%d",
+        "refresh_revoked=%d user_sessions=%d username_reservations=%d",
         counts["password_reset_tokens"],
         counts["email_verification_tokens"],
         counts["refresh_tokens_revoked"],
         counts["user_sessions_expired"],
+        counts["username_reservations_expired"],
     )
     return counts
 
@@ -87,7 +98,7 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
 async def cleanup_loop(settings: Settings, engine: AsyncEngine) -> None:
     """Runs forever; deletes stale token rows once per ``interval_s``.
 
-    Never re-raises — a transient DB blip should not kill the loop forever.
+    Never re-raises -- a transient DB blip should not kill the loop forever.
     ``asyncio.CancelledError`` *is* re-raised so the lifespan-driven cancel
     actually shuts the task down.
     """

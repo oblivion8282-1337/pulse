@@ -51,6 +51,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    profile_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Server-wide admin (one or a handful of users). Bootstrap via SQL.
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
@@ -520,4 +522,23 @@ class EncryptedKeyBackup(Base):
 
     credential: Mapped["IssuedCredential"] = relationship(
         "IssuedCredential", back_populates="backup"
+    )
+
+
+class UsernameReservation(Base):
+    """30-day hold on a just-vacated username (Block 1.D, migration 0016).
+
+    When a user changes username the old name is reserved for 30 days so
+    only the original holder can reclaim it.  After ``released_at`` the
+    name is free again; the cleanup sweep removes expired rows.
+    """
+
+    __tablename__ = "username_reservations"
+
+    old_username: Mapped[str] = mapped_column(String(32), primary_key=True)
+    original_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    released_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_username_reservations_released_at", "released_at"),
     )

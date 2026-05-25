@@ -18,6 +18,7 @@ from dcc_auth.routes_admin import router as admin_router
 from dcc_auth.routes_admin_backup import router as admin_backup_router
 from dcc_auth.routes_admin_smtp import router as admin_smtp_router
 from dcc_auth.routes_avatar import router as avatar_router
+from dcc_auth.routes_profile import router as profile_router
 from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_sessions import router as sessions_router
@@ -33,7 +34,7 @@ async def lifespan(app: FastAPI):
     app.state.rate_buckets = {}
     settings = get_settings()
     # Token-cleanup background task. Skipped under tests (the conftest sets
-    # ``app.state.skip_cleanup = True`` after create_app so the per-test
+    # app.state.skip_cleanup = True after create_app so the per-test
     # in-memory SQLite engine isn't held open by a stray task).
     cleanup_task: asyncio.Task | None = None
     if not getattr(app.state, "skip_cleanup", False):
@@ -73,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(totp_router)
     app.include_router(webauthn_router)
     app.include_router(webauthn_login_router)
+    app.include_router(profile_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
