@@ -22,6 +22,11 @@ import { presence } from './presence.svelte';
 import { resetGuildPluginsCache } from '$lib/plugins';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
+import { certStore } from '$lib/identity/cert.svelte';
+import { keypairStore } from '$lib/identity/keypair.svelte';
+import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
+import { stopProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+import { stopCertRotation } from '$lib/identity/cert-rotation.svelte';
 
 const ACCESS_KEY = 'dcc.tokens.access';
 
@@ -112,6 +117,12 @@ class AuthStore {
     presence.clear();
     resetGuildPluginsCache();
     settings.resetUserScoped();
+    // Identity-Cleanup: Timer stoppen, Stores wischen
+    stopProfileRefresh();
+    stopCertRotation();
+    void certStore.wipe();
+    void keypairStore.wipe();
+    void profileStatementStore.wipe();
     void goto('/login');
   }
 }
