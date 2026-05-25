@@ -11,6 +11,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
+  import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -163,3 +164,6 @@
     </div>
   {/if}
 </div>
+
+<!-- Onboarding: Backup-Setup-Dialog (einmalig nach erstem Login) -->
+<BackupSetupStep />

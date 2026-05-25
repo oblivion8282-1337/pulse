@@ -21,7 +21,8 @@ import type { IdentityCert } from './cert.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
 import type { ProfileStatement } from './profile-statement.svelte';
 // listCerts wird nur via DeviceManagement-UI genutzt, nicht hier im Issue-Flow.
-import { issueCert, getProfileStatement } from '$lib/api/credentials';
+import { issueCert, getProfileStatement, getBackup } from '$lib/api/credentials';
+import { onboardingState } from '$lib/stores/onboardingState.svelte';
 
 // ---------------------------------------------------------------------------
 // Gerätebeschriftung
@@ -140,6 +141,22 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   }
   const statement: ProfileStatement = { raw: stmtResp.token, claims: stmtClaims };
   await profileStatementStore.setStatement(statement);
+
+  // --- 5: Backup-Onboarding prüfen (best-effort, kein Fehler bei Netzwerkproblem) ---
+  // Wenn der User noch nicht entschieden hat und kein Backup existiert, triggerieren.
+  if (!onboardingState.hasDecided()) {
+    try {
+      const existing = await getBackup(claims.cert_id);
+      if (existing !== null) {
+        // Backup schon vorhanden — als "configured" markieren, kein Dialog nötig.
+        onboardingState.markDecided('configured');
+      } else {
+        onboardingState.triggerIfNeeded();
+      }
+    } catch {
+      // Netzwerkfehler → Dialog überspringen, User kann es in Settings nachholen.
+    }
+  }
 
   return { cert, statement, keypairCreated };
 }
