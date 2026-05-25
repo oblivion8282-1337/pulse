@@ -31,12 +31,12 @@ def _load_migration_0018():
     versions_dir = (
         Path(__file__).resolve().parents[1] / "alembic" / "versions"
     )
-    for path in sorted(versions_dir.glob("*0018_revoke_existing_refresh_tokens*.py")):
+    for path in sorted(versions_dir.glob("*0018_revoke_refresh_tokens*.py")):
         spec = importlib.util.spec_from_file_location(path.stem, path)
         mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
         spec.loader.exec_module(mod)  # type: ignore[union-attr]
         return mod
-    raise FileNotFoundError("Migration 0018_revoke_existing_refresh_tokens not found")
+    raise FileNotFoundError("Migration 0018_revoke_refresh_tokens not found")
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ async def test_migration_0018_noop_on_empty_table(sqlite_engine):
 def test_migration_0018_module_attributes():
     """0018 hat korrekte revision, down_revision, upgrade + downgrade."""
     mod = _load_migration_0018()
-    assert mod.revision == "0018_revoke_existing_refresh_tokens"
+    assert mod.revision == "0018_revoke_refresh_tokens"
     assert mod.down_revision == "0017_cred_pubkey_unique"
     assert callable(mod.upgrade)
     assert callable(mod.downgrade)

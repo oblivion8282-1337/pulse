@@ -10,7 +10,7 @@ Hintergrund (SELF_HOST_PLAN.md DE 11 F):
 - Migration ist no-op auf leerer DB (Tests haben keine echten Tokens).
 - Akzeptables Risiko bei Pulse-Beta-Größe.
 
-Revision ID: 0018_revoke_existing_refresh_tokens
+Revision ID: 0018_revoke_refresh_tokens
 Revises: 0017_cred_pubkey_unique
 Create Date: 2026-05-26 02:00:00
 """
@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0018_revoke_existing_refresh_tokens"
+revision: str = "0018_revoke_refresh_tokens"
 down_revision: str | None = "0017_cred_pubkey_unique"
 branch_labels = None
 depends_on = None
