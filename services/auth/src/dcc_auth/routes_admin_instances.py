@@ -94,6 +94,7 @@ class RotateSecretOut(BaseModel):
 # --------------------------------------------------------------------------- #
 
 _SELF_HOST_WORKER_START = 100  # Worker-IDs 1-99 reserviert für Cloud
+_WORKER_ID_MAX = 1023  # Snowflake 10-bit-Range
 
 
 async def _allocate_worker_ids(session) -> tuple[int, int, int]:
@@ -121,6 +122,16 @@ async def _allocate_worker_ids(session) -> tuple[int, int, int]:
         row.mx_media or 0,
     )
     base = max(current_max + 1, _SELF_HOST_WORKER_START)
+
+    if base + 2 > _WORKER_ID_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_507_INSUFFICIENT_STORAGE,
+            detail=(
+                "worker-id range exhausted (max ~307 Self-Host-Instanzen). "
+                "Erweiterung des Snowflake-Worker-ID-Bits in Planung (DE 14)."
+            ),
+        )
+
     return base, base + 1, base + 2
 
 

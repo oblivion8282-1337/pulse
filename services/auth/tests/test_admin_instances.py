@@ -141,6 +141,33 @@ async def test_list_instances_403(client, regular_token):
     assert r.status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_suspend_403_for_non_admin(client, regular_token):
+    r = await client.delete(
+        "/admin/instances/1",
+        headers={"Authorization": f"Bearer {regular_token}"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unsuspend_403_for_non_admin(client, regular_token):
+    r = await client.post(
+        "/admin/instances/1/unsuspend",
+        headers={"Authorization": f"Bearer {regular_token}"},
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_rotate_secret_403_for_non_admin(client, regular_token):
+    r = await client.post(
+        "/admin/instances/1/rotate-secret",
+        headers={"Authorization": f"Bearer {regular_token}"},
+    )
+    assert r.status_code == 403
+
+
 # --------------------------------------------------------------------------- #
 # 2. List applications                                                          #
 # --------------------------------------------------------------------------- #
