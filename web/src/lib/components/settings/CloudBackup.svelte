@@ -8,99 +8,51 @@
    */
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import EyeIcon from '@lucide/svelte/icons/eye';
-  import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import CloudIcon from '@lucide/svelte/icons/cloud';
   import { certStore } from '$lib/identity/cert.svelte';
-  import { loadKeypair } from '$lib/identity/keypair.svelte';
+  import { loadKeypair, saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
   import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
   import { createBackup, getBackup, deleteBackup, reconstructBlob } from '$lib/api/credentials';
   import type { BackupFetchResponse } from '$lib/api/credentials';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import CloudBackupSetupForm from './CloudBackupSetupForm.svelte';
+  import CloudBackupRecoverForm from './CloudBackupRecoverForm.svelte';
 
   type ViewState = 'idle' | 'setup' | 'recover';
 
   let viewState = $state<ViewState>('idle');
   let existingBackup = $state<BackupFetchResponse | null>(null);
   let loadingStatus = $state(true);
-
-  // Formular-State (nur in setup/recover aktiv)
-  let password = $state('');
-  let passwordConfirm = $state('');
-  let showPassword = $state(false);
-  let showConfirm = $state(false);
   let errorMsg = $state<string | null>(null);
   let busy = $state(false);
-
-  // Delete-Confirm-Dialog
   let deleteDialogOpen = $state(false);
 
-  // Abgeleitete Werte
   const certId = $derived(certStore.cert?.claims.cert_id ?? null);
   const hasBackup = $derived(existingBackup !== null);
-  const passwordStrong = $derived(password.length >= 12);
-  const passwordsMatch = $derived(password === passwordConfirm);
+  const hasLocalKeypair = $derived(keypairStore.keypair !== null);
+  const backupDateLabel = $derived.by(() => {
+    if (!existingBackup) return '';
+    try { return new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' }).format(new Date(existingBackup.created_at)); }
+    catch { return existingBackup.created_at; }
+  });
 
-  function formatDate(iso: string): string {
-    try {
-      return new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' }).format(new Date(iso));
-    } catch {
-      return iso;
-    }
-  }
+  onMount(async () => {
+    if (!certId) { loadingStatus = false; return; }
+    try { existingBackup = await getBackup(certId); }
+    catch { existingBackup = null; }
+    finally { loadingStatus = false; }
+  });
 
-  async function loadStatus() {
+  function setView(v: ViewState) { errorMsg = null; viewState = v; }
+  const openSetup = () => setView('setup');
+  const openRecover = () => setView('recover');
+  const cancelFlow = () => setView('idle');
+
+  async function handleSetup(password: string) {
     if (!certId) return;
-    loadingStatus = true;
-    try {
-      existingBackup = await getBackup(certId);
-    } catch {
-      existingBackup = null;
-    } finally {
-      loadingStatus = false;
-    }
-  }
-
-  onMount(loadStatus);
-
-  function openSetup() {
-    password = '';
-    passwordConfirm = '';
-    showPassword = false;
-    showConfirm = false;
     errorMsg = null;
-    viewState = 'setup';
-  }
-
-  function openRecover() {
-    password = '';
-    showPassword = false;
-    errorMsg = null;
-    viewState = 'recover';
-  }
-
-  function cancelFlow() {
-    password = '';
-    passwordConfirm = '';
-    errorMsg = null;
-    viewState = 'idle';
-  }
-
-  async function handleSetup() {
-    if (!certId || busy) return;
-    errorMsg = null;
-
-    if (!passwordStrong) {
-      errorMsg = 'Master-Passwort muss mindestens 12 Zeichen haben.';
-      return;
-    }
-    if (!passwordsMatch) {
-      errorMsg = 'Passwörter stimmen nicht überein.';
-      return;
-    }
-
     busy = true;
     try {
       const keypair = await loadKeypair();
@@ -108,8 +60,6 @@
         errorMsg = 'Kein lokales Keypair gefunden. Bitte neu anmelden.';
         return;
       }
-
-      // Extractable prüfen — non-extractable Keys können nicht gesichert werden
       if (!keypair.privateKey.extractable) {
         errorMsg =
           'Dieses Keypair wurde ohne Export-Erlaubnis erstellt. Bitte melde dich neu an, ' +
@@ -123,11 +73,8 @@
       ]);
 
       const blob = await keyBackupState.encrypt(privateKeyJwk, publicKeyJwk, password);
-
       const deviceLabel = certStore.cert?.claims.device_label ?? 'Unbekanntes Gerät';
-      const resp = await createBackup(certId, blob, deviceLabel.slice(0, 64) || 'Backup');
-      existingBackup = { ...blob.kdf, ...blob.cipher, cert_id: resp.cert_id, device_label: deviceLabel, created_at: resp.created_at } as unknown as BackupFetchResponse;
-      // Backup-Status neu laden für korrekten Response-Shape
+      await createBackup(certId, blob, deviceLabel.slice(0, 64) || 'Backup');
       existingBackup = await getBackup(certId);
 
       toast.success('Backup gespeichert', {
@@ -135,34 +82,26 @@
       });
       cancelFlow();
     } catch (err) {
-      if (err instanceof Error) {
-        errorMsg = err.message;
-      } else {
-        errorMsg = 'Unbekannter Fehler beim Backup.';
-      }
+      errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler beim Backup.';
     } finally {
       busy = false;
-      // Passwort sofort leeren
-      password = '';
-      passwordConfirm = '';
     }
   }
 
-  async function handleRecover() {
-    if (!certId || !existingBackup || busy) return;
+  async function handleRecover(password: string) {
+    if (!certId || !existingBackup) return;
     errorMsg = null;
     busy = true;
     try {
       const blob = reconstructBlob(existingBackup);
       const keypair = await keyBackupState.decrypt(blob, password);
 
-      // Keys in IndexedDB importieren
       const [privateKey, publicKey] = await Promise.all([
         crypto.subtle.importKey('jwk', keypair.privateKey, { name: 'Ed25519' }, true, ['sign']),
         crypto.subtle.importKey('jwk', keypair.publicKey, { name: 'Ed25519' }, true, ['verify'])
       ]);
-      const { saveKeypair } = await import('$lib/identity/keypair.svelte');
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
+      await keypairStore.load();
 
       toast.success('Recovery erfolgreich', {
         description: 'Deine Schlüssel wurden aus dem Backup wiederhergestellt.'
@@ -171,14 +110,11 @@
     } catch (err) {
       if (err instanceof BackupDecryptError) {
         errorMsg = 'Falsches Master-Passwort oder defektes Backup.';
-      } else if (err instanceof Error) {
-        errorMsg = err.message;
       } else {
-        errorMsg = 'Unbekannter Fehler bei der Wiederherstellung.';
+        errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Wiederherstellung.';
       }
     } finally {
       busy = false;
-      password = '';
     }
   }
 
@@ -222,11 +158,10 @@
       <span>Status wird geladen…</span>
     </div>
   {:else if viewState === 'idle'}
-    <!-- Status-Anzeige -->
     {#if hasBackup}
       <p class="text-text-muted text-xs">
         Backup vom
-        <span class="text-text-base font-medium">{formatDate(existingBackup!.created_at)}</span>
+        <span class="text-text-base font-medium">{backupDateLabel}</span>
         · Gerät: {existingBackup!.device_label}
       </p>
       <div class="flex flex-wrap gap-2">
@@ -250,6 +185,7 @@
           type="button"
           onclick={() => (deleteDialogOpen = true)}
           disabled={busy}
+          aria-busy={busy}
           class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 md:py-1.5"
           data-testid="backup-delete-btn"
         >
@@ -269,161 +205,21 @@
     {/if}
 
   {:else if viewState === 'setup'}
-    <!-- Master-Passwort Setup-Formular -->
-    <div class="flex flex-col gap-3">
-      <div class="flex flex-col gap-1">
-        <label for="backup-pw" class="text-text-muted text-xs font-medium">Master-Passwort</label>
-        <div class="relative">
-          <input
-            id="backup-pw"
-            type={showPassword ? 'text' : 'password'}
-            bind:value={password}
-            placeholder="Mindestens 12 Zeichen"
-            class="border-border bg-bg-input text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-            data-testid="backup-password-input"
-          />
-          <button
-            type="button"
-            onclick={() => (showPassword = !showPassword)}
-            class="text-text-muted hover:text-text-base absolute right-3 top-1/2 -translate-y-1/2"
-            aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
-          >
-            {#if showPassword}
-              <EyeOffIcon class="size-4" />
-            {:else}
-              <EyeIcon class="size-4" />
-            {/if}
-          </button>
-        </div>
-        {#if password.length > 0}
-          <span class="text-xs {passwordStrong ? 'text-emerald-500' : 'text-amber-500'}">
-            {passwordStrong ? 'Stark genug' : `Noch ${12 - password.length} Zeichen nötig`}
-          </span>
-        {/if}
-      </div>
-
-      <div class="flex flex-col gap-1">
-        <label for="backup-pw-confirm" class="text-text-muted text-xs font-medium">
-          Passwort bestätigen
-        </label>
-        <div class="relative">
-          <input
-            id="backup-pw-confirm"
-            type={showConfirm ? 'text' : 'password'}
-            bind:value={passwordConfirm}
-            placeholder="Nochmal eingeben"
-            class="border-border bg-bg-input text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-            data-testid="backup-password-confirm-input"
-          />
-          <button
-            type="button"
-            onclick={() => (showConfirm = !showConfirm)}
-            class="text-text-muted hover:text-text-base absolute right-3 top-1/2 -translate-y-1/2"
-            aria-label={showConfirm ? 'Passwort verbergen' : 'Passwort anzeigen'}
-          >
-            {#if showConfirm}
-              <EyeOffIcon class="size-4" />
-            {:else}
-              <EyeIcon class="size-4" />
-            {/if}
-          </button>
-        </div>
-        {#if passwordConfirm.length > 0}
-          <span class="text-xs {passwordsMatch ? 'text-emerald-500' : 'text-destructive'}">
-            {passwordsMatch ? 'Stimmt überein' : 'Passwörter stimmen nicht überein'}
-          </span>
-        {/if}
-      </div>
-
-      {#if errorMsg}
-        <p class="text-destructive text-xs" role="alert" data-testid="backup-error">{errorMsg}</p>
-      {/if}
-
-      <div class="flex gap-2">
-        <button
-          type="button"
-          onclick={handleSetup}
-          disabled={busy || !passwordStrong || !passwordsMatch}
-          class="accent-gradient rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 md:py-1.5"
-          data-testid="backup-confirm-btn"
-        >
-          {#if busy || keyBackupState.encrypting}
-            <LoaderIcon class="mr-1 inline size-4 animate-spin" />Wird verschlüsselt…
-          {:else}
-            Backup speichern
-          {/if}
-        </button>
-        <button
-          type="button"
-          onclick={cancelFlow}
-          disabled={busy}
-          class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 md:py-1.5"
-        >
-          Abbrechen
-        </button>
-      </div>
-    </div>
+    <CloudBackupSetupForm
+      onSubmit={handleSetup}
+      onCancel={cancelFlow}
+      {busy}
+      error={errorMsg}
+    />
 
   {:else if viewState === 'recover'}
-    <!-- Recovery-Formular -->
-    <div class="flex flex-col gap-3">
-      <p class="text-text-muted text-xs">
-        Gib dein Master-Passwort ein, um die Schlüssel aus dem Backup wiederherzustellen.
-      </p>
-      <div class="flex flex-col gap-1">
-        <label for="recover-pw" class="text-text-muted text-xs font-medium">Master-Passwort</label>
-        <div class="relative">
-          <input
-            id="recover-pw"
-            type={showPassword ? 'text' : 'password'}
-            bind:value={password}
-            placeholder="Master-Passwort eingeben"
-            class="border-border bg-bg-input text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-            data-testid="recover-password-input"
-          />
-          <button
-            type="button"
-            onclick={() => (showPassword = !showPassword)}
-            class="text-text-muted hover:text-text-base absolute right-3 top-1/2 -translate-y-1/2"
-            aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
-          >
-            {#if showPassword}
-              <EyeOffIcon class="size-4" />
-            {:else}
-              <EyeIcon class="size-4" />
-            {/if}
-          </button>
-        </div>
-      </div>
-
-      {#if errorMsg}
-        <p class="text-destructive text-xs" role="alert" data-testid="recover-error">{errorMsg}</p>
-      {/if}
-
-      <div class="flex gap-2">
-        <button
-          type="button"
-          onclick={handleRecover}
-          disabled={busy || password.length === 0}
-          class="accent-gradient rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50 md:py-1.5"
-          data-testid="recover-confirm-btn"
-        >
-          {#if busy || keyBackupState.decrypting}
-            <LoaderIcon class="mr-1 inline size-4 animate-spin" />Wird entschlüsselt…
-          {:else}
-            Schlüssel wiederherstellen
-          {/if}
-        </button>
-        <button
-          type="button"
-          onclick={cancelFlow}
-          disabled={busy}
-          class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 md:py-1.5"
-        >
-          Abbrechen
-        </button>
-      </div>
-    </div>
+    <CloudBackupRecoverForm
+      onSubmit={handleRecover}
+      onCancel={cancelFlow}
+      {busy}
+      error={errorMsg}
+      warnOverwrite={hasLocalKeypair}
+    />
   {/if}
 </section>
 
