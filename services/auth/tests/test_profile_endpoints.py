@@ -29,6 +29,58 @@ async def test_profile_statement_returns_jwt(client):
 
 
 @pytest.mark.asyncio
+async def test_jwt_claims_correct(client):
+    """statement_id Claim ist UUID v4 und identisch mit jti."""
+    import re
+    UUID4_RE = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    )
+    r_reg = await client.post("/register", json={
+        "username": "claims_user", "email": "claims@dcc-test.example.com", "password": "claimspassword1",
+    })
+    access = r_reg.json()["access_token"]
+    r = await client.get(
+        "/credentials/profile-statement", headers={"Authorization": f"Bearer {access}"}
+    )
+    assert r.status_code == 200, r.text
+    signer = get_signer()
+    claims = signer.decode(r.json()["token"])
+    assert "statement_id" in claims, "statement_id claim fehlt"
+    assert UUID4_RE.match(claims["statement_id"]), "statement_id ist keine UUID v4"
+    assert claims["jti"] == claims["statement_id"], "jti und statement_id stimmen nicht überein"
+
+
+@pytest.mark.asyncio
+async def test_profile_change_invalidates_cache(client):
+    """Nach POST /me/profile liefert GET /credentials/profile-statement den neuen display_name."""
+    r_reg = await client.post("/register", json={
+        "username": "cache_inv_user", "email": "cacheinv@dcc-test.example.com",
+        "password": "cacheinvpassword1", "display_name": "Before",
+    })
+    access = r_reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {access}"}
+    signer = get_signer()
+
+    # JWT1 — alter Wert
+    r1 = await client.get("/credentials/profile-statement", headers=headers)
+    assert r1.status_code == 200
+    claims1 = signer.decode(r1.json()["token"])
+    assert claims1["display_name"] == "Before"
+
+    # Profil ändern → Cache wird invalidiert
+    r_upd = await client.post("/me/profile", json={"display_name": "After"}, headers=headers)
+    assert r_upd.status_code == 200
+
+    # JWT2 — muss neuen Wert enthalten (innerhalb 5 s, kein Sleep nötig)
+    r2 = await client.get("/credentials/profile-statement", headers=headers)
+    assert r2.status_code == 200
+    claims2 = signer.decode(r2.json()["token"])
+    assert claims2["display_name"] == "After", (
+        f"Cache-Invalidation fehlgeschlagen: display_name = {claims2['display_name']!r}"
+    )
+
+
+@pytest.mark.asyncio
 async def test_profile_statement_cache(client):
     r_reg = await client.post("/register", json={
         "username": "cache_stmt", "email": "cachestmt@dcc-test.example.com", "password": "cachepassword1",

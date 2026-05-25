@@ -34,11 +34,13 @@ def _invalidate_statement_cache(user_id: int) -> None:
 
 def _issue_statement(user: User, signer: JwtSigner) -> str:
     now = int(time.time())
+    statement_id = str(uuid.uuid4())
     payload: dict = {
         "iss": signer._settings.jwt_issuer,
         "aud": signer._settings.jwt_audience,
         "sub": str(user.id),
-        "jti": str(uuid.uuid4()),
+        "jti": statement_id,
+        "statement_id": statement_id,
         "iat": now,
         "exp": now + _STATEMENT_TTL_SECS,
         "typ": "profile_statement",
