@@ -14,7 +14,7 @@
   let apps = $state<AdminApplication[]>([]);
   let loading = $state(true);
   let loadError = $state<string | null>(null);
-  let busy = $state<Record<number, boolean>>({});
+  let busy = $state<Record<string, boolean>>({});
 
   // Approve flow
   let approveTarget = $state<AdminApplication | null>(null);

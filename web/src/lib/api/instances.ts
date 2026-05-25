@@ -53,8 +53,7 @@ export interface Instance {
 
 /** Spiegelt ApplicationOut (Admin-Route — trägt applicant_username). */
 export interface AdminApplication {
-  /** Achtung: Backend liefert int, API-Grenze bleibt Snowflake-String. */
-  id: number;
+  id: string;
   hostname: string;
   purpose: string;
   expected_users: number;
@@ -67,7 +66,7 @@ export interface AdminApplication {
 
 /** Spiegelt ApprovalOut (EINMALIG — client_secret nur hier). */
 export interface Approval {
-  instance_id: number;
+  instance_id: string;
   hostname: string;
   client_id: string;
   client_secret: string;
@@ -79,7 +78,7 @@ export interface Approval {
 
 /** Spiegelt InstanceOut (Admin-Route — trägt registrar_username). */
 export interface AdminInstance {
-  id: number;
+  id: string;
   hostname: string;
   client_id: string;
   worker_id_chat: number;
@@ -92,7 +91,7 @@ export interface AdminInstance {
 
 /** Spiegelt RotateSecretOut. */
 export interface RotateSecretResult {
-  instance_id: number;
+  instance_id: string;
   client_secret: string;
   warning: string;
 }
@@ -215,14 +214,14 @@ export const adminInstancesApi = {
   },
 
   /** Antrag genehmigen — gibt client_secret EINMALIG zurück. */
-  approveApplication(appId: number): Promise<Approval> {
+  approveApplication(appId: string): Promise<Approval> {
     return cookieFetch<Approval>(`/admin/instance-applications/${appId}/approve`, {
       method: 'POST'
     });
   },
 
   /** Antrag ablehnen. */
-  rejectApplication(appId: number, rejection_reason: string): Promise<void> {
+  rejectApplication(appId: string, rejection_reason: string): Promise<void> {
     return cookieFetch<void>(`/admin/instance-applications/${appId}/reject`, {
       method: 'POST',
       body: { rejection_reason }
@@ -235,18 +234,18 @@ export const adminInstancesApi = {
   },
 
   /** Instanz suspendieren (soft-delete). */
-  suspendInstance(instanceId: number, reason?: string): Promise<void> {
+  suspendInstance(instanceId: string, reason?: string): Promise<void> {
     const qs = reason ? `?reason=${encodeURIComponent(reason)}` : '';
     return cookieFetch<void>(`/admin/instances/${instanceId}${qs}`, { method: 'DELETE' });
   },
 
   /** Instanz entsperren. */
-  unsuspendInstance(instanceId: number): Promise<void> {
+  unsuspendInstance(instanceId: string): Promise<void> {
     return cookieFetch<void>(`/admin/instances/${instanceId}/unsuspend`, { method: 'POST' });
   },
 
   /** Secret rotieren — gibt client_secret EINMALIG zurück. */
-  rotateSecret(instanceId: number): Promise<RotateSecretResult> {
+  rotateSecret(instanceId: string): Promise<RotateSecretResult> {
     return cookieFetch<RotateSecretResult>(`/admin/instances/${instanceId}/rotate-secret`, {
       method: 'POST'
     });

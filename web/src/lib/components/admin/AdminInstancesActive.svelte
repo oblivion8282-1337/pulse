@@ -13,7 +13,7 @@
   let instances = $state<AdminInstance[]>([]);
   let loading = $state(true);
   let loadError = $state<string | null>(null);
-  let busy = $state<Record<number, boolean>>({});
+  let busy = $state<Record<string, boolean>>({});
 
   // Suspend flow
   let suspendTarget = $state<AdminInstance | null>(null);

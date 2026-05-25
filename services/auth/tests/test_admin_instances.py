@@ -224,6 +224,7 @@ async def test_approve_happy(client, admin_token, session_factory, applicant_use
     assert "warning" in data
 
     # Verify DB state
+    assert isinstance(data["instance_id"], str), "instance_id must be a Snowflake string"
     async with session_factory() as s:
         app_row = await s.get(InstanceApplication, app_id)
         assert app_row.status == "approved"
@@ -410,6 +411,7 @@ async def test_suspend_happy(client, admin_token, session_factory, applicant_use
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     inst_id = approval.json()["instance_id"]
+    inst_id_int = int(inst_id)
 
     r = await client.delete(
         f"/admin/instances/{inst_id}",
@@ -418,11 +420,11 @@ async def test_suspend_happy(client, admin_token, session_factory, applicant_use
     assert r.status_code == 204
 
     async with session_factory() as s:
-        inst = await s.get(RegisteredInstance, inst_id)
+        inst = await s.get(RegisteredInstance, inst_id_int)
         assert inst.status == "suspended"
-        susp = await s.get(SuspendedInstance, inst_id)
+        susp = await s.get(SuspendedInstance, inst_id_int)
         assert susp is not None
-        assert susp.instance_id == inst_id
+        assert susp.instance_id == inst_id_int
 
 
 @pytest.mark.asyncio
@@ -461,6 +463,7 @@ async def test_unsuspend_happy(client, admin_token, session_factory, applicant_u
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     inst_id = approval.json()["instance_id"]
+    inst_id_int = int(inst_id)
 
     await client.delete(
         f"/admin/instances/{inst_id}", headers={"Authorization": f"Bearer {admin_token}"}
@@ -473,9 +476,9 @@ async def test_unsuspend_happy(client, admin_token, session_factory, applicant_u
     assert r.status_code == 204
 
     async with session_factory() as s:
-        inst = await s.get(RegisteredInstance, inst_id)
+        inst = await s.get(RegisteredInstance, inst_id_int)
         assert inst.status == "active"
-        susp = await s.get(SuspendedInstance, inst_id)
+        susp = await s.get(SuspendedInstance, inst_id_int)
         assert susp is None
 
 
@@ -513,10 +516,11 @@ async def test_rotate_secret(client, admin_token, session_factory, applicant_use
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     inst_id = approval.json()["instance_id"]
+    inst_id_int = int(inst_id)
     old_secret_plain = approval.json()["client_secret"]
 
     async with session_factory() as s:
-        inst = await s.get(RegisteredInstance, inst_id)
+        inst = await s.get(RegisteredInstance, inst_id_int)
         old_hash = inst.client_secret
 
     r = await client.post(
@@ -531,7 +535,7 @@ async def test_rotate_secret(client, admin_token, session_factory, applicant_use
     assert "warning" in data
 
     async with session_factory() as s:
-        inst = await s.get(RegisteredInstance, inst_id)
+        inst = await s.get(RegisteredInstance, inst_id_int)
         new_hash = inst.client_secret
         # Hash changed
         assert new_hash != old_hash
