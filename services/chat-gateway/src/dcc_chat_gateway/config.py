@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -73,6 +74,24 @@ class Settings(BaseSettings):
     s3_presigned_ttl_seconds: int = 1800  # 30 min, auto-refreshed client-side
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    # Self-Host identity model (DE 11 / DE 14)
+    # ``cloud``   — Cloud instance; user_id used directly as identifier.
+    # ``self-host`` — Self-hosted instance; pairwise-sub replaces user_id.
+    # Default is ``self-host`` so a single-container deployment is safe out of
+    # the box; the Cloud sets ``PULSE_INSTANCE_MODE=cloud`` explicitly.
+    pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
+
+    # Snowflake-ID assigned by the Cloud on Self-Host registration.
+    # Reserved value 0 = Cloud instance (DE 11 A.13).
+    pulse_instance_id: int = 0
+
+    # Cloud origin used for JWKS + CRL polling.  Self-hosts may point this at
+    # a mirror or internal proxy if they can't reach pulse.unicutmedia.com directly.
+    pulse_cloud_origin: str = "https://pulse.unicutmedia.com"
+
+    # Path for the locally-generated Ed25519 session-signing key (DE 9).
+    session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
 
     # Web-Push VAPID — used to sign the Push API requests we send to a user's
     # browser push service (FCM/Mozilla/etc.). The *private* key is PEM-encoded
