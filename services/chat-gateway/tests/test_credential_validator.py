@@ -199,3 +199,41 @@ async def test_cold_jwks_cache_returns_none():
     redis = _make_redis(jwks=None)  # cold cache
     result = await validate_cert(token, redis)
     assert result is None
+
+@pytest.mark.asyncio
+async def test_timing_attack_guard_runs_both_checks():
+    """Invalid signature → sismember still called exactly once (Plan §381).
+
+    The CRL Redis call must happen even when signature verification fails, so
+    that an attacker cannot distinguish 'bad sig' from 'revoked cert' by timing.
+    """
+    other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    # Token signed with a different key — signature will fail.
+    token = _make_cert_jwt(sign_key=other_key)
+
+    sismember_calls: list[str] = []
+
+    redis = AsyncMock()
+
+    async def _get(key):
+        if key == "auth:jwks:cached":
+            return _jwks_json().encode()
+        return None
+
+    async def _sismember(key, member):
+        sismember_calls.append(str(member))
+        return False
+
+    redis.get = _get
+    redis.sismember = _sismember
+
+    result = await validate_cert(token, redis)
+
+    assert result is None, "invalid signature must return None"
+    assert len(sismember_calls) == 1, (
+        f"sismember must be called exactly once even on sig failure, got {sismember_calls}"
+    )
+    # The cert_id from the unverified payload must have been used (not empty string "")
+    assert sismember_calls[0] == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", (
+        f"sismember must be called with the actual cert_id, got {sismember_calls[0]!r}"
+    )

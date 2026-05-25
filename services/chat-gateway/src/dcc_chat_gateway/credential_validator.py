@@ -94,15 +94,35 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     try:
         header = jwt.get_unverified_header(cert_jwt)
     except jwt.PyJWTError:
-        # Malformed token
-        _sig_ok = False
-        _crl_hit = False
+        # Malformed token — still do a dummy CRL call so timing is constant.
+        try:
+            await redis.sismember(REDIS_REVOKED_SET, "")
+        except Exception:  # noqa: BLE001
+            pass
         return None
 
     kid = header.get("kid")
-    # Reject tokens without a kid — prevents JWKS-flooding attack
+    # Reject tokens without a kid — prevents JWKS-flooding attack.
+    # Still do a dummy CRL call for timing uniformity.
     if not kid:
+        try:
+            await redis.sismember(REDIS_REVOKED_SET, "")
+        except Exception:  # noqa: BLE001
+            pass
         return None
+
+    # --- Step 1b: Extract cert_id without signature verification ---
+    # This ensures the CRL Redis call always uses an actual cert_id value
+    # from the token (Plan §381 timing-attack guard): even when signature
+    # verification fails below, we still perform a real sismember call.
+    unverified_cert_id = ""
+    try:
+        unverified_payload = jwt.decode(
+            cert_jwt, options={"verify_signature": False, "verify_aud": False}
+        )
+        unverified_cert_id = unverified_payload.get("cert_id", "")
+    except Exception:  # noqa: BLE001
+        unverified_cert_id = ""
 
     # --- Step 2: Fetch public key ---
     keys = await _get_jwks_keys(redis)
@@ -125,8 +145,10 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     else:
         sig_ok = False
 
-    # --- Step 4: CRL lookup (runs ALWAYS — timing-attack guard) ---
-    cert_id = claims.get("cert_id", "") if sig_ok else ""
+    # --- Step 4: CRL lookup (runs ALWAYS — timing-attack guard, Plan §381) ---
+    # Use the unverified cert_id so the Redis call always happens with a real
+    # value, regardless of whether the signature was valid or not.
+    cert_id = unverified_cert_id
     try:
         is_revoked = bool(await redis.sismember(REDIS_REVOKED_SET, cert_id)) if cert_id else False
     except Exception:  # noqa: BLE001
