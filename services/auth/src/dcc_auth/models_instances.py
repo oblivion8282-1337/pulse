@@ -184,6 +184,8 @@ class Complaint(Base):
         BigInteger, ForeignKey("users.id"), nullable=True
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    # Optional URL reference (e.g. link to offending content on the instance).
+    target_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitter_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
