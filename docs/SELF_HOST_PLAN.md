@@ -143,9 +143,20 @@ privaten Server ein User noch nutzt.
     **(F) Migration aus heutigem Zustand (Big-Bang, weil Pulse noch Beta):**
     - Alembic-Migration `auth.users.pairwise_salt` ADD COLUMN, default `gen_random_bytes(32)` für bestehende User.
     - Alle bestehenden `auth.refresh_tokens` werden bei Deploy revoked (`revoked_at=now()`).
+      **Implementiert in:** `services/auth/alembic/versions/20260526_0200_0018_revoke_existing_refresh_tokens.py`
+      Die Migration ist no-op auf leerer DB (Tests), wirkt nur auf Production-DB mit echten Tokens.
+      Down-Revision ist `pass` — nicht reversibel (tote Tokens wären nutzlos).
     - Bestehende Sessions enden — User müssen sich einmal neu einloggen. Beim Re-Login generiert Browser Keypair, holt Cert + Profile-Statement → ab da Cert-Modell.
+    - Frontend-UX: wenn Refresh-Token mit 401 abgelehnt wird (via `doRefresh` in `web/src/lib/api/client.ts`),
+      setzt der Client `sessionStorage['pulse.session_expired'] = '1'`. Die Login-Page (`web/src/routes/login/+page.svelte`)
+      liest diesen Key beim Mount aus und zeigt einen `toast.info('Pulse wurde aktualisiert — bitte einmal neu einloggen.')`.
     - chat-gateway-Deploy parallel zu auth-svc-Deploy. WS-Sessions kappen alle, reconnect mit Cert-Auth.
     - Akzeptables Migrations-Risiko bei Pulse-Beta-Größe (du + paar Test-User).
+
+    **Deploy-Hinweis für Ops:** Vor diesem Deploy User-Kommunikation senden —
+    alle aktiven Nutzer werden beim nächsten Seitenaufruf automatisch ausgeloggt
+    und sehen die Meldung "Pulse wurde aktualisiert — bitte einmal neu einloggen."
+    Kein Datenverlust; nur Session-Re-Auth nötig.
 
     **(G) Cloud-RS256-Key-Rotation (PKI-Standard):**
     - JWKS unterstützt mehrere `kid`s (Key IDs). Cloud kann mehrere aktive Keys halten.

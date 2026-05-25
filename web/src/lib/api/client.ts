@@ -82,6 +82,12 @@ async function doRefresh(intendedRefreshToken: string): Promise<Tokens | null> {
     if (!resp.ok) {
       clearTokens();
       _refreshLocked = true;
+      // Signal an die Login-Page: Session ist abgelaufen (z.B. durch die
+      // Big-Bang-Migration beim Deploy auf Cert-Modell). Die Login-Page liest
+      // diesen sessionStorage-Key aus und zeigt eine erklärende Meldung.
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('pulse.session_expired', '1');
+      }
       return null;
     }
     const data = (await resp.json()) as Tokens;
