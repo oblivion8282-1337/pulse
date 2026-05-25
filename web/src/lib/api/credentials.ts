@@ -10,6 +10,7 @@
  */
 
 import { AUTH_BASE, ApiError } from './client';
+import type { KeyBackupBlob } from '$lib/identity/key-backup.svelte';
 
 // ---------------------------------------------------------------------------
 // Typen
@@ -51,6 +52,22 @@ export interface ProfileUpdateResponse {
 export interface UsernameChangeResponse {
   success: boolean;
   reserved_until: string;
+}
+
+export interface BackupMetaResponse {
+  cert_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BackupFetchResponse {
+  cert_id: string;
+  device_label: string;
+  encrypted_blob: string;
+  kdf_salt: string;
+  kdf_params: string;
+  gcm_nonce: string;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,4 +185,86 @@ export async function changeUsername(newName: string): Promise<UsernameChangeRes
     method: 'POST',
     body: { new_username: newName }
   });
+}
+
+// ---------------------------------------------------------------------------
+// Cloud-Backup (Block 2.A/2.C)
+// ---------------------------------------------------------------------------
+
+/**
+ * Flacht einen KeyBackupBlob auf das Backend-API-Format ab.
+ *
+ * KeyBackupBlob-Struktur:   { v:1, kdf:{salt,hash,iterations}, cipher:{iv,ct} }
+ * Backend erwartet:         { kdf_salt, kdf_params, gcm_nonce, encrypted_blob, device_label }
+ */
+function flattenBlob(blob: KeyBackupBlob, deviceLabel: string): Record<string, string> {
+  const kdf_params = JSON.stringify({
+    name: blob.kdf.name,
+    hash: blob.kdf.hash,
+    iterations: blob.kdf.iterations
+  });
+  return {
+    kdf_salt: blob.kdf.salt,
+    kdf_params,
+    gcm_nonce: blob.cipher.iv,
+    encrypted_blob: blob.cipher.ct,
+    device_label: deviceLabel
+  };
+}
+
+/**
+ * Rekonstruiert einen KeyBackupBlob aus dem Backend-Response-Format.
+ * Parst kdf_params JSON-String zurück in die Blob-Struktur.
+ */
+export function reconstructBlob(resp: BackupFetchResponse): KeyBackupBlob {
+  let iterations = 600_000;
+  try {
+    const params = JSON.parse(resp.kdf_params) as { iterations?: number };
+    if (typeof params.iterations === 'number') iterations = params.iterations;
+  } catch {
+    // Fallback auf OWASP-Default
+  }
+  return {
+    v: 1,
+    kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: iterations as 600_000, salt: resp.kdf_salt },
+    cipher: { name: 'AES-GCM', iv: resp.gcm_nonce, ct: resp.encrypted_blob }
+  };
+}
+
+/**
+ * Erstellt oder aktualisiert ein verschlüsseltes Keypair-Backup.
+ *
+ * @param certId      - UUID des Certs (aus certStore.cert.claims.cert_id)
+ * @param blob        - Verschlüsselter KeyBackupBlob (aus encryptKeypair())
+ * @param deviceLabel - Gerätebeschriftung (max. 64 Zeichen)
+ */
+export async function createBackup(
+  certId: string,
+  blob: KeyBackupBlob,
+  deviceLabel: string
+): Promise<BackupMetaResponse> {
+  return cookieFetch<BackupMetaResponse>(`/credentials/${certId}/backup`, {
+    method: 'POST',
+    body: flattenBlob(blob, deviceLabel)
+  });
+}
+
+/**
+ * Holt das verschlüsselte Backup für ein Cert.
+ * Gibt `null` zurück wenn kein Backup vorhanden ist (404).
+ */
+export async function getBackup(certId: string): Promise<BackupFetchResponse | null> {
+  try {
+    return await cookieFetch<BackupFetchResponse>(`/credentials/${certId}/backup`);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Löscht das Backup für ein Cert.
+ */
+export async function deleteBackup(certId: string): Promise<void> {
+  return cookieFetch<void>(`/credentials/${certId}/backup`, { method: 'DELETE' });
 }
