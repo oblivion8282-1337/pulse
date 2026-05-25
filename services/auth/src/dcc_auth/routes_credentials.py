@@ -11,6 +11,7 @@ from time import monotonic
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -94,15 +95,22 @@ async def _active_creds_for_user(db: AsyncSession, user_id: int) -> list[IssuedC
 
 
 async def _push_to_redis_crl(cert_id: str, expires_at: datetime) -> None:
-    """Best-effort: add cert_id to auth:revoked_certs ZSET (score=unix_ts)."""
+    """Best-effort: add cert_id to auth:revoked_certs ZSET and invalidate the ETag cache.
+
+    Uses crl_add() from routes_crl which does zadd + ETag recompute atomically so
+    that GET /.well-known/revoked-credentials never serves a stale 304 after a
+    fresh revocation.
+    """
     try:
         from redis.asyncio import Redis
+
+        from dcc_auth.routes_crl import crl_add
 
         redis_url = get_settings().redis_url  # type: ignore[attr-defined]
         if not redis_url:
             return
         async with Redis.from_url(redis_url, decode_responses=True) as r:
-            await r.zadd("auth:revoked_certs", {cert_id: expires_at.timestamp()})
+            await crl_add(r, cert_id, int(expires_at.timestamp()))
     except Exception:
         log.warning("redis CRL push failed for cert_id=%s", cert_id, exc_info=True)
 
@@ -181,7 +189,29 @@ async def issue_credential(
         expires_at=expires_at,
     )
     db.add(cred)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        # Concurrent request won the race — the partial unique index on
+        # (user_id, device_pubkey) WHERE revoked_at IS NULL rejected our INSERT.
+        # Roll back and re-SELECT the winning row so we return idempotent output.
+        await db.rollback()
+        # Re-build the lookup without reusing the pre-rollback stmt object to
+        # avoid any session-level cache or stale-object effects.
+        winner_stmt = select(IssuedCredential).where(
+            IssuedCredential.user_id == user.id,
+            IssuedCredential.device_pubkey == pubkey_bytes,
+            IssuedCredential.revoked_at.is_(None),
+        )
+        winner = (await db.execute(winner_stmt)).scalars().first()
+        if winner is None:
+            # Should not happen: the constraint fired but no active row found.
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="concurrent_issue_conflict"
+            )
+        # user object may be expired after rollback — refresh it for JWT signing.
+        await db.refresh(user)
+        return CredentialIssueResponse(cert=_sign_credential_jwt(user, winner, session_row))
     cert_jwt = _sign_credential_jwt(user, cred, session_row)
     await db.commit()
     return CredentialIssueResponse(cert=cert_jwt)
