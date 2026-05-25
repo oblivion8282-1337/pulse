@@ -10,8 +10,8 @@ endpoint catches that and re-SELECTs the winner row, returning idempotent output
 On SQLite (test DB) partial unique indexes are supported since SQLite 3.8.9; aiosqlite
 ships a recent enough SQLite so no fallback is needed.
 
-Revision ID: 0016_cred_pubkey_unique
-Revises: 0015_encrypted_key_backups
+Revision ID: 0017_cred_pubkey_unique
+Revises: 0016_username_reservations
 Create Date: 2026-05-25 04:00:00
 """
 from __future__ import annotations
@@ -19,8 +19,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0016_cred_pubkey_unique"
-down_revision: str | None = "0015_encrypted_key_backups"
+revision: str = "0017_cred_pubkey_unique"
+down_revision: str | None = "0016_username_reservations"
 branch_labels = None
 depends_on = None
 
