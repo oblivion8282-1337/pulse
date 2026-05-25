@@ -205,7 +205,7 @@ async def test_encrypted_key_backups_columns(engine):
     """migration 0015: encrypted_key_backups must have all required columns."""
     expected = {
         "cert_id", "user_id", "device_label", "encrypted_blob",
-        "previous_blob", "argon2_salt", "argon2_params", "gcm_nonce",
+        "previous_blob", "kdf_salt", "kdf_params", "gcm_nonce",
         "created_at", "previous_replaced_at",
     }
     async with engine.connect() as conn:
@@ -271,8 +271,8 @@ async def test_credential_cascade_delete(session_factory):
             user_id=uid,
             device_label="Test Device",
             encrypted_blob=b"\xab" * 48,
-            argon2_salt=b"\x01" * 16,
-            argon2_params="t=3,m=65536,p=4",
+            kdf_salt=b"\x01" * 16,
+            kdf_params="t=3,m=65536,p=4",
             gcm_nonce=b"\x02" * 12,
         )
         session.add(backup)

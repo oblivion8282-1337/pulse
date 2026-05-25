@@ -512,10 +512,11 @@ class EncryptedKeyBackup(Base):
     encrypted_blob: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
     # Previous ciphertext kept for 30 days during MP-Change-Flow.
     previous_blob: Mapped[bytes | None] = mapped_column(LargeBinary(), nullable=True)
-    # 16-byte Argon2id salt used to derive AES key from Master-Passwort.
-    argon2_salt: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # e.g. "t=3,m=65536,p=4" — stored as TEXT for forward-compatibility.
-    argon2_params: Mapped[str] = mapped_column(Text, nullable=False)
+    # 16-byte KDF salt used to derive AES key from Master-Passwort.
+    kdf_salt: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
+    # KDF params string, e.g. '{"name":"PBKDF2","hash":"SHA-256","iterations":600000}'.
+    # Stored as TEXT for forward-compatibility (KDF can change without schema change).
+    kdf_params: Mapped[str] = mapped_column(Text, nullable=False)
     # 12-byte AES-GCM nonce (unique per encryption).
     gcm_nonce: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
