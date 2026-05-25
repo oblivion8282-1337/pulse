@@ -23,6 +23,7 @@ dependencies = [
     "qrcode[pil]>=8.0,<9",
     "webauthn>=2.5,<3",
     "dcc-shared",
+    "redis>=5.0",
 ]
 
 [project.optional-dependencies]

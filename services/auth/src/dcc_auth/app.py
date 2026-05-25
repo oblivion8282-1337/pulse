@@ -18,6 +18,7 @@ from dcc_auth.routes_admin import router as admin_router
 from dcc_auth.routes_admin_backup import router as admin_backup_router
 from dcc_auth.routes_admin_smtp import router as admin_smtp_router
 from dcc_auth.routes_avatar import router as avatar_router
+from dcc_auth.routes_credentials import router as credentials_router
 from dcc_auth.routes_crl import router as crl_router
 from dcc_auth.routes_profile import router as profile_router
 from dcc_auth.routes_recovery import router as recovery_router
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(totp_router)
     app.include_router(webauthn_router)
     app.include_router(webauthn_login_router)
+    app.include_router(credentials_router)
     app.include_router(crl_router)
     app.include_router(profile_router)
 

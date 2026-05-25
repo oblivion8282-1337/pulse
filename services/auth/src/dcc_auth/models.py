@@ -469,10 +469,17 @@ class IssuedCredential(Base):
     )
 
     __table_args__ = (
-        # Partial index would be ideal (WHERE revoked_at IS NULL), but
-        # SQLAlchemy table_args partial index syntax is PG-specific; the
-        # migration creates it correctly.  The plain index here covers both
-        # backends for test-DB introspection.
+        # Partial index: one active cert per (user_id, device_pubkey).
+        # sqlite_where is accepted by SQLite since 3.8.9 and by the
+        # create_all path in tests.  The Alembic migration 0016 creates
+        # the equivalent index on Postgres with postgresql_where.
+        Index(
+            "uq_issued_cred_user_pubkey_active",
+            "user_id",
+            "device_pubkey",
+            unique=True,
+            sqlite_where=text("revoked_at IS NULL"),
+        ),
         Index("ix_issued_credentials_user_active", "user_id"),
         Index("ix_issued_credentials_expires_at", "expires_at"),
     )
