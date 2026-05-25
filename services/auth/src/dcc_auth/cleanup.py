@@ -33,6 +33,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from dcc_auth.browser_sessions import purge_expired_sessions
 from dcc_auth.config import Settings
 from dcc_auth.models import EmailVerificationToken, PasswordResetToken, RefreshToken
 
@@ -63,18 +64,22 @@ async def _run_once(engine: AsyncEngine, settings: Settings) -> dict[str, int]:
                 RefreshToken.revoked_at < revoked_cutoff,
             )
         )
+        us_deleted = await purge_expired_sessions(session)
         await session.commit()
 
     counts = {
         "password_reset_tokens": pw_res.rowcount or 0,
         "email_verification_tokens": ev_res.rowcount or 0,
         "refresh_tokens_revoked": rt_res.rowcount or 0,
+        "user_sessions_expired": us_deleted,
     }
     log.info(
-        "token_cleanup_done password_reset=%d email_verification=%d refresh_revoked=%d",
+        "token_cleanup_done password_reset=%d email_verification=%d "
+        "refresh_revoked=%d user_sessions=%d",
         counts["password_reset_tokens"],
         counts["email_verification_tokens"],
         counts["refresh_tokens_revoked"],
+        counts["user_sessions_expired"],
     )
     return counts
 

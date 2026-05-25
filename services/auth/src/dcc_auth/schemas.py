@@ -33,6 +33,17 @@ class RefreshIn(BaseModel):
     refresh_token: Annotated[str, Field(max_length=4096)]
 
 
+
+
+class LogoutIn(BaseModel):
+    """Optional body for POST /logout.
+
+    refresh_token is optional -- a caller using only the browser-session
+    cookie can omit it.  Both paths are idempotent.
+    """
+
+    refresh_token: Annotated[str | None, Field(default=None, max_length=4096)] = None
+
 class TokensOut(BaseModel):
     access_token: str
     refresh_token: str

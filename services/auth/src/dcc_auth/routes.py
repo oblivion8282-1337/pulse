@@ -9,19 +9,25 @@ from datetime import UTC, datetime
 
 import jwt
 import structlog
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
+from dcc_auth.browser_sessions import (
+    clear_session_cookie,
+    create_session,
+    set_session_cookie,
+)
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.email import issue_verification_email, resolve_smtp_config
-from dcc_auth.models import AuthSettings, RefreshToken, User, WebAuthnCredential
+from dcc_auth.models import AuthSettings, RefreshToken, User, UserSession, WebAuthnCredential
 from dcc_auth.schemas import (
     LoginIn,
     LoginMfaPending,
+    LogoutIn,
     MessageOut,
     RefreshIn,
     RegisterIn,
@@ -225,6 +231,7 @@ async def register(
 async def login(
     payload: LoginIn,
     request: Request,
+    response: Response,
     session: SessionDep,
     signer: JwtSigner = Depends(_signer_dep),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
@@ -277,7 +284,17 @@ async def login(
     tokens = await _issue_tokens(
         session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
     )
+    # Session cookie: amr=["pwd"] + acr="0" (password-only, no MFA at this step).
+    sid = await create_session(
+        session,
+        user_id=user.id,
+        amr=["pwd"],
+        acr="0",
+        user_agent=user_agent,
+        ip=_client_ip(request),
+    )
     await session.commit()
+    set_session_cookie(response, sid)
     return tokens
 
 
@@ -347,25 +364,50 @@ async def refresh(
 
 @router.post("/logout", response_model=MessageOut)
 async def logout(
-    payload: RefreshIn,
+    request: Request,
+    response: Response,
+    payload: LogoutIn,
     session: SessionDep,
     signer: JwtSigner = Depends(_signer_dep),
 ):
-    try:
-        decoded = signer.decode(payload.refresh_token, expected_type="refresh")
-    except jwt.PyJWTError:
-        return MessageOut(detail="ok")  # idempotent
+    # --- Revoke refresh token (JWT path, optional) ---
+    decoded = None
+    if payload.refresh_token:
+        try:
+            decoded = signer.decode(payload.refresh_token, expected_type="refresh")
+        except jwt.PyJWTError:
+            decoded = None
 
-    try:
-        jti = uuid.UUID(decoded["jti"])
-        user_id = int(decoded["sub"])
-    except (KeyError, ValueError):
-        return MessageOut(detail="ok")
+    committed = False
+    if decoded is not None:
+        try:
+            jti = uuid.UUID(decoded["jti"])
+            user_id = int(decoded["sub"])
+        except (KeyError, ValueError):
+            jti = None
+            user_id = None
+        if jti is not None:
+            rt = await session.get(RefreshToken, jti)
+            if rt is not None and rt.user_id == user_id and rt.revoked_at is None:
+                rt.revoked_at = datetime.now(tz=UTC)
+                committed = True
 
-    rt = await session.get(RefreshToken, jti)
-    if rt is not None and rt.user_id == user_id and rt.revoked_at is None:
-        rt.revoked_at = datetime.now(tz=UTC)
+    # --- Revoke browser session cookie (if present) ---
+    raw_cookie = request.cookies.get("pulse_session")
+    if raw_cookie:
+        try:
+            sid = uuid.UUID(raw_cookie)
+            row = await session.get(UserSession, str(sid))
+            if row is not None:
+                row.expires_at = datetime.now(tz=UTC)
+                committed = True
+        except (ValueError, Exception):  # noqa: BLE001
+            pass
+
+    if committed:
         await session.commit()
+
+    clear_session_cookie(response)
     return MessageOut(detail="ok")
 
 
