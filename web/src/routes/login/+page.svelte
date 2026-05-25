@@ -44,6 +44,16 @@
     if (page.url.searchParams.get('verified') === '1') {
       toast.success('Email bestätigt.');
     }
+    // Big-Bang-Migration auf Cert-Modell: alle Refresh-Tokens wurden beim
+    // Deploy revoked (Migration 0018). doRefresh() in client.ts setzt diesen
+    // Key wenn ein Refresh mit 401 scheitert. Klare Meldung statt stummem
+    // Logout überrascht den User nicht.
+    if (sessionStorage.getItem('pulse.session_expired') === '1') {
+      sessionStorage.removeItem('pulse.session_expired');
+      toast.info('Pulse wurde aktualisiert — bitte einmal neu einloggen.', {
+        duration: 8000
+      });
+    }
   });
 
   async function completeLogin() {
