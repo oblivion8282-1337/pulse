@@ -20,7 +20,8 @@ import { certStore, parseCertClaims } from './cert.svelte';
 import type { IdentityCert } from './cert.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
 import type { ProfileStatement } from './profile-statement.svelte';
-import { issueCert, listCerts, getProfileStatement } from '$lib/api/credentials';
+// listCerts wird nur via DeviceManagement-UI genutzt, nicht hier im Issue-Flow.
+import { issueCert, getProfileStatement } from '$lib/api/credentials';
 
 // ---------------------------------------------------------------------------
 // Gerätebeschriftung
@@ -118,24 +119,6 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
 
   // --- 3: Cert auflösen ---
   let certJwt: string;
-
-  if (!keypairCreated) {
-    // Keypair existiert — prüfe ob Server schon ein aktives Cert kennt
-    let existingCertId: string | null = null;
-    try {
-      const { devices } = await listCerts();
-      // Wir können nicht direkt pubkey vergleichen (Server gibt ihn nicht zurück).
-      // Stattdessen: Issue ist idempotent bei gleichem Pubkey → wir issuen immer,
-      // und der Server gibt das bestehende Cert zurück wenn Pubkey matcht.
-      // Die listCerts-Abfrage dient hier als Existenz-Check (vermeidet Rate-Limit-Hit
-      // wenn viele Geräte aktiv sind — fällt aber durch wenn 0 Devices da sind,
-      // was nach Cache-Clear der normale Weg ist).
-      existingCertId = devices.length > 0 ? devices[0].cert_id : null;
-    } catch {
-      // Network-Error beim List-Check → trotzdem Issue versuchen
-    }
-    void existingCertId; // wird nicht direkt genutzt — Issue ist idempotent
-  }
 
   // Idempotenter Issue-Call — gibt bestehendes Cert zurück wenn Pubkey matcht
   const issueResp = await issueCert(pubkeyB64, label);

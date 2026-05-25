@@ -71,6 +71,19 @@ class AuthStore {
         // Best-effort; a network blip just leaves the local slice in
         // place, the next mutation will push it back up.
         void hydrateServerSections();
+        // Fix 2: Cert + Timer nach Tab-Reload/SSO-Hydrate nachholen.
+        // Dynamische Imports vermeiden Circular-Dep (identity-Module importieren auth).
+        import('$lib/identity/issue-flow')
+          .then(({ runIssueFlow }) => runIssueFlow())
+          .then(async () => {
+            const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
+              import('$lib/identity/profile-refresh.svelte'),
+              import('$lib/identity/cert-rotation.svelte'),
+            ]);
+            startProfileRefresh();
+            startCertRotation();
+          })
+          .catch(() => {/* silent — degradiert gracefully */});
       }
     } catch {
       clearTokens();

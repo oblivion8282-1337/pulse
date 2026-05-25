@@ -56,8 +56,11 @@
     // Fehler blockieren den Login nicht — Cert-Features degradieren gracefully.
     void runIssueFlow()
       .then(() => {
-        void startProfileRefresh();
-        void startCertRotation();
+        // Guard: User könnte zwischenzeitlich signOut gemacht haben
+        if (auth.isAuthenticated) {
+          void startProfileRefresh();
+          void startCertRotation();
+        }
       })
       .catch((err: unknown) => {
         // Nur loggen — kein Toast, da unkritisch für den Login-Erfolg
