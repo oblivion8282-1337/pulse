@@ -12,7 +12,7 @@
  */
 
 const DB_NAME = 'pulse-identity';
-const STORE_NAME = 'identity';
+export const STORE_NAME = 'identity';
 const DB_VERSION = 1;
 
 export function openIdentityDb(): Promise<IDBDatabase> {
