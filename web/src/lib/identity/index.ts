@@ -1,10 +1,5 @@
 /**
- * Public API des Identity-Moduls (DE 11 A.1/A.2/A.6).
- *
- * Dieses Modul ist bewusst Backend-frei — es verwaltet nur den
- * lokalen Schlüssel/Cert/Statement-State im Browser/Electron.
- * Backend-Integration (POST /credentials/issue etc.) kommt in
- * einem späteren Sub-Task.
+ * Public API des Identity-Moduls (DE 11 A.1/A.2/A.6/Block 1.H).
  *
  * Electron-Note:
  *   IndexedDB bleibt in Electron nur persistent wenn BrowserWindow mit
@@ -30,3 +25,12 @@ export type { ProfileStatement, ProfileStatementClaims } from './profile-stateme
 
 export { isPrivateBrowsing, getPrivateBrowsingState,
   resetPrivateBrowsingCache } from './private-browsing';
+
+export { runIssueFlow } from './issue-flow';
+export type { IssueFlowResult } from './issue-flow';
+
+export { startProfileRefresh, stopProfileRefresh,
+  isProfileRefreshRunning } from './profile-refresh.svelte';
+
+export { startCertRotation, stopCertRotation,
+  isCertRotationRunning } from './cert-rotation.svelte';

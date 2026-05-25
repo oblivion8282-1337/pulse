@@ -15,6 +15,9 @@
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
+  import { runIssueFlow } from '$lib/identity/issue-flow';
+  import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
 
   type Step = 'credentials' | 'mfa';
 
@@ -48,6 +51,22 @@
 
   async function completeLogin() {
     auth.setUser(await me());
+
+    // Identity-Flow: Cert ausstellen + Profile-Statement holen (Best-effort).
+    // Fehler blockieren den Login nicht — Cert-Features degradieren gracefully.
+    void runIssueFlow()
+      .then(() => {
+        // Guard: User könnte zwischenzeitlich signOut gemacht haben
+        if (auth.isAuthenticated) {
+          void startProfileRefresh();
+          void startCertRotation();
+        }
+      })
+      .catch((err: unknown) => {
+        // Nur loggen — kein Toast, da unkritisch für den Login-Erfolg
+        console.warn('[identity] issue-flow fehlgeschlagen:', err);
+      });
+
     const redirect = safeRedirect(page.url.searchParams.get('redirect'));
     await goto(redirect);
   }
