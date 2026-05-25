@@ -11,7 +11,7 @@
  * IndexedDB-Key: `pulse.identity-cert`
  */
 
-import { openIdentityDb, idbGetIdentity, idbPutIdentity } from './idb-shared';
+import { openIdentityDb, idbGetIdentity, idbPutIdentity, STORE_NAME } from './idb-shared';
 
 const CERT_KEY = 'pulse.identity-cert';
 
@@ -121,8 +121,8 @@ export async function wipeCert(): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
   try {
     const db = await openIdentityDb();
-    const tx = db.transaction('identity', 'readwrite');
-    tx.objectStore('identity').delete(CERT_KEY);
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(CERT_KEY);
     await new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);

@@ -11,7 +11,7 @@
  *                   oder später `{ type: 'noble', publicKey: Uint8Array, privateKey: Uint8Array }`
  */
 
-import { openIdentityDb, idbGetIdentity, idbPutIdentity } from './idb-shared';
+import { openIdentityDb, idbGetIdentity, idbPutIdentity, STORE_NAME } from './idb-shared';
 
 const IDB_KEY = 'pulse.keypair';
 
@@ -56,26 +56,32 @@ export type StoredKeypair = WebCryptoKeypair;
 
 /**
  * Generiert ein neues Ed25519-Keypair.
- * Privater Schlüssel ist `extractable: false` (WebCrypto-Sicherheit).
+ *
+ * @param opts - Optionen:
+ *   - `forBackup: true` → `extractable: true` (für Backup-Verschlüsselung, Plan DE 11 A.6)
+ *   - `forBackup: false` oder nicht gesetzt → `extractable: false` (Standard-Sicherheit)
+ *
+ * Privater Schlüssel ist normalerweise `extractable: false` (WebCrypto-Sicherheit).
+ * Im Backup-Flow wird `extractable: true` benötigt, um den Schlüssel zu serialisieren
+ * und mit einem Backup-Passwort zu verschlüsseln.
  *
  * Wirft `Error('ED25519_WEBCRYPTO_UNSUPPORTED')` wenn WebCrypto Ed25519
- * nicht verfügbar ist. In diesem Fall: `@noble/curves`-Dep hinzufügen
- * (TODO ADD DEP: `pnpm add @noble/curves`) und Fallback implementieren.
+ * nicht verfügbar ist.
  */
-export async function generateKeypair(): Promise<WebCryptoKeypair> {
+export async function generateKeypair(opts?: { forBackup?: boolean }): Promise<WebCryptoKeypair> {
   if (!(await supportsWebCryptoEd25519())) {
-    // TODO(ADD DEP @noble/curves): Fallback implementieren wenn User-Entscheidung getroffen.
-    // Beispiel-Impl:
-    //   import { ed25519 } from '@noble/curves/ed25519';
-    //   const privKey = ed25519.utils.randomPrivateKey();
-    //   const pubKey = ed25519.getPublicKey(privKey);
-    //   return { type: 'noble', publicKey: pubKey, privateKey: privKey };
+    // FINAL-DECISION (User, Block 1.F-Verify): kein Fallback auf @noble/curves.
+    // Browsers ohne nativen Ed25519-Support (Safari < 17, Firefox < 130, alte
+    // Chromium) bekommen ED25519_WEBCRYPTO_UNSUPPORTED. Plan-Sectionvermerk:
+    // "Hard-Cut, moderne Browser only".
     throw new Error('ED25519_WEBCRYPTO_UNSUPPORTED');
   }
 
+  const extractable = opts?.forBackup === true;
+
   const keyPair = await window.crypto.subtle.generateKey(
     { name: 'Ed25519' },
-    false, // extractable: false — privater Schlüssel verlässt das Gerät nie
+    extractable,
     ['sign', 'verify']
   );
 
@@ -154,8 +160,8 @@ export async function wipeKeypair(): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
   try {
     const db = await openIdentityDb();
-    const tx = db.transaction('identity', 'readwrite');
-    tx.objectStore('identity').delete(IDB_KEY);
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(IDB_KEY);
     await new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);

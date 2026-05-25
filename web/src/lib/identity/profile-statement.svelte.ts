@@ -12,7 +12,7 @@
  * IndexedDB-Key: `pulse.profile-statement`
  */
 
-import { openIdentityDb, idbGetIdentity, idbPutIdentity } from './idb-shared';
+import { openIdentityDb, idbGetIdentity, idbPutIdentity, STORE_NAME } from './idb-shared';
 
 const STATEMENT_KEY = 'pulse.profile-statement';
 
@@ -114,8 +114,8 @@ export async function wipeProfileStatement(): Promise<void> {
   if (typeof indexedDB === 'undefined') return;
   try {
     const db = await openIdentityDb();
-    const tx = db.transaction('identity', 'readwrite');
-    tx.objectStore('identity').delete(STATEMENT_KEY);
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    tx.objectStore(STORE_NAME).delete(STATEMENT_KEY);
     await new Promise<void>((res, rej) => {
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
