@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # defence, not the first.
     rate_limit_user_search: str = "30/minute"
 
+    # Redis -- optional for CRL (auth:revoked_certs ZSET)
+    redis_url: str = "redis://localhost:6380/0"
+
     # Cross-service: auth → chat-gateway. ``DELETE /me`` calls
     # ``POST {chat_gateway_url}/internal/users/{id}/purge`` to hard-delete the
     # user's chat-side state (memberships, messages, presence) BEFORE the
