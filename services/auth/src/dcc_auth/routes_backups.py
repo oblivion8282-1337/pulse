@@ -60,9 +60,9 @@ class BackupUpsertRequest(BaseModel):
     """Body for POST /credentials/{cert_id}/backup."""
 
     encrypted_blob: str = Field(..., min_length=1, description="base64-encoded AES-GCM ciphertext")
-    argon2_salt: str = Field(..., min_length=1, description="base64-encoded 16-byte Argon2id salt")
-    argon2_params: str = Field(
-        ..., min_length=1, description="Argon2id params string, e.g. 't=3,m=65536,p=4'"
+    kdf_salt: str = Field(..., min_length=1, description="base64-encoded 16-byte KDF salt")
+    kdf_params: str = Field(
+        ..., min_length=1, description="KDF params JSON string, e.g. '{\"name\":\"PBKDF2\",...}'"
     )
     gcm_nonce: str = Field(..., min_length=1, description="base64-encoded 12-byte AES-GCM nonce")
     device_label: str = Field(..., min_length=1, max_length=64)
@@ -82,8 +82,8 @@ class BackupFetchResponse(BaseModel):
     cert_id: str
     device_label: str
     encrypted_blob: str
-    argon2_salt: str
-    argon2_params: str
+    kdf_salt: str
+    kdf_params: str
     gcm_nonce: str
     created_at: datetime
 
@@ -137,7 +137,7 @@ async def upsert_backup(
     cred = await _own_cred(cert_id, user.id, db)
 
     blob_bytes = _decode_b64_field(payload.encrypted_blob, "encrypted_blob")
-    salt_bytes = _decode_b64_field(payload.argon2_salt, "argon2_salt")
+    salt_bytes = _decode_b64_field(payload.kdf_salt, "kdf_salt")
     nonce_bytes = _decode_b64_field(payload.gcm_nonce, "gcm_nonce")
 
     # Eagerly load the existing backup row (if any).
@@ -152,8 +152,8 @@ async def upsert_backup(
         existing.previous_blob = existing.encrypted_blob
         existing.previous_replaced_at = now
         existing.encrypted_blob = blob_bytes
-        existing.argon2_salt = salt_bytes
-        existing.argon2_params = payload.argon2_params
+        existing.kdf_salt = salt_bytes
+        existing.kdf_params = payload.kdf_params
         existing.gcm_nonce = nonce_bytes
         existing.device_label = payload.device_label
         await db.flush()
@@ -169,8 +169,8 @@ async def upsert_backup(
         user_id=user.id,
         device_label=payload.device_label,
         encrypted_blob=blob_bytes,
-        argon2_salt=salt_bytes,
-        argon2_params=payload.argon2_params,
+        kdf_salt=salt_bytes,
+        kdf_params=payload.kdf_params,
         gcm_nonce=nonce_bytes,
     )
     db.add(backup)
@@ -208,8 +208,8 @@ async def fetch_backup(
         cert_id=str(cred.cert_id),
         device_label=backup.device_label,
         encrypted_blob=base64.b64encode(backup.encrypted_blob).decode(),
-        argon2_salt=base64.b64encode(backup.argon2_salt).decode(),
-        argon2_params=backup.argon2_params,
+        kdf_salt=base64.b64encode(backup.kdf_salt).decode(),
+        kdf_params=backup.kdf_params,
         gcm_nonce=base64.b64encode(backup.gcm_nonce).decode(),
         created_at=backup.created_at,
     )

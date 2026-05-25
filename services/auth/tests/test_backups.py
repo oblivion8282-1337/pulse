@@ -40,8 +40,8 @@ def _backup_payload(
 ) -> dict:
     return {
         "encrypted_blob": blob,
-        "argon2_salt": salt,
-        "argon2_params": params,
+        "kdf_salt": salt,
+        "kdf_params": params,
         "gcm_nonce": nonce,
         "device_label": label,
     }
@@ -131,10 +131,10 @@ async def test_get_backup_returns_blob(client):
     data = r.json()
     assert data["cert_id"] == cert_id
     assert data["device_label"] == "My Device"
-    assert data["argon2_params"] == _PARAMS
+    assert data["kdf_params"] == _PARAMS
     # Base64 round-trip: decode both sides to compare bytes.
     assert base64.b64decode(data["encrypted_blob"]) == base64.b64decode(_BLOB)
-    assert base64.b64decode(data["argon2_salt"]) == base64.b64decode(_SALT)
+    assert base64.b64decode(data["kdf_salt"]) == base64.b64decode(_SALT)
     assert base64.b64decode(data["gcm_nonce"]) == base64.b64decode(_NONCE)
     assert "created_at" in data
 
