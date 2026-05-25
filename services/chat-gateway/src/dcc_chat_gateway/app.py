@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.crl_poller import crl_poller_loop
 from dcc_chat_gateway.db import engine
 from dcc_chat_gateway.plugins import (
     ensure_hello_in_allowlist,
@@ -73,6 +74,7 @@ async def lifespan(app: FastAPI):
     reaper: asyncio.Task | None = None
     push_cleanup: asyncio.Task | None = None
     idle_sweeper: asyncio.Task | None = None
+    crl_poller: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -103,6 +105,13 @@ async def lifespan(app: FastAPI):
         # activity to ``idle`` (Etappe 3).
         idle_sweeper = asyncio.create_task(
             idle_sweeper_loop(redis), name="dcc-presence-idle-sweeper"
+        )
+        # CRL poller — fetches revoked-cert list from Cloud every 30 s.
+        # Without this task the ``auth:revoked:certs`` Redis set stays empty
+        # in prod and revoked certs would pass validation (security hole).
+        crl_poller = asyncio.create_task(
+            crl_poller_loop(redis, settings.pulse_cloud_origin),
+            name="dcc-crl-poller",
         )
         # Plugin-System: Allowlist-gegateter Load.
         # 1. Self-Heal: ``hello`` muss immer in der Allowlist sein.
@@ -152,7 +161,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper, push_cleanup, idle_sweeper):
+            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller):
                 if task is not None:
                     task.cancel()
                     try:
