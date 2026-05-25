@@ -75,6 +75,42 @@ class Settings(BaseSettings):
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # ------------------------------------------------------------------ #
+    # Phase 3 — Self-Host / OIDC / Moderation settings                  #
+    # ------------------------------------------------------------------ #
+
+    # OIDC issuer used in Cert-JWT validation (``iss`` claim must match).
+    # Self-hosts can override if they mirror the Cloud auth-svc behind a
+    # local proxy.
+    pulse_oidc_issuer: str = "https://pulse.unicutmedia.com"
+
+    # JWT audience expected in Access-JWTs.  ``None`` ⇒ audience check
+    # disabled (backwards-compat with existing Cloud tokens that carry no
+    # ``aud`` claim).  Self-hosts set this to ``"self-host:<instance_id>"``
+    # once they receive their Snowflake-ID from the Cloud.
+    # Note: the existing ``jwt_audience`` field (below) governs *chat-
+    # gateway*'s own Access-JWT validation; this field is for *Cert-JWTs*.
+    pulse_jwt_audience: str | None = None
+
+    # Moderation tools — core feature, cannot be disabled.  Flag reserved
+    # for future granular mod-tools opt-out (e.g. report-submission only
+    # vs. full mod queue).
+    mod_tools_enabled: bool = True
+
+    # How long a cached profile is considered fresh before being marked
+    # ``stale`` (seconds).  After the TTL the profile is still served but
+    # flagged stale; a fresh profile statement replaces it on next login.
+    profile_cache_ttl_seconds: int = 24 * 3600  # 24 h
+
+    # Path to the JWKS-pin file (SHA-256 of sorted kid list).  Written on
+    # first successful JWKS pull; checked on every subsequent pull.
+    # Operator rotates by deleting the file or calling the admin endpoint.
+    jwks_pin_file: str = "/data/jwks-pin.txt"
+
+    # How often the Cloud policy document is polled (seconds).
+    # 6 h matches the recommended max-age from DE 12.
+    cloud_policy_poll_interval: int = 6 * 3600  # 6 h
+
     # Self-Host identity model (DE 11 / DE 14)
     # ``cloud``   — Cloud instance; user_id used directly as identifier.
     # ``self-host`` — Self-hosted instance; pairwise-sub replaces user_id.

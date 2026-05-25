@@ -7,6 +7,7 @@ here.
 """
 
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
+from dcc_chat_gateway.models.moderation import CachedUserProfile, ModAuditLog, Report
 from dcc_chat_gateway.models.channels import (
     CHANNEL_TYPE_TEXT,
     CHANNEL_TYPE_VOICE,
@@ -41,6 +42,9 @@ from dcc_chat_gateway.models.sounds import GuildSoundOverride
 from dcc_chat_gateway.models.user_preferences import UserPreference
 
 __all__ = [
+    "CachedUserProfile",
+    "ModAuditLog",
+    "Report",
     "CHANNEL_TYPE_TEXT",
     "CHANNEL_TYPE_VOICE",
     "MENTION_EVERYONE_TARGET_ID",
