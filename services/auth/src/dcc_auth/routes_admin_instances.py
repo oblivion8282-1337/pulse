@@ -43,7 +43,7 @@ router = APIRouter(prefix="/admin")
 class ApplicationOut(BaseModel):
     model_config = {"from_attributes": True}
 
-    id: int
+    id: str  # Snowflake-String-API
     hostname: str
     purpose: str
     expected_users: int
@@ -55,7 +55,7 @@ class ApplicationOut(BaseModel):
 
 
 class ApprovalOut(BaseModel):
-    instance_id: int
+    instance_id: str  # Snowflake-String-API
     hostname: str
     client_id: str
     client_secret: str
@@ -72,7 +72,7 @@ class RejectIn(BaseModel):
 class InstanceOut(BaseModel):
     model_config = {"from_attributes": True}
 
-    id: int
+    id: str  # Snowflake-String-API
     hostname: str
     client_id: str
     worker_id_chat: int
@@ -84,7 +84,7 @@ class InstanceOut(BaseModel):
 
 
 class RotateSecretOut(BaseModel):
-    instance_id: int
+    instance_id: str  # Snowflake-String-API
     client_secret: str
     warning: str = "Speichere das client_secret jetzt — es wird nicht mehr angezeigt."
 
@@ -165,7 +165,7 @@ async def list_applications(
         await session.refresh(row, ["applicant"])
         out.append(
             ApplicationOut(
-                id=row.id,
+                id=str(row.id),
                 hostname=row.hostname,
                 purpose=row.purpose,
                 expected_users=row.expected_users,
@@ -252,7 +252,7 @@ async def approve_application(
             continue
 
         return ApprovalOut(
-            instance_id=instance_id,
+            instance_id=str(instance_id),
             hostname=app_row.hostname,
             client_id=client_id,
             client_secret=client_secret_plain,
@@ -323,7 +323,7 @@ async def list_instances(
         await session.refresh(row, ["registrar"])
         out.append(
             InstanceOut(
-                id=row.id,
+                id=str(row.id),
                 hostname=row.hostname,
                 client_id=row.client_id,
                 worker_id_chat=row.worker_id_chat,
@@ -414,6 +414,6 @@ async def rotate_secret(
     await session.commit()
 
     return RotateSecretOut(
-        instance_id=instance_id,
+        instance_id=str(instance_id),
         client_secret=new_secret_plain,
     )

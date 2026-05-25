@@ -8,6 +8,7 @@
   import SettingsSecurity from './settings/SettingsSecurity.svelte';
   import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
   import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
+  import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -16,6 +17,7 @@
   import KeyboardIcon from '@lucide/svelte/icons/keyboard';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import LockIcon from '@lucide/svelte/icons/lock';
+  import ServerIcon from '@lucide/svelte/icons/server';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
@@ -29,7 +31,8 @@
     | 'sounds'
     | 'keyboard'
     | 'security'
-    | 'privacy';
+    | 'privacy'
+    | 'self-host';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -68,7 +71,8 @@
     { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
     { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon, desktopOnly: true },
     { id: 'privacy', label: 'Privatsphäre', icon: LockIcon },
-    { id: 'security', label: 'Sicherheit', icon: ShieldIcon }
+    { id: 'security', label: 'Sicherheit', icon: ShieldIcon },
+    { id: 'self-host', label: 'Self-Hoster', icon: ServerIcon }
   ];
 
   let visibleTabs = $derived(tabs.filter((t) => !t.desktopOnly || !viewport.isMobile));
@@ -145,6 +149,8 @@
           <SettingsKeyboard />
         {:else if activeTab === 'privacy'}
           <SettingsPrivacy />
+        {:else if activeTab === 'self-host'}
+          <SettingsSelfHost />
         {:else}
           <SettingsSecurity />
         {/if}
