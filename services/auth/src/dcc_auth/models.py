@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 from uuid import UUID
 
@@ -73,7 +74,9 @@ class User(Base):
     # devices of the same user (DE 11 A.4).  Generated server-side on INSERT;
     # application code must supply an explicit value (no Python default here,
     # enforced by the migration removing the server_default after backfill).
-    pairwise_salt: Mapped[bytes | None] = mapped_column(LargeBinary(), nullable=True)
+    pairwise_salt: Mapped[bytes] = mapped_column(
+        LargeBinary(), nullable=False, default=lambda: secrets.token_bytes(32)
+    )
     # TIMESTAMPTZ watermark for Logout-Everywhere / Admin-Suspend race protection
     # (DE 11 A.11, Review #4 point 18+19).  ``POST /credentials/issue`` blocks
     # when ``now() < revoke_until + 5 min``.  Cleared on next successful MFA-Login.
