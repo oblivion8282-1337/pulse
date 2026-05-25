@@ -137,7 +137,7 @@ def upgrade() -> None:
         sa.Column(
             "approved_instance_id",
             sa.BigInteger(),
-            sa.ForeignKey(f"{SCHEMA}.registered_instances.id"),
+            sa.ForeignKey(f"{SCHEMA}.registered_instances.id", ondelete="SET NULL"),
             nullable=True,
         ),
         sa.Column(
@@ -191,7 +191,7 @@ def upgrade() -> None:
         sa.Column(
             "target_instance_id",
             sa.BigInteger(),
-            sa.ForeignKey(f"{SCHEMA}.registered_instances.id"),
+            sa.ForeignKey(f"{SCHEMA}.registered_instances.id", ondelete="SET NULL"),
             nullable=True,
         ),
         sa.Column(
