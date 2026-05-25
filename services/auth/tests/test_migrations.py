@@ -364,3 +364,81 @@ def test_migration_chain_is_sequential():
             f"{rev}: expected down_revision={expected_down!r}, "
             f"got {mod.down_revision!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 0020 — instance_registry (4 tables)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_registered_instances_columns(engine):
+    """migration 0020: registered_instances must have all required columns."""
+    expected = {
+        "id", "hostname", "client_id", "client_secret", "redirect_uris",
+        "worker_id_chat", "worker_id_voice", "worker_id_media",
+        "status", "registered_by", "registered_at",
+    }
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(
+            lambda sync_conn: sa_inspect(sync_conn).get_columns("registered_instances")
+        )
+    names = {c["name"] for c in cols}
+    missing = expected - names
+    assert not missing, f"registered_instances missing columns: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_instance_applications_columns(engine):
+    """migration 0020: instance_applications must have all required columns."""
+    expected = {
+        "id", "applicant_user_id", "hostname", "purpose", "expected_users",
+        "contact_email", "notes", "status", "reviewed_by", "reviewed_at",
+        "rejection_reason", "approved_instance_id", "created_at",
+    }
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(
+            lambda sync_conn: sa_inspect(sync_conn).get_columns("instance_applications")
+        )
+    names = {c["name"] for c in cols}
+    missing = expected - names
+    assert not missing, f"instance_applications missing columns: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_suspended_instances_columns(engine):
+    """migration 0020: suspended_instances must have all required columns."""
+    expected = {"instance_id", "suspended_at", "reason"}
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(
+            lambda sync_conn: sa_inspect(sync_conn).get_columns("suspended_instances")
+        )
+    names = {c["name"] for c in cols}
+    missing = expected - names
+    assert not missing, f"suspended_instances missing columns: {missing}"
+
+
+@pytest.mark.asyncio
+async def test_complaints_columns(engine):
+    """migration 0020: complaints must have all required columns."""
+    expected = {
+        "id", "target_instance_id", "target_user_id", "body", "submitter_email",
+        "submitted_at", "status", "resolution_note", "resolved_at",
+    }
+    async with engine.connect() as conn:
+        cols = await conn.run_sync(
+            lambda sync_conn: sa_inspect(sync_conn).get_columns("complaints")
+        )
+    names = {c["name"] for c in cols}
+    missing = expected - names
+    assert not missing, f"complaints missing columns: {missing}"
+
+
+def test_migration_0020_has_downgrade():
+    """0020 downgrade() must drop all 4 instance-registry tables."""
+    mod = _load_migration("0020")
+    src = inspect.getsource(mod.downgrade)
+    assert "registered_instances" in src
+    assert "instance_applications" in src
+    assert "suspended_instances" in src
+    assert "complaints" in src
