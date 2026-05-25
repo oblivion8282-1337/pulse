@@ -15,6 +15,8 @@
   import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
+  import CloudCheckIcon from '@lucide/svelte/icons/cloud-check';
+  import CloudOffIcon from '@lucide/svelte/icons/cloud-off';
   import { listCerts, revokeCert } from '$lib/api/credentials';
   import type { CredentialDevice } from '$lib/api/credentials';
   import { certStore } from '$lib/identity/cert.svelte';
@@ -167,12 +169,28 @@
                 Ausgestellt {formatDate(device.issued_at)} · Läuft ab {formatRelative(device.expires_at)}
               </span>
 
-              <!-- Backup-Status: Platzhalter für Block 2 -->
-              <span class="text-text-muted text-xs" data-testid="device-backup-status">
+              <!-- Backup-Status -->
+              <span
+                class="mt-0.5 inline-flex items-center gap-1 text-xs"
+                class:text-emerald-500={device.has_backup}
+                class:text-amber-500={!device.has_backup}
+                data-testid="device-backup-status"
+                title={device.has_backup
+                  ? 'Backup vorhanden — Recovery möglich'
+                  : 'Kein Backup — bei Geräteverlust unwiderruflich'}
+              >
                 {#if device.has_backup}
-                  <span class="text-emerald-500">Backup vorhanden</span>
+                  <CloudCheckIcon
+                    class="size-3 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span aria-label="Backup vorhanden — Recovery möglich">Backup vorhanden</span>
                 {:else}
-                  <span class="text-amber-500">Kein Backup (noch nicht implementiert)</span>
+                  <CloudOffIcon
+                    class="size-3 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span aria-label="Kein Backup — bei Geräteverlust unwiderruflich">Kein Backup</span>
                 {/if}
               </span>
 
