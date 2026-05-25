@@ -24,10 +24,15 @@ class OnboardingState {
   /** Markiert die Entscheidung als getroffen und schließt den Dialog. */
   markDecided(decision: 'skipped' | 'configured'): void {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(
-        LS_KEY,
-        JSON.stringify({ decided_at: new Date().toISOString(), decision })
-      );
+      try {
+        localStorage.setItem(
+          LS_KEY,
+          JSON.stringify({ decided_at: new Date().toISOString(), decision })
+        );
+      } catch {
+        // Quota/SecurityError (Safari ITP, Private-Browsing-Quota): still ok,
+        // Dialog erscheint beim nächsten Login erneut — nicht ideal, aber kein Crash.
+      }
     }
     this.showBackupStep = false;
   }
