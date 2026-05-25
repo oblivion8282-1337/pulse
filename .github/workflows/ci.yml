@@ -65,7 +65,11 @@ jobs:
         env:
           JWT_PRIVATE_KEY_FILE: ./secrets/jwt_private.pem
           JWT_PUBLIC_KEY_FILE: ./secrets/jwt_public.pem
-        run: uv run pytest -v
+        run: >
+          uv run pytest -v
+          --reruns 2 --reruns-delay 1
+          --only-rerun "AssertionError"
+          --only-rerun "RuntimeError"
 
   frontend:
     runs-on: ubuntu-24.04

@@ -17,6 +17,7 @@
   import AdminSmtp from '$lib/components/admin/AdminSmtp.svelte';
   import AdminBackup from '$lib/components/admin/AdminBackup.svelte';
   import AdminPermissions from '$lib/components/admin/AdminPermissions.svelte';
+  import AdminPlugins from '$lib/components/admin/AdminPlugins.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
@@ -63,6 +64,7 @@
       <AdminRegistration />
       <AdminSmtp />
       <AdminPermissions />
+      <AdminPlugins />
       <AdminUsers />
       <AdminAuditLog />
     </main>

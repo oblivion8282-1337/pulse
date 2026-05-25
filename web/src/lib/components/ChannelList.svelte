@@ -29,6 +29,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { ensureGuildPluginsLoaded } from '$lib/plugins';
   import type { Channel, Guild } from '$lib/api/types';
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
@@ -61,6 +62,13 @@
 
   let textChannels = $derived(channels.filter((c) => c.type === 0));
   let voiceChannels = $derived(channels.filter((c) => c.type === 1));
+
+  // Pro-Guild Plugin-Aktivierungen laden, sobald wir wissen, welche Guild
+  // aktiv ist. Idempotent — der Store fetched nur einmal pro Guild bis
+  // ein explizites `refreshGuildPlugins` reinkommt.
+  $effect(() => {
+    if (guild?.id) void ensureGuildPluginsLoaded(guild.id);
+  });
   let canManagePermissions = $derived(
     !!guild && roles.hasGuildPermission(guild.id, Perm.MANAGE_PERMISSIONS)
   );

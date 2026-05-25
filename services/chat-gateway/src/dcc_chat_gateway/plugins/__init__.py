@@ -41,12 +41,26 @@ Public API
 
 from __future__ import annotations
 
+from dcc_chat_gateway.plugins.allowlist import (
+    HELLO_PLUGIN_NAME,
+    add_to_allowlist,
+    ensure_hello_in_allowlist,
+    list_allowed_names,
+    remove_from_allowlist,
+    update_plugin_allowlist_snapshot,
+)
 from dcc_chat_gateway.plugins.loader import (
     DEFAULT_PLUGIN_API,
+    LoadResult,
     PluginLoadError,
+    activate_plugin,
+    deactivate_plugin,
+    discover_manifests,
     discover_plugins_dir,
     load_all,
+    load_all_with_allowlist,
     load_directory,
+    load_directory_with_allowlist,
 )
 from dcc_chat_gateway.plugins.manifest import (
     IncompatibleApiError,
@@ -66,7 +80,9 @@ from dcc_chat_gateway.plugins.registry import PluginManager, PluginRecord, get_m
 __all__ = [
     "DEFAULT_PERMISSION_MODE",
     "DEFAULT_PLUGIN_API",
+    "HELLO_PLUGIN_NAME",
     "IncompatibleApiError",
+    "LoadResult",
     "PermissionMode",
     "PluginLoadError",
     "PluginManager",
@@ -75,10 +91,20 @@ __all__ = [
     "PluginRecord",
     "PluginScope",
     "PluginUses",
+    "activate_plugin",
+    "add_to_allowlist",
+    "deactivate_plugin",
+    "discover_manifests",
     "discover_plugins_dir",
+    "ensure_hello_in_allowlist",
     "get_manager",
+    "list_allowed_names",
     "load_all",
+    "load_all_with_allowlist",
     "load_directory",
+    "load_directory_with_allowlist",
     "parse_manifest",
+    "remove_from_allowlist",
     "resolve_permission_mode",
+    "update_plugin_allowlist_snapshot",
 ]

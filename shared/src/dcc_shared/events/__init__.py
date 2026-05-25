@@ -34,6 +34,7 @@ this registry.
     - ``member_roles_updated``
     - ``permissions_updated``
     - ``guild_sound_updated``
+    - ``guild_plugins_changed``
     - ``channel_bump`` / ``dm_bump``
     - ``presence_update``
     - ``presence_status_changed`` (everyone else, masked; carries
@@ -93,6 +94,7 @@ from dcc_shared.events.guild import (
     GuildMemberAddedEvent,
     GuildMemberRemovedEvent,
     GuildMemberUpdatedEvent,
+    GuildPluginsChangedEvent,
     GuildSoundUpdatedEvent,
     GuildUpdatedEvent,
     MemberRolesUpdatedEvent,
@@ -156,6 +158,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "member_roles_updated": MemberRolesUpdatedEvent,
     "permissions_updated": PermissionsUpdatedEvent,
     "guild_sound_updated": GuildSoundUpdatedEvent,
+    "guild_plugins_changed": GuildPluginsChangedEvent,
     # ---- presence
     "presence_update": PresenceUpdateEvent,
     "presence_status_changed": PresenceStatusChangedEvent,
@@ -202,6 +205,7 @@ __all__ = [
     "GuildMemberAddedEvent",
     "GuildMemberRemovedEvent",
     "GuildMemberUpdatedEvent",
+    "GuildPluginsChangedEvent",
     "GuildSoundUpdatedEvent",
     "GuildUpdatedEvent",
     "MemberRolesUpdatedEvent",

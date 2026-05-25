@@ -169,6 +169,17 @@ export type ServerEvent =
       sound_id: string;
       removed: boolean;
     }
+  | {
+      // Guild-Admin hat ein Plugin auf der Guild ein-/ausgeschaltet
+      // (PUT /guilds/{id}/plugins/{name}) ODER der Bootstrap-Admin
+      // hat das Plugin instanzweit deaktiviert (DELETE /admin/plugins/{name})
+      // — letzteres pusht ein Event pro betroffener Guild mit enabled=false.
+      // Receiver invalidiert seinen guild-activation-Cache.
+      op: 'guild_plugins_changed';
+      guild_id: string;
+      plugin_name: string;
+      enabled: boolean;
+    }
   | { op: 'role_created'; role: RolePayload }
   | { op: 'role_updated'; role: RolePayload }
   | { op: 'role_deleted'; guild_id: string; role_id: string }

@@ -219,6 +219,10 @@ class _PermFilterMixin:
             "guild_ban_added",
             "guild_ban_removed",
             "channel_bump",
+            # Plugin-Toggle-Push (per-guild): nur Member sollen ihren
+            # ``guild-activation``-Cache invalidieren; Outsider haben
+            # gar keinen Slot für die Guild.
+            "guild_plugins_changed",
         }
     )
 
@@ -267,6 +271,12 @@ class _PermFilterMixin:
         deleted (or never existed) — drop the broadcast entirely so race-
         window messages on a still-subscribed ``_subs[cid]`` set don't fan
         out to unrelated clients."""
+        if not targets:
+            # Nothing to filter — skip the DB round-trip entirely.  This also
+            # avoids opening a session on the shared StaticPool connection used
+            # in tests, which could otherwise hold a DEFERRED transaction open
+            # long enough for a concurrent HTTP request to see stale data.
+            return targets
         if self._session_factory is None:
             return targets
         try:

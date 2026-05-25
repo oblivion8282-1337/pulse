@@ -18,6 +18,7 @@
   import CrownIcon from '@lucide/svelte/icons/crown';
   import BanIcon from '@lucide/svelte/icons/ban';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import PuzzleIcon from '@lucide/svelte/icons/puzzle';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -30,6 +31,7 @@
   import OwnerTransferSection from './OwnerTransferSection.svelte';
   import BansList from './BansList.svelte';
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
+  import GuildPluginsEditor from './GuildPluginsEditor.svelte';
 
   let {
     open = $bindable(false),
@@ -41,7 +43,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'ownership';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'ownership';
   let tab = $state<Tab>('roles');
 
   let guildId = $derived(guild?.id ?? '');
@@ -61,6 +63,12 @@
   let canManageSounds = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
   );
+  // Plugin-Toggles benutzen denselben MANAGE_GUILD-Bit wie Sounds —
+  // semantisch passt das (alles "Server konfigurieren"). Das Backend
+  // gated GET/PUT /guilds/{id}/plugins ebenfalls auf MANAGE_GUILD.
+  let canManagePlugins = $derived(
+    !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
+  );
 
   // Default to the first tab the caller is allowed to see, so the
   // dialog never opens on a tab that's empty.
@@ -68,6 +76,7 @@
     if (!open) return;
     if (canManageRoles) tab = 'roles';
     else if (canManageSounds) tab = 'sounds';
+    else if (canManagePlugins) tab = 'plugins';
     else if (isOwner) tab = 'ownership';
   });
 
@@ -219,6 +228,17 @@
             <Volume2Icon class="size-4" /> Sounds
           </button>
         {/if}
+        {#if canManagePlugins}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'plugins'}
+            onclick={() => selectTab('plugins')}
+            data-testid="settings-tab-plugins"
+          >
+            <PuzzleIcon class="size-4" /> Plugins
+          </button>
+        {/if}
         {#if isOwner}
           <button
             type="button"
@@ -248,6 +268,8 @@
           <BansList {guildId} />
         {:else if tab === 'sounds' && canManageSounds}
           <GuildSoundsEditor {guildId} />
+        {:else if tab === 'plugins' && canManagePlugins}
+          <GuildPluginsEditor {guildId} />
         {:else if tab === 'ownership' && isOwner}
           <OwnerTransferSection {guild} />
         {:else}
