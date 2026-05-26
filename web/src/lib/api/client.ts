@@ -66,17 +66,29 @@ export function apiBase(serverId?: string): string {
   return activeServer.current?.hostname ?? CLOUD_HOSTNAME;
 }
 
-/** Resolved den ServerEntry für ein Request (oder undefined → Cloud-Default). */
-function resolveServer(serverId?: string): ServerEntry | undefined {
+/** Resolved den ServerEntry für ein Request (oder undefined → Cloud-Default).
+ *  `forceCloud=true` ignoriert activeServer und gibt immer den Cloud-Entry
+ *  zurück — wird für die Identity-Plane-Endpoints genutzt. */
+function resolveServer(serverId?: string, forceCloud = false): ServerEntry | undefined {
+  if (forceCloud) return serversStore.servers.find((s) => s.isCloud);
   if (serverId) return serversStore.find(serverId);
   return activeServer.current;
 }
 
 /** Cloud nutzt `/api/{auth,chat,voice}` (nginx-Proxy auf window.location).
- *  Self-Host pre-pendet den vollen Hostname. */
+ *  Self-Host pre-pendet den vollen Hostname.
+ *
+ *  Ausnahme: `endpoint === 'auth'` ist immer Cloud-relativ — die Identity-
+ *  Plane (Register / Login / Cert-Issue / Profile-Statement / Backups /
+ *  WebAuthn / TOTP) lebt ausschließlich in der Pulse-Cloud. Self-Hosts
+ *  haben keinen Username/Passwort-Login (Cert-Login statt dessen) und auch
+ *  keinen unabhängigen Cert-Issuer. Würden wir hier den activeServer
+ *  durchreichen, würde z.B. eine /login-Anfrage nach Server-Switch zum
+ *  Self-Host laufen und mit 'invalid credentials' fehlschlagen — der User
+ *  käme nicht mehr in seinen Account. */
 function buildUrl(server: ServerEntry | undefined, endpoint: ApiEndpoint, path: string): string {
   const ep = endpointPath(endpoint);
-  if (!server || server.isCloud) {
+  if (endpoint === 'auth' || !server || server.isCloud) {
     return `${ep}${path}`;
   }
   return `${server.hostname}${ep}${path}`;
@@ -184,7 +196,11 @@ export async function request<T>(
   route: RequestRoute = {},
 ): Promise<T> {
   const { method = 'GET', body, auth = true, endpoint = 'chat', signal } = opts;
-  const server = resolveServer(route.serverId);
+  // Identity-Plane ist immer Cloud-only — selbst wenn der activeServer
+  // auf einen Self-Host zeigt, muss /register/login/me/credentials/…
+  // gegen die Cloud laufen (s. buildUrl-Kommentar).
+  const resolved = resolveServer(route.serverId);
+  const server = endpoint === 'auth' ? resolveServer(undefined, true) : resolved;
   const url = buildUrl(server, endpoint, path);
   const isSelfHost = !!server && !server.isCloud;
 
@@ -262,7 +278,10 @@ export async function requestForm<T>(
   route: RequestRoute = {},
 ): Promise<T> {
   const { endpoint = 'chat', method = 'POST' } = opts;
-  const server = resolveServer(route.serverId);
+  // Symmetrisch zu request(): Identity-Plane-Endpoints (auth) gehen immer
+  // gegen die Cloud, egal welcher Server gerade aktiv ist.
+  const resolved = resolveServer(route.serverId);
+  const server = endpoint === 'auth' ? resolveServer(undefined, true) : resolved;
   const url = buildUrl(server, endpoint, path);
   const isSelfHost = !!server && !server.isCloud;
 
