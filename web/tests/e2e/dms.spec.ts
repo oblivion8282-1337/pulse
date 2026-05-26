@@ -52,6 +52,35 @@ async function addMemberToGuild(adminPage: Page, guildId: string, userId: string
   }
 }
 
+/** Establish a mutual friendship between the two users by sending cross
+ *  friend-requests — the second POST auto-accepts in a single TX. DMs are
+ *  friend-gated since Phase 2 (``not_friends`` → 403), so this is required
+ *  before ``POST /dm-channels`` succeeds. Pattern mirrored from
+ *  ``friends.spec.ts``. */
+async function becomeFriends(
+  pageA: Page,
+  uidA: string,
+  pageB: Page,
+  uidB: string
+): Promise<void> {
+  const send = async (page: Page, targetId: string) => {
+    const r = await page.evaluate(async (uid) => {
+      const token = localStorage.getItem('dcc.tokens.access');
+      const resp = await fetch('/api/chat/friend-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ target_user_id: uid })
+      });
+      return { status: resp.status, body: await resp.text() };
+    }, targetId);
+    if (r.status !== 201) {
+      throw new Error(`friend-request failed ${r.status}: ${r.body}`);
+    }
+  };
+  await send(pageA, uidB);
+  await send(pageB, uidA); // reverse → auto-accept
+}
+
 test.describe.serial('DM (direct messages) E2E', () => {
   let aliceCtx: BrowserContext;
   let alicePage: Page;
@@ -78,6 +107,13 @@ test.describe.serial('DM (direct messages) E2E', () => {
     await register(alicePage, ALICE);
     await register(bobPage, BOB);
     bobUserId = await currentUserId(bobPage);
+    const aliceUserId = await currentUserId(alicePage);
+
+    // ``POST /dm-channels`` is friend-gated since the Phase-2 friends
+    // rollout — without a friendship it returns 403 ``not_friends`` and
+    // the right-click DM flow below fails before navigation. Establish
+    // the friendship now so the rest of the suite has a working DM.
+    await becomeFriends(alicePage, aliceUserId, bobPage, bobUserId);
 
     await expect(alicePage.getByTestId('empty-create-guild')).toBeVisible();
     await alicePage.getByTestId('empty-create-guild').click();
