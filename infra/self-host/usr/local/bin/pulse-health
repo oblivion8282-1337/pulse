@@ -1,0 +1,37 @@
+#!/bin/bash
+# pulse-health — Container-interner Healthcheck.
+#
+# Wird vom Dockerfile HEALTHCHECK-Befehl aufgerufen:
+#   HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
+#       CMD ["/usr/local/bin/pulse-health"]
+#
+# Prüft alle Sub-Services DIREKT (nicht über Caddy), damit der Check
+# auch funktioniert wenn Caddy selbst noch startet oder TLS neu verhandelt.
+#
+# Exit 0 = healthy, Exit 1 = unhealthy (Docker schaltet Container auf
+# "unhealthy" Status, restart: unless-stopped greift nach --retries).
+#
+# Absichtlich KEIN coturn-UDP-Check — netcat -z prüft TCP, coturn
+# ist primär UDP. s6-overlay-restart-loop reicht als Watchdog.
+
+set -euo pipefail
+
+# chat-gateway: HTTP health + DB + Redis + JWKS
+curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:8002/health
+
+# voice-signaling: muss antworten
+curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:8003/health
+
+# media-svc: muss antworten
+curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:8004/health
+
+# Postgres TCP-Port (embedded)
+nc -z 127.0.0.1 5432
+
+# Redis TCP-Port (embedded)
+nc -z 127.0.0.1 6379
+
+# LiveKit Signaling
+nc -z 127.0.0.1 7880
+
+echo "ok"
