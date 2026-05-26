@@ -34,6 +34,14 @@ async function register(
   await page.getByTestId('reg-password').fill(u.password);
   await page.getByTestId('reg-submit').click();
   await page.waitForURL(/\/app/);
+  // BackupSetupStep poppt nach runIssueFlow auf (s. issue-flow.ts) — der
+  // Dialog blockiert sonst die nächsten Klicks per overlay. Best-effort
+  // dismiss; wenn der Dialog nicht erscheint (z.B. weil Re-Run im Test
+  // ohne fresh-register), schluckt der catch.
+  await page
+    .locator('[data-testid=backup-onboarding-skip-btn]')
+    .click({ timeout: 2500 })
+    .catch(() => undefined);
 }
 
 // -------------------------------------------------------------------------

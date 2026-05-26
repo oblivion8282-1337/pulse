@@ -9,7 +9,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
-  import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
+  import { runIssueFlow } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
 
@@ -35,29 +35,24 @@
       });
       auth.setUser(await me());
 
-      // Identity-Flow analog zum Login: Cert ausstellen + Profile-Statement
-      // holen. Bei frischer Registration kann zwar kein Recovery-Backup
-      // existieren (User wurde gerade erst angelegt), aber wir behandeln
-      // RecoveryAvailableError trotzdem symmetrisch — falls die Sign-Up-
-      // Antwort race-y ist und ein leaked Browser-Profile schon eingeloggt
-      // war, soll der User trotzdem in den Recover-Pfad fließen können.
-      try {
-        await runIssueFlow();
-        if (auth.isAuthenticated) {
-          void startProfileRefresh();
-          void startCertRotation();
-        }
-      } catch (err) {
-        if (err instanceof RecoveryAvailableError) {
-          const params = new URLSearchParams({
-            cert_id: err.certId,
-            device_label: err.deviceLabel,
-          });
-          await goto(`/recover?${params.toString()}`, { replaceState: true });
-          return;
-        }
-        console.warn('[identity] issue-flow fehlgeschlagen:', err);
-      }
+      // Identity-Flow: Cert + Profile-Statement ausstellen + Refresh-Timer
+      // starten. Bei frischer Registration kann **per Definition** kein
+      // Recovery-Backup existieren (User wurde gerade erst angelegt) — wir
+      // brauchen den RecoveryAvailableError-Catch hier nicht und können
+      // fire-and-forget machen wie der Login es ursprünglich tat. Sonst
+      // blockiert das ``await`` die Navigation und der Onboarding-Dialog
+      // pop't synchron in Playwright-Tests vor der ersten User-Aktion auf
+      // (StatusPicker/Settings-Button werden vom Dialog-Overlay verdeckt).
+      void runIssueFlow()
+        .then(() => {
+          if (auth.isAuthenticated) {
+            void startProfileRefresh();
+            void startCertRotation();
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn('[identity] issue-flow fehlgeschlagen:', err);
+        });
 
       await goto('/app');
     } catch (err) {

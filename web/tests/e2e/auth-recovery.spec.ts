@@ -153,6 +153,13 @@ test.describe('active sessions UI', () => {
     await page.getByTestId('reg-password').fill(password);
     await page.getByTestId('reg-submit').click();
     await page.waitForURL(/\/app/);
+    // BackupSetupStep poppt nach runIssueFlow auf (s. issue-flow.ts) — der
+    // Dialog blockiert sonst die nächsten Klicks per Overlay. Best-effort
+    // dismiss; wenn der Dialog nicht erscheint, schluckt der catch.
+    await page
+      .locator('[data-testid=backup-onboarding-skip-btn]')
+      .click({ timeout: 2500 })
+      .catch(() => undefined);
 
     // Open user-footer menu → Settings → Security tab. `open-settings` is a
     // dropdown item, so the footer trigger has to be opened first.
