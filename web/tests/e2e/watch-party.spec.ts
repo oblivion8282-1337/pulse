@@ -133,8 +133,14 @@ async function wsCall(
         };
         ws.onmessage = (e) => {
           const m = JSON.parse(e.data);
-          // `ready` always lands first; presence/voice broadcasts are noise.
-          if (m.op === 'ready' || m.op === 'presence_update' || m.op === 'voice_state')
+          // `hello` (Phase 3) + `ready` always land first; presence/voice
+          // broadcasts are noise.
+          if (
+            m.op === 'hello' ||
+            m.op === 'ready' ||
+            m.op === 'presence_update' ||
+            m.op === 'voice_state'
+          )
             return;
           clearTimeout(t);
           ws.close();
