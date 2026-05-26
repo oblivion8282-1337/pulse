@@ -129,6 +129,15 @@ class Settings(BaseSettings):
     # Path for the locally-generated Ed25519 session-signing key (DE 9).
     session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
 
+    # HMAC secret used to sign the short-lived challenge-tokens issued by
+    # ``POST /cert-login/challenge`` (Phase 5.1). The secret is base64url-
+    # encoded; empty means "generate ephemeral secret on first use and
+    # WARN".  Set ``CHAT_GATEWAY_CHALLENGE_SECRET`` in ``.env`` to a stable
+    # value (>=32 raw bytes) to keep tokens valid across restarts; for
+    # single-pod self-host deployments the ephemeral default is fine, but
+    # in-flight challenge-tokens will be invalidated on restart.
+    chat_gateway_challenge_secret: str = ""
+
     # Web-Push VAPID — used to sign the Push API requests we send to a user's
     # browser push service (FCM/Mozilla/etc.). The *private* key is PEM-encoded
     # EC P-256 and stays server-side; the *public* key is the base64url-encoded

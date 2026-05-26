@@ -11,6 +11,7 @@ from dcc_chat_gateway.routes import (
     bans,
     blocks,
     capabilities,
+    cert_login,
     channels,
     dms,
     friends,
@@ -64,6 +65,7 @@ router.include_router(watch_chat.router)
 router.include_router(watch.router)
 router.include_router(attachments.router)
 router.include_router(capabilities.router)
+router.include_router(cert_login.router)
 router.include_router(notifications.router)
 router.include_router(presence.router)
 router.include_router(reports.router)
