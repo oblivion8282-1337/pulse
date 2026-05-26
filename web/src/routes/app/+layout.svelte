@@ -3,6 +3,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -17,6 +20,39 @@
 
   let { children } = $props();
   let hydrated = $state(false);
+
+  // Sidebar-Variante B: aktiver Server bekommt seine Gilden vom WS-Ready-
+  // Frame über ``guilds.list``. Wir spiegeln das in den ``serverGuilds``-
+  // Multi-Server-Cache, damit die Sidebar-Sektion des aktiven Servers
+  // dieselbe autoritative Quelle nutzt wie ChannelList / ChatView und WS-
+  // Lifecycle-Events (guild_created/updated/deleted) automatisch
+  // durchschlagen. ``$derived`` statt ``$effect`` — ein Derived darf
+  // Side-Effects in seinem Body NICHT haben, aber wir nutzen es nur als
+  // Tracking-Trigger und schreiben dann **in einem Microtask** über
+  // ``queueMicrotask``, damit Svelte's Effect-Depth-Guard nicht greift.
+  $effect(() => {
+    const id = activeServer.serverId;
+    if (!id) return;
+    const list = guilds.list;
+    queueMicrotask(() => {
+      serverGuilds.setSnapshot(id, list);
+    });
+  });
+
+  // Initial-Load der non-aktiven Server-Snapshots — einmal nach Hydrate,
+  // explizit ohne reaktive Tracking-Pfade auf serversStore.servers
+  // (das würde mit dem Bridge-Effect oben Update-Loops verursachen).
+  let _initialLoadDone = $state(false);
+  $effect(() => {
+    if (!hydrated || _initialLoadDone) return;
+    _initialLoadDone = true;
+    queueMicrotask(() => {
+      for (const s of serversStore.servers) {
+        if (s.id === activeServer.serverId) continue;
+        void serverGuilds.ensureLoaded(s.id);
+      }
+    });
+  });
 
   /** Single source of truth for notification-click navigation: SW postMessage
    *  → `navigateTo` event, and Electron `pulse.notify.onClick` → same path.
@@ -64,6 +100,16 @@
       gateway.waitForReady().catch((e) => console.error('gateway ready', e))
     ]);
     hydrated = true;
+
+    // Sidebar-Variante B: für jeden non-aktiven Server (Cloud + Self-Hosts)
+    // einmal die Gilden-Liste pullen, damit die Sektionen parallel gefüllt
+    // sind. Aktiver Server wird vom WS-Ready-Frame autoritativ befüllt
+    // (Bridge-Effect weiter unten); für alle anderen reicht ein
+    // best-effort REST-Snapshot.
+    for (const s of serversStore.servers) {
+      if (s.id === activeServer.serverId) continue;
+      void serverGuilds.ensureLoaded(s.id);
+    }
 
     // Etappe 4: presence activity heartbeat. Throttled (≤1/60s) fire-and-
     // forget op that keeps the user off the idle sweeper. Wired up here
