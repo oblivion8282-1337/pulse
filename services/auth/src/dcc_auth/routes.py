@@ -175,6 +175,7 @@ async def _get_current_user(
 async def register(
     payload: RegisterIn,
     request: Request,
+    response: Response,
     session: SessionDep,
     signer: JwtSigner = Depends(_signer_dep),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
@@ -247,6 +248,19 @@ async def register(
         session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
     )
 
+    # Browser-Session-Cookie analog zum Login. Register schließt den Sign-In
+    # in einem Schritt ab — Client erwartet ab hier den Session-Cookie, weil
+    # die Cert-Issue + Profile-Endpoints (browser_sessions.get_current_user_
+    # from_cookie) ausschließlich Cookie-authentifiziert sind.
+    sid = await create_session(
+        session,
+        user_id=user.id,
+        amr=["pwd"],
+        acr="0",
+        user_agent=user_agent,
+        ip=_client_ip(request),
+    )
+
     # Auto-fire the verify-email so the new user finds a fresh link in their
     # inbox right after the redirect to /app. Wrapped in try/except: a flaky
     # mail relay must NOT abort registration — the token row is committed
@@ -257,6 +271,7 @@ async def register(
         log.warning("register_verify_email_failed", user_id=user.id, error=str(exc))
 
     await session.commit()
+    set_session_cookie(response, sid)
     return tokens
 
 
