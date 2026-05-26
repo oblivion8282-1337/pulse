@@ -67,14 +67,19 @@ export async function preCheckServer(
   opts: { timeoutMs?: number } = {},
 ): Promise<PreCheckResult> {
   const hostname = normalizeHostname(rawUrl);
-  // Form-Validierung: Hostname mit Punkt + kein Path (außer /)
+  // Form-Validierung: Hostname muss entweder einen Punkt enthalten (FQDN
+  // oder IPv4-Literal) oder ``localhost`` sein. Letzteres ist explizit
+  // erlaubt, weil Dev- und Test-Setups regelmäßig gegen einen lokalen
+  // Self-Host-Stack laufen — der Browser behandelt ``localhost`` zudem als
+  // secure context (RFC 6761 §6.3), TLS-Garantien bleiben erhalten.
   try {
     const url = new URL(hostname);
-    if (!url.hostname || !url.hostname.includes('.')) {
+    const h = url.hostname;
+    if (!h || (h !== 'localhost' && !h.includes('.'))) {
       return { ok: false, reason: 'bad-url', details: 'Keine gültige URL.' };
     }
   } catch {
-    return { ok: false, reason: 'bad-response', details: 'Keine gültige URL.' };
+    return { ok: false, reason: 'bad-url', details: 'Keine gültige URL.' };
   }
 
   const ac = new AbortController();
