@@ -130,8 +130,12 @@ let isQuitting = false;
 /** Valid invite code: 6-32 alphanumeric chars (same shape as the backend issues). */
 const INVITE_CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
 
-/** Rough FQDN check — at least one dot, only label-safe chars, no port injection. */
+/** Rough FQDN check — at least one dot, only label-safe chars, no port injection.
+ *  Blocks bare IPv4 (192.168.1.1 etc.) so a malicious link can't trick the renderer
+ *  into hitting a private/loopback address. Self-Host muss FQDN haben (LE-Cert
+ *  Pflicht für TLS) — IP-Direkt-Connect ist nie ein legitimer Pulse-Use-Case. */
 function _isValidFqdn(hostname: string): boolean {
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return false;
   return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
     hostname
   );
