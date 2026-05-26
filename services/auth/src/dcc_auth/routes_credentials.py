@@ -59,10 +59,13 @@ async def _check_rate_user(request: Request, user_id: int) -> None:
 
 
 def _decode_pubkey(b64: str) -> bytes:
+    # Frontend (keypair.svelte.ts) sendet Base64URL (RFC 4648 §5: ``-``/``_``
+    # statt ``+``/``/``, kein Padding). ``urlsafe_b64decode`` deckt beide
+    # Varianten ab — base64url ohne Padding muss aber rechts mit ``=`` auf
+    # ein Vielfaches von 4 aufgefüllt werden, sonst wirft binascii.Error.
     try:
-        padding = 4 - len(b64) % 4
-        padded = b64 + ("=" * (padding % 4))
-        return base64.b64decode(padded)
+        padding = (4 - len(b64) % 4) % 4
+        return base64.urlsafe_b64decode(b64 + "=" * padding)
     except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="device_pubkey: invalid base64"
@@ -230,9 +233,14 @@ def _sign_credential_jwt(user: User, cred: IssuedCredential, session_row: UserSe
         "typ": "credential",
         "cert_id": str(cred.cert_id),
         "user_id": str(user.id),
-        "device_pubkey": base64.b64encode(cred.device_pubkey).decode(),
+        # Base64URL ohne Padding — symmetrisch zu _decode_pubkey() und zum
+        # credential_validator im chat-gateway (siehe credential_validator.py
+        # ``Base64url-encoded``-Kommentar). Standard-b64 würde ``+``/``/``-
+        # Zeichen produzieren, die der ``urlsafe_b64decode``-Reader auf der
+        # anderen Seite nicht versteht.
+        "device_pubkey": base64.urlsafe_b64encode(cred.device_pubkey).rstrip(b"=").decode(),
         "device_label": cred.device_label,
-        "pairwise_seed": base64.b64encode(user.pairwise_salt).decode(),
+        "pairwise_seed": base64.urlsafe_b64encode(user.pairwise_salt).rstrip(b"=").decode(),
         "amr": session_row.amr,
         "acr": session_row.acr,
         "iat": int(time.time()),

@@ -168,7 +168,11 @@ async def test_jwt_claims_correct(client, app, session_factory):
     async with session_factory() as db:
         user = await db.get(UserModel, int(user_id))
         assert user is not None
-        expected_seed = base64.b64encode(user.pairwise_salt).decode()
+        # JWT carries base64url ohne Padding — symmetrisch zu
+        # routes_credentials._decode_pubkey und zum chat-gateway
+        # credential_validator. Standard-b64 würde ``+``/``/`` produzieren,
+        # der Reader auf der anderen Seite versteht das nicht.
+        expected_seed = base64.urlsafe_b64encode(user.pairwise_salt).rstrip(b"=").decode()
     assert claims["pairwise_seed"] == expected_seed
 
 
