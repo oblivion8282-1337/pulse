@@ -13,11 +13,21 @@
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { initSelfHostReauth } from '$lib/api/self-host-reauth';
   import { isElectron } from '$lib/platform/runtime';
+  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 
   // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
   // initialisieren, damit Consumers immer einen fertigen State vorfinden.
   serversStore.init();
   activeServer.init(serversStore);
+  // Eager-Bootstrap der WS-Handler-Registry: die Default-Handler werden im
+  // GatewayConnection-Konstruktor via bootstrapHandlersOnce installiert.
+  // `loadPlugins()` snapshotted die Registry vor jedem Plugin-`register()` —
+  // ohne den Eager-Build würde der Snapshot leer sein und der Permission-Gate
+  // alle parallel installierten Default-Handler dem Plugin als "undeclared"
+  // zurechnen. `for(...)` instanziert nur das Objekt, kein dial().
+  if (activeServer.serverId) {
+    gatewayPool.for(activeServer.serverId);
+  }
   // Phase 5.2: Self-Host Re-Auth-Hook (Cert-Login) registrieren — wirkt für
   // jeden 401/Session-Expiry-Trigger aus dem API-Client.
   initSelfHostReauth();
