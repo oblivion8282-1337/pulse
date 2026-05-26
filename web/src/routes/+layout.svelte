@@ -8,6 +8,13 @@
   import { initStream } from '$lib/stream/state.svelte';
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+
+  // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
+  // initialisieren, damit Consumers immer einen fertigen State vorfinden.
+  serversStore.init();
+  activeServer.init(serversStore);
 
   let { children } = $props();
 
