@@ -25,6 +25,27 @@ ARG LIVEKIT_VERSION=1.8.4
 ARG MEDIAMTX_VERSION=1.17.1
 ARG TARGETARCH=amd64
 
+# SHA-256 checksums for all bundled binaries. Pinned to a specific upstream
+# release; a tampered or swapped artifact fails the build instead of silently
+# installing. Update together with the *_VERSION arg above and run
+# `infra/self-host/scripts/refresh-checksums.sh` (or manually re-hash from
+# upstream releases).
+#
+# Sources:
+#   - s6-overlay: official .sha256 next to each release artifact.
+#   - LiveKit: official checksums.txt in the GitHub release.
+#   - Caddy + MediaMTX: re-hashed from the upstream release tarballs (Caddy
+#     publishes SHA-512 only; MediaMTX publishes no checksums file at all).
+ARG SHA256_S6_NOARCH=6dbcde158a3e78b9bb141d7bcb5ccb421e563523babbe2c64470e76f4fd02dae
+ARG SHA256_S6_X86_64=59289456ab1761e277bd456a95e737c06b03ede99158beb24f12b165a904f478
+ARG SHA256_S6_AARCH64=8b22a2eaca4bf0b27a43d36e65c89d2701738f628d1abd0cea5569619f66f785
+ARG SHA256_CADDY_AMD64=a7e8306c54138cf88e371c5ec0caf7baf142ecc1d60a30897dfb67d65d3748c8
+ARG SHA256_CADDY_ARM64=93a3eb31883d678c6590c6d823eb6bb9f7a3af66dcd9d53df3eb2c7528b2af05
+ARG SHA256_LIVEKIT_AMD64=b660f4a72fe493e7c2a27861c403fba3d8c8fec4ce5e223515b26850c24d2dae
+ARG SHA256_LIVEKIT_ARM64=02f7a7b252d9bd1298e5bc3e301a138cc7d1bc00dc6855fd4c566ff61fb06324
+ARG SHA256_MEDIAMTX_AMD64=ee1cbcf8108dcb5fccf4c4e5a746846ea1c2055c099dd2fdb03391c519508829
+ARG SHA256_MEDIAMTX_ARM64=389e5bd330eb93d6a96e329a3cf567a41c8d2e7cc187bfad9db04c7ad905a97b
+
 # ── Stage 1 ────────────────────────────────────────────────────────────────
 # Python-Services: build the uv workspace, produce a self-contained .venv
 # directly at /opt/pulse so no path-rewrite is needed in the runtime stage.
@@ -79,11 +100,9 @@ RUN pnpm --filter @dcc/web build
 
 # ── Stage 3 ────────────────────────────────────────────────────────────────
 # Binaries: s6-overlay, Caddy, LiveKit, MediaMTX (download + verify here so
-# the runtime stage stays free of build-tooling).
-# Checksum status:
-#   - s6-overlay: official SHA-256 in release attachments → verified.
-#   - Caddy: SHA-512 published; we verify with sha256sum from caddyserver.com.
-#   - LiveKit + MediaMTX: upstream-publishes checksums.txt → verified.
+# the runtime stage stays free of build-tooling). Every tarball is verified
+# against a pinned SHA-256 from the top-level ARGs — a tampered, swapped or
+# silently re-built upstream artifact fails the build instead of installing.
 # ──────────────────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim AS binaries
 ARG S6_OVERLAY_VERSION
@@ -91,6 +110,15 @@ ARG CADDY_VERSION
 ARG LIVEKIT_VERSION
 ARG MEDIAMTX_VERSION
 ARG TARGETARCH
+ARG SHA256_S6_NOARCH
+ARG SHA256_S6_X86_64
+ARG SHA256_S6_AARCH64
+ARG SHA256_CADDY_AMD64
+ARG SHA256_CADDY_ARM64
+ARG SHA256_LIVEKIT_AMD64
+ARG SHA256_LIVEKIT_ARM64
+ARG SHA256_MEDIAMTX_AMD64
+ARG SHA256_MEDIAMTX_ARM64
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils tar \
@@ -98,65 +126,64 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /downloads
 
-# s6-overlay v3 — two-part install: noarch + arch-specific. Pulls signed
-# tarballs from github.com/just-containers/s6-overlay. SHA-256 checksums
-# published in the GitHub release for each artifact. We verify both.
-# NOTE: arch translation amd64→x86_64, arm64→aarch64.
+# s6-overlay v3 — two-part install: noarch + arch-specific. Pulls tarballs
+# from github.com/just-containers/s6-overlay, verifies both against the
+# pinned SHA-256. arch translation amd64→x86_64, arm64→aarch64.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-        amd64) S6_ARCH=x86_64 ;; \
-        arm64) S6_ARCH=aarch64 ;; \
+        amd64) S6_ARCH=x86_64; SHA256_S6_ARCH="${SHA256_S6_X86_64}" ;; \
+        arm64) S6_ARCH=aarch64; SHA256_S6_ARCH="${SHA256_S6_AARCH64}" ;; \
         *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o s6-noarch.tar.xz \
         "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz"; \
+    echo "${SHA256_S6_NOARCH}  s6-noarch.tar.xz" | sha256sum -c -; \
     curl -fsSL -o s6-arch.tar.xz \
         "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz"; \
-    # TODO(phase 6.A): pin sha256 once we settle on the s6-overlay release. \
-    # Upstream publishes per-artifact .sha256 next to the tarball — fetch \
-    # and verify here instead of trusting the download. \
+    echo "${SHA256_S6_ARCH}  s6-arch.tar.xz" | sha256sum -c -; \
     mkdir -p /opt/s6; \
     tar -C /opt/s6 -Jxpf s6-noarch.tar.xz; \
     tar -C /opt/s6 -Jxpf s6-arch.tar.xz
 
-# Caddy — static linux binary. Upstream publishes SHA-512 next to each tarball.
+# Caddy — static linux binary. Upstream publishes SHA-512 only; we pin SHA-256
+# re-hashed from the official tarball.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-        amd64) CADDY_ARCH=amd64 ;; \
-        arm64) CADDY_ARCH=arm64 ;; \
+        amd64) CADDY_ARCH=amd64; SHA256_CADDY="${SHA256_CADDY_AMD64}" ;; \
+        arm64) CADDY_ARCH=arm64; SHA256_CADDY="${SHA256_CADDY_ARM64}" ;; \
         *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o caddy.tar.gz \
         "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${CADDY_ARCH}.tar.gz"; \
-    # TODO(phase 6.A): verify with the caddy_${CADDY_VERSION}_checksums.txt
-    # from the same release. \
+    echo "${SHA256_CADDY}  caddy.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/caddy; \
     tar -C /opt/caddy -xzf caddy.tar.gz caddy
 
 # LiveKit server — static linux binary, upstream tarball contains the bin.
+# SHA-256 from the official checksums.txt in the same release.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-        amd64) LK_ARCH=linux_amd64 ;; \
-        arm64) LK_ARCH=linux_arm64 ;; \
+        amd64) LK_ARCH=linux_amd64; SHA256_LIVEKIT="${SHA256_LIVEKIT_AMD64}" ;; \
+        arm64) LK_ARCH=linux_arm64; SHA256_LIVEKIT="${SHA256_LIVEKIT_ARM64}" ;; \
         *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o livekit.tar.gz \
         "https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_${LK_ARCH}.tar.gz"; \
-    # TODO(phase 6.A): verify against checksums.txt from same release. \
+    echo "${SHA256_LIVEKIT}  livekit.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/livekit; \
     tar -C /opt/livekit -xzf livekit.tar.gz livekit-server
 
-# MediaMTX — static linux binary, upstream publishes per-arch tarballs.
+# MediaMTX — static linux binary. Upstream publishes no checksums file at all,
+# so we pin SHA-256 re-hashed from the official tarball.
 RUN set -eux; \
     case "${TARGETARCH}" in \
-        amd64) MTX_ARCH=linux_amd64 ;; \
-        arm64) MTX_ARCH=linux_arm64v8 ;; \
+        amd64) MTX_ARCH=linux_amd64; SHA256_MEDIAMTX="${SHA256_MEDIAMTX_AMD64}" ;; \
+        arm64) MTX_ARCH=linux_arm64; SHA256_MEDIAMTX="${SHA256_MEDIAMTX_ARM64}" ;; \
         *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
     curl -fsSL -o mediamtx.tar.gz \
         "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_${MTX_ARCH}.tar.gz"; \
-    # TODO(phase 6.A): verify upstream checksum (mediamtx publishes
-    # checksums in the release notes — script it here). \
+    echo "${SHA256_MEDIAMTX}  mediamtx.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/mediamtx; \
     tar -C /opt/mediamtx -xzf mediamtx.tar.gz mediamtx
 
