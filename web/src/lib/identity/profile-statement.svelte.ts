@@ -55,15 +55,19 @@ export function parseStatementClaims(jwt: string): ProfileStatementClaims | null
     const payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
     const padded = payload + '='.repeat((4 - (payload.length % 4)) % 4);
     const decoded = JSON.parse(atob(padded));
+    // Backend (routes_profile._issue_statement) setzt den User über das
+    // Standard-JWT-``sub``-Claim. Frühe Frontend-Versionen lasen ``user_id``
+    // explizit — beide Varianten akzeptieren, normalisieren auf user_id.
+    const userId = decoded.user_id ?? decoded.sub;
     if (
       typeof decoded.statement_id !== 'string' ||
-      typeof decoded.user_id !== 'string' ||
+      typeof userId !== 'string' ||
       typeof decoded.username !== 'string' ||
       typeof decoded.exp !== 'number'
     ) {
       return null;
     }
-    return decoded as ProfileStatementClaims;
+    return { ...decoded, user_id: userId } as ProfileStatementClaims;
   } catch {
     return null;
   }
