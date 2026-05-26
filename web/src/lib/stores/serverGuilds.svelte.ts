@@ -32,10 +32,15 @@ class ServerGuildsStore {
   }
 
   /** Best-effort REST-Fetch, dedupliziert pro Server-ID. Fehler werden
-   *  geschluckt (Sidebar zeigt dann nur die anderen Sektionen). */
+   *  geschluckt (Sidebar zeigt dann nur die anderen Sektionen).
+   *
+   *  Refetch wenn der Cache leer (länge 0) ist — der Bridge-Effect kann
+   *  beim Server-Switch ein leeres Array reinschreiben, bevor das WS-Ready
+   *  des neuen Servers ankommt. Ein non-leeres Array gilt als „echt
+   *  geseedet" und wird nicht überfetched. */
   async ensureLoaded(serverId: string): Promise<void> {
     if (this.loading[serverId]) return;
-    if (this.byServer[serverId]) return; // schon da
+    if ((this.byServer[serverId]?.length ?? 0) > 0) return; // schon da
     this.loading = { ...this.loading, [serverId]: true };
     try {
       const guilds = await chatApi.listGuilds({ serverId });
@@ -75,12 +80,18 @@ class ServerGuildsStore {
   /** Setzt den Snapshot eines Servers direkt (vom Bridge-Effect benutzt:
    *  ``activeServerId``-Snapshot stammt vom WS-Ready-Frame). Identisch zu
    *  ``syncActive``, aber mit einer expliziten Liste — vermeidet einen
-   *  Re-Read von ``guildsStore`` während eines Tracking-Microtasks. */
+   *  Re-Read von ``guildsStore`` während eines Tracking-Microtasks.
+   *
+   *  Skip wenn die neue Liste leer ist UND ein non-leerer Snapshot da ist:
+   *  während eines Server-Switches resettet ``guildsStore`` für einen Tick
+   *  auf ``[]`` bis der WS-Ready-Frame des neuen Servers reinkommt. Ohne
+   *  diesen Guard würde der leere Zwischenstand in den Cache geschrieben
+   *  und der REST-Fallback (``ensureLoaded``) als „schon da" durchgewunken
+   *  → Sidebar zeigt nichts. */
   setSnapshot(serverId: string, list: Guild[]): void {
     if (!serverId) return;
-    // Skip wenn die Reference unverändert ist — vermeidet überflüssige
-    // Subscriber-Updates (Sidebar-Rerender) auf jeder Mausbewegung.
     if (this.byServer[serverId] === list) return;
+    if (list.length === 0 && (this.byServer[serverId]?.length ?? 0) > 0) return;
     this.byServer = { ...this.byServer, [serverId]: list };
   }
 

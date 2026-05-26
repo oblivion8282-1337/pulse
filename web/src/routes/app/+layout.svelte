@@ -39,17 +39,21 @@
     });
   });
 
-  // Initial-Load der non-aktiven Server-Snapshots — einmal nach Hydrate,
-  // explizit ohne reaktive Tracking-Pfade auf serversStore.servers
-  // (das würde mit dem Bridge-Effect oben Update-Loops verursachen).
-  let _initialLoadDone = $state(false);
+  // Server-Snapshot-Loader. Läuft bei jeder Änderung von
+  // serversStore.servers — neue Server (Add via AddServerDialog,
+  // Cert-Login mit Invite, etc.) bekommen ihre Gilden-Liste sofort
+  // geladen. ensureLoaded ist intern idempotent (cached Eintrag wird nicht
+  // refetched), daher kein Update-Loop. queueMicrotask vermeidet den
+  // Svelte-Effect-Depth-Guard, falls ensureLoaded synchron etwas
+  // reaktives schreibt.
   $effect(() => {
-    if (!hydrated || _initialLoadDone) return;
-    _initialLoadDone = true;
+    if (!hydrated) return;
+    const serverIds = serversStore.servers.map((s) => s.id);
+    const activeId = activeServer.serverId;
     queueMicrotask(() => {
-      for (const s of serversStore.servers) {
-        if (s.id === activeServer.serverId) continue;
-        void serverGuilds.ensureLoaded(s.id);
+      for (const id of serverIds) {
+        if (id === activeId) continue;
+        void serverGuilds.ensureLoaded(id);
       }
     });
   });
