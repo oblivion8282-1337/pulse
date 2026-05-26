@@ -23,6 +23,9 @@ import { resetGuildPluginsCache } from '$lib/plugins';
 import { onboardingState } from '$lib/stores/onboardingState.svelte';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
+import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
+import { sessionTokens } from '$lib/api/session_tokens.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
@@ -132,6 +135,12 @@ class AuthStore {
     resetGuildPluginsCache();
     onboardingState.reset();
     settings.resetUserScoped();
+    // Phase 4.2: alle WS-Connections + Self-Host-Session-Tokens beenden.
+    // Cloud-Tokens werden weiter oben via clearTokens() entfernt.
+    gatewayPool.closeAll();
+    for (const s of serversStore.servers) {
+      if (!s.isCloud) sessionTokens.clear(s.id);
+    }
     // Identity-Cleanup: Timer stoppen, Stores wischen
     stopProfileRefresh();
     stopCertRotation();
