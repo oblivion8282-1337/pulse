@@ -171,3 +171,33 @@ def test_unexpected_replacement_warns_and_sets_flag(caplog):
 
         # Warning must appear in logs
         assert any("unexpectedly" in r.message for r in caplog.records)
+
+
+def test_initial_pull_then_unexpected_replacement_triggers_warn(caplog):
+    """Kids file written on initial pull enables replacement detection on next pull.
+
+    Before the fix the initial pull only wrote pin.txt — the .kids file was
+    absent, so old_kids defaulted to frozenset() and the ``if old_kids and …``
+    guard prevented the warning on the very first rotation attempt.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pin_path = f"{tmpdir}/pin.txt"
+        kids_path = pin_path + ".kids"
+        state = _fresh_state()
+
+        jwks_1 = _make_jwks("key-1")
+        jwks_2_no_overlap = _make_jwks("key-99")  # completely different kid
+
+        # Initial pull — must write both pin.txt and .kids
+        check_and_update_pin(jwks_1, pin_path, state)
+
+        # .kids file must exist after initial pull
+        assert Path(kids_path).exists(), ".kids file must be written on initial pull"
+        assert Path(kids_path).read_text().strip() == "key-1"
+
+        # Second pull with no kid overlap → should warn + set flag
+        with caplog.at_level(logging.WARNING):
+            check_and_update_pin(jwks_2_no_overlap, pin_path, state)
+
+        assert state.jwks_changed_unexpectedly is True
+        assert any("unexpectedly" in r.message for r in caplog.records)

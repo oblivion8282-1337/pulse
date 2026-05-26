@@ -351,4 +351,25 @@ async def test_ws_long_nonce_trimmed(ws_app, _auth_signer):
                 msgs = [ws.receive_json() for _ in range(2)]
                 assert "message_ack" in [m["op"] for m in msgs]
 
+
+@pytest.mark.asyncio
+async def test_ws_close_4046_when_jwks_not_ready(ws_app, _auth_signer):
+    """WS must close with 4046 while jwks_ready=False (cold-start gate)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            token = _auth_signer.issue_access(owner_uid, f"u{owner_uid}")
+            # Simulate cold-start: flip the flag after lifespan started.
+            ws_app.state.jwks_ready = False
+            try:
+                with pytest.raises(Exception):
+                    with tc.websocket_connect(f"/ws?token={token}") as ws:
+                        ws.receive_text()
+            finally:
+                # Restore so subsequent tests in this run are unaffected.
+                ws_app.state.jwks_ready = True
+
+    await asyncio.to_thread(_run)
+
     await asyncio.to_thread(_run)

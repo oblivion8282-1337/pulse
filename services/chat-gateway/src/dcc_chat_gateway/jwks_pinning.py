@@ -155,9 +155,13 @@ def check_and_update_pin(
     old_pin = load_pin(pin_path)
 
     if old_pin is None:
-        # First pull — establish the pin silently
+        # First pull — establish the pin and the kids file silently.
+        # The kids file is required so that the *next* pull can distinguish a
+        # graduated rotation from an unexpected full replacement.
         try:
             save_pin(pin_path, new_pin)
+            new_kids = _extract_kids(jwks_json)
+            Path(pin_path + ".kids").write_text("|".join(sorted(new_kids)))
             log.info("jwks_pin: initial pin written (%s…)", new_pin[:8])
         except OSError as exc:
             log.warning("jwks_pin: could not write initial pin to %s: %s", pin_path, exc)

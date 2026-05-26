@@ -236,6 +236,20 @@ async def ws_app(_auth_signer, tmp_path):
     routes_ws_op_send.SessionLocal = runtime_factory
     routes_ws_ready.SessionLocal = runtime_factory
 
+    # Phase 3.1 JWKS cold-start gate: seed the JWKS into the test-Redis so
+    # the lifespan finds it and sets jwks_ready=True. Without this every ws_app
+    # test fails with 4046 because the test-Redis index (/1) has no cached JWKS.
+    import json as _json
+
+    from redis.asyncio import Redis as _Redis
+    from dcc_chat_gateway.jwks_pinning import REDIS_JWKS_KEY as _JWKS_KEY
+
+    _seed_redis = _Redis.from_url(_TEST_SETTINGS.redis_url, decode_responses=False)
+    try:
+        await _seed_redis.set(_JWKS_KEY, _json.dumps(_auth_signer.jwks()))
+    finally:
+        await _seed_redis.aclose()
+
     application = create_app(skip_redis=False)
 
     async def _override_get_session() -> AsyncIterator:
