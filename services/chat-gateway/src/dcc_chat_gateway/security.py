@@ -1,10 +1,35 @@
-"""JWT verification with JWKS caching."""
+"""JWT verification with JWKS caching.
+
+Two distinct token shapes flow through this module:
+
+* **Cloud Access-JWT** — RS256, ``kid`` header, ``typ=access``, ``iss=jwt_issuer``.
+  Validated against the JWKS pulled from auth-svc (``auth_jwks_url``).
+* **Self-Host Session-JWT** — EdDSA, no ``kid``, ``typ=session``,
+  ``iss=pulse-self-host``. Minted locally by ``session_tokens.issue_session_token``
+  after a successful Cert-Auth handshake.
+
+Routing logic in :func:`decode_token`:
+  1. If the token carries a ``kid`` header → try Cloud-RS256 path.
+  2. Otherwise: if ``pulse_instance_mode == "self-host"`` → try local
+     EdDSA validation; the token's ``sub`` claim is a pairwise-sub
+     (Base64url string).  We synthesise a stable 63-bit numeric user_id
+     from it so the existing ``BIGINT user_id`` FK columns keep working
+     without a schema migration (Plan §C — incremental path; full TEXT
+     migration deferred).
+  3. Anything else → 401.
+
+A Cloud-token (with ``kid``) NEVER reaches the Self-Host validator and
+vice versa — the dispatch is keyed off cryptographic structure
+(``kid`` header presence + signing algorithm), not off a payload claim
+that could be attacker-controlled.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 import httpx
@@ -13,6 +38,7 @@ from fastapi import Depends, Header, HTTPException, status
 from jwt.algorithms import RSAAlgorithm
 
 from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.session_tokens import validate_session_token
 
 
 @dataclass
@@ -122,17 +148,39 @@ async def _force_refresh_keys() -> dict[str, Any]:
         return keys
 
 
-async def decode_token(token: str) -> dict[str, Any]:
+def synthesize_self_host_user_id(pairwise_sub: str) -> int:
+    """Map a pairwise-sub (Base64url string) to a stable 63-bit positive int.
+
+    Existing chat-gateway tables use ``BigInteger`` user-id FKs (``messages.
+    author_id``, ``guild_members.user_id`` …) — a TEXT migration is out of scope
+    for the Self-Host bring-up. Instead we derive a deterministic 63-bit
+    numeric id from the pairwise-sub (truncated SHA-256) and store *that* in
+    the existing columns. The pairwise-sub itself stays available via
+    ``AuthenticatedUser.user_identifier`` for any code that wants the
+    string form (e.g. ``CachedUserProfile.user_identifier``).
+
+    Same pairwise-sub → same int forever. Different pairwise-subs collide with
+    probability ~ 2⁻⁶³ → ignorable for any realistic instance population.
+    Self-Host runs in its own DB (``dcc_selfhost``) so collision with Cloud
+    snowflake ids is irrelevant; the value never travels off-instance.
+    """
+    digest = hashlib.sha256(pairwise_sub.encode()).digest()
+    # Top 8 bytes, clear sign bit → positive 63-bit int (fits BIGINT signed).
+    return int.from_bytes(digest[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
+
+
+async def _decode_cloud_token(token: str) -> dict[str, Any]:
+    """Validate a Cloud-issued RS256 Access-JWT against the JWKS cache."""
     settings = get_settings()
     try:
         header = jwt.get_unverified_header(token)
     except jwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
     kid = header.get("kid")
-    # Reject tokens without a kid *before* touching the cache so an attacker
-    # can't flood us with kid-less self-signed JWTs that each force a JWKS
-    # refetch against auth-svc.
     if not kid:
+        # Caller (``decode_token``) only routes here when ``kid`` is set, so
+        # this is defensive — keeps the historical 401 reason intact for any
+        # direct caller that bypasses the dispatcher.
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
     keys = await _get_keys()
     if kid not in keys:
@@ -156,12 +204,89 @@ async def decode_token(token: str) -> dict[str, Any]:
     return payload
 
 
+def _decode_self_host_session_token(token: str) -> dict[str, Any]:
+    """Validate a locally-issued Self-Host Session-JWT.
+
+    Synthesises a Cloud-Access-JWT-shaped payload so downstream routes that
+    pull ``payload["sub"]`` / ``payload["exp"]`` directly (presence,
+    ws.websocket_endpoint, …) keep working without per-route mode checks.
+
+    The pairwise-sub stays available as the dedicated ``pairwise_sub`` claim
+    and on ``AuthenticatedUser.user_identifier``; ``sub`` is overwritten with
+    the synthetic int (decimal string, like the Cloud Access-JWT carries).
+    """
+    settings = get_settings()
+    key_path = settings.session_signing_key_file
+    claims = validate_session_token(token, key_path=key_path)
+    if claims is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
+    synthetic_id = synthesize_self_host_user_id(claims.user_identifier)
+    # Shape-compatible with the Cloud Access-JWT path: ``sub`` is a decimal
+    # int-string, ``typ`` mirrors the historical access-token shape so any
+    # downstream code that asserts ``typ == "access"`` keeps working.  The
+    # original ``typ=session`` from the raw JWT is dropped on purpose — by
+    # the time we mint this payload we've already proven the token is a
+    # valid Self-Host session-JWT (EdDSA signature + iss/aud match), and
+    # exposing it as ``session`` here would force every route to handle
+    # two ``typ`` values.
+    return {
+        "sub": str(synthetic_id),
+        "username": "",
+        "admin": False,
+        "typ": "access",
+        "iat": claims.iat,
+        "exp": claims.exp,
+        "cert_id": claims.cert_id,
+        "pairwise_sub": claims.user_identifier,
+        "self_host": True,
+    }
+
+
+async def decode_token(token: str) -> dict[str, Any]:
+    """Decode + validate a bearer token.
+
+    Cloud-mode and Self-Host-mode tokens live side by side here. The dispatch
+    is driven purely by *cryptographic structure*: a Cloud Access-JWT carries
+    a ``kid`` header (it has to — JWKS lookup needs it); a Self-Host Session-
+    JWT does not. An attacker can't mint a Cloud-token without an auth-svc
+    private key and can't mint a Self-Host token without the local Ed25519
+    key file — so the two paths are not confusable.
+    """
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+
+    if header.get("kid"):
+        # Cloud path — always available regardless of instance_mode (a Self-
+        # Host can in theory accept Cloud tokens too if it's misconfigured to
+        # point its JWKS URL at the Cloud, but the audience/issuer checks
+        # gate that). The historical ``missing kid`` rejection still applies
+        # to kid-less tokens in Cloud mode, see below.
+        return await _decode_cloud_token(token)
+
+    # No ``kid`` → could be a Self-Host session-JWT. Only accept if we
+    # actually run in self-host mode; otherwise behave exactly like the
+    # original implementation (reject with ``missing kid``) so an attacker
+    # on a Cloud deployment can't probe for a self-host fallback.
+    settings = get_settings()
+    if settings.pulse_instance_mode != "self-host":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
+    return _decode_self_host_session_token(token)
+
+
 @dataclass(frozen=True)
 class AuthenticatedUser:
     id: int
     username: str
     is_admin: bool
     payload: dict[str, Any]
+    # Stable cross-mode identifier — Cloud: ``str(id)`` (decimal user_id);
+    # Self-Host: the pairwise-sub (Base64url-truncated HMAC). Use this for
+    # cache keys / external surfaces; use ``id`` for FK columns.
+    user_identifier: str = ""
+    # True iff the token was issued by the local Self-Host (DE 9 session-JWT).
+    is_self_host: bool = field(default=False)
 
 
 async def get_current_user(
@@ -183,11 +308,22 @@ async def get_current_user(
         uid = int(payload["sub"])
     except (KeyError, ValueError) as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid sub") from exc
+    is_self_host = bool(payload.get("self_host", False))
+    # Cross-mode identifier: Cloud → ``str(id)``; Self-Host → the pairwise-sub
+    # carried in ``payload["pairwise_sub"]`` (set by
+    # ``_decode_self_host_session_token``). Falls back to ``str(uid)`` so any
+    # code path that happens to introduce a Self-Host token without setting
+    # the claim still produces a stable string identifier.
+    identifier = (
+        str(payload.get("pairwise_sub") or uid) if is_self_host else str(uid)
+    )
     return AuthenticatedUser(
         id=uid,
         username=payload.get("username", ""),
         is_admin=bool(payload.get("admin", False)),
         payload=payload,
+        user_identifier=identifier,
+        is_self_host=is_self_host,
     )
 
 
