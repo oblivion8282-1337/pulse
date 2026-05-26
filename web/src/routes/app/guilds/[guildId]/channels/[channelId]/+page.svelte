@@ -23,6 +23,7 @@
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
+  import { useGatewayDeletedListener } from '$lib/ws/useGatewayListener.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
@@ -103,10 +104,13 @@
       });
   });
 
-  onMount(() => {
-    const offChan = gateway.onChannelDeleted(handleRemoteChannelDeleted);
-    const offGuild = gateway.onGuildDeleted(handleRemoteGuildDeleted);
+  // Phase 4.5: Deleted-Hooks via Helper — wandern beim Server-Switch mit.
+  useGatewayDeletedListener({
+    onChannel: handleRemoteChannelDeleted,
+    onGuild: handleRemoteGuildDeleted,
+  });
 
+  onMount(() => {
     // Escape schließt Drawer auf Mobil
     function onKeydown(e: KeyboardEvent) {
       if (e.key === 'Escape' && navDrawer.open) navDrawer.open = false;
@@ -114,8 +118,6 @@
     window.addEventListener('keydown', onKeydown);
 
     return () => {
-      offChan();
-      offGuild();
       window.removeEventListener('keydown', onKeydown);
     };
   });

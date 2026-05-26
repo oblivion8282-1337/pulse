@@ -4,7 +4,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
   import MemberQuickRoleMenu from './MemberQuickRoleMenu.svelte';
-  import { gateway } from '$lib/ws/connection';
+  import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -53,17 +53,16 @@
   });
 
   // React to guild-member events pushed via guild:events. Keeps the
-  // open member list in sync without forcing a refetch.
-  $effect(() => {
-    return gateway.on((evt) => {
-      if (evt.op === 'guild_member_updated' && evt.guild_id === guildId) {
-        members = members.map((m) =>
-          m.user_id === evt.user_id ? { ...m, nickname: evt.nickname } : m
-        );
-      } else if (evt.op === 'guild_member_removed' && evt.guild_id === guildId) {
-        members = members.filter((m) => m.user_id !== evt.user_id);
-      }
-    });
+  // open member list in sync without forcing a refetch. Über
+  // `useGatewayListener` — wandert beim Server-Switch mit (Phase 4.5).
+  useGatewayListener((evt) => {
+    if (evt.op === 'guild_member_updated' && evt.guild_id === guildId) {
+      members = members.map((m) =>
+        m.user_id === evt.user_id ? { ...m, nickname: evt.nickname } : m
+      );
+    } else if (evt.op === 'guild_member_removed' && evt.guild_id === guildId) {
+      members = members.filter((m) => m.user_id !== evt.user_id);
+    }
   });
 
   async function load(id: string) {

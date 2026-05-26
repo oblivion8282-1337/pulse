@@ -12,7 +12,7 @@
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
-  import { gateway } from '$lib/ws/connection';
+  import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import type { Ban } from '$lib/api/types';
 
   let { guildId }: { guildId: string } = $props();
@@ -40,15 +40,15 @@
 
   onMount(load);
 
-  $effect(() => {
-    return gateway.on((evt) => {
-      if (
-        (evt.op === 'guild_ban_added' || evt.op === 'guild_ban_removed') &&
-        evt.guild_id === guildId
-      ) {
-        void load();
-      }
-    });
+  // Phase 4.5: useGatewayListener — bei Server-Switch wandert der
+  // Listener auf die neue Connection mit.
+  useGatewayListener((evt) => {
+    if (
+      (evt.op === 'guild_ban_added' || evt.op === 'guild_ban_removed') &&
+      evt.guild_id === guildId
+    ) {
+      void load();
+    }
   });
 
   async function unban(userId: string) {
