@@ -204,7 +204,7 @@ export class GatewayConnection {
 
     return new Promise((resolve, reject) => {
       let opened = false;
-      let firstFrame = !this.isCloud; // nur Self-Host sendet hello
+      let firstFrame = true; // Cloud + Self-Host senden hello (Phase 3.3 für beide)
       ws.addEventListener('open', () => {
         opened = true;
         this.state = 'open';
