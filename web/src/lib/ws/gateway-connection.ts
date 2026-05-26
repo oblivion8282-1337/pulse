@@ -10,6 +10,7 @@
 import { currentAccessToken } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
+import { activeServer } from '$lib/stores/active-server.svelte';
 import { MIN_SERVER_VERSION, RECONNECT_BACKOFF_MS, WS_CLOSE } from '$lib/api/constants';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
@@ -278,6 +279,13 @@ export class GatewayConnection {
       this._preReadyBuffer.push(evt);
       return;
     }
+    // Race-Guard (Phase 4.5+): wenn dieser Server nicht mehr der aktive ist,
+    // skip die globalen Store-Handler. Beispiel-Szenario: User wechselt von
+    // A→B, A's Connection reconnectet danach und schickt einen ready-Frame —
+    // ohne Guard würde der die B-Stores mit A-Daten überschreiben.
+    // Per-Connection-Listener (useGatewayListener) sind davon unberührt;
+    // die werden bei A→B-Switch automatisch von $effect deregistriert.
+    if (this.serverId !== activeServer.serverId) return;
     void dispatch(evt);
   }
 
