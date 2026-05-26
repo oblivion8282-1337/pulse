@@ -46,6 +46,13 @@ async function doRefresh(): Promise<void> {
   }
 }
 
+/** Sofortiger Force-Refresh, zum Beispiel direkt nach einem Username- oder
+ *  Profile-Update. Bricht etwaige scheduled Timer NICHT ab — der nächste
+ *  Tick läuft regulär weiter (oder wird via startProfileRefresh erneuert). */
+export async function forceProfileRefresh(): Promise<void> {
+  await doRefresh();
+}
+
 function scheduleNext(statement: ProfileStatement | null): void {
   if (!_running) return;
   if (_timerId !== null) {

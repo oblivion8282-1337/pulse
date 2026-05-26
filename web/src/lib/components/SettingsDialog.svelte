@@ -8,6 +8,7 @@
   import SettingsSecurity from './settings/SettingsSecurity.svelte';
   import SettingsKeyboard from './settings/SettingsKeyboard.svelte';
   import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
+  import SettingsProfile from './settings/SettingsProfile.svelte';
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
@@ -18,12 +19,14 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import LockIcon from '@lucide/svelte/icons/lock';
   import ServerIcon from '@lucide/svelte/icons/server';
+  import UserIcon from '@lucide/svelte/icons/user';
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
   import { viewport } from '$lib/stores/viewport.svelte';
 
   type SettingsTab =
+    | 'profile'
     | 'appearance'
     | 'audio-video'
     | 'screen-share'
@@ -64,6 +67,7 @@
   }
 
   const tabs: { id: SettingsTab; label: string; icon: typeof MicIcon; desktopOnly?: true }[] = [
+    { id: 'profile', label: 'Profil', icon: UserIcon },
     { id: 'appearance', label: 'Erscheinungsbild', icon: PaletteIcon },
     { id: 'audio-video', label: 'Sprache & Video', icon: MicIcon },
     { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon, desktopOnly: true },
@@ -135,7 +139,9 @@
       </div>
 
       <div class="flex-1 overflow-y-auto pb-6 pl-6 pr-4 pt-14 max-sm:pt-6">
-        {#if activeTab === 'appearance'}
+        {#if activeTab === 'profile'}
+          <SettingsProfile />
+        {:else if activeTab === 'appearance'}
           <SettingsAppearance />
         {:else if activeTab === 'audio-video'}
           <SettingsAudioVideo />

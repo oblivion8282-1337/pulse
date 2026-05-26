@@ -69,6 +69,11 @@ class UserPublic(BaseModel):
     # account is still unverified — i.e. the hard email-verification gate is
     # blocking this user. ``me()`` fills it; everywhere else it defaults false.
     email_verification_pending: bool = False
+    # Profil-Felder: separater Update-Pfad (POST /me/profile). UI braucht sie
+    # für die Round-Trip-Vorschau im Settings-"Profil"-Tab und für die
+    # Default-Werte im Color-Picker / Avatar-Anzeige.
+    avatar_hash: str | None = None
+    profile_color: str | None = None
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:
