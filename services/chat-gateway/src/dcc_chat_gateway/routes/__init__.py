@@ -20,12 +20,14 @@ from dcc_chat_gateway.routes import (
     internal,
     invites,
     messages,
+    mod_queue,
     notifications,
     permission_overwrites,
     preferences,
     presence,
     privacy,
     reactions,
+    reports,
     role_members,
     roles,
     sounds,
@@ -61,6 +63,8 @@ router.include_router(attachments.router)
 router.include_router(capabilities.router)
 router.include_router(notifications.router)
 router.include_router(presence.router)
+router.include_router(reports.router)
+router.include_router(mod_queue.router)
 router.include_router(admin.router)
 router.include_router(admin_plugins.router)
 router.include_router(guild_plugins.router)
