@@ -19,6 +19,7 @@ import random
 
 import pytest
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -271,7 +272,8 @@ async def test_mention_added_ws_event(ws_app, _auth_signer):
             )
             # Bob connects; intentionally does NOT subscribe to ``cid``.
             with tc.websocket_connect(f"/ws?token={member_token}") as ws_bob:
-                ready = ws_bob.receive_json()
+                ws_bob.receive_json()  # hello
+                ready = ws_bob.receive_json()  # ready
                 assert ready["op"] == "ready"
                 # Alice POSTs a message that mentions Bob (via REST, no WS subscribe).
                 r = tc.post(
@@ -307,7 +309,7 @@ async def test_mention_added_skips_self_ping(ws_app, _auth_signer):
                 tc, _auth_signer
             )
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws_o:
-                ws_o.receive_json()  # ready
+                receive_skipping(ws_o)  # skip hello + ready
                 r1 = tc.post(
                     f"/channels/{cid}/messages",
                     json={"content": f"self <@{owner_uid}>"},
@@ -413,7 +415,7 @@ async def test_ws_sent_message_carries_mentions(ws_app, _auth_signer):
                 tc, _auth_signer
             )
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws_o:
-                ws_o.receive_json()  # ready
+                receive_skipping(ws_o)  # skip hello + ready
                 ws_o.send_json({"op": "subscribe", "channel_id": cid})
                 ws_o.send_json(
                     {

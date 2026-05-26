@@ -12,6 +12,7 @@ from redis.asyncio import Redis
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
+from dcc_chat_gateway.cloud_policy_poller import cloud_policy_poller_loop
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.crl_poller import crl_poller_loop
 from dcc_chat_gateway.db import engine
@@ -76,6 +77,7 @@ async def lifespan(app: FastAPI):
     push_cleanup: asyncio.Task | None = None
     idle_sweeper: asyncio.Task | None = None
     crl_poller: asyncio.Task | None = None
+    cloud_policy_task: asyncio.Task | None = None
     jwks_retry: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
@@ -114,6 +116,17 @@ async def lifespan(app: FastAPI):
         crl_poller = asyncio.create_task(
             crl_poller_loop(redis, settings.pulse_cloud_origin),
             name="dcc-crl-poller",
+        )
+        # Cloud policy poller — fetches the version-policy document every 6 h
+        # (configurable via ``cloud_policy_poll_interval``). Persists to Redis
+        # so Phase-4 frontend and the WS hello-frame can surface update banners.
+        cloud_policy_task = asyncio.create_task(
+            cloud_policy_poller_loop(
+                redis,
+                settings.pulse_cloud_origin,
+                settings.cloud_policy_poll_interval,
+            ),
+            name="dcc-cloud-policy-poller",
         )
         # JWKS cold-start handling (Phase 3.1 Punkt 12): if Redis has no
         # cached JWKS at startup (cold cache + Cloud unreachable), mark
@@ -181,7 +194,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller, jwks_retry):
+            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller, cloud_policy_task, jwks_retry):
                 if task is not None:
                     task.cancel()
                     try:

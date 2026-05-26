@@ -15,7 +15,7 @@ import random
 import pytest
 from starlette.testclient import TestClient
 
-from .conftest import receive_skipping
+from .conftest import receive_skipping, skip_init_frames
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -58,6 +58,9 @@ async def test_ws_ready_payload(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, guild_id, _ = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
+                # Phase 3.3: hello-Frame kommt zuerst, dann ready.
+                hello = ws.receive_json()
+                assert hello["op"] == "hello"
                 payload = ws.receive_json()
                 assert payload["op"] == "ready"
                 assert guild_id in {g["id"] for g in payload["guilds"]}
@@ -112,7 +115,7 @@ async def test_ws_subscribe_to_unknown_channel_errors(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, _ = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json({"op": "subscribe", "channel_id": "999999999"})
                 resp = ws.receive_json()
                 assert resp["op"] == "error"
@@ -136,7 +139,7 @@ async def test_ws_send_to_non_member_channel_rejected(ws_app, _auth_signer):
             ).json()
             channel_id = c["id"]
             with tc.websocket_connect(f"/ws?token={outsider_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json(
                     {"op": "send", "channel_id": channel_id, "content": "x", "nonce": "n"}
                 )
@@ -152,7 +155,7 @@ async def test_ws_invalid_json(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, _ = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_text("not-json")
                 resp = ws.receive_json()
                 assert resp["op"] == "error"
@@ -168,7 +171,7 @@ async def test_ws_non_numeric_channel_id_errors(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, _ = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json({"op": "subscribe", "channel_id": "not-a-number"})
                 resp = ws.receive_json()
                 assert resp["op"] == "error"
@@ -187,7 +190,7 @@ async def test_ws_oversized_frame_rejected_but_survives(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 huge = "x" * (32 * 1024)
                 ws.send_json({"op": "send", "channel_id": channel_id, "content": huge})
                 resp = ws.receive_json()
@@ -211,7 +214,7 @@ async def test_ws_repeated_oversized_frames_close(ws_app, _auth_signer):
             owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
             with pytest.raises(Exception):
                 with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                    ws.receive_json()
+                    skip_init_frames(ws)
                     huge = "x" * (32 * 1024)
                     for _ in range(6):
                         ws.send_json(
@@ -247,7 +250,7 @@ async def test_ws_closes_when_token_expires(ws_app, _auth_signer):
             )
             with pytest.raises(Exception):
                 with tc.websocket_connect(f"/ws?token={short_token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     # Block on a read; the server closes us within ~1s.
                     while True:
                         ws.receive_json()
@@ -293,7 +296,7 @@ async def test_ws_oversize_leaky_bucket_resets(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json({"op": "subscribe", "channel_id": channel_id})
                 huge = "x" * (32 * 1024)
                 # Send 4 oversized frames (threshold is 5), interspersed with
@@ -338,7 +341,7 @@ async def test_ws_long_nonce_trimmed(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             owner_token, _, _, _, channel_id = _bootstrap_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json({"op": "subscribe", "channel_id": channel_id})
                 ws.send_json(
                     {

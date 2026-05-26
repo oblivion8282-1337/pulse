@@ -24,6 +24,7 @@ import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -407,7 +408,8 @@ async def test_ready_carries_stream_states(ws_app, _auth_signer, redis):
         def _connect():
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    payload = ws.receive_json()
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
                     assert payload["op"] == "ready"
                     states = {s["channel_id"]: s for s in payload["stream_states"]}
                     assert states[cid]["user_ids"] == ["777"]
@@ -431,7 +433,7 @@ async def test_stream_state_pushed_to_connected_client(ws_app, _auth_signer):
             ).json()
             cid = vc["id"]
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 # Simulate media-svc publishing a stream-state change.
                 import redis as sync_redis
 

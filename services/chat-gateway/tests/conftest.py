@@ -343,16 +343,36 @@ def install_friendship_sync(db_url: str, uid_a: int, uid_b: int) -> None:
         eng.dispose()
 
 
-def receive_skipping(ws, ignore: set[str] = frozenset({"presence_update"})):
+def receive_skipping(ws, ignore: set[str] = frozenset({"presence_update", "hello"})):
     """Receive the next JSON frame, transparently dropping ops in ``ignore``.
 
     Presence broadcasts cross every connected socket of every other user, so
     any test that opens a second WS while the first is still around now sees a
-    ``presence_update`` frame mixed into the per-test fan-out stream. The
-    payload itself is not what these tests are exercising, so just skip it.
+    ``presence_update`` frame mixed into the per-test fan-out stream. Phase 3.3
+    added a ``hello`` frame as the very first server→client message (before
+    ``ready``); tests that only care about ready / chat frames can ignore it
+    via the default ignore set.
     """
     while True:
         m = ws.receive_json()
         if m.get("op") in ignore:
             continue
         return m
+
+
+def skip_init_frames(ws):
+    """Consume the hello + ready frames sent on every new WS connection.
+
+    Phase 3.3 added a ``hello`` frame before ``ready``.  Tests that want to
+    jump straight into the chat interaction (and don't assert on the
+    connection-establishment frames) call this helper instead of two
+    successive ``ws.receive_json()`` calls.
+    """
+    # hello
+    ws.receive_json()
+    # ready (skip presence_update interleaved while another user is also online)
+    while True:
+        m = ws.receive_json()
+        if m.get("op") == "presence_update":
+            continue
+        break
