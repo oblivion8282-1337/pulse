@@ -10,11 +10,15 @@
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { initSelfHostReauth } from '$lib/api/self-host-reauth';
 
   // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
   // initialisieren, damit Consumers immer einen fertigen State vorfinden.
   serversStore.init();
   activeServer.init(serversStore);
+  // Phase 5.2: Self-Host Re-Auth-Hook (Cert-Login) registrieren — wirkt für
+  // jeden 401/Session-Expiry-Trigger aus dem API-Client.
+  initSelfHostReauth();
 
   let { children } = $props();
 

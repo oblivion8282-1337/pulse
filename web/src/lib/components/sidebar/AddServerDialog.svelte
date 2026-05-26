@@ -1,18 +1,18 @@
 <!--
-  AddServerDialog — Phase 4.3.
+  AddServerDialog — Phase 5.2.
 
   Drei-Schritt-Wizard:
     1. URL-Eingabe (https://… oder host:port)
     2. Pre-Check via /.well-known/pulse-server-info (Version, Issuer, Capabilities)
     3. Self-Host-Disclaimer + (optional) Invite-Code
-  Nach „Hinzufügen": ServerEntry wird in serversStore geschrieben, der
+  Nach „Hinzufügen": ServerEntry wird in serversStore geschrieben, Cert-Login
+  läuft (POST /cert-login/{challenge,verify}), Session-Token landet in
+  sessionTokens, optional Invite-Code wird gegen den neuen Server akzeptiert,
   activeServer wechselt darauf, Dialog schließt.
 
-  Cert-Auth ist STUB für Phase 4.3 — siehe TODO(Phase-5) unten. Mit Invite-
-  Code: getInvitePreview()+acceptInvite() laufen gegen den NEUEN Server
-  (via {serverId}-Route am request-Client), benötigen aber einen Session-
-  Token den wir noch nicht haben → der echte End-to-End-Flow folgt in
-  Phase 5 zusammen mit dem Cert-Challenge-Sign. Hier nur die URL-Persistenz.
+  Bei Cert-Login-Fail wird der ServerEntry wieder gerollbacked. Bei Invite-
+  Fail bleibt der Server bestehen (User hat einen funktionierenden Account,
+  nur der Invite hat nicht geklappt) — Fehler wird per Toast gezeigt.
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -24,8 +24,14 @@
   import ServerIcon from '@lucide/svelte/icons/server';
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
   import { preCheckServer, type ServerInfo } from '$lib/api/server-info';
-  import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import {
+    addServerWithCertLogin,
+    mapCertLoginReason,
+    markSelfHostDisclaimerSeen,
+  } from '$lib/api/add-server-flow';
+  import { CertLoginError } from '$lib/api/cert-login';
   import { toast } from 'svelte-sonner';
 
   let {
@@ -95,38 +101,30 @@
     return 'Server-Antwort konnte nicht gelesen werden.';
   }
 
-  function confirmAdd(): void {
+  async function confirmAdd(): Promise<void> {
     if (!info || busy) return;
     busy = true;
+    error = null;
+    const labelHost = resolvedHostname.replace(/^https?:\/\//, '');
+    const code = inviteInput.trim();
     try {
-      // TODO(Phase-5): Real Cert-Auth-Flow + Pairwise-Sub + Session-Token via
-      // POST /cert-login. Dann auch getInvitePreview+acceptInvite gegen den
-      // neuen Server fahren (request({serverId: entry.id})) und den Invite-Code
-      // verwerten. Heute persistieren wir nur die URL + instance_id und
-      // verlassen uns darauf dass der User danach ein Cert/Login-Flow durchläuft.
-      const labelHost = resolvedHostname.replace(/^https?:\/\//, '');
-      const entry = serversStore.add(
-        resolvedHostname,
-        labelHost,
-        info.instance_id ?? undefined,
-        undefined, // pairwise_sub bleibt null bis Phase 5
-      );
-      // Disclaimer als „gesehen" markieren — beide Keys setzen damit der
-      // SelfHostDisclaimer-Banner (serverId-keyed) NICHT erneut hochpoppt.
-      if (typeof window !== 'undefined') {
-        try {
-          window.localStorage.setItem(`pulse.disclaimer_accepted_${resolvedHostname}`, '1');
-          window.localStorage.setItem(`pulse.disclaimer_seen_${entry.id}`, '1');
-        } catch { /* Quota/Private-Browsing: silent */ }
-      }
-      activeServer.set(entry.id);
+      const r = await addServerWithCertLogin({
+        hostname: resolvedHostname,
+        label: labelHost,
+        instanceId: info.instance_id ?? undefined,
+        inviteCode: code || undefined,
+      });
+      markSelfHostDisclaimerSeen(resolvedHostname, r.entry.id);
+      activeServer.set(r.entry.id);
       toast.success(`${labelHost} hinzugefügt`);
-      if (inviteInput.trim()) {
-        // Invite-Code wurde eingegeben — informiere User dass Phase 5 fehlt.
-        toast.info('Invite-Code wird beim nächsten Connect verarbeitet (Phase 5).');
-      }
+      if (r.inviteError) toast.error(`Invite-Code: ${r.inviteError}`);
+      else if (r.invite) toast.success(`Server „${r.invite.guild.name}" beigetreten`);
       reset();
       onClose();
+    } catch (err) {
+      error = err instanceof CertLoginError
+        ? mapCertLoginReason(err.reason)
+        : (err as Error).message ?? 'Verbindung fehlgeschlagen.';
     } finally {
       busy = false;
     }
@@ -225,9 +223,17 @@
             data-testid="add-server-invite"
           />
           <p class="text-text-muted text-xs">
-            Phase-5-Feature: voller Cert-Auth-Flow folgt — heute wird der Code beim nächsten Connect ausgewertet.
+            Mit Cert-Login: dein Identitäts-Cert wird gegen den Server signiert,
+            danach (falls Code gesetzt) tritt dieser Account dem Server bei.
           </p>
         </div>
+
+        {#if error}
+          <Alert.Root variant="destructive" data-testid="add-server-confirm-error">
+            <OctagonXIcon />
+            <Alert.Description>{error}</Alert.Description>
+          </Alert.Root>
+        {/if}
 
         <Dialog.Footer>
           <Button type="button" variant="ghost" onclick={() => (step = 'url')} disabled={busy}>
