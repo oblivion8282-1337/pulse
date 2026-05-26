@@ -198,3 +198,73 @@ async def handle_activity(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 # ``send`` op is registered in routes.ws_op_send. Re-register here so
 # importing this module wires every built-in op in one shot.
 register_ws_op("send", handle_send)
+
+
+@register_ws_op("profile_statement")
+async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """Accept a Cloud-signed profile statement from the client and cache it.
+
+    The client may send this op at any point after the connection is accepted
+    (typically right after receiving the ``ready`` frame).  It is silently
+    ignored when JWKS are unavailable or the statement is a replay; only hard
+    validation failures (bad signature, wrong purpose, expired) close the
+    connection with 4047.
+
+    A missing or empty ``jwt`` field is treated as a no-op — the client may
+    send the frame speculatively and include the JWT once it has one.
+    """
+    from dcc_chat_gateway.credential_validator import (
+        REDIS_JWKS_KEY,
+        _build_pubkey_from_jwks,
+    )
+    from dcc_chat_gateway.user_profile_cache import (
+        ProfileStatementInvalid,
+        ProfileStatementReplay,
+        upsert_profile_statement,
+    )
+
+    statement_jwt: str | None = msg.get("jwt") or msg.get("statement")
+    if not statement_jwt or not isinstance(statement_jwt, str):
+        return  # no-op — client sent frame without JWT
+
+    # Fetch JWKS from Redis cache (fail-open when cache is cold).
+    try:
+        raw_jwks = await ctx.redis.get(REDIS_JWKS_KEY)
+    except Exception:  # noqa: BLE001
+        log.warning("profile_statement: redis unavailable, skipping")
+        return
+
+    if not raw_jwks:
+        log.debug("profile_statement: JWKS cache cold, skipping")
+        return
+
+    if isinstance(raw_jwks, bytes):
+        raw_jwks = raw_jwks.decode()
+
+    import json as _json
+
+    try:
+        cloud_jwks = _json.loads(raw_jwks)
+    except Exception:  # noqa: BLE001
+        log.warning("profile_statement: could not parse JWKS JSON")
+        return
+
+    try:
+        async with SessionLocal() as session:
+            await upsert_profile_statement(
+                session,
+                statement_jwt,
+                cloud_jwks=cloud_jwks,
+                instance_mode="cloud",  # Self-Host override: inject mode from config when needed
+            )
+            await session.commit()
+    except ProfileStatementReplay:
+        log.debug("profile_statement: replay for user=%s, ignoring", ctx.user.id)
+    except ProfileStatementInvalid as exc:
+        log.warning("profile_statement: invalid for user=%s: %s", ctx.user.id, exc)
+        try:
+            await ctx.websocket.close(code=4047, reason="invalid profile statement")
+        except Exception:  # noqa: BLE001
+            pass
+    except Exception:  # noqa: BLE001
+        log.exception("profile_statement: unexpected error for user=%s", ctx.user.id)

@@ -19,6 +19,7 @@ from dcc_chat_gateway.routes import (
     guilds,
     internal,
     invites,
+    mention_search,
     messages,
     notifications,
     permission_overwrites,
@@ -64,6 +65,7 @@ router.include_router(presence.router)
 router.include_router(admin.router)
 router.include_router(admin_plugins.router)
 router.include_router(guild_plugins.router)
+router.include_router(mention_search.router)
 router.include_router(internal.router)
 router.include_router(ws.router)
 
