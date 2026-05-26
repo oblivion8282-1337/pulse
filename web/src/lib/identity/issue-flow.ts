@@ -143,13 +143,16 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   await profileStatementStore.setStatement(statement);
 
   // --- 5: Backup-Onboarding prüfen (best-effort, kein Fehler bei Netzwerkproblem) ---
-  // Wenn der User noch nicht entschieden hat und kein Backup existiert, triggerieren.
+  // init() synct den Backend-State (max. 3 s Timeout, LS-Fallback bei Fehler)
+  // und befüllt hasDecided() korrekt bevor wir den Check machen.
+  await onboardingState.init();
+
   if (!onboardingState.hasDecided()) {
     try {
       const existing = await getBackup(claims.cert_id);
       if (existing !== null) {
         // Backup schon vorhanden — als "configured" markieren, kein Dialog nötig.
-        onboardingState.markDecided('configured');
+        await onboardingState.markDecided('configured');
       } else {
         onboardingState.triggerIfNeeded();
       }
