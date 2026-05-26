@@ -1,0 +1,110 @@
+{
+    # Global Options
+    email {$PULSE_ADMIN_EMAIL}
+    # Auto-TLS via Let's Encrypt (Default, PULSE_TLS_MODE=auto).
+    # PULSE_TLS_MODE=provided → eigenes Cert unter /data/certs/{cert.pem,key.pem}.
+    # 07-init-caddy.sh patcht den Site-Block entsprechend beim Container-Start.
+}
+
+{$PULSE_HOSTNAME} {
+    # ------------------------------------------------------------------ #
+    # Security-Headers (Plan §Phase 6, identisch Cloud-Production)       #
+    # ------------------------------------------------------------------ #
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        Content-Security-Policy "default-src 'self'; connect-src 'self' wss://*; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"
+        X-Frame-Options DENY
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+        Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+        -Server
+    }
+
+    # ------------------------------------------------------------------ #
+    # CORS — Pulse Cloud darf Credentials mitsenden                      #
+    # ------------------------------------------------------------------ #
+    @cors_preflight method OPTIONS
+    handle @cors_preflight {
+        header Access-Control-Allow-Origin "https://pulse.unicutmedia.com"
+        header Access-Control-Allow-Credentials "true"
+        header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+        header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With"
+        header Access-Control-Max-Age "3600"
+        respond 204
+    }
+    header Access-Control-Allow-Origin "https://pulse.unicutmedia.com"
+    header Access-Control-Allow-Credentials "true"
+
+    # ------------------------------------------------------------------ #
+    # Health (öffentlich, kein Auth) — für Monitoring/Uptime-Checks      #
+    # ------------------------------------------------------------------ #
+    handle /health {
+        reverse_proxy 127.0.0.1:8002
+    }
+
+    # ------------------------------------------------------------------ #
+    # API-Routes                                                          #
+    # ------------------------------------------------------------------ #
+
+    # chat-gateway (8002)
+    handle /api/chat/* {
+        reverse_proxy 127.0.0.1:8002 {
+            header_up Host {host}
+        }
+    }
+
+    # WebSocket — chat-gateway (8002)
+    handle /api/ws {
+        reverse_proxy 127.0.0.1:8002 {
+            header_up Host {host}
+        }
+    }
+
+    # voice-signaling (8003)
+    handle /api/voice/* {
+        reverse_proxy 127.0.0.1:8003
+    }
+
+    # media-svc (8004)
+    handle /api/media/* {
+        reverse_proxy 127.0.0.1:8004
+    }
+
+    # ------------------------------------------------------------------ #
+    # WHEP für MediaMTX HQ-Streaming (8889)                              #
+    # ------------------------------------------------------------------ #
+    handle /whep/* {
+        reverse_proxy 127.0.0.1:8889
+    }
+
+    # ------------------------------------------------------------------ #
+    # LiveKit WebSocket (7880)                                            #
+    # ------------------------------------------------------------------ #
+    handle /livekit/* {
+        reverse_proxy 127.0.0.1:7880
+    }
+
+    # ------------------------------------------------------------------ #
+    # Internal Endpoints — JWT-validiert, nicht öffentlich dokumentiert  #
+    # ------------------------------------------------------------------ #
+
+    # Cloud-getriggerter Update-Webhook (JWT, rate-limited in chat-gateway)
+    handle /internal/trigger-update {
+        reverse_proxy 127.0.0.1:8002
+    }
+
+    # Cloud-Health-Probe nach Update (JWT, purpose=health-probe)
+    handle /internal/health-probe {
+        reverse_proxy 127.0.0.1:8002
+    }
+
+    # ------------------------------------------------------------------ #
+    # SPA Fallback — alles andere → Web-Static                           #
+    # ------------------------------------------------------------------ #
+    handle {
+        root * /var/www/pulse
+        try_files {path} /index.html
+        file_server
+        encode gzip
+    }
+}

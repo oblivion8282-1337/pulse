@@ -235,19 +235,6 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     )
     app.include_router(router)
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        from fastapi import Response as _Response
-        from fastapi.responses import JSONResponse as _JSONResponse
-
-        jwks_ok = getattr(app.state, "jwks_ready", True)
-        if not jwks_ok:
-            return _JSONResponse(
-                status_code=503,
-                content={"status": "initializing", "detail": "JWKS not yet available"},
-            )
-        return {"status": "ok"}
-
     @app.get("/internal/jwks-status")
     async def jwks_status() -> dict:
         """Internal JWKS-pin status healthcheck (Phase 3.1 stub).
