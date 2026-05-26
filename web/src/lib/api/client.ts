@@ -207,7 +207,7 @@ export async function request<T>(
   if (body !== undefined) init.body = JSON.stringify(body);
   // CORS für Cross-Origin (Cloud-Origin → Self-Host-Origin):
   // explizit `cors`-Mode + Cookies mitschicken falls Self-Host das nutzt.
-  if (isSelfHost) { init.mode = 'cors'; init.credentials = 'include'; }
+  if (isSelfHost) { init.mode = 'cors'; init.credentials = 'omit'; }
 
   let resp = await fetch(url, init);
 
@@ -278,7 +278,7 @@ export async function requestForm<T>(
       headers: { Authorization: `Bearer ${token}` },
       body: form,
     };
-    if (isSelfHost) { init.mode = 'cors'; init.credentials = 'include'; }
+    if (isSelfHost) { init.mode = 'cors'; init.credentials = 'omit'; }
     return init;
   };
 
