@@ -22,6 +22,7 @@
   import DangerZoneSection from './DangerZoneSection.svelte';
   import DeviceManagement from './DeviceManagement.svelte';
   import CloudBackup from './CloudBackup.svelte';
+  import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);
   let disableOpen = $state(false);
@@ -102,6 +103,8 @@
   </section>
 
   <SessionsSection />
+
+  <PublicComputerSafety />
 
   <DangerZoneSection />
 </div>

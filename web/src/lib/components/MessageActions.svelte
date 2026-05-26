@@ -4,22 +4,27 @@
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import FlagIcon from '@lucide/svelte/icons/flag';
   import EmojiPicker from './EmojiPicker.svelte';
 
   let {
     canEdit,
     canDelete,
+    canReport = false,
     onReply,
     onEdit,
     onDelete,
-    onReact
+    onReact,
+    onReport
   }: {
     canEdit: boolean;
     canDelete: boolean;
+    canReport?: boolean;
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
     onReact: (emoji: string) => void;
+    onReport?: () => void;
   } = $props();
 
   let pickerOpen = $state(false);
@@ -94,6 +99,19 @@
       onclick={onDelete}
     >
       <Trash2Icon class="size-4" />
+    </button>
+  {/if}
+
+  {#if canReport}
+    <button
+      type="button"
+      class="text-text-muted hover:bg-bg-hover hover:text-amber-400 rounded-md p-1.5"
+      title="Melden"
+      aria-label="Melden"
+      data-testid="message-action-report"
+      onclick={onReport}
+    >
+      <FlagIcon class="size-4" />
     </button>
   {/if}
 </div>
