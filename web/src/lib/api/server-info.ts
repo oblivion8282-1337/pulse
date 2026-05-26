@@ -42,10 +42,15 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/** Normalisiert Hostname (lowercase, strip trailing slash, HTTPS-Prefix). */
+/** Normalisiert Hostname (lowercase, strip trailing slash, HTTPS-Prefix).
+ *  HTTP wird upgegraded auf HTTPS — kein Klartext-Self-Host akzeptiert.
+ *  (TLS ist Pflicht für Cert-Modell-Sicherheit + WS-Origin-Check.) */
 function normalizeHostname(raw: string): string {
   const trimmed = raw.trim().toLowerCase().replace(/\/+$/, '');
-  if (!trimmed.startsWith('https://') && !trimmed.startsWith('http://')) {
+  if (trimmed.startsWith('http://')) {
+    return `https://${trimmed.slice('http://'.length)}`;
+  }
+  if (!trimmed.startsWith('https://')) {
     return `https://${trimmed}`;
   }
   return trimmed;

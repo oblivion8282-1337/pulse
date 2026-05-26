@@ -111,9 +111,13 @@
         info.instance_id ?? undefined,
         undefined, // pairwise_sub bleibt null bis Phase 5
       );
-      // Disclaimer als „gesehen" markieren (host-keyed, einmalig pro Server)
+      // Disclaimer als „gesehen" markieren — beide Keys setzen damit der
+      // SelfHostDisclaimer-Banner (serverId-keyed) NICHT erneut hochpoppt.
       if (typeof window !== 'undefined') {
-        window.localStorage.setItem(`pulse.disclaimer_accepted_${resolvedHostname}`, '1');
+        try {
+          window.localStorage.setItem(`pulse.disclaimer_accepted_${resolvedHostname}`, '1');
+          window.localStorage.setItem(`pulse.disclaimer_seen_${entry.id}`, '1');
+        } catch { /* Quota/Private-Browsing: silent */ }
       }
       activeServer.set(entry.id);
       toast.success(`${labelHost} hinzugefügt`);
