@@ -24,8 +24,13 @@
 
   const open = $derived(onboardingState.showBackupStep);
 
-  function skip() {
-    onboardingState.markDecided('skipped');
+  async function skip() {
+    await onboardingState.markDecided('skipped');
+    if (onboardingState.syncFailed) {
+      toast.warning('Entscheidung nur lokal gespeichert', {
+        description: 'Backup-Einstellung konnte nicht synchronisiert werden — wirkt nur auf diesem Gerät.'
+      });
+    }
   }
 
   function startSetup() {
@@ -34,7 +39,7 @@
   }
 
   function handleOpenChange(v: boolean) {
-    if (!v) skip();
+    if (!v) void skip();
   }
 
   async function handleSetup(password: string) {
@@ -59,7 +64,12 @@
       toast.success('Backup gespeichert', {
         description: 'Dein Keypair ist nun verschlüsselt in der Cloud gesichert.'
       });
-      onboardingState.markDecided('configured');
+      await onboardingState.markDecided('configured');
+      if (onboardingState.syncFailed) {
+        toast.warning('Entscheidung nur lokal gespeichert', {
+          description: 'Backup-Einstellung konnte nicht synchronisiert werden — wirkt nur auf diesem Gerät.'
+        });
+      }
     } catch (err) {
       errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler.';
     } finally {
