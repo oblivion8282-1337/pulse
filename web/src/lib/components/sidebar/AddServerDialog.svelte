@@ -98,6 +98,8 @@
       return 'Server nicht erreichbar — URL prüfen oder VPN?';
     if (reason === 'cors')
       return 'Server blockt Cross-Origin-Verbindungen. Admin muss CORS einrichten.';
+    if (reason === 'bad-url')
+      return 'Keine gültige URL — z. B. chat.firma.de oder https://chat.firma.de.';
     return 'Server-Antwort konnte nicht gelesen werden.';
   }
 
@@ -151,11 +153,13 @@
           </Label>
           <Input
             id="add-server-url"
-            type="url"
+            type="text"
             bind:value={urlInput}
             required
             autocomplete="off"
-            placeholder="https://chat.firma.de"
+            inputmode="url"
+            spellcheck={false}
+            placeholder="chat.firma.de"
             data-testid="add-server-url"
           />
         </div>

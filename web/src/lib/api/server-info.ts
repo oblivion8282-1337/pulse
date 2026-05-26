@@ -23,7 +23,7 @@ export type PreCheckOk = { ok: true; info: ServerInfo; hostname: string };
 export type PreCheckErr = {
   ok: false;
   /** 'unreachable' | 'too-old' | 'bad-response' | 'cors' */
-  reason: 'unreachable' | 'too-old' | 'bad-response' | 'cors';
+  reason: 'unreachable' | 'too-old' | 'bad-response' | 'bad-url' | 'cors';
   details?: string;
 };
 export type PreCheckResult = PreCheckOk | PreCheckErr;
@@ -71,7 +71,7 @@ export async function preCheckServer(
   try {
     const url = new URL(hostname);
     if (!url.hostname || !url.hostname.includes('.')) {
-      return { ok: false, reason: 'bad-response', details: 'Keine gültige URL.' };
+      return { ok: false, reason: 'bad-url', details: 'Keine gültige URL.' };
     }
   } catch {
     return { ok: false, reason: 'bad-response', details: 'Keine gültige URL.' };
