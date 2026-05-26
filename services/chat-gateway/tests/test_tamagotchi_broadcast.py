@@ -25,6 +25,7 @@ from redis.asyncio import Redis
 from starlette.testclient import TestClient
 
 from dcc_chat_gateway.models import InstancePluginAllowlist, GuildPlugin
+from .conftest import receive_skipping
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -145,9 +146,9 @@ async def test_state_update_broadcasts_to_same_guild(ws_app, _auth_signer):
 
             # Beide WS-Connections aufbauen.
             with tc.websocket_connect(f"/ws?token={token_a}") as ws_a:
-                ws_a.receive_json()  # ready
+                receive_skipping(ws_a)  # skip hello + ready
                 with tc.websocket_connect(f"/ws?token={token_b}") as ws_b:
-                    ws_b.receive_json()  # ready
+                    receive_skipping(ws_b)  # skip hello + ready
                     # presence_update von B könnte A noch sehen — wir
                     # filtern unten gezielt nach tamagotchi:state_update.
 
@@ -189,9 +190,9 @@ async def test_state_update_not_delivered_to_outsider(ws_app, _auth_signer):
             assert g_b["id"] != gid_a
 
             with tc.websocket_connect(f"/ws?token={token_a}") as ws_a:
-                ws_a.receive_json()  # ready
+                receive_skipping(ws_a)  # skip hello + ready
                 with tc.websocket_connect(f"/ws?token={token_b}") as ws_b:
-                    ws_b.receive_json()  # ready
+                    receive_skipping(ws_b)  # skip hello + ready
 
                     ws_a.send_json(
                         {"op": "tamagotchi:feed", "guild_id": str(gid_a)}

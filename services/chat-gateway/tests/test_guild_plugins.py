@@ -15,6 +15,7 @@ import uuid
 import pytest
 from dcc_chat_gateway.models import GuildPlugin, InstancePluginAllowlist
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -355,7 +356,7 @@ async def test_put_toggle_broadcasts_to_guild_members(ws_app, _auth_signer):
             _add_member_sync(db_url, int(gid), member_uid)
 
             with tc.websocket_connect(f"/ws?token={member_token}") as ws_m:
-                ws_m.receive_json()  # ready
+                receive_skipping(ws_m)  # skip hello + ready
                 r = tc.put(
                     f"/guilds/{gid}/plugins/tamagotchi",
                     json={"enabled": True},
@@ -400,7 +401,7 @@ async def test_put_toggle_does_not_broadcast_to_outsider(ws_app, _auth_signer):
             )
 
             with tc.websocket_connect(f"/ws?token={outsider_token}") as ws_x:
-                ws_x.receive_json()  # ready
+                receive_skipping(ws_x)  # skip hello + ready
                 r = tc.put(
                     f"/guilds/{gid}/plugins/tamagotchi",
                     json={"enabled": True},
@@ -452,7 +453,7 @@ async def test_delete_plugin_broadcasts_disabled_to_affected_guilds(
             assert r.status_code == 200, r.text
 
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws_o:
-                ws_o.receive_json()  # ready
+                receive_skipping(ws_o)  # skip hello + ready
                 # Admin-DELETE: instanzweit raus → für jede Guild ein
                 # guild_plugins_changed mit enabled=False.
                 r = tc.delete(

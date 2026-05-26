@@ -48,6 +48,7 @@ async def test_ws_ready_includes_dm_channels(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             t_a, _, _, uid_b, dm_id = _bootstrap_dm_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={t_a}") as ws:
+                ws.receive_json()  # hello
                 payload = ws.receive_json()
                 assert payload["op"] == "ready"
                 dm_list = payload.get("dm_channels")
@@ -67,7 +68,7 @@ async def test_ws_subscribe_dm_as_member(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             t_a, _, _, _, dm_id = _bootstrap_dm_sync(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={t_a}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json({"op": "subscribe", "channel_id": dm_id})
                 # No error frame should arrive — but pulling one would block,
                 # so instead send a follow-up echo (a no-op subscribe to a
@@ -93,7 +94,7 @@ async def test_ws_subscribe_dm_as_non_member_rejected(ws_app, _auth_signer):
             uid_c = random.randint(1, 1_000_000)
             t_c = _auth_signer.issue_access(uid_c, f"c{uid_c}")
             with tc.websocket_connect(f"/ws?token={t_c}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json({"op": "subscribe", "channel_id": dm_id})
                 resp = ws.receive_json()
                 assert resp["op"] == "error"
@@ -200,7 +201,7 @@ async def test_ws_dm_send_bumps_last_message_id(ws_app, _auth_signer):
             t_a, _, _, _, dm_id = _bootstrap_dm_sync(tc, _auth_signer)
             sent_msg_id: str | None = None
             with tc.websocket_connect(f"/ws?token={t_a}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json({"op": "subscribe", "channel_id": dm_id})
                 ws.send_json(
                     {
@@ -216,7 +217,8 @@ async def test_ws_dm_send_bumps_last_message_id(ws_app, _auth_signer):
 
             # Open a fresh connection; ready must reflect the bump.
             with tc.websocket_connect(f"/ws?token={t_a}") as ws2:
-                payload = ws2.receive_json()
+                ws2.receive_json()  # hello
+                payload = ws2.receive_json()  # ready
                 entry = next(d for d in payload["dm_channels"] if d["id"] == dm_id)
                 assert entry["last_message_id"] == sent_msg_id
 
