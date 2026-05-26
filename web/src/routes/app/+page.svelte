@@ -76,9 +76,9 @@
 <div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
   {#if guilds.list.length === 0}
     <div class="text-center">
-      <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Server</p>
+      <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Gilden</p>
       <Button onclick={() => (creating = true)} data-testid="empty-create-guild">
-        {canCreateGuild ? 'Server erstellen oder beitreten' : 'Server beitreten'}
+        {canCreateGuild ? 'Gilde erstellen oder beitreten' : 'Gilde beitreten'}
       </Button>
       {#if !canCreateGuild}
         <p class="text-text-muted mt-2 text-xs">

@@ -20,6 +20,7 @@
   import ImageOffIcon from '@lucide/svelte/icons/image-off';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -32,6 +33,13 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
+  import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
+  import { serverState } from '$lib/ws/server-state.svelte';
+  import AddServerDialog from './sidebar/AddServerDialog.svelte';
+  import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
+  import ServerIconButton from './sidebar/ServerIconButton.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import UserFooter from './UserFooter.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
@@ -102,7 +110,7 @@
     try {
       const g = await chatApi.uploadGuildIcon(target.id, file);
       guildsStore.updateGuild(g);
-      toast.success('Server-Bild aktualisiert');
+      toast.success('Gilden-Bild aktualisiert');
     } catch (err) {
       toast.error('Bild-Upload fehlgeschlagen', { description: (err as Error).message });
     }
@@ -112,7 +120,7 @@
     try {
       await chatApi.deleteGuildIcon(g.id);
       guildsStore.updateGuild({ ...g, icon_url: null });
-      toast.success('Server-Bild entfernt');
+      toast.success('Gilden-Bild entfernt');
     } catch (err) {
       toast.error('Bild entfernen fehlgeschlagen', { description: (err as Error).message });
     }
@@ -146,9 +154,62 @@
       deleteConfirmOpen = false;
       deleteTarget = null;
     } catch (err) {
-      toast.error('Server löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error('Gilde löschen fehlgeschlagen', { description: (err as Error).message });
     } finally {
       deleteBusy = false;
+    }
+  }
+
+  // -- Server-Instanzen-Section (Cloud + Self-Hosts) ------------------------
+  // Vorher eine eigene linke Spalte (ServerSidebar.svelte); jetzt unten in
+  // dieser Spalte integriert mit Trennlinie davor. Designziel: eine
+  // vertikale Sidebar, Discord-Style für Cloud-only-User mit kompaktem
+  // Footer-Block, Self-Host-User sieht zusätzliche Server-Icons.
+  let addServerOpen = $state(false);
+  let removeServerTarget = $state<ServerEntry | null>(null);
+  let removeServerConfirmOpen = $state(false);
+  let infoServerTarget = $state<ServerEntry | null>(null);
+  let infoServerOpen = $state(false);
+
+  onMount(() => serverState.start());
+  onDestroy(() => serverState.stop());
+
+  let cloudServer = $derived(serversStore.servers.find((s) => s.isCloud));
+  let selfHostServers = $derived(serversStore.servers.filter((s) => !s.isCloud));
+
+  function openServerInfo(server: ServerEntry): void {
+    infoServerTarget = server;
+    infoServerOpen = true;
+  }
+
+  function setServerNotif(server: ServerEntry, mode: ServerEntry['notification_mode']): void {
+    serversStore.update(server.id, { notification_mode: mode });
+  }
+
+  function openServerRemove(server: ServerEntry): void {
+    removeServerTarget = server;
+    removeServerConfirmOpen = true;
+  }
+
+  function confirmServerRemove(): void {
+    if (!removeServerTarget) return;
+    const id = removeServerTarget.id;
+    const label = removeServerTarget.label;
+    try {
+      // Connection schließen BEVOR der Entry weg ist (Pool dereferenced
+      // serversStore.find sonst zu undefined → spätere reconnects crashen).
+      gatewayPool.close(id);
+      serversStore.remove(id);
+      if (activeServer.serverId === id) {
+        const fallback = serversStore.servers.find((s) => s.isCloud);
+        if (fallback) activeServer.set(fallback.id);
+      }
+      toast.success(`${label} entfernt`);
+    } catch (err) {
+      toast.error('Entfernen fehlgeschlagen', { description: (err as Error).message });
+    } finally {
+      removeServerConfirmOpen = false;
+      removeServerTarget = null;
     }
   }
 </script>
@@ -156,7 +217,7 @@
 <nav
   class="glass-panel flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
   data-testid="guild-rail"
-  aria-label="Server"
+  aria-label="Gilden und Server"
 >
   <!-- Tooltips auf Mobil aus: Hover-Popups (Server-Name/Member-Zahl) poppen
        auf Touch beim Antippen unerwünscht auf. -->
@@ -209,6 +270,13 @@
     </Tooltip.Root>
 
     <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
+
+    <p
+      class="text-text-muted shrink-0 px-1 text-[10px] font-semibold uppercase tracking-wide"
+      aria-hidden="true"
+    >
+      Gilden
+    </p>
 
     {#each guilds as g (g.id)}
       {@const isOwner = currentUserId !== null && g.owner_id === currentUserId}
@@ -281,16 +349,16 @@
             {#if canManageGuild}
               <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
                 <PencilIcon />
-                Server umbenennen
+                Gilde umbenennen
               </ContextMenu.Item>
               <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
                 <ImageIcon />
-                Server-Bild ändern…
+                Gilden-Bild ändern…
               </ContextMenu.Item>
               {#if g.icon_url}
                 <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
                   <ImageOffIcon />
-                  Server-Bild entfernen
+                  Gilden-Bild entfernen
                 </ContextMenu.Item>
               {/if}
             {/if}
@@ -298,7 +366,7 @@
               {#if canManageGuild}<ContextMenu.Separator />{/if}
               <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
                 <Trash2Icon />
-                Server löschen
+                Gilde löschen
               </ContextMenu.Item>
             {/if}
           </ContextMenu.Content>
@@ -315,15 +383,69 @@
               class="border-primary/30 text-primary flex size-12 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all md:size-10 hover:rounded-xl hover:bg-bg-hover"
               onclick={onCreateClick}
               data-testid="guild-create"
-              aria-label="Server erstellen"
+              aria-label="Gilde erstellen"
             >
               <PlusIcon class="size-6 md:size-5" />
             </button>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content side="right">Server erstellen</Tooltip.Content>
+        <Tooltip.Content side="right">Gilde erstellen</Tooltip.Content>
       </Tooltip.Root>
     {/if}
+
+    <!-- Server-Instanzen unten: Cloud + Self-Hosts + "+" zum Hinzufügen. -->
+    <div
+      class="bg-border my-2 h-px w-8 shrink-0"
+      aria-hidden="true"
+      data-testid="server-section-divider"
+    ></div>
+
+    <p
+      class="text-text-muted shrink-0 px-1 text-[10px] font-semibold uppercase tracking-wide"
+      aria-hidden="true"
+    >
+      Server
+    </p>
+
+    {#if cloudServer}
+      <ServerIconButton
+        server={cloudServer}
+        active={activeServer.serverId === cloudServer.id}
+        state={serverState.get(cloudServer.id).state}
+        onPick={() => cloudServer && activeServer.set(cloudServer.id)}
+        onInfo={() => cloudServer && openServerInfo(cloudServer)}
+        onNotif={(m) => cloudServer && setServerNotif(cloudServer, m)}
+      />
+    {/if}
+
+    {#each selfHostServers as server (server.id)}
+      <ServerIconButton
+        {server}
+        active={activeServer.serverId === server.id}
+        state={serverState.get(server.id).state}
+        onPick={() => activeServer.set(server.id)}
+        onInfo={() => openServerInfo(server)}
+        onNotif={(m) => setServerNotif(server, m)}
+        onRemove={() => openServerRemove(server)}
+      />
+    {/each}
+
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
+            onclick={() => (addServerOpen = true)}
+            data-testid="server-add"
+            aria-label="Server hinzufügen"
+          >
+            <PlusIcon class="size-5" />
+          </button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content side="right">Server hinzufügen</Tooltip.Content>
+    </Tooltip.Root>
   </Tooltip.Provider>
 
   <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-
@@ -334,6 +456,28 @@
     </div>
   {/if}
 </nav>
+
+<AddServerDialog open={addServerOpen} onClose={() => (addServerOpen = false)} />
+
+<AlertDialog.Root bind:open={removeServerConfirmOpen}>
+  <AlertDialog.Content data-testid="remove-server-dialog">
+    <AlertDialog.Header>
+      <AlertDialog.Title>Server entfernen?</AlertDialog.Title>
+      <AlertDialog.Description>
+        {removeServerTarget?.label ?? 'Dieser Server'} wird aus deiner Liste entfernt. Deine
+        Daten auf dem Server bleiben dort — nur die lokale Verknüpfung wird gelöscht.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmServerRemove} data-testid="remove-server-confirm">
+        Entfernen
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<ServerInfoDialog bind:open={infoServerOpen} server={infoServerTarget} />
 
 <RenameGuildDialog
   open={renameTarget !== null}
@@ -355,9 +499,9 @@
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
   <AlertDialog.Content data-testid="delete-guild-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Server löschen?</AlertDialog.Title>
+      <AlertDialog.Title>Gilde löschen?</AlertDialog.Title>
       <AlertDialog.Description>
-        {deleteTarget?.name ?? 'Dieser Server'} und alle Inhalte werden dauerhaft gelöscht.
+        {deleteTarget?.name ?? 'Diese Gilde'} und alle Inhalte werden dauerhaft gelöscht.
         Diese Aktion kann nicht rückgängig gemacht werden.
       </AlertDialog.Description>
     </AlertDialog.Header>

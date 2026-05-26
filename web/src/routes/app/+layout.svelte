@@ -12,7 +12,6 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
-  import ServerSidebar from '$lib/components/sidebar/ServerSidebar.svelte';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
 
@@ -160,9 +159,7 @@
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}
-      <!-- ServerSidebar lebt LINKS der existing GuildRail (Discord-Pattern,
-           aber eine Ebene tiefer: erst Server-Instanz wählen, dann Guild). -->
-      <ServerSidebar />
+      <!-- Server-Picker ist in die GuildRail unten integriert (s. dort). -->
       {@render children?.()}
     {/if}
   </div>
