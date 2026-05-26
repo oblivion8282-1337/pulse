@@ -9,6 +9,9 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import { runIssueFlow } from '$lib/identity/issue-flow';
+  import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
 
   let username = $state('');
   let email = $state('');
@@ -31,6 +34,23 @@
         display_name: displayName.trim() || null
       });
       auth.setUser(await me());
+
+      // Identity-Flow analog zum Login: Cert ausstellen + Profile-Statement
+      // holen, dann Refresh-Timer starten. Best-effort — Fehler blockieren
+      // den Sign-Up nicht (Cert-Features degradieren gracefully), aber ohne
+      // diesen Trigger bleibt IndexedDB leer und der erste Server-Request
+      // post-register hat kein Cert.
+      void runIssueFlow()
+        .then(() => {
+          if (auth.isAuthenticated) {
+            void startProfileRefresh();
+            void startCertRotation();
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn('[identity] issue-flow fehlgeschlagen:', err);
+        });
+
       await goto('/app');
     } catch (err) {
       // Surface the structured 409 bodies the backend now sends:
