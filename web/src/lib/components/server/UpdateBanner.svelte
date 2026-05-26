@@ -1,0 +1,78 @@
+<!--
+  UpdateBanner — Phase 4.3.
+
+  Slim Banner oben im App-Shell, sichtbar wenn die aktive Gateway-Connection
+  einen "abnormalen" Zustand hat (incompatible/updating/starting/mfa-required/
+  cors-blocked). Reaktiv via `serverState` (1Hz-Poll, kein Eingriff in
+  gateway-connection.ts). Bei `open` oder `idle` → unsichtbar.
+
+  mfa-required hat einen Action-Button → /login (Cloud) bzw. Stub-Hinweis
+  (Self-Host, Cert-Re-Auth ist Phase 5).
+-->
+<script lang="ts">
+  import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
+  import AlertCircleIcon from '@lucide/svelte/icons/alert-circle';
+  import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { goto } from '$app/navigation';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { serverState } from '$lib/ws/server-state.svelte';
+
+  let active = $derived(activeServer.current);
+  let snap = $derived(active ? serverState.get(active.id) : { state: 'idle' as const, helloMeta: null });
+  let visible = $derived(
+    snap.state === 'incompatible' ||
+      snap.state === 'updating' ||
+      snap.state === 'starting' ||
+      snap.state === 'mfa-required' ||
+      snap.state === 'cors-blocked',
+  );
+  let host = $derived(active?.label ?? 'Server');
+
+  function message(state: string, h: string): string {
+    if (state === 'incompatible')
+      return `${h} läuft auf einer veralteten Version. Update läuft vermutlich, Reconnect-Versuch läuft.`;
+    if (state === 'updating')
+      return `${h} wird gerade aktualisiert, sollte in ~30 Sekunden wieder da sein.`;
+    if (state === 'starting')
+      return `${h} initialisiert noch (JWKS), gleich da.`;
+    if (state === 'mfa-required')
+      return `${h} verlangt MFA-Re-Auth. Bitte einmal über Cloud-Login neu authentifizieren.`;
+    if (state === 'cors-blocked')
+      return `${h} blockt Cross-Origin-Verbindungen. Server-Admin muss CORS für unsere Domain einrichten.`;
+    return '';
+  }
+
+  function tone(state: string): string {
+    if (state === 'mfa-required' || state === 'cors-blocked' || state === 'incompatible')
+      return 'bg-red-500/15 border-red-500/40 text-red-200';
+    return 'bg-amber-500/15 border-amber-500/40 text-amber-200';
+  }
+</script>
+
+{#if visible}
+  <div
+    class="mx-3 mt-2 flex items-center gap-3 rounded-xl border px-3 py-2 text-sm {tone(snap.state)}"
+    data-testid="update-banner"
+    role="status"
+  >
+    {#if snap.state === 'mfa-required'}
+      <ShieldAlertIcon class="size-4 shrink-0" />
+    {:else if snap.state === 'cors-blocked' || snap.state === 'incompatible'}
+      <AlertCircleIcon class="size-4 shrink-0" />
+    {:else}
+      <RefreshCcwIcon class="size-4 shrink-0 animate-spin" />
+    {/if}
+    <span class="flex-1">{message(snap.state, host)}</span>
+    {#if snap.state === 'mfa-required'}
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={() => goto('/login')}
+        data-testid="update-banner-mfa-action"
+      >
+        Zur Cloud-Login-Page
+      </Button>
+    {/if}
+  </div>
+{/if}
