@@ -1,0 +1,7 @@
+#!/command/execlineb -S0
+# Restart-limit per Phase-6 plan (Punkt 12): max 5 restarts in 60s, then exit
+# the *container* (Docker `restart: unless-stopped` performs a clean restart).
+# /var/run/pulse/postgres.restart-counter is bumped here and reset by a
+# wrapper script before each run; we use a simple ratchet via mtime.
+fdmove -c 2 1
+foreground { /etc/s6-overlay/scripts/restart-gate.sh postgres }

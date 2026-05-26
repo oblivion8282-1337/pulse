@@ -1,0 +1,6 @@
+#!/bin/sh
+# LiveKit — WebRTC SFU for voice calls. Config rendered by cont-init from
+# /opt/pulse/templates/livekit.yaml.template (api-keys injected).
+exec 2>&1
+. /etc/pulse/env.sh
+exec /usr/sbin/gosu pulse /usr/local/bin/livekit-server --config /etc/livekit/livekit.yaml
