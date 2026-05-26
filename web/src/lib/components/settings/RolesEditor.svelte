@@ -212,6 +212,15 @@
       const r = await rolesApi.create(guildId, { name: 'Neue Rolle', permissions: '0' });
       rolesStore.upsertRole(r);
       selectedId = r.id;
+      // Seed the buffer synchronously and pin lastLoadedId so the
+      // selection-effect won't fire afterwards and trample any
+      // immediate user edit (e.g. typing into the name input right
+      // after pressing "Neue Rolle"). Without this, the effect runs
+      // on the next tick — after a fast `input` event has already
+      // landed — and resets editName back to "Neue Rolle", leaving
+      // dirty=false and the Save button disabled.
+      loadIntoBuffer(r);
+      lastLoadedId = r.id;
       toast.success('Rolle erstellt');
     } catch (err) {
       toast.error('Rolle erstellen fehlgeschlagen', { description: (err as Error).message });
