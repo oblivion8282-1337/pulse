@@ -64,15 +64,28 @@ class AuthStore {
         void hydrateServerSections();
         // Fix 2: Cert + Timer nach Tab-Reload/SSO-Hydrate nachholen.
         // Dynamische Imports vermeiden Circular-Dep (identity-Module importieren auth).
+        // RecoveryAvailableError → Redirect zu /recover (z.B. wenn der User auf
+        // einem neuen Gerät den Tab reopened ohne vorher den Setup-Flow zu
+        // sehen). Sonstige Fehler werden gracefully geschluckt.
         import('$lib/identity/issue-flow')
-          .then(({ runIssueFlow }) => runIssueFlow())
-          .then(async () => {
-            const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
-              import('$lib/identity/profile-refresh.svelte'),
-              import('$lib/identity/cert-rotation.svelte'),
-            ]);
-            startProfileRefresh();
-            startCertRotation();
+          .then(async ({ runIssueFlow, RecoveryAvailableError }) => {
+            try {
+              await runIssueFlow();
+              const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
+                import('$lib/identity/profile-refresh.svelte'),
+                import('$lib/identity/cert-rotation.svelte'),
+              ]);
+              startProfileRefresh();
+              startCertRotation();
+            } catch (err) {
+              if (err instanceof RecoveryAvailableError) {
+                const params = new URLSearchParams({
+                  cert_id: err.certId,
+                  device_label: err.deviceLabel,
+                });
+                await goto(`/recover?${params.toString()}`, { replaceState: true });
+              }
+            }
           })
           .catch(() => {/* silent — degradiert gracefully */});
       }
@@ -114,6 +127,10 @@ class AuthStore {
     privacy.clear();
     onboardingState.reset();
     settings.resetUserScoped();
+    // Decline-Flag zurücksetzen: ein "Als neues Gerät weiter" gilt nur für
+    // die laufende Session — beim nächsten Login soll der User wieder den
+    // Recover-Dialog bekommen können.
+    void import('$lib/identity/issue-flow').then((m) => m.resetRecoveryDecline());
     // Phase 4.2: alle WS-Connections + Self-Host-Session-Tokens beenden.
     // Cloud-Tokens werden weiter oben via clearTokens() entfernt.
     gatewayPool.closeAll();

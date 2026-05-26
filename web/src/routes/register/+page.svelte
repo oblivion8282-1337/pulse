@@ -9,7 +9,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
-  import { runIssueFlow } from '$lib/identity/issue-flow';
+  import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
 
@@ -36,20 +36,28 @@
       auth.setUser(await me());
 
       // Identity-Flow analog zum Login: Cert ausstellen + Profile-Statement
-      // holen, dann Refresh-Timer starten. Best-effort — Fehler blockieren
-      // den Sign-Up nicht (Cert-Features degradieren gracefully), aber ohne
-      // diesen Trigger bleibt IndexedDB leer und der erste Server-Request
-      // post-register hat kein Cert.
-      void runIssueFlow()
-        .then(() => {
-          if (auth.isAuthenticated) {
-            void startProfileRefresh();
-            void startCertRotation();
-          }
-        })
-        .catch((err: unknown) => {
-          console.warn('[identity] issue-flow fehlgeschlagen:', err);
-        });
+      // holen. Bei frischer Registration kann zwar kein Recovery-Backup
+      // existieren (User wurde gerade erst angelegt), aber wir behandeln
+      // RecoveryAvailableError trotzdem symmetrisch — falls die Sign-Up-
+      // Antwort race-y ist und ein leaked Browser-Profile schon eingeloggt
+      // war, soll der User trotzdem in den Recover-Pfad fließen können.
+      try {
+        await runIssueFlow();
+        if (auth.isAuthenticated) {
+          void startProfileRefresh();
+          void startCertRotation();
+        }
+      } catch (err) {
+        if (err instanceof RecoveryAvailableError) {
+          const params = new URLSearchParams({
+            cert_id: err.certId,
+            device_label: err.deviceLabel,
+          });
+          await goto(`/recover?${params.toString()}`, { replaceState: true });
+          return;
+        }
+        console.warn('[identity] issue-flow fehlgeschlagen:', err);
+      }
 
       await goto('/app');
     } catch (err) {

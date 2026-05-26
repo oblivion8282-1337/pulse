@@ -20,9 +20,45 @@ import { certStore, parseCertClaims } from './cert.svelte';
 import type { IdentityCert } from './cert.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
 import type { ProfileStatement } from './profile-statement.svelte';
-// listCerts wird nur via DeviceManagement-UI genutzt, nicht hier im Issue-Flow.
-import { issueCert, getProfileStatement, getBackup } from '$lib/api/credentials';
+import { issueCert, listCerts, getProfileStatement, getBackup } from '$lib/api/credentials';
 import { onboardingState } from '$lib/stores/onboardingState.svelte';
+
+/**
+ * Signalisiert dass kein lokaler Keypair existiert, aber mindestens ein
+ * Cloud-Backup für diesen User auf dem Server liegt. Caller (login/register-
+ * Page) sollen den User in den Recover-Flow lenken statt blind ein neues
+ * Cert auszustellen.
+ */
+export class RecoveryAvailableError extends Error {
+  certId: string;
+  deviceLabel: string;
+  constructor(certId: string, deviceLabel: string) {
+    super('RECOVERY_AVAILABLE');
+    this.name = 'RecoveryAvailableError';
+    this.certId = certId;
+    this.deviceLabel = deviceLabel;
+  }
+}
+
+const DECLINE_LS_KEY = 'pulse.recovery_declined';
+
+/** User hat im Recover-Dialog "Neues Gerät" gewählt — runIssueFlow soll
+ *  beim nächsten Aufruf nicht erneut auf den Recover-Flow umleiten. */
+export function declineRecovery(): void {
+  if (typeof localStorage === 'undefined') return;
+  try { localStorage.setItem(DECLINE_LS_KEY, '1'); } catch { /* ignore */ }
+}
+
+/** Reset des Decline-Flags (z.B. nach erfolgreichem Recover oder Sign-Out). */
+export function resetRecoveryDecline(): void {
+  if (typeof localStorage === 'undefined') return;
+  try { localStorage.removeItem(DECLINE_LS_KEY); } catch { /* ignore */ }
+}
+
+function isRecoveryDeclined(): boolean {
+  if (typeof localStorage === 'undefined') return false;
+  try { return localStorage.getItem(DECLINE_LS_KEY) === '1'; } catch { return false; }
+}
 
 // ---------------------------------------------------------------------------
 // Gerätebeschriftung
@@ -111,6 +147,25 @@ export async function runIssueFlow(): Promise<IssueFlowResult> {
   let keypairCreated = false;
 
   if (!keypair) {
+    // Bevor wir blind einen neuen Pubkey generieren + ausstellen: Check ob
+    // der User auf einem anderen Gerät ein Cloud-Backup hinterlegt hat.
+    // Sonst hat ein Login auf einem neuen Browser zur Folge, dass die
+    // Backup-Identity nie wiederhergestellt wird und der User unbemerkt mit
+    // einem Zweit-Device-Cert weiterläuft — die Backup-Funktion wäre
+    // effektiv unnutzbar.
+    if (!isRecoveryDeclined()) {
+      try {
+        const list = await listCerts();
+        const restorable = list.devices.find((d) => d.has_backup);
+        if (restorable) {
+          throw new RecoveryAvailableError(restorable.cert_id, restorable.device_label);
+        }
+      } catch (err) {
+        if (err instanceof RecoveryAvailableError) throw err;
+        // Netzwerk-/Auth-Fehler im list-Call: still degradiert in den
+        // Generate-Pfad (User würde sonst auf der Login-Page kleben).
+      }
+    }
     keypair = await generateKeypair();
     await saveKeypair(keypair);
     keypairCreated = true;
