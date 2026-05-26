@@ -1,26 +1,13 @@
 import { me } from '$lib/api/auth';
 import { clearTokens, loadTokens } from '$lib/api/storage';
 import { readState } from './readState.svelte';
-import { voicePresence } from './voicePresence.svelte';
-import { streamPresence } from './streamPresence.svelte';
 import { userCache } from './users.svelte';
-import { directMessages } from './directMessages.svelte';
-import { guilds } from './guilds.svelte';
-import { messages } from './messages.svelte';
-import { roles } from './roles.svelte';
-import { guildSounds } from './guildSounds.svelte';
-import { channelPermissions } from './channelPermissions.svelte';
-import { memberRoles } from './memberRoles.svelte';
 import { capabilities } from './capabilities.svelte';
 import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
-import { friends } from './friends.svelte';
-import { friendRequests } from './friendRequests.svelte';
-import { blocks } from './blocks.svelte';
 import { privacy } from './privacy.svelte';
-import { presence } from './presence.svelte';
-import { resetGuildPluginsCache } from '$lib/plugins';
 import { onboardingState } from '$lib/stores/onboardingState.svelte';
+import { resetServerScopedStores } from './multi-server-reset';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
@@ -110,29 +97,21 @@ class AuthStore {
   signOut(): void {
     clearTokens();
     this.user = null;
-    // Clear all session-scoped stores so a re-login (or a different user
-    // signing in on the same tab without a reload) starts from a clean slate.
-    // guilds/messages are cleared by UserFooter.onSignOut where it's the
-    // user-initiated path; this method also runs from the WS connection's
-    // refresh-failure path, which is why the clearing belongs here.
+    // Server-scoped Stores: Helper aus Phase 4.5 — leert 15 Stores +
+    // Plugin-Toggle-Cache. Anti-Drift: jeder neue Server-scoped Store
+    // gehört in `multi-server-reset.ts`, nicht hier.
+    resetServerScopedStores();
+    // readState: vollständig clear() bei Sign-Out (storageKey wegnehmen,
+    // damit nachfolgende markRead-Aufrufe vom Re-Login nicht auf den alten
+    // User schreiben). Der user-gekeyte localStorage-Eintrag bleibt
+    // unangetastet — beim Re-Login holt `hydrateForUser` ihn wieder.
     readState.clear();
-    voicePresence.clear();
-    streamPresence.clear();
+    // Session-globale Stores, die NICHT in multi-server-reset.ts gehören
+    // (User-Cache ist absichtlich Server-übergreifend gehalten, damit
+    // beim Switch keine Avatar-Flackerer entstehen):
     userCache.clear();
-    directMessages.clear();
-    guilds.clear();
-    messages.clear();
-    roles.clear();
-    guildSounds.clear();
-    channelPermissions.clear();
-    memberRoles.clear();
     capabilities.clear();
-    friends.clear();
-    friendRequests.clear();
-    blocks.clear();
     privacy.clear();
-    presence.clear();
-    resetGuildPluginsCache();
     onboardingState.reset();
     settings.resetUserScoped();
     // Phase 4.2: alle WS-Connections + Self-Host-Session-Tokens beenden.
