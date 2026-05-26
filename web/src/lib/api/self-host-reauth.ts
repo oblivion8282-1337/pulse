@@ -17,19 +17,25 @@
  * NIEMALS session_token loggen.
  */
 
-import { setSelfHostReauthHandler as setClientReauth } from './client';
+import {
+  setSelfHostReauthHandler as setClientReauth,
+  setSelfHostReauthAsyncHandler as setClientReauthAsync,
+} from './client';
 import { setSelfHostReauthHandler as setGatewayReauth } from '$lib/ws/gateway-connection';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { serversStore } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError } from './cert-login';
 
-// Verhindert parallele Re-Auth-Stürme pro Server-ID.
-const inflight = new Map<string, Promise<void>>();
+// Verhindert parallele Re-Auth-Stürme pro Server-ID. Wert speichert das
+// Resultat (ok=true bei erfolgreichem Re-Auth, false bei fail), damit
+// parallele 401-Aufrufer denselben Promise abwarten und dasselbe Retry
+// machen können.
+const inflight = new Map<string, Promise<boolean>>();
 
-async function reauth(serverId: string): Promise<void> {
+async function reauth(serverId: string): Promise<boolean> {
   const server = serversStore.find(serverId);
-  if (!server || server.isCloud) return;
+  if (!server || server.isCloud) return false;
 
   // Stale Token aus dem Map kicken, damit `request()` nicht weiter den
   // abgelaufenen Bearer verwendet während die Re-Auth läuft.
@@ -52,28 +58,39 @@ async function reauth(serverId: string): Promise<void> {
     if (conn && (conn.state === 'closed' || conn.state === 'idle')) {
       void conn.connect().catch(() => undefined);
     }
+    return true;
   } catch (err) {
     if (err instanceof CertLoginError) {
       console.warn(`[self-host-reauth] ${serverId}: ${err.reason}`);
     } else {
       console.warn(`[self-host-reauth] ${serverId}: unexpected`, err);
     }
+    return false;
   }
+}
+
+function reauthOnce(serverId: string): Promise<boolean> {
+  // Singleton-Inflight: parallele Trigger ergeben nur einen Re-Auth-
+  // Roundtrip. Aufrufer warten auf denselben Promise und retrien mit
+  // demselben frischen Token.
+  let p = inflight.get(serverId);
+  if (!p) {
+    p = reauth(serverId).finally(() => inflight.delete(serverId));
+    inflight.set(serverId, p);
+  }
+  return p;
 }
 
 /** Registriert den Re-Auth-Hook beim API-Client UND beim WS-Gateway-Pool.
  *  Einmal beim App-Boot aufrufen. */
 export function initSelfHostReauth(): void {
-  const handler = (serverId: string) => {
-    // Singleton-Inflight: parallele Trigger ergeben nur einen Re-Auth-Roundtrip.
-    let p = inflight.get(serverId);
-    if (!p) {
-      p = reauth(serverId).finally(() => inflight.delete(serverId));
-      inflight.set(serverId, p);
-    }
-    // Hook-Signatur ist void — wir fire-and-forget. Caller wirft SessionExpiredError.
-    void p;
+  const fireAndForget = (serverId: string) => {
+    void reauthOnce(serverId);
   };
-  setClientReauth(handler);
-  setGatewayReauth(handler);
+  setClientReauth(fireAndForget);
+  setGatewayReauth(fireAndForget);
+  // Awaitable Variante: request() in client.ts kann darauf warten und
+  // den 401-betroffenen Fetch mit frischem Token retrien — User muss
+  // den Submit nicht zweimal klicken.
+  setClientReauthAsync(reauthOnce);
 }

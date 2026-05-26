@@ -100,6 +100,16 @@ export function setSelfHostReauthHandler(fn: ((serverId: string) => void) | null
   _selfHostReauth = fn;
 }
 
+/** Optionale awaitable Variante des Re-Auth-Hooks: erlaubt request() bei
+ *  einem 401 zu warten und denselben Request mit frischem Token zu
+ *  retrien. Wenn nicht gesetzt → Fallback auf Fire-and-forget + throw. */
+let _selfHostReauthAsync: ((serverId: string) => Promise<boolean>) | null = null;
+export function setSelfHostReauthAsyncHandler(
+  fn: ((serverId: string) => Promise<boolean>) | null,
+): void {
+  _selfHostReauthAsync = fn;
+}
+
 let _refreshInflight: Promise<Tokens | null> | null = null;
 let _refreshLocked = false;
 
@@ -228,15 +238,35 @@ export async function request<T>(
   let resp = await fetch(url, init);
 
   if (resp.status === 401 && auth) {
-    // Cloud → Token-Refresh + Retry. Self-Host → Re-Auth-Trigger + Throw.
+    // Cloud → Token-Refresh + Retry. Self-Host → Re-Auth (await wenn der
+    // awaitable Handler registriert ist), dann **denselben Request** mit
+    // frischem Token retrien. Ohne Retry müsste der User jeden 401-
+    // betroffenen Aufruf manuell wiederholen (z.B. den Submit-Button
+    // zweimal drücken), während Re-Auth zwischen den Klicks läuft.
     if (isSelfHost) {
-      if (_selfHostReauth) _selfHostReauth(server!.id);
-      throw new SessionExpiredError(server!.id);
+      if (_selfHostReauthAsync) {
+        const ok = await _selfHostReauthAsync(server!.id);
+        if (ok) {
+          const freshBearer = await bearerFor(server);
+          if (freshBearer) {
+            headers['Authorization'] = `Bearer ${freshBearer}`;
+            resp = await fetch(url, { ...init, headers });
+          } else {
+            throw new SessionExpiredError(server!.id);
+          }
+        } else {
+          throw new SessionExpiredError(server!.id);
+        }
+      } else {
+        if (_selfHostReauth) _selfHostReauth(server!.id);
+        throw new SessionExpiredError(server!.id);
+      }
+    } else {
+      const refreshed = await refreshIfNeeded(true);
+      if (!refreshed) throw new ApiError(401, null, 'refresh failed');
+      headers['Authorization'] = `Bearer ${refreshed.access_token}`;
+      resp = await fetch(url, { ...init, headers });
     }
-    const refreshed = await refreshIfNeeded(true);
-    if (!refreshed) throw new ApiError(401, null, 'refresh failed');
-    headers['Authorization'] = `Bearer ${refreshed.access_token}`;
-    resp = await fetch(url, { ...init, headers });
   }
 
   if (resp.status === 204) return undefined as T;
