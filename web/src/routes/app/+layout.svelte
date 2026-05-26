@@ -12,6 +12,9 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
+  import ServerSidebar from '$lib/components/sidebar/ServerSidebar.svelte';
+  import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
+  import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -145,12 +148,21 @@
 </script>
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
+  <!-- Phase 4.3: UpdateBanner + SelfHostDisclaimer sitzen ÜBER der Panel-
+       Zeile damit sie nicht von der Voice-ControlBar verdeckt werden. -->
+  {#if hydrated}
+    <UpdateBanner />
+    <SelfHostDisclaimer />
+  {/if}
   <!-- pt-[env(safe-area-inset-top)]: clears the iOS notch / status bar in the
        installed PWA (no-op as a browser tab). md restores the regular padding. -->
   <div class="flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}
+      <!-- ServerSidebar lebt LINKS der existing GuildRail (Discord-Pattern,
+           aber eine Ebene tiefer: erst Server-Instanz wählen, dann Guild). -->
+      <ServerSidebar />
       {@render children?.()}
     {/if}
   </div>
