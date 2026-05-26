@@ -160,6 +160,13 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await expect(alice.getByTestId('guild-settings-dialog')).toBeVisible();
     await alice.getByTestId('role-create').click();
     const nameInput = alice.getByTestId('role-name-input');
+    // Wait until the buffer has been re-seeded for the freshly-created
+    // role. Without this, fill('Helper') can land on the still-visible
+    // old selection (e.g. Mod from the previous test) and then get
+    // wiped when the create-response arrives and loadIntoBuffer runs
+    // for the new role — leaving dirty=false and the Save button
+    // disabled.
+    await expect(nameInput).toHaveValue('Neue Rolle');
     await nameInput.fill('Helper');
     await alice.getByTestId('role-save').click();
     // Grab the helper's row-id from its row testid.
@@ -252,6 +259,10 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await expect(alice.getByTestId('ownership-transfer')).toBeVisible();
     // Pick bob (the only other member; the select drops the owner row).
     const target = alice.getByTestId('ot-target');
+    // listMembers is fired from an effect after the form mounts; the
+    // member options appear a tick later. Wait until at least the
+    // placeholder + one member are present before snapshotting.
+    await expect(target.locator('option')).toHaveCount(2, { timeout: 10_000 });
     const options = await target.locator('option').all();
     // First option is the placeholder "— Mitglied wählen —"; pick the second.
     expect(options.length).toBeGreaterThanOrEqual(2);
@@ -270,6 +281,11 @@ test.describe.serial('Roles + Permissions E2E', () => {
     await alice.getByTestId('ot-submit').click();
     const response = await responsePromise;
     expect(response.status()).toBe(200);
+    // The dialog doesn't auto-close on transfer success; explicitly
+    // dismiss it so the next test's right-click on the guild avatar
+    // isn't intercepted by the dialog backdrop.
+    await alice.keyboard.press('Escape');
+    await expect(alice.getByTestId('guild-settings-dialog')).toBeHidden();
   });
 
   test('unsaved-changes dialog keeps the settings open on Weiter bearbeiten', async () => {
