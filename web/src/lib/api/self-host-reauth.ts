@@ -1,10 +1,15 @@
 /**
  * Self-Host Re-Auth-Handler — Phase 5.2.
  *
- * Verbindet `setSelfHostReauthHandler` (client.ts) mit dem Cert-Login-Flow.
- * Wenn der API-Client einen 401 oder ein abgelaufenes Session-Token bemerkt,
- * triggert er diesen Hook — wir holen einen neuen Session-Token via Cert-
- * Challenge und schreiben ihn in den in-memory sessionTokens-Store.
+ * Verbindet die Re-Auth-Hooks aus ``client.ts`` UND ``gateway-connection.ts``
+ * mit dem Cert-Login-Flow. Beide Module haben einen eigenen ``_selfHost
+ * ReauthHandler``-Slot — der eine wird bei REST-401/expired-Token gefeuert,
+ * der andere beim WS-Reconnect mit expired Self-Host-Session-Token. Wir
+ * registrieren denselben Handler für beide, sonst greift Re-Auth nur auf
+ * einem der Pfade.
+ *
+ * Wenn ein Handler ausgelöst wird, holen wir einen neuen Session-Token via
+ * Cert-Challenge und schreiben ihn in den in-memory sessionTokens-Store.
  *
  * Fire-and-forget: Errors landen in der Konsole, der Caller (request())
  * wirft selbst ein SessionExpiredError damit das UI reagieren kann.
@@ -12,7 +17,9 @@
  * NIEMALS session_token loggen.
  */
 
-import { setSelfHostReauthHandler } from './client';
+import { setSelfHostReauthHandler as setClientReauth } from './client';
+import { setSelfHostReauthHandler as setGatewayReauth } from '$lib/ws/gateway-connection';
+import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { serversStore } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError } from './cert-login';
@@ -36,6 +43,15 @@ async function reauth(serverId: string): Promise<void> {
     if (!server.pairwise_sub) {
       serversStore.update(serverId, { pairwise_sub: result.pairwise_sub });
     }
+    // WS-Trigger: der Reauth-Hook wird oft vom _resolveToken() aufgerufen,
+    // wenn die Connection mangels Token bereits ins ``closed``-Stadium
+    // gegangen ist. Ohne expliziten Re-Connect bleibt sie still, obwohl der
+    // neue Token in der Session-Map liegt. Wir stoßen die Verbindung nach
+    // erfolgreicher Re-Auth selber wieder an.
+    const conn = gatewayPool.peek(serverId);
+    if (conn && (conn.state === 'closed' || conn.state === 'idle')) {
+      void conn.connect().catch(() => undefined);
+    }
   } catch (err) {
     if (err instanceof CertLoginError) {
       console.warn(`[self-host-reauth] ${serverId}: ${err.reason}`);
@@ -45,9 +61,10 @@ async function reauth(serverId: string): Promise<void> {
   }
 }
 
-/** Registriert den Re-Auth-Hook beim API-Client. Einmal beim App-Boot aufrufen. */
+/** Registriert den Re-Auth-Hook beim API-Client UND beim WS-Gateway-Pool.
+ *  Einmal beim App-Boot aufrufen. */
 export function initSelfHostReauth(): void {
-  setSelfHostReauthHandler((serverId) => {
+  const handler = (serverId: string) => {
     // Singleton-Inflight: parallele Trigger ergeben nur einen Re-Auth-Roundtrip.
     let p = inflight.get(serverId);
     if (!p) {
@@ -56,5 +73,7 @@ export function initSelfHostReauth(): void {
     }
     // Hook-Signatur ist void — wir fire-and-forget. Caller wirft SessionExpiredError.
     void p;
-  });
+  };
+  setClientReauth(handler);
+  setGatewayReauth(handler);
 }

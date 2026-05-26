@@ -143,6 +143,16 @@ export class GatewayConnection {
       await this.connectPromise;
     } finally {
       this.connectPromise = null;
+      // Wenn _dial entweder failed (throw: 'ws closed before open', token-
+      // expired etc.) oder ohne ready-Frame in den 'closed'-State geht,
+      // muss waitForReady() trotzdem entlassen werden — sonst hängt der
+      // Layout-Mount im Promise.all forever und der User sieht ewig
+      // 'loading…'. Self-Host: der reauth-Handler triggert später einen
+      // erneuten connect(); Cloud: refresh-Token-Pfad rufts wieder auf.
+      if (!this._readyDone && this._readyResolve) {
+        this._readyResolve();
+        this._readyResolve = null;
+      }
     }
   }
 
