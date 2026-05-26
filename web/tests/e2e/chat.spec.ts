@@ -170,10 +170,25 @@ test.describe.serial('Discord-Clone E2E', () => {
   });
 
   test('Alice @-mentions Bob; Bob sees a mention pill on the channel', async () => {
-    // Park Bob outside the channel so the mention badge actually has somewhere
-    // to live (clicking the channel would mark-read it immediately).
-    await bobPage.goto('/app/@me');
-    await bobPage.waitForURL(/\/app\/@me/);
+    // Park Bob on a second channel in the same guild so the mention badge
+    // for the *first* channel has somewhere to render (ChannelList only
+    // mounts on /app/guilds/<gid>/channels/<cid>, and being active on the
+    // mentioned channel would mark-read immediately).
+    const offTopicId = await alicePage.evaluate(
+      async ({ guildId }) => {
+        const token = localStorage.getItem('dcc.tokens.access');
+        const res = await fetch(`/api/chat/guilds/${guildId}/channels`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ name: 'off-topic', type: 0 })
+        });
+        return (await res.json()).id as string;
+      },
+      { guildId }
+    );
+    await bobPage.goto(`/app/guilds/${guildId}/channels/${offTopicId}`);
+    await bobPage.waitForURL(new RegExp(`/app/guilds/${guildId}/channels/${offTopicId}`));
+    await expect(bobPage.getByTestId(`channel-${channelId}`)).toBeVisible();
 
     await alicePage.getByTestId('message-input').click();
     await alicePage.getByTestId('message-input').fill(`<@${bobUserId}> ping`);
