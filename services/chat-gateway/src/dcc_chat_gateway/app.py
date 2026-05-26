@@ -15,6 +15,7 @@ from dcc_chat_gateway.cleanup import cleanup_loop as push_cleanup_loop
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.crl_poller import crl_poller_loop
 from dcc_chat_gateway.db import engine
+from dcc_chat_gateway.jwks_pinning import jwks_retry_loop
 from dcc_chat_gateway.plugins import (
     ensure_hello_in_allowlist,
     list_allowed_names,
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
     push_cleanup: asyncio.Task | None = None
     idle_sweeper: asyncio.Task | None = None
     crl_poller: asyncio.Task | None = None
+    jwks_retry: asyncio.Task | None = None
     owns_manager = False
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire connection_manager onto the app — leave it alone.
@@ -113,6 +115,24 @@ async def lifespan(app: FastAPI):
             crl_poller_loop(redis, settings.pulse_cloud_origin),
             name="dcc-crl-poller",
         )
+        # JWKS cold-start handling (Phase 3.1 Punkt 12): if Redis has no
+        # cached JWKS at startup (cold cache + Cloud unreachable), mark
+        # jwks_ready=False and launch a retry loop that polls every 30 s.
+        # WS connections return 4046 while jwks_ready is False.
+        raw_jwks = await redis.get("auth:jwks:cached")
+        if raw_jwks:
+            app.state.jwks_ready = True
+        else:
+            app.state.jwks_ready = False
+            log.warning(
+                "jwks_cold_start: Redis JWKS cache empty at startup — "
+                "WS connections will be rejected (4046) until JWKS is available"
+            )
+            jwks_retry = asyncio.create_task(
+                jwks_retry_loop(redis, settings, app.state),
+                name="dcc-jwks-retry",
+            )
+        app.state.jwks_changed_unexpectedly = False
         # Plugin-System: Allowlist-gegateter Load.
         # 1. Self-Heal: ``hello`` muss immer in der Allowlist sein.
         # 2. Allowlist-Snapshot aus der DB lesen.
@@ -161,7 +181,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller):
+            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller, jwks_retry):
                 if task is not None:
                     task.cancel()
                     try:
@@ -189,6 +209,10 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     # ein definiertes ``plugin_allowlist`` lesen können. Die Lifespan
     # überschreibt das mit dem DB-Snapshot.
     app.state.plugin_allowlist = frozenset()
+    # Phase 3.1 defaults — overwritten by lifespan when Redis is live.
+    # Tests that set skip_redis=True get jwks_ready=True (no JWKS gate in unit tests).
+    app.state.jwks_ready = True
+    app.state.jwks_changed_unexpectedly = False
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -200,7 +224,31 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict[str, str]:
+        from fastapi import Response as _Response
+        from fastapi.responses import JSONResponse as _JSONResponse
+
+        jwks_ok = getattr(app.state, "jwks_ready", True)
+        if not jwks_ok:
+            return _JSONResponse(
+                status_code=503,
+                content={"status": "initializing", "detail": "JWKS not yet available"},
+            )
         return {"status": "ok"}
+
+    @app.get("/internal/jwks-status")
+    async def jwks_status() -> dict:
+        """Internal JWKS-pin status healthcheck (Phase 3.1 stub).
+
+        Returns the current pin-flag states.  Not exposed publicly — the
+        nginx / Caddy layer should restrict this to localhost / internal
+        networks.  Phase 4 will add a full admin UI banner driven by this.
+        """
+        return {
+            "jwks_ready": getattr(app.state, "jwks_ready", True),
+            "jwks_changed_unexpectedly": getattr(
+                app.state, "jwks_changed_unexpectedly", False
+            ),
+        }
 
     return app
 

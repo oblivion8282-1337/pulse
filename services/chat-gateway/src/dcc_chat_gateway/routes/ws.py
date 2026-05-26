@@ -127,6 +127,13 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4001, reason="token expired")
         return
 
+    # JWKS cold-start gate: refuse WS connections while the token validator
+    # has not yet fetched its JWKS (auth-svc unreachable at startup).
+    # Default True so tests that never set jwks_ready still pass.
+    if not getattr(websocket.app.state, "jwks_ready", True):
+        await websocket.close(code=4046, reason="jwks not ready")
+        return
+
     await websocket.accept()
     app = websocket.app
     manager = app.state.connection_manager
