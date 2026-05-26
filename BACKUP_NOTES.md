@@ -1,25 +1,42 @@
 # Backup-Crypto-Entscheidungen (Block 2.B)
 
-## Offene Frage: KDF-Upgrade auf Argon2id?
+## Update 2026-05-26: KDF-Switch auf Argon2id (Blob v=2)
 
-**Aktuell:** PBKDF2-SHA-256 mit 600 000 Iterationen (OWASP-Cheatsheet 2026).
+**Dependency:** `hash-wasm ^4.12.0` (~50 KB gzipped, WASM-basiert).
 
-**Problem:** WebCrypto hat kein natives Argon2id. Die einzige Browser-seitige Option wäre
-`argon2-browser` (WASM-Port). Das wäre eine neue Dependency.
+**Parameter** (Bitwarden-Standard, identisch mit Backend `argon2-cffi`-Konfiguration):
+- `m = 65536 KiB` (64 MiB) — Memory-Hardness, GPU-Resistenz
+- `t = 3` — Zeitfaktor (Iterationen über den Speicher)
+- `p = 4` — Parallelismus (Threads/Lanes)
+- Output: 32 Byte → AES-256-GCM-Key
 
-**Abwägung:**
-- PBKDF2-600k ist vertretbar für Self-Host-Backups (kein kritischer Prod-Use-Case).
-- Argon2id-2id ist deutlich resistenter gegen GPU-Brute-Force (Memory-Hardness).
-- argon2-browser bringt ~800 KB WASM hinzu; build-pipeline-Einfluss prüfen.
-- WebCrypto-API Argon2-Support: kein aktiver WICG-Draft bekannt (Stand 2026-05).
+**Blob-Format v=2:**
+```json
+{
+  "v": 2,
+  "kdf": { "name": "Argon2id", "parallelism": 4, "memory_kib": 65536, "iterations": 3, "salt": "<base64>" },
+  "cipher": { "name": "AES-GCM", "iv": "<base64>", "ct": "<base64>" }
+}
+```
 
-**User-Entscheidung erforderlich:**
-Soll argon2-browser als Dependency hinzugefügt werden, um PBKDF2 durch Argon2id
-(t=3, m=64 MiB, p=4) zu ersetzen? Auswirkung: ~800 KB WASM-Chunk im Build,
-stärkere Brute-Force-Resistenz.
+**Backwards-Compat:** v=1-Blobs (PBKDF2-SHA-256/600k) werden weiter lesbar gehalten.
+`decryptKeypair()` dispatcht auf v, `encryptKeypair()` schreibt ausschließlich v=2.
+Keine automatische Rotation nach Decrypt — User wird beim nächsten Backup-Setup
+auf v=2 gewechselt.
 
-Falls nein: PBKDF2-600k bleibt; ggf. Iterations-Erhöhung auf 1M wenn Benchmarks
-das auf Mittelklasse-Devices erlauben (target ≤1s auf Intel Core i5 der 10. Gen).
+**Warum Argon2id statt PBKDF2:**
+- Memory-Hard: 64 MiB RAM pro Versuch → GPU-/ASIC-Brute-Force ~1000× teurer als PBKDF2.
+- Selber Algorithmus wie das Backend-Passwort-Hashing (argon2-cffi t=3/m=64MiB/p=4).
+- WebCrypto hat kein natives Argon2id — daher WASM via hash-wasm (~50 KB gzipped,
+  erheblich leichter als die ursprünglich diskutierte argon2-browser-Option mit ~800 KB).
+
+---
+
+## Historisch: Offene Frage: KDF-Upgrade auf Argon2id? (erledigt)
+
+~~**Aktuell:** PBKDF2-SHA-256 mit 600 000 Iterationen (OWASP-Cheatsheet 2026).~~
+
+Entschieden für Argon2id via hash-wasm. Siehe Update oben.
 
 ---
 

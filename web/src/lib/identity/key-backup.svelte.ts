@@ -1,22 +1,28 @@
 /**
- * Zero-Knowledge Backup — PBKDF2-SHA-256 + AES-GCM (Block 2.B).
+ * Zero-Knowledge Backup — Argon2id + AES-GCM (v=2), PBKDF2 rückwärts-compat (v=1).
  *
- * Verschlüsselt ein Ed25519-Keypair (als JWK-Pair) mit einem Master-Passwort.
- * WebCrypto only — keine externen Abhängigkeiten.
+ * v=2 (Standard): Argon2id (m=64 MiB, t=3, p=4) via hash-wasm → AES-256-GCM.
+ * v=1 (Legacy):   PBKDF2-SHA-256 / 600 000 Iter. — bleibt lesbar, wird nicht mehr geschrieben.
  *
- * KDF-Wahl: PBKDF2-SHA-256 mit 600 000 Iterationen (OWASP 2026).
- *   Argon2id wäre stärker, ist aber in WebCrypto nicht nativ verfügbar.
- *   Ein Wechsel wäre möglich sobald eine Browser-native API existiert oder
- *   argon2-browser als WASM-Dep akzeptiert wird (BACKUP_NOTES.md).
- *
- * Blob-Format: KeyBackupBlob (versioniert, v:1).
+ * Blob-Format: KeyBackupBlob (versioniert).
  */
+
+import { argon2id } from 'hash-wasm';
 
 // ---------------------------------------------------------------------------
 // Typen
 // ---------------------------------------------------------------------------
 
-export interface KeyBackupKdf {
+export interface Argon2idKdf {
+  name: 'Argon2id';
+  parallelism: 4;
+  memory_kib: 65536;
+  iterations: 3;
+  /** Base64-codiertes 16-Byte-Salt. */
+  salt: string;
+}
+
+export interface Pbkdf2Kdf {
   name: 'PBKDF2';
   hash: 'SHA-256';
   iterations: 600_000;
@@ -32,12 +38,22 @@ export interface KeyBackupCipher {
   ct: string;
 }
 
-/** Versionierter Backup-Blob (serialisiert als JSON-String). */
-export interface KeyBackupBlob {
-  v: 1;
-  kdf: KeyBackupKdf;
+/** Backup-Blob v=2 (Argon2id). */
+export interface KeyBackupBlobV2 {
+  v: 2;
+  kdf: Argon2idKdf;
   cipher: KeyBackupCipher;
 }
+
+/** Backup-Blob v=1 (PBKDF2, legacy). */
+export interface KeyBackupBlobV1 {
+  v: 1;
+  kdf: Pbkdf2Kdf;
+  cipher: KeyBackupCipher;
+}
+
+/** Versionierter Backup-Blob (serialisiert als JSON-String). */
+export type KeyBackupBlob = KeyBackupBlobV1 | KeyBackupBlobV2;
 
 /** Inhalt des entschlüsselten Blobs. */
 export interface DecryptedKeypair {
@@ -60,18 +76,24 @@ export class BackupDecryptError extends Error {
 // Konstanten
 // ---------------------------------------------------------------------------
 
-const KDF_ITERATIONS = 600_000;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
+
+// Argon2id-Parameter (Bitwarden-Standard)
+const A2_PARALLELISM = 4;
+const A2_MEMORY_KIB = 65536; // 64 MiB
+const A2_ITERATIONS = 3;
+
+// PBKDF2-Legacy
+const PBKDF2_ITERATIONS = 600_000;
 
 // ---------------------------------------------------------------------------
 // Interne Hilfsfunktionen
 // ---------------------------------------------------------------------------
 
 /**
- * Erzeugt n kryptografisch sichere Zufallsbytes als Uint8Array<ArrayBuffer>.
- * `crypto.getRandomValues()` gibt `Uint8Array<ArrayBufferLike>` zurück — durch
- * `.slice()` wird ein echter `ArrayBuffer` ohne SharedArrayBuffer-Risiko erzeugt.
+ * Erzeugt n kryptografisch sichere Zufallsbytes.
+ * `.slice()` stellt einen echten ArrayBuffer ohne SharedArrayBuffer-Risiko sicher.
  */
 function randomBytes(n: number): Uint8Array<ArrayBuffer> {
   const buf = new Uint8Array(n);
@@ -79,9 +101,10 @@ function randomBytes(n: number): Uint8Array<ArrayBuffer> {
   return buf.slice() as Uint8Array<ArrayBuffer>;
 }
 
-/** Uint8Array → Base64 (standard, nicht URL-safe). */
-function toBase64(buf: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+/** Uint8Array/ArrayBuffer → Base64 (standard). */
+function toBase64(buf: ArrayBuffer | Uint8Array): string {
+  const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+  return btoa(String.fromCharCode(...u8));
 }
 
 /** Base64 → Uint8Array<ArrayBuffer>. */
@@ -94,11 +117,36 @@ function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   return bytes as Uint8Array<ArrayBuffer>;
 }
 
-/**
- * Leitet einen AES-256-GCM-Key aus Passwort + Salt via PBKDF2 ab.
- * Gibt den rohen CryptoKey zurück.
- */
-async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+/** Argon2id → AES-256-GCM-CryptoKey. */
+async function deriveKeyArgon2id(
+  password: string,
+  salt: Uint8Array<ArrayBuffer>
+): Promise<CryptoKey> {
+  const hashRaw = await argon2id({
+    password,
+    salt,
+    parallelism: A2_PARALLELISM,
+    memorySize: A2_MEMORY_KIB,
+    iterations: A2_ITERATIONS,
+    hashLength: 32,
+    outputType: 'binary'
+  });
+  // .slice() erzeugt Uint8Array<ArrayBuffer> (kein SharedArrayBuffer-Risiko)
+  const hash = (hashRaw as Uint8Array).slice() as Uint8Array<ArrayBuffer>;
+  return crypto.subtle.importKey(
+    'raw',
+    hash,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/** PBKDF2-SHA-256 → AES-256-GCM-CryptoKey (legacy, v=1). */
+async function deriveKeyPbkdf2(
+  password: string,
+  salt: Uint8Array<ArrayBuffer>
+): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const baseKey = await crypto.subtle.importKey(
     'raw',
@@ -108,12 +156,7 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promi
     ['deriveKey']
   );
   return crypto.subtle.deriveKey(
-    {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      salt,
-      iterations: KDF_ITERATIONS
-    },
+    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITERATIONS },
     baseKey,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -128,27 +171,27 @@ async function deriveKey(password: string, salt: Uint8Array<ArrayBuffer>): Promi
 /**
  * Verschlüsselt ein Ed25519-Keypair als JWK-Pair mit einem Master-Passwort.
  *
- * Vorgehen:
+ * Schreibt immer v=2 (Argon2id):
  *   1. 16-Byte-Salt + 12-Byte-IV aus crypto.getRandomValues()
- *   2. PBKDF2-SHA-256 (600k Iter.) → AES-256-GCM-Key
+ *   2. Argon2id (m=64 MiB, t=3, p=4) → 32-Byte-Key → AES-256-GCM-Key
  *   3. Plaintext = JSON.stringify({privateKey, publicKey})
  *   4. AES-GCM-Encrypt → Ciphertext (inkl. 16-Byte-Tag)
- *   5. Alles Base64-codiert in KeyBackupBlob verpackt
+ *   5. Alles Base64-codiert in KeyBackupBlobV2 verpackt
  *
- * @param privateKeyJwk - Privater Schlüssel als JWK (muss extractable gewesen sein)
- * @param publicKeyJwk  - Öffentlicher Schlüssel als JWK
+ * @param privateKeyJwk  - Privater Schlüssel als JWK (muss extractable gewesen sein)
+ * @param publicKeyJwk   - Öffentlicher Schlüssel als JWK
  * @param masterPassword - Master-Passwort des Users
- * @returns KeyBackupBlob (JSON-serialisierbar)
+ * @returns KeyBackupBlobV2 (JSON-serialisierbar)
  */
 export async function encryptKeypair(
   privateKeyJwk: JsonWebKey,
   publicKeyJwk: JsonWebKey,
   masterPassword: string
-): Promise<KeyBackupBlob> {
+): Promise<KeyBackupBlobV2> {
   const salt = randomBytes(SALT_BYTES);
   const iv = randomBytes(IV_BYTES);
 
-  const aesKey = await deriveKey(masterPassword, salt);
+  const aesKey = await deriveKeyArgon2id(masterPassword, salt);
 
   const plaintext = new TextEncoder().encode(
     JSON.stringify({ privateKey: privateKeyJwk, publicKey: publicKeyJwk })
@@ -157,16 +200,17 @@ export async function encryptKeypair(
   const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, plaintext);
 
   return {
-    v: 1,
+    v: 2,
     kdf: {
-      name: 'PBKDF2',
-      hash: 'SHA-256',
-      iterations: KDF_ITERATIONS,
-      salt: toBase64(salt.buffer)
+      name: 'Argon2id',
+      parallelism: A2_PARALLELISM,
+      memory_kib: A2_MEMORY_KIB,
+      iterations: A2_ITERATIONS,
+      salt: toBase64(salt)
     },
     cipher: {
       name: 'AES-GCM',
-      iv: toBase64(iv.buffer),
+      iv: toBase64(iv),
       ct: toBase64(cipherBuf)
     }
   };
@@ -175,11 +219,16 @@ export async function encryptKeypair(
 /**
  * Entschlüsselt einen KeyBackupBlob mit dem Master-Passwort.
  *
+ * Dispatcht auf KDF-Version:
+ *   v=2 → Argon2id
+ *   v=1 → PBKDF2-SHA-256 (legacy, backwards-compat)
+ *
  * Wirft BackupDecryptError wenn:
  *   - das Passwort falsch ist (AES-GCM-Tag-Verifikation schlägt fehl)
  *   - der Blob korrupt/manipuliert ist
+ *   - die Blob-Version unbekannt ist
  *
- * @param blob           - Zuvor erzeugter KeyBackupBlob
+ * @param blob           - Zuvor erzeugter KeyBackupBlob (v=1 oder v=2)
  * @param masterPassword - Master-Passwort des Users
  * @returns DecryptedKeypair mit {privateKey, publicKey} als JWK
  */
@@ -187,15 +236,19 @@ export async function decryptKeypair(
   blob: KeyBackupBlob,
   masterPassword: string
 ): Promise<DecryptedKeypair> {
-  if (blob.v !== 1) {
-    throw new BackupDecryptError(`Unbekannte Blob-Version: ${blob.v}`);
-  }
-
   const salt = fromBase64(blob.kdf.salt);
   const iv = fromBase64(blob.cipher.iv);
   const ct = fromBase64(blob.cipher.ct);
 
-  const aesKey = await deriveKey(masterPassword, salt);
+  let aesKey: CryptoKey;
+  if (blob.v === 2) {
+    aesKey = await deriveKeyArgon2id(masterPassword, salt);
+  } else if (blob.v === 1) {
+    aesKey = await deriveKeyPbkdf2(masterPassword, salt);
+  } else {
+    // TypeScript-Erschöpfungs-Guard für zukünftige Versionen
+    throw new BackupDecryptError(`Unbekannte Blob-Version: ${(blob as { v: number }).v}`);
+  }
 
   let plainBuf: ArrayBuffer;
   try {
@@ -233,7 +286,7 @@ class KeyBackupState {
     privateKeyJwk: JsonWebKey,
     publicKeyJwk: JsonWebKey,
     masterPassword: string
-  ): Promise<KeyBackupBlob> {
+  ): Promise<KeyBackupBlobV2> {
     this.encrypting = true;
     this.lastError = null;
     try {

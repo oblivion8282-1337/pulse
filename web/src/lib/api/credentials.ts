@@ -10,7 +10,7 @@
  */
 
 import { AUTH_BASE, ApiError } from './client';
-import type { KeyBackupBlob } from '$lib/identity/key-backup.svelte';
+import type { KeyBackupBlob, KeyBackupBlobV1, KeyBackupBlobV2 } from '$lib/identity/key-backup.svelte';
 
 // ---------------------------------------------------------------------------
 // Typen
@@ -194,15 +194,26 @@ export async function changeUsername(newName: string): Promise<UsernameChangeRes
 /**
  * Flacht einen KeyBackupBlob auf das Backend-API-Format ab.
  *
- * KeyBackupBlob-Struktur:   { v:1, kdf:{salt,hash,iterations}, cipher:{iv,ct} }
- * Backend erwartet:         { kdf_salt, kdf_params, gcm_nonce, encrypted_blob, device_label }
+ * v=2 (Argon2id): kdf_params = { name, parallelism, memory_kib, iterations }
+ * v=1 (PBKDF2):   kdf_params = { name, hash, iterations }
+ * Backend erwartet: { kdf_salt, kdf_params, gcm_nonce, encrypted_blob, device_label }
  */
 function flattenBlob(blob: KeyBackupBlob, deviceLabel: string): Record<string, string> {
-  const kdf_params = JSON.stringify({
-    name: blob.kdf.name,
-    hash: blob.kdf.hash,
-    iterations: blob.kdf.iterations
-  });
+  let kdf_params: string;
+  if (blob.v === 2) {
+    kdf_params = JSON.stringify({
+      name: blob.kdf.name,
+      parallelism: blob.kdf.parallelism,
+      memory_kib: blob.kdf.memory_kib,
+      iterations: blob.kdf.iterations
+    });
+  } else {
+    kdf_params = JSON.stringify({
+      name: blob.kdf.name,
+      hash: blob.kdf.hash,
+      iterations: blob.kdf.iterations
+    });
+  }
   return {
     kdf_salt: blob.kdf.salt,
     kdf_params,
@@ -215,20 +226,42 @@ function flattenBlob(blob: KeyBackupBlob, deviceLabel: string): Record<string, s
 /**
  * Rekonstruiert einen KeyBackupBlob aus dem Backend-Response-Format.
  * Parst kdf_params JSON-String zurück in die Blob-Struktur.
+ * Unterstützt v=2 (Argon2id) und v=1 (PBKDF2 legacy).
  */
 export function reconstructBlob(resp: BackupFetchResponse): KeyBackupBlob {
-  let iterations = 600_000;
+  let params: Record<string, unknown> = {};
   try {
-    const params = JSON.parse(resp.kdf_params) as { iterations?: number };
-    if (typeof params.iterations === 'number') iterations = params.iterations;
+    params = JSON.parse(resp.kdf_params) as Record<string, unknown>;
   } catch {
-    // Fallback auf OWASP-Default
+    // Fallback: leeres Objekt → PBKDF2 default
   }
-  return {
+
+  const cipher = { name: 'AES-GCM' as const, iv: resp.gcm_nonce, ct: resp.encrypted_blob };
+
+  if (params.name === 'Argon2id') {
+    const v2: KeyBackupBlobV2 = {
+      v: 2,
+      kdf: {
+        name: 'Argon2id',
+        parallelism: (typeof params.parallelism === 'number' ? params.parallelism : 4) as 4,
+        memory_kib: (typeof params.memory_kib === 'number' ? params.memory_kib : 65536) as 65536,
+        iterations: (typeof params.iterations === 'number' ? params.iterations : 3) as 3,
+        salt: resp.kdf_salt
+      },
+      cipher
+    };
+    return v2;
+  }
+
+  // Fallback: PBKDF2 (v=1)
+  const iterations =
+    typeof params.iterations === 'number' ? (params.iterations as 600_000) : 600_000;
+  const v1: KeyBackupBlobV1 = {
     v: 1,
-    kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations: iterations as 600_000, salt: resp.kdf_salt },
-    cipher: { name: 'AES-GCM', iv: resp.gcm_nonce, ct: resp.encrypted_blob }
+    kdf: { name: 'PBKDF2', hash: 'SHA-256', iterations, salt: resp.kdf_salt },
+    cipher
   };
+  return v1;
 }
 
 /**
