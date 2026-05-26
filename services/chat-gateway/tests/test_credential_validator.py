@@ -67,6 +67,7 @@ def _make_cert_jwt(
 ) -> str:
     now = int(time.time())
     payload = {
+        "iss": "https://pulse.unicutmedia.com",  # required ab Phase 5.1 iss-Validation
         "cert_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "user_id": "123456789",
         "device_pubkey": base64.urlsafe_b64encode(b"\x00" * 32).rstrip(b"=").decode(),
