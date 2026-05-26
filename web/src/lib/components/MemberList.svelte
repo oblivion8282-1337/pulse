@@ -269,6 +269,17 @@
         <ContextMenu.Root>
           <ContextMenu.Trigger>
             {#snippet child({ props: ctxProps })}
+              <!--
+                ContextMenu and Popover both want to be the trigger for the
+                same logical row. Spreading both prop bags onto one element
+                breaks: bits-ui assigns each trigger its own ``id``/``ref``/
+                ``data-state`` and the later spread wins, leaving one of the
+                two triggers half-wired. We split them: the outer ``<div>``
+                is the ContextMenu trigger (right-click), the inner
+                ``<button>`` keeps the popover (left-click) and the
+                ``data-testid`` the tests rely on.
+              -->
+              <div {...ctxProps} class="contents">
               <UserProfilePopover
                 userId={m.user_id}
                 displayName={name}
@@ -279,7 +290,6 @@
               >
                 {#snippet children({ props })}
         <button
-          {...ctxProps}
           {...props}
           type="button"
           class="hover:bg-bg-hover flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left transition-colors data-[state=open]:bg-bg-hover {group.offline ? 'opacity-50' : ''}"
@@ -353,6 +363,7 @@
         </button>
                 {/snippet}
               </UserProfilePopover>
+              </div>
             {/snippet}
           </ContextMenu.Trigger>
           {#if m.user_id !== auth.user?.id || canQuickRole}
