@@ -65,6 +65,25 @@ contextBridge.exposeInMainWorld('pulse', {
     },
   },
 
+  // Invite deep-link bridge (Phase 5.3). Main parses + validates pulse://invite
+  // URLs and sends the sanitised {hostname, code} pair over this channel.
+  // The renderer (root +layout.svelte) subscribes once on mount and navigates
+  // to /invite/[code]?host=… where the user sees a confirmation dialog before
+  // anything happens.
+  invite: {
+    /** Subscribe to incoming invite deep-links. Returns an unsubscribe fn. */
+    onLink(cb: (data: { hostname: string; code: string }) => void): () => void {
+      const handler = (_e: unknown, data: unknown): void => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        if (typeof d.hostname !== 'string' || typeof d.code !== 'string') return;
+        cb({ hostname: d.hostname, code: d.code });
+      };
+      ipcRenderer.on('pulse:invite', handler);
+      return () => ipcRenderer.removeListener('pulse:invite', handler);
+    },
+  },
+
   // System notifications (mention/DM toasts). The renderer gates these on
   // `document.hidden || !document.hasFocus()` — main shows unconditionally so
   // there's only one source of truth for "should we toast right now".

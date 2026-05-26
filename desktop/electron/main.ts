@@ -24,6 +24,7 @@ import { app, BrowserWindow, ipcMain, session, desktopCapturer, shell } from 'el
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
+import { URL } from 'node:url';
 // Bundled by esbuild at build time (resolveJsonModule); `../package.json` is
 // `desktop/package.json` relative to this source file.
 import pkg from '../package.json';
@@ -57,6 +58,31 @@ import { wireNotify } from './notify';
   }
   app.setName(newName);
 })();
+
+// ── Custom URL-Protocol (pulse://) ──────────────────────────────────────────
+// Registers this app as the default handler for `pulse://` URLs on the OS.
+// Needed for invite deep-links: clicking `pulse://invite?host=...&code=...` in
+// a browser should open (or focus) the running Pulse desktop client and navigate
+// to the invite page.
+//
+// Dev-mode (electron . — `process.defaultApp` is true): Electron sets the
+// argv[1] slot to the app-path; we have to pass it explicitly so the OS knows
+// which binary to call for `pulse://` when running in dev.
+// Prod (packaged / Flatpak): plain `setAsDefaultProtocolClient('pulse')`.
+//
+// NOTE: On Linux this writes to `~/.local/share/applications/` (a .desktop file
+// handled by xdg-open). The Flatpak variant also needs
+// `x-scheme-handler/pulse` in the Flatpak manifest's `finish-args`. See TODOs
+// in the README / packaging manifest.
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('pulse', process.execPath, [
+      path.resolve(process.argv[1]),
+    ]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('pulse');
+}
 
 const APP_VERSION: string = pkg.version ?? '0.0.0';
 // Expose to the preload script (it runs in a separate process and can't import
@@ -95,6 +121,83 @@ let mainWindow: BrowserWindow | null = null;
 // before calling `app.quit()`. The window's `close` handler honours it.
 let isQuitting = false;
 
+// ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
+// Validates and dispatches `pulse://invite?host=<fqdn>&code=<code>` URLs.
+// Security: we parse strictly (URL class + FQDN regex + alphanumeric code) and
+// NEVER execute any action derived from the URL without showing a user-visible
+// disclaimer first (that's the frontend's job in /invite/[code]?host=…).
+
+/** Valid invite code: 6-32 alphanumeric chars (same shape as the backend issues). */
+const INVITE_CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
+
+/** Rough FQDN check — at least one dot, only label-safe chars, no port injection.
+ *  Blocks bare IPv4 (192.168.1.1 etc.) so a malicious link can't trick the renderer
+ *  into hitting a private/loopback address. Self-Host muss FQDN haben (LE-Cert
+ *  Pflicht für TLS) — IP-Direkt-Connect ist nie ein legitimer Pulse-Use-Case. */
+function _isValidFqdn(hostname: string): boolean {
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return false;
+  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
+    hostname
+  );
+}
+
+/** Extract a `pulse://` URL from a raw argv array (Windows/Linux cold-start). */
+function extractPulseUrl(argv: string[]): string | null {
+  return argv.find((a) => a.startsWith('pulse://')) ?? null;
+}
+
+/**
+ * Buffer for the first deep-link received before the window is ready.
+ * Delivered once in the `ready-to-show` callback.
+ */
+let pendingDeepLink: string | null = extractPulseUrl(process.argv);
+
+function handleDeepLink(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    console.warn('[deep-link] unparseable URL, ignoring:', url);
+    return;
+  }
+  if (parsed.protocol !== 'pulse:') return;
+  if (parsed.hostname !== 'invite') {
+    console.warn('[deep-link] unknown host, ignoring:', parsed.hostname);
+    return;
+  }
+
+  const host = parsed.searchParams.get('host') ?? '';
+  const code = parsed.searchParams.get('code') ?? '';
+
+  // Strict validation — do NOT send user to an attacker-controlled hostname.
+  if (!_isValidFqdn(host)) {
+    console.warn('[deep-link] invalid host param, ignoring:', host);
+    return;
+  }
+  if (!INVITE_CODE_RE.test(code)) {
+    console.warn('[deep-link] invalid code param, ignoring:', code);
+    return;
+  }
+
+  const payload = { hostname: host, code };
+
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('pulse:invite', payload);
+  } else {
+    // Window not yet ready — buffer; delivered in createWindow's ready-to-show.
+    pendingDeepLink = url;
+  }
+}
+
+// macOS / some Linux compositors fire open-url for registered scheme handlers.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -113,7 +216,15 @@ function createWindow(): void {
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow?.show());
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+    // Deliver any deep-link that arrived before the window was ready (cold-start).
+    if (pendingDeepLink) {
+      const url = pendingDeepLink;
+      pendingDeepLink = null;
+      handleDeepLink(url);
+    }
+  });
   mainWindow.on('close', (e) => {
     if (isQuitting) return;
     e.preventDefault();
@@ -245,12 +356,18 @@ function wireScreenShare(): void {
 
 // ── Single-instance lock ────────────────────────────────────────────────────
 // Second launch hands focus to the running window instead of starting a 2nd one.
+// Windows: the OS passes the pulse:// URL as an argv entry to the second instance;
+// we forward it to the running window via handleDeepLink.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
 }
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
+  // Check for a deep-link in the new-instance's argv before focusing.
+  const url = extractPulseUrl(argv);
+  if (url) handleDeepLink(url);
+
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
   // The window may be hidden in the tray — show() un-hides AND focuses.
