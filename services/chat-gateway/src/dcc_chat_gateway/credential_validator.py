@@ -24,6 +24,8 @@ from typing import Any
 
 import jwt
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+from dcc_chat_gateway.config import get_settings
 from jwt.algorithms import RSAAlgorithm
 from pydantic import BaseModel
 
@@ -129,8 +131,13 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     pub_key = keys.get(kid)
 
     # --- Step 3: Signature verification (always RS256) ---
+    # iss-Check ist mandatory: ohne den würde jeder Cloud-JWT, der zufällig mit
+    # einem Key aus der JWKS signiert wurde, durchgehen (z.B. Access-Token vom
+    # auth-svc) — auch wenn er kein Identity-Cert ist. Cert-Modell-Sicherheit.
     sig_ok = False
     claims: dict[str, Any] = {}
+    settings = get_settings()
+    expected_iss = settings.pulse_oidc_issuer
     if pub_key is not None:
         try:
             claims = jwt.decode(
@@ -138,6 +145,7 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
                 pub_key,
                 algorithms=["RS256"],  # STRICT — no header negotiation
                 options={"verify_aud": False},  # Certs carry no audience claim
+                issuer=expected_iss,
             )
             sig_ok = True
         except jwt.PyJWTError:
