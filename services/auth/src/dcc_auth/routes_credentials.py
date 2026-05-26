@@ -150,7 +150,6 @@ async def issue_credential(
     db: SessionDep,
 ) -> CredentialIssueResponse:
     user, session_row = await _cookie_user_and_session(request, db)
-    await _check_rate_user(request, user.id)
 
     if payload.acr_values == "mfa" and session_row.acr != "1":
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="mfa_step_up_required")
@@ -167,6 +166,10 @@ async def issue_credential(
 
     pubkey_bytes = _decode_pubkey(payload.device_pubkey)
 
+    # Idempotenz-Check vor Rate-Limit: ein Re-Issue mit demselben Pubkey
+    # (Recovery-Flow, Tab-Reload, Re-Mount nach Logout/Login auf demselben
+    # Gerät) bedeutet keine neue Cert-Ausstellung — das bestehende Cert wird
+    # nur frisch signiert. Soll daher kein Rate-Limit-Budget verbrauchen.
     existing_stmt = select(IssuedCredential).where(
         IssuedCredential.user_id == user.id,
         IssuedCredential.device_pubkey == pubkey_bytes,
@@ -176,6 +179,9 @@ async def issue_credential(
     existing = (await db.execute(existing_stmt)).scalars().first()
     if existing is not None:
         return CredentialIssueResponse(cert=_sign_credential_jwt(user, existing, session_row))
+
+    # Echte Ausstellung — Rate-Limit gilt.
+    await _check_rate_user(request, user.id)
 
     active = await _active_creds_for_user(db, user.id)
     if len(active) >= _MAX_ACTIVE_CERTS:
