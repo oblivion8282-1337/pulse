@@ -195,6 +195,11 @@
     if (m.id.startsWith('tmp-')) return false;
     return m.author_id === auth.user.id || isOwner;
   }
+  // Nur fremde Nachrichten melden (nicht die eigenen).
+  function canReportMessage(m: Message): boolean {
+    if (!auth.user) return false;
+    return m.author_id !== auth.user.id;
+  }
 </script>
 
 <section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl">
@@ -248,6 +253,7 @@
                 isContinuation={item.isContinuation}
                 canEdit={canEditMessage(item.message)}
                 canDelete={canDeleteMessage(item.message)}
+                canReport={canReportMessage(item.message)}
                 onReply={startReply}
                 onEditSubmit={onEditMessage}
                 onDelete={onDeleteMessage}
