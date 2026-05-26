@@ -1,0 +1,10 @@
+#!/bin/sh
+# coturn — TURN/STUN for symmetric-NAT users (Fallstrick #6).
+# Opt-out via PULSE_TURN_DISABLED=true: cont-init touches turn.disabled
+# and we sleep forever instead (s6 keeps the unit "up" without restart-spam).
+exec 2>&1
+if [ -f /var/run/pulse/turn.disabled ]; then
+    echo "[coturn] PULSE_TURN_DISABLED=true → sleeping (not starting turnserver)" >&2
+    exec sleep infinity
+fi
+exec /usr/sbin/gosu pulse /usr/bin/turnserver -c /etc/coturn/turnserver.conf

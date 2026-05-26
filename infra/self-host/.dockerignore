@@ -1,0 +1,53 @@
+# Build-context exclusions for the self-host all-in-one image.
+# Mirrors the root .dockerignore but additionally excludes anything desktop /
+# packaging / windows-only — none of it ends up in the container.
+
+.git
+.github
+.gitignore
+.claude
+.venv
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+**/*.pyo
+node_modules
+**/node_modules
+
+# Frontend build artifacts (we rebuild inside the stage-2 builder)
+web/build
+web/.svelte-kit
+web/test-results
+web/playwright-report
+
+# Desktop & packaging are irrelevant for a server image
+desktop/
+desktop/electron/dist
+packaging/
+
+# Windows HQ sidecar Rust target — multi-gigabyte, never needed here
+streaming/win-hq-sidecar/target
+
+# Secrets must never leak into a public image
+secrets
+**/secrets
+.env
+.env.*
+!.env.example
+infra/prod/.env.production
+infra/prod/secrets
+
+# Big assets / patches not used by the runtime stack
+Logo
+streaming/patches
+streaming/server/.stream-key
+
+# Self-uploads from a running dev install
+services/*/uploads
+.plans
+
+# Local docs (server image only needs the README inside infra/self-host)
+*.md
+!README.md
+!infra/self-host/README.md

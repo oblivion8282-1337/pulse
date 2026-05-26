@@ -1,0 +1,11 @@
+#!/bin/sh
+# Caddy — reverse proxy + auto-TLS (Let's Encrypt).
+# /etc/caddy/Caddyfile is rendered by Phase 6.B's cont-init (not 6.A).
+# Until then we exec against whatever the template renders.
+exec 2>&1
+. /etc/pulse/env.sh
+# Caddy needs CAP_NET_BIND_SERVICE for ports 80/443 — we don't drop to pulse
+# here; Caddy itself drops privs after binding. /data/caddy is the cert cache.
+export XDG_DATA_HOME=/data/caddy
+export XDG_CONFIG_HOME=/data/caddy
+exec /usr/local/bin/caddy run --config /etc/caddy/Caddyfile --adapter caddyfile

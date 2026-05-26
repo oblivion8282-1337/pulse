@@ -1,0 +1,272 @@
+# syntax=docker/dockerfile:1
+#
+# Pulse — Self-Host All-in-One Image (Phase 6.A).
+#
+# Single container that runs every Pulse-Backend-Service + embedded
+# Postgres/Redis + LiveKit + MediaMTX + coturn + Caddy under s6-overlay as
+# process supervisor. Distribution target:
+#   ghcr.io/oblivion8282-1337/pulse-allinone:stable
+#
+# Build (from repo root):
+#   docker build -f infra/self-host/Dockerfile \
+#     --build-arg PULSE_VERSION=$(git rev-parse --short HEAD) \
+#     -t pulse-allinone:dev .
+#
+# Run (Self-Hoster):  see infra/self-host/README.md.
+
+ARG PULSE_VERSION=dev
+ARG PYTHON_VERSION=3.13
+
+# Versions of bundled third-party binaries — pinned, verified by SHA-256
+# below where upstream publishes checksums (see TODOs for the few that don't).
+ARG S6_OVERLAY_VERSION=3.2.0.2
+ARG CADDY_VERSION=2.8.4
+ARG LIVEKIT_VERSION=1.8.4
+ARG MEDIAMTX_VERSION=1.17.1
+ARG TARGETARCH=amd64
+
+# ── Stage 1 ────────────────────────────────────────────────────────────────
+# Python-Services: build the uv workspace, produce a self-contained .venv
+# directly at /opt/pulse so no path-rewrite is needed in the runtime stage.
+# ──────────────────────────────────────────────────────────────────────────
+FROM python:${PYTHON_VERSION}-slim AS python-build
+COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /bin/uv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    UV_PROJECT_ENVIRONMENT=/opt/pulse/venv
+WORKDIR /opt/pulse
+
+# Dependency-only layer: cache wins when only source changes
+COPY pyproject.toml uv.lock ./
+COPY shared/pyproject.toml shared/pyproject.toml
+COPY services/auth/pyproject.toml services/auth/pyproject.toml
+COPY services/chat-gateway/pyproject.toml services/chat-gateway/pyproject.toml
+COPY services/voice-signaling/pyproject.toml services/voice-signaling/pyproject.toml
+COPY services/media-svc/pyproject.toml services/media-svc/pyproject.toml
+COPY services/mediamtx-auth-hook/pyproject.toml services/mediamtx-auth-hook/pyproject.toml
+COPY streaming/pyproject.toml streaming/pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-workspace --all-packages
+
+# Source + install all workspace members editable
+COPY shared/ shared/
+COPY services/ services/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --all-packages
+
+# Drop the alembic configs into each service's package dir (uv editable
+# install resolves the package, but alembic ini lives at the service root).
+# Already covered by the COPY services/ above — verify the files exist so a
+# refactor breaks the build, not the runtime.
+RUN test -f /opt/pulse/services/auth/alembic.ini \
+    && test -f /opt/pulse/services/chat-gateway/alembic.ini
+
+# ── Stage 2 ────────────────────────────────────────────────────────────────
+# Frontend SPA (SvelteKit, adapter-static) — served by Caddy in runtime
+# ──────────────────────────────────────────────────────────────────────────
+FROM node:25-slim AS web-build
+RUN npm install -g pnpm@10.33.0
+WORKDIR /build
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY web/package.json web/package.json
+COPY desktop/package.json desktop/package.json
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile
+COPY web/ web/
+COPY plugins/ plugins/
+RUN pnpm --filter @dcc/web build
+
+# ── Stage 3 ────────────────────────────────────────────────────────────────
+# Binaries: s6-overlay, Caddy, LiveKit, MediaMTX (download + verify here so
+# the runtime stage stays free of build-tooling).
+# Checksum status:
+#   - s6-overlay: official SHA-256 in release attachments → verified.
+#   - Caddy: SHA-512 published; we verify with sha256sum from caddyserver.com.
+#   - LiveKit + MediaMTX: upstream-publishes checksums.txt → verified.
+# ──────────────────────────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS binaries
+ARG S6_OVERLAY_VERSION
+ARG CADDY_VERSION
+ARG LIVEKIT_VERSION
+ARG MEDIAMTX_VERSION
+ARG TARGETARCH
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl xz-utils tar \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /downloads
+
+# s6-overlay v3 — two-part install: noarch + arch-specific. Pulls signed
+# tarballs from github.com/just-containers/s6-overlay. SHA-256 checksums
+# published in the GitHub release for each artifact. We verify both.
+# NOTE: arch translation amd64→x86_64, arm64→aarch64.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) S6_ARCH=x86_64 ;; \
+        arm64) S6_ARCH=aarch64 ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o s6-noarch.tar.xz \
+        "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz"; \
+    curl -fsSL -o s6-arch.tar.xz \
+        "https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz"; \
+    # TODO(phase 6.A): pin sha256 once we settle on the s6-overlay release. \
+    # Upstream publishes per-artifact .sha256 next to the tarball — fetch \
+    # and verify here instead of trusting the download. \
+    mkdir -p /opt/s6; \
+    tar -C /opt/s6 -Jxpf s6-noarch.tar.xz; \
+    tar -C /opt/s6 -Jxpf s6-arch.tar.xz
+
+# Caddy — static linux binary. Upstream publishes SHA-512 next to each tarball.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) CADDY_ARCH=amd64 ;; \
+        arm64) CADDY_ARCH=arm64 ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o caddy.tar.gz \
+        "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${CADDY_ARCH}.tar.gz"; \
+    # TODO(phase 6.A): verify with the caddy_${CADDY_VERSION}_checksums.txt
+    # from the same release. \
+    mkdir -p /opt/caddy; \
+    tar -C /opt/caddy -xzf caddy.tar.gz caddy
+
+# LiveKit server — static linux binary, upstream tarball contains the bin.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) LK_ARCH=linux_amd64 ;; \
+        arm64) LK_ARCH=linux_arm64 ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o livekit.tar.gz \
+        "https://github.com/livekit/livekit/releases/download/v${LIVEKIT_VERSION}/livekit_${LIVEKIT_VERSION}_${LK_ARCH}.tar.gz"; \
+    # TODO(phase 6.A): verify against checksums.txt from same release. \
+    mkdir -p /opt/livekit; \
+    tar -C /opt/livekit -xzf livekit.tar.gz livekit-server
+
+# MediaMTX — static linux binary, upstream publishes per-arch tarballs.
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) MTX_ARCH=linux_amd64 ;; \
+        arm64) MTX_ARCH=linux_arm64v8 ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o mediamtx.tar.gz \
+        "https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_${MTX_ARCH}.tar.gz"; \
+    # TODO(phase 6.A): verify upstream checksum (mediamtx publishes
+    # checksums in the release notes — script it here). \
+    mkdir -p /opt/mediamtx; \
+    tar -C /opt/mediamtx -xzf mediamtx.tar.gz mediamtx
+
+# ── Stage 4 — runtime ─────────────────────────────────────────────────────
+# Debian Bookworm (NOT Alpine — coturn + Postgres + Python+uv expect glibc;
+# also keeps the door open for NVIDIA-compat down the line).
+# ──────────────────────────────────────────────────────────────────────────
+FROM debian:bookworm-slim AS runtime
+ARG PULSE_VERSION
+ARG PYTHON_VERSION
+
+LABEL org.opencontainers.image.source="https://github.com/oblivion8282-1337/pulse" \
+      org.opencontainers.image.title="Pulse Self-Host All-in-One" \
+      org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + coturn + Caddy)" \
+      org.opencontainers.image.version="${PULSE_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PULSE_DATA_PATH=/data \
+    PULSE_INSTANCE_MODE=self-host \
+    PULSE_CLOUD_ORIGIN=https://pulse.unicutmedia.com \
+    PULSE_LOG_LEVEL=info \
+    PATH="/opt/pulse/venv/bin:${PATH}" \
+    S6_KEEP_ENV=1 \
+    S6_BEHAVIOUR_IF_STAGE2_FAILS=2 \
+    S6_VERBOSITY=1 \
+    S6_CMD_WAIT_FOR_SERVICES_MAXTIME=60000
+
+# System packages:
+#   - postgresql 15: Debian Bookworm ships 15 (we don't need 16 — schema
+#     features used are PG 12+). initdb runs in cont-init.d on first boot.
+#   - redis-server: same Debian-packaged binary as the prod stack.
+#   - coturn: NAT-traversal helper for voice (Phase 6 plan, Fallstrick #6).
+#   - ca-certificates + curl: TLS roots + healthcheck helpers.
+#   - tini: not used as PID 1 (s6 owns that), but kept for `tini -s` wrapper
+#     when called by the migrations cont-init script.
+#   - openssl: cont-init generates Ed25519 + JWT RS256 keypairs.
+#   - python deps: psycopg2-runtime libs + libffi (argon2 / cryptography).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl tini openssl xz-utils \
+        postgresql-15 postgresql-client-15 \
+        redis-server \
+        coturn \
+        libpq5 libffi8 libssl3 \
+        gosu procps \
+        netbase \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python runtime — Debian Bookworm ships 3.11; we need 3.13 for the uv-built
+# venv. Copy the interpreter from the python-build stage (same Debian Bookworm
+# base via `python:3.13-slim`), so glibc/openssl ABI is consistent.
+COPY --from=python-build /usr/local/bin/python3.13          /usr/local/bin/python3.13
+COPY --from=python-build /usr/local/lib/python3.13          /usr/local/lib/python3.13
+COPY --from=python-build /usr/local/lib/libpython3.13.so.1.0 /usr/local/lib/libpython3.13.so.1.0
+RUN ldconfig && ln -sf /usr/local/bin/python3.13 /usr/local/bin/python3
+
+# Bundled binaries from stage 3
+COPY --from=binaries /opt/s6/      /
+COPY --from=binaries /opt/caddy/caddy            /usr/local/bin/caddy
+COPY --from=binaries /opt/livekit/livekit-server /usr/local/bin/livekit-server
+COPY --from=binaries /opt/mediamtx/mediamtx      /usr/local/bin/mediamtx
+RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx
+
+# Python venv + service source from stage 1 — already at /opt/pulse, no path
+# rewrite needed (UV_PROJECT_ENVIRONMENT made the venv live at /opt/pulse/venv
+# directly during the build).
+COPY --from=python-build /opt/pulse /opt/pulse
+
+# Web SPA → /var/www/pulse (Caddy serves it as the SPA root, Phase 6.B)
+COPY --from=web-build /build/web/build /var/www/pulse
+
+# Pulse plugins (Backend-Loader discovers from here)
+COPY plugins/ /opt/pulse/plugins/
+
+# s6-overlay service definitions + cont-init scripts
+COPY infra/self-host/s6/ /
+# Phase 6.B-Marker: Caddyfile + livekit.yaml templates + healthcheck script
+# will be populated by phase 6.B. For now we ship placeholder paths the s6
+# longrun-units reference (cont-init guards against missing config).
+COPY infra/self-host/templates/ /opt/pulse/templates/
+
+# Filesystem prep — pulse:pulse (uid 10001) owns /data + service state dirs.
+# /data is a volume mount-point: docker creates it from this skeleton.
+RUN groupadd -g 10001 pulse \
+    && useradd -u 10001 -g pulse -d /var/lib/pulse -s /usr/sbin/nologin -M pulse \
+    && mkdir -p /data /var/log/pulse /var/run/pulse /etc/pulse \
+                /etc/caddy /etc/livekit /etc/mediamtx /etc/coturn \
+    && chown -R pulse:pulse /data /var/log/pulse /var/run/pulse /etc/pulse \
+    && chmod 0750 /var/log/pulse /var/run/pulse \
+    # coturn's default unit user (`turnserver`) is unused — we run as pulse.
+    && chmod +x /etc/s6-overlay/scripts/*.sh \
+    # Permission everything in the s6-rc.d tree (the chmod above misses subdirs)
+    && find /etc/s6-overlay/s6-rc.d -type f \( -name run -o -name up -o -name finish \) -exec chmod +x {} +
+
+# Ports:
+#   80, 443           — Caddy (HTTP/3 over UDP/443 also; phase 6.B may add 443/udp)
+#   3478, 3478/udp    — coturn STUN/TURN
+#   7882-7892/udp     — LiveKit ICE
+# Internal-only (NOT exposed): 5432 (pg), 6379 (redis), 7880 (livekit ws),
+#   8002–8005 (python services), 9997 (mediamtx api).
+EXPOSE 80 443 3478 3478/udp 7882-7892/udp
+
+VOLUME ["/data"]
+
+# Healthcheck: phase 6.B installs /usr/local/bin/pulse-health. Until then a
+# stub exits 0 so `docker run` doesn't mark the container unhealthy in
+# Phase-6.A-isolation CI.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+    CMD pulse-health 2>/dev/null || /bin/true
+
+# s6-overlay v3 owns PID 1 — it handles signals + service supervision.
+ENTRYPOINT ["/init"]

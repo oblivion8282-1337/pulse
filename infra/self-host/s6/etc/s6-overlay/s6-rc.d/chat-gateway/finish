@@ -1,0 +1,3 @@
+#!/command/execlineb -S0
+fdmove -c 2 1
+foreground { /etc/s6-overlay/scripts/restart-gate.sh chat-gateway }

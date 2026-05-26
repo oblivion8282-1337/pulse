@@ -1,0 +1,10 @@
+#!/bin/sh
+# chat-gateway — central Pulse service, hosts /api/chat + /api/ws.
+# Runtime env loaded from /etc/pulse/env/* (envdir-style, written by cont-init).
+exec 2>&1
+. /etc/pulse/env.sh
+cd /opt/pulse/services/chat-gateway
+exec /usr/sbin/gosu pulse /opt/pulse/venv/bin/uvicorn dcc_chat_gateway.app:app \
+  --host 127.0.0.1 \
+  --port 8002 \
+  --no-access-log

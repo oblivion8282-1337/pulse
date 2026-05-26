@@ -1,0 +1,9 @@
+#!/bin/sh
+# voice-signaling — LiveKit webhook receiver + token mint.
+exec 2>&1
+. /etc/pulse/env.sh
+cd /opt/pulse/services/voice-signaling
+exec /usr/sbin/gosu pulse /opt/pulse/venv/bin/uvicorn dcc_voice_signaling.app:app \
+  --host 127.0.0.1 \
+  --port 8003 \
+  --no-access-log

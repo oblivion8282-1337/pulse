@@ -1,0 +1,5 @@
+#!/bin/sh
+# MediaMTX — HQ stream relay (RTMPS→WHEP/HLS). authHTTP → mediamtx-auth-hook
+# at 127.0.0.1:8005. Config rendered by cont-init.
+exec 2>&1
+exec /usr/sbin/gosu pulse /usr/local/bin/mediamtx /etc/mediamtx/mediamtx.yml
