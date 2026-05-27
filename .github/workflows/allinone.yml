@@ -1,0 +1,156 @@
+# Pulse Self-Host All-in-One Image — build & publish to GHCR.
+#
+# Output:
+#   ghcr.io/oblivion8282-1337/pulse-allinone:edge          (rolling, every main push)
+#   ghcr.io/oblivion8282-1337/pulse-allinone:stable        (latest release)
+#   ghcr.io/oblivion8282-1337/pulse-allinone:vX.Y.Z        (immutable, exact)
+#   ghcr.io/oblivion8282-1337/pulse-allinone:vX.Y          (rolling minor)
+#   ghcr.io/oblivion8282-1337/pulse-allinone:vX            (rolling major)
+#   ghcr.io/oblivion8282-1337/pulse-allinone:sha-<short>   (every build, for forensics)
+#
+# Trigger options (all do the same build, different tags applied):
+#   1. push to main         → :edge + :sha-<short>
+#   2. push tag v*.*.*      → :stable + :vX.Y.Z + :vX.Y + :vX + :sha-<short>
+#   3. workflow_dispatch    → :edge (no input) or :stable (release_version input)
+#
+# Self-Hoster pin to :stable, get updates via Watchtower; :edge is for testing.
+#
+# Build platforms: linux/amd64 + linux/arm64 (arm64 via QEMU emulation).
+# Cold build ~30 min, warm with gha-cache ~5 min.
+
+name: allinone
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Release version like 1.0.0 — leave blank to publish :edge'
+        required: false
+        default: ''
+        type: string
+
+# Edge builds on main cancel each other (only the latest commit matters).
+# Tag builds never cancel — every release must finish.
+concurrency:
+  group: allinone-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/main' }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version + tags
+        id: meta
+        env:
+          INPUT_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+
+          IMAGE="ghcr.io/oblivion8282-1337/pulse-allinone"
+          SHORT_SHA="$(git rev-parse --short HEAD)"
+
+          # Determine channel + version
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            CHANNEL="stable"
+            SOURCE="tag push"
+          elif [[ -n "${INPUT_VERSION}" ]]; then
+            VERSION="${INPUT_VERSION#v}"
+            CHANNEL="stable"
+            SOURCE="manual dispatch"
+          else
+            VERSION=""
+            CHANNEL="edge"
+            SOURCE="branch push / manual dispatch (no version)"
+          fi
+
+          # Validate semver for stable releases
+          if [[ "$CHANNEL" == "stable" ]]; then
+            if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Invalid version '${VERSION}'. Expected semver like 1.0.0 or 1.0.0-rc1."
+              exit 1
+            fi
+            MAJOR="${VERSION%%.*}"
+            REST="${VERSION#*.}"
+            MINOR="${REST%%.*}"
+            # Pre-release versions (1.0.0-rc1) only push :vX.Y.Z + :sha — not :stable, :vX.Y, :vX.
+            if [[ "$VERSION" == *-* ]]; then
+              TAGS=$(printf '%s\n' \
+                "${IMAGE}:v${VERSION}" \
+                "${IMAGE}:sha-${SHORT_SHA}")
+            else
+              TAGS=$(printf '%s\n' \
+                "${IMAGE}:stable" \
+                "${IMAGE}:v${VERSION}" \
+                "${IMAGE}:v${MAJOR}.${MINOR}" \
+                "${IMAGE}:v${MAJOR}" \
+                "${IMAGE}:sha-${SHORT_SHA}")
+            fi
+          else
+            TAGS=$(printf '%s\n' \
+              "${IMAGE}:edge" \
+              "${IMAGE}:sha-${SHORT_SHA}")
+          fi
+
+          # Pulse-version label baked into the image (shown in /admin/server-info)
+          if [[ -n "$VERSION" ]]; then
+            PULSE_VERSION="$VERSION"
+          else
+            PULSE_VERSION="$SHORT_SHA"
+          fi
+
+          {
+            echo "channel=$CHANNEL"
+            echo "version=$VERSION"
+            echo "pulse_version=$PULSE_VERSION"
+            echo "short_sha=$SHORT_SHA"
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "::notice::Building $CHANNEL (source: $SOURCE, version: ${VERSION:-none}, sha: $SHORT_SHA)"
+          echo "Tags:"
+          echo "$TAGS" | sed 's/^/  - /'
+
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/self-host/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            PULSE_VERSION=${{ steps.meta.outputs.pulse_version }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.title=Pulse Self-Host
+            org.opencontainers.image.description=Pulse all-in-one self-host container (chat + voice + HQ streaming)
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.pulse_version }}
+            org.opencontainers.image.licenses=AGPL-3.0-or-later
+          cache-from: type=gha,scope=allinone
+          cache-to: type=gha,mode=max,scope=allinone
+          provenance: false
