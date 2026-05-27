@@ -103,6 +103,7 @@ s6-overlay v3 (s6-rc.d):
 cont-init  (oneshot — runs cont-init-main.sh, blocks until all secrets/configs ready)
   ├── postgres            (waits for cont-init)
   ├── redis               (waits for cont-init)
+  ├── auth                (waits for postgres + redis)
   ├── chat-gateway        (waits for postgres + redis)
   ├── voice-signaling     (waits for redis)
   ├── media-svc           (waits for redis)
@@ -110,7 +111,7 @@ cont-init  (oneshot — runs cont-init-main.sh, blocks until all secrets/configs
   ├── livekit             (waits for voice-signaling)
   ├── mediamtx            (waits for media-svc + mediamtx-auth-hook)
   ├── coturn              (waits for cont-init; sleeps forever if PULSE_TURN_DISABLED=true)
-  └── caddy               (waits for chat-gateway/voice-signaling/media-svc)
+  └── caddy               (waits for chat-gateway/voice-signaling/media-svc/auth)
 ```
 
 Each longrun unit has a `./finish` script that gates restarts: more than
@@ -132,28 +133,32 @@ infra/self-host/
 │       │   ├── cont-init/          # oneshot bootstrap entry
 │       │   ├── postgres/           # data layer
 │       │   ├── redis/
-│       │   ├── chat-gateway/       # python services
+│       │   ├── auth/               # python services
+│       │   ├── chat-gateway/
 │       │   ├── voice-signaling/
 │       │   ├── media-svc/
 │       │   ├── mediamtx-auth-hook/
 │       │   ├── livekit/            # go binaries
 │       │   ├── mediamtx/
 │       │   ├── coturn/             # turn server
-│       │   └── caddy/              # reverse proxy
-│       └── scripts/                # cont-init steps
+│       │   └── caddy/              # reverse proxy (Caddyfile aus etc/caddy/Caddyfile.template)
+│       ├── etc/caddy/
+│       │   └── Caddyfile.template  # auto-TLS, security headers, /api/* + WHEP routing
+│       └── scripts/                # cont-init steps — Ausführungsreihenfolge regelt cont-init-main.sh, nicht die Dateinummer
 │           ├── cont-init-main.sh
+│           ├── 10-check-cloud-creds.sh  # FIRST (fail-fast bei fehlenden Env-Vars)
 │           ├── 01-init-data-dirs.sh
-│           ├── 02-init-postgres.sh
 │           ├── 03-init-secrets.sh
+│           ├── 02-init-postgres.sh
 │           ├── 04-init-coturn.sh
 │           ├── 05-init-livekit.sh
-│           ├── 06-run-migrations.sh
 │           ├── 07-render-env.sh
 │           ├── 08-init-mediamtx.sh
-│           ├── 10-check-cloud-creds.sh
+│           ├── 09-init-caddy.sh    # Caddyfile aus Template; auto + provided TLS-Modus
+│           ├── 06-run-migrations.sh # LAST (Postgres muss erst hoch sein)
 │           └── restart-gate.sh
-└── templates/                      # Phase 6.B
-    └── README.md
+└── usr/local/bin/
+    └── pulse-health                # Container HEALTHCHECK (bash /dev/tcp Probes)
 ```
 
 ## Volumes
@@ -163,8 +168,10 @@ infra/self-host/
 | `/data/pg/` | Postgres data directory (PG 15 initdb) | YES |
 | `/data/redis/` | Redis AOF | yes (session state, presence) |
 | `/data/jwt_keys/` | Generated RS256/Ed25519 keys + secrets | **YES — losing this invalidates every session** |
-| `/data/coturn/secret` | static-auth-secret for TURN | yes |
+| `/data/coturn/{secret,turndb}` | static-auth-secret + nonce DB for TURN | yes |
 | `/data/caddy/` | TLS certs + ACME state | yes |
+| `/data/livekit/` | LiveKit ephemeral state | no (regeneriert) |
+| `/data/mediamtx/` | MediaMTX state + self-signed RTMPS cert | no (regeneriert beim First-Start) |
 | `/data/uploads/avatars` | user avatars | yes |
 | `/data/uploads/guild-icons` | guild icons | yes |
 | `/data/backups/` | pg_dump snapshots (Phase 6 plan DE 10b) | yes |
@@ -173,21 +180,15 @@ infra/self-host/
 The recommended mount is `-v pulse-data:/data` — Docker named-volume so the
 host doesn't need a specific UID/GID setup.
 
-## Known limitations (Phase 6.A)
+## Known limitations
 
-- **Caddy + healthcheck not wired** — `/etc/caddy/Caddyfile` ships empty;
-  the `pulse-health` HEALTHCHECK script is a no-op. Both land in Phase 6.B.
 - **Restart-gate granularity** — counts only crash, not restart-loop-success;
   a service that restarts cleanly every 11 s indefinitely won't trip the gate.
   Acceptable for now (the failure modes we worry about are tight crash loops).
 - **No Flatpak interaction** — the Flatpak desktop client talks to a self-host
   the same way it talks to Cloud (via HTTPS to PULSE_HOSTNAME). No extra
   wiring needed inside this image.
-
-## Phase 6.B will add
-
-- `infra/self-host/templates/Caddyfile.template`
-- `infra/self-host/templates/livekit.yaml.template`
-- `infra/self-host/templates/mediamtx.yml.template`
-- `/usr/local/bin/pulse-health` (real HEALTHCHECK script — checks each s6 unit + Caddy listening)
-- `docs/SELF_HOST.md` — end-user-facing operator manual
+- **`livekit.yaml.template` + `mediamtx.yml.template` noch nicht abstrahiert** —
+  beide werden derzeit inline in `05-init-livekit.sh` / `08-init-mediamtx.sh`
+  geschrieben (kein externes Template). Für Operatoren mit eigenen Configs
+  als Folge-Arbeit.
