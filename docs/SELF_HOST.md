@@ -71,6 +71,16 @@ docker run -d --name pulse \
 
 Alle Env-Vars und Defaults: `infra/self-host/.env.example`.
 
+**Optionale Variablen** (haben sinnvolle Defaults, hier nur ändern wenn nötig):
+- `PULSE_CLOUD_ORIGIN` (Default: `https://pulse.unicutmedia.com`) — wohin
+  CRL/JWKS-Pinning/Cloud-Policy-Polls gehen. Auf eine eigene Cloud-Foundation
+  zeigen oder leer lassen für ein Standalone-Setup (Cloud-Pairing funktioniert
+  dann nicht).
+- `PULSE_TLS_MODE=auto` (Default) — Caddy holt Let's-Encrypt-Cert automatisch.
+  `=provided` → eigenes Cert unter `/data/certs/cert.pem` + `key.pem`.
+- `PULSE_TURN_DISABLED=true` — coturn deaktivieren (wenn du eigenen TURN hast
+  oder ohne NAT-Traversal auskommst).
+
 **Alternativ mit .env-Datei:**
 
 ```bash
@@ -195,6 +205,20 @@ offiziell dokumentiert.
 ---
 
 ## Was passiert bei Updates
+
+Watchtower steckt **nicht** im pulse-allinone-Image (bewusst) — du musst ihn
+als separaten Container daneben starten. Empfohlen:
+
+```bash
+docker run -d --name pulse-watchtower --restart unless-stopped \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    containrrr/watchtower --scope pulse --interval 300 pulse
+```
+
+`--scope pulse` sorgt dafür, dass Watchtower nur Pulse-Container anfasst,
+nicht alle anderen Container auf deinem Host. Damit pulse-allinone in den
+Scope fällt, beim `docker run` der Pulse-Instanz `--label com.centurylinklabs.watchtower.scope=pulse`
+mitgeben.
 
 Watchtower prüft alle 5 Minuten ob ein neues `pulse-allinone:stable`-Image
 verfügbar ist. Bei einem Update:

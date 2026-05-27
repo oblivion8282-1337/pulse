@@ -8,6 +8,12 @@ KEYS="${DATA}/jwt_keys"
 mkdir -p /etc/pulse
 chown pulse:pulse /etc/pulse
 
+# PULSE_CLOUD_ORIGIN ist im Dockerfile-ENV defaultiert auf
+# https://pulse.unicutmedia.com — aber ein Operator könnte es explizit
+# auf "" setzen (z.B. Air-Gap-Deploy). In dem Fall absorbieren wir den
+# Default lokal, damit CORS_ALLOW_ORIGINS unten kein führendes Komma erbt.
+: "${PULSE_CLOUD_ORIGIN:=https://pulse.unicutmedia.com}"
+
 PG_PASS=$(cat "${KEYS}/postgres.password")
 INTERNAL_SECRET=$(cat "${KEYS}/internal_service.token")
 CERT_CHALLENGE=$(cat "${KEYS}/cert_challenge.secret")

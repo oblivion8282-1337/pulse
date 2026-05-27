@@ -295,11 +295,12 @@ EXPOSE 80 443 3478 3478/udp 7882-7892/udp
 
 VOLUME ["/data"]
 
-# Healthcheck: phase 6.B installs /usr/local/bin/pulse-health. Until then a
-# stub exits 0 so `docker run` doesn't mark the container unhealthy in
-# Phase-6.A-isolation CI.
+# Healthcheck: pulse-health probes chat-gateway /health + TCP-reachability
+# of all 11 in-container services. start-period covers Postgres initdb +
+# alembic + Caddy ACME + JWKS cold-start; --retries=3 + JWKS now answering
+# 200 "warming_up" instead of 503 mean a cold JWKS no longer flaps.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-    CMD pulse-health 2>/dev/null || /bin/true
+    CMD pulse-health
 
 # s6-overlay v3 owns PID 1 — it handles signals + service supervision.
 ENTRYPOINT ["/init"]

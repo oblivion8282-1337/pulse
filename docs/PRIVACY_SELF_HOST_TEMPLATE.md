@@ -66,6 +66,13 @@ Diese Instanz kommuniziert mit `pulse.unicutmedia.com` für folgende Zwecke:
    Kein User-Content wird dabei übertragen.
 4. **Health-Probe nach Updates**: Cloud prüft Verfügbarkeit dieser Instanz nach
    automatischen Updates. Kein User-Content wird dabei übertragen.
+5. **Instanz-Authentifizierung**: Bei jedem der vier oben genannten Calls (und
+   beim Cert-Login-Flow für Nutzer) sendet diese Instanz ihre öffentliche
+   `PULSE_CLOUD_CLIENT_ID` mit — Pulse Cloud erkennt sie als "die Instanz X,
+   die wir beim Approval-Prozess registriert haben". Es ist ein
+   Identifikator-Token, kein Geheimnis und kein User-Content; aber die bloße
+   Tatsache "Instanz X war zur Zeit T online und hat einen Call gemacht" wird
+   bei Pulse Cloud geloggt.
 
 **Kein User-Content** (Nachrichten, Dateien, Profilbilder) verlässt diese
 Instanz in Richtung Pulse Cloud.

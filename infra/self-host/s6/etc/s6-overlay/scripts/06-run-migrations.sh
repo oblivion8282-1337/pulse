@@ -15,15 +15,25 @@ PG_SOCKET=/var/run/pulse/pg-bootstrap
 mkdir -p "${PG_SOCKET}"
 chown pulse:pulse "${PG_SOCKET}"
 
-# Postgres binds *both* the unix socket (so pg_ctl -w can probe quickly) and
-# 127.0.0.1:5432 (so the alembic env.py reaches it via DATABASE_URL from the
-# rendered env.sh).
-echo "[06-run-migrations] starting transient Postgres for migrations"
-/usr/sbin/gosu pulse "${PG_BIN}/pg_ctl" \
-    -D "${PG_DATA}" \
-    -o "-k ${PG_SOCKET} -h 127.0.0.1 -p 5432" \
-    -l "/var/log/pulse/pg-migrations.log" \
-    -w start
+# Defense in depth: if any earlier hand-off left a Postgres bound to 5432
+# (very rare — cont-init is serialised before longrun services), attach to
+# it instead of trying to start a second one (would die with "Address
+# already in use").
+if /usr/sbin/gosu pulse "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 5432 -U pulse -q 2>/dev/null; then
+    echo "[06-run-migrations] Postgres already up on 127.0.0.1:5432 — reusing it"
+    STARTED_PG=0
+else
+    # Postgres binds *both* the unix socket (so pg_ctl -w can probe quickly)
+    # and 127.0.0.1:5432 (so the alembic env.py reaches it via DATABASE_URL
+    # from the rendered env.sh).
+    echo "[06-run-migrations] starting transient Postgres for migrations"
+    /usr/sbin/gosu pulse "${PG_BIN}/pg_ctl" \
+        -D "${PG_DATA}" \
+        -o "-k ${PG_SOCKET} -h 127.0.0.1 -p 5432" \
+        -l "/var/log/pulse/pg-migrations.log" \
+        -w start
+    STARTED_PG=1
+fi
 
 # Wait for ready
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
@@ -46,5 +56,11 @@ run_alembic() {
 run_alembic auth
 run_alembic chat-gateway
 
-echo "[06-run-migrations] migrations done — stopping transient Postgres"
-/usr/sbin/gosu pulse "${PG_BIN}/pg_ctl" -D "${PG_DATA}" -m fast -w stop
+if [ "${STARTED_PG}" = "1" ]; then
+    echo "[06-run-migrations] migrations done — stopping transient Postgres"
+else
+    echo "[06-run-migrations] migrations done — leaving the existing Postgres up"
+fi
+if [ "${STARTED_PG}" = "1" ]; then
+    /usr/sbin/gosu pulse "${PG_BIN}/pg_ctl" -D "${PG_DATA}" -m fast -w stop
+fi

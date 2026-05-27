@@ -17,7 +17,8 @@ if [ ! -f "${CERT_DIR}/mediamtx.crt" ] || [ ! -f "${CERT_DIR}/mediamtx.key" ]; t
         -keyout "${CERT_DIR}/mediamtx.key" \
         -out    "${CERT_DIR}/mediamtx.crt" \
         -days   3650 \
-        -subj   "/CN=${PULSE_HOSTNAME}" >/dev/null 2>&1
+        -subj   "/CN=${PULSE_HOSTNAME}" \
+        -addext "subjectAltName=DNS:${PULSE_HOSTNAME}" >/dev/null 2>&1
     chown pulse:pulse "${CERT_DIR}/mediamtx.crt" "${CERT_DIR}/mediamtx.key"
     chmod 0640 "${CERT_DIR}/mediamtx.crt" "${CERT_DIR}/mediamtx.key"
 fi
