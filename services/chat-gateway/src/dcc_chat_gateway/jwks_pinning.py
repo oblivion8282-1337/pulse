@@ -25,7 +25,9 @@ If Redis is cold (no cached JWKS) *and* the Cloud is unreachable at
 startup, ``jwks_ready`` stays ``False``.  A background retry-loop
 (``jwks_retry_loop``) polls every 30 s and sets ``jwks_ready = True``
 once a JWKS can be fetched.  WS connections return close-code **4046**
-while ``jwks_ready`` is ``False``.  ``/health`` returns 503.
+while ``jwks_ready`` is ``False``.  ``/health`` answers 200 with
+``status=warming_up`` rather than 503 — the process is alive, only the
+JWKS cache is still cold.
 
 Public API
 ----------

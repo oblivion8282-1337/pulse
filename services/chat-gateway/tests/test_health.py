@@ -3,7 +3,8 @@
 Abgedeckt:
 - GET /health 200 wenn alles OK
 - GET /health 503 wenn Redis nicht antwortet
-- GET /health 503 wenn JWKS noch nicht ready
+- GET /health 200 "warming_up" wenn JWKS noch nicht ready (kein Hard-Fail —
+  der Service ist alive, nur der Cache fehlt)
 - GET /internal/health-probe 401 ohne Secret
 - GET /internal/health-probe 401 mit falschem Secret
 - GET /internal/health-probe 200 mit korrektem Secret
@@ -77,15 +78,15 @@ async def test_health_redis_down(client, app):
 
 @pytest.mark.asyncio
 async def test_health_jwks_not_ready(client, app):
-    """503 degraded wenn jwks_ready=False."""
+    """200 warming_up wenn jwks_ready=False (Cold-Start, kein Hard-Fail)."""
     original_jwks_ready = getattr(app.state, "jwks_ready", True)
     app.state.jwks_ready = False
     try:
         r = await client.get("/health")
-        assert r.status_code == 503
+        assert r.status_code == 200
         body = r.json()
-        assert body["status"] == "degraded"
-        assert "jwks" in body["failed"]
+        assert body["status"] == "warming_up"
+        assert "jwks" in body["warming"]
     finally:
         app.state.jwks_ready = original_jwks_ready
 

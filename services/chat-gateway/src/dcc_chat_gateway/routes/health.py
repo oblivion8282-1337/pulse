@@ -3,7 +3,9 @@
 Zwei Endpoints:
 
 GET /health — öffentlich, kein Auth.
-    Prüft DB + Redis + JWKS-Ready.  200 wenn alles OK, 503 bei Degraded.
+    Prüft DB + Redis + JWKS-Ready.
+    200 wenn alles OK · 200 "warming_up" wenn nur die JWKS noch warten ·
+    503 nur bei echter Degradation (DB/Redis weg).
     Kein User-Bezug, kein Privacy-Leak — safe für externen Monitoring.
 
 GET /internal/health-probe — JWT-validiert (purpose=health-probe).
@@ -115,10 +117,16 @@ def _check_internal_secret(provided: str | None) -> None:
 
 @router.get("/health")
 async def health(request: Request) -> JSONResponse:
-    """Simpler Liveness-Check.
+    """Liveness-Check, Warm-Up-aware.
 
-    200  {"status": "ok"}
-    503  {"status": "degraded", "failed": ["db", ...]}
+    200  {"status": "ok"}                                — alles bereit
+    200  {"status": "warming_up", "warming": ["jwks"]}   — JWKS-Cache cold start
+    503  {"status": "degraded", "failed": ["db", ...]}   — echte Service-Pfanne
+
+    JWKS ist ein Redis-Cache, den ein async Poller (jwks_pinning) beim Start
+    füllt. Solange er leer ist, läuft alles ausser WS-Auth (WS schliesst
+    selber mit 4046). Containers + Load-Balancer dürfen den Pod nicht
+    flappen lassen — daher 200 mit Hint, kein 503.
     """
     db_ok, redis_ok = await asyncio.gather(_check_db(), _check_redis(request))
     jwks_ok = _check_jwks(request)
@@ -128,13 +136,16 @@ async def health(request: Request) -> JSONResponse:
         failed.append("db")
     if not redis_ok:
         failed.append("redis")
-    if not jwks_ok:
-        failed.append("jwks")
 
     if failed:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={"status": "degraded", "failed": failed},
+        )
+    if not jwks_ok:
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "warming_up", "warming": ["jwks"]},
         )
     return JSONResponse(status_code=status.HTTP_200_OK, content={"status": "ok"})
 
