@@ -49,21 +49,37 @@ and persisted across container restarts.
 
 | Component | Version | Source | Checksum |
 |---|---|---|---|
-| s6-overlay | v3.2.0.2 | github.com/just-containers/s6-overlay | TODO: pin per-artifact SHA-256 |
-| Caddy | v2.8.4 | github.com/caddyserver/caddy | TODO: verify against `caddy_*_checksums.txt` |
-| LiveKit | v1.8.4 | github.com/livekit/livekit | TODO: verify against `checksums.txt` |
-| MediaMTX | v1.17.1 | github.com/bluenviron/mediamtx | TODO: verify against release-notes checksum |
+| s6-overlay | v3.2.0.2 | github.com/just-containers/s6-overlay | SHA-256 pinned per artifact |
+| Caddy | v2.8.4 | github.com/caddyserver/caddy | SHA-256 pinned per artifact |
+| LiveKit | v1.8.4 | github.com/livekit/livekit | SHA-256 pinned per artifact |
+| MediaMTX | v1.17.1 | github.com/bluenviron/mediamtx | SHA-256 pinned per artifact |
 | Postgres | 15 (Debian Bookworm) | apt | — (Debian-signed package) |
 | Redis | 7 (Debian Bookworm) | apt | — (Debian-signed package) |
 | coturn | (Debian Bookworm) | apt | — (Debian-signed package) |
 | Python | 3.13 | python:3.13-slim base layer | — (Docker Hub) |
 | pulse services | from this repo | uv workspace | — |
 
-> **Checksum TODOs**: upstream Caddy/LiveKit/MediaMTX all publish per-release
-> SHA-256 checksums — Phase 6.A skipped automated verification to land the
-> Dockerfile faster. **Before tagging the image `:stable`**, wire each
-> download to a `sha256sum -c` step against the published checksums-file.
-> Tracking issue: TODO open.
+Every third-party tarball is downloaded with `curl` and verified against a
+pinned `SHA256_*` ARG inside the Dockerfile (`sha256sum -c`). The build
+aborts on mismatch — a tampered, swapped or silently rebuilt upstream
+artifact cannot reach the runtime stage.
+
+### Refreshing or bumping pinned versions
+
+`infra/self-host/scripts/refresh-checksums.sh` automates the hash maintenance:
+
+```bash
+# Re-verify all pins against current upstream (read-only, exit 1 on mismatch)
+infra/self-host/scripts/refresh-checksums.sh
+
+# Bump a single component — rewrites both the ARG <NAME>_VERSION and the
+# matching SHA256_<NAME>_<ARCH> pins in the Dockerfile
+infra/self-host/scripts/refresh-checksums.sh --set CADDY_VERSION=2.9.0
+
+# Force-update pins under existing versions (only after auditing why upstream
+# republished the artifact)
+infra/self-host/scripts/refresh-checksums.sh --write
+```
 
 ## Watchtower
 
@@ -106,8 +122,9 @@ performs a clean restart, breaking any data-corruption-induced loop).
 ```
 infra/self-host/
 ├── Dockerfile                      # multi-stage build
-├── .dockerignore                   # context exclusions
 ├── README.md                       # (this file)
+├── scripts/
+│   └── refresh-checksums.sh        # SHA-256-pin maintenance for the bundled binaries
 ├── s6/                             # → / inside the image
 │   └── etc/s6-overlay/
 │       ├── s6-rc.d/                # service definitions
@@ -160,7 +177,6 @@ host doesn't need a specific UID/GID setup.
 
 - **Caddy + healthcheck not wired** — `/etc/caddy/Caddyfile` ships empty;
   the `pulse-health` HEALTHCHECK script is a no-op. Both land in Phase 6.B.
-- **No automated checksum verification** for downloaded binaries (see table above).
 - **Restart-gate granularity** — counts only crash, not restart-loop-success;
   a service that restarts cleanly every 11 s indefinitely won't trip the gate.
   Acceptable for now (the failure modes we worry about are tight crash loops).
