@@ -1,0 +1,10 @@
+#!/bin/sh
+# auth-svc — login, MFA, identity-cert issuance.
+# Runtime env loaded from /etc/pulse/env.sh (written by cont-init).
+exec 2>&1
+. /etc/pulse/env.sh
+cd /opt/pulse/services/auth
+exec /usr/sbin/gosu pulse /opt/pulse/venv/bin/uvicorn dcc_auth.app:app \
+  --host 127.0.0.1 \
+  --port 8001 \
+  --no-access-log
