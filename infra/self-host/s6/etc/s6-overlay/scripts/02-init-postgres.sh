@@ -60,6 +60,14 @@ PG_PASS=$(cat "${DATA}/jwt_keys/postgres.password")
 /usr/sbin/gosu pulse "${PG_BIN}/psql" -h "${PG_SOCKET}" -U pulse -d postgres -c \
     "ALTER ROLE pulse WITH PASSWORD '${PG_PASS}';" >/dev/null
 
+# Pulse keeps each service in its own Postgres schema (`auth` / `chat`).
+# Alembic writes its `alembic_version` table into `version_table_schema`, but
+# pg refuses to create it if the schema doesn't exist yet — and the first
+# migration's `CREATE SCHEMA IF NOT EXISTS` runs AFTER alembic's bookkeeping.
+# Pre-creating both schemas here breaks that chicken-and-egg.
+/usr/sbin/gosu pulse "${PG_BIN}/psql" -h "${PG_SOCKET}" -U pulse -d dcc -c \
+    "CREATE SCHEMA IF NOT EXISTS auth AUTHORIZATION pulse; CREATE SCHEMA IF NOT EXISTS chat AUTHORIZATION pulse;" >/dev/null
+
 # Stop the bootstrap instance — the longrun will pick up from the same data dir
 /usr/sbin/gosu pulse "${PG_BIN}/pg_ctl" -D "${PG_DATA}" -m fast -w stop
 

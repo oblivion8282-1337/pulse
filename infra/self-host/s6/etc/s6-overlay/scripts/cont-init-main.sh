@@ -32,6 +32,10 @@ echo "[cont-init] starting Pulse self-host bootstrap (v$(cat /opt/pulse/VERSION 
 # Render MediaMTX config (no template vars in MVP, but here so 6.B can plug in)
 "${SCRIPT_DIR}/08-init-mediamtx.sh"
 
+# Caddyfile from template (Phase 6.B: auto-TLS via Let's Encrypt by default,
+# or provided-cert mode if PULSE_TLS_MODE=provided).
+"${SCRIPT_DIR}/09-init-caddy.sh"
+
 # Ensure postgres is up, then run the Alembic migrations
 "${SCRIPT_DIR}/06-run-migrations.sh"
 

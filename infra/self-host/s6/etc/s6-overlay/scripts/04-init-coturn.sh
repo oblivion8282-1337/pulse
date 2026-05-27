@@ -39,6 +39,12 @@ use-auth-secret
 static-auth-secret=${COTURN_SECRET}
 realm=${HOSTNAME}
 
+# Default pid/db paths are root-owned (/var/run/turnserver.pid,
+# /var/lib/turn/turndb) — redirect to pulse-writable spots so the
+# unprivileged process can actually start.
+pidfile=/var/run/pulse/turnserver.pid
+userdb=${COTURN_DATA}/turndb
+
 # Bind to all interfaces — Docker port-publishing handles exposure.
 # Restrict relay-IPs to known address (see PULSE_PUBLIC_IP override below).
 no-cli

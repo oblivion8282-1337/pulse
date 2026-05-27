@@ -49,8 +49,14 @@ ARG SHA256_MEDIAMTX_ARM64=389e5bd330eb93d6a96e329a3cf567a41c8d2e7cc187bfad9db04c
 # ── Stage 1 ────────────────────────────────────────────────────────────────
 # Python-Services: build the uv workspace, produce a self-contained .venv
 # directly at /opt/pulse so no path-rewrite is needed in the runtime stage.
+#
+# IMPORTANT: pin to `-slim-bookworm`, NOT plain `-slim`. The default `-slim`
+# tag wanders with Debian-stable — since early 2025 it points at Trixie
+# (glibc 2.38), while our runtime stage is still Bookworm (glibc 2.36). The
+# COPY of /usr/local/lib/python3.13/ across stages would otherwise trigger
+# `GLIBC_2.38 not found` at runtime when libpython looks for libm/libc.
 # ──────────────────────────────────────────────────────────────────────────
-FROM python:${PYTHON_VERSION}-slim AS python-build
+FROM python:${PYTHON_VERSION}-slim-bookworm AS python-build
 COPY --from=ghcr.io/astral-sh/uv:0.11.11 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \

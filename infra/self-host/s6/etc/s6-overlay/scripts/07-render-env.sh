@@ -80,6 +80,11 @@ export PULSE_CLOUD_CLIENT_SECRET='${PULSE_CLOUD_CLIENT_SECRET}'
 
 # Logging
 export PULSE_LOG_LEVEL='${PULSE_LOG_LEVEL:-info}'
+
+# VAPID keys for Web-Push (chat-gateway). Defaults are a relative path,
+# which resolves to the wrong dir under s6-supervised processes (cwd=/).
+# Force an absolute, pulse-owned location inside /data/jwt_keys.
+export VAPID_KEY_FILE='${KEYS}/vapid.json'
 EOF
 
 chmod 0640 /etc/pulse/env.sh

@@ -46,6 +46,14 @@
     # API-Routes                                                          #
     # ------------------------------------------------------------------ #
 
+    # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
+    handle /api/auth/* {
+        reverse_proxy 127.0.0.1:8001
+    }
+    handle /.well-known/jwks.json {
+        reverse_proxy 127.0.0.1:8001
+    }
+
     # chat-gateway (8002)
     handle /api/chat/* {
         reverse_proxy 127.0.0.1:8002 {

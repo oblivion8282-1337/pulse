@@ -23,8 +23,11 @@ web/.svelte-kit
 web/test-results
 web/playwright-report
 
-# Desktop + packaging are server-image-irrelevant and bloat the context
+# Desktop + packaging are server-image-irrelevant and bloat the context.
+# (web-build stage in infra/self-host/Dockerfile still needs the workspace
+# member's package.json so pnpm install resolves the workspace tree.)
 desktop/
+!desktop/package.json
 packaging/
 
 # Windows HQ sidecar Rust build artifacts — multi-gigabyte, never needed

@@ -2,6 +2,11 @@
 # Postgres-Alembic migrations. We need a running Postgres → spin up a private
 # instance the same way 02-init-postgres did (since the longrun unit hasn't
 # started yet — cont-init runs *before* services).
+#
+# Postgres binds 127.0.0.1:5432 here (not just the unix socket) because the
+# rendered env.sh — which the alembic env.py reads via DATABASE_URL — wires
+# everything against 127.0.0.1:5432. Easier than carrying a parallel socket
+# URL through the env-renderer.
 set -eu
 DATA="${PULSE_DATA_PATH:-/data}"
 PG_DATA="${DATA}/pg"
@@ -10,16 +15,19 @@ PG_SOCKET=/var/run/pulse/pg-bootstrap
 mkdir -p "${PG_SOCKET}"
 chown pulse:pulse "${PG_SOCKET}"
 
+# Postgres binds *both* the unix socket (so pg_ctl -w can probe quickly) and
+# 127.0.0.1:5432 (so the alembic env.py reaches it via DATABASE_URL from the
+# rendered env.sh).
 echo "[06-run-migrations] starting transient Postgres for migrations"
 /usr/sbin/gosu pulse "${PG_BIN}/pg_ctl" \
     -D "${PG_DATA}" \
-    -o "-k ${PG_SOCKET} -h '' -p 5432" \
+    -o "-k ${PG_SOCKET} -h 127.0.0.1 -p 5432" \
     -l "/var/log/pulse/pg-migrations.log" \
     -w start
 
 # Wait for ready
 for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
-    if /usr/sbin/gosu pulse "${PG_BIN}/pg_isready" -h "${PG_SOCKET}" -U pulse -q; then
+    if /usr/sbin/gosu pulse "${PG_BIN}/pg_isready" -h 127.0.0.1 -p 5432 -U pulse -q; then
         break
     fi
     sleep 1
@@ -27,11 +35,6 @@ done
 
 # Source the rendered env so Alembic sees DATABASE_URL etc.
 . /etc/pulse/env.sh
-
-# Override DATABASE_URL to use the unix socket (it's faster + can't be
-# blocked by an early-start listen failure).
-export POSTGRES_HOST="${PG_SOCKET}"
-export POSTGRES_PORT=5432
 
 run_alembic() {
     svc_dir="$1"
