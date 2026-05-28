@@ -18,6 +18,7 @@
   import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
+  import { isElectron } from '$lib/platform/runtime';
 
   type Step = 'credentials' | 'mfa';
 
@@ -32,6 +33,21 @@
   // WebAuthn API presence is fixed for the page's lifetime — `ssr=false`, so
   // `window` is always there by the time this runs.
   const passkeysAvailable = webauthnSupported();
+
+  /** A passkey ceremony can't reach a *browser*-stored passkey from inside the
+   *  desktop shell: Electron's Chromium is a separate credential store with no
+   *  Linux platform authenticator. Append a clear hint so the failure isn't a
+   *  cryptic "cancelled/timeout". Roaming authenticators (security key / phone)
+   *  still work; the reliable desktop path is password + TOTP / backup code. */
+  function passkeyError(err: unknown): string {
+    const msg = err instanceof Error ? err.message : 'Passkey-Anmeldung fehlgeschlagen.';
+    if (!isElectron()) return msg;
+    return (
+      msg +
+      ' — In der Desktop-App sind im Browser gespeicherte Passkeys nicht verfügbar. ' +
+      'Melde dich hier mit Passwort + Code an (oder nutze einen Sicherheitsschlüssel / Handy-Passkey).'
+    );
+  }
 
   function safeRedirect(raw: string | null): string {
     if (!raw) return '/app';
@@ -118,7 +134,7 @@
       await loginWithPasskey();
       await completeLogin();
     } catch (err) {
-      error = (err as Error).message;
+      error = passkeyError(err);
     } finally {
       busy = false;
     }
@@ -139,7 +155,7 @@
         step = 'credentials';
         error = 'Anmeldung abgelaufen — bitte erneut einloggen.';
       } else {
-        error = (err as Error).message;
+        error = passkeyError(err);
       }
     } finally {
       busy = false;
@@ -274,6 +290,12 @@
             <FingerprintIcon class="size-4" />
             Mit Passkey anmelden
           </Button>
+          {#if isElectron()}
+            <p class="text-muted-foreground text-center text-xs">
+              Hinweis: Im Browser gespeicherte Passkeys funktionieren in der Desktop-App
+              nicht — hier Passwort + Code nutzen (oder Sicherheitsschlüssel / Handy).
+            </p>
+          {/if}
         {/if}
 
         <p class="text-muted-foreground text-center text-sm">
