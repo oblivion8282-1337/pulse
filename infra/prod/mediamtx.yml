@@ -61,7 +61,7 @@ webrtcLocalUDPAddress: :8189
 # the SDP and republish reconnects in <100ms.
 webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts:
-  - 77.42.71.166
+  - 159.195.150.54
 
 # Control API — bound on all interfaces; media-svc polls /v3/paths/list via
 # host.docker.internal:9997. Kept private by UFW (INPUT DROP).
