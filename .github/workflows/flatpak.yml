@@ -14,12 +14,12 @@
 #                            already pinned via the .flatpakref — losing it +
 #                            generating a new one breaks `flatpak update` for
 #                            existing installs.
-#   VPS_SSH_PRIVATE_KEY      Private key for `michael@77.42.71.166`. Generate a
+#   VPS_SSH_PRIVATE_KEY      Private key for `michael@159.195.150.54`. Generate a
 #                            dedicated CI keypair (`ssh-keygen -t ed25519 -f
 #                            ci-deploy -N ""`) and append the .pub to the VPS's
 #                            ~/.ssh/authorized_keys so this isn't tangled with
 #                            personal keys.
-#   VPS_KNOWN_HOSTS          Output of `ssh-keyscan 77.42.71.166` (one or more
+#   VPS_KNOWN_HOSTS          Output of `ssh-keyscan 159.195.150.54` (one or more
 #                            lines). Pins the host key — without it, rsync's
 #                            host-key prompt would either hang or accept a MITM.
 #
@@ -198,7 +198,7 @@ jobs:
       - name: Rsync repo to VPS
         run: |
           rsync -a --delete -e "ssh -i ~/.ssh/id_ed25519" \
-            build/repo/ michael@77.42.71.166:pulse/flatpak-repo/
+            build/repo/ michael@159.195.150.54:pulse/flatpak-repo/
 
       - name: Summary
         run: |

@@ -119,7 +119,7 @@ def _resolve_server(body: dict[str, Any]) -> tuple[ServerProfile, str | None]:
         raise ValueError("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")
     channel_id = str(channel.get("id") or channel.get("channel_id") or "")
     token = str(channel.get("token", ""))
-    endpoint = str(channel.get("mediamtx_endpoint", "77.42.71.166"))
+    endpoint = str(channel.get("mediamtx_endpoint", "howispulse.com"))
     push_protocol = str(channel.get("push_protocol", "rtmp"))
     push_url = channel.get("push_url")
     push_url = str(push_url) if push_url else None

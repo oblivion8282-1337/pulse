@@ -18,7 +18,7 @@ rtc:
   # Advertise the VPS public IP in ICE candidates. Pinned explicitly because the
   # host has several docker bridge IPs (10.0.x.x) that LiveKit would otherwise
   # also advertise as (unreachable) candidates. Change this if the VPS IP changes.
-  node_ip: 77.42.71.166
+  node_ip: 159.195.150.54
 
 # `keys` is supplied at runtime via the LIVEKIT_KEYS env var (see compose) —
 # kept out of git. The key *name* below must match the one in LIVEKIT_KEYS.

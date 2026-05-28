@@ -26,7 +26,7 @@ set -l MANIFEST      packaging/com.howispulse.Pulse.yml
 set -l BUILD_DIR     build/flatpak                       # flatpak-builder scratch (--force-clean'd)
 set -l REPO_DIR      build/repo                          # local OSTree repo (archive-z2; persists across runs)
 set -l GPG_HOME      packaging/.gpg
-set -l VPS           michael@77.42.71.166
+set -l VPS           michael@159.195.150.54
 set -l VPS_REPO_PATH '~/pulse/flatpak-repo'              # host dir bind-mounted into pulse_web → /flatpak/
 set -l REF_URL       'https://howispulse.com/flatpak/'
 set -l RUNTIME_REPO  'https://dl.flathub.org/repo/flathub.flatpakrepo'
