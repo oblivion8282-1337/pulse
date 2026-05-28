@@ -249,13 +249,20 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
         log.warning("profile_statement: could not parse JWKS JSON")
         return
 
+    from dcc_chat_gateway.config import get_settings
+
+    settings = get_settings()
     try:
         async with SessionLocal() as session:
+            # instance_mode from config (NOT hardcoded): self-host keys the
+            # cached profile by the pairwise-sub. pairwise_seed is read from the
+            # statement's own claim inside upsert (the Cloud embeds it).
             await upsert_profile_statement(
                 session,
                 statement_jwt,
                 cloud_jwks=cloud_jwks,
-                instance_mode="cloud",  # Self-Host override: inject mode from config when needed
+                instance_mode=settings.pulse_instance_mode,
+                instance_id=str(settings.pulse_instance_id),
             )
             await session.commit()
     except ProfileStatementReplay:

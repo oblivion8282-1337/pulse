@@ -90,7 +90,9 @@ def _make_redis(*, jwks: str | None = None, revoked: set[str] | None = None) -> 
     redis = AsyncMock()
 
     async def _get(key):
-        if key == "auth:jwks:cached":
+        # Serve the JWKS for both the local (cloud-mode) and the cloud
+        # (self-host-mode) cache keys so the test is instance-mode agnostic.
+        if key in ("auth:jwks:cached", "auth:cloud_jwks:cached"):
             return jwks.encode() if jwks else None
         return None
 

@@ -162,13 +162,22 @@ async def upsert_profile_statement(
     if instance_mode == "cloud":
         user_identifier = sub
     else:
-        if instance_id is None or pairwise_seed is None:
-            raise ProfileStatementInvalid(
-                "instance_id and pairwise_seed are required in self-host mode"
-            )
+        if instance_id is None:
+            raise ProfileStatementInvalid("instance_id is required in self-host mode")
         import base64
 
-        seed_b64 = base64.urlsafe_b64encode(pairwise_seed).rstrip(b"=").decode()
+        # pairwise_seed: prefer the caller-supplied raw bytes; otherwise fall
+        # back to the Cloud-embedded ``pairwise_seed`` claim (base64url) so the
+        # WS handler doesn't have to carry it — the cert-login that would have
+        # exposed it is already consumed by the time a statement arrives.
+        if pairwise_seed is not None:
+            seed_b64 = base64.urlsafe_b64encode(pairwise_seed).rstrip(b"=").decode()
+        else:
+            seed_b64 = str(claims.get("pairwise_seed") or "")
+        if not seed_b64:
+            raise ProfileStatementInvalid(
+                "pairwise_seed required in self-host mode (param or statement claim)"
+            )
         user_identifier = compute_pairwise_sub(sub, int(instance_id), seed_b64)
 
     # ── Step 8: load existing profile for replay check ────────────────────────

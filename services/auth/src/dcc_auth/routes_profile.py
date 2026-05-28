@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import time
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -44,10 +45,17 @@ def _issue_statement(user: User, signer: JwtSigner) -> str:
         "iat": now,
         "exp": now + _STATEMENT_TTL_SECS,
         "typ": "profile_statement",
+        # The chat-gateway validator gates on this purpose claim — without it
+        # every real statement is rejected (the typ claim above is not checked).
+        "purpose": "profile-statement",
         "username": user.username,
         "display_name": user.display_name,
         "avatar_hash": user.avatar_hash,
         "profile_color": user.profile_color,
+        # Per-user pairwise seed (mirrors the Identity-Cert). Self-host
+        # instances key the cached profile by the pairwise-sub derived from
+        # this, so the statement must carry it.
+        "pairwise_seed": base64.urlsafe_b64encode(user.pairwise_salt).rstrip(b"=").decode(),
     }
     token = signer._sign(payload)
     _STATEMENT_CACHE[user.id] = (float(now), token)
