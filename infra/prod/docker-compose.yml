@@ -395,3 +395,8 @@ volumes:
 networks:
   pulse-net:
     name: pulse-net
+    # Shared with the host Caddy container (joined via `docker network connect`),
+    # so the network is created out-of-band and Compose must treat it as
+    # external — otherwise `docker compose up` refuses to adopt it
+    # ("network ... was found but has incorrect label").
+    external: true
