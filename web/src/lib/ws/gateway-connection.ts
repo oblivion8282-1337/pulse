@@ -51,6 +51,15 @@ export function setSelfHostReauthHandler(fn: ((serverId: string) => void) | null
   _selfHostReauthHandler = fn;
 }
 
+/** Die aktuell *dispatchende* Connection. Nur die aktive Connection ruft
+ *  `dispatch()` auf (Race-Guard in `_handle`), daher ist sie das korrekte Ziel
+ *  für den globalen Handler-Context (subs/unsubscribe/hooks/onReadySeeded).
+ *  Vorher hing der Context fest an der zuerst gebauten (Cloud-)Connection →
+ *  auf einem aktiven Self-Host-Server gingen pre-ready-Events verloren und
+ *  markRead/Delete-Hooks liefen auf der falschen Connection. */
+let _dispatchingConn: GatewayConnection | null = null;
+const _EMPTY_SUBS = new Set<string>();
+
 /** Semver-Compare. Returns negative/0/positive (a vs b). */
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
@@ -93,20 +102,28 @@ export class GatewayConnection {
     // Cloud läuft über nginx-Proxy `/api/ws/ws`; Self-Host direkt auf `/ws`.
     this.wsPath = opts.wsPath ?? (opts.isCloud ? '/api/ws/ws' : '/ws');
 
+    // Bind the global handler-context to whichever connection is *currently
+    // dispatching* (the active server), not to `this` (the first connection
+    // constructed, i.e. cloud). Resolved lazily on every access.
     bootstrapHandlersOnce({
-      subs: this.subs,
-      unsubscribe: (cid) => this.unsubscribe(cid),
+      getSubs: () => _dispatchingConn?.subs ?? _EMPTY_SUBS,
+      unsubscribe: (cid) => _dispatchingConn?.unsubscribe(cid),
       fireChannelDeleted: (gid, cid) => {
-        for (const h of this.channelDeletedHooks) h(gid, cid);
+        if (!_dispatchingConn) return;
+        for (const h of _dispatchingConn.channelDeletedHooks) h(gid, cid);
       },
       fireGuildDeleted: (gid) => {
-        for (const h of this.guildDeletedHooks) h(gid);
+        if (!_dispatchingConn) return;
+        for (const h of _dispatchingConn.guildDeletedHooks) h(gid);
       },
-      onReadySeeded: () => this._finishReady(),
+      onReadySeeded: () => _dispatchingConn?._finishReady(),
     });
   }
 
   private _finishReady(): void {
+    // The buffered events below are dispatched through the global registry,
+    // so make sure the context resolves to *this* connection during the flush.
+    _dispatchingConn = this;
     if (this._readyResolve) {
       this._readyResolve();
       this._readyResolve = null;
@@ -296,6 +313,9 @@ export class GatewayConnection {
     // Per-Connection-Listener (useGatewayListener) sind davon unberührt;
     // die werden bei A→B-Switch automatisch von $effect deregistriert.
     if (this.serverId !== activeServer.serverId) return;
+    // Mark this as the dispatching connection so the global handler-context
+    // (subs/unsubscribe/hooks/onReadySeeded) resolves to it, not to cloud.
+    _dispatchingConn = this;
     void dispatch(evt);
   }
 

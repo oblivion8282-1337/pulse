@@ -9,7 +9,9 @@ import { registerAllHandlers } from './handlers';
 import { fireVoiceDiff } from './voiceDiff';
 
 export type HandlerBootstrapDeps = {
-  subs: Set<string>;
+  /** Resolves the *currently dispatching* connection's subscription set on
+   *  every access (live ref to the active server, not a snapshot of #1). */
+  getSubs: () => Set<string>;
   unsubscribe: (channelId: string) => void;
   fireChannelDeleted: (guildId: string, channelId: string) => void;
   fireGuildDeleted: (guildId: string) => void;
@@ -23,7 +25,11 @@ export function bootstrapHandlersOnce(deps: HandlerBootstrapDeps): void {
   _bootstrapped = true;
   registerAllHandlers(
     {
-      subs: deps.subs,
+      // `subs` is a getter so handlers reading `ctx.subs` always see the
+      // active connection's set, even though the context is registered once.
+      get subs() {
+        return deps.getSubs();
+      },
       unsubscribe: deps.unsubscribe,
       fireChannelDeleted: deps.fireChannelDeleted,
       fireGuildDeleted: deps.fireGuildDeleted,

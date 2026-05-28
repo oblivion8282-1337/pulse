@@ -26,6 +26,9 @@ log = logging.getLogger(__name__)
 REDIS_REVOKED_SET = "auth:revoked:certs"
 REDIS_VALID_CERT_PREFIX = "auth:valid:cert:"
 REDIS_CRL_ETAG_KEY = "auth:crl:etag"
+# Cloud JWKS used to validate Cloud-signed Identity-Certs on self-host
+# (mirrors credential_validator.REDIS_CLOUD_JWKS_KEY).
+REDIS_CLOUD_JWKS_KEY = "auth:cloud_jwks:cached"
 
 # Poll interval (seconds) — DE 9 mandates 30s
 CRL_POLL_INTERVAL = 30
@@ -79,12 +82,39 @@ async def _update_redis(redis: Any, cert_ids: list[str], new_etag: str | None) -
     await pipe.execute()
 
 
+async def _fetch_cloud_jwks(redis: Any, cloud_origin: str, client: httpx.AsyncClient) -> None:
+    """Warm the Cloud-JWKS cache used to validate Cloud-signed Identity-Certs.
+
+    Self-host can't validate certs from the local auth-svc JWKS (the cert is
+    Cloud-signed), so credential_validator reads ``auth:cloud_jwks:cached``.
+    Best-effort: on failure keep the last-known-good cache.
+    """
+    url = f"{cloud_origin.rstrip('/')}/.well-known/jwks.json"
+    try:
+        resp = await client.get(url, timeout=CRL_FETCH_TIMEOUT)
+        resp.raise_for_status()
+        await redis.set(REDIS_CLOUD_JWKS_KEY, resp.text)
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "cloud-jwks fetch failed (%s: %s) — keeping last-known-good",
+            type(exc).__name__,
+            exc,
+        )
+
+
 async def crl_poll_once(
     redis: Any,
     cloud_origin: str,
     client: httpx.AsyncClient,
 ) -> None:
     """Run a single CRL poll cycle. Called from the background loop."""
+    # On self-host, also keep the Cloud-JWKS cache warm for cert validation
+    # (the cert validator can't use the local JWKS for Cloud-signed certs).
+    from dcc_chat_gateway.config import get_settings
+
+    if get_settings().pulse_instance_mode == "self-host":
+        await _fetch_cloud_jwks(redis, cloud_origin, client)
+
     url = f"{cloud_origin.rstrip('/')}/.well-known/revoked-credentials"
 
     # Load last ETag from Redis

@@ -31,6 +31,11 @@ from pydantic import BaseModel
 
 # Redis key constants (mirrors auth-svc + crl_poller)
 REDIS_JWKS_KEY = "auth:jwks:cached"
+# Self-host validates Cloud-SIGNED certs whose kid lives in the *Cloud's* JWKS,
+# not the local auth-svc JWKS. The crl_poller warms this key from
+# ``{pulse_cloud_origin}/.well-known/jwks.json``. Cloud mode validates its own
+# certs and uses REDIS_JWKS_KEY (which IS the Cloud's on a Cloud deployment).
+REDIS_CLOUD_JWKS_KEY = "auth:cloud_jwks:cached"
 REDIS_REVOKED_SET = "auth:revoked:certs"
 
 # Challenge size in bytes (DE 11 A.7)
@@ -64,13 +69,21 @@ def _build_pubkey_from_jwks(jwks_json: str) -> dict[str, Any]:
 
 
 async def _get_jwks_keys(redis: Any) -> dict[str, Any]:
-    """Fetch JWKS from Redis cache (``auth:jwks:cached`` is a JSON string).
+    """Fetch the cert-signing JWKS from the Redis cache (JSON string).
+
+    Self-host reads the Cloud JWKS (``auth:cloud_jwks:cached``, warmed by the
+    crl_poller from the Cloud) because certs are Cloud-signed; Cloud mode reads
+    the local cache (``auth:jwks:cached``), which IS the Cloud's own JWKS there.
 
     Returns an empty dict when the cache is cold — validator will return None
-    (fail-closed) rather than fetch from the network itself. The crl_poller and
-    security.py take care of keeping the Redis key warm.
+    (fail-closed) rather than fetch from the network itself.
     """
-    raw = await redis.get(REDIS_JWKS_KEY)
+    cache_key = (
+        REDIS_CLOUD_JWKS_KEY
+        if get_settings().pulse_instance_mode == "self-host"
+        else REDIS_JWKS_KEY
+    )
+    raw = await redis.get(cache_key)
     if not raw:
         return {}
     if isinstance(raw, bytes):
