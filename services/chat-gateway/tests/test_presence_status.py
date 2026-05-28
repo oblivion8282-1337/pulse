@@ -21,6 +21,7 @@ import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -213,7 +214,7 @@ async def test_activity_op_idle_returns_to_online(ws_app, _auth_signer, redis_cl
             r.set(key, STATUS_IDLE)
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     ws.send_json({"op": "activity"})
                     # Give the server a moment; no reply expected
                     import time as _time
@@ -249,7 +250,7 @@ async def test_activity_op_dnd_stays_dnd(ws_app, _auth_signer, redis_client):
             r.set(key, STATUS_DND)
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     ws.send_json({"op": "activity"})
                     import time as _time
                     _time.sleep(0.2)
@@ -402,7 +403,8 @@ async def test_ready_carries_presence_status(ws_app, _auth_signer, redis_client)
             r.set(key, STATUS_DND, ex=PRESENCE_STATUS_TTL_SECONDS)
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    payload = ws.receive_json()
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
                     assert payload["op"] == "ready"
                     # Own status is real (dnd, not masked)
                     assert payload["presence_status"] == "dnd"
@@ -446,7 +448,7 @@ async def test_voice_state_not_filtered_by_invisible(ws_app, _auth_signer, redis
 
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     g = tc.post(
                         "/guilds", json={"name": "g"}, headers=_auth(token)
                     ).json()

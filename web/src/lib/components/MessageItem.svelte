@@ -7,6 +7,7 @@
   import MessageAttachments from './MessageAttachments.svelte';
   import MessageReactions from './MessageReactions.svelte';
   import InviteEmbed from './InviteEmbed.svelte';
+  import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
   import { renderMessage } from './messageRender';
   import { longpress } from '$lib/utils/longpress';
 
@@ -18,6 +19,8 @@
     isContinuation = false,
     canEdit,
     canDelete,
+    /** Ob der aktuelle User Nachrichten anderer melden darf (= nicht eigen). */
+    canReport = false,
     onReply,
     onEditSubmit,
     onDelete,
@@ -31,12 +34,15 @@
     isContinuation?: boolean;
     canEdit: boolean;
     canDelete: boolean;
+    canReport?: boolean;
     onReply: (m: Message) => void;
     onEditSubmit: (m: Message, newContent: string) => void;
     onDelete: (m: Message) => void;
     onToggleReaction: (m: Message, emoji: string, currentlyMine: boolean) => void;
     onJumpToReply?: (parentId: string) => void;
   } = $props();
+
+  let reportOpen = $state(false);
 
   let editing = $state(false);
   let draft = $state('');
@@ -174,10 +180,12 @@
       <MessageActions
         canEdit={canEdit && !isPending}
         canDelete={canDelete && !isPending}
+        canReport={canReport && !isPending}
         onReply={() => onReply(message)}
         onEdit={startEdit}
         onDelete={() => onDelete(message)}
         onReact={(e) => handleToggle(e, false)}
+        onReport={() => (reportOpen = true)}
       />
     {/if}
   </div>
@@ -209,10 +217,12 @@
       <MessageActions
         canEdit={canEdit && !isPending}
         canDelete={canDelete && !isPending}
+        canReport={canReport && !isPending}
         onReply={() => onReply(message)}
         onEdit={startEdit}
         onDelete={() => onDelete(message)}
         onReact={(e) => handleToggle(e, false)}
+        onReport={() => (reportOpen = true)}
       />
     {/if}
   </div>
@@ -222,10 +232,19 @@
   bind:open={sheetOpen}
   canEdit={canEdit && !isPending}
   canDelete={canDelete && !isPending}
+  canReport={canReport && !isPending}
   onReply={() => onReply(message)}
   onEdit={startEdit}
   onDelete={() => onDelete(message)}
   onReact={(e) => handleToggle(e, false)}
+  onReport={() => (reportOpen = true)}
+/>
+
+<ReportMessageDialog
+  messageId={message.id}
+  userId={message.author_id}
+  bind:open={reportOpen}
+  onClose={() => (reportOpen = false)}
 />
 
 <style>

@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     jwt_access_ttl_seconds: int = 900
     jwt_refresh_ttl_seconds: int = 60 * 60 * 24 * 30
     jwt_key_id: str = "auth-1"
+    # Public OIDC issuer used for Identity-Certs (DE 11). Deliberately distinct
+    # from jwt_issuer so the chat-gateway's cert validator can tell a cert apart
+    # from an access token by `iss`. MUST equal chat-gateway's PULSE_OIDC_ISSUER
+    # (same default here and there); on self-host the cert is Cloud-signed, so
+    # the Cloud's value is what the self-host gateway validates against.
+    pulse_oidc_issuer: str = "https://howispulse.com"
 
     # Snowflakes
     snowflake_worker_id_auth: int = Field(default=1, ge=0, le=1023)
@@ -83,6 +89,9 @@ class Settings(BaseSettings):
     # ``users.discoverable`` (opt-out) so the limit is the second line of
     # defence, not the first.
     rate_limit_user_search: str = "30/minute"
+
+    # Redis -- optional for CRL (auth:revoked_certs ZSET)
+    redis_url: str = "redis://localhost:6380/0"
 
     # Cross-service: auth → chat-gateway. ``DELETE /me`` calls
     # ``POST {chat_gateway_url}/internal/users/{id}/purge`` to hard-delete the
@@ -134,12 +143,12 @@ class Settings(BaseSettings):
     # browsers have to reach the app via ``http://localhost:5173`` and NOT
     # ``http://127.0.0.1:5173`` (an IP literal can't be an rpId, so a passkey
     # created on one host won't validate on the other). In prod set it to the
-    # bare apex, e.g. ``pulse.unicutmedia.com``.
+    # bare apex, e.g. ``howispulse.com``.
     webauthn_rp_id: str = "localhost"
     # Human-readable name shown by the authenticator's consent UI.
     webauthn_rp_name: str = "Pulse"
     # CSV of allowed ceremony origins. Dev = the Vite origin; prod =
-    # ``https://pulse.unicutmedia.com``. The Electron app loads that same
+    # ``https://howispulse.com``. The Electron app loads that same
     # remote origin, so it needs no separate entry.
     webauthn_origin: str = "http://localhost:5173"
     # TTL of the signed challenge ticket bridging the options→verify steps.

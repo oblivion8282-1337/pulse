@@ -1,0 +1,40 @@
+#!/bin/bash
+# pulse-health — Container-interner Healthcheck.
+#
+# Wird vom Dockerfile HEALTHCHECK-Befehl aufgerufen:
+#   HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
+#       CMD pulse-health
+#
+# Prüft alle Sub-Services DIREKT (nicht über Caddy), damit der Check
+# auch funktioniert wenn Caddy selbst noch startet oder TLS neu verhandelt.
+#
+# Exit 0 = healthy, Exit 1 = unhealthy (Docker schaltet Container auf
+# "unhealthy" Status, restart: unless-stopped greift nach --retries).
+#
+# Absichtlich KEIN coturn-UDP-Check — bash /dev/tcp prüft TCP, coturn
+# ist primär UDP. s6-overlay-restart-loop reicht als Watchdog.
+# Wir nutzen bash's eingebautes /dev/tcp/host/port für TCP-Probes statt
+# nc/netcat — eine Dep weniger, gleich schnell.
+
+set -euo pipefail
+
+# chat-gateway: HTTP health + DB + Redis (jwks_ready spielt seit dem
+# Warm-Up-Fix keine 503-Rolle mehr; cold-start liefert 200 warming_up).
+curl -fsS -o /dev/null --max-time 3 http://127.0.0.1:8002/health
+
+# voice-signaling: kein /health-Endpoint — TCP-Port reicht
+timeout 1 bash -c '</dev/tcp/127.0.0.1/8003'
+
+# media-svc: kein /health-Endpoint — TCP-Port reicht
+timeout 1 bash -c '</dev/tcp/127.0.0.1/8004'
+
+# auth-svc: TCP-Port (8001) reicht; /.well-known/jwks.json wäre genauer,
+# kostet aber einen Cold-Start-Roundtrip in den DB-Layer.
+timeout 1 bash -c '</dev/tcp/127.0.0.1/8001'
+
+# Postgres / Redis / LiveKit Signaling — TCP-Reachability
+timeout 1 bash -c '</dev/tcp/127.0.0.1/5432'
+timeout 1 bash -c '</dev/tcp/127.0.0.1/6379'
+timeout 1 bash -c '</dev/tcp/127.0.0.1/7880'
+
+echo "ok"

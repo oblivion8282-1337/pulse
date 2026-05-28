@@ -1,0 +1,186 @@
+<script lang="ts">
+  /**
+   * Recover-Page — Auto-Trigger nach Login auf einem Gerät ohne lokalen
+   * Keypair, wenn ein Cloud-Backup existiert.
+   *
+   * Eintritt: login/register-Page leitet hierher um, wenn runIssueFlow
+   * eine RecoveryAvailableError wirft. Query-Params:
+   *   - cert_id: das auf dem Server liegende Backup-Cert
+   *   - device_label: hübscher Name für die Anzeige
+   *
+   * Pfade:
+   *   1. Wiederherstellen → Master-Passwort → fetch Backup → decrypt →
+   *      saveKeypair(originalKeypair) → IDB-Reset des alten (jetzt
+   *      auto-generierten) Keypairs → reload runIssueFlow + goto /app.
+   *   2. Als neues Gerät weiter → declineRecovery() + reload runIssueFlow
+   *      (welches diesmal neuen Keypair generiert) + goto /app.
+   *   3. Abmelden → signOut + goto /login.
+   */
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { page } from '$app/state';
+  import { auth } from '$lib/stores/auth.svelte';
+  import { getBackup, reconstructBlob } from '$lib/api/credentials';
+  import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
+  import { saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
+  import {
+    runIssueFlow,
+    declineRecovery,
+    resetRecoveryDecline,
+  } from '$lib/identity/issue-flow';
+  import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
+  import { Button } from '$lib/components/ui/button/index.js';
+  import { Input } from '$lib/components/ui/input/index.js';
+  import { Label } from '$lib/components/ui/label/index.js';
+  import { toast } from 'svelte-sonner';
+
+  let password = $state('');
+  let busy = $state(false);
+  let errorMsg = $state<string | null>(null);
+
+  const certId = $derived(page.url.searchParams.get('cert_id') ?? '');
+  const deviceLabel = $derived(page.url.searchParams.get('device_label') ?? 'Anderes Gerät');
+
+  onMount(() => {
+    if (!auth.isAuthenticated) {
+      void goto('/login', { replaceState: true });
+      return;
+    }
+    if (!certId) {
+      void goto('/app', { replaceState: true });
+      return;
+    }
+  });
+
+  async function restart() {
+    void runIssueFlow()
+      .then(() => {
+        if (auth.isAuthenticated) {
+          void startProfileRefresh();
+          void startCertRotation();
+        }
+      })
+      .catch((err: unknown) => {
+        console.warn('[recover] issue-flow nach restart fehlgeschlagen:', err);
+      });
+    await goto('/app', { replaceState: true });
+  }
+
+  async function handleRecover(e: Event) {
+    e.preventDefault();
+    if (busy || !certId) return;
+    if (password.length < 12) {
+      errorMsg = 'Master-Passwort muss mindestens 12 Zeichen lang sein.';
+      return;
+    }
+    busy = true;
+    errorMsg = null;
+    try {
+      const resp = await getBackup(certId);
+      if (!resp) {
+        errorMsg = 'Backup ist nicht mehr verfügbar.';
+        return;
+      }
+      const blob = reconstructBlob(resp);
+      const keypair = await keyBackupState.decrypt(blob, password);
+      const [privateKey, publicKey] = await Promise.all([
+        crypto.subtle.importKey('jwk', keypair.privateKey, { name: 'Ed25519' }, true, ['sign']),
+        crypto.subtle.importKey('jwk', keypair.publicKey, { name: 'Ed25519' }, true, ['verify']),
+      ]);
+      await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
+      await keypairStore.load();
+      resetRecoveryDecline();
+      toast.success('Recovery erfolgreich', {
+        description: 'Dein Schlüssel wurde aus dem Backup wiederhergestellt.',
+      });
+      await restart();
+    } catch (err) {
+      if (err instanceof BackupDecryptError) {
+        errorMsg = 'Falsches Master-Passwort oder defektes Backup.';
+      } else {
+        errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler.';
+      }
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function handleDecline() {
+    declineRecovery();
+    await restart();
+  }
+
+  async function handleSignOut() {
+    auth.signOut();
+    await goto('/login', { replaceState: true });
+  }
+</script>
+
+<svelte:head>
+  <title>Pulse · Wiederherstellen</title>
+</svelte:head>
+
+<div class="flex min-h-dvh items-center justify-center p-6">
+  <section
+    class="border-border bg-bg-input/40 w-full max-w-md rounded-2xl border p-6 shadow-lg"
+    data-testid="recover-page"
+  >
+    <h1 class="text-text-bright text-xl font-semibold">Cloud-Backup gefunden</h1>
+    <p class="text-text-muted mt-2 text-sm">
+      Auf <span class="text-text-bright font-medium">{deviceLabel}</span> wurde ein
+      verschlüsseltes Backup deiner Geräte-Schlüssel hinterlegt. Mit deinem
+      Master-Passwort kannst du dieselbe Identität auf diesem Gerät wiederherstellen.
+    </p>
+
+    <form class="mt-5 flex flex-col gap-3" onsubmit={handleRecover}>
+      <div class="flex flex-col gap-2">
+        <Label for="recover-password">Master-Passwort</Label>
+        <Input
+          id="recover-password"
+          type="password"
+          bind:value={password}
+          autocomplete="current-password"
+          placeholder="Mindestens 12 Zeichen"
+          disabled={busy}
+          data-testid="recover-password-input"
+        />
+      </div>
+
+      {#if errorMsg}
+        <p class="text-destructive text-sm" data-testid="recover-error">{errorMsg}</p>
+      {/if}
+
+      <Button type="submit" disabled={busy || password.length < 12} data-testid="recover-submit-btn">
+        {busy ? 'Stelle wieder her…' : 'Wiederherstellen'}
+      </Button>
+    </form>
+
+    <div class="border-border mt-6 border-t pt-4 text-sm">
+      <p class="text-text-muted">
+        Master-Passwort vergessen? Du kannst auf diesem Gerät auch als
+        zusätzliches Gerät weitermachen — du behältst deinen Account, aber
+        Nachrichten-Historie und E2EE-Schlüssel des Original-Geräts bleiben
+        unzugänglich.
+      </p>
+      <div class="mt-3 flex flex-col gap-2 sm:flex-row">
+        <Button
+          variant="ghost"
+          onclick={handleDecline}
+          disabled={busy}
+          data-testid="recover-decline-btn"
+        >
+          Als neues Gerät weiter
+        </Button>
+        <Button
+          variant="ghost"
+          onclick={handleSignOut}
+          disabled={busy}
+          data-testid="recover-signout-btn"
+        >
+          Abmelden
+        </Button>
+      </div>
+    </div>
+  </section>
+</div>

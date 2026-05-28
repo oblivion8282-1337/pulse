@@ -1,0 +1,305 @@
+"""User-facing Self-Hoster endpoints — Phase 2.2.
+
+POST   /me/instance-applications        -- Antrag einreichen
+GET    /me/instance-applications        -- eigene Anträge abrufen
+GET    /me/instances                    -- eigene registrierte Instanzen
+GET    /me/instances/{id}/docker-compose-snippet  -- .env-Snippet als Textdatei
+"""
+
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Annotated, Literal
+
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import and_, select
+
+from dcc_auth.browser_sessions import validate_session
+from dcc_auth.db import SessionDep
+from dcc_auth.models import User
+from dcc_auth.models_instances import InstanceApplication, RegisteredInstance
+from dcc_auth.snowflake import next_id
+
+router = APIRouter(tags=["self-host"])
+
+# FQDN: mindestens zwei Labels, nur lowercase+Ziffern+Bindestrich.
+# Label darf NICHT mit Bindestrich beginnen oder enden (RFC 1123).
+# TLD ≥2 Alpha.
+_FQDN_RE = re.compile(r"^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$")
+
+# ---------------------------------------------------------------------------
+# Auth helper
+# ---------------------------------------------------------------------------
+
+
+async def _require_user(request: Request, db) -> User:
+    """Validate session cookie → User.  Raises HTTP 401 on failure."""
+    import uuid
+
+    raw = request.cookies.get("pulse_session")
+    if not raw:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing session cookie")
+    try:
+        sid = uuid.UUID(raw)
+    except ValueError as exc:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid session cookie"
+        ) from exc
+    row = await validate_session(db, sid)
+    if row is None:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="session expired or not found"
+        )
+    user = await db.get(User, row.user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
+    if user.disabled or user.is_suspended:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
+    return user
+
+
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
+
+
+class InstanceApplicationCreate(BaseModel):
+    hostname: str = Field(min_length=4, max_length=253)
+    purpose: Literal["privat", "verein", "firma", "sonst"]
+    expected_users: int = Field(ge=1, le=10000)
+    contact_email: EmailStr
+    notes: str | None = Field(default=None, max_length=2000)
+
+
+class InstanceApplicationOut(BaseModel):
+    id: str  # Snowflake-String-API
+    applicant_user_id: str
+    hostname: str
+    purpose: str
+    expected_users: int
+    contact_email: str
+    notes: str | None
+    status: str
+    reviewed_at: datetime | None
+    rejection_reason: str | None
+    approved_instance_id: str | None
+    created_at: datetime
+
+
+class InstanceOut(BaseModel):
+    id: str  # Snowflake-String-API
+    hostname: str
+    client_id: str
+    worker_id_chat: int
+    worker_id_voice: int
+    worker_id_media: int
+    status: Literal["active", "suspended"]
+    registered_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _app_to_out(app: InstanceApplication) -> InstanceApplicationOut:
+    return InstanceApplicationOut(
+        id=str(app.id),
+        applicant_user_id=str(app.applicant_user_id),
+        hostname=app.hostname,
+        purpose=app.purpose,
+        expected_users=app.expected_users,
+        contact_email=app.contact_email,
+        notes=app.notes,
+        status=app.status,
+        reviewed_at=app.reviewed_at,
+        rejection_reason=app.rejection_reason,
+        approved_instance_id=(
+            str(app.approved_instance_id) if app.approved_instance_id is not None else None
+        ),
+        created_at=app.created_at,
+    )
+
+
+def _instance_to_out(inst: RegisteredInstance) -> InstanceOut:
+    return InstanceOut(
+        id=str(inst.id),
+        hostname=inst.hostname,
+        client_id=inst.client_id,
+        worker_id_chat=inst.worker_id_chat,
+        worker_id_voice=inst.worker_id_voice,
+        worker_id_media=inst.worker_id_media,
+        status=inst.status,  # type: ignore[arg-type]
+        registered_at=inst.registered_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/me/instance-applications",
+    response_model=InstanceApplicationOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def submit_instance_application(
+    payload: InstanceApplicationCreate,
+    request: Request,
+    db: SessionDep,
+) -> InstanceApplicationOut:
+    """Antrag auf Self-Host-Instanz-Registrierung einreichen."""
+    user = await _require_user(request, db)
+
+    # FQDN-Check: kein Single-Label, kein raw-IP, kein localhost.
+    hostname = payload.hostname.lower()
+    if not _FQDN_RE.match(hostname):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="hostname muss ein vollständiger Domain-Name (FQDN) sein",
+        )
+
+    # Duplicate-Check: pending-Antrag desselben Users für denselben Hostname.
+    dup_stmt = select(InstanceApplication).where(
+        and_(
+            InstanceApplication.applicant_user_id == user.id,
+            InstanceApplication.hostname == hostname,
+            InstanceApplication.status == "pending",
+        )
+    )
+    dup = (await db.execute(dup_stmt)).scalars().first()
+    if dup is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="du hast bereits einen offenen Antrag für diesen Hostname",
+        )
+
+    # Hostname-Konflikt: existiert der Hostname schon in registered_instances?
+    conflict_stmt = select(RegisteredInstance).where(
+        RegisteredInstance.hostname == hostname
+    )
+    conflict = (await db.execute(conflict_stmt)).scalars().first()
+    if conflict is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="dieser Hostname ist bereits registriert",
+        )
+
+    app = InstanceApplication(
+        id=next_id(),
+        applicant_user_id=user.id,
+        hostname=hostname,
+        purpose=payload.purpose,
+        expected_users=payload.expected_users,
+        contact_email=str(payload.contact_email),
+        notes=payload.notes,
+        status="pending",
+    )
+    db.add(app)
+    await db.flush()
+    await db.commit()
+    await db.refresh(app)
+    return _app_to_out(app)
+
+
+@router.get(
+    "/me/instance-applications",
+    response_model=list[InstanceApplicationOut],
+)
+async def list_my_instance_applications(
+    request: Request,
+    db: SessionDep,
+    status_filter: Annotated[
+        Literal["pending", "approved", "rejected", "all"] | None,
+        Query(alias="status"),
+    ] = None,
+) -> list[InstanceApplicationOut]:
+    """Eigene Anträge abrufen, optional nach Status gefiltert."""
+    user = await _require_user(request, db)
+
+    stmt = (
+        select(InstanceApplication)
+        .where(InstanceApplication.applicant_user_id == user.id)
+        .order_by(InstanceApplication.created_at.desc())
+    )
+    if status_filter and status_filter != "all":
+        stmt = stmt.where(InstanceApplication.status == status_filter)
+
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_app_to_out(r) for r in rows]
+
+
+@router.get(
+    "/me/instances",
+    response_model=list[InstanceOut],
+)
+async def list_my_instances(
+    request: Request,
+    db: SessionDep,
+) -> list[InstanceOut]:
+    """Eigene registrierte Instanzen abrufen. client_secret wird NIE zurückgegeben."""
+    user = await _require_user(request, db)
+
+    stmt = (
+        select(RegisteredInstance)
+        .where(RegisteredInstance.registered_by == user.id)
+        .order_by(RegisteredInstance.registered_at.desc())
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [_instance_to_out(r) for r in rows]
+
+
+@router.get(
+    "/me/instances/{instance_id}/docker-compose-snippet",
+    response_class=Response,
+)
+async def get_docker_compose_snippet(
+    instance_id: str,
+    request: Request,
+    db: SessionDep,
+) -> Response:
+    """Gibt ein .env-Snippet für die Self-Host-Instanz zurück.
+
+    Nur der Eigentümer kann das abrufen. 404 statt 403 um Existence-Leak
+    zu vermeiden. client_secret fehlt absichtlich — es war nur bei Approval
+    einmalig sichtbar (Phase 2.3).
+    """
+    user = await _require_user(request, db)
+
+    try:
+        iid = int(instance_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+
+    inst = await db.get(RegisteredInstance, iid)
+    if inst is None or inst.registered_by != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+
+    snippet = (
+        f"# Pulse Self-Host — Instance {inst.id}\n"
+        f"# Hostname: {inst.hostname}\n"
+        f"#\n"
+        f"# HINWEIS: Trag dein bei der Freischaltung erhaltenes Secret unter\n"
+        f"# PULSE_INSTANCE_CLIENT_SECRET ein. Es wird nur einmalig angezeigt.\n"
+        f"\n"
+        f"PULSE_INSTANCE_ID={inst.id}\n"
+        f"PULSE_INSTANCE_CLIENT_ID={inst.client_id}\n"
+        f"PULSE_INSTANCE_CLIENT_SECRET=<...>  "
+        f"# Trag hier dein bei Approval erhaltenes Secret ein!\n"
+        f"PULSE_INSTANCE_MODE=self-host\n"
+        f"PULSE_CLOUD_ORIGIN=https://howispulse.com\n"
+        f"WORKER_ID_CHAT={inst.worker_id_chat}\n"
+        f"WORKER_ID_VOICE={inst.worker_id_voice}\n"
+        f"WORKER_ID_MEDIA={inst.worker_id_media}\n"
+    )
+
+    return Response(
+        content=snippet,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="pulse-instance-{inst.id}.env"'
+        },
+    )

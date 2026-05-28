@@ -23,6 +23,13 @@ export type User = {
   email_verification_pending?: boolean;
   /** True iff TOTP-based 2FA is set up + confirmed for this account. */
   totp_enabled?: boolean;
+  /** Hash-Pointer auf das hochgeladene Profilbild (Avatar). null wenn der
+   *  Default-Avatar zeigen soll. Update läuft über POST /me/profile. */
+  avatar_hash?: string | null;
+  /** Hex-Farbe (#rrggbb) für die Member-Liste. null wenn kein expliziter
+   *  Wert gesetzt ist; in dem Fall gewinnt eine Color-Rolle (falls vorhanden)
+   *  oder die Default-Text-Farbe. Update läuft über POST /me/profile. */
+  profile_color?: string | null;
 };
 
 export type Guild = {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster } from '$lib/components/ui/sonner/index.js';
   import { settings } from '$lib/stores/settings.svelte';
@@ -8,6 +9,28 @@
   import { initStream } from '$lib/stream/state.svelte';
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { initSelfHostReauth } from '$lib/api/self-host-reauth';
+  import { isElectron } from '$lib/platform/runtime';
+  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
+
+  // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
+  // initialisieren, damit Consumers immer einen fertigen State vorfinden.
+  serversStore.init();
+  activeServer.init(serversStore);
+  // Eager-Bootstrap der WS-Handler-Registry: die Default-Handler werden im
+  // GatewayConnection-Konstruktor via bootstrapHandlersOnce installiert.
+  // `loadPlugins()` snapshotted die Registry vor jedem Plugin-`register()` —
+  // ohne den Eager-Build würde der Snapshot leer sein und der Permission-Gate
+  // alle parallel installierten Default-Handler dem Plugin als "undeclared"
+  // zurechnen. `for(...)` instanziert nur das Objekt, kein dial().
+  if (activeServer.serverId) {
+    gatewayPool.for(activeServer.serverId);
+  }
+  // Phase 5.2: Self-Host Re-Auth-Hook (Cert-Login) registrieren — wirkt für
+  // jeden 401/Session-Expiry-Trigger aus dem API-Client.
+  initSelfHostReauth();
 
   let { children } = $props();
 
@@ -33,9 +56,24 @@
     // failures are caught inside loadAll(); this top-level guard is just
     // belt-and-suspenders so a broken plugin can never break boot.
     void loadPlugins().catch((err) => console.error('[plugins] loadAll failed', err));
+    // Wire the Electron invite deep-link bridge (Phase 5.3). When main
+    // receives a pulse://invite?host=...&code=... URL (validated there),
+    // it sends {hostname, code} over IPC. We navigate to the existing
+    // /invite/[code] route with ?host= so the user sees a disclaimer before
+    // any server contact happens.
+    let disposeInvite: (() => void) | undefined;
+    if (isElectron()) {
+      disposeInvite = window.pulse?.invite?.onLink((data) => {
+        void goto(
+          `/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`
+        );
+      });
+    }
+
     return () => {
       disposePtt?.();
       disposeStream?.();
+      disposeInvite?.();
     };
   });
 </script>

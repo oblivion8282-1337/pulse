@@ -3,6 +3,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -11,9 +14,49 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
+  import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
+  import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
+  import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
 
   let { children } = $props();
   let hydrated = $state(false);
+
+  // Sidebar-Variante B: aktiver Server bekommt seine Gilden vom WS-Ready-
+  // Frame über ``guilds.list``. Wir spiegeln das in den ``serverGuilds``-
+  // Multi-Server-Cache, damit die Sidebar-Sektion des aktiven Servers
+  // dieselbe autoritative Quelle nutzt wie ChannelList / ChatView und WS-
+  // Lifecycle-Events (guild_created/updated/deleted) automatisch
+  // durchschlagen. ``$derived`` statt ``$effect`` — ein Derived darf
+  // Side-Effects in seinem Body NICHT haben, aber wir nutzen es nur als
+  // Tracking-Trigger und schreiben dann **in einem Microtask** über
+  // ``queueMicrotask``, damit Svelte's Effect-Depth-Guard nicht greift.
+  $effect(() => {
+    const id = activeServer.serverId;
+    if (!id) return;
+    const list = guilds.list;
+    queueMicrotask(() => {
+      serverGuilds.setSnapshot(id, list);
+    });
+  });
+
+  // Server-Snapshot-Loader. Läuft bei jeder Änderung von
+  // serversStore.servers — neue Server (Add via AddServerDialog,
+  // Cert-Login mit Invite, etc.) bekommen ihre Gilden-Liste sofort
+  // geladen. ensureLoaded ist intern idempotent (cached Eintrag wird nicht
+  // refetched), daher kein Update-Loop. queueMicrotask vermeidet den
+  // Svelte-Effect-Depth-Guard, falls ensureLoaded synchron etwas
+  // reaktives schreibt.
+  $effect(() => {
+    if (!hydrated) return;
+    const serverIds = serversStore.servers.map((s) => s.id);
+    const activeId = activeServer.serverId;
+    queueMicrotask(() => {
+      for (const id of serverIds) {
+        if (id === activeId) continue;
+        void serverGuilds.ensureLoaded(id);
+      }
+    });
+  });
 
   /** Single source of truth for notification-click navigation: SW postMessage
    *  → `navigateTo` event, and Electron `pulse.notify.onClick` → same path.
@@ -61,6 +104,16 @@
       gateway.waitForReady().catch((e) => console.error('gateway ready', e))
     ]);
     hydrated = true;
+
+    // Sidebar-Variante B: für jeden non-aktiven Server (Cloud + Self-Hosts)
+    // einmal die Gilden-Liste pullen, damit die Sektionen parallel gefüllt
+    // sind. Aktiver Server wird vom WS-Ready-Frame autoritativ befüllt
+    // (Bridge-Effect weiter unten); für alle anderen reicht ein
+    // best-effort REST-Snapshot.
+    for (const s of serversStore.servers) {
+      if (s.id === activeServer.serverId) continue;
+      void serverGuilds.ensureLoaded(s.id);
+    }
 
     // Etappe 4: presence activity heartbeat. Throttled (≤1/60s) fire-and-
     // forget op that keeps the user off the idle sweeper. Wired up here
@@ -144,12 +197,19 @@
 </script>
 
 <div class="text-text-base flex h-dvh w-screen flex-col" data-testid="app-shell">
+  <!-- Phase 4.3: UpdateBanner + SelfHostDisclaimer sitzen ÜBER der Panel-
+       Zeile damit sie nicht von der Voice-ControlBar verdeckt werden. -->
+  {#if hydrated}
+    <UpdateBanner />
+    <SelfHostDisclaimer />
+  {/if}
   <!-- pt-[env(safe-area-inset-top)]: clears the iOS notch / status bar in the
        installed PWA (no-op as a browser tab). md restores the regular padding. -->
   <div class="flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}
+      <!-- Server-Picker ist in die GuildRail unten integriert (s. dort). -->
       {@render children?.()}
     {/if}
   </div>
@@ -163,3 +223,6 @@
     </div>
   {/if}
 </div>
+
+<!-- Onboarding: Backup-Setup-Dialog (einmalig nach erstem Login) -->
+<BackupSetupStep />

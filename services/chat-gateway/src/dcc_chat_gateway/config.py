@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -73,6 +74,69 @@ class Settings(BaseSettings):
     s3_presigned_ttl_seconds: int = 1800  # 30 min, auto-refreshed client-side
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+
+    # ------------------------------------------------------------------ #
+    # Phase 3 — Self-Host / OIDC / Moderation settings                  #
+    # ------------------------------------------------------------------ #
+
+    # OIDC issuer used in Cert-JWT validation (``iss`` claim must match).
+    # Self-hosts can override if they mirror the Cloud auth-svc behind a
+    # local proxy.
+    pulse_oidc_issuer: str = "https://howispulse.com"
+
+    # JWT audience expected in Access-JWTs.  ``None`` ⇒ audience check
+    # disabled (backwards-compat with existing Cloud tokens that carry no
+    # ``aud`` claim).  Self-hosts set this to ``"self-host:<instance_id>"``
+    # once they receive their Snowflake-ID from the Cloud.
+    # Note: the existing ``jwt_audience`` field (below) governs *chat-
+    # gateway*'s own Access-JWT validation; this field is for *Cert-JWTs*.
+    pulse_jwt_audience: str | None = None
+
+    # Moderation tools — core feature, cannot be disabled.  Flag reserved
+    # for future granular mod-tools opt-out (e.g. report-submission only
+    # vs. full mod queue).
+    mod_tools_enabled: bool = True
+
+    # How long a cached profile is considered fresh before being marked
+    # ``stale`` (seconds).  After the TTL the profile is still served but
+    # flagged stale; a fresh profile statement replaces it on next login.
+    profile_cache_ttl_seconds: int = 24 * 3600  # 24 h
+
+    # Path to the JWKS-pin file (SHA-256 of sorted kid list).  Written on
+    # first successful JWKS pull; checked on every subsequent pull.
+    # Operator rotates by deleting the file or calling the admin endpoint.
+    jwks_pin_file: str = "/data/jwks-pin.txt"
+
+    # How often the Cloud policy document is polled (seconds).
+    # 6 h matches the recommended max-age from DE 12.
+    cloud_policy_poll_interval: int = 6 * 3600  # 6 h
+
+    # Self-Host identity model (DE 11 / DE 14)
+    # ``cloud``   — Cloud instance; user_id used directly as identifier.
+    # ``self-host`` — Self-hosted instance; pairwise-sub replaces user_id.
+    # Default is ``self-host`` so a single-container deployment is safe out of
+    # the box; the Cloud sets ``PULSE_INSTANCE_MODE=cloud`` explicitly.
+    pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
+
+    # Snowflake-ID assigned by the Cloud on Self-Host registration.
+    # Reserved value 0 = Cloud instance (DE 11 A.13).
+    pulse_instance_id: int = 0
+
+    # Cloud origin used for JWKS + CRL polling.  Self-hosts may point this at
+    # a mirror or internal proxy if they can't reach howispulse.com directly.
+    pulse_cloud_origin: str = "https://howispulse.com"
+
+    # Path for the locally-generated Ed25519 session-signing key (DE 9).
+    session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
+
+    # HMAC secret used to sign the short-lived challenge-tokens issued by
+    # ``POST /cert-login/challenge`` (Phase 5.1). The secret is base64url-
+    # encoded; empty means "generate ephemeral secret on first use and
+    # WARN".  Set ``CHAT_GATEWAY_CHALLENGE_SECRET`` in ``.env`` to a stable
+    # value (>=32 raw bytes) to keep tokens valid across restarts; for
+    # single-pod self-host deployments the ephemeral default is fine, but
+    # in-flight challenge-tokens will be invalidated on restart.
+    chat_gateway_challenge_secret: str = ""
 
     # Web-Push VAPID — used to sign the Push API requests we send to a user's
     # browser push service (FCM/Mozilla/etc.). The *private* key is PEM-encoded

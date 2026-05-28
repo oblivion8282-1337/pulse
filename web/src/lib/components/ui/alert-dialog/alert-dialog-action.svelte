@@ -12,6 +12,7 @@
   {#snippet child({ props })}
     <button
       {...props}
+      {...rest}
       {disabled}
       onclick={onclick}
       class="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-50"

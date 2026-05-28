@@ -15,6 +15,9 @@
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
+  import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
+  import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
 
   type Step = 'credentials' | 'mfa';
 
@@ -44,10 +47,43 @@
     if (page.url.searchParams.get('verified') === '1') {
       toast.success('Email bestätigt.');
     }
+    // Big-Bang-Migration auf Cert-Modell: alle Refresh-Tokens wurden beim
+    // Deploy revoked (Migration 0018). doRefresh() in client.ts setzt diesen
+    // Key wenn ein Refresh mit 401 scheitert. Klare Meldung statt stummem
+    // Logout überrascht den User nicht.
+    if (sessionStorage.getItem('pulse.session_expired') === '1') {
+      sessionStorage.removeItem('pulse.session_expired');
+      toast.info('Pulse wurde aktualisiert — bitte einmal neu einloggen.', {
+        duration: 8000
+      });
+    }
   });
 
   async function completeLogin() {
     auth.setUser(await me());
+
+    // Identity-Flow: Cert ausstellen + Profile-Statement holen. Blockierend
+    // weil bei RecoveryAvailableError ein Redirect zu /recover gemacht
+    // werden muss, statt direkt nach /app zu gehen. Andere Fehler werden
+    // weiterhin geschluckt (Cert-Features degradieren gracefully).
+    try {
+      await runIssueFlow();
+      if (auth.isAuthenticated) {
+        void startProfileRefresh();
+        void startCertRotation();
+      }
+    } catch (err) {
+      if (err instanceof RecoveryAvailableError) {
+        const params = new URLSearchParams({
+          cert_id: err.certId,
+          device_label: err.deviceLabel,
+        });
+        await goto(`/recover?${params.toString()}`, { replaceState: true });
+        return;
+      }
+      console.warn('[identity] issue-flow fehlgeschlagen:', err);
+    }
+
     const redirect = safeRedirect(page.url.searchParams.get('redirect'));
     await goto(redirect);
   }

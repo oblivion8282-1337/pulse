@@ -37,9 +37,12 @@ export type StreamTokenResponse = {
 };
 
 export const chatApi = {
-  // Guilds
-  listGuilds(): Promise<Guild[]> {
-    return request<Guild[]>('/guilds');
+  // Guilds. ``serverId`` routet das Request an einen spezifischen Server-
+  // Eintrag (Sidebar braucht das für die Multi-Server-Sektionen — sonst
+  // läuft jedes /guilds gegen den aktiven Server, was die Cross-Server-
+  // Liste zerschießt).
+  listGuilds(opts?: { serverId?: string }): Promise<Guild[]> {
+    return request<Guild[]>('/guilds', {}, { serverId: opts?.serverId });
   },
   createGuild(name: string, icon_url: string | null = null): Promise<Guild> {
     return request<Guild>('/guilds', {

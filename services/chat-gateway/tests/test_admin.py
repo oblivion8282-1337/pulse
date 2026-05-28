@@ -32,13 +32,19 @@ async def test_stats_returns_counts(client, admin_token):
     r = await client.get("/admin/stats", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200
     body = r.json()
-    # Empty fresh DB. `storage_bytes` depends on whether a MinIO is
-    # reachable from the test host: 0 if yes (empty bucket), None if not.
+    # Empty fresh DB — counts are always 0.
     assert body["guild_count"] == 0
     assert body["channel_count"] == 0
     assert body["dm_channel_count"] == 0
     assert body["messages_24h"] == 0
-    assert body["storage_bytes"] in (None, 0)
+    # storage_bytes reflects the live MinIO bucket (s3.total_bucket_bytes()).
+    # It can be None (MinIO unreachable), 0 (empty bucket), or a positive
+    # integer when the dev bucket contains avatar uploads from previous runs.
+    # We only assert the type/range — not the exact value — so the test is
+    # bucket-state agnostic and doesn't flake on dirty local MinIO instances.
+    assert body["storage_bytes"] is None or (
+        isinstance(body["storage_bytes"], int) and body["storage_bytes"] >= 0
+    )
 
 
 @pytest.mark.asyncio

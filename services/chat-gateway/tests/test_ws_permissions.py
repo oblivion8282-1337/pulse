@@ -26,6 +26,7 @@ from dcc_shared.permission_resolver import (
     OVERWRITE_TARGET_USER,
 )
 from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS, Permissions
+from .conftest import receive_skipping, skip_init_frames
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -42,7 +43,8 @@ def _drain_until(ws, op: str, *, limit: int = 12) -> dict:
 
 def _ready_payload(tc, token: str):
     with tc.websocket_connect(f"/ws?token={token}") as ws:
-        return ws.receive_json()
+        ws.receive_json()  # hello (Phase 3.3)
+        return ws.receive_json()  # ready
 
 
 @contextmanager
@@ -144,7 +146,7 @@ async def test_role_created_broadcasts_to_open_sockets(ws_app, _auth_signer):
             token = _auth_signer.issue_access(uid, f"o{uid}")
             g = tc.post("/guilds", json={"name": "g"}, headers=_auth(token)).json()
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 created = tc.post(
                     f"/guilds/{g['id']}/roles",
                     json={"name": "Mod", "permissions": str(int(Permissions.MANAGE_MESSAGES))},
@@ -177,7 +179,7 @@ async def test_member_roles_updated_broadcasts(ws_app, _auth_signer):
                 headers=_auth(owner_t),
             ).json()
             with tc.websocket_connect(f"/ws?token={owner_t}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 tc.put(
                     f"/guilds/{g['id']}/members/{other_uid}/roles/{role['id']}",
                     headers=_auth(owner_t),
@@ -204,7 +206,7 @@ async def test_channel_permissions_updated_broadcasts(ws_app, _auth_signer):
             roles = tc.get(f"/guilds/{g['id']}/roles", headers=_auth(token)).json()
             everyone_id = next(r["id"] for r in roles if r["is_everyone"])
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 tc.put(
                     f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
                     json={"allow": "0", "deny": str(int(Permissions.SEND_MESSAGES))},
@@ -265,7 +267,7 @@ async def test_private_channel_blocks_member_from_message_broadcast(
                 if r["is_everyone"]
             )
             with tc.websocket_connect(f"/ws?token={other_t}") as other_ws:
-                other_ws.receive_json()
+                skip_init_frames(other_ws)
                 other_ws.send_text(
                     json.dumps({"op": "subscribe", "channel_id": c["id"]})
                 )
@@ -366,7 +368,7 @@ async def test_role_grants_view_back_unlocks_broadcast(ws_app, _auth_signer):
                 headers=_auth(owner_t),
             )
             with tc.websocket_connect(f"/ws?token={other_t}") as other_ws:
-                other_ws.receive_json()
+                skip_init_frames(other_ws)  # hello + ready (permission cache primed)
                 other_ws.send_text(
                     json.dumps({"op": "subscribe", "channel_id": c["id"]})
                 )
@@ -419,7 +421,7 @@ async def test_subscribe_blocked_without_view_channel(ws_app, _auth_signer):
                 headers=_auth(owner_t),
             )
             with tc.websocket_connect(f"/ws?token={other_t}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_text(
                     json.dumps({"op": "subscribe", "channel_id": c["id"]})
                 )
@@ -465,7 +467,7 @@ async def test_send_blocked_without_send_messages(ws_app, _auth_signer):
                 headers=_auth(owner_t),
             )
             with tc.websocket_connect(f"/ws?token={other_t}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_text(
                     json.dumps({"op": "subscribe", "channel_id": c["id"]})
                 )

@@ -879,7 +879,7 @@ Was NICHT mitkopiert wird: Binär-/Build-Artefakte (`mediamtx`-Binary, `*.flatpa
 **T5 — Server-Seite** (eigener großer Block)
 - `mediamtx-auth-hook` (FastAPI, MediaMTX `authHTTP`-Delegation): Publish nur mit gültigem Stream-Token für `channel-<id>`, Read nur für Channel-Member.
 - `media-svc`: vergibt Stream-Tokens, koppelt Channel ↔ MediaMTX-Pfad, published Stream-State auf Redis → chat-gateway broadcastet "X streamt in #channel".
-- VPS: `mediamtx.yml` umstellen (per-Channel-Pfade + authHTTP), MediaMTX hinter Caddy mit TLS (`stream.unicutmedia.com` → :8888/:8889), Caddy-Block für `pulse.unicutmedia.com` + Pulse-Backend-Deploy auf den VPS (SSH `michael@77.42.71.166` — vorhanden, busy shared VPS, MediaMTX in `~/streaming/`).
+- VPS: `mediamtx.yml` umstellen (per-Channel-Pfade + authHTTP), MediaMTX hinter Caddy mit TLS (`stream.unicutmedia.com` → :8888/:8889), Caddy-Block für `howispulse.com` + Pulse-Backend-Deploy auf den VPS (SSH `michael@77.42.71.166` — vorhanden, busy shared VPS, MediaMTX in `~/streaming/`).
 
 **T6 — Electron-Flatpak-Packaging**
 - `packaging/` = das GSR-Manifest als Basis. *Behalten:* Custom-FFmpeg n8.1.1 (NVENC/CUDA/VAAPI), nv-codec-headers n13, GSR-Build mit den 2 Patches, `--device=all`, GL-Extensions. *Raus:* PySide6 + Qt-UI-Module. *Dazu:* SvelteKit-Static-Build (`web/build/`), die Electron-App (`desktop/` — `electron-builder` mit Flatpak-Target, oder das Electron-Binary + `electron/dist/*.cjs` manuell ins Manifest), `gsr-sidecar` (Python `.py` + python3). Der Prod-`loadFile`-Pfad in `main.ts` (`../../../web/build/index.html`) muss beim Packaging verifiziert/angepasst werden.

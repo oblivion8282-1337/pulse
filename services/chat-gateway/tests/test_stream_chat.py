@@ -20,6 +20,7 @@ import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -336,7 +337,7 @@ async def test_stream_chat_message_pushed_to_subscribed_ws(ws_app, _auth_signer)
                 r.close()
             try:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     ws.send_json({"op": "subscribe", "channel_id": cid})
                     posted = tc.post(
                         f"/channels/{cid}/streams/{uid}/chat",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import datetime
 from uuid import UUID
 
@@ -13,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     SmallInteger,
     String,
     Text,
@@ -20,11 +22,18 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects import sqlite as _sqlite
+from sqlalchemy.dialects.postgresql import INET as PG_INET
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from dcc_auth.db import Base, snowflake_pk
+
+# INET is Postgres-only; store as Text on SQLite so test-DB stays hermetic.
+_InetOrText = PG_INET().with_variant(Text(), "sqlite")
+
+# JSONB on Postgres, plain JSON on SQLite.
+_JsonbOrJson = JSONB().with_variant(JSON(), "sqlite")
 
 # Autoincrement on SQLite only happens with the literal ``INTEGER PRIMARY KEY``
 # affinity — ``BigInteger`` translates to ``BIGINT``, which doesn't. We use
@@ -42,6 +51,8 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    profile_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Server-wide admin (one or a handful of users). Bootstrap via SQL.
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
@@ -57,6 +68,26 @@ class User(Base):
     # here via an internal HTTP call so search filtering stays a single query.
     discoverable: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true"), default=True
+    )
+    # --- Cert-Modell-Fundament (migration 0012) ---
+    # 32 random bytes included in every Identitäts-Cert of this user as
+    # ``pairwise_seed``.  Self-Hosts compute a consistent pseudonymous subject
+    # ``hash(user_id, instance_id, pairwise_seed)`` — same value across all
+    # devices of the same user (DE 11 A.4).  Generated server-side on INSERT;
+    # application code must supply an explicit value (no Python default here,
+    # enforced by the migration removing the server_default after backfill).
+    pairwise_salt: Mapped[bytes] = mapped_column(
+        LargeBinary(), nullable=False, default=lambda: secrets.token_bytes(32)
+    )
+    # TIMESTAMPTZ watermark for Logout-Everywhere / Admin-Suspend race protection
+    # (DE 11 A.11, Review #4 point 18+19).  ``POST /credentials/issue`` blocks
+    # when ``now() < revoke_until + 5 min``.  Cleared on next successful MFA-Login.
+    revoke_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Admin-Force-Suspension flag.  When true the account cannot log in.
+    is_suspended: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
     )
     # Account-recovery / 2FA columns (migration 0006).
     email_verified_at: Mapped[datetime | None] = mapped_column(
@@ -77,6 +108,14 @@ class User(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+
+    # Back-references populated lazily by relationship() on child tables.
+    sessions: Mapped[list["UserSession"]] = relationship(
+        "UserSession", back_populates="user", cascade="all, delete-orphan"
+    )
+    issued_credentials: Mapped[list["IssuedCredential"]] = relationship(
+        "IssuedCredential", back_populates="user", cascade="all, delete-orphan"
     )
 
 
@@ -329,3 +368,79 @@ class AdminAuditLog(Base):
     )
 
     __table_args__ = (Index("ix_admin_audit_log_created", "created_at"),)
+
+
+class UserSession(Base):
+    """Browser-Session-Cookie row (DE 11 Phase 1, migration 0013).
+
+    Created on successful ``/login``; tied to an ``HttpOnly + SameSite=strict``
+    cookie (``pulse_session=<session_id>``).  Cloud-only — Self-Hosts never
+    issue these (they use the Cert-Model + local Session-Token instead).
+
+    The ``amr`` / ``acr`` values are inherited by any ``IssuedCredential``
+    created while this session is active, so the Cert carries the correct
+    authentication-context claims.
+    """
+
+    __tablename__ = "user_sessions"
+
+    session_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True).with_variant(_sqlite.TEXT(), "sqlite"),
+        primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    # Auth-method references: ["pwd"], ["pwd","otp"], ["webauthn"], etc.
+    amr: Mapped[list] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"),
+        nullable=False,
+        server_default=text("'[]'"),
+        default=list,
+    )
+    # "0" = password-only, "1" = MFA (RFC 9470 compatible).
+    acr: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'0'"), default="0"
+    )
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ip: Mapped[str | None] = mapped_column(_InetOrText, nullable=True)
+
+    user: Mapped["User"] = relationship("User", back_populates="sessions")
+
+    __table_args__ = (
+        Index("ix_user_sessions_user_id", "user_id"),
+        Index("ix_user_sessions_expires_at", "expires_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# DE 11 device credentials + username reservations — ausgelagert nach
+# models_credentials.py (Größen-Policy ≤500 Z.).
+# Re-export für Alembic-Discovery + bestehende Imports.
+# ---------------------------------------------------------------------------
+from dcc_auth.models_credentials import (  # noqa: E402, F401
+    EncryptedKeyBackup,
+    IssuedCredential,
+    UsernameReservation,
+)
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Self-Host Instance-Registry (migration 0020)
+# Klassen ausgelagert nach models_instances.py (Größen-Policy ≤500 Z.)
+# Re-export damit Alembic-env.py + bestehende Imports weiter funktionieren.
+# ---------------------------------------------------------------------------
+from dcc_auth.models_instances import (  # noqa: E402, F401
+    Complaint,
+    InstanceApplication,
+    RegisteredInstance,
+    SuspendedInstance,
+)

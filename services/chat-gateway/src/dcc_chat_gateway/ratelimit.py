@@ -19,6 +19,7 @@ _buckets: dict[str, dict[int, tuple[float, int]]] = {}
 _RULES: dict[str, tuple[int, float]] = {
     "message": (10, 1.0),       # 10 messages / second (REST POST + WS send)
     "create_guild": (10, 60.0),  # 10 guilds / minute
+    "report": (10, 3600.0),     # 10 reports / hour
 }
 
 

@@ -1,5 +1,10 @@
-# Build context exclusions for all Pulse images (Dockerfile.service + web/Dockerfile).
+# Build context exclusions for all Pulse images
+# (Dockerfile.service, web/Dockerfile, infra/self-host/Dockerfile).
 # Keep this lean — the context is the repo root for every build.
+#
+# Docker only consults the .dockerignore in the build-context root (or a
+# Dockerfile-specific one named <Dockerfile>.dockerignore). Per-folder
+# .dockerignore files elsewhere are silently ignored — so everything lives here.
 
 .git
 .github
@@ -8,14 +13,27 @@
 .venv
 **/.venv
 **/__pycache__
+**/.pytest_cache
 **/*.pyc
+**/*.pyo
 node_modules
 **/node_modules
 web/build
 web/.svelte-kit
 web/test-results
 web/playwright-report
-desktop/electron/dist
+
+# Desktop + packaging are server-image-irrelevant and bloat the context.
+# (web-build stage in infra/self-host/Dockerfile still needs the workspace
+# member's package.json so pnpm install resolves the workspace tree.)
+desktop/
+!desktop/package.json
+packaging/
+
+# Windows HQ sidecar Rust build artifacts — multi-gigabyte, never needed
+streaming/win-hq-sidecar/target
+
+# Secrets must never leak into a public image
 secrets
 **/secrets
 .env
@@ -23,11 +41,18 @@ secrets
 !.env.example
 infra/prod/.env.production
 infra/prod/secrets
+
+# Big assets / patches / streamkeys not used by any runtime stack
 streaming/patches
 streaming/server/mediamtx.yml
 streaming/server/.stream-key
 Logo
-*.md
-!README.md
+
+# Self-uploads from a running dev install
 services/*/uploads
 .plans
+
+# Markdown: keep the top-level README + the self-host README, drop everything else
+*.md
+!README.md
+!infra/self-host/README.md

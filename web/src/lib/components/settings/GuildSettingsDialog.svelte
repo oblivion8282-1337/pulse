@@ -19,6 +19,8 @@
   import BanIcon from '@lucide/svelte/icons/ban';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import PuzzleIcon from '@lucide/svelte/icons/puzzle';
+  import FlagIcon from '@lucide/svelte/icons/flag';
+  import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -32,6 +34,8 @@
   import BansList from './BansList.svelte';
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
+  import ModQueue from '$lib/components/admin/ModQueue.svelte';
+  import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
 
   let {
     open = $bindable(false),
@@ -43,7 +47,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'ownership';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'modqueue' | 'auditlog' | 'ownership';
   let tab = $state<Tab>('roles');
 
   let guildId = $derived(guild?.id ?? '');
@@ -69,6 +73,17 @@
   let canManagePlugins = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
   );
+  // Mod-Queue: sichtbar wenn MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD.
+  let canSeeModQueue = $derived(
+    !!guildId &&
+      (roles.hasGuildPermission(guildId, Perm.MANAGE_MESSAGES) ||
+        roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS) ||
+        roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD))
+  );
+  // Audit-Log: nur MANAGE_GUILD.
+  let canSeeAuditLog = $derived(
+    !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
+  );
 
   // Default to the first tab the caller is allowed to see, so the
   // dialog never opens on a tab that's empty.
@@ -77,6 +92,7 @@
     if (canManageRoles) tab = 'roles';
     else if (canManageSounds) tab = 'sounds';
     else if (canManagePlugins) tab = 'plugins';
+    else if (canSeeModQueue) tab = 'modqueue';
     else if (isOwner) tab = 'ownership';
   });
 
@@ -239,6 +255,28 @@
             <PuzzleIcon class="size-4" /> Plugins
           </button>
         {/if}
+        {#if canSeeModQueue}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'modqueue'}
+            onclick={() => selectTab('modqueue')}
+            data-testid="settings-tab-modqueue"
+          >
+            <FlagIcon class="size-4" /> Mod-Queue
+          </button>
+        {/if}
+        {#if canSeeAuditLog}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'auditlog'}
+            onclick={() => selectTab('auditlog')}
+            data-testid="settings-tab-auditlog"
+          >
+            <ScrollTextIcon class="size-4" /> Audit-Log
+          </button>
+        {/if}
         {#if isOwner}
           <button
             type="button"
@@ -270,6 +308,10 @@
           <GuildSoundsEditor {guildId} />
         {:else if tab === 'plugins' && canManagePlugins}
           <GuildPluginsEditor {guildId} />
+        {:else if tab === 'modqueue' && canSeeModQueue}
+          <ModQueue {guildId} />
+        {:else if tab === 'auditlog' && canSeeAuditLog}
+          <AuditLogViewer {guildId} />
         {:else if tab === 'ownership' && isOwner}
           <OwnerTransferSection {guild} />
         {:else}

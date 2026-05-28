@@ -40,6 +40,14 @@ async function register(page: Page, u: { username: string; email: string; passwo
   await page.getByTestId('reg-password').fill(u.password);
   await page.getByTestId('reg-submit').click();
   await page.waitForURL(/\/app/);
+  // BackupSetupStep poppt nach runIssueFlow auf (s. issue-flow.ts) — der
+  // Dialog blockiert sonst die nächsten Klicks per overlay. Best-effort
+  // dismiss; wenn der Dialog nicht erscheint (z.B. weil Re-Run im Test
+  // ohne fresh-register), schluckt der catch.
+  await page
+    .locator('[data-testid=backup-onboarding-skip-btn]')
+    .click({ timeout: 2500 })
+    .catch(() => undefined);
 }
 
 async function currentUserId(page: Page): Promise<string> {
@@ -133,8 +141,14 @@ async function wsCall(
         };
         ws.onmessage = (e) => {
           const m = JSON.parse(e.data);
-          // `ready` always lands first; presence/voice broadcasts are noise.
-          if (m.op === 'ready' || m.op === 'presence_update' || m.op === 'voice_state')
+          // `hello` (Phase 3) + `ready` always land first; presence/voice
+          // broadcasts are noise.
+          if (
+            m.op === 'hello' ||
+            m.op === 'ready' ||
+            m.op === 'presence_update' ||
+            m.op === 'voice_state'
+          )
             return;
           clearTimeout(t);
           ws.close();

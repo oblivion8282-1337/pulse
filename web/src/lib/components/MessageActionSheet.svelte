@@ -9,24 +9,29 @@
   import PencilIcon from '@lucide/svelte/icons/pencil';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
+  import FlagIcon from '@lucide/svelte/icons/flag';
   import EmojiPicker from './EmojiPicker.svelte';
 
   let {
     open = $bindable(false),
     canEdit,
     canDelete,
+    canReport = false,
     onReply,
     onEdit,
     onDelete,
-    onReact
+    onReact,
+    onReport
   }: {
     open?: boolean;
     canEdit: boolean;
     canDelete: boolean;
+    canReport?: boolean;
     onReply: () => void;
     onEdit: () => void;
     onDelete: () => void;
     onReact: (emoji: string) => void;
+    onReport?: () => void;
   } = $props();
 
   // Hand-picked frequent reactions — the full grid is one tap away.
@@ -123,6 +128,18 @@
           >
             <Trash2Icon class="size-5 shrink-0" />
             Löschen
+          </button>
+        {/if}
+
+        {#if canReport}
+          <button
+            type="button"
+            class="flex min-h-12 w-full items-center gap-3 px-4 text-left text-[15px] text-amber-400 active:bg-bg-hover"
+            data-testid="sheet-action-report"
+            onclick={() => { onReport?.(); close(); }}
+          >
+            <FlagIcon class="size-5 shrink-0" />
+            Melden
           </button>
         {/if}
       {/if}

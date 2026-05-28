@@ -71,12 +71,28 @@ export interface PulseNotifyApi {
   onClick(cb: (data: PulseNotifyClickPayload) => void): () => void;
 }
 
+/** Invite deep-link payload — delivered by main after strict URL validation.
+ *  `hostname` is a bare FQDN (e.g. "howispulse.com"), NOT a full URL.
+ *  `code` is the invite code (alphanumeric, 6-64 chars). The frontend shows a
+ *  disclaimer before touching the server. */
+export interface PulseInvitePayload {
+  hostname: string;
+  code: string;
+}
+
+/** Invite deep-link bridge (Phase 5.3). Exposed via preload on pulse://invite URLs. */
+export interface PulseInviteApi {
+  /** Subscribe to incoming invite deep-links. Returns an unsubscribe function. */
+  onLink(cb: (data: PulseInvitePayload) => void): () => void;
+}
+
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
   store: PulseStoreApi;
   gsr: PulseGsrApi;
   notify: PulseNotifyApi;
+  invite?: PulseInviteApi;
 }
 
 declare global {

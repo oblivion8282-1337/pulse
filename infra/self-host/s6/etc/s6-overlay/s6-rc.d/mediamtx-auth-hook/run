@@ -1,0 +1,9 @@
+#!/bin/sh
+# mediamtx-auth-hook — HTTP delegation target for MediaMTX `authMethod: http`.
+exec 2>&1
+. /etc/pulse/env.sh
+cd /opt/pulse/services/mediamtx-auth-hook
+exec /usr/sbin/gosu pulse /opt/pulse/venv/bin/uvicorn dcc_mediamtx_auth_hook.app:app \
+  --host 127.0.0.1 \
+  --port 8005 \
+  --no-access-log

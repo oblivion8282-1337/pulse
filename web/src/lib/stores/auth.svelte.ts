@@ -1,27 +1,23 @@
 import { me } from '$lib/api/auth';
 import { clearTokens, loadTokens } from '$lib/api/storage';
 import { readState } from './readState.svelte';
-import { voicePresence } from './voicePresence.svelte';
-import { streamPresence } from './streamPresence.svelte';
 import { userCache } from './users.svelte';
-import { directMessages } from './directMessages.svelte';
-import { guilds } from './guilds.svelte';
-import { messages } from './messages.svelte';
-import { roles } from './roles.svelte';
-import { guildSounds } from './guildSounds.svelte';
-import { channelPermissions } from './channelPermissions.svelte';
-import { memberRoles } from './memberRoles.svelte';
 import { capabilities } from './capabilities.svelte';
 import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
-import { friends } from './friends.svelte';
-import { friendRequests } from './friendRequests.svelte';
-import { blocks } from './blocks.svelte';
 import { privacy } from './privacy.svelte';
-import { presence } from './presence.svelte';
-import { resetGuildPluginsCache } from '$lib/plugins';
+import { onboardingState } from '$lib/stores/onboardingState.svelte';
+import { resetServerScopedStores } from './multi-server-reset';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
+import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
+import { sessionTokens } from '$lib/api/session_tokens.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
+import { certStore } from '$lib/identity/cert.svelte';
+import { keypairStore } from '$lib/identity/keypair.svelte';
+import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
+import { stopProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+import { stopCertRotation } from '$lib/identity/cert-rotation.svelte';
 
 const ACCESS_KEY = 'dcc.tokens.access';
 
@@ -66,6 +62,32 @@ class AuthStore {
         // Best-effort; a network blip just leaves the local slice in
         // place, the next mutation will push it back up.
         void hydrateServerSections();
+        // Fix 2: Cert + Timer nach Tab-Reload/SSO-Hydrate nachholen.
+        // Dynamische Imports vermeiden Circular-Dep (identity-Module importieren auth).
+        // RecoveryAvailableError → Redirect zu /recover (z.B. wenn der User auf
+        // einem neuen Gerät den Tab reopened ohne vorher den Setup-Flow zu
+        // sehen). Sonstige Fehler werden gracefully geschluckt.
+        import('$lib/identity/issue-flow')
+          .then(async ({ runIssueFlow, RecoveryAvailableError }) => {
+            try {
+              await runIssueFlow();
+              const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
+                import('$lib/identity/profile-refresh.svelte'),
+                import('$lib/identity/cert-rotation.svelte'),
+              ]);
+              startProfileRefresh();
+              startCertRotation();
+            } catch (err) {
+              if (err instanceof RecoveryAvailableError) {
+                const params = new URLSearchParams({
+                  cert_id: err.certId,
+                  device_label: err.deviceLabel,
+                });
+                await goto(`/recover?${params.toString()}`, { replaceState: true });
+              }
+            }
+          })
+          .catch(() => {/* silent — degradiert gracefully */});
       }
     } catch {
       clearTokens();
@@ -88,30 +110,41 @@ class AuthStore {
   signOut(): void {
     clearTokens();
     this.user = null;
-    // Clear all session-scoped stores so a re-login (or a different user
-    // signing in on the same tab without a reload) starts from a clean slate.
-    // guilds/messages are cleared by UserFooter.onSignOut where it's the
-    // user-initiated path; this method also runs from the WS connection's
-    // refresh-failure path, which is why the clearing belongs here.
+    // Server-scoped Stores: Helper aus Phase 4.5 — leert 15 Stores +
+    // Plugin-Toggle-Cache. Anti-Drift: jeder neue Server-scoped Store
+    // gehört in `multi-server-reset.ts`, nicht hier.
+    resetServerScopedStores();
+    // readState: vollständig clear() bei Sign-Out (storageKey wegnehmen,
+    // damit nachfolgende markRead-Aufrufe vom Re-Login nicht auf den alten
+    // User schreiben). Der user-gekeyte localStorage-Eintrag bleibt
+    // unangetastet — beim Re-Login holt `hydrateForUser` ihn wieder.
     readState.clear();
-    voicePresence.clear();
-    streamPresence.clear();
+    // Session-globale Stores, die NICHT in multi-server-reset.ts gehören
+    // (User-Cache ist absichtlich Server-übergreifend gehalten, damit
+    // beim Switch keine Avatar-Flackerer entstehen):
     userCache.clear();
-    directMessages.clear();
-    guilds.clear();
-    messages.clear();
-    roles.clear();
-    guildSounds.clear();
-    channelPermissions.clear();
-    memberRoles.clear();
     capabilities.clear();
-    friends.clear();
-    friendRequests.clear();
-    blocks.clear();
     privacy.clear();
-    presence.clear();
-    resetGuildPluginsCache();
+    onboardingState.reset();
     settings.resetUserScoped();
+    // Sidebar-Variante-B-Snapshot: pro-Server-Gilden-Liste wegwerfen.
+    void import('$lib/stores/serverGuilds.svelte').then((m) => m.serverGuilds.clear());
+    // Decline-Flag zurücksetzen: ein "Als neues Gerät weiter" gilt nur für
+    // die laufende Session — beim nächsten Login soll der User wieder den
+    // Recover-Dialog bekommen können.
+    void import('$lib/identity/issue-flow').then((m) => m.resetRecoveryDecline());
+    // Phase 4.2: alle WS-Connections + Self-Host-Session-Tokens beenden.
+    // Cloud-Tokens werden weiter oben via clearTokens() entfernt.
+    gatewayPool.closeAll();
+    for (const s of serversStore.servers) {
+      if (!s.isCloud) sessionTokens.clear(s.id);
+    }
+    // Identity-Cleanup: Timer stoppen, Stores wischen
+    stopProfileRefresh();
+    stopCertRotation();
+    void certStore.wipe();
+    void keypairStore.wipe();
+    void profileStatementStore.wipe();
     void goto('/login');
   }
 }

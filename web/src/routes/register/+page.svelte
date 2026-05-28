@@ -9,6 +9,9 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import { runIssueFlow } from '$lib/identity/issue-flow';
+  import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+  import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
 
   let username = $state('');
   let email = $state('');
@@ -31,6 +34,26 @@
         display_name: displayName.trim() || null
       });
       auth.setUser(await me());
+
+      // Identity-Flow: Cert + Profile-Statement ausstellen + Refresh-Timer
+      // starten. Bei frischer Registration kann **per Definition** kein
+      // Recovery-Backup existieren (User wurde gerade erst angelegt) — wir
+      // brauchen den RecoveryAvailableError-Catch hier nicht und können
+      // fire-and-forget machen wie der Login es ursprünglich tat. Sonst
+      // blockiert das ``await`` die Navigation und der Onboarding-Dialog
+      // pop't synchron in Playwright-Tests vor der ersten User-Aktion auf
+      // (StatusPicker/Settings-Button werden vom Dialog-Overlay verdeckt).
+      void runIssueFlow()
+        .then(() => {
+          if (auth.isAuthenticated) {
+            void startProfileRefresh();
+            void startCertRotation();
+          }
+        })
+        .catch((err: unknown) => {
+          console.warn('[identity] issue-flow fehlgeschlagen:', err);
+        });
+
       await goto('/app');
     } catch (err) {
       // Surface the structured 409 bodies the backend now sends:

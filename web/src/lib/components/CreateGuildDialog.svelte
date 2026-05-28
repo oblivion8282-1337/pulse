@@ -96,9 +96,9 @@
   <Dialog.Content data-testid="create-guild-dialog">
     {#if mode === 'choose'}
       <Dialog.Header>
-        <Dialog.Title>Server hinzufügen</Dialog.Title>
+        <Dialog.Title>Gilde hinzufügen</Dialog.Title>
         <Dialog.Description>
-          Erstelle einen eigenen Server oder tritt einem über eine Einladung bei.
+          Erstelle eine eigene Gilde oder tritt einer über eine Einladung bei.
         </Dialog.Description>
       </Dialog.Header>
       <div class="space-y-2">
@@ -110,7 +110,7 @@
             data-testid="create-guild-choice"
           >
             <div>
-              <div class="text-text-bright font-semibold">Eigenen Server erstellen</div>
+              <div class="text-text-bright font-semibold">Eigene Gilde erstellen</div>
               <div class="text-text-muted text-xs">Du wirst der Owner.</div>
             </div>
           </button>
@@ -122,15 +122,15 @@
           data-testid="join-guild-choice"
         >
           <div>
-            <div class="text-text-bright font-semibold">Einem Server beitreten</div>
+            <div class="text-text-bright font-semibold">Einer Gilde beitreten</div>
             <div class="text-text-muted text-xs">Mit einem Einladungslink oder -code.</div>
           </div>
         </button>
       </div>
     {:else if mode === 'create'}
       <Dialog.Header>
-        <Dialog.Title>Server erstellen</Dialog.Title>
-        <Dialog.Description>Gib deinem Server einen Namen.</Dialog.Description>
+        <Dialog.Title>Gilde erstellen</Dialog.Title>
+        <Dialog.Description>Gib deiner Gilde einen Namen.</Dialog.Description>
       </Dialog.Header>
       <form class="space-y-4" onsubmit={submitCreate}>
         <div class="space-y-1.5">

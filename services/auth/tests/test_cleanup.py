@@ -21,6 +21,7 @@ from dcc_auth.models import (
     PasswordResetToken,
     RefreshToken,
     User,
+    UsernameReservation,
 )
 from sqlalchemy import select
 
@@ -189,6 +190,41 @@ async def test_run_once_deletes_old_revoked_refresh_tokens(
     )
 
 
+# ---- username_reservations -----------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cleanup_purges_expired_username_reservations(engine, session_factory):
+    """released_at in der Vergangenheit → Zeile wird beim Sweep gelöscht."""
+    uid = await _make_user(session_factory)
+    now = datetime.now(UTC)
+
+    async with session_factory() as s:
+        # expired: released_at war gestern
+        s.add(UsernameReservation(
+            old_username="stale_handle",
+            original_user_id=uid,
+            released_at=now - timedelta(days=1),
+        ))
+        # active: released_at ist in 30 Tagen — muss bleiben
+        s.add(UsernameReservation(
+            old_username="live_handle",
+            original_user_id=uid,
+            released_at=now + timedelta(days=30),
+        ))
+        await s.commit()
+
+    counts = await _run_once(engine, _settings())
+
+    assert counts["username_reservations_expired"] == 1
+
+    async with session_factory() as s:
+        remaining = (
+            await s.execute(select(UsernameReservation.old_username))
+        ).scalars().all()
+    assert remaining == ["live_handle"], f"Unerwartet verblieben: {remaining}"
+
+
 # ---- keep-alive: usable tokens + backup-codes untouched -----------------
 
 
@@ -231,6 +267,8 @@ async def test_run_once_keeps_usable_and_never_touches_backup_codes(
         "password_reset_tokens": 0,
         "email_verification_tokens": 0,
         "refresh_tokens_revoked": 0,
+        "user_sessions_expired": 0,
+        "username_reservations_expired": 0,
     }
 
     async with session_factory() as s:

@@ -1,7 +1,7 @@
 # Deploying Pulse to the VPS
 
 Production runs on the Hetzner VPS (`michael@77.42.71.166`, alongside Caddy and
-the other apps). Public URL: **https://pulse.unicutmedia.com**. The whole stack
+the other apps). Public URL: **https://howispulse.com**. The whole stack
 is one Docker Compose project (`name: pulse`) in `~/pulse/infra/prod/`.
 
 App images (`ghcr.io/oblivion8282-1337/pulse-*`) are built by
@@ -36,7 +36,7 @@ chmod 0644 secrets/jwt_public.pem   # public key is fine readable
 # doesn't verify the cert, so self-signed is fine; long validity to avoid churn
 mkdir -p certs
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
-  -subj "/CN=pulse.unicutmedia.com" \
+  -subj "/CN=howispulse.com" \
   -keyout certs/server.key -out certs/server.crt
 # MediaMTX (containerised from scratch) runs as root → root-owned + 0600 is
 # enough to keep the TLS private key away from other host users.
@@ -76,7 +76,7 @@ docker compose up -d
 #      b) Caddy as a host process → it can reach 127.0.0.1:8100 directly:
 #           upstream:  reverse_proxy 127.0.0.1:8100
 cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
-printf '\npulse.unicutmedia.com {\n\treverse_proxy pulse_web:80\n}\n' >> ~/caddy/Caddyfile
+printf '\nhowispulse.com {\n\treverse_proxy pulse_web:80\n}\n' >> ~/caddy/Caddyfile
 docker network connect pulse-net caddy 2>/dev/null || true   # idempotent
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 ```

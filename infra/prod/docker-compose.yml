@@ -5,7 +5,7 @@
 #
 # Reads ~/pulse/infra/prod/.env.production (gitignored — copy from .example,
 # fill in real secrets). Caddy on the host fronts pulse_web on
-# https://pulse.unicutmedia.com (see Caddyfile.pulse.snippet).
+# https://howispulse.com (see Caddyfile.pulse.snippet).
 #
 # App images come from GHCR (built by .github/workflows/ci.yml on push to main);
 # pulse_watchtower polls them every 5 min and recreates on a new :latest.
@@ -79,11 +79,11 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD required}
       # Presigning host — MinIO ignores path prefixes here (verified
       # empirically: setting this to https://…/s3 made it log
-      # `API: https://pulse.unicutmedia.com` anyway, dropping the prefix,
+      # `API: https://howispulse.com` anyway, dropping the prefix,
       # which broke signature verification). So the public surface uses
       # the bucket name as the URL prefix instead: nginx forwards
       # `/pulse-attachments/*` straight through.
-      MINIO_SERVER_URL: https://pulse.unicutmedia.com
+      MINIO_SERVER_URL: https://howispulse.com
       # No public console (admin UI). Reachable from the host via SSH-tunnel
       # if needed: `ssh -L 9001:127.0.0.1:9001 michael@…` + visit localhost.
       MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001

@@ -18,10 +18,11 @@ from typing import Annotated
 import jwt
 import structlog
 import webauthn
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from webauthn.helpers import base64url_to_bytes
 
+from dcc_auth.browser_sessions import create_session, set_session_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User, WebAuthnCredential
@@ -33,7 +34,7 @@ from dcc_auth.passkeys import (
     load_user_credentials,
 )
 from dcc_auth.recovery import decode_mfa_ticket
-from dcc_auth.routes import _check_rate, _hash_ip, _issue_tokens, _signer_dep
+from dcc_auth.routes import _check_rate, _client_ip, _hash_ip, _issue_tokens, _signer_dep
 from dcc_auth.schemas import (
     TokensOut,
     WebAuthnLoginOptionsIn,
@@ -98,6 +99,7 @@ async def webauthn_login_options(
 async def webauthn_login_verify(
     payload: WebAuthnLoginVerifyIn,
     request: Request,
+    response: Response,
     session: SessionDep,
     signer: Annotated[JwtSigner, Depends(_signer_dep)],
 ):
@@ -156,7 +158,7 @@ async def webauthn_login_verify(
             status.HTTP_401_UNAUTHORIZED, detail="passkey does not match account"
         )
     user = await session.get(User, target_user_id)
-    if user is None or user.disabled:
+    if user is None or user.disabled or user.is_suspended:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     try:
@@ -179,12 +181,27 @@ async def webauthn_login_verify(
 
     row.sign_count = verified.new_sign_count
     row.last_used_at = datetime.now(UTC)
+    user_agent = request.headers.get("user-agent")
     tokens = await _issue_tokens(
         session,
         user,
         signer=signer,
-        user_agent=request.headers.get("user-agent"),
+        user_agent=user_agent,
         ip_hash=_hash_ip(request),
     )
+    # Browser-Session-Cookie wie beim Passwort-Login — sonst sind die cookie-only
+    # Cert-/Backup-/Profile-Endpoints für Passkey-User unerreichbar (401). Ein
+    # Passkey mit user-verification (passwordless) bzw. Passwort+Passkey (2FA) ist
+    # vollwertige MFA → acr="1" (erfüllt den mfa_step_up_required-Gate).
+    amr = ["webauthn"] if passwordless else ["pwd", "webauthn"]
+    sid = await create_session(
+        session,
+        user_id=user.id,
+        amr=amr,
+        acr="1",
+        user_agent=user_agent,
+        ip=_client_ip(request),
+    )
     await session.commit()
+    set_session_cookie(response, sid)
     return tokens

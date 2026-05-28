@@ -15,9 +15,17 @@ from dcc_auth.db import engine
 from dcc_auth.routes import router
 from dcc_auth.routes_account import router as account_router
 from dcc_auth.routes_admin import router as admin_router
+from dcc_auth.routes_admin_instances import router as admin_instances_router
 from dcc_auth.routes_admin_backup import router as admin_backup_router
+from dcc_auth.routes_backups import router as backups_router
 from dcc_auth.routes_admin_smtp import router as admin_smtp_router
 from dcc_auth.routes_avatar import router as avatar_router
+from dcc_auth.routes_credentials import router as credentials_router
+from dcc_auth.routes_crl import router as crl_router
+from dcc_auth.routes_complaints import router as complaints_router
+from dcc_auth.routes_instance_applications import router as instance_applications_router
+from dcc_auth.routes_profile import router as profile_router
+from dcc_auth.routes_suspended_instances import router as suspended_instances_router
 from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_sessions import router as sessions_router
@@ -33,7 +41,7 @@ async def lifespan(app: FastAPI):
     app.state.rate_buckets = {}
     settings = get_settings()
     # Token-cleanup background task. Skipped under tests (the conftest sets
-    # ``app.state.skip_cleanup = True`` after create_app so the per-test
+    # app.state.skip_cleanup = True after create_app so the per-test
     # in-memory SQLite engine isn't held open by a stray task).
     cleanup_task: asyncio.Task | None = None
     if not getattr(app.state, "skip_cleanup", False):
@@ -65,6 +73,7 @@ def create_app() -> FastAPI:
     app.include_router(account_router)
     app.include_router(avatar_router)
     app.include_router(admin_router)
+    app.include_router(admin_instances_router)
     app.include_router(admin_smtp_router)
     app.include_router(admin_backup_router)
     app.include_router(recovery_router)
@@ -73,6 +82,13 @@ def create_app() -> FastAPI:
     app.include_router(totp_router)
     app.include_router(webauthn_router)
     app.include_router(webauthn_login_router)
+    app.include_router(credentials_router)
+    app.include_router(backups_router)
+    app.include_router(crl_router)
+    app.include_router(complaints_router)
+    app.include_router(suspended_instances_router)
+    app.include_router(profile_router)
+    app.include_router(instance_applications_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

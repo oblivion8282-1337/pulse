@@ -11,6 +11,7 @@ import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -52,7 +53,8 @@ async def test_ready_carries_voice_states(ws_app, _auth_signer, redis):
         def _connect():
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    payload = ws.receive_json()
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
                     assert payload["op"] == "ready"
                     states = {s["channel_id"]: s for s in payload["voice_states"]}
                     assert states[cid]["user_ids"] == ["777"]
@@ -82,7 +84,7 @@ async def test_voice_state_pushed_to_connected_client(ws_app, _auth_signer, redi
             ).json()
             cid = vc["id"]
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 # Simulate the voice-signaling service publishing an event.
                 import redis as sync_redis
 
@@ -137,7 +139,7 @@ async def test_voice_self_state_op_persists_and_broadcasts(ws_app, _auth_signer,
             try:
                 r.sadd(f"voice:room:channel-{cid}", str(owner_uid))
                 with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     ws.send_json(
                         {
                             "op": "voice_self_state",
@@ -190,7 +192,7 @@ async def test_voice_self_state_rejects_non_voice_channel(ws_app, _auth_signer):
                 headers=_auth(token),
             ).json()
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json(
                     {
                         "op": "voice_self_state",
@@ -281,7 +283,8 @@ async def test_ready_carries_voice_overrides(ws_app, _auth_signer, redis):
         def _connect():
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    payload = ws.receive_json()
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
                     assert payload["op"] == "ready"
                     overrides = {o["user_id"]: o for o in payload["voice_overrides"]}
                     assert "555" in overrides and overrides["555"]["muted"] is True
@@ -314,7 +317,7 @@ async def test_voice_override_event_pushed_to_connected_client(
             ).json()
             cid = vc["id"]
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 import redis as sync_redis
 
                 r = sync_redis.Redis.from_url(_REDIS_URL)
@@ -363,7 +366,7 @@ async def test_voice_disconnect_event_pushed_to_connected_client(
             ).json()
             cid = vc["id"]
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 import redis as sync_redis
 
                 r = sync_redis.Redis.from_url(_REDIS_URL)

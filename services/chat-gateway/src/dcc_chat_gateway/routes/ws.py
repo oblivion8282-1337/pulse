@@ -49,6 +49,7 @@ import time
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 
+from dcc_chat_gateway import __version__
 from dcc_chat_gateway.routes.ws_ops import run_session_op_loop
 from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
@@ -127,7 +128,24 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4001, reason="token expired")
         return
 
+    # JWKS cold-start gate: refuse WS connections while the token validator
+    # has not yet fetched its JWKS (auth-svc unreachable at startup).
+    # Default True so tests that never set jwks_ready still pass.
+    if not getattr(websocket.app.state, "jwks_ready", True):
+        await websocket.close(code=4046, reason="jwks not ready")
+        return
+
     await websocket.accept()
+
+    # Hello-frame: sent immediately after accept, before ready.
+    # Phase-4 frontend checks server_version against its MIN_SERVER_VERSION
+    # build constant. Backend never validates the client version here.
+    await websocket.send_json({
+        "op": "hello",
+        "server_version": __version__,
+        "capabilities": [],
+    })
+
     app = websocket.app
     manager = app.state.connection_manager
     if not await manager.register(websocket, user):

@@ -115,7 +115,7 @@ CLAUDE.md's `❌ electron-builder` ist **Linux-Kontext-spezifisch** (Flatpak-Man
 
 **Distribution-Pfad für ersten Wurf** (vor electron-builder-Integration): Zip + PowerShell-Bootstrap analog `streaming/bootstrap-gsr.fish`, entpackt nach `%LOCALAPPDATA%\Pulse\hq-sidecar\`. Minimaler Aufwand, gleiche mentale Map wie Linux.
 
-**Lizenz-Modell:** Pulse bleibt closed (kein LICENSE-File), FFmpeg-DLLs werden **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen), Source-Mirror der gepinnten FFmpeg-Version irgendwo auf `pulse.unicutmedia.com/legal/`. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
+**Lizenz-Modell:** Pulse bleibt closed (kein LICENSE-File), FFmpeg-DLLs werden **getrennt** ausgeliefert (= LGPL-konform: User kann sie austauschen), Source-Mirror der gepinnten FFmpeg-Version irgendwo auf `howispulse.com/legal/`. Binary-Größe: ~50 MB DLL-Overhead — relativ zu Electron (150 MB) egal.
 
 ## Linux-Build-vs-Test-Realität
 

@@ -20,6 +20,7 @@
   import ImageOffIcon from '@lucide/svelte/icons/image-off';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
@@ -32,6 +33,14 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
+  import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
+  import { serverState } from '$lib/ws/server-state.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import AddServerDialog from './sidebar/AddServerDialog.svelte';
+  import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
+  import ServerIconButton from './sidebar/ServerIconButton.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
   import UserFooter from './UserFooter.svelte';
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
@@ -102,7 +111,7 @@
     try {
       const g = await chatApi.uploadGuildIcon(target.id, file);
       guildsStore.updateGuild(g);
-      toast.success('Server-Bild aktualisiert');
+      toast.success('Gilden-Bild aktualisiert');
     } catch (err) {
       toast.error('Bild-Upload fehlgeschlagen', { description: (err as Error).message });
     }
@@ -112,7 +121,7 @@
     try {
       await chatApi.deleteGuildIcon(g.id);
       guildsStore.updateGuild({ ...g, icon_url: null });
-      toast.success('Server-Bild entfernt');
+      toast.success('Gilden-Bild entfernt');
     } catch (err) {
       toast.error('Bild entfernen fehlgeschlagen', { description: (err as Error).message });
     }
@@ -146,17 +155,94 @@
       deleteConfirmOpen = false;
       deleteTarget = null;
     } catch (err) {
-      toast.error('Server löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error('Gilde löschen fehlgeschlagen', { description: (err as Error).message });
     } finally {
       deleteBusy = false;
     }
+  }
+
+  // -- Server-Instanzen-Section (Cloud + Self-Hosts) ------------------------
+  // Vorher eine eigene linke Spalte (ServerSidebar.svelte); jetzt unten in
+  // dieser Spalte integriert mit Trennlinie davor. Designziel: eine
+  // vertikale Sidebar, Discord-Style für Cloud-only-User mit kompaktem
+  // Footer-Block, Self-Host-User sieht zusätzliche Server-Icons.
+  let addServerOpen = $state(false);
+  let removeServerTarget = $state<ServerEntry | null>(null);
+  let removeServerConfirmOpen = $state(false);
+  let infoServerTarget = $state<ServerEntry | null>(null);
+  let infoServerOpen = $state(false);
+
+  onMount(() => serverState.start());
+  onDestroy(() => serverState.stop());
+
+  let cloudServer = $derived(serversStore.servers.find((s) => s.isCloud));
+  let selfHostServers = $derived(serversStore.servers.filter((s) => !s.isCloud));
+
+  function openServerInfo(server: ServerEntry): void {
+    infoServerTarget = server;
+    infoServerOpen = true;
+  }
+
+  function setServerNotif(server: ServerEntry, mode: ServerEntry['notification_mode']): void {
+    serversStore.update(server.id, { notification_mode: mode });
+  }
+
+  function openServerRemove(server: ServerEntry): void {
+    removeServerTarget = server;
+    removeServerConfirmOpen = true;
+  }
+
+  function confirmServerRemove(): void {
+    if (!removeServerTarget) return;
+    const id = removeServerTarget.id;
+    const label = removeServerTarget.label;
+    try {
+      // Connection schließen BEVOR der Entry weg ist (Pool dereferenced
+      // serversStore.find sonst zu undefined → spätere reconnects crashen).
+      gatewayPool.close(id);
+      serversStore.remove(id);
+      serverGuilds.forget(id);
+      if (activeServer.serverId === id) {
+        const fallback = serversStore.servers.find((s) => s.isCloud);
+        if (fallback) activeServer.set(fallback.id);
+      }
+      toast.success(`${label} entfernt`);
+    } catch (err) {
+      toast.error('Entfernen fehlgeschlagen', { description: (err as Error).message });
+    } finally {
+      removeServerConfirmOpen = false;
+      removeServerTarget = null;
+    }
+  }
+
+  // Click auf eine Gilde aus einer non-aktiven Server-Sektion: erst Server
+  // wechseln, dann die Gilde aktivieren. activeServer.set() resettet die
+  // Server-scoped Stores und re-connectet die WS — sobald der Ready-Frame
+  // zurück ist, navigiert onSelect zur konkreten Gilde.
+  function selectGuildFromServer(g: Guild, serverId: string): void {
+    if (serverId !== activeServer.serverId) {
+      activeServer.set(serverId);
+    }
+    onSelect(g);
+  }
+
+  // Kompakter Section-Header pro Server: 2-Letter-Initialen, Klick öffnet
+  // dasselbe ContextMenu wie der frühere ServerIconButton (Notif-Mode,
+  // Server-Info, Server entfernen).
+  function serverInitials(label: string): string {
+    return label
+      .replace(/^https?:\/\//, '')
+      .split(/[.\s-]+/)
+      .map((w) => w[0]?.toUpperCase() ?? '')
+      .slice(0, 2)
+      .join('') || '?';
   }
 </script>
 
 <nav
   class="glass-panel flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
   data-testid="guild-rail"
-  aria-label="Server"
+  aria-label="Gilden und Server"
 >
   <!-- Tooltips auf Mobil aus: Hover-Popups (Server-Name/Member-Zahl) poppen
        auf Touch beim Antippen unerwünscht auf. -->
@@ -210,120 +296,226 @@
 
     <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
 
-    {#each guilds as g (g.id)}
-      {@const isOwner = currentUserId !== null && g.owner_id === currentUserId}
-      {@const canManageGuild = roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD)}
-      {@const canManageRoles = roles.hasGuildPermission(g.id, Perm.MANAGE_ROLES)}
-      {@const active = activeGuildId === g.id}
-      {@const guildChannels = guildsStore.channelsByGuild[g.id] ?? []}
-      {@const guildMentioned = !active && readState.hasGuildMentions(guildChannels.map((c) => c.id))}
+    <!-- Sidebar-Variante B: pro Server eine eigene Sektion. Section-Header =
+         Server-Label + Status-Dot. Darunter die Gilden DIESES Servers,
+         dann ein "+" zum Anlegen einer neuen Gilde auf DIESEM Server. Am
+         Ende globaler "+ Server"-Button für Self-Host-Add. -->
+    {#each serversStore.servers as server, sectionIdx (server.id)}
+      {@const isActiveServer = activeServer.serverId === server.id}
+      {@const sectionGuilds = serverGuilds.get(server.id)}
+      {@const sState = serverState.get(server.id).state}
+      {#if sectionIdx > 0}
+        <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
+      {/if}
+
+      <!-- Section-Header: Server-Label + Status-Dot, Klick = aktivieren -->
       <ContextMenu.Root>
         <ContextMenu.Trigger>
-          {#snippet child({ props })}
+          {#snippet child({ props: ctxProps })}
             <Tooltip.Root>
               <Tooltip.Trigger>
                 {#snippet child({ props: tipProps })}
-                  <div class="relative shrink-0">
-                    <!-- Discord-style active pill on the left -->
-                    {#if active}
-                      <span
-                        class="absolute -left-2 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-primary"
-                        aria-hidden="true"
-                      ></span>
-                    {/if}
-                    <button
-                      {...props}
-                      {...tipProps}
-                      class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)]"
-                      style={g.icon_url?.startsWith('https://') || g.icon_url?.startsWith('/')
-                        ? ''
-                        : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
-                      data-active={active}
-                      onclick={() => onSelect(g)}
-                      data-testid={`guild-${g.id}`}
-                    >
-                      {#if g.icon_url}
-                        <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
-                      {:else}
-                        {initials(g.name)}
-                      {/if}
-                    </button>
-                    {#if guildMentioned}
-                      <span
-                        class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
-                        aria-label="ungelesene Erwähnungen"
-                        data-testid="guild-mention-dot"
-                      ></span>
-                    {/if}
-                  </div>
+                  <button
+                    {...ctxProps}
+                    {...tipProps}
+                    class="relative flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] font-bold uppercase tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary"
+                    data-active={isActiveServer}
+                    onclick={() => activeServer.set(server.id)}
+                    data-testid={`server-${server.id}`}
+                    aria-label={server.label}
+                  >
+                    {serverInitials(server.label)}
+                    <span
+                      class="size-1.5 rounded-full {sState === 'open'
+                        ? 'bg-emerald-500'
+                        : sState === 'connecting' || sState === 'starting' || sState === 'updating'
+                          ? 'bg-amber-500'
+                          : sState === 'incompatible' || sState === 'cors-blocked' || sState === 'mfa-required'
+                            ? 'bg-red-500'
+                            : 'bg-gray-500'}"
+                      data-testid="server-state-dot"
+                      aria-label={`Status: ${sState}`}
+                    ></span>
+                  </button>
                 {/snippet}
               </Tooltip.Trigger>
-              <Tooltip.Content
-                side="right"
-                class="flex-col items-stretch gap-0 px-3 py-2.5 min-w-[12rem]"
-              >
-                <GuildVoiceTooltip guildId={g.id} name={g.name} />
-              </Tooltip.Content>
+              <Tooltip.Content side="right">{server.label}</Tooltip.Content>
             </Tooltip.Root>
           {/snippet}
         </ContextMenu.Trigger>
-        {#if canManageGuild || canManageRoles || isOwner || auth.user?.is_admin}
-          <ContextMenu.Content>
-            {#if canManageRoles || isOwner}
-              <ContextMenu.Item
-                onSelect={() => openSettings(g)}
-                data-testid="guild-settings"
-              >
-                <SettingsIcon />
-                Einstellungen
-              </ContextMenu.Item>
-            {/if}
-            {#if canManageGuild}
-              <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
-                <PencilIcon />
-                Server umbenennen
-              </ContextMenu.Item>
-              <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
-                <ImageIcon />
-                Server-Bild ändern…
-              </ContextMenu.Item>
-              {#if g.icon_url}
-                <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
-                  <ImageOffIcon />
-                  Server-Bild entfernen
+        <ContextMenu.Content>
+          <ContextMenu.Item onSelect={() => openServerInfo(server)}>
+            Server-Info
+          </ContextMenu.Item>
+          <ContextMenu.Sub>
+            <ContextMenu.SubTrigger>Benachrichtigungen</ContextMenu.SubTrigger>
+            <ContextMenu.SubContent>
+              <ContextMenu.CheckboxItem
+                checked={server.notification_mode === 'all'}
+                onCheckedChange={() => setServerNotif(server, 'all')}
+              >Alle</ContextMenu.CheckboxItem>
+              <ContextMenu.CheckboxItem
+                checked={server.notification_mode === 'mentions'}
+                onCheckedChange={() => setServerNotif(server, 'mentions')}
+              >Nur Erwähnungen</ContextMenu.CheckboxItem>
+              <ContextMenu.CheckboxItem
+                checked={server.notification_mode === 'none'}
+                onCheckedChange={() => setServerNotif(server, 'none')}
+              >Stumm</ContextMenu.CheckboxItem>
+            </ContextMenu.SubContent>
+          </ContextMenu.Sub>
+          {#if !server.isCloud}
+            <ContextMenu.Separator />
+            <ContextMenu.Item variant="destructive" onSelect={() => openServerRemove(server)}>
+              <Trash2Icon /> Server entfernen
+            </ContextMenu.Item>
+          {/if}
+        </ContextMenu.Content>
+      </ContextMenu.Root>
+
+      <!-- Gilden des Servers -->
+      {#each sectionGuilds as g (g.id)}
+        {@const isOwner = isActiveServer && currentUserId !== null && g.owner_id === currentUserId}
+        {@const canManageGuild = isActiveServer && roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD)}
+        {@const canManageRoles = isActiveServer && roles.hasGuildPermission(g.id, Perm.MANAGE_ROLES)}
+        {@const active = isActiveServer && activeGuildId === g.id}
+        {@const guildChannels = isActiveServer ? (guildsStore.channelsByGuild[g.id] ?? []) : []}
+        {@const guildMentioned = isActiveServer && !active && readState.hasGuildMentions(guildChannels.map((c) => c.id))}
+        <ContextMenu.Root>
+          <ContextMenu.Trigger>
+            {#snippet child({ props })}
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  {#snippet child({ props: tipProps })}
+                    <div class="relative shrink-0">
+                      {#if active}
+                        <span
+                          class="absolute -left-2 top-1/2 h-7 w-1 -translate-y-1/2 rounded-r-full bg-primary"
+                          aria-hidden="true"
+                        ></span>
+                      {/if}
+                      <button
+                        {...props}
+                        {...tipProps}
+                        class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)]"
+                        style={g.icon_url?.startsWith('https://') || g.icon_url?.startsWith('/')
+                          ? ''
+                          : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
+                        data-active={active}
+                        onclick={() => selectGuildFromServer(g, server.id)}
+                        data-testid={`guild-${g.id}`}
+                      >
+                        {#if g.icon_url}
+                          <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
+                        {:else}
+                          {initials(g.name)}
+                        {/if}
+                      </button>
+                      {#if guildMentioned}
+                        <span
+                          class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
+                          aria-label="ungelesene Erwähnungen"
+                          data-testid="guild-mention-dot"
+                        ></span>
+                      {/if}
+                    </div>
+                  {/snippet}
+                </Tooltip.Trigger>
+                <Tooltip.Content
+                  side="right"
+                  class="flex-col items-stretch gap-0 px-3 py-2.5 min-w-[12rem]"
+                >
+                  {#if isActiveServer}
+                    <GuildVoiceTooltip guildId={g.id} name={g.name} />
+                  {:else}
+                    <span class="text-text-bright text-sm font-semibold">{g.name}</span>
+                    <span class="text-text-muted text-xs">{server.label}</span>
+                  {/if}
+                </Tooltip.Content>
+              </Tooltip.Root>
+            {/snippet}
+          </ContextMenu.Trigger>
+          {#if isActiveServer && (canManageGuild || canManageRoles || isOwner || auth.user?.is_admin)}
+            <ContextMenu.Content>
+              {#if canManageRoles || isOwner}
+                <ContextMenu.Item
+                  onSelect={() => openSettings(g)}
+                  data-testid="guild-settings"
+                >
+                  <SettingsIcon />
+                  Einstellungen
                 </ContextMenu.Item>
               {/if}
-            {/if}
-            {#if isOwner || auth.user?.is_admin}
-              {#if canManageGuild}<ContextMenu.Separator />{/if}
-              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
-                <Trash2Icon />
-                Server löschen
-              </ContextMenu.Item>
-            {/if}
-          </ContextMenu.Content>
-        {/if}
-      </ContextMenu.Root>
+              {#if canManageGuild}
+                <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
+                  <PencilIcon />
+                  Gilde umbenennen
+                </ContextMenu.Item>
+                <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
+                  <ImageIcon />
+                  Gilden-Bild ändern…
+                </ContextMenu.Item>
+                {#if g.icon_url}
+                  <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
+                    <ImageOffIcon />
+                    Gilden-Bild entfernen
+                  </ContextMenu.Item>
+                {/if}
+              {/if}
+              {#if isOwner || auth.user?.is_admin}
+                {#if canManageGuild}<ContextMenu.Separator />{/if}
+                <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
+                  <Trash2Icon />
+                  Gilde löschen
+                </ContextMenu.Item>
+              {/if}
+            </ContextMenu.Content>
+          {/if}
+        </ContextMenu.Root>
+      {/each}
+
+      <!-- "+" Gilde auf DIESEM Server -->
+      {#if onCreateClick}
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
+                onclick={() => {
+                  if (server.id !== activeServer.serverId) activeServer.set(server.id);
+                  onCreateClick?.();
+                }}
+                data-testid={isActiveServer ? 'guild-create' : `guild-create-${server.id}`}
+                aria-label={`Gilde auf ${server.label} erstellen`}
+              >
+                <PlusIcon class="size-5" />
+              </button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content side="right">Gilde auf {server.label}</Tooltip.Content>
+        </Tooltip.Root>
+      {/if}
     {/each}
 
-    {#if onCreateClick}
-      <Tooltip.Root>
-        <Tooltip.Trigger>
-          {#snippet child({ props })}
-            <button
-              {...props}
-              class="border-primary/30 text-primary flex size-12 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all md:size-10 hover:rounded-xl hover:bg-bg-hover"
-              onclick={onCreateClick}
-              data-testid="guild-create"
-              aria-label="Server erstellen"
-            >
-              <PlusIcon class="size-6 md:size-5" />
-            </button>
-          {/snippet}
-        </Tooltip.Trigger>
-        <Tooltip.Content side="right">Server erstellen</Tooltip.Content>
-      </Tooltip.Root>
-    {/if}
+    <!-- Globaler "+ Server"-Button am Ende -->
+    <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
+        {#snippet child({ props })}
+          <button
+            {...props}
+            class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
+            onclick={() => (addServerOpen = true)}
+            data-testid="server-add"
+            aria-label="Server hinzufügen"
+          >
+            <PlusIcon class="size-5" />
+          </button>
+        {/snippet}
+      </Tooltip.Trigger>
+      <Tooltip.Content side="right">Server hinzufügen</Tooltip.Content>
+    </Tooltip.Root>
   </Tooltip.Provider>
 
   <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-
@@ -334,6 +526,28 @@
     </div>
   {/if}
 </nav>
+
+<AddServerDialog open={addServerOpen} onClose={() => (addServerOpen = false)} />
+
+<AlertDialog.Root bind:open={removeServerConfirmOpen}>
+  <AlertDialog.Content data-testid="remove-server-dialog">
+    <AlertDialog.Header>
+      <AlertDialog.Title>Server entfernen?</AlertDialog.Title>
+      <AlertDialog.Description>
+        {removeServerTarget?.label ?? 'Dieser Server'} wird aus deiner Liste entfernt. Deine
+        Daten auf dem Server bleiben dort — nur die lokale Verknüpfung wird gelöscht.
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmServerRemove} data-testid="remove-server-confirm">
+        Entfernen
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<ServerInfoDialog bind:open={infoServerOpen} server={infoServerTarget} />
 
 <RenameGuildDialog
   open={renameTarget !== null}
@@ -355,9 +569,9 @@
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
   <AlertDialog.Content data-testid="delete-guild-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Server löschen?</AlertDialog.Title>
+      <AlertDialog.Title>Gilde löschen?</AlertDialog.Title>
       <AlertDialog.Description>
-        {deleteTarget?.name ?? 'Dieser Server'} und alle Inhalte werden dauerhaft gelöscht.
+        {deleteTarget?.name ?? 'Diese Gilde'} und alle Inhalte werden dauerhaft gelöscht.
         Diese Aktion kann nicht rückgängig gemacht werden.
       </AlertDialog.Description>
     </AlertDialog.Header>

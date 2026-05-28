@@ -1,0 +1,13 @@
+#!/bin/sh
+# Postgres — embedded data DB. /data/pg initialized by 02-init-postgres.sh.
+# Bind localhost-only; nothing outside the container talks SQL.
+exec 2>&1
+exec /usr/sbin/gosu pulse /usr/lib/postgresql/15/bin/postgres \
+  -D /data/pg \
+  -k /var/run/pulse \
+  -h 127.0.0.1 \
+  -p 5432 \
+  -c log_destination=stderr \
+  -c logging_collector=off \
+  -c shared_buffers=128MB \
+  -c max_connections=100

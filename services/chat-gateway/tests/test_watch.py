@@ -22,6 +22,7 @@ from dcc_chat_gateway import watchkeys
 from dcc_chat_gateway.watch_source import parse_source
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
+from .conftest import receive_skipping, skip_init_frames
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -284,7 +285,7 @@ async def test_watch_start_writes_state_and_broadcasts(ws_app, _auth_signer):
             r = sync_redis.Redis.from_url(_REDIS_URL)
             try:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     ws.send_json(
                         {
                             "op": "watch_start",
@@ -315,7 +316,7 @@ async def test_watch_start_rejects_unsupported_source(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -336,7 +337,7 @@ async def test_watch_start_rejects_text_channel(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, cid = _setup_text_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -359,7 +360,7 @@ async def test_watch_start_rejects_non_member(ws_app, _auth_signer):
             outsider_uid = random.randint(1, 1_000_000)
             outsider_token = _auth_signer.issue_access(outsider_uid, f"u{outsider_uid}")
             with tc.websocket_connect(f"/ws?token={outsider_token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -381,7 +382,7 @@ async def test_watch_start_rejects_already_active(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()
+                skip_init_frames(ws)
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -419,7 +420,7 @@ async def test_watch_control_only_host(ws_app, _auth_signer):
                 headers=_auth(owner_token),
             )
             with tc.websocket_connect(f"/ws?token={owner_token}") as host_ws:
-                host_ws.receive_json()
+                skip_init_frames(host_ws)  # hello + ready
                 host_ws.send_json(
                     {
                         "op": "watch_start",
@@ -427,9 +428,9 @@ async def test_watch_control_only_host(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                host_ws.receive_json()  # broadcast
+                host_ws.receive_json()  # watch_state broadcast
                 with tc.websocket_connect(f"/ws?token={other_token}") as other_ws:
-                    other_ws.receive_json()  # ready (includes the active party)
+                    skip_init_frames(other_ws)  # hello + ready (includes watch_states)
                     other_ws.send_json(
                         {
                             "op": "watch_control",
@@ -451,7 +452,7 @@ async def test_watch_control_pause_updates_state(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -490,7 +491,7 @@ async def test_watch_stop_only_host(ws_app, _auth_signer):
                 headers=_auth(owner_token),
             )
             with tc.websocket_connect(f"/ws?token={owner_token}") as host_ws:
-                host_ws.receive_json()
+                skip_init_frames(host_ws)  # hello + ready
                 host_ws.send_json(
                     {
                         "op": "watch_start",
@@ -498,9 +499,9 @@ async def test_watch_stop_only_host(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                host_ws.receive_json()
+                host_ws.receive_json()  # watch_state broadcast
                 with tc.websocket_connect(f"/ws?token={other_token}") as other_ws:
-                    other_ws.receive_json()
+                    skip_init_frames(other_ws)  # hello + ready (watch_states in payload)
                     other_ws.send_json({"op": "watch_stop", "channel_id": cid})
                     err = other_ws.receive_json()
                     assert err["op"] == "error"
@@ -519,7 +520,7 @@ async def test_watch_stop_deletes_state(ws_app, _auth_signer):
             r = sync_redis.Redis.from_url(_REDIS_URL)
             try:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    ws.receive_json()  # ready
+                    receive_skipping(ws)  # skip hello + ready
                     ws.send_json(
                         {
                             "op": "watch_start",
@@ -546,7 +547,7 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
             with tc.websocket_connect(f"/ws?token={token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -611,7 +612,8 @@ async def test_ready_carries_watch_states(ws_app, _auth_signer, redis):
         def _connect():
             with TestClient(ws_app) as tc:
                 with tc.websocket_connect(f"/ws?token={token}") as ws:
-                    payload = ws.receive_json()
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
                     assert payload["op"] == "ready"
                     states = {s["channel_id"]: s["state"] for s in payload["watch_states"]}
                     assert states[cid]["host_user_id"] == "777"

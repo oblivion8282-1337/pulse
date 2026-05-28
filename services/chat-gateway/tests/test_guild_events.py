@@ -14,6 +14,7 @@ import random
 
 import pytest
 from starlette.testclient import TestClient
+from .conftest import receive_skipping
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -37,7 +38,7 @@ async def test_channel_created_broadcast(ws_app, _auth_signer):
             owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
             g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_token)).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 c = tc.post(
                     f"/guilds/{g['id']}/channels",
                     json={"name": "general"},
@@ -65,7 +66,7 @@ async def test_channel_updated_broadcast(ws_app, _auth_signer):
                 headers=_auth(owner_token),
             ).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 tc.patch(
                     f"/channels/{c['id']}",
                     json={"name": "renamed"},
@@ -91,7 +92,7 @@ async def test_channel_deleted_broadcast(ws_app, _auth_signer):
                 headers=_auth(owner_token),
             ).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.delete(f"/channels/{c['id']}", headers=_auth(owner_token))
                 assert r.status_code == 204
                 evt = _drain_until(ws, "channel_deleted")
@@ -121,7 +122,7 @@ async def test_guild_member_added_broadcast_via_invite(ws_app, _auth_signer):
                 f"/guilds/{g['id']}/invites", json={}, headers=_auth(owner_token)
             ).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.post(f"/invites/{inv['code']}/accept", headers=_auth(joiner_token))
                 assert r.status_code == 200, r.text
                 evt = _drain_until(ws, "guild_member_added")
@@ -140,7 +141,7 @@ async def test_guild_member_added_broadcast_via_add_member(ws_app, _auth_signer)
             owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
             g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_token)).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.post(
                     f"/guilds/{g['id']}/members",
                     json={"user_id": str(joiner_uid)},
@@ -162,7 +163,7 @@ async def test_guild_updated_broadcast(ws_app, _auth_signer):
             owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
             g = tc.post("/guilds", json={"name": "old"}, headers=_auth(owner_token)).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.patch(
                     f"/guilds/{g['id']}",
                     json={"name": "new"},
@@ -196,7 +197,7 @@ async def test_ownership_transfer_broadcasts_guild_updated(ws_app, _auth_signer)
                 headers=_auth(owner_token),
             )
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.post(
                     f"/guilds/{g['id']}/transfer-ownership",
                     json={"new_owner_id": str(other_uid), "confirm_name": "handover"},
@@ -226,7 +227,7 @@ async def test_channel_bump_broadcast(ws_app, _auth_signer):
                 headers=_auth(owner_token),
             ).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.post(
                     f"/channels/{c['id']}/messages",
                     json={"content": "hi"},
@@ -259,7 +260,7 @@ async def test_channel_bump_broadcast_via_ws_send(ws_app, _auth_signer):
                 headers=_auth(owner_token),
             ).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 ws.send_json({"op": "subscribe", "channel_id": c["id"]})
                 ws.send_json(
                     {"op": "send", "channel_id": c["id"], "content": "hi-ws", "nonce": "n1"}
@@ -281,7 +282,7 @@ async def test_guild_deleted_broadcast(ws_app, _auth_signer):
             owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
             g = tc.post("/guilds", json={"name": "doomed"}, headers=_auth(owner_token)).json()
             with tc.websocket_connect(f"/ws?token={owner_token}") as ws:
-                ws.receive_json()  # ready
+                receive_skipping(ws)  # skip hello + ready
                 r = tc.delete(f"/guilds/{g['id']}", headers=_auth(owner_token))
                 assert r.status_code == 204
                 evt = _drain_until(ws, "guild_deleted")

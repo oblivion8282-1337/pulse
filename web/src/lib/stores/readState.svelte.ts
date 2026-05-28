@@ -68,6 +68,23 @@ class ReadState {
     this.mentionCountByChannel = {};
   }
 
+  /**
+   * Phase 4.5: Reset-on-Server-Switch.
+   *
+   * Im Gegensatz zu `clear()` bleibt der localStorage-Inhalt erhalten —
+   * die Persistenz ist `pulse.readState.<userId>`-keyed, **nicht**
+   * server-keyed. Wir leeren nur den In-Memory-Snapshot, sodass der
+   * neue Server-Connection-ready-Frame mit den eigenen Channels seeden
+   * kann. `storageKey`/`mentionsKey` bleiben gesetzt, damit `markRead`
+   * weiterhin in den User-Key persistiert. Der nächste Hydrate beim
+   * Re-Login bzw. ein manueller `hydrateForUser(userId)` repopuliert.
+   */
+  resetCacheOnly(): void {
+    this.lastReadByChannel = {};
+    this.latestByChannel = {};
+    this.mentionCountByChannel = {};
+  }
+
   /** Record that we've observed a message in this channel (from any source —
    *  WS message frame, channel_bump envelope, or an initial-load fetch). */
   recordSeen(channelId: string, messageId: string): void {
