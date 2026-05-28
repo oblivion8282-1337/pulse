@@ -14,12 +14,12 @@
 #                            already pinned via the .flatpakref — losing it +
 #                            generating a new one breaks `flatpak update` for
 #                            existing installs.
-#   VPS_SSH_PRIVATE_KEY      Private key for `michael@77.42.71.166`. Generate a
+#   VPS_SSH_PRIVATE_KEY      Private key for `michael@159.195.150.54`. Generate a
 #                            dedicated CI keypair (`ssh-keygen -t ed25519 -f
 #                            ci-deploy -N ""`) and append the .pub to the VPS's
 #                            ~/.ssh/authorized_keys so this isn't tangled with
 #                            personal keys.
-#   VPS_KNOWN_HOSTS          Output of `ssh-keyscan 77.42.71.166` (one or more
+#   VPS_KNOWN_HOSTS          Output of `ssh-keyscan 159.195.150.54` (one or more
 #                            lines). Pins the host key — without it, rsync's
 #                            host-key prompt would either hang or accept a MITM.
 #
@@ -36,11 +36,11 @@ on:
       - 'desktop/package.json'
       - 'streaming/gsr-sidecar/**'
       - 'streaming/patches/**'
-      - 'packaging/com.unicutmedia.Pulse.yml'
+      - 'packaging/com.howispulse.Pulse.yml'
       - 'packaging/launcher.sh'
-      - 'packaging/com.unicutmedia.Pulse.desktop'
-      - 'packaging/com.unicutmedia.Pulse.metainfo.xml'
-      - 'packaging/com.unicutmedia.Pulse.svg'
+      - 'packaging/com.howispulse.Pulse.desktop'
+      - 'packaging/com.howispulse.Pulse.metainfo.xml'
+      - 'packaging/com.howispulse.Pulse.svg'
       - '.github/workflows/flatpak.yml'
   workflow_dispatch:    # also allow manual republish from the Actions tab
 
@@ -94,7 +94,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.local/share/flatpak
-          key: flatpak-runtimes-${{ runner.os }}-${{ hashFiles('packaging/com.unicutmedia.Pulse.yml') }}
+          key: flatpak-runtimes-${{ runner.os }}-${{ hashFiles('packaging/com.howispulse.Pulse.yml') }}
           restore-keys: |
             flatpak-runtimes-${{ runner.os }}-
       - name: Restore flatpak-builder cache
@@ -102,7 +102,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .flatpak-builder
-          key: flatpak-builder-${{ runner.os }}-${{ hashFiles('packaging/com.unicutmedia.Pulse.yml', 'streaming/patches/**') }}
+          key: flatpak-builder-${{ runner.os }}-${{ hashFiles('packaging/com.howispulse.Pulse.yml', 'streaming/patches/**') }}
           restore-keys: |
             flatpak-builder-${{ runner.os }}-
 
@@ -133,7 +133,7 @@ jobs:
             --user --install-deps-from=flathub \
             --repo=build/repo \
             --gpg-sign="$FLATPAK_KEYID" --gpg-homedir=packaging/.gpg \
-            build/flatpak packaging/com.unicutmedia.Pulse.yml
+            build/flatpak packaging/com.howispulse.Pulse.yml
 
       - name: Generate static deltas + prune old commits
         run: |
@@ -145,13 +145,13 @@ jobs:
       - name: Write .flatpakref + .flatpakrepo
         run: |
           PUBKEY_B64=$(gpg --homedir packaging/.gpg --export "$FLATPAK_KEYID" | base64 -w0)
-          cat > build/repo/com.unicutmedia.Pulse.flatpakref <<EOF
+          cat > build/repo/com.howispulse.Pulse.flatpakref <<EOF
           [Flatpak Ref]
           Title=Pulse
-          Name=com.unicutmedia.Pulse
+          Name=com.howispulse.Pulse
           Branch=master
-          Url=https://pulse.unicutmedia.com/flatpak/
-          Homepage=https://pulse.unicutmedia.com
+          Url=https://howispulse.com/flatpak/
+          Homepage=https://howispulse.com
           RuntimeRepo=https://dl.flathub.org/repo/flathub.flatpakrepo
           IsRuntime=false
           GPGKey=$PUBKEY_B64
@@ -159,8 +159,8 @@ jobs:
           cat > build/repo/pulse.flatpakrepo <<EOF
           [Flatpak Repo]
           Title=Pulse
-          Url=https://pulse.unicutmedia.com/flatpak/
-          Homepage=https://pulse.unicutmedia.com
+          Url=https://howispulse.com/flatpak/
+          Homepage=https://howispulse.com
           GPGKey=$PUBKEY_B64
           EOF
 
@@ -198,12 +198,12 @@ jobs:
       - name: Rsync repo to VPS
         run: |
           rsync -a --delete -e "ssh -i ~/.ssh/id_ed25519" \
-            build/repo/ michael@77.42.71.166:pulse/flatpak-repo/
+            build/repo/ michael@159.195.150.54:pulse/flatpak-repo/
 
       - name: Summary
         run: |
-          echo "✓ Flatpak republished to https://pulse.unicutmedia.com/flatpak/" >> "$GITHUB_STEP_SUMMARY"
-          echo "  Install:  \`flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "✓ Flatpak republished to https://howispulse.com/flatpak/" >> "$GITHUB_STEP_SUMMARY"
+          echo "  Install:  \`flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref\`" >> "$GITHUB_STEP_SUMMARY"
           echo "  Update:   \`flatpak update\`" >> "$GITHUB_STEP_SUMMARY"
 
       # ── Tear down the imported signing key ──────────────────────────────

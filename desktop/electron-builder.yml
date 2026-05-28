@@ -11,8 +11,8 @@
 # Voraussetzung: der Sidecar ist vorher release-gebaut
 # (`cargo build --release` in `streaming/win-hq-sidecar/`) — `extraResources`
 # zieht die Artefakte direkt aus dessen `target/release/`. Die Web-Oberfläche
-# wird NICHT mitgepackt: die App lädt sie von `https://pulse.unicutmedia.com`.
-appId: com.unicutmedia.pulse
+# wird NICHT mitgepackt: die App lädt sie von `https://howispulse.com`.
+appId: com.howispulse.pulse
 productName: Pulse
 directories:
   output: release

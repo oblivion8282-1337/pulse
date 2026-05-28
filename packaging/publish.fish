@@ -8,12 +8,12 @@
 #
 # Serving (once, on the VPS): infra/prod/docker-compose.yml bind-mounts the repo
 # dir into pulse_web and infra/prod/web-nginx.conf serves it under /flatpak/, so it
-# ends up at https://pulse.unicutmedia.com/flatpak/  →  see packaging/README.md.
+# ends up at https://howispulse.com/flatpak/  →  see packaging/README.md.
 #
-#   Friend installs:  flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref
+#   Friend installs:  flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref
 #   Friend updates:   flatpak update
 #
-# Web-only changes need NO new Flatpak — the packaged app loads pulse.unicutmedia.com
+# Web-only changes need NO new Flatpak — the packaged app loads howispulse.com
 # remotely. Only native changes (electron/main|preload, the Python sidecar, the GSR
 # binary) need a rebuild + republish.
 
@@ -22,13 +22,13 @@ set -l repo_root (realpath $script_dir/..)
 cd $repo_root
 
 # ── config ──────────────────────────────────────────────────────────────────
-set -l MANIFEST      packaging/com.unicutmedia.Pulse.yml
+set -l MANIFEST      packaging/com.howispulse.Pulse.yml
 set -l BUILD_DIR     build/flatpak                       # flatpak-builder scratch (--force-clean'd)
 set -l REPO_DIR      build/repo                          # local OSTree repo (archive-z2; persists across runs)
 set -l GPG_HOME      packaging/.gpg
-set -l VPS           michael@77.42.71.166
+set -l VPS           michael@159.195.150.54
 set -l VPS_REPO_PATH '~/pulse/flatpak-repo'              # host dir bind-mounted into pulse_web → /flatpak/
-set -l REF_URL       'https://pulse.unicutmedia.com/flatpak/'
+set -l REF_URL       'https://howispulse.com/flatpak/'
 set -l RUNTIME_REPO  'https://dl.flathub.org/repo/flathub.flatpakrepo'
 
 # ── signing key ─────────────────────────────────────────────────────────────
@@ -74,19 +74,19 @@ set -l PUBKEY_B64 (gpg --homedir $GPG_HOME --export $KEYID | base64 -w0)
 printf '%s\n' \
     '[Flatpak Ref]' \
     'Title=Pulse' \
-    'Name=com.unicutmedia.Pulse' \
+    'Name=com.howispulse.Pulse' \
     'Branch=master' \
     "Url=$REF_URL" \
-    'Homepage=https://pulse.unicutmedia.com' \
+    'Homepage=https://howispulse.com' \
     "RuntimeRepo=$RUNTIME_REPO" \
     'IsRuntime=false' \
     "GPGKey=$PUBKEY_B64" \
-    > $REPO_DIR/com.unicutmedia.Pulse.flatpakref
+    > $REPO_DIR/com.howispulse.Pulse.flatpakref
 printf '%s\n' \
     '[Flatpak Repo]' \
     'Title=Pulse' \
     "Url=$REF_URL" \
-    'Homepage=https://pulse.unicutmedia.com' \
+    'Homepage=https://howispulse.com' \
     "GPGKey=$PUBKEY_B64" \
     > $REPO_DIR/pulse.flatpakrepo
 
@@ -100,6 +100,6 @@ or begin
 end
 
 echo ""
-echo "✓ published to https://pulse.unicutmedia.com/flatpak/"
-echo "  friend installs:  flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref"
+echo "✓ published to https://howispulse.com/flatpak/"
+echo "  friend installs:  flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref"
 echo "  friend updates:   flatpak update     (or GNOME Software / KDE Discover, automatically)"

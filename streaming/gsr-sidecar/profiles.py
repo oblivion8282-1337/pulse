@@ -48,7 +48,7 @@ class ServerProfile:
         cls,
         channel_id: str,
         token: str,
-        mediamtx_endpoint: str = "77.42.71.166",
+        mediamtx_endpoint: str = "howispulse.com",
         *,
         push_protocol: str = "rtmp",
         push_port: int | None = None,

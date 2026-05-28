@@ -34,7 +34,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     let endpoint = channel
         .get("mediamtx_endpoint")
         .and_then(Value::as_str)
-        .unwrap_or("77.42.71.166");
+        .unwrap_or("howispulse.com");
     let push_protocol = channel
         .get("push_protocol")
         .and_then(Value::as_str)

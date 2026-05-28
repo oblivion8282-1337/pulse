@@ -13,11 +13,11 @@ somewhere stale, re-run the line above.)
 
 - **`pre-push`** — when a push includes changes to anything bundled into the Pulse
   Flatpak (`desktop/electron/`, `desktop/package.json`, `streaming/gsr-sidecar/`,
-  `streaming/patches/`, `packaging/com.unicutmedia.Pulse.yml`, `packaging/launcher.sh`,
+  `streaming/patches/`, `packaging/com.howispulse.Pulse.yml`, `packaging/launcher.sh`,
   the `.desktop`/`.metainfo.xml`/`.svg`), it runs `packaging/publish.fish` →
   rebuilds the signed OSTree repo and rsyncs it to the VPS, so installed clients
   pick it up via `flatpak update`. Web/backend/docs-only pushes are skipped
-  instantly (the packaged app loads `pulse.unicutmedia.com` remotely). Non-blocking:
+  instantly (the packaged app loads `howispulse.com` remotely). Non-blocking:
   a republish failure warns but doesn't abort the push. Skip for one push:
   `git push --no-verify`. Needs the signing key at `packaging/.gpg/` and `fish`;
   without either it skips with a warning.

@@ -7,7 +7,7 @@ import { roles } from '$lib/stores/roles.svelte';
 
 /**
  * Pull the invite code out of a pasted full link (e.g.
- * `https://pulse.unicutmedia.com/invite/abcd1234`) or accept a bare code.
+ * `https://howispulse.com/invite/abcd1234`) or accept a bare code.
  */
 export function parseInviteCode(input: string): string {
 	const trimmed = input.trim();

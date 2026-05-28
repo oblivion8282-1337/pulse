@@ -8,7 +8,7 @@
 # überlebt Reboots, anders als der frühere /tmp-Buildplatz.
 
 # ── Pinned upstream commit ─────────────────────────────────────────────────
-# Muss exakt mit `packaging/com.unicutmedia.Pulse.yml` (gpu-screen-recorder
+# Muss exakt mit `packaging/com.howispulse.Pulse.yml` (gpu-screen-recorder
 # Source-`commit:`) übereinstimmen, sonst baut der lokale Dev-Build was anderes
 # als der ausgelieferte Flatpak. Die Patches sind zeilenanker-anhängig — gegen
 # einen verschobenen HEAD schlagen sie still fehl. Wenn du bumpst, beide
