@@ -45,6 +45,11 @@ rtmpServerKey: /data/certs/mediamtx.key
 webrtc: yes
 webrtcAddress: :8889
 webrtcEncryption: no
+# WebRTC/WHEP media plane: advertise a reachable ICE candidate. Without an
+# explicit UDP port + host, MediaMTX offers only the container's internal
+# bridge IPs and the WHEP connection never negotiates ("deadline exceeded").
+webrtcLocalUDPAddress: :8189
+webrtcIPsFromInterfaces: no
 
 hls: yes
 hlsAddress: :8888
@@ -56,6 +61,10 @@ authHTTPExclude:
   - path: ^api/.*
   - path: ^metrics/.*
 EOF
+    # The only reachable ICE host candidate is the public hostname — the
+    # container's interface IPs are internal bridge addrs. Appended after the
+    # heredoc because that block is quoted (no shell expansion).
+    printf 'webrtcAdditionalHosts: [%s]\n' "${PULSE_HOSTNAME}" >> /etc/mediamtx/mediamtx.yml
 fi
 
 chown pulse:pulse /etc/mediamtx/mediamtx.yml

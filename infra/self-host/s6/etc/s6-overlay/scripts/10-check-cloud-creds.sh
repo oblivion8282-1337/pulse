@@ -33,7 +33,7 @@ Set these in your \`docker run\` (or compose file). Example:
     -e PULSE_ADMIN_EMAIL=admin@firma.de \\
     ghcr.io/oblivion8282-1337/pulse-allinone:stable
 
-The client_id/secret pair comes from approval on pulse.unicutmedia.com
+The client_id/secret pair comes from approval on howispulse.com
 (see docs/SELF_HOST.md → "Setup für Self-Hoster", step 4).
 EOF
     exit 1

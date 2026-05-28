@@ -1,28 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.unicutmedia.Pulse</id>
+  <id>com.howispulse.Pulse</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>LicenseRef-proprietary</project_license>
   <name>Pulse</name>
   <summary>Web-first chat, voice and high-quality screen streaming</summary>
-  <developer id="com.unicutmedia">
+  <developer id="com.howispulse">
     <name>Unicut Media</name>
   </developer>
   <description>
     <p>
       Pulse is a Discord-like chat, voice and streaming client. The desktop app
-      is a thin Electron shell over the web app at pulse.unicutmedia.com; on
+      is a thin Electron shell over the web app at howispulse.com; on
       Linux it adds high-quality, GPU-encoded screen streaming via a bundled
       gpu-screen-recorder.
     </p>
   </description>
-  <launchable type="desktop-id">com.unicutmedia.Pulse.desktop</launchable>
+  <launchable type="desktop-id">com.howispulse.Pulse.desktop</launchable>
   <categories>
     <category>Network</category>
     <category>Chat</category>
     <category>AudioVideo</category>
   </categories>
-  <url type="homepage">https://pulse.unicutmedia.com</url>
+  <url type="homepage">https://howispulse.com</url>
   <provides>
     <binary>pulse</binary>
   </provides>

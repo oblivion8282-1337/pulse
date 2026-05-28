@@ -1,6 +1,6 @@
 #!/usr/bin/env fish
 #
-# Electron im Prod-Mode starten (lädt https://pulse.unicutmedia.com).
+# Electron im Prod-Mode starten (lädt https://howispulse.com).
 #
 # Symmetrisch zu dev-up.fish — nur die Electron-Schicht. Backend ist die echte
 # VPS, keine lokalen Services nötig. GSR-Binary für HQ-Streaming wird gesetzt
@@ -39,7 +39,7 @@ else
     _warn "GSR-Binary fehlt — HQ-Stream-Button bleibt versteckt."
 end
 
-_info "Electron starten (→ pulse.unicutmedia.com)"
+_info "Electron starten (→ howispulse.com)"
 bash -c "env $gsr_env setsid nohup ./node_modules/.bin/electron . > /tmp/dcc-electron-prod.log 2>&1 < /dev/null &"
 popd >/dev/null
 sleep 2

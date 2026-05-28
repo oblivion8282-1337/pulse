@@ -21,7 +21,7 @@ from dcc_chat_gateway.cloud_policy_poller import (
     get_cached_policy,
 )
 
-CLOUD_ORIGIN = "https://pulse.unicutmedia.com"
+CLOUD_ORIGIN = "https://howispulse.com"
 
 _POLICY = {
     "version": 1,

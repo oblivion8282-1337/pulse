@@ -290,7 +290,7 @@ async def get_docker_compose_snippet(
         f"PULSE_INSTANCE_CLIENT_SECRET=<...>  "
         f"# Trag hier dein bei Approval erhaltenes Secret ein!\n"
         f"PULSE_INSTANCE_MODE=self-host\n"
-        f"PULSE_CLOUD_ORIGIN=https://pulse.unicutmedia.com\n"
+        f"PULSE_CLOUD_ORIGIN=https://howispulse.com\n"
         f"WORKER_ID_CHAT={inst.worker_id_chat}\n"
         f"WORKER_ID_VOICE={inst.worker_id_voice}\n"
         f"WORKER_ID_MEDIA={inst.worker_id_media}\n"

@@ -6,7 +6,7 @@
 # First run pulls runtimes + builds FFmpeg + GSR from source → ~15-30 min.
 #
 # Distribution (later): instead of `--install`, do
-#   flatpak-builder --repo=<repo-dir> --force-clean build/flatpak packaging/com.unicutmedia.Pulse.yml
+#   flatpak-builder --repo=<repo-dir> --force-clean build/flatpak packaging/com.howispulse.Pulse.yml
 # then host <repo-dir> over HTTPS and hand out a .flatpakref.
 
 set script_dir (dirname (status -f))
@@ -16,7 +16,7 @@ cd $repo_root
 echo "→ build:electron (esbuild → desktop/electron/dist/*.cjs)"
 pnpm --filter @dcc/desktop build:electron; or exit 1
 
-set manifest packaging/com.unicutmedia.Pulse.yml
+set manifest packaging/com.howispulse.Pulse.yml
 set build_dir build/flatpak
 mkdir -p $build_dir
 
@@ -31,7 +31,7 @@ flatpak-builder \
 
 if test $status -eq 0
     echo ""
-    echo "✓ done — start with:  flatpak run com.unicutmedia.Pulse"
+    echo "✓ done — start with:  flatpak run com.howispulse.Pulse"
 else
     echo ""
     echo "✗ build failed — see output above"

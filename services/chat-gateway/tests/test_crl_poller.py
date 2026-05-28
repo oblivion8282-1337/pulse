@@ -23,7 +23,7 @@ from dcc_chat_gateway.crl_poller import (
     crl_poll_once,
 )
 
-CLOUD_ORIGIN = "https://pulse.unicutmedia.com"
+CLOUD_ORIGIN = "https://howispulse.com"
 CRL_URL = f"{CLOUD_ORIGIN}/.well-known/revoked-credentials"
 
 

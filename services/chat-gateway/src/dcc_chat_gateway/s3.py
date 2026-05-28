@@ -4,7 +4,7 @@ the browser uses.
 
 The split matters in prod: chat-gateway talks to MinIO over the docker
 network (``http://minio:9000``) but the browser can only reach it via
-nginx (``https://pulse.unicutmedia.com/s3/…``). Signatures embed the host,
+nginx (``https://howispulse.com/s3/…``). Signatures embed the host,
 so signing has to happen with the public endpoint, while plain ops bypass
 nginx for latency. MinIO is configured with ``MINIO_SERVER_URL`` matching
 ``s3_public_endpoint`` so its server-side signature check passes.

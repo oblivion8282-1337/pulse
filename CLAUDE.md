@@ -45,7 +45,7 @@ Runtimes: **Python** 3.14 (`>=3.13,<3.15`) · **uv** · **Node** 25 · **pnpm** 
 - electron 42.0.1 (gepinnt) bundlet Node 22.x. **Kein `postinstall`** — Binary wird beim ersten `require('electron')` lazy gezogen.
 - esbuild bundlet `electron/{main,preload}.ts` (zieht `sidecar.ts`+`store.ts` via Import mit) → `electron/dist/*.cjs` (`build:electron`).
 - `desktop/package.json` ist CJS (**ohne** `"type":"module"`), `"main":"electron/dist/main.cjs"`.
-- Scripts: `dev` (= build + `PULSE_DEV_URL=:5173 electron .` gegen Vite) · `prod` (= build + `electron .` ohne Env → lädt `https://pulse.unicutmedia.com`, keine DevTools) · `start` (`electron .` ohne Rebuild). DevTools nur bei `PULSE_DEVTOOLS=1` oder Strg+Shift+I. Build-Check ohne GUI: `cd desktop && pnpm run build:electron`.
+- Scripts: `dev` (= build + `PULSE_DEV_URL=:5173 electron .` gegen Vite) · `prod` (= build + `electron .` ohne Env → lädt `https://howispulse.com`, keine DevTools) · `start` (`electron .` ohne Rebuild). DevTools nur bei `PULSE_DEVTOOLS=1` oder Strg+Shift+I. Build-Check ohne GUI: `cd desktop && pnpm run build:electron`.
 - Voice funktioniert im Electron-Fenster (Chromium-WebRTC) — das war der Grund für den Tauri→Electron-Pivot.
 
 **Infra (Dev):** `docker-compose.yml` — Postgres `postgres:16-alpine`, Redis `redis:7-alpine`, LiveKit (hinter `docker compose --profile voice up -d`, **`network_mode: host`** — s.u.). MediaMTX läuft *separat* über `streaming/server/docker-compose.yml` (`network_mode: host`). Prod siehe „Produktiv-Deployment".
@@ -242,9 +242,9 @@ Client erst beim nächsten Guild-Mount/Reload.
 
 ## Flatpak-Packaging — `packaging/`
 
-`com.unicutmedia.Pulse` (`flatpak-builder`-Manifest `packaging/com.unicutmedia.Pulse.yml`). Bündelt das Electron-42-Binary
+`com.howispulse.Pulse` (`flatpak-builder`-Manifest `packaging/com.howispulse.Pulse.yml`). Bündelt das Electron-42-Binary
 + den Python-GSR-Sidecar + einen custom `gpu-screen-recorder` (FFmpeg-mit-NVENC + GSR-from-source + die zwei
-`streaming/patches/`). **Web wird NICHT mitgepackt** — die App lädt `https://pulse.unicutmedia.com` remote, Web-Fixes sind
+`streaming/patches/`). **Web wird NICHT mitgepackt** — die App lädt `https://howispulse.com` remote, Web-Fixes sind
 sofort live; nur native Änderungen (Electron-main/preload, Sidecar, GSR-Binary) brauchen einen Rebuild. Lokal bauen:
 `packaging/build.fish`. Auto-Publish ins signierte OSTree-Repo bei `main`-Pushes, die native Flatpak-Inhalte ändern, via
 `.github/workflows/flatpak.yml`.
@@ -254,14 +254,14 @@ Voll-Doku (Signing-Key, Distribution, Auto-Update, Troubleshooting) → `packagi
 
 ## Produktiv-Deployment (Hetzner-VPS) — Voll-Doku `infra/prod/DEPLOY.md`
 
-Läuft auf `michael@77.42.71.166` (neben Caddy + anderen Apps), erreichbar **https://pulse.unicutmedia.com**.
+Läuft auf `michael@77.42.71.166` (neben Caddy + anderen Apps), erreichbar **https://howispulse.com**.
 Ein Compose-Stack (`name: pulse`) in `~/pulse/infra/prod/`: die 6 Service-Container (GHCR
 `ghcr.io/oblivion8282-1337/pulse-*:latest`), `pulse_migrate_{auth,chat}` (`alembic upgrade head`),
 `pulse_mediamtx` + `pulse_livekit` (`network_mode: host`, gepinnt), `pulse_watchtower` (`--scope pulse`, 5min).
 - **Auto-Update:** push → `main` → `.github/workflows/ci.yml` baut+pusht die Images nach GHCR (`:latest`+`:sha`, nach
   grünen Tests) → `pulse_watchtower` zieht `:latest` ≤5 min später. Struktur-Änderungen (neuer Service / Env-Var /
   Compose-/nginx-/MediaMTX-/LiveKit-Config): `rsync infra/ → ~/pulse/infra/` + `cd ~/pulse/infra/prod && docker compose up -d`.
-- **Routing:** Caddy (`~/caddy/Caddyfile`, vhost `pulse.unicutmedia.com` → `pulse_web:80`, LE-Cert) → `pulse_web` nginx
+- **Routing:** Caddy (`~/caddy/Caddyfile`, vhost `howispulse.com` → `pulse_web:80`, LE-Cert) → `pulse_web` nginx
   (`infra/prod/web-nginx.conf`, im Image gebacken) → `/api/{auth,chat,ws,voice}/*` an die Services, `/whep/*`+`/hls/*` an
   MediaMTX, `/livekit/*` an LiveKit. Die nginx-Routen zu den host-Network-Diensten (MediaMTX/LiveKit) nutzen **statisches**
   `proxy_pass http://host.docker.internal:PORT/` (nicht Variable+Resolver — Dockers `127.0.0.11` kennt

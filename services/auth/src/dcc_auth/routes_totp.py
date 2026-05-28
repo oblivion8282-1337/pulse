@@ -28,9 +28,10 @@ from typing import Annotated
 import jwt
 import pyotp
 import qrcode
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import delete, func, select
 
+from dcc_auth.browser_sessions import create_session, set_session_cookie
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import BackupCode, User, WebAuthnCredential
@@ -42,6 +43,7 @@ from dcc_auth.recovery import (
 )
 from dcc_auth.routes import (
     _check_rate,
+    _client_ip,
     _get_current_user,
     _hash_ip,
     _issue_tokens,
@@ -234,6 +236,7 @@ async def totp_backup_regen(
 async def login_totp(
     payload: LoginTotpIn,
     request: Request,
+    response: Response,
     session: SessionDep,
     signer: Annotated[JwtSigner, Depends(_signer_dep)],
 ):
@@ -254,7 +257,13 @@ async def login_totp(
         ) from exc
 
     user = await session.get(User, user_id)
-    if user is None or user.disabled or not user.totp_enabled or not user.totp_secret:
+    if (
+        user is None
+        or user.disabled
+        or user.is_suspended
+        or not user.totp_enabled
+        or not user.totp_secret
+    ):
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         )
@@ -268,7 +277,22 @@ async def login_totp(
     tokens = await _issue_tokens(
         session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
     )
+    # Browser-Session-Cookie wie beim Passwort-Login (routes.py::login) — sonst
+    # bekommen 2FA-User keinen pulse_session-Cookie und die cookie-only Cert-/
+    # Backup-/Profile-Endpoints (runIssueFlow → /credentials/issue) liefern 401.
+    # acr="1": ein zweiter Faktor wurde geprüft → erfüllt den
+    # mfa_step_up_required-Gate (routes_credentials.py::issue_credential).
+    amr = ["pwd", "backup" if payload.backup_code else "otp"]
+    sid = await create_session(
+        session,
+        user_id=user.id,
+        amr=amr,
+        acr="1",
+        user_agent=user_agent,
+        ip=_client_ip(request),
+    )
     await session.commit()
+    set_session_cookie(response, sid)
     return tokens
 
 

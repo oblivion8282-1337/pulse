@@ -1,6 +1,6 @@
 # Packaging — Pulse Flatpak (T6)
 
-`com.unicutmedia.Pulse` — a Flatpak of the Electron desktop app.
+`com.howispulse.Pulse` — a Flatpak of the Electron desktop app.
 
 ## What's in it
 - Electron 42 (bundled binary), launched via `zypak-wrapper` (sandbox shim from `org.electronjs.Electron2.BaseApp`).
@@ -8,23 +8,23 @@
 - The pure-stdlib Python GSR sidecar (`streaming/gsr-sidecar/*.py`) → `/app/share/pulse/gsr-sidecar/` (matches `sidecar.ts`'s Flatpak default path).
 - A custom `gpu-screen-recorder` (`/app/bin/gpu-screen-recorder`): FFmpeg-with-NVENC + GSR-from-source + the `streaming/patches/` (FLV-Opus whitelist, Vulkan-encoder stub). The FFmpeg/GSR module stack is lifted verbatim from the proven gsr-streamer manifest.
 
-**Not** in it: the web frontend. The packaged app loads `https://pulse.unicutmedia.com` remotely (`electron/main.ts` → `PROD_URL`, no `PULSE_DEV_URL`). So web fixes are live without a new Flatpak; only native changes (Electron main/preload, the sidecar, the GSR binary) need a rebuild.
+**Not** in it: the web frontend. The packaged app loads `https://howispulse.com` remotely (`electron/main.ts` → `PROD_URL`, no `PULSE_DEV_URL`). So web fixes are live without a new Flatpak; only native changes (Electron main/preload, the sidecar, the GSR binary) need a rebuild.
 
 ## Build & install locally
 ```fish
 packaging/build.fish        # build:electron, then flatpak-builder --user --install
-flatpak run com.unicutmedia.Pulse
+flatpak run com.howispulse.Pulse
 ```
 First run pulls runtimes (`org.freedesktop.{Platform,Sdk}//24.08`, `org.electronjs.Electron2.BaseApp//24.08`) and builds FFmpeg + GSR from source — ~15-30 min.
 
 ## Distribution — self-updating Flatpak repo
 
 The packaged app is published to a signed OSTree repo served at
-`https://pulse.unicutmedia.com/flatpak/` (on the Hetzner VPS, behind the existing
+`https://howispulse.com/flatpak/` (on the Hetzner VPS, behind the existing
 Caddy → `pulse_web` nginx). A friend installs once from there and gets new builds
 via `flatpak update` (GNOME Software / KDE Discover also auto-update Flatpaks in the
 background). Remember: **web-only changes need no new Flatpak** — the app loads
-`pulse.unicutmedia.com` remotely; only native changes (electron `main`/`preload`,
+`howispulse.com` remotely; only native changes (electron `main`/`preload`,
 the Python sidecar, the GSR binary) need a rebuild + republish.
 
 ### One-time setup
@@ -49,7 +49,7 @@ packaging/publish.fish
 ```
 → `flatpak-builder --repo=build/repo` (FFmpeg/GSR come from the `.flatpak-builder`
 cache — fast after the first time) → `flatpak build-update-repo --generate-static-deltas
---prune` (small incremental updates) → regenerates `com.unicutmedia.Pulse.flatpakref`
+--prune` (small incremental updates) → regenerates `com.howispulse.Pulse.flatpakref`
 → `rsync build/repo/ → VPS:~/pulse/flatpak-repo/`.
 
 **Automatic on push:** the `.githooks/pre-push` hook runs `publish.fish` for you
@@ -61,8 +61,8 @@ it. Needs the signing key + `fish`; non-blocking (a failure warns, push proceeds
 
 ### The friend
 ```fish
-flatpak install --user https://pulse.unicutmedia.com/flatpak/com.unicutmedia.Pulse.flatpakref
-flatpak run com.unicutmedia.Pulse
+flatpak install --user https://howispulse.com/flatpak/com.howispulse.Pulse.flatpakref
+flatpak run com.howispulse.Pulse
 # later:
 flatpak update                       # or GNOME Software / KDE Discover, automatically
 ```
@@ -99,7 +99,7 @@ without pushing to GitHub) — opt in with `PULSE_FORCE_LOCAL_PUBLISH=1 git push
 **App won't start (Exit 1, almost no output).** First check whether the Electron
 tree is intact:
 ```fish
-flatpak run --command=sh com.unicutmedia.Pulse -c 'ls /app/electron/resources /app/electron/locales'
+flatpak run --command=sh com.howispulse.Pulse -c 'ls /app/electron/resources /app/electron/locales'
 ```
 If those are missing, it's the `strip-components` bug (see below). Otherwise it's
 usually GPU/Wayland on NVIDIA → try `PULSE_OZONE=x11 flatpak run …`, or add
@@ -113,9 +113,9 @@ runs*. The manifest therefore pins **`strip-components: 0`** for that source. If
 ever touch the `pulse` module's `archive` source, keep it at `0`.
 
 ## Files
-- `com.unicutmedia.Pulse.yml` — the manifest
+- `com.howispulse.Pulse.yml` — the manifest
 - `launcher.sh` — `/app/bin/pulse`: sets `GSR_BINARY`/`PULSE_SIDECAR_PY`, passes `--ozone-platform-hint=auto` (override: `PULSE_OZONE=x11`/`wayland`), then `exec zypak-wrapper /app/electron/electron /app/pulse/main.cjs`
-- `com.unicutmedia.Pulse.desktop` / `.metainfo.xml` / `.svg` — desktop integration (the `.svg` is `web/static/pulse-mark.svg`)
+- `com.howispulse.Pulse.desktop` / `.metainfo.xml` / `.svg` — desktop integration (the `.svg` is `web/static/pulse-mark.svg`)
 - `build.fish` — local build + `--user --install` (dev box)
 - `gen-signing-key.fish` — one-time: create the repo signing key in `packaging/.gpg/`
 - `publish.fish` — build into the signed OSTree repo + push it to the VPS (release flow)

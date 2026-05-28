@@ -5,7 +5,7 @@
 # .env.production (key name "pulse-prod" + the secret). voice-signaling must get
 # the same pair (LIVEKIT_API_KEY=pulse-prod, LIVEKIT_API_SECRET=<same secret>).
 #
-# Reached by browsers at wss://pulse.unicutmedia.com/livekit (Caddy → pulse_web
+# Reached by browsers at wss://howispulse.com/livekit (Caddy → pulse_web
 # nginx → host.docker.internal:7880). RTC media flows over UDP 7882-7892 direct
 # to the VPS public IP — those ports + 7881/tcp must be open in UFW.
 

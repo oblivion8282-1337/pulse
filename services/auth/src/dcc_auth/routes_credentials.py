@@ -233,7 +233,11 @@ def _sign_credential_jwt(user: User, cred: IssuedCredential, session_row: UserSe
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     payload: dict = {
-        "iss": settings.jwt_issuer,
+        # Identity-Certs carry the public OIDC issuer (NOT jwt_issuer) so the
+        # chat-gateway validator (credential_validator: issuer=pulse_oidc_issuer)
+        # accepts them and so an access token (iss=jwt_issuer) can never pass the
+        # cert iss-check. Both sides default to the same value.
+        "iss": settings.pulse_oidc_issuer,
         "aud": settings.jwt_audience,
         "sub": str(user.id),
         "typ": "credential",

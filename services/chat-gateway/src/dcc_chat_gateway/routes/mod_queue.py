@@ -172,6 +172,37 @@ async def list_mod_queue(
     return [_report_to_out(r) for r in rows]
 
 
+async def _report_in_guild(session: SessionDep, report: Report, guild_id: int) -> bool:
+    """True iff any of the report's targets belongs to ``guild_id``.
+
+    Mirrors the scope predicate in ``list_mod_queue``. Without this a mod in
+    guild A could resolve/dismiss a report targeting only guild B by POSTing its
+    id under guild A (cross-guild moderation bypass + audit-log written under the
+    wrong guild).
+    """
+    if report.target_channel_id is not None:
+        gid = await session.scalar(
+            select(Channel.guild_id).where(Channel.id == report.target_channel_id)
+        )
+        return gid == guild_id
+    if report.target_message_id is not None:
+        gid = await session.scalar(
+            select(Channel.guild_id)
+            .join(Message, Message.channel_id == Channel.id)
+            .where(Message.id == report.target_message_id)
+        )
+        return gid == guild_id
+    if report.target_user_id is not None:
+        member = await session.scalar(
+            select(GuildMember.user_id).where(
+                GuildMember.guild_id == guild_id,
+                GuildMember.user_id == report.target_user_id,
+            )
+        )
+        return member is not None
+    return False
+
+
 @router.post(
     "/guilds/{guild_id}/mod-queue/{report_id}/resolve",
     response_model=ReportItem,
@@ -188,6 +219,11 @@ async def resolve_report(
 
     report = await session.get(Report, report_id)
     if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
+    # Scope guard — the report must belong to THIS guild, not just any guild the
+    # caller happens to moderate. 404 (not 403) so it's indistinguishable from a
+    # non-existent id.
+    if not await _report_in_guild(session, report, guild_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     if report.status in ("resolved", "dismissed"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")

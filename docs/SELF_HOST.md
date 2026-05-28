@@ -12,7 +12,7 @@ MediaMTX, coturn und Caddy. Setup = ein Befehl.
 
 ### 1. Cloud-Account anlegen
 
-Registriere dich auf [pulse.unicutmedia.com](https://pulse.unicutmedia.com) und
+Registriere dich auf [howispulse.com](https://howispulse.com) und
 richte MFA ein (Pflicht für Self-Hoster).
 
 ### 2. Self-Host-Antrag stellen
@@ -72,7 +72,7 @@ docker run -d --name pulse \
 Alle Env-Vars und Defaults: `infra/self-host/.env.example`.
 
 **Optionale Variablen** (haben sinnvolle Defaults, hier nur ändern wenn nötig):
-- `PULSE_CLOUD_ORIGIN` (Default: `https://pulse.unicutmedia.com`) — wohin
+- `PULSE_CLOUD_ORIGIN` (Default: `https://howispulse.com`) — wohin
   CRL/JWKS-Pinning/Cloud-Policy-Polls gehen. Auf eine eigene Cloud-Foundation
   zeigen oder leer lassen für ein Standalone-Setup (Cloud-Pairing funktioniert
   dann nicht).
@@ -115,7 +115,7 @@ docker logs -f pulse
 
 ### 8. Erster Login
 
-1. Öffne [pulse.unicutmedia.com](https://pulse.unicutmedia.com) im Browser.
+1. Öffne [howispulse.com](https://howispulse.com) im Browser.
 2. Klicke **Server hinzufügen** → trage `chat.firma.de` ein.
 3. Du wirst automatisch Server-Owner (erste Registrierung = Bootstrap-Admin).
 
@@ -279,10 +279,10 @@ ist durch eine vorgelagerte Firewall gesperrt. Lösung: DNS prüfen, Firewall ö
 ### "JWKS nicht verfügbar — WS-Verbindungen schlagen fehl (4046)"
 
 chat-gateway konnte den JWKS-Endpoint der Cloud beim Start nicht erreichen.
-Vorübergehend, solange `pulse.unicutmedia.com` nicht erreichbar ist:
+Vorübergehend, solange `howispulse.com` nicht erreichbar ist:
 
 ```bash
-curl https://pulse.unicutmedia.com/.well-known/jwks.json
+curl https://howispulse.com/.well-known/jwks.json
 ```
 
 ### "Health-Endpoint returnt 503 degraded"

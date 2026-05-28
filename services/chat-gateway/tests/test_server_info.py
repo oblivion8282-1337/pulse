@@ -21,7 +21,7 @@ def _make_settings(**kwargs) -> MagicMock:
     s = MagicMock()
     s.pulse_instance_mode = kwargs.get("pulse_instance_mode", "self-host")
     s.pulse_instance_id = kwargs.get("pulse_instance_id", 0)
-    s.pulse_oidc_issuer = kwargs.get("pulse_oidc_issuer", "https://pulse.unicutmedia.com")
+    s.pulse_oidc_issuer = kwargs.get("pulse_oidc_issuer", "https://howispulse.com")
     return s
 
 
@@ -73,5 +73,5 @@ async def test_server_info_version_and_issuer(client, _isolate_chat_settings):
     assert resp.status_code == 200
     data = resp.json()
     assert data["server_version"] == __version__
-    assert "pulse.unicutmedia.com" in data["pulse_oidc_issuer"]
+    assert "howispulse.com" in data["pulse_oidc_issuer"]
     assert data["capabilities"] == []

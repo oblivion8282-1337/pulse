@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     # OIDC issuer used in Cert-JWT validation (``iss`` claim must match).
     # Self-hosts can override if they mirror the Cloud auth-svc behind a
     # local proxy.
-    pulse_oidc_issuer: str = "https://pulse.unicutmedia.com"
+    pulse_oidc_issuer: str = "https://howispulse.com"
 
     # JWT audience expected in Access-JWTs.  ``None`` ⇒ audience check
     # disabled (backwards-compat with existing Cloud tokens that carry no
@@ -123,8 +123,8 @@ class Settings(BaseSettings):
     pulse_instance_id: int = 0
 
     # Cloud origin used for JWKS + CRL polling.  Self-hosts may point this at
-    # a mirror or internal proxy if they can't reach pulse.unicutmedia.com directly.
-    pulse_cloud_origin: str = "https://pulse.unicutmedia.com"
+    # a mirror or internal proxy if they can't reach howispulse.com directly.
+    pulse_cloud_origin: str = "https://howispulse.com"
 
     # Path for the locally-generated Ed25519 session-signing key (DE 9).
     session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"

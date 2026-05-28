@@ -8,7 +8,7 @@
  * Linux note: the tray uses StatusNotifierItem (modern) or XEmbed (legacy) via
  * libappindicator. Most desktops (KDE, Cinnamon, XFCE, Hyprland+waybar) work
  * out of the box; bare GNOME needs the AppIndicator extension. In Flatpak the
- * `com.unicutmedia.Pulse` manifest grants `org.kde.StatusNotifierWatcher` so
+ * `com.howispulse.Pulse` manifest grants `org.kde.StatusNotifierWatcher` so
  * the tray works without bus-policy hacks.
  */
 

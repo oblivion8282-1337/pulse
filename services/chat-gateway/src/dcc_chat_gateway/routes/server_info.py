@@ -8,7 +8,7 @@ Shape::
 
     {
         "server_version": "0.8.0",
-        "pulse_oidc_issuer": "https://pulse.unicutmedia.com",
+        "pulse_oidc_issuer": "https://howispulse.com",
         "instance_id": "<snowflake-string>|null",
         "capabilities": []
     }

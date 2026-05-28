@@ -17,12 +17,12 @@ export type ServerEntry = {
   instance_id: string | null; // Snowflake der Instanz (NULL für Cloud)
   label: string;              // User-vergeben oder vom Server
   pairwise_sub: string | null;// Pro-Server-Pseudonym (NULL für Cloud — dort user_id direkt)
-  isCloud: boolean;           // true für pulse.unicutmedia.com (Hard-Default)
+  isCloud: boolean;           // true für howispulse.com (Hard-Default)
   notification_mode: 'all' | 'mentions' | 'none';
   added_at: number;           // Date.now() ms
 };
 
-export const CLOUD_HOSTNAME = 'https://pulse.unicutmedia.com';
+export const CLOUD_HOSTNAME = 'https://howispulse.com';
 export const CLOUD_LABEL = 'Pulse Cloud';
 
 const LS_KEY = 'pulse.servers';

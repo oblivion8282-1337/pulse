@@ -46,7 +46,7 @@ gültigen Env-Vars kam **kein einziger Service hoch**. Iterations-Smoke-Test dec
 
 Zwei Sonnet-Agents gingen über die ersten 10 Fixes:
 
-- [HIGH] Caddyfile.template CORS-Origin hardcoded auf `pulse.unicutmedia.com` → `{$PULSE_CLOUD_ORIGIN}`
+- [HIGH] Caddyfile.template CORS-Origin hardcoded auf `howispulse.com` → `{$PULSE_CLOUD_ORIGIN}`
 - [MED] `06-run-migrations.sh` ohne Guard gegen bereits laufenden Postgres → `pg_isready`-Check ergänzt
 - [LOW] RTMPS-Cert ohne SAN → `subjectAltName=DNS:$PULSE_HOSTNAME`
 - [HIGH] `docs/SELF_HOST.md` beschrieb Watchtower als eingebaut — ist separater Container

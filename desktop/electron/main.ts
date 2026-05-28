@@ -97,11 +97,11 @@ app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
 
 // Linux: Wayland-app_id / X11-WM_CLASS auf den Desktop-File-Namen ziehen, sonst
 // fällt Chromium auf "electron" zurück → das Fenster matcht nicht
-// `com.unicutmedia.Pulse.desktop`, und Wayland-Compositoren (Niri, Hyprland,
+// `com.howispulse.Pulse.desktop`, und Wayland-Compositoren (Niri, Hyprland,
 // Plasma …) zeigen kein App-Icon in der Taskleiste. Der Flatpak-Launcher gibt
 // dasselbe Flag mit; diese Zeile deckt Dev-Builds & nicht-Flatpak-Starts ab.
 if (process.platform === 'linux') {
-  app.commandLine.appendSwitch('class', 'com.unicutmedia.Pulse');
+  app.commandLine.appendSwitch('class', 'com.howispulse.Pulse');
 }
 
 // Which web app to load: the local Vite dev server only when PULSE_DEV_URL is
@@ -109,7 +109,7 @@ if (process.platform === 'linux') {
 // web-side fix is visible immediately, no Electron re-release needed (the GSR
 // streaming bridge stays local via the preload's `window.pulse`).
 const DEV_URL = process.env.PULSE_DEV_URL ?? null;
-const PROD_URL = process.env.PULSE_URL ?? 'https://pulse.unicutmedia.com';
+const PROD_URL = process.env.PULSE_URL ?? 'https://howispulse.com';
 const TARGET_URL = DEV_URL ?? PROD_URL;
 // DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
 // (detached); otherwise the standard accelerator (Ctrl+Shift+I) still toggles them.
@@ -235,7 +235,7 @@ function createWindow(): void {
   });
 
   // Lock navigation + popups to the configured target origin. Without these
-  // guards a (hypothetical) XSS on pulse.unicutmedia.com — or a manipulated
+  // guards a (hypothetical) XSS on howispulse.com — or a manipulated
   // PULSE_URL env override — could navigate the BrowserWindow to a third-party
   // page that inherits the contextBridge (`window.pulse.gsr.start()` etc.).
   mainWindow.webContents.on('will-navigate', (e, url) => {

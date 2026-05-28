@@ -138,10 +138,11 @@ async def _get_current_user(
         user = await session.get(User, user_id)
         if user is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
-        if user.disabled:
-            # Existing access tokens of disabled users remain technically valid
-            # (no global revocation), but every protected route must reject them
-            # — otherwise a disabled admin keeps full access until the ≤15 min TTL.
+        if user.disabled or user.is_suspended:
+            # Existing access tokens of disabled/suspended users remain technically
+            # valid (no global revocation), but every protected route must reject
+            # them — otherwise a disabled/suspended admin keeps full access until
+            # the ≤15 min TTL.
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="account disabled")
         return user
 
@@ -296,7 +297,7 @@ async def login(
         if user is not None
         else False
     )
-    if user is None or not pw_ok or user.disabled:
+    if user is None or not pw_ok or user.disabled or user.is_suspended:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
     # Transparent rehash when Argon2 parameters have been bumped since this
@@ -392,8 +393,8 @@ async def refresh(
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="user not found")
-    if user.disabled:
-        # Disabled accounts can't extend their session — also revoke this rt so
+    if user.disabled or user.is_suspended:
+        # Disabled/suspended accounts can't extend their session — also revoke this rt so
         # repeated attempts don't repeatedly hit the password verification path.
         rt.revoked_at = now
         await session.commit()

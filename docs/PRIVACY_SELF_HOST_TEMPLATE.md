@@ -20,7 +20,7 @@ Verantwortlicher im Sinne der DSGVO für diese Pulse-Instanz:
 **Adresse:** [DEINE ADRESSE]
 
 Die Nutzer-Identität (Konto, Profil, Cloud-übergreifende Identität) wird von
-Pulse Cloud (`pulse.unicutmedia.com`) verwaltet. Für diese Daten ist
+Pulse Cloud (`howispulse.com`) verwaltet. Für diese Daten ist
 Pulse/unicutmedia Medien verantwortlich.
 
 ---
@@ -56,7 +56,7 @@ Auf diesem Server (`[DEIN HOSTNAME]`) werden folgende Daten lokal gespeichert:
 
 ### Datenübermittlung an Pulse Cloud
 
-Diese Instanz kommuniziert mit `pulse.unicutmedia.com` für folgende Zwecke:
+Diese Instanz kommuniziert mit `howispulse.com` für folgende Zwecke:
 
 1. **JWKS-Fetch** (JSON Web Key Set): Öffentliche Schlüssel zur Verifikation von
    Session-Tokens. Kein User-Content wird dabei übertragen.
@@ -105,7 +105,7 @@ WebRTC-Voice-Verbindungen sind ebenfalls verschlüsselt (DTLS/SRTP).
 
 ### Rechte der Nutzer (DSGVO Art. 15–22)
 
-Nutzer können ihre Daten über das Cloud-Interface auf `pulse.unicutmedia.com`
+Nutzer können ihre Daten über das Cloud-Interface auf `howispulse.com`
 verwalten:
 
 - **Auskunft (Art. 15):** Profil-Daten über Cloud-UI einsehbar

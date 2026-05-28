@@ -140,7 +140,7 @@
           <li>Kopiere <code class="bg-bg-input rounded px-1 text-xs">infra/prod/</code> aus dem Pulse-Repo auf deinen Server.</li>
           <li>Führe <code class="bg-bg-input rounded px-1 text-xs">docker compose up -d</code> aus.</li>
           <li>Konfiguriere Caddy/nginx so, dass es auf <strong class="text-text-bright">{guideInstance?.hostname ?? 'deine-domain.tld'}</strong> zeigt.</li>
-          <li>Setze in der Pulse-Web-App <code class="bg-bg-input rounded px-1 text-xs">PULSE_CLOUD_ORIGIN=https://pulse.unicutmedia.com</code>.</li>
+          <li>Setze in der Pulse-Web-App <code class="bg-bg-input rounded px-1 text-xs">PULSE_CLOUD_ORIGIN=https://howispulse.com</code>.</li>
         </ol>
         <p class="text-text-muted text-xs">
           Worker-IDs (Chat/Voice/Media):

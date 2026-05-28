@@ -7,14 +7,14 @@
 #   - a custom-built `gpu-screen-recorder` (FFmpeg-with-NVENC + GSR-from-source + the FLV-Opus / Vulkan-stub patches),
 #     the FFmpeg/GSR module stack lifted verbatim from the proven gsr-streamer manifest.
 #
-# What's NOT inside: the web frontend. The packaged app loads https://pulse.unicutmedia.com remotely
+# What's NOT inside: the web frontend. The packaged app loads https://howispulse.com remotely
 # (electron/main.ts → PROD_URL, since no PULSE_DEV_URL is set), so web-side fixes are live without a new
 # Flatpak — only native changes (Electron main/preload, the sidecar, the GSR binary) need a rebuild.
 #
 # Local build/install (user scope, no sudo):  packaging/build.fish
 # (or:  pnpm --filter @dcc/desktop build:electron
-#       flatpak-builder --user --install-deps-from=flathub --force-clean --install build/flatpak packaging/com.unicutmedia.Pulse.yml )
-app-id: com.unicutmedia.Pulse
+#       flatpak-builder --user --install-deps-from=flathub --force-clean --install build/flatpak packaging/com.howispulse.Pulse.yml )
+app-id: com.howispulse.Pulse
 runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
@@ -40,7 +40,7 @@ appstream-compose: false
 # on first install keep referencing it and warn `No such ref … in remote` on
 # every update. Skipping the split makes the warning disappear for new
 # installs; existing installs need a one-time `flatpak uninstall --user
-# com.unicutmedia.Pulse.Locale` to clear the orphan.
+# com.howispulse.Pulse.Locale` to clear the orphan.
 separate-locales: false
 
 finish-args:
@@ -182,7 +182,7 @@ modules:
       - rm -f /app/electron/chrome-sandbox
       # The Electron app (esbuild bundle). main.ts reads icon.png at ../icon.png
       # relative to its own dir → install it at /app/icon.png. The package.json
-      # carries `desktopName: "com.unicutmedia.Pulse.desktop"` — Electron reads
+      # carries `desktopName: "com.howispulse.Pulse.desktop"` — Electron reads
       # that on startup and uses the stem as the Wayland app_id. Without it the
       # window's app_id falls back to "electron" and Wayland compositors
       # (Niri/Hyprland/Plasma) can't match it to the .desktop file → no icon in
@@ -197,14 +197,14 @@ modules:
       - install -m644 gsr-sidecar/control.py gsr-sidecar/profiles.py gsr-sidecar/stream_controller.py gsr-sidecar/gsr_binary.py gsr-sidecar/redact.py gsr-sidecar/__init__.py /app/share/pulse/gsr-sidecar/
       # Launcher + desktop integration
       - install -Dm755 packaging/launcher.sh /app/bin/pulse
-      - install -Dm644 packaging/com.unicutmedia.Pulse.desktop /app/share/applications/com.unicutmedia.Pulse.desktop
-      - install -Dm644 packaging/com.unicutmedia.Pulse.svg /app/share/icons/hicolor/scalable/apps/com.unicutmedia.Pulse.svg
+      - install -Dm644 packaging/com.howispulse.Pulse.desktop /app/share/applications/com.howispulse.Pulse.desktop
+      - install -Dm644 packaging/com.howispulse.Pulse.svg /app/share/icons/hicolor/scalable/apps/com.howispulse.Pulse.svg
       # Also install the PNG icon at a hicolor size — appstreamcli compose on
       # older Ubuntu (24.04: appstream 0.16.x) raises file-read-error when only
       # an SVG icon is present. Newer 1.x is happy with SVG alone, but the CI
       # runner is on the older version.
-      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.unicutmedia.Pulse.png
-      - install -Dm644 packaging/com.unicutmedia.Pulse.metainfo.xml /app/share/metainfo/com.unicutmedia.Pulse.metainfo.xml
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.howispulse.Pulse.png
+      - install -Dm644 packaging/com.howispulse.Pulse.metainfo.xml /app/share/metainfo/com.howispulse.Pulse.metainfo.xml
     sources:
       - type: archive
         url: https://github.com/electron/electron/releases/download/v42.0.1/electron-v42.0.1-linux-x64.zip

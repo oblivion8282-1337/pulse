@@ -4,7 +4,7 @@
 
 Pulse ist heute Single-Instance: ein `auth-svc`, ein `chat-gateway`, eine DB.
 Ziel: Eine **zentrale Identität** auf der Haupt-Domain (heute
-`pulse.unicutmedia.com`, Name ändert sich später) — damit Usernamen global
+`howispulse.com`, Name ändert sich später) — damit Usernamen global
 eindeutig sind und kein Namens-Wirrwarr entsteht — plus die **Möglichkeit, eigene
 private Server zu hosten**, auf denen Messages/Voice/Streams isoliert auf
 eigener Hardware liegen.
@@ -136,7 +136,7 @@ privaten Server ein User noch nutzt.
 
     **(C) Stealth-Beta-Phase (für Phase 0)**: Self-Host-Registration ist **Bootstrap-Admin-only**, kein Self-Service. Du registrierst manuell vertrauenswürdige Hoster. Cloud-Registration kann Invite-Code-only sein. AGB + e.V. + Versicherung erst beim öffentlichen Federation-Launch (Phase 1).
 
-    **(D) Lizenz schon erledigt**: AGPL-3.0-or-later + CLA nach Apache-ICLA-Vorbild (existiert, `LICENSE` + `CLA.md`) — Mastodon-Modell mit zusätzlicher Dual-Licensing-Option. Foundation-fähige Code-Struktur (die pulse.unicutmedia.com-Instanz ist code-seitig eine normale Pulse-Instanz, später an e.V./gGmbH übertragbar).
+    **(D) Lizenz schon erledigt**: AGPL-3.0-or-later + CLA nach Apache-ICLA-Vorbild (existiert, `LICENSE` + `CLA.md`) — Mastodon-Modell mit zusätzlicher Dual-Licensing-Option. Foundation-fähige Code-Struktur (die howispulse.com-Instanz ist code-seitig eine normale Pulse-Instanz, später an e.V./gGmbH übertragbar).
 
     **(E) UI macht Cloud/Self-Host-Trennung sichtbar**: Server-Badge in Sidebar, einmaliger Disclaimer beim ersten Beitritt pro Server.
 
@@ -193,7 +193,7 @@ privaten Server ein User noch nutzt.
 **Asymmetrische Distribution** (User-Entscheidung): Cloud bleibt **Multi-Container** (`infra/prod/`, skaliert horizontal, externe Postgres bei Wachstum). Self-Host läuft als **Single-Container** (`infra/self-host/`, DE 12, embedded alles).
 
 ```
-   pulse.unicutmedia.com (Cloud, Multi-Container)   chat.firma.de (Self-Host, Single-Container)
+   howispulse.com (Cloud, Multi-Container)   chat.firma.de (Self-Host, Single-Container)
    ──────────────────────────────────────────       ──────────────────────────────────────────
    ┌──────────────────────┐                         ┌─────────────────────────┐
    │ auth-svc             │                         │ Pulse All-in-One        │
@@ -252,7 +252,7 @@ für Edge-Cases, der aber nicht primär ist.
 
 **Cloud-internal Browser-Session** (Punkt 3, neu — Voraussetzung für die Credential-Endpoints):
 - Nach erfolgreichem `/login` (Username + Passwort + MFA wenn gefordert) setzt auth-svc einen **HttpOnly + SameSite=strict + Secure**-Session-Cookie (`pulse_session=...`, ~30 Min TTL, auto-refreshed bei Activity).
-- Cookie ist nur für die Cloud-Domain (`pulse.unicutmedia.com`), nicht für Self-Hosts.
+- Cookie ist nur für die Cloud-Domain (`howispulse.com`), nicht für Self-Hosts.
 - Cloud-API-Calls (`POST /credentials/issue`, `GET /credentials/profile-statement`, `POST /me/profile`, `POST /me/username`, `POST /me/instance-applications`, `POST /me/logout-everywhere`, `POST /admin/*` etc.) authentifizieren via Session-Cookie.
 - Cookie-Storage: `auth.user_sessions` (`session_id UUID PK, user_id BIGINT, created_at, last_seen_at, expires_at, amr JSONB, acr TEXT, user_agent TEXT, ip INET`). Score-basierter Cleanup-Job entfernt abgelaufene Sessions.
 - **Logout-Everywhere** (DE 11 A.11) revoked alle Sessions des Users zusätzlich zu den Certs.
@@ -533,10 +533,10 @@ Was sich konkret ändert gegenüber heutigem chat-gateway: Konfigurierbarkeit + 
 
 **Config-Änderungen** (`config.py:24`):
 ```python
-auth_jwks_url     = "https://pulse.unicutmedia.com/.well-known/jwks.json"
+auth_jwks_url     = "https://howispulse.com/.well-known/jwks.json"
 jwt_audience      = "self-host:<instance_id>"   # bzw. "cloud" für Cloud-Instanz
 jwt_issuer        = "dcc-auth"
-pulse_oidc_issuer = "https://pulse.unicutmedia.com"
+pulse_oidc_issuer = "https://howispulse.com"
 ```
 
 **JWKS-Persistence** (`security.py:65`):
@@ -594,7 +594,7 @@ zeigt nur "User X holt sein eigenes Profil", nicht wer es auf welchen Servern br
   ```json
   {
     "server_version": "0.8.0",
-    "pulse_oidc_issuer": "https://pulse.unicutmedia.com",
+    "pulse_oidc_issuer": "https://howispulse.com",
     "instance_id": "<snowflake>",
     "capabilities": []
   }
@@ -608,7 +608,7 @@ zeigt nur "User X holt sein eigenes Profil", nicht wer es auf welchen Servern br
   später nicht das Schema bricht.
 
 **Cloud-Policy-Poller** (`cloud_policy_poller.py`, neu, DE 10):
-- Pollt `https://pulse.unicutmedia.com/.well-known/pulse-version-policy.json`
+- Pollt `https://howispulse.com/.well-known/pulse-version-policy.json`
   alle 6h (konfigurierbar). Persistiert in Redis.
 - Nur Diagnose-Zweck (DE 10 finale Variante): wenn Self-Host's `server_version`
   != Cloud's `current_version` → Admin-UI zeigt Banner "Update läuft vermutlich
@@ -647,7 +647,7 @@ zeigt nur "User X holt sein eigenes Profil", nicht wer es auf welchen Servern br
   4. Self-Host schickt Challenge (random 32 Bytes) → Client signiert mit privatem Schlüssel
   5. Self-Host verifiziert Challenge-Signature mit `device_pubkey` aus Cert
   6. Self-Host erstellt lokalen Session-Token (5 Min TTL), gibt Connection frei
-- **CRL-Poller** Background-Task pollt `https://pulse.unicutmedia.com/.well-known/revoked-credentials`
+- **CRL-Poller** Background-Task pollt `https://howispulse.com/.well-known/revoked-credentials`
   alle 30s (hart erzwungen, kein Opt-out konsistent mit DE 10). Antwort persistiert in Redis-Set
   `auth:revoked:certs` mit per-Cert-TTL = `expiry - now`.
 - Fail-Soft: Cloud nicht erreichbar → letzter bekannter Stand bleibt aktiv, WARN-Log. Nicht hart
@@ -704,7 +704,7 @@ type ServerEntry = {
   pairwise_sub: string;       // Pro-Server-Pseudonym (vom Self-Host nach Cert-Auth zurückgegeben, NICHT client-seitig berechnet)
   session_token: string;      // Self-Host-lokales 5-Min-Token (DE 9, in Memory + auto-refresh, nicht persistiert für XSS-Härte)
   session_expires: number;
-  isCloud: boolean;           // true für pulse.unicutmedia.com
+  isCloud: boolean;           // true für howispulse.com
   notification_mode: 'all' | 'mentions' | 'none';  // Fallstrick #9
 };
 
@@ -721,9 +721,9 @@ localStorage, weil non-extractable Key-Storage).
   Server-ID identifiziert, welches Backend angesprochen wird.
 - Token-Auswahl + Refresh aus `servers.svelte.ts` (statt globalem Auth-Store).
 - **Cross-Origin** (Punkt 18): REST-Calls vom Cloud-Frontend zum Self-Host
-  brauchen CORS-Header (`Access-Control-Allow-Origin: https://pulse.unicutmedia.com`
+  brauchen CORS-Header (`Access-Control-Allow-Origin: https://howispulse.com`
   + `Allow-Credentials: true`). WebSocket-Connections nutzen Origin-Header-Check
-  (kein CORS) — Self-Host validiert `Origin: https://pulse.unicutmedia.com` direkt
+  (kein CORS) — Self-Host validiert `Origin: https://howispulse.com` direkt
   in `credential_validator`. Wenn Origin nicht in Whitelist (Cloud-Domain + ggf.
   Self-Host eigener Hostname für Health-Check-Tools): WS-Close 4003.
 
@@ -768,7 +768,7 @@ Cloud-Login-Page. Reconnect-Loop alleine hilft hier nicht — User muss aktiv.
 
 **Sidebar-UI** (`web/src/lib/components/sidebar/ServerList.svelte`, anpassen):
 - Discord-Style vertikale Icon-Spalte
-- Oben: Cloud-Server (`pulse.unicutmedia.com`-Guilds + DMs/Friends)
+- Oben: Cloud-Server (`howispulse.com`-Guilds + DMs/Friends)
 - Trennlinie
 - Darunter: Self-Host-Server (jeder ist ein Icon mit Hostname-Hover **+ Self-Host-Badge** zur klaren Unterscheidung von Cloud, DE 11)
 - Plus-Icon "Server hinzufügen" → Dialog mit URL-Eingabe
@@ -828,7 +828,7 @@ auszuliefern (siehe Phase 6).
 User auf der Cloud bekommt einen Invite-Link, z.B. `https://chat.firma.de/invite/abc123`.
 
 **Klick öffnet**: die Cloud-App mit Deep-Link
-`https://pulse.unicutmedia.com/app/add-server?invite=https://chat.firma.de/invite/abc123`.
+`https://howispulse.com/app/add-server?invite=https://chat.firma.de/invite/abc123`.
 
 (Das ist die saubere Variante, weil der Self-Host kein eigenes Frontend hat
 und die Cloud-App den Server-Switcher steuert. Bookmark-fähig.)
@@ -981,7 +981,7 @@ automatisch via Cert).
 Traversal. Opt-out via `PULSE_TURN_DISABLED=true` für Self-Hoster mit eigenem TURN.
 
 **Caddy-Config**: erzeugt beim First-Start, setzt CORS-Allow für die Cloud-Domain
-(`Access-Control-Allow-Origin: https://pulse.unicutmedia.com` + `Allow-Credentials`).
+(`Access-Control-Allow-Origin: https://howispulse.com` + `Allow-Credentials`).
 Auto-TLS via Let's Encrypt wenn Port 80 + 443 erreichbar; Fallback auf User-
 provided Cert via `/data/certs/`-Volume-Mount für Hoster ohne Public-Reach.
 
@@ -1001,7 +1001,7 @@ Identische Headers in Cloud-Production-Caddy (`infra/prod/Caddyfile`) — Pflich
 - `PULSE_ADMIN_EMAIL=admin@firma.de` — für Let's-Encrypt-TLS-Anmeldung + Health-Probe-Notifications (DE 10c)
 
 **Automatisch gesetzt im Single-Container** (Punkt 24+25 aus Review #4):
-- `PULSE_CLOUD_ORIGIN=https://pulse.unicutmedia.com` — Default, override-bar für private Cloud-Foundation-Setups
+- `PULSE_CLOUD_ORIGIN=https://howispulse.com` — Default, override-bar für private Cloud-Foundation-Setups
 - `PULSE_INSTANCE_MODE=self-host` — Default für Single-Container. Cloud-Multi-Container nutzt `=cloud`
 
 **Optionale Env-Vars:**
@@ -1014,7 +1014,7 @@ Identische Headers in Cloud-Production-Caddy (`infra/prod/Caddyfile`) — Pflich
 - `PULSE_BACKUP_DISABLED=true` — komplett deaktivieren (nicht empfohlen, nur für externe Backup-Lösungen)
 
 **Setup-Doku** (`docs/SELF_HOST.md`, neu) — wirklich Schritt für Schritt:
-1. **Cloud-Account anlegen** auf `pulse.unicutmedia.com`, MFA einrichten (DE 8 Pflicht für Self-Host-Hoster).
+1. **Cloud-Account anlegen** auf `howispulse.com`, MFA einrichten (DE 8 Pflicht für Self-Host-Hoster).
 2. **Self-Host-Antrag stellen** im Cloud-UI: "Ich möchte selbst hosten" → Formular (Hostname, Zweck, Kontakt).
 3. **Warten auf Approval** (manuell, du als Bootstrap-Admin reviewst — DE 11 Stealth-Beta).
 4. **Credentials abholen** im Cloud-UI unter "Meine Self-Host-Instances": `client_id` + `client_secret` (einmalig anzeigbar, Download als `.env`-Snippet).
@@ -1030,7 +1030,7 @@ Identische Headers in Cloud-Production-Caddy (`infra/prod/Caddyfile`) — Pflich
 - `/health` (öffentlich, kein Auth) — Caddy proxied zu `chat-gateway`. Simpler Status: 200 wenn alle Services laufen, sonst 503. Für Monitoring/Uptime-Checks. Kein User-Bezug, kein Privacy-Leak.
 - `/internal/health-probe` (Cloud-only, JWT-validiert) — speziell für DE 10c Health-Probe nach Update. Validiert JWT mit `purpose=health-probe`. Returnt detailliertes JSON (version, services, last_migration, etc.). Caddy proxied auch.
 - `pulse-health`-Script (Container-internal, nur via `docker exec`) — wird vom Dockerfile-`HEALTHCHECK` aufgerufen, prüft via s6-overlay-Sockets ob alle Sub-Services up sind. Nicht extern erreichbar.
-8. **Erster Login** auf `pulse.unicutmedia.com` → "Server hinzufügen" → `chat.firma.de` eintragen → wird automatisch Server-Owner.
+8. **Erster Login** auf `howispulse.com` → "Server hinzufügen" → `chat.firma.de` eintragen → wird automatisch Server-Owner.
 
 **Setup-Doku-Abschnitte zusätzlich** (Fallstricke #5, #7, #13):
 - **TLS + Public-Reach** (Fallstrick #7): Empfohlene Pfade je nach Setup —

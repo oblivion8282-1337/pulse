@@ -72,7 +72,7 @@ export interface PulseNotifyApi {
 }
 
 /** Invite deep-link payload — delivered by main after strict URL validation.
- *  `hostname` is a bare FQDN (e.g. "pulse.unicutmedia.com"), NOT a full URL.
+ *  `hostname` is a bare FQDN (e.g. "howispulse.com"), NOT a full URL.
  *  `code` is the invite code (alphanumeric, 6-64 chars). The frontend shows a
  *  disclaimer before touching the server. */
 export interface PulseInvitePayload {

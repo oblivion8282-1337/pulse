@@ -211,7 +211,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PULSE_DATA_PATH=/data \
     PULSE_INSTANCE_MODE=self-host \
-    PULSE_CLOUD_ORIGIN=https://pulse.unicutmedia.com \
+    PULSE_CLOUD_ORIGIN=https://howispulse.com \
     PULSE_LOG_LEVEL=info \
     PATH="/opt/pulse/venv/bin:${PATH}" \
     S6_KEEP_ENV=1 \
@@ -289,9 +289,12 @@ RUN groupadd -g 10001 pulse \
 #   80, 443           — Caddy (HTTP/3 over UDP/443 also; phase 6.B may add 443/udp)
 #   3478, 3478/udp    — coturn STUN/TURN
 #   7882-7892/udp     — LiveKit ICE
+#   1936              — MediaMTX RTMPS ingest (HQ-stream push; raw TCP, can't go via Caddy)
+#   8189/udp          — MediaMTX WebRTC/WHEP ICE (HQ-stream playback media plane)
 # Internal-only (NOT exposed): 5432 (pg), 6379 (redis), 7880 (livekit ws),
-#   8002–8005 (python services), 9997 (mediamtx api).
-EXPOSE 80 443 3478 3478/udp 7882-7892/udp
+#   8002–8005 (python services), 8888/8889 (mediamtx hls/whep, proxied via Caddy),
+#   9997 (mediamtx api).
+EXPOSE 80 443 1936 3478 3478/udp 7882-7892/udp 8189/udp
 
 VOLUME ["/data"]
 

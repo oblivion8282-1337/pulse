@@ -182,7 +182,7 @@
             bind:value={inviteInput}
             required
             autocomplete="off"
-            placeholder="https://pulse.unicutmedia.com/invite/… oder abcd1234"
+            placeholder="https://howispulse.com/invite/… oder abcd1234"
             data-testid="join-guild-input"
           />
         </div>
