@@ -71,7 +71,7 @@
   onHomeClick={() => goto('/app/@me')}
 />
 
-<!-- DM-/Freunde-Liste auch ohne Gilde: ein gilden-loser User muss seine
+<!-- DM-/Freunde-Liste auch ohne Community: ein community-loser User muss seine
      Direktnachrichten + Freundschaftsanfragen erreichen können. Ohne diese
      Liste war /app eine Sackgasse und das Pulse-Icon ein toter Link. -->
 <DMChannelList
@@ -82,18 +82,18 @@
 <div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
   {#if guilds.list.length === 0}
     <div class="text-center">
-      <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Gilden</p>
+      <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Communitys</p>
       <Button onclick={() => (creating = true)} data-testid="empty-create-guild">
-        {canCreateGuild ? 'Gilde erstellen oder beitreten' : 'Gilde beitreten'}
+        {canCreateGuild ? 'Community erstellen oder beitreten' : 'Community beitreten'}
       </Button>
       {#if !canCreateGuild}
         <p class="text-text-muted mt-2 text-xs">
-          Server-Erstellung ist vom Admin deaktiviert — du kannst aber per Einladung beitreten.
+          Community-Erstellung ist vom Admin deaktiviert — du kannst aber per Einladung beitreten.
         </p>
       {/if}
     </div>
   {:else}
-    Wähle einen Server.
+    Wähle eine Community.
   {/if}
 </div>
 

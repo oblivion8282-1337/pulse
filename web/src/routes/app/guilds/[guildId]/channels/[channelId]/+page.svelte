@@ -452,7 +452,7 @@
     data-testid="guild-plugin-rail"
   >
     <h2 class="text-text-muted px-2 pt-1 text-xs font-bold uppercase tracking-wide">
-      Server-Pets
+      Community-Pets
     </h2>
     <TamagotchiWidget {guildId} />
   </aside>

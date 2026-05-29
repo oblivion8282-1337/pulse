@@ -292,7 +292,7 @@
 
       <main class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
         {#if !guild}
-          <p class="text-text-muted text-sm">Server nicht gefunden.</p>
+          <p class="text-text-muted text-sm">Community nicht gefunden.</p>
         {:else if tab === 'roles' && canManageRoles}
           <RolesEditor
             {guildId}

@@ -1,8 +1,8 @@
 /**
  * Multi-Server-Guild-Liste für die Sidebar (Variante B).
  *
- * Hält pro Server-ID die Liste der Gilden — anders als ``guildsStore``,
- * der nur die Gilden des aktiv-verbundenen Servers spiegelt. Die Sidebar
+ * Hält pro Server-ID die Liste der Communitys — anders als ``guildsStore``,
+ * der nur die Communitys des aktiv-verbundenen Servers spiegelt. Die Sidebar
  * rendert alle Sektionen gleichzeitig, daher muss jeder Server eine eigene
  * Snapshot-Liste haben.
  *
@@ -26,7 +26,7 @@ class ServerGuildsStore {
   byServer = $state<Record<string, Guild[]>>({});
   loading = $state<Record<string, boolean>>({});
 
-  /** Snapshot der Gilden eines Servers. Leere Liste bei unbekannter ID. */
+  /** Snapshot der Communitys eines Servers. Leere Liste bei unbekannter ID. */
   get(serverId: string): Guild[] {
     return this.byServer[serverId] ?? [];
   }

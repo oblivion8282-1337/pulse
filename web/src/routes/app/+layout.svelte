@@ -21,7 +21,7 @@
   let { children } = $props();
   let hydrated = $state(false);
 
-  // Sidebar-Variante B: aktiver Server bekommt seine Gilden vom WS-Ready-
+  // Sidebar-Variante B: aktiver Server bekommt seine Communitys vom WS-Ready-
   // Frame über ``guilds.list``. Wir spiegeln das in den ``serverGuilds``-
   // Multi-Server-Cache, damit die Sidebar-Sektion des aktiven Servers
   // dieselbe autoritative Quelle nutzt wie ChannelList / ChatView und WS-
@@ -41,7 +41,7 @@
 
   // Server-Snapshot-Loader. Läuft bei jeder Änderung von
   // serversStore.servers — neue Server (Add via AddServerDialog,
-  // Cert-Login mit Invite, etc.) bekommen ihre Gilden-Liste sofort
+  // Cert-Login mit Invite, etc.) bekommen ihre Community-Liste sofort
   // geladen. ensureLoaded ist intern idempotent (cached Eintrag wird nicht
   // refetched), daher kein Update-Loop. queueMicrotask vermeidet den
   // Svelte-Effect-Depth-Guard, falls ensureLoaded synchron etwas
@@ -106,7 +106,7 @@
     hydrated = true;
 
     // Sidebar-Variante B: für jeden non-aktiven Server (Cloud + Self-Hosts)
-    // einmal die Gilden-Liste pullen, damit die Sektionen parallel gefüllt
+    // einmal die Community-Liste pullen, damit die Sektionen parallel gefüllt
     // sind. Aktiver Server wird vom WS-Ready-Frame autoritativ befüllt
     // (Bridge-Effect weiter unten); für alle anderen reicht ein
     // best-effort REST-Snapshot.

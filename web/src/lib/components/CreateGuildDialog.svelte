@@ -69,7 +69,7 @@
       await onCreate(trimmed);
       // success → the parent navigates to the new guild and this dialog unmounts.
     } catch (err) {
-      error = (err as Error)?.message || 'Server erstellen fehlgeschlagen.';
+      error = (err as Error)?.message || 'Community erstellen fehlgeschlagen.';
       busy = false;
     }
   }
@@ -96,9 +96,9 @@
   <Dialog.Content data-testid="create-guild-dialog">
     {#if mode === 'choose'}
       <Dialog.Header>
-        <Dialog.Title>Gilde hinzufügen</Dialog.Title>
+        <Dialog.Title>Community hinzufügen</Dialog.Title>
         <Dialog.Description>
-          Erstelle eine eigene Gilde oder tritt einer über eine Einladung bei.
+          Erstelle eine eigene Community oder tritt einer über eine Einladung bei.
         </Dialog.Description>
       </Dialog.Header>
       <div class="space-y-2">
@@ -110,7 +110,7 @@
             data-testid="create-guild-choice"
           >
             <div>
-              <div class="text-text-bright font-semibold">Eigene Gilde erstellen</div>
+              <div class="text-text-bright font-semibold">Eigene Community erstellen</div>
               <div class="text-text-muted text-xs">Du wirst der Owner.</div>
             </div>
           </button>
@@ -122,15 +122,15 @@
           data-testid="join-guild-choice"
         >
           <div>
-            <div class="text-text-bright font-semibold">Einer Gilde beitreten</div>
+            <div class="text-text-bright font-semibold">Einer Community beitreten</div>
             <div class="text-text-muted text-xs">Mit einem Einladungslink oder -code.</div>
           </div>
         </button>
       </div>
     {:else if mode === 'create'}
       <Dialog.Header>
-        <Dialog.Title>Gilde erstellen</Dialog.Title>
-        <Dialog.Description>Gib deiner Gilde einen Namen.</Dialog.Description>
+        <Dialog.Title>Community erstellen</Dialog.Title>
+        <Dialog.Description>Gib deiner Community einen Namen.</Dialog.Description>
       </Dialog.Header>
       <form class="space-y-4" onsubmit={submitCreate}>
         <div class="space-y-1.5">
@@ -138,7 +138,7 @@
             for="create-guild-name"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            Server-Name
+            Community-Name
           </Label>
           <Input
             id="create-guild-name"
@@ -165,7 +165,7 @@
       </form>
     {:else}
       <Dialog.Header>
-        <Dialog.Title>Server beitreten</Dialog.Title>
+        <Dialog.Title>Community beitreten</Dialog.Title>
         <Dialog.Description>Füge den Einladungslink oder den Code ein.</Dialog.Description>
       </Dialog.Header>
       <form class="space-y-4" onsubmit={submitJoin}>

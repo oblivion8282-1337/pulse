@@ -127,7 +127,7 @@ class AuthStore {
     privacy.clear();
     onboardingState.reset();
     settings.resetUserScoped();
-    // Sidebar-Variante-B-Snapshot: pro-Server-Gilden-Liste wegwerfen.
+    // Sidebar-Variante-B-Snapshot: pro-Server-Community-Liste wegwerfen.
     void import('$lib/stores/serverGuilds.svelte').then((m) => m.serverGuilds.clear());
     // Decline-Flag zurücksetzen: ein "Als neues Gerät weiter" gilt nur für
     // die laufende Session — beim nächsten Login soll der User wieder den

@@ -115,7 +115,7 @@
     try {
       const g = await chatApi.uploadGuildIcon(target.id, file);
       guildsStore.updateGuild(g);
-      toast.success('Gilden-Bild aktualisiert');
+      toast.success('Community-Bild aktualisiert');
     } catch (err) {
       toast.error('Bild-Upload fehlgeschlagen', { description: (err as Error).message });
     }
@@ -125,7 +125,7 @@
     try {
       await chatApi.deleteGuildIcon(g.id);
       guildsStore.updateGuild({ ...g, icon_url: null });
-      toast.success('Gilden-Bild entfernt');
+      toast.success('Community-Bild entfernt');
     } catch (err) {
       toast.error('Bild entfernen fehlgeschlagen', { description: (err as Error).message });
     }
@@ -159,7 +159,7 @@
       deleteConfirmOpen = false;
       deleteTarget = null;
     } catch (err) {
-      toast.error('Gilde löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error('Community löschen fehlgeschlagen', { description: (err as Error).message });
     } finally {
       deleteBusy = false;
     }
@@ -219,10 +219,10 @@
     }
   }
 
-  // Click auf eine Gilde aus einer non-aktiven Server-Sektion: erst Server
-  // wechseln, dann die Gilde aktivieren. activeServer.set() resettet die
+  // Click auf eine Community aus einer non-aktiven Server-Sektion: erst Server
+  // wechseln, dann die Community aktivieren. activeServer.set() resettet die
   // Server-scoped Stores und re-connectet die WS — sobald der Ready-Frame
-  // zurück ist, navigiert onSelect zur konkreten Gilde.
+  // zurück ist, navigiert onSelect zur konkreten Community.
   function selectGuildFromServer(g: Guild, serverId: string): void {
     if (serverId !== activeServer.serverId) {
       activeServer.set(serverId);
@@ -246,7 +246,7 @@
 <nav
   class="glass-panel flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
   data-testid="guild-rail"
-  aria-label="Gilden und Server"
+  aria-label="Communitys und Server"
 >
   <!-- Tooltips auf Mobil aus: Hover-Popups (Server-Name/Member-Zahl) poppen
        auf Touch beim Antippen unerwünscht auf. -->
@@ -301,8 +301,8 @@
     <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
 
     <!-- Sidebar-Variante B: pro Server eine eigene Sektion. Section-Header =
-         Server-Label + Status-Dot. Darunter die Gilden DIESES Servers,
-         dann ein "+" zum Anlegen einer neuen Gilde auf DIESEM Server. Am
+         Server-Label + Status-Dot. Darunter die Communitys DIESES Servers,
+         dann ein "+" zum Anlegen einer neuen Community auf DIESEM Server. Am
          Ende globaler "+ Server"-Button für Self-Host-Add. -->
     {#each serversStore.servers as server, sectionIdx (server.id)}
       {@const isActiveServer = activeServer.serverId === server.id}
@@ -385,7 +385,7 @@
         </ContextMenu.Content>
       </ContextMenu.Root>
 
-      <!-- Gilden des Servers -->
+      <!-- Communitys des Servers -->
       {#each sectionGuilds as g (g.id)}
         {@const isOwner = isActiveServer && currentUserId !== null && g.owner_id === currentUserId}
         {@const canManageGuild = isActiveServer && roles.hasGuildPermission(g.id, Perm.MANAGE_GUILD)}
@@ -461,16 +461,16 @@
               {#if canManageGuild}
                 <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
                   <PencilIcon />
-                  Gilde umbenennen
+                  Community umbenennen
                 </ContextMenu.Item>
                 <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
                   <ImageIcon />
-                  Gilden-Bild ändern…
+                  Community-Bild ändern…
                 </ContextMenu.Item>
                 {#if g.icon_url}
                   <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
                     <ImageOffIcon />
-                    Gilden-Bild entfernen
+                    Community-Bild entfernen
                   </ContextMenu.Item>
                 {/if}
               {/if}
@@ -478,7 +478,7 @@
                 {#if canManageGuild}<ContextMenu.Separator />{/if}
                 <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
                   <Trash2Icon />
-                  Gilde löschen
+                  Community löschen
                 </ContextMenu.Item>
               {/if}
             </ContextMenu.Content>
@@ -486,7 +486,7 @@
         </ContextMenu.Root>
       {/each}
 
-      <!-- "+" Gilde auf DIESEM Server -->
+      <!-- "+" Community auf DIESEM Server -->
       {#if onCreateClick}
         <Tooltip.Root>
           <Tooltip.Trigger>
@@ -499,13 +499,13 @@
                   onCreateClick?.();
                 }}
                 data-testid={isActiveServer ? 'guild-create' : `guild-create-${server.id}`}
-                aria-label={`Gilde auf ${server.label} erstellen`}
+                aria-label={`Community auf ${server.label} erstellen`}
               >
                 <PlusIcon class="size-5" />
               </button>
             {/snippet}
           </Tooltip.Trigger>
-          <Tooltip.Content side="right">Gilde auf {server.label}</Tooltip.Content>
+          <Tooltip.Content side="right">Community auf {server.label}</Tooltip.Content>
         </Tooltip.Root>
       {/if}
     {/each}
@@ -581,9 +581,9 @@
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
   <AlertDialog.Content data-testid="delete-guild-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Gilde löschen?</AlertDialog.Title>
+      <AlertDialog.Title>Community löschen?</AlertDialog.Title>
       <AlertDialog.Description>
-        {deleteTarget?.name ?? 'Diese Gilde'} und alle Inhalte werden dauerhaft gelöscht.
+        {deleteTarget?.name ?? 'Diese Community'} und alle Inhalte werden dauerhaft gelöscht.
         Diese Aktion kann nicht rückgängig gemacht werden.
       </AlertDialog.Description>
     </AlertDialog.Header>

@@ -46,7 +46,7 @@
       guilds.updateGuild(updated);
       onClose();
     } catch (err) {
-      toast.error('Server umbenennen fehlgeschlagen', { description: (err as Error).message });
+      toast.error('Community umbenennen fehlgeschlagen', { description: (err as Error).message });
     } finally {
       busy = false;
     }
@@ -56,13 +56,13 @@
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="rename-guild-dialog">
     <Dialog.Header>
-      <Dialog.Title>Server umbenennen</Dialog.Title>
+      <Dialog.Title>Community umbenennen</Dialog.Title>
       <Dialog.Description>Neuer Name für „{guild?.name ?? ''}"</Dialog.Description>
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
         <Label for="rename-guild-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Server-Name
+          Community-Name
         </Label>
         <Input
           id="rename-guild-name"

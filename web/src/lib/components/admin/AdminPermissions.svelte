@@ -109,8 +109,8 @@
   <div class="mb-4">
     <h2 class="text-text-bright text-base font-semibold">Berechtigungen</h2>
     <p class="text-text-muted text-xs mt-0.5">
-      Was normale User dürfen. Admins (du selbst) sind von der Server-Erstellungs-Sperre
-      ausgenommen; Einladungen sind hart auf den jeweiligen Guild-Owner beschränkt.
+      Was normale User dürfen. Admins (du selbst) sind von der Community-Erstellungs-Sperre
+      ausgenommen; Einladungen sind hart auf den jeweiligen Community-Owner beschränkt.
     </p>
   </div>
 
@@ -120,13 +120,13 @@
     <div class="flex flex-col gap-2">
       {@render toggleRow(
         'allow_guild_creation',
-        'Server-Erstellung',
-        'Wenn aus, können nur Admins über das „+"-Symbol einen neuen Server erstellen.'
+        'Community-Erstellung',
+        'Wenn aus, können nur Admins über das „+"-Symbol eine neue Community erstellen.'
       )}
       {@render toggleRow(
         'allow_member_invites',
         'Einladungen verschicken',
-        'Wenn aus, kann nur der Server-Owner Einladungs-Codes für seinen Server erstellen.'
+        'Wenn aus, kann nur der Community-Owner Einladungs-Codes für seine Community erstellen.'
       )}
 
       <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">

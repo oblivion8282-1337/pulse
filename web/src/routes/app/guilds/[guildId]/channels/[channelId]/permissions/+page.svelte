@@ -67,7 +67,7 @@
       <p class="text-text-muted text-sm">Kanal nicht gefunden.</p>
     {:else if !canEdit}
       <p class="text-text-muted text-sm">
-        Du brauchst „Berechtigungen verwalten" (MANAGE_PERMISSIONS) für diesen Server.
+        Du brauchst „Berechtigungen verwalten" (MANAGE_PERMISSIONS) für diese Community.
       </p>
     {:else}
       <ChannelOverridesEditor {channelId} {guildId} {editorPermissions} />
