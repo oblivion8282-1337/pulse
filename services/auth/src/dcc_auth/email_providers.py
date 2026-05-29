@@ -36,7 +36,7 @@ PROVIDERS: dict[str, ProviderPreset] = {
     "brevo": {
         "name": "Brevo (300 Mails/Tag free)",
         "host": "smtp-relay.brevo.com",
-        "port": 587,
+        "port": 2525,  # alt-submission port — viele Hoster (z.B. netcup) sperren 25/465/587 ausgehend
         "use_ssl": False,
         "signup_url": "https://app.brevo.com/settings/keys/smtp",
         "credentials_hint": (
@@ -51,7 +51,7 @@ PROVIDERS: dict[str, ProviderPreset] = {
     "mailgun": {
         "name": "Mailgun",
         "host": "smtp.eu.mailgun.org",  # US-Region: smtp.mailgun.org
-        "port": 587,
+        "port": 2525,  # alt-submission port — siehe Brevo-Hinweis
         "use_ssl": False,
         "signup_url": "https://app.mailgun.com/app/sending/domains",
         "credentials_hint": (
@@ -64,8 +64,8 @@ PROVIDERS: dict[str, ProviderPreset] = {
     "resend": {
         "name": "Resend",
         "host": "smtp.resend.com",
-        "port": 465,
-        "use_ssl": True,
+        "port": 2587,  # alt-submission (STARTTLS) — 465/587 sind bei vielen Hostern (netcup) gesperrt
+        "use_ssl": False,
         "signup_url": "https://resend.com/api-keys",
         "credentials_hint": (
             "Resend → API Keys → Create API Key. "
