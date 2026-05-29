@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { register, me } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
   import { ApiError } from '$lib/api/client';
@@ -21,6 +22,12 @@
   let suggestions = $state<string[]>([]);
   let busy = $state(false);
 
+  // Invite code: prefilled from a shared ``/register?invite=CODE`` link, and
+  // otherwise revealed only when the backend reports the server is invite-only
+  // (so open instances keep the form clean).
+  let inviteCode = $state(page.url.searchParams.get('invite') ?? '');
+  let showInvite = $state(!!page.url.searchParams.get('invite'));
+
   async function submit(e: Event) {
     e.preventDefault();
     error = null;
@@ -31,7 +38,8 @@
         username: username.trim(),
         email: email.trim().toLowerCase(),
         password,
-        display_name: displayName.trim() || null
+        display_name: displayName.trim() || null,
+        invite_code: inviteCode.trim() || null
       });
       auth.setUser(await me());
 
@@ -68,6 +76,20 @@
           suggestions = Array.isArray(d.suggestions) ? d.suggestions : [];
         } else if (d?.error === 'email_taken') {
           error = 'Diese E-Mail ist bereits registriert.';
+        } else {
+          error = (err as Error).message;
+        }
+      } else if (err instanceof ApiError && err.status === 403) {
+        // Registration gate (auth-svc sends a plain-string detail).
+        const detail = String((err.body as { detail?: string } | null)?.detail ?? '');
+        if (detail.includes('invite code required')) {
+          showInvite = true;
+          error = 'Diese Instanz ist nur per Einladung. Bitte gib einen Einladungscode ein.';
+        } else if (detail.includes('invite')) {
+          showInvite = true;
+          error = 'Einladungscode ungültig oder abgelaufen.';
+        } else if (detail.includes('closed')) {
+          error = 'Registrierung ist derzeit geschlossen.';
         } else {
           error = (err as Error).message;
         }
@@ -145,6 +167,22 @@
         </Label>
         <Input id="reg-display" type="text" bind:value={displayName} maxlength={64} data-testid="reg-display" />
       </div>
+
+      {#if showInvite}
+        <div class="space-y-1.5">
+          <Label for="reg-invite" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+            Einladungscode
+          </Label>
+          <Input
+            id="reg-invite"
+            type="text"
+            bind:value={inviteCode}
+            maxlength={64}
+            autocomplete="off"
+            data-testid="reg-invite"
+          />
+        </div>
+      {/if}
 
       <div class="space-y-1.5">
         <Label for="reg-password" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">

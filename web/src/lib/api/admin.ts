@@ -28,6 +28,17 @@ export type AuthSettings = {
   registration_mode: RegistrationMode;
 };
 
+export type Invite = {
+  code: string;
+  created_at: string;
+  expires_at: string | null;
+  /** null = unbegrenzt oft einlösbar. */
+  max_uses: number | null;
+  uses: number;
+  revoked: boolean;
+  note: string | null;
+};
+
 export type AuthStats = {
   user_count: number;
   admin_count: number;
@@ -190,6 +201,26 @@ export const adminApi = {
     if (opts.before) params.set('before', opts.before);
     params.set('limit', String(opts.limit ?? 50));
     return request<Omit<AuditLogEntry, 'source'>[]>(`/admin/audit-log?${params}`, {
+      endpoint: 'auth'
+    });
+  },
+  listInvites(): Promise<Invite[]> {
+    return request<Invite[]>('/admin/invites', { endpoint: 'auth' });
+  },
+  createInvite(payload: {
+    max_uses?: number | null;
+    expires_in_days?: number | null;
+    note?: string | null;
+  }): Promise<Invite> {
+    return request<Invite>('/admin/invites', {
+      method: 'POST',
+      endpoint: 'auth',
+      body: payload
+    });
+  },
+  revokeInvite(code: string): Promise<void> {
+    return request<void>(`/admin/invites/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
       endpoint: 'auth'
     });
   },

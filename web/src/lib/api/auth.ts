@@ -41,6 +41,7 @@ export async function register(payload: {
   email: string;
   password: string;
   display_name?: string | null;
+  invite_code?: string | null;
 }): Promise<Tokens> {
   const tokens = await request<Tokens>('/register', {
     method: 'POST',

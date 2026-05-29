@@ -2,15 +2,15 @@
   Registration mode selector. Patches auth-svc's auth_settings singleton.
   Effect is immediate — the next POST /register call sees the new mode.
 
-  Note: ``invite_only`` currently behaves like ``closed`` because the
-  invite-code-issuing flow doesn't exist yet. The mode is on the menu so
-  the UI can stay stable once that lands.
+  ``invite_only`` requires a valid invite code on /register; codes are
+  issued + managed below (RegistrationInviteSection / auth-svc invite routes).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { Button } from '$lib/components/ui/button/index.js';
   import { adminApi, type RegistrationMode } from '$lib/api/admin';
+  import RegistrationInviteSection from './RegistrationInviteSection.svelte';
   import SaveIcon from '@lucide/svelte/icons/save';
 
   let current = $state<RegistrationMode | null>(null);
@@ -99,6 +99,11 @@
         {busy ? 'Speichere…' : 'Speichern'}
       </Button>
     </div>
+
+    <!-- Code-Verwaltung nur im (gespeicherten) invite_only-Modus. -->
+    {#if current === 'invite_only'}
+      <RegistrationInviteSection />
+    {/if}
   {:else}
     <div class="text-text-muted text-sm">lade…</div>
   {/if}
