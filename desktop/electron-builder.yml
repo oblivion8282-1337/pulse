@@ -16,11 +16,16 @@ appId: com.howispulse.pulse
 productName: Pulse
 directories:
   output: release
-# Was in die app.asar wandert — nur das esbuild-Bundle + package.json (für das
-# `main`-Feld). Keine node_modules: main.cjs ist bereits gebundelt, `electron`
-# ist external und wird von der Runtime selbst aufgelöst.
+# Was in die app.asar wandert — das esbuild-Bundle + package.json (für das
+# `main`-Feld) + das App-Icon. Keine node_modules: main.cjs ist bereits
+# gebundelt, `electron` ist external und wird von der Runtime selbst aufgelöst.
+# `electron/icon.png` MUSS mit rein: `main.ts`/`tray.ts` laden es zur Laufzeit
+# über `path.join(__dirname, '..', 'icon.png')` (= electron/icon.png in der asar)
+# für das Fenster-/Taskbar-/Tray-Icon. Ohne diesen Eintrag fehlt das Icon im
+# gepackten Build (in Dev liegt die Datei real da, deshalb fiel's nicht auf).
 files:
   - electron/dist/**/*
+  - electron/icon.png
   - package.json
 # Sidecar + FFmpeg-DLLs landen NEBEN der asar unter resources/hq-sidecar/ —
 # eine .exe + DLLs können nicht in die asar. Der Resolver in sidecar.ts findet
