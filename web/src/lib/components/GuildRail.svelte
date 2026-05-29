@@ -26,6 +26,7 @@
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
+  import { friendRequests } from '$lib/stores/friendRequests.svelte';
   // Channels-by-guild map drives the guild-rail mention indicator. We
   // reach into the same store; the rail's `guilds` prop only has
   // top-level guild metadata, not their channel lists.
@@ -71,11 +72,14 @@
     onGuildDeleted?: (guildId: string) => void;
   } = $props();
 
-  // True if any DM has a `latest > lastRead` — drives the red dot on the
-  // home button so the user knows there's something to look at on /app/@me
-  // without having to navigate there first. Computed live; flips off again
-  // as soon as the user opens the DM (the page's markRead bumps lastRead).
+  // Drives the red dot on the home button so the user sees there's something
+  // waiting on /app/@me without navigating there first. Covers everything that
+  // lives in the home area: unread DMs *and* incoming friend requests.
+  // Computed live — flips off as the user reads the DM (markRead bumps
+  // lastRead) / actions the request, and is hidden entirely while the user is
+  // already on the home view (`!homeActive` in the markup below).
   let hasUnreadDM = $derived(directMessages.list.some((dm) => readState.isUnread(dm.id)));
+  let hasHomeActivity = $derived(hasUnreadDM || friendRequests.incomingList.length > 0);
 
   let renameTarget = $state<Guild | null>(null);
   let deleteTarget = $state<Guild | null>(null);
@@ -279,10 +283,10 @@
                 <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-lg md:size-9" />
               </a>
             {/if}
-            {#if hasUnreadDM && !homeActive}
+            {#if hasHomeActivity && !homeActive}
               <span
                 class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
-                aria-label="ungelesene Direktnachrichten"
+                aria-label="Neues in Direktnachrichten oder Freundschaftsanfragen"
                 data-testid="home-unread-dot"
               ></span>
             {/if}
