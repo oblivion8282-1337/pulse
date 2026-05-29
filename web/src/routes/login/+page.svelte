@@ -31,22 +31,17 @@
   let mfaMethods = $state<MfaMethod[]>([]);
 
   // WebAuthn API presence is fixed for the page's lifetime — `ssr=false`, so
-  // `window` is always there by the time this runs.
-  const passkeysAvailable = webauthnSupported();
+  // `window` is always there by the time this runs. Passkeys are only offered
+  // in the browser: inside the desktop shell a browser-stored passkey is
+  // unreachable (Electron's Chromium is a separate credential store with no
+  // Linux platform authenticator), so the button would always dead-end. The
+  // reliable desktop path is password + TOTP / backup code (see LoginMfaForm).
+  const passkeysAvailable = webauthnSupported() && !isElectron();
 
-  /** A passkey ceremony can't reach a *browser*-stored passkey from inside the
-   *  desktop shell: Electron's Chromium is a separate credential store with no
-   *  Linux platform authenticator. Append a clear hint so the failure isn't a
-   *  cryptic "cancelled/timeout". Roaming authenticators (security key / phone)
-   *  still work; the reliable desktop path is password + TOTP / backup code. */
+  /** Surface the raw ceremony error. Passkey login is offered in the browser
+   *  only, so no desktop-specific fallback hint is needed here. */
   function passkeyError(err: unknown): string {
-    const msg = err instanceof Error ? err.message : 'Passkey-Anmeldung fehlgeschlagen.';
-    if (!isElectron()) return msg;
-    return (
-      msg +
-      ' — In der Desktop-App sind im Browser gespeicherte Passkeys nicht verfügbar. ' +
-      'Melde dich hier mit Passwort + Code an (oder nutze einen Sicherheitsschlüssel / Handy-Passkey).'
-    );
+    return err instanceof Error ? err.message : 'Passkey-Anmeldung fehlgeschlagen.';
   }
 
   function safeRedirect(raw: string | null): string {
@@ -290,12 +285,6 @@
             <FingerprintIcon class="size-4" />
             Mit Passkey anmelden
           </Button>
-          {#if isElectron()}
-            <p class="text-muted-foreground text-center text-xs">
-              Hinweis: Im Browser gespeicherte Passkeys funktionieren in der Desktop-App
-              nicht — hier Passwort + Code nutzen (oder Sicherheitsschlüssel / Handy).
-            </p>
-          {/if}
         {/if}
 
         <p class="text-muted-foreground text-center text-sm">

@@ -17,6 +17,7 @@
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import { formatTotpDisplay, stripTotpFormatting, normalizeBackupCode } from '$lib/auth/format';
+  import { isElectron } from '$lib/platform/runtime';
   import type { MfaMethod } from '$lib/api/auth';
 
   type TotpArgs = { code?: string; backup_code?: string };
@@ -34,14 +35,26 @@
   const hasPasskey = $derived(methods.includes('webauthn'));
   const hasTotp = $derived(methods.includes('totp'));
 
+  // In the desktop shell a browser-stored passkey is unreachable (Electron's
+  // Chromium is a separate credential store, no Linux platform authenticator),
+  // so the passkey button is hidden there and the user falls back to codes.
+  // A passkey-only account still has backup codes (minted at passkey
+  // enrollment), so offer the code block even without TOTP in that case.
+  const inDesktop = isElectron();
+  const showPasskey = $derived(hasPasskey && !inDesktop);
+  const showCodes = $derived(hasTotp || (inDesktop && hasPasskey));
+  // No TOTP to type → the only valid code is a backup code; force that mode
+  // and hide the (pointless) toggle.
+  const backupOnly = $derived(showCodes && !hasTotp);
+
   let useBackupCode = $state(false);
   let totpInputRaw = $state('');
   let backupCode = $state('');
 
   async function submitTotp(e?: Event) {
     e?.preventDefault();
-    if (busy || !hasTotp) return;
-    if (useBackupCode) {
+    if (busy || !showCodes) return;
+    if (useBackupCode || backupOnly) {
       const normalized = normalizeBackupCode(backupCode);
       if (!normalized) return;
       await onTotp({ backup_code: normalized });
@@ -74,11 +87,11 @@
     <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
     <h1 class="text-card-foreground text-2xl font-semibold">Zwei-Faktor-Authentifizierung</h1>
     <p class="text-muted-foreground text-sm">
-      {#if hasPasskey && hasTotp}
+      {#if showPasskey && showCodes}
         Bestätige mit deinem Passkey — oder gib einen Code ein.
-      {:else if hasPasskey}
+      {:else if showPasskey}
         Bestätige die Anmeldung mit deinem Passkey.
-      {:else if useBackupCode}
+      {:else if useBackupCode || backupOnly}
         Gib einen deiner Backup-Codes ein.
       {:else}
         Öffne deine Authenticator-App und gib den 6-stelligen Code ein.
@@ -86,7 +99,7 @@
     </p>
   </header>
 
-  {#if hasPasskey}
+  {#if showPasskey}
     <Button
       type="button"
       variant="secondary"
@@ -100,7 +113,7 @@
     </Button>
   {/if}
 
-  {#if hasPasskey && hasTotp}
+  {#if showPasskey && showCodes}
     <div class="text-muted-foreground flex items-center gap-3 text-xs">
       <span class="bg-border h-px flex-1"></span>
       oder Code eingeben
@@ -108,8 +121,8 @@
     </div>
   {/if}
 
-  {#if hasTotp}
-    {#if useBackupCode}
+  {#if showCodes}
+    {#if useBackupCode || backupOnly}
       <div class="space-y-1.5">
         <Label
           for="login-backup-code"
@@ -157,14 +170,14 @@
     </Alert.Root>
   {/if}
 
-  {#if hasTotp}
+  {#if showCodes}
     <Button type="submit" class="w-full" disabled={busy} data-testid="login-totp-submit">
       {busy ? 'Prüfen…' : 'Bestätigen'}
     </Button>
   {/if}
 
   <div class="flex items-center justify-between text-sm">
-    {#if hasTotp}
+    {#if showCodes && hasTotp}
       <button
         type="button"
         class="text-primary hover:underline"
