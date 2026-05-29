@@ -142,9 +142,9 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let mut converter = Nv12Converter::new(device, dst_w, dst_h)?;
 
     // Auf den ersten echten Capture-Frame warten.
-    let mut current_slot: usize = loop {
+    let (mut current_slot, first_qpc): (usize, i64) = loop {
         match capture.items.recv_timeout(Duration::from_secs(5)) {
-            Ok(D3d12CaptureItem::Frame { slot, .. }) => break slot,
+            Ok(D3d12CaptureItem::Frame { slot, qpc }) => break (slot, qpc),
             Ok(D3d12CaptureItem::Setup { .. }) => {}
             Err(e) => return Err(anyhow!("never got first capture frame: {e}")),
         }
@@ -160,22 +160,21 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     // den Ring) — so kann der Capture-Thread die anderen Slots befüllen.
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
     let started = Instant::now();
-    // Audio-PTS am selben Wall-clock-Ursprung wie der Video-PTS verankern.
-    encoder.set_audio_origin(started);
+    // A/V-Sync über echte Hardware-Timestamps (QPC) — s. pipeline_hw. Fallback
+    // auf Wall-clock wenn qpc_sync aus / origin_qpc==0. Kill: PULSE_HQ_NO_AV_OFFSET=1.
+    let qpc_sync = std::env::var("PULSE_HQ_NO_AV_OFFSET")
+        .map(|v| v.is_empty() || v == "0")
+        .unwrap_or(true)
+        && first_qpc != 0;
+    let origin_qpc = first_qpc;
+    let mut newest_qpc = first_qpc;
+    encoder.set_audio_origin(started, if qpc_sync { Some(origin_qpc) } else { None });
     let mut last_pts: i64 = -1;
     let mut frames_sent: u64 = 0;
     let mut next_tick = started;
     let mut last_fps_emit = started;
     let mut monitor = TickMonitor::new(fps);
     let mut prev_pts: i64 = 0;
-    // A/V-Sync (#1): Capture→Encode-Latenz geglättet messen und vom Video-PTS
-    // abziehen, damit Video dieselbe Zeit-Referenz wie Audio (echte Capture-
-    // Zeit) nutzt. CFR bleibt. Kill-Switch: PULSE_HQ_NO_AV_OFFSET=1.
-    let av_offset = std::env::var("PULSE_HQ_NO_AV_OFFSET")
-        .map(|v| v.is_empty() || v == "0")
-        .unwrap_or(true);
-    let mut cap_lat = Duration::ZERO;
-    let mut cap_lat_seeded = false;
 
     loop {
         if stop_rx.try_recv().is_ok() {
@@ -200,13 +199,14 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         // zurück in den Ring. Nichts Neues → `current_slot` bleibt (Dup).
         let t_capture = Instant::now();
         let mut captured: u32 = 0;
-        let mut newest_at: Option<Instant> = None;
         loop {
             match capture.items.try_recv() {
-                Ok(D3d12CaptureItem::Frame { slot, at }) => {
+                Ok(D3d12CaptureItem::Frame { slot, qpc }) => {
                     let old = std::mem::replace(&mut current_slot, slot);
                     let _ = capture.free_tx.send(old);
-                    newest_at = Some(at);
+                    if qpc != 0 {
+                        newest_qpc = qpc;
+                    }
                     captured += 1;
                 }
                 Ok(D3d12CaptureItem::Setup { .. }) => {}
@@ -217,19 +217,6 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
             }
         }
         let capture_drain = t_capture.elapsed();
-
-        // A/V-Offset: geglättete Capture→jetzt-Latenz des frischen Frames (#1).
-        if av_offset {
-            if let Some(at) = newest_at {
-                let sample = Instant::now().saturating_duration_since(at).min(frame_dur * 4);
-                cap_lat = if cap_lat_seeded {
-                    cap_lat.mul_f64(0.9) + sample.mul_f64(0.1)
-                } else {
-                    cap_lat_seeded = true;
-                    sample
-                };
-            }
-        }
 
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();
@@ -243,9 +230,13 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         }
         let audio_drain = t_audio.elapsed();
 
-        // Wall-clock-PTS in Encoder-Timebase (1/fps), um den A/V-Offset (#1)
-        // nach vorn korrigiert, streng monoton.
-        let elapsed = started.elapsed().saturating_sub(cap_lat).as_secs_f64();
+        // Video-PTS aus dem HW-Capture-Timestamp (QPC) relativ zum origin;
+        // Fallback Wall-clock. Streng monoton.
+        let elapsed = if qpc_sync {
+            (newest_qpc - origin_qpc) as f64 / 10_000_000.0
+        } else {
+            started.elapsed().as_secs_f64()
+        };
         let mut pts = (elapsed * fps as f64).round() as i64;
         if pts <= last_pts {
             pts = last_pts + 1;

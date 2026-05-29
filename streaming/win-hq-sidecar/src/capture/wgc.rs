@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
 
 use windows_capture::capture::{Context as HandlerCtx, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
@@ -37,10 +36,10 @@ pub struct CapturedFrame {
     /// das selbst nach NV12. Zero-Copy-Pfad (NVIDIA) nutzt `wgc_hw.rs` statt
     /// dieses Module — bekommt D3D11-Texture-Handles ohne Sysmem-Roundtrip.
     pub bgra: Vec<u8>,
-    /// Wall-clock-Empfangszeit im Capture-Callback (≈ Aufnahmezeit). Für die
-    /// A/V-Sync-Offset-Messung im Pacing-Loop (#1) — symmetrisch zur
-    /// `captured_at` der Audio-Chunks.
-    pub captured_at: Instant,
+    /// WGC-Hardware-Capture-Timestamp (`SystemRelativeTime`, QPC, 100ns-Einheiten).
+    /// Für die A/V-Sync-Verankerung an der ECHTEN Aufnahmezeit (HW-Timestamps);
+    /// `0` = nicht verfügbar → Pacing-Loop fällt auf Wall-clock zurück.
+    pub qpc: i64,
 }
 
 /// Konfiguration die `WgcCapture::start` an den Handler übergibt.
@@ -174,8 +173,8 @@ impl GraphicsCaptureApiHandler for FrameSink {
             capture_control.stop();
             return Ok(());
         }
-        // So früh wie möglich stempeln (≈ Aufnahmezeit) — vor dem Sysmem-Copy.
-        let captured_at = Instant::now();
+        // Hardware-Capture-Timestamp (QPC, 100ns) des Frames; 0 = nicht verfügbar.
+        let qpc = frame.timestamp().map(|t| t.Duration).unwrap_or(0);
 
         let buf = frame.buffer().context("Frame::buffer")?;
         let width = buf.width();
@@ -190,7 +189,7 @@ impl GraphicsCaptureApiHandler for FrameSink {
         let mut scratch: Vec<u8> = Vec::new();
         let bgra = buf.as_nopadding_buffer(&mut scratch).to_vec();
 
-        let captured = CapturedFrame { width, height, bgra, captured_at };
+        let captured = CapturedFrame { width, height, bgra, qpc };
 
         match self.tx.try_send(captured) {
             Ok(()) => {}

@@ -26,7 +26,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
 
 use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HANDLE};
 use windows::Win32::Graphics::Direct3D11::{
@@ -67,9 +66,8 @@ pub enum D3d12CaptureItem {
     },
     Frame {
         slot: usize,
-        /// Wall-clock-Empfangszeit im Callback (≈ Aufnahmezeit), für den
-        /// A/V-Sync-Offset im Pacing-Loop (#1).
-        at: Instant,
+        /// WGC-HW-Capture-Timestamp (QPC, 100ns) des Frames; 0 = n/a.
+        qpc: i64,
     },
 }
 
@@ -199,6 +197,8 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
             capture_control.stop();
             return Ok(());
         }
+        // Hardware-Capture-Timestamp (QPC, 100ns) des Frames; 0 = n/a.
+        let qpc = frame.timestamp().map(|t| t.Duration).unwrap_or(0);
 
         // Erste Frame: Ring + Sync-State aus WGCs D3D11-Device bauen, `Setup`
         // mit allen NT-Handles schicken.
@@ -250,7 +250,7 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
             Ok(()) => {
                 if self
                     .items_tx
-                    .send(D3d12CaptureItem::Frame { slot, at: Instant::now() })
+                    .send(D3d12CaptureItem::Frame { slot, qpc })
                     .is_err()
                 {
                     capture_control.stop();

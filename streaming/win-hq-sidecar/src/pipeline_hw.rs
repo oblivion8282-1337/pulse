@@ -64,8 +64,10 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         .items
         .recv_timeout(Duration::from_secs(5))
         .map_err(|e| anyhow!("never got setup item from hw capture: {e}"))?;
-    let (hw, width, height, first) = match setup {
-        HwCaptureItem::Setup { hw, width, height, first } => (hw, width, height, first),
+    let (hw, width, height, first, first_qpc) = match setup {
+        HwCaptureItem::Setup { hw, width, height, first, first_qpc } => {
+            (hw, width, height, first, first_qpc)
+        }
         HwCaptureItem::Frame { .. } => return Err(anyhow!("first item was Frame, expected Setup")),
     };
     // Vendor der ECHTEN Capture/Encode-GPU (WGC-D3D11-Device). `adapter` aus
@@ -177,8 +179,17 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // Wanduhr → Stream-Zeit läuft mit Echtzeit statt mit der Capture-Rate.
     let frame_dur = Duration::from_secs_f64(1.0 / fps as f64);
     let started = Instant::now();
-    // Audio-PTS am selben Wall-clock-Ursprung wie der Video-PTS verankern.
-    encoder.set_audio_origin(started);
+    // A/V-Sync über echte Hardware-Timestamps (QPC): Video-PTS aus dem WGC-QPC
+    // relativ zum QPC des ersten Frames (origin_qpc); Audio am selben origin
+    // verankert → exakter Offset ohne Kalibrierung. qpc_sync aus / origin_qpc==0
+    // (Timestamp n/a) → Fallback auf reine Wall-clock. Kill: PULSE_HQ_NO_AV_OFFSET=1.
+    let qpc_sync = std::env::var("PULSE_HQ_NO_AV_OFFSET")
+        .map(|v| v.is_empty() || v == "0")
+        .unwrap_or(true)
+        && first_qpc != 0;
+    let origin_qpc = first_qpc;
+    let mut newest_qpc = first_qpc;
+    encoder.set_audio_origin(started, if qpc_sync { Some(origin_qpc) } else { None });
     let mut last_frame: Option<OwnedHwFrame> = Some(first);
     let mut last_pts: i64 = -1;
     let mut frames_sent: u64 = 0;
@@ -188,16 +199,6 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // langsame Ticks/pts-Gaps und loggt sie. Details: `tick_monitor.rs`.
     let mut monitor = TickMonitor::new(fps);
     let mut prev_pts: i64 = 0;
-    // A/V-Sync (#1): Video wurde mit der Encode-Tick-Zeit gestempelt, Audio mit
-    // der echten Capture-Zeit → Video lag um die Capture→Encode-Latenz hinter
-    // Audio. Wir messen diese Latenz geglättet (now − Frame-Empfangszeit) und
-    // ziehen sie vom Video-PTS ab → beide Spuren auf dieselbe Referenz. CFR
-    // bleibt erhalten (elapsed linear). Kill-Switch: PULSE_HQ_NO_AV_OFFSET=1.
-    let av_offset = std::env::var("PULSE_HQ_NO_AV_OFFSET")
-        .map(|v| v.is_empty() || v == "0")
-        .unwrap_or(true);
-    let mut cap_lat = Duration::ZERO;
-    let mut cap_lat_seeded = false;
 
     loop {
         if stop_rx.try_recv().is_ok() {
@@ -229,12 +230,13 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         // `last_frame` erhalten = Duplizierung bei statischem Bild.
         let t_capture = Instant::now();
         let mut captured: u32 = 0;
-        let mut newest_at: Option<Instant> = None;
         loop {
             match capture.items.try_recv() {
-                Ok(HwCaptureItem::Frame { frame: f, at }) => {
+                Ok(HwCaptureItem::Frame { frame: f, qpc }) => {
                     last_frame = Some(f);
-                    newest_at = Some(at);
+                    if qpc != 0 {
+                        newest_qpc = qpc;
+                    }
                     captured += 1;
                 }
                 Ok(HwCaptureItem::Setup { .. }) => {
@@ -247,20 +249,6 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             }
         }
         let capture_drain = t_capture.elapsed();
-
-        // A/V-Offset: geglättete Capture→jetzt-Latenz des frischen Frames (#1).
-        // Nur in-loop-Frames (post-`started`) seeden; Ausreißer auf 4 Ticks gekappt.
-        if av_offset {
-            if let Some(at) = newest_at {
-                let sample = Instant::now().saturating_duration_since(at).min(frame_dur * 4);
-                cap_lat = if cap_lat_seeded {
-                    cap_lat.mul_f64(0.9) + sample.mul_f64(0.1)
-                } else {
-                    cap_lat_seeded = true;
-                    sample
-                };
-            }
-        }
 
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();
@@ -276,9 +264,13 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         }
         let audio_drain = t_audio.elapsed();
 
-        // Wall-clock-PTS in Encoder-Timebase (1/fps), um den A/V-Offset (#1)
-        // nach vorn korrigiert, streng monoton.
-        let elapsed = started.elapsed().saturating_sub(cap_lat).as_secs_f64();
+        // Video-PTS aus dem Hardware-Capture-Timestamp (QPC) relativ zum origin;
+        // Fallback auf Wall-clock. Streng monoton.
+        let elapsed = if qpc_sync {
+            (newest_qpc - origin_qpc) as f64 / 10_000_000.0
+        } else {
+            started.elapsed().as_secs_f64()
+        };
         let mut pts = (elapsed * fps as f64).round() as i64;
         if pts <= last_pts {
             pts = last_pts + 1;

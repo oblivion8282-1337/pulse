@@ -49,10 +49,14 @@ pub struct CapturedAudio {
     pub bytes: Vec<u8>,
     /// Anzahl Frames (= Samples pro Channel).
     pub frames: u32,
-    /// Wall-clock-Stempel (monotone Uhr) beim Emittieren des Chunks. Verankert
-    /// den Audio-PTS-Origin am selben Ursprung wie das Video — sonst driften
-    /// die beiden Timelines auseinander (A/V-Desync, s. `AudioPipeline`).
+    /// Wall-clock-Stempel (monotone Uhr) beim Emittieren des Chunks. Fallback-
+    /// Anker, wenn keine Hardware-Timestamps verfügbar sind (s. `AudioPipeline`).
     pub captured_at: Instant,
+    /// WASAPI-Hardware-Capture-Timestamp (QPC, 100ns) des ERSTEN gelesenen
+    /// Samples des Streams (`BufferInfo.timestamp` des ersten Reads); `0` bis ein
+    /// echter Read passiert ist. Verankert den Audio-PTS an der echten
+    /// Aufnahmezeit auf derselben QPC-Uhr wie der WGC-Video-Timestamp.
+    pub qpc: u64,
 }
 
 /// Living capture-handle. Drop = stop.
@@ -208,6 +212,9 @@ fn run_capture(
     // ein realer Chunk verworfen — groß genug, dass normale Jitter/Bursts
     // keinen Drop auslösen, nur echte Fast-Clock-Drift der Audio-Geräte-Clock.
     let ahead_limit = (format.sample_rate / 10) as u64;
+    // QPC (100ns) des allerersten gelesenen Samples — Audio-Stream-Ursprung für
+    // die HW-Timestamp-Verankerung. 0, bis ein echter Read passiert ist.
+    let mut first_read_qpc: u64 = 0;
     loop {
         if stop_rx.try_recv().is_ok() {
             should_stop = true;
@@ -234,6 +241,7 @@ fn run_capture(
                 bytes: chunk,
                 frames: chunk_frames as u32,
                 captured_at: Instant::now(),
+                qpc: first_read_qpc,
             };
             if !send_or_stop(&tx, &stop_rx, captured) {
                 should_stop = true;
@@ -253,6 +261,7 @@ fn run_capture(
                 bytes: vec![0u8; chunk_bytes],
                 frames: chunk_frames as u32,
                 captured_at: Instant::now(),
+                qpc: first_read_qpc,
             };
             if !send_or_stop(&tx, &stop_rx, silence) {
                 should_stop = true;
@@ -271,9 +280,13 @@ fn run_capture(
                 if queue.capacity() - queue.len() < need {
                     queue.reserve(need);
                 }
-                capture_client
+                let info = capture_client
                     .read_from_device_to_deque(&mut queue)
                     .context("read_from_device_to_deque")?;
+                // QPC des ersten je gelesenen Samples = Audio-Stream-Ursprung.
+                if first_read_qpc == 0 {
+                    first_read_qpc = info.timestamp;
+                }
             }
             Ok(_) => {}
             Err(e) => {

@@ -325,9 +325,9 @@ impl FfmpegEncoder {
     /// Verankert den Audio-PTS am Video-PTS-Ursprung (A/V-Sync). Vor dem
     /// ersten `send_audio` aufrufen — sonst startet der Audio-PTS bei 0 und
     /// die Spuren driften (Audio-Backlog vor `started`).
-    pub fn set_audio_origin(&mut self, origin: std::time::Instant) {
+    pub fn set_audio_origin(&mut self, origin: std::time::Instant, origin_qpc: Option<i64>) {
         if let Some(audio) = self.audio.as_mut() {
-            audio.set_stream_origin(origin);
+            audio.set_stream_origin(origin, origin_qpc);
         }
     }
 

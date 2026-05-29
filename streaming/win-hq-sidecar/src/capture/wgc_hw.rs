@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_channel};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
 
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::core::Interface;
@@ -39,12 +38,14 @@ pub enum HwCaptureItem {
         height: u32,
         hw: Arc<HwContext>,
         first: OwnedHwFrame,
+        /// WGC-HW-Capture-Timestamp (QPC, 100ns) des `first`-Frames — Ursprung
+        /// der A/V-Timeline (HW-Timestamps).
+        first_qpc: i64,
     },
     Frame {
         frame: OwnedHwFrame,
-        /// Wall-clock-Empfangszeit im Callback (≈ Aufnahmezeit), für den
-        /// A/V-Sync-Offset im Pacing-Loop (#1).
-        at: Instant,
+        /// WGC-HW-Capture-Timestamp (QPC, 100ns) des Frames; 0 = n/a.
+        qpc: i64,
     },
 }
 
@@ -150,6 +151,8 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             capture_control.stop();
             return Ok(());
         }
+        // Hardware-Capture-Timestamp (QPC, 100ns) des Frames; 0 = n/a.
+        let qpc = frame.timestamp().map(|t| t.Duration).unwrap_or(0);
 
         // Erste Frame: HwContext bauen + Setup + erster Pool-Frame.
         if self.hw.is_none() {
@@ -169,7 +172,8 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             let mut pool_frame = hw.acquire_frame().context("acquire first pool frame")?;
             pool_frame.set_pts(0);
             copy_into_pool(&hw, frame.as_raw_texture(), &pool_frame)?;
-            let setup = HwCaptureItem::Setup { width, height, hw: hw.clone(), first: pool_frame };
+            let setup =
+                HwCaptureItem::Setup { width, height, hw: hw.clone(), first: pool_frame, first_qpc: qpc };
             self.hw = Some(hw);
             // Setup ist one-shot; falls Channel ge-disconnected ist sofort stoppen.
             if self.tx.try_send(setup).is_err() {
@@ -190,7 +194,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             }
         };
         copy_into_pool(hw, frame.as_raw_texture(), &pool_frame)?;
-        match self.tx.try_send(HwCaptureItem::Frame { frame: pool_frame, at: Instant::now() }) {
+        match self.tx.try_send(HwCaptureItem::Frame { frame: pool_frame, qpc }) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
                 let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;
