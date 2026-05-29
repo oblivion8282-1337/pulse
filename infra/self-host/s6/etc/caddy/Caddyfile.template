@@ -47,7 +47,7 @@
     # ------------------------------------------------------------------ #
 
     # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
-    handle /api/auth/* {
+    handle_path /api/auth/* {
         reverse_proxy 127.0.0.1:8001
     }
     handle /.well-known/jwks.json {
@@ -55,26 +55,26 @@
     }
 
     # chat-gateway (8002)
-    handle /api/chat/* {
+    handle_path /api/chat/* {
         reverse_proxy 127.0.0.1:8002 {
             header_up Host {host}
         }
     }
 
     # WebSocket — chat-gateway (8002)
-    handle /api/ws {
+    handle /ws {
         reverse_proxy 127.0.0.1:8002 {
             header_up Host {host}
         }
     }
 
     # voice-signaling (8003)
-    handle /api/voice/* {
+    handle_path /api/voice/* {
         reverse_proxy 127.0.0.1:8003
     }
 
     # media-svc (8004)
-    handle /api/media/* {
+    handle_path /api/media/* {
         reverse_proxy 127.0.0.1:8004
     }
 

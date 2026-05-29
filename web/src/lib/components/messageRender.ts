@@ -27,7 +27,7 @@ const ALLOWED_TAGS = [
   'b', 'i', 'em', 'strong', 'code', 'pre', 'del', 's',
   'a', 'ul', 'ol', 'li', 'br', 'p', 'blockquote', 'span'
 ];
-const ALLOWED_ATTR = ['href', 'title', 'target', 'rel', 'class', 'data-mention-type', 'data-mention-id', 'data-self'];
+const ALLOWED_ATTR = ['href', 'title', 'target', 'rel', 'data-mention-type', 'data-mention-id', 'data-self'];
 
 // One-time hook setup — DOMPurify is a singleton; we use removeAllHooks
 // instead of removeHook(name) so re-imports during HMR don't stack
@@ -88,10 +88,8 @@ function userMentionLabel(id: string): string {
  * the message itself doesn't carry the guild id at render time, so we
  * search the lists we have. */
 function roleMentionLabel(id: string): string {
-  for (const list of Object.values(roles.byGuild)) {
-    const hit = list.find((r) => r.id === id);
-    if (hit) return '@' + hit.name;
-  }
+  const r = roles.roleIdMap.get(id);
+  if (r) return '@' + r.name;
   return '@unknown-role';
 }
 
@@ -103,14 +101,10 @@ function isSelfMention(m: Mention): boolean {
   if (!meId) return false;
   if (m.type === 0) return m.id === meId;
   if (m.type === 1) {
-    for (const [guildId, list] of Object.entries(roles.byGuild)) {
-      if (!list.some((r) => r.id === m.id)) continue;
-      const mine = new Set([
-        ...(memberRoles.for(guildId, meId) ?? []),
-      ]);
-      if (mine.has(m.id)) return true;
-    }
-    return false;
+    const role = roles.roleIdMap.get(m.id);
+    if (!role) return false;
+    const myRoles = memberRoles.for(role.guild_id, meId);
+    return myRoles?.includes(m.id) ?? false;
   }
   // @everyone always targets us when we're a member of the channel the
   // message was posted in — at render time we trust the server's mention

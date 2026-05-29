@@ -49,6 +49,7 @@
 
   type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'modqueue' | 'auditlog' | 'ownership';
   let tab = $state<Tab>('roles');
+  let initialized = $state(false);
 
   let guildId = $derived(guild?.id ?? '');
   let canManageRoles = $derived(
@@ -85,16 +86,22 @@
     !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
   );
 
-  // Default to the first tab the caller is allowed to see, so the
-  // dialog never opens on a tab that's empty.
+  // Default to the first tab the caller is allowed to see when the dialog
+  // first opens, so it never opens on a tab that's empty. Only initialize
+  // once; re-runs due to permission changes from WS events are ignored.
   $effect(() => {
-    if (!open) return;
-    if (canManageRoles) tab = 'roles';
-    else if (canBanMembers) tab = 'bans';
-    else if (canManageSounds) tab = 'sounds';
-    else if (canManagePlugins) tab = 'plugins';
-    else if (canSeeModQueue) tab = 'modqueue';
-    else if (isOwner) tab = 'ownership';
+    if (open && !initialized) {
+      initialized = true;
+      if (canManageRoles) tab = 'roles';
+      else if (canBanMembers) tab = 'bans';
+      else if (canManageSounds) tab = 'sounds';
+      else if (canManagePlugins) tab = 'plugins';
+      else if (canSeeModQueue) tab = 'modqueue';
+      else if (isOwner) tab = 'ownership';
+    } else if (!open) {
+      // Reset the flag when the dialog closes so the next open reinitializes.
+      initialized = false;
+    }
   });
 
   // Dirty-flag from RolesEditor — true while there are unsaved

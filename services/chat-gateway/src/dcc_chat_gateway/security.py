@@ -78,13 +78,12 @@ def reset_cache() -> None:
 
 def _build_keys(jwks: dict[str, Any]) -> dict[str, Any]:
     keys: dict[str, Any] = {}
-    import json as _json
 
     for key_dict in jwks.get("keys", []):
         kid = key_dict.get("kid")
         if not kid:
             continue
-        keys[kid] = RSAAlgorithm.from_jwk(_json.dumps(key_dict))
+        keys[kid] = RSAAlgorithm.from_jwk(key_dict)
     return keys
 
 

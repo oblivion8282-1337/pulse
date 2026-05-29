@@ -58,7 +58,9 @@
   const isEdited = $derived(!!message.edited_at);
 
   // Invite-Embed-Detection: extract the first /invite/<code> from the content.
-  const INVITE_RE = /(?:https?:\/\/[^\s]+)?\/invite\/([A-Za-z0-9]{8})\b/;
+  // Require an explicit https?:// prefix so bare /invite/XXXXXXXX substrings
+  // (e.g. in path segments of unrelated URLs) do not trigger an embed fetch.
+  const INVITE_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9]{8})\b/;
   const inviteCode = $derived.by(() => {
     const m = message.content.match(INVITE_RE);
     return m ? m[1] : null;

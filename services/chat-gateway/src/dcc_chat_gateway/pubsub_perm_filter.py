@@ -327,10 +327,12 @@ class _PermFilterMixin:
                 cache_miss_uids.append(user.id)
 
             if cache_miss_uids:
-                async with self._session_factory() as batch_session:
-                    can_view_ids = await members_who_can_view(
-                        batch_session, ch.guild_id, cid_int
-                    )
+                # Reuse the already-open session rather than opening a second
+                # pool connection.  The channel lookup above has finished; the
+                # same session is idle and safe to reuse here.
+                can_view_ids = await members_who_can_view(
+                    session, ch.guild_id, cid_int
+                )
                 # Populate the cache for each cold non-admin socket so the
                 # gather below hits only the hot path.  Store VIEW_CHANNEL bit
                 # when allowed, 0 when denied — sufficient for can_view_channel().

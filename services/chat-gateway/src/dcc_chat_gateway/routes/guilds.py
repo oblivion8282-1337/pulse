@@ -122,10 +122,10 @@ async def list_guilds(session: SessionDep, current: CurrentUser):
 
 @router.get("/guilds/{guild_id}", response_model=GuildOut)
 async def get_guild(guild_id: int, session: SessionDep, current: CurrentUser):
-    await require_member(session, guild_id, current.id)
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
+    await require_member(session, guild_id, current.id)
     return guild
 
 
@@ -468,13 +468,16 @@ async def list_members(
     session: SessionDep,
     current: CurrentUser,
     limit: int = Query(100, ge=1, le=500),
+    after_user_id: int | None = Query(None),
 ):
     await require_member(session, guild_id, current.id)
     stmt = (
         select(GuildMember)
         .where(GuildMember.guild_id == guild_id)
         .order_by(GuildMember.user_id)
-        .limit(limit)
     )
+    if after_user_id is not None:
+        stmt = stmt.where(GuildMember.user_id > after_user_id)
+    stmt = stmt.limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return list(rows)

@@ -52,6 +52,7 @@ from dcc_chat_gateway.models import (
     UserPrivacy,
 )
 from dcc_chat_gateway.permissions import (
+    filter_viewable_channels,
     resolve_guild_permissions_from_snapshot,
 )
 from dcc_chat_gateway.presence_status import (
@@ -203,10 +204,31 @@ async def build_and_send_ready_frame(
             )
         voice_channel_ids: list[str] = []
         if guild_ids:
-            vc_stmt = select(Channel.id).where(
-                Channel.guild_id.in_(guild_ids), Channel.type == CHANNEL_TYPE_VOICE
+            # Fetch voice channels with their guild_id so we can do a
+            # per-guild VIEW_CHANNEL filter — the same invariant enforced by
+            # the live-event fan-out in pubsub_perm_filter.py. Without this
+            # filter a member denied VIEW_CHANNEL on a private voice channel
+            # could learn its occupants from the Ready frame.
+            vc_with_guild = list(
+                (
+                    await session.execute(
+                        select(Channel.id, Channel.guild_id).where(
+                            Channel.guild_id.in_(guild_ids),
+                            Channel.type == CHANNEL_TYPE_VOICE,
+                        )
+                    )
+                ).all()
             )
-            voice_channel_ids = [str(cid) for cid in (await session.execute(vc_stmt)).scalars()]
+            # Group by guild so filter_viewable_channels can batch all
+            # overwrites for each guild in one IN-query (no N+1).
+            vcs_by_guild: dict[int, list[int]] = {}
+            for cid, gid in vc_with_guild:
+                vcs_by_guild.setdefault(gid, []).append(cid)
+            viewable_vc_ids: set[int] = set()
+            for gid, cids in vcs_by_guild.items():
+                visible = await filter_viewable_channels(session, user, gid, cids)
+                viewable_vc_ids.update(visible)
+            voice_channel_ids = [str(cid) for cid in viewable_vc_ids]
 
         dm_stmt = (
             select(DirectMessageChannel)
@@ -292,6 +314,22 @@ async def build_and_send_ready_frame(
                     "can_send": can_send,
                 }
             )
+        # Peer presence: union of confirmed friends + all other guild members.
+        # Folded into the first session block to avoid opening a second DB
+        # connection for a single SELECT (was a separate SessionLocal context).
+        all_peer_ids: set[int] = set(friend_set)
+        if guild_ids:
+            peer_id_rows = list(
+                (
+                    await session.execute(
+                        select(GuildMember.user_id).where(
+                            GuildMember.guild_id.in_(guild_ids),
+                            GuildMember.user_id != user.id,
+                        )
+                    )
+                ).scalars()
+            )
+            all_peer_ids.update(peer_id_rows)
 
     # Hand the manager this socket's guild membership so precise cache
     # invalidation (on role mutations, guild_updated, etc.) only busts the
@@ -315,27 +353,8 @@ async def build_and_send_ready_frame(
     )
 
     # Etappe-3 presence status: own status (real) + visible users' statuses
-    # (masked). We batch-read for friends + guild members to build the map.
-    # Visible peers: union of confirmed friends and all guild members.
-    all_peer_ids: set[int] = set(friend_set)
-    if guild_ids:
-        async with SessionLocal() as session:
-            from sqlalchemy import select as _select
-
-            from dcc_chat_gateway.models import GuildMember as _GM
-
-            peer_rows = list(
-                (
-                    await session.execute(
-                        _select(_GM.user_id).where(
-                            _GM.guild_id.in_(guild_ids),
-                            _GM.user_id != user.id,
-                        )
-                    )
-                ).scalars()
-            )
-            all_peer_ids.update(peer_rows)
-
+    # (masked). ``all_peer_ids`` was populated inside the first DB session
+    # block above (friends + guild members) to avoid a second DB connection.
     own_presence_status = await get_presence_status_raw(redis, user.id)
     if own_presence_status is None:
         # Redis key expired (>24 h offline) or this is a fresh connect — restore

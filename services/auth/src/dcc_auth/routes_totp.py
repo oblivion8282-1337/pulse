@@ -134,10 +134,17 @@ async def totp_verify_setup(
     if not current.totp_secret:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="no totp setup in progress")
 
-    if not pyotp.TOTP(current.totp_secret).verify(payload.code, valid_window=1):
+    totp = pyotp.TOTP(current.totp_secret)
+    if not totp.verify(payload.code, valid_window=1):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid code")
 
     current.totp_enabled = True
+    # NB: we deliberately do NOT seed the replay counter here. Replay-prevention
+    # is a login concern (an intercepted login code must not be reusable to
+    # authenticate) and lives in ``_consume_second_factor``. The setup ceremony
+    # runs while the user is already authenticated, so stamping the counter here
+    # has no security benefit and would wrongly reject a legitimate login with a
+    # fresh code generated in the same 30s window right after enabling.
 
     # Replace any stale backup codes from a previous (now-disabled) 2FA setup.
     await session.execute(delete(BackupCode).where(BackupCode.user_id == current.id))
@@ -330,12 +337,19 @@ async def _consume_second_factor(
         totp = pyotp.TOTP(user.totp_secret)
         if not totp.verify(code, valid_window=1):
             return False
-        # Replay-prevention: reject if the same timecode was already accepted.
-        # timecode(now) = int(time.time()) // 30 (the period pyotp uses).
-        counter = int(time.time()) // 30
-        if user.totp_last_counter is not None and counter <= user.totp_last_counter:
+        # Replay-prevention: reject if the timecode of *this* code (or an
+        # earlier one) was already accepted. ``valid_window=1`` means the
+        # accepted code could map to slot t-1, t or t+1, so we must store the
+        # timecode of the code that actually matched — not just ``now`` — or a
+        # code from the previous slot accepted now would leave the counter at
+        # ``now`` and the same code could be replayed in the next window.
+        accepted = _accepted_timecode(totp, code)
+        if accepted is None:
+            # verify() said yes but we couldn't pin the slot — be conservative.
+            accepted = int(time.time()) // 30
+        if user.totp_last_counter is not None and accepted <= user.totp_last_counter:
             return False
-        user.totp_last_counter = counter
+        user.totp_last_counter = accepted
         return True
     if backup_code:
         normalized = backup_code.upper()
@@ -356,5 +370,23 @@ async def _consume_second_factor(
         row.used_at = datetime.now(UTC)
         return True
     return False
+
+
+def _accepted_timecode(totp: pyotp.TOTP, code: str) -> int | None:
+    """Return the TOTP timecode (``unix // period``) the given code matches.
+
+    ``pyotp.TOTP.verify(code, valid_window=1)`` accepts a code from the
+    previous, current or next 30-second slot but does not tell us *which*.
+    For replay-prevention we need the timecode of the slot that actually
+    matched, so we re-derive it by checking offsets -1, 0, +1 around now.
+    Returns ``None`` if no slot matches (caller falls back to ``now``).
+    """
+    now = int(time.time())
+    period = totp.interval  # 30 by default
+    for offset in (-1, 0, 1):
+        at = now + offset * period
+        if totp.verify(code, for_time=at, valid_window=0):
+            return at // period
+    return None
 
 

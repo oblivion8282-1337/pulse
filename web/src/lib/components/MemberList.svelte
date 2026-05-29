@@ -110,12 +110,16 @@
     }
     const onlineGroups = [...byHoist.values()].sort((a, b) => b.position - a.position);
     for (const g of onlineGroups) {
-      g.members.sort((a, b) => sortName(a).localeCompare(sortName(b)));
+      const keyed = g.members.map((m) => [m, sortName(m)] as const);
+      keyed.sort(([, a], [, b]) => a.localeCompare(b));
+      g.members = keyed.map(([m]) => m);
     }
 
     if (offline.length === 0) return onlineGroups;
-    offline.sort((a, b) => sortName(a).localeCompare(sortName(b)));
-    return [...onlineGroups, { hoist: null, position: -999, members: offline, offline: true }];
+    const offlineKeyed = offline.map((m) => [m, sortName(m)] as const);
+    offlineKeyed.sort(([, a], [, b]) => a.localeCompare(b));
+    const sortedOffline = offlineKeyed.map(([m]) => m);
+    return [...onlineGroups, { hoist: null, position: -999, members: sortedOffline, offline: true }];
   });
 
   // Per-guild aggregation across all voice channels: who's hosting a watch

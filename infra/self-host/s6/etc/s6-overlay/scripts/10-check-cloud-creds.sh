@@ -17,6 +17,7 @@ check_var PULSE_HOSTNAME
 check_var PULSE_CLOUD_CLIENT_ID
 check_var PULSE_CLOUD_CLIENT_SECRET
 check_var PULSE_ADMIN_EMAIL
+check_var PULSE_INSTANCE_OWNER_ID
 
 if [ -n "${MISSING}" ]; then
     cat >&2 <<EOF

@@ -55,6 +55,8 @@ class _ListenerMixin:
                     ws.send_json(env), timeout=self._SEND_TIMEOUT_SECONDS
                 )
                 return None
+            except asyncio.CancelledError:
+                return ws
             except Exception:  # noqa: BLE001 — timeout, closed socket, etc.
                 return ws
 

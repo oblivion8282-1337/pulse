@@ -25,6 +25,7 @@ from fastapi import WebSocket
 
 from dcc_chat_gateway import watchkeys
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE
+from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.security import AuthenticatedUser
 from dcc_chat_gateway.watch_source import parse_source
@@ -77,9 +78,17 @@ async def handle_start(
     cid = str(cid_int)
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
-    if channel is None or channel.type != CHANNEL_TYPE_VOICE:
-        await _err(websocket, 4004, "channel not accessible")
-        return
+        if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+            await _err(websocket, 4004, "channel not accessible")
+            return
+        # Native URLs (direct https:// media links) additionally require
+        # MANAGE_CHANNELS — mitigates DNS-rebinding SSRF by limiting who can
+        # direct viewers' browsers at arbitrary hostnames.
+        if source.get("type") == "native":
+            perms = await resolve_permissions(session, user, channel.guild_id, cid_int)
+            if not has_permission(perms, Permissions.MANAGE_CHANNELS):
+                await _err(websocket, 4003, "missing permission: MANAGE_CHANNELS")
+                return
     redis = _redis(websocket)
     if redis is None:
         await _err(websocket, 4017, "watch service unavailable")

@@ -66,19 +66,22 @@ webrtcAdditionalHosts:
 # Control API. MediaMTX runs network_mode:host, and media-svc reaches this
 # from its container via host.docker.internal (the Docker bridge gateway IP,
 # NOT loopback) — so binding 127.0.0.1 here would refuse that connection and
-# break the stream-state poller. Access is instead restricted at the UFW layer:
-# port 9997 only accepts traffic from the Docker bridge (`ufw allow from
-# 10.0.0.0/8 to any port 9997`), blocking external reach. See CLAUDE.md.
+# break the stream-state poller. Access is restricted to Docker bridge only via
+# apiAllowAddresses and UFW layer: port 9997 only accepts traffic from the
+# Docker bridge (`ufw allow from 10.0.0.0/8 to any port 9997`), blocking
+# external reach. See CLAUDE.md and DEPLOY.md.
 api: yes
 apiAddress: :9997
+apiAllowAddresses: [127.0.0.1, 172.17.0.0/16]
 
 # RTSP not needed — RTMP + SRT cover ingest
 rtsp: no
 
-# SRT ingest for the Opus-audio path (RTMP/FLV can only carry AAC)
-# push streamid: publish:<path>:pulse:<stream-token>
-srt: yes
-srtAddress: :8890
+# SRT ingest disabled: stream tokens would travel in cleartext UDP (no TLS).
+# Currently media-svc only issues RTMPS tokens (protocol: pattern=r"^rtmp$"),
+# so SRT is not needed. If future Opus-audio path requires SRT, issue
+# separate SRT-only short-lived tokens and document the cleartext risk.
+srt: no
 
 # === AUTH ===
 authMethod: http

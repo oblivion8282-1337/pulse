@@ -175,8 +175,12 @@ async def ban_user(
     try:
         await session.commit()
     except IntegrityError:
-        # Concurrent ban — refresh the row and continue.
+        # Concurrent ban — refresh the row and continue. The rollback
+        # also reverts the session.delete(member) staged above, so the
+        # member eviction never happened in this TX; guard the WS event
+        # accordingly.
         await session.rollback()
+        was_member = False
         existing = await session.get(GuildBan, (guild_id, user_id))
         if existing is None:
             raise HTTPException(500, detail="ban could not be persisted")  # noqa: B904

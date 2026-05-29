@@ -120,33 +120,41 @@
   function syncHard(p: PlayerHandle, s: WatchPartyState): void {
     const before = p.getCurrentTime();
     const expected = expectedPosition(s);
-    syncingUntil = Date.now() + SYNC_QUIET_MS;
     const action = corrector.applyHard(p, s);
-    // eslint-disable-next-line no-console
-    console.log('[wp] syncHard', {
-      action,
-      playerBefore: before.toFixed(2),
-      expected: expected.toFixed(2),
-      drift: (expected - before).toFixed(2),
-      isPlaying: s.is_playing,
-      statePos: s.position.toFixed(2),
-      quietFor: SYNC_QUIET_MS
-    });
+    if (action !== 'none') {
+      syncingUntil = Date.now() + SYNC_QUIET_MS;
+    }
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[wp] syncHard', {
+        action,
+        playerBefore: before.toFixed(2),
+        expected: expected.toFixed(2),
+        drift: (expected - before).toFixed(2),
+        isPlaying: s.is_playing,
+        statePos: s.position.toFixed(2),
+        quietFor: SYNC_QUIET_MS
+      });
+    }
   }
   function syncSoft(p: PlayerHandle, s: WatchPartyState): void {
     const before = p.getCurrentTime();
     const expected = expectedPosition(s);
-    syncingUntil = Date.now() + SYNC_QUIET_MS;
     const action = corrector.applySoft(p, s);
-    // eslint-disable-next-line no-console
-    console.log('[wp] syncSoft', {
-      action,
-      playerBefore: before.toFixed(2),
-      expected: expected.toFixed(2),
-      drift: (expected - before).toFixed(2),
-      isPlaying: s.is_playing,
-      statePos: s.position.toFixed(2)
-    });
+    if (action !== 'none') {
+      syncingUntil = Date.now() + SYNC_QUIET_MS;
+    }
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[wp] syncSoft', {
+        action,
+        playerBefore: before.toFixed(2),
+        expected: expected.toFixed(2),
+        drift: (expected - before).toFixed(2),
+        isPlaying: s.is_playing,
+        statePos: s.position.toFixed(2)
+      });
+    }
   }
 
   // Trailing-debounce window for host control broadcasts. YouTube fires
@@ -182,12 +190,14 @@
     const prev = prevParty;
     prevParty = cur;
     if (!prev) {
-      // eslint-disable-next-line no-console
-      console.log('[wp] viewer effect: INITIAL', {
-        statePos: cur.position.toFixed(2),
-        isPlaying: cur.is_playing,
-        playerTime: p.getCurrentTime().toFixed(2)
-      });
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log('[wp] viewer effect: INITIAL', {
+          statePos: cur.position.toFixed(2),
+          isPlaying: cur.is_playing,
+          playerTime: p.getCurrentTime().toFixed(2)
+        });
+      }
       viewerPaused = !cur.is_playing;
       syncHard(p, cur);
       return;
@@ -196,18 +206,20 @@
     const expectedFromPrev = expectedPosition(prev, cur.updated_at);
     const positionJumped =
       Math.abs(cur.position - expectedFromPrev) > SEEK_DETECTION_THRESHOLD_S;
-    // eslint-disable-next-line no-console
-    console.log('[wp] viewer effect', {
-      branch: playingFlipped ? 'transition-play' : positionJumped ? 'transition-seek' : 'heartbeat',
-      prevPos: prev.position.toFixed(2),
-      curPos: cur.position.toFixed(2),
-      expectedFromPrev: expectedFromPrev.toFixed(2),
-      positionDelta: (cur.position - expectedFromPrev).toFixed(2),
-      prevPlaying: prev.is_playing,
-      curPlaying: cur.is_playing,
-      viewerPaused,
-      deltaMsBetweenStates: cur.updated_at - prev.updated_at
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[wp] viewer effect', {
+        branch: playingFlipped ? 'transition-play' : positionJumped ? 'transition-seek' : 'heartbeat',
+        prevPos: prev.position.toFixed(2),
+        curPos: cur.position.toFixed(2),
+        expectedFromPrev: expectedFromPrev.toFixed(2),
+        positionDelta: (cur.position - expectedFromPrev).toFixed(2),
+        prevPlaying: prev.is_playing,
+        curPlaying: cur.is_playing,
+        viewerPaused,
+        deltaMsBetweenStates: cur.updated_at - prev.updated_at
+      });
+    }
     if (playingFlipped || positionJumped) {
       viewerPaused = !cur.is_playing;
       syncHard(p, cur);
@@ -265,21 +277,25 @@
     const now = Date.now();
     const msToWindowEnd = syncingUntil - now;
     if ((e.type === 'play' || e.type === 'pause') && now < syncingUntil) {
-      // eslint-disable-next-line no-console
-      console.log('[wp] handleEvent SUPPRESSED', {
-        type: e.type,
-        position: e.position?.toFixed?.(2),
-        msToWindowEnd
-      });
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log('[wp] handleEvent SUPPRESSED', {
+          type: e.type,
+          position: e.position?.toFixed?.(2),
+          msToWindowEnd
+        });
+      }
       return;
     }
-    // eslint-disable-next-line no-console
-    console.log('[wp] handleEvent', {
-      type: e.type,
-      position: 'position' in e ? e.position?.toFixed?.(2) : undefined,
-      msToWindowEnd,
-      viewerPaused
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[wp] handleEvent', {
+        type: e.type,
+        position: 'position' in e ? e.position?.toFixed?.(2) : undefined,
+        msToWindowEnd,
+        viewerPaused
+      });
+    }
     if (e.type === 'pause') viewerPaused = true;
     else if (e.type === 'play') {
       viewerPaused = false;

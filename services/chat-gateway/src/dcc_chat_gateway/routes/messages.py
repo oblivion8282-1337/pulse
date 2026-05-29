@@ -11,6 +11,7 @@ Mention parsing + persistence + per-user fan-out live in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Annotated
@@ -274,6 +275,10 @@ async def post_message(
     # the in-window ``mention_added`` envelope went to — role + everyone
     # pings already expanded + VIEW-filtered + author-excluded. Runs AFTER
     # the WS broadcast so a slow push service can't delay the counter bump.
+    # Awaited (not fire-and-forget): fan_out_mention_push already offloads the
+    # sync pywebpush calls to threads and batches its DB writes, so it does not
+    # block the event loop meaningfully. An unreferenced asyncio.create_task can
+    # be GC'd before it runs and makes dead-subscription cleanup non-deterministic.
     if notified:
         await fan_out_mention_push(
             user_ids=notified,
@@ -385,8 +390,21 @@ async def edit_message(
     to_remove = current_ids - desired_ids
     to_add = desired_ids - current_ids
 
-    if to_remove:
-        await hard_delete_attachments(session, attachment_ids=list(to_remove))
+    # Enforce the per-guild / DM attachment count limit on edits just as
+    # post_message does — otherwise a user can bypass the cap by editing.
+    if desired_ids:
+        from dcc_chat_gateway.routes.attachments import _limits_for_channel
+        _max_size, max_count = await _limits_for_channel(session, kind=kind, ch=ch)
+        if len(desired_ids) > max_count:
+            raise HTTPException(
+                400,
+                detail=f"too many attachments ({len(desired_ids)} > {max_count})",
+            )
+
+    # Bind new attachments BEFORE deleting removed ones: bind_attachments may
+    # raise HTTP 400 for invalid/mismatched IDs, and the session would roll
+    # back — which would resurrect DB tombstones from hard_delete_attachments
+    # while MinIO objects are already gone (broken media rows).
     if to_add:
         await bind_attachments(
             session,
@@ -395,6 +413,8 @@ async def edit_message(
             channel_id=msg.channel_id,
             uploader_id=current.id,
         )
+    if to_remove:
+        await hard_delete_attachments(session, attachment_ids=list(to_remove))
 
     msg.content = payload.content.strip()
     msg.edited_at = datetime.now(UTC)

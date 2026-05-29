@@ -5,8 +5,9 @@ of Redis keys. This module is the single place those names are spelled, copied
 verbatim from ``dcc_media_svc.streamkeys``. Keep them in sync.
 
 Streams are per *(channel, user, session-nonce)*: the MediaMTX path is
-``channel-<channel_id>-<user_id>-<nonce>`` so every publish gets a fresh path,
-avoiding the MediaMTX-1.17.1 ICE-race on rapid republish of the same path. See
+``channel-<channel_id>-<user_id>-<nonce>`` (nonce = 32 hex from
+``secrets.token_hex(16)``) so every publish gets a fresh path, avoiding the
+MediaMTX-1.17.1 ICE-race on rapid republish of the same path. See
 ``dcc_media_svc.streamkeys`` for the full rationale.
 """
 
@@ -16,8 +17,8 @@ import re
 
 CHANNEL_PATH_PREFIX = "channel-"
 # channel-<channel_id>-<user_id>-<nonce>
-#   cid + uid are snowflakes (all digits), nonce is 8 lowercase hex.
-CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)-([0-9a-f]{8})$")
+#   cid + uid are snowflakes (all digits), nonce is 32 lowercase hex.
+CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)-([0-9a-f]{32})$")
 
 # Redis keys (see dcc_media_svc.streamkeys for the authoritative comments).
 #   stream:token:<token>              → JSON {channel_id, user_id, nonce, scope, protocol, created_at}

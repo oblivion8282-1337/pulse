@@ -24,5 +24,7 @@
 # `reverse_proxy 127.0.0.1:8100` and skip the `docker network connect` step.
 
 howispulse.com {
-	reverse_proxy pulse_web:80
+	reverse_proxy pulse_web:80 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }

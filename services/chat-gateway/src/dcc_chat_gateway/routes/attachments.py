@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Iterable
@@ -55,6 +56,34 @@ from dcc_chat_gateway.snowflake import next_id
 
 log = structlog.get_logger(__name__)
 router = APIRouter()
+
+# ─── MIME allowlist ─────────────────────────────────────────────────────────
+# Only safe MIME types that cannot be rendered as HTML by the browser are
+# permitted.  text/html, application/javascript, text/css and similar are
+# intentionally excluded to prevent stored-XSS via a crafted Content-Type on
+# a presigned MinIO GET URL served from the same origin.
+
+_ALLOWED_MIME_RE = re.compile(
+    r"^(?:"
+    r"image/(jpeg|png|gif|webp|svg\+xml|bmp|tiff|x-icon|avif|heic|heif)"
+    r"|video/(mp4|webm|ogg|quicktime|x-msvideo|x-matroska|3gpp)"
+    r"|audio/(mpeg|ogg|wav|webm|aac|flac|x-flac|mp4|opus)"
+    r"|application/pdf"
+    r"|application/zip"
+    r"|application/(x-)?7z-compressed"
+    r"|application/x-tar"
+    r"|application/(x-)?rar-compressed"
+    r"|application/gzip"
+    r"|application/octet-stream"
+    r"|text/plain"
+    r")$"
+)
+
+
+def _validate_mime(mime: str) -> None:
+    """Raise 400 if the MIME type is not on the safe allowlist."""
+    if not _ALLOWED_MIME_RE.match(mime):
+        raise HTTPException(400, detail=f"unsupported mime type: {mime!r}")
 
 
 # ─── Limit lookup ───────────────────────────────────────────────────────────
@@ -107,6 +136,7 @@ async def create_upload_url(
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
         )
+    _validate_mime(payload.mime)
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":
@@ -387,14 +417,18 @@ REAPER_BATCH_SIZE = 500
 async def _reap_once() -> int:
     cutoff = datetime.now(UTC) - timedelta(seconds=ORPHAN_AGE_S)
     async with SessionLocal() as session:
-        rows = (
-            await session.execute(
-                select(MessageAttachment).where(
-                    MessageAttachment.message_id.is_(None),
-                    MessageAttachment.created_at < cutoff,
-                ).limit(REAPER_BATCH_SIZE)
-            )
-        ).scalars().all()
+        # Project only the columns we need — avoids transferring the full row.
+        result = await session.execute(
+            select(
+                MessageAttachment.id,
+                MessageAttachment.storage_key,
+                MessageAttachment.thumb_storage_key,
+            ).where(
+                MessageAttachment.message_id.is_(None),
+                MessageAttachment.created_at < cutoff,
+            ).limit(REAPER_BATCH_SIZE)
+        )
+        rows = result.all()
         if not rows:
             return 0
 

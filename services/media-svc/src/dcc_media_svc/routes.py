@@ -41,32 +41,41 @@ log = structlog.get_logger(__name__)
 # In-process per-user rate limiter for stream-token issuance.
 # Prevents a single user from flooding Redis with token keys.
 # Per-process only — for multi-worker deployments this should move to Redis.
+# Uses bucketing by 60-second windows to avoid O(N) full-dict scans.
+# {user_id: (window_start_monotonic, count)}
 # ---------------------------------------------------------------------------
 _TOKEN_RATE_LIMIT = 10   # max tokens per user per window
 _TOKEN_RATE_WINDOW = 60.0  # seconds
-# {user_id: (window_start_monotonic, count)}
-_token_rate_buckets: dict[int, tuple[float, int]] = {}
+# Two buckets: current and previous window. Old entries are discarded.
+_token_rate_buckets_current: dict[int, int] = {}
+_token_rate_buckets_previous: dict[int, int] = {}
+_token_rate_window_boundary = 0.0
 
 
 def _check_token_rate(user_id: int) -> bool:
-    """Return True if the call is allowed, False if over budget."""
+    """Return True if the call is allowed, False if over budget.
+
+    Uses a two-bucket windowing scheme: current and previous windows.
+    On window boundary, the current bucket becomes previous and a new
+    current bucket is created. No full-dict scanning needed.
+    """
+    global _token_rate_window_boundary, _token_rate_buckets_current, _token_rate_buckets_previous
     now = monotonic()
-    # Lazy eviction of expired entries to keep the dict bounded.
-    if _token_rate_buckets:
-        expired = [
-            uid for uid, (start, _) in _token_rate_buckets.items()
-            if now - start >= _TOKEN_RATE_WINDOW
-        ]
-        for uid in expired:
-            del _token_rate_buckets[uid]
-    entry = _token_rate_buckets.get(user_id)
-    if entry is None or now - entry[0] >= _TOKEN_RATE_WINDOW:
-        _token_rate_buckets[user_id] = (now, 1)
-        return True
-    start, count = entry
+    current_window = int(now / _TOKEN_RATE_WINDOW)
+    window_boundary = current_window * _TOKEN_RATE_WINDOW
+
+    # If we've moved to a new window, rotate the buckets.
+    if window_boundary != _token_rate_window_boundary:
+        _token_rate_window_boundary = window_boundary
+        _token_rate_buckets_previous = _token_rate_buckets_current
+        _token_rate_buckets_current = {}
+
+    # Count tokens in current window only. Entries in the previous window
+    # are from the *previous* 60-second slot and are stale for a new request.
+    count = _token_rate_buckets_current.get(user_id, 0)
     if count >= _TOKEN_RATE_LIMIT:
         return False
-    _token_rate_buckets[user_id] = (start, count + 1)
+    _token_rate_buckets_current[user_id] = count + 1
     return True
 
 router = APIRouter()
@@ -142,8 +151,9 @@ async def issue_stream_token(
     user_id = str(user.id)
     token = secrets.token_urlsafe(32)
     # Fresh nonce per token → fresh MediaMTX path per publish (see
-    # ``streamkeys.py`` for why). 8 hex = 32 bits = collision-safe at our scale.
-    nonce = secrets.token_hex(4)
+    # ``streamkeys.py`` for why). 32 hex = 128 bits = offline path-guessing
+    # infeasible even for a well-resourced attacker.
+    nonce = secrets.token_hex(16)
     path = path_for_channel_user(channel_id, user_id, nonce)
     record = {
         "channel_id": channel_id,
@@ -169,7 +179,11 @@ async def issue_stream_token(
 
 
 @router.get("/channels/{channel_id}/stream", response_model=StreamStateOut)
-async def get_stream_state(channel_id: ChannelId, request: Request) -> StreamStateOut:
+async def get_stream_state(
+    channel_id: ChannelId,
+    user: CurrentUser,
+    request: Request,
+) -> StreamStateOut:
     redis = _get_redis(request)
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
     if raw is None:

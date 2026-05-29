@@ -98,27 +98,15 @@ def _deny(reason: str, **fields: Any) -> HTTPException:
     return HTTPException(status.HTTP_401_UNAUTHORIZED, detail="denied")
 
 
-# Lua script: atomically GET and DEL a key in a single round-trip.
-# Returns the value (bytes) if the key existed, or nil if it was already gone.
-# This prevents a TOCTOU race where two concurrent auth calls for the same
-# token both pass the GET before either issues the DELETE.
-_LUA_GETDEL = """
-local v = redis.call('GET', KEYS[1])
-if v then redis.call('DEL', KEYS[1]) end
-return v
-"""
+async def _peek_token(redis: Redis, token: str) -> dict[str, Any] | None:
+    """GET the token record without consuming it.
 
-
-async def _load_and_consume_token(redis: Redis, token: str) -> dict[str, Any] | None:
-    """Atomically retrieve and delete the token record (single-use semantics).
-
-    Returns the parsed record dict, or None if the token was absent or invalid.
-    The DELETE is part of the same Lua transaction, so a concurrent request that
-    lost the race sees nil from GET and is denied before any validation.
+    Returns the parsed record dict, or None if the token is absent or unparseable.
+    Does NOT delete the key — call ``_consume_token`` after all validation passes.
     """
     if not token:
         return None
-    raw = await redis.eval(_LUA_GETDEL, 1, TOKEN_KEY.format(token=token))  # type: ignore[arg-type]
+    raw = await redis.get(TOKEN_KEY.format(token=token))
     if raw is None:
         return None
     try:
@@ -126,6 +114,17 @@ async def _load_and_consume_token(redis: Redis, token: str) -> dict[str, Any] | 
     except (ValueError, TypeError, AttributeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+async def _consume_token(redis: Redis, token: str) -> bool:
+    """Atomically consume (DEL) the token record.
+
+    Returns True if the token was still present and is now deleted (this
+    request won the race), False if another concurrent request already consumed
+    it. Callers that get False should treat the auth as denied to enforce
+    single-use semantics even under concurrent retries.
+    """
+    return bool(await redis.delete(TOKEN_KEY.format(token=token)))
 
 
 async def _mark_publisher_active(
@@ -158,11 +157,10 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
         if cu is None:
             raise _deny("publish_non_channel_path", path=req.path)
         channel_id, path_user_id, path_nonce = cu
-        # _load_and_consume_token atomically GETs and DELs the key so that two
-        # concurrent auth requests for the same token cannot both pass the check
-        # (TOCTOU prevention). The DELETE is also the single-use enforcement —
-        # no separate redis.delete() call is needed afterwards.
-        rec = await _load_and_consume_token(redis, req.credential)
+        # Step 1 — GET the token record without consuming it so that validation
+        # failures (wrong scope/channel/user/nonce) leave the token intact and
+        # the publisher can retry with the same token after fixing the request.
+        rec = await _peek_token(redis, req.credential)
         if rec is None:
             raise _deny("publish_unknown_token", path=req.path)
         if rec.get("scope") != "publish":
@@ -185,6 +183,10 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
                 path=req.path,
                 token_nonce=rec.get("nonce"),
             )
+        # Step 2 — all checks passed; now atomically consume the token so that
+        # a concurrent request for the same token is denied (single-use).
+        if not await _consume_token(redis, req.credential):
+            raise _deny("publish_token_already_consumed", path=req.path)
         await _mark_publisher_active(redis, channel_id, path_user_id, req.path)
         log.info("auth_publish_ok", channel_id=channel_id, user_id=path_user_id, protocol=req.protocol)
         return  # 200

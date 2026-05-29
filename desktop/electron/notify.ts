@@ -90,10 +90,20 @@ export function wireNotify(getWindow: () => BrowserWindow | null): void {
     const id = `${Date.now().toString(36)}-${(++notifySeq).toString(36)}`;
     if (!Notification.isSupported()) return id;
 
+    // Runtime type guards: validate renderer-supplied payload fields (finding 157).
+    // TypeScript types are erased at runtime, so we must check explicitly.
+    if (!payload || typeof payload !== 'object') return id;
+    if (typeof payload.title !== 'string' || typeof payload.body !== 'string') return id;
+    if (typeof payload.channel_id !== 'string' || typeof payload.message_id !== 'string') return id;
+    if (payload.guild_id !== null && payload.guild_id !== undefined && typeof payload.guild_id !== 'string') return id;
+    // Clamp title and body to reasonable lengths to avoid memory/rendering issues.
+    const title = payload.title.slice(0, 256);
+    const body = payload.body.slice(0, 1024);
+
     const icon = sanitiseIcon(payload.icon);
     const notif = new Notification({
-      title: payload.title,
-      body: payload.body,
+      title,
+      body,
       icon,
       silent: false,
     });

@@ -41,10 +41,14 @@ snapshot_pg() {
 
 snapshot_minio() {
     : "${MINIO_ENDPOINT:?}" "${MINIO_ACCESS_KEY:?}" "${MINIO_SECRET_KEY:?}"
-    local stage=/var/cache/pulse-backup/minio
-    mkdir -p "$stage"
+    # Use a temporary directory so the mirror is not persisted between runs.
+    # This avoids permanently holding three copies of attachment data on disk
+    # (MinIO data volume + stage mirror + restic repo).
+    local stage
+    stage=$(mktemp -d /tmp/pulse-minio-stage.XXXXXX)
+    trap 'rm -rf "$stage"' RETURN
     mc alias set local "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" >/dev/null
-    log "mc mirror local/pulse-attachments → $stage (incremental)"
+    log "mc mirror local/pulse-attachments → $stage (ephemeral)"
     mc mirror --overwrite --remove --quiet local/pulse-attachments "$stage"
     log "restic backup $stage (tag=minio)"
     restic backup "$stage" --tag minio --host pulse

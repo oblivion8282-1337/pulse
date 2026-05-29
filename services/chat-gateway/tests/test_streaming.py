@@ -53,7 +53,7 @@ def mock_media_svc(monkeypatch):
     calls: list[tuple] = []
     responses: list[httpx.Response] = []
 
-    async def _fake(method, path, *, bearer, json_body=None):
+    async def _fake(method, path, *, bearer, json_body=None, http=None):
         calls.append((method, path, bearer, json_body))
         if not responses:
             raise AssertionError("no fake media-svc response queued")

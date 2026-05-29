@@ -147,7 +147,7 @@ async def revoked_credentials(
         etag_str = _compute_etag(cert_ids)
 
     quoted = _quoted(etag_str)
-    if if_none_match and if_none_match == quoted:
+    if if_none_match and if_none_match.strip('"') == etag_str:
         return Response(status_code=status.HTTP_304_NOT_MODIFIED)
 
     response.headers["ETag"] = quoted

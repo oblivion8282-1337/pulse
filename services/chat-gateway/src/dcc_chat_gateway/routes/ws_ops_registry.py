@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from fastapi import WebSocket
     from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession
 
     from dcc_chat_gateway.pubsub import ConnectionManager
     from dcc_chat_gateway.security import AuthenticatedUser
@@ -67,6 +68,10 @@ class WSOpContext:
     # Voice channel id (as string) the user is currently in, as reported by
     # voice_self_state. ``None`` when not in a voice channel.
     current_voice_channel: str | None = None
+    # Optional DB session passed from the plugin op-gate to avoid double
+    # session acquisition. Only set for plugin ops that pass the gate.
+    # Internal use only; handlers should not rely on this being set.
+    _db_session: "AsyncSession | None" = None
 
 
 WSOpHandler = Callable[[WSOpContext, dict[str, Any]], Awaitable[None]]

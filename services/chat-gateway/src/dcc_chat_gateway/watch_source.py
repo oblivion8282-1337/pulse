@@ -181,23 +181,57 @@ def parse_source(url: object) -> dict | None:
 
 
 def _is_private_host(hostname: str) -> bool:
-    """Return True if *hostname* resolves to a private/internal network address.
+    """Return True if *hostname* refers to a private/internal network address.
 
     Prevents guild members from using the watch-party native-URL feature to
     weaponize other viewers' browsers as probes against internal hosts (SSRF
     via client-side fetch).  We block:
+
     * Unresolvable / empty hostnames (no host at all)
     * ``localhost`` and loopback aliases
     * RFC-1918 private ranges, link-local, and similar non-public ranges,
       detected via :func:`ipaddress.ip_address` ``is_private`` / ``is_loopback``
-      / ``is_link_local`` flags (covers IPv4 and IPv6).
+      / ``is_link_local`` flags (covers IPv4 and IPv6 literals).
     * Bare numeric IPv4/IPv6 literals (same check applied after parsing).
+    * Well-known private/internal DNS TLDs and suffixes (``*.local``,
+      ``*.internal``, ``*.intranet``, ``*.corp``, ``*.lan``, ``*.home``,
+      ``*.localdomain``, ``*.localhost``).
+
+    Limitation: a public DNS name that resolves to a private IP (DNS-rebinding /
+    split-horizon DNS) cannot be caught here without an async resolver, which
+    would be a DoS vector.  That residual risk is mitigated at the permission
+    layer — the ``watch_start`` WS op requires channel membership, and native
+    URLs additionally require MANAGE_CHANNELS (enforced in
+    ``routes/ws_watch.py::handle_start``).
     """
     if not hostname:
         return True
+
+    # Well-known localhost / loopback aliases.
     _LOCALHOST_NAMES = frozenset({"localhost", "localhost.localdomain"})
     if hostname in _LOCALHOST_NAMES:
         return True
+
+    # Private / internal DNS TLDs and common split-horizon suffixes.
+    # These are never valid public hostnames (RFC-6762 reserves .local for
+    # mDNS; IANA has not delegated any of the others as public TLDs).
+    _PRIVATE_TLDS = frozenset(
+        {
+            "local",
+            "internal",
+            "intranet",
+            "corp",
+            "lan",
+            "home",
+            "localdomain",
+            "localhost",
+        }
+    )
+    # hostname is already lowercased by the caller (urlparse .hostname).
+    parts = hostname.split(".")
+    if parts[-1] in _PRIVATE_TLDS:
+        return True
+
     # Try to parse as a raw IP address (IPv4 literal or bracketed IPv6).
     try:
         addr = ipaddress.ip_address(hostname)
@@ -210,8 +244,8 @@ def _is_private_host(hostname: str) -> bool:
             or addr.is_unspecified
         )
     except ValueError:
-        # Not an IP literal — it's a hostname.  We cannot do DNS resolution
-        # here (no async context, and resolving would be a DoS vector), so we
-        # only block the obvious literal forms above.  Caddy / the user's own
-        # browser enforces the rest.
+        # Not an IP literal — it's a regular hostname.  We cannot do DNS
+        # resolution here (no async context, and resolving would be a DoS
+        # vector).  Public hostnames that split-horizon-resolve to private IPs
+        # are mitigated by the permission gate described in the docstring.
         return False

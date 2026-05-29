@@ -29,7 +29,7 @@ import { URL } from 'node:url';
 // `desktop/package.json` relative to this source file.
 import pkg from '../package.json';
 import { getSidecar } from './sidecar';
-import { initStore, storeGet, storeGetAll, storeSet } from './store';
+import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray } from './tray';
 import { wireNotify } from './notify';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
@@ -133,6 +133,8 @@ if (!DEV_URL && _rawPulseUrl && !app.isPackaged) {
   console.warn('[startup] PULSE_URL ignored in packaged build (developer-only override).');
 }
 const TARGET_URL = DEV_URL ?? PROD_URL;
+// Pre-computed origin of the target URL to avoid re-parsing on every navigation event.
+const TARGET_ORIGIN = new URL(TARGET_URL).origin;
 // DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
 // (detached); otherwise the standard accelerator (Ctrl+Shift+I) still toggles them.
 const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1';
@@ -210,8 +212,7 @@ function createWindow(): void {
 function _isAllowedOrigin(url: string): boolean {
   try {
     const u = new URL(url);
-    const t = new URL(TARGET_URL);
-    return u.origin === t.origin;
+    return u.origin === TARGET_ORIGIN;
   } catch {
     return false;
   }
@@ -221,6 +222,21 @@ function _isAllowedOrigin(url: string): boolean {
 // `sidecar.ts` owns the Python child process + the newline-JSON protocol; here
 // we only wire it to IPC. The sidecar is still spawned lazily on the first
 // `gsr:call` — registering the event callback below does NOT start Python.
+
+/** Allowed GSR ops (finding 156) — any op not in this set is silently rejected
+ *  with {ok: false} to prevent a compromised renderer from invoking unexpected
+ *  sidecar operations. The set contains exactly the ops declared in pulse.d.ts
+ *  and exposed via the preload. */
+const ALLOWED_GSR_OPS = new Set([
+  'health',
+  'gpu_info',
+  'list_profiles',
+  'list_monitors',
+  'list_application_audio',
+  'build_argv',
+  'start',
+  'stop',
+]);
 
 function wireSidecar(): void {
   getSidecar().onEvent((ev) => {
@@ -233,6 +249,10 @@ function wireSidecar(): void {
   // Catch everything so a bad op / dead sidecar surfaces as `{ok:false}` in the
   // renderer instead of an unhandled rejection.
   ipcMain.handle('gsr:call', async (_e, op: string, params: unknown) => {
+    // Validate op against the allowlist (finding 156).
+    if (!ALLOWED_GSR_OPS.has(op)) {
+      return { ok: false, error: 'unknown op' };
+    }
     try {
       return await getSidecar().call(op, params);
     } catch (e) {
@@ -294,13 +314,17 @@ function wireStore(): void {
   ipcMain.handle('store:setAll', (_e, values: Record<string, unknown>) => {
     if (!values || typeof values !== 'object') return;
     try {
+      // Filter to only allowed keys before batch write.
+      const filtered: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(values)) {
         if (!ALLOWED_STORE_KEYS.has(key)) {
           console.warn('[store] store:setAll rejected unknown key:', key);
           continue;
         }
-        storeSet(key, value);
+        filtered[key] = value;
       }
+      // Single atomic persist for all keys.
+      storeSetBatch(filtered);
     } catch (e) {
       console.error('[store] store:setAll failed:', e);
     }

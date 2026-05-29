@@ -82,34 +82,38 @@ def _audit(
 
 @router.get("/stats", response_model=AdminStatsOut)
 async def get_stats(session: SessionDep, _actor: AdminUser):
-    """Four counts in three round-trips (Postgres can't do all four in one
-    aggregate query without UNIONing — three small SELECTs is cheaper)."""
-    guild_count = (await session.execute(select(func.count()).select_from(Guild))).scalar_one()
-    channel_count = (
-        await session.execute(select(func.count()).select_from(Channel))
-    ).scalar_one()
-    dm_channel_count = (
-        await session.execute(select(func.count()).select_from(DirectMessageChannel))
-    ).scalar_one()
+    """All four DB counts in a single round-trip via scalar subqueries,
+    parallelised with the S3 calls so the whole endpoint is capped by
+    max(DB, S3) rather than their sum."""
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    messages_24h = (
-        await session.execute(
-            select(func.count())
-            .select_from(Message)
-            .where(Message.created_at >= cutoff, Message.deleted_at.is_(None))
-        )
-    ).scalar_one()
-    # Fire bucket-sum + disk-info in parallel so the slowest of the two caps
-    # the whole stats endpoint, not their sum.
-    bucket_bytes, disk = await asyncio.gather(
-        s3.total_bucket_bytes(),
-        s3.cluster_disk_info(),
+
+    # One SELECT with four correlated scalar subqueries — single round-trip.
+    counts_stmt = select(
+        select(func.count()).select_from(Guild).scalar_subquery().label("guild_count"),
+        select(func.count()).select_from(Channel).scalar_subquery().label("channel_count"),
+        select(func.count())
+        .select_from(DirectMessageChannel)
+        .scalar_subquery()
+        .label("dm_channel_count"),
+        select(func.count())
+        .select_from(Message)
+        .where(Message.created_at >= cutoff, Message.deleted_at.is_(None))
+        .scalar_subquery()
+        .label("messages_24h"),
     )
+
+    # Fire the single DB round-trip and both S3 calls concurrently so the
+    # whole endpoint is capped by max(DB, S3) rather than their sum.
+    counts_result, (bucket_bytes, disk) = await asyncio.gather(
+        session.execute(counts_stmt),
+        asyncio.gather(s3.total_bucket_bytes(), s3.cluster_disk_info()),
+    )
+    counts_row = counts_result.one()
     return AdminStatsOut(
-        guild_count=guild_count,
-        channel_count=channel_count,
-        dm_channel_count=dm_channel_count,
-        messages_24h=messages_24h,
+        guild_count=counts_row.guild_count,
+        channel_count=counts_row.channel_count,
+        dm_channel_count=counts_row.dm_channel_count,
+        messages_24h=counts_row.messages_24h,
         storage_bytes=bucket_bytes,
         storage_total_bytes=disk[0] if disk else None,
         storage_free_bytes=disk[1] if disk else None,

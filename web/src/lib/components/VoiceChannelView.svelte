@@ -124,7 +124,10 @@
     voice.pttPress();
   }
   function handlePttKeyup(e: KeyboardEvent) {
-    if (!voice.pttMode || e.key.toLowerCase() !== settings.voice.pttKey) return;
+    if (!voice.pttMode) return;
+    // Ensure case-insensitive comparison consistent with the shortcut binding and setPttKey normalization
+    const normalizedKey = e.key.toLowerCase();
+    if (normalizedKey !== settings.voice.pttKey) return;
     if (!pttPressed) return;
     pttPressed = false;
     voice.pttRelease();

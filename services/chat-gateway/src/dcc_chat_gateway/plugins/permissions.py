@@ -29,13 +29,18 @@ Modi
 ``strict`` (Default)
     Undeclared registration → ``PluginPermissionError`` + komplettes
     Rollback aller in dieser Activation-Phase neu erstellten Einträge.
+    **Production-Modus: dies ist die einzige sichere Wahl für
+    Produktivdeployments.**
 ``warn``
     Logge die Verletzung, lasse die Registrierung aber stehen. Nützlich
     während der Plugin-Entwicklung, wenn das Manifest noch nicht hinterher
-    ist.
+    ist. **Nur für die lokale Entwicklung verwenden.**
 ``off``
     Keine Prüfung — verhält sich wie Schritt 4. Escape-Hatch, sollte
-    der Gate jemals fehlschlagen.
+    der Gate jemals fehlschlagen. **Nur für die Fehlersuche/Tests bestimmt;
+    NIEMALS in der Produktion verwenden.** Ein Operator mit Kontrolle über
+    die Umgebungsvariablen kann damit jedes Plugin heimlich um Fähigkeiten
+    erweitern, ohne das Manifest zu aktualisieren.
 
 Der aktive Modus wird per ``$PULSE_PLUGIN_PERMISSIONS`` gewählt und bei
 jedem Activate frisch gelesen — Operatoren + Tests können den Modus zur
@@ -75,6 +80,26 @@ def resolve_permission_mode() -> PermissionMode:
             "%s=%r unrecognised; using %r", ENV_VAR, raw, DEFAULT_PERMISSION_MODE
         )
     return DEFAULT_PERMISSION_MODE
+
+
+def log_startup_mode_warning() -> None:
+    """Log a startup warning if the plugin permission mode is not 'strict'.
+
+    This should be called once during app lifespan startup to alert
+    operators that non-strict modes (``warn`` or ``off``) are intended
+    for development only and should never be used in production.
+    Calling this multiple times is safe — logs appear only if mode != strict.
+    """
+    mode = resolve_permission_mode()
+    if mode != "strict":
+        log.warning(
+            "%s=%r: plugin permission enforcement is DISABLED. "
+            "This mode is for development only — do NOT use in production. "
+            "Set %s=strict for production deployments.",
+            ENV_VAR,
+            mode,
+            ENV_VAR,
+        )
 
 
 class PluginPermissionError(RuntimeError):

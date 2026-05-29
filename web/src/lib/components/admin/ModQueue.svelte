@@ -4,7 +4,6 @@
   Nur sichtbar wenn MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { toast } from 'svelte-sonner';
   import {
@@ -74,7 +73,6 @@
   }
 
   $effect(() => { void load(activeTab); });
-  onMount(() => { void load(activeTab); });
 
   function openResolve(r: Report, type: 'resolved' | 'dismissed') {
     resolveTarget = r;

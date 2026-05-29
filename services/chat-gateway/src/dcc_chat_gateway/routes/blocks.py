@@ -138,11 +138,11 @@ async def delete_block(
             UserBlock.blocker_id == me, UserBlock.blocked_id == user_id
         )
     )
-    await session.commit()
     if result.rowcount == 0:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, detail="block_not_found"
         )
+    await session.commit()
     # user_unblocked goes ONLY to the unblocker — same no-leak policy as
     # user_blocked (the formerly-blocked party gets nothing).
     await publish_friend_event(

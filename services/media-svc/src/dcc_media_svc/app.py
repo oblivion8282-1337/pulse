@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
 import structlog
@@ -45,6 +46,8 @@ async def lifespan(app: FastAPI):
                 await asyncio.wait_for(poller_task, timeout=5.0)
             except (TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
                 poller_task.cancel()
+                with contextlib.suppress(Exception):
+                    await poller_task
         if redis is not None:
             try:
                 await redis.aclose()

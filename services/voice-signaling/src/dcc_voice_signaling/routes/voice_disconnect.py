@@ -58,13 +58,46 @@ async def disconnect_from_voice(
             status.HTTP_403_FORBIDDEN, detail="missing permission: MOVE_MEMBERS"
         )
 
+    # Verify that the target user is a member of the channel's guild. This
+    # prevents an admin from removing arbitrary user IDs outside their guild.
+    settings = voice_routes.get_settings()
+    if settings.chat_gateway_url is not None:
+        try:
+            channel_resp = await voice_routes._chat_gateway_request(
+                "GET", f"/channels/{channel_id}", bearer=bearer
+            )
+            if channel_resp.status_code == 200:
+                channel_data = channel_resp.json()
+                guild_id = channel_data.get("guild_id")
+                if guild_id:
+                    member_resp = await voice_routes._chat_gateway_request(
+                        "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+                    )
+                    if member_resp.status_code == 404:
+                        raise HTTPException(
+                            status.HTTP_404_NOT_FOUND,
+                            detail="user is not a member of this guild",
+                        )
+                    if member_resp.status_code >= 400:
+                        raise HTTPException(
+                            status.HTTP_502_BAD_GATEWAY,
+                            detail="membership check unavailable",
+                        )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
+            ) from exc
+
     redis = voice_routes._get_redis(request)
     if redis is None:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="redis unavailable"
         )
 
-    await voice_routes._livekit_remove_participant(channel_id, user_id)
+    livekit_api = getattr(request.app.state, "livekit_api", None)
+    await voice_routes._livekit_remove_participant(channel_id, user_id, api_client=livekit_api)
 
     from dcc_shared.events import VoiceDisconnectEvent
 

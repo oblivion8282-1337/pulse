@@ -50,6 +50,10 @@ _TEST_SETTINGS = chat_cfg.Settings(
     redis_url=os.environ.get("REDIS_URL", "redis://localhost:6380/0"),
     auth_jwks_url="http://stub/jwks",
     database_schema="main",
+    # A valid "approved self-host" config: non-zero instance id satisfies the
+    # lifespan fail-fast guard (which prevents identical pairwise-subs across
+    # self-hosts) while keeping the default self-host mode the other tests rely on.
+    pulse_instance_id=100,
 )
 
 
@@ -59,6 +63,12 @@ def _isolate_chat_settings():
 
     chat_ratelimit.reset()
     chat_cfg.get_settings.cache_clear()
+    # Reset instance-mode fields on the shared settings singleton: several tests
+    # mutate these directly (not via monkeypatch) to exercise cloud-mode paths,
+    # which would otherwise leak into later tests (e.g. mention-search's
+    # cloud-only guild-member JOIN).
+    _TEST_SETTINGS.pulse_instance_mode = "self-host"
+    _TEST_SETTINGS.pulse_instance_id = 100
 
     def _provider() -> chat_cfg.Settings:
         return _TEST_SETTINGS

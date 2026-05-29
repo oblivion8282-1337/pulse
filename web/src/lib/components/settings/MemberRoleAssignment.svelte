@@ -52,6 +52,7 @@
       : members.filter((m) => {
           const needle = filter.trim().toLowerCase();
           return (m.nickname ?? '').toLowerCase().includes(needle)
+            || userCache.displayName(m.user_id).toLowerCase().includes(needle)
             || m.user_id.includes(needle);
         })
   );

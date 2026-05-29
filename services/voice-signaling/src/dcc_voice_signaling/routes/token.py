@@ -12,7 +12,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from livekit import api as lk
 from pydantic import BaseModel, ConfigDict, Field
 
-from dcc_voice_signaling import routes as voice_routes
+from dcc_voice_signaling import ratelimit, routes as voice_routes
 from dcc_voice_signaling.security import CurrentUser
 
 router = APIRouter()
@@ -45,6 +45,11 @@ async def issue_token(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="LiveKit not configured",
+        )
+
+    if not ratelimit.check("token", user.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
         )
 
     bearer = voice_routes._bearer_from_header(authorization)

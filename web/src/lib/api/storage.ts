@@ -3,6 +3,19 @@
  * Electron shell this could later be swapped for `window.pulse.store.*` (see
  * `$lib/platform/runtime.ts` / `$lib/stream/persistence.ts`), but localStorage
  * works fine for both the browser and the Electron renderer today.
+ *
+ * SECURITY TRADEOFF — XSS-stealable credentials: both `access_token` and the
+ * longer-lived `refresh_token` live in same-origin-readable localStorage. Any
+ * stored/reflected XSS on the origin can exfiltrate both and ride the refresh
+ * rotation for indefinite account takeover. Mitigations in place: strict
+ * DOMPurify/{@html} hygiene, refresh-token rotation + token-reuse family-revoke
+ * + single-flight Web Lock in `client.ts`. The proper fix is to move the
+ * refresh token into an HttpOnly + SameSite=Strict cookie issued by auth-svc
+ * (the browser-session cookie machinery already exists in
+ * `services/auth/.../browser_sessions.py`) and keep only the short-lived access
+ * token in JS — but that is a cross-service change (auth-svc /login + /refresh,
+ * proxy cookie forwarding, and `client.ts`' doRefresh/loadTokens), not a
+ * single-file edit here. See audit findings 108 / 147.
  */
 
 import type { Tokens } from './types';

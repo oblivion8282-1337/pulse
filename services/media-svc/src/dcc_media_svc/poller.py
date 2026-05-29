@@ -93,7 +93,7 @@ async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict
 async def _list_known_channels(redis: Redis) -> set[str]:
     """Channel ids that currently have a ``stream:channel:<cid>`` key."""
     out: set[str] = set()
-    async for key in redis.scan_iter(match=_CHANNEL_STATE_SCAN_MATCH):
+    async for key in redis.scan_iter(match=_CHANNEL_STATE_SCAN_MATCH, count=100):
         key_s = key.decode() if isinstance(key, bytes) else key
         out.add(key_s.rsplit(":", 1)[-1])
     return out
@@ -174,8 +174,8 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
 
     # Publish change events after the pipeline flush (outside the pipeline so
     # subscribers see the new state already written).
+    await asyncio.gather(*[_publish_event(redis, cid, new_uids) for cid, new_uids in changed])
     for cid, new_uids in changed:
-        await _publish_event(redis, cid, new_uids)
         log.info("stream_state_change", channel_id=cid, user_ids=new_uids)
 
     # --- Self-heal: channels no longer reported by MediaMTX ---------------
@@ -185,8 +185,8 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
             for cid in stale:
                 pipe.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
             await pipe.execute()
+        await asyncio.gather(*[_publish_event(redis, cid, []) for cid in stale])
         for cid in stale:
-            await _publish_event(redis, cid, [])
             log.info("stream_state_change", channel_id=cid, user_ids=[])
 
 

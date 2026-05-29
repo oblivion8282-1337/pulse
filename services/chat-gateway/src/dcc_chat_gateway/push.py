@@ -212,10 +212,15 @@ async def fan_out_mention_push(
 ) -> None:
     """Build the canonical mention payload + push it to each user.
 
-    Opens its own DB session (via ``routes.ws_ops.SessionLocal``) so the
-    sub-cleanup work on a dead-endpoint hit doesn't ride the
-    calling route's transaction. Tests rebind ``routes.ws_ops.SessionLocal``
-    to their fixture's sessionmaker; production uses the prod factory.
+    Opens a *single* DB session (via ``routes.ws_ops.SessionLocal``) and
+    loads all subscriptions for all recipients in one query, then fans
+    out sends concurrently in thread-pool workers (pywebpush is sync).
+    Dead-endpoint deletes and last_used_at refreshes are batched into two
+    bulk statements after all sends complete, so the DB pool is held for
+    only one short window regardless of recipient count.
+
+    Tests rebind ``routes.ws_ops.SessionLocal`` to their fixture's
+    sessionmaker; production uses the prod factory.
 
     Never raises — push failures, missing VAPID, or an empty subscription
     set must not break the message-send REST path. Caller (route layer)
@@ -224,6 +229,12 @@ async def fan_out_mention_push(
     """
     if not user_ids:
         return
+
+    settings = get_settings()
+    vapid = ensure_vapid(settings)
+    if vapid is None:
+        return
+
     # 100-char snippet — long enough to be useful, short enough that an
     # OS-level toast doesn't truncate weirdly. Strip mention markers so
     # the preview doesn't read "<@123456789> please look". Use a soft
@@ -239,20 +250,71 @@ async def fan_out_mention_push(
         "author_name": author_name or "",
         "icon": None,  # chat-gateway has no avatar URL; FE/SW fallback.
     }
+    serialised_body = json.dumps(payload_base, separators=(",", ":"))
+    vapid_claims = {"sub": settings.vapid_subject}
+
     # Late import: routes.ws_ops → push would cycle.
     from dcc_chat_gateway.routes import ws_ops as _routes_ws_ops
 
-    # Each user gets their own session so dead-endpoint cleanup commits are
-    # scoped per-user; they also run concurrently so a slow push service
-    # doesn't serialize latency across all recipients.
-    async def _push_one(uid: int) -> None:
-        try:
-            async with _routes_ws_ops.SessionLocal() as session:
-                await send_push_to_user(uid, payload_base, session)
-        except Exception:  # noqa: BLE001
-            log.exception("send_push_to_user failed for user %s", uid)
+    try:
+        async with _routes_ws_ops.SessionLocal() as session:
+            # Single query for all recipients — O(1) DB round-trip.
+            uid_list = list(user_ids)
+            rows = (
+                await session.execute(
+                    select(WebPushSubscription).where(
+                        WebPushSubscription.user_id.in_(uid_list)
+                    )
+                )
+            ).scalars().all()
 
-    await asyncio.gather(*(_push_one(uid) for uid in user_ids))
+            if not rows:
+                return
+
+            # Send all subscriptions concurrently in thread-pool workers;
+            # pywebpush is sync-only so we must offload.
+            results = await asyncio.gather(
+                *(
+                    asyncio.to_thread(
+                        _send_one,
+                        endpoint=r.endpoint,
+                        p256dh=r.p256dh,
+                        auth_secret=r.auth_secret,
+                        body=serialised_body,
+                        vapid_pem=vapid.private_pem,
+                        vapid_claims=vapid_claims,
+                    )
+                    for r in rows
+                ),
+                return_exceptions=False,
+            )
+
+            ok_ids: list[int] = []
+            dead_ids: list[int] = []
+            for row, outcome in zip(rows, results, strict=True):
+                if outcome == "ok":
+                    ok_ids.append(row.id)
+                elif outcome == "dead":
+                    dead_ids.append(row.id)
+                # "warn" → leave alone (transient).
+
+            # Two bulk statements — one session, one commit.
+            if dead_ids:
+                await session.execute(
+                    delete(WebPushSubscription).where(
+                        WebPushSubscription.id.in_(dead_ids)
+                    )
+                )
+            if ok_ids:
+                await session.execute(
+                    update(WebPushSubscription)
+                    .where(WebPushSubscription.id.in_(ok_ids))
+                    .values(last_used_at=datetime.now(UTC))
+                )
+            if dead_ids or ok_ids:
+                await session.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("fan_out_mention_push failed")
 
 
 def _make_snippet(content: str, limit: int = 100) -> str:

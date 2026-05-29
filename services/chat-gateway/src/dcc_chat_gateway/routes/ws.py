@@ -103,11 +103,17 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     try:
         payload = await decode_token(token)
         user_id = int(payload["sub"])
+        is_self_host = bool(payload.get("self_host", False))
+        identifier = (
+            str(payload.get("pairwise_sub") or user_id) if is_self_host else str(user_id)
+        )
         user = AuthenticatedUser(
             id=user_id,
             username=payload.get("username", ""),
             is_admin=bool(payload.get("admin", False)),
             payload=payload,
+            user_identifier=identifier,
+            is_self_host=is_self_host,
         )
     except (HTTPException, KeyError, ValueError):
         await websocket.close(code=4001, reason="unauthorized")

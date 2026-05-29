@@ -21,7 +21,6 @@ State shape (all snowflake-ish ids as strings):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 
@@ -57,15 +56,26 @@ async def read_state(redis: Redis, channel_id: str) -> dict | None:
 
 async def read_states_for(redis: Redis, channel_ids: list[str]) -> list[dict]:
     """``[{"channel_id": ..., "state": {...}}, ...]`` for every channel that
-    currently has an active watch party. Missing channels are omitted."""
+    currently has an active watch party. Missing channels are omitted.
+
+    Uses a single MGET instead of one GET per channel to reduce Redis
+    round-trips from O(N) to O(1)."""
     if not channel_ids:
         return []
-    states = await asyncio.gather(*(read_state(redis, cid) for cid in channel_ids))
-    return [
-        {"channel_id": cid, "state": s}
-        for cid, s in zip(channel_ids, states, strict=True)
-        if s is not None
-    ]
+    keys = [WATCH_STATE_KEY.format(channel_id=cid) for cid in channel_ids]
+    raws = await redis.mget(*keys)
+    result = []
+    for cid, raw in zip(channel_ids, raws):
+        if raw is None:
+            continue
+        try:
+            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        result.append({"channel_id": cid, "state": data})
+    return result
 
 
 async def write_state(redis: Redis, channel_id: str, state: dict) -> None:

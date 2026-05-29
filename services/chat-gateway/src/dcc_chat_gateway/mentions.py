@@ -30,6 +30,7 @@ import asyncio
 import logging
 import re
 
+from dcc_shared.events import MentionAddedData, MentionAddedEvent
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
 from sqlalchemy import delete, select
@@ -358,7 +359,6 @@ async def fan_out_mention_events(
                 filtered.add(uid)
     if not filtered:
         return set()
-    from dcc_shared.events import MentionAddedData, MentionAddedEvent
 
     envelope = MentionAddedEvent(
         data=MentionAddedData(

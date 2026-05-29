@@ -110,29 +110,26 @@ async def run_session_op_loop(
                 )
                 continue
             op = msg.get("op")
-            handler = get_handler(op) if isinstance(op, str) else None
-            if handler is None:
-                await websocket.send_json(
-                    {"op": "error", "code": 4007, "msg": f"unknown op: {op}"}
-                )
-                continue
             # Plugin-Op-Gate: colon-namespaced Ops müssen durch
-            # Allowlist + Guild-Membership + Guild-Toggle. ``hello:*``
-            # ist nur durch die Allowlist gegated; alle anderen Plugins
-            # brauchen guild_id im Payload. Siehe
+            # Allowlist + Guild-Membership + Guild-Toggle BEFORE handler lookup,
+            # so unknown plugin op names do not leak handler existence.
+            # ``hello:*`` ist nur durch die Allowlist gegated; alle anderen
+            # Plugins brauchen guild_id im Payload. Siehe
             # ``plugins.ws_op_gate.check_plugin_op_gate`` für Details.
+            gate_session = None
+            gate_passed = True
             if isinstance(op, str) and parse_plugin_op(op) is not None:
                 allowlist = getattr(
                     websocket.app.state, "plugin_allowlist", frozenset()
                 )
-                async with SessionLocal() as gate_session:
-                    decision = await check_plugin_op_gate(
-                        session=gate_session,
-                        op=op,
-                        payload=msg,
-                        user_id=user.id,
-                        allowlist=allowlist,
-                    )
+                gate_session = SessionLocal()
+                decision = await check_plugin_op_gate(
+                    session=gate_session,
+                    op=op,
+                    payload=msg,
+                    user_id=user.id,
+                    allowlist=allowlist,
+                )
                 if not decision.allowed:
                     await websocket.send_json(
                         {
@@ -141,7 +138,22 @@ async def run_session_op_loop(
                             "msg": decision.error_msg,
                         }
                     )
-                    continue
+                    await gate_session.close()
+                    gate_session = None
+                    gate_passed = False
+                # Thread the session to the handler to avoid double pool acquisition.
+                if gate_passed:
+                    ctx._db_session = gate_session
+            if not gate_passed:
+                continue
+            handler = get_handler(op) if isinstance(op, str) else None
+            if handler is None:
+                await websocket.send_json(
+                    {"op": "error", "code": 4007, "msg": f"unknown op: {op}"}
+                )
+                if gate_session is not None:
+                    await gate_session.close()
+                continue
             try:
                 await handler(ctx, msg)
             except WebSocketDisconnect:
@@ -164,6 +176,11 @@ async def run_session_op_loop(
                     )
                 except Exception:  # noqa: BLE001
                     pass
+            finally:
+                # Close the gate session if it was threaded to the handler.
+                if gate_session is not None:
+                    await gate_session.close()
+                    ctx._db_session = None
     finally:
         if expiry_task is not None:
             expiry_task.cancel()

@@ -42,6 +42,7 @@ import { streamPresence } from './streamPresence.svelte';
 import { voicePresence } from './voicePresence.svelte';
 import { watchPartyPresence } from './watchPartyPresence.svelte';
 import { resetGuildPluginsCache } from '$lib/plugins';
+import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
 
 /**
  * Leert alle 15 Server-scoped Stores. Idempotent.
@@ -71,4 +72,6 @@ export function resetServerScopedStores(): void {
   presence.clear();
   // Plugin-pro-Guild-Toggle-Cache liegt außerhalb der Store-Klassen.
   resetGuildPluginsCache();
+  // Guild-member autocomplete cache — stale after server-switch / sign-out.
+  memberListCache.clear();
 }

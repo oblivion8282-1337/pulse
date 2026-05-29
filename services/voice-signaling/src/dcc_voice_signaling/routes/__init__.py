@@ -65,6 +65,8 @@ _PERM_MUTE_MEMBERS = _chat_gateway._PERM_MUTE_MEMBERS
 _PERM_DEAFEN_MEMBERS = _chat_gateway._PERM_DEAFEN_MEMBERS
 _PERM_MOVE_MEMBERS = _chat_gateway._PERM_MOVE_MEMBERS
 
+_init_http_client = _chat_gateway._init_http_client
+_close_http_client = _chat_gateway._close_http_client
 _chat_gateway_request = _chat_gateway._chat_gateway_request
 _bearer_from_header = _chat_gateway._bearer_from_header
 _require_voice_channel_member = _chat_gateway._require_voice_channel_member

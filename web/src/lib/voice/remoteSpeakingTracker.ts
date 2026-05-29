@@ -25,6 +25,7 @@ export class RemoteSpeakingTracker {
   #ctx: AudioContext | null = null;
   #entries = new Map<string, Entry>();
   #onChange: (identity: string, speaking: boolean) => void;
+  #raf: number | null = null;
 
   constructor(onChange: (identity: string, speaking: boolean) => void) {
     this.#onChange = onChange;
@@ -60,14 +61,10 @@ export class RemoteSpeakingTracker {
         speaking: false
       };
       this.#entries.set(identity, entry);
-      const loop = (): void => {
-        analyser.getFloatTimeDomainData(buf);
-        let sum = 0;
-        for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
-        entry.detector.feed(Math.sqrt(sum / buf.length));
-        entry.raf = requestAnimationFrame(loop);
-      };
-      entry.raf = requestAnimationFrame(loop);
+      // Start the shared RAF loop if not already running
+      if (!this.#raf) {
+        this.#startLoop();
+      }
     } catch {
       // AudioContext-ctor kann vor User-Gesture/in Headless werfen — Track
       // bleibt halt "nicht sprechend", kein Crash.
@@ -75,10 +72,19 @@ export class RemoteSpeakingTracker {
     }
   }
 
+  #startLoop = (): void => {
+    for (const entry of this.#entries.values()) {
+      entry.analyser.getFloatTimeDomainData(entry.buf);
+      let sum = 0;
+      for (let i = 0; i < entry.buf.length; i++) sum += entry.buf[i] * entry.buf[i];
+      entry.detector.feed(Math.sqrt(sum / entry.buf.length));
+    }
+    this.#raf = requestAnimationFrame(this.#startLoop);
+  };
+
   detach(identity: string): void {
     const e = this.#entries.get(identity);
     if (!e) return;
-    if (e.raf !== null) cancelAnimationFrame(e.raf);
     try {
       e.source.disconnect();
     } catch {
@@ -92,6 +98,11 @@ export class RemoteSpeakingTracker {
     const wasSpeaking = e.speaking;
     this.#entries.delete(identity);
     if (wasSpeaking) this.#onChange(identity, false);
+    // Cancel the shared RAF loop if no more entries
+    if (this.#entries.size === 0 && this.#raf !== null) {
+      cancelAnimationFrame(this.#raf);
+      this.#raf = null;
+    }
   }
 
   isSpeaking(identity: string): boolean {

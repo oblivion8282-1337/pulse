@@ -77,4 +77,6 @@ class DirectMessageChannel(Base):
         UniqueConstraint("user_a_id", "user_b_id", name="uq_dm_channels_pair"),
         Index("ix_dm_channels_user_a", "user_a_id"),
         Index("ix_dm_channels_user_b", "user_b_id"),
+        Index("ix_dm_channels_user_a_last_message", "user_a_id", "last_message_id"),
+        Index("ix_dm_channels_user_b_last_message", "user_b_id", "last_message_id"),
     )

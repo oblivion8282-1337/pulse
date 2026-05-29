@@ -109,7 +109,24 @@ class Report(Base):
     )
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    __table_args__ = (Index("ix_reports_status_created", "status", "created_at"),)
+    __table_args__ = (
+        Index("ix_reports_status_created", "status", "created_at"),
+        Index(
+            "ix_reports_target_channel",
+            "target_channel_id",
+            postgresql_where=text("target_channel_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_reports_target_message",
+            "target_message_id",
+            postgresql_where=text("target_message_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_reports_target_user",
+            "target_user_id",
+            postgresql_where=text("target_user_id IS NOT NULL"),
+        ),
+    )
 
 
 class ModAuditLog(Base):

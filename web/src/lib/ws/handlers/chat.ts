@@ -100,10 +100,9 @@ export function register(ctx: HandlerContext): void {
         // Not currently in this DM. Toast the user. We intentionally
         // surface only the sender's name, not the message content,
         // so the UX stays identical when DMs go E2EE in Phase 2.
-        // userCache.queue is debounced; if the sender isn't in cache
-        // yet (we've never rendered them anywhere) we just drop the
-        // name from the toast rather than show a "…" placeholder.
-        userCache.queue(evt.author_id);
+        // If the sender isn't in cache yet (we've never rendered them
+        // anywhere) we just drop the name from the toast rather than
+        // show a "…" placeholder.
         const cached = userCache.get(evt.author_id);
         const senderLabel = cached
           ? ` von @${cached.display_name ?? cached.username}`

@@ -42,14 +42,13 @@ export function register(ctx: HandlerContext): void {
       evt.muted,
       evt.deafened
     );
-    // Deafen enforcement is *soft* — LiveKit's per-participant
-    // permission model doesn't gate inbound subscriptions, only
-    // outbound publishes. We drive voice.setDeafened so the local
-    // audio output mutes and the toggle is disabled, but a
-    // tampered client could still play subscribed audio. Same
-    // trust model as Discord's server-deafen. Mute is server-
-    // enforced via LiveKit publish-permissions (see voice-
-    // signaling/_livekit_update_participant).
+    // IMPORTANT: Deafen enforcement is *soft* (UX-only, not security).
+    // LiveKit's per-participant permission model doesn't gate inbound
+    // subscriptions server-side, only outbound publishes. We mute local
+    // audio output and disable the toggle UI, but a tampered client can
+    // still receive and play all subscribed audio. Use force-disconnect
+    // (voice_disconnect) for actual enforcement. Mute is server-enforced
+    // via LiveKit publish-permissions (see voice-signaling/_livekit_update_participant).
     // Lazy-imported to avoid the circular dep with voice/livekit.
     if (auth.user?.id === evt.user_id) {
       void import('$lib/voice/livekit.svelte').then(({ voice }) => {

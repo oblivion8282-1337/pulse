@@ -134,6 +134,7 @@ def _reset_challenge_secret_for_tests() -> None:
 
 _CERT_LOGIN_RATE_LIMIT = 10      # requests allowed per window per IP
 _CERT_LOGIN_RATE_WINDOW = 60.0   # seconds
+_CERT_LOGIN_BUCKETS_MAX = 10_000  # hard cap: evict oldest entry when full
 
 # ip -> (window_start_monotonic, count)
 _cert_login_buckets: dict[str, tuple[float, int]] = {}
@@ -147,24 +148,31 @@ def _reset_cert_login_rate_for_tests() -> None:
 def _client_ip(request: Request) -> str:
     """Best-effort client IP for rate-limit keying.
 
-    Prefers the left-most ``X-Forwarded-For`` hop (set by the nginx/Caddy front
-    proxy) and falls back to the socket peer. Spoofable, but the front proxy
-    overwrites it for external traffic, so it is adequate for coarse throttling.
+    Uses the direct socket peer address (``request.client.host``) set by the
+    ASGI server, which always reflects the actual connecting party (the trusted
+    reverse proxy when deployed behind Caddy/nginx).  X-Forwarded-For is
+    intentionally ignored here: it is trivially spoofable by any caller who
+    injects an arbitrary header before the proxy appends its own entry, and
+    using it would allow an attacker to bypass the per-IP rate limit entirely.
     """
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
     client = request.client
     return client.host if client else "unknown"
 
 
 def _enforce_cert_login_rate(request: Request) -> None:
-    """Raise 429 when the caller's IP exceeds the cert-login window budget."""
+    """Raise 429 when the caller's IP exceeds the cert-login window budget.
+
+    Eviction strategy: instead of scanning the entire dict on every call
+    (O(n_unique_IPs)), only scan when the dict has grown beyond half its cap.
+    This amortises cleanup cost while bounding memory.  If the dict is at the
+    hard cap *and* no expired entries exist (sustained high-variety attack),
+    the oldest entry is evicted to admit the new IP, keeping the dict bounded.
+    """
     ip = _client_ip(request)
     now = time.monotonic()
 
-    # Lazy eviction so the bucket map stays bounded by currently-active IPs.
-    if _cert_login_buckets:
+    # Periodic sweep: only run when the dict is large enough to matter.
+    if len(_cert_login_buckets) >= _CERT_LOGIN_BUCKETS_MAX // 2:
         expired = [
             k
             for k, (start, _) in _cert_login_buckets.items()
@@ -175,6 +183,12 @@ def _enforce_cert_login_rate(request: Request) -> None:
 
     entry = _cert_login_buckets.get(ip)
     if entry is None or now - entry[0] >= _CERT_LOGIN_RATE_WINDOW:
+        # Hard-cap guard: evict the oldest bucket if we are at the limit and
+        # the new IP is not already tracked (avoids unbounded growth under a
+        # sustained flood of unique-IP spoofed source addresses).
+        if entry is None and len(_cert_login_buckets) >= _CERT_LOGIN_BUCKETS_MAX:
+            oldest_key = min(_cert_login_buckets, key=lambda k: _cert_login_buckets[k][0])
+            del _cert_login_buckets[oldest_key]
         _cert_login_buckets[ip] = (now, 1)
         return
     start, count = entry
@@ -348,6 +362,11 @@ async def cert_login_verify(
 
     # 5. Resolve identifier (pairwise-sub in self-host, raw user_id in cloud).
     settings = get_settings()
+    # Guard: a self-host with the default PULSE_INSTANCE_ID=0 must not mint
+    # pairwise-subs. Every unconfigured instance would compute identical subs
+    # (user_id + ':' + 0) — collapsing per-instance privacy isolation (DE 11 A.13).
+    if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_id == 0:
+        raise HTTPException(status_code=503, detail="instance_id_unconfigured")
     identifier = resolve_user_identifier(
         cert_claims,
         instance_mode=settings.pulse_instance_mode,

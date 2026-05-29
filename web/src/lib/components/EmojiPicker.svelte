@@ -1,6 +1,10 @@
 <script lang="ts">
   import { EMOJIS, CATEGORY_ORDER, CATEGORY_LABELS, type EmojiCategory } from '$lib/emoji';
 
+  const CATEGORY_REPRESENTATIVE = Object.fromEntries(
+    CATEGORY_ORDER.map((c) => [c, EMOJIS.find((e) => e.category === c)?.emoji ?? '·'])
+  );
+
   let { onPick }: { onPick: (emoji: string) => void } = $props();
 
   let query = $state('');
@@ -47,7 +51,7 @@
           title={CATEGORY_LABELS[cat]}
           aria-pressed={active === cat}
         >
-          {EMOJIS.find((e) => e.category === cat)?.emoji ?? '·'}
+          {CATEGORY_REPRESENTATIVE[cat]}
         </button>
       {/each}
     </div>

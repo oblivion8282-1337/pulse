@@ -49,9 +49,11 @@ async def set_voice_override(
                      grant (microphone is removed/restored from publish
                      sources at next reconnect; live LiveKit call is
                      best-effort for current connection).
-      * ``deafen`` → requires ``DEAFEN_MEMBERS`` — purely client-side.
-                     The receiving client mutes its own playback and
-                     refuses to undeafen until the override is cleared.
+      * ``deafen`` → requires ``DEAFEN_MEMBERS`` — purely client-side courtesy
+                     signal only, with no server-side audio enforcement. The
+                     receiving client mutes its own playback and refuses to
+                     undeafen until the override is cleared. A user running a
+                     modified client can ignore this signal.
 
     Writes the merged override to Redis so it survives reconnect, and
     publishes the full state on ``voice:events`` for chat-gateway to
@@ -77,6 +79,41 @@ async def set_voice_override(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="missing permission: DEAFEN_MEMBERS"
         )
+
+    # Verify that the target user is a member of the channel's guild. This
+    # prevents an admin from writing arbitrary overrides for users outside
+    # their guild.
+    settings = voice_routes.get_settings()
+    if settings.chat_gateway_url is not None:
+        # Fetch the channel to get its guild_id.
+        try:
+            channel_resp = await voice_routes._chat_gateway_request(
+                "GET", f"/channels/{channel_id}", bearer=bearer
+            )
+            if channel_resp.status_code == 200:
+                channel_data = channel_resp.json()
+                guild_id = channel_data.get("guild_id")
+                if guild_id:
+                    # Verify the target user is a member of this guild.
+                    member_resp = await voice_routes._chat_gateway_request(
+                        "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+                    )
+                    if member_resp.status_code == 404:
+                        raise HTTPException(
+                            status.HTTP_404_NOT_FOUND,
+                            detail="user is not a member of this guild",
+                        )
+                    if member_resp.status_code >= 400:
+                        raise HTTPException(
+                            status.HTTP_502_BAD_GATEWAY,
+                            detail="membership check unavailable",
+                        )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
+            ) from exc
 
     redis = voice_routes._get_redis(request)
     if redis is None:
@@ -127,11 +164,13 @@ async def set_voice_override(
                 if cached_sources is not None
                 else ["microphone"]
             )
+        livekit_api = getattr(request.app.state, "livekit_api", None)
         await voice_routes._livekit_update_participant(
             channel_id,
             user_id,
             can_publish=bool(new_sources),
             sources=new_sources,
+            api_client=livekit_api,
         )
 
     from dcc_shared.events import VoiceOverrideEvent

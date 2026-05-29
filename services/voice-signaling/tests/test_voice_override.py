@@ -77,7 +77,7 @@ def _stub_livekit_update(monkeypatch):
     to live-apply the permission change. Skip the real network in tests."""
     calls: list[dict] = []
 
-    async def _noop(channel_id, user_id, *, can_publish, sources):
+    async def _noop(channel_id, user_id, *, can_publish, sources, api_client=None):
         calls.append(
             {
                 "channel_id": channel_id,
@@ -401,7 +401,7 @@ def _stub_livekit_remove(monkeypatch):
     swap it for a recorder."""
     calls: list[dict] = []
 
-    async def _noop(channel_id, user_id):
+    async def _noop(channel_id, user_id, *, api_client=None):
         calls.append({"channel_id": channel_id, "user_id": user_id})
 
     monkeypatch.setattr(voice_routes, "_livekit_remove_participant", _noop)

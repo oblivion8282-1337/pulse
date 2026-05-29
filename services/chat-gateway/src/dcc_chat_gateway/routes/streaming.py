@@ -60,12 +60,16 @@ class WhepOut(BaseModel):
 
 
 async def _media_svc_request(
-    method: str, path: str, *, bearer: str, json_body: dict | None = None
+    method: str, path: str, *, bearer: str, json_body: dict | None = None, http: httpx.AsyncClient | None = None
 ) -> httpx.Response:
     """Call media-svc, forwarding the user's bearer token. Raises on transport
     errors; the route maps those to 502/503."""
     settings = get_settings()
     url = settings.media_svc_url.rstrip("/") + path
+    if http is not None:
+        return await http.request(
+            method, url, headers={"Authorization": f"Bearer {bearer}"}, json=json_body
+        )
     async with httpx.AsyncClient(timeout=settings.media_svc_timeout_s) as http:
         return await http.request(
             method, url, headers={"Authorization": f"Bearer {bearer}"}, json=json_body
@@ -109,6 +113,7 @@ async def issue_stream_token(
     session: SessionDep,
     current: CurrentUser,
     authorization: Annotated[str | None, Header()] = None,
+    request: Request = None,
 ) -> StreamTokenOut:
     channel = await _require_voice_channel_member(session, channel_id, current.id)
     # STREAM gates the publish side — frontend already hides the button
@@ -120,12 +125,14 @@ async def issue_stream_token(
         channel_id=channel_id,
     )
     bearer = _bearer_from_header(authorization)
+    http = getattr(request.app.state, "media_svc_http", None)
     try:
         resp = await _media_svc_request(
             "POST",
             f"/channels/{channel_id}/stream-token",
             bearer=bearer,
             json_body={"protocol": payload.protocol},
+            http=http,
         )
     except httpx.HTTPError as exc:
         raise _media_svc_unavailable(exc) from exc
@@ -143,6 +150,7 @@ async def get_whep_url(
     session: SessionDep,
     current: CurrentUser,
     authorization: Annotated[str | None, Header()] = None,
+    request: Request = None,
 ) -> WhepOut:
     """WHEP playback URL for `user_id`'s HQ stream in `channel_id`. The caller
     just has to be a member of the channel's guild (they're watching, not the
@@ -156,9 +164,10 @@ async def get_whep_url(
         channel_id=channel_id,
     )
     bearer = _bearer_from_header(authorization)
+    http = getattr(request.app.state, "media_svc_http", None)
     try:
         resp = await _media_svc_request(
-            "GET", f"/channels/{channel_id}/whep?user_id={user_id}", bearer=bearer
+            "GET", f"/channels/{channel_id}/whep?user_id={user_id}", bearer=bearer, http=http
         )
     except httpx.HTTPError as exc:
         raise _media_svc_unavailable(exc) from exc
@@ -186,7 +195,10 @@ async def guild_stream_state(
     stmt = select(Channel.id).where(
         Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
     )
-    channel_ids = [str(cid) for cid in (await session.execute(stmt)).scalars()]
+    raw_ids = list((await session.execute(stmt)).scalars())
+    from dcc_chat_gateway.permissions import filter_viewable_channels  # noqa: PLC0415
+    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
+    channel_ids = [str(cid) for cid in raw_ids if cid in visible_ids]
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return {"stream_states": []}

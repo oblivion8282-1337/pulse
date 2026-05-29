@@ -6,7 +6,9 @@ a no-auth eviction path."""
 
 from __future__ import annotations
 
+import asyncio
 import hmac
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -55,9 +57,31 @@ async def internal_evict_from_voice(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="bad service token")
 
     redis = voice_routes._get_redis(request)
-    for cid in payload.channel_ids:
-        # Best-effort LiveKit remove (silent on offline target) — same
-        # swallow path as the admin disconnect endpoint.
-        await voice_routes._livekit_remove_participant(cid, payload.user_id)
-        if redis is not None:
-            await voice_routes._clear_override(redis, cid, payload.user_id)
+    uid = payload.user_id
+    livekit_api = getattr(request.app.state, "livekit_api", None)
+
+    # Fire all LiveKit removes concurrently — one RPC per channel in O(1) RTT
+    # instead of O(n) sequential round-trips. Best-effort: silent on offline
+    # targets, same swallow path as the admin disconnect endpoint. Reusing the
+    # singleton livekit_api amortizes the connection setup cost across all
+    # channels for this bulk eviction.
+    await asyncio.gather(
+        *[voice_routes._livekit_remove_participant(cid, uid, api_client=livekit_api) for cid in payload.channel_ids]
+    )
+
+    if redis is not None:
+        from dcc_shared.events import VoiceDisconnectEvent
+
+        # Build all override-clear + event-publish coroutines upfront, then
+        # run them concurrently with a single gather call.
+        coros = []
+        for cid in payload.channel_ids:
+            coros.append(voice_routes._clear_override(redis, cid, uid))
+            envelope = VoiceDisconnectEvent(channel_id=cid, user_id=uid)
+            coros.append(
+                redis.publish(
+                    voice_routes._VOICE_EVENTS_CHANNEL,
+                    json.dumps(envelope.model_dump(mode="json")),
+                )
+            )
+        await asyncio.gather(*coros)

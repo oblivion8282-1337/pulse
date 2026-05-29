@@ -1,11 +1,10 @@
-"""In-process per-user token-bucket rate limiting for the chat-gateway.
+"""In-process per-user rate limiting for the voice-signaling service.
 
 This is intentionally minimal: each bucket is a sliding window keyed on
 (action, user_id) held in module-global state. It is *per process* — for a
 multi-instance deployment behind Caddy this must be swapped for a Redis-backed
-limiter (same caveat as the auth-svc's `_check_rate`). Buckets are evicted
-lazily once their window has fully elapsed, so memory stays bounded by the
-number of *currently active* users.
+limiter. Buckets are evicted lazily once their window has fully elapsed, so
+memory stays bounded by the number of *currently active* users.
 """
 
 from __future__ import annotations
@@ -17,11 +16,7 @@ _buckets: dict[str, dict[int, tuple[float, int]]] = {}
 
 # action -> (limit, window_seconds)
 _RULES: dict[str, tuple[int, float]] = {
-    "message": (10, 1.0),           # 10 messages / second (REST POST + WS send)
-    "create_guild": (10, 60.0),     # 10 guilds / minute
-    "friend_request": (10, 3600.0), # 10 friend requests / hour
-    "report": (10, 3600.0),         # 10 reports / hour
-    "attach": (20, 60.0),           # 20 upload-URL requests / minute
+    "token": (5, 60.0),  # 5 token requests / minute
 }
 
 

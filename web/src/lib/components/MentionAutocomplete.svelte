@@ -8,14 +8,62 @@
   textarea state and feeds us the trigger range; we just emit
   `onPick(replacement)`.
 -->
+<script module lang="ts">
+  import type { Member } from '$lib/api/types';
+  import { chatApi } from '$lib/api/chat';
+
+  /**
+   * Module-level cache shared across all MentionAutocomplete instances.
+   * Stores the resolved member list per guildId and deduplicates concurrent
+   * fetches — so if MemberList and MentionAutocomplete both request the same
+   * guild simultaneously, only one HTTP call is made.
+   */
+  const memberListCache = new (class {
+    private results = new Map<string, Member[]>();
+    private inflight = new Map<string, Promise<Member[]>>();
+
+    get(guildId: string): Promise<Member[]> {
+      const cached = this.results.get(guildId);
+      if (cached) return Promise.resolve(cached);
+
+      const flying = this.inflight.get(guildId);
+      if (flying) return flying;
+
+      const p = chatApi.listMembers(guildId).then(
+        (list) => {
+          this.results.set(guildId, list);
+          this.inflight.delete(guildId);
+          return list;
+        },
+        (err) => {
+          this.inflight.delete(guildId);
+          throw err;
+        }
+      );
+      this.inflight.set(guildId, p);
+      return p;
+    }
+
+    /** Invalidate a guild's cache entry (e.g. on member join/leave). */
+    invalidate(guildId: string): void {
+      this.results.delete(guildId);
+    }
+
+    clear(): void {
+      this.results.clear();
+      this.inflight.clear();
+    }
+  })();
+
+  export { memberListCache };
+</script>
+
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
-  import { chatApi } from '$lib/api/chat';
   import { userCache } from '$lib/stores/users.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { safeAvatarUrl } from '$lib/avatar';
-  import type { Member } from '$lib/api/types';
 
   type Item =
     | { kind: 'user'; id: string; label: string; sub: string; avatar: string | null }
@@ -44,9 +92,9 @@
   let members = $state<Member[]>([]);
   let loadedFor = $state<string | null>(null);
 
-  // Lazy-load the guild members on first open. The MemberList already
-  // hits the same endpoint elsewhere; we trade a duplicate fetch for
-  // not needing a shared `members` store.
+  // Lazy-load the guild members on first open.
+  // Module-level caches deduplicate calls across component instances
+  // (e.g. MentionAutocomplete + MemberList open simultaneously).
   $effect(() => {
     if (!open || !guildId || loadedFor === guildId) return;
     void loadMembers(guildId);
@@ -54,7 +102,7 @@
 
   async function loadMembers(gid: string): Promise<void> {
     try {
-      const list = await chatApi.listMembers(gid);
+      const list = await memberListCache.get(gid);
       for (const m of list) userCache.queue(m.user_id);
       members = list;
       loadedFor = gid;

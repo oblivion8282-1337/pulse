@@ -7,7 +7,13 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message, MessageAttachment
-from dcc_chat_gateway.permissions import Permissions, check_permission, filter_viewable_channels
+from dcc_chat_gateway.permissions import (
+    Permissions,
+    check_permission,
+    filter_viewable_channels,
+    has_permission,
+    resolve_permissions,
+)
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
@@ -119,7 +125,11 @@ async def guild_voice_state(
     stmt = select(Channel.id).where(
         Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
     )
-    channel_ids = [str(cid) for cid in (await session.execute(stmt)).scalars()]
+    raw_ids = list((await session.execute(stmt)).scalars())
+    # Filter to only channels the requesting user may VIEW_CHANNEL so that
+    # voice-presence in private channels is not disclosed to denied members.
+    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
+    channel_ids = [str(cid) for cid in raw_ids if cid in visible_ids]
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return {"voice_states": []}
@@ -132,6 +142,14 @@ async def get_channel(channel_id: int, session: SessionDep, current: CurrentUser
     if channel is None:
         raise HTTPException(404, detail="channel not found")
     await require_member(session, channel.guild_id, current.id)
+    # Enforce VIEW_CHANNEL so that private channels (denied via role/user
+    # overwrite) are not disclosed by direct ID lookup. Return 404 rather than
+    # 403 to avoid confirming the channel's existence to non-permitted members.
+    perms = await resolve_permissions(
+        session, current, channel.guild_id, channel_id=channel_id
+    )
+    if not has_permission(perms, Permissions.VIEW_CHANNEL):
+        raise HTTPException(404, detail="channel not found")
     return channel
 
 

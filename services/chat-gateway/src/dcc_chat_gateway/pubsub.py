@@ -399,6 +399,43 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
                 out.append({"channel_id": cid, **state})
         return out
 
+    async def _overrides_for_channel(self, cid: str) -> list[dict[str, Any]]:
+        """Fetch force-mute / force-deafen overrides for a single voice channel."""
+        pattern = f"voice:override:channel-{cid}:user-*"
+        keys: list[str] = []
+        async for k in self._redis.scan_iter(match=pattern, count=100):
+            if isinstance(k, bytes):
+                k = k.decode()
+            keys.append(k)
+        if not keys:
+            return []
+        raws = await self._redis.mget(*keys)
+        result: list[dict[str, Any]] = []
+        for k, raw in zip(keys, raws):
+            if raw is None:
+                continue
+            try:
+                data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(data, dict):
+                continue
+            # ``voice:override:channel-<cid>:user-<uid>`` — split out the user_id.
+            uid = k.rsplit(":user-", 1)[-1]
+            muted = bool(data.get("muted"))
+            deafened = bool(data.get("deafened"))
+            if not (muted or deafened):
+                continue
+            result.append(
+                {
+                    "channel_id": cid,
+                    "user_id": uid,
+                    "muted": muted,
+                    "deafened": deafened,
+                }
+            )
+        return result
+
     async def voice_overrides_for(
         self, channel_ids: list[str]
     ) -> list[dict[str, Any]]:
@@ -406,47 +443,19 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         voice channels. Read straight off Redis (``voice:override:*``
         keys written by voice-signaling). Used in the ``ready`` frame
         so a freshly-connected client sees the current admin overrides
-        without waiting for the next mod-toggle event."""
+        without waiting for the next mod-toggle event.
+
+        Each channel's SCAN + MGET is issued in parallel via
+        ``asyncio.gather`` so latency scales with the slowest single
+        channel rather than the sum of all channels."""
         if not channel_ids:
             return []
+        per_channel = await asyncio.gather(
+            *(self._overrides_for_channel(cid) for cid in channel_ids)
+        )
         out: list[dict[str, Any]] = []
-        for cid in channel_ids:
-            # Voice channels are scoped per-channel; an SCAN per channel
-            # is cheap (overrides are rare). MATCH pattern picks up
-            # every user-keyed entry; iter_scan is bounded by Redis
-            # COUNT, no unbounded pagination needed for typical loads.
-            pattern = f"voice:override:channel-{cid}:user-*"
-            keys: list[str] = []
-            async for k in self._redis.scan_iter(match=pattern, count=100):
-                if isinstance(k, bytes):
-                    k = k.decode()
-                keys.append(k)
-            if not keys:
-                continue
-            raws = await self._redis.mget(*keys)
-            for k, raw in zip(keys, raws):
-                if raw is None:
-                    continue
-                try:
-                    data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-                except (ValueError, TypeError):
-                    continue
-                if not isinstance(data, dict):
-                    continue
-                # ``voice:override:channel-<cid>:user-<uid>`` — split out the user_id.
-                uid = k.rsplit(":user-", 1)[-1]
-                muted = bool(data.get("muted"))
-                deafened = bool(data.get("deafened"))
-                if not (muted or deafened):
-                    continue
-                out.append(
-                    {
-                        "channel_id": cid,
-                        "user_id": uid,
-                        "muted": muted,
-                        "deafened": deafened,
-                    }
-                )
+        for entries in per_channel:
+            out.extend(entries)
         return out
 
     async def user_voice_states_for(self, user_ids: list[str]) -> dict[str, dict[str, bool]]:
@@ -540,11 +549,40 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             return None
         return {"channel_id": channel_id, "user_ids": uids}
 
+    @staticmethod
+    def _parse_stream_state(
+        channel_id: str, raw: bytes | str | None
+    ) -> dict[str, Any] | None:
+        """Parse a raw Redis value from ``stream:channel:<id>`` into the
+        standard ``{"channel_id": ..., "user_ids": [...]}`` shape, or
+        ``None`` when the key is absent / empty / malformed."""
+        if raw is None:
+            return None
+        try:
+            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        except (ValueError, TypeError, AttributeError):
+            return None
+        if not isinstance(data, dict):
+            return None
+        uids = [str(u) for u in (data.get("user_ids") or []) if u]
+        if not uids:
+            return None
+        return {"channel_id": channel_id, "user_ids": uids}
+
     async def stream_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
+        """Return active stream-state entries for the given channels.
+
+        Issues a single MGET for all ``stream:channel:<id>`` keys instead of
+        N individual GETs, reducing Redis round-trips from N to 1."""
         if not channel_ids:
             return []
-        states = await asyncio.gather(*(self.stream_state_for(cid) for cid in channel_ids))
-        return [s for s in states if s is not None]
+        keys = [STREAM_CHANNEL_STATE_KEY.format(channel_id=cid) for cid in channel_ids]
+        raws = await self._redis.mget(*keys)
+        return [
+            s
+            for cid, raw in zip(channel_ids, raws)
+            if (s := self._parse_stream_state(cid, raw)) is not None
+        ]
 
     async def watch_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
         """Active watch parties for the given voice channels. Returns

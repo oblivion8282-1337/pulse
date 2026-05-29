@@ -86,8 +86,8 @@ export function handleDeepLink(url: string, getWindow: () => BrowserWindow | nul
   // Always buffer the validated payload so the renderer can pull it on mount.
   // Also push it eagerly when the webContents is alive, in case the renderer
   // is already fully loaded (e.g. a second-instance deep-link while the app
-  // is running). The renderer's `invite:getPending` handler clears the buffer
-  // so duplicate delivery does not happen.
+  // is running). After the eager push, clear the buffer to prevent duplicate
+  // delivery on renderer reload (which would re-pull via takePendingInvite).
   pendingInvitePayload = payload;
   const win = getWindow();
   if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -95,6 +95,7 @@ export function handleDeepLink(url: string, getWindow: () => BrowserWindow | nul
     win.show();
     win.focus();
     win.webContents.send('pulse:invite', payload);
+    pendingInvitePayload = null;
   }
 }
 

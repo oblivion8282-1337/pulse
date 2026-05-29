@@ -73,10 +73,11 @@ log = logging.getLogger(__name__)
 # anhand des Codes eindeutig zwischen Plugin-Reject und Send-/Watch-Reject
 # unterscheiden können. Falls weitere Plugin-Fehler dazukommen, **diesen
 # Block weiterzählen** (4044…). Vor jedem neuen Code: Audit wiederholen.
-WS_CODE_PLUGIN_NOT_ALLOWED = 4040      # Plugin nicht in Instanz-Allowlist
+WS_CODE_PLUGIN_NOT_ALLOWED = 4040       # Plugin nicht in Instanz-Allowlist
 WS_CODE_PLUGIN_GUILD_ID_MISSING = 4041  # ``guild_id`` fehlt im Payload
 WS_CODE_PLUGIN_NOT_MEMBER = 4042        # Caller nicht Mitglied der Guild
 WS_CODE_PLUGIN_NOT_ENABLED = 4043       # Plugin auf Guild nicht aktiviert
+WS_CODE_PLUGIN_PERMISSION_DENIED = 4044  # Caller lacks required guild permission
 
 
 # Cache-Konfiguration. ``_TTL_SECONDS`` ist absichtlich klein gehalten,
@@ -306,6 +307,7 @@ __all__ = [
     "WS_CODE_PLUGIN_NOT_ALLOWED",
     "WS_CODE_PLUGIN_NOT_ENABLED",
     "WS_CODE_PLUGIN_NOT_MEMBER",
+    "WS_CODE_PLUGIN_PERMISSION_DENIED",
     "_clear_cache",
     "check_plugin_op_gate",
     "coerce_guild_id",

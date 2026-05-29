@@ -21,7 +21,9 @@
   let history = $derived(streamChat.for(channelId, streamerId));
 
   // Pro Message-id ein Sichtbarkeits-Flag; verschwindet nach FADE_AFTER_MS.
-  let visibleIds = $state<Set<string>>(new Set());
+  // Plain Set (nicht reactive) + separate version counter für Svelte-Reaktivität.
+  let visibleIds = new Set<string>();
+  let visibleVersion = $state(0);
 
   // Cleanup-Timer pro Message, damit Channel-Wechsel keine Timer leaked.
   let timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -36,18 +38,19 @@
     const ids = new Set<string>();
     for (const m of history) ids.add(m.id);
 
-    // Neue → einblenden + Fade-Timer.
-    const next = new Set(visibleIds);
     let changed = false;
+
+    // Neue → einblenden + Fade-Timer.
     for (const m of history) {
-      if (!next.has(m.id) && !timers.has(m.id)) {
-        next.add(m.id);
+      if (!visibleIds.has(m.id) && !timers.has(m.id)) {
+        visibleIds.add(m.id);
         changed = true;
         const t = setTimeout(() => {
           // Nach Fade aus dem visible-Set raus; den Eintrag aus dem Store
           // räumen wir bewusst nicht weg (Panel zeigt den Verlauf weiter).
-          visibleIds = new Set([...visibleIds].filter((x) => x !== m.id));
+          visibleIds.delete(m.id);
           timers.delete(m.id);
+          visibleVersion++;
         }, FADE_AFTER_MS);
         timers.set(m.id, t);
       }
@@ -58,14 +61,17 @@
       if (!ids.has(id)) {
         clearTimeout(t);
         timers.delete(id);
-        if (next.delete(id)) changed = true;
+        if (visibleIds.delete(id)) changed = true;
       }
     }
 
-    if (changed) visibleIds = next;
+    if (changed) visibleVersion++;
   });
 
-  let shown = $derived(history.filter((m) => visibleIds.has(m.id)).slice(-MAX_VISIBLE));
+  let shown = $derived.by(() => {
+    visibleVersion; // Depend on version counter for reactivity
+    return history.filter((m) => visibleIds.has(m.id)).slice(-MAX_VISIBLE);
+  });
 
   // Unmount cleanup: clear every pending fade-out timer so the callbacks
   // can't run after the component is gone and write into stale state.

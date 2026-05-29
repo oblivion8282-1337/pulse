@@ -64,7 +64,7 @@ def _build_pubkey_from_jwks(jwks_json: str) -> dict[str, Any]:
         kid = key_dict.get("kid")
         if not kid:
             continue
-        keys[kid] = RSAAlgorithm.from_jwk(json.dumps(key_dict))
+        keys[kid] = RSAAlgorithm.from_jwk(key_dict)
     return keys
 
 
@@ -176,9 +176,13 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     # legitimate "not revoked" answer and stays allowed. Only an actual Redis
     # exception (outage / partition) flips to is_revoked=True so a revoked cert
     # cannot slip through while the CRL is unreachable.
+    # NB: the sismember call runs UNCONDITIONALLY (even when cert_id is "") so
+    # the Redis round-trip latency is identical whether or not the token carried
+    # a cert_id claim — matching the dummy calls in Step 1. A forged token with
+    # no cert_id must not be distinguishable by response time (Plan §381).
     cert_id = unverified_cert_id
     try:
-        is_revoked = bool(await redis.sismember(REDIS_REVOKED_SET, cert_id)) if cert_id else False
+        is_revoked = bool(await redis.sismember(REDIS_REVOKED_SET, cert_id or ""))
     except Exception:  # noqa: BLE001
         is_revoked = True  # fail-closed: Redis unreachable → treat as revoked
 

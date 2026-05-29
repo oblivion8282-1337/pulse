@@ -123,6 +123,12 @@ async def unassign_member_role(
             403, detail="cannot manage assignment of bits you do not yourself have"
         )
 
+    # Explicit membership check: the target user must be a guild member.
+    # Without this, a spurious MemberRolesUpdatedEvent would be published for
+    # a user_id that is not actually a member (DELETE is a silent no-op when
+    # the row doesn't exist). This mirrors the check in assign_member_role.
+    await require_member(session, guild_id, user_id)
+
     await session.execute(
         delete(MemberRole).where(
             MemberRole.guild_id == guild_id,

@@ -6,7 +6,9 @@ class MessageStore {
   byChannel = $state<Record<string, Message[]>>({});
   loadedChannels = $state<Record<string, boolean>>({});
   // Track confirmed (server-persisted, non-tmp) nonces for O(1) lookup.
-  private confirmedNonces = $state<Set<string>>(new Set());
+  private confirmedNonces = new Set<string>();
+  // Track message IDs in the current channel for O(1) dedup during upsert.
+  private messageIds = $state<Record<string, Set<string>>>({});
 
   for(channelId: string): Message[] {
     return this.byChannel[channelId] ?? [];
@@ -20,10 +22,13 @@ class MessageStore {
     if (sorted.length > MessageStore.CAP) sorted = sorted.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [channelId]: sorted };
     this.loadedChannels = { ...this.loadedChannels, [channelId]: true };
+    // Populate the ID set for O(1) dedup during upsert.
+    this.messageIds = { ...this.messageIds, [channelId]: new Set(sorted.map((m) => m.id)) };
   }
 
   upsert(msg: Message): void {
     const list = this.byChannel[msg.channel_id] ?? [];
+    const ids = this.messageIds[msg.channel_id] ?? new Set();
     // If the message has a nonce, try to replace a pending optimistic copy.
     let next = list;
     if (msg.nonce) {
@@ -32,6 +37,10 @@ class MessageStore {
         next = list.slice();
         next[idxNonce] = msg;
         this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
+        // Update the ID set.
+        ids.delete(list[idxNonce].id);
+        ids.add(msg.id);
+        this.messageIds = { ...this.messageIds, [msg.channel_id]: ids };
         // Track this nonce as confirmed if not tmp.
         if (!msg.id.startsWith('tmp-') && msg.nonce) {
           this.confirmedNonces.add(msg.nonce);
@@ -39,8 +48,8 @@ class MessageStore {
         return;
       }
     }
-    // Dedupe by id.
-    if (list.some((m) => m.id === msg.id)) return;
+    // Dedupe by id using O(1) set lookup.
+    if (ids.has(msg.id)) return;
     // Append in id-order to keep the list monotonic.
     if (list.length === 0 || list[list.length - 1].id < msg.id) {
       next = [...list, msg];
@@ -49,6 +58,14 @@ class MessageStore {
     }
     if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
+    // Update the ID set with the new message and remove any pruned messages.
+    ids.add(msg.id);
+    if (next.length < list.length) {
+      // Messages were pruned, rebuild the set.
+      ids.clear();
+      next.forEach((m) => ids.add(m.id));
+    }
+    this.messageIds = { ...this.messageIds, [msg.channel_id]: ids };
     // Track this nonce as confirmed if not tmp.
     if (!msg.id.startsWith('tmp-') && msg.nonce) {
       this.confirmedNonces.add(msg.nonce);
@@ -67,6 +84,11 @@ class MessageStore {
     const next = list.filter((m) => m.id !== tmpId);
     if (next.length !== list.length) {
       this.byChannel = { ...this.byChannel, [channelId]: next };
+      const ids = this.messageIds[channelId];
+      if (ids) {
+        ids.delete(tmpId);
+        this.messageIds = { ...this.messageIds, [channelId]: ids };
+      }
     }
   }
 
@@ -91,6 +113,11 @@ class MessageStore {
     const next = list.filter((m) => m.id !== id);
     if (next.length !== list.length) {
       this.byChannel = { ...this.byChannel, [channelId]: next };
+      const ids = this.messageIds[channelId];
+      if (ids) {
+        ids.delete(id);
+        this.messageIds = { ...this.messageIds, [channelId]: ids };
+      }
     }
   }
 
@@ -151,7 +178,7 @@ class MessageStore {
   mergeGap(channelId: string, msgs: Message[]): void {
     if (!msgs.length) return;
     const list = this.byChannel[channelId] ?? [];
-    const haveIds = new Set(list.map((m) => m.id));
+    const haveIds = this.messageIds[channelId] ?? new Set(list.map((m) => m.id));
     // nonce → index of an optimistic copy still awaiting its echo.
     const tmpByNonce = new Map<string, number>();
     list.forEach((m, i) => {
@@ -176,6 +203,8 @@ class MessageStore {
     );
     if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [channelId]: next };
+    // Rebuild the ID set after merge.
+    this.messageIds = { ...this.messageIds, [channelId]: new Set(next.map((m) => m.id)) };
   }
 
   /** Re-sync already-present messages from a freshly re-fetched page —
@@ -237,6 +266,8 @@ class MessageStore {
     this.byChannel = rest;
     const { [channelId]: __, ...restLoaded } = this.loadedChannels;
     this.loadedChannels = restLoaded;
+    const { [channelId]: ___, ...restIds } = this.messageIds;
+    this.messageIds = restIds;
     // Clear stale nonces from this channel.
     const list = _; // The old value we just removed
     if (list) {
@@ -249,6 +280,7 @@ class MessageStore {
   clear(): void {
     this.byChannel = {};
     this.loadedChannels = {};
+    this.messageIds = {};
     this.confirmedNonces.clear();
   }
 }

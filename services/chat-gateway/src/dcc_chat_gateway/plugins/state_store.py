@@ -49,6 +49,20 @@ log = logging.getLogger(__name__)
 StateMutator = Callable[[dict[str, Any]], dict[str, Any]]
 
 
+class RowVanishedError(Exception):
+    """Raised by apply_atomic_update when the guild_plugin_state row disappears
+    between the INSERT and the SELECT FOR UPDATE (concurrent guild deletion).
+    Callers must catch this and skip any broadcast/side-effect."""
+
+
+# Per-(guild_id, plugin_name) cache: once a row has been confirmed to exist we
+# skip the _ensure_row INSERT on subsequent calls (steady-state optimisation).
+# The set is process-local and is intentionally never cleared — if a row is
+# deleted the next apply_atomic_update will raise RowVanishedError and that
+# entry will be removed from the set so the next caller re-runs _ensure_row.
+_row_exists: set[tuple[int, str]] = set()
+
+
 async def get_state(
     session: AsyncSession,
     guild_id: int,
@@ -137,10 +151,14 @@ async def apply_atomic_update(
     ``test_tamagotchi_state.py::test_concurrent_feeds_are_serialised``
     locken das ein.
     """
-    # Schritt 1: Default-Row sicherstellen.
-    await _ensure_row(
-        session, guild_id, plugin_name, default_state, actor_user_id
-    )
+    # Schritt 1: Default-Row sicherstellen — aber nur wenn wir die Row noch
+    # nicht kennen (steady-state-Optimierung: nach dem ersten erfolgreichen
+    # Commit überspringen wir den INSERT auf jedem weiteren Aufruf).
+    cache_key = (guild_id, plugin_name)
+    if cache_key not in _row_exists:
+        await _ensure_row(
+            session, guild_id, plugin_name, default_state, actor_user_id
+        )
     # Kein commit() hier — INSERT und SELECT FOR UPDATE laufen in EINER
     # Transaktion. Ein Commit zwischen beiden würde die Atomizität brechen:
     # ein concurrent guild-DELETE könnte die Row zwischen den beiden
@@ -160,17 +178,20 @@ async def apply_atomic_update(
     row = (await session.execute(stmt)).scalar_one_or_none()
     if row is None:
         # Sehr selten: concurrent guild-DELETE hat die Row zwischen
-        # dem INSERT und dem SELECT entfernt. Transaktion rollbacken
-        # und mit einem leeren Dict returnen — der Aufrufer bekommt
-        # kein crash, der State gilt als gelöscht.
+        # dem INSERT und dem SELECT entfernt. Transaktion rollbacken,
+        # Cache-Eintrag entfernen (Row existiert nicht mehr), und eine
+        # Exception raisen — der Aufrufer soll den Broadcast überspringen.
+        _row_exists.discard(cache_key)
         await session.rollback()
         log.warning(
             "apply_atomic_update: row vanished (guild_id=%s plugin=%s) "
-            "— likely concurrent guild deletion; returning default",
+            "— likely concurrent guild deletion; raising RowVanishedError",
             guild_id,
             plugin_name,
         )
-        return dict(default_state)
+        raise RowVanishedError(
+            f"guild_plugin_state row vanished: guild_id={guild_id} plugin={plugin_name}"
+        )
 
     # Schritt 3-4: Mutate + Write.
     old_state = dict(row.state or {})
@@ -183,10 +204,13 @@ async def apply_atomic_update(
     row.updated_by_user_id = actor_user_id
 
     await session.commit()
+    # Row is confirmed to exist — mark it so future calls skip _ensure_row.
+    _row_exists.add(cache_key)
     return new_state
 
 
 __all__ = [
+    "RowVanishedError",
     "StateMutator",
     "apply_atomic_update",
     "get_state",

@@ -37,22 +37,35 @@ def _track_source_enum(source: str) -> int:
     }.get(source, lk.TrackSource.UNKNOWN)
 
 
-async def _livekit_remove_participant(channel_id: str, user_id: str) -> None:
+async def _livekit_remove_participant(
+    channel_id: str, user_id: str, *, api_client: lk.LiveKitAPI | None = None
+) -> None:
     """Best-effort: kick the (channel, user) out of their LiveKit room.
 
     Same swallow-on-failure pattern as ``_livekit_update_participant`` —
     if the participant isn't connected we still want the route to
     succeed (the WS event still fires so the client can drop voice
-    state). Module-level so tests can monkeypatch."""
-    settings = voice_routes.get_settings()
-    if not settings.livekit_api_key or not settings.livekit_api_secret:
-        return
-    host = settings.livekit_url.replace("wss://", "https://").replace(
-        "ws://", "http://"
-    )
-    api_client = lk.LiveKitAPI(
-        host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
-    )
+    state). Module-level so tests can monkeypatch.
+
+    If ``api_client`` is not provided, a temporary client is created (for
+    backward compatibility with tests). Production routes should pass the
+    singleton from ``request.app.state.livekit_api`` to reuse the connection
+    pool."""
+    if api_client is None:
+        settings = voice_routes.get_settings()
+        if not settings.livekit_api_key or not settings.livekit_api_secret:
+            return
+        host = settings.livekit_url.replace("wss://", "https://").replace(
+            "ws://", "http://"
+        )
+        api_client = lk.LiveKitAPI(
+            host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
+        )
+        # Temporary client created here; we own cleanup.
+        should_close = True
+    else:
+        should_close = False
+
     try:
         await api_client.room.remove_participant(
             lk.RoomParticipantIdentity(
@@ -68,32 +81,49 @@ async def _livekit_remove_participant(channel_id: str, user_id: str) -> None:
             exc_info=True,
         )
     finally:
-        try:
-            await api_client.aclose()
-        except Exception:  # noqa: BLE001
-            pass
+        if should_close:
+            try:
+                await api_client.aclose()
+            except Exception:  # noqa: BLE001
+                pass
 
 
 async def _livekit_update_participant(
-    channel_id: str, user_id: str, *, can_publish: bool, sources: list[str]
+    channel_id: str,
+    user_id: str,
+    *,
+    can_publish: bool,
+    sources: list[str],
+    api_client: lk.LiveKitAPI | None = None,
 ) -> None:
     """Best-effort live LiveKit permission update for the (channel, user)
     pair. Swallows errors (participant offline, LiveKit unreachable):
     the Redis override is still authoritative for the next reconnect.
 
     Module-level so tests can monkeypatch without needing a real
-    LiveKit instance — same pattern as ``_chat_gateway_request``."""
-    settings = voice_routes.get_settings()
-    if not settings.livekit_api_key or not settings.livekit_api_secret:
-        return
-    # LiveKitAPI wants the HTTP variant; ws:// → http:// is enough for
-    # the room-service endpoints we use.
-    host = settings.livekit_url.replace("wss://", "https://").replace(
-        "ws://", "http://"
-    )
-    api_client = lk.LiveKitAPI(
-        host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
-    )
+    LiveKit instance — same pattern as ``_chat_gateway_request``.
+
+    If ``api_client`` is not provided, a temporary client is created (for
+    backward compatibility with tests). Production routes should pass the
+    singleton from ``request.app.state.livekit_api`` to reuse the connection
+    pool."""
+    if api_client is None:
+        settings = voice_routes.get_settings()
+        if not settings.livekit_api_key or not settings.livekit_api_secret:
+            return
+        # LiveKitAPI wants the HTTP variant; ws:// → http:// is enough for
+        # the room-service endpoints we use.
+        host = settings.livekit_url.replace("wss://", "https://").replace(
+            "ws://", "http://"
+        )
+        api_client = lk.LiveKitAPI(
+            host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
+        )
+        # Temporary client created here; we own cleanup.
+        should_close = True
+    else:
+        should_close = False
+
     try:
         await api_client.room.update_participant(
             lk.UpdateParticipantRequest(
@@ -123,7 +153,8 @@ async def _livekit_update_participant(
             exc_info=True,
         )
     finally:
-        try:
-            await api_client.aclose()
-        except Exception:  # noqa: BLE001
-            pass
+        if should_close:
+            try:
+                await api_client.aclose()
+            except Exception:  # noqa: BLE001
+                pass

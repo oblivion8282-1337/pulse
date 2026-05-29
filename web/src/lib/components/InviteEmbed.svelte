@@ -37,7 +37,7 @@
   }
 
   function handleJoin() {
-    goto(`/invite/${code}`);
+    void goto(`/invite/${code}`);
   }
 </script>
 

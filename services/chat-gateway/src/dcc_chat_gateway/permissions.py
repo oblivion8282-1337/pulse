@@ -9,16 +9,24 @@ Hot-path note: every check loads role assignments + overwrites with one
 ``SELECT`` each. A future optimisation is a per-request cache (the same
 route often checks two adjacent permissions, e.g. ``VIEW_CHANNEL`` and
 ``SEND_MESSAGES``). Not implemented yet — premature for current scale.
+
+Implementation note: ``_Ctx``, ``_LARGE_GUILD_THRESHOLD``, and the private
+fan-out helpers live in ``_members_view`` to keep this file under the
+500-line hard limit. All public symbols are re-exported from here.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_chat_gateway._members_view import (
+    _Ctx,
+    _LARGE_GUILD_THRESHOLD,
+    members_who_can_view_large as _members_who_can_view_large,
+    members_who_can_view_small as _members_who_can_view_small,
+)
 from dcc_chat_gateway.models import (
     Guild,
     GuildMember,
@@ -37,43 +45,6 @@ from dcc_shared.permission_resolver import (
     has_permission,
 )
 from dcc_shared.permissions import Permissions
-
-
-@dataclass
-class _Ctx:
-    """Concrete ``PermissionContext`` populated from a single batched fetch.
-
-    Built by ``_load_context`` once; the resolver then walks the
-    snapshot without further I/O. Snapshot is per-call — no cross-route
-    caching at this layer (cheap because each route does at most one or
-    two checks)."""
-
-    user: int
-    admin: bool
-    owner: bool
-    member: bool
-    roles: list[RoleSnapshot]
-    overwrites: dict[tuple[int, int], Override]
-
-    def is_global_admin(self) -> bool:
-        return self.admin
-
-    def is_guild_owner(self) -> bool:
-        return self.owner
-
-    def is_guild_member(self) -> bool:
-        return self.member
-
-    def member_roles(self) -> list[RoleSnapshot]:
-        return self.roles
-
-    def channel_overwrite_for_target(
-        self, target_type: int, target_id: int
-    ) -> Override | None:
-        return self.overwrites.get((target_type, target_id))
-
-    def user_id(self) -> int:
-        return self.user
 
 
 async def _load_context(
@@ -289,10 +260,15 @@ async def members_who_can_view(
     """User-ids of every guild member who currently holds ``VIEW_CHANNEL``
     on ``channel_id``.
 
-    Batched: a fixed four SELECTs regardless of member count (guild row,
-    members, the guild's roles + every member's role assignments, the
-    channel's overwrites). The per-member resolve then runs purely
-    in-memory via the shared resolver — no N+1.
+    For guilds with ≤ ``_LARGE_GUILD_THRESHOLD`` members: a fixed four
+    SELECTs load all data into memory; per-member resolve is pure Python
+    via the shared resolver — no N+1.
+
+    For larger guilds: a SQL ``bit_or`` aggregation computes base permissions
+    per member in the database, avoiding the unbounded member × role
+    allocation. Role assignments are still fetched, but only for the small
+    set of roles that have channel-level overwrites — all other members'
+    VIEW_CHANNEL is resolved from the SQL-computed base alone.
 
     Used by the @-mention / channel-activity fan-out to decide who may be
     notified about a channel without leaking pings for channels the
@@ -306,80 +282,22 @@ async def members_who_can_view(
     if guild is None:
         return set()
 
-    member_ids = {
-        uid
-        for (uid,) in (
-            await session.execute(
-                select(GuildMember.user_id).where(GuildMember.guild_id == guild_id)
+    # Count members first — cheap primary-key scan used as the fast-path
+    # guard. Avoids fetching all member rows just to discover the guild is
+    # small and we wanted to branch on count anyway.
+    member_count: int = (
+        await session.scalar(
+            select(func.count()).select_from(GuildMember).where(
+                GuildMember.guild_id == guild_id
             )
-        ).all()
-    }
-    if not member_ids:
+        )
+    ) or 0
+    if member_count == 0:
         return set()
 
-    # Every role of the guild, indexed by id. @everyone is implicit for
-    # every member whether or not a member_roles row exists.
-    role_by_id: dict[int, Role] = {}
-    everyone: Role | None = None
-    for r in (
-        await session.execute(select(Role).where(Role.guild_id == guild_id))
-    ).scalars():
-        role_by_id[r.id] = r
-        if r.is_everyone:
-            everyone = r
-
-    # Explicit assignments: user_id -> [role_id, ...].
-    assignments: dict[int, list[int]] = {}
-    for uid, rid in (
-        await session.execute(
-            select(MemberRole.user_id, MemberRole.role_id).where(
-                MemberRole.guild_id == guild_id
-            )
-        )
-    ).all():
-        assignments.setdefault(uid, []).append(rid)
-
-    # Channel overwrites — identical for every member, fetched once.
-    overwrites: dict[tuple[int, int], Override] = {}
-    for ow in (
-        await session.execute(
-            select(PermissionOverwrite).where(
-                PermissionOverwrite.channel_id == channel_id
-            )
-        )
-    ).scalars():
-        overwrites[(ow.target_type, ow.target_id)] = Override(
-            allow=ow.allow_bf, deny=ow.deny_bf
-        )
-
-    out: set[int] = set()
-    for uid in member_ids:
-        member_roles: list[Role] = [
-            role_by_id[rid] for rid in assignments.get(uid, ()) if rid in role_by_id
-        ]
-        if everyone is not None and everyone not in member_roles:
-            member_roles.append(everyone)
-        ctx = _Ctx(
-            user=uid,
-            admin=False,  # global-admin flag not visible here — see docstring
-            owner=guild.owner_id == uid,
-            member=True,
-            roles=[
-                RoleSnapshot(
-                    id=r.id,
-                    position=r.position,
-                    permissions=r.permissions,
-                    is_everyone=r.is_everyone,
-                )
-                for r in member_roles
-            ],
-            overwrites=overwrites,
-        )
-        if has_permission(
-            calculate_channel_permissions(ctx), Permissions.VIEW_CHANNEL
-        ):
-            out.add(uid)
-    return out
+    if member_count <= _LARGE_GUILD_THRESHOLD:
+        return await _members_who_can_view_small(session, guild, channel_id)
+    return await _members_who_can_view_large(session, guild, channel_id)
 
 
 async def filter_viewable_channels(
@@ -406,6 +324,11 @@ async def filter_viewable_channels(
         return set(channel_ids)
     if not base.member:
         return set()
+
+    # Pre-sort once here (outside the per-channel loop below) so
+    # calculate_channel_permissions doesn't re-sort the same list O(N channels)
+    # times. Reduces O(N × R log R) to O(R log R + N).
+    base.roles.sort(key=lambda r: (not r.is_everyone, r.position))
 
     ow_by_channel: dict[int, dict[tuple[int, int], Override]] = {}
     for ow in (

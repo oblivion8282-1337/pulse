@@ -238,8 +238,16 @@ async def idle_sweeper_loop(redis: Redis) -> None:
             log.exception("idle_sweeper_loop error (continuing)")
 
 
+_SWEEP_BATCH_SIZE = 500  # max stale users processed per sweep iteration
+
+
 async def _run_sweep(redis: Redis) -> None:
-    """One sweep iteration — exported for tests."""
+    """One sweep iteration — exported for tests.
+
+    Processes at most ``_SWEEP_BATCH_SIZE`` stale users per call to bound
+    memory usage and sweep latency.  The next scheduled invocation picks
+    up any remaining stale entries.
+    """
     import json
 
     from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL
@@ -247,8 +255,12 @@ async def _run_sweep(redis: Redis) -> None:
 
     now_ms = int(time.time() * 1000)
     cutoff = now_ms - IDLE_AFTER_MS
-    # Members with last-activity score < cutoff are idle candidates.
-    stale = await redis.zrangebyscore(PRESENCE_ACTIVITY_ZSET, 0, cutoff)
+    # Limit the result set so a large dormant user-base doesn't cause a
+    # single massive allocation.  Remaining entries are swept in subsequent
+    # iterations (one per IDLE_SWEEP_INTERVAL_S).
+    stale = await redis.zrangebyscore(
+        PRESENCE_ACTIVITY_ZSET, 0, cutoff, start=0, num=_SWEEP_BATCH_SIZE
+    )
     if not stale:
         return
 
@@ -266,30 +278,36 @@ async def _run_sweep(redis: Redis) -> None:
 
     # Write all demotions in a single pipeline.
     masked = _mask(STATUS_IDLE)  # idle stays idle (not invisible)
+
+    # Serialise all envelopes before entering the pipeline so any serialisation
+    # error surfaces before we touch Redis.
+    payloads: list[tuple[str, str]] = []
+    for uid in to_demote:
+        guild_envelope = PresenceStatusChangedEvent(
+            data=PresenceStatusData(user_id=str(uid), status=masked),
+            sender_user_id=str(uid),
+        )
+        payloads.append(
+            (uid, json.dumps(guild_envelope.model_dump(mode="json"), separators=(",", ":")))
+        )
+
     async with redis.pipeline(transaction=False) as pipe:
         for uid in to_demote:
             key = PRESENCE_STATUS_KEY.format(user_id=uid)
             pipe.set(key, STATUS_IDLE, ex=PRESENCE_STATUS_TTL_SECONDS)
         await pipe.execute()
 
-    # Best-effort broadcasts — one publish per demoted user.
-    demoted = 0
-    for uid in to_demote:
-        try:
-            guild_envelope = PresenceStatusChangedEvent(
-                data=PresenceStatusData(user_id=str(uid), status=masked),
-                sender_user_id=str(uid),
-            )
-            await redis.publish(
-                GUILD_EVENTS_CHANNEL,
-                json.dumps(
-                    guild_envelope.model_dump(mode="json"),
-                    separators=(",", ":"),
-                ),
-            )
-            demoted += 1
-        except Exception:  # noqa: BLE001
-            log.exception("idle_sweeper broadcast failed for user=%s", uid)
+    # Best-effort broadcasts — pipeline all publishes in a single round-trip
+    # instead of N sequential awaits.
+    try:
+        async with redis.pipeline(transaction=False) as pipe:
+            for _uid, payload in payloads:
+                pipe.publish(GUILD_EVENTS_CHANNEL, payload)
+            await pipe.execute()
+        demoted = len(payloads)
+    except Exception:  # noqa: BLE001
+        log.exception("idle_sweeper broadcast pipeline failed")
+        demoted = 0
     log.info("idle_sweep_done stale=%d demoted=%d", len(stale_uids), demoted)
 
 

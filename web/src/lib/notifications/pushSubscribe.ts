@@ -122,9 +122,10 @@ export async function subscribeUser(): Promise<void> {
     applicationServerKey: urlBase64ToArrayBuffer(vapid)
   });
   const payload = serializeSubscription(sub);
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : undefined;
   await postPushSubscription({
     ...payload,
-    user_agent: typeof navigator !== 'undefined' ? navigator.userAgent : undefined
+    user_agent: userAgent ? userAgent.substring(0, 256) : undefined
   });
 }
 

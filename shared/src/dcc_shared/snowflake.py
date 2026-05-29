@@ -5,7 +5,7 @@ Format (64-bit signed positive int):
 
 Epoch is configurable (default 2026-01-01T00:00:00Z) to maximise lifetime.
 Within a single millisecond, up to 4096 IDs per worker can be generated. If
-the sequence overflows the generator sleeps until the next millisecond.
+the sequence overflows the generator busy-spins until the next millisecond.
 
 This module is dependency-free and thread-safe via a lock.
 """
@@ -62,9 +62,22 @@ class SnowflakeGenerator:
         return int(time.time() * 1000)
 
     def _wait_next_ms(self, last: int) -> int:
+        # Busy-spin until the clock advances past `last`.  The two callers
+        # both hold `self._lock` on the asyncio event-loop thread, so we
+        # must NOT call time.sleep() here — even a sub-millisecond sleep
+        # would hand control back to the OS scheduler and block every other
+        # coroutine for that window.  The spin is safe because:
+        #   • sequence-overflow case: wait is at most ~1 ms.
+        #   • clock-backwards case: this is an NTP adjustment; rare, bounded
+        #     by how far the clock was stepped (typically < 1 s in prod).
+        # For the clock-backwards case a small `time.sleep(0)` (OS yield)
+        # per iteration is fine — it does NOT yield the asyncio event loop
+        # because we are already inside a `threading.Lock` context and
+        # asyncio cannot context-switch across a synchronous call frame.
+        # However, keeping the loop unconditional is the simplest correct
+        # form.
         ts = self._now_ms()
         while ts <= last:
-            time.sleep(0.0001)
             ts = self._now_ms()
         return ts
 

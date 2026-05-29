@@ -8,17 +8,18 @@ so the extra dependency would not pay for itself.
 the admin panel (``smtp_settings.configured = true``), that wins. Otherwise
 ``email.py`` falls back to the env-based ``Settings.smtp_*`` for back-compat
 with deployments that pre-date the admin UI. If neither is set, ``send_email``
-logs the message at INFO (``email_skipped`` marker) so a self-hoster can grab
-the link out of the service log — same dev-ergonomic as before.
+logs only the recipient and subject at INFO (``email_skipped`` marker) — the
+body (which may contain reset tokens) is intentionally omitted to keep tokens
+out of log aggregators.
 
-Tokens are ONLY ever logged via the ``email_skipped`` path. Never via SMTP
-success/error log lines.
+Tokens are NEVER logged — not on ``email_skipped``, not on SMTP success/error.
 """
 
 from __future__ import annotations
 
 import asyncio
 import smtplib
+import ssl
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
@@ -128,7 +129,7 @@ async def send_email(
     """
     cfg = await resolve_smtp_config(session)
     if cfg is None:
-        logger.info("email_skipped", to=to, subject=subject, body=body_plain)
+        logger.info("email_skipped", to=to, subject=subject)
         return
 
     await asyncio.to_thread(_send_smtp_sync, cfg, to, subject, body_plain)
@@ -151,9 +152,10 @@ def _send_smtp_sync(
     msg["Subject"] = subject
     msg.set_content(body_plain)
 
+    ctx = ssl.create_default_context()
     if cfg.use_ssl:
         # Port 465 — implicit TLS from connect.
-        with smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=15) as s:
+        with smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=15, context=ctx) as s:
             if cfg.username:
                 s.login(cfg.username, cfg.password or "")
             s.send_message(msg)
@@ -161,7 +163,7 @@ def _send_smtp_sync(
         # Port 587 — STARTTLS upgrade once we've EHLO'd.
         with smtplib.SMTP(cfg.host, cfg.port, timeout=15) as s:
             s.ehlo()
-            s.starttls()
+            s.starttls(context=ctx)
             s.ehlo()
             if cfg.username:
                 s.login(cfg.username, cfg.password or "")

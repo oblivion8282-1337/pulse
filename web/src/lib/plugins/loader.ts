@@ -64,6 +64,14 @@ interface DiscoveredPlugin {
  *  Exported so a future plugin-manager UI can browse without auto-activating. */
 export function discoverPlugins(): Map<string, DiscoveredPlugin> {
   const out = new Map<string, DiscoveredPlugin>();
+  // Build a name-to-entry-path map once, O(m), instead of O(n×m) inner finds.
+  const entryPathsByName = new Map<string, string>();
+  for (const path of Object.keys(entryModules)) {
+    const dirName = nameFromPath(path);
+    if (dirName) {
+      entryPathsByName.set(dirName, path);
+    }
+  }
   for (const [path, mod] of Object.entries(manifestModules)) {
     const dirName = nameFromPath(path);
     if (!dirName) continue;
@@ -74,8 +82,7 @@ export function discoverPlugins(): Map<string, DiscoveredPlugin> {
       );
       continue;
     }
-    const entryPath =
-      Object.keys(entryModules).find((p) => nameFromPath(p) === dirName) ?? null;
+    const entryPath = entryPathsByName.get(dirName) ?? null;
     out.set(dirName, { manifest, entryPath });
   }
   return out;

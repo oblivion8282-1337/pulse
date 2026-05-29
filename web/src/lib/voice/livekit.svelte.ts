@@ -167,7 +167,7 @@ class VoiceRoom {
   #sendDisplayPeak = 0;
   #sendClipping = false;
   #sendClipUntilMs = 0;
-  #levelTimer: ReturnType<typeof setInterval> | null = null;
+
   /** Mic state captured at deafen-on so un-deafen can restore it. */
   #micEnabledBeforeDeafen = false;
   #teardownDone = false;
@@ -418,6 +418,8 @@ class VoiceRoom {
     if (on) {
       await this.setMicEnabled(false);
     } else {
+      // Respect admin force-mute: don't enable the mic if an admin has muted us.
+      if (this.#selfOverride().muted) return;
       await this.setMicEnabled(true);
     }
   }
@@ -840,7 +842,11 @@ class VoiceRoom {
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (!_active()) return;
         if (pub.source === Track.Source.Microphone) {
-          void this.applyNoiseFilter();
+          // applyNoiseFilter() is called by setMicEnabled() after
+          // setMicrophoneEnabled() resolves, which is what triggers this event.
+          // Calling it again here would race with that ongoing await, installing
+          // two processors and orphaning the first (leaked AudioContext + WASM).
+          // #attachLocalAnalyser() is also covered by setMicEnabled → applyNoiseFilter.
           this.#attachLocalAnalyser();
         }
         this.#scheduleRefresh();
@@ -963,44 +969,14 @@ class VoiceRoom {
   }
 
   #startLevelPolling(): void {
-    this.#stopLevelPolling();
-    this.#levelTimer = setInterval(() => this.#patchAudioLevels(), 200);
-  }
-
-  #patchAudioLevels(): void {
-    const room = this.#room;
-    if (!room) return;
-    let changed = false;
-    for (const vp of this.participants) {
-      // room.remoteParticipants is already a Map<string, RemoteParticipant> —
-      // use direct O(1) lookup instead of rebuilding a Map each tick.
-      const p: Participant | undefined = vp.isLocal
-        ? (room.localParticipant as LocalParticipant)
-        : room.remoteParticipants.get(vp.identity);
-      if (!p) continue;
-      const newLevel = p.audioLevel ?? 0;
-      // Local isSpeaking is owned by LocalMicAnalyser / the send-tap detector.
-      // Remote isSpeaking is owned by RemoteSpeakingTracker. The server's
-      // `p.isSpeaking` is intentionally ignored — see comment in #refreshParticipants.
-      const newSpeaking = vp.isLocal ? vp.isSpeaking : this.#remoteSpeaking.isSpeaking(vp.identity);
-      if (vp.audioLevel !== newLevel || vp.isSpeaking !== newSpeaking) {
-        vp.audioLevel = newLevel;
-        vp.isSpeaking = newSpeaking;
-        changed = true;
-      }
-    }
-    if (changed) this.participants = [...this.participants];
-    // localMicLevel is driven by LocalMicAnalyser (Web Audio RMS), not by
-    // LiveKit's server-side speaker detection — that one only updates when
-    // the server has decided you're an active speaker, which is useless as
-    // a real-time input meter.
+    // No-op: audioLevel is updated by #refreshParticipants() which is already
+    // triggered by ActiveSpeakersChanged. isSpeaking is updated in real time
+    // via #onRemoteSpeakingChange / #setLocalSpeaking. A separate poll at 200 ms
+    // was redundant and allocated a new array on every tick with N participants.
   }
 
   #stopLevelPolling(): void {
-    if (this.#levelTimer) {
-      clearInterval(this.#levelTimer);
-      this.#levelTimer = null;
-    }
+    // No interval to clear — polling was removed (finding 115).
   }
 
   #attachLocalAnalyser(): void {
@@ -1075,9 +1051,9 @@ class VoiceRoom {
   #onRemoteSpeakingChange(identity: string, speaking: boolean): void {
     const idx = this.participants.findIndex((p) => p.identity === identity);
     if (idx < 0 || this.participants[idx].isSpeaking === speaking) return;
-    const copy = [...this.participants];
-    copy[idx] = { ...copy[idx], isSpeaking: speaking };
-    this.participants = copy;
+    // Svelte 5 $state deep-proxies the array; mutating the element in place is
+    // reactive and avoids allocating a new array + object on every speaking transition.
+    this.participants[idx].isSpeaking = speaking;
   }
 
   #setLocalSpeaking(s: boolean): void {
@@ -1085,9 +1061,8 @@ class VoiceRoom {
     this.localSpeaking = s;
     const idx = this.participants.findIndex((p) => p.isLocal);
     if (idx >= 0 && this.participants[idx].isSpeaking !== s) {
-      const copy = [...this.participants];
-      copy[idx] = { ...copy[idx], isSpeaking: s };
-      this.participants = copy;
+      // Same deep-proxy mutation — no full array copy needed.
+      this.participants[idx].isSpeaking = s;
     }
   }
 

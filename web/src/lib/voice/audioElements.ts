@@ -71,7 +71,8 @@ export class RemoteAudioElements {
   #limiterEnabled = false;
 
   #ensureContext(): AudioContext {
-    if (this.#ctx) return this.#ctx;
+    if (this.#ctx && this.#ctx.state !== 'closed') return this.#ctx;
+    if (this.#ctx?.state === 'closed') this.#ctx = null;
     const ctx = new AudioContext();
     if (this.outputDeviceId) void this.#applySink(ctx, this.outputDeviceId);
     this.#ctx = ctx;
@@ -82,7 +83,8 @@ export class RemoteAudioElements {
    *  AudioContext is suspended (autoplay policy) — same trigger semantics as
    *  the old HTMLAudioElement-based flow. */
   attach(track: RemoteAudioTrack, userId: string, onBlocked: () => void): void {
-    const sid = track.sid ?? `t-${Math.random()}`;
+    const sid = track.sid;
+    if (!sid) return;
     if (this.#nodes.has(sid)) return;
     const mst = track.mediaStreamTrack;
     if (!mst) return;

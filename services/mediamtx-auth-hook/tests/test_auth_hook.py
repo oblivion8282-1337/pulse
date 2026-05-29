@@ -20,7 +20,7 @@ async def _put_token(
     *,
     channel_id: str,
     user_id: str,
-    nonce: str = "deadbeef",
+    nonce: str = "deadbeef" * 4,
     scope: str = "publish",
     ttl: int = 3600,
 ):
@@ -41,7 +41,7 @@ async def _put_token(
     )
 
 
-def _ch_path(cid: str, uid: str, nonce: str = "deadbeef") -> str:
+def _ch_path(cid: str, uid: str, nonce: str = "deadbeef" * 4) -> str:
     return f"channel-{cid}-{uid}-{nonce}"
 
 
@@ -154,10 +154,10 @@ async def test_publish_wrong_nonce_denied(client, redis):
     cid = _unique_cid()
     uid = "42"
     token = "tok-" + uuid.uuid4().hex
-    await _put_token(redis, token, channel_id=cid, user_id=uid, nonce="aabbccdd")
+    await _put_token(redis, token, channel_id=cid, user_id=uid, nonce="aabbccdd" * 4)
     try:
         r = await client.post(
-            "/", json=_body("publish", _ch_path(cid, uid, nonce="11223344"), password=token)
+            "/", json=_body("publish", _ch_path(cid, uid, nonce="11223344" * 4), password=token)
         )
         assert r.status_code == 401
         assert await redis.exists(ACTIVE_KEY.format(channel_id=cid, user_id=uid)) == 0
@@ -204,7 +204,9 @@ async def test_publish_non_channel_path_denied(client, redis):
         r = await client.post("/", json=_body("publish", "some-random-path", password=token))
         assert r.status_code == 401
         # Invalid path shapes: non-numeric channel, missing user, missing nonce.
-        r = await client.post("/", json=_body("publish", "channel-abc-1-deadbeef", password=token))
+        r = await client.post(
+            "/", json=_body("publish", "channel-abc-1-" + "deadbeef" * 4, password=token)
+        )
         assert r.status_code == 401
         r = await client.post("/", json=_body("publish", "channel-123", password=token))
         assert r.status_code == 401
@@ -264,7 +266,7 @@ async def test_null_string_fields_tolerated(client):
     # MediaMTX 1.17 emits JSON `null` for fields it doesn't set (e.g. `id` on
     # WHEP OPTIONS preflights). Older clients used to send "" here; both must
     # parse without 422 so the auth chain never breaks across MediaMTX builds.
-    body = _body("read", "channel-1-2-deadbeef", protocol="webrtc")
+    body = _body("read", "channel-1-2-" + "deadbeef" * 4, protocol="webrtc")
     body["id"] = None
     body["user"] = None
     body["query"] = None

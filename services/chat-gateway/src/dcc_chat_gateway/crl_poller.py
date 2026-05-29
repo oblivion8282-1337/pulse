@@ -30,8 +30,9 @@ REDIS_CRL_ETAG_KEY = "auth:crl:etag"
 # (mirrors credential_validator.REDIS_CLOUD_JWKS_KEY).
 REDIS_CLOUD_JWKS_KEY = "auth:cloud_jwks:cached"
 
-# Poll interval (seconds) — DE 9 mandates 30s
-CRL_POLL_INTERVAL = 30
+# Poll interval (seconds) — shortened from 30s to 10s to reduce the revocation window
+# (DE 9 recommends 5-10s; see §383 for timing-attack considerations)
+CRL_POLL_INTERVAL = 10
 
 # HTTP timeout for CRL fetch
 CRL_FETCH_TIMEOUT = 10.0

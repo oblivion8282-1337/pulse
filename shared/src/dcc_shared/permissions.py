@@ -62,10 +62,13 @@ class Permissions(IntFlag):
     ADMINISTRATOR = 1 << 51
 
 
-# Owner / ADMINISTRATOR resolve to this mask rather than ``~0`` so that
-# unset reserved bits stay zero — if we add a future permission, existing
-# admin/owner users do not silently gain it before we have a chance to
-# review the default semantics.
+# Owner / ADMINISTRATOR resolve to this mask rather than ``~0`` so that the
+# reserved bits *above* the 52-bit budget stay zero (keeping the value
+# JS-Number-safe and not silently granting permissions outside the budget).
+# This is a deliberate design decision (see CLAUDE.md / PLAN.md §permissions):
+# the full 52-bit budget — including the intentional gaps between permission
+# groups reserved for future use — resolves to "all". Changing this to OR only
+# the currently-defined bits is a conscious semantic shift, not a refactor.
 GRANT_ALL_SAFE: int = (1 << 52) - 1
 
 

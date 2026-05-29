@@ -42,15 +42,24 @@ class ServerStateMirror {
   /** Manuell triggern (z.B. unmittelbar nach connect/disconnect). */
   refresh(): void {
     const next: Record<string, Snapshot> = {};
+    let changed = false;
     for (const entry of serversStore.servers) {
       const conn = gatewayPool.peek(entry.id);
-      if (conn) {
-        next[entry.id] = { state: conn.state, helloMeta: conn.helloMeta };
-      } else {
-        next[entry.id] = { state: 'idle', helloMeta: null };
+      const snapshot: Snapshot = conn
+        ? { state: conn.state, helloMeta: conn.helloMeta }
+        : { state: 'idle', helloMeta: null };
+      next[entry.id] = snapshot;
+
+      const prev = this.byId[entry.id];
+      if (!prev || prev.state !== snapshot.state || prev.helloMeta !== snapshot.helloMeta) {
+        changed = true;
       }
     }
-    this.byId = next;
+
+    // Only reassign if something actually changed, avoiding reactive diffing on steady-state.
+    if (changed) {
+      this.byId = next;
+    }
   }
 
   /** Snapshot für eine einzelne Connection. */

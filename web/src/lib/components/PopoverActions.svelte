@@ -185,6 +185,7 @@
         class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
         onclick={() => actions.toggleDeafen(ctx())}
         disabled={working}
+        title="Force-deafen is UI-only — the user can still hear on modified clients. Use Disconnect to fully remove them."
         data-testid="popover-deafen-btn"
       >
         {#if isForceDeafened}

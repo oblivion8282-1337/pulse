@@ -70,7 +70,16 @@ function loadFromStorage(): ServerEntry[] | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    return parsed as ServerEntry[];
+    // Re-derive isCloud from hostname to prevent XSS-injected entries
+    // from overriding the cloud flag with a crafted isCloud value.
+    const normalized = parsed.map((entry: unknown) => {
+      const e = entry as ServerEntry;
+      return {
+        ...e,
+        isCloud: (e.hostname ?? '').toLowerCase() === CLOUD_HOSTNAME.toLowerCase(),
+      };
+    });
+    return normalized;
   } catch {
     // Korruptes JSON → Auto-Migration übernimmt
     return null;

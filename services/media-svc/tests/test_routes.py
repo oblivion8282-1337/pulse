@@ -46,7 +46,7 @@ async def test_stream_token_happy_path_rtmp(client, auth_signer, redis):
     path = body["mediamtx_path"]
     assert path.startswith(f"channel-{cid}-4242-")
     nonce = path.rsplit("-", 1)[1]
-    assert len(nonce) == 8 and all(c in "0123456789abcdef" for c in nonce)
+    assert len(nonce) == 32 and all(c in "0123456789abcdef" for c in nonce)
     assert body["push_protocol"] == "rtmp"
     assert body["push_url"].startswith(f"rtmps://ingest.test:1936/{path}?user=pulse&pass=")
     assert body["expires_in_s"] == 4 * 60 * 60
@@ -93,22 +93,24 @@ async def test_stream_token_rejects_non_numeric_channel(client, auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_get_stream_state_empty_by_default(client):
+async def test_get_stream_state_empty_by_default(client, auth_signer):
+    access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
-    r = await client.get(f"/channels/{cid}/stream")
+    r = await client.get(f"/channels/{cid}/stream", headers=_auth(access))
     assert r.status_code == 200
     assert r.json() == {"channel_id": cid, "user_ids": [], "since": None}
 
 
 @pytest.mark.asyncio
-async def test_get_stream_state_reflects_redis(client, redis):
+async def test_get_stream_state_reflects_redis(client, redis, auth_signer):
+    access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
     await redis.set(
         CHANNEL_STATE_KEY.format(channel_id=cid),
         json.dumps({"user_ids": ["99", "100"], "since": "2026-05-12T00:00:00+00:00"}),
     )
     try:
-        r = await client.get(f"/channels/{cid}/stream")
+        r = await client.get(f"/channels/{cid}/stream", headers=_auth(access))
         assert r.status_code == 200
         assert r.json() == {
             "channel_id": cid,

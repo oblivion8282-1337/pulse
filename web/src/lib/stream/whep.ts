@@ -64,7 +64,12 @@ async function waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
 function resolveResourceUrl(whepUrl: string, location: string | null): string | null {
   if (!location) return null;
   try {
-    return new URL(location, whepUrl).toString();
+    const resolved = new URL(location, whepUrl);
+    // Only follow the resource URL if it shares the same origin as the WHEP
+    // endpoint — prevents an attacker-controlled or misconfigured Location
+    // header from redirecting the teardown DELETE to an unrelated host.
+    if (resolved.origin !== new URL(whepUrl).origin) return null;
+    return resolved.toString();
   } catch {
     return null;
   }
@@ -87,9 +92,13 @@ export async function connectWhep(
   pc.addTransceiver('audio', { direction: 'recvonly' });
   let trackReceived = false;
   pc.ontrack = (e) => {
-    if (e.streams[0] && !trackReceived) {
+    if (!trackReceived) {
       trackReceived = true;
-      onTrack(e.streams[0]);
+      // Use the stream associated with the track when available (standard path).
+      // Fall back to constructing a synthetic MediaStream so the callback always
+      // fires even when the remote peer sends tracks with no stream association
+      // (e.g. a non-standard MediaMTX build or future WHEP variant).
+      onTrack(e.streams[0] ?? new MediaStream([e.track]));
     }
   };
 

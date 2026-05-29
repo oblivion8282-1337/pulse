@@ -79,7 +79,8 @@ class RoleStore {
 
   upsertRole(role: Role): void {
     const list = this.byGuild[role.guild_id] ?? [];
-    const next = list.some((r) => r.id === role.id)
+    const isUpdate = this.roleIdMap.has(role.id);
+    const next = isUpdate
       ? list.map((r) => (r.id === role.id ? role : r))
       : [...list, role];
     this.byGuild = { ...this.byGuild, [role.guild_id]: next };

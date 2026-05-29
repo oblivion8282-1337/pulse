@@ -115,6 +115,11 @@ class RoleDeletedEvent(_EventBase):
     role_id: str
 
 
+class RolePositionsUpdatedEvent(_EventBase):
+    op: Literal["role_positions_updated"] = "role_positions_updated"
+    roles: list[dict[str, Any]]
+
+
 class MemberRolesUpdatedEvent(_EventBase):
     """Hint event (no payload body) — receiver re-fetches the affected
     member's role list. Keeps the publish path tiny + side-steps the

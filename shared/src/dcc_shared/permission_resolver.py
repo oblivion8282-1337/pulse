@@ -146,6 +146,14 @@ def calculate_channel_permissions(ctx: PermissionContext) -> int:
         5. if !VIEW_CHANNEL → revoke everything (security invariant —
            must not be possible to have ``SEND_MESSAGES`` without
            ``VIEW_CHANNEL``, that would be an exploit)
+
+    Note on performance: This function sorts the role list on every call
+    (O(R log R), where R = roles per member). Callers like
+    ``members_who_can_view`` that invoke this N times in a loop with
+    potentially overlapping role-sets could optimize by batching members
+    with identical role-sets and sorting once per batch, or by caching
+    sorted results for frequently-accessed members. For typical guild
+    sizes the per-call sort overhead is negligible.
     """
     if ctx.is_global_admin() or ctx.is_guild_owner():
         return GRANT_ALL_SAFE

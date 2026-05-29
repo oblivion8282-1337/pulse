@@ -103,8 +103,73 @@
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   }
 
-  let messageMap = $derived<Map<string, Message>>(new Map(messages.map(m => [m.id, m])));
-  let items = $derived<ChatItem[]>(buildItems(messages));
+  // Memoize messageMap to avoid rebuilding on every message push.
+  // Only recompute if the set of message IDs changes meaningfully.
+  let _cachedMessageMap: Map<string, Message> | null = null;
+  let _lastMapMessageIds = $state<string[]>([]);
+
+  let messageMap = $derived.by(() => {
+    const currentIds = messages.map(m => m.id);
+    // Only rebuild if the number of messages or any existing ID changed
+    // (edit/delete scenarios). For append-only, check length first.
+    if (
+      _cachedMessageMap === null ||
+      currentIds.length !== _lastMapMessageIds.length ||
+      currentIds.some((id, i) => id !== _lastMapMessageIds[i])
+    ) {
+      _cachedMessageMap = new Map(messages.map(m => [m.id, m]));
+      _lastMapMessageIds = currentIds;
+    }
+    return _cachedMessageMap;
+  });
+
+  // Memoize buildItems to avoid full rebuild on simple appends.
+  let _cachedItems: ChatItem[] | null = null;
+  let _lastItemsMessageCount = $state(0);
+  let _lastItemsLastMessageId = $state('');
+
+  let items = $derived.by(() => {
+    const len = messages.length;
+    const lastId = len > 0 ? messages[len - 1].id : '';
+
+    // If only new messages were appended (tail unchanged), append only the new items.
+    if (
+      _cachedItems !== null &&
+      len > _lastItemsMessageCount &&
+      _lastItemsLastMessageId === (messages[_lastItemsMessageCount - 1]?.id ?? '')
+    ) {
+      // Append mode: only rebuild items for new messages at the end
+      const newItems: ChatItem[] = [];
+      for (let i = _lastItemsMessageCount; i < len; i++) {
+        const m = messages[i];
+        const prev = messages[i - 1];
+        const mDate = new Date(m.created_at);
+        const mDateStr = mDate.toDateString();
+        const prevDate = prev ? new Date(prev.created_at) : null;
+        const prevDateStr = prevDate ? prevDate.toDateString() : null;
+
+        if (!prevDate || mDateStr !== prevDateStr) {
+          newItems.push({ kind: 'divider', label: formatDividerLabel(mDate), key: `div-${m.id}` });
+        }
+
+        const isContinuation =
+          !!prev &&
+          m.author_id === prev.author_id &&
+          mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
+          mDateStr === prevDateStr;
+
+        newItems.push({ kind: 'message', message: m, isContinuation, key: m.id });
+      }
+      _cachedItems = [..._cachedItems, ...newItems];
+    } else {
+      // Edit/delete/restructure: full rebuild
+      _cachedItems = buildItems(messages);
+    }
+
+    _lastItemsMessageCount = len;
+    _lastItemsLastMessageId = lastId;
+    return _cachedItems;
+  });
 
   function buildItems(msgs: Message[]): ChatItem[] {
     const result: ChatItem[] = [];

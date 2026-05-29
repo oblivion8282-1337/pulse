@@ -124,11 +124,13 @@ async def handle_guild_events(
             b_id = int(payload.get("user_b_id", "0"))
         except (TypeError, ValueError):
             a_id = b_id = 0
-        if a_id and b_id:
-            targets = [
-                ws for ws in targets
-                if (u := manager._ws_user.get(ws)) is not None
-                and u.id in (a_id, b_id)
-            ]
+        if not (a_id and b_id):
+            # Malformed or missing IDs — drop rather than broadcast to all
+            return
+        targets = [
+            ws for ws in targets
+            if (u := manager._ws_user.get(ws)) is not None
+            and u.id in (a_id, b_id)
+        ]
     log.info("guild:events broadcast op=%s targets=%d", op, len(targets))
     await manager._fan_out(targets, payload)

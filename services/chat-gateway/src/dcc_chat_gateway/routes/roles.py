@@ -259,6 +259,10 @@ async def update_role_positions(
     await session.commit()
     # In-memory objects already hold the updated positions after commit —
     # no need for per-row session.refresh(). Fan out all WS events concurrently.
+    # NB: kept as per-role `role_updated` events (not a single bulk event) — the
+    # frontend WS layer only registers a `role_updated` handler; introducing a
+    # new `role_positions_updated` op would silently drop reorder updates on
+    # clients until a matching handler ships.
     await asyncio.gather(
         *[_publish(request, RoleUpdatedEvent(role=_role_dict(role))) for role in rows.values()]
     )

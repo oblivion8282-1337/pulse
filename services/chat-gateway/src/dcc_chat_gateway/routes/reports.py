@@ -83,4 +83,7 @@ async def create_report(
     session.add(report)
     await session.commit()
     await session.refresh(report)
+    # Response contract returns the literal "received" (a user-facing receipt
+    # confirmation), NOT the internal moderation-queue status (which starts at
+    # "new"). Keep these distinct — the frontend + tests rely on "received".
     return ReportOut(id=str(report.id), status="received")

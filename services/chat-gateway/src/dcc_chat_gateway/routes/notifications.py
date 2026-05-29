@@ -44,8 +44,6 @@ _PUSH_SERVICE_SUFFIXES: tuple[str, ...] = (
     "web.push.apple.com",
     ".push.apple.com",
     "updates.push.services.mozilla.com",
-    # Some browsers use browser-vendor subdomains under googleapis.com.
-    ".googleapis.com",
 )
 
 

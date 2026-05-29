@@ -213,8 +213,7 @@ async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
 
 
 async def _apply_room_finished(redis: Redis, room_name: str) -> None:
-    await redis.delete(room_key(room_name))
-    await redis.delete(streaming_key(room_name))
+    await redis.delete(room_key(room_name), streaming_key(room_name))
 
 
 async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) -> None:

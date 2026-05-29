@@ -30,11 +30,9 @@
   let canUseCamera = $derived.by(() => {
     const cid = voice.channelId;
     if (!cid) return true;
-    const ch = Object.values(guilds.channelsByGuild)
-      .flat()
-      .find((c) => c.id === cid);
-    if (!ch) return true;
-    return channelPermissions.hasChannelPermission(ch.guild_id, ch.id, Perm.USE_VIDEO);
+    const guildId = guilds.guildIdForChannel(cid);
+    if (!guildId) return true;
+    return channelPermissions.hasChannelPermission(guildId, cid, Perm.USE_VIDEO);
   });
 
   // Force-mute state for the local user in the current voice channel.

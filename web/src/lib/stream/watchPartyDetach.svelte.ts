@@ -32,7 +32,21 @@ class DetachedWatchParties {
       if (!m || typeof m !== 'object') return;
       if (m.kind === 'closed') this.#markAttached(m.cid);
     };
-    this.#pollTimer = setInterval(() => this.#sweepClosedWindows(), 800);
+  }
+
+  /** Start the sweep poll when the first popup is opened; stop when all are closed. */
+  #ensurePollRunning(): void {
+    if (this.#pollTimer === null && this.#windows.size > 0) {
+      this.#pollTimer = setInterval(() => this.#sweepClosedWindows(), 800);
+    }
+  }
+
+  /** Stop the poll if no more windows are being tracked. */
+  #ensurePollStopped(): void {
+    if (this.#pollTimer !== null && this.#windows.size === 0) {
+      clearInterval(this.#pollTimer);
+      this.#pollTimer = null;
+    }
   }
 
   has(channelId: string): boolean {
@@ -55,6 +69,7 @@ class DetachedWatchParties {
     if (!popup) return false;
     this.#windows.set(channelId, popup);
     this.#set = new Set(this.#set).add(channelId);
+    this.#ensurePollRunning();
     return true;
   }
 
@@ -86,6 +101,7 @@ class DetachedWatchParties {
     const next = new Set(this.#set);
     next.delete(channelId);
     this.#set = next;
+    this.#ensurePollStopped();
   }
 
   #sweepClosedWindows(): void {
@@ -99,6 +115,7 @@ class DetachedWatchParties {
         }
       }
     }
+    this.#ensurePollStopped();
   }
 }
 

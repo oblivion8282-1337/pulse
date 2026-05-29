@@ -42,6 +42,12 @@ def _isolate_voice_settings():
     voice_routes.get_settings = _provider  # type: ignore[assignment]
     voice_webhook.get_settings = _provider  # type: ignore[assignment]
     voice_security.reset_cache()
+    # The token endpoint uses an in-process per-user rate limiter with
+    # module-global state. Without a reset, token tests that reuse the same
+    # user id exhaust the budget and later tests get spurious 429s.
+    import dcc_voice_signaling.ratelimit as voice_ratelimit
+
+    voice_ratelimit.reset()
     yield _TEST_SETTINGS
     voice_cfg.get_settings = original  # type: ignore[assignment]
     voice_cfg.get_settings.cache_clear()

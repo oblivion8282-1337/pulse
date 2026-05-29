@@ -7,8 +7,8 @@ Canonical spelling of the keys shared between ``media-svc`` (writer of
 Keep this in sync with ``dcc_mediamtx_auth_hook.shared``.
 
 Streams are per *(channel, user, session-nonce)*: the MediaMTX path is
-``channel-<channel_id>-<user_id>-<nonce>`` (nonce = 8 hex chars from
-``secrets.token_hex(4)``, fresh per stream-token issue). The nonce gives every
+``channel-<channel_id>-<user_id>-<nonce>`` (nonce = 32 hex chars from
+``secrets.token_hex(16)``, fresh per stream-token issue). The nonce gives every
 publish a brand-new MediaMTX path so we side-step the WebRTC ICE-race that
 MediaMTX 1.17.1 hits when the *same* path is republished within a few seconds
 ("deadline exceeded while waiting connection"; root cause is upstream in
@@ -24,8 +24,8 @@ import re
 
 CHANNEL_PATH_PREFIX = "channel-"
 # channel-<channel_id>-<user_id>-<nonce>
-#   cid + uid are snowflakes (all digits), nonce is 8 lowercase hex.
-CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)-([0-9a-f]{8})$")
+#   cid + uid are snowflakes (all digits), nonce is 32 lowercase hex.
+CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)-([0-9a-f]{32})$")
 
 # stream:token:<token>                → JSON {channel_id, user_id, nonce, scope:"publish", protocol, created_at}
 #                                       issued by media-svc with TTL = TOKEN_TTL_S, consumed by the hook.

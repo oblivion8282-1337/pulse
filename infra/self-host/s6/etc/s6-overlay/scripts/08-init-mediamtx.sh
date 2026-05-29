@@ -58,8 +58,9 @@ hlsAlwaysRemux: yes
 authMethod: http
 authHTTPAddress: http://127.0.0.1:8005
 authHTTPExclude:
-  - path: ^api/.*
-  - path: ^metrics/.*
+  - action: api
+  - action: metrics
+  - action: pprof
 EOF
     # The only reachable ICE host candidate is the public hostname — the
     # container's interface IPs are internal bridge addrs. Appended after the

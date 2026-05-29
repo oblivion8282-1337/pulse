@@ -113,3 +113,17 @@ export function storeSet(key: string, value: unknown): void {
   data[key] = value;
   persist();
 }
+
+/** Batch write multiple keys and persist exactly once. Atomic: all keys are
+ *  either written or none are (only `persist()` may fail, in which case
+ *  previous writes are also lost). */
+export function storeSetBatch(entries: Record<string, unknown>): void {
+  if (data === null) {
+    console.error('[store] storeSetBatch called before initStore()');
+    return;
+  }
+  for (const [key, value] of Object.entries(entries)) {
+    data[key] = value;
+  }
+  persist();
+}

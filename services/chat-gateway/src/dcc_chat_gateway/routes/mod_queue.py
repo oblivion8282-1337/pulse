@@ -62,7 +62,7 @@ class ReportItem(BaseModel):
 
 class ResolveIn(BaseModel):
     resolution: Literal["resolved", "dismissed"]
-    action_type: str | None = None
+    action_type: str | None = Field(default=None, max_length=100)
     target_kind: Literal["user", "channel", "role", "message"] | None = None
     target_id: SnowflakeId | None = None
     resolution_note: str | None = Field(default=None, max_length=2000)
@@ -128,7 +128,11 @@ async def list_mod_queue(
     guild_id: int,
     session: SessionDep,
     current: CurrentUser,
-    queue_status: str = Query(default="new", alias="status"),
+    queue_status: Literal["new", "triaged", "resolved", "dismissed"] = Query(
+        default="new", alias="status"
+    ),
+    limit: int = Query(default=50, ge=1, le=200),
+    before: datetime | None = Query(default=None),
 ) -> list[ReportItem]:
     """Return reports scoped to this guild, filtered by status.
 
@@ -136,6 +140,9 @@ async def list_mod_queue(
       - target_channel_id → channel's guild_id matches
       - target_message_id → message's channel's guild_id matches
       - target_user_id only → user is a member of this guild
+
+    Paginated by ``before`` timestamp (exclusive upper bound on ``created_at``);
+    oldest entries first within the window. Use ``limit`` to control page size.
     """
     await _has_any_mod_perm(session, current, guild_id)
 
@@ -166,40 +173,58 @@ async def list_mod_queue(
                 ),
             ),
         )
-        .order_by(Report.created_at.asc())
     )
+    if before is not None:
+        stmt = stmt.where(Report.created_at < before)
+    stmt = stmt.order_by(Report.created_at.asc()).limit(limit)
     rows = (await session.execute(stmt)).scalars().all()
     return [_report_to_out(r) for r in rows]
 
 
 async def _report_in_guild(session: SessionDep, report: Report, guild_id: int) -> bool:
-    """True iff any of the report's targets belongs to ``guild_id``.
+    """True iff *any* of the report's targets belongs to ``guild_id``.
 
-    Mirrors the scope predicate in ``list_mod_queue``. Without this a mod in
-    guild A could resolve/dismiss a report targeting only guild B by POSTing its
-    id under guild A (cross-guild moderation bypass + audit-log written under the
-    wrong guild).
+    Mirrors the OR-predicate in ``list_mod_queue``: checks every non-None target
+    independently and returns True as soon as one of them scopes to the guild.
+    Using an early-return chain (if channel → return) would cause divergence when
+    a report has both target_channel_id *and* target_message_id pointing to
+    different guilds — the list query would include the report for both guilds but
+    the old guard would only check the first field.
     """
     if report.target_channel_id is not None:
         gid = await session.scalar(
             select(Channel.guild_id).where(Channel.id == report.target_channel_id)
         )
-        return gid == guild_id
+        if gid == guild_id:
+            return True
+
     if report.target_message_id is not None:
         gid = await session.scalar(
             select(Channel.guild_id)
             .join(Message, Message.channel_id == Channel.id)
             .where(Message.id == report.target_message_id)
         )
-        return gid == guild_id
-    if report.target_user_id is not None:
+        if gid == guild_id:
+            return True
+
+    # user-only check: mirrors the `target_channel_id IS NULL AND
+    # target_message_id IS NULL` guard from list_mod_queue to avoid treating a
+    # cross-guild report (channel→guild A, user in guild B) as guild-B-scoped via
+    # the user branch alone.
+    if (
+        report.target_user_id is not None
+        and report.target_channel_id is None
+        and report.target_message_id is None
+    ):
         member = await session.scalar(
             select(GuildMember.user_id).where(
                 GuildMember.guild_id == guild_id,
                 GuildMember.user_id == report.target_user_id,
             )
         )
-        return member is not None
+        if member is not None:
+            return True
+
     return False
 
 

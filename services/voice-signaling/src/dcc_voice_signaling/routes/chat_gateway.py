@@ -35,21 +35,45 @@ _PERM_MUTE_MEMBERS = 1 << 34
 _PERM_DEAFEN_MEMBERS = 1 << 35
 _PERM_MOVE_MEMBERS = 1 << 36
 
+# Shared HTTP client for chat-gateway calls, initialized in app lifespan.
+# Reusing a single client avoids connection setup/teardown overhead on
+# every request and enables connection pooling + http/2.
+_http_client: httpx.AsyncClient | None = None
+
+
+async def _init_http_client() -> None:
+    """Initialize the shared HTTP client. Called from app lifespan startup."""
+    global _http_client
+    settings = voice_routes.get_settings()
+    _http_client = httpx.AsyncClient(
+        timeout=settings.chat_gateway_timeout_s, http2=True
+    )
+
+
+async def _close_http_client() -> None:
+    """Close the shared HTTP client. Called from app lifespan teardown."""
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+        _http_client = None
+
 
 async def _chat_gateway_request(
     method: str, path: str, *, bearer: str
 ) -> httpx.Response:
     """Call chat-gateway, forwarding the user's bearer token. Tests
     monkeypatch this function."""
+    global _http_client
     settings = voice_routes.get_settings()
     base = settings.chat_gateway_url
     if base is None:
         raise RuntimeError("chat_gateway_url is not configured")
     url = base.rstrip("/") + path
-    async with httpx.AsyncClient(timeout=settings.chat_gateway_timeout_s) as http:
-        return await http.request(
-            method, url, headers={"Authorization": f"Bearer {bearer}"}
-        )
+    if _http_client is None:
+        raise RuntimeError("HTTP client not initialized")
+    return await _http_client.request(
+        method, url, headers={"Authorization": f"Bearer {bearer}"}
+    )
 
 
 def _bearer_from_header(authorization: str | None) -> str:

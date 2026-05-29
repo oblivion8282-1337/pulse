@@ -44,6 +44,7 @@ from dcc_chat_gateway.friend_schemas import (
     FriendRequestOut,
 )
 from dcc_chat_gateway.models import FriendRequest, Friendship
+from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
@@ -104,6 +105,11 @@ async def create_friend_request(
     INSERT Friendship) so two concurrent "second-side" POSTs can't
     diverge.
     """
+    if not ratelimit_check("friend_request", current.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
+
     target = payload.target_user_id
     me = current.id
     if target == me:
@@ -286,6 +292,14 @@ async def accept_friend_request(
         sa_delete(FriendRequest).where(FriendRequest.id == row.id)
     )
     friendship = await _atomic_install_friendship(session, me, other)
+    # If _atomic_install_friendship hit an IntegrityError it rolled back
+    # the entire transaction — including the sa_delete above — so the
+    # FriendRequest row may still exist. Re-delete it in a separate TX to
+    # ensure cleanup regardless of the race outcome.
+    await session.execute(
+        sa_delete(FriendRequest).where(FriendRequest.id == row.id)
+    )
+    await session.commit()
     # Fan-out to BOTH sides so a multi-tab session everywhere converges.
     me_payload = {
         "request_id": str(row.id),

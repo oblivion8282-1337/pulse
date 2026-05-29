@@ -9,6 +9,8 @@ import { overwritesApi, type Overwrite } from '$lib/api/roles';
 import { auth } from './auth.svelte';
 import { guilds } from './guilds.svelte';
 import { roles } from './roles.svelte';
+import { activeServer } from './active-server.svelte';
+import { serverAdmin } from './serverAdmin.svelte';
 import {
   type Permission,
   has,
@@ -61,7 +63,12 @@ class ChannelPermissionsStore {
     if (!me) return 0n;
     const guild = guilds.byId[guildId];
     const isOwner = !!guild && guild.owner_id === me;
-    const isAdmin = !!auth.user?.is_admin;
+    // Admin is per-server: cloud → auth.user.is_admin; self-host → serverAdmin
+    // (cert-login users have no auth /me on self-host, so is_admin is always undefined there).
+    const srv = activeServer.current;
+    const isAdmin = srv?.isCloud
+      ? !!auth.user?.is_admin
+      : serverAdmin.isAdmin(activeServer.serverId);
     const overwrites = (this.byChannel[channelId] ?? []).map((ow) => ({
       target_type: ow.target_type,
       target_id: ow.target_id,

@@ -22,10 +22,14 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as readline from 'node:readline';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { app } from 'electron';
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-const PYTHON_BIN = process.env.PULSE_PYTHON ?? 'python3';
+/** Python interpreter to run the Linux GSR sidecar. Developer-only override via
+ *  $PULSE_PYTHON; ignored in packaged builds to prevent malicious .desktop files
+ *  or wrapper scripts from redirecting to an attacker-controlled executable. */
+const PYTHON_BIN = !app.isPackaged ? (process.env.PULSE_PYTHON ?? 'python3') : 'python3';
 
 /** Per-op request timeout (ms). `start` opens the Wayland portal dialog (Linux)
  *  or initialises WGC + NVENC/AMF/QSV (Windows) so it needs a long fuse; `stop`
@@ -90,7 +94,7 @@ function resolveSidecarSpawn(): SpawnTarget {
  * Locate `control.py` (Linux only).
  *
  * Order:
- *   1. `$PULSE_SIDECAR_PY` override (absolute path to control.py).
+ *   1. `$PULSE_SIDECAR_PY` override (absolute path to control.py, dev-only).
  *   2. Walk up from this module's directory looking for
  *      `<X>/streaming/gsr-sidecar/control.py`. In dev the bundled `main.cjs`
  *      lives at `desktop/electron/dist/`, so `../../../streaming/...` from there
@@ -98,7 +102,9 @@ function resolveSidecarSpawn(): SpawnTarget {
  *   3. Flatpak default `/app/share/pulse/gsr-sidecar/control.py`.
  */
 function resolveScriptPath(): string {
-  const override = process.env.PULSE_SIDECAR_PY;
+  // Developer-only override; ignored in packaged builds to prevent malicious
+  // .desktop files or wrapper scripts from redirecting to an attacker binary.
+  const override = !app.isPackaged ? process.env.PULSE_SIDECAR_PY : undefined;
   if (override) {
     if (!fs.existsSync(override)) {
       throw new Error(`PULSE_SIDECAR_PY points at a non-existent file: ${override}`);
@@ -130,7 +136,7 @@ function resolveScriptPath(): string {
  * Locate `pulse-win-hq-sidecar.exe` (Windows only).
  *
  * Order:
- *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the .exe).
+ *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the .exe, dev-only).
  *   2. Packaged app: `<process.resourcesPath>/hq-sidecar/pulse-win-hq-sidecar.exe`
  *      — electron-builder ships the sidecar + FFmpeg-DLLs as `extraResources`
  *      there (see `desktop/electron-builder.yml`). In a dev run this path
@@ -144,7 +150,9 @@ function resolveScriptPath(): string {
  *      to — see WINDOWS_HQ_SIDECAR.md "Distribution-Pfad").
  */
 function resolveBinaryPath(): string {
-  const override = process.env.PULSE_HQ_SIDECAR;
+  // Developer-only override; ignored in packaged builds to prevent malicious
+  // .desktop files or wrapper scripts from redirecting to an attacker binary.
+  const override = !app.isPackaged ? process.env.PULSE_HQ_SIDECAR : undefined;
   if (override) {
     if (!fs.existsSync(override)) {
       throw new Error(`PULSE_HQ_SIDECAR points at a non-existent file: ${override}`);

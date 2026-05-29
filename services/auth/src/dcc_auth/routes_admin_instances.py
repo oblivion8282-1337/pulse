@@ -13,6 +13,7 @@ POST /admin/instances/{id}/rotate-secret
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from datetime import UTC, datetime
 from typing import Annotated
@@ -242,7 +243,7 @@ async def approve_application(
         # Generate credentials
         client_id = secrets.token_urlsafe(16)
         client_secret_plain = secrets.token_urlsafe(32)
-        client_secret_hash = hash_password(client_secret_plain)
+        client_secret_hash = await asyncio.to_thread(hash_password, client_secret_plain)
 
         instance_id = next_id()
         instance = RegisteredInstance(
@@ -437,7 +438,7 @@ async def rotate_secret(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="instance not found")
 
     new_secret_plain = secrets.token_urlsafe(32)
-    instance.client_secret = hash_password(new_secret_plain)
+    instance.client_secret = await asyncio.to_thread(hash_password, new_secret_plain)
     await session.commit()
 
     return RotateSecretOut(

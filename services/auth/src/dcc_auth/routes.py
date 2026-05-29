@@ -268,12 +268,22 @@ async def register(
         # Disambiguate: was the conflict the username, the email, or both?
         # We re-query so the 409 body can carry concrete suggestions when
         # the username is taken (the common case for popular handles).
-        u_taken = await session.scalar(
-            select(func.count()).select_from(User).where(User.username == payload.username)
-        )
-        e_taken = await session.scalar(
-            select(func.count()).select_from(User).where(User.email == payload.email.lower())
-        )
+        # Single round-trip: check both username and email in one query.
+        conflict_row = (
+            await session.execute(
+                select(
+                    (User.username == payload.username).label("u_taken"),
+                    (User.email == payload.email.lower()).label("e_taken"),
+                ).where(
+                    or_(
+                        User.username == payload.username,
+                        User.email == payload.email.lower(),
+                    )
+                )
+            )
+        ).first()
+        u_taken = conflict_row is not None and conflict_row.u_taken
+        e_taken = conflict_row is not None and conflict_row.e_taken
         if u_taken:
             suggestions = await _suggest_usernames(session, payload.username)
             raise HTTPException(
@@ -536,7 +546,7 @@ async def logout(
             if row is not None:
                 row.expires_at = datetime.now(tz=UTC)
                 committed = True
-        except (ValueError, Exception):  # noqa: BLE001
+        except ValueError:
             pass
 
     if committed:
@@ -650,11 +660,11 @@ def _peer_is_trusted(peer: str) -> bool:
 
 
 async def _check_rate(request: Request, key: str, rule: str) -> None:
-    """Lightweight slowapi-style rate-limit using a process-local counter.
+    """Lightweight rate-limit using a process-local sliding-window counter.
 
     `slowapi` is a fine library, but its Starlette middleware ties tightly
     to the global limiter state and makes test isolation awkward. We keep
-    an in-process token bucket here keyed on (client, key). Production
+    an in-process sliding window here keyed on (client, key). Production
     deployments should swap to a Redis-backed limiter.
 
     NOTE: this limiter is in-process only. With multiple uvicorn workers each
@@ -662,9 +672,12 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     number of workers. Use a single-worker deployment or a Redis-backed limiter
     if brute-force protection is critical.
 
-    Eviction is lazy and per-caller: expired windows are only cleaned up when
-    that specific IP is next seen, keeping the common path to O(1) dict lookups.
+    Uses a per-IP deque of request timestamps to implement a true sliding
+    window, avoiding the fixed-window burst-at-boundary vulnerability where a
+    caller could send 2×N requests at a window edge. Expired entries are
+    pruned on every access, bounding memory growth to active IPs only.
     """
+    import collections
     from time import monotonic
 
     # Parse "N/period" — period in {second, minute, hour}.
@@ -675,18 +688,24 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     bucket = request.app.state.rate_buckets.setdefault(key, {})
     ip = _client_ip(request)
     now = monotonic()
+    cutoff = now - seconds
 
-    window = bucket.get(ip)
-    if window is None or now - window["start"] >= seconds:
-        # Either new caller or expired window — start a fresh window.
-        bucket[ip] = {"start": now, "count": 1}
-        return
-    if window["count"] >= n:
+    # Sweep all stale IP entries to prevent unbounded memory growth.
+    stale_ips = [k for k, ts in bucket.items() if not ts or ts[-1] <= cutoff]
+    for k in stale_ips:
+        del bucket[k]
+
+    timestamps = bucket.setdefault(ip, collections.deque())
+    # Remove timestamps outside the sliding window.
+    while timestamps and timestamps[0] <= cutoff:
+        timestamps.popleft()
+
+    if len(timestamps) >= n:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"rate limit exceeded ({rule})",
         )
-    window["count"] += 1
+    timestamps.append(now)
 
 
 # Re-export rate limiter accessor used by tests to flush state.

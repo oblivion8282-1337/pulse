@@ -48,7 +48,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 from dcc_chat_gateway.permissions import resolve_permissions
-from dcc_chat_gateway.plugins.state_store import apply_atomic_update
+from dcc_chat_gateway.plugins.state_store import apply_atomic_update, RowVanishedError
+from dcc_chat_gateway.plugins.ws_op_gate import WS_CODE_PLUGIN_PERMISSION_DENIED
 from dcc_chat_gateway.pubsub_channel_registry import register_channel_handler
 from dcc_chat_gateway.routes.ws_ops_registry import (
     WSOpContext,
@@ -200,19 +201,29 @@ async def _handle_action(
     if session_factory is None:
         log.error("tamagotchi:%s without session_factory — bailing", action)
         return
-    async with session_factory() as session:
-        new_state = await apply_atomic_update(
-            session,
-            guild_id=guild_id,
-            plugin_name=PLUGIN_NAME,
-            default_state=dict(DEFAULT_STATE),
-            mutate=mutator,
-            actor_user_id=user_id,
-        )
+    try:
+        async with session_factory() as session:
+            new_state = await apply_atomic_update(
+                session,
+                guild_id=guild_id,
+                plugin_name=PLUGIN_NAME,
+                default_state=dict(DEFAULT_STATE),
+                mutate=mutator,
+                actor_user_id=user_id,
+            )
+    except RowVanishedError:
+        log.warning("tamagotchi:%s: guild row vanished — skipping broadcast", action)
+        return
 
     envelope = {
         "guild_id": str(guild_id),
         "state": new_state,
+        # updated_by_user_id is intentionally broadcast to all guild members.
+        # This is a design decision: every member who is online sees who
+        # performed the action. Lurkers' interaction is thus visible; this is
+        # accepted because the plugin is guild-scoped and the information is
+        # non-sensitive (it is the same user_id guild members can already see
+        # in the member list).
         "updated_by_user_id": str(user_id) if user_id is not None else None,
         "updated_at": new_state.get("lastUpdatedAt"),
     }
@@ -251,6 +262,10 @@ async def _handle_reset(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     ``reset`` is a destructive op (wipes all progress); any member calling
     it without MANAGE_GUILD gets a WS error frame back instead.
     The membership + allowlist check already passed via the WS-Op-Gate.
+
+    Permission check and state mutation share a single DB session so that
+    only one connection is acquired (instead of two) and both operations
+    execute on the same connection.
     """
     guild_id = _coerce_guild_id(msg.get("guild_id"))
     if guild_id is None:
@@ -262,20 +277,47 @@ async def _handle_reset(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         log.error("tamagotchi:reset without session_factory — bailing")
         return
 
+    user_id = getattr(ctx.user, "id", None)
+
     async with session_factory() as session:
         perms = await resolve_permissions(session, ctx.user, guild_id)
 
-    if not has_permission(perms, Permissions.MANAGE_GUILD):
-        await ctx.websocket.send_json(
-            {
-                "op": "error",
-                "code": 4043,
-                "msg": "missing permission: MANAGE_GUILD",
-            }
-        )
-        return
+        if not has_permission(perms, Permissions.MANAGE_GUILD):
+            await ctx.websocket.send_json(
+                {
+                    "op": "error",
+                    "code": WS_CODE_PLUGIN_PERMISSION_DENIED,
+                    "msg": "missing permission: MANAGE_GUILD",
+                }
+            )
+            return
 
-    await _handle_action(ctx, "reset", msg)
+        new_state = await apply_atomic_update(
+            session,
+            guild_id=guild_id,
+            plugin_name=PLUGIN_NAME,
+            default_state=dict(DEFAULT_STATE),
+            mutate=_mutate_reset,
+            actor_user_id=user_id,
+        )
+
+    envelope = {
+        "guild_id": str(guild_id),
+        "state": new_state,
+        # updated_by_user_id is intentionally included so all guild members
+        # can see who performed the reset. This is an explicit design decision:
+        # the field is informational, and reset is a visible, destructive
+        # op that all guild members should be aware of.
+        "updated_by_user_id": str(user_id) if user_id is not None else None,
+        "updated_at": new_state.get("lastUpdatedAt"),
+    }
+    try:
+        await ctx.redis.publish(
+            EVENTS_CHANNEL,
+            json.dumps(envelope, separators=(",", ":")),
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("tamagotchi:reset publish failed (state persisted)")
 
 
 _OP_HANDLERS = {
@@ -327,7 +369,7 @@ async def _broadcast_state_update(
         for ws in raw_targets
         if (gs := manager._ws_guilds.get(ws)) is not None and gid_int in gs
     ]
-    log.info(
+    log.debug(
         "plugin:tamagotchi:events broadcast guild=%s targets=%d/%d",
         gid_int,
         len(targets),

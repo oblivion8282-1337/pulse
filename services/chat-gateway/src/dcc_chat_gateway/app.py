@@ -9,6 +9,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
+import httpx
 from redis.asyncio import Redis
 
 from dcc_chat_gateway import s3
@@ -23,6 +24,7 @@ from dcc_chat_gateway.plugins import (
     list_allowed_names,
     load_all_with_allowlist,
 )
+from dcc_chat_gateway.plugins.permissions import log_startup_mode_warning
 from dcc_chat_gateway.presence_status import idle_sweeper_loop
 from dcc_chat_gateway.pubsub import ConnectionManager
 from dcc_chat_gateway.push import ensure_vapid
@@ -62,6 +64,19 @@ async def _supervise_pubsub(manager: ConnectionManager) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    # Fail fast: a self-host must have PULSE_INSTANCE_ID set to a non-zero value.
+    # Without it every instance would compute the same pairwise-subs (DE 11 A.13).
+    # Skip in test mode (skip_redis=True) so unit tests with default settings pass.
+    if (
+        not getattr(app.state, "skip_redis", False)
+        and settings.pulse_instance_mode == "self-host"
+        and settings.pulse_instance_id == 0
+    ):
+        raise RuntimeError(
+            "PULSE_INSTANCE_ID must be set to a non-zero value on a self-host. "
+            "Set PULSE_INSTANCE_ID in your .env file to the Snowflake-ID assigned "
+            "by the Cloud at approval time."
+        )
     # Resolve / auto-generate the Web-Push VAPID keypair. Logs the
     # *public* half (the browser needs it; not secret) on first call;
     # NEVER logs the private PEM. ``ensure_vapid`` is idempotent so
@@ -73,6 +88,7 @@ async def lifespan(app: FastAPI):
         log.warning("web-push disabled: VAPID key unavailable")
     redis: Redis | None = None
     manager: ConnectionManager | None = None
+    media_svc_http: httpx.AsyncClient | None = None
     supervisor: asyncio.Task | None = None
     reaper: asyncio.Task | None = None
     push_cleanup: asyncio.Task | None = None
@@ -98,6 +114,10 @@ async def lifespan(app: FastAPI):
         await manager.start()
         app.state.redis = redis
         app.state.connection_manager = manager
+        # media-svc HTTP client: shared across all stream-token and WHEP requests
+        # to reuse TCP connections instead of creating one per request.
+        media_svc_http = httpx.AsyncClient(timeout=settings.media_svc_timeout_s)
+        app.state.media_svc_http = media_svc_http
         owns_manager = True
         supervisor = asyncio.create_task(_supervise_pubsub(manager), name="dcc-pubsub-supervisor")
         # Orphan-attachment reaper — sweeps pending uploads >1 h old.
@@ -147,6 +167,8 @@ async def lifespan(app: FastAPI):
                 name="dcc-jwks-retry",
             )
         app.state.jwks_changed_unexpectedly = False
+        # Plugin-System: log startup warning if permission mode is not 'strict'.
+        log_startup_mode_warning()
         # Plugin-System: Allowlist-gegateter Load.
         # 1. Self-Heal: ``hello`` muss immer in der Allowlist sein.
         # 2. Allowlist-Snapshot aus der DB lesen.
@@ -207,6 +229,11 @@ async def lifespan(app: FastAPI):
             if redis is not None:
                 try:
                     await redis.aclose()
+                except Exception:  # noqa: BLE001
+                    pass
+            if media_svc_http is not None:
+                try:
+                    await media_svc_http.aclose()
                 except Exception:  # noqa: BLE001
                     pass
         # Close the lazily-initialised S3 clients regardless of which branch
