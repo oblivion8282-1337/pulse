@@ -155,7 +155,8 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
                 width,
                 height,
                 self.pool_size,
-                0, // Capture-Pool: keine extra Bind-Flags (libavutil-Default).
+                0,    // Capture-Pool: keine extra Bind-Flags (libavutil-Default).
+                None, // Capture-Pool besitzt den Lock; der Scaler teilt ihn (#2).
             )
             .context("HwContext::new")?;
             let hw = Arc::new(hw);

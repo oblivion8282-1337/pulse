@@ -78,7 +78,13 @@ unsafe extern "C" fn cs_unlock(ctx: *mut c_void) {
 pub struct HwContext {
     device_ref: *mut AVBufferRef,
     frames_ref: *mut AVBufferRef,
-    cs: Box<CRITICAL_SECTION>,
+    /// Eigene CRITICAL_SECTION — `None`, wenn dieser Context einen FREMDEN Lock
+    /// teilt (Scaler-dst-Pool teilt den Capture-Pool-Lock, s. `new`). Die Box
+    /// hält die Section heap-stabil; `lock_ptr` zeigt hinein.
+    owned_cs: Option<Box<CRITICAL_SECTION>>,
+    /// Tatsächlich benutzter Lock (eigener oder geteilter). Über `lock()`/
+    /// `unlock()` und als FFmpeg-`lock_ctx` registriert.
+    lock_ptr: *mut CRITICAL_SECTION,
     // ID3D11Device + ID3D11DeviceContext: Context brauchen wir im
     // Capture-Callback für CopySubresourceRegion, Device + Context zusätzlich
     // für den D3D11Scaler (ID3D11VideoDevice/-Context-Cast). Context-Zugriffe
@@ -116,13 +122,29 @@ impl HwContext {
         height: u32,
         pool_size: u32,
         extra_bind_flags: u32,
+        shared_lock: Option<*mut CRITICAL_SECTION>,
     ) -> Result<Self> {
-        let mut cs = Box::new(CRITICAL_SECTION::default());
-        unsafe { InitializeCriticalSection(&mut *cs as *mut CRITICAL_SECTION) };
+        // Eigenen Lock anlegen ODER einen fremden teilen. Letzteres ist der
+        // #2-Fix: der Scaler-dst-Pool teilt die CRITICAL_SECTION des Capture-
+        // Pools, damit CopySubresourceRegion (Capture-Thread), VideoProcessorBlt
+        // (Pacing-Thread) und NVENC-Submit (FFmpeg-intern) ALLE auf EINEM Lock
+        // serialisieren — sie bespielen denselben immediate ID3D11DeviceContext,
+        // der nicht thread-safe ist. Zwei Locks für einen Context = Datenrace.
+        let (owned_cs, lock_ptr) = match shared_lock {
+            Some(ptr) => (None, ptr),
+            None => {
+                let mut cs = Box::new(CRITICAL_SECTION::default());
+                unsafe { InitializeCriticalSection(&mut *cs as *mut CRITICAL_SECTION) };
+                let ptr = &mut *cs as *mut CRITICAL_SECTION;
+                (Some(cs), ptr)
+            }
+        };
 
         let device_ref = unsafe { av_hwdevice_ctx_alloc(AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA) };
         if device_ref.is_null() {
-            unsafe { DeleteCriticalSection(&mut *cs as *mut CRITICAL_SECTION) };
+            if owned_cs.is_some() {
+                unsafe { DeleteCriticalSection(lock_ptr) };
+            }
             return Err(anyhow!("av_hwdevice_ctx_alloc(D3D11VA) returned NULL"));
         }
 
@@ -139,7 +161,7 @@ impl HwContext {
             (*d3d_hw).device_context = ctx_raw;
             (*d3d_hw).lock = Some(cs_lock);
             (*d3d_hw).unlock = Some(cs_unlock);
-            (*d3d_hw).lock_ctx = &mut *cs as *mut CRITICAL_SECTION as *mut c_void;
+            (*d3d_hw).lock_ctx = lock_ptr as *mut c_void;
         }
 
         let init = unsafe { av_hwdevice_ctx_init(device_ref) };
@@ -147,7 +169,9 @@ impl HwContext {
             let mut r = device_ref;
             unsafe {
                 av_buffer_unref(&mut r);
-                DeleteCriticalSection(&mut *cs as *mut CRITICAL_SECTION);
+                if owned_cs.is_some() {
+                    DeleteCriticalSection(lock_ptr);
+                }
             }
             return Err(anyhow!("av_hwdevice_ctx_init(D3D11VA) failed: {init}"));
         }
@@ -157,7 +181,9 @@ impl HwContext {
             let mut r = device_ref;
             unsafe {
                 av_buffer_unref(&mut r);
-                DeleteCriticalSection(&mut *cs as *mut CRITICAL_SECTION);
+                if owned_cs.is_some() {
+                    DeleteCriticalSection(lock_ptr);
+                }
             }
             return Err(anyhow!("av_hwframe_ctx_alloc returned NULL"));
         }
@@ -188,12 +214,14 @@ impl HwContext {
             unsafe {
                 av_buffer_unref(&mut fr);
                 av_buffer_unref(&mut dr);
-                DeleteCriticalSection(&mut *cs as *mut CRITICAL_SECTION);
+                if owned_cs.is_some() {
+                    DeleteCriticalSection(lock_ptr);
+                }
             }
             return Err(anyhow!("av_hwframe_ctx_init failed: {init}"));
         }
 
-        Ok(Self { device_ref, frames_ref, cs, device, device_context, width, height })
+        Ok(Self { device_ref, frames_ref, owned_cs, lock_ptr, device, device_context, width, height })
     }
 
     pub fn width(&self) -> u32 { self.width }
@@ -212,10 +240,21 @@ impl HwContext {
     pub fn device_context(&self) -> &ID3D11DeviceContext { &self.device_context }
 
     pub fn lock(&self) {
-        unsafe { EnterCriticalSection(&*self.cs as *const CRITICAL_SECTION as *mut _) }
+        unsafe { EnterCriticalSection(self.lock_ptr) }
     }
     pub fn unlock(&self) {
-        unsafe { LeaveCriticalSection(&*self.cs as *const CRITICAL_SECTION as *mut _) }
+        unsafe { LeaveCriticalSection(self.lock_ptr) }
+    }
+
+    /// Roh-Pointer auf die CRITICAL_SECTION dieses Contexts — damit ein anderer
+    /// `HwContext` (Scaler-dst-Pool) DENSELBEN Lock teilen kann (`new(.., Some(p))`)
+    /// statt einen eigenen anzulegen. So serialisieren Capture-Copy, Blt und
+    /// NVENC-Submit auf EINEM Lock (geteilter immediate ID3D11DeviceContext).
+    /// **Lebensdauer:** der teilende Context darf diesen hier nicht überleben
+    /// (in `pipeline_hw` droppt der Scaler vor dem Capture-`HwContext`, bzw. im
+    /// Normalfall werden beide geleakt → Prozess-Exit).
+    pub fn lock_ptr(&self) -> *mut CRITICAL_SECTION {
+        self.lock_ptr
     }
 
     /// Pool-Frame anfordern. AVBufferPool ist intern thread-safe.
@@ -240,7 +279,12 @@ impl Drop for HwContext {
             // frames_ref hält interne Ref auf device_ref → frames zuerst.
             av_buffer_unref(&mut self.frames_ref);
             av_buffer_unref(&mut self.device_ref);
-            DeleteCriticalSection(&mut *self.cs as *mut CRITICAL_SECTION);
+            // Nur die EIGENE Section löschen; einen geteilten Lock besitzt der
+            // andere Context und löscht ihn selbst. owned_cs-Box gibt danach den
+            // Heap frei.
+            if self.owned_cs.is_some() {
+                DeleteCriticalSection(self.lock_ptr);
+            }
         }
     }
 }

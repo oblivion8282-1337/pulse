@@ -214,8 +214,13 @@ impl AudioPipeline {
     fn drain_packets(&mut self, out: &mut Vec<Packet>) -> Result<()> {
         loop {
             let mut packet = Packet::empty();
-            if self.encoder.receive_packet(&mut packet).is_err() {
-                break;
+            // EAGAIN/EOF = nichts (mehr) da → Drain fertig; ECHTER Encoder-Fehler
+            // wird propagiert statt verschluckt (#9).
+            match self.encoder.receive_packet(&mut packet) {
+                Ok(()) => {}
+                Err(ffmpeg::Error::Eof) => break,
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
+                Err(e) => return Err(e.into()),
             }
             // libopus' Output-Packets können in manchen Versionen mit pts=None
             // kommen (n8.1 hatte das fixes/regressions). Defensive Setter:

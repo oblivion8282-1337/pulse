@@ -348,6 +348,18 @@ impl FfmpegEncoder {
         }
 
         let t_convert = std::time::Instant::now();
+        // Der Encoder (QSV/AMF async submit-queue) kann das zuletzt gesendete
+        // Frame noch referenziert halten. Bevor wir denselben `encoder_frame`-
+        // Buffer wiederbeschreiben (copy_bgra / sws.run schreiben roh hinein),
+        // sicherstellen dass er nicht mehr geteilt ist — sonst überschreiben wir
+        // ein noch in-flight Frame (Tearing/Korruption). No-op solange der
+        // Refcount 1 ist; sonst alloziert FFmpeg einen frischen Buffer (#4).
+        unsafe {
+            let ret = ffmpeg::ffi::av_frame_make_writable(self.encoder_frame.as_mut_ptr());
+            if ret < 0 {
+                return Err(anyhow!("av_frame_make_writable: {ret}"));
+            }
+        }
         let frame = match (&mut self.sws, &mut self.src_frame) {
             (Some(sws), Some(src_frame)) => {
                 copy_bgra(src_frame, &captured.bgra, captured.width, captured.height);
@@ -381,14 +393,17 @@ impl FfmpegEncoder {
     }
 
     /// Encodete Video-Packets aus dem Encoder ziehen und in die MuxWriter-Queue
-    /// schieben. `receive_packet` schlägt mit EAGAIN/EOF fehl, wenn nichts
-    /// (mehr) da ist — dann ist der Drain fertig.
+    /// schieben. EAGAIN/EOF = nichts (mehr) da → Drain fertig; ein ECHTER
+    /// Encoder-Fehler wird propagiert statt verschluckt (#8).
     fn drain_packets(&mut self) -> Result<()> {
         let mut mux_us: u64 = 0;
         loop {
             let mut packet = Packet::empty();
-            if self.encoder.receive_packet(&mut packet).is_err() {
-                break;
+            match self.encoder.receive_packet(&mut packet) {
+                Ok(()) => {}
+                Err(ffmpeg::Error::Eof) => break,
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
+                Err(e) => return Err(e.into()),
             }
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);

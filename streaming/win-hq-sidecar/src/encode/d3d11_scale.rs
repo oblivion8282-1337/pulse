@@ -36,6 +36,7 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11VideoProcessorInputView, ID3D11VideoProcessorOutputView,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_RATIONAL;
+use windows::Win32::System::Threading::CRITICAL_SECTION;
 use windows::core::Interface;
 
 use super::hwctx::{HwContext, OwnedHwFrame};
@@ -73,6 +74,10 @@ impl D3D11Scaler {
         dst_h: u32,
         fps: u32,
         pool_size: u32,
+        // CRITICAL_SECTION des Capture-`HwContext` — der Ziel-Pool teilt sie,
+        // damit alle ID3D11DeviceContext-Zugriffe (Capture-Copy, Blt, NVENC)
+        // auf EINEM Lock serialisieren (#2-Fix, sonst Datenrace).
+        shared_lock: *mut CRITICAL_SECTION,
     ) -> Result<Self> {
         let video_device: ID3D11VideoDevice = device
             .cast()
@@ -107,6 +112,7 @@ impl D3D11Scaler {
             dst_h,
             pool_size,
             D3D11_BIND_RENDER_TARGET.0 as u32,
+            Some(shared_lock), // Capture-Pool-Lock teilen (#2-Fix).
         )?;
 
         // Auto-Color-Space-Conversion abschalten: BGRA→BGRA, kein YCbCr im

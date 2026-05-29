@@ -286,8 +286,17 @@ impl Bridge {
             Usage: D3D11_USAGE_DEFAULT,
             BindFlags: (D3D11_BIND_SHADER_RESOURCE.0 | D3D11_BIND_RENDER_TARGET.0) as u32,
             CPUAccessFlags: 0,
-            // SHARED_NTHANDLE für D3D12-`OpenSharedHandle`; NTHANDLE verlangt
-            // KEYEDMUTEX (verifiziert per `probe_d3d12_zerocopy`).
+            // SHARED_NTHANDLE für D3D12-`OpenSharedHandle`; die D3D11-API
+            // verlangt KEYEDMUTEX zwingend dazu (verifiziert per
+            // `probe_d3d12_zerocopy`). WICHTIG (#6): der Keyed-Mutex
+            // synchronisiert NICHT über die API-Grenze — D3D12-geöffnete
+            // Resources stellen keinen `IDXGIKeyedMutex` bereit, der D3D12-Reader
+            // (Converter) kann ihn also gar nicht akquirieren. Er klammert hier
+            // nur den D3D11-seitigen `CopySubresourceRegion` (s. `copy_into_slot`)
+            // und erfüllt die NTHANDLE-Erstellungs-Anforderung. Die EIGENTLICHE
+            // D3D11→D3D12-Fertigstellungs-Synchronisation leistet der explizite
+            // CPU-Fence in `copy_into_slot`; Slot-Exklusivität garantiert der
+            // mpsc-Channel (Writer/Reader berühren nie denselben Slot zugleich).
             MiscFlags: (D3D11_RESOURCE_MISC_SHARED_NTHANDLE.0
                 | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX.0) as u32,
         };
@@ -353,7 +362,10 @@ impl Bridge {
                 .ReleaseSync(0)
                 .context("KeyedMutex::ReleaseSync")?;
 
-            // CPU-Fence: warten bis Copy GPU-fertig ist.
+            // CPU-Fence: warten bis Copy GPU-fertig ist. DIES ist die echte
+            // Cross-API-Synchronisation (nicht der Keyed-Mutex, s.o. #6) — erst
+            // nach diesem Wait wird der Slot als Frame gemeldet, der D3D12-
+            // Converter sieht also garantiert fertige Pixel.
             self.fence_value += 1;
             self.ctx4
                 .Signal(&self.fence, self.fence_value)

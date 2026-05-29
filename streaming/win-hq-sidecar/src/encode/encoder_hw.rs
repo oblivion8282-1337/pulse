@@ -220,14 +220,17 @@ impl FfmpegHwEncoder {
     }
 
     /// Encodete Video-Packets aus dem Encoder ziehen und in die MuxWriter-Queue
-    /// schieben. `receive_packet` schlägt mit EAGAIN/EOF fehl, wenn nichts
-    /// (mehr) da ist — dann ist der Drain fertig.
+    /// schieben. EAGAIN/EOF = nichts (mehr) da → Drain fertig; ein ECHTER
+    /// Encoder-Fehler wird propagiert statt verschluckt (#8).
     fn drain_video(&mut self) -> Result<()> {
         let mut mux_us: u64 = 0;
         loop {
             let mut packet = Packet::empty();
-            if self.encoder.receive_packet(&mut packet).is_err() {
-                break;
+            match self.encoder.receive_packet(&mut packet) {
+                Ok(()) => {}
+                Err(ffmpeg::Error::Eof) => break,
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
+                Err(e) => return Err(e.into()),
             }
             packet.set_stream(self.video_stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);

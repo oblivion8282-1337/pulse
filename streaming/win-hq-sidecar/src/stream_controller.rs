@@ -204,10 +204,18 @@ impl StreamController {
         inner.snapshot.fps = None;
         drop(inner);
         if let Some(msg) = error {
+            // Fehlerfall: NUR error-Events. KEIN nachfolgendes "stopped" — das
+            // würde im Renderer-Reducer den error-State überschreiben
+            // (state → 'stopped'), ein Crash wäre dann nicht mehr von einem
+            // sauberen Stopp unterscheidbar. Gleiche Disziplin wie der
+            // Linux-Sidecar (`if self._state != "error"`). Der `state`-Frame mit
+            // `"error"` treibt den reaktiven Renderer-State (#5).
+            emit_state("error", false, uptime);
             events::emit(json!({"ev": "error", "message": msg}));
+        } else {
+            emit_state("stopped", false, uptime);
+            events::emit(json!({"ev": "stopped"}));
         }
-        emit_state("stopped", false, uptime);
-        events::emit(json!({"ev": "stopped"}));
     }
 
     pub(crate) fn set_fps(&self, fps: f64) {
@@ -455,7 +463,12 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         }
 
         // Stream finalisieren (Trailer/RTMP-Close); `finish` gibt nichts frei.
-        encoder.finish()?;
+        // Das Ergebnis wird ERST NACH den `mem::forget` propagiert: ein
+        // `finish()`-Fehler (Netzwerk-Stall / broken pipe) darf die `mem::forget`
+        // NICHT per `?` überspringen — sonst werden capture/encoder gedroppt und
+        // die grafische Teardown-Sequenz triggert den Threadpool-Timer-UAF
+        // (0xC0000005). Gleiches Muster wie `pipeline_d3d12::run`.
+        let finish_result = encoder.finish();
 
         // Kein `capture.stop()`/`ac.stop()`/Drop — s. ausführlicher Kommentar
         // in `pipeline_hw::run`: die grafische Teardown-Sequenz lässt einen
@@ -465,6 +478,7 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
         std::mem::forget(capture);
         std::mem::forget(audio_capture);
         std::mem::forget(encoder);
+        finish_result?;
         Ok(())
     })()
 }

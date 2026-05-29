@@ -316,8 +316,13 @@ impl FfmpegD3d12Encoder {
         let mut mux_us: u64 = 0;
         loop {
             let mut packet = Packet::empty();
-            if self.encoder.receive_packet(&mut packet).is_err() {
-                break;
+            // EAGAIN/EOF = nichts (mehr) da → Drain fertig; ECHTER Encoder-Fehler
+            // wird propagiert statt verschluckt (#8).
+            match self.encoder.receive_packet(&mut packet) {
+                Ok(()) => {}
+                Err(ffmpeg::Error::Eof) => break,
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
+                Err(e) => return Err(e.into()),
             }
             let t_mux = std::time::Instant::now();
             if self.mux.is_none() {

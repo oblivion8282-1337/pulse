@@ -104,6 +104,10 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         }
         None => (width, height),
     };
+    // NV12 (4:2:0-Chroma) verlangt gerade Breite/Höhe; Fenster-Capture liefert
+    // beliebige Client-Größen. Auf gerade abrunden, bevor die Dims in den
+    // VideoProcessor/Encoder gehen (#7).
+    let (dst_w, dst_h) = (dst_w & !1, dst_h & !1);
     eprintln!(
         "[pipeline-hw] capture {width}x{height} → encode {dst_w}x{dst_h}@{fps} on {} (vendor={vendor})",
         adapter.description
@@ -136,6 +140,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                 dst_h,
                 fps,
                 16,
+                hw.lock_ptr(), // Capture-Pool-Lock teilen → eine CS für Copy+Blt+NVENC (#2).
             )
             .map_err(|e| anyhow!("D3D11Scaler::new: {e:#}"))?,
         )
@@ -296,8 +301,13 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     }
 
     // Stream finalisieren: FLV-Trailer schreiben, RTMP sauber schließen. Das
-    // gibt nichts frei (`finish` nimmt `&mut self`).
-    encoder.finish()?;
+    // gibt nichts frei (`finish` nimmt `&mut self`). Das Ergebnis wird ERST NACH
+    // den `mem::forget` propagiert: ein `finish()`-Fehler (Netzwerk-Stall /
+    // broken pipe) darf die `mem::forget` NICHT per `?` überspringen — sonst
+    // werden capture/scaler/hw/encoder gedroppt und die grafische Teardown-
+    // Sequenz triggert den Threadpool-Timer-UAF (0xC0000005). Gleiches Muster
+    // wie `pipeline_d3d12::run`.
+    let finish_result = encoder.finish();
 
     // KEIN `capture.stop()` / `ac.stop()` / Drop. Die *grafische* Teardown-
     // Sequenz (WGC-FramePool/Session schließen, D3D11-Device + NVENC + Audio-
@@ -318,6 +328,7 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     std::mem::forget(hw);
     std::mem::forget(audio_capture);
     std::mem::forget(encoder);
+    finish_result?;
     Ok(())
 }
 

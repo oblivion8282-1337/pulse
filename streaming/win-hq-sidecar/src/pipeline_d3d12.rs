@@ -51,6 +51,18 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         .override_bitrate_kbps
         .unwrap_or(params.profile.bitrate_kbps);
 
+    // AV1 kann der d3d12va-Pfad (noch) nicht: der `av1_d3d12va`-Encoder liefert
+    // keine extradata, und `param_set_extradata` baut für AV1 (OBUs statt NALs)
+    // keinen avcC → der Stream bräche beim ersten Keyframe hart ab. Der CPU-Pfad
+    // (`av1_amf`, echte Encoder-extradata) kann AV1 → dorthin ausweichen, statt
+    // deterministisch zu failen (#3).
+    if matches!(codec, VideoCodec::Av1) {
+        eprintln!(
+            "[pipeline-d3d12] AV1 vom d3d12va-Pfad nicht unterstützt — Fallback auf CPU-Pfad (av1_amf)"
+        );
+        return crate::stream_controller::run_cpu_pipeline(params, stop_rx);
+    }
+
     // ── Capture-Bridge: WGC → teilbare D3D11-BGRA-Texturen.
     let capture = WgcD3d12Capture::start(
         params.capture.clone(),
@@ -84,6 +96,10 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         }
         None => (cap_w, cap_h),
     };
+    // NV12 (4:2:0-Chroma) + der NV12-hwframes-Pool verlangen gerade Breite/Höhe;
+    // Fenster-Capture liefert beliebige Client-Größen. Auf gerade abrunden,
+    // bevor die Dims in Converter + Encoder-Pool gehen (#7).
+    let (dst_w, dst_h) = (dst_w & !1, dst_h & !1);
     eprintln!(
         "[pipeline-d3d12] zero-copy: capture {cap_w}x{cap_h} → encode {dst_w}x{dst_h}@{fps} via {}",
         codec.d3d12va_name()

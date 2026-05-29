@@ -13,9 +13,9 @@
 
 use anyhow::{Context, Result, anyhow};
 use std::collections::VecDeque;
-use std::sync::mpsc::{Receiver, Sender, SyncSender, channel};
+use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use wasapi::{AudioClient, Direction, SampleType, StreamMode, WaveFormat, initialize_mta};
 
@@ -114,6 +114,32 @@ impl Drop for AudioCapture {
 
 // ── Worker-Thread ───────────────────────────────────────────────────────────
 
+/// Sendet einen Chunk, blockiert dabei aber NICHT unkündbar: ist der
+/// `SyncSender` voll (der Consumer drained gerade nicht), wird in kurzen
+/// Abständen erneut versucht und zwischendurch `stop_rx` geprüft. Liefert
+/// `false`, wenn der Consumer weg ist oder Stop signalisiert wurde — der Worker
+/// soll dann abbrechen. Ohne das könnte ein blockierendes `send` bei vollem
+/// Channel den Worker festnageln → `stop()`/`join()` deadlockt (#10).
+fn send_or_stop(
+    tx: &SyncSender<CapturedAudio>,
+    stop_rx: &Receiver<()>,
+    mut item: CapturedAudio,
+) -> bool {
+    loop {
+        match tx.try_send(item) {
+            Ok(()) => return true,
+            Err(TrySendError::Disconnected(_)) => return false,
+            Err(TrySendError::Full(returned)) => {
+                if stop_rx.try_recv().is_ok() {
+                    return false;
+                }
+                item = returned;
+                thread::sleep(Duration::from_millis(2));
+            }
+        }
+    }
+}
+
 fn run_capture(
     source: AudioSource,
     format: AudioFormat,
@@ -195,7 +221,7 @@ fn run_capture(
                 frames: chunk_frames as u32,
                 captured_at: Instant::now(),
             };
-            if tx.send(captured).is_err() {
+            if !send_or_stop(&tx, &stop_rx, captured) {
                 should_stop = true;
                 break;
             }
@@ -214,7 +240,7 @@ fn run_capture(
                 frames: chunk_frames as u32,
                 captured_at: Instant::now(),
             };
-            if tx.send(silence).is_err() {
+            if !send_or_stop(&tx, &stop_rx, silence) {
                 should_stop = true;
                 break;
             }
