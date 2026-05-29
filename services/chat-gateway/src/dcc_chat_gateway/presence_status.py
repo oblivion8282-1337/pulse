@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from typing import TYPE_CHECKING
 
 from redis.asyncio import Redis
 
@@ -37,6 +38,9 @@ from dcc_chat_gateway.presence_keys import (
     PRESENCE_STATUS_KEY,
     PRESENCE_STATUS_TTL_SECONDS,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +84,69 @@ async def set_presence_status(redis: Redis, user_id: int | str, status: str) -> 
     """Write status to Redis (TTL 24 h)."""
     key = PRESENCE_STATUS_KEY.format(user_id=user_id)
     await redis.set(key, status, ex=PRESENCE_STATUS_TTL_SECONDS)
+
+
+async def get_presence_status_raw(redis: Redis, user_id: int | str) -> str | None:
+    """Like :func:`get_presence_status` but returns ``None`` when the key is
+    absent instead of defaulting to ``online``.  Lets callers tell "explicitly
+    online" apart from "no live status" — used by the ``ready`` frame to decide
+    whether to fall back to the durable DB value."""
+    key = PRESENCE_STATUS_KEY.format(user_id=user_id)
+    raw = await redis.get(key)
+    if raw is None:
+        return None
+    value = raw.decode() if isinstance(raw, bytes) else raw
+    return value if value in VALID_SET_STATUSES else None
+
+
+# ---------------------------------------------------------------------------
+# Durable mirror.  Redis holds the *live* status (24 h TTL); the user's
+# *manually chosen* status is additionally mirrored into ``user_preferences``
+# so it survives the TTL / a Redis restart and is restored at next login.
+# Only explicit user choices are written here — the automatic idle/online
+# sweeper transitions stay Redis-only so a transient idle never becomes the
+# durable status restored later.
+# ---------------------------------------------------------------------------
+
+PRESENCE_PREFERENCE_SECTION = "presence"
+
+
+async def persist_durable_status(
+    session: AsyncSession, user_id: int | str, status: str
+) -> None:
+    """Mirror the user's manually chosen status into ``user_preferences``."""
+    from dcc_chat_gateway.models import UserPreference
+
+    uid = int(user_id)
+    row = await session.get(UserPreference, (uid, PRESENCE_PREFERENCE_SECTION))
+    if row is None:
+        session.add(
+            UserPreference(
+                user_id=uid,
+                section_name=PRESENCE_PREFERENCE_SECTION,
+                value={"status": status},
+                version=1,
+            )
+        )
+    else:
+        row.value = {"status": status}
+        row.version = row.version + 1
+    await session.commit()
+
+
+async def load_durable_status(
+    session: AsyncSession, user_id: int | str
+) -> str | None:
+    """Read the durable status mirror; ``None`` when unset / invalid."""
+    from dcc_chat_gateway.models import UserPreference
+
+    row = await session.get(
+        UserPreference, (int(user_id), PRESENCE_PREFERENCE_SECTION)
+    )
+    if row is None:
+        return None
+    value = row.value.get("status") if isinstance(row.value, dict) else None
+    return value if value in VALID_SET_STATUSES else None
 
 
 async def get_presence_statuses_bulk(
@@ -227,7 +294,11 @@ __all__ = [
     "IDLE_AFTER_MS",
     "IDLE_SWEEP_INTERVAL_S",
     "get_presence_status",
+    "get_presence_status_raw",
     "set_presence_status",
+    "persist_durable_status",
+    "load_durable_status",
+    "PRESENCE_PREFERENCE_SECTION",
     "get_presence_statuses_bulk",
     "update_activity",
     "broadcast_presence_status_changed",

@@ -417,6 +417,55 @@ async def test_ready_carries_presence_status(ws_app, _auth_signer, redis_client)
     await asyncio.to_thread(_run)
 
 
+@pytest.mark.asyncio
+async def test_presence_status_survives_redis_ttl(ws_app, _auth_signer, redis_client):
+    """A manually-set status is mirrored durably into ``user_preferences``.
+
+    After the live Redis key expires (simulated by deleting it), the next
+    ready frame restores the status from the durable mirror and reseeds Redis,
+    so e.g. ``invisible`` persists across the 24 h TTL / a Redis restart.
+    """
+    from dcc_chat_gateway.presence_keys import PRESENCE_STATUS_KEY
+
+    def _run():
+        uid = random.randint(1_000_000, 9_999_999)
+        token = _auth_signer.issue_access(uid, f"u{uid}")
+
+        import redis as sync_redis
+
+        r = sync_redis.Redis.from_url(_REDIS_URL)
+        key = PRESENCE_STATUS_KEY.replace("{user_id}", str(uid))
+        try:
+            with TestClient(ws_app) as tc:
+                # Explicit user choice → Redis (live) + durable DB mirror.
+                resp = tc.put(
+                    "/me/presence-status",
+                    json={"status": "invisible"},
+                    headers=_auth(token),
+                )
+                assert resp.status_code == 204
+
+                # Simulate the 24 h Redis TTL expiring; the durable row stays.
+                r.delete(key)
+                assert r.get(key) is None
+
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
+                    assert payload["op"] == "ready"
+                    # Restored from the durable mirror, not defaulted to online.
+                    assert payload["presence_status"] == "invisible"
+
+                # Ready reseeded the live Redis key with the restored status.
+                restored = r.get(key)
+                assert restored is not None and restored.decode() == "invisible"
+        finally:
+            r.delete(key)
+            r.close()
+
+    await asyncio.to_thread(_run)
+
+
 # ---------------------------------------------------------------------------
 # E. Voice-presence: invisible user still visible in voice
 # ---------------------------------------------------------------------------

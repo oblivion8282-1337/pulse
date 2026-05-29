@@ -55,8 +55,11 @@ from dcc_chat_gateway.permissions import (
     resolve_guild_permissions_from_snapshot,
 )
 from dcc_chat_gateway.presence_status import (
-    get_presence_status,
+    STATUS_ONLINE,
+    get_presence_status_raw,
     get_presence_statuses_bulk,
+    load_durable_status,
+    set_presence_status,
 )
 from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -333,7 +336,19 @@ async def build_and_send_ready_frame(
             )
             all_peer_ids.update(peer_rows)
 
-    own_presence_status = await get_presence_status(redis, user.id)
+    own_presence_status = await get_presence_status_raw(redis, user.id)
+    if own_presence_status is None:
+        # Redis key expired (>24 h offline) or this is a fresh connect — restore
+        # the durably-mirrored manual choice so invisible/dnd survive the TTL.
+        # Reseed Redis so the live status is consistent for the rest of the
+        # session (the idle sweeper + activity op read it from there).
+        async with SessionLocal() as session:
+            durable = await load_durable_status(session, user.id)
+        if durable is not None:
+            own_presence_status = durable
+            await set_presence_status(redis, user.id, durable)
+        else:
+            own_presence_status = STATUS_ONLINE
     peer_statuses_raw = await get_presence_statuses_bulk(redis, list(all_peer_ids))
     # Mask invisible → offline for all peers (own status is delivered real).
     from dcc_chat_gateway.presence_status import _mask as _psmask
