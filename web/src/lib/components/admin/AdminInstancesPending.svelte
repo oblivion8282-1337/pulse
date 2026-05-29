@@ -205,6 +205,10 @@
         <p class="text-text-muted text-xs">
           Client-ID: <code class="text-text-base">{secretResult?.client_id}</code>
         </p>
+        <p class="text-text-muted text-xs">
+          Owner-ID (→ <code>PULSE_INSTANCE_OWNER_ID</code>):
+          <code class="text-text-base">{secretResult?.owner_user_id}</code>
+        </p>
       </div>
       <div class="flex justify-end pt-2">
         <button type="button" onclick={onSecretClose}
