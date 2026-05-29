@@ -22,6 +22,9 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: Annotated[str, Field(min_length=8, max_length=128)]
     display_name: Annotated[str | None, Field(default=None, max_length=64)] = None
+    # Required only when the server is in ``invite_only`` mode; ignored
+    # otherwise. Validated + consumed in the /register handler.
+    invite_code: Annotated[str | None, Field(default=None, max_length=64)] = None
 
 
 class LoginIn(BaseModel):
@@ -138,6 +141,32 @@ class AuthSettingsOut(BaseModel):
 
 class AuthSettingsPatch(BaseModel):
     registration_mode: RegistrationMode
+
+
+# ---- Registration invites -----------------------------------------------
+
+
+class InviteCreateIn(BaseModel):
+    """Create an invite code. All fields optional → defaults to a single-use
+    code that never expires."""
+
+    # NULL = unlimited uses. Must be >= 1 when given.
+    max_uses: Annotated[int | None, Field(default=1, ge=1, le=100_000)] = 1
+    # NULL = no expiry. Otherwise the code expires this many days from now.
+    expires_in_days: Annotated[int | None, Field(default=None, ge=1, le=3650)] = None
+    note: Annotated[str | None, Field(default=None, max_length=100)] = None
+
+
+class InviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    code: str
+    created_at: datetime
+    expires_at: datetime | None = None
+    max_uses: int | None = None
+    uses: int
+    revoked: bool
+    note: str | None = None
 
 
 SmtpProvider = Literal["brevo", "mailgun", "resend", "gmail", "custom"]

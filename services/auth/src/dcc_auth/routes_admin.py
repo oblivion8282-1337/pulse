@@ -17,20 +17,29 @@ Two write-actions side-effect:
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import secrets
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select, update
 
 from dcc_auth.db import SessionDep
-from dcc_auth.models import AdminAuditLog, AuthSettings, RefreshToken, User
+from dcc_auth.models import (
+    AdminAuditLog,
+    AuthSettings,
+    RefreshToken,
+    RegistrationInvite,
+    User,
+)
 from dcc_auth.routes import _require_admin
 from dcc_auth.schemas import (
     AdminAuditLogEntry,
     AdminStatsOut,
     AuthSettingsOut,
     AuthSettingsPatch,
+    InviteCreateIn,
+    InviteOut,
     UserAdminOut,
     UserAdminPatch,
 )
@@ -201,6 +210,70 @@ async def patch_settings(
         await session.commit()
         await session.refresh(row)
     return row
+
+
+# ---- Registration invites -----------------------------------------------
+
+
+@router.get("/invites", response_model=list[InviteOut])
+async def list_invites(
+    session: SessionDep,
+    _actor: Annotated[User, Depends(_require_admin)],
+):
+    """All invite codes, newest first. Includes revoked/expired ones so the
+    admin sees the full history (the UI greys out spent/dead codes)."""
+    stmt = select(RegistrationInvite).order_by(RegistrationInvite.created_at.desc())
+    return list((await session.execute(stmt)).scalars())
+
+
+@router.post("/invites", response_model=InviteOut, status_code=status.HTTP_201_CREATED)
+async def create_invite(
+    payload: InviteCreateIn,
+    session: SessionDep,
+    actor: Annotated[User, Depends(_require_admin)],
+):
+    """Mint a fresh invite code. Only meaningful while ``registration_mode``
+    is ``invite_only``, but creatable in any mode so the admin can prepare
+    codes before flipping the switch."""
+    expires_at = (
+        datetime.now(UTC) + timedelta(days=payload.expires_in_days)
+        if payload.expires_in_days is not None
+        else None
+    )
+    invite = RegistrationInvite(
+        code=secrets.token_urlsafe(24),
+        created_by=actor.id,
+        expires_at=expires_at,
+        max_uses=payload.max_uses,
+        note=payload.note,
+    )
+    session.add(invite)
+    _audit(
+        session,
+        actor_id=actor.id,
+        action="invite.create",
+        payload={"max_uses": payload.max_uses, "expires_in_days": payload.expires_in_days},
+    )
+    await session.commit()
+    await session.refresh(invite)
+    return invite
+
+
+@router.delete("/invites/{code}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_invite(
+    code: str,
+    session: SessionDep,
+    actor: Annotated[User, Depends(_require_admin)],
+):
+    """Revoke a code (soft — row kept for the audit trail). Idempotent: a
+    missing or already-revoked code still returns 204."""
+    await session.execute(
+        update(RegistrationInvite)
+        .where(RegistrationInvite.code == code)
+        .values(revoked=True)
+    )
+    _audit(session, actor_id=actor.id, action="invite.revoke", payload={"code": code})
+    await session.commit()
 
 
 @router.get("/audit-log", response_model=list[AdminAuditLogEntry])

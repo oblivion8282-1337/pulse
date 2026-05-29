@@ -14,6 +14,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     LargeBinary,
     SmallInteger,
     String,
@@ -302,6 +303,41 @@ class AuthSettings(Base):
     )
 
     __table_args__ = (CheckConstraint("id = 1", name="ck_auth_settings_singleton"),)
+
+
+class RegistrationInvite(Base):
+    """Invite code for ``registration_mode == "invite_only"``.
+
+    A code is created by an admin and redeemed on ``POST /register`` when the
+    server is invite-only. ``max_uses`` NULL = unlimited; otherwise the code
+    is spent up to that many times. Redemption is a single guarded UPDATE
+    (``uses < max_uses``) so concurrent registrations can't over-spend a
+    single-use code. ``revoked`` is a soft kill-switch (kept for the audit
+    trail rather than deleting the row).
+    """
+
+    __tablename__ = "registration_invites"
+
+    # The code itself is the PK — ``secrets.token_urlsafe(24)`` → 32 chars.
+    code: Mapped[str] = mapped_column(String(64), primary_key=True)
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # NULL = unlimited uses.
+    max_uses: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uses: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0"), default=0
+    )
+    revoked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    note: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    __table_args__ = (Index("ix_registration_invites_created", "created_at"),)
 
 
 class SmtpSettings(Base):

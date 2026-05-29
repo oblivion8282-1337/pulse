@@ -23,7 +23,14 @@ from dcc_auth.browser_sessions import (
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.email import issue_verification_email, resolve_smtp_config
-from dcc_auth.models import AuthSettings, RefreshToken, User, UserSession, WebAuthnCredential
+from dcc_auth.models import (
+    AuthSettings,
+    RefreshToken,
+    RegistrationInvite,
+    User,
+    UserSession,
+    WebAuthnCredential,
+)
 from dcc_auth.schemas import (
     LoginIn,
     LoginMfaPending,
@@ -186,13 +193,21 @@ async def register(
     # forcing slowapi state into every test.
     await _check_rate(request, "register", settings.rate_limit_register)
 
-    # Registration gate set by the server admin. ``invite_only`` rejects too
-    # for now — there's no invite-issuing flow yet, the column exists so the
-    # UI can advertise the state and a future iteration can wire codes in.
+    # Registration gate set by the server admin.
+    #   open        → anyone may register
+    #   closed      → nobody may register
+    #   invite_only → a valid, unspent, non-expired invite code is required.
+    # We only *check presence* of the code here (cheap 403 before the Argon2
+    # hash); the actual atomic consume happens after the user row flushes, so
+    # a duplicate-username 409 doesn't burn a code.
     row = await session.get(AuthSettings, 1)
     mode = row.registration_mode if row else "open"
-    if mode != "open":
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=f"registration is {mode}")
+    if mode == "closed":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="registration is closed")
+    if mode == "invite_only" and not payload.invite_code:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="invite code required"
+        )
 
     # Argon2 is CPU-bound (~50-150ms at t=3/m=64MiB/p=4); run it off the event
     # loop so it doesn't block other requests on this worker.
@@ -232,6 +247,36 @@ async def register(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="conflict"
         ) from exc
+
+    # Invite-only: consume the code atomically now that the user exists. The
+    # guarded UPDATE (not revoked, not expired, uses < max_uses) returns
+    # rowcount 1 only if the code was still spendable — this also closes the
+    # race where two registrations share a single-use code. A failure here
+    # raises 403; since we haven't committed, the new user row is rolled back.
+    if mode == "invite_only":
+        now = datetime.now(UTC)
+        consume = (
+            update(RegistrationInvite)
+            .where(
+                RegistrationInvite.code == payload.invite_code,
+                RegistrationInvite.revoked.is_(False),
+                or_(
+                    RegistrationInvite.expires_at.is_(None),
+                    RegistrationInvite.expires_at > now,
+                ),
+                or_(
+                    RegistrationInvite.max_uses.is_(None),
+                    RegistrationInvite.uses < RegistrationInvite.max_uses,
+                ),
+            )
+            .values(uses=RegistrationInvite.uses + 1)
+        )
+        result = await session.execute(consume)
+        if result.rowcount != 1:
+            await session.rollback()
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN, detail="invalid or expired invite code"
+            )
 
     # Bootstrap: the first user on a fresh deploy becomes a global admin
     # so the server operator has a path into ``/app/admin`` without
