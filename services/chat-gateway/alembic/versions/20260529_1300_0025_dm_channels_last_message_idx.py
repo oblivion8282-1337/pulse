@@ -3,7 +3,7 @@
 These cover the common query pattern of fetching a user's DM channels
 ordered by last_message_id DESC (most-recently-active first).
 
-Revision ID: 0025_dm_channels_last_message_idx
+Revision ID: 0025_dm_last_message_idx
 Revises: 0024_messages_created_at_idx
 Create Date: 2026-05-29 13:00:00
 """
@@ -13,7 +13,9 @@ from __future__ import annotations
 from alembic import op
 
 
-revision = "0025_dm_channels_last_message_idx"
+# NB: revision id kept <= 32 chars — alembic_version.version_num is VARCHAR(32)
+# on Postgres (the longer "0025_dm_channels_last_message_idx" overflowed it).
+revision = "0025_dm_last_message_idx"
 down_revision = "0024_messages_created_at_idx"
 branch_labels = None
 depends_on = None
