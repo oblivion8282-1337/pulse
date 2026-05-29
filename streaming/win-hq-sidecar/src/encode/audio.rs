@@ -39,6 +39,9 @@ pub struct AudioPipeline {
     /// emittierten Packet um 960 erhöht. Brauchen wir separat zu `pts_samples`
     /// weil libopus' Output-Packet-PTS nicht zuverlässig propagiert wird.
     out_pts_samples: i64,
+    /// Fester Trim-Offset in Samples aus `PULSE_HQ_AV_OFFSET_MS` (>0 = Audio
+    /// später). Für den konstanten Rest-Versatz nach der QPC-Verankerung.
+    trim_samples: i64,
     pub stream_idx: usize,
     pub encoder_time_base: Rational,
     /// Stream-Timebase des Audio-Streams im Output-Container. Steht erst nach
@@ -113,6 +116,15 @@ impl AudioPipeline {
         let encoder_time_base = Rational::new(1, sample_rate as i32);
         let block_align_in = (channels as usize) * 4; // F32 = 4 Bytes/Sample
 
+        // Optionaler fester A/V-Trim (ms → Samples); >0 verschiebt Audio später.
+        // Für den konstanten Rest-Versatz nach der QPC-Verankerung (Opus-Delay,
+        // evtl. QPC-Epochen-Differenz). Default 0 = aus.
+        let trim_samples = std::env::var("PULSE_HQ_AV_OFFSET_MS")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .map(|ms| (ms / 1000.0 * sample_rate as f64) as i64)
+            .unwrap_or(0);
+
         // Stream-Timebase NICHT hier cachen: `output.write_header()` läuft erst
         // NACH `AudioPipeline::create`, bis dahin ist sie 0/0 (uninitialized) —
         // ein `rescale_ts` mit 0/0 als Ziel-Rational killt PTS+Duration auf
@@ -128,6 +140,7 @@ impl AudioPipeline {
             block_align_in,
             pts_samples: 0,
             out_pts_samples: 0,
+            trim_samples,
             stream_idx,
             encoder_time_base,
             stream_time_base: Rational::new(1, 1000),
@@ -184,9 +197,13 @@ impl AudioPipeline {
                 }),
             };
             if let Some(s) = anchored {
-                let s = s.max(0);
-                self.pts_samples = s;
-                self.out_pts_samples = s;
+                // KEIN .max(0): Audio, das VOR dem ersten Video-Frame aufgenommen
+                // wurde (Capture-Vorlauf), bekommt negativen PTS und wird beim
+                // Drain verworfen — statt auf pts 0 gestaucht zu werden, was die
+                // ganze Spur nach vorn schöbe (Front-Loading → Ton vor Bild).
+                // `trim_samples` verschiebt die Spur um den konstanten Rest.
+                self.pts_samples = s + self.trim_samples;
+                self.out_pts_samples = s + self.trim_samples;
             }
             self.origin_set = true;
         }
@@ -237,17 +254,17 @@ impl AudioPipeline {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
                 Err(e) => return Err(e.into()),
             }
-            // libopus' Output-Packets können in manchen Versionen mit pts=None
-            // kommen (n8.1 hatte das fixes/regressions). Defensive Setter:
-            // wenn pts fehlt, aus unserem Sample-Counter rekonstruieren. Duration
-            // setzen wir generell (libopus' Encoder lässt sie manchmal bei
-            // AV_NOPTS_VALUE, was rescale_ts dann unverändert lässt).
-            if packet.pts().is_none() {
-                packet.set_pts(Some(self.out_pts_samples));
-                packet.set_dts(Some(self.out_pts_samples));
-            }
-            packet.set_duration(OPUS_FRAME_SAMPLES as i64);
+            // PTS strikt aus unserem verankerten Sample-Counter (libopus'
+            // Output-PTS ist nicht zuverlässig). Pre-Origin-Packets (negativer
+            // PTS) werden VERWORFEN — nicht gemuxt, aber der Counter läuft weiter.
+            let this_pts = self.out_pts_samples;
             self.out_pts_samples += OPUS_FRAME_SAMPLES as i64;
+            if this_pts < 0 {
+                continue;
+            }
+            packet.set_pts(Some(this_pts));
+            packet.set_dts(Some(this_pts));
+            packet.set_duration(OPUS_FRAME_SAMPLES as i64);
             packet.set_stream(self.stream_idx);
             packet.rescale_ts(self.encoder_time_base, self.stream_time_base);
             out.push(packet);
