@@ -182,6 +182,50 @@ ist der aktive Pfad. Ebenfalls TODO: Notifications-IPC in `main.ts`.
 `isDesktop()` (Alias), `isLinux()` (UA-basiert). Dev-Test-Route `/app/dev/stream` (nicht im Menü) = Diagnose-Page mit allen
 Sidecar-Ops als Buttons.
 
+## Self-Host-Identität, Registrierung & Mandatory-SSO (Cert-Modell)
+
+Cert-Modell ist **auf main gemergt** (PR #11). Minecraft-Modell: Identität zentral über die Cloud
+(howispulse.com), Server sind isolierte Welten. Voll-Konzept: `IDENTITY_CONCEPT.md`. Die nicht-offensichtlichen Stücke:
+
+**Instanz-Rolle (Env, chat-gateway *und* auth-svc):**
+- `PULSE_INSTANCE_MODE` = `cloud` | `self-host` (Default `self-host`!). Prod-Cloud-`.env` setzt `cloud`.
+- `PULSE_INSTANCE_ID` (0 = Cloud; ≥100 = von der Cloud bei Approval vergeben).
+- `PULSE_INSTANCE_OWNER_ID` (chat-gateway) = Cloud-User-ID des Self-Host-Owners. Beim Cert-Login wird der
+  User mit `cert.user_id == owner_id` **automatisch Admin** dieser Instanz (Self-Host hat sonst keinen Admin).
+- `ALLOW_LOCAL_ACCOUNTS` (auth-svc, Default false) = Escape-Hatch: lässt lokale Passwort-Registrierung auf
+  einem Self-Host wieder zu (versiegelte Insel).
+
+**Registrierung** (`auth_settings.registration_mode`: open|invite_only|closed, Admin-Panel „Registrierung"):
+- Self-Host (`mode != cloud`) **blockt `POST /register`** by default → Identität kommt per Cert-Login von der
+  Cloud. Cloud registriert immer. `invite_only` verlangt einen Einladungscode (Admin erstellt sie unter
+  „Registrierung"; Modell `registration_invites`, Migration 0022; atomarer guarded-UPDATE-Konsum, race-sicher;
+  Deep-Link `…/register?invite=CODE`).
+
+**Cert-Login** (`chat-gateway/routes/cert_login.py`): Challenge/Verify mit **Geräte-Schlüssel-Proof-of-Possession**
+(Ed25519-Signatur über Server-Nonce) → Cert allein (Bearer) reicht NICHT, also schon replay-sicher — keine extra
+Server-aud-Bindung nötig. Mintet lokalen Session-Token (`session_tokens.py`, EdDSA, 5 Min). Self-Host nutzt
+**pairwise_sub** statt roher user_id (Privacy). `credential_validator.py` prüft Cloud-JWKS + CRL.
+
+**Admin-Status fließt pro Server:** Session-Token trägt `admin`-Claim (Owner-Match) → `ws_ready` liefert
+`is_admin` **pro Server** → Frontend `serverAdmin`-Store → Admin-Panel-Gate pro aktivem Server (Cloud:
+auth `/me`; Self-Host: ready-Frame, da Cert-Login-User dort kein auth `/me` haben).
+
+**Self-Host-Instanz-Verwaltung ist cloud-only:** `routes_admin_instances` (Approve/Suspend) hinter
+`_require_cloud` (`PULSE_INSTANCE_MODE == cloud`); Frontend blendet den `AdminInstances`-Bereich auf Self-Hosts
+aus (`activeServer.isCloud`). Nur die Cloud entscheidet, wer self-hosten darf.
+
+**Public well-known-Endpoints** (auth-svc, am Root-Pfad): `/.well-known/{jwks.json, revoked-credentials,
+pulse-version-policy.json, pulse-suspended-instances}` — Self-Hosts pollen die von der Cloud. **`web-nginx.conf`
+muss sie explizit an auth-svc routen** (Regex-Location), sonst fallen sie auf den SPA-Fallback (index.html) und
+die Poller scheitern still mit JSONDecodeError. `acme-challenge` bleibt bewusst ausgespart (Caddy/LE).
+
+**Presence-Status dauerhaft:** der manuell gewählte Status (online/idle/dnd/invisible) wird neben Redis (24h-TTL)
+in `chat.user_preferences` (Sektion `presence`) gespiegelt; `ws_ready` stellt ihn beim Login wieder her, wenn der
+Redis-Key abgelaufen ist. Automatische idle/online-Sweeper-Übergänge bleiben Redis-only.
+
+**UI-Terminologie:** die Discord-„Guild"-Sache heißt im UI **„Community"** (nicht „Gilde"/„Server"); „Server" =
+Pulse-Instanz. Code-Bezeichner bleiben `guild`/`Guild`. Siehe Memory `project_terminology_community`.
+
 ## Plugin-System (Stufe A)
 
 Top-Level `plugins/` mit Referenz-Plugins `hello` + `tamagotchi`. Manifest = `plugin.toml` (Backend) +
@@ -252,9 +296,12 @@ sofort live; nur native Änderungen (Electron-main/preload, Sidecar, GSR-Binary)
 plättet `locales/`+`resources/` → Electron findet `resources/default_app.asar` nicht → Exit 1 vor `main.cjs`.
 Voll-Doku (Signing-Key, Distribution, Auto-Update, Troubleshooting) → `packaging/README.md`.
 
-## Produktiv-Deployment (Hetzner-VPS) — Voll-Doku `infra/prod/DEPLOY.md`
+## Produktiv-Deployment (netcup-VPS) — Voll-Doku `infra/prod/DEPLOY.md`
 
-Läuft auf `michael@77.42.71.166` (neben Caddy + anderen Apps), erreichbar **https://howispulse.com**.
+**Hauptserver/Cloud = netcup `michael@159.195.150.54`** (Debian 13), erreichbar **https://howispulse.com**
+(Umzug von Hetzner am 2026-05-28). Der **alte Hetzner-VPS `michael@77.42.71.166` lebt weiter** — er wird
+als **Self-Host-Test-Instanz** verwendet (um die Self-Hosted-Geschichte / das Cert-Modell auszuprobieren),
+ist aber NICHT mehr die Cloud. SSH-Details der Server in den privaten Deployment-Notizen.
 Ein Compose-Stack (`name: pulse`) in `~/pulse/infra/prod/`: die 6 Service-Container (GHCR
 `ghcr.io/oblivion8282-1337/pulse-*:latest`), `pulse_migrate_{auth,chat}` (`alembic upgrade head`),
 `pulse_mediamtx` + `pulse_livekit` (`network_mode: host`, gepinnt), `pulse_watchtower` (`--scope pulse`, 5min).
