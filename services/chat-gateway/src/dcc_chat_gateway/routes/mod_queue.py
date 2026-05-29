@@ -141,8 +141,8 @@ async def list_mod_queue(
 
     # Subqueries for scope checks — avoids Python-side filtering.
     channel_ids_in_guild = select(Channel.id).where(Channel.guild_id == guild_id).scalar_subquery()
-    msg_channel_ids = (
-        select(Message.channel_id)
+    msg_ids_in_guild = (
+        select(Message.id)
         .join(Channel, Channel.id == Message.channel_id)
         .where(Channel.guild_id == guild_id)
         .scalar_subquery()
@@ -157,7 +157,7 @@ async def list_mod_queue(
             Report.status == queue_status,
             or_(
                 Report.target_channel_id.in_(channel_ids_in_guild),
-                Report.target_message_id.in_(msg_channel_ids),
+                Report.target_message_id.in_(msg_ids_in_guild),
                 # user-only reports: user is a guild member and no channel/message target
                 (
                     Report.target_user_id.in_(member_user_ids)

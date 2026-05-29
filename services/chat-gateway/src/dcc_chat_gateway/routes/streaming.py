@@ -147,7 +147,14 @@ async def get_whep_url(
     """WHEP playback URL for `user_id`'s HQ stream in `channel_id`. The caller
     just has to be a member of the channel's guild (they're watching, not the
     streamer)."""
-    await _require_voice_channel_member(session, channel_id, current.id)
+    channel = await _require_voice_channel_member(session, channel_id, current.id)
+    # VIEW_CHANNEL must not be overwrite-denied for this member — a member
+    # explicitly excluded from a channel must not be able to watch streams
+    # in it.  Mirrors the text-channel subscribe gate in ws_ops_handlers.py.
+    await check_permission(
+        session, current, channel.guild_id, Permissions.VIEW_CHANNEL,
+        channel_id=channel_id,
+    )
     bearer = _bearer_from_header(authorization)
     try:
         resp = await _media_svc_request(

@@ -25,7 +25,6 @@ from dcc_auth.username_suggestions import suggest_usernames as _suggest_username
 router = APIRouter()
 
 _STATEMENT_CACHE: dict[int, tuple[float, str]] = {}
-_CACHE_STALE_SECS = 5.0
 _STATEMENT_TTL_SECS = 86_400
 
 
@@ -73,7 +72,7 @@ async def get_profile_statement(
     if cached is not None:
         issued_at, token = cached
         age = now_f - issued_at
-        if age >= _CACHE_STALE_SECS and age < _STATEMENT_TTL_SECS - 60:
+        if age < _STATEMENT_TTL_SECS - 60:
             return {"token": token}
     return {"token": _issue_statement(current, signer)}
 

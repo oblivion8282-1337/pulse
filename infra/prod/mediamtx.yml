@@ -63,8 +63,12 @@ webrtcIPsFromInterfaces: no
 webrtcAdditionalHosts:
   - 159.195.150.54
 
-# Control API — bound on all interfaces; media-svc polls /v3/paths/list via
-# host.docker.internal:9997. Kept private by UFW (INPUT DROP).
+# Control API. MediaMTX runs network_mode:host, and media-svc reaches this
+# from its container via host.docker.internal (the Docker bridge gateway IP,
+# NOT loopback) — so binding 127.0.0.1 here would refuse that connection and
+# break the stream-state poller. Access is instead restricted at the UFW layer:
+# port 9997 only accepts traffic from the Docker bridge (`ufw allow from
+# 10.0.0.0/8 to any port 9997`), blocking external reach. See CLAUDE.md.
 api: yes
 apiAddress: :9997
 

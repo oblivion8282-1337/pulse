@@ -19,7 +19,6 @@ from dcc_chat_gateway.models import (
     GuildMember,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
-from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import (
     CreateInviteIn,
     InviteAcceptOut,
@@ -155,18 +154,22 @@ async def create_invite(
 
 @router.get("/guilds/{guild_id}/invites", response_model=list[InviteOut])
 async def list_invites(guild_id: int, session: SessionDep, current: CurrentUser):
-    await require_member(session, guild_id, current.id)
+    await check_permission(session, current, guild_id, Permissions.MANAGE_INVITES)
     now = datetime.now(tz=UTC)
     stmt = (
         select(GuildInvite)
         .where(
             GuildInvite.guild_id == guild_id,
             GuildInvite.revoked_at.is_(None),
+            # Push expiry + use-limit conditions into SQL so dead rows are
+            # never transferred from DB to app memory.
+            (GuildInvite.expires_at.is_(None)) | (GuildInvite.expires_at > now),
+            (GuildInvite.max_uses.is_(None)) | (GuildInvite.uses < GuildInvite.max_uses),
         )
         .order_by(GuildInvite.created_at.desc())
+        .limit(200)
     )
-    rows = (await session.execute(stmt)).scalars().all()
-    return [inv for inv in rows if _is_active(inv, now)]
+    return (await session.execute(stmt)).scalars().all()
 
 
 # ---- Revoke ----------------------------------------------------------------
@@ -270,15 +273,18 @@ async def accept_invite(code: str, session: SessionDep, current: CurrentUser, re
     if await is_user_banned(session, guild_id, current.id):
         await session.rollback()
         raise HTTPException(403, detail="you are banned from this server")
+    actually_added = True
     try:
         await session.commit()
     except IntegrityError:
         # Race: another request added the same member concurrently. The use
         # we consumed above stays counted; that is acceptable for an MVP.
         await session.rollback()
+        actually_added = False
 
     channel_id = invite_channel_id or await _first_text_channel_id(session, guild_id)
-    await _publish_member_added(request, guild_id, current.id)
+    if actually_added:
+        await _publish_member_added(request, guild_id, current.id)
     return InviteAcceptOut(
         guild=InviteGuildOut(id=guild.id, name=guild_name, icon_url=guild_icon),
         channel_id=channel_id,

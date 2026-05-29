@@ -22,7 +22,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, Response, status
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_auth.models import User, UserSession
@@ -109,14 +109,12 @@ async def revoke_all_for_user(db: AsyncSession, user_id: int) -> int:
     Returns the number of rows touched.
     """
     now = datetime.now(tz=UTC)
-    stmt = (
-        select(UserSession)
+    result = await db.execute(
+        sa_update(UserSession)
         .where(UserSession.user_id == user_id, UserSession.expires_at > now)
+        .values(expires_at=now)
     )
-    rows = (await db.execute(stmt)).scalars().all()
-    for row in rows:
-        row.expires_at = now
-    return len(rows)
+    return result.rowcount or 0
 
 
 async def purge_expired_sessions(db: AsyncSession) -> int:

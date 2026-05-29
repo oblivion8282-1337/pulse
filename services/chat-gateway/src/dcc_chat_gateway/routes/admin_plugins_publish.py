@@ -8,6 +8,7 @@ Routing- oder Validierungslogik.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -71,7 +72,8 @@ async def publish_guild_plugins_disabled(
     manager = getattr(request.app.state, "connection_manager", None)
     if manager is None:
         return
-    for gid in guild_ids:
+
+    async def _one(gid: int) -> None:
         envelope = GuildPluginsChangedEvent(
             guild_id=str(gid), plugin_name=plugin_name, enabled=False
         )
@@ -83,6 +85,8 @@ async def publish_guild_plugins_disabled(
                 "(guild=%s plugin=%s); local DB already committed",
                 gid, plugin_name,
             )
+
+    await asyncio.gather(*[_one(gid) for gid in guild_ids])
 
 
 __all__ = [

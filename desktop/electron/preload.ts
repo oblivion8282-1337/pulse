@@ -43,6 +43,9 @@ contextBridge.exposeInMainWorld('pulse', {
     get: (key: string): Promise<unknown> => ipcRenderer.invoke('store:get', key),
     getAll: (): Promise<Record<string, unknown>> => ipcRenderer.invoke('store:getAll'),
     set: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store:set', key, value),
+    /** Atomically write multiple key-value pairs in one IPC round-trip
+     *  (finding 158 — enables batch persistence in persistence.ts). */
+    setAll: (values: Record<string, unknown>): Promise<void> => ipcRenderer.invoke('store:setAll', values),
   },
 
   gsr: {
@@ -82,6 +85,11 @@ contextBridge.exposeInMainWorld('pulse', {
       ipcRenderer.on('pulse:invite', handler);
       return () => ipcRenderer.removeListener('pulse:invite', handler);
     },
+    /** Pull any deep-link that arrived before the renderer's onLink listener
+     *  was ready (finding 156 — completes the pull-based delivery model).
+     *  Returns the buffered payload or null if there is none. */
+    getPending: (): Promise<{ hostname: string; code: string } | null> =>
+      ipcRenderer.invoke('invite:getPending'),
   },
 
   // System notifications (mention/DM toasts). The renderer gates these on

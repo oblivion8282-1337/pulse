@@ -22,7 +22,6 @@ from dcc_chat_gateway.permissions import (
     OVERWRITE_TARGET_ROLE,
     OVERWRITE_TARGET_USER,
     Permissions,
-    assert_overwrite_within_editor_scope,
     check_permission,
 )
 from dcc_chat_gateway.schemas import OverwriteIn, OverwriteOut
@@ -30,6 +29,29 @@ from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import ChannelPermissionsUpdatedEvent
 
 router = APIRouter()
+
+
+def _anti_escalation_check(
+    editor_perms: int,
+    *,
+    new_allow: int,
+    new_deny: int,
+    existing_allow: int = 0,
+    existing_deny: int = 0,
+) -> None:
+    """Inline anti-escalation guard (Stoatchat pattern).
+
+    Reuses the pre-resolved ``editor_perms`` bitfield from
+    ``check_permission`` to avoid a redundant ``_load_context`` call.
+    Logic mirrors ``permissions.assert_overwrite_within_editor_scope``."""
+    granted_now = (~existing_allow) & new_allow
+    ungated_now = existing_deny & (~new_deny)
+    must_have = granted_now | ungated_now
+    if must_have & ~editor_perms:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="cannot grant permissions you do not yourself have",
+        )
 
 
 def _overwrite_dict(ow: PermissionOverwrite) -> dict[str, object]:
@@ -121,7 +143,7 @@ async def set_overwrite(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
-    await check_permission(
+    editor_perms = await check_permission(
         session, current, channel.guild_id, Permissions.MANAGE_PERMISSIONS,
         channel_id=channel_id,
     )
@@ -129,11 +151,8 @@ async def set_overwrite(
     existing = await session.get(
         PermissionOverwrite, (channel_id, target_type, target_id)
     )
-    await assert_overwrite_within_editor_scope(
-        session,
-        current,
-        channel.guild_id,
-        channel_id,
+    _anti_escalation_check(
+        editor_perms,
         new_allow=payload.allow,
         new_deny=payload.deny,
         existing_allow=existing.allow_bf if existing else 0,
@@ -192,7 +211,7 @@ async def delete_overwrite(
     channel = await session.get(Channel, channel_id)
     if channel is None:
         raise HTTPException(404, detail="channel not found")
-    await check_permission(
+    editor_perms = await check_permission(
         session, current, channel.guild_id, Permissions.MANAGE_PERMISSIONS,
         channel_id=channel_id,
     )
@@ -203,11 +222,8 @@ async def delete_overwrite(
     if existing is None:
         return  # idempotent
 
-    await assert_overwrite_within_editor_scope(
-        session,
-        current,
-        channel.guild_id,
-        channel_id,
+    _anti_escalation_check(
+        editor_perms,
         new_allow=0,
         new_deny=0,
         existing_allow=existing.allow_bf,

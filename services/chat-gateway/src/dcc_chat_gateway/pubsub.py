@@ -93,6 +93,11 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         # is a slow memory leak. Writers must guard with ``ws in self._ws_user``
         # or use ``.get(ws)`` for reads.
         self._ws_perms: dict[WebSocket, dict[int, int]] = {}
+        # Reverse index: socket → set of channel-ids it is subscribed to.
+        # Maintained in parallel with ``_subs`` so ``remove_socket`` can
+        # iterate only the channels that socket joined instead of scanning
+        # the full ``_subs`` dict (O(subscribed) vs O(all channels)).
+        self._ws_channels: dict[WebSocket, set[str]] = {}
         # Per-socket set of guild ids the user is a member of. Populated by
         # ``register`` (called from the WS endpoint with the same guild list
         # the ``ready`` frame is built from) and live-updated from
@@ -118,6 +123,11 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         self._ws_blocks_out: dict[WebSocket, set[int]] = {}
         self._ws_blocks_in: dict[WebSocket, set[int]] = {}
         self._ws_friends: dict[WebSocket, set[int]] = {}
+        # Extra plugin-declared pub/sub channels (populated by
+        # subscribe_plugin_channels at lifespan time). Re-subscribed on every
+        # start() call so that a crashed + restarted listener does not silently
+        # lose plugin-channel messages.
+        self._plugin_channels: list[str] = []
         self._lock = asyncio.Lock()
         self._started = False
 
@@ -142,6 +152,11 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             WATCH_EVENTS_CHANNEL,
             USER_EVENTS_CHANNEL,
         )
+        # Re-subscribe any plugin channels that were registered at startup.
+        # This is idempotent (Redis ignores duplicate subscribes) and ensures
+        # plugin messages are not lost after a listener crash + restart.
+        if self._plugin_channels:
+            await self._pubsub.subscribe(*self._plugin_channels)
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
 
@@ -205,6 +220,10 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
     async def subscribe(self, ws: WebSocket, channel_id: str) -> None:
         async with self._lock:
             self._subs[channel_id].add(ws)
+            # Keep the reverse index in sync.
+            if ws not in self._ws_channels:
+                self._ws_channels[ws] = set()
+            self._ws_channels[ws].add(channel_id)
 
     async def unsubscribe(self, ws: WebSocket, channel_id: str) -> None:
         async with self._lock:
@@ -214,6 +233,10 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             local.discard(ws)
             if not local:
                 del self._subs[channel_id]
+            # Mirror in the reverse index.
+            ws_chans = self._ws_channels.get(ws)
+            if ws_chans is not None:
+                ws_chans.discard(channel_id)
 
     async def remove_socket(self, ws: WebSocket) -> None:
         async with self._lock:
@@ -228,10 +251,23 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             self._ws_blocks_out.pop(ws, None)
             self._ws_blocks_in.pop(ws, None)
             self._ws_friends.pop(ws, None)
-            for cid in list(self._subs):
-                self._subs[cid].discard(ws)
-                if not self._subs[cid]:
-                    del self._subs[cid]
+            # Use the reverse index to clean up only the channels this socket
+            # was actually subscribed to — O(subscribed) instead of O(all
+            # channels).  Fall back to the full scan when the reverse index
+            # has no entry (e.g. socket that never subscribed to any channel).
+            subscribed = self._ws_channels.pop(ws, None)
+            if subscribed is not None:
+                for cid in subscribed:
+                    bucket = self._subs.get(cid)
+                    if bucket is not None:
+                        bucket.discard(ws)
+                        if not bucket:
+                            del self._subs[cid]
+            else:
+                for cid in list(self._subs):
+                    self._subs[cid].discard(ws)
+                    if not self._subs[cid]:
+                        del self._subs[cid]
 
     @staticmethod
     def _to_wire(payload: dict[str, Any] | _EventBase) -> dict[str, Any]:
@@ -311,6 +347,14 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             return
         # ``subscribe(*args)`` akzeptiert N positional channel-names.
         await self._pubsub.subscribe(*channels)
+        # Track the channel names so start() can re-subscribe them after a
+        # listener crash recovery (built-in channels are re-subscribed by
+        # start(); plugin channels need the same treatment).
+        existing = set(self._plugin_channels)
+        for ch in channels:
+            if ch not in existing:
+                self._plugin_channels.append(ch)
+                existing.add(ch)
         log.info(
             "pubsub: subscribed %d additional plugin channel(s): %s",
             len(channels),
@@ -330,8 +374,11 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         """Current presence + streaming sets + per-user states for a voice channel."""
         key = f"voice:room:channel-{channel_id}"
         sk = f"voice:room:channel-{channel_id}:streaming"
-        members = await self._redis.smembers(key)
-        streamers = await self._redis.smembers(sk)
+        # Issue both SMEMBERS in parallel rather than sequentially.
+        members, streamers = await asyncio.gather(
+            self._redis.smembers(key),
+            self._redis.smembers(sk),
+        )
         user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members)
         user_states = await self.user_voice_states_for(user_ids)
         return {

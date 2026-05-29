@@ -34,6 +34,7 @@ is a process-global singleton accessible via :func:`get_manager`.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import logging
 import sys
@@ -333,6 +334,14 @@ def _extract_deactivate_hook(
     if isinstance(result, dict):
         hook = result.get("deactivate")
         if hook is None:
+            return None
+        if asyncio.iscoroutinefunction(hook):
+            log.warning(
+                "plugin %s: register() returned async 'deactivate' hook; "
+                "async hooks are not supported — hook will be ignored. "
+                "Convert to a synchronous function.",
+                plugin_name,
+            )
             return None
         if callable(hook):
             return hook  # type: ignore[return-value]

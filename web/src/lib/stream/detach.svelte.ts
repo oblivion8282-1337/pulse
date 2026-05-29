@@ -37,9 +37,21 @@ class DetachedStreams {
       if (!m || typeof m !== 'object') return;
       if (m.kind === 'closed') this.#markAttached(m.cid, m.uid);
     };
-    // Poll: window-references erkennen geschlossene Popups (z.B. via OS-X)
-    // sicherer als nur 'closed'-Message, weil Popup beim Crash nichts mehr sendet.
-    this.#pollTimer = setInterval(() => this.#sweepClosedWindows(), 800);
+  }
+
+  /** Start the sweep poll when the first popup is opened; stop when all are closed. */
+  #ensurePollRunning(): void {
+    if (this.#pollTimer === null && this.#windows.size > 0) {
+      this.#pollTimer = setInterval(() => this.#sweepClosedWindows(), 800);
+    }
+  }
+
+  /** Stop the poll if no more windows are being tracked. */
+  #ensurePollStopped(): void {
+    if (this.#pollTimer !== null && this.#windows.size === 0) {
+      clearInterval(this.#pollTimer);
+      this.#pollTimer = null;
+    }
   }
 
   has(cid: string, uid: string): boolean {
@@ -65,6 +77,7 @@ class DetachedStreams {
     if (!popup) return false; // Popup-Blocker
     this.#windows.set(k, popup);
     this.#set = new Set(this.#set).add(k);
+    this.#ensurePollRunning();
     return true;
   }
 
@@ -103,6 +116,7 @@ class DetachedStreams {
     const next = new Set(this.#set);
     next.delete(k);
     this.#set = next;
+    this.#ensurePollStopped();
   }
 
   #sweepClosedWindows(): void {
@@ -116,6 +130,7 @@ class DetachedStreams {
         }
       }
     }
+    this.#ensurePollStopped();
   }
 }
 

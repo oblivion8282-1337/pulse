@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from time import monotonic
 from typing import Annotated
 
 import structlog
@@ -35,6 +36,38 @@ from dcc_media_svc.streamkeys import (
 )
 
 log = structlog.get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-process per-user rate limiter for stream-token issuance.
+# Prevents a single user from flooding Redis with token keys.
+# Per-process only — for multi-worker deployments this should move to Redis.
+# ---------------------------------------------------------------------------
+_TOKEN_RATE_LIMIT = 10   # max tokens per user per window
+_TOKEN_RATE_WINDOW = 60.0  # seconds
+# {user_id: (window_start_monotonic, count)}
+_token_rate_buckets: dict[int, tuple[float, int]] = {}
+
+
+def _check_token_rate(user_id: int) -> bool:
+    """Return True if the call is allowed, False if over budget."""
+    now = monotonic()
+    # Lazy eviction of expired entries to keep the dict bounded.
+    if _token_rate_buckets:
+        expired = [
+            uid for uid, (start, _) in _token_rate_buckets.items()
+            if now - start >= _TOKEN_RATE_WINDOW
+        ]
+        for uid in expired:
+            del _token_rate_buckets[uid]
+    entry = _token_rate_buckets.get(user_id)
+    if entry is None or now - entry[0] >= _TOKEN_RATE_WINDOW:
+        _token_rate_buckets[user_id] = (now, 1)
+        return True
+    start, count = entry
+    if count >= _TOKEN_RATE_LIMIT:
+        return False
+    _token_rate_buckets[user_id] = (start, count + 1)
+    return True
 
 router = APIRouter()
 
@@ -102,6 +135,8 @@ async def issue_stream_token(
     user: CurrentUser,
     request: Request,
 ) -> StreamTokenOut:
+    if not _check_token_rate(user.id):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="stream token rate limit exceeded")
     settings = get_settings()
     redis = _get_redis(request)
     user_id = str(user.id)

@@ -12,6 +12,8 @@
 import { rolesApi, type Role } from '$lib/api/roles';
 import { auth } from './auth.svelte';
 import { guilds } from './guilds.svelte';
+import { activeServer } from './active-server.svelte';
+import { serverAdmin } from './serverAdmin.svelte';
 import {
   GRANT_ALL_SAFE,
   Perm,
@@ -31,6 +33,17 @@ class RoleStore {
   /** Resolved guild-wide permission bitfield for the current user. As a
    * string so reactivity doesn't compare bigints. */
   myGuildPerms = $state<Record<string, string>>({});
+  /** Parsed-bigint cache for hasGuildPermission — avoids re-parsing the
+   * string on every reactive read. Kept in sync via _setGuildPerm(). */
+  private _permBigInt = new Map<string, bigint>();
+  /** Memoised RoleSnapshot[] per guild — computed once in recomputeGuild
+   * (and seedFromReady-triggered recomputes) so snapshotsForUser() is a
+   * cheap cache read instead of a filter+map+toBitfield on every call. */
+  private _snapshotsCache = new Map<string, RoleSnapshot[]>();
+  /** Flat role-id → Role map across ALL guilds for O(1) lookups (e.g.
+   * roleMentionLabel in messageRender.ts). Maintained by upsertRole() and
+   * removeRole() so callers never need to iterate byGuild. */
+  roleIdMap = new Map<string, Role>();
 
   seedFromReady(
     entries: {
@@ -49,9 +62,15 @@ class RoleStore {
     const nextMy: Record<string, string[]> = { ...this.myRoleIds };
     const nextPerms: Record<string, string> = { ...this.myGuildPerms };
     for (const e of entries) {
-      if (e.roles) nextRoles[e.id] = e.roles;
+      if (e.roles) {
+        nextRoles[e.id] = e.roles;
+        for (const r of e.roles) this.roleIdMap.set(r.id, r);
+      }
       if (e.my_role_ids) nextMy[e.id] = e.my_role_ids;
-      if (e.my_permissions !== undefined) nextPerms[e.id] = e.my_permissions;
+      if (e.my_permissions !== undefined) {
+        nextPerms[e.id] = e.my_permissions;
+        this._permBigInt.set(e.id, toBitfield(e.my_permissions));
+      }
     }
     this.byGuild = nextRoles;
     this.myRoleIds = nextMy;
@@ -64,6 +83,7 @@ class RoleStore {
       ? list.map((r) => (r.id === role.id ? role : r))
       : [...list, role];
     this.byGuild = { ...this.byGuild, [role.guild_id]: next };
+    this.roleIdMap.set(role.id, role);
     // The role's permissions may now affect my resolved guild perms.
     this.recomputeGuild(role.guild_id);
   }
@@ -75,6 +95,7 @@ class RoleStore {
       ...this.byGuild,
       [guildId]: list.filter((r) => r.id !== roleId)
     };
+    this.roleIdMap.delete(roleId);
     const mine = this.myRoleIds[guildId];
     if (mine?.includes(roleId)) {
       this.myRoleIds = {
@@ -111,10 +132,16 @@ class RoleStore {
     const me = auth.user?.id;
     if (!me) return;
     const guild = guilds.byId[guildId];
-    const isOwner = !!guild && guild.owner_id === me;
-    const isAdmin = !!auth.user?.is_admin;
+    const isOwner = !!guild && !!guild.owner_id && guild.owner_id === me;
+    // Admin is per-server: cloud → auth.user.is_admin; self-host → serverAdmin
+    // (cert-login users have no auth /me on self-host).
+    const srv = activeServer.current;
+    const isAdmin = srv?.isCloud
+      ? !!auth.user?.is_admin
+      : serverAdmin.isAdmin(activeServer.serverId);
     if (isOwner || isAdmin) {
-      this.myGuildPerms = { ...this.myGuildPerms, [guildId]: GRANT_ALL_SAFE.toString() };
+      this._snapshotsCache.delete(guildId);
+      this._setGuildPerm(guildId, GRANT_ALL_SAFE);
       return;
     }
     const allRoles = this.byGuild[guildId] ?? [];
@@ -127,6 +154,9 @@ class RoleStore {
         permissions: toBitfield(r.permissions),
         is_everyone: r.is_everyone
       }));
+    // Cache the snapshot list so snapshotsForUser() can skip the
+    // filter+map+toBitfield on every channel-permission read.
+    this._snapshotsCache.set(guildId, snapshots);
     const value = resolveGuildPermissions({
       isGlobalAdmin: isAdmin,
       isOwner,
@@ -135,14 +165,26 @@ class RoleStore {
       roles: snapshots,
       overwrites: []
     });
+    this._setGuildPerm(guildId, value);
+  }
+
+  /** Set guild perm string + bigint cache atomically. */
+  private _setGuildPerm(guildId: string, value: bigint): void {
+    this._permBigInt.set(guildId, value);
     this.myGuildPerms = { ...this.myGuildPerms, [guildId]: value.toString() };
   }
 
   /** Returns the snapshot list the channel-permission resolver needs
    * (only the caller's roles, with @everyone included). Pulled by the
    * channel-permissions store; kept here so the role logic stays
-   * co-located. */
+   * co-located.
+   *
+   * Returns the cached snapshot built in recomputeGuild() when available,
+   * avoiding repeated filter+map+toBitfield on every channel-perm read. */
   snapshotsForUser(guildId: string): RoleSnapshot[] {
+    const cached = this._snapshotsCache.get(guildId);
+    if (cached) return cached;
+    // Fallback for guilds not yet recomputed (e.g. during early hydration).
     const all = this.byGuild[guildId] ?? [];
     const mine = new Set(this.myRoleIds[guildId] ?? []);
     return all
@@ -157,9 +199,13 @@ class RoleStore {
 
   /** Convenience: does the caller hold ``perm`` at guild scope? */
   hasGuildPermission(guildId: string, perm: Permission): boolean {
-    const value = this.myGuildPerms[guildId];
-    if (!value) return false;
-    return has(toBitfield(value), perm);
+    // Use the pre-parsed bigint cache to avoid BigInt(string) on every
+    // reactive read. Falls back to parsing myGuildPerms if the cache slot
+    // is missing (e.g. seeded by an older code path).
+    const cached = this._permBigInt.get(guildId);
+    const value = cached ?? (this.myGuildPerms[guildId] ? toBitfield(this.myGuildPerms[guildId]) : null);
+    if (value === null) return false;
+    return has(value, perm);
   }
 
   /** Highest-position role with a non-null color among the given ids,
@@ -200,6 +246,9 @@ class RoleStore {
     this.byGuild = {};
     this.myRoleIds = {};
     this.myGuildPerms = {};
+    this._permBigInt.clear();
+    this._snapshotsCache.clear();
+    this.roleIdMap.clear();
   }
 }
 

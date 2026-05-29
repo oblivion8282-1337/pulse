@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import time
 from datetime import UTC, datetime
 from typing import Annotated
 
@@ -257,13 +258,24 @@ async def login_totp(
         ) from exc
 
     user = await session.get(User, user_id)
-    if (
-        user is None
-        or user.disabled
-        or user.is_suspended
-        or not user.totp_enabled
-        or not user.totp_secret
-    ):
+    if user is None or user.disabled or user.is_suspended:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
+        )
+
+    # Accept the second step for any account that actually carries an MFA
+    # factor — TOTP *or* a registered passkey. A passkey-only account
+    # (totp_enabled=False) is still issued an mfa_ticket by ``/login`` and
+    # must be able to fall back to a backup code here; ``_consume_second_factor``
+    # already handles the TOTP-vs-backup-code branching (and returns False for a
+    # TOTP code when no secret is set), so the previous ``not totp_enabled`` /
+    # ``not totp_secret`` gate was both redundant and too narrow.
+    has_passkey = await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == user.id)
+    )
+    if not user.totp_enabled and not has_passkey:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         )
@@ -315,7 +327,16 @@ async def _consume_second_factor(
     if code:
         if not user.totp_secret:
             return False
-        return pyotp.TOTP(user.totp_secret).verify(code, valid_window=1)
+        totp = pyotp.TOTP(user.totp_secret)
+        if not totp.verify(code, valid_window=1):
+            return False
+        # Replay-prevention: reject if the same timecode was already accepted.
+        # timecode(now) = int(time.time()) // 30 (the period pyotp uses).
+        counter = int(time.time()) // 30
+        if user.totp_last_counter is not None and counter <= user.totp_last_counter:
+            return False
+        user.totp_last_counter = counter
+        return True
     if backup_code:
         normalized = backup_code.upper()
         digest = hash_token(normalized)

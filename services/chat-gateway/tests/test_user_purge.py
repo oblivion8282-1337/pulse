@@ -379,7 +379,7 @@ async def test_purge_deletes_web_push_subscriptions(
     r = await client.post(
         "/notifications/subscribe",
         json={
-            "endpoint": "https://fcm.example.com/abc",
+            "endpoint": "https://fcm.googleapis.com/abc",
             "keys": {
                 "p256dh": "BL1234567890_fake_pubkey_base64url_padding_ok",
                 "auth": "auth_secret_fake_value",

@@ -25,12 +25,14 @@ The challenge-JWT is HMAC-signed (not Cloud-signed) because the
 chat-gateway has no Cloud private key.  The HMAC secret is a per-instance
 secret (``CHAT_GATEWAY_CHALLENGE_SECRET`` env var; ephemeral fallback on
 first use with a WARN — single-pod self-host).  The server keeps **no
-state** between the two steps: the nonce travels inside the signed
-challenge-JWT, which is what makes the replay-window equal to the
-60-second ``exp`` (and only that — a challenge cannot be redeemed twice
-beyond what a network attacker could already do by replaying the verify
-call, which is rate-limited by cert expiry + Ed25519 single-use semantics
-in the calling client).
+state** between the two steps for the challenge phase: the nonce travels
+inside the signed challenge-JWT.
+
+A successful ``/verify`` is one-time-use: the challenge token is atomically
+claimed in Redis (``cert-login:used:<hash>``, ``SET NX EX``) so the exact
+same ``(cert, challenge_token, signature)`` body cannot be replayed within
+the 60-second window to mint a second session token.  Both endpoints are
+additionally per-IP rate-limited (in-process) to blunt brute-force/DoS.
 
 Never logs tokens, signatures or secrets.
 """
@@ -38,6 +40,7 @@ Never logs tokens, signatures or secrets.
 from __future__ import annotations
 
 import base64
+import hashlib
 import hmac
 import logging
 import os
@@ -66,6 +69,11 @@ router = APIRouter()
 CHALLENGE_TTL_SECONDS = 60
 _CHALLENGE_PURPOSE = "cert-login-challenge"
 _CHALLENGE_ALG = "HS256"
+
+# Redis key prefix for the one-time-use marker on consumed challenge tokens.
+# Keyed by a hash of the challenge token (never the raw token) so a successful
+# /verify cannot be replayed within the 60s challenge window.
+_CONSUMED_PREFIX = "cert-login:used:"
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +123,67 @@ def _reset_challenge_secret_for_tests() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Per-IP rate limit (in-process, unauthenticated endpoints)
+# ---------------------------------------------------------------------------
+#
+# /cert-login/{challenge,verify} are reachable without auth and each call does
+# Redis lookups + RS256/Ed25519 verification. A per-IP fixed window throttles
+# brute-force/DoS while leaving room for normal retry behaviour. In-process
+# only (single-pod self-host — same caveat as ``ratelimit.py``); a multi-pod
+# deployment should front this with Caddy's rate-limit directive.
+
+_CERT_LOGIN_RATE_LIMIT = 10      # requests allowed per window per IP
+_CERT_LOGIN_RATE_WINDOW = 60.0   # seconds
+
+# ip -> (window_start_monotonic, count)
+_cert_login_buckets: dict[str, tuple[float, int]] = {}
+
+
+def _reset_cert_login_rate_for_tests() -> None:
+    """Clear the per-IP rate buckets — test helper, do not call in prod."""
+    _cert_login_buckets.clear()
+
+
+def _client_ip(request: Request) -> str:
+    """Best-effort client IP for rate-limit keying.
+
+    Prefers the left-most ``X-Forwarded-For`` hop (set by the nginx/Caddy front
+    proxy) and falls back to the socket peer. Spoofable, but the front proxy
+    overwrites it for external traffic, so it is adequate for coarse throttling.
+    """
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    client = request.client
+    return client.host if client else "unknown"
+
+
+def _enforce_cert_login_rate(request: Request) -> None:
+    """Raise 429 when the caller's IP exceeds the cert-login window budget."""
+    ip = _client_ip(request)
+    now = time.monotonic()
+
+    # Lazy eviction so the bucket map stays bounded by currently-active IPs.
+    if _cert_login_buckets:
+        expired = [
+            k
+            for k, (start, _) in _cert_login_buckets.items()
+            if now - start >= _CERT_LOGIN_RATE_WINDOW
+        ]
+        for k in expired:
+            del _cert_login_buckets[k]
+
+    entry = _cert_login_buckets.get(ip)
+    if entry is None or now - entry[0] >= _CERT_LOGIN_RATE_WINDOW:
+        _cert_login_buckets[ip] = (now, 1)
+        return
+    start, count = entry
+    if count >= _CERT_LOGIN_RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="rate_limited")
+    _cert_login_buckets[ip] = (start, count + 1)
+
+
+# ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
 
@@ -156,6 +225,7 @@ async def cert_login_challenge(
     body: ChallengeRequest, request: Request
 ) -> ChallengeResponse:
     """Validate the cert and return a 60s HMAC-signed challenge."""
+    _enforce_cert_login_rate(request)
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
         # Tests using the REST-only fixture wire Redis on app.state — defensive.
@@ -206,6 +276,31 @@ def _decode_challenge_token(token: str) -> dict:
     return claims
 
 
+def _consumed_key(challenge_token: str) -> str:
+    """Redis key marking a challenge token as already consumed (hash, not raw)."""
+    digest = hashlib.sha256(challenge_token.encode()).hexdigest()
+    return f"{_CONSUMED_PREFIX}{digest}"
+
+
+async def _claim_challenge_once(challenge_token: str, redis) -> None:
+    """Mark the challenge as consumed exactly once; reject replays.
+
+    ``SET NX EX`` is atomic: the first /verify wins and writes the marker, any
+    concurrent or later replay within the 60s window sees the existing key and
+    is rejected with 410. The marker TTL matches the challenge window — once the
+    challenge JWT itself expires (``exp``) it would be rejected by
+    ``_decode_challenge_token`` anyway, so the marker need not outlive it.
+    """
+    claimed = await redis.set(
+        _consumed_key(challenge_token),
+        "1",
+        nx=True,
+        ex=CHALLENGE_TTL_SECONDS,
+    )
+    if not claimed:
+        raise HTTPException(status_code=410, detail="challenge_consumed")
+
+
 @router.post(
     "/cert-login/verify",
     response_model=VerifyResponse,
@@ -215,6 +310,7 @@ async def cert_login_verify(
     body: VerifyRequest, request: Request
 ) -> VerifyResponse:
     """Verify the Ed25519 signature over the challenge nonce and mint a session token."""
+    _enforce_cert_login_rate(request)
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
         raise HTTPException(status_code=503, detail="cert_login_unavailable")
@@ -242,6 +338,13 @@ async def cert_login_verify(
         raise HTTPException(status_code=401, detail="signature_invalid")
     if not verify_challenge_signature(nonce_raw, signature, cert_claims.device_pubkey):
         raise HTTPException(status_code=401, detail="signature_invalid")
+
+    # 4b. One-time use: atomically claim this challenge token. A replay of the
+    #     exact same (cert, challenge_token, signature) body within the 60s
+    #     window — e.g. from an intercepted /verify request — is rejected here
+    #     before any session token is minted. Done after signature verification
+    #     so an invalid attempt cannot burn a legitimate user's challenge.
+    await _claim_challenge_once(body.challenge_token, redis)
 
     # 5. Resolve identifier (pairwise-sub in self-host, raw user_id in cloud).
     settings = get_settings()

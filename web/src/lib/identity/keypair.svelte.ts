@@ -44,9 +44,9 @@ export interface WebCryptoKeypair {
   type: 'webcrypto';
   publicKey: CryptoKey;
   /**
-   * `extractable: true` seit Block 2.E — ermöglicht Cloud-Backup ohne Re-Login.
-   * Ältere Keys (vor diesem Patch) können `extractable: false` sein; der Backup-Flow
-   * zeigt in dem Fall eine "Bitte neu anmelden"-Meldung.
+   * Standardmäßig `extractable: false` — verhindert JS-Export via exportKey (XSS-Schutz).
+   * Nur `extractable: true` wenn `generateKeypair({ forBackup: true })` aufgerufen wurde
+   * (Onboarding-Backup-Flow). Der Backup-Dialog prüft das Attribut zur Laufzeit.
    */
   privateKey: CryptoKey;
 }
@@ -61,21 +61,18 @@ export type StoredKeypair = WebCryptoKeypair;
 /**
  * Generiert ein neues Ed25519-Keypair.
  *
- * Ab Block 2.E: privater Schlüssel ist immer `extractable: true`. Begründung:
- * - Cloud-Backup ist Standard-Use-Case — kein Re-Login vor dem ersten Backup nötig.
- * - Das private-key-Material liegt ohnehin in JS-RAM während Signing-Ops (kein
- *   WebAuthn-style HW-Isolation), der Trade-off ist überschaubar.
- * - Ältere Keys (vor diesem Patch) können `extractable: false` sein; der Backup-Flow
- *   zeigt in dem Fall: "Bitte einmal neu anmelden".
- *
- * Der `forBackup`-Parameter wird aus Kompatibilitätsgründen noch akzeptiert, hat aber
- * keinen Effekt mehr — `extractable` ist immer `true`.
+ * Privater Schlüssel ist `extractable: false` — verhindert JS-seitigen Export via
+ * `crypto.subtle.exportKey` (XSS-Schutz). Der Backup-Flow (`CloudBackup.svelte`,
+ * `BackupSetupStep.svelte`) prüft `privateKey.extractable` und zeigt bei `false`
+ * eine "Bitte neu anmelden"-Meldung (der User hat das Backup zum Zeitpunkt der
+ * Keypair-Generierung noch nicht eingerichtet). Nur bei explizitem Aufruf mit
+ * `forBackup: true` wird `extractable: true` gesetzt, damit der erste Backup-Dialog
+ * beim Onboarding sofort exportieren kann.
  *
  * Wirft `Error('ED25519_WEBCRYPTO_UNSUPPORTED')` wenn WebCrypto Ed25519
  * nicht verfügbar ist.
  */
 export async function generateKeypair(opts?: { forBackup?: boolean }): Promise<WebCryptoKeypair> {
-  void opts; // forBackup-Parameter ohne Effekt — extractable ist immer true (Block 2.E)
   if (!(await supportsWebCryptoEd25519())) {
     // FINAL-DECISION (User, Block 1.F-Verify): kein Fallback auf @noble/curves.
     // Browsers ohne nativen Ed25519-Support (Safari < 17, Firefox < 130, alte
@@ -84,9 +81,14 @@ export async function generateKeypair(opts?: { forBackup?: boolean }): Promise<W
     throw new Error('ED25519_WEBCRYPTO_UNSUPPORTED');
   }
 
+  // extractable: false by default (XSS cannot steal the private key via exportKey).
+  // Only extractable when forBackup=true so the onboarding backup dialog can export
+  // immediately. The CloudBackup/BackupSetupStep components already handle the
+  // non-extractable case by showing a "please re-login" prompt.
+  const extractable = opts?.forBackup === true;
   const keyPair = await window.crypto.subtle.generateKey(
     { name: 'Ed25519' },
-    true, // extractable: immer true seit Block 2.E (Backup-Default)
+    extractable,
     ['sign', 'verify']
   );
 

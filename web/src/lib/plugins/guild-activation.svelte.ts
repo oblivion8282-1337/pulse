@@ -87,6 +87,10 @@ export async function refreshGuildPlugins(guildId: string): Promise<void> {
   const copy = { ...state.enabledByGuild };
   delete copy[guildId];
   state.enabledByGuild = copy;
+  // Auch den Inflight-Eintrag löschen: sonst gibt `ensureGuildPluginsLoaded`
+  // die alte (noch laufende) Promise zurück und der frische Fetch wird nie
+  // gestartet — der Cache würde mit dem Stand von VOR dem Toggle befüllt.
+  state.loadingByGuild.delete(guildId);
   await ensureGuildPluginsLoaded(guildId);
 }
 

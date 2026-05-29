@@ -240,48 +240,57 @@ async def idle_sweeper_loop(redis: Redis) -> None:
 
 async def _run_sweep(redis: Redis) -> None:
     """One sweep iteration — exported for tests."""
+    import json
+
+    from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL
+    from dcc_shared.events import PresenceStatusChangedEvent, PresenceStatusData
+
     now_ms = int(time.time() * 1000)
     cutoff = now_ms - IDLE_AFTER_MS
     # Members with last-activity score < cutoff are idle candidates.
     stale = await redis.zrangebyscore(PRESENCE_ACTIVITY_ZSET, 0, cutoff)
     if not stale:
         return
+
+    stale_uids = [
+        (raw.decode() if isinstance(raw, bytes) else raw) for raw in stale
+    ]
+
+    # Batch-read all stale users' statuses in one MGET instead of N GETs.
+    statuses = await get_presence_statuses_bulk(redis, stale_uids)
+
+    to_demote = [uid for uid in stale_uids if statuses.get(uid) == STATUS_ONLINE]
+    if not to_demote:
+        log.info("idle_sweep_done stale=%d demoted=0", len(stale_uids))
+        return
+
+    # Write all demotions in a single pipeline.
+    masked = _mask(STATUS_IDLE)  # idle stays idle (not invisible)
+    async with redis.pipeline(transaction=False) as pipe:
+        for uid in to_demote:
+            key = PRESENCE_STATUS_KEY.format(user_id=uid)
+            pipe.set(key, STATUS_IDLE, ex=PRESENCE_STATUS_TTL_SECONDS)
+        await pipe.execute()
+
+    # Best-effort broadcasts — one publish per demoted user.
     demoted = 0
-    for raw in stale:
-        uid = raw.decode() if isinstance(raw, bytes) else raw
+    for uid in to_demote:
         try:
-            current = await get_presence_status(redis, uid)
-            if current != STATUS_ONLINE:
-                continue  # dnd/invisible/idle — don't override
-            await set_presence_status(redis, uid, STATUS_IDLE)
+            guild_envelope = PresenceStatusChangedEvent(
+                data=PresenceStatusData(user_id=str(uid), status=masked),
+                sender_user_id=str(uid),
+            )
+            await redis.publish(
+                GUILD_EVENTS_CHANNEL,
+                json.dumps(
+                    guild_envelope.model_dump(mode="json"),
+                    separators=(",", ":"),
+                ),
+            )
             demoted += 1
-            # Best-effort broadcast — failures logged per-user
-            try:
-                import json
-
-                from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL
-                from dcc_shared.events import (
-                    PresenceStatusChangedEvent,
-                    PresenceStatusData,
-                )
-
-                masked = _mask(STATUS_IDLE)  # idle stays idle (not invisible)
-                guild_envelope = PresenceStatusChangedEvent(
-                    data=PresenceStatusData(user_id=str(uid), status=masked),
-                    sender_user_id=str(uid),
-                )
-                await redis.publish(
-                    GUILD_EVENTS_CHANNEL,
-                    json.dumps(
-                        guild_envelope.model_dump(mode="json"),
-                        separators=(",", ":"),
-                    ),
-                )
-            except Exception:  # noqa: BLE001
-                log.exception("idle_sweeper broadcast failed for user=%s", uid)
         except Exception:  # noqa: BLE001
-            log.exception("idle_sweeper error for user=%s (skipping)", uid)
-    log.info("idle_sweep_done stale=%d demoted=%d", len(stale), demoted)
+            log.exception("idle_sweeper broadcast failed for user=%s", uid)
+    log.info("idle_sweep_done stale=%d demoted=%d", len(stale_uids), demoted)
 
 
 __all__ = [

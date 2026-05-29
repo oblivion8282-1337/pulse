@@ -19,12 +19,20 @@
   // with a validated FQDN. We construct the full HTTPS hostname and look it
   // up (or add it) in the servers store before loading the preview.
   let rawHost = $derived(page.url.searchParams.get('host') ?? '');
-  // Normalise: prepend https:// if missing, strip trailing slash.
+  // Normalise: upgrade http:// to https:// and prepend https:// if missing,
+  // strip trailing slash. (Cert-login requires HTTPS to protect the cert payload.)
   let deepLinkHostname = $derived(
     rawHost
-      ? rawHost.startsWith('https://') || rawHost.startsWith('http://')
-        ? rawHost.replace(/\/$/, '')
-        : `https://${rawHost}`
+      ? (() => {
+          const trimmed = rawHost.trim().toLowerCase().replace(/\/$/, '');
+          if (trimmed.startsWith('http://')) {
+            return `https://${trimmed.slice('http://'.length)}`;
+          }
+          if (!trimmed.startsWith('https://')) {
+            return `https://${trimmed}`;
+          }
+          return trimmed;
+        })()
       : ''
   );
 

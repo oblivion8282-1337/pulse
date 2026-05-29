@@ -76,6 +76,11 @@ def issue_challenge_ticket(
     """
     now = int(time.time())
     payload: dict[str, Any] = {
+        # Stamp ``iss`` / ``aud`` (validated in ``decode_challenge_ticket``) so a
+        # ticket minted by a different environment sharing this keypair cannot be
+        # replayed into our verify step. The ``purpose`` claim alone is too weak.
+        "iss": signer._settings.jwt_issuer,  # noqa: SLF001 — mirrors issue_access
+        "aud": signer._settings.jwt_audience,  # noqa: SLF001
         "iat": now,
         "exp": now + ttl_seconds,
         "purpose": purpose,
@@ -104,6 +109,8 @@ def decode_challenge_ticket(
         ticket,
         signer.public_key,
         algorithms=["RS256"],
+        audience=signer._settings.jwt_audience,  # noqa: SLF001 — mirrors JwtSigner.decode
+        issuer=signer._settings.jwt_issuer,  # noqa: SLF001
         options={"require": ["exp"]},
     )
     if payload.get("purpose") != expected_purpose:

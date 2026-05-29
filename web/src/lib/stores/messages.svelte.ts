@@ -5,6 +5,8 @@ class MessageStore {
   // Newest at the end. We dedupe on `id` and merge `nonce` echoes.
   byChannel = $state<Record<string, Message[]>>({});
   loadedChannels = $state<Record<string, boolean>>({});
+  // Track confirmed (server-persisted, non-tmp) nonces for O(1) lookup.
+  private confirmedNonces = $state<Set<string>>(new Set());
 
   for(channelId: string): Message[] {
     return this.byChannel[channelId] ?? [];
@@ -30,6 +32,10 @@ class MessageStore {
         next = list.slice();
         next[idxNonce] = msg;
         this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
+        // Track this nonce as confirmed if not tmp.
+        if (!msg.id.startsWith('tmp-') && msg.nonce) {
+          this.confirmedNonces.add(msg.nonce);
+        }
         return;
       }
     }
@@ -43,6 +49,10 @@ class MessageStore {
     }
     if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
+    // Track this nonce as confirmed if not tmp.
+    if (!msg.id.startsWith('tmp-') && msg.nonce) {
+      this.confirmedNonces.add(msg.nonce);
+    }
   }
 
   /** Add an optimistic outgoing message — replaced by upsert on echo. */
@@ -191,7 +201,7 @@ class MessageStore {
       if (
         merged.content === cur.content &&
         merged.edited_at === cur.edited_at &&
-        JSON.stringify(merged.reactions ?? []) === JSON.stringify(cur.reactions ?? [])
+        this.reactionsEqual(merged.reactions ?? [], cur.reactions ?? [])
       ) {
         return cur;
       }
@@ -201,6 +211,17 @@ class MessageStore {
     if (changed) this.byChannel = { ...this.byChannel, [channelId]: next };
   }
 
+  /** Compare two reaction arrays structurally without serialization. */
+  private reactionsEqual(a: ReactionAggregate[], b: ReactionAggregate[]): boolean {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      const ra = a[i];
+      const rb = b[i];
+      if (ra.emoji !== rb.emoji || ra.count !== rb.count || ra.me !== rb.me) return false;
+    }
+    return true;
+  }
+
   /** Mark a channel as not loaded so the next visit re-fetches messages. */
   invalidateLoaded(channelId: string): void {
     delete this.loadedChannels[channelId];
@@ -208,12 +229,7 @@ class MessageStore {
 
   /** Returns true if a message with the given nonce has been confirmed by the server (id not tmp-). */
   isConfirmed(nonce: string): boolean {
-    for (const list of Object.values(this.byChannel)) {
-      for (const m of list) {
-        if (m.nonce === nonce && !m.id.startsWith('tmp-')) return true;
-      }
-    }
-    return false;
+    return this.confirmedNonces.has(nonce);
   }
 
   clearChannel(channelId: string): void {
@@ -221,11 +237,19 @@ class MessageStore {
     this.byChannel = rest;
     const { [channelId]: __, ...restLoaded } = this.loadedChannels;
     this.loadedChannels = restLoaded;
+    // Clear stale nonces from this channel.
+    const list = _; // The old value we just removed
+    if (list) {
+      for (const m of list) {
+        if (m.nonce) this.confirmedNonces.delete(m.nonce);
+      }
+    }
   }
 
   clear(): void {
     this.byChannel = {};
     this.loadedChannels = {};
+    this.confirmedNonces.clear();
   }
 }
 

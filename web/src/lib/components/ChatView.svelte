@@ -103,6 +103,7 @@
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   }
 
+  let messageMap = $derived<Map<string, Message>>(new Map(messages.map(m => [m.id, m])));
   let items = $derived<ChatItem[]>(buildItems(messages));
 
   function buildItems(msgs: Message[]): ChatItem[] {
@@ -111,10 +112,12 @@
       const m = msgs[i];
       const prev = msgs[i - 1];
       const mDate = new Date(m.created_at);
+      const mDateStr = mDate.toDateString();
       const prevDate = prev ? new Date(prev.created_at) : null;
+      const prevDateStr = prevDate ? prevDate.toDateString() : null;
 
       // Date divider when day changes
-      if (!prevDate || mDate.toDateString() !== prevDate.toDateString()) {
+      if (!prevDate || mDateStr !== prevDateStr) {
         result.push({ kind: 'divider', label: formatDividerLabel(mDate), key: `div-${m.id}` });
       }
 
@@ -122,8 +125,8 @@
       const isContinuation =
         !!prev &&
         m.author_id === prev.author_id &&
-        mDate.getTime() - new Date(prev.created_at).getTime() < 7 * 60 * 1000 &&
-        mDate.toDateString() === new Date(prev.created_at).toDateString();
+        mDate.getTime() - prevDate!.getTime() < 7 * 60 * 1000 &&
+        mDateStr === prevDateStr;
 
       result.push({ kind: 'message', message: m, isContinuation, key: m.id });
     }
@@ -154,7 +157,7 @@
 
   function replyMetaFor(m: Message): { id: string; author: string; snippet: string } | null {
     if (!m.reply_to_id) return null;
-    const parent = messages.find((x) => x.id === m.reply_to_id);
+    const parent = messageMap.get(m.reply_to_id);
     if (!parent) {
       // Parent isn't loaded (older than our window or deleted) — show a stub.
       return { id: m.reply_to_id, author: '…', snippet: '(ältere Nachricht)' };

@@ -20,8 +20,10 @@ that affect specific members' resolved view (Phase 3).
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, Role
@@ -111,9 +113,10 @@ async def create_role(
 
     # New roles default to position = max + 1 so newest = highest, which is
     # the Discord-UI mental model.
-    max_pos_stmt = select(Role.position).where(Role.guild_id == guild_id)
-    existing = list((await session.execute(max_pos_stmt)).scalars())
-    next_pos = (max(existing) if existing else 0) + 1
+    max_pos = await session.scalar(
+        select(func.max(Role.position)).where(Role.guild_id == guild_id)
+    )
+    next_pos = (max_pos if max_pos is not None else 0) + 1
 
     role = Role(
         id=next_id(),
@@ -254,9 +257,11 @@ async def update_role_positions(
         role.position = entry.position
 
     await session.commit()
-    for role in rows.values():
-        await session.refresh(role)
-        await _publish(request, RoleUpdatedEvent(role=_role_dict(role)))
+    # In-memory objects already hold the updated positions after commit —
+    # no need for per-row session.refresh(). Fan out all WS events concurrently.
+    await asyncio.gather(
+        *[_publish(request, RoleUpdatedEvent(role=_role_dict(role))) for role in rows.values()]
+    )
     return list(rows.values())
 
 

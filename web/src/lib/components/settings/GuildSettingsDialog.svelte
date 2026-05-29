@@ -90,6 +90,7 @@
   $effect(() => {
     if (!open) return;
     if (canManageRoles) tab = 'roles';
+    else if (canBanMembers) tab = 'bans';
     else if (canManageSounds) tab = 'sounds';
     else if (canManagePlugins) tab = 'plugins';
     else if (canSeeModQueue) tab = 'modqueue';

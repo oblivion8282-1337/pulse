@@ -12,6 +12,7 @@ import { messages } from '$lib/stores/messages.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
+import { chatApi } from '$lib/api/chat';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
@@ -40,26 +41,32 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('guild_member_added', (evt) => {
     if (auth.user && evt.user_id === auth.user.id) {
-      // We just joined a guild on another tab / via an invite — re-hydrate
+      // We just joined a guild on another tab / via an invite — fetch it
       // so this WS session starts tracking it (voice presence, channel
-      // lifecycle, role list, sound overrides). loadChannels + role +
-      // sound fetches are best-effort.
+      // lifecycle, role list, sound overrides). Best-effort.
       guildSounds.ensureSlot(evt.guild_id);
       void guildSounds.refresh(evt.guild_id);
-      void guilds.hydrate().then(() => {
-        void guilds.loadChannels(evt.guild_id).catch(() => undefined);
-        // Pull the role list + recompute resolved perms — without this
-        // the UI gates stay locked until the next WS reconnect.
-        import('$lib/api/roles').then(({ rolesApi }) => {
-          rolesApi
-            .list(evt.guild_id)
-            .then((rows) => {
-              for (const r of rows) roles.upsertRole(r);
-              roles.recomputeGuild(evt.guild_id);
-            })
-            .catch(() => undefined);
-        });
-      });
+      // Fetch the single guild instead of hydrating the entire list.
+      void chatApi
+        .getGuild(evt.guild_id)
+        .then((guild) => {
+          guilds.add(guild);
+          return guilds.loadChannels(evt.guild_id);
+        })
+        .then(() => {
+          // Pull the role list + recompute resolved perms — without this
+          // the UI gates stay locked until the next WS reconnect.
+          import('$lib/api/roles').then(({ rolesApi }) => {
+            rolesApi
+              .list(evt.guild_id)
+              .then((rows) => {
+                for (const r of rows) roles.upsertRole(r);
+                roles.recomputeGuild(evt.guild_id);
+              })
+              .catch(() => undefined);
+          });
+        })
+        .catch(() => undefined);
     }
   });
 

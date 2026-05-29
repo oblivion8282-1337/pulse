@@ -79,12 +79,13 @@ export function register(ctx: ReadyContext): void {
     });
     blocks.seedAll(evt.blocked_user_ids ?? []);
     if (evt.privacy) privacy.seed(evt.privacy);
-    if (evt.user_presence_statuses || evt.presence_status) {
-      presence.seedStatuses(
-        evt.user_presence_statuses ?? {},
-        evt.presence_status ?? 'online'
-      );
-    }
+    // Always seed statuses on every reconnect so stale entries from a previous
+    // session are cleared. When the fields are absent (back-compat / mocked
+    // frames) the empty map and 'online' default reset all statuses to 'offline'.
+    presence.seedStatuses(
+      evt.user_presence_statuses ?? {},
+      evt.presence_status ?? 'online'
+    );
     // Per-server admin status (drives the admin-panel gate for the active
     // server — esp. self-hosts, where there's no auth-svc /me). Absent in
     // older/mocked frames → treat as non-admin.

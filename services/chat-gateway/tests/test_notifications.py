@@ -31,7 +31,7 @@ async def _register(_auth_signer, uid: int | None = None) -> tuple[str, int]:
     return _auth_signer.issue_access(uid, f"u{uid}"), uid
 
 
-def _sub_body(endpoint: str = "https://fcm.example.com/abc/xyz") -> dict:
+def _sub_body(endpoint: str = "https://fcm.googleapis.com/abc/xyz") -> dict:
     return {
         "endpoint": endpoint,
         "keys": {
@@ -101,7 +101,7 @@ async def test_subscribe_creates_row(client, _auth_signer, session_factory):
             )
         ).scalars().all()
     assert len(rows) == 1
-    assert rows[0].endpoint == "https://fcm.example.com/abc/xyz"
+    assert rows[0].endpoint == "https://fcm.googleapis.com/abc/xyz"
     assert rows[0].p256dh.startswith("BL")
     assert rows[0].auth_secret == "auth_secret_fake_value"
 
@@ -169,12 +169,12 @@ async def test_list_subscriptions(client, _auth_signer):
     token, _ = await _register(_auth_signer)
     await client.post(
         "/notifications/subscribe",
-        json=_sub_body("https://fcm.example.com/aaa"),
+        json=_sub_body("https://fcm.googleapis.com/aaa"),
         headers=_auth(token),
     )
     await client.post(
         "/notifications/subscribe",
-        json=_sub_body("https://mozilla.example.com/bbb"),
+        json=_sub_body("https://test.push.services.mozilla.com/bbb"),
         headers=_auth(token),
     )
     r = await client.get("/notifications/subscriptions", headers=_auth(token))
@@ -183,8 +183,8 @@ async def test_list_subscriptions(client, _auth_signer):
     assert len(rows) == 2
     eps = {row["endpoint"] for row in rows}
     assert eps == {
-        "https://fcm.example.com/aaa",
-        "https://mozilla.example.com/bbb",
+        "https://fcm.googleapis.com/aaa",
+        "https://test.push.services.mozilla.com/bbb",
     }
     # p256dh / auth_secret are NOT exposed.
     for row in rows:
@@ -235,7 +235,7 @@ async def test_send_push_on_mention(client, _auth_signer, monkeypatch):
         client, _auth_signer
     )
     # Bob subscribes for push.
-    body = _sub_body("https://fcm.example.com/bob-device-1")
+    body = _sub_body("https://fcm.googleapis.com/bob-device-1")
     await client.post(
         "/notifications/subscribe", json=body, headers=_auth(t_member)
     )
@@ -264,7 +264,7 @@ async def test_send_push_on_mention(client, _auth_signer, monkeypatch):
     # Exactly one push attempt.
     assert len(captured) == 1, captured
     call = captured[0]
-    assert call["endpoint"] == "https://fcm.example.com/bob-device-1"
+    assert call["endpoint"] == "https://fcm.googleapis.com/bob-device-1"
     assert call["p256dh"].startswith("BL")
     assert call["auth_secret"] == "auth_secret_fake_value"
     # Payload is the body JSON string — decode + check shape.
@@ -292,7 +292,7 @@ async def test_push_deletes_dead_subscription(
     t_owner, _, t_member, uid_member, _, cid = await _make_two_member_guild(
         client, _auth_signer
     )
-    body = _sub_body("https://fcm.example.com/bob-dead-device")
+    body = _sub_body("https://fcm.googleapis.com/bob-dead-device")
     await client.post(
         "/notifications/subscribe", json=body, headers=_auth(t_member)
     )
@@ -354,7 +354,7 @@ async def test_push_dead_response_via_webpush_exception(monkeypatch):
     )
     monkeypatch.setitem(__import__("sys").modules, "pywebpush", fake_pywebpush)
     result = push_mod._send_one(
-        endpoint="https://fcm.example.com/foo",
+        endpoint="https://fcm.googleapis.com/foo",
         p256dh="x",
         auth_secret="y",
         body="{}",
@@ -371,7 +371,7 @@ async def test_no_push_for_self_mention(client, _auth_signer, monkeypatch):
     t_owner, uid_owner, _, _, _, cid = await _make_two_member_guild(
         client, _auth_signer
     )
-    body = _sub_body("https://fcm.example.com/owner-device")
+    body = _sub_body("https://fcm.googleapis.com/owner-device")
     await client.post(
         "/notifications/subscribe", json=body, headers=_auth(t_owner)
     )

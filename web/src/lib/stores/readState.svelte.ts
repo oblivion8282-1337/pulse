@@ -31,6 +31,8 @@ class ReadState {
 
   private storageKey = '';
   private mentionsKey = '';
+  private persistTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistMentionsTimer: ReturnType<typeof setTimeout> | null = null;
 
   hydrateForUser(userId: string): void {
     this.storageKey = `${STORAGE_PREFIX}${userId}`;
@@ -158,20 +160,30 @@ class ReadState {
 
   private persist(): void {
     if (!this.storageKey || typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(this.storageKey, JSON.stringify(this.lastReadByChannel));
-    } catch {
-      // Quota exceeded / disabled — silently drop; in-memory state remains correct.
-    }
+    // Debounce: cancel any pending timer and schedule a new flush.
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    this.persistTimer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(this.storageKey, JSON.stringify(this.lastReadByChannel));
+      } catch {
+        // Quota exceeded / disabled — silently drop; in-memory state remains correct.
+      }
+      this.persistTimer = null;
+    }, 200);
   }
 
   private persistMentions(): void {
     if (!this.mentionsKey || typeof window === 'undefined') return;
-    try {
-      window.localStorage.setItem(this.mentionsKey, JSON.stringify(this.mentionCountByChannel));
-    } catch {
-      // Same forgiveness as `persist` — counter survives in memory.
-    }
+    // Debounce: cancel any pending timer and schedule a new flush.
+    if (this.persistMentionsTimer) clearTimeout(this.persistMentionsTimer);
+    this.persistMentionsTimer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(this.mentionsKey, JSON.stringify(this.mentionCountByChannel));
+      } catch {
+        // Same forgiveness as `persist` — counter survives in memory.
+      }
+      this.persistMentionsTimer = null;
+    }, 200);
   }
 }
 

@@ -47,6 +47,24 @@ end
 return 0
 """
 
+# Atomically remove a member from BOTH the presence set and the streaming set,
+# deleting each key if it becomes empty.  Two separate eval calls would leave a
+# window where the presence key is updated but the streaming key is not — a
+# concurrent _publish_state could then read an invalid state (streaming_user_ids
+# contains a user who is absent from user_ids).
+# KEYS[1] = presence set key, KEYS[2] = streaming set key, ARGV[1] = member.
+_LUA_LEAVE = """
+redis.call('SREM', KEYS[1], ARGV[1])
+if redis.call('SCARD', KEYS[1]) == 0 then
+    redis.call('DEL', KEYS[1])
+end
+redis.call('SREM', KEYS[2], ARGV[1])
+if redis.call('SCARD', KEYS[2]) == 0 then
+    redis.call('DEL', KEYS[2])
+end
+return 0
+"""
+
 VOICE_EVENTS_CHANNEL = "voice:events"
 VOICE_ROOM_KEY = "voice:room:{room}"
 VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
@@ -80,17 +98,17 @@ def _is_screen_share(track) -> bool:  # noqa: ANN001
     if "SCREEN_SHARE" in source_str:
         return True
 
-    # Track-name fallback (LiveKit sometimes names the track "screenshare").
-    # Match the exact known names rather than a "screen" substring so future
-    # tracks like "fullscreen_audio" aren't accidentally counted as a share.
-    name = (track.name or "").lower()
-    if name in ("screen", "screenshare", "screen_share"):
-        return True
-
-    # Final pragmatic fallback: only when source is explicitly 0/UNKNOWN (not a
-    # string like "CAMERA").  A VIDEO track with UNKNOWN source → screen-share,
-    # because camera video is never published in this app's voice channels.
+    # Track-name fallback + VIDEO-type fallback: only active when source is
+    # explicitly 0/UNKNOWN (not a string like "CAMERA").  Gating on source_int==0
+    # prevents a camera track with a misleading name like "screenshare" (from a
+    # third-party LiveKit client) from being misidentified as a screen-share.
     if source_int == 0:
+        name = (track.name or "").lower()
+        if name in ("screen", "screenshare", "screen_share"):
+            return True
+        # Final pragmatic fallback: any VIDEO track with UNKNOWN source →
+        # screen-share, because camera video is never published in this app's
+        # voice channels.
         try:
             is_video = int(track.type) == int(TrackType.VIDEO)
             if is_video:
@@ -132,11 +150,24 @@ def _get_redis(request: Request) -> Redis:
     return redis
 
 
+_receiver_singleton: WebhookReceiver | None = None
+
+
 def _receiver() -> WebhookReceiver:
-    settings = get_settings()
-    return WebhookReceiver(
-        TokenVerifier(settings.livekit_api_key, settings.livekit_api_secret)
-    )
+    """Return a cached WebhookReceiver singleton.
+
+    The API key and secret never change at runtime, so constructing a new
+    TokenVerifier (and its HMAC signing-key setup) on every webhook POST is
+    pure waste.  The singleton is initialised on the first call and reused
+    for all subsequent requests.
+    """
+    global _receiver_singleton
+    if _receiver_singleton is None:
+        settings = get_settings()
+        _receiver_singleton = WebhookReceiver(
+            TokenVerifier(settings.livekit_api_key, settings.livekit_api_secret)
+        )
+    return _receiver_singleton
 
 
 async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
@@ -174,11 +205,11 @@ async def _apply_join(redis: Redis, room_name: str, user_id: str) -> None:
 async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     key = room_key(room_name)
     sk = streaming_key(room_name)
-    # Atomic: SREM + conditional DEL via Lua to avoid the TOCTOU race between
-    # scard and delete where a concurrent join could re-add a member before the
-    # delete fires, causing a key with live members to be wiped.
-    await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, key, user_id)  # type: ignore[arg-type]
-    await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, sk, user_id)  # type: ignore[arg-type]
+    # Atomic: remove from BOTH sets in one Lua round-trip.  Using two separate
+    # eval calls would leave a window between them where a concurrent
+    # _publish_state could read an inconsistent snapshot (streaming_user_ids
+    # contains a user absent from user_ids).
+    await redis.eval(_LUA_LEAVE, 2, key, sk, user_id)  # type: ignore[arg-type]
 
 
 async def _apply_room_finished(redis: Redis, room_name: str) -> None:

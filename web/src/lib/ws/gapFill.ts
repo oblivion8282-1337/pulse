@@ -56,7 +56,5 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
 }
 
 export async function gapFillAll(subs: Iterable<string>): Promise<void> {
-  for (const cid of subs) {
-    await gapFillChannel(cid, false);
-  }
+  await Promise.allSettled([...subs].map(cid => gapFillChannel(cid, false)));
 }

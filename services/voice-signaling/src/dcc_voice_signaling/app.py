@@ -24,6 +24,15 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     if settings.livekit_api_key == _DEV_KEY or settings.livekit_api_secret == _DEV_SECRET:
         log.warning("livekit_dev_credentials", msg="using LiveKit dev credentials — set LIVEKIT_API_KEY/SECRET in production")
+    if settings.chat_gateway_url is None:
+        log.warning(
+            "chat_gateway_url_unset",
+            msg=(
+                "CHAT_GATEWAY_URL is not set — membership checks are DISABLED. "
+                "Any authenticated user can join arbitrary voice channels. "
+                "Set CHAT_GATEWAY_URL in production."
+            ),
+        )
     redis: Redis | None = None
     if getattr(app.state, "skip_redis", False):
         # Tests pre-wire `app.state.redis` themselves.

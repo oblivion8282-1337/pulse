@@ -94,6 +94,7 @@ def _route_settings(tmp_path):
     from dcc_chat_gateway.config import Settings as _Settings
 
     cert_login_route._reset_challenge_secret_for_tests()
+    cert_login_route._reset_cert_login_rate_for_tests()
     reset_session_signer()
 
     settings = _Settings(
@@ -112,6 +113,7 @@ def _route_settings(tmp_path):
     cert_login_route.get_settings = original  # type: ignore[assignment]
     reset_session_signer()
     cert_login_route._reset_challenge_secret_for_tests()
+    cert_login_route._reset_cert_login_rate_for_tests()
 
 
 def _patch_validate(claims: CertClaims | None):

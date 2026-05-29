@@ -3,7 +3,7 @@
 #   docker compose -f ~/pulse/infra/prod/docker-compose.yml pull
 #   docker compose -f ~/pulse/infra/prod/docker-compose.yml up -d
 #
-# Reads ~/pulse/infra/prod/.env.production (gitignored — copy from .example,
+# Reads ~/pulse/infra/prod/.env (gitignored — copy from .env.example,
 # fill in real secrets). Caddy on the host fronts pulse_web on
 # https://howispulse.com (see Caddyfile.pulse.snippet).
 #
@@ -158,6 +158,7 @@ services:
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
     volumes:
       - pulse_backups:/repo
+      - pulse_minio_stage:/var/cache/pulse-backup
       - pulse_avatars:/snapshot/avatars:ro
       - pulse_guild_icons:/snapshot/guild_icons:ro
     depends_on:
@@ -243,6 +244,7 @@ services:
     volumes:
       - ./secrets:/secrets:ro
       - pulse_guild_icons:/app/services/chat-gateway/uploads
+      - pulse_chat_data:/app/services/chat-gateway/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 15s
@@ -391,6 +393,8 @@ volumes:
   pulse_guild_icons:
   pulse_minio:
   pulse_backups:
+  pulse_chat_data:
+  pulse_minio_stage:
 
 networks:
   pulse-net:

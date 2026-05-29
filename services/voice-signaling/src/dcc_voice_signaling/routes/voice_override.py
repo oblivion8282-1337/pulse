@@ -6,14 +6,18 @@ clients update immediately."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Path, Request, status
 from pydantic import BaseModel, ConfigDict
 
 from dcc_voice_signaling import routes as voice_routes
 from dcc_voice_signaling.security import CurrentUser
+
+# Snowflake-format path parameter constraint (mirrors InternalEvictIn.user_id).
+_SnowflakePath = Annotated[str, Path(min_length=1, max_length=20, pattern=r"^\d+$")]
 
 router = APIRouter()
 
@@ -31,8 +35,8 @@ class VoiceOverrideIn(BaseModel):
 
 @router.put("/channels/{channel_id}/members/{user_id}/voice-override")
 async def set_voice_override(
-    channel_id: str,
-    user_id: str,
+    channel_id: _SnowflakePath,
+    user_id: _SnowflakePath,
     payload: VoiceOverrideIn,
     caller: CurrentUser,
     request: Request,
@@ -59,9 +63,12 @@ async def set_voice_override(
         raise HTTPException(400, detail="cannot apply voice overrides to yourself")
     bearer = voice_routes._bearer_from_header(authorization)
     # Same membership + voice-channel check as token-issue. Acts as an
-    # implicit existence check for the channel.
-    await voice_routes._require_voice_channel_member(channel_id, bearer)
-    perms = await voice_routes._resolve_channel_permissions(channel_id, bearer)
+    # implicit existence check for the channel. Both calls are independent
+    # GETs, so fire them concurrently.
+    _, perms = await asyncio.gather(
+        voice_routes._require_voice_channel_member(channel_id, bearer),
+        voice_routes._resolve_channel_permissions(channel_id, bearer),
+    )
     if payload.mute is not None and not (perms & voice_routes._PERM_MUTE_MEMBERS):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="missing permission: MUTE_MEMBERS"

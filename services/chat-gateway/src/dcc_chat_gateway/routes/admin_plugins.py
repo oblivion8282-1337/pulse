@@ -180,12 +180,22 @@ async def add_plugin_to_allowlist(
         discover_manifests,
     )
 
+    from dcc_chat_gateway.plugins.registry import get_manager
+
     _validate_plugin_name(name)
-    discovered = {m.name for m in discover_manifests()}
-    if name not in discovered:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND, detail="plugin_not_discovered"
-        )
+
+    # Check the manager first (no FS scan for plugins known at startup).
+    # Only fall back to a full discover_manifests() scan for plugins that
+    # arrived on disk after the last loader run. This avoids two separate
+    # full filesystem scans when the plugin was already discovered at startup
+    # (the common case).
+    mgr = get_manager()
+    if mgr.get(name) is None:
+        discovered = {m.name for m in discover_manifests()}
+        if name not in discovered:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, detail="plugin_not_discovered"
+            )
     await add_to_allowlist(session, name, added_by_user_id=actor.id)
 
     # ---- Hot-Reload ----------------------------------------------------

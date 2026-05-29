@@ -13,6 +13,7 @@
   import MicGainControl from './MicGainControl.svelte';
 
   let listeningForPttKey = $state(false);
+  let pttKeyListener: ((e: KeyboardEvent) => void) | null = null;
 
   function onNoiseToggle(e: Event) {
     const on = (e.currentTarget as HTMLInputElement).checked;
@@ -69,15 +70,26 @@
 
   function startPttCapture() {
     listeningForPttKey = true;
-    const onKey = (e: KeyboardEvent) => {
+    pttKeyListener = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
       settings.setPttKey(e.key);
       listeningForPttKey = false;
-      window.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('keydown', pttKeyListener!, true);
+      pttKeyListener = null;
     };
-    window.addEventListener('keydown', onKey, true);
+    window.addEventListener('keydown', pttKeyListener, true);
   }
+
+  $effect(() => {
+    return () => {
+      if (listeningForPttKey && pttKeyListener) {
+        window.removeEventListener('keydown', pttKeyListener, true);
+        listeningForPttKey = false;
+        pttKeyListener = null;
+      }
+    };
+  });
 
   let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
   let micPeakPct = $derived(Math.round(voice.localMicPeak * 100));

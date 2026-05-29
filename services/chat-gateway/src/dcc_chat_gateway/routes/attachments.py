@@ -35,7 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete as sa_delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway import s3
+from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep, SessionLocal
 from dcc_chat_gateway.models import ChatSettings, Guild, MessageAttachment
 from dcc_chat_gateway.permissions import (
@@ -103,6 +103,10 @@ async def create_upload_url(
     session: SessionDep,
     current: CurrentUser,
 ):
+    if not ratelimit.check("attach", current.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":
@@ -377,6 +381,9 @@ async def reaper_loop() -> None:
         await asyncio.sleep(REAPER_INTERVAL_S)
 
 
+REAPER_BATCH_SIZE = 500
+
+
 async def _reap_once() -> int:
     cutoff = datetime.now(UTC) - timedelta(seconds=ORPHAN_AGE_S)
     async with SessionLocal() as session:
@@ -385,7 +392,7 @@ async def _reap_once() -> int:
                 select(MessageAttachment).where(
                     MessageAttachment.message_id.is_(None),
                     MessageAttachment.created_at < cutoff,
-                )
+                ).limit(REAPER_BATCH_SIZE)
             )
         ).scalars().all()
         if not rows:

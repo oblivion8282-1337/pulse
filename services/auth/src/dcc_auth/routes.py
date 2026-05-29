@@ -62,6 +62,37 @@ def _signer_dep() -> JwtSigner:
     return get_signer()
 
 
+# ---------------------------------------------------------------------------
+# SmtpConfig cache — avoids a DB round-trip on every login/me/register call.
+# SmtpSettings changes only when an admin explicitly updates them (rare).
+# A 60-second TTL means at most 60 s of stale reads after a config change,
+# which is acceptable.  Call ``_invalidate_smtp_cache()`` from the admin
+# SMTP update route to flush immediately on write.
+# ---------------------------------------------------------------------------
+
+_smtp_cache: tuple[float, object | None] | None = None  # (monotonic_ts, SmtpConfig|None)
+_SMTP_CACHE_TTL = 60.0  # seconds
+
+
+def _invalidate_smtp_cache() -> None:
+    """Flush the SMTP config cache (call from the admin SMTP-update route)."""
+    global _smtp_cache
+    _smtp_cache = None
+
+
+async def _get_smtp_config_cached(session) -> object | None:
+    """Return the effective SmtpConfig, cached for up to _SMTP_CACHE_TTL seconds."""
+    from time import monotonic
+
+    global _smtp_cache
+    now = monotonic()
+    if _smtp_cache is not None and now - _smtp_cache[0] < _SMTP_CACHE_TTL:
+        return _smtp_cache[1]
+    cfg = await resolve_smtp_config(session)
+    _smtp_cache = (now, cfg)
+    return cfg
+
+
 async def _email_gate_blocked(session, user: User) -> bool:
     """True when the email-verification gate currently blocks this account.
 
@@ -73,7 +104,7 @@ async def _email_gate_blocked(session, user: User) -> bool:
     """
     if user.email_verified_at is not None:
         return False
-    return (await resolve_smtp_config(session)) is not None
+    return (await _get_smtp_config_cached(session)) is not None
 
 
 async def _issue_tokens(
@@ -626,8 +657,13 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     an in-process token bucket here keyed on (client, key). Production
     deployments should swap to a Redis-backed limiter.
 
-    Buckets are evicted lazily once their window has elapsed, so memory stays
-    bounded by the number of currently-active client IPs.
+    NOTE: this limiter is in-process only. With multiple uvicorn workers each
+    process maintains an independent counter; effective limits multiply by the
+    number of workers. Use a single-worker deployment or a Redis-backed limiter
+    if brute-force protection is critical.
+
+    Eviction is lazy and per-caller: expired windows are only cleaned up when
+    that specific IP is next seen, keeping the common path to O(1) dict lookups.
     """
     from time import monotonic
 
@@ -640,13 +676,9 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     ip = _client_ip(request)
     now = monotonic()
 
-    # Lazy sweep: drop entries whose window has fully elapsed.
-    expired = [k for k, w in bucket.items() if now - w["start"] >= seconds]
-    for k in expired:
-        del bucket[k]
-
     window = bucket.get(ip)
     if window is None or now - window["start"] >= seconds:
+        # Either new caller or expired window — start a fresh window.
         bucket[ip] = {"start": now, "count": 1}
         return
     if window["count"] >= n:

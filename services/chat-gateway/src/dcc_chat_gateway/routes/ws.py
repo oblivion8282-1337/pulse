@@ -153,5 +153,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4009, reason="too many connections")
         return
     redis = websocket.app.state.redis
-    await build_and_send_ready_frame(websocket, user, manager, redis)
-    await run_session_op_loop(websocket, user, manager, redis, exp)
+    # Guard: if build_and_send_ready_frame raises before run_session_op_loop
+    # is entered, the socket stays in the manager's dicts indefinitely.
+    # run_session_op_loop already calls remove_socket in its own finally;
+    # we only need to cover the case where we never reach it.
+    entered_loop = False
+    try:
+        await build_and_send_ready_frame(websocket, user, manager, redis)
+        entered_loop = True
+        await run_session_op_loop(websocket, user, manager, redis, exp)
+    finally:
+        if not entered_loop:
+            await manager.remove_socket(websocket)

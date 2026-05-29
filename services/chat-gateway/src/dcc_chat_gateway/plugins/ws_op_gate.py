@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -91,7 +92,7 @@ class _CacheEntry:
     expires_at: float
 
 
-_cache: dict[tuple[int, str], _CacheEntry] = {}
+_cache: OrderedDict[tuple[int, str], _CacheEntry] = OrderedDict()
 
 
 def _now() -> float:
@@ -99,25 +100,32 @@ def _now() -> float:
 
 
 def _cache_get(guild_id: int, plugin_name: str) -> bool | None:
-    entry = _cache.get((guild_id, plugin_name))
+    key = (guild_id, plugin_name)
+    entry = _cache.get(key)
     if entry is None:
         return None
     if entry.expires_at <= _now():
-        _cache.pop((guild_id, plugin_name), None)
+        _cache.pop(key, None)
         return None
+    # LRU: move accessed entry to the end (most-recently-used).
+    _cache.move_to_end(key)
     return entry.enabled
 
 
 def _cache_put(guild_id: int, plugin_name: str, enabled: bool) -> None:
+    key = (guild_id, plugin_name)
+    if key in _cache:
+        # Update in-place and move to end (most-recently-used).
+        _cache[key] = _CacheEntry(enabled=enabled, expires_at=_now() + _TTL_SECONDS)
+        _cache.move_to_end(key)
+        return
     if len(_cache) >= _MAX_ENTRIES:
-        # Naiver Eviction-Pfad: erstes Element droppen. Bei _TTL_SECONDS=60
-        # und 4096 Slots ist das eine theoretische Defensive — eine echte
-        # LRU wäre Overkill für PR1.
+        # LRU eviction: pop the oldest (least-recently-used) entry.
         try:
-            _cache.pop(next(iter(_cache)))
-        except StopIteration:  # pragma: no cover
+            _cache.popitem(last=False)
+        except KeyError:  # pragma: no cover
             pass
-    _cache[(guild_id, plugin_name)] = _CacheEntry(
+    _cache[key] = _CacheEntry(
         enabled=enabled, expires_at=_now() + _TTL_SECONDS
     )
 
@@ -250,10 +258,15 @@ async def check_plugin_op_gate(
     plugin_name, _ = parsed
 
     if plugin_name not in allowlist:
+        # Return a generic "unknown op" message — do NOT embed the plugin
+        # name or distinguishable text here. Distinct messages for
+        # "not in allowlist" vs "not enabled for guild" would let any
+        # authenticated user enumerate the instance's installed plugins
+        # by probing arbitrary op names and reading the response code.
         return GateDecision(
             allowed=False,
             error_code=WS_CODE_PLUGIN_NOT_ALLOWED,
-            error_msg=f"plugin not allowed: {plugin_name}",
+            error_msg="unknown op",
         )
 
     if plugin_name == HELLO_PLUGIN_NAME:
@@ -276,10 +289,12 @@ async def check_plugin_op_gate(
         )
 
     if not await is_plugin_enabled_for_guild(session, guild_id, plugin_name):
+        # Use the same generic message as the allowlist-miss case to avoid
+        # leaking which plugins are installed on the instance.
         return GateDecision(
             allowed=False,
             error_code=WS_CODE_PLUGIN_NOT_ENABLED,
-            error_msg=f"plugin not enabled for guild: {plugin_name}",
+            error_msg="unknown op",
         )
 
     return GateDecision(allowed=True)

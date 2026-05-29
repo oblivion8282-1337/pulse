@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import selectinload
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
@@ -179,13 +180,12 @@ async def list_applications(
         select(InstanceApplication)
         .where(InstanceApplication.status == status_filter)
         .order_by(InstanceApplication.created_at.asc())
+        .options(selectinload(InstanceApplication.applicant))
     )
     rows = (await session.execute(stmt)).scalars().all()
 
     out = []
     for row in rows:
-        # Eagerly load applicant (relationship already on the model)
-        await session.refresh(row, ["applicant"])
         out.append(
             ApplicationOut(
                 id=str(row.id),
@@ -337,14 +337,17 @@ async def list_instances(
             status.HTTP_400_BAD_REQUEST,
             detail="status must be active, suspended or all",
         )
-    stmt = select(RegisteredInstance).order_by(RegisteredInstance.registered_at.desc())
+    stmt = (
+        select(RegisteredInstance)
+        .order_by(RegisteredInstance.registered_at.desc())
+        .options(selectinload(RegisteredInstance.registrar))
+    )
     if status_filter != "all":
         stmt = stmt.where(RegisteredInstance.status == status_filter)
 
     rows = (await session.execute(stmt)).scalars().all()
     out = []
     for row in rows:
-        await session.refresh(row, ["registrar"])
         out.append(
             InstanceOut(
                 id=str(row.id),

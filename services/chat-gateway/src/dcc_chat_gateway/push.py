@@ -242,12 +242,17 @@ async def fan_out_mention_push(
     # Late import: routes.ws_ops → push would cycle.
     from dcc_chat_gateway.routes import ws_ops as _routes_ws_ops
 
-    async with _routes_ws_ops.SessionLocal() as session:
-        for uid in user_ids:
-            try:
+    # Each user gets their own session so dead-endpoint cleanup commits are
+    # scoped per-user; they also run concurrently so a slow push service
+    # doesn't serialize latency across all recipients.
+    async def _push_one(uid: int) -> None:
+        try:
+            async with _routes_ws_ops.SessionLocal() as session:
                 await send_push_to_user(uid, payload_base, session)
-            except Exception:  # noqa: BLE001
-                log.exception("send_push_to_user failed for user %s", uid)
+        except Exception:  # noqa: BLE001
+            log.exception("send_push_to_user failed for user %s", uid)
+
+    await asyncio.gather(*(_push_one(uid) for uid in user_ids))
 
 
 def _make_snippet(content: str, limit: int = 100) -> str:

@@ -29,7 +29,7 @@ from dcc_auth.crypto import decrypt_secret, encrypt_secret
 from dcc_auth.db import SessionDep
 from dcc_auth.email import SmtpConfig, compose_test_email, send_email_with
 from dcc_auth.models import SmtpSettings, User
-from dcc_auth.routes import _require_admin
+from dcc_auth.routes import _invalidate_smtp_cache, _require_admin
 from dcc_auth.routes_admin import _audit
 from dcc_auth.schemas import (
     SmtpSettingsOut,
@@ -151,6 +151,9 @@ async def patch_smtp_settings(
         _audit(session, actor_id=actor.id, action="smtp.patch", payload=diff)
         await session.commit()
         await session.refresh(row)
+        # Flush the 60-second SmtpConfig cache so the email gate picks up the
+        # new settings immediately instead of waiting up to one minute.
+        _invalidate_smtp_cache()
     return _smtp_out(row)
 
 

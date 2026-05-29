@@ -64,10 +64,14 @@ async def mention_candidates(
     # B-tree index.  We don't filter by guild here because the cache is
     # global — any user who has ever connected and pushed a statement is
     # eligible.  The UI should treat results as best-effort hints.
+    #
+    # Escape SQL LIKE wildcards in the user-supplied prefix so that
+    # ``q=%`` / ``q=_`` can't match every row or every single-char username.
+    q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     rows = (
         await session.execute(
             select(CachedUserProfile)
-            .where(CachedUserProfile.username.like(f"{q}%"))
+            .where(CachedUserProfile.username.like(f"{q_escaped}%", escape="\\"))
             .order_by(CachedUserProfile.username)
             .limit(_MAX_RESULTS)
         )

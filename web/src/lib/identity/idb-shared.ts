@@ -43,7 +43,10 @@ export function idbPutIdentity(db: IDBDatabase, key: string, value: unknown): Pr
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const req = tx.objectStore(STORE_NAME).put(value, key);
-    req.onsuccess = () => resolve();
+    // Resolve on tx.oncomplete (durable commit), not req.onsuccess (write accepted but not yet
+    // flushed to disk). Between onsuccess and oncomplete a crash can silently drop the write.
     req.onerror = () => reject(req.error);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }

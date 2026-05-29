@@ -129,7 +129,9 @@ export class DriftCorrector {
     // lead. Do NOT cancelNudge here — the next nudge() call resets the
     // rate-reset timer cleanly, and an aggressive cancel would briefly
     // drop back to 1.0x before the seek lands, wasting the opportunity.
-    const target = expected + SEEK_LEAD_S;
+    // Only apply the seek lead when playing; when paused, seek to the
+    // exact expected position without any lookahead.
+    const target = expected + (state.is_playing ? SEEK_LEAD_S : 0);
     // eslint-disable-next-line no-console
     console.log('[wp] SEEK', {
       from: actual.toFixed(2),
@@ -140,7 +142,12 @@ export class DriftCorrector {
       direction: drift > 0 ? 'forward' : 'backward'
     });
     player.seek(target);
-    this.nudge(player, NUDGE_RATE_FAST, POST_SEEK_NUDGE_MS);
+    // Only apply post-seek nudge when playing; when paused, reset to 1.0x.
+    if (state.is_playing) {
+      this.nudge(player, NUDGE_RATE_FAST, POST_SEEK_NUDGE_MS);
+    } else {
+      this.cancelNudge(player);
+    }
     return 'seek';
   }
 

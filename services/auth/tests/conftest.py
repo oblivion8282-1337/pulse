@@ -33,7 +33,7 @@ from dcc_auth import models as _models  # noqa: F401,E402 - register metadata
 from dcc_auth.app import create_app  # noqa: E402
 from dcc_auth.config import Settings, get_settings  # noqa: E402
 from dcc_auth.db import Base, get_session  # noqa: E402
-from dcc_auth.routes import _reset_rate  # noqa: E402
+from dcc_auth.routes import _invalidate_smtp_cache, _reset_rate  # noqa: E402
 from dcc_auth.security import reset_signer  # noqa: E402
 
 
@@ -41,6 +41,11 @@ from dcc_auth.security import reset_signer  # noqa: E402
 def _isolate_settings():
     get_settings.cache_clear()
     reset_signer()
+    # The SMTP-config cache is a module-level global with a 60s TTL; flush it
+    # between tests so a config written directly to the DB in one test (the
+    # admin route, which normally invalidates, is bypassed) does not leak a
+    # stale value into the next.
+    _invalidate_smtp_cache()
     # Force the test DB and small ttl so refresh-expired path is testable.
     s = Settings(
         database_url="sqlite+aiosqlite:///:memory:",

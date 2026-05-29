@@ -101,6 +101,12 @@ class User(Base):
     totp_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
+    # TOTP replay-prevention: stores the timecode (seconds // 30) of the last
+    # accepted TOTP code.  ``routes_totp._consume_second_factor`` rejects any
+    # code whose timecode is <= this value.  NULL means no TOTP code has been
+    # consumed yet (safe default — any timecode > NULL is always allowed).
+    # Migration 0023 adds this column.
+    totp_last_counter: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -117,6 +123,22 @@ class User(Base):
     )
     issued_credentials: Mapped[list["IssuedCredential"]] = relationship(
         "IssuedCredential", back_populates="user", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # Case-insensitive lookup indexes for username + display_name searches.
+        # ``text_pattern_ops`` accelerates LIKE / ILIKE prefix scans as well.
+        # Migration 0024 creates these CONCURRENTLY (no table-lock in prod).
+        Index(
+            "ix_users_username_lower",
+            func.lower(text("username")),
+            postgresql_ops={"lower(username)": "text_pattern_ops"},
+        ),
+        Index(
+            "ix_users_display_name_lower",
+            func.lower(text("display_name")),
+            postgresql_ops={"lower(display_name)": "text_pattern_ops"},
+        ),
     )
 
 

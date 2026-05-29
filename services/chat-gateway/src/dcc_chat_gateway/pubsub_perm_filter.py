@@ -282,7 +282,9 @@ class _PermFilterMixin:
         try:
             cid_int = int(channel_id)
         except (TypeError, ValueError):
-            return targets
+            # Non-parseable channel_id means the channel is unknown — drop the
+            # broadcast entirely rather than leaking it to all members.
+            return []
         from dcc_chat_gateway.models import Channel, DirectMessageChannel
 
         async with self._session_factory() as session:
@@ -295,10 +297,52 @@ class _PermFilterMixin:
                 if dm is None:
                     return []
                 return targets
-        # Resolve permissions concurrently. The session factory is reentrant
-        # so each can_view_channel() opens its own short-lived session.
-        # Sequential awaits here scale linearly with target count (100 voice-
-        # presence subscribers → 100 round-trips on a cold cache).
+
+            # Batch-resolve permissions for all cold-cache, non-admin sockets in
+            # a single set of 4 DB queries (guild + members + roles + overwrites),
+            # regardless of the number of cold sockets.  On a post-restart
+            # warm-up burst this avoids the N×5 query storm the per-socket
+            # asyncio.gather approach previously caused.
+            #
+            # Global admins bypass VIEW_CHANNEL checks entirely but
+            # members_who_can_view cannot see their admin flag (it lives in
+            # auth-svc / the JWT), so we exclude admin sockets from the batch
+            # and let _resolve_channel_perms handle them individually instead.
+            from dcc_chat_gateway.permissions import members_who_can_view
+
+            cache_miss_sockets: list = []
+            cache_miss_uids: list[int] = []
+            for ws in targets:
+                user = self._ws_user.get(ws)
+                if user is None:
+                    continue
+                if user.is_admin:
+                    # Admin perms are always grant-all; skip batch population —
+                    # _resolve_channel_perms handles them correctly.
+                    continue
+                cache = self._ws_perms.get(ws)
+                if cache is not None and cid_int in cache:
+                    continue  # already warm — skip
+                cache_miss_sockets.append(ws)
+                cache_miss_uids.append(user.id)
+
+            if cache_miss_uids:
+                async with self._session_factory() as batch_session:
+                    can_view_ids = await members_who_can_view(
+                        batch_session, ch.guild_id, cid_int
+                    )
+                # Populate the cache for each cold non-admin socket so the
+                # gather below hits only the hot path.  Store VIEW_CHANNEL bit
+                # when allowed, 0 when denied — sufficient for can_view_channel().
+                _view_bit = int(Permissions.VIEW_CHANNEL)
+                for ws, uid in zip(cache_miss_sockets, cache_miss_uids):
+                    if ws in self._ws_user:
+                        allowed = uid in can_view_ids
+                        self._ws_perms.setdefault(ws, {})[cid_int] = (
+                            _view_bit if allowed else 0
+                        )
+
+        # All non-admin sockets are warm; admin sockets resolve lazily below.
         results = await asyncio.gather(
             *(self.can_view_channel(ws, cid_int) for ws in targets)
         )

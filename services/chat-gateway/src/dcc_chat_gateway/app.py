@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
@@ -236,13 +237,19 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     app.include_router(router)
 
     @app.get("/internal/jwks-status")
-    async def jwks_status() -> dict:
+    async def jwks_status(
+        x_pulse_internal_secret: Annotated[str | None, Header()] = None,
+    ) -> dict:
         """Internal JWKS-pin status healthcheck (Phase 3.1 stub).
 
-        Returns the current pin-flag states.  Not exposed publicly — the
-        nginx / Caddy layer should restrict this to localhost / internal
-        networks.  Phase 4 will add a full admin UI banner driven by this.
+        Returns the current pin-flag states.  Gated behind the same
+        INTERNAL_SERVICE_SECRET header used by /internal/health-probe so
+        that the nginx proxy does not need an explicit deny block.
+        Phase 4 will add a full admin UI banner driven by this.
         """
+        # Reuse the same constant-time secret-check pattern as health-probe.
+        from dcc_chat_gateway.routes.health import _check_internal_secret  # noqa: PLC0415
+        _check_internal_secret(x_pulse_internal_secret)
         return {
             "jwks_ready": getattr(app.state, "jwks_ready", True),
             "jwks_changed_unexpectedly": getattr(

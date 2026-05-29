@@ -68,6 +68,15 @@
           `/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`
         );
       });
+      // Pull any deep-link that arrived before this onMount listener was
+      // registered (finding 156 — completes pull-based delivery).
+      void window.pulse?.invite?.getPending().then((data) => {
+        if (data) {
+          void goto(
+            `/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`
+          );
+        }
+      });
     }
 
     return () => {

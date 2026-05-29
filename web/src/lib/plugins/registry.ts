@@ -102,6 +102,15 @@ export interface PluginRecord {
 }
 
 const records = new Map<string, PluginRecord>();
+/** In-flight activation promises — guards against concurrent activatePlugin()
+ *  calls on the same name racing past the `rec.activated` check. */
+const activating = new Map<string, Promise<PluginRecord>>();
+
+/** Permission mode resolved once at module load. Resolving inside
+ *  activatePlugin() would allow a rogue plugin's register() to mutate
+ *  globalThis.PULSE_PLUGIN_PERMISSIONS and change the mode for plugins
+ *  activated afterwards. */
+const PLUGIN_PERMISSION_MODE: PluginPermissionMode = resolvePluginPermissionMode();
 
 export interface PluginEntry {
   manifest: PluginManifest;
@@ -146,6 +155,22 @@ export async function activatePlugin(name: string): Promise<PluginRecord> {
   if (!rec) throw new Error(`unknown plugin: ${name}`);
   if (rec.activated) return rec;
 
+  // Guard against concurrent calls: if an activation is already in flight
+  // for this name, return the same promise so both callers await the same
+  // result and register() is never called twice.
+  const inflight = activating.get(name);
+  if (inflight) return inflight;
+
+  const p = _doActivate(rec, name);
+  activating.set(name, p);
+  try {
+    return await p;
+  } finally {
+    activating.delete(name);
+  }
+}
+
+async function _doActivate(rec: PluginRecord, name: string): Promise<PluginRecord> {
   const beforeOps = new Set(listWsHandlers());
   const beforeSections = new Set(listSections());
 
@@ -165,7 +190,7 @@ export async function activatePlugin(name: string): Promise<PluginRecord> {
   const newSections = new Set(afterSections.filter((s) => !beforeSections.has(s)));
 
   // ---- Schritt-5 permission gate ---------------------------------------
-  const mode = resolvePluginPermissionMode();
+  const mode = PLUGIN_PERMISSION_MODE;
   if (mode !== 'off') {
     const declaredOps = new Set(rec.manifest.uses.ws_ops);
     const declaredSections = new Set(rec.manifest.uses.settings_sections);
@@ -236,6 +261,7 @@ export async function deactivatePlugin(name: string): Promise<PluginRecord> {
  *  no production path resets at runtime. */
 export function _resetPluginRegistry(): void {
   records.clear();
+  activating.clear();
 }
 
 // Re-export so plugin modules can `import { registerSettingsSection } from

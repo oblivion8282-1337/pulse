@@ -154,8 +154,18 @@ async def presigned_get_url(
     params: dict = {"Bucket": s.s3_bucket, "Key": key}
     if not inline and filename:
         # MinIO honours these response-override parameters in the signed URL.
+        # Sanitize the filename to prevent header injection: strip characters
+        # that could break out of the quoted-string (double-quote, backslash,
+        # CR, LF).  A clean quoted-string form is sufficient for all common
+        # file names; non-ASCII is preserved as-is (most S3/browsers handle it).
+        safe_filename = (
+            filename.replace("\\", "")
+                    .replace('"', "")
+                    .replace("\r", "")
+                    .replace("\n", "")
+        )
         params["ResponseContentDisposition"] = (
-            f'attachment; filename="{filename}"'
+            f'attachment; filename="{safe_filename}"'
         )
     client = await _ensure_public_client()
     return await client.generate_presigned_url(

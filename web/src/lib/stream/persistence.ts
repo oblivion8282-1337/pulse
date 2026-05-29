@@ -83,17 +83,28 @@ export async function loadKey<T>(key: string): Promise<T | undefined> {
 }
 
 /**
- * Write a batch of keys. Under Electron this triggers individual `store.set()`
- * calls (the main-side store persists synchronously); under the browser-fallback
- * we re-serialise the whole blob once. Failures are swallowed (the UI keeps the
- * in-memory state regardless of whether persistence succeeded).
+ * Write a batch of keys. Under Electron this uses the atomic `store:setAll`
+ * IPC handler (one serialised write, no parallel rename races — finding 158).
+ * Falls back to individual `store.set()` calls if `setAll` is not exposed by
+ * the preload (older builds). Under the browser-fallback we re-serialise the
+ * whole blob once. Failures are swallowed (the UI keeps the in-memory state
+ * regardless of whether persistence succeeded).
  */
 export async function saveAll(values: Record<string, unknown>): Promise<void> {
   const store = electronStore();
   if (store) {
     try {
-      // Update only the provided keys; leave others untouched.
-      await Promise.all(Object.entries(values).map(([k, v]) => store.set(k, v)));
+      // Prefer the atomic batch handler (eliminates parallel rename races).
+      // `setAll` is declared on PulseStoreApi; the runtime check keeps older
+      // preloads (that predate it) working.
+      if (typeof store.setAll === 'function') {
+        await store.setAll(values);
+      } else {
+        // Legacy fallback: sequential (not parallel) to avoid rename races.
+        for (const [k, v] of Object.entries(values)) {
+          await store.set(k, v);
+        }
+      }
     } catch {
       // tolerate — settings stay in memory
     }

@@ -4,6 +4,7 @@ chat-gateway (voice-signaling does not own the auth DB)."""
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Annotated
 
@@ -47,8 +48,13 @@ async def issue_token(
         )
 
     bearer = voice_routes._bearer_from_header(authorization)
-    await voice_routes._require_voice_channel_member(payload.channel_id, bearer)
-    perms = await voice_routes._resolve_channel_permissions(payload.channel_id, bearer)
+    # Fire both chat-gateway calls concurrently — they are independent GETs.
+    # _require_voice_channel_member raises on membership/type failure;
+    # _resolve_channel_permissions returns 0 on any error (never raises).
+    _, perms = await asyncio.gather(
+        voice_routes._require_voice_channel_member(payload.channel_id, bearer),
+        voice_routes._resolve_channel_permissions(payload.channel_id, bearer),
+    )
     # CONNECT is the join gate. A member who has been deny-CONNECT'd on the
     # channel must not get *any* token — issuing a subscribe-only token here
     # would still let them sit in the room and consume bandwidth. Refuse

@@ -22,11 +22,11 @@ import {
 } from './server-sync';
 
 const STORAGE_KEY = 'dcc.settings';
-/** Persist debounce window. The pre-registry code persisted synchronously
- *  per setter call (no batching), so we keep this at 0 for behaviour
- *  neutrality. Plugins doing hot-loop writes can rebind persistence (or
- *  call `flushPersist`) if they need batching. */
-const PERSIST_DEBOUNCE_MS = 0;
+/** Persist debounce window. 150 ms collapses slider-drag storms (volume,
+ *  mic gain, bitrate) into a single localStorage write without any visible
+ *  UX delay; sign-out and route-change paths call `flushPersist()` directly
+ *  so no data is lost on teardown. */
+const PERSIST_DEBOUNCE_MS: number = 150;
 
 type AnyConfig = SectionConfig<unknown>;
 

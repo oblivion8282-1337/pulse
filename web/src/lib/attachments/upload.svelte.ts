@@ -42,7 +42,7 @@ function _nextLocalId(): string {
 
 async function _generateThumb(
   file: File
-): Promise<{ blob: Blob; width: number; height: number } | null> {
+): Promise<{ blob: Blob; thumbWidth: number; thumbHeight: number; origWidth: number; origHeight: number } | null> {
   if (!file.type.startsWith('image/')) return null;
   let bitmap: ImageBitmap;
   try {
@@ -50,9 +50,11 @@ async function _generateThumb(
   } catch {
     return null; // unsupported format — server still sees the original
   }
-  const scale = Math.min(1, THUMB_MAX / Math.max(bitmap.width, bitmap.height));
-  const w = Math.max(1, Math.round(bitmap.width * scale));
-  const h = Math.max(1, Math.round(bitmap.height * scale));
+  const origWidth = bitmap.width;
+  const origHeight = bitmap.height;
+  const scale = Math.min(1, THUMB_MAX / Math.max(origWidth, origHeight));
+  const w = Math.max(1, Math.round(origWidth * scale));
+  const h = Math.max(1, Math.round(origHeight * scale));
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
@@ -67,21 +69,7 @@ async function _generateThumb(
     canvas.toBlob(res, 'image/webp', 0.85)
   );
   if (!blob) return null;
-  return { blob, width: w, height: h };
-}
-
-async function _measureImage(
-  file: File
-): Promise<{ width: number; height: number } | null> {
-  if (!file.type.startsWith('image/')) return null;
-  try {
-    const bitmap = await createImageBitmap(file);
-    const out = { width: bitmap.width, height: bitmap.height };
-    bitmap.close();
-    return out;
-  } catch {
-    return null;
-  }
+  return { blob, thumbWidth: w, thumbHeight: h, origWidth, origHeight };
 }
 
 function _putWithProgress(
@@ -142,11 +130,8 @@ export function startUpload(
 
   const run = async () => {
     try {
-      // 1. (image only) build the thumbnail + measure dimensions.
-      const [thumb, dims] = await Promise.all([
-        _generateThumb(file),
-        _measureImage(file)
-      ]);
+      // 1. (image only) build the thumbnail + capture original dimensions.
+      const thumb = await _generateThumb(file);
       if (cancelled) return;
 
       // 2. Ask the server for an upload URL (+ optional thumb URL).
@@ -154,12 +139,12 @@ export function startUpload(
         filename: file.name,
         mime: file.type || 'application/octet-stream',
         size: file.size,
-        width: dims?.width,
-        height: dims?.height,
+        width: thumb?.origWidth,
+        height: thumb?.origHeight,
         has_thumb: thumb !== null,
         thumb_size: thumb?.blob.size,
-        thumb_width: thumb?.width,
-        thumb_height: thumb?.height
+        thumb_width: thumb?.thumbWidth,
+        thumb_height: thumb?.thumbHeight
       });
       if (cancelled) return;
 
@@ -182,6 +167,7 @@ export function startUpload(
           abortCurrent = a;
         }
       );
+      if (cancelled) return;
 
       if (thumb && presign.thumb_upload_url) {
         await _putWithProgress(

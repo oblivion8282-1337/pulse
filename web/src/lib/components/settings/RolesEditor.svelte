@@ -45,6 +45,10 @@
       a.is_everyone === b.is_everyone ? b.position - a.position : a.is_everyone ? 1 : -1
     )
   );
+  let nonEveryoneList = $derived(sortedRoles.filter((x) => !x.is_everyone));
+  // id -> index within nonEveryoneList, so the per-row reorder checks below are
+  // O(1) instead of an O(N) findIndex per row (overall O(N²) in the {#each}).
+  let nonEveryoneIdx = $derived(new Map(nonEveryoneList.map((x, i) => [x.id, i])));
   let selectedId = $state<string | null>(null);
   let selectedRole = $derived(sortedRoles.find((r) => r.id === selectedId) ?? sortedRoles[0]);
 
@@ -280,8 +284,7 @@
     </div>
     <ul class="space-y-1">
       {#each sortedRoles as r, idx (r.id)}
-        {@const nonEveryoneList = sortedRoles.filter((x) => !x.is_everyone)}
-        {@const localIdx = nonEveryoneList.findIndex((x) => x.id === r.id)}
+        {@const localIdx = nonEveryoneIdx.get(r.id) ?? -1}
         {@const isFirst = localIdx === 0}
         {@const isLast = localIdx === nonEveryoneList.length - 1}
         <li

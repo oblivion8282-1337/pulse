@@ -27,10 +27,16 @@ export const CLOUD_LABEL = 'Pulse Cloud';
 
 const LS_KEY = 'pulse.servers';
 
-/** Normalisiert einen Hostname: HTTPS-only, lowercase, kein trailing slash. */
+/** Normalisiert einen Hostname: HTTPS-only, lowercase, kein trailing slash.
+ *  http://-URLs werden auf https:// hochgestuft — verhindert, dass Session-Tokens
+ *  im Klartext übertragen werden (z.B. via Deep-Link mit http://-Host-Parameter).
+ */
 function normalizeHostname(raw: string): string {
   const trimmed = raw.trim().toLowerCase().replace(/\/$/, '');
-  if (!trimmed.startsWith('https://') && !trimmed.startsWith('http://')) {
+  if (trimmed.startsWith('http://')) {
+    return `https://${trimmed.slice('http://'.length)}`;
+  }
+  if (!trimmed.startsWith('https://')) {
     return `https://${trimmed}`;
   }
   return trimmed;

@@ -56,17 +56,14 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('member_roles_updated', (evt) => {
     // Only the target user's role list changed. If we are them, the
-    // resolved-permissions store needs to re-pull. Either way, drop
-    // the lazy cache for this (guild, user) so the next access
-    // re-fetches with the new state — and immediately kick off the
-    // refetch via `ensure` so MemberList's hoist-group + colour
-    // re-derive correctly instead of falling back to "Online" /
-    // default colour until the user navigates.
+    // resolved-permissions store needs to re-pull. Invalidate the
+    // lazy cache for this (guild, user) so the next access re-fetches
+    // with the new state. Lazy loading will trigger if/when the
+    // member list is actually rendered.
     if (auth.user?.id === evt.user_id) {
       void roles.refreshMyRoles(evt.guild_id);
     }
     memberRoles.invalidate(evt.guild_id, evt.user_id);
-    void memberRoles.ensure(evt.guild_id, evt.user_id).catch(() => undefined);
   });
 
   // Guild-Admin hat ein Plugin auf der Guild getoggelt — oder der

@@ -11,6 +11,43 @@
   YT.Player can't emit a discrete "seek" event — the tile detects time-jumps
   via heartbeat drift correction instead.
 -->
+<script module lang="ts">
+  // Module-level singleton load of the IFrame API. Re-entries return the
+  // existing promise so we never inject the script twice.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let moduleApiPromise: Promise<any> | undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function loadApi(): Promise<any> {
+    if (moduleApiPromise) return moduleApiPromise;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    if (w.YT?.Player) {
+      moduleApiPromise = Promise.resolve(w.YT);
+      return moduleApiPromise;
+    }
+    moduleApiPromise = new Promise((resolve) => {
+      const prev = w.onYouTubeIframeAPIReady;
+      w.onYouTubeIframeAPIReady = () => {
+        try {
+          prev?.();
+        } catch {
+          // chained init failed; not our problem
+        }
+        resolve(w.YT);
+      };
+      // Check if script already exists before appending
+      if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        const s = document.createElement('script');
+        s.src = 'https://www.youtube.com/iframe_api';
+        s.async = true;
+        document.head.appendChild(s);
+      }
+    });
+    return moduleApiPromise;
+  }
+</script>
+
 <script lang="ts">
   import type { WatchSourceYouTube } from '$lib/stores/watchPartyPresence.svelte';
   import type { PlayerEvent, PlayerHandle } from '../sync';
@@ -28,38 +65,6 @@
   let { source, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
-
-  // Module-level singleton load of the IFrame API. Re-entries return the
-  // existing promise so we never inject the script twice.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let apiPromise: Promise<any> | undefined;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function loadApi(): Promise<any> {
-    if (apiPromise) return apiPromise;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    if (w.YT?.Player) {
-      apiPromise = Promise.resolve(w.YT);
-      return apiPromise;
-    }
-    apiPromise = new Promise((resolve) => {
-      const prev = w.onYouTubeIframeAPIReady;
-      w.onYouTubeIframeAPIReady = () => {
-        try {
-          prev?.();
-        } catch {
-          // chained init failed; not our problem
-        }
-        resolve(w.YT);
-      };
-      const s = document.createElement('script');
-      s.src = 'https://www.youtube.com/iframe_api';
-      s.async = true;
-      document.head.appendChild(s);
-    });
-    return apiPromise;
-  }
 
   $effect(() => {
     if (!mount) return;

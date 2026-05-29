@@ -207,7 +207,7 @@ async def post_message(
         id=next_id(),
         channel_id=channel_id,
         author_id=current.id,
-        content=payload.content,
+        content=payload.content.strip(),
         nonce=payload.nonce,
         reply_to_id=payload.reply_to_id,
     )
@@ -358,6 +358,11 @@ async def edit_message(
                 403, detail="missing permission: MENTION_EVERYONE"
             )
 
+    if not ratelimit.check("message", current.id):
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded"
+        )
+
     # Author may rewrite content AND swap attachments. Diff against the
     # current set: removed → hard-delete (MinIO + soft-row), added → bind.
     # An empty edit (no text + no attachments) is still rejected for the
@@ -391,7 +396,7 @@ async def edit_message(
             uploader_id=current.id,
         )
 
-    msg.content = payload.content
+    msg.content = payload.content.strip()
     msg.edited_at = datetime.now(UTC)
 
     # Re-compute mentions from the edited content. Read the pre-edit set

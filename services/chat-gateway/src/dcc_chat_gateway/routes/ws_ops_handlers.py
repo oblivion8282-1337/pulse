@@ -16,6 +16,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from fastapi import WebSocketDisconnect
+
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
 
@@ -273,5 +275,10 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
             await ctx.websocket.close(code=4047, reason="invalid profile statement")
         except Exception:  # noqa: BLE001
             pass
+        # Signal the op-loop to stop cleanly. Without this raise the loop
+        # would call receive_text() on the already-closed socket, which may
+        # raise RuntimeError (not caught by the loop's WebSocketDisconnect
+        # handler) instead of a graceful disconnect.
+        raise WebSocketDisconnect(code=4047)
     except Exception:  # noqa: BLE001
         log.exception("profile_statement: unexpected error for user=%s", ctx.user.id)

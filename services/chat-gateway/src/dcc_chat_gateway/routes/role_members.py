@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import MemberRole, Role
@@ -70,10 +71,23 @@ async def assign_member_role(
             403, detail="cannot grant permissions you do not yourself have"
         )
 
+    # Explicit membership check: the target user must be a guild member.
+    # Without this, the INSERT would raise an FK IntegrityError (asyncpg
+    # ForeignKeyViolationError) and surface as an unhandled 500, which
+    # also leaks whether the user_id is a member via 500-vs-204 difference.
+    await require_member(session, guild_id, user_id)
+
     existing = await session.get(MemberRole, (guild_id, user_id, role_id))
     if existing is None:
-        session.add(MemberRole(guild_id=guild_id, user_id=user_id, role_id=role_id))
-        await session.commit()
+        try:
+            session.add(MemberRole(guild_id=guild_id, user_id=user_id, role_id=role_id))
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="target user is not a member of this guild",
+            )
     await _publish_member_roles_updated(request, guild_id, user_id)
 
 

@@ -6,6 +6,7 @@ a no-auth eviction path."""
 
 from __future__ import annotations
 
+import hmac
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, status
@@ -22,7 +23,10 @@ class InternalEvictIn(BaseModel):
     any persisted voice-overrides for every voice channel in the guild."""
 
     model_config = ConfigDict(extra="forbid")
-    channel_ids: list[Annotated[str, Field(min_length=1, max_length=64)]]
+    channel_ids: Annotated[
+        list[Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]],
+        Field(max_length=100),
+    ]
     user_id: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
 
 
@@ -47,7 +51,7 @@ async def internal_evict_from_voice(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="internal endpoint disabled — set INTERNAL_SERVICE_SECRET",
         )
-    if x_pulse_internal_secret != expected:
+    if not hmac.compare_digest(x_pulse_internal_secret or "", expected):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="bad service token")
 
     redis = voice_routes._get_redis(request)

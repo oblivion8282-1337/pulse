@@ -26,6 +26,7 @@ Lives outside ``routes/messages.py`` to keep that file inside the
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
@@ -44,6 +45,7 @@ from dcc_chat_gateway.models import (
     MemberRole,
     MessageMention,
     Role,
+    UserBlock,
 )
 from dcc_chat_gateway.permissions import members_who_can_view
 
@@ -321,19 +323,39 @@ async def fan_out_mention_events(
     # direction) must not get a mention_added envelope — the channel-scoped
     # `message` envelope still fans out (no per-user channel hide today),
     # but the cross-channel counter bump is gated. Per-socket cache fast
-    # path first; cold-cache receivers fall through to a single DB query.
-    from dcc_chat_gateway.friend_events import is_blocked_between
+    # path first; cold-cache receivers use a single batched SELECT.
 
+    # Fast path: strip targets whose block status is already in the WS cache.
+    cache_unknown: set[int] = set()
     filtered: set[int] = set()
     for uid in targets:
         if mgr.is_blocked_by_any_socket(uid, author_id):
             continue
-        # Offline / cold-cache receivers: DB hop. With small target sets
-        # (mentions are bounded by VIEW_CHANNEL members) this is fine; if
-        # this becomes a hotspot it can be batched into a single SELECT.
-        if await is_blocked_between(session, uid, author_id):
-            continue
-        filtered.add(uid)
+        cache_unknown.add(uid)
+
+    # Batch block-check for all remaining targets in a single SQL query.
+    if cache_unknown:
+        blocked_rows = (
+            await session.execute(
+                select(UserBlock.blocker_id, UserBlock.blocked_id).where(
+                    (
+                        (UserBlock.blocker_id == author_id)
+                        & UserBlock.blocked_id.in_(cache_unknown)
+                    )
+                    | (
+                        (UserBlock.blocked_id == author_id)
+                        & UserBlock.blocker_id.in_(cache_unknown)
+                    )
+                )
+            )
+        ).all()
+        blocked_uids: set[int] = set()
+        for blocker, blocked in blocked_rows:
+            other = blocked if blocker == author_id else blocker
+            blocked_uids.add(other)
+        for uid in cache_unknown:
+            if uid not in blocked_uids:
+                filtered.add(uid)
     if not filtered:
         return set()
     from dcc_shared.events import MentionAddedData, MentionAddedEvent
@@ -345,11 +367,14 @@ async def fan_out_mention_events(
             guild_id=str(guild_id) if guild_id is not None else None,
         ),
     )
-    for uid in filtered:
+
+    async def _publish_one(uid: int) -> None:
         try:
             await mgr.publish_user_event(uid, envelope)
         except Exception:
             log.exception("publish_user_event failed for user %s", uid)
+
+    await asyncio.gather(*(_publish_one(uid) for uid in filtered))
     return filtered
 
 

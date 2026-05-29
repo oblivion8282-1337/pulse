@@ -109,12 +109,26 @@ async def handle_guild_events(
     # ``channel_bump`` carries no body but still flags a channel as
     # unread + plays a ping sound. On top of the guild-member scoping
     # above, gate it on VIEW_CHANNEL so a member without access to a
-    # private channel isn't pinged for it. ``dm_bump`` deliberately
-    # stays wide — DM channels have no permission overlay; the client
-    # filters by membership.
+    # private channel isn't pinged for it.
     elif op == "channel_bump":
         targets = await manager._filter_by_view_channel(
             targets, str(payload.get("channel_id", ""))
         )
+    # ``dm_bump`` must only reach the two DM participants — broadcasting it to
+    # all connected sockets would leak DM relationship metadata to unrelated
+    # users (finding 25).  DMs have no guild-member scoping (the fan-out above
+    # keeps all sockets at this point), so we do the narrowing here.
+    elif op == "dm_bump":
+        try:
+            a_id = int(payload.get("user_a_id", "0"))
+            b_id = int(payload.get("user_b_id", "0"))
+        except (TypeError, ValueError):
+            a_id = b_id = 0
+        if a_id and b_id:
+            targets = [
+                ws for ws in targets
+                if (u := manager._ws_user.get(ws)) is not None
+                and u.id in (a_id, b_id)
+            ]
     log.info("guild:events broadcast op=%s targets=%d", op, len(targets))
     await manager._fan_out(targets, payload)

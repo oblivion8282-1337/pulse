@@ -3,21 +3,25 @@ kick from a voice channel (requires ``MOVE_MEMBERS``)."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Path, Request, status
 
 from dcc_voice_signaling import routes as voice_routes
 from dcc_voice_signaling.security import CurrentUser
 
 router = APIRouter()
 
+# Snowflake-format path parameter constraint (mirrors InternalEvictIn.user_id).
+_SnowflakePath = Annotated[str, Path(min_length=1, max_length=20, pattern=r"^\d+$")]
+
 
 @router.post("/channels/{channel_id}/members/{user_id}/voice-disconnect")
 async def disconnect_from_voice(
-    channel_id: str,
-    user_id: str,
+    channel_id: _SnowflakePath,
+    user_id: _SnowflakePath,
     caller: CurrentUser,
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
@@ -44,8 +48,11 @@ async def disconnect_from_voice(
     if user_id == str(caller.id):
         raise HTTPException(400, detail="cannot disconnect yourself via the admin endpoint")
     bearer = voice_routes._bearer_from_header(authorization)
-    await voice_routes._require_voice_channel_member(channel_id, bearer)
-    perms = await voice_routes._resolve_channel_permissions(channel_id, bearer)
+    # Both calls are independent GETs — fire them concurrently.
+    _, perms = await asyncio.gather(
+        voice_routes._require_voice_channel_member(channel_id, bearer),
+        voice_routes._resolve_channel_permissions(channel_id, bearer),
+    )
     if not (perms & voice_routes._PERM_MOVE_MEMBERS):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="missing permission: MOVE_MEMBERS"

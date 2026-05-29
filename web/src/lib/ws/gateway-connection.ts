@@ -278,6 +278,10 @@ export class GatewayConnection {
       ws.addEventListener('close', (event) => {
         this.ws = null;
         this._mapCloseCode(event.code);
+        // Reject the _dial promise if the socket never opened, then fall
+        // through to schedule a reconnect regardless (wantConnected check
+        // below). These two paths are intentionally not mutually exclusive:
+        // we want the promise to reject *and* a retry to be scheduled.
         if (!opened) reject(new Error('ws closed before open'));
         if (this.wantConnected) this._scheduleReconnect();
       });

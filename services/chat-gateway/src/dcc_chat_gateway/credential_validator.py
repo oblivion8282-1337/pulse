@@ -169,11 +169,18 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     # --- Step 4: CRL lookup (runs ALWAYS — timing-attack guard, Plan §381) ---
     # Use the unverified cert_id so the Redis call always happens with a real
     # value, regardless of whether the signature was valid or not.
+    #
+    # FAIL-CLOSED on a Redis *error*: if the revocation set is unreachable we
+    # cannot prove the cert is *not* revoked, so we must reject. A cold/empty
+    # set (sismember returns falsy, no exception) is NOT an error — that is the
+    # legitimate "not revoked" answer and stays allowed. Only an actual Redis
+    # exception (outage / partition) flips to is_revoked=True so a revoked cert
+    # cannot slip through while the CRL is unreachable.
     cert_id = unverified_cert_id
     try:
         is_revoked = bool(await redis.sismember(REDIS_REVOKED_SET, cert_id)) if cert_id else False
     except Exception:  # noqa: BLE001
-        is_revoked = False  # fail-open on Redis error (same as previous good state)
+        is_revoked = True  # fail-closed: Redis unreachable → treat as revoked
 
     # --- Step 5: Reject on sig failure or revocation ---
     if not sig_ok:

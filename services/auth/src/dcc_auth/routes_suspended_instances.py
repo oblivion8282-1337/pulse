@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import logging
 import time
@@ -201,7 +202,7 @@ def _require_internal_secret(authorization: str | None = Header(default=None)) -
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    if token != secret:
+    if not hmac.compare_digest(token, secret):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
 
 
@@ -237,7 +238,7 @@ async def broadcast_update(
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
     token = authorization.split(" ", 1)[1].strip()
-    if token != secret:
+    if not hmac.compare_digest(token, secret):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid internal secret")
 
     # Fetch all active instances
@@ -258,7 +259,7 @@ async def broadcast_update(
     ok_list: list[str] = []
     failed_list: list[dict] = []
 
-    async def _notify(instance: RegisteredInstance) -> None:
+    async def _notify(instance: RegisteredInstance, hx: httpx.AsyncClient) -> None:
         # Sign a short-lived watchtower JWT
         payload = {
             "purpose": "watchtower-update",
@@ -274,16 +275,17 @@ async def broadcast_update(
         )
         url = f"https://{instance.hostname}/internal/trigger-update"
         try:
-            async with httpx.AsyncClient(verify=True, timeout=5.0) as hx:
+            async with asyncio.timeout(5.0):
                 resp = await hx.post(url, headers={"Authorization": f"Bearer {tok}"})
-                if resp.status_code < 400:
-                    ok_list.append(instance.hostname)
-                else:
-                    failed_list.append(
-                        {"hostname": instance.hostname, "reason": f"HTTP {resp.status_code}"}
-                    )
+            if resp.status_code < 400:
+                ok_list.append(instance.hostname)
+            else:
+                failed_list.append(
+                    {"hostname": instance.hostname, "reason": f"HTTP {resp.status_code}"}
+                )
         except Exception as exc:  # noqa: BLE001
             failed_list.append({"hostname": instance.hostname, "reason": str(exc)})
 
-    await asyncio.gather(*(_notify(r) for r in rows))
+    async with httpx.AsyncClient(verify=True) as hx:
+        await asyncio.gather(*(_notify(r, hx) for r in rows))
     return {"ok": ok_list, "failed": failed_list}

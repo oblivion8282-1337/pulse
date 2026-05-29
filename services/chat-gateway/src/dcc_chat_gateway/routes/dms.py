@@ -70,24 +70,32 @@ async def _can_send_batch(
     if not other_ids:
         return {}
     # Friendship is sorted-pair; we normalise per (caller, other) here.
+    # Filter to only the other_ids that are actually needed — no point
+    # loading rows for friends / blocks that aren't in the current DM set.
     pair_friends: set[frozenset[int]] = set()
     fr_rows = await session.execute(
         select(Friendship.user_a_id, Friendship.user_b_id).where(
             or_(
                 Friendship.user_a_id == caller_id,
                 Friendship.user_b_id == caller_id,
-            )
+            ),
+            or_(
+                Friendship.user_a_id.in_(other_ids),
+                Friendship.user_b_id.in_(other_ids),
+            ),
         )
     )
     for a, b in fr_rows.all():
         pair_friends.add(frozenset((a, b)))
-    # Blocks in either direction involving caller.
+    # Blocks in either direction between caller and any of the other_ids.
     blocked: set[int] = set()
     bk_rows = await session.execute(
         select(UserBlock.blocker_id, UserBlock.blocked_id).where(
             or_(
-                UserBlock.blocker_id == caller_id,
-                UserBlock.blocked_id == caller_id,
+                (UserBlock.blocker_id == caller_id)
+                & UserBlock.blocked_id.in_(other_ids),
+                (UserBlock.blocked_id == caller_id)
+                & UserBlock.blocker_id.in_(other_ids),
             )
         )
     )

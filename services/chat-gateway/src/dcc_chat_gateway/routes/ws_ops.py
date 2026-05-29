@@ -91,6 +91,11 @@ async def run_session_op_loop(
                 if oversize_frames >= _MAX_OVERSIZE_FRAMES:
                     break
                 continue
+            # Leaky bucket: a valid frame decrements the oversize counter so a
+            # legitimate client that occasionally sends an oversized frame amid
+            # normal traffic is never disconnected. Intentional, not an evasion
+            # risk — oversized frames are already rejected (4009) and never
+            # processed; an alternating client gains nothing by staying open.
             oversize_frames = max(0, oversize_frames - 1)
             try:
                 msg = json.loads(raw)
@@ -137,7 +142,28 @@ async def run_session_op_loop(
                         }
                     )
                     continue
-            await handler(ctx, msg)
+            try:
+                await handler(ctx, msg)
+            except WebSocketDisconnect:
+                # Handlers may raise WebSocketDisconnect to request a clean
+                # close (e.g. profile_statement on invalid JWT).  Propagate
+                # so the outer loop exits normally via its finally block.
+                raise
+            except Exception:  # noqa: BLE001
+                # An unhandled exception from a plugin handler must not tear
+                # down the entire WebSocket session.  Log it and send an error
+                # frame so the client knows something went wrong.
+                log.exception(
+                    "ws op handler raised for op=%s user=%s",
+                    msg.get("op"),
+                    user.id,
+                )
+                try:
+                    await websocket.send_json(
+                        {"op": "error", "code": 5000, "msg": "internal server error"}
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
     finally:
         if expiry_task is not None:
             expiry_task.cancel()

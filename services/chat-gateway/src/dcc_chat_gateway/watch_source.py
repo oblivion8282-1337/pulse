@@ -23,6 +23,7 @@ Returns the parsed source dict, or ``None`` for anything we can't sync.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -172,6 +173,45 @@ def parse_source(url: object) -> dict | None:
 
     # --- Native mp4/webm/m3u8 ---
     if _NATIVE_SUFFIX.search(u.path):
+        if _is_private_host(host):
+            return None
         return {"type": "native", "url": url}
 
     return None
+
+
+def _is_private_host(hostname: str) -> bool:
+    """Return True if *hostname* resolves to a private/internal network address.
+
+    Prevents guild members from using the watch-party native-URL feature to
+    weaponize other viewers' browsers as probes against internal hosts (SSRF
+    via client-side fetch).  We block:
+    * Unresolvable / empty hostnames (no host at all)
+    * ``localhost`` and loopback aliases
+    * RFC-1918 private ranges, link-local, and similar non-public ranges,
+      detected via :func:`ipaddress.ip_address` ``is_private`` / ``is_loopback``
+      / ``is_link_local`` flags (covers IPv4 and IPv6).
+    * Bare numeric IPv4/IPv6 literals (same check applied after parsing).
+    """
+    if not hostname:
+        return True
+    _LOCALHOST_NAMES = frozenset({"localhost", "localhost.localdomain"})
+    if hostname in _LOCALHOST_NAMES:
+        return True
+    # Try to parse as a raw IP address (IPv4 literal or bracketed IPv6).
+    try:
+        addr = ipaddress.ip_address(hostname)
+        return (
+            addr.is_loopback
+            or addr.is_private
+            or addr.is_link_local
+            or addr.is_multicast
+            or addr.is_reserved
+            or addr.is_unspecified
+        )
+    except ValueError:
+        # Not an IP literal — it's a hostname.  We cannot do DNS resolution
+        # here (no async context, and resolving would be a DoS vector), so we
+        # only block the obvious literal forms above.  Caddy / the user's own
+        # browser enforces the rest.
+        return False

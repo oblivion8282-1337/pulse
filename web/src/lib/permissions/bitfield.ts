@@ -121,7 +121,17 @@ export function resolveChannelPermissions(ctx: ResolverContext): bigint {
   }
 
   // @everyone first, then other roles in position order, then the user.
-  const sortedRoles = [...ctx.roles].sort((a, b) => {
+  // Avoid cloning + sorting when the caller pre-sorted (e.g. after caching
+  // in snapshotsForUser). Check is O(n) but allocation-free on the fast path.
+  function isSorted(arr: RoleSnapshot[]): boolean {
+    for (let i = 1; i < arr.length; i++) {
+      const a = arr[i - 1], b = arr[i];
+      const evA = a.is_everyone ? -1 : 1, evB = b.is_everyone ? -1 : 1;
+      if (evA !== evB ? evA > evB : a.position > b.position) return false;
+    }
+    return true;
+  }
+  const sortedRoles = isSorted(ctx.roles) ? ctx.roles : [...ctx.roles].sort((a, b) => {
     if (a.is_everyone !== b.is_everyone) return a.is_everyone ? -1 : 1;
     return a.position - b.position;
   });

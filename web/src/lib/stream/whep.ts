@@ -85,8 +85,12 @@ export async function connectWhep(
   const pc = new RTCPeerConnection({ iceServers });
   pc.addTransceiver('video', { direction: 'recvonly' });
   pc.addTransceiver('audio', { direction: 'recvonly' });
+  let trackReceived = false;
   pc.ontrack = (e) => {
-    if (e.streams[0]) onTrack(e.streams[0]);
+    if (e.streams[0] && !trackReceived) {
+      trackReceived = true;
+      onTrack(e.streams[0]);
+    }
   };
 
   let resourceUrl: string | null = null;

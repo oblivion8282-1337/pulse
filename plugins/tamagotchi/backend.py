@@ -47,12 +47,15 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from dcc_chat_gateway.permissions import resolve_permissions
 from dcc_chat_gateway.plugins.state_store import apply_atomic_update
 from dcc_chat_gateway.pubsub_channel_registry import register_channel_handler
 from dcc_chat_gateway.routes.ws_ops_registry import (
     WSOpContext,
     register_ws_op,
 )
+from dcc_shared.permission_resolver import has_permission
+from dcc_shared.permissions import Permissions
 
 log = logging.getLogger(__name__)
 
@@ -243,6 +246,35 @@ async def _handle_sleep(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 
 
 async def _handle_reset(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """Reset the guild pet — requires MANAGE_GUILD.
+
+    ``reset`` is a destructive op (wipes all progress); any member calling
+    it without MANAGE_GUILD gets a WS error frame back instead.
+    The membership + allowlist check already passed via the WS-Op-Gate.
+    """
+    guild_id = _coerce_guild_id(msg.get("guild_id"))
+    if guild_id is None:
+        log.warning("tamagotchi:reset without guild_id reached handler")
+        return
+
+    session_factory = ctx.manager._session_factory
+    if session_factory is None:
+        log.error("tamagotchi:reset without session_factory — bailing")
+        return
+
+    async with session_factory() as session:
+        perms = await resolve_permissions(session, ctx.user, guild_id)
+
+    if not has_permission(perms, Permissions.MANAGE_GUILD):
+        await ctx.websocket.send_json(
+            {
+                "op": "error",
+                "code": 4043,
+                "msg": "missing permission: MANAGE_GUILD",
+            }
+        )
+        return
+
     await _handle_action(ctx, "reset", msg)
 
 

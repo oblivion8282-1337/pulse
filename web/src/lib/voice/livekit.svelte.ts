@@ -184,6 +184,10 @@ class VoiceRoom {
   #noiseGateSetter: ((openDb: number) => void) | null = null;
   /** Live-tune handle for the post-gate makeup gain (null when no processor). */
   #makeupSetter: ((v: number) => void) | null = null;
+  /** True while a queueMicrotask-deferred #refreshParticipants is pending.
+   *  Coalesces bursts of LiveKit events (e.g. ParticipantConnected +
+   *  TrackSubscribed×N) into a single rebuild so Svelte re-renders once. */
+  #refreshScheduled = false;
 
   /** Remote screen-share tracks currently active in the room. */
   get screenTracks(): ScreenShareTrack[] {
@@ -300,6 +304,14 @@ class VoiceRoom {
       // startAudio rejects if already started — harmless.
     }
 
+    // Re-check generation: a channel switch may have started while startAudio
+    // was awaiting. If so, the new connect already owns this.#room and the
+    // shared state — bail without clobbering it.
+    if (gen !== this.#connectGen) {
+      await room.disconnect().catch(() => undefined);
+      return;
+    }
+
     this.state = room.state;
     this.audioBlocked = !room.canPlaybackAudio;
     voiceState.channelId = channelId;
@@ -307,6 +319,10 @@ class VoiceRoom {
     this.#refreshParticipants();
     this.#startLevelPolling();
     await this.#devices.refresh(room);
+
+    // Re-check again after devices.refresh() — same risk of a concurrent
+    // connect that replaced this.#room during the await.
+    if (gen !== this.#connectGen) return;
 
     // Live on join (Discord-style), unless PTT mode keeps the mic muted.
     if (!this.pttMode) {
@@ -592,14 +608,22 @@ class VoiceRoom {
       stream.getTracks().forEach((t) => t.stop());
       throw new Error('getDisplayMedia returned no video track');
     }
+    let videoPublished = false;
     try {
       await lp.publishTrack(videoTrack, { source: Track.Source.ScreenShare, ...publishOptions });
+      videoPublished = true;
       if (audioTrack) {
         await lp.publishTrack(audioTrack, { source: Track.Source.ScreenShareAudio });
       }
     } catch (e) {
-      // Publish failed mid-way — stop everything we acquired so the browser's
-      // picker dialog releases the source.
+      // Publish failed mid-way — unpublish the video track if it was already
+      // published (otherwise LiveKit holds a ghost screen-share publication
+      // pointing at a stopped MediaStreamTrack for the rest of the session).
+      if (videoPublished) {
+        await lp.unpublishTrack(videoTrack, false).catch(() => undefined);
+      }
+      // Stop everything we acquired so the browser's picker dialog releases
+      // the source (do this after unpublish while the tracks are still alive).
       stream.getTracks().forEach((t) => t.stop());
       throw e;
     }
@@ -782,9 +806,9 @@ class VoiceRoom {
         if (!_active()) return;
         this.#teardown();
       })
-      .on(RoomEvent.ParticipantConnected, () => _active() && this.#refreshParticipants())
-      .on(RoomEvent.ParticipantDisconnected, () => _active() && this.#refreshParticipants())
-      .on(RoomEvent.ActiveSpeakersChanged, () => _active() && this.#refreshParticipants())
+      .on(RoomEvent.ParticipantConnected, () => _active() && this.#scheduleRefresh())
+      .on(RoomEvent.ParticipantDisconnected, () => _active() && this.#scheduleRefresh())
+      .on(RoomEvent.ActiveSpeakersChanged, () => _active() && this.#scheduleRefresh())
       .on(RoomEvent.TrackMuted, (pub, p) => {
         if (!_active()) return;
         // setCameraEnabled(false) mutes the published track instead of
@@ -799,7 +823,7 @@ class VoiceRoom {
           const sid = pub.trackSid ?? pub.track?.sid;
           if (sid) this.#cameras.remove(sid);
         }
-        this.#refreshParticipants();
+        this.#scheduleRefresh();
       })
       .on(RoomEvent.TrackUnmuted, (pub, p) => {
         if (!_active()) return;
@@ -811,7 +835,7 @@ class VoiceRoom {
         ) {
           this.#cameras.add(pub.track as RemoteVideoTrack, p);
         }
-        this.#refreshParticipants();
+        this.#scheduleRefresh();
       })
       .on(RoomEvent.LocalTrackPublished, (pub) => {
         if (!_active()) return;
@@ -819,7 +843,7 @@ class VoiceRoom {
           void this.applyNoiseFilter();
           this.#attachLocalAnalyser();
         }
-        this.#refreshParticipants();
+        this.#scheduleRefresh();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
         if (!_active()) return;
@@ -836,9 +860,9 @@ class VoiceRoom {
           this.#localMic.detach();
           this.#resetSendLevel();
         }
-        this.#refreshParticipants();
+        this.#scheduleRefresh();
       })
-      .on(RoomEvent.ConnectionQualityChanged, () => _active() && this.#refreshParticipants())
+      .on(RoomEvent.ConnectionQualityChanged, () => _active() && this.#scheduleRefresh())
       .on(RoomEvent.TrackSubscribed, (track: RemoteTrack, pub: RemoteTrackPublication, p: RemoteParticipant) => {
         if (!_active()) return;
         if (track.kind === Track.Kind.Audio) {
@@ -868,7 +892,7 @@ class VoiceRoom {
             this.#cameras.add(track as RemoteVideoTrack, p);
           }
         }
-        this.#refreshParticipants();
+        this.#scheduleRefresh();
       })
       .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _pub, p: RemoteParticipant) => {
         if (!_active()) return;
@@ -884,7 +908,7 @@ class VoiceRoom {
         if (track.kind === Track.Kind.Video && track.source === Track.Source.Camera) {
           this.#cameras.remove(track.sid ?? '');
         }
-        this.#refreshParticipants();
+        this.#scheduleRefresh();
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
         if (!_active()) return;
@@ -894,6 +918,18 @@ class VoiceRoom {
         if (!_active()) return;
         this.audioBlocked = !this.#room?.canPlaybackAudio;
       });
+  }
+
+  /** Debounced wrapper: coalesces rapid bursts of LiveKit events into a single
+   *  rebuild. Multiple calls before the microtask drains resolve to one
+   *  `#refreshParticipants` invocation. */
+  #scheduleRefresh(): void {
+    if (this.#refreshScheduled) return;
+    this.#refreshScheduled = true;
+    queueMicrotask(() => {
+      this.#refreshScheduled = false;
+      this.#refreshParticipants();
+    });
   }
 
   #refreshParticipants(): void {
@@ -935,13 +971,12 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     let changed = false;
-    const allParticipants: Participant[] = [
-      room.localParticipant as LocalParticipant,
-      ...room.remoteParticipants.values()
-    ];
-    const participantMap = new Map<string, Participant>(allParticipants.map((p) => [p.identity, p]));
     for (const vp of this.participants) {
-      const p = participantMap.get(vp.identity);
+      // room.remoteParticipants is already a Map<string, RemoteParticipant> —
+      // use direct O(1) lookup instead of rebuilding a Map each tick.
+      const p: Participant | undefined = vp.isLocal
+        ? (room.localParticipant as LocalParticipant)
+        : room.remoteParticipants.get(vp.identity);
       if (!p) continue;
       const newLevel = p.audioLevel ?? 0;
       // Local isSpeaking is owned by LocalMicAnalyser / the send-tap detector.

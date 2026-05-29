@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import (
@@ -109,23 +109,24 @@ async def _load_context(
 
     roles: list[RoleSnapshot] = []
     if is_member:
-        stmt = (
-            select(Role)
-            .join(MemberRole, MemberRole.role_id == Role.id)
+        # One query for both the member's explicitly-assigned roles *and*
+        # the implicit @everyone role (every member has it whether or not a
+        # member_roles row exists). The OR-correlated subquery keeps it to a
+        # single round-trip; the (guild_id, is_everyone) uniqueness guarantees
+        # @everyone appears at most once.
+        assigned_ids = (
+            select(MemberRole.role_id)
             .where(
                 MemberRole.guild_id == guild_id,
                 MemberRole.user_id == user.id,
             )
+            .scalar_subquery()
+        )
+        stmt = select(Role).where(
+            Role.guild_id == guild_id,
+            or_(Role.id.in_(assigned_ids), Role.is_everyone.is_(True)),
         )
         assigned = list((await session.execute(stmt)).scalars())
-        # @everyone is implicit — every member has it whether or not
-        # there's a member_roles row for them. Pull it separately.
-        everyone_stmt = select(Role).where(
-            Role.guild_id == guild_id, Role.is_everyone.is_(True)
-        )
-        everyone = (await session.execute(everyone_stmt)).scalar_one_or_none()
-        if everyone is not None and everyone not in assigned:
-            assigned.append(everyone)
         roles = [
             RoleSnapshot(
                 id=r.id,
@@ -176,6 +177,8 @@ def resolve_guild_permissions_from_snapshot(
     user: AuthenticatedUser,
     guild_owner_id: int,
     member_roles: list[Role],
+    *,
+    is_member: bool | None = None,
 ) -> int:
     """Resolve guild-wide permissions from already-batched data.
 
@@ -188,9 +191,16 @@ def resolve_guild_permissions_from_snapshot(
 
     ``member_roles`` is the set of roles the user actually holds in this
     guild (including @everyone — callers must append it if the user is a
-    member). Non-members must pass an empty list; that returns 0 unless the
-    user is the global admin (which short-circuits inside the resolver). The
-    owner short-circuit still works via ``guild_owner_id == user.id``."""
+    member). The owner short-circuit still works via ``guild_owner_id ==
+    user.id``.
+
+    ``is_member`` is the authoritative membership flag. Callers that already
+    know the user is a member (e.g. ``ws_ready`` builds the guild list from a
+    ``GuildMember`` JOIN) should pass ``is_member=True`` so a missing/deleted
+    @everyone role row does not silently demote a real member to zero
+    permissions. When left ``None`` the flag is inferred from whether
+    ``member_roles`` is non-empty (legacy behaviour: non-members pass an
+    empty list)."""
     snapshots = [
         RoleSnapshot(
             id=r.id,
@@ -200,11 +210,12 @@ def resolve_guild_permissions_from_snapshot(
         )
         for r in member_roles
     ]
+    member = bool(member_roles) if is_member is None else is_member
     ctx = _Ctx(
         user=user.id,
         admin=user.is_admin,
         owner=guild_owner_id == user.id,
-        member=bool(member_roles),
+        member=member,
         roles=snapshots,
         overwrites={},
     )

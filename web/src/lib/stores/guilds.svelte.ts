@@ -9,6 +9,8 @@ class GuildStore {
   // dedupe a prefetch + a concurrent click-driven load into a single
   // round-trip.
   #channelLoads = new Map<string, Promise<Channel[]>>();
+  // Reverse index: channelId → guildId for O(1) lookups.
+  private channelToGuild = $state<Map<string, string>>(new Map());
 
   // Snowflake IDs have the same length, so lexicographic order == numeric order.
   // Avoids Number() precision loss for IDs > 2^53.
@@ -61,13 +63,9 @@ class GuildStore {
   }
 
   /** Find the guild containing ``channelId``. Returns ``null`` for DM
-   * channels and unknown ids. Small N (a few guilds × dozens of channels)
-   * → linear scan is fine; no inverse-index bookkeeping. */
+   * channels and unknown ids. Uses a reverse index for O(1) lookup. */
   guildIdForChannel(channelId: string): string | null {
-    for (const [gid, list] of Object.entries(this.channelsByGuild)) {
-      if (list.some((c) => c.id === channelId)) return gid;
-    }
-    return null;
+    return this.channelToGuild.get(channelId) ?? null;
   }
 
   remove(guildId: string): void {
@@ -90,14 +88,23 @@ class GuildStore {
       ...this.channelsByGuild,
       [channel.guild_id]: [...list, full]
     };
+    // Update reverse index.
+    this.channelToGuild.set(channel.id, channel.guild_id);
   }
 
   removeChannel(channelId: string): void {
-    const next: Record<string, Channel[]> = {};
-    for (const [gid, list] of Object.entries(this.channelsByGuild)) {
-      next[gid] = list.filter((c) => c.id !== channelId);
-    }
-    this.channelsByGuild = next;
+    // Use reverse index to find and update only the affected guild.
+    const guildId = this.channelToGuild.get(channelId);
+    if (!guildId) return;
+    const list = this.channelsByGuild[guildId];
+    if (!list) return;
+    const filtered = list.filter((c) => c.id !== channelId);
+    if (filtered.length === list.length) return; // Channel not found.
+    this.channelsByGuild = {
+      ...this.channelsByGuild,
+      [guildId]: filtered
+    };
+    this.channelToGuild.delete(channelId);
   }
 
   updateChannel(channel: Partial<Channel> & Pick<Channel, 'id' | 'guild_id'>): void {
@@ -108,6 +115,8 @@ class GuildStore {
       // Merge so fields the event omits (e.g. created_at) keep their values.
       [channel.guild_id]: list.map((c) => (c.id === channel.id ? { ...c, ...channel } : c))
     };
+    // Ensure reverse index is up-to-date.
+    this.channelToGuild.set(channel.id, channel.guild_id);
   }
 
   clear(): void {
@@ -115,6 +124,7 @@ class GuildStore {
     this.channelsByGuild = {};
     this.loaded = false;
     this.#channelLoads.clear();
+    this.channelToGuild.clear();
   }
 }
 

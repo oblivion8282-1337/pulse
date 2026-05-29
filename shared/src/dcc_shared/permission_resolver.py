@@ -5,7 +5,7 @@ storage layer — it talks to a ``PermissionContext`` protocol that the
 caller implements (a SQLAlchemy-backed one for chat-gateway, a fake one
 for tests). Pattern taken from Stoatchat's ``PermissionQuery`` trait.
 
-Discord-formula reference:
+Resolution reference (Discord-shaped, but deny-wins per-overwrite):
 
     base = OR(role.permissions for role in member.roles incl @everyone)
     if base & ADMINISTRATOR: grant all
@@ -17,7 +17,9 @@ Discord-formula reference:
         apply(channel.overwrite for target=role)
     apply(channel.overwrite for target=member)
 
-    final = (base | allow) & ~deny
+    # each apply() is (value | allow) & ~deny — i.e. DENY WINS when a bit
+    # is set in both allow and deny (stricter than Discord's allow-wins
+    # ``(base & ~deny) | allow``; see ``Override.apply``).
     if not final & VIEW_CHANNEL: final = 0
 
 The "lowest-to-highest" ordering matters because higher-position role
@@ -40,10 +42,16 @@ class Override:
     deny: int
 
     def apply(self, value: int) -> int:
-        """Layer this override onto ``value`` — allows win over the current
-        state, denies are stamped out afterward. Same shape as Discord's
-        ``final = (base & ~deny) | allow`` but ordered so multiple
-        consecutive applies still produce the expected result."""
+        """Layer this override onto ``value``: OR in the allows first, then
+        stamp out the denies. Implemented as ``(value | allow) & ~deny``.
+
+        Note this is **deny-wins**, not allow-wins: if a bit is set in both
+        ``allow`` and ``deny`` the result is denied. (Discord's documented
+        ``(base & ~deny) | allow`` is allow-wins and differs only in that
+        both-set case — Pulse deliberately resolves it the stricter way; see
+        the ``OverwriteIn`` schema comment which documents "bits in both means
+        deny wins".) Applying repeatedly is safe because each apply is
+        idempotent for a fixed (allow, deny)."""
         return (value | self.allow) & ~self.deny
 
 
@@ -144,12 +152,19 @@ def calculate_channel_permissions(ctx: PermissionContext) -> int:
     if not ctx.is_guild_member():
         return 0
 
-    base = calculate_guild_permissions(ctx)
-    if base == GRANT_ALL_SAFE:
+    # Pull the role list once and reuse it for both the guild-base
+    # accumulation and the overwrite-application phase — ``member_roles()``
+    # is only guaranteed cheap by the in-memory impl, not by the Protocol.
+    member_roles = ctx.member_roles()
+
+    base = 0
+    for role in member_roles:
+        base |= role.permissions
+    if base & int(Permissions.ADMINISTRATOR):
         # ADMINISTRATOR bit was set; channel overwrites cannot revoke it.
         return GRANT_ALL_SAFE
 
-    roles = sorted(ctx.member_roles(), key=lambda r: (not r.is_everyone, r.position))
+    roles = sorted(member_roles, key=lambda r: (not r.is_everyone, r.position))
     # @everyone first (it sorts as is_everyone=True → key=(False, position)
     # which beats any normal role's (True, position) tuple).
 

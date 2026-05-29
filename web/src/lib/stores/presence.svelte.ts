@@ -45,10 +45,10 @@ class PresenceStore {
   }
 
   apply(userId: string, online: boolean): void {
-    const next = new Set(this.onlineIds);
-    if (online) next.add(userId);
-    else next.delete(userId);
-    this.onlineIds = next;
+    if (online) this.onlineIds.add(userId);
+    else this.onlineIds.delete(userId);
+    // Trigger Svelte reactivity by re-assigning the reference.
+    this.onlineIds = this.onlineIds;
   }
 
   /** Apply a ``presence_status_changed`` for a peer (masked value — caller

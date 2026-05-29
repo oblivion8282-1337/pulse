@@ -14,7 +14,8 @@
  * should send `undefined` for remote avatars rather than the URL.
  */
 
-import { BrowserWindow, Notification, ipcMain } from 'electron';
+import { app, BrowserWindow, Notification, ipcMain } from 'electron';
+import * as path from 'node:path';
 
 export interface NotifyPayload {
   title: string;
@@ -33,13 +34,63 @@ export interface NotifyClickPayload {
 
 let notifySeq = 0;
 
+/** Maximum number of live `Notification` objects to keep. Older entries are
+ *  closed and evicted when the cap is exceeded, bounding memory growth from
+ *  unclicked notifications that persist in the OS notification centre
+ *  (finding 160). */
+const MAX_LIVE_NOTIFICATIONS = 50;
+/** Insertion-ordered map from notification id → Notification instance. */
+const liveNotifications = new Map<string, Notification>();
+
+function evictOldestNotification(): void {
+  const firstKey = liveNotifications.keys().next().value;
+  if (firstKey === undefined) return;
+  const old = liveNotifications.get(firstKey);
+  liveNotifications.delete(firstKey);
+  try { old?.close(); } catch { /* ignore */ }
+}
+
+/**
+ * Validate the icon field from the renderer.
+ *
+ * Security (finding 161): the icon value comes from the renderer and could
+ * be any string. We must not forward arbitrary paths to libnotify / the OS
+ * notification system — doing so lets a compromised renderer cause the
+ * notification daemon to read (and potentially probe) arbitrary local files.
+ *
+ * Accepted: a local path that is strictly inside the app's own resource
+ * directory (e.g. packaged assets under `process.resourcesPath`). Everything
+ * else — HTTP(s) URLs, `file://` URIs, absolute paths outside app resources,
+ * and relative paths — is rejected and the icon is dropped.
+ *
+ * Currently the only call site passes `undefined` (chat.ts), so this guard
+ * is latent protection for future callers.
+ */
+function sanitiseIcon(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  // Reject HTTP(s) URLs — libnotify can't async-fetch them anyway (silently
+  // shows no icon), but we make the rejection explicit.
+  if (raw.startsWith('http://') || raw.startsWith('https://')) return undefined;
+  // Reject file:// URIs — convert to a path first and re-validate below.
+  if (raw.startsWith('file://')) return undefined;
+  // Only accept absolute paths.
+  if (!path.isAbsolute(raw)) return undefined;
+  // Require the path to be within the app's resource directory so the
+  // notification daemon cannot be directed at arbitrary files.
+  const resourcesDir = process.resourcesPath ?? path.join(app.getAppPath(), '..');
+  const resolved = path.resolve(raw);
+  if (!resolved.startsWith(resourcesDir + path.sep) && resolved !== resourcesDir) {
+    return undefined;
+  }
+  return resolved;
+}
+
 export function wireNotify(getWindow: () => BrowserWindow | null): void {
   ipcMain.handle('notify:show', async (_e, payload: NotifyPayload): Promise<string> => {
     const id = `${Date.now().toString(36)}-${(++notifySeq).toString(36)}`;
     if (!Notification.isSupported()) return id;
-    // Only accept local file paths for the icon — `new Notification({icon:
-    // 'https://…'})` silently shows no icon on Linux.
-    const icon = payload.icon && !payload.icon.startsWith('http') ? payload.icon : undefined;
+
+    const icon = sanitiseIcon(payload.icon);
     const notif = new Notification({
       title: payload.title,
       body: payload.body,
@@ -52,6 +103,8 @@ export function wireNotify(getWindow: () => BrowserWindow | null): void {
       message_id: payload.message_id,
     };
     notif.on('click', () => {
+      // Remove from the live map when clicked so it is GC'd promptly.
+      liveNotifications.delete(id);
       const win = getWindow();
       if (!win || win.isDestroyed()) return;
       if (win.isMinimized()) win.restore();
@@ -61,10 +114,14 @@ export function wireNotify(getWindow: () => BrowserWindow | null): void {
         win.webContents.send('notify:click', click);
       }
     });
+    // Evict oldest if we have hit the cap, then track this new notification.
+    if (liveNotifications.size >= MAX_LIVE_NOTIFICATIONS) evictOldestNotification();
+    liveNotifications.set(id, notif);
     try {
       notif.show();
     } catch (e) {
       console.error('[notify] show failed:', e);
+      liveNotifications.delete(id);
     }
     return id;
   });

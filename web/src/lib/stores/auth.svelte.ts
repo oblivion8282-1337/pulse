@@ -72,12 +72,6 @@ class AuthStore {
           .then(async ({ runIssueFlow, RecoveryAvailableError }) => {
             try {
               await runIssueFlow();
-              const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
-                import('$lib/identity/profile-refresh.svelte'),
-                import('$lib/identity/cert-rotation.svelte'),
-              ]);
-              startProfileRefresh();
-              startCertRotation();
             } catch (err) {
               if (err instanceof RecoveryAvailableError) {
                 const params = new URLSearchParams({
@@ -85,8 +79,18 @@ class AuthStore {
                   device_label: err.deviceLabel,
                 });
                 await goto(`/recover?${params.toString()}`, { replaceState: true });
+                return; // Recovery-Redirect — Timer erst nach erneutem Login starten
               }
+              // Andere Fehler (Netzwerk etc.): Timer trotzdem starten. Die
+              // Rotation-Callbacks wiederholen den Versuch beim nächsten Interval.
+              // Kein rethrow — wir wollen immer zu startProfileRefresh/startCertRotation.
             }
+            const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
+              import('$lib/identity/profile-refresh.svelte'),
+              import('$lib/identity/cert-rotation.svelte'),
+            ]);
+            startProfileRefresh();
+            startCertRotation();
           })
           .catch(() => {/* silent — degradiert gracefully */});
       }

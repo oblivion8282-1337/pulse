@@ -36,10 +36,8 @@
   }
 
   function toggle(id: string) {
-    const next = new Set(expanded);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    expanded = next;
+    if (expanded.has(id)) expanded.delete(id);
+    else expanded.add(id);
   }
 
   function fmtUser(id: string | null): string {

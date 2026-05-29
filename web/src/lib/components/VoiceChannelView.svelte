@@ -137,8 +137,8 @@
     trigger: { key: settings.voice.pttKey, modifier: false, callback: handlePttKeydown }
   }}
   onkeyup={handlePttKeyup}
-  onblur={() => { if (voice.pttMode) voice.pttRelease(); }}
-  onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) voice.pttRelease(); }}
+  onblur={() => { if (voice.pttMode) { voice.pttRelease(); pttPressed = false; } }}
+  onvisibilitychange={() => { if (document.visibilityState === 'hidden' && voice.pttMode) { voice.pttRelease(); pttPressed = false; } }}
 />
 
 <section class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl" data-testid="voice-channel-view">

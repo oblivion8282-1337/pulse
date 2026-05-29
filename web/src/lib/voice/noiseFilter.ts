@@ -6,6 +6,11 @@ import rnnoiseSimdWasmPath from '@sapphi-red/web-noise-suppressor/rnnoise_simd.w
 import noiseGateWorkletPath from '@sapphi-red/web-noise-suppressor/noiseGateWorklet.js?url';
 import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
 
+/** Tracks AudioContext instances that have had the RNNoise + gate worklet
+ *  modules registered, so restart() skips the addModule round-trips when
+ *  rebuilding the graph within the same context. */
+const _workletModulesRegistered = new WeakSet<AudioContext>();
+
 /** Hysteresis: gate closes 5 dB below the open threshold so it doesn't
  *  rapidly toggle around the boundary during steady-level breaths/sibilants. */
 const GATE_CLOSE_BELOW_OPEN_DB = 5;
@@ -149,8 +154,11 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
     if (!this.#wasmBinary) {
       this.#wasmBinary = await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseSimdWasmPath });
     }
-    await ctx.audioWorklet.addModule(rnnoiseWorkletPath);
-    await ctx.audioWorklet.addModule(noiseGateWorkletPath);
+    if (!_workletModulesRegistered.has(ctx)) {
+      await ctx.audioWorklet.addModule(rnnoiseWorkletPath);
+      await ctx.audioWorklet.addModule(noiseGateWorkletPath);
+      _workletModulesRegistered.add(ctx);
+    }
 
     const stream = new MediaStream([track]);
     const source = ctx.createMediaStreamSource(stream);

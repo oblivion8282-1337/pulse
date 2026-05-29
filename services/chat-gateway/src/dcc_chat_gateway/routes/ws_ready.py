@@ -170,7 +170,7 @@ async def build_and_send_ready_frame(
                 if r.id in my_role_id_set or r.is_everyone
             ]
             my_perms = resolve_guild_permissions_from_snapshot(
-                user, g.owner_id, member_roles_snapshot
+                user, g.owner_id, member_roles_snapshot, is_member=True
             )
             guilds.append(
                 {

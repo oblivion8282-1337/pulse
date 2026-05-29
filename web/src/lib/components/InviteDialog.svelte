@@ -73,11 +73,13 @@
   }
 
   async function onExpireChange(val: string) {
+    if (busy) return;
     expiresInSeconds = val ? Number(val) : undefined;
     await generateInvite();
   }
 
   async function onUsesChange(val: string) {
+    if (busy) return;
     maxUses = val ? Number(val) : undefined;
     await generateInvite();
   }

@@ -23,6 +23,9 @@ export interface PulseStoreApi {
   get(key: string): Promise<unknown>;
   getAll(): Promise<Record<string, unknown>>;
   set(key: string, value: unknown): Promise<void>;
+  /** Atomically write multiple key-value pairs in one IPC round-trip
+   *  (finding 158). Values must be JSON-serialisable. */
+  setAll(values: Record<string, unknown>): Promise<void>;
 }
 
 export interface PulseGsrApi {
@@ -84,6 +87,9 @@ export interface PulseInvitePayload {
 export interface PulseInviteApi {
   /** Subscribe to incoming invite deep-links. Returns an unsubscribe function. */
   onLink(cb: (data: PulseInvitePayload) => void): () => void;
+  /** Pull any deep-link that arrived before onMount / the onLink listener was
+   *  registered (finding 156). Returns the buffered payload or null. */
+  getPending(): Promise<PulseInvitePayload | null>;
 }
 
 export interface PulseApi {

@@ -74,6 +74,24 @@ WSOpHandler = Callable[[WSOpContext, dict[str, Any]], Awaitable[None]]
 
 _handlers: dict[str, WSOpHandler] = {}
 
+# Built-in op names that plugins must not shadow.  A plugin op name contains a
+# colon (``"tamagotchi:feed"``), so this guard only triggers for unnamespaced
+# ops — internal handlers register *before* any plugin runs, so they are always
+# safe; it's a plugin registration that accidentally omits its namespace that
+# we want to catch early.
+CORE_OPS: frozenset[str] = frozenset({
+    "send",
+    "subscribe",
+    "unsubscribe",
+    "voice_self_state",
+    "activity",
+    "watch_start",
+    "watch_stop",
+    "watch_control",
+    "watch_heartbeat",
+    "profile_statement",
+})
+
 
 def register_ws_op(
     op: str, handler: WSOpHandler | None = None
@@ -93,7 +111,20 @@ def register_ws_op(
     A second registration for the same ``op`` overrides the first (last-writer-
     wins). The previous handler is silently dropped — tests in
     ``test_ws_op_registry.py`` lock this in.
+
+    Protection: a built-in op name (in ``CORE_OPS``, no colon) may be registered
+    exactly ONCE — by the core handler module at import time. Any *later* attempt
+    to register the same bare core name (i.e. it is already in ``_handlers``)
+    raises ``ValueError`` so a plugin cannot override a built-in handler. The
+    first/core registration passes (the name is not yet present); the override
+    attempt is what we reject. Plugins are namespaced (``myplugin:send``) and so
+    never collide with this guard for their own ops.
     """
+    if ":" not in op and op in CORE_OPS and op in _handlers:
+        raise ValueError(
+            f"register_ws_op: {op!r} is a built-in op name and cannot be "
+            "overridden by a plugin. Use a namespaced op name (e.g. 'myplugin:send')."
+        )
     if handler is not None:
         _handlers[op] = handler
         return handler

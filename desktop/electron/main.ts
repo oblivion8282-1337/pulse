@@ -32,6 +32,7 @@ import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet } from './store';
 import { createTray } from './tray';
 import { wireNotify } from './notify';
+import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 
 // Override the user-visible app name BEFORE any other Electron API touches it.
 // `app.getName()` falls back to package.json `name`, which is `@dcc/desktop` —
@@ -108,8 +109,29 @@ if (process.platform === 'linux') {
 // explicitly set (frontend development) — otherwise the live deployed app, so a
 // web-side fix is visible immediately, no Electron re-release needed (the GSR
 // streaming bridge stays local via the preload's `window.pulse`).
+//
+// Security (finding 163): PULSE_URL is a developer-only override, not a
+// user-facing setting. In packaged builds we ignore it entirely to prevent a
+// malicious .desktop file or wrapper script from shifting the trusted origin.
+// In dev/unpackaged builds we accept it but require an https:// URL so
+// `file://` and `http://` payloads cannot be used to bypass the origin guard.
 const DEV_URL = process.env.PULSE_DEV_URL ?? null;
-const PROD_URL = process.env.PULSE_URL ?? 'https://howispulse.com';
+const _rawPulseUrl = process.env.PULSE_URL;
+let PROD_URL = 'https://howispulse.com';
+if (!DEV_URL && _rawPulseUrl && !app.isPackaged) {
+  try {
+    const u = new URL(_rawPulseUrl);
+    if (u.protocol === 'https:') {
+      PROD_URL = _rawPulseUrl;
+    } else {
+      console.warn('[startup] PULSE_URL ignored — must be https://, got:', u.protocol);
+    }
+  } catch {
+    console.warn('[startup] PULSE_URL ignored — not a valid URL:', _rawPulseUrl);
+  }
+} else if (_rawPulseUrl && app.isPackaged) {
+  console.warn('[startup] PULSE_URL ignored in packaged build (developer-only override).');
+}
 const TARGET_URL = DEV_URL ?? PROD_URL;
 // DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
 // (detached); otherwise the standard accelerator (Ctrl+Shift+I) still toggles them.
@@ -122,80 +144,13 @@ let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
 // ── Deep-Link / Invite-Handler ───────────────────────────────────────────────
-// Validates and dispatches `pulse://invite?host=<fqdn>&code=<code>` URLs.
-// Security: we parse strictly (URL class + FQDN regex + alphanumeric code) and
-// NEVER execute any action derived from the URL without showing a user-visible
-// disclaimer first (that's the frontend's job in /invite/[code]?host=…).
-
-/** Valid invite code: 6-32 alphanumeric chars (same shape as the backend issues). */
-const INVITE_CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
-
-/** Rough FQDN check — at least one dot, only label-safe chars, no port injection.
- *  Blocks bare IPv4 (192.168.1.1 etc.) so a malicious link can't trick the renderer
- *  into hitting a private/loopback address. Self-Host muss FQDN haben (LE-Cert
- *  Pflicht für TLS) — IP-Direkt-Connect ist nie ein legitimer Pulse-Use-Case. */
-function _isValidFqdn(hostname: string): boolean {
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return false;
-  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
-    hostname
-  );
-}
-
-/** Extract a `pulse://` URL from a raw argv array (Windows/Linux cold-start). */
-function extractPulseUrl(argv: string[]): string | null {
-  return argv.find((a) => a.startsWith('pulse://')) ?? null;
-}
-
-/**
- * Buffer for the first deep-link received before the window is ready.
- * Delivered once in the `ready-to-show` callback.
- */
-let pendingDeepLink: string | null = extractPulseUrl(process.argv);
-
-function handleDeepLink(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    console.warn('[deep-link] unparseable URL, ignoring:', url);
-    return;
-  }
-  if (parsed.protocol !== 'pulse:') return;
-  if (parsed.hostname !== 'invite') {
-    console.warn('[deep-link] unknown host, ignoring:', parsed.hostname);
-    return;
-  }
-
-  const host = parsed.searchParams.get('host') ?? '';
-  const code = parsed.searchParams.get('code') ?? '';
-
-  // Strict validation — do NOT send user to an attacker-controlled hostname.
-  if (!_isValidFqdn(host)) {
-    console.warn('[deep-link] invalid host param, ignoring:', host);
-    return;
-  }
-  if (!INVITE_CODE_RE.test(code)) {
-    console.warn('[deep-link] invalid code param, ignoring:', code);
-    return;
-  }
-
-  const payload = { hostname: host, code };
-
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send('pulse:invite', payload);
-  } else {
-    // Window not yet ready — buffer; delivered in createWindow's ready-to-show.
-    pendingDeepLink = url;
-  }
-}
+// Validation + buffering lives in `deeplink.ts` (kept out of this file for the
+// code-size cap). Here we only wire the Electron events to those helpers.
 
 // macOS / some Linux compositors fire open-url for registered scheme handlers.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  handleDeepLink(url);
+  handleDeepLink(url, () => mainWindow);
 });
 
 function createWindow(): void {
@@ -218,12 +173,10 @@ function createWindow(): void {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
-    // Deliver any deep-link that arrived before the window was ready (cold-start).
-    if (pendingDeepLink) {
-      const url = pendingDeepLink;
-      pendingDeepLink = null;
-      handleDeepLink(url);
-    }
+    // The pending invite payload (if any) is delivered via the pull-based
+    // `invite:getPending` IPC handler once the renderer's onMount fires.
+    // We do NOT push it here because ready-to-show precedes the SvelteKit
+    // onMount callback, so any webContents.send here would be lost.
   });
   mainWindow.on('close', (e) => {
     if (isQuitting) return;
@@ -294,6 +247,21 @@ function wireSidecar(): void {
 // Handlers catch everything so a bad write surfaces as a logged error, not a
 // crash / unhandled rejection in the renderer.
 
+/** Allowed keys for the persistent stream-settings store (finding 162).
+ *  Any store:set call with a key not in this set is silently rejected to
+ *  prevent a compromised renderer from injecting arbitrary keys or bloating
+ *  the store file. */
+const ALLOWED_STORE_KEYS = new Set([
+  'profile_name',
+  'server_name',
+  'capture_source',
+  'audio_mode',
+  'excluded_apps',
+  'overrides',
+  'use_overrides',
+  'custom_servers',
+]);
+
 function wireStore(): void {
   ipcMain.handle('store:get', (_e, key: string) => {
     try {
@@ -312,12 +280,38 @@ function wireStore(): void {
     }
   });
   ipcMain.handle('store:set', (_e, key: string, value: unknown) => {
+    if (!ALLOWED_STORE_KEYS.has(key)) {
+      console.warn('[store] store:set rejected unknown key:', key);
+      return;
+    }
     try {
       storeSet(key, value);
     } catch (e) {
       console.error('[store] store:set failed:', e);
     }
   });
+  // Atomic batch write — avoids N parallel rename() races (finding 158).
+  ipcMain.handle('store:setAll', (_e, values: Record<string, unknown>) => {
+    if (!values || typeof values !== 'object') return;
+    try {
+      for (const [key, value] of Object.entries(values)) {
+        if (!ALLOWED_STORE_KEYS.has(key)) {
+          console.warn('[store] store:setAll rejected unknown key:', key);
+          continue;
+        }
+        storeSet(key, value);
+      }
+    } catch (e) {
+      console.error('[store] store:setAll failed:', e);
+    }
+  });
+}
+
+// ── Invite deep-link pull handler ────────────────────────────────────────────
+// The renderer calls this once on mount to consume any deep-link that arrived
+// before the listener was ready. Clears the buffer on read (one-shot).
+function wireInvitePull(): void {
+  ipcMain.handle('invite:getPending', () => takePendingInvite());
 }
 
 // ── Screen capture (browser screen-share via LiveKit/WebRTC) ────────────────
@@ -366,7 +360,7 @@ if (!app.requestSingleInstanceLock()) {
 app.on('second-instance', (_event, argv) => {
   // Check for a deep-link in the new-instance's argv before focusing.
   const url = extractPulseUrl(argv);
-  if (url) handleDeepLink(url);
+  if (url) handleDeepLink(url, () => mainWindow);
 
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
@@ -389,6 +383,7 @@ app.on('second-instance', (_event, argv) => {
 app.whenReady().then(() => {
   initStore();
   wireStore();
+  wireInvitePull();
   wireSidecar();
   wireScreenShare();
   wireNotify(() => mainWindow);

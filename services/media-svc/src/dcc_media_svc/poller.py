@@ -67,11 +67,12 @@ async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict
     out: dict[str, set[str]] = {}
     page = 0
     items_per_page = 1000
-    while True:
+    _MAX_PAGES = 10_000  # guard against an infinite-loop if MediaMTX always returns a full page
+    while page < _MAX_PAGES:
         resp = await client.get(url, params={"itemsPerPage": items_per_page, "page": page})
         resp.raise_for_status()
         data = resp.json()
-        items = data.get("items", []) if isinstance(data, dict) else []
+        items = (data.get("items") or []) if isinstance(data, dict) else []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -84,18 +85,9 @@ async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict
         if len(items) < items_per_page:
             break
         page += 1
+    else:
+        log.warning("mediamtx_pagination_limit_reached", max_pages=_MAX_PAGES)
     return out
-
-
-async def _read_state(redis: Redis, channel_id: str) -> dict[str, Any] | None:
-    raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
-    if raw is None:
-        return None
-    try:
-        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-    except (ValueError, TypeError, AttributeError):
-        return None
-    return data if isinstance(data, dict) else None
 
 
 async def _list_known_channels(redis: Redis) -> set[str]:
@@ -117,34 +109,85 @@ async def _publish_event(redis: Redis, channel_id: str, user_ids: list[str]) -> 
     )
 
 
+def _parse_state(raw: bytes | str | None) -> dict[str, Any] | None:
+    """Decode a raw Redis value into a state dict, or None on any error."""
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
 async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     """One reconciliation pass. Raises only on a MediaMTX-API failure (the loop
-    swallows that)."""
+    swallows that).
+
+    Redis access pattern:
+     1. One MGET for all known channel states (batch read).
+     2. One pipeline flush for all EXPIRE/SET writes and PUBLISH calls.
+     3. One pipeline flush for stale-channel DEL+PUBLISH.
+    This reduces O(N) sequential round-trips to O(1) network calls regardless
+    of how many channels are active.
+    """
     settings = get_settings()
     publishers = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
     known = await _list_known_channels(redis)
 
-    for cid, uids in publishers.items():
-        new_uids = sorted(uids)
-        prev = await _read_state(redis, cid)
-        prev_uids = sorted(str(u) for u in (prev or {}).get("user_ids", []) if u)
-        if prev is not None and prev_uids == new_uids:
-            await redis.expire(CHANNEL_STATE_KEY.format(channel_id=cid), settings.channel_state_ttl_s)
-            continue
-        new_state = {"user_ids": new_uids, "since": (prev or {}).get("since") or datetime.now(UTC).isoformat()}
-        await redis.set(
-            CHANNEL_STATE_KEY.format(channel_id=cid),
-            json.dumps(new_state, separators=(",", ":")),
-            ex=settings.channel_state_ttl_s,
-        )
+    # --- Batch-read all channel states we need to inspect ----------------
+    all_cids = list(publishers.keys())
+    if all_cids:
+        keys = [CHANNEL_STATE_KEY.format(channel_id=cid) for cid in all_cids]
+        raw_values = await redis.mget(*keys)
+        prev_states: dict[str, dict[str, Any] | None] = {
+            cid: _parse_state(raw) for cid, raw in zip(all_cids, raw_values)
+        }
+    else:
+        prev_states = {}
+
+    # --- Compute changes, then flush writes in one pipeline ---------------
+    async with redis.pipeline(transaction=False) as pipe:
+        changed: list[tuple[str, list[str]]] = []  # (cid, new_uids) for PUBLISH
+        for cid, uids in publishers.items():
+            new_uids = sorted(uids)
+            prev = prev_states.get(cid)
+            prev_uids = sorted(str(u) for u in (prev or {}).get("user_ids", []) if u)
+            if prev is not None and prev_uids == new_uids:
+                pipe.expire(CHANNEL_STATE_KEY.format(channel_id=cid), settings.channel_state_ttl_s)
+                continue
+            # Carry `since` forward only if at least one user from the previous
+            # set is still present; if the entire set turned over, reset to now
+            # so the UI doesn't show the new streamer as having started during
+            # the old session.
+            prev_uid_set = set(prev_uids)
+            carry_since = bool(prev and prev_uid_set & set(new_uids))
+            since = (prev or {}).get("since") if carry_since else None
+            new_state = {"user_ids": new_uids, "since": since or datetime.now(UTC).isoformat()}
+            pipe.set(
+                CHANNEL_STATE_KEY.format(channel_id=cid),
+                json.dumps(new_state, separators=(",", ":")),
+                ex=settings.channel_state_ttl_s,
+            )
+            changed.append((cid, new_uids))
+        await pipe.execute()
+
+    # Publish change events after the pipeline flush (outside the pipeline so
+    # subscribers see the new state already written).
+    for cid, new_uids in changed:
         await _publish_event(redis, cid, new_uids)
         log.info("stream_state_change", channel_id=cid, user_ids=new_uids)
 
-    # Channels that no longer have any publisher → self-heal to empty + event.
-    for cid in known - set(publishers):
-        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
-        await _publish_event(redis, cid, [])
-        log.info("stream_state_change", channel_id=cid, user_ids=[])
+    # --- Self-heal: channels no longer reported by MediaMTX ---------------
+    stale = known - set(publishers)
+    if stale:
+        async with redis.pipeline(transaction=False) as pipe:
+            for cid in stale:
+                pipe.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+            await pipe.execute()
+        for cid in stale:
+            await _publish_event(redis, cid, [])
+            log.info("stream_state_change", channel_id=cid, user_ids=[])
 
 
 async def run_poller(redis: Redis, *, stop_event: asyncio.Event | None = None) -> None:

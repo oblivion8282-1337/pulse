@@ -64,17 +64,26 @@ interface SpawnTarget {
   args: string[];
 }
 
+/** Cached result of the first successful `resolveSidecarSpawn()` call.
+ *  The resolved path never changes during a session; memoising it avoids
+ *  repeated filesystem walks on Windows respawns (finding 159). */
+let _cachedSpawnTarget: SpawnTarget | null = null;
+
 function resolveSidecarSpawn(): SpawnTarget {
+  if (_cachedSpawnTarget) return _cachedSpawnTarget;
+  let target: SpawnTarget;
   if (process.platform === 'linux') {
-    return { command: PYTHON_BIN, args: [resolveScriptPath()] };
+    target = { command: PYTHON_BIN, args: [resolveScriptPath()] };
+  } else if (process.platform === 'win32') {
+    target = { command: resolveBinaryPath(), args: [] };
+  } else {
+    throw new Error(
+      `Pulse HQ sidecar: no implementation for ${process.platform} ` +
+        '(Linux: streaming/gsr-sidecar/, Windows: streaming/win-hq-sidecar/).',
+    );
   }
-  if (process.platform === 'win32') {
-    return { command: resolveBinaryPath(), args: [] };
-  }
-  throw new Error(
-    `Pulse HQ sidecar: no implementation for ${process.platform} ` +
-      '(Linux: streaming/gsr-sidecar/, Windows: streaming/win-hq-sidecar/).',
-  );
+  _cachedSpawnTarget = target;
+  return target;
 }
 
 /**

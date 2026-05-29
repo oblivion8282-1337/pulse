@@ -36,6 +36,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
@@ -447,7 +448,7 @@
               </Tooltip.Root>
             {/snippet}
           </ContextMenu.Trigger>
-          {#if isActiveServer && (canManageGuild || canManageRoles || isOwner || auth.user?.is_admin)}
+          {#if isActiveServer && (canManageGuild || canManageRoles || isOwner || (server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id)))}
             <ContextMenu.Content>
               {#if canManageRoles || isOwner}
                 <ContextMenu.Item
@@ -474,7 +475,7 @@
                   </ContextMenu.Item>
                 {/if}
               {/if}
-              {#if isOwner || auth.user?.is_admin}
+              {#if isOwner || (server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id))}
                 {#if canManageGuild}<ContextMenu.Separator />{/if}
                 <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
                   <Trash2Icon />

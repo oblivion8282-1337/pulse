@@ -54,22 +54,22 @@ export function detectConflicts(
 ): Conflict[] {
   const out: Conflict[] = [];
   for (const kind of KINDS) {
-    const byResource = new Map<string, string[]>();
+    const byResource = new Map<string, Set<string>>();
     for (const m of manifests) {
       if (activeNames && !activeNames.has(m.name)) continue;
       const slots = m.uses[kind] ?? [];
       for (const slot of slots) {
-        const list = byResource.get(slot) ?? [];
-        if (!list.includes(m.name)) list.push(m.name);
-        byResource.set(slot, list);
+        const set = byResource.get(slot) ?? new Set<string>();
+        set.add(m.name);
+        byResource.set(slot, set);
       }
     }
-    for (const [resource, plugins] of byResource) {
-      if (plugins.length < 2) continue;
+    for (const [resource, pluginSet] of byResource) {
+      if (pluginSet.size < 2) continue;
       out.push({
         kind,
         resource,
-        plugins: [...plugins].sort()
+        plugins: [...pluginSet].sort()
       });
     }
   }

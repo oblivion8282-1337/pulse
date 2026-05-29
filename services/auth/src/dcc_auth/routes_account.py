@@ -30,11 +30,11 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 
 import dcc_auth.config as _config
 from dcc_auth.db import SessionDep
-from dcc_auth.models import AdminAuditLog, User
+from dcc_auth.models import AdminAuditLog, User, WebAuthnCredential
 from dcc_auth.routes import _check_rate, _get_current_user
 from dcc_auth.schemas import AccountDeleteIn
 from dcc_auth.security import verify_password
@@ -98,7 +98,8 @@ async def delete_me(
       1. rate-limit (very tight — 3/hour by default).
       2. confirm_username must match the *current* username exactly.
       3. password verification (off the event loop — argon2 is CPU-bound).
-      4. second-factor verification when ``totp_enabled``.
+      4. second-factor verification when the account has any MFA factor
+         (``totp_enabled`` OR at least one registered passkey).
       5. chat-gateway purge — on failure, rollback (no DB writes yet) and 503.
       6. avatar file unlink (best-effort).
       7. ``DELETE FROM users WHERE id = current.id`` — FK CASCADE cleans the
@@ -131,7 +132,19 @@ async def delete_me(
             status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
         )
 
-    if current.totp_enabled:
+    # Second-factor gate: required whenever the account has ANY MFA factor —
+    # TOTP *or* at least one registered passkey. A passkey-only account
+    # (totp_enabled=False) still gates /login via the methods list in
+    # routes.py, so irreversible self-deletion must demand the same proof of
+    # possession. No interactive passkey challenge is feasible on a single
+    # REST call, so a passkey-only account proves itself with a backup code —
+    # ``_consume_second_factor`` already routes the backup-code path.
+    has_passkey = await session.scalar(
+        select(func.count())
+        .select_from(WebAuthnCredential)
+        .where(WebAuthnCredential.user_id == current.id)
+    )
+    if current.totp_enabled or has_passkey:
         # Lazy import — avoids a routes_account ↔ routes_totp cycle and
         # mirrors how routes_totp itself sources its login-second-step logic.
         from dcc_auth.routes_totp import _consume_second_factor

@@ -37,6 +37,9 @@ interface AudioNodeBundle {
 export class RemoteAudioElements {
   #ctx: AudioContext | null = null;
   #nodes = new Map<string, AudioNodeBundle>();
+  /** Secondary index: userId → Set of track SIDs. Allows O(1) lookup in
+   *  setUserVolume instead of a linear scan over all nodes. */
+  #userSids = new Map<string, Set<string>>();
   /** Per-user gain factor. Authoritative copy lives in settings.voice.userVolumes; we mirror it here so attach() can pick up the value before settings has had a chance to push it. */
   #userVolumes = new Map<string, number>();
   /** Discord-tuned compressor, spliced in only while a user is boosted >100 %. */
@@ -102,6 +105,10 @@ export class RemoteAudioElements {
     source.connect(gain);
     this.#syncNode(node);
     this.#nodes.set(sid, node);
+    // Maintain secondary userId→sids index for O(1) setUserVolume lookup.
+    let sids = this.#userSids.get(userId);
+    if (!sids) { sids = new Set(); this.#userSids.set(userId, sids); }
+    sids.add(sid);
 
     if (ctx.state === 'suspended') {
       void ctx.resume().then(() => { if (ctx.state !== 'running') onBlocked(); }).catch(() => onBlocked());
@@ -118,6 +125,12 @@ export class RemoteAudioElements {
     node.anchor.srcObject = null;
     node.anchor.remove();
     this.#nodes.delete(sid);
+    // Remove from secondary index.
+    const sids = this.#userSids.get(node.userId);
+    if (sids) {
+      sids.delete(sid);
+      if (sids.size === 0) this.#userSids.delete(node.userId);
+    }
   }
 
   setDeafened(on: boolean): void {
@@ -129,8 +142,13 @@ export class RemoteAudioElements {
     const clamped = Math.max(0, Math.min(4, volume));
     if (clamped === 1) this.#userVolumes.delete(userId);
     else this.#userVolumes.set(userId, clamped);
-    for (const node of this.#nodes.values()) {
-      if (node.userId === userId) this.#syncNode(node);
+    // Use the secondary index for O(k) lookup (k = tracks for this user, ≈1).
+    const sids = this.#userSids.get(userId);
+    if (sids) {
+      for (const sid of sids) {
+        const node = this.#nodes.get(sid);
+        if (node) this.#syncNode(node);
+      }
     }
   }
 

@@ -14,8 +14,10 @@ server" state instead of crashing.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 from datetime import datetime
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
@@ -30,6 +32,51 @@ from dcc_chat_gateway.snowflake import next_id
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/notifications")
+
+# Allowlist of known web-push service domain suffixes.
+# Endpoints whose host does not end with one of these suffixes are rejected
+# to prevent SSRF: a registered push endpoint is later contacted by the server
+# when a notification is triggered (pywebpush makes an outbound POST).
+_PUSH_SERVICE_SUFFIXES: tuple[str, ...] = (
+    ".push.services.mozilla.com",
+    "fcm.googleapis.com",
+    ".notify.windows.com",
+    "web.push.apple.com",
+    ".push.apple.com",
+    "updates.push.services.mozilla.com",
+    # Some browsers use browser-vendor subdomains under googleapis.com.
+    ".googleapis.com",
+)
+
+
+def _validate_push_endpoint(url: str) -> None:
+    """Reject push endpoints that could be used for SSRF.
+
+    Checks:
+    * Host must be a known push-service domain (suffix allowlist).
+    * Host must not resolve to a private/link-local IP range.
+      We only check literal IP addresses here — hostname resolution
+      happens at send time, not registration time.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+
+    # Reject literal private/link-local IPs.
+    try:
+        addr = ipaddress.ip_address(host)
+        if not addr.is_global:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="push endpoint must point to a public push service",
+            )
+    except ValueError:
+        pass  # Not an IP address — proceed to domain allowlist check.
+
+    if not any(host == s.lstrip(".") or host.endswith(s) for s in _PUSH_SERVICE_SUFFIXES):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="push endpoint domain not in allowed push service list",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +162,7 @@ async def subscribe(
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE, detail="push_disabled"
         )
+    _validate_push_endpoint(payload.endpoint)
     existing = (
         await session.execute(
             select(WebPushSubscription).where(

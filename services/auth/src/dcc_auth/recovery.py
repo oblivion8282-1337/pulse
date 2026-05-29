@@ -73,9 +73,12 @@ def issue_mfa_ticket(signer: JwtSigner, user_id: int, ttl_seconds: int) -> str:
     """
     now = int(time.time())
     payload: dict[str, Any] = {
-        # No ``iss`` / ``aud`` here — ``signer.decode`` enforces both for the
-        # normal access/refresh path, but the MFA ticket is consumed only by
-        # this same service so we keep verification simple.
+        # Stamp ``iss`` / ``aud`` so ``decode_mfa_ticket`` can validate them.
+        # A ticket signed by this private key but minted for a different
+        # environment (e.g. a staging instance sharing the keypair) must not
+        # verify here — the ``purpose`` claim alone is too weak a guard.
+        "iss": signer._settings.jwt_issuer,  # noqa: SLF001 — mirrors issue_access
+        "aud": signer._settings.jwt_audience,  # noqa: SLF001
         "sub": str(user_id),
         "iat": now,
         "exp": now + ttl_seconds,
@@ -101,6 +104,8 @@ def decode_mfa_ticket(signer: JwtSigner, ticket: str) -> int:
         ticket,
         signer.public_key,
         algorithms=["RS256"],
+        audience=signer._settings.jwt_audience,  # noqa: SLF001 — mirrors JwtSigner.decode
+        issuer=signer._settings.jwt_issuer,  # noqa: SLF001
         options={"require": ["exp", "sub"]},
     )
     if payload.get("purpose") != "mfa":

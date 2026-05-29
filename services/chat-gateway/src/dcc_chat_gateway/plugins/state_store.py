@@ -141,7 +141,10 @@ async def apply_atomic_update(
     await _ensure_row(
         session, guild_id, plugin_name, default_state, actor_user_id
     )
-    await session.commit()
+    # Kein commit() hier — INSERT und SELECT FOR UPDATE laufen in EINER
+    # Transaktion. Ein Commit zwischen beiden würde die Atomizität brechen:
+    # ein concurrent guild-DELETE könnte die Row zwischen den beiden
+    # Statements entfernen.
 
     # Schritt 2: Lock + Read. ``with_for_update`` ist no-op auf SQLite
     # (lokale Datei-DB serialisiert Schreibtransaktionen ohnehin), aber
@@ -154,7 +157,20 @@ async def apply_atomic_update(
     )
     if is_pg:
         stmt = stmt.with_for_update()
-    row = (await session.execute(stmt)).scalar_one()
+    row = (await session.execute(stmt)).scalar_one_or_none()
+    if row is None:
+        # Sehr selten: concurrent guild-DELETE hat die Row zwischen
+        # dem INSERT und dem SELECT entfernt. Transaktion rollbacken
+        # und mit einem leeren Dict returnen — der Aufrufer bekommt
+        # kein crash, der State gilt als gelöscht.
+        await session.rollback()
+        log.warning(
+            "apply_atomic_update: row vanished (guild_id=%s plugin=%s) "
+            "— likely concurrent guild deletion; returning default",
+            guild_id,
+            plugin_name,
+        )
+        return dict(default_state)
 
     # Schritt 3-4: Mutate + Write.
     old_state = dict(row.state or {})

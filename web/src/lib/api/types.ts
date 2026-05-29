@@ -36,7 +36,9 @@ export type Guild = {
   id: string;
   name: string;
   icon_url: string | null;
-  owner_id: string;
+  /** Owner's user-id as a snowflake string. Null in back-compat / mocked
+   *  ready frames that pre-date the owner_id field — treat as "unknown". */
+  owner_id: string | null;
   created_at: string;
 };
 

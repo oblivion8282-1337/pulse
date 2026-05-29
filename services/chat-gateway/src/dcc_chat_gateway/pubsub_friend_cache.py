@@ -194,13 +194,22 @@ class _FriendCacheMixin:
         Invisible masking is handled *before* this call: the guild:events
         envelope already carries the masked status (``invisible`` → ``"offline"``);
         this filter only governs *who* receives the event at all.
+
+        Complexity: O(T + total sockets for target users) where T is the
+        number of target user IDs.  Uses ``_user_conns`` as a reverse index
+        to look up a user's sockets directly rather than scanning all
+        ``_ws_user`` entries.
         """
         out: set[int] = set()
         for uid in target_user_ids:
+            socks = self._user_conns.get(uid)
+            if not socks:
+                # User has no open sockets; no cached block info available —
+                # include them (DB-based block checks happen elsewhere).
+                out.add(uid)
+                continue
             blocked_either = False
-            for ws, u in self._ws_user.items():
-                if u.id != uid:
-                    continue
+            for ws in socks:
                 bi = self._ws_blocks_in.get(ws)
                 bo = self._ws_blocks_out.get(ws)
                 if (bi is not None and sender_user_id in bi) or (

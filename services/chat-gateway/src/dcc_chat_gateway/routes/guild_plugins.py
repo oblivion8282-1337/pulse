@@ -123,7 +123,12 @@ async def list_guild_plugins(
 
     await require_member(session, guild_id, current.id)
 
-    allowed = await list_allowed_names(session)
+    # Read the durable allowlist from the DB: it is the source of truth and is
+    # always consistent with the admin mutations (add/remove_from_allowlist
+    # commit to the DB *and* update the app.state snapshot in the same request),
+    # and it carries the `hello` self-heal/seed guarantee that the in-process
+    # snapshot does not.
+    allowed = set(await list_allowed_names(session))
     rows = (
         await session.execute(
             select(GuildPlugin).where(GuildPlugin.guild_id == guild_id)
