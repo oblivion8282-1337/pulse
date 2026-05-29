@@ -204,6 +204,10 @@ fn run_capture(
     let started = Instant::now();
     let mut emitted_frames: u64 = 0;
     let mut should_stop = false;
+    // Vorlauf-Budget für die Drift-Korrektur (#2): ~100 ms. Erst darüber wird
+    // ein realer Chunk verworfen — groß genug, dass normale Jitter/Bursts
+    // keinen Drop auslösen, nur echte Fast-Clock-Drift der Audio-Geräte-Clock.
+    let ahead_limit = (format.sample_rate / 10) as u64;
     loop {
         if stop_rx.try_recv().is_ok() {
             should_stop = true;
@@ -211,6 +215,16 @@ fn run_capture(
 
         // Reale Chunks rauspushen, solange genug Samples gepuffert sind.
         while queue.len() >= chunk_bytes {
+            // Bidirektionale Drift-Korrektur (#2): liegt die emittierte Menge
+            // mehr als `ahead_limit` vor der wall-clock-fälligen, verwerfen wir
+            // reale Chunks statt sie zu emittieren — sonst driftet Audio
+            // unbegrenzt VOR das Bild (Fast-Clock-Drift). Gegenstück zur
+            // Silence-Fill weiter unten (die Rückstand auffüllt).
+            let owed = (started.elapsed().as_secs_f64() * format.sample_rate as f64) as u64;
+            if emitted_frames > owed + ahead_limit {
+                queue.drain(..chunk_bytes);
+                continue;
+            }
             let mut chunk = vec![0u8; chunk_bytes];
             for slot in chunk.iter_mut() {
                 *slot = queue.pop_front().unwrap();

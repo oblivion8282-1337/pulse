@@ -77,7 +77,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let (cap_w, cap_h, handles) = loop {
         match capture.items.recv_timeout(Duration::from_secs(5)) {
             Ok(D3d12CaptureItem::Setup { width, height, handles }) => break (width, height, handles),
-            Ok(D3d12CaptureItem::Frame { slot }) => {
+            Ok(D3d12CaptureItem::Frame { slot, .. }) => {
                 // Vor Setup nicht möglich — defensiv: Slot zurückgeben.
                 let _ = capture.free_tx.send(slot);
             }
@@ -144,7 +144,7 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     // Auf den ersten echten Capture-Frame warten.
     let mut current_slot: usize = loop {
         match capture.items.recv_timeout(Duration::from_secs(5)) {
-            Ok(D3d12CaptureItem::Frame { slot }) => break slot,
+            Ok(D3d12CaptureItem::Frame { slot, .. }) => break slot,
             Ok(D3d12CaptureItem::Setup { .. }) => {}
             Err(e) => return Err(anyhow!("never got first capture frame: {e}")),
         }
@@ -168,6 +168,14 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
     let mut last_fps_emit = started;
     let mut monitor = TickMonitor::new(fps);
     let mut prev_pts: i64 = 0;
+    // A/V-Sync (#1): Capture→Encode-Latenz geglättet messen und vom Video-PTS
+    // abziehen, damit Video dieselbe Zeit-Referenz wie Audio (echte Capture-
+    // Zeit) nutzt. CFR bleibt. Kill-Switch: PULSE_HQ_NO_AV_OFFSET=1.
+    let av_offset = std::env::var("PULSE_HQ_NO_AV_OFFSET")
+        .map(|v| v.is_empty() || v == "0")
+        .unwrap_or(true);
+    let mut cap_lat = Duration::ZERO;
+    let mut cap_lat_seeded = false;
 
     loop {
         if stop_rx.try_recv().is_ok() {
@@ -192,11 +200,13 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         // zurück in den Ring. Nichts Neues → `current_slot` bleibt (Dup).
         let t_capture = Instant::now();
         let mut captured: u32 = 0;
+        let mut newest_at: Option<Instant> = None;
         loop {
             match capture.items.try_recv() {
-                Ok(D3d12CaptureItem::Frame { slot }) => {
+                Ok(D3d12CaptureItem::Frame { slot, at }) => {
                     let old = std::mem::replace(&mut current_slot, slot);
                     let _ = capture.free_tx.send(old);
+                    newest_at = Some(at);
                     captured += 1;
                 }
                 Ok(D3d12CaptureItem::Setup { .. }) => {}
@@ -208,17 +218,34 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
         }
         let capture_drain = t_capture.elapsed();
 
+        // A/V-Offset: geglättete Capture→jetzt-Latenz des frischen Frames (#1).
+        if av_offset {
+            if let Some(at) = newest_at {
+                let sample = Instant::now().saturating_duration_since(at).min(frame_dur * 4);
+                cap_lat = if cap_lat_seeded {
+                    cap_lat.mul_f64(0.9) + sample.mul_f64(0.1)
+                } else {
+                    cap_lat_seeded = true;
+                    sample
+                };
+            }
+        }
+
         // Audio non-blocking nachziehen.
         let t_audio = Instant::now();
         if let Some(ac) = audio_capture.as_ref() {
             while let Ok(chunk) = ac.samples.try_recv() {
-                let _ = encoder.send_audio(&chunk);
+                // Audio-Fehler NICHT verschlucken (#3) — s. pipeline_hw.
+                encoder
+                    .send_audio(&chunk)
+                    .map_err(|e| anyhow!("send_audio: {e:#}"))?;
             }
         }
         let audio_drain = t_audio.elapsed();
 
-        // Wall-clock-PTS in Encoder-Timebase (1/fps), streng monoton.
-        let elapsed = started.elapsed().as_secs_f64();
+        // Wall-clock-PTS in Encoder-Timebase (1/fps), um den A/V-Offset (#1)
+        // nach vorn korrigiert, streng monoton.
+        let elapsed = started.elapsed().saturating_sub(cap_lat).as_secs_f64();
         let mut pts = (elapsed * fps as f64).round() as i64;
         if pts <= last_pts {
             pts = last_pts + 1;

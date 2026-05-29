@@ -26,6 +26,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use windows::Win32::Foundation::{CloseHandle, GENERIC_ALL, HANDLE};
 use windows::Win32::Graphics::Direct3D11::{
@@ -66,6 +67,9 @@ pub enum D3d12CaptureItem {
     },
     Frame {
         slot: usize,
+        /// Wall-clock-Empfangszeit im Callback (≈ Aufnahmezeit), für den
+        /// A/V-Sync-Offset im Pacing-Loop (#1).
+        at: Instant,
     },
 }
 
@@ -244,7 +248,11 @@ impl GraphicsCaptureApiHandler for D3d12FrameSink {
 
         match bridge.copy_into_slot(slot, src) {
             Ok(()) => {
-                if self.items_tx.send(D3d12CaptureItem::Frame { slot }).is_err() {
+                if self
+                    .items_tx
+                    .send(D3d12CaptureItem::Frame { slot, at: Instant::now() })
+                    .is_err()
+                {
                     capture_control.stop();
                 }
             }

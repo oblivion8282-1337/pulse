@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, SyncSender, TrySendError, channel, sync_channel};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
 use windows::core::Interface;
@@ -39,7 +40,12 @@ pub enum HwCaptureItem {
         hw: Arc<HwContext>,
         first: OwnedHwFrame,
     },
-    Frame(OwnedHwFrame),
+    Frame {
+        frame: OwnedHwFrame,
+        /// Wall-clock-Empfangszeit im Callback (≈ Aufnahmezeit), für den
+        /// A/V-Sync-Offset im Pacing-Loop (#1).
+        at: Instant,
+    },
 }
 
 /// Kapazität der Capture→Encoder-Queue. Muss deutlich kleiner als der
@@ -184,7 +190,7 @@ impl GraphicsCaptureApiHandler for HwFrameSink {
             }
         };
         copy_into_pool(hw, frame.as_raw_texture(), &pool_frame)?;
-        match self.tx.try_send(HwCaptureItem::Frame(pool_frame)) {
+        match self.tx.try_send(HwCaptureItem::Frame { frame: pool_frame, at: Instant::now() }) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
                 let n = self.dropped.fetch_add(1, Ordering::Relaxed) + 1;

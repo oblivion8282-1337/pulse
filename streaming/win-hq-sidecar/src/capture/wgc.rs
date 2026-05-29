@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use windows_capture::capture::{Context as HandlerCtx, GraphicsCaptureApiHandler};
 use windows_capture::frame::Frame;
@@ -36,6 +37,10 @@ pub struct CapturedFrame {
     /// das selbst nach NV12. Zero-Copy-Pfad (NVIDIA) nutzt `wgc_hw.rs` statt
     /// dieses Module — bekommt D3D11-Texture-Handles ohne Sysmem-Roundtrip.
     pub bgra: Vec<u8>,
+    /// Wall-clock-Empfangszeit im Capture-Callback (≈ Aufnahmezeit). Für die
+    /// A/V-Sync-Offset-Messung im Pacing-Loop (#1) — symmetrisch zur
+    /// `captured_at` der Audio-Chunks.
+    pub captured_at: Instant,
 }
 
 /// Konfiguration die `WgcCapture::start` an den Handler übergibt.
@@ -169,6 +174,8 @@ impl GraphicsCaptureApiHandler for FrameSink {
             capture_control.stop();
             return Ok(());
         }
+        // So früh wie möglich stempeln (≈ Aufnahmezeit) — vor dem Sysmem-Copy.
+        let captured_at = Instant::now();
 
         let buf = frame.buffer().context("Frame::buffer")?;
         let width = buf.width();
@@ -183,7 +190,7 @@ impl GraphicsCaptureApiHandler for FrameSink {
         let mut scratch: Vec<u8> = Vec::new();
         let bgra = buf.as_nopadding_buffer(&mut scratch).to_vec();
 
-        let captured = CapturedFrame { width, height, bgra };
+        let captured = CapturedFrame { width, height, bgra, captured_at };
 
         match self.tx.try_send(captured) {
             Ok(()) => {}
