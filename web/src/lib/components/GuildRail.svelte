@@ -328,18 +328,26 @@
                     data-testid={`server-${server.id}`}
                     aria-label={server.label}
                   >
-                    {serverInitials(server.label)}
-                    <span
-                      class="size-1.5 rounded-full {sState === 'open'
-                        ? 'bg-emerald-500'
-                        : sState === 'connecting' || sState === 'starting' || sState === 'updating'
-                          ? 'bg-amber-500'
-                          : sState === 'incompatible' || sState === 'cors-blocked' || sState === 'mfa-required'
-                            ? 'bg-red-500'
-                            : 'bg-gray-500'}"
-                      data-testid="server-state-dot"
-                      aria-label={`Status: ${sState}`}
-                    ></span>
+                    <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
+                         (immer da, kein Verbindungszustand nötig). Selbst-
+                         gehostete Zusatz-Server behalten Initialen + Dot, weil
+                         der Punkt dort echte Connect-/Fehlerzustände anzeigt. -->
+                    {#if server.isCloud}
+                      Pulse
+                    {:else}
+                      {serverInitials(server.label)}
+                      <span
+                        class="size-1.5 rounded-full {sState === 'open'
+                          ? 'bg-emerald-500'
+                          : sState === 'connecting' || sState === 'starting' || sState === 'updating'
+                            ? 'bg-amber-500'
+                            : sState === 'incompatible' || sState === 'cors-blocked' || sState === 'mfa-required'
+                              ? 'bg-red-500'
+                              : 'bg-gray-500'}"
+                        data-testid="server-state-dot"
+                        aria-label={`Status: ${sState}`}
+                      ></span>
+                    {/if}
                   </button>
                 {/snippet}
               </Tooltip.Trigger>
