@@ -60,6 +60,8 @@ export type ReadyGuild = {
 export type ReadyEvent = {
   op: 'ready';
   user_id: string;
+  /** Admin status on THIS server. Optional for back-compat with mocked frames. */
+  is_admin?: boolean;
   guilds: ReadyGuild[];
   dm_channels?: DMChannel[];
   voice_states?: VoiceChannelState[];

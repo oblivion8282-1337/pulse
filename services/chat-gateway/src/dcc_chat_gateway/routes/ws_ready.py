@@ -385,6 +385,10 @@ async def build_and_send_ready_frame(
         {
             "op": "ready",
             "user_id": str(user.id),
+            # Admin status for THIS server (cloud: from auth.users; self-host:
+            # the instance owner, set at cert-login). Lets the client gate the
+            # admin panel per active server without an auth-svc /me round-trip.
+            "is_admin": user.is_admin,
             "guilds": guilds,
             "dm_channels": dm_channels,
             "voice_states": voice_states,

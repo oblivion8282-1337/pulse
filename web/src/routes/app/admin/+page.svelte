@@ -9,9 +9,9 @@
 -->
 <script lang="ts">
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import AdminOverview from '$lib/components/admin/AdminOverview.svelte';
   import AdminAttachments from '$lib/components/admin/AdminAttachments.svelte';
   import AdminRegistration from '$lib/components/admin/AdminRegistration.svelte';
@@ -24,21 +24,32 @@
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 
-  let ready = $state(false);
-
   // Self-Host-Instanzen verwalten (Anträge genehmigen/sperren) ist eine reine
   // Cloud-Funktion — nur howispulse.com entscheidet, wer self-hosten darf. Auf
   // jedem Self-Host-Server blenden wir den Bereich aus (Backend riegelt zusätzlich
   // per PULSE_INSTANCE_MODE ab).
   let isCloud = $derived(activeServer.current?.isCloud ?? false);
+  let serverId = $derived(activeServer.current?.id ?? '');
 
-  onMount(async () => {
+  // Admin ist PRO Server: Cloud → auth.user.is_admin (auth /me); Self-Host →
+  // der is_admin aus dem ready-Frame dieses Servers (Cert-Login-User haben dort
+  // kein auth /me). ``decided`` = haben wir für den aktiven Server überhaupt
+  // schon eine Antwort? — verhindert ein Fehl-Redirect, bevor ready da ist.
+  let isAdminHere = $derived(
+    isCloud ? (auth.user?.is_admin ?? false) : serverAdmin.isAdmin(serverId)
+  );
+  let decided = $derived(isCloud ? auth.user !== null : serverAdmin.has(serverId));
+
+  let ready = $state(false);
+
+  $effect(() => {
     if (!auth.isAuthenticated) {
-      await goto('/login', { replaceState: true });
+      void goto('/login', { replaceState: true });
       return;
     }
-    if (!auth.user?.is_admin) {
-      await goto('/app/@me', { replaceState: true });
+    if (!decided) return; // warte auf die Admin-Antwort des aktiven Servers
+    if (!isAdminHere) {
+      void goto('/app/@me', { replaceState: true });
       return;
     }
     ready = true;

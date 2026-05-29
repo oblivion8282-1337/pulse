@@ -203,6 +203,44 @@ async def test_verify_happy_path_self_host(client, _route_settings):
     assert session.cert_id == claims.cert_id
 
 
+async def _verify_as(client, _route_settings, *, user_id: str, owner_id: int):
+    """Run the full challenge→sign→verify as ``user_id`` with the instance
+    configured to owner ``owner_id``; return the decoded SessionClaims."""
+    priv = Ed25519PrivateKey.generate()
+    pub_b64 = _b64url(priv.public_key().public_bytes_raw())
+    claims = _make_claims(user_id=user_id, device_pubkey=pub_b64)
+    _route_settings.pulse_instance_mode = "self-host"
+    _route_settings.pulse_instance_id = 42
+    _route_settings.pulse_instance_owner_id = owner_id
+    with _patch_validate(claims):
+        ch = (await client.post("/cert-login/challenge", json={"cert": "stub"})).json()
+        sig = _sign_nonce(priv, ch["nonce"])
+        v = await client.post(
+            "/cert-login/verify",
+            json={"cert": "stub", "challenge_token": ch["challenge_token"], "signature": sig},
+        )
+    assert v.status_code == 200, v.text
+    return validate_session_token(
+        v.json()["session_token"], key_path=_route_settings.session_signing_key_file
+    )
+
+
+@pytest.mark.asyncio
+async def test_verify_owner_becomes_admin(client, _route_settings):
+    """Cert-holder whose user_id == PULSE_INSTANCE_OWNER_ID → admin session."""
+    session = await _verify_as(client, _route_settings, user_id="555", owner_id=555)
+    assert session is not None
+    assert session.admin is True
+
+
+@pytest.mark.asyncio
+async def test_verify_non_owner_not_admin(client, _route_settings):
+    """A non-owner cert-holder gets a normal (non-admin) session."""
+    session = await _verify_as(client, _route_settings, user_id="555", owner_id=999)
+    assert session is not None
+    assert session.admin is False
+
+
 @pytest.mark.asyncio
 async def test_verify_happy_path_cloud_mode(client, _route_settings):
     """Cloud mode → pairwise_sub equals raw user_id (no obfuscation)."""

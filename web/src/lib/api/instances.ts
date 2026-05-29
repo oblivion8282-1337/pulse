@@ -73,6 +73,7 @@ export interface Approval {
   worker_id_chat: number;
   worker_id_voice: number;
   worker_id_media: number;
+  owner_user_id: string;
   warning: string;
 }
 

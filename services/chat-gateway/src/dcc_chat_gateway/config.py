@@ -122,6 +122,12 @@ class Settings(BaseSettings):
     # Reserved value 0 = Cloud instance (DE 11 A.13).
     pulse_instance_id: int = 0
 
+    # Cloud user-id of this instance's owner (the applicant who registered it).
+    # The Cloud hands this out at approval. At cert-login, the user whose cert
+    # carries this user_id becomes admin of this instance. 0 = nobody (no
+    # auto-admin; e.g. the Cloud itself, where admin comes from auth.users).
+    pulse_instance_owner_id: int = 0
+
     # Cloud origin used for JWKS + CRL polling.  Self-hosts may point this at
     # a mirror or internal proxy if they can't reach howispulse.com directly.
     pulse_cloud_origin: str = "https://howispulse.com"

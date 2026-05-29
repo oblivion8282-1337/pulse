@@ -54,6 +54,8 @@ class SessionClaims(BaseModel):
     cert_id: str
     iat: int
     exp: int
+    # True when the cert-holder is this instance's owner (self-host admin).
+    admin: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -144,11 +146,13 @@ def issue_session_token(
     cert_id: str,
     *,
     key_path: str = "./data/jwt_keys/session_signing.pem",
+    admin: bool = False,
 ) -> str:
     """Issue a 5-minute self-host session token.
 
     Signed with the local Ed25519 key. ``user_identifier`` is the pairwise_sub
-    (self-host) or direct user_id (cloud mode).
+    (self-host) or direct user_id (cloud mode). ``admin`` marks the instance
+    owner (see cert-login owner-match) so the session carries admin rights.
     """
     priv, _ = _get_keys(key_path)
     now = int(time.time())
@@ -157,6 +161,7 @@ def issue_session_token(
         "aud": _JWT_AUDIENCE,
         "sub": user_identifier,
         "cert_id": cert_id,
+        "admin": admin,
         "iat": now,
         "exp": now + SESSION_TTL_SECONDS,
         "typ": "session",
@@ -214,6 +219,7 @@ def validate_session_token(
             cert_id=claims["cert_id"],
             iat=claims["iat"],
             exp=claims["exp"],
+            admin=bool(claims.get("admin", False)),
         )
     except (KeyError, ValueError):
         return None

@@ -82,6 +82,9 @@ class ApprovalOut(BaseModel):
     worker_id_chat: int
     worker_id_voice: int
     worker_id_media: int
+    # Cloud user-id of the instance owner (the applicant). The self-hoster sets
+    # this as PULSE_INSTANCE_OWNER_ID so they auto-become admin at cert-login.
+    owner_user_id: str
     warning: str = "Speichere das client_secret jetzt — es wird nicht mehr angezeigt."
 
 
@@ -279,6 +282,7 @@ async def approve_application(
             worker_id_chat=wid_chat,
             worker_id_voice=wid_voice,
             worker_id_media=wid_media,
+            owner_user_id=str(app_row.applicant_user_id),
         )
 
     # Should never reach here

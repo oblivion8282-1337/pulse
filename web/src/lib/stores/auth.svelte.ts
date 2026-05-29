@@ -3,6 +3,7 @@ import { clearTokens, loadTokens } from '$lib/api/storage';
 import { readState } from './readState.svelte';
 import { userCache } from './users.svelte';
 import { capabilities } from './capabilities.svelte';
+import { serverAdmin } from './serverAdmin.svelte';
 import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
 import { privacy } from './privacy.svelte';
@@ -125,6 +126,7 @@ class AuthStore {
     userCache.clear();
     capabilities.clear();
     privacy.clear();
+    serverAdmin.clear();
     onboardingState.reset();
     settings.resetUserScoped();
     // Sidebar-Variante-B-Snapshot: pro-Server-Community-Liste wegwerfen.

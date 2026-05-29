@@ -20,6 +20,8 @@ import { blocks } from '$lib/stores/blocks.svelte';
 import { privacy } from '$lib/stores/privacy.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
+import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+import { activeServer } from '$lib/stores/active-server.svelte';
 import { registerWsHandler } from '../handler-registry';
 import type { Guild } from '$lib/api/types';
 
@@ -83,6 +85,11 @@ export function register(ctx: ReadyContext): void {
         evt.presence_status ?? 'online'
       );
     }
+    // Per-server admin status (drives the admin-panel gate for the active
+    // server — esp. self-hosts, where there's no auth-svc /me). Absent in
+    // older/mocked frames → treat as non-admin.
+    const sid = activeServer.current?.id;
+    if (sid) serverAdmin.set(sid, evt.is_admin ?? false);
     ctx.onReadySeeded();
   });
 }

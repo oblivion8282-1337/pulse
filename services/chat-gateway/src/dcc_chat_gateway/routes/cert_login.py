@@ -251,11 +251,23 @@ async def cert_login_verify(
         instance_id=settings.pulse_instance_id,
     )
 
+    # 5b. Self-host admin bootstrap: the cert-holder whose Cloud user_id matches
+    #     this instance's configured owner becomes admin. The cert carries the
+    #     raw Cloud user_id (validated above); compare to PULSE_INSTANCE_OWNER_ID.
+    #     Cloud mode (owner_id 0) never matches here.
+    is_owner_admin = False
+    if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_owner_id:
+        try:
+            is_owner_admin = int(cert_claims.user_id) == settings.pulse_instance_owner_id
+        except (TypeError, ValueError):
+            is_owner_admin = False
+
     # 6. Mint + persist session token.
     token = issue_session_token(
         identifier,
         cert_claims.cert_id,
         key_path=settings.session_signing_key_file,
+        admin=is_owner_admin,
     )
     await store_session_token(token, identifier, cert_claims.cert_id, redis)
 
