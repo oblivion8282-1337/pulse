@@ -21,6 +21,10 @@ os.environ.setdefault("JWT_PRIVATE_KEY_FILE", str(SECRETS / "jwt_private.pem"))
 os.environ.setdefault("JWT_PUBLIC_KEY_FILE", str(SECRETS / "jwt_public.pem"))
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("CORS_ALLOW_ORIGINS", "http://test")
+# Tests model the Cloud by default (matches prod howispulse.com), so the
+# cloud-only Self-Host-instance admin routes are reachable. test_admin_instances
+# flips this to "self-host" to assert the 403 gate.
+os.environ.setdefault("PULSE_INSTANCE_MODE", "cloud")
 
 import httpx  # noqa: E402
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # noqa: E402

@@ -543,3 +543,29 @@ async def test_rotate_secret(client, admin_token, session_factory, applicant_use
         assert not verify_password(old_secret_plain, new_hash)
         # New plaintext verifies
         assert verify_password(data["client_secret"], new_hash)
+
+
+# --------------------------------------------------------------------------- #
+# Cloud-only gate — the whole surface 403s on a self-host deployment           #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_instance_admin_is_cloud_only(client, admin_token, monkeypatch):
+    """Approving/suspending Self-Host instances is cloud-only: on a self-host
+    deployment (PULSE_INSTANCE_MODE != cloud) even an admin gets 403."""
+    from types import SimpleNamespace
+
+    import dcc_auth.routes_admin_instances as rai
+
+    h = {"Authorization": f"Bearer {admin_token}"}
+    # Cloud (test default) → reachable.
+    assert (await client.get("/admin/instances", headers=h)).status_code == 200
+
+    # Flip the instance role to self-host → the router-level gate 403s.
+    monkeypatch.setattr(
+        rai, "get_settings", lambda: SimpleNamespace(pulse_instance_mode="self-host")
+    )
+    r = await client.get("/admin/instances", headers=h)
+    assert r.status_code == 403
+    assert "cloud-only" in r.text

@@ -11,6 +11,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import AdminOverview from '$lib/components/admin/AdminOverview.svelte';
   import AdminAttachments from '$lib/components/admin/AdminAttachments.svelte';
   import AdminRegistration from '$lib/components/admin/AdminRegistration.svelte';
@@ -24,6 +25,12 @@
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 
   let ready = $state(false);
+
+  // Self-Host-Instanzen verwalten (Anträge genehmigen/sperren) ist eine reine
+  // Cloud-Funktion — nur howispulse.com entscheidet, wer self-hosten darf. Auf
+  // jedem Self-Host-Server blenden wir den Bereich aus (Backend riegelt zusätzlich
+  // per PULSE_INSTANCE_MODE ab).
+  let isCloud = $derived(activeServer.current?.isCloud ?? false);
 
   onMount(async () => {
     if (!auth.isAuthenticated) {
@@ -66,7 +73,9 @@
       <AdminSmtp />
       <AdminPermissions />
       <AdminPlugins />
-      <AdminInstances />
+      {#if isCloud}
+        <AdminInstances />
+      {/if}
       <AdminUsers />
       <AdminAuditLog />
     </main>

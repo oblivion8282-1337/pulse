@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -41,6 +42,12 @@ class Settings(BaseSettings):
     # (same default here and there); on self-host the cert is Cloud-signed, so
     # the Cloud's value is what the self-host gateway validates against.
     pulse_oidc_issuer: str = "https://howispulse.com"
+
+    # Instance role. Only the Cloud (``cloud``) may approve/suspend Self-Host
+    # instances; every other deployment defaults to ``self-host`` and is locked
+    # out of those admin routes. Mirrors chat-gateway's PULSE_INSTANCE_MODE —
+    # the prod .env sets it to ``cloud`` on howispulse.com.
+    pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
 
     # Snowflakes
     snowflake_worker_id_auth: int = Field(default=1, ge=0, le=1023)

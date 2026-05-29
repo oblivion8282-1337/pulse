@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import (
     InstanceApplication,
@@ -33,7 +34,26 @@ from dcc_auth.routes import _require_admin
 from dcc_auth.security import hash_password
 from dcc_auth.snowflake import next_id
 
-router = APIRouter(prefix="/admin")
+
+def _require_cloud() -> None:
+    """Gate the whole Self-Host-instance admin surface to the Cloud.
+
+    Approving/suspending Self-Host instances is a cloud-only privilege — the
+    Cloud (howispulse.com) is the single authority that decides who may
+    self-host. On any non-cloud deployment (``PULSE_INSTANCE_MODE`` defaults to
+    ``self-host``) these routes 403, so a self-host admin can't authorise
+    further instances. Defense-in-depth alongside the frontend hiding the tab.
+    """
+    if get_settings().pulse_instance_mode != "cloud":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="self-host instance management is cloud-only",
+        )
+
+
+# Router-level dependency → every route here is cloud-gated (and still
+# admin-gated per-route via ``_require_admin``).
+router = APIRouter(prefix="/admin", dependencies=[Depends(_require_cloud)])
 
 # --------------------------------------------------------------------------- #
 # Pydantic schemas                                                              #
