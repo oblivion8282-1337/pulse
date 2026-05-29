@@ -19,11 +19,14 @@ Kein Python — die Rust-Bin ist standalone (FFmpeg-DLLs neben der exe).
   `FFMPEG_DIR`; `build.rs` kopiert die DLLs neben die exe).
 - MediaMTX-Build für lokales Testen unter `mediamtx-dist/v1.18.1/mediamtx.exe`.
 
-## Zwei Encode-Pfade
+## Drei Encode-Pfade
 
-Dispatch in `src/stream_controller.rs::run_pipeline`.
+Vendor-Dispatch in `src/stream_controller.rs::run_pipeline`: `nvidia` → `pipeline_hw`
+(D3D11-Zero-Copy), `amd` → `pipeline_d3d12` (D3D12VA-Zero-Copy), sonst (Intel) →
+`run_cpu_pipeline`. **Beide GPU-Pfade sind by default aktiv** — `PULSE_HQ_DISABLE_ZERO_COPY=1`
+zwingt jeden Vendor auf den CPU-Pfad (für AMD = Fallback auf das funktionierende `h264_amf`).
 
-### NVIDIA Zero-Copy
+### NVIDIA Zero-Copy (D3D11 → NVENC)
 `src/pipeline_hw.rs` + `src/capture/wgc_hw.rs` + `src/encode/encoder_hw.rs` + `src/encode/hwctx.rs`.
 
 WGC liefert `ID3D11Texture2D`-Frames; im Capture-Callback `CopySubresourceRegion`
@@ -36,34 +39,58 @@ ist in `hwctx.rs` hand-gespiegelt + CRITICAL_SECTION als `lock`/`unlock`-Callbac
 (FFmpeg serialisiert intern darüber den D3D11-Device-Zugriff; der Capture-Callback
 hält denselben Lock manuell für `CopySubresourceRegion`). Aktiv **nur** für NVIDIA.
 
-### CPU-Fallback
+### AMD Zero-Copy (D3D12VA) — 2026-05-21
+`src/pipeline_d3d12.rs` + `src/capture/wgc_d3d12.rs` + `src/encode/d3d12_convert.rs` +
+`src/encode/encoder_d3d12.rs` (+ `extradata.rs`).
+
+AMD kann **kein** D3D11-Zero-Copy (s.u., AMF #455), aber FFmpeg 8.1 hat native
+**`*_d3d12va`-Encoder** über Microsofts D3D12 Video Encode API — die umgehen die
+crashende AMF-Runtime komplett. Pfad nach der Capture komplett D3D12-only:
+- WGC liefert weiterhin `ID3D11Texture2D`/BGRA (Windows hat keine D3D12-Capture) →
+  `wgc_d3d12.rs` bridged jede Textur per **Shared-NT-Handle** D3D11→D3D12 (BGRA cross-API).
+- `d3d12_convert.rs`: **D3D12-Compute-Shader** BGRA→NV12 (BT.709), schreibt direkt in den
+  UAV-fähigen Encoder-Pool-Frame — kein CPU-swscale.
+- `encoder_d3d12.rs`: `h264_d3d12va` / `hevc_d3d12va` / `av1_d3d12va` (Map `d3d12va_name()`).
+  **Sonderfall:** der d3d12va-Encoder liefert keine `extradata` → `write_header` ist bis
+  zum ersten Keyframe verzögert, avcC/SPS/PPS kommt aus dem Bitstream (`extradata.rs`).
+- `AVD3D12VA*`-Structs sind wie bei NVIDIA in `encoder_d3d12.rs` hand-gespiegelt
+  (ffmpeg-sys bindet die D3D12VA-Header nicht).
+
+Kein PCIe-Roundtrip, kein CPU-swscale: conv-Zeit 17 ms → 2,9 ms, stabile 60 fps.
+
+### CPU-Fallback (Intel/QSV + Kill-Switch)
 `src/capture/wgc.rs` + `src/encode/encoder.rs` → `run_cpu_pipeline`.
 
 BGRA via `frame.buffer().as_nopadding_buffer()` → CPU `Vec<u8>` → swscale BGRA→NV12 →
-AMF/QSV. Aktiv für AMD/Intel oder bei `PULSE_HQ_DISABLE_ZERO_COPY=1`. Hat zusätzlich
-einen **NVIDIA-„BGR-direct"-Fastpath** (BGRA-Bytes 1:1 in den NVENC-Frame ohne swscale).
+QSV/AMF. Aktiv für **Intel** sowie für jeden Vendor unter `PULSE_HQ_DISABLE_ZERO_COPY=1`.
+Hat zusätzlich einen **NVIDIA-„BGR-direct"-Fastpath** (BGRA-Bytes 1:1 in den NVENC-Frame
+ohne swscale).
 
-## AMD kann NICHT zero-copy (2026-05-20, hart verifiziert)
+## Warum AMD einen eigenen Pfad braucht (AMF #455)
 
-`h264_amf` stürzt auf D3D11-Surface-Input reproduzierbar mit Integer-Divide-by-Zero
+`h264_amf` stürzt auf **D3D11**-Surface-Input reproduzierbar mit Integer-Divide-by-Zero
 in der AMF-Runtime ab (`SubmitInput`, Frame 0) — dokumentierter AMD-Treiber-Bug,
 AMF-Issue [#455](https://github.com/GPUOpen-LibrariesAndSDKs/AMF/issues/455).
 Bind-Flags, Auflösung und NV12-vs-BGRA als Ursache ausgeschlossen (Probe
 `examples/probe_d3d11.rs`); identische Encoder-Config mit Software-NV12-Surface läuft
-sauber bei 60 fps. Darum: **AMD/Intel → CPU-Pfad, Punkt.**
+sauber bei 60 fps. Darum **nicht** der NVIDIA-D3D11-Pfad, sondern der eigene D3D12VA-Pfad
+(`pipeline_d3d12`), der die AMF-Library umgeht. `h264_amf` läuft nur noch im CPU-Fallback
+(Software-NV12-Input), wohin `PULSE_HQ_DISABLE_ZERO_COPY=1` AMD zurückschaltet.
 
 **Dispatch-Detail:** `select_adapter()` liefert auf Multi-GPU den `HIGH_PERFORMANCE`-Slot
 (dGPU), nicht zwingend die Display-/Capture-GPU. `run_pipeline` schickt `nvidia` an
 `pipeline_hw`; `pipeline_hw::run` prüft dann die ECHTE WGC-D3D11-Device-GPU
-(`device_vendor`) und delegiert bei `!=nvidia` selbst zurück an `run_cpu_pipeline`.
-Auf einer reinen AMD-Box greift schon `run_pipeline` direkt zum CPU-Pfad.
+(`device_vendor`) und delegiert bei `amd` selbst an `pipeline_d3d12` bzw. sonst an
+`run_cpu_pipeline`. Auf einer reinen AMD-Box greift schon `run_pipeline` direkt zu
+`pipeline_d3d12`.
 
 ## Env-Overrides (Test/Debug)
 
 - `PULSE_HQ_ADAPTER_VENDOR=nvidia|amd|intel` — Adapter-Filter statt
-  DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU (dGPU+iGPU) der einzige Weg, den
-  AMF/QSV-Pfad zu validieren, ohne den Default umzustellen.
-- `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt CPU-Pfad auch auf NVIDIA. Für A/B-Debugging.
+  DXGI-`HIGH_PERFORMANCE`-Default. Auf Multi-GPU (dGPU+iGPU) der einzige Weg, einen
+  bestimmten Vendor-Pfad zu validieren, ohne den Default umzustellen.
+- `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt den CPU-Pfad für **jeden** Vendor (NVIDIA wie
+  AMD). Für A/B-Debugging; auf AMD = Fallback auf `h264_amf` (Software-NV12-Input).
 - `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
 
 ## TLS/RTMPS-Fußnote

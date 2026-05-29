@@ -161,8 +161,9 @@ Legacy-Fallback `/tmp/gsr-analysis/...` — wandert beim nächsten Bootstrap mit
 
 **Windows-HQ-Sidecar** (`streaming/win-hq-sidecar/`): Rust-Bin, spricht dasselbe stdio-JSON-RPC wie der Linux-GSR-Sidecar
 (gleiche Ops/Events/Response-Shapes). Capture = `windows-capture` (WGC), Audio = `wasapi`, Encode/Mux = `ffmpeg-next`
-gegen vendored BtbN-LGPL-DLLs. Zwei Encode-Pfade: **NVIDIA D3D11-Zero-Copy** vs. **CPU-Fallback** (AMD+Intel — AMD
-*kann* kein Zero-Copy, `h264_amf`-Treiberbug). **Voller Aufbau, Encode-Pfad-Details, AMD-Bug, Env-Overrides, Tests,
+gegen vendored BtbN-LGPL-DLLs. Drei Encode-Pfade (Vendor-Dispatch): **NVIDIA D3D11-Zero-Copy** (NVENC) ·
+**AMD D3D12VA-Zero-Copy** (nativer `h264_d3d12va`, umgeht die crashende AMF-Runtime — AMD kann kein *D3D11*-Zero-Copy,
+`h264_amf`-Treiberbug #455) · **CPU-Fallback** (Intel/QSV + `PULSE_HQ_DISABLE_ZERO_COPY=1`). **Voller Aufbau, Encode-Pfad-Details, AMD-Bug, Env-Overrides, Tests,
 TLS/RTMPS-Fußnote → `streaming/win-hq-sidecar/README.md`.** Pfad-Entscheid-Recherche: `WINDOWS_HQ_SIDECAR.md` (Root).
 
 **Settings-Persistenz (Electron)**: `desktop/electron/store.ts` = hand-rolled Key-Value-Store (**bewusst kein `electron-store`**
