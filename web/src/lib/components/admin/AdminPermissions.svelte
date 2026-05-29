@@ -133,7 +133,7 @@
         <div class="min-w-0 flex-1">
           <div class="text-text-bright text-sm font-medium">Sound-Upload-Limit pro Datei</div>
           <div class="text-text-muted text-xs mt-0.5">
-            Maximale Größe einer hochgeladenen Sound-Datei pro Server.
+            Maximale Größe einer hochgeladenen Sound-Datei pro Community.
             Gilt für jede Sound-ID einzeln (13 Slots × Limit). 4 – 5120 KB.
           </div>
         </div>

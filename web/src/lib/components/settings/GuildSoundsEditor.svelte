@@ -164,7 +164,7 @@
   <div class="flex flex-col gap-1">
     <h2 class="text-text-bright text-lg font-semibold">Sounds</h2>
     <p class="text-text-muted text-sm">
-      Eigene Sounds für diesen Server. Pro Sound-ID eine Datei (OGG oder MP3,
+      Eigene Sounds für diese Community. Pro Sound-ID eine Datei (OGG oder MP3,
       max. {fmtBytes(capabilities.guildSoundMaxSizeBytes)}).
       Ohne Override spielt der Standard-Sound. „Anhören" gibt dir die
       aktuelle Variante.

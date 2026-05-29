@@ -15,8 +15,8 @@
     { value: DM_POLICY.EVERYONE, label: 'Alle', description: 'Jeder kann dir schreiben' },
     {
       value: DM_POLICY.SERVER_MEMBERS,
-      label: 'Server-Mitglieder',
-      description: 'Nur Mitglieder gemeinsamer Server'
+      label: 'Community-Mitglieder',
+      description: 'Nur Mitglieder gemeinsamer Communitys'
     },
     { value: DM_POLICY.FRIENDS_ONLY, label: 'Freunde', description: 'Nur deine Freunde' },
     { value: DM_POLICY.NOBODY, label: 'Niemand', description: 'DMs komplett deaktivieren' }
@@ -30,8 +30,8 @@
     },
     {
       value: FRIEND_REQ_POLICY.SERVER_MEMBERS,
-      label: 'Server-Mitglieder',
-      description: 'Nur Mitglieder gemeinsamer Server'
+      label: 'Community-Mitglieder',
+      description: 'Nur Mitglieder gemeinsamer Communitys'
     },
     {
       value: FRIEND_REQ_POLICY.NOBODY,

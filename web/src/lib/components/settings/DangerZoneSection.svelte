@@ -30,7 +30,7 @@
         <h3 class="text-destructive text-sm font-semibold">Gefahrenzone</h3>
         <p class="text-text-muted text-xs">
           Account löschen — dauerhaft und unwiderruflich. Alle Nachrichten, Mitgliedschaften und
-          Server, in denen du Owner bist, gehen verloren.
+          Communitys, in denen du Owner bist, gehen verloren.
         </p>
       </div>
     </div>

@@ -79,7 +79,7 @@
   <div class="flex items-center justify-between">
     <div>
       <h2 class="text-text-bright text-lg font-semibold">Audit-Log</h2>
-      <p class="text-text-muted text-sm">Moderations-Aktionen dieses Servers, neueste zuerst.</p>
+      <p class="text-text-muted text-sm">Moderations-Aktionen dieser Community, neueste zuerst.</p>
     </div>
     <button
       type="button"

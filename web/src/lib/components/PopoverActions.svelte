@@ -51,7 +51,7 @@
   let banConfirmArmed = $state(false);
 
   // Reset the armed-confirm when the popover closes so the next open
-  // starts on the safe "Aus Server entfernen" / "Sperren" label.
+  // starts on the safe "Aus Community entfernen" / "Sperren" label.
   $effect(() => {
     if (!popoverOpen) {
       kickConfirmArmed = false;
@@ -222,7 +222,7 @@
           {#if kickConfirmArmed}
             Wirklich entfernen?
           {:else}
-            Aus Server entfernen
+            Aus Community entfernen
           {/if}
         </span>
       </button>

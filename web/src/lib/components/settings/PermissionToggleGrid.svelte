@@ -14,9 +14,9 @@
 
   const groups: Group[] = [
     {
-      title: 'Server-Administration',
+      title: 'Community-Administration',
       entries: [
-        { perm: Perm.MANAGE_GUILD, label: 'Server verwalten', desc: 'Name, Bild, Settings ändern.' },
+        { perm: Perm.MANAGE_GUILD, label: 'Community verwalten', desc: 'Name, Bild, Settings ändern.' },
         { perm: Perm.MANAGE_CHANNELS, label: 'Kanäle verwalten', desc: 'Kanäle anlegen, umbenennen, löschen.' },
         { perm: Perm.MANAGE_ROLES, label: 'Rollen verwalten', desc: 'Rollen anlegen, editieren, zuweisen.' },
         { perm: Perm.MANAGE_PERMISSIONS, label: 'Kanal-Berechtigungen', desc: 'Channel-Overrides pro Rolle/User editieren.' },
@@ -26,7 +26,7 @@
     {
       title: 'Mitglieder',
       entries: [
-        { perm: Perm.KICK_MEMBERS, label: 'Mitglieder rauswerfen', desc: 'Member aus dem Server kicken.' },
+        { perm: Perm.KICK_MEMBERS, label: 'Mitglieder rauswerfen', desc: 'Member aus der Community kicken.' },
         { perm: Perm.BAN_MEMBERS, label: 'Mitglieder bannen', desc: 'Member dauerhaft sperren.' },
         { perm: Perm.CHANGE_NICKNAME, label: 'Eigenen Nick ändern', desc: 'Eigenen Anzeigenamen setzen.' },
         { perm: Perm.MANAGE_NICKNAMES, label: 'Andere Nicks ändern', desc: 'Anzeigenamen anderer setzen.' }
@@ -42,7 +42,7 @@
         { perm: Perm.ATTACH_FILES, label: 'Dateien anhängen', desc: 'Bilder + Files mitschicken.' },
         { perm: Perm.ADD_REACTIONS, label: 'Reaktionen', desc: 'Emoji-Reactions setzen.' },
         { perm: Perm.CREATE_INVITES, label: 'Einladungen erstellen', desc: 'Invite-Links generieren.' },
-        { perm: Perm.MENTION_EVERYONE, label: '@everyone erwähnen', desc: 'Den Server-weiten Mention auslösen.' }
+        { perm: Perm.MENTION_EVERYONE, label: '@everyone erwähnen', desc: 'Den Community-weiten Mention auslösen.' }
       ]
     },
     {

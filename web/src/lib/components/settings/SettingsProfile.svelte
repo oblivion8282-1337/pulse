@@ -119,7 +119,7 @@
   <header>
     <h2 class="text-text-bright text-lg font-semibold">Profil</h2>
     <p class="text-text-muted text-sm">
-      Benutzername, Anzeigename und Farbe — werden über alle deine Server hinweg synchronisiert.
+      Benutzername, Anzeigename und Farbe — werden über alle deine Communitys hinweg synchronisiert.
     </p>
   </header>
 

@@ -69,7 +69,7 @@
   <header>
     <h2 class="text-text-bright text-base font-semibold">Eigentümerschaft übertragen</h2>
     <p class="text-text-muted text-sm">
-      Macht ein anderes Mitglied zum neuen Server-Owner. Du wirst zu einem
+      Macht ein anderes Mitglied zum neuen Community-Owner. Du wirst zu einem
       regulären Mitglied und kannst die Übertragung nicht rückgängig
       machen — der neue Owner müsste dir das Eigentum zurückgeben.
     </p>
@@ -91,7 +91,7 @@
   </div>
 
   <div class="space-y-2">
-    <Label for="ot-confirm">Server-Name zur Bestätigung</Label>
+    <Label for="ot-confirm">Community-Name zur Bestätigung</Label>
     <Input
       id="ot-confirm"
       placeholder={guild.name}

@@ -89,7 +89,7 @@
 <div class="flex min-h-dvh">
   <AuthBrandPanel
     headline="Werd Teil von Pulse."
-    description="In 30 Sekunden eingerichtet. Erstell einen Server, lade Freunde ein, starte einen Voice-Channel."
+    description="In 30 Sekunden eingerichtet. Erstell eine Community, lade Freunde ein, starte einen Voice-Channel."
     features={[
       'Kostenlos, keine Karte nötig',
       'Argon2id-Passwörter, RS256-Tokens',

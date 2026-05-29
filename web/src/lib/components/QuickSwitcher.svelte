@@ -106,7 +106,7 @@
   <Dialog.Content class="max-w-xl gap-0 p-0" data-testid="quick-switcher">
     <Dialog.Title class="sr-only">Schnell-Wechsler</Dialog.Title>
     <Dialog.Description class="sr-only">
-      Channel, Server oder Direct-Message suchen und mit Enter wechseln.
+      Channel, Community oder Direct-Message suchen und mit Enter wechseln.
     </Dialog.Description>
 
     <input
@@ -114,7 +114,7 @@
       bind:value={query}
       onkeydown={onKey}
       type="text"
-      placeholder="Wohin? (Server, Channel oder Direct-Message)"
+      placeholder="Wohin? (Community, Channel oder Direct-Message)"
       class="border-border text-text-bright placeholder:text-text-muted w-full border-b bg-transparent px-4 py-3 text-sm outline-none"
       data-testid="quick-switcher-input"
     />

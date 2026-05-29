@@ -175,9 +175,9 @@
         <li>Alle deine Nachrichten in allen Channels und DMs</li>
         <li>Alle deine Reaktionen</li>
         <li>
-          Alle Server, in denen du Owner bist — <strong>inkl. aller darin enthaltenen Daten</strong>
+          Alle Communitys, in denen du Owner bist — <strong>inkl. aller darin enthaltenen Daten</strong>
         </li>
-        <li>Deine Mitgliedschaften in fremden Servern</li>
+        <li>Deine Mitgliedschaften in fremden Communitys</li>
         <li>Alle 2FA-Backup-Codes und Sessions</li>
       </ul>
 

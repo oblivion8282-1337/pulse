@@ -57,8 +57,8 @@
       setGuildPluginEnabled(guildId, name, updated.enabled);
       toast.success(
         updated.enabled
-          ? `Plugin "${name}" für diesen Server aktiviert`
-          : `Plugin "${name}" für diesen Server deaktiviert`
+          ? `Plugin "${name}" für diese Community aktiviert`
+          : `Plugin "${name}" für diese Community deaktiviert`
       );
     } catch (e) {
       // Revert.
@@ -76,7 +76,7 @@
   <div class="flex flex-col gap-1">
     <h2 class="text-text-bright text-lg font-semibold">Plugins</h2>
     <p class="text-text-muted text-sm">
-      Welche vom Server-Admin freigegebenen Plugins auf diesem Server aktiv sein
+      Welche vom Server-Admin freigegebenen Plugins in dieser Community aktiv sein
       sollen. Aktivierungen wirken sofort für neue Plugin-Aktionen; das
       <code>hello</code>-Plugin ist instanzweit aktiv und nicht abschaltbar.
     </p>
@@ -122,9 +122,9 @@
               {#if isHello}
                 Loader-Smoketest. Immer aktiv, kann nicht abgeschaltet werden.
               {:else if row.enabled}
-                Für diesen Server aktiviert.
+                Für diese Community aktiviert.
               {:else}
-                Für diesen Server deaktiviert.
+                Für diese Community deaktiviert.
               {/if}
             </div>
           </div>

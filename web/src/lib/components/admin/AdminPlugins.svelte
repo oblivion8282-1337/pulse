@@ -93,8 +93,8 @@
       <h2 class="text-text-bright text-base font-semibold">Plugins</h2>
       <p class="text-text-muted text-xs mt-0.5">
         Welche Plugins auf dieser Pulse-Instanz überhaupt geladen werden dürfen.
-        Pro Server entscheiden Server-Admins separat über
-        <em>Server-Einstellungen → Plugins</em>, welche der freigegebenen
+        Pro Community entscheiden Community-Admins separat über
+        <em>Community-Einstellungen → Plugins</em>, welche der freigegebenen
         Plugins dort aktiv sind. Änderungen wirken sofort.
       </p>
     </div>

@@ -77,7 +77,7 @@
   <header class="space-y-1">
     <h2 class="text-text-bright text-lg font-semibold">Sperrungen</h2>
     <p class="text-text-muted text-sm">
-      Gesperrte Benutzer können dem Server nicht beitreten — weder per Invite
+      Gesperrte Benutzer können der Community nicht beitreten — weder per Invite
       noch durch einen Mod-Add. Beim Sperren wird die laufende Mitgliedschaft
       ebenfalls beendet.
     </p>

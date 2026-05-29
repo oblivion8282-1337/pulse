@@ -57,7 +57,7 @@
   <div class="mb-4">
     <h2 class="text-text-bright text-base font-semibold">Datei-Anhänge in DMs</h2>
     <p class="text-text-muted text-xs mt-0.5">
-      Globale Limits. Guild-Channels haben eigene Limits, die pro Server eingestellt werden.
+      Globale Limits. Guild-Channels haben eigene Limits, die pro Community eingestellt werden.
     </p>
   </div>
 

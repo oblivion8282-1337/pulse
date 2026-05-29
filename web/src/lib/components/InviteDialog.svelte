@@ -103,7 +103,7 @@
   <Dialog.Content data-testid="invite-dialog" class="max-w-lg">
     <Dialog.Header>
       <Dialog.Title>Leute einladen</Dialog.Title>
-      <Dialog.Description>Teile diesen Link, um Personen zu deinem Server einzuladen.</Dialog.Description>
+      <Dialog.Description>Teile diesen Link, um Personen zu deiner Community einzuladen.</Dialog.Description>
     </Dialog.Header>
 
     <div class="space-y-4">

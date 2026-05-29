@@ -55,7 +55,7 @@
       <div class="flex flex-col gap-1 rounded-xl bg-bg-hover/50 p-3" data-testid="stat-guilds">
         <div class="text-text-muted flex items-center gap-1.5 text-xs">
           <LayersIcon class="size-3.5" />
-          Server
+          Communitys
         </div>
         <div class="text-text-bright text-2xl font-semibold">{chat.guild_count}</div>
         <div class="text-text-muted text-xs">{chat.channel_count} Kanäle</div>

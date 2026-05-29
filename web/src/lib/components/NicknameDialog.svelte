@@ -125,7 +125,7 @@
         {isSelf ? 'Eigenen Nickname ändern' : `Nickname für ${fallbackName}`}
       </Dialog.Title>
       <Dialog.Description>
-        Gilt nur auf diesem Server. Leer lassen, um den Standardnamen zu nutzen.
+        Gilt nur in dieser Community. Leer lassen, um den Standardnamen zu nutzen.
       </Dialog.Description>
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>

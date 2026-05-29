@@ -109,7 +109,7 @@
       data-testid="popover-invite-to-server-btn"
     >
       <MailPlusIcon class="size-4" />
-      <span class="flex-1">Zu Server einladen</span>
+      <span class="flex-1">Zu Community einladen</span>
       <ChevronDownIcon class="size-3 transition-transform {inviteSubmenuOpen ? 'rotate-180' : ''}" />
     </button>
     {#if inviteSubmenuOpen}
