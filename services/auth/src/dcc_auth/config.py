@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # the prod .env sets it to ``cloud`` on howispulse.com.
     pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
 
+    # Mandatory-SSO default: on a self-host instance, local password
+    # registration is OFF — users sign in with their howispulse.com identity
+    # (cert-login). A self-hoster who wants a sealed, cloud-independent island
+    # sets ALLOW_LOCAL_ACCOUNTS=true. Irrelevant on the Cloud, which is *the*
+    # identity source and always accepts registration (subject to
+    # registration_mode open/invite/closed).
+    allow_local_accounts: bool = False
+
     # Snowflakes
     snowflake_worker_id_auth: int = Field(default=1, ge=0, le=1023)
 

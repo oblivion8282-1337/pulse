@@ -88,6 +88,9 @@
         } else if (detail.includes('invite')) {
           showInvite = true;
           error = 'Einladungscode ungültig oder abgelaufen.';
+        } else if (detail.includes('local registration disabled')) {
+          error =
+            'Dieser Server hat keine eigene Registrierung — melde dich mit deinem howispulse.com-Konto an.';
         } else if (detail.includes('closed')) {
           error = 'Registrierung ist derzeit geschlossen.';
         } else {

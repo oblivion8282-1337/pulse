@@ -193,6 +193,16 @@ async def register(
     # forcing slowapi state into every test.
     await _check_rate(request, "register", settings.rate_limit_register)
 
+    # Mandatory-SSO: a self-host instance has no local registration by default —
+    # identity comes from howispulse.com (cert-login). The escape hatch
+    # ALLOW_LOCAL_ACCOUNTS re-opens it for sealed-island deployments. The Cloud
+    # (instance_mode == "cloud") is the identity source and is never gated here.
+    if settings.pulse_instance_mode != "cloud" and not settings.allow_local_accounts:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="local registration disabled — sign in with your howispulse.com account",
+        )
+
     # Registration gate set by the server admin.
     #   open        → anyone may register
     #   closed      → nobody may register
