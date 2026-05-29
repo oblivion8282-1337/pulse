@@ -382,12 +382,67 @@ async def members_who_can_view(
     return out
 
 
+async def filter_viewable_channels(
+    session: AsyncSession,
+    user: AuthenticatedUser,
+    guild_id: int,
+    channel_ids: list[int],
+) -> set[int]:
+    """Return the subset of ``channel_ids`` the user may ``VIEW_CHANNEL``.
+
+    Batched counterpart to calling ``resolve_permissions`` in a loop: the
+    guild context (owner / membership / roles) is loaded once and *every*
+    candidate channel's overwrites in a single ``IN`` query, then the
+    pure-Python resolver runs per channel in-memory. A fixed ~3 SELECTs
+    regardless of channel count, instead of ~3·N. Used by the channel-list
+    route so private channels stay hidden without an N+1.
+    """
+    if not channel_ids:
+        return set()
+    base = await _load_context(session, user, guild_id, None)
+    # Owner / global-admin resolve to GRANT_ALL (which includes VIEW_CHANNEL)
+    # for every channel — skip the overwrite work entirely.
+    if base.owner or base.admin:
+        return set(channel_ids)
+    if not base.member:
+        return set()
+
+    ow_by_channel: dict[int, dict[tuple[int, int], Override]] = {}
+    for ow in (
+        await session.execute(
+            select(PermissionOverwrite).where(
+                PermissionOverwrite.channel_id.in_(channel_ids)
+            )
+        )
+    ).scalars():
+        ow_by_channel.setdefault(ow.channel_id, {})[
+            (ow.target_type, ow.target_id)
+        ] = Override(allow=ow.allow_bf, deny=ow.deny_bf)
+
+    out: set[int] = set()
+    for cid in channel_ids:
+        ctx = _Ctx(
+            user=base.user,
+            admin=base.admin,
+            owner=base.owner,
+            member=base.member,
+            roles=base.roles,
+            overwrites=ow_by_channel.get(cid, {}),
+        )
+        if has_permission(
+            calculate_channel_permissions(ctx), Permissions.VIEW_CHANNEL
+        ):
+            out.add(cid)
+    return out
+
+
 __all__ = [
     "OVERWRITE_TARGET_ROLE",
     "OVERWRITE_TARGET_USER",
     "Permissions",
     "assert_overwrite_within_editor_scope",
     "check_permission",
+    "filter_viewable_channels",
     "has_permission",
     "members_who_can_view",
     "resolve_guild_permissions_from_snapshot",

@@ -7,7 +7,7 @@ from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message, MessageAttachment
-from dcc_chat_gateway.permissions import Permissions, check_permission, has_permission, resolve_permissions
+from dcc_chat_gateway.permissions import Permissions, check_permission, filter_viewable_channels
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
@@ -94,13 +94,12 @@ async def list_channels(
     )
     rows = (await session.execute(stmt)).scalars().all()
     # Filter by VIEW_CHANNEL so members who are denied access to a private
-    # channel don't learn about its existence via this listing.
-    visible: list[Channel] = []
-    for ch in rows:
-        perms = await resolve_permissions(session, current, guild_id, channel_id=ch.id)
-        if has_permission(perms, Permissions.VIEW_CHANNEL):
-            visible.append(ch)
-    return visible
+    # channel don't learn about its existence via this listing. Batched
+    # (one context load + one overwrite query) to avoid an N+1 across channels.
+    visible_ids = await filter_viewable_channels(
+        session, current, guild_id, [ch.id for ch in rows]
+    )
+    return [ch for ch in rows if ch.id in visible_ids]
 
 
 @router.get("/guilds/{guild_id}/voice-state")
