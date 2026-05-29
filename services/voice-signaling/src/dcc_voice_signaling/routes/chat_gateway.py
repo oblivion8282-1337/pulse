@@ -45,9 +45,11 @@ async def _init_http_client() -> None:
     """Initialize the shared HTTP client. Called from app lifespan startup."""
     global _http_client
     settings = voice_routes.get_settings()
-    _http_client = httpx.AsyncClient(
-        timeout=settings.chat_gateway_timeout_s, http2=True
-    )
+    # NB: no http2=True — it requires the optional `h2` package which is not a
+    # declared dependency (present transitively in dev, absent in the prod
+    # image → ImportError at startup). HTTP/1.1 with connection pooling is fine
+    # for internal service-to-service calls.
+    _http_client = httpx.AsyncClient(timeout=settings.chat_gateway_timeout_s)
 
 
 async def _close_http_client() -> None:
