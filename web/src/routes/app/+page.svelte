@@ -12,7 +12,8 @@
   import { chatApi } from '$lib/api/chat';
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import SidebarFooter from '$lib/components/SidebarFooter.svelte';
+  import DMChannelList from '$lib/components/DMChannelList.svelte';
+  import type { DMChannel } from '$lib/api/types';
 
   // Admins can always create; otherwise gate on the server-wide flag.
   const canCreateGuild = $derived(
@@ -64,14 +65,19 @@
   guilds={guilds.list}
   activeGuildId={null}
   currentUserId={auth.user?.id ?? null}
+  homeActive={true}
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
   onCreateClick={() => (creating = true)}
+  onHomeClick={() => goto('/app/@me')}
 />
 
-<aside class="glass-panel flex h-full w-full flex-col overflow-hidden rounded-none md:w-60 md:rounded-2xl lg:w-68" data-testid="channel-list-placeholder">
-  <div class="flex-1"></div>
-  <SidebarFooter />
-</aside>
+<!-- DM-/Freunde-Liste auch ohne Gilde: ein gilden-loser User muss seine
+     Direktnachrichten + Freundschaftsanfragen erreichen können. Ohne diese
+     Liste war /app eine Sackgasse und das Pulse-Icon ein toter Link. -->
+<DMChannelList
+  activeDMId={null}
+  onSelect={(dm: DMChannel) => goto(`/app/@me/${dm.id}`)}
+/>
 
 <div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
   {#if guilds.list.length === 0}
