@@ -117,7 +117,11 @@ _ok "" "DB aktuell"
 pkill -f "uvicorn dcc_" 2>/dev/null
 sleep 0.5
 
-set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json"
+# PULSE_INSTANCE_MODE=cloud: lokales Dev verhält sich wie howispulse.com.
+# Ohne das greift der Default `self-host` → chat-gateway verlangt eine
+# PULSE_INSTANCE_ID (Cert-Modell) und crasht beim Start, auth-svc blockt zudem
+# POST /register.
+set -l common_env "REDIS_URL=redis://localhost:6380/0 AUTH_JWKS_URL=http://127.0.0.1:8001/.well-known/jwks.json PULSE_INSTANCE_MODE=cloud"
 set -l pg_env "POSTGRES_PASSWORD=$POSTGRES_PASSWORD POSTGRES_HOST=localhost POSTGRES_PORT=5434"
 set -l jwt_env "JWT_PRIVATE_KEY_FILE=$repo_root/secrets/jwt_private.pem JWT_PUBLIC_KEY_FILE=$repo_root/secrets/jwt_public.pem"
 set -l lk_env "LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=devsecretdevsecretdevsecretdevsecret LIVEKIT_URL=ws://localhost:7880"
