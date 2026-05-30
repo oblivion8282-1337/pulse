@@ -6,9 +6,12 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
 
+  type Mode = 'choose' | 'create' | 'join';
+
   let {
     open = false,
     canCreate = true,
+    initialMode = 'choose',
     onClose,
     onCreate,
     onJoin
@@ -19,6 +22,11 @@
      * creation. The "+"-Button stays visible so a fresh user can still
      * join a server via a friend's invite link. */
     canCreate?: boolean;
+    /** Which screen to open on. The rail's "+" menu opens this dialog
+     * directly in 'create' or 'join' so each menu item lands on its form;
+     * 'choose' shows the picker. Only applied on the open-transition, so the
+     * in-dialog "Zurück"-Button can still reach the chooser. */
+    initialMode?: Mode;
     onClose: () => void;
     /** Create a new server with this name. May throw — the dialog shows the error. */
     onCreate: (name: string) => void | Promise<void>;
@@ -26,13 +34,15 @@
     onJoin: (linkOrCode: string) => void | Promise<void>;
   } = $props();
 
-  type Mode = 'choose' | 'create' | 'join';
   let mode = $state<Mode>('choose');
 
-  // Skip the chooser when only one option exists — open the dialog
-  // straight into the join form to save a click for non-admins.
+  // Apply the requested start screen on the open-transition only (not on every
+  // mode change — otherwise "Zurück" → 'choose' would snap straight back).
+  // A non-admin without create rights is always forced into 'join'.
+  let wasOpen = false;
   $effect(() => {
-    if (open && !canCreate && mode === 'choose') mode = 'join';
+    if (open && !wasOpen) mode = !canCreate ? 'join' : initialMode;
+    wasOpen = open;
   });
   let name = $state('');
   let inviteInput = $state('');

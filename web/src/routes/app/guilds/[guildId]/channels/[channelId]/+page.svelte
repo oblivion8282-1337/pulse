@@ -52,6 +52,8 @@
   );
 
   let creatingGuild = $state(false);
+  // Which screen the add-community dialog opens on (rail "+" menu).
+  let createGuildMode = $state<'create' | 'join'>('create');
   let creatingChannel = $state(false);
   let resolving = $state(true);
   let loadError = $state<string | null>(null);
@@ -390,7 +392,10 @@
   activeGuildId={guildId}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={() => (creatingGuild = true)}
+  onCreateClick={!!auth.user?.is_admin || capabilities.allowGuildCreation
+    ? () => { createGuildMode = 'create'; creatingGuild = true; }
+    : undefined}
+  onJoinClick={() => { createGuildMode = 'join'; creatingGuild = true; }}
   onHomeClick={() => { navDrawer.open = true; void goto('/app/@me'); }}
   onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
 />
@@ -461,6 +466,7 @@
 <CreateGuildDialog
   open={creatingGuild}
   canCreate={!!auth.user?.is_admin || capabilities.allowGuildCreation}
+  initialMode={createGuildMode}
   onClose={() => (creatingGuild = false)}
   onCreate={createGuild}
   onJoin={joinGuild}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page } from '$app/state';
   import { onMount } from 'svelte';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
@@ -21,8 +22,21 @@
   );
 
   let creating = $state(false);
+  // Which screen the add-community dialog opens on. The rail's "+" menu sets
+  // 'create' / 'join' to land on a specific form; the empty-state button uses
+  // 'choose' to show the picker.
+  let createMode = $state<'choose' | 'create' | 'join'>('choose');
 
   onMount(() => {
+    // Opened from the @me-rail's "+" menu with ?add=create|join → land
+    // straight on the add-community dialog (in that mode) instead of
+    // auto-redirecting into the first community.
+    const add = page.url.searchParams.get('add');
+    if (add === 'create' || add === 'join') {
+      createMode = add;
+      creating = true;
+      return;
+    }
     const first = guilds.list[0];
     if (first) {
       void (async () => {
@@ -67,7 +81,8 @@
   currentUserId={auth.user?.id ?? null}
   homeActive={true}
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
-  onCreateClick={() => (creating = true)}
+  onCreateClick={canCreateGuild ? () => { createMode = 'create'; creating = true; } : undefined}
+  onJoinClick={() => { createMode = 'join'; creating = true; }}
   onHomeClick={() => goto('/app/@me')}
 />
 
@@ -83,7 +98,7 @@
   {#if guilds.list.length === 0}
     <div class="text-center">
       <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Communitys</p>
-      <Button onclick={() => (creating = true)} data-testid="empty-create-guild">
+      <Button onclick={() => { createMode = 'choose'; creating = true; }} data-testid="empty-create-guild">
         {canCreateGuild ? 'Community erstellen oder beitreten' : 'Community beitreten'}
       </Button>
       {#if !canCreateGuild}
@@ -100,6 +115,7 @@
 <CreateGuildDialog
   open={creating}
   canCreate={canCreateGuild}
+  initialMode={createMode}
   onClose={() => (creating = false)}
   onCreate={createGuild}
   onJoin={joinGuild}

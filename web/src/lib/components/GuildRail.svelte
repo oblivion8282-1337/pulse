@@ -13,6 +13,7 @@
 <script lang="ts">
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import * as ContextMenu from '$lib/components/ui/context-menu/index.js';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -20,6 +21,9 @@
   import ImageOffIcon from '@lucide/svelte/icons/image-off';
   import SettingsIcon from '@lucide/svelte/icons/settings';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import UsersRoundIcon from '@lucide/svelte/icons/users-round';
+  import LogInIcon from '@lucide/svelte/icons/log-in';
+  import ServerIcon from '@lucide/svelte/icons/server';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
@@ -56,6 +60,7 @@
     homeActive = false,
     onSelect,
     onCreateClick,
+    onJoinClick,
     onHomeClick,
     onGuildDeleted
   }: {
@@ -65,9 +70,12 @@
     /** Show the active pill on the home button (e.g. when on /app/@me). */
     homeActive?: boolean;
     onSelect: (g: Guild) => void;
-    /** Hide the "+" button when undefined (e.g. when the admin disabled
-     *  guild-creation for non-admins). */
+    /** Opens the add-community dialog on the *create* screen. Undefined when
+     *  the admin disabled guild-creation for non-admins → the "Community
+     *  erstellen" menu item is hidden (joining stays available). */
     onCreateClick?: () => void;
+    /** Opens the add-community dialog on the *join* screen. */
+    onJoinClick?: () => void;
     /** Overrides the default `href="/app"` navigation. */
     onHomeClick?: () => void;
     onGuildDeleted?: (guildId: string) => void;
@@ -487,48 +495,46 @@
         </ContextMenu.Root>
       {/each}
 
-      <!-- "+" Community auf DIESEM Server -->
-      {#if onCreateClick}
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <button
-                {...props}
-                class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
-                onclick={() => {
-                  if (server.id !== activeServer.serverId) activeServer.set(server.id);
-                  onCreateClick?.();
-                }}
-                data-testid={isActiveServer ? 'guild-create' : `guild-create-${server.id}`}
-                aria-label={`Community auf ${server.label} erstellen`}
-              >
-                <PlusIcon class="size-5" />
-              </button>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content side="right">Community auf {server.label}</Tooltip.Content>
-        </Tooltip.Root>
-      {/if}
     {/each}
 
-    <!-- Globaler "+ Server"-Button am Ende -->
+    <!-- Ein einziger "+"-Button am Ende: öffnet ein Menü mit "Community
+         erstellen" (auf dem aktiven Server) ODER "Server hinzufügen". Ersetzt
+         die früheren zwei optisch identischen "+"-Knöpfe (per-Server-Create +
+         globaler Server-Add), die verwirrend wirkten. -->
     <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
-    <Tooltip.Root>
-      <Tooltip.Trigger>
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger>
         {#snippet child({ props })}
           <button
             {...props}
             class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
-            onclick={() => (addServerOpen = true)}
-            data-testid="server-add"
-            aria-label="Server hinzufügen"
+            data-testid="guild-add-menu"
+            aria-label="Hinzufügen"
           >
             <PlusIcon class="size-5" />
           </button>
         {/snippet}
-      </Tooltip.Trigger>
-      <Tooltip.Content side="right">Server hinzufügen</Tooltip.Content>
-    </Tooltip.Root>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Content side="right" align="end" class="w-56">
+        {#if onCreateClick}
+          <DropdownMenu.Item onSelect={() => onCreateClick?.()} data-testid="guild-create">
+            <UsersRoundIcon />
+            Community erstellen
+          </DropdownMenu.Item>
+        {/if}
+        {#if onJoinClick}
+          <DropdownMenu.Item onSelect={() => onJoinClick?.()} data-testid="guild-join">
+            <LogInIcon />
+            Community beitreten
+          </DropdownMenu.Item>
+        {/if}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Item onSelect={() => (addServerOpen = true)} data-testid="server-add">
+          <ServerIcon />
+          Server hinzufügen
+        </DropdownMenu.Item>
+      </DropdownMenu.Content>
+    </DropdownMenu.Root>
   </Tooltip.Provider>
 
   <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-

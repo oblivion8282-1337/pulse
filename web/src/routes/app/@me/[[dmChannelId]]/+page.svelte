@@ -247,8 +247,11 @@
   homeActive={true}
   onSelect={selectGuild}
   onCreateClick={
-    auth.user?.is_admin || capabilities.allowGuildCreation ? () => goto('/app') : undefined
+    auth.user?.is_admin || capabilities.allowGuildCreation
+      ? () => goto('/app?add=create')
+      : undefined
   }
+  onJoinClick={() => goto('/app?add=join')}
   onHomeClick={async () => {
     navDrawer.open = !navDrawer.open;
     await goto('/app/@me');
