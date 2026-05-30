@@ -38,5 +38,10 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
             allow_guild_creation=False,
             allow_member_invites=True,
             guild_sound_max_size_bytes=524288,
+            hq_bitrate_min_kbps=1000,
+            hq_bitrate_max_kbps=10000,
+            hq_fps_min=1,
+            hq_fps_max=360,
+            hq_resolution_max="Native",
         )
     return row

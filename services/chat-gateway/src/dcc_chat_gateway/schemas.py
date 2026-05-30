@@ -5,7 +5,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_serializer
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    field_serializer,
+    field_validator,
+)
 
 
 def _id_str(value: int) -> str:
@@ -382,6 +389,19 @@ class PermissionsOut(BaseModel):
     allow_guild_creation: bool
     allow_member_invites: bool
     guild_sound_max_size_bytes: int
+    # Global HQ-stream quality limits (best-effort, client-enforced).
+    hq_bitrate_min_kbps: int
+    hq_bitrate_max_kbps: int
+    hq_fps_min: int
+    hq_fps_max: int
+    hq_resolution_max: str
+
+
+# Allowed values for ``hq_resolution_max`` — mirrors the frontend
+# RESOLUTION_VALUES enum. 'Native' = no cap (source resolution).
+ALLOWED_HQ_RESOLUTIONS: frozenset[str] = frozenset(
+    {"Native", "4K", "1440p", "1080p", "720p", "480p"}
+)
 
 
 class PermissionsPatch(BaseModel):
@@ -392,6 +412,22 @@ class PermissionsPatch(BaseModel):
     guild_sound_max_size_bytes: Annotated[
         int | None, Field(default=None, ge=4096, le=5 * 1024 * 1024)
     ] = None
+    # HQ-stream limits. Per-field bounds only here; the min<=max coherence
+    # check happens in the route (a partial patch may set just one side, so
+    # it must be validated against the stored row). Bitrate ceiling 32000
+    # also respects the SmallInteger column (max 32767).
+    hq_bitrate_min_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
+    hq_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
+    hq_fps_min: Annotated[int | None, Field(default=None, ge=1, le=360)] = None
+    hq_fps_max: Annotated[int | None, Field(default=None, ge=1, le=360)] = None
+    hq_resolution_max: str | None = None
+
+    @field_validator("hq_resolution_max")
+    @classmethod
+    def _validate_resolution(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_HQ_RESOLUTIONS:
+            raise ValueError(f"hq_resolution_max must be one of {sorted(ALLOWED_HQ_RESOLUTIONS)}")
+        return v
 
 
 class GuildSoundOverrideOut(BaseModel):

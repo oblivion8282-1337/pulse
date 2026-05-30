@@ -144,6 +144,12 @@ class PermissionsUpdatedEvent(_EventBase):
     allow_guild_creation: bool | None = None
     allow_member_invites: bool | None = None
     guild_sound_max_size_bytes: int | None = None
+    # Global HQ-stream limits (best-effort, client-enforced).
+    hq_bitrate_min_kbps: int | None = None
+    hq_bitrate_max_kbps: int | None = None
+    hq_fps_min: int | None = None
+    hq_fps_max: int | None = None
+    hq_resolution_max: str | None = None
 
 
 class GuildSoundUpdatedEvent(_EventBase):

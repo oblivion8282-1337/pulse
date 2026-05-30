@@ -228,6 +228,33 @@ async def patch_permissions(
         }
         row.guild_sound_max_size_bytes = payload.guild_sound_max_size_bytes
 
+    # HQ-stream limits — all simple scalar set-if-changed fields.
+    for field in (
+        "hq_bitrate_min_kbps",
+        "hq_bitrate_max_kbps",
+        "hq_fps_min",
+        "hq_fps_max",
+        "hq_resolution_max",
+    ):
+        new = getattr(payload, field)
+        if new is not None and new != getattr(row, field):
+            changes[field] = {"from": getattr(row, field), "to": new}
+            setattr(row, field, new)
+
+    # Coherence: a partial patch can set just one side, so check the merged
+    # row (not the payload). Reject before commit so the singleton never holds
+    # an inverted band.
+    if row.hq_bitrate_min_kbps > row.hq_bitrate_max_kbps:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="hq_bitrate_min_kbps must be <= hq_bitrate_max_kbps",
+        )
+    if row.hq_fps_min > row.hq_fps_max:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="hq_fps_min must be <= hq_fps_max",
+        )
+
     if changes:
         _audit(session, actor_id=actor.id, action="permissions.patch", payload=changes)
         await session.commit()
@@ -242,6 +269,11 @@ async def patch_permissions(
                 allow_guild_creation=row.allow_guild_creation,
                 allow_member_invites=row.allow_member_invites,
                 guild_sound_max_size_bytes=row.guild_sound_max_size_bytes,
+                hq_bitrate_min_kbps=row.hq_bitrate_min_kbps,
+                hq_bitrate_max_kbps=row.hq_bitrate_max_kbps,
+                hq_fps_min=row.hq_fps_min,
+                hq_fps_max=row.hq_fps_max,
+                hq_resolution_max=row.hq_resolution_max,
             ),
         )
     return row

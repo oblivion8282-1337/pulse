@@ -59,6 +59,28 @@ class ChatSettings(Base):
     guild_sound_max_size_bytes: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="524288"
     )
+    # Global HQ-stream quality limits (the GSR desktop stream). Enforced
+    # client-side in the stream panel + buildStartArgs — media-svc/MediaMTX
+    # never see these params (no transcoding, PLAN.md anti-pattern), so this
+    # is a best-effort cap, same as the long-standing client-side bitrate max.
+    # Defaults mirror today's hard-coded behaviour → no effect until an admin
+    # tightens them. ``hq_resolution_max`` is a ceiling ('Native' = no cap);
+    # ordering is downscale-only (Native > 4K > 1440p > 1080p > 720p > 480p).
+    hq_bitrate_min_kbps: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1000"
+    )
+    hq_bitrate_max_kbps: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="10000"
+    )
+    hq_fps_min: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1"
+    )
+    hq_fps_max: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="360"
+    )
+    hq_resolution_max: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="Native"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

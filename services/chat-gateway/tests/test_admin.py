@@ -147,6 +147,11 @@ async def test_get_permissions_returns_defaults(client, admin_token):
         "allow_guild_creation": True,
         "allow_member_invites": True,
         "guild_sound_max_size_bytes": 524288,
+        "hq_bitrate_min_kbps": 1000,
+        "hq_bitrate_max_kbps": 10000,
+        "hq_fps_min": 1,
+        "hq_fps_max": 360,
+        "hq_resolution_max": "Native",
     }
 
 
@@ -164,6 +169,11 @@ async def test_patch_permissions_records_audit(client, admin_token):
         "allow_guild_creation": False,
         "allow_member_invites": False,
         "guild_sound_max_size_bytes": 524288,
+        "hq_bitrate_min_kbps": 1000,
+        "hq_bitrate_max_kbps": 10000,
+        "hq_fps_min": 1,
+        "hq_fps_max": 360,
+        "hq_resolution_max": "Native",
     }
     log = (await client.get("/admin/audit-log", headers=headers)).json()
     entry = next(e for e in log if e["action"] == "permissions.patch")
@@ -178,3 +188,52 @@ async def test_permissions_non_admin_blocked(client, access_token):
         "/admin/permissions", headers={"Authorization": f"Bearer {token}"}
     )
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_patch_hq_stream_limits(client, admin_token):
+    token, _ = admin_token
+    headers = {"Authorization": f"Bearer {token}"}
+    r = await client.patch(
+        "/admin/permissions",
+        json={
+            "hq_bitrate_min_kbps": 2000,
+            "hq_bitrate_max_kbps": 8000,
+            "hq_fps_min": 24,
+            "hq_fps_max": 60,
+            "hq_resolution_max": "1080p",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["hq_bitrate_min_kbps"] == 2000
+    assert body["hq_bitrate_max_kbps"] == 8000
+    assert body["hq_fps_min"] == 24
+    assert body["hq_fps_max"] == 60
+    assert body["hq_resolution_max"] == "1080p"
+    # Surfaced to every client via /capabilities, not just the admin route.
+    caps = (await client.get("/capabilities", headers=headers)).json()
+    assert caps["hq_resolution_max"] == "1080p"
+    assert caps["hq_fps_max"] == 60
+
+
+@pytest.mark.asyncio
+async def test_patch_hq_limits_rejects_inverted_band(client, admin_token):
+    token, _ = admin_token
+    headers = {"Authorization": f"Bearer {token}"}
+    # min > max on a single side (partial patch) must be rejected against the
+    # stored max (10000), keeping the singleton coherent.
+    r = await client.patch(
+        "/admin/permissions",
+        json={"hq_bitrate_min_kbps": 20000},
+        headers=headers,
+    )
+    assert r.status_code == 422
+    # Unknown resolution value rejected by the schema validator.
+    r2 = await client.patch(
+        "/admin/permissions",
+        json={"hq_resolution_max": "8K"},
+        headers=headers,
+    )
+    assert r2.status_code == 422
