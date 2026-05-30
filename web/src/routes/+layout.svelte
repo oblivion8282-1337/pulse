@@ -14,6 +14,12 @@
   import { initSelfHostReauth } from '$lib/api/self-host-reauth';
   import { isElectron } from '$lib/platform/runtime';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
+  import { initLocale } from '$lib/i18n';
+
+  // Sprache so früh wie möglich festlegen (synchron, vor dem ersten Render),
+  // damit alle Texte direkt in der richtigen Sprache erscheinen — „de sonst en"
+  // nach Systemsprache, manuelle Wahl (localStorage) hat Vorrang.
+  initLocale();
 
   // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
   // initialisieren, damit Consumers immer einen fertigen State vorfinden.

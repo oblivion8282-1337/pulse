@@ -1,9 +1,22 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
+import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
-  plugins: [tailwindcss(), sveltekit()],
+  plugins: [
+    tailwindcss(),
+    sveltekit(),
+    // i18n (Paraglide). baseLocale=de (Quelle), Ziel=en. Kompiliert die
+    // messages/*.json nach src/lib/paraglide (auto-gitignored). Strategie:
+    // manuelle Wahl (localStorage) → Browser-Sprache → Fallback. Die genaue
+    // „de sonst en"-Logik macht zusätzlich $lib/i18n.ts beim Start.
+    paraglideVitePlugin({
+      project: './project.inlang',
+      outdir: './src/lib/paraglide',
+      strategy: ['localStorage', 'preferredLanguage', 'baseLocale']
+    })
+  ],
   build: {
     // `AudioWorklet.addModule()` braucht eine echte URL. Vite inlined per
     // Default kleine Assets als `data:`-base64-URL (Limit 4 KB) — Chromium

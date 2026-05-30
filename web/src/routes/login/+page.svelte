@@ -16,6 +16,7 @@
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import LegalFooter from '$lib/components/LegalFooter.svelte';
   import CursorRadar from '$lib/components/CursorRadar.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { cursorTrack } from '$lib/actions/cursor-track';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
   import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
@@ -322,7 +323,7 @@
         {/if}
 
         <Button type="submit" class="w-full" disabled={busy} data-testid="login-submit">
-          {busy ? 'Anmelden…' : 'Anmelden'}
+          {busy ? `${m.login_submit()}…` : m.login_submit()}
         </Button>
 
         {#if passkeysAvailable}

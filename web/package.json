@@ -7,7 +7,8 @@
     "dev": "vite dev --port 5173 --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "paraglide:compile": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy localStorage preferredLanguage baseLocale",
+    "check": "pnpm paraglide:compile && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.8",
+    "@inlang/paraglide-js": "^2.18.1",
     "@internationalized/date": "^3.12.1",
     "@lucide/svelte": "^1.14.0",
     "@playwright/test": "^1.59.1",
