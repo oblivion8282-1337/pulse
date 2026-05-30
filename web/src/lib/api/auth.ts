@@ -133,6 +133,23 @@ export async function passwordReset(token: string, newPassword: string): Promise
   });
 }
 
+// --- authenticated credential changes ---------------------------------------
+
+/** Change the password while logged in. Requires the current password; the
+ *  server logs out all OTHER devices and returns a fresh token pair for THIS
+ *  device, which we persist so the active session keeps working. */
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  const tokens = await request<Tokens>('/me/password', {
+    method: 'POST',
+    body: { current_password: currentPassword, new_password: newPassword },
+    endpoint: 'auth'
+  });
+  saveTokens(tokens);
+}
+
 // --- email verification -----------------------------------------------------
 
 /** Authenticated: server re-sends the verification link to the current user. */

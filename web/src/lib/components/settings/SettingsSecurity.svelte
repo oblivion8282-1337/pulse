@@ -18,6 +18,7 @@
   import TotpEnableDialog from './TotpEnableDialog.svelte';
   import TotpDisableDialog from './TotpDisableDialog.svelte';
   import TotpBackupRegenerateDialog from './TotpBackupRegenerateDialog.svelte';
+  import ChangePasswordSection from './ChangePasswordSection.svelte';
   import PasskeysSection from './PasskeysSection.svelte';
   import SessionsSection from './SessionsSection.svelte';
   import DangerZoneSection from './DangerZoneSection.svelte';
@@ -93,6 +94,8 @@
       </div>
     {/if}
   </section>
+
+  <ChangePasswordSection />
 
   <PasskeysSection />
 

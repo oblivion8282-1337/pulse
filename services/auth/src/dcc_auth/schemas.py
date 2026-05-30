@@ -301,6 +301,24 @@ class EmailVerifyConfirmIn(BaseModel):
     token: Annotated[str, Field(min_length=10, max_length=128)]
 
 
+class PasswordChangeIn(BaseModel):
+    """Authenticated password change — current pw required as a re-auth gate."""
+
+    current_password: Annotated[str, Field(min_length=1, max_length=128)]
+    new_password: Annotated[str, Field(min_length=8, max_length=128)]
+
+
+class EmailChangeRequestIn(BaseModel):
+    """Authenticated email change — current pw gates it; new address gets a link."""
+
+    new_email: EmailStr
+    current_password: Annotated[str, Field(min_length=1, max_length=128)]
+
+
+class EmailChangeConfirmIn(BaseModel):
+    token: Annotated[str, Field(min_length=10, max_length=128)]
+
+
 class TotpSetupOut(BaseModel):
     secret: str
     qr_png_base64: str
