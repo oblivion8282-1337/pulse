@@ -14,6 +14,10 @@
   --color-bg-base: transparent;
   --animate-auth-ping: auth-ping 2.6s ease-out infinite;
   --animate-speaking-ping: speaking-ping 1.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  /* "Lebendiger Puls" — Auth-Brand-Panel-Motion (s. AuthBrandPanel.svelte). */
+  --animate-sonar-emit: sonar-emit 3s ease-out infinite;
+  --animate-core-glow: core-glow 1.6s ease-in-out infinite;
+  --animate-blob-breathe: blob-breathe 7s ease-in-out infinite;
   --color-bg-sidebar: var(--panel);
   --color-bg-channels: var(--panel);
   --color-bg-chat: var(--panel);
@@ -174,6 +178,30 @@
 @keyframes speaking-ping {
   0%   { transform: scale(1);    opacity: 0.85; }
   80%, 100% { transform: scale(1.55); opacity: 0; }
+}
+
+/* "Lebendiger Puls" — Motion fürs Auth-Brand-Panel. Alle vier werden im
+   Component per motion-safe: zugeschaltet, so dass prefers-reduced-motion
+   eine ruhige statische Variante sieht. */
+
+/* Radar-Ringe, die aus der Mitte nach außen strahlen. Basis-opacity:0 im
+   Inline-Style → ohne Animation (reduced-motion) sind sie unsichtbar. */
+@keyframes sonar-emit {
+  0%   { transform: scale(0.35); opacity: 0.85; }
+  70%  { opacity: 0; }
+  100% { transform: scale(1.9);  opacity: 0; }
+}
+
+/* Glühender Kern-Punkt im Takt. */
+@keyframes core-glow {
+  0%, 100% { opacity: 0.85; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.25); }
+  50%      { opacity: 1;    box-shadow: 0 0 20px 5px rgba(96, 165, 250, 0.55); }
+}
+
+/* Langsam atmende Glow-Blobs. */
+@keyframes blob-breathe {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50%      { opacity: 1;   transform: scale(1.12); }
 }
 
 @layer components {

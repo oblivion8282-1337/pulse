@@ -14,6 +14,8 @@
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import CursorRadar from '$lib/components/CursorRadar.svelte';
+  import { cursorTrack } from '$lib/actions/cursor-track';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
   import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
@@ -29,6 +31,17 @@
   let step = $state<Step>('credentials');
   let mfaTicket = $state<string | null>(null);
   let mfaMethods = $state<MfaMethod[]>([]);
+
+  // Seitenweites Cursor-Radar: folgt dem Zeiger über die GANZE Login-Fläche
+  // (nicht nur das Brand-Panel). Liegt im Stacking über dem linken Text, aber
+  // hinter der Formular-Karte — über der Karte kommt der echte Cursor zurück
+  // (cursor-auto), damit man tippen kann.
+  let radarX = $state(0);
+  let radarY = $state(0);
+  let radarActive = $state(false);
+  // Über der Eingabe-Karte soll das Radar ganz verschwinden (seine äußeren
+  // Ringe ragen sonst rund um die Karte hervor, während man tippt).
+  let overCard = $state(false);
 
   // WebAuthn API presence is fixed for the page's lifetime — `ssr=false`, so
   // `window` is always there by the time this runs. Passkeys are only offered
@@ -188,8 +201,41 @@
   }
 </script>
 
-<div class="flex min-h-dvh">
+<div
+  class="relative flex min-h-dvh overflow-hidden md:cursor-none"
+  use:cursorTrack={(x, y, active) => {
+    radarX = x;
+    radarY = y;
+    radarActive = active;
+  }}
+>
+  <!-- Durchgehender Verlaufs-Hintergrund hinter dem gesamten Layout (Desktop
+       only — auf Mobil ausgeblendet, dort bleibt der Standard-Seitengrund). -->
+  <div
+    class="pointer-events-none absolute inset-0 -z-10 hidden md:block"
+    style="background: linear-gradient(150deg, #0e1f3a, #0a1525 60%, #08130c);"
+  ></div>
+
+  <!-- Atmende Glow-Blobs über die GANZE Fläche (sonst wirkt nur die linke
+       Hälfte glühend → optisch zweigeteilt). -->
+  <div
+    class="pointer-events-none absolute inset-0 -z-10 hidden motion-safe:animate-blob-breathe md:block"
+    style="background:
+      radial-gradient(520px 380px at 22% 20%, rgba(59,130,246,.22), transparent 60%),
+      radial-gradient(560px 400px at 82% 88%, rgba(16,185,129,.16), transparent 60%);"
+  ></div>
+
+  <!-- Seitenweites Cursor-Radar (Desktop only). z-20: über dem Brand-Panel
+       (z-10), aber hinter der Formular-Karte (z-30) → über der Karte erscheint
+       der echte Cursor, das Radar verschwindet sauber dahinter. -->
+  <div class="pointer-events-none absolute inset-0 z-20 hidden overflow-hidden md:block">
+    <CursorRadar x={radarX} y={radarY} active={radarActive && !overCard} />
+  </div>
+
   <AuthBrandPanel
+    bareBg
+    externalCursor
+    rootClass="z-10"
     headline="Bleib im Takt."
     headlineSub="Chat · Voice · HQ-Streams."
     description="Pulse läuft im Browser, als PWA und als Desktop-App — überall dieselbe Session, derselbe Stream."
@@ -200,13 +246,20 @@
     ]}
   />
 
-  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab md: fixe 46 % -->
-  <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
+  <!-- Formular-Pane: auf Mobil volle Breite + zentriert; ab md: fixe 46 %.
+       relative z-30 → liegt über dem Radar (z-20); der transparente Rand zeigt
+       das Radar dahinter durch, die Karte selbst verdeckt es. -->
+  <div
+    class="relative z-30 flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]"
+  >
     {#if step === 'credentials'}
+      <!-- cursor-auto: echter Cursor über der Karte zum Tippen/Klicken
+           (überschreibt das seitenweite cursor:none). -->
       <form
-        class="bg-card w-full max-w-md space-y-4 rounded-xl p-8 shadow-2xl"
+        class="bg-card w-full max-w-md cursor-auto space-y-4 rounded-xl p-8 shadow-2xl"
         onsubmit={submit}
         aria-label="login form"
+        use:cursorTrack={(_x, _y, active) => (overCard = active)}
       >
         <header class="space-y-2 text-center">
           <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
@@ -293,14 +346,19 @@
         </p>
       </form>
     {:else}
-      <LoginMfaForm
-        methods={mfaMethods}
-        {busy}
-        {error}
-        onTotp={submitTotp}
-        onPasskey={submitPasskeyMfa}
-        onCancel={cancelMfa}
-      />
+      <div
+        class="w-full max-w-md cursor-auto"
+        use:cursorTrack={(_x, _y, active) => (overCard = active)}
+      >
+        <LoginMfaForm
+          methods={mfaMethods}
+          {busy}
+          {error}
+          onTotp={submitTotp}
+          onPasskey={submitPasskeyMfa}
+          onCancel={cancelMfa}
+        />
+      </div>
     {/if}
   </div>
 </div>
