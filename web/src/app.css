@@ -18,6 +18,10 @@
   --animate-sonar-emit: sonar-emit 3s ease-out infinite;
   --animate-core-glow: core-glow 1.6s ease-in-out infinite;
   --animate-blob-breathe: blob-breathe 7s ease-in-out infinite;
+  /* both = behält den 0%-Zustand während animation-delay → kein Flackern beim
+     gestaffelten Einblenden. */
+  --animate-fade-up: fade-up 0.6s ease-out both;
+  --animate-word-in: word-in 0.35s ease-out both;
   --color-bg-sidebar: var(--panel);
   --color-bg-channels: var(--panel);
   --color-bg-chat: var(--panel);
@@ -202,6 +206,18 @@
 @keyframes blob-breathe {
   0%, 100% { opacity: 0.6; transform: scale(1); }
   50%      { opacity: 1;   transform: scale(1.12); }
+}
+
+/* Gestaffeltes Einblenden der Text-Blöcke (von unten). */
+@keyframes fade-up {
+  0%   { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+/* Weicher Eintritt des wechselnden Wortes. */
+@keyframes word-in {
+  0%   { opacity: 0; transform: translateY(6px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 
 @layer components {

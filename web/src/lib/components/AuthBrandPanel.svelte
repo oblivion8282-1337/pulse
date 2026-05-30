@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import CheckIcon from '@lucide/svelte/icons/check';
   import CursorRadar from './CursorRadar.svelte';
   import { cursorTrack } from '$lib/actions/cursor-track';
@@ -19,6 +20,12 @@
     /** Zusätzliche Klassen am Wurzel-Element (z.B. z-index fürs Stacking, wenn
      *  ein seitenweites Radar zwischen Panel und Formular liegt). */
     rootClass?: string;
+    /** Teilwort der Headline, das im Electric-Blue-Akzentverlauf erscheint. */
+    headlineAccent?: string;
+    /** Tagline mit rotierendem letztem Wort: `<prefix> <word>`. Nur gerendert,
+     *  wenn beides gesetzt ist. */
+    rotatingPrefix?: string;
+    rotatingWords?: string[];
   }
 
   let {
@@ -29,6 +36,9 @@
     bareBg = false,
     externalCursor = false,
     rootClass = '',
+    headlineAccent,
+    rotatingPrefix,
+    rotatingWords,
   }: Props = $props();
 
   // Das Radar-Sonar IST der Mauszeiger: es folgt dem Cursor über das Panel und
@@ -37,6 +47,33 @@
   let cursorX = $state(0);
   let cursorY = $state(0);
   let cursorActive = $state(false);
+
+  // Headline in Vor-/Akzent-/Nachtext zerlegen, damit das Akzent-Wort den
+  // Farbverlauf bekommt. Kein Treffer → null (Headline wird ganz normal gesetzt).
+  const accent = $derived.by(() => {
+    if (!headlineAccent) return null;
+    const i = headline.indexOf(headlineAccent);
+    if (i < 0) return null;
+    return {
+      pre: headline.slice(0, i),
+      word: headlineAccent,
+      post: headline.slice(i + headlineAccent.length),
+    };
+  });
+
+  // Rotierendes Wort der Tagline. Wechselt alle 2,6 s — bei
+  // prefers-reduced-motion bleibt es statisch beim ersten Wort (kein
+  // erzwungenes Bewegen von Inhalt).
+  let wordIndex = $state(0);
+  onMount(() => {
+    const words = rotatingWords;
+    if (!words || words.length < 2) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const id = setInterval(() => {
+      wordIndex = (wordIndex + 1) % words.length;
+    }, 2600);
+    return () => clearInterval(id);
+  });
 </script>
 
 <!--
@@ -80,22 +117,46 @@
   {/if}
 
   <!-- Inhalt -->
-  <div class="relative z-10 flex flex-col gap-5 px-10 py-12 xl:px-14">
-    <!-- Headline -->
-    <h2 class="text-3xl font-extrabold leading-tight tracking-tight text-white">
-      {headline}{#if headlineSub}<br />{headlineSub}{/if}
+  <div class="relative z-10 flex flex-col gap-6 px-10 py-12 xl:px-14">
+    <!-- Headline (Akzent-Wort im Verlauf) + Sub-Zeile leichter/kleiner -->
+    <h2
+      class="text-4xl font-extrabold leading-tight tracking-tight text-white motion-safe:animate-fade-up xl:text-5xl"
+    >
+      {#if accent}{accent.pre}<span class="accent-gradient-text">{accent.word}</span>{accent.post}{:else}{headline}{/if}{#if headlineSub}<span
+          class="mt-2 block text-3xl font-semibold text-white/55">{headlineSub}</span
+        >{/if}
     </h2>
 
     <!-- Beschreibung -->
-    <p class="max-w-[34ch] text-sm leading-relaxed" style="color: #9ca3af;">
+    <p
+      class="max-w-[42ch] text-base leading-relaxed motion-safe:animate-fade-up"
+      style="color: #9ca3af; animation-delay: 0.12s;"
+    >
       {description}
     </p>
 
-    <!-- Feature-Liste -->
-    <ul class="mt-1 flex flex-col gap-2.5">
-      {#each features as feat}
-        <li class="flex items-center gap-2.5 text-[13.5px]" style="color: #c8cad0;">
-          <CheckIcon class="h-4 w-4 shrink-0" style="color: #4ade80;" />
+    <!-- Tagline mit rotierendem Wort -->
+    {#if rotatingPrefix && rotatingWords && rotatingWords.length}
+      <p
+        class="text-base font-medium motion-safe:animate-fade-up"
+        style="color: #c8cad0; animation-delay: 0.22s;"
+      >
+        {rotatingPrefix}
+        {#key wordIndex}<span
+            class="accent-gradient-text font-semibold motion-safe:animate-word-in"
+            >{rotatingWords[wordIndex]}</span
+          >{/key}
+      </p>
+    {/if}
+
+    <!-- Feature-Liste (gestaffelt eingeblendet) -->
+    <ul class="mt-1 flex flex-col gap-3">
+      {#each features as feat, i}
+        <li
+          class="flex items-center gap-3 text-[15px] motion-safe:animate-fade-up"
+          style="color: #c8cad0; animation-delay: {0.32 + i * 0.08}s;"
+        >
+          <CheckIcon class="h-5 w-5 shrink-0" style="color: #4ade80;" />
           {feat}
         </li>
       {/each}

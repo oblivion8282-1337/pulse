@@ -237,12 +237,15 @@
     externalCursor
     rootClass="z-10"
     headline="Bleib im Takt."
+    headlineAccent="Takt"
     headlineSub="Chat · Voice · HQ-Streams."
-    description="Pulse läuft im Browser, als PWA und als Desktop-App — überall dieselbe Session, derselbe Stream."
+    description="Klarer Echtzeit-Voice, Bildschirm-Streaming in voller Auflösung und Text-Chat — vereint in einer Anwendung, die im Browser ebenso läuft wie als Desktop-App."
+    rotatingPrefix="Gemacht für"
+    rotatingWords={['Teams', 'Communities', 'Freunde', 'Projekte']}
     features={[
-      'Kristallklarer Voice-Chat über LiveKit',
-      'HQ-Screen-Streaming mit dem GPU Screen Recorder',
-      'Web-first — kein Download nötig',
+      'Glasklarer Echtzeit-Voice mit minimaler Latenz',
+      'Bildschirm-Streaming in voller Auflösung — hohe Frame-Rates, hardwarebeschleunigt',
+      'Überall lauffähig — im Browser und als installierbare Desktop-App für Windows und Linux',
     ]}
   />
 
