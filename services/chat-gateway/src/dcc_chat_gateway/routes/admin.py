@@ -228,13 +228,18 @@ async def patch_permissions(
         }
         row.guild_sound_max_size_bytes = payload.guild_sound_max_size_bytes
 
-    # HQ-stream limits — all simple scalar set-if-changed fields.
+    # HQ + normal-stream limits — all simple scalar set-if-changed fields.
     for field in (
         "hq_bitrate_min_kbps",
         "hq_bitrate_max_kbps",
         "hq_fps_min",
         "hq_fps_max",
         "hq_resolution_max",
+        "ns_bitrate_min_kbps",
+        "ns_bitrate_max_kbps",
+        "ns_fps_min",
+        "ns_fps_max",
+        "ns_resolution_max",
     ):
         new = getattr(payload, field)
         if new is not None and new != getattr(row, field):
@@ -244,16 +249,17 @@ async def patch_permissions(
     # Coherence: a partial patch can set just one side, so check the merged
     # row (not the payload). Reject before commit so the singleton never holds
     # an inverted band.
-    if row.hq_bitrate_min_kbps > row.hq_bitrate_max_kbps:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="hq_bitrate_min_kbps must be <= hq_bitrate_max_kbps",
-        )
-    if row.hq_fps_min > row.hq_fps_max:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="hq_fps_min must be <= hq_fps_max",
-        )
+    for lo, hi, label in (
+        ("hq_bitrate_min_kbps", "hq_bitrate_max_kbps", "hq_bitrate"),
+        ("hq_fps_min", "hq_fps_max", "hq_fps"),
+        ("ns_bitrate_min_kbps", "ns_bitrate_max_kbps", "ns_bitrate"),
+        ("ns_fps_min", "ns_fps_max", "ns_fps"),
+    ):
+        if getattr(row, lo) > getattr(row, hi):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"{lo} must be <= {hi}",
+            )
 
     if changes:
         _audit(session, actor_id=actor.id, action="permissions.patch", payload=changes)
@@ -274,6 +280,11 @@ async def patch_permissions(
                 hq_fps_min=row.hq_fps_min,
                 hq_fps_max=row.hq_fps_max,
                 hq_resolution_max=row.hq_resolution_max,
+                ns_bitrate_min_kbps=row.ns_bitrate_min_kbps,
+                ns_bitrate_max_kbps=row.ns_bitrate_max_kbps,
+                ns_fps_min=row.ns_fps_min,
+                ns_fps_max=row.ns_fps_max,
+                ns_resolution_max=row.ns_resolution_max,
             ),
         )
     return row

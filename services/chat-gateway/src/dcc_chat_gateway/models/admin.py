@@ -81,6 +81,27 @@ class ChatSettings(Base):
     hq_resolution_max: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="Native"
     )
+    # Global limits for the *normal* (browser LiveKit screen-share) path —
+    # separate from the HQ caps above (per user request: own values). Bitrate
+    # stored in kbps like the HQ ones (the UI shows Mbit/s). Resolution ceiling
+    # uses the screen-share set (native > 1080p > 720p > 480p; 'native' = no
+    # cap). Defaults mirror today's client behaviour (1–10 Mbit/s, 1–240 fps,
+    # no cap) → no-op until tightened.
+    ns_bitrate_min_kbps: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1000"
+    )
+    ns_bitrate_max_kbps: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="10000"
+    )
+    ns_fps_min: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1"
+    )
+    ns_fps_max: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="240"
+    )
+    ns_resolution_max: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="native"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

@@ -395,6 +395,12 @@ class PermissionsOut(BaseModel):
     hq_fps_min: int
     hq_fps_max: int
     hq_resolution_max: str
+    # Global normal-stream (browser screen-share) limits — separate set.
+    ns_bitrate_min_kbps: int
+    ns_bitrate_max_kbps: int
+    ns_fps_min: int
+    ns_fps_max: int
+    ns_resolution_max: str
 
 
 # Allowed values for ``hq_resolution_max`` — mirrors the frontend
@@ -402,6 +408,10 @@ class PermissionsOut(BaseModel):
 ALLOWED_HQ_RESOLUTIONS: frozenset[str] = frozenset(
     {"Native", "4K", "1440p", "1080p", "720p", "480p"}
 )
+
+# Allowed values for ``ns_resolution_max`` — the LiveKit screen-share set
+# (lowercase 'native' = no cap). Distinct set + casing from the HQ one.
+ALLOWED_NS_RESOLUTIONS: frozenset[str] = frozenset({"native", "1080p", "720p", "480p"})
 
 
 class PermissionsPatch(BaseModel):
@@ -421,12 +431,25 @@ class PermissionsPatch(BaseModel):
     hq_fps_min: Annotated[int | None, Field(default=None, ge=1, le=360)] = None
     hq_fps_max: Annotated[int | None, Field(default=None, ge=1, le=360)] = None
     hq_resolution_max: str | None = None
+    # Normal-stream limits — own band; FPS ceiling 240 (screen-share max).
+    ns_bitrate_min_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
+    ns_bitrate_max_kbps: Annotated[int | None, Field(default=None, ge=100, le=32000)] = None
+    ns_fps_min: Annotated[int | None, Field(default=None, ge=1, le=240)] = None
+    ns_fps_max: Annotated[int | None, Field(default=None, ge=1, le=240)] = None
+    ns_resolution_max: str | None = None
 
     @field_validator("hq_resolution_max")
     @classmethod
-    def _validate_resolution(cls, v: str | None) -> str | None:
+    def _validate_hq_resolution(cls, v: str | None) -> str | None:
         if v is not None and v not in ALLOWED_HQ_RESOLUTIONS:
             raise ValueError(f"hq_resolution_max must be one of {sorted(ALLOWED_HQ_RESOLUTIONS)}")
+        return v
+
+    @field_validator("ns_resolution_max")
+    @classmethod
+    def _validate_ns_resolution(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_NS_RESOLUTIONS:
+            raise ValueError(f"ns_resolution_max must be one of {sorted(ALLOWED_NS_RESOLUTIONS)}")
         return v
 
 

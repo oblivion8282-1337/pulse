@@ -43,5 +43,10 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
             hq_fps_min=1,
             hq_fps_max=360,
             hq_resolution_max="Native",
+            ns_bitrate_min_kbps=1000,
+            ns_bitrate_max_kbps=10000,
+            ns_fps_min=1,
+            ns_fps_max=240,
+            ns_resolution_max="native",
         )
     return row

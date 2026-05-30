@@ -150,6 +150,12 @@ class PermissionsUpdatedEvent(_EventBase):
     hq_fps_min: int | None = None
     hq_fps_max: int | None = None
     hq_resolution_max: str | None = None
+    # Global normal-stream (browser screen-share) limits — separate set.
+    ns_bitrate_min_kbps: int | None = None
+    ns_bitrate_max_kbps: int | None = None
+    ns_fps_min: int | None = None
+    ns_fps_max: int | None = None
+    ns_resolution_max: str | None = None
 
 
 class GuildSoundUpdatedEvent(_EventBase):

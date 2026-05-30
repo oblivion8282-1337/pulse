@@ -152,6 +152,11 @@ async def test_get_permissions_returns_defaults(client, admin_token):
         "hq_fps_min": 1,
         "hq_fps_max": 360,
         "hq_resolution_max": "Native",
+        "ns_bitrate_min_kbps": 1000,
+        "ns_bitrate_max_kbps": 10000,
+        "ns_fps_min": 1,
+        "ns_fps_max": 240,
+        "ns_resolution_max": "native",
     }
 
 
@@ -174,6 +179,11 @@ async def test_patch_permissions_records_audit(client, admin_token):
         "hq_fps_min": 1,
         "hq_fps_max": 360,
         "hq_resolution_max": "Native",
+        "ns_bitrate_min_kbps": 1000,
+        "ns_bitrate_max_kbps": 10000,
+        "ns_fps_min": 1,
+        "ns_fps_max": 240,
+        "ns_resolution_max": "native",
     }
     log = (await client.get("/admin/audit-log", headers=headers)).json()
     entry = next(e for e in log if e["action"] == "permissions.patch")
@@ -237,3 +247,38 @@ async def test_patch_hq_limits_rejects_inverted_band(client, admin_token):
         headers=headers,
     )
     assert r2.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_patch_normal_stream_limits(client, admin_token):
+    token, _ = admin_token
+    headers = {"Authorization": f"Bearer {token}"}
+    r = await client.patch(
+        "/admin/permissions",
+        json={
+            "ns_bitrate_max_kbps": 3000,
+            "ns_fps_max": 30,
+            "ns_resolution_max": "720p",
+        },
+        headers=headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ns_bitrate_max_kbps"] == 3000
+    assert body["ns_fps_max"] == 30
+    assert body["ns_resolution_max"] == "720p"
+    # HQ limits stay independent (separate value set).
+    assert body["hq_resolution_max"] == "Native"
+    caps = (await client.get("/capabilities", headers=headers)).json()
+    assert caps["ns_resolution_max"] == "720p"
+
+    # ns uses its own resolution set — an HQ-only value ('4K') is rejected.
+    r2 = await client.patch(
+        "/admin/permissions", json={"ns_resolution_max": "4K"}, headers=headers
+    )
+    assert r2.status_code == 422
+    # Inverted ns band rejected against the stored max.
+    r3 = await client.patch(
+        "/admin/permissions", json={"ns_bitrate_min_kbps": 9000}, headers=headers
+    )
+    assert r3.status_code == 422
