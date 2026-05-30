@@ -8,7 +8,6 @@
   Codec aus `CODEC_VALUES`.
 -->
 <script lang="ts">
-  import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import {
     streamSettings,
@@ -33,23 +32,69 @@
     persistSettings();
   }
 
+  // Hard cap on input (snap the field down so the user can't go above max),
+  // enforce the minimum on blur (clamping the min *while* typing would turn a
+  // half-typed "2" into the floor). Both write the field's DOM value directly
+  // so the displayed number can never exceed the admin ceiling.
   function onBitrate(e: Event) {
-    const raw = (e.currentTarget as HTMLInputElement).value;
-    const n = parseInt(raw, 10);
-    streamSettings.overrides = {
-      ...streamSettings.overrides,
-      bitrate_kbps: isNaN(n) ? undefined : Math.min(bMax, Math.max(bMin, n)),
-    };
+    const el = e.currentTarget as HTMLInputElement;
+    if (el.value === '') {
+      streamSettings.overrides = { ...streamSettings.overrides, bitrate_kbps: undefined };
+      persistSettings();
+      return;
+    }
+    let n = parseInt(el.value, 10);
+    if (isNaN(n)) return;
+    if (n > bMax) {
+      n = bMax;
+      el.value = String(n);
+    }
+    streamSettings.overrides = { ...streamSettings.overrides, bitrate_kbps: n };
+    persistSettings();
+  }
+
+  function onBitrateBlur(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
+    if (el.value === '') return;
+    const n = parseInt(el.value, 10);
+    if (isNaN(n)) {
+      el.value = '';
+      return;
+    }
+    const clamped = Math.min(bMax, Math.max(bMin, n));
+    el.value = String(clamped);
+    streamSettings.overrides = { ...streamSettings.overrides, bitrate_kbps: clamped };
     persistSettings();
   }
 
   function onFps(e: Event) {
-    const raw = (e.currentTarget as HTMLInputElement).value;
-    const n = parseInt(raw, 10);
-    streamSettings.overrides = {
-      ...streamSettings.overrides,
-      fps: isNaN(n) ? undefined : Math.min(fMax, Math.max(fMin, n)),
-    };
+    const el = e.currentTarget as HTMLInputElement;
+    if (el.value === '') {
+      streamSettings.overrides = { ...streamSettings.overrides, fps: undefined };
+      persistSettings();
+      return;
+    }
+    let n = parseInt(el.value, 10);
+    if (isNaN(n)) return;
+    if (n > fMax) {
+      n = fMax;
+      el.value = String(n);
+    }
+    streamSettings.overrides = { ...streamSettings.overrides, fps: n };
+    persistSettings();
+  }
+
+  function onFpsBlur(e: Event) {
+    const el = e.currentTarget as HTMLInputElement;
+    if (el.value === '') return;
+    const n = parseInt(el.value, 10);
+    if (isNaN(n)) {
+      el.value = '';
+      return;
+    }
+    const clamped = Math.min(fMax, Math.max(fMin, n));
+    el.value = String(clamped);
+    streamSettings.overrides = { ...streamSettings.overrides, fps: clamped };
     persistSettings();
   }
 
@@ -116,8 +161,9 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-bitrate">Bitrate (kbps)</Label>
-    <Input
+    <input
       id="ov-bitrate"
+      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none tabular-nums focus:ring-1 focus:ring-primary"
       type="number"
       min={bMin}
       max={bMax}
@@ -125,6 +171,7 @@
       placeholder="z.B. 6000"
       value={bitrateValue}
       oninput={onBitrate}
+      onblur={onBitrateBlur}
       data-testid="stream-overrides-bitrate"
     />
     <p class="text-text-muted text-[11px]">Erlaubt: {bMin}–{bMax} kbps.</p>
@@ -132,8 +179,9 @@
 
   <div class="flex flex-col gap-1.5">
     <Label for="ov-fps">FPS</Label>
-    <Input
+    <input
       id="ov-fps"
+      class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none tabular-nums focus:ring-1 focus:ring-primary"
       type="number"
       min={fMin}
       max={fMax}
@@ -141,6 +189,7 @@
       placeholder="z.B. 60"
       value={fpsValue}
       oninput={onFps}
+      onblur={onFpsBlur}
       data-testid="stream-overrides-fps"
     />
     <p class="text-text-muted text-[11px]">Erlaubt: {fMin}–{fMax} FPS.</p>

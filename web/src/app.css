@@ -80,6 +80,17 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Native form-control popups (the open <select> option list, date pickers)
+     are UA-painted and can't be Tailwind-classed. Tie `color-scheme` to our
+     theme class so the popup uses light text on dark / dark text on light —
+     otherwise the option list was near-unreadable in light mode. */
+  select {
+    color-scheme: light;
+  }
+  .dark select {
+    color-scheme: dark;
+  }
+
   /* Sanfte Tiefen-"Blobs" hinter allem — schimmern in den Lücken der
      floating panels durch. */
   body::after {
