@@ -162,7 +162,10 @@
        Glas-Blur darum ein (fast) deckender Panel-Background. */
     background: var(--panel-solid);
     border: 1px solid var(--panel-border);
-    box-shadow: var(--panel-shadow);
+    /* Kein box-shadow: der weiche Schlagschatten griff über die Spalten-Lücken
+       auf die Kanten der Nachbar-Panels über (sichtbarer Verlauf auf der
+       Fläche). Bewusst entfernt — Tiefe kommt jetzt allein aus Border +
+       Seiten-Hintergrund (Verlauf/Glow/Korn). */
   }
 
   /* Electric-Blue Ton-in-Ton-Verlauf für primary-Buttons / aktive States /
