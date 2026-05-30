@@ -93,6 +93,13 @@ class VoiceRoom {
   isScreenSharing = $state(false);
   /** Whether the local participant is currently publishing a camera track. */
   isCameraOn = $state(false);
+  /** The local user's own published camera track — drives the self-preview
+   *  tile. `null` while the camera is off. Without this the user never sees
+   *  their own webcam (only remote cams are rendered). */
+  localCameraTrack = $state<LocalVideoTrack | null>(null);
+  /** Which physical camera the local cam uses. Toggled by flipCamera() —
+   *  matters on phones (front 'user' vs back 'environment'). */
+  cameraFacing = $state<'user' | 'environment'>('user');
 
   /** True when the browser blocked audio playback (autoplay policy). */
   audioBlocked = $state(false);
@@ -575,31 +582,55 @@ class VoiceRoom {
    *  once — LiveKit's adaptiveStream still downscales further per subscriber. */
   async setCamera(on: boolean): Promise<void> {
     const room = this.#room;
-    if (!room) return;
+    if (!room) {
+      // Pressed before the voice room finished connecting (mobile auto-join
+      // race) — previously this was a silent no-op, which read as "nothing
+      // happens" to the user.
+      if (on)
+        toast.error(m.livekit_camera_failed(), {
+          description: 'Voice ist noch nicht verbunden.'
+        });
+      return;
+    }
     try {
       await room.localParticipant.setCameraEnabled(on, {
-        resolution: { width: 1280, height: 720, frameRate: 30 }
+        resolution: { width: 1280, height: 720, frameRate: 30 },
+        facingMode: this.cameraFacing
       });
       this.isCameraOn = on;
     } catch (e) {
       this.isCameraOn = false;
+      // Surface the failure instead of swallowing it. On mobile a denied
+      // camera permission or a busy device is the usual cause, and silently
+      // eating the error left the user with no idea why the cam stayed off.
+      console.error('[voice] camera enable failed', e);
       if (e instanceof Error) {
-        const msg = e.message.toLowerCase();
-        if (
-          !msg.includes('cancel') &&
-          !msg.includes('abort') &&
-          !msg.includes('permission') &&
-          !msg.includes('denied') &&
-          !msg.includes('notallowed')
-        ) {
-          toast.error(m.livekit_camera_failed(), { description: e.message });
-        }
+        toast.error(m.livekit_camera_failed(), { description: e.message });
       }
     }
   }
 
   toggleCamera(): void {
     void this.setCamera(!this.isCameraOn);
+  }
+
+  /** Switch between front ('user') and back ('environment') camera. Restarts
+   *  the existing publication's track in place so the swap is seamless and
+   *  remote subscribers keep the same track. No-op unless the cam is live. */
+  async flipCamera(): Promise<void> {
+    const track = this.localCameraTrack;
+    if (!track) return;
+    const next = this.cameraFacing === 'user' ? 'environment' : 'user';
+    try {
+      await track.restartTrack({
+        resolution: { width: 1280, height: 720, frameRate: 30 },
+        facingMode: next
+      });
+      this.cameraFacing = next;
+    } catch (e) {
+      console.error('[voice] camera flip failed', e);
+      if (e instanceof Error) toast.error(m.livekit_camera_failed(), { description: e.message });
+    }
   }
 
   /**
@@ -859,6 +890,9 @@ class VoiceRoom {
           // #attachLocalAnalyser() is also covered by setMicEnabled → applyNoiseFilter.
           this.#attachLocalAnalyser();
         }
+        if (pub.source === Track.Source.Camera && pub.track) {
+          this.localCameraTrack = pub.track as LocalVideoTrack;
+        }
         this.#scheduleRefresh();
       })
       .on(RoomEvent.LocalTrackUnpublished, (pub) => {
@@ -868,6 +902,7 @@ class VoiceRoom {
         }
         if (pub.source === Track.Source.Camera) {
           this.isCameraOn = false;
+          this.localCameraTrack = null;
         }
         if (pub.source === Track.Source.Microphone) {
           this.#sendProcessorMode = 'off';
@@ -1110,6 +1145,8 @@ class VoiceRoom {
     this.#micEnabledBeforeDeafen = false;
     this.isScreenSharing = false;
     this.isCameraOn = false;
+    this.localCameraTrack = null;
+    this.cameraFacing = 'user';
     this.#cameras.clear();
     // Win11 bypass path: stop raw MediaStreamTracks ourselves — the LiveKit
     // room is gone so unpublishTrack would no-op, but the OS-level "you are

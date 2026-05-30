@@ -1,11 +1,14 @@
 <!--
-  CameraTile — playback of a remote LiveKit webcam track.
+  CameraTile — playback of a LiveKit webcam track.
 
   Schlankste der vier Kacheln: kein Audio, kein Chat, kein Detach, keine
   Stats. Nutzt TileShell nur für Rahmen + Name-Pille + Fullscreen + Hide.
+  Zeigt entweder eine fremde (RemoteVideoTrack) ODER die eigene
+  (LocalVideoTrack, `mirror`) Kamera — die eigene Selbst-Vorschau wird
+  gespiegelt + stummgeschaltet gerendert.
 -->
 <script lang="ts">
-  import type { RemoteVideoTrack } from 'livekit-client';
+  import type { LocalVideoTrack, RemoteVideoTrack } from 'livekit-client';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
 
@@ -14,19 +17,26 @@
     track,
     name,
     identity,
+    mirror = false,
     compact = false,
     focused = false,
-    onToggleFocus
+    onToggleFocus,
+    onHide
   }: {
     channelId: string;
-    track: RemoteVideoTrack;
+    track: LocalVideoTrack | RemoteVideoTrack;
     name: string;
     identity: string;
+    /** Horizontal spiegeln — für die eigene Frontkamera-Vorschau. */
+    mirror?: boolean;
     /** Filmstrip-Kachel im Fokus-Modus. */
     compact?: boolean;
     /** Diese Kachel ist die fokussierte (große). */
     focused?: boolean;
     onToggleFocus?: () => void;
+    /** Überschreibt das Standard-Schließen (openedTiles) — z.B. um die
+     *  eigene Selbst-Vorschau auszublenden ohne die Kamera zu stoppen. */
+    onHide?: () => void;
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -47,13 +57,19 @@
   {identity}
   {name}
   video={videoEl}
-  onHide={() => openedTiles.close('cam', channelId, identity)}
+  onHide={onHide ?? (() => openedTiles.close('cam', channelId, identity))}
   {compact}
   {focused}
   {onToggleFocus}
 >
   {#snippet media()}
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video bind:this={videoEl} autoplay playsinline class="h-full w-full object-cover"></video>
+    <video
+      bind:this={videoEl}
+      autoplay
+      playsinline
+      muted
+      class="h-full w-full object-cover {mirror ? '-scale-x-100' : ''}"
+    ></video>
   {/snippet}
 </TileShell>

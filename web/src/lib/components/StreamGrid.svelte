@@ -53,6 +53,21 @@
   let openCameras = $derived(
     voice.cameraTracks.filter((c) => openedTiles.isOpen('cam', channel.id, c.identity))
   );
+
+  // Eigene Kamera-Selbstvorschau: erscheint automatisch, sobald man die eigene
+  // Kamera einschaltet (sonst sieht man sich selbst nie). Per X ausblendbar,
+  // ohne die Kamera zu stoppen; Reset bei jedem An/Aus.
+  let selfCamHidden = $state(false);
+  $effect(() => {
+    voice.isCameraOn;
+    untrack(() => {
+      selfCamHidden = false;
+    });
+  });
+  let showSelfCam = $derived(!!voice.localCameraTrack && !selfCamHidden);
+  let selfCamName = $derived(auth.user ? userCache.displayName(auth.user.id) : 'Du');
+  let selfCamMirror = $derived(voice.cameraFacing === 'user');
+
   let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
   let showParty = $derived(
     !!watchPartyState &&
@@ -81,6 +96,7 @@
   // Stabile Tile-Keys in Render-Reihenfolge (Party · HQ · Screens · Cams).
   let tileKeys = $derived([
     ...(showParty ? ['party'] : []),
+    ...(showSelfCam ? ['selfcam'] : []),
     ...openHqIds.map((u) => `hq:${u}`),
     ...openScreens.map((s) => `screen:${s.identity}`),
     ...openCameras.map((c) => `cam:${c.identity}`)
@@ -154,6 +170,21 @@
           compact={focusMode && focusedKey !== 'party'}
           focused={focusMode && focusedKey === 'party'}
           onToggleFocus={focusHandler('party')}
+        />
+      </div>
+    {/if}
+    {#if showSelfCam}
+      <div class="min-h-0 min-w-0" style={cellStyle('selfcam')}>
+        <CameraTile
+          channelId={channel.id}
+          track={voice.localCameraTrack!}
+          name={selfCamName}
+          identity="self"
+          mirror={selfCamMirror}
+          compact={focusMode && focusedKey !== 'selfcam'}
+          focused={focusMode && focusedKey === 'selfcam'}
+          onToggleFocus={focusHandler('selfcam')}
+          onHide={() => (selfCamHidden = true)}
         />
       </div>
     {/if}

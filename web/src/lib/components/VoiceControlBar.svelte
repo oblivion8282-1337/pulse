@@ -8,6 +8,7 @@
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import VideoIcon from '@lucide/svelte/icons/video';
   import VideoOffIcon from '@lucide/svelte/icons/video-off';
+  import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -164,6 +165,28 @@
             {voice.isCameraOn ? 'Kamera aus' : 'Kamera an'}
           </Tooltip.Content>
         </Tooltip.Root>
+
+        <!-- Front-/Rückkamera umschalten — nur sinnvoll wenn die Kamera läuft. -->
+        {#if voice.isCameraOn}
+          <Tooltip.Root>
+            <Tooltip.Trigger>
+              {#snippet child({ props })}
+                <Button
+                  {...props}
+                  variant="ghost"
+                  size="icon-sm"
+                  class="size-14 md:size-8"
+                  onclick={() => voice.flipCamera()}
+                  data-testid="voice-camera-flip"
+                  aria-label="Kamera wechseln"
+                >
+                  <SwitchCameraIcon class="size-6 md:size-4" />
+                </Button>
+              {/snippet}
+            </Tooltip.Trigger>
+            <Tooltip.Content>Kamera wechseln (Front/Rück)</Tooltip.Content>
+          </Tooltip.Root>
+        {/if}
       {/if}
 
       <!-- Screenshare/HQ — auf Mobil ausgeblendet (kein getDisplayMedia auf iOS/Android) -->
