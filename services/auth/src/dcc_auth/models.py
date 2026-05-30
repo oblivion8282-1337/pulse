@@ -189,6 +189,30 @@ class EmailVerificationToken(Base):
     __table_args__ = (Index("ix_email_verification_tokens_user_used", "user_id", "used_at"),)
 
 
+class EmailChangeToken(Base):
+    """One-shot email-CHANGE token. Like ``EmailVerificationToken`` but also
+    carries the requested ``new_email`` — the user's ``email`` column is only
+    rewritten once this token is consumed via the link sent to that address, so
+    an unverified address can never silently take over the account.
+    """
+
+    __tablename__ = "email_change_tokens"
+
+    id: Mapped[int] = mapped_column(_AutoIncBig, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    new_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (Index("ix_email_change_tokens_user_used", "user_id", "used_at"),)
+
+
 class BackupCode(Base):
     """Single-use TOTP backup code. Stored as SHA-256 of the plaintext.
 

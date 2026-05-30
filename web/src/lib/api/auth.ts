@@ -150,6 +150,27 @@ export async function changePassword(
   saveTokens(tokens);
 }
 
+/** Request an email-address change. Requires the current password. Sends a
+ *  confirmation link to the NEW address; the change only applies once that link
+ *  is clicked (confirmEmailChange). Resolves on 204. */
+export async function changeEmail(newEmail: string, currentPassword: string): Promise<void> {
+  await request<void>('/me/email/change', {
+    method: 'POST',
+    body: { new_email: newEmail, current_password: currentPassword },
+    endpoint: 'auth'
+  });
+}
+
+/** Public — finalises an email change via the token from the verification link. */
+export async function confirmEmailChange(token: string): Promise<void> {
+  await request<void>('/me/email/change/confirm', {
+    method: 'POST',
+    body: { token },
+    auth: false,
+    endpoint: 'auth'
+  });
+}
+
 // --- email verification -----------------------------------------------------
 
 /** Authenticated: server re-sends the verification link to the current user. */

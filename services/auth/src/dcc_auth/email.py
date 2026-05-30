@@ -200,6 +200,35 @@ def compose_email_verification(to: str, verify_url: str) -> tuple[str, str]:
     return subject, body
 
 
+def compose_email_change_verification(new_email: str, verify_url: str) -> tuple[str, str]:
+    """Sent to the NEW address — clicking the link finalises the change."""
+    subject = "Pulse: Neue E-Mail-Adresse bestätigen"
+    body = (
+        f"Hallo,\n\n"
+        f"für dein Pulse-Konto wurde ein Wechsel der E-Mail-Adresse zu dieser\n"
+        f"Adresse ({new_email}) angefordert. Bestätige den Wechsel über den\n"
+        f"folgenden Link:\n"
+        f"{verify_url}\n\n"
+        f"Der Link ist 24 Stunden gültig. Erst nach dem Klick wird die Adresse\n"
+        f"geändert. Falls du das nicht warst, kannst du diese Mail ignorieren.\n"
+    )
+    return subject, body
+
+
+def compose_email_change_notice(old_email: str, new_email: str) -> tuple[str, str]:
+    """Heads-up sent to the OLD address when a change is requested."""
+    subject = "Pulse: E-Mail-Änderung angefordert"
+    body = (
+        f"Hallo,\n\n"
+        f"für dein Pulse-Konto wurde angefordert, die E-Mail-Adresse von\n"
+        f"{old_email} auf {new_email} zu ändern. Die Änderung wird erst aktiv,\n"
+        f"wenn der Bestätigungslink an die neue Adresse angeklickt wird.\n\n"
+        f"Warst du das nicht? Dann ändere umgehend dein Passwort — jemand mit\n"
+        f"Zugang zu deinem Konto könnte versuchen, die Adresse zu übernehmen.\n"
+    )
+    return subject, body
+
+
 async def issue_verification_email(session: AsyncSession, user: User) -> None:
     """Invalidate prior open verify-tokens, issue a fresh one, send the mail.
 
