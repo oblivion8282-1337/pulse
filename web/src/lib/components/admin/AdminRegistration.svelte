@@ -38,7 +38,7 @@
     invite_only: {
       title: 'Nur per Einladung',
       description:
-        'Registrierung verlangt einen Einladungscode. Der Code-Issue-Flow ist noch nicht implementiert — verhält sich aktuell wie "geschlossen".'
+        'Registrierung verlangt einen gültigen Einladungscode. Codes erstellst und verwaltest du unten.'
     },
     closed: {
       title: 'Geschlossen',
