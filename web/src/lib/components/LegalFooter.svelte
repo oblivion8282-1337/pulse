@@ -1,0 +1,23 @@
+<script lang="ts">
+  // Dezente Rechts-Buttons für den unteren Fensterrand der Auth-Seiten.
+  // Adaptiv: auf Mobil/in-flow über Theme-Tokens (hell & dunkel lesbar), ab md
+  // über dem dunklen Desktop-Verlauf in heller „Glas"-Optik.
+  const links = [
+    { href: '/impressum', label: 'Impressum' },
+    { href: '/datenschutz', label: 'Datenschutz' },
+    { href: '/agb', label: 'AGB' },
+  ];
+</script>
+
+<nav class="flex flex-wrap items-center justify-center gap-2" aria-label="Rechtliches">
+  {#each links as link (link.href)}
+    <a
+      href={link.href}
+      class="border-border/40 text-muted-foreground/80 hover:bg-muted/40 hover:text-foreground
+             rounded-full border px-3 py-1 text-xs transition-colors
+             md:border-white/[0.08] md:bg-white/[0.03] md:text-white/45 md:hover:bg-white/[0.08] md:hover:text-white/80"
+    >
+      {link.label}
+    </a>
+  {/each}
+</nav>

@@ -14,6 +14,7 @@
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import LegalFooter from '$lib/components/LegalFooter.svelte';
   import CursorRadar from '$lib/components/CursorRadar.svelte';
   import { cursorTrack } from '$lib/actions/cursor-track';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
@@ -363,5 +364,11 @@
         />
       </div>
     {/if}
+  </div>
+
+  <!-- Dezente Rechts-Buttons am unteren Fensterrand. z-40 (über dem Radar),
+       cursor-auto (echter Cursor zum Klicken trotz seitenweitem cursor:none). -->
+  <div class="absolute inset-x-0 bottom-0 z-40 flex cursor-auto justify-center p-4">
+    <LegalFooter />
   </div>
 </div>

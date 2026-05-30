@@ -10,6 +10,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import LegalFooter from '$lib/components/LegalFooter.svelte';
   import { runIssueFlow } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
@@ -111,7 +112,7 @@
   }
 </script>
 
-<div class="flex min-h-dvh">
+<div class="relative flex min-h-dvh">
   <AuthBrandPanel
     headline="Werd Teil von Pulse."
     description="In 30 Sekunden eingerichtet. Erstell eine Community, lade Freunde ein, starte einen Voice-Channel."
@@ -235,5 +236,10 @@
         <a class="text-primary hover:underline" href="/login">Anmelden</a>
       </p>
     </form>
+  </div>
+
+  <!-- Dezente Rechts-Buttons am unteren Fensterrand. -->
+  <div class="absolute inset-x-0 bottom-0 z-30 flex justify-center p-4">
+    <LegalFooter />
   </div>
 </div>
