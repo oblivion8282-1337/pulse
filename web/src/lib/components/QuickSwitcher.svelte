@@ -5,6 +5,7 @@
    * bits-ui's Dialog). Bewusst keine Fuzzy-Lib — substring reicht für
    * Phase 3, und vermeidet eine neue Dep.
    */
+  import { m } from '$lib/paraglide/messages.js';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { goto } from '$app/navigation';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -104,9 +105,9 @@
 
 <Dialog.Root bind:open={uiOverlays.quickSwitcherOpen}>
   <Dialog.Content class="max-w-xl gap-0 p-0" data-testid="quick-switcher">
-    <Dialog.Title class="sr-only">Schnell-Wechsler</Dialog.Title>
+    <Dialog.Title class="sr-only">{m.quick_switcher_title()}</Dialog.Title>
     <Dialog.Description class="sr-only">
-      Channel, Community oder Direct-Message suchen und mit Enter wechseln.
+      {m.quick_switcher_description()}
     </Dialog.Description>
 
     <input
@@ -114,14 +115,14 @@
       bind:value={query}
       onkeydown={onKey}
       type="text"
-      placeholder="Wohin? (Community, Channel oder Direct-Message)"
+      placeholder={m.quick_switcher_placeholder()}
       class="border-border text-text-bright placeholder:text-text-muted w-full border-b bg-transparent px-4 py-3 text-sm outline-none"
       data-testid="quick-switcher-input"
     />
 
     <div class="max-h-[50vh] overflow-y-auto p-2">
       {#if results.length === 0}
-        <p class="text-text-muted px-3 py-4 text-center text-sm">Keine Treffer</p>
+        <p class="text-text-muted px-3 py-4 text-center text-sm">{m.quick_switcher_no_results()}</p>
       {:else}
         {#each results as r, i (r.key)}
           <button

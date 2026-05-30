@@ -31,6 +31,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { channel }: { channel: Channel } = $props();
 
@@ -68,12 +69,12 @@
   let hqLabel = $derived.by(() => {
     const others = hqStreamersOther.length;
     if (iAmHqStreaming) {
-      if (others === 0) return 'Du streamst (HQ)';
-      if (others === 1) return `Du und ${userCache.displayName(hqStreamersOther[0])} streamen (HQ)`;
-      return `Du und ${others} weitere streamen (HQ)`;
+      if (others === 0) return m.stream_grid_hq_you_only();
+      if (others === 1) return m.stream_grid_hq_you_and_one({ name: userCache.displayName(hqStreamersOther[0]) });
+      return m.stream_grid_hq_you_and_others({ count: others });
     }
-    if (others === 1) return `${userCache.displayName(hqStreamersOther[0])} streamt (HQ)`;
-    return `${others} Leute streamen (HQ)`;
+    if (others === 1) return m.stream_grid_hq_one_other({ name: userCache.displayName(hqStreamersOther[0]) });
+    return m.stream_grid_hq_many_others({ count: others });
   });
   let hqStreaming = $derived(hqStreamers.length > 0);
 

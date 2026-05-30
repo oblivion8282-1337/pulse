@@ -17,6 +17,7 @@
     persistSettings,
   } from '../settings.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   // Admin-set global limits (live via the capabilities store). The bitrate
   // field works in kbps; the admin store holds kbps too.
@@ -137,7 +138,7 @@
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <Label for="ov-resolution">Auflösung</Label>
+    <Label for="ov-resolution">{m.overrides_editor_resolution_label()}</Label>
     <select
       id="ov-resolution"
       class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none"
@@ -146,21 +147,20 @@
       data-testid="stream-overrides-resolution"
     >
       {#each resOptions as r (r)}
-        <option value={r}>{r === 'Native' ? 'Native (Bildschirm)' : r}</option>
+        <option value={r}>{r === 'Native' ? m.overrides_editor_resolution_native() : r}</option>
       {/each}
     </select>
     <p class="text-text-muted text-[11px]">
       {#if capabilities.hqResolutionMax !== 'Native'}
-        Vom Server-Admin auf max. {capabilities.hqResolutionMax} begrenzt.
+        {m.overrides_editor_resolution_capped({ max: capabilities.hqResolutionMax })}
       {:else}
-        Nichts über deiner Monitorauflösung wählen — der Encoder skaliert dann nur
-        hoch (mehr Bandbreite, kein Detailgewinn).
+        {m.overrides_editor_resolution_hint()}
       {/if}
     </p>
   </div>
 
   <div class="flex flex-col gap-1.5">
-    <Label for="ov-bitrate">Bitrate (kbps)</Label>
+    <Label for="ov-bitrate">{m.overrides_editor_bitrate_label()}</Label>
     <input
       id="ov-bitrate"
       class="bg-bg-input text-text-base h-9 rounded-md px-2 text-sm outline-none tabular-nums focus:ring-1 focus:ring-primary"
@@ -168,13 +168,13 @@
       min={bMin}
       max={bMax}
       step="500"
-      placeholder="z.B. 6000"
+      placeholder={m.overrides_editor_bitrate_placeholder()}
       value={bitrateValue}
       oninput={onBitrate}
       onblur={onBitrateBlur}
       data-testid="stream-overrides-bitrate"
     />
-    <p class="text-text-muted text-[11px]">Erlaubt: {bMin}–{bMax} kbps.</p>
+    <p class="text-text-muted text-[11px]">{m.overrides_editor_bitrate_range({ min: bMin, max: bMax })}</p>
   </div>
 
   <div class="flex flex-col gap-1.5">
@@ -186,13 +186,13 @@
       min={fMin}
       max={fMax}
       step="1"
-      placeholder="z.B. 60"
+      placeholder={m.overrides_editor_fps_placeholder()}
       value={fpsValue}
       oninput={onFps}
       onblur={onFpsBlur}
       data-testid="stream-overrides-fps"
     />
-    <p class="text-text-muted text-[11px]">Erlaubt: {fMin}–{fMax} FPS.</p>
+    <p class="text-text-muted text-[11px]">{m.overrides_editor_fps_range({ min: fMin, max: fMax })}</p>
   </div>
  </div>
 
@@ -204,6 +204,6 @@
       onchange={onShowCursor}
       data-testid="stream-overrides-show-cursor"
     />
-    <span class="text-text-base">Mauszeiger im Stream zeigen</span>
+    <span class="text-text-base">{m.overrides_editor_show_cursor()}</span>
   </label>
 </div>

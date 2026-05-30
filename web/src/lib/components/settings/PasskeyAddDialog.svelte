@@ -16,6 +16,7 @@
   import { toast } from 'svelte-sonner';
   import { registerPasskey, type WebAuthnCredentialSummary } from '$lib/api/webauthn';
   import BackupCodesView from './BackupCodesView.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Props = {
     open?: boolean;
@@ -47,7 +48,7 @@
     if (busy) return;
     const trimmed = name.trim();
     if (!trimmed) {
-      error = 'Bitte gib dem Passkey einen Namen.';
+      error = m.passkey_add_dialog_name_required();
       return;
     }
     busy = true;
@@ -55,7 +56,7 @@
     try {
       const res = await registerPasskey(trimmed);
       onAdded(res.credential);
-      toast.success('Passkey hinzugefügt');
+      toast.success(m.passkey_add_dialog_added());
       if (res.backup_codes && res.backup_codes.length > 0) {
         backupCodes = res.backup_codes;
         step = 'codes';
@@ -75,14 +76,12 @@
     <Dialog.Overlay />
     <Dialog.Content data-testid="passkey-add-dialog" class="max-w-md">
       <Dialog.Header>
-        <Dialog.Title>Passkey hinzufügen</Dialog.Title>
+        <Dialog.Title>{m.passkey_add_dialog_title()}</Dialog.Title>
         <Dialog.Description>
           {#if step === 'name'}
-            Ein Passkey ersetzt das Passwort durch Fingerabdruck, Gesichtserkennung oder
-            einen Sicherheitsschlüssel.
+            {m.passkey_add_dialog_description_name()}
           {:else}
-            Speichere diese Backup-Codes — du brauchst sie, falls du den Zugriff auf deine
-            Passkeys verlierst.
+            {m.passkey_add_dialog_description_codes()}
           {/if}
         </Dialog.Description>
       </Dialog.Header>
@@ -104,7 +103,7 @@
               id="passkey-name"
               type="text"
               bind:value={name}
-              placeholder="z. B. MacBook, iPhone, YubiKey"
+              placeholder={m.passkey_add_dialog_name_placeholder()}
               maxlength={64}
               autocomplete="off"
               data-testid="passkey-name-input"
@@ -117,10 +116,10 @@
               onclick={() => (open = false)}
               disabled={busy}
             >
-              Abbrechen
+              {m.passkey_add_dialog_cancel()}
             </Button>
             <Button type="submit" disabled={busy} data-testid="passkey-create">
-              {busy ? 'Wird erstellt…' : 'Passkey erstellen'}
+              {busy ? m.passkey_add_dialog_creating() : m.passkey_add_dialog_create()}
             </Button>
           </Dialog.Footer>
         </form>
@@ -133,11 +132,11 @@
             bind:checked={saved}
             data-testid="passkey-saved-check"
           />
-          Ich habe die Codes an einem sicheren Ort gespeichert.
+          {m.passkey_add_dialog_saved_confirm()}
         </label>
         <Dialog.Footer>
           <Button onclick={() => (open = false)} disabled={!saved} data-testid="passkey-add-done">
-            Fertig
+            {m.passkey_add_dialog_done()}
           </Button>
         </Dialog.Footer>
       {/if}

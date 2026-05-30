@@ -8,14 +8,15 @@
   import AdminInstancesActive from './AdminInstancesActive.svelte';
   import AdminInstancesSuspended from './AdminInstancesSuspended.svelte';
   import ServerIcon from '@lucide/svelte/icons/server';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Tab = 'pending' | 'active' | 'suspended';
   let activeTab = $state<Tab>('pending');
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'pending', label: 'Ausstehend' },
-    { id: 'active', label: 'Aktiv' },
-    { id: 'suspended', label: 'Gesperrt' }
+    { id: 'pending', label: m.admin_instances_tab_pending() },
+    { id: 'active', label: m.admin_instances_tab_active() },
+    { id: 'suspended', label: m.admin_instances_tab_suspended() }
   ];
 </script>
 
@@ -26,9 +27,9 @@
   <div class="mb-4 flex items-start gap-3">
     <ServerIcon class="text-text-muted mt-0.5 size-5 shrink-0" />
     <div class="min-w-0">
-      <h2 class="text-text-bright text-base font-semibold">Self-Host-Instanzen</h2>
+      <h2 class="text-text-bright text-base font-semibold">{m.admin_instances_heading()}</h2>
       <p class="text-text-muted text-xs mt-0.5">
-        Anträge prüfen, Instanzen verwalten und Secrets rotieren.
+        {m.admin_instances_description()}
       </p>
     </div>
   </div>

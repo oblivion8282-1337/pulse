@@ -21,6 +21,7 @@
   } from '$lib/api/admin';
   import { SMTP_PRESETS } from '$lib/admin/smtpProviders';
   import { auth } from '$lib/stores/auth.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import SaveIcon from '@lucide/svelte/icons/save';
   import MailIcon from '@lucide/svelte/icons/mail';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
@@ -111,9 +112,9 @@
     saving = true;
     try {
       hydrate(await adminApi.patchSmtpSettings(buildPatch()));
-      toast.success('SMTP-Config gespeichert');
+      toast.success(m.admin_smtp_save_success());
     } catch (e) {
-      toast.error('Speichern fehlgeschlagen', {
+      toast.error(m.admin_smtp_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -125,7 +126,7 @@
     if (testing) return;
     const to = testTo.trim();
     if (!to) {
-      toast.error('Empfänger-Adresse fehlt');
+      toast.error(m.admin_smtp_test_recipient_missing());
       return;
     }
     testing = true;
@@ -143,12 +144,12 @@
       });
       lastTestOk = res.ok;
       lastTestError = res.error;
-      if (res.ok) toast.success(`Test-Mail an ${to} geschickt`);
-      else toast.error('Test fehlgeschlagen', { description: res.error ?? '' });
+      if (res.ok) toast.success(m.admin_smtp_test_sent({ to }));
+      else toast.error(m.admin_smtp_test_failed(), { description: res.error ?? '' });
     } catch (e) {
       lastTestOk = false;
       lastTestError = e instanceof Error ? e.message : String(e);
-      toast.error('Test fehlgeschlagen', { description: lastTestError });
+      toast.error(m.admin_smtp_test_failed(), { description: lastTestError });
     } finally {
       testing = false;
     }
@@ -158,9 +159,9 @@
 <section class="bg-bg-input border-border rounded-2xl border p-5" data-testid="admin-smtp">
   <div class="mb-4 flex items-start justify-between gap-3">
     <div>
-      <h2 class="text-text-bright text-base font-semibold">Email-Versand (SMTP)</h2>
+      <h2 class="text-text-bright text-base font-semibold">{m.admin_smtp_heading()}</h2>
       <p class="text-text-muted mt-0.5 text-xs">
-        Pulse verschickt Passwort-Reset- und Verify-Mails nur, wenn hier ein Provider eingerichtet ist.
+        {m.admin_smtp_description()}
       </p>
     </div>
     {#if current?.configured}
@@ -168,22 +169,22 @@
         class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400"
         data-testid="smtp-status-configured"
       >
-        <CheckCircle2Icon class="size-3" /> Aktiv
+        <CheckCircle2Icon class="size-3" /> {m.admin_smtp_status_active()}
       </span>
     {:else if current}
       <span
         class="bg-bg-hover text-text-muted inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
         data-testid="smtp-status-inactive"
       >
-        <AlertCircleIcon class="size-3" /> Nicht eingerichtet
+        <AlertCircleIcon class="size-3" /> {m.admin_smtp_status_not_configured()}
       </span>
     {/if}
   </div>
 
   {#if loadError}
-    <p class="text-sm text-red-400">Fehler: {loadError}</p>
+    <p class="text-sm text-red-400">{m.admin_smtp_load_error({ error: loadError })}</p>
   {:else if current === null}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_smtp_loading()}</div>
   {:else}
     <div class="flex flex-col gap-3">
       <div class="flex flex-col gap-1.5">
@@ -209,7 +210,7 @@
             rel="noopener noreferrer"
             class="text-primary inline-flex items-center gap-1 text-xs hover:underline"
           >
-            <ExternalLinkIcon class="size-3" /> Provider-Settings öffnen
+            <ExternalLinkIcon class="size-3" /> {m.admin_smtp_open_provider_settings()}
           </a>
         {/if}
       </div>
@@ -230,7 +231,7 @@
       <label class="text-text-base flex cursor-pointer items-center gap-2 text-sm {lockedFields ? 'opacity-60' : ''}">
         <input type="checkbox" bind:checked={useSsl} disabled={lockedFields}
           class="accent-primary" data-testid="smtp-ssl" />
-        Implizites TLS (Port 465). Ohne Häkchen: STARTTLS (Port 587).
+        {m.admin_smtp_ssl_label()}
       </label>
 
       <div class="grid grid-cols-2 gap-3">
@@ -240,24 +241,24 @@
             placeholder="user@example.com" autocomplete="off" data-testid="smtp-user" />
         </div>
         <div class="flex flex-col gap-1.5">
-          <Label for="smtp-pass">Passwort / API-Key</Label>
+          <Label for="smtp-pass">{m.admin_smtp_label_password()}</Label>
           <Input id="smtp-pass" type="password" bind:value={password}
-            placeholder={current.has_password ? '••••••••  (leer = behalten)' : ''}
+            placeholder={current.has_password ? m.admin_smtp_password_placeholder() : ''}
             autocomplete="new-password" data-testid="smtp-pass" />
         </div>
       </div>
 
       <div class="flex flex-col gap-1.5">
-        <Label for="smtp-from">Absender-Adresse (From:)</Label>
+        <Label for="smtp-from">{m.admin_smtp_label_from()}</Label>
         <Input id="smtp-from" type="email" bind:value={fromEmail}
-          placeholder="noreply@deine-domain.de" data-testid="smtp-from" />
+          placeholder={m.admin_smtp_from_placeholder()} data-testid="smtp-from" />
         {#if preset.from_hint}
           <p class="text-text-muted text-xs">{preset.from_hint}</p>
         {/if}
       </div>
 
       <div class="border-border/50 mt-2 flex flex-col gap-1.5 border-t pt-3">
-        <Label for="smtp-test-to">Test-Mail an</Label>
+        <Label for="smtp-test-to">{m.admin_smtp_label_test_to()}</Label>
         <Input
           id="smtp-test-to"
           type="email"
@@ -266,8 +267,7 @@
           data-testid="smtp-test-to"
         />
         <p class="text-text-muted text-xs">
-          Vorausgefüllt mit der Mail-Adresse deines Pulse-Accounts. Hier kannst
-          du jede beliebige Adresse eintippen, an die das Test-Mail gehen soll.
+          {m.admin_smtp_test_to_hint()}
         </p>
       </div>
 
@@ -279,9 +279,9 @@
           data-testid="smtp-test-result"
         >
           {#if lastTestOk}
-            ✓ Test-Mail erfolgreich an {testTo} geschickt.
+            ✓ {m.admin_smtp_test_result_ok({ to: testTo })}
           {:else}
-            ✗ {lastTestError ?? 'Test fehlgeschlagen.'}
+            ✗ {lastTestError ?? m.admin_smtp_test_result_failed()}
           {/if}
         </div>
       {/if}
@@ -289,11 +289,11 @@
       <div class="mt-2 flex items-center justify-between gap-2">
         <Button variant="outline" onclick={test} disabled={testing} data-testid="smtp-test">
           <MailIcon class="size-4" />
-          {testing ? 'Sende…' : 'Test-Mail senden'}
+          {testing ? m.admin_smtp_btn_sending() : m.admin_smtp_btn_send_test()}
         </Button>
         <Button onclick={save} disabled={!dirty || saving} data-testid="smtp-save">
           <SaveIcon class="size-4" />
-          {saving ? 'Speichere…' : 'Speichern'}
+          {saving ? m.admin_smtp_btn_saving() : m.admin_smtp_btn_save()}
         </Button>
       </div>
     </div>

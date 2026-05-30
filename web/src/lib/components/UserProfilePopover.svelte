@@ -26,6 +26,7 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import type { Snippet } from 'svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     userId,
@@ -107,7 +108,7 @@
         <div class="min-w-0 flex-1">
           <p class="text-text-bright truncate text-base font-semibold">{displayName}</p>
           {#if isSelf}
-            <p class="text-text-muted text-xs">Das bist du</p>
+            <p class="text-text-muted text-xs">{m.user_profile_popover_this_is_you()}</p>
           {/if}
         </div>
       </div>

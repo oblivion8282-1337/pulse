@@ -14,6 +14,7 @@
   import ShieldCheckIcon from '@lucide/svelte/icons/shield-check';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import { auth } from '$lib/stores/auth.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import TotpEnableDialog from './TotpEnableDialog.svelte';
   import TotpDisableDialog from './TotpDisableDialog.svelte';
   import TotpBackupRegenerateDialog from './TotpBackupRegenerateDialog.svelte';
@@ -33,8 +34,8 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-security-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">Sicherheit</h2>
-    <p class="text-text-muted text-sm">Schütze deinen Account mit Zwei-Faktor-Authentifizierung.</p>
+    <h2 class="text-text-bright text-lg font-semibold">{m.settings_security_title()}</h2>
+    <p class="text-text-muted text-sm">{m.settings_security_subtitle()}</p>
   </div>
 
   <section class="border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4">
@@ -50,13 +51,13 @@
       {/if}
       <div class="flex flex-col gap-0.5">
         <span class="text-text-bright text-sm font-medium">
-          Zwei-Faktor-Authentifizierung (TOTP)
+          {m.settings_security_totp_label()}
         </span>
         <span class="text-text-muted text-xs">
           {#if totpEnabled}
-            Aktiv — beim Login wird ein 6-stelliger Code aus deiner App verlangt.
+            {m.settings_security_totp_active()}
           {:else}
-            Inaktiv — empfohlen, damit ein gestohlenes Passwort allein nicht reicht.
+            {m.settings_security_totp_inactive()}
           {/if}
         </span>
       </div>
@@ -69,7 +70,7 @@
         class="accent-gradient self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 md:py-1.5"
         data-testid="security-enable-2fa"
       >
-        2FA aktivieren
+        {m.settings_security_enable_2fa()}
       </button>
     {:else}
       <div class="flex flex-wrap gap-2">
@@ -79,7 +80,7 @@
           class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="security-regen-backup"
         >
-          Backup-Codes neu generieren
+          {m.settings_security_regen_backup_codes()}
         </button>
         <button
           type="button"
@@ -87,7 +88,7 @@
           class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="security-disable-2fa"
         >
-          2FA deaktivieren
+          {m.settings_security_disable_2fa()}
         </button>
       </div>
     {/if}
@@ -98,7 +99,7 @@
   <DeviceManagement />
 
   <section>
-    <h3 class="sr-only">Cloud-Backup</h3>
+    <h3 class="sr-only">{m.settings_security_cloud_backup_heading()}</h3>
     <CloudBackup />
   </section>
 

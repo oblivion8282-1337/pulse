@@ -19,6 +19,7 @@
 -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { chatApi } from '$lib/api/chat';
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, formatDiagnostic, type StreamStats } from '../whep-stats';
@@ -68,8 +69,8 @@
   function handleDetach(): void {
     const opened = detachedStreams.open(channelId, userId);
     if (!opened) {
-      toast.error('Popup blockiert', {
-        description: 'Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.'
+      toast.error(m.whep_player_popup_blocked(), {
+        description: m.whep_player_popup_blocked_description()
       });
     }
   }
@@ -298,15 +299,15 @@
       {:else if stats.microStutters > 0}
         <span
           class="ml-1 font-sans text-amber-300"
-          title="Mikro-Stutter seit Verbindungsstart (Chromium freezeCount)"
+          title={m.whep_player_microstutter_title()}
         >⚠ {stats.microStutters}</span>
       {/if}
       <button
         type="button"
         onclick={copyDiagnostic}
         class="ml-1 -mr-0.5 flex size-4 items-center justify-center rounded-full text-white/80 hover:bg-white/10 hover:text-white"
-        aria-label="Stream-Diagnose in die Zwischenablage kopieren"
-        title={copied ? 'Diagnose kopiert' : 'Diagnose kopieren'}
+        aria-label={m.whep_player_copy_diagnostic_aria()}
+        title={copied ? m.whep_player_diagnostic_copied() : m.whep_player_copy_diagnostic()}
         data-testid="hq-stream-stats-copy"
       >
         {#if copied}<CheckIcon class="size-3" />{:else}<ClipboardIcon class="size-3" />{/if}
@@ -353,7 +354,7 @@
       >
         <LoaderIcon class="size-7 animate-spin" />
         <p class="text-sm">
-          {phase === 'retrying' ? 'Warte auf den Stream…' : 'Verbinde mit dem Stream…'}
+          {phase === 'retrying' ? m.whep_player_waiting_for_stream() : m.whep_player_connecting_to_stream()}
         </p>
         {#if detail && phase === 'retrying'}
           <p class="max-w-sm text-center text-[11px] text-white/60">{detail}</p>
@@ -364,7 +365,7 @@
         class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/65 text-red-200"
       >
         <AlertTriangleIcon class="size-7" />
-        <p class="text-sm">Stream konnte nicht geladen werden</p>
+        <p class="text-sm">{m.whep_player_stream_load_failed()}</p>
         {#if detail}<p class="max-w-sm text-center text-[11px] text-red-200/70">{detail}</p>{/if}
       </div>
     {/if}

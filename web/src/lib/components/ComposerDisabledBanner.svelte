@@ -5,14 +5,16 @@
   field. Displayed by ChatView when composerDisabled === true.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
+
   let { reason }: { reason: string } = $props();
 
   let text = $derived(
     reason === 'not_friends'
-      ? 'Ihr seid keine Freunde mehr. Sende eine Freundschaftsanfrage, um wieder zu schreiben.'
+      ? m.composer_disabled_banner_not_friends()
       : reason === 'blocked'
-        ? 'Diese Person ist blockiert. Entblockiere sie, um wieder zu schreiben.'
-        : 'Du kannst nicht in diesen Chat schreiben.'
+        ? m.composer_disabled_banner_blocked()
+        : m.composer_disabled_banner_default()
   );
 </script>
 

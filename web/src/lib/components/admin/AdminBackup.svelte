@@ -17,6 +17,7 @@
   import ShieldOffIcon from '@lucide/svelte/icons/shield-off';
   import ClockIcon from '@lucide/svelte/icons/clock';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
+  import { m } from '$lib/paraglide/messages.js';
 
   let data = $state<BackupStatus | null>(null);
   let error = $state<string | null>(null);
@@ -37,11 +38,13 @@
   onMount(load);
 
   function fmtAge(seconds: number): string {
-    if (seconds < 60) return 'gerade eben';
-    if (seconds < 3600) return `vor ${Math.floor(seconds / 60)} min`;
-    if (seconds < 86400) return `vor ${Math.floor(seconds / 3600)} h`;
+    if (seconds < 60) return m.admin_backup_age_just_now();
+    if (seconds < 3600) return m.admin_backup_age_minutes({ minutes: Math.floor(seconds / 60) });
+    if (seconds < 86400) return m.admin_backup_age_hours({ hours: Math.floor(seconds / 3600) });
     const days = Math.floor(seconds / 86400);
-    return `vor ${days} ${days === 1 ? 'Tag' : 'Tagen'}`;
+    return days === 1
+      ? m.admin_backup_age_one_day()
+      : m.admin_backup_age_days({ days });
   }
 
   function fmtTimestamp(iso: string): string {
@@ -62,9 +65,9 @@
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-backup">
   <div class="mb-4 flex items-start justify-between gap-3">
     <div>
-      <h2 class="text-text-bright text-base font-semibold">Backup</h2>
+      <h2 class="text-text-bright text-base font-semibold">{m.admin_backup_heading()}</h2>
       <p class="text-text-muted text-xs mt-0.5">
-        Verschlüsselte restic-Snapshots (Postgres, MinIO, Avatare, Server-Icons).
+        {m.admin_backup_description()}
       </p>
     </div>
     <button
@@ -72,7 +75,7 @@
       onclick={load}
       disabled={refreshing}
       class="text-text-muted hover:text-text-bright rounded-lg p-1.5 hover:bg-bg-hover disabled:opacity-50"
-      aria-label="Aktualisieren"
+      aria-label={m.admin_backup_refresh_label()}
       data-testid="admin-backup-refresh"
     >
       <RefreshIcon class="size-4 {refreshing ? 'animate-spin' : ''}" />
@@ -80,9 +83,9 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm" data-testid="admin-backup-error">Fehler: {error}</p>
+    <p class="text-red-400 text-sm" data-testid="admin-backup-error">{m.admin_backup_error({ message: error! })}</p>
   {:else if !data}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_backup_loading()}</div>
   {:else if view === 'not-configured'}
     <div
       class="flex items-start gap-3 rounded-xl bg-bg-hover/50 p-4"
@@ -90,13 +93,12 @@
     >
       <ShieldOffIcon class="text-text-muted size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
-        <span class="text-text-bright text-sm font-medium">Backup nicht eingerichtet</span>
+        <span class="text-text-bright text-sm font-medium">{m.admin_backup_not_configured_title()}</span>
         <span class="text-text-muted text-xs leading-relaxed">
-          Der Backup-Sidecar läuft noch nicht. Setup-Anleitung: <code
+          {m.admin_backup_not_configured_body_pre()}<code
             class="bg-bg-panel px-1 py-0.5 rounded text-[11px]"
             >infra/prod/DEPLOY.md</code
-          >
-          → Abschnitt „Backups".
+          >{m.admin_backup_not_configured_body_post()}
         </span>
       </div>
     </div>
@@ -107,10 +109,9 @@
     >
       <ClockIcon class="text-amber-400 size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
-        <span class="text-text-bright text-sm font-medium">Noch kein Backup gelaufen</span>
+        <span class="text-text-bright text-sm font-medium">{m.admin_backup_no_run_title()}</span>
         <span class="text-text-muted text-xs leading-relaxed">
-          Der Sidecar ist da, aber es gab noch keinen erfolgreichen Lauf. Erster Postgres-Snapshot
-          läuft täglich um 04:00 UTC.
+          {m.admin_backup_no_run_body()}
         </span>
       </div>
     </div>
@@ -121,9 +122,9 @@
     >
       <ShieldCheckIcon class="text-emerald-400 size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
-        <span class="text-emerald-300 text-sm font-medium">Backups laufen</span>
+        <span class="text-emerald-300 text-sm font-medium">{m.admin_backup_healthy_title()}</span>
         <span class="text-text-muted text-xs">
-          Letzter Erfolg: {fmtAge(data!.age_seconds!)} ·
+          {m.admin_backup_last_success()} {fmtAge(data!.age_seconds!)} ·
           <span class="text-text-base">{fmtTimestamp(data!.last_backup_at!)}</span>
         </span>
       </div>
@@ -136,24 +137,23 @@
       <ShieldAlertIcon class="text-red-400 size-5 shrink-0 mt-0.5" />
       <div class="flex flex-col gap-1">
         <span class="text-red-300 text-sm font-medium">
-          Backup veraltet — seit über {Math.round(data!.stale_threshold_seconds / 3600)} h kein
-          erfolgreicher Lauf
+          {m.admin_backup_stale_title({ hours: Math.round(data!.stale_threshold_seconds / 3600) })}
         </span>
         <span class="text-text-muted text-xs">
-          Letzter Erfolg: {fmtAge(data!.age_seconds!)} ·
+          {m.admin_backup_last_success()} {fmtAge(data!.age_seconds!)} ·
           <span class="text-text-base">{fmtTimestamp(data!.last_backup_at!)}</span>.
           <code class="bg-bg-panel px-1 py-0.5 rounded text-[11px]">docker logs pulse_backup</code>
-          checken.
+          {m.admin_backup_stale_check_logs()}
         </span>
       </div>
     </div>
   {/if}
 
   <p class="text-text-muted text-[11px] leading-relaxed mt-3">
-    Snapshots ansehen, manuelle Backups oder Restore: SSH + <code
+    {m.admin_backup_footer_pre()}<code
       class="bg-bg-panel px-1 py-0.5 rounded">docker compose exec backup …</code
-    >. Runbook unter <code class="bg-bg-panel px-1 py-0.5 rounded"
+    >{m.admin_backup_footer_mid()}<code class="bg-bg-panel px-1 py-0.5 rounded"
       >infra/prod/backup/restore.md</code
-    >.
+    >{m.admin_backup_footer_post()}
   </p>
 </section>

@@ -15,6 +15,7 @@
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import XIcon from '@lucide/svelte/icons/x';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     channelId,
@@ -78,11 +79,11 @@
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('410')) {
-        toast.error('Streamer ist gerade offline');
+        toast.error(m.stream_chat_panel_streamer_offline());
       } else if (msg.includes('429')) {
-        toast.warning('Zu schnell — bitte kurz warten');
+        toast.warning(m.stream_chat_panel_too_fast());
       } else {
-        toast.error('Nachricht konnte nicht gesendet werden', { description: msg });
+        toast.error(m.stream_chat_panel_send_failed(), { description: msg });
       }
     }
   }
@@ -114,15 +115,15 @@
   <header class="flex h-14 items-center gap-2 border-b border-border px-3">
     <RocketIcon class="size-4 text-red-500" />
     <span class="text-text-bright truncate text-sm font-semibold">
-      Live-Chat · {streamerName}
+      {m.stream_chat_panel_header({ streamerName })}
     </span>
     {#if onClose}
       <button
         type="button"
         class="ml-auto rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:p-1.5"
         onclick={onClose}
-        aria-label="Stream-Chat schließen — zurück zum Stream"
-        title="Zurück zum Stream"
+        aria-label={m.stream_chat_panel_close_aria()}
+        title={m.stream_chat_panel_close_title()}
         data-testid="stream-chat-close"
       >
         <XIcon class="text-text-muted size-5 md:size-4" />
@@ -136,10 +137,10 @@
     data-testid="stream-chat-messages"
   >
     {#if loading && messages.length === 0}
-      <p class="text-text-muted py-6 text-center text-xs">Lade Chat…</p>
+      <p class="text-text-muted py-6 text-center text-xs">{m.stream_chat_panel_loading()}</p>
     {:else if messages.length === 0}
       <p class="text-text-muted py-6 text-center text-xs">
-        Noch keine Nachrichten. Schreib die erste.
+        {m.stream_chat_panel_empty()}
       </p>
     {:else}
       <ul class="flex flex-col gap-1.5">
@@ -156,5 +157,5 @@
     {/if}
   </div>
 
-  <MessageInput placeholder="Im Live-Chat schreiben" onSend={send} />
+  <MessageInput placeholder={m.stream_chat_panel_input_placeholder()} onSend={send} />
 </aside>

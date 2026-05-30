@@ -11,6 +11,7 @@
   `list_monitors`-Enumeration.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import RefreshIcon from '@lucide/svelte/icons/refresh-cw';
@@ -40,14 +41,14 @@
 
 <div class="flex flex-col gap-2" data-testid="stream-monitor-picker">
   <div class="flex items-center justify-between">
-    <Label for="stream-monitor-select">Bildschirm</Label>
+    <Label for="stream-monitor-select">{m.monitor_picker_label()}</Label>
     <Button
       type="button"
       size="xs"
       variant="ghost"
       onclick={onRefresh}
       disabled={refreshing}
-      aria-label="Bildschirm-Liste neu laden"
+      aria-label={m.monitor_picker_refresh_aria()}
       data-testid="stream-monitor-refresh"
     >
       <RefreshIcon class="size-3 {refreshing ? 'animate-spin' : ''}" />
@@ -57,7 +58,7 @@
 
   {#if streamSettings.available_monitors.length === 0}
     <p class="text-text-muted text-xs italic" data-testid="stream-monitor-empty">
-      (keine Bildschirme erkannt — Refresh klicken; gestreamt wird der Primärmonitor)
+      {m.monitor_picker_empty()}
     </p>
   {:else}
     <select
@@ -69,8 +70,8 @@
     >
       {#each streamSettings.available_monitors as mon (mon.index)}
         <option value={`${MONITOR_CAPTURE_PREFIX}${mon.index}`}>
-          Bildschirm {mon.index}: {mon.name}{mon.primary ? ' (primär)' : ''}{mon.width
-            ? ` — ${mon.width}×${mon.height}`
+          {m.monitor_picker_option_label({ index: mon.index, name: mon.name })}{mon.primary ? ` ${m.monitor_picker_option_primary()}` : ''}{mon.width
+            ? ` ${m.monitor_picker_option_resolution({ width: mon.width, height: mon.height })}`
             : ''}
         </option>
       {/each}

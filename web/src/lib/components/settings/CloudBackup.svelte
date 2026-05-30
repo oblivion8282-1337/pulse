@@ -19,6 +19,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import CloudBackupSetupForm from './CloudBackupSetupForm.svelte';
   import CloudBackupRecoverForm from './CloudBackupRecoverForm.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   type ViewState = 'idle' | 'setup' | 'recover';
 
@@ -57,13 +58,11 @@
     try {
       const keypair = await loadKeypair();
       if (!keypair) {
-        errorMsg = 'Kein lokales Keypair gefunden. Bitte neu anmelden.';
+        errorMsg = m.cloud_backup_error_no_keypair();
         return;
       }
       if (!keypair.privateKey.extractable) {
-        errorMsg =
-          'Dieses Keypair wurde ohne Export-Erlaubnis erstellt. Bitte melde dich neu an, ' +
-          'um ein backup-fähiges Keypair zu erhalten.';
+        errorMsg = m.cloud_backup_error_keypair_not_extractable();
         return;
       }
 
@@ -77,12 +76,12 @@
       await createBackup(certId, blob, deviceLabel.slice(0, 64) || 'Backup');
       existingBackup = await getBackup(certId);
 
-      toast.success('Backup gespeichert', {
-        description: 'Dein verschlüsseltes Keypair-Backup wurde in der Cloud gespeichert.'
+      toast.success(m.cloud_backup_toast_saved(), {
+        description: m.cloud_backup_toast_saved_desc()
       });
       cancelFlow();
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler beim Backup.';
+      errorMsg = err instanceof Error ? err.message : m.cloud_backup_error_unknown_backup();
     } finally {
       busy = false;
     }
@@ -103,15 +102,15 @@
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
       await keypairStore.load();
 
-      toast.success('Recovery erfolgreich', {
-        description: 'Deine Schlüssel wurden aus dem Backup wiederhergestellt.'
+      toast.success(m.cloud_backup_toast_recovered(), {
+        description: m.cloud_backup_toast_recovered_desc()
       });
       cancelFlow();
     } catch (err) {
       if (err instanceof BackupDecryptError) {
-        errorMsg = 'Falsches Master-Passwort oder defektes Backup.';
+        errorMsg = m.cloud_backup_error_wrong_password();
       } else {
-        errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler bei der Wiederherstellung.';
+        errorMsg = err instanceof Error ? err.message : m.cloud_backup_error_unknown_recover();
       }
     } finally {
       busy = false;
@@ -125,9 +124,9 @@
     try {
       await deleteBackup(certId);
       existingBackup = null;
-      toast.success('Backup gelöscht');
+      toast.success(m.cloud_backup_toast_deleted());
     } catch (err) {
-      toast.error('Löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.cloud_backup_toast_delete_failed(), { description: (err as Error).message });
     } finally {
       busy = false;
     }
@@ -143,26 +142,24 @@
       <CloudIcon class="size-5" />
     </span>
     <div class="flex flex-col gap-0.5">
-      <span class="text-text-bright text-sm font-medium">Cloud-Backup</span>
+      <span class="text-text-bright text-sm font-medium">{m.cloud_backup_title()}</span>
       <span class="text-text-muted text-xs">
-        Verschlüsseltes Backup deiner Geräte-Schlüssel. Nur du kannst es entschlüsseln.
+        {m.cloud_backup_subtitle()}
       </span>
     </div>
   </div>
 
   {#if !certId}
-    <p class="text-text-muted text-xs">Kein aktives Identitäts-Cert — bitte neu anmelden.</p>
+    <p class="text-text-muted text-xs">{m.cloud_backup_no_cert()}</p>
   {:else if loadingStatus}
     <div class="text-text-muted flex items-center gap-2 text-xs">
       <LoaderIcon class="size-4 animate-spin" />
-      <span>Status wird geladen…</span>
+      <span>{m.cloud_backup_loading()}</span>
     </div>
   {:else if viewState === 'idle'}
     {#if hasBackup}
       <p class="text-text-muted text-xs">
-        Backup vom
-        <span class="text-text-base font-medium">{backupDateLabel}</span>
-        · Gerät: {existingBackup!.device_label}
+        {m.cloud_backup_existing_info({ date: backupDateLabel, device: existingBackup!.device_label })}
       </p>
       <div class="flex flex-wrap gap-2">
         <button
@@ -171,7 +168,7 @@
           class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="backup-update-btn"
         >
-          Backup aktualisieren
+          {m.cloud_backup_btn_update()}
         </button>
         <button
           type="button"
@@ -179,7 +176,7 @@
           class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="backup-recover-btn"
         >
-          Wiederherstellen
+          {m.cloud_backup_btn_recover()}
         </button>
         <button
           type="button"
@@ -189,18 +186,18 @@
           class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 md:py-1.5"
           data-testid="backup-delete-btn"
         >
-          Backup löschen
+          {m.cloud_backup_btn_delete()}
         </button>
       </div>
     {:else}
-      <p class="text-text-muted text-xs">Kein Backup vorhanden.</p>
+      <p class="text-text-muted text-xs">{m.cloud_backup_no_backup()}</p>
       <button
         type="button"
         onclick={openSetup}
         class="accent-gradient self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 md:py-1.5"
         data-testid="backup-setup-btn"
       >
-        Backup einrichten
+        {m.cloud_backup_btn_setup()}
       </button>
     {/if}
 
@@ -227,16 +224,15 @@
 <AlertDialog.Root bind:open={deleteDialogOpen}>
   <AlertDialog.Content data-testid="backup-delete-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Backup wirklich löschen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.cloud_backup_dialog_delete_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        Du kannst dich von keinem anderen Gerät wiederherstellen, wenn das Backup gelöscht wird.
-        Diese Aktion kann nicht rückgängig gemacht werden.
+        {m.cloud_backup_dialog_delete_desc()}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel>{m.cloud_backup_dialog_cancel()}</AlertDialog.Cancel>
       <Button variant="destructive" onclick={handleDelete} data-testid="backup-delete-confirm">
-        Backup löschen
+        {m.cloud_backup_btn_delete()}
       </Button>
     </AlertDialog.Footer>
   </AlertDialog.Content>

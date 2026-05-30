@@ -3,6 +3,7 @@
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import EmojiPicker from './EmojiPicker.svelte';
   import type { ReactionAggregate } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     reactions,
@@ -29,7 +30,7 @@
         data-testid="reaction-pill"
         data-emoji={r.emoji}
         data-mine={r.me}
-        title={r.me ? 'Reaktion entfernen' : 'Reagieren'}
+        title={r.me ? m.message_reactions_remove_reaction() : m.message_reactions_react()}
         onclick={() => onToggle(r.emoji, r.me)}
       >
         <span class="text-base leading-none">{r.emoji}</span>
@@ -43,8 +44,8 @@
             {...props}
             type="button"
             class="text-text-muted hover:bg-bg-hover rounded-full border border-border bg-bg-input px-2 py-0.5"
-            title="Reaktion hinzufügen"
-            aria-label="Reaktion hinzufügen"
+            title={m.message_reactions_add_reaction()}
+            aria-label={m.message_reactions_add_reaction()}
             data-testid="reaction-add"
           >
             <SmilePlusIcon class="size-3.5" />

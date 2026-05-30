@@ -6,6 +6,7 @@
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = false,
@@ -46,7 +47,7 @@
       guilds.updateGuild(updated);
       onClose();
     } catch (err) {
-      toast.error('Community umbenennen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.rename_guild_dialog_rename_failed(), { description: (err as Error).message });
     } finally {
       busy = false;
     }
@@ -56,13 +57,13 @@
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="rename-guild-dialog">
     <Dialog.Header>
-      <Dialog.Title>Community umbenennen</Dialog.Title>
-      <Dialog.Description>Neuer Name für „{guild?.name ?? ''}"</Dialog.Description>
+      <Dialog.Title>{m.rename_guild_dialog_title()}</Dialog.Title>
+      <Dialog.Description>{m.rename_guild_dialog_description({ name: guild?.name ?? '' })}</Dialog.Description>
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
         <Label for="rename-guild-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Community-Name
+          {m.rename_guild_dialog_name_label()}
         </Label>
         <Input
           id="rename-guild-name"
@@ -76,9 +77,9 @@
         />
       </div>
       <Dialog.Footer>
-        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>Abbrechen</Button>
+        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>{m.rename_guild_dialog_cancel()}</Button>
         <Button type="submit" disabled={busy} data-testid="rename-guild-submit">
-          {busy ? 'Speichern…' : 'Umbenennen'}
+          {busy ? m.rename_guild_dialog_saving() : m.rename_guild_dialog_rename()}
         </Button>
       </Dialog.Footer>
     </form>

@@ -24,6 +24,7 @@
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   type SettingsTab =
     | 'profile'
@@ -67,16 +68,16 @@
   }
 
   const tabs: { id: SettingsTab; label: string; icon: typeof MicIcon; desktopOnly?: true }[] = [
-    { id: 'profile', label: 'Profil', icon: UserIcon },
-    { id: 'appearance', label: 'Erscheinungsbild', icon: PaletteIcon },
-    { id: 'audio-video', label: 'Sprache & Video', icon: MicIcon },
-    { id: 'screen-share', label: 'Bildschirm teilen', icon: MonitorIcon, desktopOnly: true },
-    { id: 'notifications', label: 'Benachrichtigungen', icon: BellIcon },
-    { id: 'sounds', label: 'Sounds', icon: Volume2Icon },
-    { id: 'keyboard', label: 'Tastatur', icon: KeyboardIcon, desktopOnly: true },
-    { id: 'privacy', label: 'Privatsphäre', icon: LockIcon },
-    { id: 'security', label: 'Sicherheit', icon: ShieldIcon },
-    { id: 'self-host', label: 'Self-Hoster', icon: ServerIcon }
+    { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
+    { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
+    { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
+    { id: 'screen-share', label: m.settings_dialog_tab_screen_share(), icon: MonitorIcon, desktopOnly: true },
+    { id: 'notifications', label: m.settings_dialog_tab_notifications(), icon: BellIcon },
+    { id: 'sounds', label: m.settings_dialog_tab_sounds(), icon: Volume2Icon },
+    { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
+    { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
+    { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
+    { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon }
   ];
 
   let visibleTabs = $derived(tabs.filter((t) => !t.desktopOnly || !viewport.isMobile));
@@ -92,7 +93,7 @@
     <!-- Zugänglicher Dialog-Titel — immer im DOM (auf Mobil wird die <nav> mit
          dem sichtbaren Titel ggf. ausgeblendet, daher hier separat als sr-only). -->
     <Dialog.Title class="sr-only">
-      Einstellungen{mobileView === 'detail' && activeLabel ? ` — ${activeLabel}` : ''}
+      {mobileView === 'detail' && activeLabel ? m.settings_dialog_title_with_tab({ tab: activeLabel }) : m.settings_dialog_title()}
     </Dialog.Title>
 
     <!-- Nav-Liste: immer sichtbar auf sm+; auf mobile nur wenn mobileView=list -->
@@ -101,7 +102,7 @@
         {mobileView === 'detail' ? 'max-sm:hidden' : ''}"
     >
       <p class="text-text-muted px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide">
-        Einstellungen
+        {m.settings_dialog_title()}
       </p>
       {#each visibleTabs as t (t.id)}
         <button
@@ -130,10 +131,10 @@
           type="button"
           onclick={() => (mobileView = 'list')}
           class="flex items-center gap-1 rounded-lg p-2 text-base transition-colors hover:bg-bg-hover md:p-1 md:text-sm"
-          aria-label="Zurück"
+          aria-label={m.settings_dialog_back()}
         >
           <ChevronLeftIcon class="text-text-muted size-5 md:size-4" />
-          <span class="text-text-muted text-base md:text-sm">Einstellungen</span>
+          <span class="text-text-muted text-base md:text-sm">{m.settings_dialog_title()}</span>
         </button>
         <span class="text-text-bright ml-1 text-sm font-semibold">{activeLabel}</span>
       </div>

@@ -12,6 +12,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
+  import { m } from '$lib/paraglide/messages.js';
 
   let code = $derived(page.params.code ?? '');
 
@@ -129,28 +130,27 @@
         >
           ?
         </div>
-        <h1 class="text-card-foreground text-xl font-semibold">Server-Einladung</h1>
+        <h1 class="text-card-foreground text-xl font-semibold">{m.invite_page_deep_link_title()}</h1>
         <p class="text-muted-foreground text-sm">
-          Diese Einladung kommt von einem externen Server:
+          {m.invite_page_deep_link_from_external()}
         </p>
         <p class="text-card-foreground break-all font-mono text-sm font-medium" data-testid="invite-deep-link-host">
           {deepLinkHostname}
         </p>
         <p class="text-muted-foreground text-xs">
-          Klicke „Weiter" um den Server zu kontaktieren und die Einladungs-Details zu laden.
-          Der Server wird deiner Server-Liste hinzugefügt.
+          {m.invite_page_deep_link_hint()}
         </p>
       </div>
       <Button class="w-full" onclick={handleConfirm} data-testid="invite-confirm-btn">
-        Weiter
+        {m.invite_page_confirm()}
       </Button>
-      <a class="text-primary hover:underline text-sm block" href="/app">Abbrechen</a>
+      <a class="text-primary hover:underline text-sm block" href="/app">{m.invite_page_cancel()}</a>
     {:else if invalid}
       <Alert.Root variant="destructive" data-testid="invite-invalid">
         <OctagonXIcon />
-        <Alert.Description>Diese Einladung ist ungültig oder abgelaufen.</Alert.Description>
+        <Alert.Description>{m.invite_page_invalid()}</Alert.Description>
       </Alert.Root>
-      <a class="text-primary hover:underline text-sm" href="/app">Zurück zur App</a>
+      <a class="text-primary hover:underline text-sm" href="/app">{m.invite_page_back_to_app()}</a>
     {:else if preview}
       <div class="space-y-3">
         {#if preview.guild.icon_url}
@@ -167,12 +167,12 @@
             {guildInitial(preview.guild.name)}
           </div>
         {/if}
-        <p class="text-muted-foreground text-sm">Du wurdest eingeladen zu</p>
+        <p class="text-muted-foreground text-sm">{m.invite_page_you_were_invited()}</p>
         <h1 class="text-card-foreground text-2xl font-semibold" data-testid="invite-guild-name">
           {preview.guild.name}
         </h1>
         <p class="text-muted-foreground text-sm" data-testid="invite-member-count">
-          {preview.member_count} {preview.member_count === 1 ? 'Mitglied' : 'Mitglieder'}
+          {m.invite_page_member_count({ count: preview.member_count })}
         </p>
       </div>
 
@@ -189,7 +189,7 @@
         disabled={busy}
         data-testid="invite-join-btn"
       >
-        {busy ? 'Beitreten…' : 'Server beitreten'}
+        {busy ? m.invite_page_joining() : m.invite_page_join()}
       </Button>
     {:else if error}
       <Alert.Root variant="destructive" data-testid="invite-load-error">
@@ -197,7 +197,7 @@
         <Alert.Description>{error}</Alert.Description>
       </Alert.Root>
     {:else}
-      <p class="text-muted-foreground text-sm">Einladung wird geladen…</p>
+      <p class="text-muted-foreground text-sm">{m.invite_page_loading()}</p>
     {/if}
   </div>
 </div>

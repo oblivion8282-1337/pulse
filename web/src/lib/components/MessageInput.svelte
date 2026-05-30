@@ -8,6 +8,7 @@
   import EmojiPicker from './EmojiPicker.svelte';
   import AttachmentPreviewStrip from './AttachmentPreviewStrip.svelte';
   import MentionTriggerOverlay from './MentionTriggerOverlay.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { expandShortcodes } from '$lib/emoji';
   import { startUpload, cleanupRow, type PendingAttachment } from '$lib/attachments/upload.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -18,7 +19,7 @@
   // (paperclip / paste / drop) are wired off, mention popup still works.
   let {
     channelId = null,
-    placeholder = 'Nachricht senden',
+    placeholder = m.message_input_placeholder(),
     onSend,
     replyTo = null,
     onCancelReply,
@@ -173,13 +174,13 @@
       class="bg-bg-input mb-1 flex items-center gap-2 rounded-t-xl border border-b-0 border-border px-3 py-1.5 text-xs"
       data-testid="reply-banner"
     >
-      <span class="text-text-muted">Antwort an</span>
+      <span class="text-text-muted">{m.message_input_reply_to()}</span>
       <span class="text-text-bright font-semibold">{replyTo.author}</span>
       <span class="text-text-muted truncate">— {replyTo.snippet}</span>
       <button
         type="button"
         class="text-text-muted hover:text-text-bright ml-auto rounded p-0.5"
-        aria-label="Antwort abbrechen"
+        aria-label={m.message_input_cancel_reply()}
         onclick={() => onCancelReply?.()}
       >
         <XIcon class="size-3.5" />
@@ -198,7 +199,7 @@
         class="bg-primary/15 border-primary text-primary pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed text-sm font-medium"
         data-testid="drop-overlay"
       >
-        Datei hier ablegen zum Hochladen
+        {m.message_input_drop_files_hint()}
       </div>
     {/if}
     {#if attachmentsEnabled}
@@ -213,7 +214,7 @@
       <button
         type="button"
         class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-2.5 md:p-1.5"
-        aria-label="Datei anhängen"
+        aria-label={m.message_input_attach_file()}
         onclick={() => fileInput?.click()}
         data-testid="attachment-button"
       >
@@ -249,7 +250,7 @@
             {...props}
             type="button"
             class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-2.5 md:p-1.5"
-            aria-label="Emoji einfügen"
+            aria-label={m.message_input_insert_emoji()}
             data-testid="emoji-button"
           >
             <SmilePlusIcon class="size-5" />
@@ -271,7 +272,7 @@
       class="size-11 md:size-8"
       disabled={sendDisabled}
       data-testid="message-send"
-      aria-label="Senden"
+      aria-label={m.message_input_send()}
     >
       <SendHorizontalIcon />
     </Button>

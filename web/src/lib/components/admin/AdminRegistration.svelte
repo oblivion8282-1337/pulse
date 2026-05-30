@@ -12,6 +12,7 @@
   import { adminApi, type RegistrationMode } from '$lib/api/admin';
   import RegistrationInviteSection from './RegistrationInviteSection.svelte';
   import SaveIcon from '@lucide/svelte/icons/save';
+  import { m } from '$lib/paraglide/messages.js';
 
   let current = $state<RegistrationMode | null>(null);
   let pick = $state<RegistrationMode>('open');
@@ -30,21 +31,20 @@
 
   const dirty = $derived(current !== null && pick !== current);
 
-  const labels: Record<RegistrationMode, { title: string; description: string }> = {
+  const labels = $derived<Record<RegistrationMode, { title: string; description: string }>>({
     open: {
-      title: 'Offen',
-      description: 'Jede:r kann sich registrieren. Nichts blockiert /register.'
+      title: m.admin_registration_mode_open_title(),
+      description: m.admin_registration_mode_open_description()
     },
     invite_only: {
-      title: 'Nur per Einladung',
-      description:
-        'Registrierung verlangt einen gültigen Einladungscode. Codes erstellst und verwaltest du unten.'
+      title: m.admin_registration_mode_invite_only_title(),
+      description: m.admin_registration_mode_invite_only_description()
     },
     closed: {
-      title: 'Geschlossen',
-      description: '/register lehnt alle neuen Registrierungen ab.'
+      title: m.admin_registration_mode_closed_title(),
+      description: m.admin_registration_mode_closed_description()
     }
-  };
+  });
 
   async function save() {
     if (!dirty || busy) return;
@@ -52,9 +52,9 @@
     try {
       const next = await adminApi.patchAuthSettings({ registration_mode: pick });
       current = next.registration_mode;
-      toast.success('Registrierung aktualisiert');
+      toast.success(m.admin_registration_saved());
     } catch (e) {
-      toast.error('Speichern fehlgeschlagen', {
+      toast.error(m.admin_registration_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -65,12 +65,12 @@
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-registration">
   <div class="mb-4">
-    <h2 class="text-text-bright text-base font-semibold">Registrierung</h2>
-    <p class="text-text-muted text-xs mt-0.5">Wer kann sich für deinen Server anmelden?</p>
+    <h2 class="text-text-bright text-base font-semibold">{m.admin_registration_title()}</h2>
+    <p class="text-text-muted text-xs mt-0.5">{m.admin_registration_subtitle()}</p>
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-red-400 text-sm">{m.admin_registration_load_error({ error })}</p>
   {:else if current !== null}
     <div class="flex flex-col gap-2">
       {#each Object.entries(labels) as [mode, info] (mode)}
@@ -96,7 +96,7 @@
     <div class="mt-4 flex items-center justify-end">
       <Button onclick={save} disabled={!dirty || busy} data-testid="reg-mode-save">
         <SaveIcon class="size-4" />
-        {busy ? 'Speichere…' : 'Speichern'}
+        {busy ? m.admin_registration_saving() : m.admin_registration_save()}
       </Button>
     </div>
 
@@ -105,6 +105,6 @@
       <RegistrationInviteSection />
     {/if}
   {:else}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_registration_loading()}</div>
   {/if}
 </section>

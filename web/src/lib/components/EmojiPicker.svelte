@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { EMOJIS, CATEGORY_ORDER, CATEGORY_LABELS, type EmojiCategory } from '$lib/emoji';
 
   const CATEGORY_REPRESENTATIVE = Object.fromEntries(
@@ -30,14 +31,14 @@
   class="bg-popover text-popover-foreground flex w-72 flex-col gap-2 rounded-2xl border border-border p-3 shadow-xl backdrop-blur-xl"
   data-testid="emoji-picker"
   role="dialog"
-  aria-label="Emoji wählen"
+  aria-label={m.emoji_picker_dialog_label()}
 >
   <input
     type="text"
     bind:value={query}
-    placeholder="Suchen…"
+    placeholder={m.emoji_picker_search_placeholder()}
     class="text-text-bright placeholder:text-text-muted w-full rounded-lg border border-border bg-bg-chat px-2.5 py-1.5 text-sm outline-none focus:border-primary"
-    aria-label="Emoji suchen"
+    aria-label={m.emoji_picker_search_label()}
     data-testid="emoji-picker-search"
   />
 
@@ -60,7 +61,7 @@
   <div class="max-h-72 overflow-y-auto">
     {#if isSearching}
       {#if searchHits.length === 0}
-        <p class="text-text-muted px-1 py-3 text-center text-xs">Keine Treffer</p>
+        <p class="text-text-muted px-1 py-3 text-center text-xs">{m.emoji_picker_no_results()}</p>
       {:else}
         <div class="grid grid-cols-6 gap-1 md:grid-cols-8">
           {#each searchHits as e (e.emoji)}

@@ -29,6 +29,7 @@
   import ScreenSharePublishStats from './ScreenSharePublishStats.svelte';
   import HqStreamDialog from '$lib/stream/components/HqStreamDialog.svelte';
   import type { PublishStats } from '$lib/voice/screenShareStats';
+  import { m } from '$lib/paraglide/messages.js';
 
   type ShareMode = 'normal' | 'hq';
   const STORAGE_KEY = 'pulse.ui.screenshare_mode';
@@ -67,7 +68,7 @@
       try {
         await voice.setScreenShare(!voice.isScreenSharing);
       } catch {
-        toast.info('Bildschirm teilen abgebrochen');
+        toast.info(m.screen_share_mode_button_share_cancelled());
       }
       return;
     }
@@ -83,15 +84,15 @@
     try {
       await voice.setScreenShare(!voice.isScreenSharing);
     } catch {
-      toast.info('Bildschirm teilen abgebrochen');
+      toast.info(m.screen_share_mode_button_share_cancelled());
     }
   }
 
   let tooltipLabel = $derived.by(() => {
     if (!hqAvailable || mode === 'normal') {
-      return voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen';
+      return voice.isScreenSharing ? m.screen_share_mode_button_stop_sharing() : m.screen_share_mode_button_share_screen();
     }
-    return stream.running ? 'HQ-Stream beenden' : 'HQ-Stream';
+    return stream.running ? m.screen_share_mode_button_stop_hq_stream() : m.screen_share_mode_button_hq_stream();
   });
 </script>
 
@@ -134,11 +135,11 @@
           {tooltipLabel}
           {#if mode === 'normal' && voice.isScreenSharing && publishStats}
             <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-[11px] tabular-nums">
-              <div>Encoder: {publishStats.encoderImpl || '—'}{#if publishStats.encoderKind === 'gpu'} <span class="text-emerald-400">(GPU)</span>{:else if publishStats.encoderKind === 'cpu'} <span class="text-amber-400">(CPU)</span>{/if}</div>
-              <div>Codec: {publishStats.codec}</div>
-              <div>Auflösung: {publishStats.res}</div>
-              <div>FPS: {publishStats.fps}</div>
-              <div>Bitrate: {publishStats.bitrate}</div>
+              <div>{m.screen_share_mode_button_stats_encoder({ value: publishStats.encoderImpl || '—' })}{#if publishStats.encoderKind === 'gpu'} <span class="text-emerald-400">(GPU)</span>{:else if publishStats.encoderKind === 'cpu'} <span class="text-amber-400">(CPU)</span>{/if}</div>
+              <div>{m.screen_share_mode_button_stats_codec({ value: publishStats.codec })}</div>
+              <div>{m.screen_share_mode_button_stats_resolution({ value: publishStats.res })}</div>
+              <div>{m.screen_share_mode_button_stats_fps({ value: publishStats.fps })}</div>
+              <div>{m.screen_share_mode_button_stats_bitrate({ value: publishStats.bitrate })}</div>
             </div>
           {/if}
         </Tooltip.Content>
@@ -153,7 +154,7 @@
               variant="ghost"
               size="icon-sm"
               class="h-8 w-5 rounded-l-none px-0"
-              aria-label="Streaming-Modus wählen"
+              aria-label={m.screen_share_mode_button_select_mode()}
             >
               <ChevronDownIcon class="size-3" />
             </Button>
@@ -162,12 +163,12 @@
         <DropdownMenu.Content side="top" align="start" class="min-w-[11rem]">
           <DropdownMenu.Item onclick={() => setMode('normal')} class="flex items-center gap-2">
             <MonitorIcon class="size-4 shrink-0" />
-            <span class="flex-1">Standard</span>
+            <span class="flex-1">{m.screen_share_mode_button_mode_standard()}</span>
             {#if mode === 'normal'}<CheckIcon class="size-3.5 text-primary" />{/if}
           </DropdownMenu.Item>
           <DropdownMenu.Item onclick={() => setMode('hq')} class="flex items-center gap-2">
             <RocketIcon class="size-4 shrink-0" />
-            <span class="flex-1">HQ-Streaming</span>
+            <span class="flex-1">{m.screen_share_mode_button_mode_hq()}</span>
             {#if mode === 'hq'}<CheckIcon class="size-3.5 text-primary" />{/if}
           </DropdownMenu.Item>
         </DropdownMenu.Content>
@@ -192,7 +193,7 @@
               class="size-8"
               onclick={handleNormalShare}
               data-testid="voice-screenshare-toggle"
-              aria-label={voice.isScreenSharing ? 'Bildschirm teilen beenden' : 'Bildschirm teilen'}
+              aria-label={voice.isScreenSharing ? m.screen_share_mode_button_stop_sharing_long() : m.screen_share_mode_button_share_screen()}
             >
               {#if voice.isScreenSharing}<MonitorOffIcon class="size-4" />{:else}<MonitorIcon class="size-4" />{/if}
             </Button>
@@ -201,14 +202,14 @@
         {/snippet}
       </Tooltip.Trigger>
       <Tooltip.Content>
-        <div>{voice.isScreenSharing ? 'Teilen beenden' : 'Bildschirm teilen'}</div>
+        <div>{voice.isScreenSharing ? m.screen_share_mode_button_stop_sharing() : m.screen_share_mode_button_share_screen()}</div>
         {#if voice.isScreenSharing && publishStats}
           <div class="text-text-muted mt-1 space-y-0.5 border-t border-border pt-1 text-[11px] tabular-nums">
-            <div>Encoder: {publishStats.encoderImpl || '—'}{#if publishStats.encoderKind === 'gpu'} <span class="text-emerald-400">(GPU)</span>{:else if publishStats.encoderKind === 'cpu'} <span class="text-amber-400">(CPU)</span>{/if}</div>
-            <div>Codec: {publishStats.codec}</div>
-            <div>Auflösung: {publishStats.res}</div>
-            <div>FPS: {publishStats.fps}</div>
-            <div>Bitrate: {publishStats.bitrate}</div>
+            <div>{m.screen_share_mode_button_stats_encoder({ value: publishStats.encoderImpl || '—' })}{#if publishStats.encoderKind === 'gpu'} <span class="text-emerald-400">(GPU)</span>{:else if publishStats.encoderKind === 'cpu'} <span class="text-amber-400">(CPU)</span>{/if}</div>
+            <div>{m.screen_share_mode_button_stats_codec({ value: publishStats.codec })}</div>
+            <div>{m.screen_share_mode_button_stats_resolution({ value: publishStats.res })}</div>
+            <div>{m.screen_share_mode_button_stats_fps({ value: publishStats.fps })}</div>
+            <div>{m.screen_share_mode_button_stats_bitrate({ value: publishStats.bitrate })}</div>
           </div>
         {/if}
       </Tooltip.Content>

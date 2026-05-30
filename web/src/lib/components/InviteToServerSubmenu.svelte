@@ -11,6 +11,7 @@
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Guild } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     friendUserId,
@@ -43,10 +44,10 @@
       const dm = await chatApi.createOrGetDMChannel(friendUserId);
       const link = `${window.location.origin}/invite/${invite.code}`;
       await chatApi.postMessage(dm.id, link);
-      toast.success(`Einladung an ${friendName} gesendet`);
+      toast.success(m.invite_to_server_submenu_invite_sent({ friendName }));
       onDone();
     } catch (e) {
-      toast.error('Fehler beim Senden der Einladung', {
+      toast.error(m.invite_to_server_submenu_invite_error(), {
         description: (e as Error).message
       });
     } finally {
@@ -58,7 +59,7 @@
 <div class="mt-1 flex flex-col gap-1" data-testid="invite-to-server-submenu">
   {#if invitableGuilds.length === 0}
     <p class="text-text-muted px-3 py-2 text-xs">
-      Du hast keine Server, auf die du einladen kannst.
+      {m.invite_to_server_submenu_no_invitable_guilds()}
     </p>
   {:else}
     {#each invitableGuilds as guild (guild.id)}

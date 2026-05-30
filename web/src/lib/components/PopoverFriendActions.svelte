@@ -25,6 +25,7 @@
   import { blocks } from '$lib/stores/blocks.svelte';
   import * as actions from './popoverActions';
   import InviteToServerSubmenu from './InviteToServerSubmenu.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     userId,
@@ -98,7 +99,7 @@
       data-testid="popover-unblock-btn"
     >
       <BanIcon class="size-4" />
-      <span>Entblockieren</span>
+      <span>{m.popover_friend_actions_unblock()}</span>
     </button>
   {:else if isFriend}
     <button
@@ -109,7 +110,7 @@
       data-testid="popover-invite-to-server-btn"
     >
       <MailPlusIcon class="size-4" />
-      <span class="flex-1">Zu Community einladen</span>
+      <span class="flex-1">{m.popover_friend_actions_invite_to_community()}</span>
       <ChevronDownIcon class="size-3 transition-transform {inviteSubmenuOpen ? 'rotate-180' : ''}" />
     </button>
     {#if inviteSubmenuOpen}
@@ -127,7 +128,7 @@
       data-testid="popover-remove-friend-btn"
     >
       <UserMinusIcon class="size-4" />
-      <span>Freund entfernen</span>
+      <span>{m.popover_friend_actions_remove_friend()}</span>
     </button>
     <button
       type="button"
@@ -137,7 +138,7 @@
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
-      <span>Blockieren</span>
+      <span>{m.popover_friend_actions_block()}</span>
     </button>
   {:else if pendingOut}
     <button
@@ -148,7 +149,7 @@
       data-testid="popover-cancel-request-btn"
     >
       <XIcon class="size-4" />
-      <span>Anfrage zurückziehen</span>
+      <span>{m.popover_friend_actions_cancel_request()}</span>
     </button>
     <button
       type="button"
@@ -158,7 +159,7 @@
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
-      <span>Blockieren</span>
+      <span>{m.popover_friend_actions_block()}</span>
     </button>
   {:else if pendingIn}
     <button
@@ -169,7 +170,7 @@
       data-testid="popover-accept-request-btn"
     >
       <CheckIcon class="size-4" />
-      <span>Anfrage annehmen</span>
+      <span>{m.popover_friend_actions_accept_request()}</span>
     </button>
     <button
       type="button"
@@ -179,7 +180,7 @@
       data-testid="popover-decline-request-btn"
     >
       <XIcon class="size-4" />
-      <span>Anfrage ablehnen</span>
+      <span>{m.popover_friend_actions_decline_request()}</span>
     </button>
     <button
       type="button"
@@ -189,7 +190,7 @@
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
-      <span>Blockieren</span>
+      <span>{m.popover_friend_actions_block()}</span>
     </button>
   {:else}
     <button
@@ -200,7 +201,7 @@
       data-testid="popover-add-friend-btn"
     >
       <UserPlusIcon class="size-4" />
-      <span>Freundschaftsanfrage senden</span>
+      <span>{m.popover_friend_actions_send_friend_request()}</span>
     </button>
     <button
       type="button"
@@ -210,7 +211,7 @@
       data-testid="popover-block-btn"
     >
       <BanIcon class="size-4" />
-      <span>Blockieren</span>
+      <span>{m.popover_friend_actions_block()}</span>
     </button>
   {/if}
 </div>

@@ -11,6 +11,7 @@
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
   import { Button } from '$lib/components/ui/button/index.js';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let dismissed = $state<Record<string, boolean>>({});
 
@@ -39,7 +40,7 @@
   >
     <ShieldAlertIcon class="size-4 shrink-0" />
     <span class="flex-1">
-      Du bist auf <strong>{active.label}</strong> — ein Self-Host-Server. Dort gelten andere Regeln.
+      {m.self_host_disclaimer_notice_before()} <strong>{active.label}</strong>{m.self_host_disclaimer_notice_after()}
     </span>
     <Button
       size="sm"
@@ -47,7 +48,7 @@
       onclick={() => dismiss(active.id)}
       data-testid="self-host-disclaimer-ack"
     >
-      Verstanden
+      {m.self_host_disclaimer_ack()}
     </Button>
   </div>
 {/if}

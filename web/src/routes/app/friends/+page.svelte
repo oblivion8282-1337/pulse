@@ -23,14 +23,15 @@
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
   import AddFriendPanel from '$lib/components/friends/AddFriendPanel.svelte';
   import type { DMChannel } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   type TabKey = 'online' | 'all' | 'pending' | 'blocked' | 'add';
-  const TABS: { key: TabKey; label: string }[] = [
-    { key: 'online', label: 'Online' },
-    { key: 'all', label: 'Alle' },
-    { key: 'pending', label: 'Ausstehend' },
-    { key: 'blocked', label: 'Blockiert' },
-    { key: 'add', label: 'Hinzufügen' }
+  const TABS: { key: TabKey; label: () => string }[] = [
+    { key: 'online', label: () => m.friends_tab_online() },
+    { key: 'all', label: () => m.friends_tab_all() },
+    { key: 'pending', label: () => m.friends_tab_pending() },
+    { key: 'blocked', label: () => m.friends_tab_blocked() },
+    { key: 'add', label: () => m.friends_tab_add() }
   ];
 
   const activeTab = $derived<TabKey>(
@@ -80,7 +81,7 @@
     data-testid="friends-page"
   >
     <header class="border-border/40 flex items-center gap-4 border-b px-4 py-3">
-      <h1 class="text-text-bright text-base font-semibold">Freunde</h1>
+      <h1 class="text-text-bright text-base font-semibold">{m.friends_page_title()}</h1>
       <nav class="flex flex-wrap gap-1" data-testid="friends-tabs">
         {#each TABS as t (t.key)}
           {@const isActive = activeTab === t.key}
@@ -97,7 +98,7 @@
             data-testid={`friends-tab-${t.key}`}
             data-active={isActive}
           >
-            {t.label}
+            {t.label()}
             {#if badge > 0}
               <span
                 class="bg-rose-500 text-white ml-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none"

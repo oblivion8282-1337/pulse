@@ -17,6 +17,7 @@
   import { eventToCombo, displayCombo, isPureModifier } from '$lib/shortcuts/format';
   import { settings } from '$lib/stores/settings.svelte';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
+  import { m } from '$lib/paraglide/messages.js';
 
   let listeningId = $state<ActionId | null>(null);
   let cleanupCapture: (() => void) | null = null;
@@ -60,7 +61,7 @@
       if (other) {
         const otherLabel = ACTION_BY_ID[other].label;
         const ok = window.confirm(
-          `„${displayCombo(combo)}" ist bereits „${otherLabel}" zugewiesen.\n\nTrotzdem überschreiben? (Die andere Aktion wird leer.)`
+          m.settings_keyboard_conflict_confirm({ combo: displayCombo(combo), otherLabel })
         );
         if (!ok) {
           endCapture();
@@ -80,7 +81,7 @@
   }
 
   function resetAll(): void {
-    if (!window.confirm('Alle Tastatur-Shortcuts auf die Standardwerte zurücksetzen?')) return;
+    if (!window.confirm(m.settings_keyboard_reset_all_confirm())) return;
     settings.resetAllShortcuts();
   }
 
@@ -92,10 +93,10 @@
 <div class="space-y-6">
   <header class="flex items-baseline justify-between gap-3">
     <div>
-      <h2 class="text-text-bright text-base font-semibold">Tastatur</h2>
+      <h2 class="text-text-bright text-base font-semibold">{m.settings_keyboard_title()}</h2>
       <p class="text-text-muted mt-1 text-xs">
-        Klicke auf eine Tastenkombination, um sie zu ändern. <kbd class="font-mono">Esc</kbd> =
-        abbrechen, <kbd class="font-mono">Backspace</kbd> = leeren.
+        {m.settings_keyboard_hint_before_esc()} <kbd class="font-mono">Esc</kbd> =
+        {m.settings_keyboard_hint_esc()}, <kbd class="font-mono">Backspace</kbd> = {m.settings_keyboard_hint_backspace()}.
       </p>
     </div>
     <button
@@ -104,7 +105,7 @@
       class="text-text-muted hover:text-text-base hover:bg-bg-hover shrink-0 rounded-lg px-2 py-1.5 text-xs transition-colors md:py-1"
       data-testid="shortcuts-reset-all"
     >
-      Alle zurücksetzen
+      {m.settings_keyboard_reset_all()}
     </button>
   </header>
 
@@ -131,15 +132,15 @@
                 : ''}"
               data-testid="shortcut-binding-{a.id}"
             >
-              {listeningId === a.id ? 'Taste drücken …' : displayCombo(eff)}
+              {listeningId === a.id ? m.settings_keyboard_press_key() : displayCombo(eff)}
             </button>
             <button
               type="button"
               onclick={() => resetOne(a.id)}
               disabled={isDefault}
               class="text-text-muted hover:text-text-base hover:bg-bg-hover2 rounded-md p-2 transition-colors disabled:opacity-30 disabled:hover:bg-transparent md:p-1"
-              aria-label="Auf Standard zurücksetzen"
-              title="Auf Standard zurücksetzen"
+              aria-label={m.settings_keyboard_reset_one()}
+              title={m.settings_keyboard_reset_one()}
             >
               <RotateCcwIcon class="size-3.5" />
             </button>
@@ -151,9 +152,8 @@
 
   <section class="border-border text-text-muted border-t pt-4 text-xs">
     <p>
-      <strong class="text-text-base">Push-to-Talk (Halten):</strong> Im Tab „Sprache &amp; Video"
-      konfigurierbar (aktuell <span class="font-mono">{settings.voice.pttKey}</span>). PTT braucht
-      Press+Release-Erkennung und passt deshalb nicht ins gleiche Schema.
+      <strong class="text-text-base">{m.settings_keyboard_ptt_label()}</strong> {m.settings_keyboard_ptt_hint_before_key()}
+      <span class="font-mono">{settings.voice.pttKey}</span>{m.settings_keyboard_ptt_hint_after_key()}
     </p>
   </section>
 </div>

@@ -16,6 +16,7 @@
   re-render — kein eigener Timer nötig.
 -->
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import PlayIcon from '@lucide/svelte/icons/play';
   import SquareIcon from '@lucide/svelte/icons/square';
@@ -71,9 +72,9 @@
       case 'live':
         return 'Live';
       case 'error':
-        return 'Fehler';
+        return m.stream_controls_state_error();
       case 'stopped':
-        return 'Gestoppt';
+        return m.stream_controls_state_stopped();
       default:
         return 'Idle';
     }
@@ -103,16 +104,16 @@
         const msg =
           e instanceof ApiError
             ? e.status === 403
-              ? 'Du bist kein Mitglied dieses Kanals.'
+              ? m.stream_controls_error_not_member()
               : e.status === 400
-                ? 'HQ-Streaming geht nur in Sprach-Kanälen.'
+                ? m.stream_controls_error_not_voice_channel()
                 : e.status === 502 || e.status === 503
-                  ? 'Der Media-Dienst ist nicht erreichbar.'
-                  : (e.message ?? 'Stream-Token konnte nicht geholt werden.')
+                  ? m.stream_controls_error_media_svc_unavailable()
+                  : (e.message ?? m.stream_controls_error_token_fetch_failed())
             : e instanceof Error
               ? e.message
               : String(e);
-        toast.error('Stream konnte nicht gestartet werden', { description: msg });
+        toast.error(m.stream_controls_toast_start_failed(), { description: msg });
         return;
       }
       const args = buildStartArgs({
@@ -122,8 +123,8 @@
       });
       const r = await gsr.start(args);
       if (r && !r.ok) {
-        localError = r.error ?? 'Start fehlgeschlagen.';
-        toast.error('Stream konnte nicht gestartet werden', { description: localError });
+        localError = r.error ?? m.stream_controls_error_start_failed();
+        toast.error(m.stream_controls_toast_start_failed(), { description: localError });
       } else {
         onStarted?.();
       }
@@ -175,7 +176,7 @@
         data-testid="stream-stop-btn"
       >
         <SquareIcon class="size-4" />
-        {busy ? 'Stoppe…' : 'Stop'}
+        {busy ? m.stream_controls_btn_stopping() : 'Stop'}
       </Button>
     {:else}
       <Button
@@ -187,14 +188,14 @@
         data-testid="stream-start-btn"
       >
         <PlayIcon class="size-4" />
-        {busy ? 'Starte…' : 'Stream starten'}
+        {busy ? m.stream_controls_btn_starting() : m.stream_controls_btn_start()}
       </Button>
     {/if}
   </div>
 
   {#if !bridgeReady}
     <p class="text-text-muted text-xs italic" data-testid="stream-bridge-missing">
-      Bridge nicht aktiv — Desktop-App nötig.
+      {m.stream_controls_bridge_missing()}
     </p>
   {/if}
 

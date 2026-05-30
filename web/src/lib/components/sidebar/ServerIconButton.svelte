@@ -15,6 +15,7 @@
   import BellOffIcon from '@lucide/svelte/icons/bell-off';
   import BellRingIcon from '@lucide/svelte/icons/bell-ring';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
+  import { m } from '$lib/paraglide/messages.js';
   import type { ServerEntry } from '$lib/api/servers.svelte';
   import type { ConnectionState } from '$lib/ws/gateway-connection';
 
@@ -103,7 +104,7 @@
               <span
                 class="absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-bg-panel {dotClass(state)}"
                 data-testid="server-state-dot"
-                aria-label={`Status: ${state}`}
+                aria-label={m.server_icon_button_status({ state })}
               ></span>
             </div>
           {/snippet}
@@ -114,22 +115,22 @@
   </ContextMenu.Trigger>
   <ContextMenu.Content>
     <ContextMenu.Item onSelect={onInfo}>
-      <InfoIcon /> Server-Info
+      <InfoIcon /> {m.server_icon_button_server_info()}
     </ContextMenu.Item>
     <ContextMenu.Separator />
     <ContextMenu.Item onSelect={() => onNotif('all')}>
-      <BellRingIcon /> Alle Benachrichtigungen
+      <BellRingIcon /> {m.server_icon_button_notif_all()}
     </ContextMenu.Item>
     <ContextMenu.Item onSelect={() => onNotif('mentions')}>
-      <BellIcon /> Nur Erwähnungen
+      <BellIcon /> {m.server_icon_button_notif_mentions()}
     </ContextMenu.Item>
     <ContextMenu.Item onSelect={() => onNotif('none')}>
-      <BellOffIcon /> Stumm
+      <BellOffIcon /> {m.server_icon_button_notif_mute()}
     </ContextMenu.Item>
     {#if onRemove}
       <ContextMenu.Separator />
       <ContextMenu.Item variant="destructive" onSelect={onRemove} data-testid="server-remove">
-        <Trash2Icon /> Server entfernen
+        <Trash2Icon /> {m.server_icon_button_remove_server()}
       </ContextMenu.Item>
     {/if}
   </ContextMenu.Content>

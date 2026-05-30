@@ -5,6 +5,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import HashIcon from '@lucide/svelte/icons/hash';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = false,
@@ -40,12 +41,12 @@
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="create-channel-dialog">
     <Dialog.Header>
-      <Dialog.Title>Kanal erstellen</Dialog.Title>
-      <Dialog.Description>Erstelle einen neuen Text- oder Sprach-Kanal.</Dialog.Description>
+      <Dialog.Title>{m.create_channel_dialog_title()}</Dialog.Title>
+      <Dialog.Description>{m.create_channel_dialog_description()}</Dialog.Description>
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
-        <Label class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">Kanal-Typ</Label>
+        <Label class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{m.create_channel_dialog_type_label()}</Label>
         <div class="grid grid-cols-2 gap-2">
           <Button
             type="button"
@@ -55,7 +56,7 @@
             data-testid="create-channel-type-text"
           >
             <HashIcon class="size-4" />
-            Text
+            {m.create_channel_dialog_type_text()}
           </Button>
           <Button
             type="button"
@@ -65,13 +66,13 @@
             data-testid="create-channel-type-voice"
           >
             <Volume2Icon class="size-4" />
-            Sprache
+            {m.create_channel_dialog_type_voice()}
           </Button>
         </div>
       </div>
       <div class="space-y-1.5">
         <Label for="create-channel-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Kanal-Name
+          {m.create_channel_dialog_name_label()}
         </Label>
         <Input
           id="create-channel-name"
@@ -84,8 +85,8 @@
         />
       </div>
       <Dialog.Footer>
-        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)}>Abbrechen</Button>
-        <Button type="submit" data-testid="create-channel-submit">Erstellen</Button>
+        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)}>{m.create_channel_dialog_cancel()}</Button>
+        <Button type="submit" data-testid="create-channel-submit">{m.create_channel_dialog_submit()}</Button>
       </Dialog.Footer>
     </form>
   </Dialog.Content>

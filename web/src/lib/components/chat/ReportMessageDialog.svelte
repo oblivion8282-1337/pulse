@@ -11,6 +11,7 @@
   import { toast } from 'svelte-sonner';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import { createReport, type ReasonCode } from '$lib/api/moderation';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     messageId,
@@ -24,12 +25,12 @@
     onClose: () => void;
   } = $props();
 
-  const REASON_LABELS: Record<ReasonCode, string> = {
-    spam: 'Spam / Werbung',
-    harassment: 'Belästigung / Mobbing',
-    illegal: 'Illegale Inhalte',
-    csam: 'Sexueller Missbrauch von Minderjährigen (CSAM)',
-    other: 'Sonstiges'
+  const REASON_LABELS: Record<ReasonCode, () => string> = {
+    spam: () => m.report_message_reason_spam(),
+    harassment: () => m.report_message_reason_harassment(),
+    illegal: () => m.report_message_reason_illegal(),
+    csam: () => m.report_message_reason_csam(),
+    other: () => m.report_message_reason_other()
   };
 
   let reasonCode = $state<ReasonCode>('spam');
@@ -50,12 +51,12 @@
         reason_code: reasonCode,
         body
       });
-      toast.success('Meldung gesendet — Mods werden das prüfen.');
+      toast.success(m.report_message_toast_success());
       body = '';
       reasonCode = 'spam';
       onClose();
     } catch (e) {
-      toast.error('Meldung fehlgeschlagen', {
+      toast.error(m.report_message_toast_error(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -71,9 +72,9 @@
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content class="max-w-md" data-testid="report-message-dialog">
     <Dialog.Header>
-      <Dialog.Title>Nachricht melden</Dialog.Title>
+      <Dialog.Title>{m.report_message_title()}</Dialog.Title>
       <Dialog.Description>
-        Deine Meldung wird an die Moderatoren weitergeleitet.
+        {m.report_message_description()}
       </Dialog.Description>
     </Dialog.Header>
 
@@ -81,7 +82,7 @@
       <!-- Reason Code -->
       <div class="flex flex-col gap-1.5">
         <label class="text-text-base text-sm font-medium" for="report-reason">
-          Grund
+          {m.report_message_reason_label()}
         </label>
         <select
           id="report-reason"
@@ -89,8 +90,8 @@
           class="bg-bg-input border-border text-text-base focus:border-primary w-full rounded-lg border px-3 py-2 text-sm outline-none"
           data-testid="report-reason-select"
         >
-          {#each Object.entries(REASON_LABELS) as [code, label] (code)}
-            <option value={code}>{label}</option>
+          {#each Object.entries(REASON_LABELS) as [code, labelFn] (code)}
+            <option value={code}>{labelFn()}</option>
           {/each}
         </select>
       </div>
@@ -103,9 +104,8 @@
         >
           <TriangleAlertIcon class="mt-0.5 size-4 shrink-0 text-red-400" />
           <p class="text-xs text-red-400">
-            <strong>Wichtig:</strong> Bei strafrechtlich relevanten Inhalten bitte
-            auch direkt bei den Behörden Anzeige erstatten. Pulse leitet Reports
-            an Mods weiter, ersetzt aber keine Strafanzeige.
+            <strong>{m.report_message_csam_warning_bold()}</strong>
+            {m.report_message_csam_warning_text()}
           </p>
         </div>
       {/if}
@@ -113,14 +113,14 @@
       <!-- Body -->
       <div class="flex flex-col gap-1.5">
         <label class="text-text-base text-sm font-medium" for="report-body">
-          Beschreibung
+          {m.report_message_body_label()}
         </label>
         <textarea
           id="report-body"
           bind:value={body}
           rows="4"
           maxlength="5000"
-          placeholder="Beschreibe kurz, was das Problem ist…"
+          placeholder={m.report_message_body_placeholder()}
           class="bg-bg-input border-border text-text-base placeholder:text-text-muted focus:border-primary w-full resize-none rounded-lg border px-3 py-2 text-sm outline-none"
           data-testid="report-body-textarea"
         ></textarea>
@@ -144,7 +144,7 @@
         class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-4 py-2 text-sm transition-colors"
         data-testid="report-cancel"
       >
-        Abbrechen
+        {m.report_message_cancel()}
       </button>
       <button
         type="button"
@@ -153,7 +153,7 @@
         class="accent-gradient rounded-md px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         data-testid="report-submit"
       >
-        {submitting ? 'Wird gesendet…' : 'Melden'}
+        {submitting ? m.report_message_submitting() : m.report_message_submit()}
       </button>
     </Dialog.Footer>
   </Dialog.Content>

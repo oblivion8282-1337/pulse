@@ -34,6 +34,7 @@
   import type { SoundCategoryKey } from '$lib/sounds/persistence';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guildSounds } from '$lib/stores/guildSounds.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -57,9 +58,9 @@
   }
 
   const categories: { key: SoundCategoryKey; title: string; icon: typeof BellIcon }[] = [
-    { key: 'notification', title: 'Benachrichtigungen', icon: BellIcon },
-    { key: 'voice', title: 'Voice-Channel', icon: MicIcon },
-    { key: 'ui', title: 'UI-Feedback', icon: MousePointerClickIcon }
+    { key: 'notification', title: m.guild_sounds_cat_notification(), icon: BellIcon },
+    { key: 'voice', title: m.guild_sounds_cat_voice(), icon: MicIcon },
+    { key: 'ui', title: m.guild_sounds_cat_ui(), icon: MousePointerClickIcon }
   ];
 
   function rowFor(id: SoundId): GuildSoundOverrideOut | undefined {
@@ -77,7 +78,7 @@
       rows = await chatApi.listGuildSounds(guildId);
       guildSounds.applyList(guildId, rows);
     } catch (e) {
-      toast.error('Sounds konnten nicht geladen werden', {
+      toast.error(m.guild_sounds_load_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -98,20 +99,20 @@
 
     const contentType = inferContentType(file);
     if (!ALLOWED_TYPES.has(contentType)) {
-      toast.error('Format nicht unterstützt', {
-        description: 'Erlaubt sind OGG und MP3.'
+      toast.error(m.guild_sounds_format_unsupported(), {
+        description: m.guild_sounds_format_unsupported_desc()
       });
       return;
     }
     const cap = capabilities.guildSoundMaxSizeBytes;
     if (file.size > cap) {
-      toast.error('Datei zu groß', {
-        description: `Maximal ${fmtBytes(cap)} pro Sound. Diese Datei: ${fmtBytes(file.size)}.`
+      toast.error(m.guild_sounds_file_too_large(), {
+        description: m.guild_sounds_file_too_large_desc({ max: fmtBytes(cap), size: fmtBytes(file.size) })
       });
       return;
     }
     if (file.size === 0) {
-      toast.error('Leere Datei');
+      toast.error(m.guild_sounds_file_empty());
       return;
     }
 
@@ -127,9 +128,9 @@
       // Splice the new row in (or replace existing).
       rows = [row, ...rows.filter((r) => r.sound_id !== id)];
       guildSounds.applyList(guildId, rows);
-      toast.success(`${SOUNDS[id].label}: hochgeladen`);
+      toast.success(m.guild_sounds_uploaded({ label: SOUNDS[id].label }));
     } catch (e) {
-      toast.error('Upload fehlgeschlagen', {
+      toast.error(m.guild_sounds_upload_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -145,9 +146,9 @@
       await chatApi.deleteGuildSound(guildId, id);
       rows = rows.filter((r) => r.sound_id !== id);
       guildSounds.applyList(guildId, rows);
-      toast.success(`${SOUNDS[id].label}: auf Standard zurückgesetzt`);
+      toast.success(m.guild_sounds_reverted({ label: SOUNDS[id].label }));
     } catch (e) {
-      toast.error('Zurücksetzen fehlgeschlagen', {
+      toast.error(m.guild_sounds_revert_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -162,17 +163,14 @@
 
 <div class="flex flex-col gap-5" data-testid="guild-sounds-editor">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">Sounds</h2>
+    <h2 class="text-text-bright text-lg font-semibold">{m.guild_sounds_heading()}</h2>
     <p class="text-text-muted text-sm">
-      Eigene Sounds für diese Community. Pro Sound-ID eine Datei (OGG oder MP3,
-      max. {fmtBytes(capabilities.guildSoundMaxSizeBytes)}).
-      Ohne Override spielt der Standard-Sound. „Anhören" gibt dir die
-      aktuelle Variante.
+      {m.guild_sounds_description({ max: fmtBytes(capabilities.guildSoundMaxSizeBytes) })}
     </p>
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">lade…</p>
+    <p class="text-text-muted text-sm">{m.guild_sounds_loading()}</p>
   {:else}
     {#each categories as cat (cat.key)}
       <section
@@ -197,10 +195,10 @@
                 <span class="text-text-muted truncate text-xs">
                   {#if row}
                     <span data-testid="guild-sounds-status-{id}">
-                      Custom · {row.original_filename} · {fmtBytes(row.file_size)}
+                      {m.guild_sounds_status_custom({ filename: row.original_filename, size: fmtBytes(row.file_size) })}
                     </span>
                   {:else}
-                    <span class="opacity-60" data-testid="guild-sounds-status-{id}">Standard</span>
+                    <span class="opacity-60" data-testid="guild-sounds-status-{id}">{m.guild_sounds_status_default()}</span>
                   {/if}
                 </span>
               </div>
@@ -209,8 +207,8 @@
                 <button
                   type="button"
                   onclick={() => play(id)}
-                  title="Anhören"
-                  aria-label="{SOUNDS[id].label} anhören"
+                  title={m.guild_sounds_play_title()}
+                  aria-label={m.guild_sounds_play_aria({ label: SOUNDS[id].label })}
                   class="hover:bg-bg-hover text-text-muted hover:text-text-bright rounded-md p-1.5 transition-colors"
                   data-testid="guild-sounds-play-{id}"
                 >
@@ -221,8 +219,8 @@
                   type="button"
                   onclick={() => triggerUpload(id)}
                   disabled={isBusy}
-                  title="Hochladen"
-                  aria-label="{SOUNDS[id].label} hochladen"
+                  title={m.guild_sounds_upload_title()}
+                  aria-label={m.guild_sounds_upload_aria({ label: SOUNDS[id].label })}
                   class="hover:bg-bg-hover text-text-muted hover:text-text-bright rounded-md p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50"
                   data-testid="guild-sounds-upload-{id}"
                 >
@@ -242,8 +240,8 @@
                     type="button"
                     onclick={() => revert(id)}
                     disabled={isBusy}
-                    title="Auf Standard zurücksetzen"
-                    aria-label="{SOUNDS[id].label} auf Standard zurücksetzen"
+                    title={m.guild_sounds_revert_title()}
+                    aria-label={m.guild_sounds_revert_aria({ label: SOUNDS[id].label })}
                     class="hover:bg-bg-hover text-text-muted hover:text-red-400 rounded-md p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50"
                     data-testid="guild-sounds-revert-{id}"
                   >

@@ -11,6 +11,7 @@
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import EmojiPicker from './EmojiPicker.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = $bindable(false),
@@ -60,7 +61,7 @@
     <button
       type="button"
       class="absolute inset-0 bg-black/50"
-      aria-label="Schließen"
+      aria-label={m.message_action_sheet_close()}
       onclick={close}
     ></button>
     <div
@@ -87,7 +88,7 @@
           <button
             type="button"
             class="text-text-muted flex size-11 items-center justify-center rounded-full active:bg-bg-hover"
-            aria-label="Weitere Emojis"
+            aria-label={m.message_action_sheet_more_emojis()}
             data-testid="sheet-action-react"
             onclick={() => (pickerView = true)}
           >
@@ -104,7 +105,7 @@
           onclick={() => run(onReply)}
         >
           <ReplyIcon class="text-text-muted size-5 shrink-0" />
-          Antworten
+          {m.message_action_sheet_reply()}
         </button>
 
         {#if canEdit}
@@ -115,7 +116,7 @@
             onclick={() => run(onEdit)}
           >
             <PencilIcon class="text-text-muted size-5 shrink-0" />
-            Bearbeiten
+            {m.message_action_sheet_edit()}
           </button>
         {/if}
 
@@ -127,7 +128,7 @@
             onclick={() => run(onDelete)}
           >
             <Trash2Icon class="size-5 shrink-0" />
-            Löschen
+            {m.message_action_sheet_delete()}
           </button>
         {/if}
 
@@ -139,7 +140,7 @@
             onclick={() => { onReport?.(); close(); }}
           >
             <FlagIcon class="size-5 shrink-0" />
-            Melden
+            {m.message_action_sheet_report()}
           </button>
         {/if}
       {/if}

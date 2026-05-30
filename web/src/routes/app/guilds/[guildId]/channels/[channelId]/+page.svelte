@@ -31,6 +31,7 @@
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
   import type { Channel, Message } from '$lib/api/types';
+  import { m as pm } from '$lib/paraglide/messages.js';
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
@@ -149,7 +150,7 @@
         await guilds.ensureChannels(g);
       } catch (err) {
         if (isStale()) return;
-        loadError = err instanceof Error ? err.message : 'Kanäle konnten nicht geladen werden';
+        loadError = err instanceof Error ? err.message : pm.channel_page_channels_load_error();
         resolving = false;
         return;
       }
@@ -190,7 +191,7 @@
           }
         } catch (err) {
           if (isStale()) return;
-          loadError = err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden';
+          loadError = err instanceof Error ? err.message : pm.channel_page_messages_load_error();
           resolving = false;
           return;
         }
@@ -329,7 +330,7 @@
         .then((real) => messages.upsert(real))
         .catch((e) => {
           messages.removeOptimistic(cid, tmpId);
-          toast.error('Senden fehlgeschlagen', { description: (e as Error).message });
+          toast.error(pm.channel_page_send_failed(), { description: (e as Error).message });
         });
       return;
     }
@@ -337,14 +338,14 @@
     if (!queued) {
       // WS not open — roll back the optimistic message and inform the user.
       messages.removeOptimistic(cid, tmpId);
-      toast.error('Keine Verbindung — bitte erneut senden');
+      toast.error(pm.channel_page_no_connection());
       return;
     }
     const handle = setTimeout(() => {
       pendingOptimisticTimeouts.delete(nonce);
       if (!messages.isConfirmed(nonce)) {
         messages.removeOptimistic(cid, tmpId);
-        toast.error('Nachricht konnte nicht gesendet werden');
+        toast.error(pm.channel_page_message_not_sent());
       }
     }, 10_000);
     pendingOptimisticTimeouts.set(nonce, handle);
@@ -355,18 +356,18 @@
       await chatApi.editMessage(m.id, content);
       // WS broadcasts `message_update` to update local store.
     } catch (e) {
-      toast.error('Bearbeiten fehlgeschlagen');
+      toast.error(pm.channel_page_edit_failed());
       console.error(e);
     }
   }
 
   async function deleteMessage(m: Message) {
-    if (!confirm('Nachricht wirklich löschen?')) return;
+    if (!confirm(pm.channel_page_confirm_delete_message())) return;
     try {
       await chatApi.deleteMessage(m.id);
       // WS broadcasts `message_delete`.
     } catch (e) {
-      toast.error('Löschen fehlgeschlagen');
+      toast.error(pm.channel_page_delete_failed());
       console.error(e);
     }
   }
@@ -380,7 +381,7 @@
       }
       // WS broadcasts reaction_add/reaction_remove.
     } catch (e) {
-      toast.error('Reaktion fehlgeschlagen');
+      toast.error(pm.channel_page_reaction_failed());
       console.error(e);
     }
   }
@@ -426,7 +427,7 @@
       <Button
         onclick={() => { loadError = null; prevGuild = ''; prevChannel = ''; void switchTo(guildId, channelId); }}
         data-testid="load-retry"
-      >Erneut versuchen</Button>
+      >{pm.channel_page_retry()}</Button>
     </section>
   {:else}
     <ChatView
@@ -457,7 +458,7 @@
     data-testid="guild-plugin-rail"
   >
     <h2 class="text-text-muted px-2 pt-1 text-xs font-bold uppercase tracking-wide">
-      Community-Pets
+      {pm.channel_page_community_pets()}
     </h2>
     <TamagotchiWidget {guildId} />
   </aside>

@@ -14,6 +14,7 @@
     type ActionType
   } from '$lib/api/moderation';
   import { userCache } from '$lib/stores/users.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -30,22 +31,22 @@
   let resolutionNote = $state('');
   let resolving = $state(false);
 
-  const ACTION_LABELS: Record<ActionType, string> = {
-    ban: 'Ban',
-    kick: 'Kick',
-    message_delete: 'Nachricht gelöscht',
-    warn: 'Verwarnung',
-    role_change: 'Rolle geändert',
-    other: 'Sonstiges'
-  };
+  const ACTION_LABELS: Record<ActionType, string> = $derived({
+    ban: m.mod_queue_action_ban(),
+    kick: m.mod_queue_action_kick(),
+    message_delete: m.mod_queue_action_message_delete(),
+    warn: m.mod_queue_action_warn(),
+    role_change: m.mod_queue_action_role_change(),
+    other: m.mod_queue_action_other()
+  });
 
-  const REASON_LABELS: Record<string, string> = {
-    spam: 'Spam',
-    harassment: 'Belästigung',
-    illegal: 'Illegal',
-    csam: 'CSAM',
-    other: 'Sonstiges'
-  };
+  const REASON_LABELS: Record<string, string> = $derived({
+    spam: m.mod_queue_reason_spam(),
+    harassment: m.mod_queue_reason_harassment(),
+    illegal: m.mod_queue_reason_illegal(),
+    csam: m.mod_queue_reason_csam(),
+    other: m.mod_queue_reason_other()
+  });
 
   const REASON_COLORS: Record<string, string> = {
     spam: 'bg-yellow-500/15 text-yellow-400',
@@ -92,12 +93,12 @@
         resolution_note: resolutionNote || undefined
       });
       toast.success(
-        resolutionType === 'resolved' ? 'Report als gelöst markiert.' : 'Report verworfen.'
+        resolutionType === 'resolved' ? m.mod_queue_toast_resolved() : m.mod_queue_toast_dismissed()
       );
       resolveDialogOpen = false;
       void load(activeTab);
     } catch (e) {
-      toast.error('Fehler', { description: e instanceof Error ? e.message : String(e) });
+      toast.error(m.mod_queue_toast_error(), { description: e instanceof Error ? e.message : String(e) });
     } finally {
       resolving = false;
     }
@@ -119,13 +120,13 @@
 
 <section class="flex flex-col gap-5" data-testid="mod-queue-panel">
   <div>
-    <h2 class="text-text-bright text-lg font-semibold">Moderations-Warteschlange</h2>
-    <p class="text-text-muted text-sm">Gemeldete Inhalte prüfen und abarbeiten.</p>
+    <h2 class="text-text-bright text-lg font-semibold">{m.mod_queue_title()}</h2>
+    <p class="text-text-muted text-sm">{m.mod_queue_subtitle()}</p>
   </div>
 
   <!-- Tab-Bar -->
   <div class="flex gap-1 rounded-lg bg-bg-input/40 p-1">
-    {#each ([['new', 'Offen'], ['resolved', 'Erledigt'], ['dismissed', 'Verworfen']] as const) as [t, label] (t)}
+    {#each ([['new', m.mod_queue_tab_new()], ['resolved', m.mod_queue_tab_resolved()], ['dismissed', m.mod_queue_tab_dismissed()]] as const) as [t, label] (t)}
       <button
         type="button"
         onclick={() => (activeTab = t)}
@@ -141,11 +142,11 @@
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">lade…</p>
+    <p class="text-text-muted text-sm">{m.mod_queue_loading()}</p>
   {:else if loadError}
-    <p class="text-red-400 text-sm" data-testid="modqueue-error">Fehler: {loadError}</p>
+    <p class="text-red-400 text-sm" data-testid="modqueue-error">{m.mod_queue_load_error({ error: loadError })}</p>
   {:else if reports.length === 0}
-    <p class="text-text-muted text-sm">Keine Reports in dieser Kategorie.</p>
+    <p class="text-text-muted text-sm">{m.mod_queue_empty()}</p>
   {:else}
     <ul class="flex flex-col gap-2" data-testid="modqueue-list">
       {#each reports as r (r.id)}
@@ -155,14 +156,14 @@
               {REASON_LABELS[r.reason_code] ?? r.reason_code}
             </span>
             <span class="text-text-muted text-xs">{fmtTime(r.created_at)}</span>
-            <span class="text-text-muted text-xs">von {fmtUser(r.reporter_user_id)}</span>
+            <span class="text-text-muted text-xs">{m.mod_queue_report_by({ user: fmtUser(r.reporter_user_id) })}</span>
             {#if r.target_user_id}
               <span class="text-text-muted text-xs">→ {fmtUser(r.target_user_id)}</span>
             {/if}
           </div>
           <p class="text-text-base mb-3 line-clamp-3 text-sm">{r.body}</p>
           {#if r.resolution_note}
-            <p class="text-text-muted mb-3 text-xs italic">Notiz: {r.resolution_note}</p>
+            <p class="text-text-muted mb-3 text-xs italic">{m.mod_queue_note({ note: r.resolution_note })}</p>
           {/if}
           {#if activeTab === 'new'}
             <div class="flex gap-2">
@@ -172,7 +173,7 @@
                 class="bg-primary/10 text-primary hover:bg-primary/20 rounded-md px-3 py-1.5 text-xs font-medium transition-colors"
                 data-testid="modqueue-resolve-btn"
               >
-                Erledigt (Aktion erfolgt)
+                {m.mod_queue_btn_resolve()}
               </button>
               <button
                 type="button"
@@ -180,7 +181,7 @@
                 class="bg-bg-input text-text-muted hover:bg-bg-hover rounded-md px-3 py-1.5 text-xs transition-colors"
                 data-testid="modqueue-dismiss-btn"
               >
-                Verwerfen
+                {m.mod_queue_btn_dismiss()}
               </button>
             </div>
           {/if}
@@ -195,12 +196,12 @@
   <AlertDialog.Content data-testid="modqueue-resolve-dialog">
     <AlertDialog.Header>
       <AlertDialog.Title>
-        {resolutionType === 'resolved' ? 'Report als erledigt markieren' : 'Report verwerfen'}
+        {resolutionType === 'resolved' ? m.mod_queue_dialog_title_resolve() : m.mod_queue_dialog_title_dismiss()}
       </AlertDialog.Title>
       <AlertDialog.Description>
         {resolutionType === 'resolved'
-          ? 'Welche Aktion wurde ergriffen?'
-          : 'Bitte gib optional einen Grund an.'}
+          ? m.mod_queue_dialog_desc_resolve()
+          : m.mod_queue_dialog_desc_dismiss()}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <div class="flex flex-col gap-3 py-2">
@@ -218,15 +219,15 @@
       <textarea
         bind:value={resolutionNote}
         rows="3"
-        placeholder="Optionale Notiz…"
+        placeholder={m.mod_queue_note_placeholder()}
         class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full resize-none rounded-lg border px-3 py-2 text-sm"
         data-testid="modqueue-resolution-note"
       ></textarea>
     </div>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel>{m.mod_queue_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action onclick={confirmResolve} disabled={resolving}>
-        {resolving ? 'Speichert…' : 'Bestätigen'}
+        {resolving ? m.mod_queue_saving() : m.mod_queue_confirm()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

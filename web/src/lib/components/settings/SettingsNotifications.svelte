@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import { settings } from '$lib/stores/settings.svelte';
   import {
     getPushPermissionState,
@@ -57,9 +58,9 @@
         } else {
           settings.setBrowserPushEnabled(false);
           if (res === 'denied') {
-            error = 'Browser-Permission wurde abgelehnt. Aktiviere Benachrichtigungen in den Browser-Einstellungen, dann erneut versuchen.';
+            error = m.settings_notifications_error_permission_denied();
           } else if (res === 'unsupported') {
-            error = 'Dieser Browser unterstützt keine Web-Push-Notifications.';
+            error = m.settings_notifications_error_unsupported();
           }
         }
       } else {
@@ -71,7 +72,7 @@
       if (e instanceof Error && e.message === 'push_disabled') {
         serverDisabled = true;
       } else {
-        error = e instanceof Error ? e.message : 'Unbekannter Fehler.';
+        error = e instanceof Error ? e.message : m.settings_notifications_error_unknown();
       }
     } finally {
       busy = false;
@@ -86,10 +87,9 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-notifications-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">Benachrichtigungen</h2>
+    <h2 class="text-text-bright text-lg font-semibold">{m.settings_notifications_heading()}</h2>
     <p class="text-text-muted text-sm">
-      Wann und wie Pulse dich informiert. Push-Notifications funktionieren auch, wenn
-      Pulse nicht im Vordergrund läuft.
+      {m.settings_notifications_subheading()}
     </p>
   </div>
 
@@ -97,9 +97,9 @@
     <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
       <div class="flex items-start justify-between gap-3">
         <div class="flex flex-col gap-1">
-          <span class="text-text-bright text-sm font-medium">Browser-Push aktivieren</span>
+          <span class="text-text-bright text-sm font-medium">{m.settings_notifications_browser_push_title()}</span>
           <span class="text-text-muted text-xs">
-            Sende mir Push-Notifications auch wenn dieser Tab geschlossen ist.
+            {m.settings_notifications_browser_push_desc()}
           </span>
         </div>
         <button
@@ -113,19 +113,19 @@
             : 'bg-bg-hover text-text-bright hover:bg-bg-input'} disabled:cursor-not-allowed disabled:opacity-50"
           data-testid="notifications-push-toggle"
         >
-          {busy ? '…' : settings.notifications.browserPushEnabled ? 'Aktiv' : 'Aktivieren'}
+          {busy ? '…' : settings.notifications.browserPushEnabled ? m.settings_notifications_push_active() : m.settings_notifications_push_enable()}
         </button>
       </div>
 
       {#if serverDisabled}
         <p class="text-text-muted bg-bg-input/60 rounded-lg px-3 py-2 text-xs">
-          Push ist auf diesem Server nicht konfiguriert.
+          {m.settings_notifications_server_disabled()}
         </p>
       {:else if permission === 'unsupported'}
-        <p class="text-text-muted text-xs">Dein Browser unterstützt keine Web-Push-Notifications.</p>
+        <p class="text-text-muted text-xs">{m.settings_notifications_browser_unsupported()}</p>
       {:else if permission === 'denied'}
         <p class="text-text-muted text-xs">
-          Browser-Permission ist abgelehnt. Aktiviere Notifications in den Browser-Einstellungen.
+          {m.settings_notifications_permission_denied()}
         </p>
       {/if}
 
@@ -135,30 +135,31 @@
 
       {#if settings.notifications.browserPushEnabled && subs.length > 0}
         <p class="text-text-muted text-xs">
-          Aktiv auf <span class="text-text-bright font-medium">{subs.length}</span>
-          Gerät{subs.length === 1 ? '' : 'en'}
+          {subs.length === 1
+            ? m.settings_notifications_active_devices_singular({ count: subs.length })
+            : m.settings_notifications_active_devices_plural({ count: subs.length })}
           {#if activeOnThisDevice}
-            (inkl. dieses){:else}
-            (nicht auf diesem Gerät){/if}.
+            {m.settings_notifications_incl_this_device()}{:else}
+            {m.settings_notifications_not_this_device()}{/if}.
         </p>
       {/if}
     </section>
   {:else}
     <section class="flex flex-col gap-1 rounded-2xl border border-border bg-bg-input/40 p-4">
-      <span class="text-text-bright text-sm font-medium">Desktop-Notifications</span>
+      <span class="text-text-bright text-sm font-medium">{m.settings_notifications_desktop_title()}</span>
       <span class="text-text-muted text-xs">
-        Pulse zeigt native Benachrichtigungen über das Betriebssystem — keine Browser-Permission nötig.
+        {m.settings_notifications_desktop_desc()}
       </span>
     </section>
   {/if}
 
   <section class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4">
-    <span class="text-text-bright text-sm font-medium">Wofür benachrichtigen</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_notifications_notify_for_heading()}</span>
 
     <label class="flex items-center justify-between gap-3 text-sm">
       <span class="flex flex-col">
-        <span class="text-text-bright">Bei Mentions</span>
-        <span class="text-text-muted text-xs">@dich, @everyone oder eine deiner Rollen.</span>
+        <span class="text-text-bright">{m.settings_notifications_on_mention_label()}</span>
+        <span class="text-text-muted text-xs">{m.settings_notifications_on_mention_desc()}</span>
       </span>
       <input
         type="checkbox"
@@ -171,8 +172,8 @@
 
     <label class="flex items-center justify-between gap-3 text-sm">
       <span class="flex flex-col">
-        <span class="text-text-bright">Bei Direktnachrichten</span>
-        <span class="text-text-muted text-xs">Jede neue DM-Nachricht.</span>
+        <span class="text-text-bright">{m.settings_notifications_on_dm_label()}</span>
+        <span class="text-text-muted text-xs">{m.settings_notifications_on_dm_desc()}</span>
       </span>
       <input
         type="checkbox"

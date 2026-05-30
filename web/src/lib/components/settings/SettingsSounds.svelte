@@ -8,6 +8,7 @@
   import BellIcon from '@lucide/svelte/icons/bell';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MousePointerClickIcon from '@lucide/svelte/icons/mouse-pointer-click';
+  import { m } from '$lib/paraglide/messages.js';
 
   type CategoryView = {
     key: SoundCategoryKey;
@@ -19,20 +20,20 @@
   const categories: CategoryView[] = [
     {
       key: 'notification',
-      title: 'Benachrichtigungen',
-      hint: 'Erwähnungen, Direktnachrichten und neue Messages.',
+      title: m.settings_sounds_category_notification_title(),
+      hint: m.settings_sounds_category_notification_hint(),
       icon: BellIcon
     },
     {
       key: 'voice',
-      title: 'Voice-Channel',
-      hint: 'Join/Leave und eigene Mute/Deafen-Aktionen.',
+      title: m.settings_sounds_category_voice_title(),
+      hint: m.settings_sounds_category_voice_hint(),
       icon: MicIcon
     },
     {
       key: 'ui',
-      title: 'UI-Feedback',
-      hint: 'Nachricht senden, Dialog öffnen. Standardmäßig aus.',
+      title: m.settings_sounds_category_ui_title(),
+      hint: m.settings_sounds_category_ui_hint(),
       icon: MousePointerClickIcon
     }
   ];
@@ -60,8 +61,7 @@
   <div class="flex flex-col gap-1">
     <h2 class="text-text-bright text-lg font-semibold">Sounds</h2>
     <p class="text-text-muted text-sm">
-      Kurze Töne für Benachrichtigungen, Voice-Events und UI-Feedback.
-      Master schaltet alles aus — Kategorien lassen sich einzeln steuern.
+      {m.settings_sounds_description()}
     </p>
   </div>
 
@@ -73,8 +73,8 @@
       <span class="flex items-center gap-2">
         <Volume2Icon class="text-text-muted size-4" />
         <span class="flex flex-col">
-          <span class="text-text-bright">Sounds aktiviert</span>
-          <span class="text-text-muted text-xs">Master-Switch für alle Pulse-Sounds.</span>
+          <span class="text-text-bright">{m.settings_sounds_master_enabled_label()}</span>
+          <span class="text-text-muted text-xs">{m.settings_sounds_master_enabled_hint()}</span>
         </span>
       </span>
       <input
@@ -89,7 +89,7 @@
 
     <label class="flex flex-col gap-1.5 text-sm">
       <span class="flex items-center justify-between">
-        <span class="text-text-bright">Lautstärke</span>
+        <span class="text-text-bright">{m.settings_sounds_volume_label()}</span>
         <span class="text-text-muted text-xs tabular-nums">{pct(settings.sounds.masterVolume)}</span>
       </span>
       <input
@@ -137,7 +137,7 @@
 
       <label class="flex flex-col gap-1.5 text-sm">
         <span class="flex items-center justify-between">
-          <span class="text-text-bright">Lautstärke</span>
+          <span class="text-text-bright">{m.settings_sounds_volume_label()}</span>
           <span class="text-text-muted text-xs tabular-nums">{pct(catSettings.volume)}</span>
         </span>
         <input
@@ -167,10 +167,10 @@
               type="button"
               onclick={() => sounds.test(id)}
               disabled={missing || !settings.sounds.masterEnabled}
-              title={missing ? 'Sound-Datei fehlt' : 'Anhören'}
+              title={missing ? m.settings_sounds_file_missing() : m.settings_sounds_preview()}
               class="hover:bg-bg-hover shrink-0 rounded-md p-2.5 text-text-muted hover:text-text-bright transition-colors disabled:cursor-not-allowed disabled:opacity-30 md:p-1"
               data-testid="sounds-test-{id}"
-              aria-label="Sound {SOUNDS[id].label} anhören"
+              aria-label={m.settings_sounds_preview_aria({ label: SOUNDS[id].label })}
             >
               <PlayIcon class="size-3.5" />
             </button>

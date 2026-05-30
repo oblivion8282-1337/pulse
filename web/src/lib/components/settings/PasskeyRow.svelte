@@ -12,6 +12,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import { Input } from '$lib/components/ui/input/index.js';
   import { renamePasskey, deletePasskey, type WebAuthnCredentialSummary } from '$lib/api/webauthn';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Props = {
     passkey: WebAuthnCredentialSummary;
@@ -28,7 +29,7 @@
   let nameDraft = $state('');
 
   function fmtDate(iso: string | null): string {
-    if (!iso) return 'noch nicht benutzt';
+    if (!iso) return m.passkey_row_never_used();
     return new Date(iso).toLocaleDateString('de-DE', {
       day: '2-digit',
       month: 'short',
@@ -63,7 +64,7 @@
     try {
       await deletePasskey(passkey.id);
       onRemoved(passkey.id);
-      toast.success('Passkey entfernt');
+      toast.success(m.passkey_row_removed());
     } catch (err) {
       toast.error((err as Error).message);
       busy = false;
@@ -96,7 +97,7 @@
       <span class="text-text-bright truncate text-sm font-medium">{passkey.name}</span>
     {/if}
     <span class="text-text-muted text-xs">
-      Hinzugefügt {fmtDate(passkey.created_at)} · Zuletzt benutzt {fmtDate(passkey.last_used_at)}
+      {m.passkey_row_meta({ added: fmtDate(passkey.created_at), lastUsed: fmtDate(passkey.last_used_at) })}
     </span>
   </div>
 
@@ -107,7 +108,7 @@
         onclick={saveRename}
         disabled={busy}
         class="text-emerald-500 hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
-        aria-label="Namen speichern"
+        aria-label={m.passkey_row_save_name()}
         data-testid="passkey-rename-save"
       >
         <CheckIcon class="size-4" />
@@ -117,7 +118,7 @@
         onclick={() => (editing = false)}
         disabled={busy}
         class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
-        aria-label="Abbrechen"
+        aria-label={m.passkey_row_cancel()}
       >
         <XIcon class="size-4" />
       </button>
@@ -129,14 +130,14 @@
         class="text-destructive bg-destructive/10 hover:bg-destructive/20 rounded-md px-2 py-2 text-xs font-medium transition-colors md:py-1"
         data-testid="passkey-delete-confirm"
       >
-        {busy ? 'Entferne…' : 'Wirklich entfernen'}
+        {busy ? m.passkey_row_removing() : m.passkey_row_confirm_remove()}
       </button>
       <button
         type="button"
         onclick={() => (confirmDelete = false)}
         disabled={busy}
         class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
-        aria-label="Abbrechen"
+        aria-label={m.passkey_row_cancel()}
       >
         <XIcon class="size-4" />
       </button>
@@ -145,7 +146,7 @@
         type="button"
         onclick={startEdit}
         class="text-text-muted hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
-        aria-label="Passkey umbenennen"
+        aria-label={m.passkey_row_rename()}
         data-testid="passkey-rename"
       >
         <PencilIcon class="size-4" />
@@ -154,7 +155,7 @@
         type="button"
         onclick={() => (confirmDelete = true)}
         class="text-text-muted hover:text-destructive hover:bg-bg-hover rounded-md p-2 transition-colors md:p-1.5"
-        aria-label="Passkey entfernen"
+        aria-label={m.passkey_row_delete()}
         data-testid="passkey-delete"
       >
         <Trash2Icon class="size-4" />

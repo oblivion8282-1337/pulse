@@ -10,6 +10,7 @@
   import MailWarningIcon from '@lucide/svelte/icons/mail-warning';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import Loader2Icon from '@lucide/svelte/icons/loader-2';
+  import { m } from '$lib/paraglide/messages.js';
 
   // `ready` gates the card so we don't flash it before the hydrate/redirect
   // decision. Not-signed-in → /login; already verified → /app.
@@ -74,13 +75,13 @@
 
 <div class="flex min-h-dvh">
   <AuthBrandPanel
-    headline="Fast geschafft."
-    headlineSub="Nur noch die E-Mail."
-    description="Wir haben dir einen Bestätigungslink geschickt. Sobald du ihn anklickst, ist dein Zugang frei."
+    headline={m.verify_email_brand_headline()}
+    headlineSub={m.verify_email_brand_headline_sub()}
+    description={m.verify_email_brand_description()}
     features={[
-      'Link gilt 24 Stunden',
-      'Schützt vor Tippfehlern in der Adresse',
-      'Kein erneutes Anmelden nötig',
+      m.verify_email_brand_feature_link_validity(),
+      m.verify_email_brand_feature_typo_protection(),
+      m.verify_email_brand_feature_no_relogin(),
     ]}
   />
 
@@ -96,13 +97,12 @@
           <MailWarningIcon class="text-primary size-7" />
         </div>
         <h1 class="text-card-foreground text-2xl font-semibold">
-          Bestätige deine E-Mail-Adresse
+          {m.verify_email_heading()}
         </h1>
         <p class="text-muted-foreground text-sm">
-          Bevor du Pulse nutzen kannst, musst du deine Adresse bestätigen. Wir
-          haben einen Link an
+          {m.verify_email_intro_before()}
           <span class="text-card-foreground font-medium">{auth.user?.email}</span>
-          geschickt — schau auch im Spam-Ordner nach.
+          {m.verify_email_intro_after()}
         </p>
 
         {#if error}
@@ -114,8 +114,7 @@
 
         {#if stillPending}
           <p class="text-muted-foreground text-sm" data-testid="verify-required-still">
-            Noch nicht bestätigt — klick den Link in der Mail und versuch es dann
-            erneut.
+            {m.verify_email_still_pending()}
           </p>
         {/if}
 
@@ -125,12 +124,12 @@
           disabled={checking}
           data-testid="verify-required-recheck"
         >
-          {checking ? 'Prüfe…' : 'Ich habe bestätigt'}
+          {checking ? m.verify_email_recheck_checking() : m.verify_email_recheck_confirm()}
         </Button>
 
         {#if resent}
           <p class="text-muted-foreground text-sm" data-testid="verify-required-resent">
-            Neuer Link verschickt — schau in dein Postfach.
+            {m.verify_email_resent_confirmation()}
           </p>
         {:else}
           <Button
@@ -140,7 +139,7 @@
             disabled={resending}
             data-testid="verify-required-resend"
           >
-            {resending ? 'Senden…' : 'Link erneut senden'}
+            {resending ? m.verify_email_resend_sending() : m.verify_email_resend_button()}
           </Button>
         {/if}
 
@@ -150,7 +149,7 @@
           onclick={() => auth.signOut()}
           data-testid="verify-required-signout"
         >
-          Mit einem anderen Konto anmelden
+          {m.verify_email_sign_out_link()}
         </button>
       </div>
     {/if}

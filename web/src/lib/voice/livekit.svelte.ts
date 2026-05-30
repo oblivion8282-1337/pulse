@@ -46,6 +46,7 @@ import { guilds } from '$lib/stores/guilds.svelte';
 import { gateway } from '$lib/ws/connection';
 import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
+import { m } from '$lib/paraglide/messages.js';
 
 export type { ScreenShareTrack, CameraTrack };
 
@@ -267,7 +268,7 @@ class VoiceRoom {
         this.state = ConnectionState.Disconnected;
         this.channelId = null;
         this.channelName = null;
-        this.error = e instanceof Error ? e.message : 'Token-Anfrage fehlgeschlagen';
+        this.error = e instanceof Error ? e.message : m.livekit_token_request_failed();
       }
       throw e;
     }
@@ -286,7 +287,7 @@ class VoiceRoom {
     try {
       await room.connect(resp.ws_url, resp.token);
     } catch (e) {
-      this.error = e instanceof Error ? e.message : 'Verbindung zu LiveKit fehlgeschlagen';
+      this.error = e instanceof Error ? e.message : m.livekit_connection_failed();
       this.#teardown();
       throw e;
     }
@@ -380,7 +381,7 @@ class VoiceRoom {
         this.#resetSendLevel();
       }
     } catch (e) {
-      this.error = e instanceof Error ? e.message : 'Mikrofon-Zugriff fehlgeschlagen';
+      this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
     }
     this.#refreshParticipants();
     this.#publishSelfState();
@@ -549,19 +550,17 @@ class VoiceRoom {
           // AV1-encode path is gated). H.264 is the safe fallback we point at.
           const current = settings.screenShare.codec.toUpperCase();
           const fallback = settings.screenShare.codec === 'av1' ? 'H.264' : 'AV1';
-          toast.error(
-            `Codec ${current} wird hier nicht unterstützt — stell ihn in den Einstellungen auf ${fallback} um.`
-          );
+          toast.error(m.livekit_codec_unsupported({ current, fallback }));
         } else if (msg.includes('not supported') || msg.includes('failed to start')) {
           // getDisplayMedia couldn't acquire a source.
-          toast.error('Bildschirm teilen ist hier nicht verfügbar.', { description: e.message });
+          toast.error(m.livekit_screenshare_unavailable(), { description: e.message });
         } else if (
           !msg.includes('cancel') &&
           !msg.includes('abort') &&
           !msg.includes('permission') &&
           !msg.includes('denied')
         ) {
-          toast.error('Bildschirm teilen fehlgeschlagen', { description: e.message });
+          toast.error(m.livekit_screenshare_failed(), { description: e.message });
         }
       }
     }
@@ -593,7 +592,7 @@ class VoiceRoom {
           !msg.includes('denied') &&
           !msg.includes('notallowed')
         ) {
-          toast.error('Kamera konnte nicht aktiviert werden', { description: e.message });
+          toast.error(m.livekit_camera_failed(), { description: e.message });
         }
       }
     }
@@ -744,7 +743,7 @@ class VoiceRoom {
       this.#noiseGateSetter = null;
       this.#makeupSetter = null;
       this.#resetSendLevel();
-      toast.error('Audio-Pfad konnte nicht aktualisiert werden', {
+      toast.error(m.livekit_audio_path_update_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
     }

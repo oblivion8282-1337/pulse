@@ -7,6 +7,7 @@
   import type { Invite } from '$lib/api/types';
   import InviteListItem from './InviteListItem.svelte';
   import InviteFriendPicker from './InviteFriendPicker.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = false,
@@ -35,19 +36,19 @@
     }
   });
 
-  const EXPIRE_OPTIONS = [
-    { value: '', label: 'Nie' },
-    { value: '3600', label: '1 Stunde' },
-    { value: '86400', label: '1 Tag' },
-    { value: '604800', label: '7 Tage' }
-  ];
-  const USES_OPTIONS = [
-    { value: '', label: 'Unbegrenzt' },
+  const EXPIRE_OPTIONS = $derived([
+    { value: '', label: m.invite_dialog_expire_never() },
+    { value: '3600', label: m.invite_dialog_expire_1h() },
+    { value: '86400', label: m.invite_dialog_expire_1d() },
+    { value: '604800', label: m.invite_dialog_expire_7d() }
+  ]);
+  const USES_OPTIONS = $derived([
+    { value: '', label: m.invite_dialog_uses_unlimited() },
     { value: '1', label: '1' },
     { value: '5', label: '5' },
     { value: '25', label: '25' },
     { value: '100', label: '100' }
-  ];
+  ]);
 
   let inviteLink = $derived(
     invite ? `${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${invite.code}` : ''
@@ -62,7 +63,7 @@
       });
       invites = await chatApi.listInvites(guildId);
     } catch (e) {
-      toast.error('Fehler beim Erstellen der Einladung', { description: (e as Error).message });
+      toast.error(m.invite_dialog_create_error(), { description: (e as Error).message });
     } finally {
       busy = false;
     }
@@ -87,7 +88,7 @@
   async function copyLink() {
     if (!inviteLink) return;
     await navigator.clipboard.writeText(inviteLink);
-    toast.success('Kopiert!');
+    toast.success(m.invite_dialog_copied());
   }
 
   async function revoke(code: string) {
@@ -96,7 +97,7 @@
       invites = invites.filter((i) => i.code !== code);
       if (invite?.code === code) invite = null;
     } catch (e) {
-      toast.error('Fehler beim Widerrufen', { description: (e as Error).message });
+      toast.error(m.invite_dialog_revoke_error(), { description: (e as Error).message });
     }
   }
 </script>
@@ -104,8 +105,8 @@
 <Dialog.Root {open} onOpenChange={(v) => { if (!v) onDialogClose(); }}>
   <Dialog.Content data-testid="invite-dialog" class="max-w-lg">
     <Dialog.Header>
-      <Dialog.Title>Leute einladen</Dialog.Title>
-      <Dialog.Description>Teile diesen Link, um Personen zu deiner Community einzuladen.</Dialog.Description>
+      <Dialog.Title>{m.invite_dialog_title()}</Dialog.Title>
+      <Dialog.Description>{m.invite_dialog_description()}</Dialog.Description>
     </Dialog.Header>
 
     <div class="space-y-4">
@@ -115,16 +116,16 @@
           value={inviteLink}
           data-testid="invite-link-input"
           class="font-mono text-sm"
-          placeholder={busy ? 'Link wird erstellt…' : ''}
+          placeholder={busy ? m.invite_dialog_link_creating() : ''}
         />
         <Button onclick={copyLink} disabled={!invite || busy} data-testid="invite-copy-btn">
-          Kopieren
+          {m.invite_dialog_copy_btn()}
         </Button>
       </div>
 
       <div class="flex gap-4">
         <div class="flex-1 space-y-1">
-          <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">Läuft ab nach</p>
+          <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{m.invite_dialog_expires_after()}</p>
           <select
             class="border-input bg-background text-foreground w-full rounded-md border px-3 py-2 text-sm"
             onchange={(e) => onExpireChange((e.target as HTMLSelectElement).value)}
@@ -136,7 +137,7 @@
           </select>
         </div>
         <div class="flex-1 space-y-1">
-          <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">Max. Nutzungen</p>
+          <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{m.invite_dialog_max_uses()}</p>
           <select
             class="border-input bg-background text-foreground w-full rounded-md border px-3 py-2 text-sm"
             onchange={(e) => onUsesChange((e.target as HTMLSelectElement).value)}
@@ -155,7 +156,7 @@
 
       {#if invites.length > 0}
         <div class="space-y-1">
-          <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">Aktive Einladungen</p>
+          <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{m.invite_dialog_active_invites()}</p>
           <ul class="space-y-1" data-testid="invite-list">
             {#each invites as inv (inv.code)}
               <InviteListItem {inv} onRevoke={revoke} />
@@ -166,7 +167,7 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="ghost" onclick={onDialogClose}>Schließen</Button>
+      <Button variant="ghost" onclick={onDialogClose}>{m.invite_dialog_close_btn()}</Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

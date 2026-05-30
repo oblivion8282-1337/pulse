@@ -10,6 +10,7 @@
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     userIds,
@@ -129,14 +130,14 @@
             {#if isMicMuted}
               <MicOffIcon
                 class="size-3.5 text-red-400"
-                aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+                aria-label={isForceMuted ? m.voice_channel_members_force_muted() : m.voice_channel_members_mic_muted()}
                 data-testid={isForceMuted ? 'voice-presence-force-muted' : 'voice-presence-mic-muted'}
               />
             {/if}
             {#if isDeafened}
               <HeadphoneOffIcon
                 class="size-3.5 text-red-400"
-                aria-label={isForceDeafened ? 'Vom Mod taubgeschaltet' : 'Stummschaltung'}
+                aria-label={isForceDeafened ? m.voice_channel_members_force_deafened() : m.voice_channel_members_deafened()}
                 data-testid={isForceDeafened ? 'voice-presence-force-deafened' : 'voice-presence-deafened'}
               />
             {/if}
@@ -147,8 +148,8 @@
                   tabindex="0"
                   class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90"
                   data-testid="user-watch-party-badge"
-                  title="Watch Party öffnen"
-                  aria-label="{name}s Watch Party öffnen"
+                  title={m.voice_channel_members_watch_party_open()}
+                  aria-label={m.voice_channel_members_watch_party_open_label({ name })}
                   onclick={(e) => { e.stopPropagation(); onPartyOpen(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -161,7 +162,7 @@
                 <span
                   class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground"
                   data-testid="user-watch-party-badge"
-                  title="hostet eine Watch Party"
+                  title={m.voice_channel_members_watch_party_hosting()}
                 >PARTY</span>
               {/if}
             {/if}
@@ -174,8 +175,8 @@
                   tabindex="0"
                   class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white hover:bg-red-500"
                   data-testid="user-streaming-badge"
-                  title="Stream öffnen"
-                  aria-label="{name}s Stream öffnen"
+                  title={m.voice_channel_members_stream_open()}
+                  aria-label={m.voice_channel_members_stream_open_label({ name })}
                   onclick={(e) => { e.stopPropagation(); onLiveOpen(uid); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -188,7 +189,7 @@
                 <span
                   class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white"
                   data-testid="user-streaming-badge"
-                  title="teilt seinen Bildschirm"
+                  title={m.voice_channel_members_stream_sharing_screen()}
                 >LIVE</span>
               {/if}
             {/if}
@@ -198,8 +199,8 @@
                 tabindex="0"
                 class="rounded bg-primary/80 px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary"
                 data-testid="user-cam-badge"
-                title="Webcam öffnen"
-                aria-label="{name}s Webcam öffnen"
+                title={m.voice_channel_members_cam_open()}
+                aria-label={m.voice_channel_members_cam_open_label({ name })}
                 onclick={(e) => { e.stopPropagation(); onCamOpen(uid); }}
                 onkeydown={(e) => {
                   if (e.key !== 'Enter' && e.key !== ' ') return;

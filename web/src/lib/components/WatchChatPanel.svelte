@@ -12,6 +12,7 @@
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
   import XIcon from '@lucide/svelte/icons/x';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     channelId,
@@ -63,11 +64,11 @@
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('410')) {
-        toast.error('Watch Party ist nicht mehr aktiv');
+        toast.error(m.watch_chat_panel_party_inactive());
       } else if (msg.includes('429')) {
-        toast.warning('Zu schnell — bitte kurz warten');
+        toast.warning(m.watch_chat_panel_rate_limited());
       } else {
-        toast.error('Nachricht konnte nicht gesendet werden', { description: msg });
+        toast.error(m.watch_chat_panel_send_failed(), { description: msg });
       }
     }
   }
@@ -93,14 +94,14 @@
 >
   <header class="flex h-14 items-center gap-2 border-b border-border px-3">
     <PlayCircleIcon class="size-4 text-primary" />
-    <span class="text-text-bright truncate text-sm font-semibold">Watch-Party-Chat</span>
+    <span class="text-text-bright truncate text-sm font-semibold">{m.watch_chat_panel_title()}</span>
     {#if onClose}
       <button
         type="button"
         class="ml-auto rounded-full p-3 transition-colors hover:bg-bg-hover hover:text-primary md:p-1.5"
         onclick={onClose}
-        aria-label="Watch-Chat schließen — zurück zum Stream"
-        title="Zurück zum Stream"
+        aria-label={m.watch_chat_panel_close_aria()}
+        title={m.watch_chat_panel_close_title()}
         data-testid="watch-chat-close"
       >
         <XIcon class="text-text-muted size-5 md:size-4" />
@@ -114,10 +115,10 @@
     data-testid="watch-chat-messages"
   >
     {#if loading && messages.length === 0}
-      <p class="text-text-muted py-6 text-center text-xs">Lade Chat…</p>
+      <p class="text-text-muted py-6 text-center text-xs">{m.watch_chat_panel_loading()}</p>
     {:else if messages.length === 0}
       <p class="text-text-muted py-6 text-center text-xs">
-        Noch keine Nachrichten. Schreib die erste.
+        {m.watch_chat_panel_empty()}
       </p>
     {:else}
       <ul class="flex flex-col gap-1.5">
@@ -132,5 +133,5 @@
     {/if}
   </div>
 
-  <MessageInput placeholder="In Watch-Party schreiben" onSend={send} />
+  <MessageInput placeholder={m.watch_chat_panel_input_placeholder()} onSend={send} />
 </aside>

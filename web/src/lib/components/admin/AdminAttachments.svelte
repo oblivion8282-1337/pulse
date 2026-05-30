@@ -9,6 +9,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import { adminApi, type ChatSettings } from '$lib/api/admin';
   import SaveIcon from '@lucide/svelte/icons/save';
+  import { m } from '$lib/paraglide/messages.js';
 
   let current = $state<ChatSettings | null>(null);
   let sizeMB = $state(0);
@@ -42,9 +43,9 @@
         dm_attachment_max_count_per_message: count
       });
       current = next;
-      toast.success('DM-Limits aktualisiert');
+      toast.success(m.admin_attachments_limits_updated());
     } catch (e) {
-      toast.error('Speichern fehlgeschlagen', {
+      toast.error(m.admin_attachments_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -55,18 +56,18 @@
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-attachments">
   <div class="mb-4">
-    <h2 class="text-text-bright text-base font-semibold">Datei-Anhänge in DMs</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.admin_attachments_title()}</h2>
     <p class="text-text-muted text-xs mt-0.5">
-      Globale Limits. Guild-Channels haben eigene Limits, die pro Community eingestellt werden.
+      {m.admin_attachments_description()}
     </p>
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-red-400 text-sm">{m.admin_attachments_error({ message: error ?? '' })}</p>
   {:else if current}
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="flex flex-col gap-1.5">
-        <span class="text-text-base text-sm">Max. Dateigröße (MB)</span>
+        <span class="text-text-base text-sm">{m.admin_attachments_max_size_label()}</span>
         <input
           type="number"
           min="1"
@@ -79,7 +80,7 @@
       </label>
 
       <label class="flex flex-col gap-1.5">
-        <span class="text-text-base text-sm">Max. Anzahl pro Nachricht</span>
+        <span class="text-text-base text-sm">{m.admin_attachments_max_count_label()}</span>
         <input
           type="number"
           min="0"
@@ -95,10 +96,10 @@
     <div class="mt-4 flex items-center justify-end">
       <Button onclick={save} disabled={!dirty || busy} data-testid="dm-limits-save">
         <SaveIcon class="size-4" />
-        {busy ? 'Speichere…' : 'Speichern'}
+        {busy ? m.admin_attachments_saving() : m.admin_attachments_save()}
       </Button>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_attachments_loading()}</div>
   {/if}
 </section>

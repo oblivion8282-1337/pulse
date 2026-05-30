@@ -23,6 +23,7 @@
     type GuildPluginEntry
   } from '$lib/api/guild-plugins';
   import { setGuildPluginEnabled } from '$lib/plugins';
+  import { m } from '$lib/paraglide/messages.js';
 
   const HELLO = 'hello';
 
@@ -57,13 +58,13 @@
       setGuildPluginEnabled(guildId, name, updated.enabled);
       toast.success(
         updated.enabled
-          ? `Plugin "${name}" für diese Community aktiviert`
-          : `Plugin "${name}" für diese Community deaktiviert`
+          ? m.guild_plugins_editor_plugin_activated({ name })
+          : m.guild_plugins_editor_plugin_deactivated({ name })
       );
     } catch (e) {
       // Revert.
       rows[idx] = { ...rows[idx], enabled: !target };
-      toast.error('Toggle fehlgeschlagen', {
+      toast.error(m.guild_plugins_editor_toggle_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -74,19 +75,17 @@
 
 <section class="flex flex-col gap-5" data-testid="guild-plugins-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">Plugins</h2>
+    <h2 class="text-text-bright text-lg font-semibold">{m.guild_plugins_editor_title()}</h2>
     <p class="text-text-muted text-sm">
-      Welche vom Server-Admin freigegebenen Plugins in dieser Community aktiv sein
-      sollen. Aktivierungen wirken sofort für neue Plugin-Aktionen; das
-      <code>hello</code>-Plugin ist instanzweit aktiv und nicht abschaltbar.
+      {m.guild_plugins_editor_description()}
     </p>
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">lade…</p>
+    <p class="text-text-muted text-sm">{m.guild_plugins_editor_loading()}</p>
   {:else if loadError}
     <p class="text-red-400 text-sm" data-testid="guild-plugins-error">
-      Fehler: {loadError}
+      {m.guild_plugins_editor_load_error({ message: loadError ?? '' })}
     </p>
   {:else if rows.length === 0}
     <div
@@ -94,11 +93,10 @@
     >
       <PuzzleIcon class="text-text-muted size-8" />
       <p class="text-text-bright text-sm font-medium">
-        Keine Plugins freigegeben.
+        {m.guild_plugins_editor_none_allowed()}
       </p>
       <p class="text-text-muted text-xs">
-        Server-Administratoren geben Plugins instanzweit unter
-        <code>/app/admin</code> frei.
+        {m.guild_plugins_editor_none_allowed_hint()}
       </p>
     </div>
   {:else}
@@ -114,17 +112,17 @@
               {row.plugin_name}
               {#if isHello}
                 <span class="text-text-muted text-xs font-normal">
-                  · System-Plugin
+                  · {m.guild_plugins_editor_system_plugin()}
                 </span>
               {/if}
             </div>
             <div class="text-text-muted mt-0.5 text-xs">
               {#if isHello}
-                Loader-Smoketest. Immer aktiv, kann nicht abgeschaltet werden.
+                {m.guild_plugins_editor_hello_description()}
               {:else if row.enabled}
-                Für diese Community aktiviert.
+                {m.guild_plugins_editor_row_enabled()}
               {:else}
-                Für diese Community deaktiviert.
+                {m.guild_plugins_editor_row_disabled()}
               {/if}
             </div>
           </div>

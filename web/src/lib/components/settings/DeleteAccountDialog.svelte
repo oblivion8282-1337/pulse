@@ -32,6 +32,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { stripTotpFormatting, normalizeBackupCode } from '$lib/auth/format';
   import DeleteAccountCredentialsStep from './DeleteAccountCredentialsStep.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -80,7 +81,7 @@
     e.preventDefault();
     if (busy) return;
     if (!password) {
-      error = 'Bitte Passwort eingeben.';
+      error = m.delete_account_dialog_error_password_required();
       return;
     }
     const input: {
@@ -93,14 +94,14 @@
       if (useBackup) {
         const normalized = normalizeBackupCode(backupCode);
         if (!normalized) {
-          error = 'Backup-Code darf nicht leer sein.';
+          error = m.delete_account_dialog_error_backup_code_empty();
           return;
         }
         input.backup_code = normalized;
       } else {
         const digits = stripTotpFormatting(code);
         if (digits.length !== 6) {
-          error = 'Bitte 6-stelligen Code eingeben.';
+          error = m.delete_account_dialog_error_totp_six_digits();
           return;
         }
         input.code = digits;
@@ -110,7 +111,7 @@
     busy = true;
     try {
       await deleteAccount(input);
-      toast.success('Account gelöscht. Auf Wiedersehen.');
+      toast.success(m.delete_account_dialog_toast_deleted());
       open = false;
       auth.signOut();
     } catch (err) {
@@ -123,7 +124,7 @@
   function handleError(err: unknown) {
     if (err instanceof ApiError) {
       if (err.status === 400) {
-        toast.error('Username stimmt nicht überein. Bitte erneut bestätigen.');
+        toast.error(m.delete_account_dialog_toast_username_mismatch());
         password = '';
         code = '';
         backupCode = '';
@@ -131,24 +132,24 @@
         return;
       }
       if (err.status === 401) {
-        toast.error('Passwort oder Code falsch.');
+        toast.error(m.delete_account_dialog_toast_wrong_credentials());
         password = '';
         code = '';
         backupCode = '';
         return;
       }
       if (err.status === 429) {
-        toast.error('Zu viele Versuche. Bitte warte und versuche es später nochmal.');
+        toast.error(m.delete_account_dialog_toast_too_many_attempts());
         return;
       }
       if (err.status === 503) {
-        toast.error('Account-Löschung ist auf diesem Server nicht verfügbar.', {
-          description: 'Bitte wende dich an den Admin.'
+        toast.error(m.delete_account_dialog_toast_deletion_unavailable(), {
+          description: m.delete_account_dialog_toast_deletion_unavailable_desc()
         });
         return;
       }
     }
-    error = (err as Error).message ?? 'Unbekannter Fehler';
+    error = (err as Error).message ?? m.delete_account_dialog_error_unknown();
   }
 </script>
 
@@ -159,11 +160,11 @@
         <AlertDialog.Title>
           <span class="text-destructive flex items-center gap-2">
             <TriangleAlertIcon class="size-5" />
-            Bist du sicher?
+            {m.delete_account_dialog_title()}
           </span>
         </AlertDialog.Title>
         <AlertDialog.Description>
-          Diese Aktion ist <strong>dauerhaft</strong>. Folgendes wird unwiderruflich gelöscht:
+          {m.delete_account_dialog_description_before_bold()}<strong>{m.delete_account_dialog_description_bold()}</strong>{m.delete_account_dialog_description_after_bold()}
         </AlertDialog.Description>
       </AlertDialog.Header>
 
@@ -171,14 +172,14 @@
         class="text-text-base list-disc space-y-2 pl-5 text-sm md:space-y-1"
         data-testid="delete-account-bullets"
       >
-        <li>Dein Profil (Username, Email, Avatar)</li>
-        <li>Alle deine Nachrichten in allen Channels und DMs</li>
-        <li>Alle deine Reaktionen</li>
+        <li>{m.delete_account_dialog_bullet_profile()}</li>
+        <li>{m.delete_account_dialog_bullet_messages()}</li>
+        <li>{m.delete_account_dialog_bullet_reactions()}</li>
         <li>
-          Alle Communitys, in denen du Owner bist — <strong>inkl. aller darin enthaltenen Daten</strong>
+          {m.delete_account_dialog_bullet_owned_communities_before_bold()}<strong>{m.delete_account_dialog_bullet_owned_communities_bold()}</strong>
         </li>
-        <li>Deine Mitgliedschaften in fremden Communitys</li>
-        <li>Alle 2FA-Backup-Codes und Sessions</li>
+        <li>{m.delete_account_dialog_bullet_memberships()}</li>
+        <li>{m.delete_account_dialog_bullet_2fa()}</li>
       </ul>
 
       <div class="space-y-1.5">
@@ -186,7 +187,7 @@
           for="delete-confirm-username"
           class="text-text-muted text-xs font-semibold uppercase"
         >
-          Tippe <code class="text-text-bright font-mono">{username}</code> zur Bestätigung ein
+          {m.delete_account_dialog_label_confirm_before_username()}<code class="text-text-bright font-mono">{username}</code>{m.delete_account_dialog_label_confirm_after_username()}
         </Label>
         <Input
           id="delete-confirm-username"
@@ -200,14 +201,14 @@
       </div>
 
       <AlertDialog.Footer>
-        <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+        <AlertDialog.Cancel>{m.delete_account_dialog_cancel()}</AlertDialog.Cancel>
         <Button
           variant="destructive"
           onclick={goNext}
           disabled={!usernameMatches}
           data-testid="delete-account-next"
         >
-          Weiter
+          {m.delete_account_dialog_next()}
         </Button>
       </AlertDialog.Footer>
     {:else}

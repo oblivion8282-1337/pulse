@@ -17,6 +17,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import WatchPartyTile from '$lib/components/WatchPartyTile.svelte';
   import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
+  import { m } from '$lib/paraglide/messages.js';
 
   let channelId = $derived(page.params.channelId ?? '');
   let party = $derived(channelId ? watchPartyPresence.partyIn(channelId) : undefined);
@@ -80,7 +81,7 @@
 </script>
 
 <svelte:head>
-  {#if party}<title>Pulse — Watch Party</title>{/if}
+  {#if party}<title>{m.watch_popup_title()}</title>{/if}
 </svelte:head>
 
 <div class="relative h-full w-full" data-testid="watch-popup">
@@ -90,16 +91,16 @@
       type="button"
       onclick={() => { try { window.close(); } catch {} }}
       class="absolute right-3 top-3 z-20 flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white hover:bg-black/85"
-      title="Wieder andocken (schließt dieses Fenster)"
-      aria-label="Wieder andocken"
+      title={m.watch_popup_reattach_title()}
+      aria-label={m.watch_popup_reattach_label()}
       data-testid="popup-reattach"
     >
       <PictureInPicture2Icon class="size-3.5" />
-      <span>Wieder andocken</span>
+      <span>{m.watch_popup_reattach_label()}</span>
     </button>
   {:else}
     <div class="flex h-full w-full items-center justify-center text-sm text-text-muted">
-      Lade Watch-Party-Status…
+      {m.watch_popup_loading()}
     </div>
   {/if}
 </div>

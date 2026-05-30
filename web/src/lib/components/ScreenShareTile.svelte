@@ -21,6 +21,7 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     channelId,
@@ -86,8 +87,8 @@
     if (!api) {
       const chrome = navigator.userAgent.match(/Chrome\/[\d.]+/)?.[0] ?? '?';
       console.error('[docpip] documentPictureInPicture API missing on window. UA:', navigator.userAgent);
-      toast.error('Document-Picture-in-Picture nicht verfügbar', {
-        description: `${chrome} — die API ist in diesem Build deaktiviert. Bitte Electron neu bauen (cd desktop && pnpm run build:electron).`,
+      toast.error(m.screen_share_tile_docpip_unavailable(), {
+        description: m.screen_share_tile_docpip_unavailable_desc({ chrome }),
         duration: 60000,
         closeButton: true
       });
@@ -102,7 +103,7 @@
     } catch (e) {
       const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       console.error('[docpip] requestWindow rejected:', e);
-      toast.error('Stream-Fenster ließ sich nicht öffnen', {
+      toast.error(m.screen_share_tile_pip_open_failed(), {
         description: msg,
         duration: 60000,
         closeButton: true
@@ -124,7 +125,7 @@
     } catch (e) {
       const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
       console.error('[docpip] mount/adopt failed:', e);
-      toast.error('Stream-Fenster ließ sich nicht initialisieren', {
+      toast.error(m.screen_share_tile_pip_init_failed(), {
         description: msg,
         duration: 60000,
         closeButton: true
@@ -240,13 +241,13 @@
   >
     <div class="flex flex-col items-center gap-2" data-testid="screen-share-detached-placeholder">
       <ExternalLinkIcon class="text-text-muted size-10 opacity-50" />
-      <p class="text-text-bright text-sm font-medium">Stream in eigenem Fenster</p>
+      <p class="text-text-bright text-sm font-medium">{m.screen_share_tile_detached_label()}</p>
       <p class="text-text-muted text-xs">{name}</p>
       <button
         type="button"
         onclick={reattachDocPip}
         class="bg-primary hover:bg-primary/90 mt-1 rounded-full px-3 py-1 text-xs font-semibold text-white"
-      >Wieder andocken</button>
+      >{m.screen_share_tile_reattach()}</button>
     </div>
   </div>
 {:else}
@@ -255,7 +256,7 @@
       <div
         class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] tabular-nums text-white backdrop-blur-sm"
         data-testid="screen-share-receive-stats"
-        title={`Codec: ${stats.codec}\nAuflösung: ${stats.res}\nFPS: ${stats.fps}\nBitrate: ${stats.bitrate}`}
+        title={m.screen_share_tile_stats_tooltip({ codec: stats.codec, res: stats.res, fps: stats.fps, bitrate: stats.bitrate })}
       >
         <span>{stats.codec}</span>
         <span class="text-white/60">·</span>

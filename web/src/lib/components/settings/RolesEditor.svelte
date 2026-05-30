@@ -20,6 +20,7 @@
   import { rolesApi, type Role } from '$lib/api/roles';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
   import PermissionToggleGrid from './PermissionToggleGrid.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     guildId,
@@ -83,7 +84,7 @@
       const rows = await rolesApi.setPositions(guildId, updates);
       for (const r of rows) rolesStore.upsertRole(r);
     } catch (err) {
-      toast.error('Reihenfolge ändern fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.roles_editor_reorder_failed(), { description: (err as Error).message });
     }
   }
 
@@ -213,7 +214,7 @@
 
   async function createRole(): Promise<void> {
     try {
-      const r = await rolesApi.create(guildId, { name: 'Neue Rolle', permissions: '0' });
+      const r = await rolesApi.create(guildId, { name: m.roles_editor_new_role_default_name(), permissions: '0' });
       rolesStore.upsertRole(r);
       selectedId = r.id;
       // Seed the buffer synchronously and pin lastLoadedId so the
@@ -225,9 +226,9 @@
       // dirty=false and the Save button disabled.
       loadIntoBuffer(r);
       lastLoadedId = r.id;
-      toast.success('Rolle erstellt');
+      toast.success(m.roles_editor_role_created());
     } catch (err) {
-      toast.error('Rolle erstellen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.roles_editor_role_create_failed(), { description: (err as Error).message });
     }
   }
 
@@ -252,9 +253,9 @@
       // Re-snapshot so dirty flips back to false. Without this the new
       // role state from upsertRole would race with the buffer.
       loadIntoBuffer(r);
-      toast.success('Rolle gespeichert');
+      toast.success(m.roles_editor_role_saved());
     } catch (err) {
-      toast.error('Speichern fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.roles_editor_save_failed(), { description: (err as Error).message });
     } finally {
       isSaving = false;
     }
@@ -267,9 +268,9 @@
       rolesStore.removeRole(guildId, selectedRole.id);
       selectedId = null;
       deleteConfirm = false;
-      toast.success('Rolle gelöscht');
+      toast.success(m.roles_editor_role_deleted());
     } catch (err) {
-      toast.error('Löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.roles_editor_delete_failed(), { description: (err as Error).message });
     }
   }
 </script>
@@ -277,7 +278,7 @@
 <div class="flex h-full min-h-0 flex-col gap-4 md:flex-row" data-testid="roles-editor">
   <aside class="w-full shrink-0 md:w-64">
     <div class="mb-2 flex items-center justify-between">
-      <h2 class="text-text-bright text-sm font-semibold">Rollen</h2>
+      <h2 class="text-text-bright text-sm font-semibold">{m.roles_editor_roles_heading()}</h2>
       <Button size="icon-sm" variant="ghost" onclick={createRole} data-testid="role-create">
         <PlusIcon />
       </Button>
@@ -308,7 +309,7 @@
             <span class="font-medium" style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}>
               {r.name}
             </span>
-            {#if r.is_everyone}<span class="text-text-muted ml-1 text-xs">(implizit)</span>{/if}
+            {#if r.is_everyone}<span class="text-text-muted ml-1 text-xs">({m.roles_editor_implicit()})</span>{/if}
           </button>
           {#if !r.is_everyone}
             <div class="flex flex-col">
@@ -317,7 +318,7 @@
                 class="hover:bg-bg-hover rounded p-0.5 disabled:opacity-30"
                 disabled={isFirst}
                 onclick={() => move(r.id, -1)}
-                aria-label="Eine Position höher"
+                aria-label={m.roles_editor_move_up()}
                 data-testid={`role-move-up-${r.id}`}
               >
                 <ChevronUpIcon class="size-3" />
@@ -327,7 +328,7 @@
                 class="hover:bg-bg-hover rounded p-0.5 disabled:opacity-30"
                 disabled={isLast}
                 onclick={() => move(r.id, 1)}
-                aria-label="Eine Position tiefer"
+                aria-label={m.roles_editor_move_down()}
                 data-testid={`role-move-down-${r.id}`}
               >
                 <ChevronDownIcon class="size-3" />
@@ -338,7 +339,7 @@
       {/each}
     </ul>
     <p class="text-text-muted mt-2 text-xs">
-      Ziehen oder mit Pfeil-Buttons umordnen. Obere Position = mächtigere Rolle.
+      {m.roles_editor_reorder_hint()}
     </p>
   </aside>
 
@@ -346,7 +347,7 @@
     {#if selectedRole}
       <div class="mb-4 flex items-end justify-between gap-3">
         <div class="min-w-0 flex-1 space-y-2">
-          <Label for="role-name">Name</Label>
+          <Label for="role-name">{m.roles_editor_name_label()}</Label>
           <Input
             id="role-name"
             bind:value={editName}
@@ -354,7 +355,7 @@
             data-testid="role-name-input"
           />
           {#if selectedRole.is_everyone}
-            <p class="text-text-muted text-xs">@everyone kann nicht umbenannt werden.</p>
+            <p class="text-text-muted text-xs">{m.roles_editor_everyone_no_rename()}</p>
           {/if}
         </div>
         {#if !selectedRole.is_everyone}
@@ -364,13 +365,13 @@
             onclick={() => (deleteConfirm = true)}
             data-testid="role-delete-btn"
           >
-            <TrashIcon /> Löschen
+            <TrashIcon /> {m.roles_editor_delete_btn()}
           </Button>
         {/if}
       </div>
 
       <div class="mb-4 space-y-2">
-        <Label>Farbe</Label>
+        <Label>{m.roles_editor_color_label()}</Label>
         <div class="flex items-center gap-3">
           <label class="flex items-center gap-2 text-sm">
             <input
@@ -379,7 +380,7 @@
               class="size-4 accent-primary"
               data-testid="role-color-enabled"
             />
-            Farbe verwenden
+            {m.roles_editor_color_use()}
           </label>
           <input
             type="color"
@@ -387,29 +388,28 @@
             disabled={!editColorEnabled}
             class="h-8 w-16 cursor-pointer rounded border border-border bg-transparent disabled:opacity-40"
             data-testid="role-color-input"
-            aria-label="Farbe wählen"
+            aria-label={m.roles_editor_color_pick()}
           />
           <span
             class="text-sm font-medium"
             style={editColorEnabled ? `color: ${editColor}` : ''}
           >
-            {editName || 'Rollenname'}
+            {editName || m.roles_editor_role_name_placeholder()}
           </span>
         </div>
         <p class="text-text-muted text-xs">
-          Member werden in dieser Farbe in der Mitglieder-Liste angezeigt
-          (höchste positionierte Color-Rolle gewinnt).
+          {m.roles_editor_color_hint()}
         </p>
       </div>
 
       <div class="mb-4 flex flex-wrap gap-4">
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" bind:checked={editHoist} class="size-4 accent-primary" />
-          In Member-Liste hervorheben
+          {m.roles_editor_hoist_label()}
         </label>
         <label class="flex items-center gap-2 text-sm">
           <input type="checkbox" bind:checked={editMentionable} class="size-4 accent-primary" />
-          Erwähnbar (@&lt;rolle&gt;)
+          {m.roles_editor_mentionable_label()}
         </label>
       </div>
 
@@ -417,7 +417,7 @@
 
       <div class="mt-6 flex items-center justify-between gap-2 rounded-lg border border-border bg-bg-input/60 px-3 py-2">
         <span class="text-text-muted text-xs">
-          {dirty ? 'Ungespeicherte Änderungen.' : 'Keine Änderungen.'}
+          {dirty ? m.roles_editor_unsaved_changes() : m.roles_editor_no_changes()}
         </span>
         <div class="flex gap-2">
           <Button
@@ -427,19 +427,19 @@
             disabled={!dirty || isSaving}
             data-testid="role-discard"
           >
-            Verwerfen
+            {m.roles_editor_discard_btn()}
           </Button>
           <Button
             onclick={saveRole}
             disabled={!dirty || isSaving}
             data-testid="role-save"
           >
-            {isSaving ? 'Speichert…' : 'Speichern'}
+            {isSaving ? m.roles_editor_saving() : m.roles_editor_save_btn()}
           </Button>
         </div>
       </div>
     {:else}
-      <p class="text-text-muted text-sm">Wähle eine Rolle aus oder erstelle eine neue.</p>
+      <p class="text-text-muted text-sm">{m.roles_editor_empty_hint()}</p>
     {/if}
   </section>
 </div>
@@ -447,15 +447,14 @@
 <AlertDialog.Root bind:open={switchConfirmOpen}>
   <AlertDialog.Content data-testid="role-switch-confirm">
     <AlertDialog.Header>
-      <AlertDialog.Title>Ungespeicherte Änderungen verwerfen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.roles_editor_switch_confirm_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        Du hast Änderungen an {selectedRole?.name ?? 'dieser Rolle'}, die noch
-        nicht gespeichert sind. Beim Wechsel gehen sie verloren.
+        {m.roles_editor_switch_confirm_desc({ roleName: selectedRole?.name ?? m.roles_editor_this_role() })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={confirmDiscardAndSwitch}>Verwerfen</AlertDialog.Action>
+      <AlertDialog.Cancel>{m.roles_editor_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmDiscardAndSwitch}>{m.roles_editor_discard_btn()}</AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
@@ -463,14 +462,14 @@
 <AlertDialog.Root bind:open={deleteConfirm}>
   <AlertDialog.Content>
     <AlertDialog.Header>
-      <AlertDialog.Title>Rolle löschen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.roles_editor_delete_confirm_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {selectedRole?.name} wird entfernt und allen Mitgliedern entzogen.
+        {m.roles_editor_delete_confirm_desc({ roleName: selectedRole?.name ?? '' })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={deleteRole}>Löschen</AlertDialog.Action>
+      <AlertDialog.Cancel>{m.roles_editor_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={deleteRole}>{m.roles_editor_delete_btn()}</AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>

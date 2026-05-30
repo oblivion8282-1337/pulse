@@ -23,6 +23,7 @@
   import AddServerDialog from './AddServerDialog.svelte';
   import ServerInfoDialog from './ServerInfoDialog.svelte';
   import ServerIconButton from './ServerIconButton.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let addOpen = $state(false);
   let removeTarget = $state<ServerEntry | null>(null);
@@ -64,9 +65,9 @@
         const fallback = serversStore.servers.find((s) => s.isCloud);
         if (fallback) activeServer.set(fallback.id);
       }
-      toast.success(`${label} entfernt`);
+      toast.success(m.server_sidebar_removed({ label }));
     } catch (err) {
-      toast.error('Entfernen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.server_sidebar_remove_failed(), { description: (err as Error).message });
     } finally {
       removeConfirmOpen = false;
       removeTarget = null;
@@ -77,7 +78,7 @@
 <nav
   class="glass-panel flex h-full w-14 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:rounded-2xl"
   data-testid="server-sidebar"
-  aria-label="Server-Instanzen"
+  aria-label={m.server_sidebar_nav_aria_label()}
 >
   <Tooltip.Provider delayDuration={200}>
     {#if cloud}
@@ -113,13 +114,13 @@
             class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
             onclick={() => (addOpen = true)}
             data-testid="server-add"
-            aria-label="Server hinzufügen"
+            aria-label={m.server_sidebar_add_server()}
           >
             <PlusIcon class="size-5" />
           </button>
         {/snippet}
       </Tooltip.Trigger>
-      <Tooltip.Content side="right">Server hinzufügen</Tooltip.Content>
+      <Tooltip.Content side="right">{m.server_sidebar_add_server()}</Tooltip.Content>
     </Tooltip.Root>
   </Tooltip.Provider>
 </nav>
@@ -129,16 +130,15 @@
 <AlertDialog.Root bind:open={removeConfirmOpen}>
   <AlertDialog.Content data-testid="remove-server-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Server entfernen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.server_sidebar_remove_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {removeTarget?.label ?? 'Dieser Server'} wird aus deiner Liste entfernt. Deine
-        Daten auf dem Server bleiben dort — nur die lokale Verknüpfung wird gelöscht.
+        {m.server_sidebar_remove_description({ name: removeTarget?.label ?? m.server_sidebar_this_server() })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel>{m.server_sidebar_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action onclick={confirmRemove} data-testid="remove-server-confirm">
-        Entfernen
+        {m.server_sidebar_remove_confirm()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

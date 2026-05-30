@@ -9,6 +9,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let password = $state('');
   let confirm = $state('');
@@ -25,15 +26,15 @@
     e.preventDefault();
     error = null;
     if (password.length < 8) {
-      error = 'Passwort muss mindestens 8 Zeichen lang sein.';
+      error = m.reset_password_error_too_short();
       return;
     }
     if (password !== confirm) {
-      error = 'Die Passwörter stimmen nicht überein.';
+      error = m.reset_password_error_mismatch();
       return;
     }
     if (!token) {
-      error = 'Kein gültiger Reset-Token in der URL.';
+      error = m.reset_password_error_no_token();
       tokenInvalid = true;
       return;
     }
@@ -45,7 +46,7 @@
     } catch (err) {
       if (err instanceof ApiError && (err.status === 400 || err.status === 410 || err.status === 404)) {
         tokenInvalid = true;
-        error = 'Der Link ist abgelaufen oder bereits benutzt worden.';
+        error = m.reset_password_error_token_expired();
       } else {
         error = (err as Error).message;
       }
@@ -57,10 +58,10 @@
 
 <div class="flex min-h-dvh">
   <AuthBrandPanel
-    headline="Neuer Schlüssel."
-    headlineSub="Gleicher Account."
-    description="Wähl ein neues Passwort — wir hashen es mit Argon2id, kein Mensch und kein Server sieht das Klartext."
-    features={['Mindestens 8 Zeichen', 'Argon2id (t=3, m=64 MiB)', 'Nach dem Reset gilt der Login sofort']}
+    headline={m.reset_password_brand_headline()}
+    headlineSub={m.reset_password_brand_headline_sub()}
+    description={m.reset_password_brand_description()}
+    features={[m.reset_password_brand_feature_length(), m.reset_password_brand_feature_algo(), m.reset_password_brand_feature_instant()]}
   />
 
   <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
@@ -71,7 +72,7 @@
     >
       <header class="space-y-2 text-center">
         <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
-        <h1 class="text-card-foreground text-2xl font-semibold">Neues Passwort wählen</h1>
+        <h1 class="text-card-foreground text-2xl font-semibold">{m.reset_password_title()}</h1>
       </header>
 
       <div class="space-y-1.5">
@@ -79,7 +80,7 @@
           for="reset-password"
           class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
         >
-          Neues Passwort
+          {m.reset_password_label_new()}
         </Label>
         <Input
           id="reset-password"
@@ -97,7 +98,7 @@
           for="reset-confirm"
           class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
         >
-          Passwort bestätigen
+          {m.reset_password_label_confirm()}
         </Label>
         <Input
           id="reset-confirm"
@@ -118,7 +119,7 @@
       {/if}
 
       <Button type="submit" class="w-full" disabled={busy} data-testid="reset-submit">
-        {busy ? 'Speichern…' : 'Passwort speichern'}
+        {busy ? m.reset_password_submit_busy() : m.reset_password_submit()}
       </Button>
 
       {#if tokenInvalid}
@@ -128,12 +129,12 @@
             href="/forgot-password"
             data-testid="reset-request-new"
           >
-            Neuen Link anfordern
+            {m.reset_password_request_new_link()}
           </a>
         </p>
       {:else}
         <p class="text-muted-foreground text-center text-sm">
-          <a class="text-primary hover:underline" href="/login">Zurück zum Login</a>
+          <a class="text-primary hover:underline" href="/login">{m.reset_password_back_to_login()}</a>
         </p>
       {/if}
     </form>

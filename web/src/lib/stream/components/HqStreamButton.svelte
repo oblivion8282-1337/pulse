@@ -23,6 +23,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import HqStreamDialog from './HqStreamDialog.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { compact = false }: { compact?: boolean } = $props();
 
@@ -70,7 +71,7 @@
             size={compact ? 'icon-sm' : 'icon'}
             class="relative"
             onclick={onClick}
-            aria-label={iAmStreaming ? 'HQ-Stream beenden' : 'HQ-Stream öffnen'}
+            aria-label={iAmStreaming ? m.hq_stream_button_stop() : m.hq_stream_button_open()}
             data-testid="voice-hq-stream-btn"
           >
             <RocketIcon class={compact ? 'size-4' : ''} />
@@ -85,7 +86,7 @@
         {/snippet}
       </Tooltip.Trigger>
       <Tooltip.Content>
-        {iAmStreaming ? 'HQ-Stream beenden' : 'HQ-Stream'}
+        {iAmStreaming ? m.hq_stream_button_stop() : m.hq_stream_button_tooltip()}
       </Tooltip.Content>
     </Tooltip.Root>
   </Tooltip.Provider>

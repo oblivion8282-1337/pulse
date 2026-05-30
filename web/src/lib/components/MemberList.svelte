@@ -21,6 +21,7 @@
   import { goto } from '$app/navigation';
   import MemberActivityHeader from './MemberActivityHeader.svelte';
   import type { Member } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     guildId,
@@ -194,13 +195,13 @@
 >
   <header class="flex h-14 items-center justify-between px-4">
     <span class="text-text-muted text-xs font-bold">
-      Mitglieder — {members.length}
+      {m.member_list_header_count({ count: members.length })}
     </span>
     {#if onClose}
       <button
         class="rounded-full p-1.5 transition-colors hover:bg-bg-hover md:hidden"
         onclick={onClose}
-        aria-label="Schließen"
+        aria-label={m.member_list_close()}
       >
         <XIcon class="text-text-muted size-4" />
       </button>
@@ -211,13 +212,13 @@
 
   <div class="flex-1 overflow-y-auto px-2.5 py-1">
     {#if loading}
-      <p class="text-text-muted px-3 py-4 text-xs">Lädt…</p>
+      <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_loading()}</p>
     {:else if error}
       <p class="px-3 py-4 text-xs text-red-400">{error}</p>
     {:else}
       {#each groupedMembers as group (group.offline ? '__offline__' : (group.hoist ?? '__none__'))}
         <div class="text-text-muted mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wide first:mt-0">
-          {group.offline ? 'Offline' : (group.hoist ?? 'Online')} — {group.members.length}
+          {m.member_list_group_label({ label: group.offline ? m.member_list_offline() : (group.hoist ?? m.member_list_online()), count: group.members.length })}
         </div>
         {#each group.members as m (m.user_id)}
           <MemberListItem
@@ -234,7 +235,7 @@
         {/each}
       {/each}
       {#if members.length === 0}
-        <p class="text-text-muted px-3 py-4 text-xs">Keine Mitglieder.</p>
+        <p class="text-text-muted px-3 py-4 text-xs">{m.member_list_empty()}</p>
       {/if}
     {/if}
   </div>

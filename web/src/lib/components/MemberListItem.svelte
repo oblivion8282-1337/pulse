@@ -14,6 +14,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { goto } from '$app/navigation';
   import type { Member } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     member,
@@ -59,7 +60,7 @@
       onClose?.();
       await goto(`/app/@me/${dm.id}`);
     } catch (err) {
-      toast.error('DM konnte nicht geöffnet werden', {
+      toast.error(m.member_list_item_dm_open_failed(), {
         description: err instanceof Error ? err.message : String(err)
       });
     }
@@ -143,8 +144,8 @@
                     onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivityClick(member.user_id); } }}
                     class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90 cursor-pointer"
                     data-testid="member-party-badge"
-                    aria-label="{name}s Watch Party öffnen"
-                    title="Watch Party öffnen"
+                    aria-label={m.member_list_item_party_open_label({ name })}
+                    title={m.member_list_item_party_open_title()}
                   >PARTY</span>
                 {/if}
                 {#if isStreaming}
@@ -155,8 +156,8 @@
                     onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivityClick(member.user_id); } }}
                     class="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white hover:bg-red-500 cursor-pointer"
                     data-testid="member-live-badge"
-                    aria-label="{name}s Stream öffnen"
-                    title="Stream öffnen"
+                    aria-label={m.member_list_item_stream_open_label({ name })}
+                    title={m.member_list_item_stream_open_title()}
                   >LIVE</span>
                 {/if}
               </span>
@@ -174,7 +175,7 @@
           data-testid="member-dm-menu"
         >
           <MessageCircleIcon />
-          Direktnachricht senden
+          {m.member_list_item_send_dm()}
         </ContextMenu.Item>
         {#if canQuickRole}<ContextMenu.Separator />{/if}
       {/if}

@@ -13,6 +13,7 @@
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import { settings, USER_VOLUME_MAX } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { userId, name }: { userId: string; name: string } = $props();
 
@@ -34,7 +35,7 @@
     {:else}
       <Volume2Icon class="size-3.5" />
     {/if}
-    <span class="flex-1 truncate">Lautstärke für {name}</span>
+    <span class="flex-1 truncate">{m.voice_user_volume_label({ name })}</span>
     <span class="font-mono">{volumePct}%</span>
   </div>
   <input
@@ -45,7 +46,7 @@
     value={volumePct}
     oninput={(e) => applyVolumePct(Number((e.currentTarget as HTMLInputElement).value))}
     class="w-full accent-emerald-500"
-    aria-label={`Lautstärke für ${name}`}
+    aria-label={m.voice_user_volume_label({ name })}
     data-testid="voice-participant-volume-slider"
   />
   <div class="text-text-muted mt-1 flex justify-between font-mono text-[10px]">
@@ -61,6 +62,6 @@
     data-testid="voice-participant-volume-reset"
   >
     <RotateCcwIcon class="size-3.5" />
-    Standard (100%)
+    {m.voice_user_volume_reset()}
   </button>
 </div>

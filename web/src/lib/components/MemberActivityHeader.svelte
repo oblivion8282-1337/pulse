@@ -24,6 +24,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
   import type { Channel } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -73,7 +74,7 @@
     try {
       return new URL(src.url).hostname;
     } catch {
-      return 'Direkt-Video';
+      return m.member_activity_header_direct_video();
     }
   }
 
@@ -118,15 +119,15 @@
               {sourceLabel(e.state)}
             </p>
             <p class="text-text-muted mt-0.5 truncate text-[10px]">
-              Host: <span class="text-text-base">{hostName}</span> · #{e.channel.name}
+              {m.member_activity_header_host_label()}: <span class="text-text-base">{hostName}</span> · #{e.channel.name}
             </p>
           </div>
           <button
             type="button"
             onclick={() => openParty(e.channel.id)}
             class="text-primary hover:text-primary/80 mt-0.5 shrink-0 rounded-full p-1 transition-colors"
-            aria-label="Watch Party öffnen"
-            title="Öffnen"
+            aria-label={m.member_activity_header_open_watch_party_aria()}
+            title={m.member_activity_header_open_title()}
           >
             <ExternalLinkIcon class="size-3.5" />
           </button>
@@ -142,7 +143,7 @@
           <RocketIcon class="mt-0.5 size-4 shrink-0 text-red-500" />
           <div class="min-w-0 flex-1">
             <p class="text-text-bright truncate text-xs font-semibold">
-              {name} streamt
+              {m.member_activity_header_user_streaming({ name })}
             </p>
             <p class="text-text-muted truncate text-[10px]">#{e.channel.name}</p>
           </div>
@@ -150,8 +151,8 @@
             type="button"
             onclick={() => openStream(e.channel.id, e.userId)}
             class="mt-0.5 shrink-0 rounded-full p-1 text-red-400 transition-colors hover:text-red-300"
-            aria-label="Stream öffnen"
-            title="Öffnen"
+            aria-label={m.member_activity_header_open_stream_aria()}
+            title={m.member_activity_header_open_title()}
           >
             <ExternalLinkIcon class="size-3.5" />
           </button>

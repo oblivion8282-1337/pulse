@@ -3,17 +3,18 @@
   import type { ScreenShareCodec, ScreenShareResolution } from '$lib/stores/settings.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { allowedNsResolutions, clampNsResolution } from '$lib/settings-registry/sections/screenShare';
+  import { m } from '$lib/paraglide/messages.js';
 
   const codecs: { value: ScreenShareCodec; label: string; hint: string }[] = [
-    { value: 'h264', label: 'H.264', hint: 'Breit kompatibel, Hardware-beschleunigt auf praktisch jedem Setup (NVENC / QuickSync / VideoToolbox)' },
-    { value: 'av1', label: 'AV1', hint: 'Beste Qualität bei niedriger Bitrate. HW-Encode nur auf neueren GPUs (Intel ARC, NVIDIA 40-Series, AMD 7000); sonst CPU-only' }
+    { value: 'h264', label: 'H.264', hint: m.settings_screenshare_codec_h264_hint() },
+    { value: 'av1', label: 'AV1', hint: m.settings_screenshare_codec_av1_hint() }
   ];
 
   const allResolutions: { value: ScreenShareResolution; label: string }[] = [
-    { value: 'native', label: 'Nativ (Bildschirmauflösung)' },
-    { value: '1080p', label: '1080p (1920×1080)' },
-    { value: '720p', label: '720p (1280×720)' },
-    { value: '480p', label: '480p (854×480)' }
+    { value: 'native', label: m.settings_screenshare_res_native() },
+    { value: '1080p', label: m.settings_screenshare_res_1080p() },
+    { value: '720p', label: m.settings_screenshare_res_720p() },
+    { value: '480p', label: m.settings_screenshare_res_480p() }
   ];
 
   // Admin-set global limits (live via capabilities). Bitrate in Mbit/s.
@@ -50,19 +51,15 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-screen-share-panel">
   <p class="text-text-muted text-xs">
-    Gilt für den nächsten Start des Teilens. Änderungen werden sofort gespeichert.
+    {m.settings_screenshare_hint_applies()}
   </p>
 
   <p class="text-text-muted bg-bg-soft rounded-lg px-3 py-2 text-xs">
-    <span class="text-text-bright font-medium">Tipp:</span> Wenn du ein Spiel teilst, wähle im
-    Picker das <span class="text-text-bright">Fenster</span> des Spiels und aktiviere
-    <span class="text-text-bright">„Audio teilen"</span>. Auf Windows 11 mit Chrome oder Edge 141+
-    wird so ausschließlich der Spiele-Ton übertragen — die Stimmen der anderen User landen nicht im
-    Stream.
+    <span class="text-text-bright font-medium">{m.settings_screenshare_tip_label()}</span> {m.settings_screenshare_tip_body()}
   </p>
 
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Codec</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_codec()}</span>
     <div class="flex flex-col gap-1.5">
       {#each codecs as c (c.value)}
         <label class="flex cursor-pointer items-start gap-2.5 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
@@ -84,7 +81,7 @@
   </div>
 
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Auflösung</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_resolution()}</span>
     <div class="grid grid-cols-2 gap-1.5">
       {#each resolutions as r (r.value)}
         <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
@@ -104,8 +101,8 @@
 
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between">
-      <span class="text-text-bright text-sm font-medium">Framerate</span>
-      <span class="text-text-muted text-sm">{settings.screenShare.fps} fps</span>
+      <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_framerate()}</span>
+      <span class="text-text-muted text-sm">{m.settings_screenshare_fps_value({ fps: settings.screenShare.fps })}</span>
     </div>
     <input
       type="number"
@@ -118,15 +115,14 @@
       data-testid="screenshare-fps-input"
     />
     <p class="text-text-muted text-xs">
-      Erlaubt: {fMin}–{fMax} fps. Werte über 60 hängen stark vom Display-Refresh
-      und der GPU/CPU ab — der Encoder unten zeigt dir live, was tatsächlich ankommt.
+      {m.settings_screenshare_fps_hint({ fMin, fMax })}
     </p>
   </div>
 
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between">
-      <span class="text-text-bright text-sm font-medium">Bitrate</span>
-      <span class="text-text-muted text-sm">{settings.screenShare.bitrateMbps} Mbit/s</span>
+      <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_bitrate()}</span>
+      <span class="text-text-muted text-sm">{m.settings_screenshare_bitrate_value({ bitrate: settings.screenShare.bitrateMbps })}</span>
     </div>
     <input
       type="range"
@@ -139,12 +135,12 @@
       data-testid="screenshare-bitrate-slider"
     />
     <p class="text-text-muted text-xs">
-      Höhere Bitrate = bessere Qualität, mehr Bandbreite. Erlaubt: {bMin}–{bMax} Mbit/s.
+      {m.settings_screenshare_bitrate_hint({ bMin, bMax })}
     </p>
   </div>
 
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Inhaltstyp</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_content_hint()}</span>
     <div class="flex gap-3">
       <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
         <input
@@ -155,7 +151,7 @@
           onchange={() => settings.setScreenShareContentHint('motion')}
           class="accent-primary"
         />
-        <span class="text-text-base text-sm">Video / Gaming</span>
+        <span class="text-text-base text-sm">{m.settings_screenshare_hint_motion()}</span>
       </label>
       <label class="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-2.5 transition-colors hover:bg-bg-hover md:py-1.5">
         <input
@@ -166,7 +162,7 @@
           onchange={() => settings.setScreenShareContentHint('detail')}
           class="accent-primary"
         />
-        <span class="text-text-base text-sm">Text / Code</span>
+        <span class="text-text-base text-sm">{m.settings_screenshare_hint_detail()}</span>
       </label>
     </div>
   </div>

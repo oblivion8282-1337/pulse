@@ -31,6 +31,7 @@
   import { gateway } from '$lib/ws/connection';
   import { ensureGuildPluginsLoaded } from '$lib/plugins';
   import type { Channel, Guild } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
@@ -91,7 +92,7 @@
   function selectChannel(c: Channel) {
     if (c.type === 1 && voice.channelId !== c.id) {
       voice.connect(c.id, c.name).catch((e) => {
-        toast.error('Voice-Verbindung fehlgeschlagen', {
+        toast.error(m.channel_list_voice_connect_failed(), {
           description: e instanceof Error ? e.message : String(e)
         });
       });
@@ -119,7 +120,7 @@
       deleteConfirmOpen = false;
       deleteTarget = null;
     } catch (err) {
-      toast.error('Kanal löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.channel_list_delete_channel_failed(), { description: (err as Error).message });
     } finally {
       deleteBusy = false;
     }
@@ -137,7 +138,7 @@
           class="size-9 md:size-8 text-text-muted hover:text-primary"
           onclick={() => (inviteOpen = true)}
           data-testid="invite-open-btn"
-          aria-label="Leute einladen"
+          aria-label={m.channel_list_invite_people()}
         >
           <UserPlusIcon />
         </Button>
@@ -149,7 +150,7 @@
           class="size-9 md:size-8 text-text-muted hover:text-primary"
           onclick={onCreateClick}
           data-testid="channel-create"
-          aria-label="Kanal erstellen"
+          aria-label={m.channel_list_create_channel()}
         >
           <PlusIcon />
         </Button>
@@ -174,26 +175,26 @@
   <AlertDialog.Root bind:open={deleteConfirmOpen}>
     <AlertDialog.Content data-testid="delete-channel-dialog">
       <AlertDialog.Header>
-        <AlertDialog.Title>Kanal löschen?</AlertDialog.Title>
+        <AlertDialog.Title>{m.channel_list_delete_dialog_title()}</AlertDialog.Title>
         <AlertDialog.Description>
-          #{deleteTarget?.name} wird dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.
+          {m.channel_list_delete_dialog_description({ name: deleteTarget?.name ?? '' })}
         </AlertDialog.Description>
       </AlertDialog.Header>
       <AlertDialog.Footer>
-        <AlertDialog.Cancel disabled={deleteBusy}>Abbrechen</AlertDialog.Cancel>
+        <AlertDialog.Cancel disabled={deleteBusy}>{m.channel_list_cancel()}</AlertDialog.Cancel>
         <AlertDialog.Action
           onclick={confirmDelete}
           disabled={deleteBusy}
           data-testid="delete-channel-confirm"
         >
-          {deleteBusy ? 'Löschen…' : 'Löschen'}
+          {deleteBusy ? m.channel_list_deleting() : m.channel_list_delete()}
         </AlertDialog.Action>
       </AlertDialog.Footer>
     </AlertDialog.Content>
   </AlertDialog.Root>
 
   <nav class="flex-1 overflow-y-auto px-2.5 pb-3 pt-1">
-    <div class="text-text-muted px-2.5 pb-1 pt-3 text-sm font-bold md:text-xs">Text-Kanäle</div>
+    <div class="text-text-muted px-2.5 pb-1 pt-3 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
     {#each textChannels as c (c.id)}
       {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
       {@const mentionCount = activeChannelId !== c.id ? readState.getMentionCount(c.id) : 0}
@@ -215,13 +216,13 @@
                   class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
                   data-testid="channel-mention-pill"
                   data-mention-count={mentionCount}
-                  aria-label="{mentionCount} ungelesene Erwähnung(en)"
+                  aria-label={m.channel_list_unread_mentions({ count: mentionCount })}
                 >{mentionCount > 99 ? '99+' : mentionCount}</span>
               {:else if isUnread}
                 <span
                   class="ml-auto size-2 shrink-0 rounded-full bg-primary"
                   data-testid="channel-unread-dot"
-                  aria-label="ungelesen"
+                  aria-label={m.channel_list_unread()}
                 ></span>
               {/if}
             </button>
@@ -232,7 +233,7 @@
             {#if canCreate}
               <ContextMenu.Item onSelect={() => openRename(c)}>
                 <PencilIcon />
-                Kanal umbenennen
+                {m.channel_list_rename_channel()}
               </ContextMenu.Item>
             {/if}
             {#if canManagePermissions && guild}
@@ -241,14 +242,14 @@
                 data-testid={`channel-permissions-${c.id}`}
               >
                 <ShieldIcon />
-                Berechtigungen
+                {m.channel_list_permissions()}
               </ContextMenu.Item>
             {/if}
             {#if canCreate}
               <ContextMenu.Separator />
               <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
                 <Trash2Icon />
-                Kanal löschen
+                {m.channel_list_delete_channel()}
               </ContextMenu.Item>
             {/if}
           </ContextMenu.Content>
@@ -256,10 +257,10 @@
       </ContextMenu.Root>
     {/each}
     {#if textChannels.length === 0}
-      <p class="text-text-muted px-3 py-2 text-xs">Noch keine Text-Kanäle.</p>
+      <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_text_channels()}</p>
     {/if}
 
-    <div class="text-text-muted px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">Sprach-Kanäle</div>
+    <div class="text-text-muted px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">{m.channel_list_voice_channels()}</div>
     {#each voiceChannels as c (c.id)}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
@@ -274,7 +275,7 @@
               <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
               <span class="truncate">{c.name}</span>
               {#if voiceState.channelId === c.id && voiceState.connected}
-                <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title="verbunden"></span>
+                <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title={m.channel_list_connected()}></span>
               {/if}
             </button>
           {/snippet}
@@ -284,7 +285,7 @@
             {#if canCreate}
               <ContextMenu.Item onSelect={() => openRename(c)}>
                 <PencilIcon />
-                Kanal umbenennen
+                {m.channel_list_rename_channel()}
               </ContextMenu.Item>
             {/if}
             {#if canManagePermissions && guild}
@@ -293,14 +294,14 @@
                 data-testid={`channel-permissions-${c.id}`}
               >
                 <ShieldIcon />
-                Berechtigungen
+                {m.channel_list_permissions()}
               </ContextMenu.Item>
             {/if}
             {#if canCreate}
               <ContextMenu.Separator />
               <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
                 <Trash2Icon />
-                Kanal löschen
+                {m.channel_list_delete_channel()}
               </ContextMenu.Item>
             {/if}
           </ContextMenu.Content>
@@ -367,7 +368,7 @@
       {/if}
     {/each}
     {#if voiceChannels.length === 0}
-      <p class="text-text-muted px-3 py-2 text-xs">Noch keine Sprach-Kanäle.</p>
+      <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_voice_channels()}</p>
     {/if}
   </nav>
 

@@ -16,6 +16,7 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import { toast } from 'svelte-sonner';
   import { rolesApi, type Role } from '$lib/api/roles';
+  import { m } from '$lib/paraglide/messages.js';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { Perm, has, toBitfield } from '$lib/permissions/bitfield';
@@ -52,7 +53,7 @@
       else await rolesApi.unassign(guildId, userId, role.id);
     } catch (err) {
       memberRoles.seedAll(guildId, { [userId]: existing }, [userId]);
-      toast.error('Rolle ändern fehlgeschlagen', {
+      toast.error(m.member_quick_role_menu_toggle_failed(), {
         description: (err as Error).message
       });
     }
@@ -66,7 +67,7 @@
   <ContextMenu.Sub>
     <ContextMenu.SubTrigger>
       <ShieldIcon />
-      Rollen verwalten
+      {m.member_quick_role_menu_manage_roles()}
     </ContextMenu.SubTrigger>
     <ContextMenu.SubContent>
       {#each assignable as r (r.id)}

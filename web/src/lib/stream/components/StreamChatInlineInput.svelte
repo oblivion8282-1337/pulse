@@ -11,6 +11,7 @@
   import { chatApi } from '$lib/api/chat';
   import { toast } from 'svelte-sonner';
   import SendHorizontalIcon from '@lucide/svelte/icons/send-horizontal';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { channelId, streamerId }: { channelId: string; streamerId: string } = $props();
 
@@ -32,9 +33,9 @@
       draft = '';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (msg.includes('410')) toast.error('Streamer ist gerade offline');
-      else if (msg.includes('429')) toast.warning('Zu schnell — kurz warten');
-      else toast.error('Nachricht konnte nicht gesendet werden', { description: msg });
+      if (msg.includes('410')) toast.error(m.stream_chat_inline_streamer_offline());
+      else if (msg.includes('429')) toast.warning(m.stream_chat_inline_too_fast());
+      else toast.error(m.stream_chat_inline_send_failed(), { description: msg });
     } finally {
       sending = false;
     }
@@ -55,15 +56,15 @@
     onkeydown={(e) => e.key === 'Escape' && inputEl?.blur()}
     type="text"
     maxlength={4000}
-    placeholder="Im Live-Chat schreiben…"
+    placeholder={m.stream_chat_inline_input_placeholder()}
     class="flex-1 bg-transparent text-sm text-white placeholder:text-white/50 focus:outline-none"
-    aria-label="Live-Chat-Nachricht"
+    aria-label={m.stream_chat_inline_input_aria()}
   />
   <button
     type="submit"
     disabled={!draft.trim() || sending}
     class="flex items-center text-white hover:text-white/70 disabled:opacity-30"
-    aria-label="Senden"
+    aria-label={m.stream_chat_inline_send_aria()}
   >
     <SendHorizontalIcon class="size-4" />
   </button>

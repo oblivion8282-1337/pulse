@@ -12,6 +12,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
+  import { m } from '$lib/paraglide/messages.js';
 
   let entries = $state<AuditLogEntry[]>([]);
   let loading = $state(true);
@@ -49,10 +50,10 @@
   function fmtAction(e: AuditLogEntry): string {
     if (e.action === 'user.patch') {
       const fields = Object.keys(e.payload);
-      return `User-Änderung (${fields.join(', ')})`;
+      return m.admin_audit_log_action_user_patch({ fields: fields.join(', ') });
     }
-    if (e.action === 'settings.patch') return 'Registrierung geändert';
-    if (e.action === 'dm_limits.patch') return 'DM-Limits geändert';
+    if (e.action === 'settings.patch') return m.admin_audit_log_action_settings_patch();
+    if (e.action === 'dm_limits.patch') return m.admin_audit_log_action_dm_limits_patch();
     return e.action;
   }
 
@@ -72,16 +73,16 @@
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-audit-log">
   <div class="mb-4 flex items-center justify-between">
     <div>
-      <h2 class="text-text-bright text-base font-semibold">Audit-Log</h2>
+      <h2 class="text-text-bright text-base font-semibold">{m.admin_audit_log_title()}</h2>
       <p class="text-text-muted text-xs mt-0.5">
-        Admin-Aktionen aus auth-svc und chat-gateway, neueste zuerst.
+        {m.admin_audit_log_subtitle()}
       </p>
     </div>
     <button
       type="button"
       onclick={load}
       class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
-      aria-label="Aktualisieren"
+      aria-label={m.admin_audit_log_refresh_label()}
       disabled={loading}
       data-testid="admin-audit-refresh"
     >
@@ -90,11 +91,11 @@
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-red-400 text-sm">{m.admin_audit_log_error({ message: error ?? '' })}</p>
   {:else if loading && entries.length === 0}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_audit_log_loading()}</div>
   {:else if entries.length === 0}
-    <div class="text-text-muted text-sm">Noch keine Admin-Aktionen.</div>
+    <div class="text-text-muted text-sm">{m.admin_audit_log_empty()}</div>
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border">
       {#each entries as e (e.source + e.id)}
@@ -110,7 +111,7 @@
                 <span class="font-medium">{fmtUser(e.actor_id)}</span>
                 <span class="text-text-muted">{fmtAction(e)}</span>
                 {#if e.target_id}
-                  <span class="text-text-muted">an</span>
+                  <span class="text-text-muted">{m.admin_audit_log_on()}</span>
                   <span class="font-medium">{fmtUser(e.target_id)}</span>
                 {/if}
               </div>

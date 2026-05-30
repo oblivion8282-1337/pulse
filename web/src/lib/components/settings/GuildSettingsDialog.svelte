@@ -36,6 +36,7 @@
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
   import ModQueue from '$lib/components/admin/ModQueue.svelte';
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = $bindable(false),
@@ -205,7 +206,7 @@
     data-testid="guild-settings-dialog"
   >
     <Dialog.Header class="border-border border-b px-6 py-4">
-      <Dialog.Title>{guild?.name ?? '…'} · Einstellungen</Dialog.Title>
+      <Dialog.Title>{guild?.name ?? '…'} · {m.guild_settings_dialog_title()}</Dialog.Title>
     </Dialog.Header>
 
     <div class="flex min-h-0 flex-1">
@@ -218,7 +219,7 @@
             onclick={() => selectTab('roles')}
             data-testid="settings-tab-roles"
           >
-            <ShieldIcon class="size-4" /> Rollen
+            <ShieldIcon class="size-4" /> {m.guild_settings_dialog_tab_roles()}
           </button>
           <button
             type="button"
@@ -227,7 +228,7 @@
             onclick={() => selectTab('members')}
             data-testid="settings-tab-members"
           >
-            <UsersIcon class="size-4" /> Mitglieder
+            <UsersIcon class="size-4" /> {m.guild_settings_dialog_tab_members()}
           </button>
         {/if}
         {#if canBanMembers}
@@ -238,7 +239,7 @@
             onclick={() => selectTab('bans')}
             data-testid="settings-tab-bans"
           >
-            <BanIcon class="size-4" /> Sperrungen
+            <BanIcon class="size-4" /> {m.guild_settings_dialog_tab_bans()}
           </button>
         {/if}
         {#if canManageSounds}
@@ -249,7 +250,7 @@
             onclick={() => selectTab('sounds')}
             data-testid="settings-tab-sounds"
           >
-            <Volume2Icon class="size-4" /> Sounds
+            <Volume2Icon class="size-4" /> {m.guild_settings_dialog_tab_sounds()}
           </button>
         {/if}
         {#if canManagePlugins}
@@ -260,7 +261,7 @@
             onclick={() => selectTab('plugins')}
             data-testid="settings-tab-plugins"
           >
-            <PuzzleIcon class="size-4" /> Plugins
+            <PuzzleIcon class="size-4" /> {m.guild_settings_dialog_tab_plugins()}
           </button>
         {/if}
         {#if canSeeModQueue}
@@ -271,7 +272,7 @@
             onclick={() => selectTab('modqueue')}
             data-testid="settings-tab-modqueue"
           >
-            <FlagIcon class="size-4" /> Mod-Queue
+            <FlagIcon class="size-4" /> {m.guild_settings_dialog_tab_modqueue()}
           </button>
         {/if}
         {#if canSeeAuditLog}
@@ -282,7 +283,7 @@
             onclick={() => selectTab('auditlog')}
             data-testid="settings-tab-auditlog"
           >
-            <ScrollTextIcon class="size-4" /> Audit-Log
+            <ScrollTextIcon class="size-4" /> {m.guild_settings_dialog_tab_auditlog()}
           </button>
         {/if}
         {#if isOwner}
@@ -293,14 +294,14 @@
             onclick={() => selectTab('ownership')}
             data-testid="settings-tab-ownership"
           >
-            <CrownIcon class="size-4" /> Eigentümerschaft
+            <CrownIcon class="size-4" /> {m.guild_settings_dialog_tab_ownership()}
           </button>
         {/if}
       </nav>
 
       <main class="min-w-0 flex-1 overflow-y-auto px-6 py-5">
         {#if !guild}
-          <p class="text-text-muted text-sm">Community nicht gefunden.</p>
+          <p class="text-text-muted text-sm">{m.guild_settings_dialog_community_not_found()}</p>
         {:else if tab === 'roles' && canManageRoles}
           <RolesEditor
             {guildId}
@@ -324,7 +325,7 @@
           <OwnerTransferSection {guild} />
         {:else}
           <p class="text-text-muted text-sm">
-            Für diese Sektion fehlt dir eine Berechtigung.
+            {m.guild_settings_dialog_no_permission()}
           </p>
         {/if}
       </main>
@@ -335,15 +336,14 @@
 <AlertDialog.Root bind:open={closeConfirmOpen}>
   <AlertDialog.Content data-testid="settings-close-confirm">
     <AlertDialog.Header>
-      <AlertDialog.Title>Ungespeicherte Änderungen verwerfen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.guild_settings_dialog_discard_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        Du hast Änderungen an einer Rolle, die noch nicht gespeichert sind.
-        Beim Schließen der Einstellungen gehen sie verloren.
+        {m.guild_settings_dialog_discard_close_description()}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Weiter bearbeiten</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={confirmDiscardClose}>Verwerfen</AlertDialog.Action>
+      <AlertDialog.Cancel>{m.guild_settings_dialog_keep_editing()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmDiscardClose}>{m.guild_settings_dialog_discard()}</AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>
@@ -351,14 +351,14 @@
 <AlertDialog.Root bind:open={tabConfirmOpen}>
   <AlertDialog.Content data-testid="settings-tab-switch-confirm">
     <AlertDialog.Header>
-      <AlertDialog.Title>Ungespeicherte Änderungen verwerfen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.guild_settings_dialog_discard_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        Beim Wechsel des Tabs gehen die ungespeicherten Änderungen verloren.
+        {m.guild_settings_dialog_discard_tab_description()}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Weiter bearbeiten</AlertDialog.Cancel>
-      <AlertDialog.Action onclick={confirmDiscardTab}>Verwerfen</AlertDialog.Action>
+      <AlertDialog.Cancel>{m.guild_settings_dialog_keep_editing()}</AlertDialog.Cancel>
+      <AlertDialog.Action onclick={confirmDiscardTab}>{m.guild_settings_dialog_discard()}</AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>

@@ -19,6 +19,7 @@
   import { rolesApi } from '$lib/api/roles';
   import { Perm } from '$lib/permissions/bitfield';
   import ChannelOverridesEditor from '$lib/components/settings/ChannelOverridesEditor.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
@@ -45,7 +46,7 @@
 </script>
 
 <svelte:head>
-  <title>Kanal-Berechtigungen — Pulse</title>
+  <title>{m.channel_permissions_page_title()}</title>
 </svelte:head>
 
 <div class="bg-bg-base text-text-base min-h-screen">
@@ -58,16 +59,16 @@
       <ArrowLeftIcon />
     </Button>
     <h1 class="text-text-bright text-base font-semibold">
-      #{channel?.name ?? '…'} · Berechtigungen
+      {m.channel_permissions_heading({ name: channel?.name ?? '…' })}
     </h1>
   </header>
 
   <main class="mx-auto max-w-3xl px-4 py-6">
     {#if !guild || !channel}
-      <p class="text-text-muted text-sm">Kanal nicht gefunden.</p>
+      <p class="text-text-muted text-sm">{m.channel_permissions_channel_not_found()}</p>
     {:else if !canEdit}
       <p class="text-text-muted text-sm">
-        Du brauchst „Berechtigungen verwalten" (MANAGE_PERMISSIONS) für diese Community.
+        {m.channel_permissions_no_permission()}
       </p>
     {:else}
       <ChannelOverridesEditor {channelId} {guildId} {editorPermissions} />

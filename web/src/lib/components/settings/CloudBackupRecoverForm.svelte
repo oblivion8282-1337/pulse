@@ -7,6 +7,7 @@
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import { keyBackupState } from '$lib/identity/key-backup.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   interface Props {
     onSubmit: (password: string) => Promise<void>;
@@ -35,23 +36,23 @@
 
 <div class="flex flex-col gap-3">
   <p class="text-text-muted text-xs">
-    Gib dein Master-Passwort ein, um die Schlüssel aus dem Backup wiederherzustellen.
+    {m.cloud_backup_recover_form_intro()}
   </p>
 
   {#if warnOverwrite}
     <p class="text-amber-500 text-xs" role="note" data-testid="recover-overwrite-warn">
-      Dein aktuelles Keypair wird ersetzt.
+      {m.cloud_backup_recover_form_overwrite_warn()}
     </p>
   {/if}
 
   <div class="flex flex-col gap-1">
-    <label for="recover-pw" class="text-text-muted text-xs font-medium">Master-Passwort</label>
+    <label for="recover-pw" class="text-text-muted text-xs font-medium">{m.cloud_backup_recover_form_master_password_label()}</label>
     <div class="relative">
       <input
         id="recover-pw"
         type={showPassword ? 'text' : 'password'}
         bind:value={password}
-        placeholder="Master-Passwort eingeben"
+        placeholder={m.cloud_backup_recover_form_master_password_placeholder()}
         class="border-border bg-bg-input text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
         data-testid="recover-password-input"
       />
@@ -59,7 +60,7 @@
         type="button"
         onclick={() => (showPassword = !showPassword)}
         class="text-text-muted hover:text-text-base absolute right-3 top-1/2 -translate-y-1/2"
-        aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
+        aria-label={showPassword ? m.cloud_backup_recover_form_hide_password() : m.cloud_backup_recover_form_show_password()}
       >
         {#if showPassword}
           <EyeOffIcon class="size-4" />
@@ -84,9 +85,9 @@
       data-testid="recover-confirm-btn"
     >
       {#if busy || keyBackupState.decrypting}
-        <LoaderIcon class="mr-1 inline size-4 animate-spin" />Wird entschlüsselt…
+        <LoaderIcon class="mr-1 inline size-4 animate-spin" />{m.cloud_backup_recover_form_decrypting()}
       {:else}
-        Schlüssel wiederherstellen
+        {m.cloud_backup_recover_form_restore_btn()}
       {/if}
     </button>
     <button
@@ -95,7 +96,7 @@
       disabled={busy}
       class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 md:py-1.5"
     >
-      Abbrechen
+      {m.cloud_backup_recover_form_cancel_btn()}
     </button>
   </div>
 </div>

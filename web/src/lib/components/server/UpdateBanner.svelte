@@ -17,6 +17,7 @@
   import { goto } from '$app/navigation';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let active = $derived(activeServer.current);
   let snap = $derived(active ? serverState.get(active.id) : { state: 'idle' as const, helloMeta: null });
@@ -31,15 +32,15 @@
 
   function message(state: string, h: string): string {
     if (state === 'incompatible')
-      return `${h} läuft auf einer veralteten Version. Update läuft vermutlich, Reconnect-Versuch läuft.`;
+      return m.update_banner_incompatible({ host: h });
     if (state === 'updating')
-      return `${h} wird gerade aktualisiert, sollte in ~30 Sekunden wieder da sein.`;
+      return m.update_banner_updating({ host: h });
     if (state === 'starting')
-      return `${h} initialisiert noch (JWKS), gleich da.`;
+      return m.update_banner_starting({ host: h });
     if (state === 'mfa-required')
-      return `${h} verlangt MFA-Re-Auth. Bitte einmal über Cloud-Login neu authentifizieren.`;
+      return m.update_banner_mfa_required({ host: h });
     if (state === 'cors-blocked')
-      return `${h} blockt Cross-Origin-Verbindungen. Server-Admin muss CORS für unsere Domain einrichten.`;
+      return m.update_banner_cors_blocked({ host: h });
     return '';
   }
 
@@ -71,7 +72,7 @@
         onclick={() => goto('/login')}
         data-testid="update-banner-mfa-action"
       >
-        Zur Cloud-Login-Page
+        {m.update_banner_mfa_action()}
       </Button>
     {/if}
   </div>

@@ -11,6 +11,7 @@
   import { Dialog as DialogPrimitive } from 'bits-ui';
   import AutoRefreshImage from './AutoRefreshImage.svelte';
   import XIcon from '@lucide/svelte/icons/x';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = $bindable(false),
@@ -37,7 +38,7 @@
       data-testid="lightbox"
     >
       <DialogPrimitive.Title class="sr-only">
-        {filename ?? 'Bild-Vorschau'}
+        {filename ?? m.lightbox_image_preview()}
       </DialogPrimitive.Title>
 
       <AutoRefreshImage
@@ -52,7 +53,7 @@
           <button
             {...props}
             class="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
-            aria-label="Schließen"
+            aria-label={m.lightbox_close()}
             data-testid="lightbox-close"
           >
             <XIcon class="size-5" />

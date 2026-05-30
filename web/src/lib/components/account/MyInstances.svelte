@@ -8,6 +8,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type Instance } from '$lib/api/instances';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import DownloadIcon from '@lucide/svelte/icons/download';
@@ -35,7 +36,7 @@
     try {
       await instancesApi.downloadComposeSnippet(inst.id);
     } catch (e) {
-      toast.error('Download fehlgeschlagen', {
+      toast.error(m.my_instances_download_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -61,9 +62,9 @@
       <ServerIcon class="size-5" />
     </span>
     <div>
-      <h3 class="text-text-bright text-sm font-semibold">Meine Instanzen</h3>
+      <h3 class="text-text-bright text-sm font-semibold">{m.my_instances_title()}</h3>
       <p class="text-text-muted text-xs mt-0.5">
-        Deine freigeschalteten Self-Host-Server.
+        {m.my_instances_subtitle()}
       </p>
     </div>
   </div>
@@ -71,15 +72,14 @@
   <!-- Secret-Hinweis -->
   <div class="border-border bg-amber-500/10 flex gap-2 rounded-xl border border-amber-500/30 p-3">
     <p class="text-amber-200 text-xs leading-relaxed">
-      Dein Client-Secret wurde dir einmalig nach Genehmigung angezeigt.
-      Falls du es verloren hast, bitte einen Admin um eine Secret-Rotation.
+      {m.my_instances_secret_hint()}
     </p>
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">Lade…</p>
+    <p class="text-text-muted text-sm">{m.my_instances_loading()}</p>
   {:else if instances.length === 0}
-    <p class="text-text-muted text-sm">Noch keine Instanzen — ein genehmigter Antrag wird hier erscheinen.</p>
+    <p class="text-text-muted text-sm">{m.my_instances_empty()}</p>
   {:else}
     <div class="flex flex-col gap-2">
       {#each instances as inst (inst.id)}
@@ -95,7 +95,7 @@
               </p>
             </div>
             <span class="rounded-full px-2 py-0.5 text-xs font-medium shrink-0 {statusClass(inst.status)}">
-              {inst.status === 'active' ? 'Aktiv' : 'Gesperrt'}
+              {inst.status === 'active' ? m.my_instances_status_active() : m.my_instances_status_suspended()}
             </span>
           </div>
           <div class="flex gap-2 mt-1">
@@ -106,7 +106,7 @@
               class="flex items-center gap-1.5 rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright transition-colors disabled:opacity-60"
             >
               <DownloadIcon class="size-3.5" />
-              {downloading === inst.id ? 'Lädt…' : '.env-Snippet'}
+              {downloading === inst.id ? m.my_instances_downloading() : '.env-Snippet'}
             </button>
             <button
               type="button"
@@ -114,7 +114,7 @@
               class="flex items-center gap-1.5 rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright transition-colors"
             >
               <BookOpenIcon class="size-3.5" />
-              Anleitung
+              {m.my_instances_guide_button()}
             </button>
           </div>
         </div>
@@ -129,23 +129,23 @@
     <Dialog.Overlay />
     <Dialog.Content class="max-w-lg" data-testid="instance-guide-dialog">
       <Dialog.Header>
-        <Dialog.Title>Self-Host Setup</Dialog.Title>
+        <Dialog.Title>{m.my_instances_guide_title()}</Dialog.Title>
         <Dialog.Description>
           {guideInstance?.hostname ?? ''}
         </Dialog.Description>
       </Dialog.Header>
       <div class="flex flex-col gap-3 text-sm">
         <ol class="text-text-base flex flex-col gap-2 list-decimal list-inside">
-          <li>Lade das <strong class="text-text-bright">.env-Snippet</strong> herunter und trag dein Client-Secret ein.</li>
-          <li>Kopiere <code class="bg-bg-input rounded px-1 text-xs">infra/prod/</code> aus dem Pulse-Repo auf deinen Server.</li>
-          <li>Führe <code class="bg-bg-input rounded px-1 text-xs">docker compose up -d</code> aus.</li>
-          <li>Konfiguriere Caddy/nginx so, dass es auf <strong class="text-text-bright">{guideInstance?.hostname ?? 'deine-domain.tld'}</strong> zeigt.</li>
-          <li>Setze in der Pulse-Web-App <code class="bg-bg-input rounded px-1 text-xs">PULSE_CLOUD_ORIGIN=https://howispulse.com</code>.</li>
+          <li>{m.my_instances_guide_step1_before()} <strong class="text-text-bright">.env-Snippet</strong> {m.my_instances_guide_step1_after()}</li>
+          <li>{m.my_instances_guide_step2_before()} <code class="bg-bg-input rounded px-1 text-xs">infra/prod/</code> {m.my_instances_guide_step2_after()}</li>
+          <li>{m.my_instances_guide_step3_before()} <code class="bg-bg-input rounded px-1 text-xs">docker compose up -d</code> {m.my_instances_guide_step3_after()}</li>
+          <li>{m.my_instances_guide_step4_before()} <strong class="text-text-bright">{guideInstance?.hostname ?? 'deine-domain.tld'}</strong> {m.my_instances_guide_step4_after()}</li>
+          <li>{m.my_instances_guide_step5_before()} <code class="bg-bg-input rounded px-1 text-xs">PULSE_CLOUD_ORIGIN=https://howispulse.com</code>{m.my_instances_guide_step5_after()}</li>
         </ol>
         <p class="text-text-muted text-xs">
-          Worker-IDs (Chat/Voice/Media):
+          {m.my_instances_guide_worker_ids()}
           {guideInstance?.worker_id_chat}/{guideInstance?.worker_id_voice}/{guideInstance?.worker_id_media}
-          — eingetragen im .env-Snippet.
+          {m.my_instances_guide_worker_ids_suffix()}
         </p>
       </div>
       <div class="flex justify-end pt-2">
@@ -154,7 +154,7 @@
           onclick={() => (guideOpen = false)}
           class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium"
         >
-          Schließen
+          {m.my_instances_guide_close()}
         </button>
       </div>
     </Dialog.Content>

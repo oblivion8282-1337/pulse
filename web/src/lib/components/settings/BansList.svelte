@@ -14,6 +14,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { useGatewayListener } from '$lib/ws/useGatewayListener.svelte';
   import type { Ban } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -57,9 +58,9 @@
     try {
       await chatApi.unbanUser(guildId, userId);
       bans = bans.filter((b) => b.user_id !== userId);
-      toast.success('Sperre aufgehoben');
+      toast.success(m.bans_list_unban_success());
     } catch (err) {
-      toast.error('Aufheben fehlgeschlagen', {
+      toast.error(m.bans_list_unban_failed(), {
         description: err instanceof Error ? err.message : String(err)
       });
     } finally {
@@ -75,20 +76,18 @@
 
 <section class="space-y-4">
   <header class="space-y-1">
-    <h2 class="text-text-bright text-lg font-semibold">Sperrungen</h2>
+    <h2 class="text-text-bright text-lg font-semibold">{m.bans_list_title()}</h2>
     <p class="text-text-muted text-sm">
-      Gesperrte Benutzer können der Community nicht beitreten — weder per Invite
-      noch durch einen Mod-Add. Beim Sperren wird die laufende Mitgliedschaft
-      ebenfalls beendet.
+      {m.bans_list_description()}
     </p>
   </header>
 
   {#if loading}
-    <p class="text-text-muted text-sm">Lädt…</p>
+    <p class="text-text-muted text-sm">{m.bans_list_loading()}</p>
   {:else if error}
     <p class="text-sm text-red-400">{error}</p>
   {:else if bans.length === 0}
-    <p class="text-text-muted text-sm">Keine aktiven Sperrungen.</p>
+    <p class="text-text-muted text-sm">{m.bans_list_empty()}</p>
   {:else}
     <ul class="divide-border divide-y rounded-lg border">
       {#each bans as ban (ban.user_id)}
@@ -98,7 +97,7 @@
               {nameFor(ban.user_id)}
             </p>
             <p class="text-text-muted truncate text-xs">
-              Von {nameFor(ban.banned_by_id)} ·
+              {m.bans_list_banned_by({ name: nameFor(ban.banned_by_id) })} ·
               {new Date(ban.banned_at).toLocaleString()}
             </p>
             {#if ban.reason}
@@ -112,7 +111,7 @@
             disabled={!!working[ban.user_id]}
             data-testid="bans-unban-btn"
           >
-            {working[ban.user_id] ? '…' : 'Aufheben'}
+            {working[ban.user_id] ? '…' : m.bans_list_unban_button()}
           </Button>
         </li>
       {/each}

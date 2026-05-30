@@ -34,13 +34,14 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let password = $state('');
   let busy = $state(false);
   let errorMsg = $state<string | null>(null);
 
   const certId = $derived(page.url.searchParams.get('cert_id') ?? '');
-  const deviceLabel = $derived(page.url.searchParams.get('device_label') ?? 'Anderes Gerät');
+  const deviceLabel = $derived(page.url.searchParams.get('device_label') ?? m.recover_default_device_label());
 
   onMount(() => {
     if (!auth.isAuthenticated) {
@@ -71,7 +72,7 @@
     e.preventDefault();
     if (busy || !certId) return;
     if (password.length < 12) {
-      errorMsg = 'Master-Passwort muss mindestens 12 Zeichen lang sein.';
+      errorMsg = m.recover_error_password_too_short();
       return;
     }
     busy = true;
@@ -79,7 +80,7 @@
     try {
       const resp = await getBackup(certId);
       if (!resp) {
-        errorMsg = 'Backup ist nicht mehr verfügbar.';
+        errorMsg = m.recover_error_backup_unavailable();
         return;
       }
       const blob = reconstructBlob(resp);
@@ -91,15 +92,15 @@
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
       await keypairStore.load();
       resetRecoveryDecline();
-      toast.success('Recovery erfolgreich', {
-        description: 'Dein Schlüssel wurde aus dem Backup wiederhergestellt.',
+      toast.success(m.recover_toast_success_title(), {
+        description: m.recover_toast_success_description(),
       });
       await restart();
     } catch (err) {
       if (err instanceof BackupDecryptError) {
-        errorMsg = 'Falsches Master-Passwort oder defektes Backup.';
+        errorMsg = m.recover_error_wrong_password();
       } else {
-        errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler.';
+        errorMsg = err instanceof Error ? err.message : m.recover_error_unknown();
       }
     } finally {
       busy = false;
@@ -118,7 +119,7 @@
 </script>
 
 <svelte:head>
-  <title>Pulse · Wiederherstellen</title>
+  <title>{m.recover_page_title()}</title>
 </svelte:head>
 
 <div class="flex min-h-dvh items-center justify-center p-6">
@@ -126,22 +127,20 @@
     class="border-border bg-bg-input/40 w-full max-w-md rounded-2xl border p-6 shadow-lg"
     data-testid="recover-page"
   >
-    <h1 class="text-text-bright text-xl font-semibold">Cloud-Backup gefunden</h1>
+    <h1 class="text-text-bright text-xl font-semibold">{m.recover_heading()}</h1>
     <p class="text-text-muted mt-2 text-sm">
-      Auf <span class="text-text-bright font-medium">{deviceLabel}</span> wurde ein
-      verschlüsseltes Backup deiner Geräte-Schlüssel hinterlegt. Mit deinem
-      Master-Passwort kannst du dieselbe Identität auf diesem Gerät wiederherstellen.
+      {m.recover_description_before_device()}<span class="text-text-bright font-medium">{deviceLabel}</span>{m.recover_description_after_device()}
     </p>
 
     <form class="mt-5 flex flex-col gap-3" onsubmit={handleRecover}>
       <div class="flex flex-col gap-2">
-        <Label for="recover-password">Master-Passwort</Label>
+        <Label for="recover-password">{m.recover_label_master_password()}</Label>
         <Input
           id="recover-password"
           type="password"
           bind:value={password}
           autocomplete="current-password"
-          placeholder="Mindestens 12 Zeichen"
+          placeholder={m.recover_placeholder_password()}
           disabled={busy}
           data-testid="recover-password-input"
         />
@@ -152,16 +151,13 @@
       {/if}
 
       <Button type="submit" disabled={busy || password.length < 12} data-testid="recover-submit-btn">
-        {busy ? 'Stelle wieder her…' : 'Wiederherstellen'}
+        {busy ? m.recover_btn_recovering() : m.recover_btn_restore()}
       </Button>
     </form>
 
     <div class="border-border mt-6 border-t pt-4 text-sm">
       <p class="text-text-muted">
-        Master-Passwort vergessen? Du kannst auf diesem Gerät auch als
-        zusätzliches Gerät weitermachen — du behältst deinen Account, aber
-        Nachrichten-Historie und E2EE-Schlüssel des Original-Geräts bleiben
-        unzugänglich.
+        {m.recover_hint_forgot_password()}
       </p>
       <div class="mt-3 flex flex-col gap-2 sm:flex-row">
         <Button
@@ -170,7 +166,7 @@
           disabled={busy}
           data-testid="recover-decline-btn"
         >
-          Als neues Gerät weiter
+          {m.recover_btn_continue_as_new_device()}
         </Button>
         <Button
           variant="ghost"
@@ -178,7 +174,7 @@
           disabled={busy}
           data-testid="recover-signout-btn"
         >
-          Abmelden
+          {m.recover_btn_sign_out()}
         </Button>
       </div>
     </div>

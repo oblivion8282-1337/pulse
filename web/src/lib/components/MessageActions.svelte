@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import ReplyIcon from '@lucide/svelte/icons/reply';
   import SmilePlusIcon from '@lucide/svelte/icons/smile-plus';
@@ -47,8 +48,8 @@
           {...props}
           type="button"
           class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
-          title="Reaktion hinzufügen"
-          aria-label="Reaktion hinzufügen"
+          title={m.message_actions_add_reaction()}
+          aria-label={m.message_actions_add_reaction()}
           data-testid="message-action-react"
         >
           <SmilePlusIcon class="size-4" />
@@ -68,8 +69,8 @@
   <button
     type="button"
     class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
-    title="Antworten"
-    aria-label="Antworten"
+    title={m.message_actions_reply()}
+    aria-label={m.message_actions_reply()}
     data-testid="message-action-reply"
     onclick={onReply}
   >
@@ -80,8 +81,8 @@
     <button
       type="button"
       class="text-text-muted hover:bg-bg-hover hover:text-text-bright rounded-md p-1.5"
-      title="Bearbeiten"
-      aria-label="Bearbeiten"
+      title={m.message_actions_edit()}
+      aria-label={m.message_actions_edit()}
       data-testid="message-action-edit"
       onclick={onEdit}
     >
@@ -93,8 +94,8 @@
     <button
       type="button"
       class="text-text-muted hover:bg-bg-hover hover:text-red-400 rounded-md p-1.5"
-      title="Löschen"
-      aria-label="Löschen"
+      title={m.message_actions_delete()}
+      aria-label={m.message_actions_delete()}
       data-testid="message-action-delete"
       onclick={onDelete}
     >
@@ -106,8 +107,8 @@
     <button
       type="button"
       class="text-text-muted hover:bg-bg-hover hover:text-amber-400 rounded-md p-1.5"
-      title="Melden"
-      aria-label="Melden"
+      title={m.message_actions_report()}
+      aria-label={m.message_actions_report()}
       data-testid="message-action-report"
       onclick={onReport}
     >

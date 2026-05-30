@@ -21,6 +21,7 @@
   import { isElectron, isLinux, isWindows } from '$lib/platform/runtime';
   import ShortcutCheatsheet from './ShortcutCheatsheet.svelte';
   import QuickSwitcher from './QuickSwitcher.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let cheatsheetOpen = $state(false);
 
@@ -86,7 +87,7 @@
       }),
       register('stream.toggleHq', () => {
         if (!isElectron() || !(isLinux() || isWindows()) || !stream.gsrAvailable) {
-          toast.info('HQ-Stream nur in der Desktop-App verfügbar');
+          toast.info(m.shortcut_host_hq_stream_desktop_only());
           return;
         }
         if (stream.running) {
@@ -94,21 +95,21 @@
           return;
         }
         if (!voice.channelId) {
-          toast.info('Tritt erst einem Sprach-Channel bei, um zu streamen');
+          toast.info(m.shortcut_host_join_voice_to_stream());
           return;
         }
         uiOverlays.hqStreamDialogOpen = true;
       }),
       register('stream.toggleScreenshare', () => {
         if (!voice.connected) {
-          toast.info('Tritt erst einem Sprach-Channel bei, um zu teilen');
+          toast.info(m.shortcut_host_join_voice_to_share());
           return;
         }
         voice.toggleScreenShare();
       }),
       register('stream.highlightClip', () => {
         // Placeholder bis der 30s-Roll-Buffer in media-svc existiert (IDEAS.md #58).
-        toast.info('Highlight-Clip kommt — der 30s-Buffer im media-svc fehlt noch');
+        toast.info(m.shortcut_host_highlight_clip_coming());
       })
     ];
     return () => disposers.forEach((d) => d());

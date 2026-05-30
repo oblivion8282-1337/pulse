@@ -23,6 +23,7 @@
   import { formatRelative } from '$lib/utils/formatRelative';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { m } from '$lib/paraglide/messages.js';
 
   let devices = $state<CredentialDevice[]>([]);
   let loading = $state(true);
@@ -78,7 +79,7 @@
       const resp = await listCerts();
       devices = resp.devices;
     } catch (err) {
-      toast.error('Geräteliste laden fehlgeschlagen', {
+      toast.error(m.device_management_load_failed(), {
         description: (err as Error).message
       });
     } finally {
@@ -96,14 +97,14 @@
       await revokeCert(device.cert_id);
       devices = devices.filter((d) => d.cert_id !== device.cert_id);
       if (isCurrentDevice(device)) {
-        toast.success('Dieses Gerät wurde abgemeldet.');
+        toast.success(m.device_management_current_device_revoked());
         // Cert aus Store wischen — nächste Aktion triggert Re-Issue
         await certStore.wipe();
       } else {
-        toast.success(`"${device.device_label}" abgemeldet`);
+        toast.success(m.device_management_device_revoked({ label: device.device_label }));
       }
     } catch (err) {
-      toast.error('Abmelden fehlgeschlagen', {
+      toast.error(m.device_management_revoke_failed(), {
         description: (err as Error).message
       });
       void load();
@@ -118,19 +119,19 @@
   data-testid="device-management-section"
 >
   <div class="flex flex-col gap-1">
-    <h3 class="text-text-bright text-sm font-semibold">Erkannte Geräte</h3>
+    <h3 class="text-text-bright text-sm font-semibold">{m.device_management_title()}</h3>
     <p class="text-text-muted text-xs">
-      Geräte mit einem aktiven Identitäts-Cert. Unbekannte Geräte sofort abmelden.
+      {m.device_management_description()}
     </p>
   </div>
 
   {#if loading}
     <div class="text-text-muted flex items-center gap-2 text-xs">
       <LoaderIcon class="size-4 animate-spin" />
-      <span>Geräte werden geladen…</span>
+      <span>{m.device_management_loading()}</span>
     </div>
   {:else if devices.length === 0}
-    <div class="text-text-muted text-xs">Keine aktiven Geräte-Certs gefunden.</div>
+    <div class="text-text-muted text-xs">{m.device_management_empty()}</div>
   {:else}
     <ul class="flex flex-col gap-2" data-testid="device-list">
       {#each devices as device (device.cert_id)}
@@ -160,13 +161,13 @@
                     class="ml-1 inline-flex items-center rounded bg-emerald-500/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-500 md:px-1.5 md:py-0.5 md:text-[10px]"
                     data-testid="device-current-badge"
                   >
-                    Dieses Gerät
+                    {m.device_management_current_badge()}
                   </span>
                 {/if}
               </span>
 
               <span class="text-text-muted text-xs">
-                Ausgestellt {formatDate(device.issued_at)} · Läuft ab {formatRelative(device.expires_at)}
+                {m.device_management_issued_expires({ issued: formatDate(device.issued_at), expires: formatRelative(device.expires_at) })}
               </span>
 
               <!-- Backup-Status -->
@@ -176,21 +177,21 @@
                 class:text-amber-500={!device.has_backup}
                 data-testid="device-backup-status"
                 title={device.has_backup
-                  ? 'Backup vorhanden — Recovery möglich'
-                  : 'Kein Backup — bei Geräteverlust unwiderruflich'}
+                  ? m.device_management_backup_title_yes()
+                  : m.device_management_backup_title_no()}
               >
                 {#if device.has_backup}
                   <CloudCheckIcon
                     class="size-3 shrink-0"
                     aria-hidden="true"
                   />
-                  <span aria-label="Backup vorhanden — Recovery möglich">Backup vorhanden</span>
+                  <span aria-label={m.device_management_backup_title_yes()}>{m.device_management_backup_yes()}</span>
                 {:else}
                   <CloudOffIcon
                     class="size-3 shrink-0"
                     aria-hidden="true"
                   />
-                  <span aria-label="Kein Backup — bei Geräteverlust unwiderruflich">Kein Backup</span>
+                  <span aria-label={m.device_management_backup_title_no()}>{m.device_management_backup_no()}</span>
                 {/if}
               </span>
 
@@ -200,7 +201,7 @@
                   data-testid="device-expiry-warning"
                 >
                   <ShieldAlertIcon class="size-3" />
-                  Läuft bald ab — wird automatisch erneuert
+                  {m.device_management_expiry_warning()}
                 </span>
               {/if}
             </div>
@@ -213,7 +214,7 @@
             class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:self-auto md:py-1.5"
             data-testid="device-revoke"
           >
-            {revokingId === device.cert_id ? 'Abmelden…' : 'Abmelden'}
+            {revokingId === device.cert_id ? m.device_management_revoking() : m.device_management_revoke()}
           </button>
         </li>
       {/each}
@@ -224,26 +225,24 @@
 <AlertDialog.Root bind:open={dialogOpen}>
   <AlertDialog.Content data-testid="device-revoke-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Gerät abmelden?</AlertDialog.Title>
+      <AlertDialog.Title>{m.device_management_dialog_title()}</AlertDialog.Title>
       <AlertDialog.Description>
         {#if confirmDevice && isCurrentDevice(confirmDevice)}
-          Du meldest <strong>dieses Gerät</strong> ab. Du wirst sofort ausgeloggt und
-          musst dich erneut anmelden.
+          {m.device_management_dialog_body_current_pre()}<strong>{m.device_management_dialog_body_current_strong()}</strong>{m.device_management_dialog_body_current_post()}
         {:else}
-          Das Gerät <strong>{confirmDevice?.device_label ?? ''}</strong> verliert den
-          Zugriff auf dein Konto. Aktive Sessions auf diesem Gerät werden ungültig.
+          {m.device_management_dialog_body_other_pre()}<strong>{confirmDevice?.device_label ?? ''}</strong>{m.device_management_dialog_body_other_post()}
         {/if}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={revokingId !== null}>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel disabled={revokingId !== null}>{m.device_management_cancel()}</AlertDialog.Cancel>
       <Button
         variant="destructive"
         onclick={() => confirmDevice && handleRevoke(confirmDevice)}
         disabled={revokingId !== null}
         data-testid="device-revoke-confirm"
       >
-        {revokingId !== null ? 'Abmelden…' : 'Abmelden'}
+        {revokingId !== null ? m.device_management_revoking() : m.device_management_revoke()}
       </Button>
     </AlertDialog.Footer>
   </AlertDialog.Content>

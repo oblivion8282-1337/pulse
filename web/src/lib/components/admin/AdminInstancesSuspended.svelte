@@ -5,6 +5,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminInstancesApi, type AdminInstance } from '$lib/api/instances';
+  import { m } from '$lib/paraglide/messages.js';
 
   let instances = $state<AdminInstance[]>([]);
   let loading = $state(true);
@@ -30,9 +31,9 @@
     try {
       await adminInstancesApi.unsuspendInstance(inst.id);
       instances = instances.filter((i) => i.id !== inst.id);
-      toast.success(`Instanz ${inst.hostname} entsperrt.`);
+      toast.success(m.admin_instances_suspended_unsuspend_success({ hostname: inst.hostname }));
     } catch (e) {
-      toast.error('Entsperren fehlgeschlagen', {
+      toast.error(m.admin_instances_suspended_unsuspend_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -42,11 +43,11 @@
 </script>
 
 {#if loading}
-  <p class="text-text-muted text-sm">Lade…</p>
+  <p class="text-text-muted text-sm">{m.admin_instances_suspended_loading()}</p>
 {:else if loadError}
-  <p class="text-red-400 text-sm">Fehler: {loadError}</p>
+  <p class="text-red-400 text-sm">{m.admin_instances_suspended_load_error({ error: loadError })}</p>
 {:else if instances.length === 0}
-  <p class="text-text-muted text-sm">Keine gesperrten Instanzen.</p>
+  <p class="text-text-muted text-sm">{m.admin_instances_suspended_empty()}</p>
 {:else}
   <div class="flex flex-col gap-2">
     {#each instances as inst (inst.id)}
@@ -64,7 +65,7 @@
           disabled={!!busy[inst.id]}
           class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white font-medium hover:bg-emerald-500 disabled:opacity-60 transition-colors shrink-0"
         >
-          {busy[inst.id] ? 'Wird entsperrt…' : 'Entsperren'}
+          {busy[inst.id] ? m.admin_instances_suspended_unsuspending() : m.admin_instances_suspended_unsuspend_button()}
         </button>
       </div>
     {/each}

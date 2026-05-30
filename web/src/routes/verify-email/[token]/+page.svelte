@@ -12,6 +12,7 @@
   import MailCheckIcon from '@lucide/svelte/icons/mail-check';
   import Loader2Icon from '@lucide/svelte/icons/loader-2';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Status = 'pending' | 'ok' | 'error';
   let status = $state<Status>('pending');
@@ -24,7 +25,7 @@
   onMount(async () => {
     if (!token) {
       status = 'error';
-      error = 'Kein gültiger Token in der URL.';
+      error = m.verify_email_invalid_token();
       return;
     }
     try {
@@ -67,9 +68,9 @@
 
 <div class="flex min-h-dvh">
   <AuthBrandPanel
-    headline="Email-Bestätigung."
-    description="Wir verifizieren deine Adresse — gleich kannst du wieder loslegen."
-    features={['Single-Use-Link', 'Verfällt nach 24 h', 'Schützt vor Account-Übernahme']}
+    headline={m.verify_email_brand_headline()}
+    description={m.verify_email_brand_description()}
+    features={[m.verify_email_feature_single_use(), m.verify_email_feature_expires(), m.verify_email_feature_protection()]}
   />
 
   <div class="flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]">
@@ -83,8 +84,8 @@
         >
           <Loader2Icon class="text-primary size-7 motion-safe:animate-spin" />
         </div>
-        <h1 class="text-card-foreground text-2xl font-semibold">Email wird bestätigt…</h1>
-        <p class="text-muted-foreground text-sm">Einen Moment, wir prüfen den Link.</p>
+        <h1 class="text-card-foreground text-2xl font-semibold">{m.verify_email_pending_title()}</h1>
+        <p class="text-muted-foreground text-sm">{m.verify_email_pending_subtitle()}</p>
       {:else if status === 'ok'}
         <div
           class="bg-bg-input mx-auto flex size-14 items-center justify-center rounded-full"
@@ -92,23 +93,23 @@
           <MailCheckIcon class="text-primary size-7" />
         </div>
         <h1 class="text-card-foreground text-2xl font-semibold" data-testid="verify-email-ok">
-          Email bestätigt!
+          {m.verify_email_ok_title()}
         </h1>
-        <p class="text-muted-foreground text-sm">Du kannst jetzt loslegen.</p>
+        <p class="text-muted-foreground text-sm">{m.verify_email_ok_subtitle()}</p>
         <Button class="w-full" onclick={continueToApp} data-testid="verify-email-continue">
-          Weiter zur App
+          {m.verify_email_continue_button()}
         </Button>
       {:else}
         <Alert.Root variant="destructive" data-testid="verify-email-error">
           <OctagonXIcon />
           <Alert.Description>
-            {error ?? 'Link abgelaufen oder ungültig.'}
+            {error ?? m.verify_email_link_invalid()}
           </Alert.Description>
         </Alert.Root>
         {#if auth.isAuthenticated}
           {#if resent}
             <p class="text-text-muted text-sm" data-testid="verify-email-resent">
-              Neuer Link verschickt — schau in dein Postfach.
+              {m.verify_email_resent_message()}
             </p>
           {:else}
             <Button
@@ -117,13 +118,12 @@
               disabled={resending}
               data-testid="verify-email-resend"
             >
-              {resending ? 'Senden…' : 'Neuen Link anfordern'}
+              {resending ? m.verify_email_resend_sending() : m.verify_email_resend_button()}
             </Button>
           {/if}
         {:else}
           <p class="text-muted-foreground text-sm">
-            <a class="text-primary hover:underline" href="/login">Anmelden</a>, um einen neuen
-            Link anzufordern.
+            <a class="text-primary hover:underline" href="/login">{m.verify_email_sign_in_link()}</a>, {m.verify_email_sign_in_hint()}
           </p>
         {/if}
       {/if}

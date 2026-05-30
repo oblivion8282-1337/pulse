@@ -14,6 +14,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
+  import { m } from '$lib/paraglide/messages.js';
 
   let current = $state<Permissions | null>(null);
   let busy = $state<{ allow_guild_creation: boolean; allow_member_invites: boolean }>({
@@ -43,9 +44,9 @@
     try {
       const updated = await adminApi.patchPermissions({ [field]: next });
       current = updated;
-      toast.success('Berechtigung aktualisiert');
+      toast.success(m.admin_permissions_permission_updated());
     } catch (e) {
-      toast.error('Speichern fehlgeschlagen', {
+      toast.error(m.admin_permissions_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -59,7 +60,7 @@
     // Backend accepts 4096 (4 KB) – 5 * 1024 * 1024 (5 MB). Mirror here
     // so the toast tells the user *before* the round-trip what the cap is.
     if (!Number.isFinite(kb) || kb < 4 || kb > 5120) {
-      toast.error('Ungültiger Wert', { description: 'Bitte 4 – 5120 KB.' });
+      toast.error(m.admin_permissions_invalid_value(), { description: m.admin_permissions_invalid_value_desc() });
       return;
     }
     soundLimitBusy = true;
@@ -69,9 +70,9 @@
       });
       current = updated;
       soundLimitKb = Math.round(updated.guild_sound_max_size_bytes / 1024);
-      toast.success('Größenlimit gespeichert');
+      toast.success(m.admin_permissions_size_limit_saved());
     } catch (e) {
-      toast.error('Speichern fehlgeschlagen', {
+      toast.error(m.admin_permissions_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -107,34 +108,32 @@
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-permissions">
   <div class="mb-4">
-    <h2 class="text-text-bright text-base font-semibold">Berechtigungen</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.admin_permissions_title()}</h2>
     <p class="text-text-muted text-xs mt-0.5">
-      Was normale User dürfen. Admins (du selbst) sind von der Community-Erstellungs-Sperre
-      ausgenommen; Einladungen sind hart auf den jeweiligen Community-Owner beschränkt.
+      {m.admin_permissions_description()}
     </p>
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-red-400 text-sm">{m.admin_permissions_load_error({ error })}</p>
   {:else if current}
     <div class="flex flex-col gap-2">
       {@render toggleRow(
         'allow_guild_creation',
-        'Community-Erstellung',
-        'Wenn aus, können nur Admins über das „+"-Symbol eine neue Community erstellen.'
+        m.admin_permissions_guild_creation_label(),
+        m.admin_permissions_guild_creation_desc()
       )}
       {@render toggleRow(
         'allow_member_invites',
-        'Einladungen verschicken',
-        'Wenn aus, kann nur der Community-Owner Einladungs-Codes für seine Community erstellen.'
+        m.admin_permissions_member_invites_label(),
+        m.admin_permissions_member_invites_desc()
       )}
 
       <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
-          <div class="text-text-bright text-sm font-medium">Sound-Upload-Limit pro Datei</div>
+          <div class="text-text-bright text-sm font-medium">{m.admin_permissions_sound_limit_label()}</div>
           <div class="text-text-muted text-xs mt-0.5">
-            Maximale Größe einer hochgeladenen Sound-Datei pro Community.
-            Gilt für jede Sound-ID einzeln (13 Slots × Limit). 4 – 5120 KB.
+            {m.admin_permissions_sound_limit_desc()}
           </div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
@@ -146,7 +145,7 @@
             bind:value={soundLimitKb}
             class="w-24 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="sound-limit-input"
-            aria-label="Maximalgröße in KB"
+            aria-label={m.admin_permissions_sound_limit_aria()}
           />
           <span class="text-text-muted text-xs">KB</span>
           <button
@@ -156,12 +155,12 @@
             class="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
             data-testid="sound-limit-save"
           >
-            Speichern
+            {m.admin_permissions_save_button()}
           </button>
         </div>
       </div>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_permissions_loading()}</div>
   {/if}
 </section>

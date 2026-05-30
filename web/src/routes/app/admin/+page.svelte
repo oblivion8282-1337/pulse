@@ -25,6 +25,7 @@
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import { m } from '$lib/paraglide/messages.js';
 
   // Self-Host-Instanzen verwalten (Anträge genehmigen/sperren) ist eine reine
   // Cloud-Funktion — nur howispulse.com entscheidet, wer self-hosten darf. Auf
@@ -65,15 +66,15 @@
         <button
           type="button"
           class="text-text-muted hover:text-text-bright rounded-lg p-1.5 hover:bg-bg-hover"
-          aria-label="Zurück"
+          aria-label={m.admin_page_back()}
           onclick={() => goto('/app/@me')}
           data-testid="admin-back"
         >
           <ArrowLeftIcon class="size-4" />
         </button>
         <div>
-          <h1 class="text-text-bright text-lg font-semibold">Server-Admin</h1>
-          <p class="text-text-muted text-xs">Globale Einstellungen für deinen Pulse-Server</p>
+          <h1 class="text-text-bright text-lg font-semibold">{m.admin_page_title()}</h1>
+          <p class="text-text-muted text-xs">{m.admin_page_subtitle()}</p>
         </div>
       </div>
     </header>

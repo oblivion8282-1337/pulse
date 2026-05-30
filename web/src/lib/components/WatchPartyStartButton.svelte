@@ -18,6 +18,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { gateway } from '$lib/ws/connection';
   import { parseSource } from '$lib/watch/source';
+  import { m } from '$lib/paraglide/messages.js';
 
   interface Props {
     channelId: string;
@@ -46,8 +47,8 @@
     if (!parsed) return;
     const ok = gateway.startWatchParty(channelId, url.trim());
     if (!ok) {
-      toast.error('Watch Party konnte nicht gestartet werden', {
-        description: 'WebSocket nicht verbunden'
+      toast.error(m.watch_party_start_button_start_failed(), {
+        description: m.watch_party_start_button_ws_not_connected()
       });
       return;
     }
@@ -81,7 +82,7 @@
           class="size-9 md:size-8"
           onclick={handleClick}
           disabled={active && !isHost}
-          aria-label={active && isHost ? 'Watch Party beenden' : 'Watch Party starten'}
+          aria-label={active && isHost ? m.watch_party_start_button_stop_label() : m.watch_party_start_button_start_label()}
           data-testid={active && isHost ? 'watch-party-stop-button' : 'watch-party-start-button'}
         >
           {#if active && isHost}
@@ -95,9 +96,9 @@
     <Tooltip.Content>
       {active
         ? isHost
-          ? 'Watch Party beenden'
-          : 'Watch Party läuft bereits'
-        : 'Watch Party starten'}
+          ? m.watch_party_start_button_stop_label()
+          : m.watch_party_start_button_already_running()
+        : m.watch_party_start_button_start_label()}
     </Tooltip.Content>
   </Tooltip.Root>
 </Tooltip.Provider>
@@ -105,9 +106,9 @@
 <Dialog.Root bind:open>
   <Dialog.Content class="max-w-md" data-testid="watch-party-dialog">
     <Dialog.Header>
-      <Dialog.Title>Watch Party starten</Dialog.Title>
+      <Dialog.Title>{m.watch_party_start_button_dialog_title()}</Dialog.Title>
       <Dialog.Description>
-        YouTube, Twitch (VOD oder Live-Kanal) oder ein direkter mp4/webm/m3u8-Link.
+        {m.watch_party_start_button_dialog_description()}
       </Dialog.Description>
     </Dialog.Header>
     <div class="flex flex-col gap-2 py-2">
@@ -122,7 +123,7 @@
       <div class="text-xs">
         {#if showParseError}
           <span class="text-red-400" data-testid="watch-party-parse-error">
-            URL nicht unterstützt
+            {m.watch_party_start_button_url_unsupported()}
           </span>
         {:else if parsed}
           <span class="text-text-muted" data-testid="watch-party-parse-ok">
@@ -131,18 +132,18 @@
               : parsed.type === 'twitch'
                 ? 'Twitch VOD'
                 : parsed.type === 'twitch_live'
-                  ? `Twitch Live · ${parsed.channel} (kein Sync — alle gucken die Live-Edge)`
-                  : 'Direkt-Video'}
+                  ? m.watch_party_start_button_twitch_live({ channel: parsed.channel })
+                  : m.watch_party_start_button_direct_video()}
           </span>
         {:else}
           <span class="text-text-muted">
-            YouTube, Twitch (VOD/Live) oder mp4/webm/m3u8-Link
+            {m.watch_party_start_button_url_hint()}
           </span>
         {/if}
       </div>
     </div>
     <Dialog.Footer>
-      <Button variant="ghost" onclick={() => (open = false)}>Abbrechen</Button>
+      <Button variant="ghost" onclick={() => (open = false)}>{m.watch_party_start_button_cancel()}</Button>
       <Button
         onclick={start}
         disabled={!parsed}

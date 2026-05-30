@@ -9,61 +9,62 @@
 -->
 <script lang="ts">
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Group = { title: string; entries: { perm: Permission; label: string; desc: string }[] };
 
   const groups: Group[] = [
     {
-      title: 'Community-Administration',
+      title: m.permission_toggle_grid_group_community_admin(),
       entries: [
-        { perm: Perm.MANAGE_GUILD, label: 'Community verwalten', desc: 'Name, Bild, Settings ändern.' },
-        { perm: Perm.MANAGE_CHANNELS, label: 'Kanäle verwalten', desc: 'Kanäle anlegen, umbenennen, löschen.' },
-        { perm: Perm.MANAGE_ROLES, label: 'Rollen verwalten', desc: 'Rollen anlegen, editieren, zuweisen.' },
-        { perm: Perm.MANAGE_PERMISSIONS, label: 'Kanal-Berechtigungen', desc: 'Channel-Overrides pro Rolle/User editieren.' },
-        { perm: Perm.MANAGE_INVITES, label: 'Einladungen verwalten', desc: 'Fremde Einladungen widerrufen.' }
+        { perm: Perm.MANAGE_GUILD, label: m.permission_toggle_grid_label_manage_guild(), desc: m.permission_toggle_grid_desc_manage_guild() },
+        { perm: Perm.MANAGE_CHANNELS, label: m.permission_toggle_grid_label_manage_channels(), desc: m.permission_toggle_grid_desc_manage_channels() },
+        { perm: Perm.MANAGE_ROLES, label: m.permission_toggle_grid_label_manage_roles(), desc: m.permission_toggle_grid_desc_manage_roles() },
+        { perm: Perm.MANAGE_PERMISSIONS, label: m.permission_toggle_grid_label_manage_permissions(), desc: m.permission_toggle_grid_desc_manage_permissions() },
+        { perm: Perm.MANAGE_INVITES, label: m.permission_toggle_grid_label_manage_invites(), desc: m.permission_toggle_grid_desc_manage_invites() }
       ]
     },
     {
-      title: 'Mitglieder',
+      title: m.permission_toggle_grid_group_members(),
       entries: [
-        { perm: Perm.KICK_MEMBERS, label: 'Mitglieder rauswerfen', desc: 'Member aus der Community kicken.' },
-        { perm: Perm.BAN_MEMBERS, label: 'Mitglieder bannen', desc: 'Member dauerhaft sperren.' },
-        { perm: Perm.CHANGE_NICKNAME, label: 'Eigenen Nick ändern', desc: 'Eigenen Anzeigenamen setzen.' },
-        { perm: Perm.MANAGE_NICKNAMES, label: 'Andere Nicks ändern', desc: 'Anzeigenamen anderer setzen.' }
+        { perm: Perm.KICK_MEMBERS, label: m.permission_toggle_grid_label_kick_members(), desc: m.permission_toggle_grid_desc_kick_members() },
+        { perm: Perm.BAN_MEMBERS, label: m.permission_toggle_grid_label_ban_members(), desc: m.permission_toggle_grid_desc_ban_members() },
+        { perm: Perm.CHANGE_NICKNAME, label: m.permission_toggle_grid_label_change_nickname(), desc: m.permission_toggle_grid_desc_change_nickname() },
+        { perm: Perm.MANAGE_NICKNAMES, label: m.permission_toggle_grid_label_manage_nicknames(), desc: m.permission_toggle_grid_desc_manage_nicknames() }
       ]
     },
     {
-      title: 'Kanäle',
+      title: m.permission_toggle_grid_group_channels(),
       entries: [
-        { perm: Perm.VIEW_CHANNEL, label: 'Kanal ansehen', desc: 'Pflicht: ohne dieses Bit greift nichts darunter.' },
-        { perm: Perm.READ_HISTORY, label: 'Nachrichten-Verlauf lesen', desc: 'Ältere Nachrichten sichtbar.' },
-        { perm: Perm.SEND_MESSAGES, label: 'Nachrichten senden', desc: 'In Text-Kanälen posten.' },
-        { perm: Perm.MANAGE_MESSAGES, label: 'Nachrichten moderieren', desc: 'Fremde Nachrichten löschen.' },
-        { perm: Perm.ATTACH_FILES, label: 'Dateien anhängen', desc: 'Bilder + Files mitschicken.' },
-        { perm: Perm.ADD_REACTIONS, label: 'Reaktionen', desc: 'Emoji-Reactions setzen.' },
-        { perm: Perm.CREATE_INVITES, label: 'Einladungen erstellen', desc: 'Invite-Links generieren.' },
-        { perm: Perm.MENTION_EVERYONE, label: '@everyone erwähnen', desc: 'Den Community-weiten Mention auslösen.' }
+        { perm: Perm.VIEW_CHANNEL, label: m.permission_toggle_grid_label_view_channel(), desc: m.permission_toggle_grid_desc_view_channel() },
+        { perm: Perm.READ_HISTORY, label: m.permission_toggle_grid_label_read_history(), desc: m.permission_toggle_grid_desc_read_history() },
+        { perm: Perm.SEND_MESSAGES, label: m.permission_toggle_grid_label_send_messages(), desc: m.permission_toggle_grid_desc_send_messages() },
+        { perm: Perm.MANAGE_MESSAGES, label: m.permission_toggle_grid_label_manage_messages(), desc: m.permission_toggle_grid_desc_manage_messages() },
+        { perm: Perm.ATTACH_FILES, label: m.permission_toggle_grid_label_attach_files(), desc: m.permission_toggle_grid_desc_attach_files() },
+        { perm: Perm.ADD_REACTIONS, label: m.permission_toggle_grid_label_add_reactions(), desc: m.permission_toggle_grid_desc_add_reactions() },
+        { perm: Perm.CREATE_INVITES, label: m.permission_toggle_grid_label_create_invites(), desc: m.permission_toggle_grid_desc_create_invites() },
+        { perm: Perm.MENTION_EVERYONE, label: m.permission_toggle_grid_label_mention_everyone(), desc: m.permission_toggle_grid_desc_mention_everyone() }
       ]
     },
     {
-      title: 'Sprache / Stream',
+      title: m.permission_toggle_grid_group_voice_stream(),
       entries: [
-        { perm: Perm.CONNECT, label: 'Voice betreten', desc: 'Voice-Kanal joinen.' },
-        { perm: Perm.SPEAK, label: 'Sprechen', desc: 'Mic-Audio senden.' },
-        { perm: Perm.STREAM, label: 'HQ-Stream / Screenshare', desc: 'Eigenen Bildschirm pushen.' },
-        { perm: Perm.USE_VIDEO, label: 'Kamera', desc: 'Eigene Webcam im Voice-Channel teilen.' },
-        { perm: Perm.MUTE_MEMBERS, label: 'Mute Members', desc: 'Andere im Voice muten.' },
-        { perm: Perm.DEAFEN_MEMBERS, label: 'Deafen Members', desc: 'Andere im Voice taub stellen.' },
-        { perm: Perm.MOVE_MEMBERS, label: 'Move Members', desc: 'Andere zwischen Voice-Channels verschieben.' }
+        { perm: Perm.CONNECT, label: m.permission_toggle_grid_label_connect(), desc: m.permission_toggle_grid_desc_connect() },
+        { perm: Perm.SPEAK, label: m.permission_toggle_grid_label_speak(), desc: m.permission_toggle_grid_desc_speak() },
+        { perm: Perm.STREAM, label: m.permission_toggle_grid_label_stream(), desc: m.permission_toggle_grid_desc_stream() },
+        { perm: Perm.USE_VIDEO, label: m.permission_toggle_grid_label_use_video(), desc: m.permission_toggle_grid_desc_use_video() },
+        { perm: Perm.MUTE_MEMBERS, label: m.permission_toggle_grid_label_mute_members(), desc: m.permission_toggle_grid_desc_mute_members() },
+        { perm: Perm.DEAFEN_MEMBERS, label: m.permission_toggle_grid_label_deafen_members(), desc: m.permission_toggle_grid_desc_deafen_members() },
+        { perm: Perm.MOVE_MEMBERS, label: m.permission_toggle_grid_label_move_members(), desc: m.permission_toggle_grid_desc_move_members() }
       ]
     },
     {
-      title: 'Admin-Übermacht',
+      title: m.permission_toggle_grid_group_admin_override(),
       entries: [
         {
           perm: Perm.ADMINISTRATOR,
-          label: 'Administrator',
-          desc: 'Bypass: alle Permissions implizit gesetzt. Nur an vertraute Rollen geben.'
+          label: m.permission_toggle_grid_label_administrator(),
+          desc: m.permission_toggle_grid_desc_administrator()
         }
       ]
     }
@@ -116,7 +117,7 @@
               <div class="text-text-bright text-sm font-medium">{e.label}</div>
               <div class="text-text-muted text-xs">{e.desc}</div>
               {#if !allowed}
-                <div class="mt-0.5 text-xs text-amber-500">Du hast diese Permission selbst nicht.</div>
+                <div class="mt-0.5 text-xs text-amber-500">{m.permission_toggle_grid_editor_missing_perm()}</div>
               {/if}
             </div>
             <input

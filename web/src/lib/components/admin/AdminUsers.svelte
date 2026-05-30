@@ -10,6 +10,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Popover as PopoverPrimitive } from 'bits-ui';
@@ -47,7 +48,7 @@
       users = [...users, ...more];
       hasMore = more.length === 50;
     } catch (e) {
-      toast.error('Nachladen fehlgeschlagen', {
+      toast.error(m.admin_users_load_more_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     }
@@ -58,12 +59,12 @@
     try {
       const updated = await adminApi.patchUser(u.id, { [field]: next });
       users = users.map((x) => (x.id === u.id ? updated : x));
-      toast.success(field === 'is_admin' ? 'Admin-Status aktualisiert' : 'Sperre aktualisiert');
+      toast.success(field === 'is_admin' ? m.admin_users_admin_status_updated() : m.admin_users_ban_updated());
     } catch (e) {
       // Errors from the safety nets (last admin, self-disable) bubble through
       // here with the server's German-friendly detail — surface it raw.
       const msg = e instanceof Error ? e.message : String(e);
-      toast.error('Änderung abgelehnt', { description: msg });
+      toast.error(m.admin_users_change_rejected(), { description: msg });
     } finally {
       pendingId = null;
     }
@@ -74,16 +75,16 @@
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-users">
   <div class="mb-4">
-    <h2 class="text-text-bright text-base font-semibold">User-Verwaltung</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.admin_users_title()}</h2>
     <p class="text-text-muted text-xs mt-0.5">
-      Admin-Rechte vergeben oder Accounts deaktivieren. Deaktivierung trennt aktive Sessions.
+      {m.admin_users_description()}
     </p>
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-red-400 text-sm">{m.admin_users_error({ message: error ?? '' })}</p>
   {:else if loading}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_users_loading()}</div>
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border">
       {#each users as u (u.id)}
@@ -101,7 +102,7 @@
           <div class="min-w-0 flex-1">
             <div class="text-text-bright flex items-center gap-2 truncate text-sm font-medium">
               {u.display_name ?? u.username}
-              {#if me}<span class="text-text-muted text-xs">(du)</span>{/if}
+              {#if me}<span class="text-text-muted text-xs">{m.admin_users_you()}</span>{/if}
             </div>
             <div class="text-text-muted truncate text-xs">@{u.username} · {u.email}</div>
           </div>
@@ -112,7 +113,7 @@
                 class="bg-primary/15 text-primary rounded-md px-2 py-0.5 text-xs font-medium"
                 data-testid="badge-admin"
               >
-                Admin
+                {m.admin_users_badge_admin()}
               </span>
             {/if}
             {#if u.disabled}
@@ -120,7 +121,7 @@
                 class="rounded-md bg-red-500/15 px-2 py-0.5 text-xs font-medium text-red-400"
                 data-testid="badge-disabled"
               >
-                Gesperrt
+                {m.admin_users_badge_disabled()}
               </span>
             {/if}
           </div>
@@ -131,7 +132,7 @@
                 <button
                   {...props}
                   class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
-                  aria-label="Aktionen"
+                  aria-label={m.admin_users_actions_aria_label()}
                   disabled={pendingId === u.id}
                   data-testid="admin-user-actions"
                 >
@@ -152,7 +153,7 @@
                   data-testid="toggle-admin-btn"
                 >
                   <ShieldIcon class="size-4" />
-                  {u.is_admin ? 'Admin-Recht entziehen' : 'Zum Admin machen'}
+                  {u.is_admin ? m.admin_users_revoke_admin() : m.admin_users_make_admin()}
                 </button>
                 <button
                   type="button"
@@ -161,7 +162,7 @@
                   data-testid="toggle-disabled-btn"
                 >
                   <BanIcon class="size-4" />
-                  {u.disabled ? 'Sperre aufheben' : 'Account sperren'}
+                  {u.disabled ? m.admin_users_unban() : m.admin_users_ban()}
                 </button>
               </PopoverPrimitive.Content>
             </PopoverPrimitive.Portal>
@@ -173,7 +174,7 @@
     {#if hasMore}
       <div class="mt-3 flex justify-center">
         <Button variant="secondary" onclick={loadMore} data-testid="admin-users-more">
-          Mehr laden
+          {m.admin_users_load_more()}
         </Button>
       </div>
     {/if}

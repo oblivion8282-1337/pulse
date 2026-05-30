@@ -10,6 +10,7 @@
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { children } = $props();
   let hydrated = $state(false);
@@ -30,14 +31,14 @@
   });
 </script>
 
-<svelte:head><title>Pulse — Watch Party</title></svelte:head>
+<svelte:head><title>{m.watch_popup_page_title()}</title></svelte:head>
 
 <div class="h-dvh w-screen bg-black text-text-base">
   {#if hydrated}
     {@render children?.()}
   {:else}
     <div class="flex h-full w-full items-center justify-center text-text-muted text-sm">
-      Lade Watch Party…
+      {m.watch_popup_loading()}
     </div>
   {/if}
 </div>

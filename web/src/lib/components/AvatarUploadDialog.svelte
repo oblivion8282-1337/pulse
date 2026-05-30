@@ -5,6 +5,7 @@
   import { uploadAvatar } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -54,7 +55,7 @@
       previewUrl = URL.createObjectURL(processed);
     } catch (err) {
       file = null;
-      toast.error('Bild konnte nicht verarbeitet werden', { description: (err as Error).message });
+      toast.error(m.avatar_upload_dialog_image_process_error(), { description: (err as Error).message });
     }
   }
 
@@ -76,12 +77,12 @@
           }
         ]);
       }
-      toast.success('Profilbild aktualisiert');
+      toast.success(m.avatar_upload_dialog_avatar_updated());
       open = false;
       file = null;
       if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null; }
     } catch (e) {
-      toast.error('Upload fehlgeschlagen', { description: (e as Error).message });
+      toast.error(m.avatar_upload_dialog_upload_failed(), { description: (e as Error).message });
     } finally {
       busy = false;
     }
@@ -101,21 +102,21 @@
     <Dialog.Overlay />
     <Dialog.Content data-testid="avatar-upload-dialog">
       <Dialog.Header>
-        <Dialog.Title>Profilbild ändern</Dialog.Title>
-        <Dialog.Description>PNG, JPEG oder WebP, max. 5 MB.</Dialog.Description>
+        <Dialog.Title>{m.avatar_upload_dialog_title()}</Dialog.Title>
+        <Dialog.Description>{m.avatar_upload_dialog_description()}</Dialog.Description>
       </Dialog.Header>
 
       <div class="flex flex-col items-center gap-4 py-4">
         {#if previewUrl}
           <img
             src={previewUrl}
-            alt="Vorschau"
+            alt={m.avatar_upload_dialog_preview_alt()}
             class="size-24 rounded-full object-cover ring-2 ring-primary"
           />
         {/if}
         <label class="cursor-pointer">
           <span class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-1.5 text-sm transition-colors">
-            Datei auswählen
+            {m.avatar_upload_dialog_choose_file()}
           </span>
           <input
             type="file"
@@ -132,10 +133,10 @@
 
       <Dialog.Footer>
         <Button variant="secondary" onclick={() => onOpenChange(false)} disabled={busy}>
-          Abbrechen
+          {m.avatar_upload_dialog_cancel()}
         </Button>
         <Button onclick={upload} disabled={!file || busy} data-testid="avatar-upload-confirm">
-          {busy ? 'Hochladen…' : 'Hochladen'}
+          {busy ? m.avatar_upload_dialog_uploading() : m.avatar_upload_dialog_upload()}
         </Button>
       </Dialog.Footer>
     </Dialog.Content>

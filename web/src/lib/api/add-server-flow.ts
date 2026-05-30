@@ -14,6 +14,7 @@
  * NIEMALS session_token loggen.
  */
 
+import { m } from '$lib/paraglide/messages.js';
 import { request, type RequestOpts } from './client';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
@@ -61,7 +62,7 @@ export async function addServerWithCertLogin(args: {
       invite = await acceptInvite(args.inviteCode, { serverId: entry.id });
     } catch (e) {
       // Server bleibt — der User hat einen funktionierenden Account dort.
-      inviteError = (e as Error).message ?? 'Invite fehlgeschlagen';
+      inviteError = (e as Error).message ?? m.add_server_flow_invite_failed();
     }
   }
   return { entry, invite, inviteError };
@@ -105,14 +106,14 @@ export function mapCertLoginReason(
     | 'unknown',
 ): string {
   if (reason === 'no-cert' || reason === 'no-keypair')
-    return 'Kein Identitäts-Cert auf diesem Gerät — bitte zuerst einloggen.';
+    return m.add_server_flow_no_cert();
   if (reason === 'cert-invalid')
-    return 'Server hat das Identitäts-Cert abgelehnt (revoked / fremde Cloud?).';
-  if (reason === 'challenge-expired') return 'Challenge abgelaufen — bitte erneut versuchen.';
+    return m.add_server_flow_cert_invalid();
+  if (reason === 'challenge-expired') return m.add_server_flow_challenge_expired();
   if (reason === 'signature-invalid')
-    return 'Signatur ungültig — Keypair passt nicht zum Cert.';
-  if (reason === 'network') return 'Server nicht erreichbar.';
-  return 'Cert-Login fehlgeschlagen.';
+    return m.add_server_flow_signature_invalid();
+  if (reason === 'network') return m.add_server_flow_network_error();
+  return m.add_server_flow_cert_login_failed();
 }
 
 /** Setzt die zwei Disclaimer-Flags (hostname-keyed + serverId-keyed) im

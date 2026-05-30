@@ -10,33 +10,34 @@
   import { privacy, DM_POLICY, FRIEND_REQ_POLICY } from '$lib/stores/privacy.svelte';
   import { friendsApi } from '$lib/api/friends';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   const DM_OPTIONS = [
-    { value: DM_POLICY.EVERYONE, label: 'Alle', description: 'Jeder kann dir schreiben' },
+    { value: DM_POLICY.EVERYONE, label: m.settings_privacy_dm_everyone_label(), description: m.settings_privacy_dm_everyone_desc() },
     {
       value: DM_POLICY.SERVER_MEMBERS,
-      label: 'Community-Mitglieder',
-      description: 'Nur Mitglieder gemeinsamer Communitys'
+      label: m.settings_privacy_dm_server_members_label(),
+      description: m.settings_privacy_dm_server_members_desc()
     },
-    { value: DM_POLICY.FRIENDS_ONLY, label: 'Freunde', description: 'Nur deine Freunde' },
-    { value: DM_POLICY.NOBODY, label: 'Niemand', description: 'DMs komplett deaktivieren' }
+    { value: DM_POLICY.FRIENDS_ONLY, label: m.settings_privacy_dm_friends_only_label(), description: m.settings_privacy_dm_friends_only_desc() },
+    { value: DM_POLICY.NOBODY, label: m.settings_privacy_dm_nobody_label(), description: m.settings_privacy_dm_nobody_desc() }
   ];
 
   const FR_OPTIONS = [
     {
       value: FRIEND_REQ_POLICY.EVERYONE,
-      label: 'Alle',
-      description: 'Jeder kann dir eine Anfrage schicken'
+      label: m.settings_privacy_fr_everyone_label(),
+      description: m.settings_privacy_fr_everyone_desc()
     },
     {
       value: FRIEND_REQ_POLICY.SERVER_MEMBERS,
-      label: 'Community-Mitglieder',
-      description: 'Nur Mitglieder gemeinsamer Communitys'
+      label: m.settings_privacy_fr_server_members_label(),
+      description: m.settings_privacy_fr_server_members_desc()
     },
     {
       value: FRIEND_REQ_POLICY.NOBODY,
-      label: 'Niemand',
-      description: 'Keine Anfragen annehmen'
+      label: m.settings_privacy_fr_nobody_label(),
+      description: m.settings_privacy_fr_nobody_desc()
     }
   ];
 
@@ -45,7 +46,7 @@
     try {
       await friendsApi.updatePrivacy(patch);
     } catch (e) {
-      toast.error('Einstellung konnte nicht gespeichert werden', {
+      toast.error(m.settings_privacy_save_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
@@ -66,15 +67,15 @@
 
 <div class="flex flex-col gap-5" data-testid="settings-privacy-panel">
   <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">Privatsphäre</h2>
+    <h2 class="text-text-bright text-lg font-semibold">{m.settings_privacy_title()}</h2>
     <p class="text-text-muted text-sm">
-      Wer dich kontaktieren und finden kann.
+      {m.settings_privacy_subtitle()}
     </p>
   </div>
 
   <!-- DM-Policy -->
   <section class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4">
-    <span class="text-text-bright text-sm font-medium">Direktnachrichten empfangen von</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_privacy_dm_section_title()}</span>
     {#each DM_OPTIONS as opt (opt.value)}
       <label class="flex cursor-pointer items-start gap-3 text-sm">
         <input
@@ -96,7 +97,7 @@
 
   <!-- Friend-Request-Policy -->
   <section class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4">
-    <span class="text-text-bright text-sm font-medium">Freundschaftsanfragen von</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_privacy_fr_section_title()}</span>
     {#each FR_OPTIONS as opt (opt.value)}
       <label class="flex cursor-pointer items-start gap-3 text-sm">
         <input
@@ -120,9 +121,9 @@
   <section class="flex flex-col gap-2 rounded-2xl border border-border bg-bg-input/40 p-4">
     <label class="flex items-start justify-between gap-3 text-sm">
       <span class="flex flex-col gap-0.5">
-        <span class="text-text-bright">In der Nutzersuche erscheinen</span>
+        <span class="text-text-bright">{m.settings_privacy_show_in_search_label()}</span>
         <span class="text-text-muted text-xs">
-          Andere können deinen Account über deinen Nutzernamen finden.
+          {m.settings_privacy_show_in_search_desc()}
         </span>
       </span>
       <input

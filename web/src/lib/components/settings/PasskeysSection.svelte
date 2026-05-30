@@ -17,6 +17,7 @@
   } from '$lib/api/webauthn';
   import PasskeyRow from './PasskeyRow.svelte';
   import PasskeyAddDialog from './PasskeyAddDialog.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   const supported = webauthnSupported();
   let passkeys = $state<WebAuthnCredentialSummary[]>([]);
@@ -57,20 +58,19 @@
       <KeyRoundIcon class="size-5" />
     </span>
     <div class="flex flex-col gap-0.5">
-      <span class="text-text-bright text-sm font-medium">Passkeys</span>
+      <span class="text-text-bright text-sm font-medium">{m.passkeys_section_title()}</span>
       <span class="text-text-muted text-xs">
-        Anmeldung per Fingerabdruck, Gesicht oder Sicherheitsschlüssel — phishing-sicher und
-        ohne Passwort.
+        {m.passkeys_section_description()}
       </span>
     </div>
   </div>
 
   {#if !supported}
     <p class="text-text-muted text-xs">
-      Dieser Browser unterstützt keine Passkeys.
+      {m.passkeys_section_unsupported()}
     </p>
   {:else if loading}
-    <p class="text-text-muted text-xs">Lädt…</p>
+    <p class="text-text-muted text-xs">{m.passkeys_section_loading()}</p>
   {:else}
     {#if passkeys.length > 0}
       <ul class="flex flex-col gap-2">
@@ -79,7 +79,7 @@
         {/each}
       </ul>
     {:else}
-      <p class="text-text-muted text-xs">Noch kein Passkey registriert.</p>
+      <p class="text-text-muted text-xs">{m.passkeys_section_empty()}</p>
     {/if}
 
     <button
@@ -89,7 +89,7 @@
       data-testid="passkeys-add"
     >
       <PlusIcon class="size-3.5" />
-      Passkey hinzufügen
+      {m.passkeys_section_add_button()}
     </button>
   {/if}
 </section>

@@ -18,6 +18,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   $effect(() => {
     for (const r of friendRequests.incomingList) userCache.queue(r.sender_id);
@@ -30,7 +31,7 @@
       friendRequests.removeById(id);
       friends.add(fr.user_id, fr.since);
     } catch (e) {
-      toast.error('Anfrage konnte nicht akzeptiert werden', {
+      toast.error(m.pending_requests_accept_error(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
@@ -41,7 +42,7 @@
       await friendsApi.declineRequest(id);
       friendRequests.removeIncoming(id);
     } catch (e) {
-      toast.error('Anfrage konnte nicht abgelehnt werden');
+      toast.error(m.pending_requests_decline_error());
     }
   }
 
@@ -50,7 +51,7 @@
       await friendsApi.cancelRequest(id);
       friendRequests.removeOutgoing(id);
     } catch (e) {
-      toast.error('Anfrage konnte nicht zurückgezogen werden');
+      toast.error(m.pending_requests_cancel_error());
     }
   }
 </script>
@@ -58,11 +59,11 @@
 <section class="flex flex-col gap-6" data-testid="pending-tab">
   <div>
     <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
-      Eingehend — {friendRequests.incomingList.length}
+      {m.pending_requests_incoming_heading({ count: friendRequests.incomingList.length })}
     </h2>
     {#if friendRequests.incomingList.length === 0}
       <p class="text-text-muted px-1 py-3 text-sm" data-testid="pending-in-empty">
-        Keine offenen Anfragen.
+        {m.pending_requests_incoming_empty()}
       </p>
     {/if}
     {#each friendRequests.incomingList as r (r.id)}
@@ -85,14 +86,14 @@
           <p class="text-text-bright truncate text-sm font-semibold">
             {u?.display_name ?? u?.username ?? '…'}
           </p>
-          <p class="text-text-muted truncate text-xs">möchte dich als Freund hinzufügen</p>
+          <p class="text-text-muted truncate text-xs">{m.pending_requests_wants_to_add_you()}</p>
         </div>
         <Button
           size="sm"
           variant="ghost"
           onclick={() => accept(r.id)}
           data-testid="pending-accept-btn"
-          title="Annehmen"
+          title={m.pending_requests_accept_title()}
         >
           <CheckIcon class="size-4 text-emerald-400" />
         </Button>
@@ -101,7 +102,7 @@
           variant="ghost"
           onclick={() => decline(r.id)}
           data-testid="pending-decline-btn"
-          title="Ablehnen"
+          title={m.pending_requests_decline_title()}
         >
           <XIcon class="size-4 text-rose-400" />
         </Button>
@@ -110,11 +111,11 @@
   </div>
   <div>
     <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
-      Ausgehend — {friendRequests.outgoingList.length}
+      {m.pending_requests_outgoing_heading({ count: friendRequests.outgoingList.length })}
     </h2>
     {#if friendRequests.outgoingList.length === 0}
       <p class="text-text-muted px-1 py-3 text-sm" data-testid="pending-out-empty">
-        Keine ausstehenden Einladungen.
+        {m.pending_requests_outgoing_empty()}
       </p>
     {/if}
     {#each friendRequests.outgoingList as r (r.id)}
@@ -137,14 +138,14 @@
           <p class="text-text-bright truncate text-sm font-semibold">
             {u?.display_name ?? u?.username ?? '…'}
           </p>
-          <p class="text-text-muted truncate text-xs">Wartet auf Antwort</p>
+          <p class="text-text-muted truncate text-xs">{m.pending_requests_waiting_for_reply()}</p>
         </div>
         <Button
           size="sm"
           variant="ghost"
           onclick={() => cancel(r.id)}
           data-testid="pending-cancel-btn"
-          title="Zurückziehen"
+          title={m.pending_requests_cancel_title()}
         >
           <XIcon class="size-4" />
         </Button>

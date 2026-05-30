@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { renderLegal } from '$lib/legal/renderLegal';
 
   interface Props {
@@ -21,7 +22,7 @@
         <span class="text-lg font-semibold">Pulse</span>
       </a>
       <a href="/login" class="text-muted-foreground hover:text-foreground text-sm hover:underline">
-        ← Zurück
+        {m.legal_page_back()}
       </a>
     </header>
 

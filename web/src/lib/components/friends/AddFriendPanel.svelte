@@ -19,6 +19,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let query = $state('');
   let hits = $state<UserSearchHit[]>([]);
@@ -51,7 +52,7 @@
       hits = result;
       for (const h of result) userCache.queue(h.id);
     } catch (e) {
-      searchError = e instanceof Error ? e.message : 'Suche fehlgeschlagen';
+      searchError = e instanceof Error ? e.message : m.add_friend_search_failed();
       hits = [];
     } finally {
       if (query.trim() === q) searching = false;
@@ -59,13 +60,13 @@
   }
 
   function relationLabel(userId: string): string | null {
-    if (friends.has(userId)) return 'Bereits befreundet';
-    if (blocks.has(userId)) return 'Blockiert';
+    if (friends.has(userId)) return m.add_friend_relation_already_friends();
+    if (blocks.has(userId)) return m.add_friend_relation_blocked();
     for (const r of friendRequests.outgoingList) {
-      if (r.receiver_id === userId) return 'Anfrage offen';
+      if (r.receiver_id === userId) return m.add_friend_relation_request_pending();
     }
     for (const r of friendRequests.incomingList) {
-      if (r.sender_id === userId) return 'Hat dir geschrieben';
+      if (r.sender_id === userId) return m.add_friend_relation_incoming();
     }
     return null;
   }
@@ -75,14 +76,14 @@
       const res = await friendsApi.sendFriendRequest(userId);
       if ('auto_accepted' in res && res.auto_accepted) {
         friends.add(res.friendship.user_id, res.friendship.since);
-        toast.success('Direkt befreundet — die Person hatte dir bereits eine Anfrage geschickt.');
+        toast.success(m.add_friend_auto_accepted());
       } else if ('id' in res) {
         // Narrowing on the discriminator: pending FriendRequest payload.
         friendRequests.addOutgoing(res);
-        toast.success('Anfrage gesendet.');
+        toast.success(m.add_friend_request_sent());
       }
     } catch (e) {
-      toast.error('Anfrage fehlgeschlagen', {
+      toast.error(m.add_friend_request_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
@@ -91,24 +92,24 @@
 
 <section class="flex flex-col gap-3" data-testid="add-friend-tab">
   <p class="text-text-muted text-sm">
-    Suche per Nutzername (mind. 2 Zeichen). Treffer kommen aus der Pulse-Instanz.
+    {m.add_friend_hint()}
   </p>
   <Input
     type="text"
     bind:value={query}
-    placeholder="z. B. alice"
+    placeholder={m.add_friend_input_placeholder()}
     data-testid="add-friend-input"
     autocomplete="off"
   />
   {#if searching}
-    <p class="text-text-muted px-1 text-xs">Suche…</p>
+    <p class="text-text-muted px-1 text-xs">{m.add_friend_searching()}</p>
   {/if}
   {#if searchError}
     <p class="px-1 text-xs text-rose-400">{searchError}</p>
   {/if}
   {#if !searching && query.trim().length >= 2 && hits.length === 0 && !searchError}
     <p class="text-text-muted px-1 py-2 text-sm" data-testid="add-friend-no-results">
-      Keine Treffer.
+      {m.add_friend_no_results()}
     </p>
   {/if}
   {#each hits as h (h.id)}
@@ -142,7 +143,7 @@
           onclick={() => add(h.id)}
           data-testid="search-hit-add"
         >
-          <UserPlusIcon class="mr-1 size-4" /> Hinzufügen
+          <UserPlusIcon class="mr-1 size-4" /> {m.add_friend_add_button()}
         </Button>
       {/if}
     </div>

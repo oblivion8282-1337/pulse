@@ -19,6 +19,7 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/alert-triangle';
   import LockIcon from '@lucide/svelte/icons/lock';
 
+  import { m } from '$lib/paraglide/messages.js';
   import {
     adminPluginsApi,
     type AdminPluginEntry
@@ -69,13 +70,13 @@
       }
       toast.success(
         target
-          ? `Plugin "${name}" erlaubt — sofort aktiviert`
-          : `Plugin "${name}" nicht mehr erlaubt — sofort deaktiviert`
+          ? m.admin_plugins_allowed({ name })
+          : m.admin_plugins_disallowed({ name })
       );
     } catch (e) {
       // Revert.
       rows[idx] = { ...rows[idx], in_allowlist: !target };
-      toast.error('Allowlist-Update fehlgeschlagen', {
+      toast.error(m.admin_plugins_allowlist_update_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -92,26 +93,23 @@
     <div class="min-w-0">
       <h2 class="text-text-bright text-base font-semibold">Plugins</h2>
       <p class="text-text-muted text-xs mt-0.5">
-        Welche Plugins auf dieser Pulse-Instanz überhaupt geladen werden dürfen.
-        Pro Community entscheiden Community-Admins separat über
-        <em>Community-Einstellungen → Plugins</em>, welche der freigegebenen
-        Plugins dort aktiv sind. Änderungen wirken sofort.
+        {m.admin_plugins_description()}
       </p>
     </div>
   </div>
 
   {#if loading}
-    <p class="text-text-muted text-sm">lade…</p>
+    <p class="text-text-muted text-sm">{m.admin_plugins_loading()}</p>
   {:else if loadError}
-    <p class="text-red-400 text-sm">Fehler: {loadError}</p>
+    <p class="text-red-400 text-sm">{m.admin_plugins_load_error({ error: loadError ?? '' })}</p>
   {:else if rows.length === 0}
     <div
       class="border-border bg-bg-hover/30 flex flex-col items-center gap-2 rounded-xl border p-6 text-center"
     >
       <PuzzleIcon class="text-text-muted size-8" />
-      <p class="text-text-bright text-sm font-medium">Keine Plugins gefunden.</p>
+      <p class="text-text-bright text-sm font-medium">{m.admin_plugins_none_found()}</p>
       <p class="text-text-muted text-xs">
-        Plugins liegen unter <code>plugins/&lt;name&gt;/</code>.
+        {m.admin_plugins_none_found_hint()}
       </p>
     </div>
   {:else}
@@ -132,14 +130,14 @@
                 <span class="text-text-muted text-xs">v{row.version}</span>
               {/if}
               {#if isHello}
-                <span class="text-text-muted text-xs">· System-Plugin</span>
+                <span class="text-text-muted text-xs">· {m.admin_plugins_system_plugin()}</span>
               {/if}
               {#if stale}
                 <span
                   class="flex items-center gap-1 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-xs text-amber-200"
-                  title="Plugin-Verzeichnis fehlt — Eintrag bereinigen?"
+                  title={m.admin_plugins_stale_title()}
                 >
-                  <AlertTriangleIcon class="size-3" /> verwaist
+                  <AlertTriangleIcon class="size-3" /> {m.admin_plugins_stale_badge()}
                 </span>
               {/if}
             </div>
@@ -147,7 +145,7 @@
               <div class="text-text-muted mt-0.5 text-xs">{row.description}</div>
             {:else if isHello}
               <div class="text-text-muted mt-0.5 text-xs">
-                Loader-Smoketest. Immer erlaubt, kann nicht entfernt werden.
+                {m.admin_plugins_hello_description()}
               </div>
             {/if}
           </div>

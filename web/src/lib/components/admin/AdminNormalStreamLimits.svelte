@@ -11,6 +11,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
+  import { m } from '$lib/paraglide/messages.js';
 
   // Screen-share resolution ceiling options (descending; 'native' = no cap).
   const NS_RESOLUTIONS = ['native', '1080p', '720p', '480p'];
@@ -59,20 +60,20 @@
     const fMax = Number(fpsMax);
 
     if (![bMin, bMax].every((v) => Number.isFinite(v) && v >= 100 && v <= 32000)) {
-      toast.error('Ungültige Bitrate', { description: 'Bitte 0,1 – 32 Mbit/s.' });
+      toast.error(m.admin_normal_stream_limits_invalid_bitrate(), { description: m.admin_normal_stream_limits_invalid_bitrate_desc() });
       return;
     }
     if (bMin > bMax) {
-      toast.error('Bitrate', { description: 'Minimum darf nicht über dem Maximum liegen.' });
+      toast.error(m.admin_normal_stream_limits_bitrate(), { description: m.admin_normal_stream_limits_min_above_max() });
       return;
     }
     // Screen-share FPS ceiling is 240.
     if (![fMin, fMax].every((v) => Number.isInteger(v) && v >= 1 && v <= 240)) {
-      toast.error('Ungültige FPS', { description: 'Bitte ganze Zahl 1 – 240.' });
+      toast.error(m.admin_normal_stream_limits_invalid_fps(), { description: m.admin_normal_stream_limits_invalid_fps_desc() });
       return;
     }
     if (fMin > fMax) {
-      toast.error('FPS', { description: 'Minimum darf nicht über dem Maximum liegen.' });
+      toast.error(m.admin_normal_stream_limits_fps(), { description: m.admin_normal_stream_limits_min_above_max() });
       return;
     }
 
@@ -86,9 +87,9 @@
         ns_resolution_max: resolutionMax
       });
       populate(current);
-      toast.success('Limits fürs normale Streaming gespeichert');
+      toast.success(m.admin_normal_stream_limits_saved());
     } catch (e) {
-      toast.error('Speichern fehlgeschlagen', {
+      toast.error(m.admin_normal_stream_limits_save_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     } finally {
@@ -97,83 +98,82 @@
   }
 
   function resLabel(r: string): string {
-    return r === 'native' ? 'Native (kein Limit)' : r;
+    return r === 'native' ? m.admin_normal_stream_limits_native_no_limit() : r;
   }
 </script>
 
 <section class="rounded-2xl border border-border bg-bg-input p-5" data-testid="admin-normal-stream-limits">
   <div class="mb-4">
-    <h2 class="text-text-bright text-base font-semibold">Streaming-Limits (Normal)</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.admin_normal_stream_limits_title()}</h2>
     <p class="text-text-muted text-xs mt-0.5">
-      Grenzen für das normale Streaming (Browser-Bildschirm-Share) — getrennt von den HQ-Limits.
-      Greifen in der App (Best-Effort). Standard = keine echte Einschränkung.
+      {m.admin_normal_stream_limits_description()}
     </p>
   </div>
 
   {#if error}
-    <p class="text-red-400 text-sm">Fehler: {error}</p>
+    <p class="text-red-400 text-sm">{m.admin_normal_stream_limits_error({ error })}</p>
   {:else if current}
     <div class="flex flex-col gap-2">
       <!-- Bitrate -->
       <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
-          <div class="text-text-bright text-sm font-medium">Bitrate</div>
-          <div class="text-text-muted text-xs mt-0.5">Erlaubter Bereich in Mbit/s (0,1 – 32).</div>
+          <div class="text-text-bright text-sm font-medium">{m.admin_normal_stream_limits_bitrate()}</div>
+          <div class="text-text-muted text-xs mt-0.5">{m.admin_normal_stream_limits_bitrate_range()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
             type="number" min="0.1" max="32" step="0.5"
             bind:value={bitrateMinMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
-            data-testid="ns-bitrate-min" aria-label="Bitrate Minimum (Mbit/s)"
+            data-testid="ns-bitrate-min" aria-label={m.admin_normal_stream_limits_bitrate_min_label()}
           />
-          <span class="text-text-muted text-xs">bis</span>
+          <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
           <input
             type="number" min="0.1" max="32" step="0.5"
             bind:value={bitrateMaxMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
-            data-testid="ns-bitrate-max" aria-label="Bitrate Maximum (Mbit/s)"
+            data-testid="ns-bitrate-max" aria-label={m.admin_normal_stream_limits_bitrate_max_label()}
           />
-          <span class="text-text-muted text-xs">Mbit/s</span>
+          <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_mbitps()}</span>
         </div>
       </div>
 
       <!-- FPS -->
       <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
-          <div class="text-text-bright text-sm font-medium">Bildrate (FPS)</div>
-          <div class="text-text-muted text-xs mt-0.5">Erlaubter Bereich an Bildern pro Sekunde (1 – 240).</div>
+          <div class="text-text-bright text-sm font-medium">{m.admin_normal_stream_limits_fps()}</div>
+          <div class="text-text-muted text-xs mt-0.5">{m.admin_normal_stream_limits_fps_range()}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
             type="number" min="1" max="240" step="1"
             bind:value={fpsMin}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
-            data-testid="ns-fps-min" aria-label="FPS Minimum"
+            data-testid="ns-fps-min" aria-label={m.admin_normal_stream_limits_fps_min_label()}
           />
-          <span class="text-text-muted text-xs">bis</span>
+          <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
           <input
             type="number" min="1" max="240" step="1"
             bind:value={fpsMax}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
-            data-testid="ns-fps-max" aria-label="FPS Maximum"
+            data-testid="ns-fps-max" aria-label={m.admin_normal_stream_limits_fps_max_label()}
           />
-          <span class="text-text-muted text-xs">FPS</span>
+          <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_fps_unit()}</span>
         </div>
       </div>
 
       <!-- Resolution ceiling -->
       <div class="flex flex-col gap-2 rounded-xl border border-border bg-bg-hover/30 p-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div class="min-w-0 flex-1">
-          <div class="text-text-bright text-sm font-medium">Maximale Auflösung</div>
+          <div class="text-text-bright text-sm font-medium">{m.admin_normal_stream_limits_max_resolution()}</div>
           <div class="text-text-muted text-xs mt-0.5">
-            Höchste erlaubte Auflösung. Höhere Stufen (und „Native") werden im Share-Menü ausgeblendet.
+            {m.admin_normal_stream_limits_max_resolution_desc()}
           </div>
         </div>
         <select
           bind:value={resolutionMax}
           class="w-44 shrink-0 rounded-md border border-border bg-bg-input px-2 py-1 text-sm text-text-bright focus:border-primary focus:outline-none"
-          data-testid="ns-resolution-max" aria-label="Maximale Auflösung"
+          data-testid="ns-resolution-max" aria-label={m.admin_normal_stream_limits_max_resolution()}
         >
           {#each NS_RESOLUTIONS as r (r)}
             <option value={r}>{resLabel(r)}</option>
@@ -189,11 +189,11 @@
           class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-30"
           data-testid="ns-limits-save"
         >
-          {busy ? 'Speichere…' : 'Speichern'}
+          {busy ? m.admin_normal_stream_limits_saving() : m.admin_normal_stream_limits_save()}
         </button>
       </div>
     </div>
   {:else}
-    <div class="text-text-muted text-sm">lade…</div>
+    <div class="text-text-muted text-sm">{m.admin_normal_stream_limits_loading()}</div>
   {/if}
 </section>

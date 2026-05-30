@@ -26,6 +26,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
   import { isWindows } from '$lib/platform/runtime';
+  import { m } from '$lib/paraglide/messages.js';
   import {
     streamSettings,
     APP_AUDIO_PREFIX,
@@ -44,9 +45,10 @@
 
   // Internal value → UI-Label.
   function label(mode: AudioMode): string {
-    if (mode === 'Desktop') return 'System';
-    if (mode === 'Desktop + Mikrofon') return 'System + Mikrofon';
-    if (mode === 'Mikrofon') return 'Nur Mikrofon';
+    if (mode === 'Desktop') return m.audio_mode_picker_system();
+    if (mode === 'Desktop + Mikrofon') return m.audio_mode_picker_system_plus_mic();
+    if (mode === 'Mikrofon') return m.audio_mode_picker_mic_only();
+    if (mode === 'Aus') return m.audio_mode_picker_off();
     return mode;
   }
 
@@ -109,7 +111,7 @@
 
 <div class="flex flex-col gap-2" data-testid="stream-audio-picker">
   <Label>Audio</Label>
-  <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Audio-Modus">
+  <div class="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={m.audio_mode_picker_audio_mode_label()}>
     {#each MAIN_MODES as mode (mode)}
       <Button
         type="button"
@@ -132,7 +134,7 @@
       onclick={onAppModeClick}
       data-testid="stream-audio-mode-app"
     >
-      Spezifische App
+      {m.audio_mode_picker_specific_app()}
     </Button>
 
     <DropdownMenu.Root>
@@ -143,8 +145,8 @@
             type="button"
             size="xs"
             variant={secondaryActive ? 'default' : 'ghost'}
-            aria-label="Weitere Audio-Optionen"
-            title={secondaryLabel || 'Weitere Audio-Optionen'}
+            aria-label={m.audio_mode_picker_more_options()}
+            title={secondaryLabel || m.audio_mode_picker_more_options()}
             data-testid="stream-audio-secondary-trigger"
           >
             <ChevronDownIcon class="size-3.5" />
@@ -170,7 +172,7 @@
   {#if appMode}
     <div class="bg-bg-input mt-1 flex flex-col gap-2 rounded-xl border border-border p-2.5">
       <div class="flex items-center justify-between">
-        <span class="text-text-bright text-xs font-medium">App auswählen</span>
+        <span class="text-text-bright text-xs font-medium">{m.audio_mode_picker_select_app()}</span>
         <Button
           type="button"
           size="xs"
@@ -178,7 +180,7 @@
           onclick={onRefresh}
           disabled={refreshing}
           data-testid="stream-audio-refresh-apps"
-          aria-label="App-Liste neu laden"
+          aria-label={m.audio_mode_picker_refresh_app_list()}
         >
           <RefreshIcon class="size-3 {refreshing ? 'animate-spin' : ''}" />
           Refresh
@@ -186,7 +188,7 @@
       </div>
       {#if streamSettings.available_audio_apps.length === 0}
         <p class="text-text-muted text-xs italic">
-          (keine laufenden Audio-Apps — Refresh klicken)
+          {m.audio_mode_picker_no_running_apps()}
         </p>
       {:else}
         <div class="flex flex-wrap gap-1.5" data-testid="stream-audio-app-pills">
@@ -204,13 +206,13 @@
         </div>
       {/if}
       {#if !selectedApp}
-        <p class="text-amber-400/90 text-xs">Wähle eine App, bevor du den Stream startest.</p>
+        <p class="text-amber-400/90 text-xs">{m.audio_mode_picker_select_app_before_stream()}</p>
       {/if}
     </div>
   {:else if usesDesktop}
     <div class="bg-bg-input mt-1 flex flex-col gap-2 rounded-xl border border-border p-2.5">
       <div class="flex items-center justify-between">
-        <span class="text-text-bright text-xs font-medium">Apps ausschließen</span>
+        <span class="text-text-bright text-xs font-medium">{m.audio_mode_picker_exclude_apps()}</span>
         <Button
           type="button"
           size="xs"
@@ -218,7 +220,7 @@
           onclick={onRefresh}
           disabled={refreshing}
           data-testid="stream-audio-refresh"
-          aria-label="App-Liste neu laden"
+          aria-label={m.audio_mode_picker_refresh_app_list()}
         >
           <RefreshIcon class="size-3 {refreshing ? 'animate-spin' : ''}" />
           Refresh
@@ -226,7 +228,7 @@
       </div>
 
       {#if streamSettings.excluded_apps.length === 0}
-        <p class="text-text-muted text-xs italic">Keine Apps ausgeschlossen.</p>
+        <p class="text-text-muted text-xs italic">{m.audio_mode_picker_no_apps_excluded()}</p>
       {:else}
         <div class="flex flex-wrap gap-1.5" data-testid="stream-audio-excluded-list">
           {#each streamSettings.excluded_apps as app (app)}
@@ -240,7 +242,7 @@
                 variant="ghost"
                 class="hover:text-destructive size-4 rounded-full"
                 onclick={() => removeExcludedApp(app)}
-                aria-label={`${app} entfernen`}
+                aria-label={m.audio_mode_picker_remove_app({ app })}
               >
                 <XIcon class="size-3" />
               </Button>
@@ -259,9 +261,9 @@
           <option value="">
             {availableForAdd.length === 0
               ? streamSettings.available_audio_apps.length === 0
-                ? '(keine laufenden Audio-Apps — Refresh klicken)'
-                : '(alle bereits ausgeschlossen)'
-              : 'App auswählen…'}
+                ? m.audio_mode_picker_no_running_apps()
+                : m.audio_mode_picker_all_excluded()
+              : m.audio_mode_picker_select_app_placeholder()}
           </option>
           {#each availableForAdd as a (a)}
             <option value={a}>{a}</option>
@@ -276,11 +278,11 @@
           data-testid="stream-audio-app-add"
         >
           <PlusIcon class="size-3.5" />
-          Hinzufügen
+          {m.audio_mode_picker_add()}
         </Button>
       </div>
       <p class="text-text-muted text-xs">
-        Greift nur bei System-Audio. App-spezifische Quellen ignorieren die Liste.
+        {m.audio_mode_picker_exclude_hint()}
       </p>
     </div>
   {/if}

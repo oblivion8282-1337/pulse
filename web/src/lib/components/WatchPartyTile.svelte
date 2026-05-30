@@ -32,6 +32,7 @@
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import XIcon from '@lucide/svelte/icons/x';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
@@ -82,8 +83,8 @@
   function handleDetach(): void {
     const opened = detachedWatchParties.open(channelId);
     if (!opened) {
-      toast.error('Popup blockiert', {
-        description: 'Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.'
+      toast.error(m.watch_party_tile_popup_blocked(), {
+        description: m.watch_party_tile_popup_blocked_description()
       });
     }
   }
@@ -344,7 +345,7 @@
     try {
       return new URL(s.url).hostname;
     } catch {
-      return 'Direkt-Video';
+      return m.watch_party_tile_direct_video();
     }
   });
 </script>
@@ -379,7 +380,7 @@
     {#if isPassive}
       <span
         class="rounded-full bg-red-500/30 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-red-200 backdrop-blur-sm"
-        title="Live-Stream — kein zentraler Sync, Viewer landen auf ihrer eigenen Buffer-Position"
+        title={m.watch_party_tile_live_badge_title()}
         data-testid="watch-party-live-badge"
       >
         LIVE
@@ -389,7 +390,7 @@
       class="max-w-36 truncate rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
       data-testid="watch-party-host-label"
     >
-      Host: {hostName}
+      {m.watch_party_tile_host_label({ name: hostName })}
     </span>
   {/snippet}
   {#snippet controlsExtra()}
@@ -398,8 +399,8 @@
         type="button"
         onclick={stop}
         class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-red-600 md:p-1.5"
-        aria-label="Watch Party beenden"
-        title="Watch Party beenden"
+        aria-label={m.watch_party_tile_stop_aria()}
+        title={m.watch_party_tile_stop_aria()}
         data-testid="watch-party-stop"
       >
         <XIcon class="size-5 md:size-3.5" />

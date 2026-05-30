@@ -19,6 +19,7 @@
   import { parseMentionMarkers } from '$lib/components/messageRender';
   import { toast } from 'svelte-sonner';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let dmChannelId = $derived(page.params.dmChannelId ?? '');
   let activeDM = $derived<DMChannel | undefined>(
@@ -112,7 +113,7 @@
         directMessages.upsert(dm);
       } catch (err) {
         if (isStale()) return;
-        loadError = err instanceof Error ? err.message : 'DM nicht gefunden';
+        loadError = err instanceof Error ? err.message : m.dm_page_dm_not_found();
         resolving = false;
         return;
       }
@@ -129,7 +130,7 @@
       }
     } catch (err) {
       if (isStale()) return;
-      loadError = err instanceof Error ? err.message : 'Nachrichten konnten nicht geladen werden';
+      loadError = err instanceof Error ? err.message : m.dm_page_messages_load_failed();
       resolving = false;
       return;
     }
@@ -187,54 +188,54 @@
         .then((real) => messages.upsert(real))
         .catch((e) => {
           messages.removeOptimistic(cid, tmpId);
-          toast.error('Senden fehlgeschlagen', { description: (e as Error).message });
+          toast.error(m.dm_page_send_failed(), { description: (e as Error).message });
         });
       return;
     }
     const queued = gateway.send(cid, text, nonce, replyToId);
     if (!queued) {
       messages.removeOptimistic(cid, tmpId);
-      toast.error('Keine Verbindung — bitte erneut senden');
+      toast.error(m.dm_page_no_connection());
       return;
     }
     const handle = setTimeout(() => {
       pendingOptimisticTimeouts.delete(nonce);
       if (!messages.isConfirmed(nonce)) {
         messages.removeOptimistic(cid, tmpId);
-        toast.error('Nachricht konnte nicht gesendet werden');
+        toast.error(m.dm_page_message_send_timeout());
       }
     }, 10_000);
     pendingOptimisticTimeouts.set(nonce, handle);
   }
 
-  async function editMessage(m: Message, content: string) {
+  async function editMessage(msg: Message, content: string) {
     try {
-      await chatApi.editMessage(m.id, content);
+      await chatApi.editMessage(msg.id, content);
     } catch (e) {
-      toast.error('Bearbeiten fehlgeschlagen');
+      toast.error(m.dm_page_edit_failed());
       console.error(e);
     }
   }
 
-  async function deleteMessage(m: Message) {
-    if (!confirm('Nachricht wirklich löschen?')) return;
+  async function deleteMessage(msg: Message) {
+    if (!confirm(m.dm_page_delete_confirm())) return;
     try {
-      await chatApi.deleteMessage(m.id);
+      await chatApi.deleteMessage(msg.id);
     } catch (e) {
-      toast.error('Löschen fehlgeschlagen');
+      toast.error(m.dm_page_delete_failed());
       console.error(e);
     }
   }
 
-  async function toggleReaction(m: Message, emoji: string, currentlyMine: boolean) {
+  async function toggleReaction(msg: Message, emoji: string, currentlyMine: boolean) {
     try {
       if (currentlyMine) {
-        await chatApi.removeReaction(m.id, emoji);
+        await chatApi.removeReaction(msg.id, emoji);
       } else {
-        await chatApi.addReaction(m.id, emoji);
+        await chatApi.addReaction(msg.id, emoji);
       }
     } catch (e) {
-      toast.error('Reaktion fehlgeschlagen');
+      toast.error(m.dm_page_reaction_failed());
       console.error(e);
     }
   }
@@ -280,7 +281,7 @@
       headerKind="dm"
       showMemberList={false}
       composerDisabled={activeDM.can_send === false}
-      composerDisabledReason="Du kannst dieser Person aktuell keine Nachrichten senden."
+      composerDisabledReason={m.dm_page_composer_disabled_reason()}
       onEditMessage={editMessage}
       onDeleteMessage={deleteMessage}
       onToggleReaction={toggleReaction}
@@ -290,9 +291,9 @@
       class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-2 rounded-none p-8 md:rounded-2xl"
       data-testid="dm-empty-state"
     >
-      <p class="text-text-bright text-base font-semibold">Direktnachrichten</p>
+      <p class="text-text-bright text-base font-semibold">{m.dm_page_empty_title()}</p>
       <p class="text-text-muted max-w-sm text-center text-sm">
-        Wähle links eine bestehende DM aus oder klick im Channel auf einen Member, um eine neue zu starten.
+        {m.dm_page_empty_hint()}
       </p>
     </section>
   {/if}

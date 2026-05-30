@@ -21,6 +21,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
   import type { Member } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     channelId,
@@ -36,20 +37,20 @@
   // but keeps the per-channel scope (we omit server-admin / member-admin
   // bits that don't apply at channel scope; they're guild-wide).
   const channelBits: GridEntry[] = [
-    { perm: Perm.VIEW_CHANNEL, label: 'Kanal ansehen' },
-    { perm: Perm.READ_HISTORY, label: 'Verlauf lesen' },
-    { perm: Perm.SEND_MESSAGES, label: 'Nachrichten senden' },
-    { perm: Perm.MANAGE_MESSAGES, label: 'Nachrichten moderieren' },
-    { perm: Perm.ATTACH_FILES, label: 'Dateien anhängen' },
-    { perm: Perm.ADD_REACTIONS, label: 'Reaktionen' },
-    { perm: Perm.CREATE_INVITES, label: 'Einladungen erstellen' },
-    { perm: Perm.MENTION_EVERYONE, label: '@everyone erwähnen' },
-    { perm: Perm.MANAGE_CHANNELS, label: 'Kanal verwalten' },
-    { perm: Perm.MANAGE_PERMISSIONS, label: 'Berechtigungen' },
-    { perm: Perm.CONNECT, label: 'Voice betreten' },
-    { perm: Perm.SPEAK, label: 'Sprechen' },
-    { perm: Perm.STREAM, label: 'Stream / Screenshare' },
-    { perm: Perm.USE_VIDEO, label: 'Kamera' }
+    { perm: Perm.VIEW_CHANNEL, label: m.channel_overrides_perm_view_channel() },
+    { perm: Perm.READ_HISTORY, label: m.channel_overrides_perm_read_history() },
+    { perm: Perm.SEND_MESSAGES, label: m.channel_overrides_perm_send_messages() },
+    { perm: Perm.MANAGE_MESSAGES, label: m.channel_overrides_perm_manage_messages() },
+    { perm: Perm.ATTACH_FILES, label: m.channel_overrides_perm_attach_files() },
+    { perm: Perm.ADD_REACTIONS, label: m.channel_overrides_perm_add_reactions() },
+    { perm: Perm.CREATE_INVITES, label: m.channel_overrides_perm_create_invites() },
+    { perm: Perm.MENTION_EVERYONE, label: m.channel_overrides_perm_mention_everyone() },
+    { perm: Perm.MANAGE_CHANNELS, label: m.channel_overrides_perm_manage_channels() },
+    { perm: Perm.MANAGE_PERMISSIONS, label: m.channel_overrides_perm_manage_permissions() },
+    { perm: Perm.CONNECT, label: m.channel_overrides_perm_connect() },
+    { perm: Perm.SPEAK, label: m.channel_overrides_perm_speak() },
+    { perm: Perm.STREAM, label: m.channel_overrides_perm_stream() },
+    { perm: Perm.USE_VIDEO, label: m.channel_overrides_perm_use_video() }
   ];
 
   let overwrites = $derived<Overwrite[]>(channelPermissions.byChannel[channelId] ?? []);
@@ -110,12 +111,12 @@
   function labelFor(ow: Overwrite | { target_type: 0 | 1; target_id: string }): string {
     if (ow.target_type === 0) {
       const r = availableRoles.find((r) => r.id === ow.target_id);
-      return r ? `Rolle: ${r.name}` : `Rolle ${ow.target_id}`;
+      return r ? m.channel_overrides_label_role({ name: r.name }) : m.channel_overrides_label_role_id({ id: ow.target_id });
     }
-    const m = members.find((m) => m.user_id === ow.target_id);
-    if (m) return `Mitglied: ${memberLabel(m)}`;
+    const mem = members.find((mem) => mem.user_id === ow.target_id);
+    if (mem) return m.channel_overrides_label_member({ name: memberLabel(mem) });
     const cached = userCache.displayName(ow.target_id);
-    return `Mitglied: ${cached}`;
+    return m.channel_overrides_label_member({ name: cached });
   }
 
   async function save(target: string): Promise<void> {
@@ -127,9 +128,9 @@
         allow: b.allow,
         deny: b.deny
       });
-      toast.success('Override gespeichert');
+      toast.success(m.channel_overrides_toast_saved());
     } catch (err) {
-      toast.error('Override speichern fehlgeschlagen', {
+      toast.error(m.channel_overrides_toast_save_failed(), {
         description: (err as Error).message
       });
     }
@@ -155,9 +156,9 @@
         delete nextBuffers[target];
         buffers = nextBuffers;
       }
-      toast.success('Override entfernt');
+      toast.success(m.channel_overrides_toast_removed());
     } catch (err) {
-      toast.error('Override entfernen fehlgeschlagen', {
+      toast.error(m.channel_overrides_toast_remove_failed(), {
         description: (err as Error).message
       });
     }
@@ -202,9 +203,9 @@
       );
       if (targetType === 0) addRoleId = '';
       else addUserId = '';
-      toast.success('Override hinzugefügt');
+      toast.success(m.channel_overrides_toast_added());
     } catch (err) {
-      toast.error('Override hinzufügen fehlgeschlagen', {
+      toast.error(m.channel_overrides_toast_add_failed(), {
         description: (err as Error).message
       });
     }
@@ -221,25 +222,23 @@
 
 <div class="space-y-6" data-testid="channel-overrides">
   <header>
-    <h2 class="text-text-bright text-base font-semibold">Kanal-Berechtigungen</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.channel_overrides_heading()}</h2>
     <p class="text-text-muted text-sm">
-      Override-Reihenfolge: @everyone-Channel-Override → Rollen-Overrides
-      (nach Position) → User-Override. Wenn am Ende VIEW fehlt, sind alle
-      anderen Bits irrelevant — der Server stellt das hart sicher.
+      {m.channel_overrides_order_hint()}
     </p>
   </header>
 
   <div class="grid gap-3 sm:grid-cols-2">
     <div class="flex flex-wrap items-end gap-2">
       <div class="flex-1">
-        <Label for="add-role">Rolle</Label>
+        <Label for="add-role">{m.channel_overrides_label_role_field()}</Label>
         <select
           id="add-role"
           class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
           bind:value={addRoleId}
           data-testid="add-role-select"
         >
-          <option value="">— Rolle wählen —</option>
+          <option value="">{m.channel_overrides_select_role_placeholder()}</option>
           {#each availableRoles as r (r.id)}
             {@const already = overwrites.some(
               (ow) => ow.target_type === 0 && ow.target_id === r.id
@@ -252,20 +251,20 @@
       </div>
       <Button onclick={() => addOverride(0, addRoleId)} disabled={!addRoleId} data-testid="add-role-btn">
         <PlusIcon />
-        Rolle
+        {m.channel_overrides_btn_add_role()}
       </Button>
     </div>
 
     <div class="flex flex-wrap items-end gap-2">
       <div class="flex-1">
-        <Label for="add-user">Mitglied</Label>
+        <Label for="add-user">{m.channel_overrides_label_member_field()}</Label>
         <select
           id="add-user"
           class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
           bind:value={addUserId}
           data-testid="add-user-select"
         >
-          <option value="">— Mitglied wählen —</option>
+          <option value="">{m.channel_overrides_select_member_placeholder()}</option>
           {#each members as m (m.user_id)}
             {@const already = overwrites.some(
               (ow) => ow.target_type === 1 && ow.target_id === m.user_id
@@ -278,14 +277,14 @@
       </div>
       <Button onclick={() => addOverride(1, addUserId)} disabled={!addUserId} data-testid="add-user-btn">
         <PlusIcon />
-        User
+        {m.channel_overrides_btn_add_member()}
       </Button>
     </div>
   </div>
 
   {#if overwrites.length === 0}
     <p class="text-text-muted rounded-lg border border-dashed border-border p-4 text-sm">
-      Keine Overrides — der Kanal nutzt die Server-Defaults.
+      {m.channel_overrides_empty()}
     </p>
   {/if}
 
@@ -296,7 +295,7 @@
         <h3 class="text-text-bright text-sm font-semibold">{labelFor(ow)}</h3>
         <div class="flex gap-2">
           <Button size="sm" onclick={() => save(key)} data-testid={`override-save-${key}`}>
-            Speichern
+            {m.channel_overrides_btn_save()}
           </Button>
           <Button
             size="sm"

@@ -17,6 +17,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   const initial = $derived({
     username: auth.user?.username ?? '',
@@ -62,18 +63,18 @@
       lastReservation = await changeUsername(username.trim());
       auth.setUser(await me());
       await forceProfileRefresh();
-      toast.success('Benutzername geändert', {
-        description: `Alter Name 30 Tage reserviert.`,
+      toast.success(m.settings_profile_username_changed(), {
+        description: m.settings_profile_old_name_reserved(),
       });
     } catch (err) {
       if (err instanceof ApiError) {
         const body = err.body as { detail?: { error?: string; suggestions?: string[] } } | null;
         const d = body?.detail;
         if (d?.error === 'username_taken') {
-          usernameError = 'Dieser Benutzername ist schon vergeben.';
+          usernameError = m.settings_profile_username_taken();
           usernameSuggestions = Array.isArray(d.suggestions) ? d.suggestions : [];
         } else if (d?.error === 'username_reserved') {
-          usernameError = 'Dieser Benutzername ist gerade reserviert (30 Tage Cooldown).';
+          usernameError = m.settings_profile_username_reserved();
         } else {
           usernameError = err.message;
         }
@@ -106,9 +107,9 @@
       await updateProfile(payload);
       auth.setUser(await me());
       await forceProfileRefresh();
-      toast.success('Profil gespeichert');
+      toast.success(m.settings_profile_saved());
     } catch (err) {
-      profileError = err instanceof Error ? err.message : 'Unbekannter Fehler.';
+      profileError = err instanceof Error ? err.message : m.settings_profile_unknown_error();
     } finally {
       profileBusy = false;
     }
@@ -117,9 +118,9 @@
 
 <div class="space-y-6 pr-2" data-testid="settings-profile">
   <header>
-    <h2 class="text-text-bright text-lg font-semibold">Profil</h2>
+    <h2 class="text-text-bright text-lg font-semibold">{m.settings_profile_title()}</h2>
     <p class="text-text-muted text-sm">
-      Benutzername, Anzeigename und Farbe — werden über alle deine Communitys hinweg synchronisiert.
+      {m.settings_profile_subtitle()}
     </p>
   </header>
 
@@ -129,25 +130,25 @@
     data-testid="profile-display-section"
   >
     <div class="flex flex-col gap-1">
-      <h3 class="text-text-bright text-sm font-semibold">Öffentliches Profil</h3>
+      <h3 class="text-text-bright text-sm font-semibold">{m.settings_profile_public_profile_heading()}</h3>
       <p class="text-text-muted text-xs">
-        Anzeigename wird neben deinem Benutzernamen gezeigt. Farbe wirkt in Member-Listen.
+        {m.settings_profile_public_profile_description()}
       </p>
     </div>
 
     <div class="flex flex-col gap-2">
-      <Label for="profile-display-name">Anzeigename</Label>
+      <Label for="profile-display-name">{m.settings_profile_display_name_label()}</Label>
       <Input
         id="profile-display-name"
         bind:value={displayName}
-        placeholder={initial.username || 'Anzeigename'}
+        placeholder={initial.username || m.settings_profile_display_name_placeholder()}
         maxlength={64}
         data-testid="profile-display-name-input"
       />
     </div>
 
     <div class="flex flex-col gap-2">
-      <span class="text-text-base text-sm font-medium">Farbe</span>
+      <span class="text-text-base text-sm font-medium">{m.settings_profile_color_label()}</span>
       <div class="flex items-center gap-3">
         <label class="flex items-center gap-2 text-sm">
           <input
@@ -156,7 +157,7 @@
             class="size-4"
             data-testid="profile-color-toggle"
           />
-          Farbe verwenden
+          {m.settings_profile_use_color()}
         </label>
         <input
           type="color"
@@ -169,7 +170,7 @@
           class="text-text-bright text-sm font-medium"
           style={useColor ? `color: ${profileColor}` : ''}
         >
-          {auth.user?.display_name || auth.user?.username || 'Vorschau'}
+          {auth.user?.display_name || auth.user?.username || m.settings_profile_color_preview()}
         </span>
       </div>
     </div>
@@ -184,7 +185,7 @@
         disabled={!profileDirty || profileBusy}
         data-testid="profile-save-btn"
       >
-        {profileBusy ? 'Speichert…' : 'Profil speichern'}
+        {profileBusy ? m.settings_profile_saving() : m.settings_profile_save_button()}
       </Button>
     </div>
   </section>
@@ -195,15 +196,14 @@
     data-testid="profile-username-section"
   >
     <div class="flex flex-col gap-1">
-      <h3 class="text-text-bright text-sm font-semibold">Benutzername</h3>
+      <h3 class="text-text-bright text-sm font-semibold">{m.settings_profile_username_heading()}</h3>
       <p class="text-text-muted text-xs">
-        Eindeutiger Identifier auf Pulse. Der alte Name bleibt 30 Tage reserviert (nur du
-        kannst ihn in dem Fenster zurücknehmen).
+        {m.settings_profile_username_description()}
       </p>
     </div>
 
     <div class="flex flex-col gap-2">
-      <Label for="profile-username">Benutzername</Label>
+      <Label for="profile-username">{m.settings_profile_username_label()}</Label>
       <Input
         id="profile-username"
         bind:value={username}
@@ -212,7 +212,7 @@
         autocomplete="username"
         data-testid="profile-username-input"
       />
-      <p class="text-text-muted text-xs">3–32 Zeichen, nur Buchstaben, Ziffern und Unterstrich.</p>
+      <p class="text-text-muted text-xs">{m.settings_profile_username_hint()}</p>
     </div>
 
     {#if usernameError}
@@ -235,8 +235,7 @@
 
     {#if lastReservation}
       <p class="text-text-muted text-xs" data-testid="profile-username-reservation">
-        Letzte Änderung erfolgreich. Alter Name reserviert bis
-        {new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' }).format(new Date(lastReservation.reserved_until))}.
+        {m.settings_profile_username_reservation({ date: new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' }).format(new Date(lastReservation.reserved_until)) })}
       </p>
     {/if}
 
@@ -246,7 +245,7 @@
         disabled={!usernameValid || usernameBusy}
         data-testid="profile-username-save-btn"
       >
-        {usernameBusy ? 'Ändert…' : 'Benutzername ändern'}
+        {usernameBusy ? m.settings_profile_username_changing() : m.settings_profile_username_change_button()}
       </Button>
     </div>
   </section>

@@ -11,6 +11,7 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
   import MicGainControl from './MicGainControl.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let listeningForPttKey = $state(false);
   let pttKeyListener: ((e: KeyboardEvent) => void) | null = null;
@@ -60,12 +61,12 @@
   }
   let gateDbLabel = $derived(
     gateDbDisplay <= -55
-      ? 'sehr empfindlich — fast alles kommt durch'
+      ? m.settings_audio_video_gate_label_very_sensitive()
       : gateDbDisplay <= -40
-        ? 'leise Stimme reicht'
+        ? m.settings_audio_video_gate_label_quiet_voice()
         : gateDbDisplay <= -30
-          ? 'normale Sprachlautstärke'
-          : 'nur lautes — Flüstern wird stumm'
+          ? m.settings_audio_video_gate_label_normal_volume()
+          : m.settings_audio_video_gate_label_loud_only()
   );
 
   function startPttCapture() {
@@ -107,21 +108,21 @@
   let stereoForced = $derived(processorActive || bitrateTooLowForStereo);
   let bitrateLabel = $derived(
     bitrateDisplay < 24
-      ? 'sehr niedrig — Roboter-Sprache'
+      ? m.settings_audio_video_bitrate_label_very_low()
       : bitrateDisplay < 32
-        ? 'sparsam'
+        ? m.settings_audio_video_bitrate_label_sparse()
         : bitrateDisplay <= 64
-          ? 'Standard / Discord-Niveau'
+          ? m.settings_audio_video_bitrate_label_standard()
           : bitrateDisplay <= 128
-            ? 'hoch'
-            : 'sehr hoch (Musik)'
+            ? m.settings_audio_video_bitrate_label_high()
+            : m.settings_audio_video_bitrate_label_very_high()
   );
 </script>
 
 <div class="flex flex-col gap-6" data-testid="settings-audio-video-panel">
   <!-- Eingabegerät + Pegelanzeige -->
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Eingabegerät (Mikrofon)</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_input_device_label()}</span>
     <select
       class="bg-bg-input text-text-base h-11 rounded-md px-2 text-sm outline-none md:h-9"
       value={voice.selectedInputDeviceId}
@@ -130,10 +131,10 @@
       disabled={voice.inputDevices.length === 0}
     >
       {#if voice.inputDevices.length === 0}
-        <option value="">Tritt einem Sprach-Kanal bei, um Geräte zu sehen</option>
+        <option value="">{m.settings_audio_video_join_voice_to_see_devices()}</option>
       {/if}
       {#each voice.inputDevices as d (d.deviceId)}
-        <option value={d.deviceId}>{deviceDisplayName(d, 'Mikrofon')}</option>
+        <option value={d.deviceId}>{deviceDisplayName(d, m.settings_audio_video_microphone())}</option>
       {/each}
     </select>
     <div class="flex items-center gap-2">
@@ -158,7 +159,7 @@
             class="border-text-bright/80 pointer-events-none absolute inset-y-0 border-l-2"
             style:left="{gateMarkerPct}%"
             aria-hidden="true"
-            title={`Gate-Schwelle: ${gateDbDisplay} dB`}
+            title={m.settings_audio_video_gate_threshold_title({ db: gateDbDisplay })}
           ></div>
         {/if}
       </div>
@@ -169,15 +170,15 @@
         class:bg-red-500={voice.localMicClip}
         class:bg-bg-input={!voice.localMicClip}
         class:shadow-[0_0_6px_rgb(239_68_68)]={voice.localMicClip}
-        aria-label={voice.localMicClip ? 'Mic-Eingang clippt — OS-Pegel reduzieren' : 'Mic-Eingang ok'}
-        title={voice.localMicClip ? 'Mic-Eingang clippt — OS-Pegel reduzieren' : ''}
+        aria-label={voice.localMicClip ? m.settings_audio_video_mic_clipping() : m.settings_audio_video_mic_ok()}
+        title={voice.localMicClip ? m.settings_audio_video_mic_clipping() : ''}
       ></span>
     </div>
   </div>
 
   <!-- Ausgabegerät -->
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Ausgabegerät</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_output_device_label()}</span>
     <select
       class="bg-bg-input text-text-base h-11 rounded-md px-2 text-sm outline-none md:h-9"
       value={voice.selectedOutputDeviceId}
@@ -186,10 +187,10 @@
       disabled={voice.outputDevices.length === 0}
     >
       {#if voice.outputDevices.length === 0}
-        <option value="">Tritt einem Sprach-Kanal bei, um Geräte zu sehen</option>
+        <option value="">{m.settings_audio_video_join_voice_to_see_devices()}</option>
       {/if}
       {#each voice.outputDevices as d (d.deviceId)}
-        <option value={d.deviceId}>{deviceDisplayName(d, 'Ausgabegerät')}</option>
+        <option value={d.deviceId}>{deviceDisplayName(d, m.settings_audio_video_output_device_label())}</option>
       {/each}
     </select>
   </div>
@@ -198,8 +199,8 @@
   <div class="flex flex-col gap-2">
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-limiter">
       <div>
-        <span class="text-text-bright text-sm font-medium">Lautstärke-Limiter</span>
-        <p class="text-text-muted text-xs">Fängt Spitzen ab, wenn jemand plötzlich sehr laut wird — schützt deine Ohren, ohne normales Sprechen zu verändern.</p>
+        <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_limiter_label()}</span>
+        <p class="text-text-muted text-xs">{m.settings_audio_video_limiter_description()}</p>
       </div>
       <input
         type="checkbox"
@@ -214,8 +215,8 @@
   <div class="flex flex-col gap-2">
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-noise-suppression">
       <div>
-        <span class="text-text-bright text-sm font-medium">Rauschunterdrückung</span>
-        <p class="text-text-muted text-xs">Schneidet Hintergrundgeräusche weg und macht Pausen zwischen Wörtern sauber.</p>
+        <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_noise_suppression_label()}</span>
+        <p class="text-text-muted text-xs">{m.settings_audio_video_noise_suppression_description()}</p>
       </div>
       <input
         type="checkbox"
@@ -227,7 +228,7 @@
     {#if settings.audio.noiseSuppression !== 'off'}
       <div class="mt-1 flex flex-col gap-1.5" data-testid="settings-noise-gate">
         <div class="flex items-center justify-between">
-          <span class="text-text-base text-sm">Gate-Schwelle</span>
+          <span class="text-text-base text-sm">{m.settings_audio_video_gate_threshold_label()}</span>
           <span class="text-text-muted text-sm">{gateDbDisplay} dB · {gateDbLabel}</span>
         </div>
         <input
@@ -240,7 +241,7 @@
           onchange={onGateChange}
           class="accent-primary h-3 w-full md:h-auto"
         />
-        <p class="text-text-muted text-xs">Schwelle so wählen, dass sie unter deiner Stimme, aber über dem Hintergrund liegt.</p>
+        <p class="text-text-muted text-xs">{m.settings_audio_video_gate_threshold_hint()}</p>
       </div>
     {/if}
   </div>
@@ -248,7 +249,7 @@
   <!-- Echo / Auto-Gain -->
   <div class="flex flex-col gap-2.5">
     <label class="flex cursor-pointer items-center justify-between gap-3">
-      <span class="text-text-base text-sm">Echo-Unterdrückung</span>
+      <span class="text-text-base text-sm">{m.settings_audio_video_echo_cancellation_label()}</span>
       <input
         type="checkbox"
         checked={settings.audio.echoCancellation}
@@ -259,9 +260,9 @@
     </label>
     <label class="flex cursor-pointer items-center justify-between gap-3" class:opacity-50={processorActive}>
       <div>
-        <span class="text-text-base text-sm">Automatische Pegelangleichung</span>
+        <span class="text-text-base text-sm">{m.settings_audio_video_auto_gain_label()}</span>
         {#if settings.audio.noiseSuppression !== 'off'}
-          <p class="text-text-muted text-xs">Wird von der Rauschunterdrückung übernommen</p>
+          <p class="text-text-muted text-xs">{m.settings_audio_video_auto_gain_handled_by_noise()}</p>
         {/if}
       </div>
       <input
@@ -280,7 +281,7 @@
   <!-- Bitrate + Stereo -->
   <div class="flex flex-col gap-2">
     <div class="flex items-center justify-between">
-      <span class="text-text-bright text-sm font-medium">Sprachqualität</span>
+      <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_voice_quality_label()}</span>
       <span class="text-text-muted text-sm">{bitrateDisplay} kbit/s · {bitrateLabel}</span>
     </div>
     <input
@@ -296,11 +297,11 @@
     />
     <label class="mt-1 flex cursor-pointer items-center justify-between gap-3" class:opacity-50={stereoForced}>
       <div>
-        <span class="text-text-base text-sm">Stereo <span class="text-text-muted text-xs">{stereoForced ? '' : '(v.a. für Musik sinnvoll)'}</span></span>
+        <span class="text-text-base text-sm">Stereo <span class="text-text-muted text-xs">{stereoForced ? '' : m.settings_audio_video_stereo_hint()}</span></span>
         {#if processorActive}
-          <p class="text-text-muted text-xs">Noise-Filter ist mono — Stereo hätte keinen Effekt</p>
+          <p class="text-text-muted text-xs">{m.settings_audio_video_stereo_noise_filter_mono()}</p>
         {:else if bitrateTooLowForStereo}
-          <p class="text-text-muted text-xs">Bitrate zu niedrig — min. {VOICE_BITRATE_STEREO_MIN} kbit/s für Stereo</p>
+          <p class="text-text-muted text-xs">{m.settings_audio_video_stereo_bitrate_too_low({ min: VOICE_BITRATE_STEREO_MIN })}</p>
         {/if}
       </div>
       <input
@@ -316,9 +317,9 @@
 
   <!-- Push-to-Talk -->
   <div class="flex flex-col gap-2">
-    <span class="text-text-bright text-sm font-medium">Push-to-Talk</span>
+    <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_ptt_label()}</span>
     <label class="flex cursor-pointer items-center justify-between gap-3">
-      <span class="text-text-base text-sm">Push-to-Talk aktivieren</span>
+      <span class="text-text-base text-sm">{m.settings_audio_video_ptt_enable()}</span>
       <input
         type="checkbox"
         checked={settings.voice.pttMode}
@@ -328,14 +329,14 @@
       />
     </label>
     <div class="flex items-center justify-between gap-3">
-      <span class="text-text-base text-sm">Taste</span>
+      <span class="text-text-base text-sm">{m.settings_audio_video_ptt_key_label()}</span>
       <button
         type="button"
         onclick={startPttCapture}
         class="bg-bg-input text-text-bright hover:bg-bg-hover rounded-full border border-border px-3 py-2 text-sm uppercase transition-colors md:py-1.5"
         data-testid="settings-ptt-key"
       >
-        {listeningForPttKey ? 'Taste drücken…' : settings.voice.pttKey}
+        {listeningForPttKey ? m.settings_audio_video_ptt_press_key() : settings.voice.pttKey}
       </button>
     </div>
   </div>
@@ -343,9 +344,8 @@
   <div class="border-primary/30 bg-primary/5 mt-2 flex items-start gap-2 rounded-lg border-l-2 px-3 py-2">
     <InfoIcon class="text-primary/80 mt-0.5 size-3.5 shrink-0" />
     <p class="text-text-muted text-xs leading-relaxed">
-      <span class="text-text-base">Bitrate, Stereo und Echo/Auto-Gain</span> greifen erst, wenn du das nächste Mal
-      einem Sprach-Kanal beitrittst. <span class="text-text-base">Rauschunterdrückung</span>,
-      <span class="text-text-base">Limiter</span> und <span class="text-text-base">Ein-/Ausgabegerät</span> wirken sofort.
+      <span class="text-text-base">{m.settings_audio_video_info_delayed_settings()}</span> {m.settings_audio_video_info_delayed_apply()} <span class="text-text-base">{m.settings_audio_video_noise_suppression_label()}</span>,
+      <span class="text-text-base">{m.settings_audio_video_limiter_label()}</span> {m.settings_audio_video_info_and()} <span class="text-text-base">{m.settings_audio_video_info_io_device()}</span> {m.settings_audio_video_info_immediate()}
     </p>
   </div>
 </div>

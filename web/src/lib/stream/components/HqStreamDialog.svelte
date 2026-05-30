@@ -10,6 +10,7 @@
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import StreamPanel from './StreamPanel.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false), channelId = null }: { open?: boolean; channelId?: string | null } =
     $props();
@@ -21,9 +22,9 @@
     data-testid="hq-stream-dialog"
   >
     <Dialog.Header class="sr-only">
-      <Dialog.Title>HQ-Stream</Dialog.Title>
+      <Dialog.Title>{m.hq_stream_dialog_title()}</Dialog.Title>
       <Dialog.Description>
-        GPU-Screen-Recorder-basierter Stream über MediaMTX (Pulse-T3/T4).
+        {m.hq_stream_dialog_description()}
       </Dialog.Description>
     </Dialog.Header>
     <StreamPanel {channelId} onStarted={() => (open = false)} />

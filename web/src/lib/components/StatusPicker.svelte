@@ -11,6 +11,7 @@
   import { presence, type OwnPresenceStatus } from '$lib/stores/presence.svelte';
   import { friendsApi } from '$lib/api/friends';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   type StatusOption = {
     value: OwnPresenceStatus;
@@ -19,10 +20,10 @@
   };
 
   const OPTIONS: StatusOption[] = [
-    { value: 'online', label: 'Online', description: 'Du bist sichtbar online' },
-    { value: 'idle', label: 'Abwesend', description: 'Als abwesend anzeigen' },
-    { value: 'dnd', label: 'Nicht stören', description: 'Notifications werden unterdrückt' },
-    { value: 'invisible', label: 'Unsichtbar', description: 'Du erscheinst offline' }
+    { value: 'online', label: m.status_picker_label_online(), description: m.status_picker_desc_online() },
+    { value: 'idle', label: m.status_picker_label_idle(), description: m.status_picker_desc_idle() },
+    { value: 'dnd', label: m.status_picker_label_dnd(), description: m.status_picker_desc_dnd() },
+    { value: 'invisible', label: m.status_picker_label_invisible(), description: m.status_picker_desc_invisible() }
   ];
 
   let busy = $state(false);
@@ -37,7 +38,7 @@
     try {
       await friendsApi.setPresenceStatus(next);
     } catch (e) {
-      toast.error('Status konnte nicht gesetzt werden', {
+      toast.error(m.status_picker_set_error(), {
         description: e instanceof Error ? e.message : undefined
       });
     } finally {
@@ -62,7 +63,7 @@
   }
 
   let currentLabel = $derived(
-    OPTIONS.find((o) => o.value === presence.myStatus)?.label ?? 'Online'
+    OPTIONS.find((o) => o.value === presence.myStatus)?.label ?? m.status_picker_label_online()
   );
 </script>
 
@@ -73,9 +74,9 @@
         {...props}
         class="hover:bg-bg-hover flex items-center gap-2 rounded-lg px-2 py-1 text-sm transition-colors disabled:opacity-50"
         disabled={busy}
-        title="Status ändern"
+        title={m.status_picker_change_title()}
         data-testid="status-picker-trigger"
-        aria-label="Status: {currentLabel}"
+        aria-label={m.status_picker_aria_label({ currentLabel })}
       >
         <StatusDot status={presence.myStatus} class="size-3" />
         <span class="text-text-muted text-xs">{currentLabel}</span>

@@ -1,3 +1,5 @@
+import { m } from '$lib/paraglide/messages.js';
+
 /**
  * Tiny user-agent prettifier. Covers the four browsers + five OSes that
  * make up ~99 % of real-world traffic. Anything we don't recognise falls
@@ -50,10 +52,10 @@ function detectOs(ua: string): string | null {
  * raw string. Never throws.
  */
 export function formatUserAgent(ua: string | null): string {
-  if (!ua || ua.trim() === '') return 'Unbekanntes Gerät';
+  if (!ua || ua.trim() === '') return m.useragent_unknown_device();
   const browser = detectBrowser(ua);
   const os = detectOs(ua);
-  if (browser && os) return `${browser} auf ${os}`;
+  if (browser && os) return m.useragent_browser_on_os({ browser, os });
   if (browser) return browser;
   if (os) return os;
   // Last-ditch fallback: show the first chunk of the raw string so the user

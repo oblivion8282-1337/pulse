@@ -8,6 +8,7 @@
   import { listAuditLog, type AuditLogEntry } from '$lib/api/moderation';
   import { userCache } from '$lib/stores/users.svelte';
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
 
@@ -18,14 +19,14 @@
   let hasMore = $state(true);
   const PAGE = 50;
 
-  const ACTION_LABELS: Record<string, string> = {
-    report_resolved: 'Report aufgelöst',
-    report_dismissed: 'Report verworfen',
-    ban: 'Ban',
-    kick: 'Kick',
-    message_delete: 'Nachricht gelöscht',
-    warn: 'Verwarnung',
-    role_change: 'Rolle geändert'
+  const ACTION_LABELS: Record<string, () => string> = {
+    report_resolved: m.audit_log_action_report_resolved,
+    report_dismissed: m.audit_log_action_report_dismissed,
+    ban: m.audit_log_action_ban,
+    kick: m.audit_log_action_kick,
+    message_delete: m.audit_log_action_message_delete,
+    warn: m.audit_log_action_warn,
+    role_change: m.audit_log_action_role_change
   };
 
   async function load(reset = false) {
@@ -64,7 +65,7 @@
   }
 
   function fmtAction(type: string): string {
-    return ACTION_LABELS[type] ?? type;
+    return ACTION_LABELS[type]?.() ?? type;
   }
 
   function fmtTime(iso: string): string {
@@ -78,15 +79,15 @@
 <section class="flex flex-col gap-5" data-testid="audit-log-panel">
   <div class="flex items-center justify-between">
     <div>
-      <h2 class="text-text-bright text-lg font-semibold">Audit-Log</h2>
-      <p class="text-text-muted text-sm">Moderations-Aktionen dieser Community, neueste zuerst.</p>
+      <h2 class="text-text-bright text-lg font-semibold">{m.audit_log_title()}</h2>
+      <p class="text-text-muted text-sm">{m.audit_log_subtitle()}</p>
     </div>
     <button
       type="button"
       onclick={() => load(true)}
       disabled={loading}
       class="text-text-muted hover:text-text-bright hover:bg-bg-hover rounded-md p-1.5"
-      aria-label="Aktualisieren"
+      aria-label={m.audit_log_refresh_label()}
       data-testid="audit-log-refresh"
     >
       <RefreshCcwIcon class="size-4 {loading ? 'animate-spin' : ''}" />
@@ -94,11 +95,11 @@
   </div>
 
   {#if loadError}
-    <p class="text-red-400 text-sm" data-testid="audit-log-error">Fehler: {loadError}</p>
+    <p class="text-red-400 text-sm" data-testid="audit-log-error">{m.audit_log_load_error({ message: loadError! })}</p>
   {:else if loading}
-    <p class="text-text-muted text-sm">lade…</p>
+    <p class="text-text-muted text-sm">{m.audit_log_loading()}</p>
   {:else if entries.length === 0}
-    <p class="text-text-muted text-sm">Noch keine Mod-Aktionen.</p>
+    <p class="text-text-muted text-sm">{m.audit_log_empty()}</p>
   {:else}
     <ul class="divide-border bg-bg-hover/30 divide-y rounded-xl border border-border" data-testid="audit-log-list">
       {#each entries as e (e.id)}
@@ -127,7 +128,7 @@
         class="bg-bg-input text-text-muted hover:bg-bg-hover self-center rounded-md px-4 py-2 text-sm transition-colors disabled:opacity-50"
         data-testid="audit-log-load-more"
       >
-        {loadingMore ? 'lädt…' : 'Mehr laden'}
+        {loadingMore ? m.audit_log_loading_more() : m.audit_log_load_more()}
       </button>
     {/if}
   {/if}

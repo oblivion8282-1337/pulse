@@ -18,6 +18,7 @@
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import StreamChatPanel from '$lib/stream/components/StreamChatPanel.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     track,
@@ -88,9 +89,9 @@
           type="button"
           onclick={() => (chatOpen = !chatOpen)}
           class="flex items-center justify-center rounded-full p-1.5 text-white backdrop-blur-sm hover:bg-black/75 {chatOpen ? 'bg-primary/80' : 'bg-black/55'}"
-          aria-label="Live-Chat"
+          aria-label={m.screen_share_doc_pip_live_chat()}
           aria-pressed={chatOpen}
-          title="Live-Chat"
+          title={m.screen_share_doc_pip_live_chat()}
         >
           <MessageSquareIcon class="size-3.5" />
         </button>
@@ -99,8 +100,8 @@
         type="button"
         onclick={onReattach}
         class="flex items-center justify-center rounded-full bg-black/55 p-1.5 text-white backdrop-blur-sm hover:bg-black/75"
-        aria-label="Wieder in Pulse anzeigen"
-        title="Wieder andocken"
+        aria-label={m.screen_share_doc_pip_reattach_label()}
+        title={m.screen_share_doc_pip_reattach_title()}
       >
         <LogInIcon class="size-3.5" />
       </button>

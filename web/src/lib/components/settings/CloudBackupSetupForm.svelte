@@ -7,6 +7,7 @@
   import EyeOffIcon from '@lucide/svelte/icons/eye-off';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import { keyBackupState } from '$lib/identity/key-backup.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   interface Props {
     onSubmit: (password: string) => Promise<void>;
@@ -42,13 +43,13 @@
 
 <div class="flex flex-col gap-3">
   <div class="flex flex-col gap-1">
-    <label for="backup-pw" class="text-text-muted text-xs font-medium">Master-Passwort</label>
+    <label for="backup-pw" class="text-text-muted text-xs font-medium">{m.cloud_backup_setup_form_master_password_label()}</label>
     <div class="relative">
       <input
         id="backup-pw"
         type={showPassword ? 'text' : 'password'}
         bind:value={password}
-        placeholder="Mindestens 12 Zeichen"
+        placeholder={m.cloud_backup_setup_form_password_placeholder()}
         class="border-border bg-bg-input text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
         data-testid="backup-password-input"
       />
@@ -56,7 +57,7 @@
         type="button"
         onclick={() => (showPassword = !showPassword)}
         class="text-text-muted hover:text-text-base absolute right-3 top-1/2 -translate-y-1/2"
-        aria-label={showPassword ? 'Passwort verbergen' : 'Passwort anzeigen'}
+        aria-label={showPassword ? m.cloud_backup_setup_form_hide_password() : m.cloud_backup_setup_form_show_password()}
       >
         {#if showPassword}
           <EyeOffIcon class="size-4" />
@@ -67,21 +68,21 @@
     </div>
     {#if password.length > 0}
       <span class="text-xs {passwordStrong ? 'text-emerald-500' : 'text-amber-500'}">
-        {passwordStrong ? 'Stark genug' : `Noch ${12 - password.length} Zeichen nötig`}
+        {passwordStrong ? m.cloud_backup_setup_form_password_strong() : m.cloud_backup_setup_form_password_chars_needed({ count: 12 - password.length })}
       </span>
     {/if}
   </div>
 
   <div class="flex flex-col gap-1">
     <label for="backup-pw-confirm" class="text-text-muted text-xs font-medium">
-      Passwort bestätigen
+      {m.cloud_backup_setup_form_confirm_password_label()}
     </label>
     <div class="relative">
       <input
         id="backup-pw-confirm"
         type={showConfirm ? 'text' : 'password'}
         bind:value={passwordConfirm}
-        placeholder="Nochmal eingeben"
+        placeholder={m.cloud_backup_setup_form_confirm_placeholder()}
         class="border-border bg-bg-input text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
         data-testid="backup-password-confirm-input"
       />
@@ -89,7 +90,7 @@
         type="button"
         onclick={() => (showConfirm = !showConfirm)}
         class="text-text-muted hover:text-text-base absolute right-3 top-1/2 -translate-y-1/2"
-        aria-label={showConfirm ? 'Passwort verbergen' : 'Passwort anzeigen'}
+        aria-label={showConfirm ? m.cloud_backup_setup_form_hide_password() : m.cloud_backup_setup_form_show_password()}
       >
         {#if showConfirm}
           <EyeOffIcon class="size-4" />
@@ -100,7 +101,7 @@
     </div>
     {#if passwordConfirm.length > 0}
       <span class="text-xs {passwordsMatch ? 'text-emerald-500' : 'text-destructive'}">
-        {passwordsMatch ? 'Stimmt überein' : 'Passwörter stimmen nicht überein'}
+        {passwordsMatch ? m.cloud_backup_setup_form_passwords_match() : m.cloud_backup_setup_form_passwords_mismatch()}
       </span>
     {/if}
   </div>
@@ -119,9 +120,9 @@
       data-testid="backup-confirm-btn"
     >
       {#if busy || keyBackupState.encrypting}
-        <LoaderIcon class="mr-1 inline size-4 animate-spin" />Wird verschlüsselt…
+        <LoaderIcon class="mr-1 inline size-4 animate-spin" />{m.cloud_backup_setup_form_encrypting()}
       {:else}
-        Backup speichern
+        {m.cloud_backup_setup_form_save_backup()}
       {/if}
     </button>
     <button
@@ -130,7 +131,7 @@
       disabled={busy}
       class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 md:py-1.5"
     >
-      Abbrechen
+      {m.cloud_backup_setup_form_cancel()}
     </button>
   </div>
 </div>

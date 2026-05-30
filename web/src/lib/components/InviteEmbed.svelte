@@ -11,6 +11,7 @@
   import type { InvitePreview } from '$lib/api/types';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { code }: { code: string } = $props();
 
@@ -55,8 +56,8 @@
     </div>
     <div class="h-8 w-20 rounded-lg bg-bg-hover animate-pulse shrink-0"></div>
   {:else if invalid || !preview}
-    <div class="text-text-muted flex-1 text-sm">Einladung ungültig oder abgelaufen.</div>
-    <Button variant="outline" size="sm" disabled>Beitreten</Button>
+    <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
+    <Button variant="outline" size="sm" disabled>{m.invite_embed_join()}</Button>
   {:else}
     <Avatar.Root class="size-10 shrink-0">
       {#if preview.guild.icon_url}
@@ -71,12 +72,11 @@
         {preview.guild.name}
       </p>
       <p class="text-text-muted text-xs" data-testid="invite-embed-member-count">
-        {preview.member_count}
-        {preview.member_count === 1 ? 'Mitglied' : 'Mitglieder'}
+        {m.invite_embed_member_count({ count: preview.member_count })}
       </p>
     </div>
     <Button size="sm" onclick={handleJoin} data-testid="invite-embed-join-btn">
-      Beitreten
+      {m.invite_embed_join()}
     </Button>
   {/if}
 </div>

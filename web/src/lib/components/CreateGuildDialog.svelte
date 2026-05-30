@@ -5,6 +5,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Mode = 'choose' | 'create' | 'join';
 
@@ -79,7 +80,7 @@
       await onCreate(trimmed);
       // success → the parent navigates to the new guild and this dialog unmounts.
     } catch (err) {
-      error = (err as Error)?.message || 'Community erstellen fehlgeschlagen.';
+      error = (err as Error)?.message || m.create_guild_dialog_create_failed();
       busy = false;
     }
   }
@@ -95,8 +96,8 @@
     } catch (err) {
       error =
         (err as { status?: number })?.status === 404
-          ? 'Diese Einladung ist ungültig oder abgelaufen.'
-          : (err as Error)?.message || 'Beitreten fehlgeschlagen.';
+          ? m.create_guild_dialog_invite_invalid()
+          : (err as Error)?.message || m.create_guild_dialog_join_failed();
       busy = false;
     }
   }
@@ -106,9 +107,9 @@
   <Dialog.Content data-testid="create-guild-dialog">
     {#if mode === 'choose'}
       <Dialog.Header>
-        <Dialog.Title>Community hinzufügen</Dialog.Title>
+        <Dialog.Title>{m.create_guild_dialog_add_title()}</Dialog.Title>
         <Dialog.Description>
-          Erstelle eine eigene Community oder tritt einer über eine Einladung bei.
+          {m.create_guild_dialog_add_description()}
         </Dialog.Description>
       </Dialog.Header>
       <div class="space-y-2">
@@ -120,8 +121,8 @@
             data-testid="create-guild-choice"
           >
             <div>
-              <div class="text-text-bright font-semibold">Eigene Community erstellen</div>
-              <div class="text-text-muted text-xs">Du wirst der Owner.</div>
+              <div class="text-text-bright font-semibold">{m.create_guild_dialog_create_own_title()}</div>
+              <div class="text-text-muted text-xs">{m.create_guild_dialog_create_own_hint()}</div>
             </div>
           </button>
         {/if}
@@ -132,15 +133,15 @@
           data-testid="join-guild-choice"
         >
           <div>
-            <div class="text-text-bright font-semibold">Einer Community beitreten</div>
-            <div class="text-text-muted text-xs">Mit einem Einladungslink oder -code.</div>
+            <div class="text-text-bright font-semibold">{m.create_guild_dialog_join_title()}</div>
+            <div class="text-text-muted text-xs">{m.create_guild_dialog_join_hint()}</div>
           </div>
         </button>
       </div>
     {:else if mode === 'create'}
       <Dialog.Header>
-        <Dialog.Title>Community erstellen</Dialog.Title>
-        <Dialog.Description>Gib deiner Community einen Namen.</Dialog.Description>
+        <Dialog.Title>{m.create_guild_dialog_create_title()}</Dialog.Title>
+        <Dialog.Description>{m.create_guild_dialog_create_description()}</Dialog.Description>
       </Dialog.Header>
       <form class="space-y-4" onsubmit={submitCreate}>
         <div class="space-y-1.5">
@@ -148,7 +149,7 @@
             for="create-guild-name"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            Community-Name
+            {m.create_guild_dialog_name_label()}
           </Label>
           <Input
             id="create-guild-name"
@@ -167,16 +168,16 @@
           </Alert.Root>
         {/if}
         <Dialog.Footer>
-          <Button type="button" variant="ghost" onclick={back} disabled={busy}>Zurück</Button>
+          <Button type="button" variant="ghost" onclick={back} disabled={busy}>{m.create_guild_dialog_back()}</Button>
           <Button type="submit" disabled={busy} data-testid="create-guild-submit">
-            {busy ? 'Erstellen…' : 'Erstellen'}
+            {busy ? m.create_guild_dialog_creating() : m.create_guild_dialog_create_submit()}
           </Button>
         </Dialog.Footer>
       </form>
     {:else}
       <Dialog.Header>
-        <Dialog.Title>Community beitreten</Dialog.Title>
-        <Dialog.Description>Füge den Einladungslink oder den Code ein.</Dialog.Description>
+        <Dialog.Title>{m.create_guild_dialog_join_modal_title()}</Dialog.Title>
+        <Dialog.Description>{m.create_guild_dialog_join_description()}</Dialog.Description>
       </Dialog.Header>
       <form class="space-y-4" onsubmit={submitJoin}>
         <div class="space-y-1.5">
@@ -184,7 +185,7 @@
             for="join-guild-input"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            Einladungslink oder -code
+            {m.create_guild_dialog_invite_label()}
           </Label>
           <Input
             id="join-guild-input"
@@ -192,7 +193,7 @@
             bind:value={inviteInput}
             required
             autocomplete="off"
-            placeholder="https://howispulse.com/invite/… oder abcd1234"
+            placeholder={m.create_guild_dialog_invite_placeholder()}
             data-testid="join-guild-input"
           />
         </div>
@@ -203,9 +204,9 @@
           </Alert.Root>
         {/if}
         <Dialog.Footer>
-          <Button type="button" variant="ghost" onclick={back} disabled={busy}>Zurück</Button>
+          <Button type="button" variant="ghost" onclick={back} disabled={busy}>{m.create_guild_dialog_back()}</Button>
           <Button type="submit" disabled={busy} data-testid="join-guild-submit">
-            {busy ? 'Beitreten…' : 'Beitreten'}
+            {busy ? m.create_guild_dialog_joining() : m.create_guild_dialog_join_submit()}
           </Button>
         </Dialog.Footer>
       </form>

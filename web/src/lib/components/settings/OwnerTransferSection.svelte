@@ -16,6 +16,7 @@
   import { guildOwnershipApi } from '$lib/api/roles';
   import { userCache } from '$lib/stores/users.svelte';
   import type { Guild, Member } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   function displayName(m: Member): string {
     return m.nickname ?? userCache.displayName(m.user_id);
@@ -52,11 +53,11 @@
         new_owner_id: selectedUserId,
         confirm_name: confirmName
       });
-      toast.success('Eigentümerschaft übertragen');
+      toast.success(m.owner_transfer_success());
       confirmName = '';
       selectedUserId = '';
     } catch (err) {
-      toast.error('Übertragung fehlgeschlagen', {
+      toast.error(m.owner_transfer_failed(), {
         description: (err as Error).message
       });
     } finally {
@@ -67,23 +68,21 @@
 
 <section class="space-y-4" data-testid="ownership-transfer">
   <header>
-    <h2 class="text-text-bright text-base font-semibold">Eigentümerschaft übertragen</h2>
+    <h2 class="text-text-bright text-base font-semibold">{m.owner_transfer_heading()}</h2>
     <p class="text-text-muted text-sm">
-      Macht ein anderes Mitglied zum neuen Community-Owner. Du wirst zu einem
-      regulären Mitglied und kannst die Übertragung nicht rückgängig
-      machen — der neue Owner müsste dir das Eigentum zurückgeben.
+      {m.owner_transfer_description()}
     </p>
   </header>
 
   <div class="space-y-2">
-    <Label for="ot-target">Neues Mitglied</Label>
+    <Label for="ot-target">{m.owner_transfer_label_target()}</Label>
     <select
       id="ot-target"
       class="bg-bg-input border-border w-full rounded-md border px-3 py-2 text-sm"
       bind:value={selectedUserId}
       data-testid="ot-target"
     >
-      <option value="">— Mitglied wählen —</option>
+      <option value="">{m.owner_transfer_select_placeholder()}</option>
       {#each members as m (m.user_id)}
         <option value={m.user_id}>{displayName(m)}</option>
       {/each}
@@ -91,7 +90,7 @@
   </div>
 
   <div class="space-y-2">
-    <Label for="ot-confirm">Community-Name zur Bestätigung</Label>
+    <Label for="ot-confirm">{m.owner_transfer_label_confirm()}</Label>
     <Input
       id="ot-confirm"
       placeholder={guild.name}
@@ -99,7 +98,7 @@
       data-testid="ot-confirm"
     />
     <p class="text-text-muted text-xs">
-      Gib „{guild.name}" exakt ein, um die Übertragung zu aktivieren.
+      {m.owner_transfer_confirm_hint({ name: guild.name })}
     </p>
   </div>
 
@@ -109,6 +108,6 @@
     disabled={!canSubmit}
     data-testid="ot-submit"
   >
-    {busy ? 'Übertrage…' : 'Eigentümer wechseln'}
+    {busy ? m.owner_transfer_button_busy() : m.owner_transfer_button_idle()}
   </Button>
 </section>

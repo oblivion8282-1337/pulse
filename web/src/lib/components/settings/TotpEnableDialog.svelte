@@ -18,6 +18,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { stripTotpFormatting, formatTotpDisplay } from '$lib/auth/format';
   import BackupCodesView from './BackupCodesView.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -63,7 +64,7 @@
     if (busy) return;
     const digits = stripTotpFormatting(codeRaw);
     if (digits.length !== 6) {
-      error = 'Bitte 6-stelligen Code eingeben.';
+      error = m.totp_enable_dialog_code_length_error();
       return;
     }
     busy = true;
@@ -101,14 +102,14 @@
     <Dialog.Overlay />
     <Dialog.Content data-testid="totp-enable-dialog" class="max-w-md">
       <Dialog.Header>
-        <Dialog.Title>2FA aktivieren</Dialog.Title>
+        <Dialog.Title>{m.totp_enable_dialog_title()}</Dialog.Title>
         <Dialog.Description>
           {#if step === 'qr'}
-            Scanne den QR-Code mit deiner Authenticator-App (z. B. Authy, Google Authenticator, 1Password).
+            {m.totp_enable_dialog_desc_qr()}
           {:else if step === 'verify'}
-            Gib den 6-stelligen Code aus der App ein.
+            {m.totp_enable_dialog_desc_verify()}
           {:else}
-            Speichere diese Backup-Codes — du brauchst sie, falls du dein Handy verlierst.
+            {m.totp_enable_dialog_desc_codes()}
           {/if}
         </Dialog.Description>
       </Dialog.Header>
@@ -125,14 +126,14 @@
           <div class="flex flex-col items-center gap-3 py-2">
             <img
               src="data:image/png;base64,{setupData.qr_png_base64}"
-              alt="QR-Code für die Authenticator-App"
+              alt={m.totp_enable_dialog_qr_alt()}
               width="200"
               height="200"
               class="border-border h-auto w-full max-w-[14rem] rounded-lg border bg-white p-2 md:w-52"
               data-testid="totp-qr"
             />
             <div class="flex flex-col gap-1 text-center">
-              <span class="text-text-muted text-xs">Geht's nicht? Gib das Secret manuell ein:</span>
+              <span class="text-text-muted text-xs">{m.totp_enable_dialog_manual_secret_hint()}</span>
               <code
                 class="bg-bg-input text-text-bright select-all rounded px-3 py-2 font-mono text-sm md:px-2 md:py-1 md:text-xs"
                 data-testid="totp-secret"
@@ -143,20 +144,20 @@
           </div>
         {:else}
           <p class="text-text-muted text-sm">
-            {busy ? 'Lade…' : 'Setup wird vorbereitet.'}
+            {busy ? m.totp_enable_dialog_loading() : m.totp_enable_dialog_preparing()}
           </p>
         {/if}
         <Dialog.Footer>
-          <Button variant="secondary" onclick={close} disabled={busy}>Abbrechen</Button>
+          <Button variant="secondary" onclick={close} disabled={busy}>{m.totp_enable_dialog_cancel()}</Button>
           <Button onclick={goToVerify} disabled={!setupData || busy} data-testid="totp-enable-next">
-            Weiter
+            {m.totp_enable_dialog_next()}
           </Button>
         </Dialog.Footer>
       {:else if step === 'verify'}
         <form onsubmit={verify} class="space-y-3">
           <div class="space-y-1.5">
             <Label for="totp-setup-code" class="text-text-muted text-xs font-semibold uppercase">
-              Code aus der App
+              {m.totp_enable_dialog_code_label()}
             </Label>
             <Input
               id="totp-setup-code"
@@ -178,10 +179,10 @@
               onclick={() => (step = 'qr')}
               disabled={busy}
             >
-              Zurück
+              {m.totp_enable_dialog_back()}
             </Button>
             <Button type="submit" disabled={busy} data-testid="totp-enable-verify">
-              {busy ? 'Prüfen…' : 'Bestätigen'}
+              {busy ? m.totp_enable_dialog_verifying() : m.totp_enable_dialog_confirm()}
             </Button>
           </Dialog.Footer>
         </form>
@@ -194,10 +195,10 @@
             bind:checked={saved}
             data-testid="totp-enable-saved-check"
           />
-          Ich habe die Codes an einem sicheren Ort gespeichert.
+          {m.totp_enable_dialog_saved_confirm()}
         </label>
         <Dialog.Footer>
-          <Button onclick={close} disabled={!saved} data-testid="totp-enable-done">Fertig</Button>
+          <Button onclick={close} disabled={!saved} data-testid="totp-enable-done">{m.totp_enable_dialog_done()}</Button>
         </Dialog.Footer>
       {/if}
     </Dialog.Content>

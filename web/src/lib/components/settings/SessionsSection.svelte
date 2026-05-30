@@ -23,6 +23,7 @@
   import { formatRelative } from '$lib/utils/formatRelative';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
+  import { m } from '$lib/paraglide/messages.js';
 
   let sessions = $state<Session[]>([]);
   let loading = $state(true);
@@ -37,7 +38,7 @@
     try {
       sessions = await listSessions();
     } catch (err) {
-      toast.error('Sessions laden fehlgeschlagen', {
+      toast.error(m.sessions_section_load_failed(), {
         description: (err as Error).message
       });
     } finally {
@@ -55,13 +56,13 @@
       // Optimistic local removal — refetch on error path.
       sessions = sessions.filter((x) => x.id !== s.id);
       if (s.is_current) {
-        toast.success('Diese Session wurde widerrufen — bis bald.');
+        toast.success(m.sessions_section_current_revoked());
         auth.signOut();
         return;
       }
-      toast.success('Session widerrufen');
+      toast.success(m.sessions_section_session_revoked());
     } catch (err) {
-      toast.error('Widerrufen fehlgeschlagen', {
+      toast.error(m.sessions_section_revoke_failed(), {
         description: (err as Error).message
       });
       void load();
@@ -77,12 +78,10 @@
       const res = await revokeOtherSessions();
       sessions = sessions.filter((s) => s.is_current);
       const n = res.revoked_count;
-      toast.success(
-        n === 1 ? '1 Session widerrufen' : `${n} Sessions widerrufen`
-      );
+      toast.success(m.sessions_section_bulk_revoked({ count: n }));
       bulkOpen = false;
     } catch (err) {
-      toast.error('Widerrufen fehlgeschlagen', {
+      toast.error(m.sessions_section_revoke_failed(), {
         description: (err as Error).message
       });
     } finally {
@@ -96,19 +95,19 @@
   data-testid="sessions-section"
 >
   <div class="flex flex-col gap-1">
-    <h3 class="text-text-bright text-sm font-semibold">Aktive Sessions</h3>
+    <h3 class="text-text-bright text-sm font-semibold">{m.sessions_section_title()}</h3>
     <p class="text-text-muted text-xs">
-      Geräte, auf denen du eingeloggt bist. Verdächtige Einträge sofort widerrufen.
+      {m.sessions_section_description()}
     </p>
   </div>
 
   {#if loading}
     <div class="text-text-muted flex items-center gap-2 text-xs">
       <LoaderIcon class="size-4 animate-spin" />
-      <span>Sessions werden geladen…</span>
+      <span>{m.sessions_section_loading()}</span>
     </div>
   {:else if sessions.length === 0}
-    <div class="text-text-muted text-xs">Keine aktiven Sessions gefunden.</div>
+    <div class="text-text-muted text-xs">{m.sessions_section_empty()}</div>
   {:else}
     <ul class="flex flex-col gap-2" data-testid="sessions-list">
       {#each sessions as s (s.id)}
@@ -131,17 +130,16 @@
                     class="ml-1 inline-flex items-center rounded bg-emerald-500/15 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-500 md:px-1.5 md:py-0.5 md:text-[10px]"
                     data-testid="session-current-badge"
                   >
-                    Diese Session
+                    {m.sessions_section_current_badge()}
                   </span>
                 {/if}
               </span>
               <span class="text-text-muted text-xs">
-                Angemeldet {formatRelative(s.created_at)} · Aktiv
-                {formatRelative(s.last_used_at ?? s.created_at)}
+                {m.sessions_section_session_meta({ signedIn: formatRelative(s.created_at), active: formatRelative(s.last_used_at ?? s.created_at) })}
               </span>
               {#if s.ip_hash_prefix}
                 <span class="text-text-muted font-mono text-xs uppercase tracking-wider md:text-[10px]">
-                  Quelle: {s.ip_hash_prefix}
+                  {m.sessions_section_source({ prefix: s.ip_hash_prefix })}
                 </span>
               {/if}
             </div>
@@ -155,7 +153,7 @@
               class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-xs font-medium transition-colors disabled:opacity-50 sm:self-auto md:py-1.5"
               data-testid="session-revoke"
             >
-              {revokingId === s.id ? 'Widerrufen…' : 'Diese Session widerrufen'}
+              {revokingId === s.id ? m.sessions_section_revoking() : m.sessions_section_revoke_this()}
             </button>
           {/if}
         </li>
@@ -169,7 +167,7 @@
         class="text-destructive bg-destructive/10 hover:bg-destructive/20 mt-1 self-start rounded-md px-3 py-2 text-sm font-medium transition-colors md:py-1.5"
         data-testid="sessions-revoke-all"
       >
-        Alle anderen Sessions widerrufen
+        {m.sessions_section_revoke_all_others()}
       </button>
     {/if}
   {/if}
@@ -178,21 +176,20 @@
 <AlertDialog.Root bind:open={bulkOpen}>
   <AlertDialog.Content data-testid="sessions-revoke-all-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Alle anderen Sessions widerrufen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.sessions_section_bulk_dialog_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        Du bleibst auf diesem Gerät eingeloggt. Alle anderen Geräte werden ausgeloggt und müssen
-        sich neu anmelden.
+        {m.sessions_section_bulk_dialog_description()}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={bulkBusy}>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel disabled={bulkBusy}>{m.sessions_section_cancel()}</AlertDialog.Cancel>
       <Button
         variant="destructive"
         onclick={handleBulkRevoke}
         disabled={bulkBusy}
         data-testid="sessions-revoke-all-confirm"
       >
-        {bulkBusy ? 'Widerrufen…' : 'Alle widerrufen'}
+        {bulkBusy ? m.sessions_section_revoking() : m.sessions_section_revoke_all_confirm()}
       </Button>
     </AlertDialog.Footer>
   </AlertDialog.Content>

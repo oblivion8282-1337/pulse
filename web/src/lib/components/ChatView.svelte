@@ -12,6 +12,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { m as pm } from '$lib/paraglide/messages.js';
 
   type ChatItem =
     | { kind: 'divider'; label: string; key: string }
@@ -98,8 +99,8 @@
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today.getTime() - 86400000);
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    if (d.getTime() === today.getTime()) return 'Heute';
-    if (d.getTime() === yesterday.getTime()) return 'Gestern';
+    if (d.getTime() === today.getTime()) return pm.chat_view_today();
+    if (d.getTime() === yesterday.getTime()) return pm.chat_view_yesterday();
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   }
 
@@ -225,7 +226,7 @@
     const parent = messageMap.get(m.reply_to_id);
     if (!parent) {
       // Parent isn't loaded (older than our window or deleted) — show a stub.
-      return { id: m.reply_to_id, author: '…', snippet: '(ältere Nachricht)' };
+      return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
     }
     return { id: parent.id, author: authorName(parent), snippet: snippet(parent.content) };
   }
@@ -286,14 +287,14 @@
         <button
           class="ml-auto rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
           onclick={() => (memberListOpen = !memberListOpen)}
-          aria-label="Mitgliederliste umschalten"
+          aria-label={pm.chat_view_toggle_member_list()}
           data-testid="member-list-toggle"
         >
           <UsersIcon class="text-text-muted size-4" />
         </button>
       {/if}
     {:else}
-      <span class="text-text-muted text-sm">Wähle einen Kanal aus</span>
+      <span class="text-text-muted text-sm">{pm.chat_view_select_channel()}</span>
     {/if}
   </header>
 
@@ -302,7 +303,7 @@
       {#if channel}
         {#if messages.length === 0}
           <p class="text-text-muted px-4 py-8 text-center text-sm">
-            Noch keine Nachrichten in <strong class="text-text-bright">{namePrefix}{channel.name}</strong>. Sei der/die erste!
+            {pm.chat_view_no_messages_prefix()}<strong class="text-text-bright">{namePrefix}{channel.name}</strong>{pm.chat_view_no_messages_suffix()}
           </p>
         {:else}
           {#each items as item (item.key)}
@@ -349,7 +350,7 @@
       channelId={channel.id}
       placeholder={viewport.isMobile
         ? `${namePrefix}${channel.name}`
-        : `Nachricht ${headerKind === 'dm' ? 'an' : 'in'} ${namePrefix}${channel.name}`}
+        : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}
       replyTo={replyBanner}
       onCancelReply={cancelReply}

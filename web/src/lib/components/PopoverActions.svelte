@@ -18,6 +18,7 @@
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import * as actions from './popoverActions';
+  import { m } from '$lib/paraglide/messages.js';
 
   const CHANNEL_TYPE_VOICE = 1;
 
@@ -148,7 +149,7 @@
         data-testid="popover-dm-btn"
       >
         <MessageCircleIcon class="size-4" />
-        <span>{working ? 'Öffne…' : 'Nachricht senden'}</span>
+        <span>{working ? m.popover_actions_opening() : m.popover_actions_send_message()}</span>
       </button>
     {/if}
     {#if canEditNickname}
@@ -159,7 +160,7 @@
         data-testid="popover-nickname-btn"
       >
         <PencilIcon class="size-4" />
-        <span>Nickname ändern</span>
+        <span>{m.popover_actions_edit_nickname()}</span>
       </button>
     {/if}
     {#if canMute}
@@ -172,10 +173,10 @@
       >
         {#if isForceMuted}
           <MicIcon class="size-4" />
-          <span>Stummschaltung aufheben</span>
+          <span>{m.popover_actions_unmute()}</span>
         {:else}
           <MicOffIcon class="size-4" />
-          <span>Stummschalten</span>
+          <span>{m.popover_actions_mute()}</span>
         {/if}
       </button>
     {/if}
@@ -190,10 +191,10 @@
       >
         {#if isForceDeafened}
           <HeadphonesIcon class="size-4" />
-          <span>Taubschaltung aufheben</span>
+          <span>{m.popover_actions_undeafen()}</span>
         {:else}
           <HeadphoneOffIcon class="size-4" />
-          <span>Taubschalten</span>
+          <span>{m.popover_actions_deafen()}</span>
         {/if}
       </button>
     {/if}
@@ -206,7 +207,7 @@
         data-testid="popover-voice-disconnect-btn"
       >
         <PhoneOffIcon class="size-4" />
-        <span>Aus Voice trennen</span>
+        <span>{m.popover_actions_disconnect_voice()}</span>
       </button>
     {/if}
     {#if canKick}
@@ -221,9 +222,9 @@
         <UserMinusIcon class="size-4" />
         <span>
           {#if kickConfirmArmed}
-            Wirklich entfernen?
+            {m.popover_actions_kick_confirm()}
           {:else}
-            Aus Community entfernen
+            {m.popover_actions_kick()}
           {/if}
         </span>
       </button>
@@ -240,9 +241,9 @@
         <BanIcon class="size-4" />
         <span>
           {#if banConfirmArmed}
-            Wirklich sperren?
+            {m.popover_actions_ban_confirm()}
           {:else}
-            Sperren
+            {m.popover_actions_ban()}
           {/if}
         </span>
       </button>

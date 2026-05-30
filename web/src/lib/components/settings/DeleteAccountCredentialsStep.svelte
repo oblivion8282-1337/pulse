@@ -15,6 +15,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Props = {
     username: string;
@@ -47,19 +48,18 @@
   <AlertDialog.Title>
     <span class="text-destructive flex items-center gap-2">
       <TriangleAlertIcon class="size-5" />
-      Account endgültig löschen
+      {m.delete_account_credentials_title()}
     </span>
   </AlertDialog.Title>
   <AlertDialog.Description>
-    Bestätige mit deinem Passwort{totpEnabled ? ' und 2FA-Code' : ''}, um den Account
-    <strong>{username}</strong> zu löschen.
+    {totpEnabled ? m.delete_account_credentials_description_totp({ username }) : m.delete_account_credentials_description({ username })}
   </AlertDialog.Description>
 </AlertDialog.Header>
 
 <form {onsubmit} class="space-y-3">
   <div class="space-y-1.5">
     <Label for="delete-password" class="text-text-muted text-xs font-semibold uppercase">
-      Passwort
+      {m.delete_account_credentials_password_label()}
     </Label>
     <Input
       id="delete-password"
@@ -76,7 +76,7 @@
     {#if useBackup}
       <div class="space-y-1.5">
         <Label for="delete-backup" class="text-text-muted text-xs font-semibold uppercase">
-          Backup-Code
+          {m.delete_account_credentials_backup_code_label()}
         </Label>
         <Input
           id="delete-backup"
@@ -92,7 +92,7 @@
     {:else}
       <div class="space-y-1.5">
         <Label for="delete-code" class="text-text-muted text-xs font-semibold uppercase">
-          Aktueller Code aus der App
+          {m.delete_account_credentials_totp_label()}
         </Label>
         <Input
           id="delete-code"
@@ -114,7 +114,7 @@
       onclick={() => (useBackup = !useBackup)}
       data-testid="delete-account-toggle-backup"
     >
-      {useBackup ? '6-stelligen Code verwenden' : 'Backup-Code verwenden'}
+      {useBackup ? m.delete_account_credentials_use_totp_code() : m.delete_account_credentials_use_backup_code()}
     </button>
   {/if}
 
@@ -133,7 +133,7 @@
       disabled={busy}
       data-testid="delete-account-back"
     >
-      Zurück
+      {m.delete_account_credentials_back()}
     </Button>
     <Button
       type="submit"
@@ -141,7 +141,7 @@
       disabled={busy}
       data-testid="delete-account-submit"
     >
-      {busy ? 'Löschen…' : 'Account endgültig löschen'}
+      {busy ? m.delete_account_credentials_deleting() : m.delete_account_credentials_submit()}
     </Button>
   </AlertDialog.Footer>
 </form>

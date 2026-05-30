@@ -29,6 +29,7 @@
   import { chatApi } from '$lib/api/chat';
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     inviteCode,
@@ -90,13 +91,15 @@
     const fail = results.length - ok;
     if (ok > 0 && fail === 0) {
       toast.success(
-        ok === 1 ? 'Einladung an 1 Freund gesendet' : `Einladung an ${ok} Freunde gesendet`
+        ok === 1
+          ? m.invite_friend_picker_sent_one()
+          : m.invite_friend_picker_sent_many({ count: ok })
       );
       selected = new Set();
     } else if (ok > 0 && fail > 0) {
-      toast.warning(`${ok} gesendet, ${fail} fehlgeschlagen`);
+      toast.warning(m.invite_friend_picker_partial({ ok, fail }));
     } else {
-      toast.error('Einladung konnte nicht gesendet werden');
+      toast.error(m.invite_friend_picker_send_failed());
     }
     sending = false;
   }
@@ -105,24 +108,24 @@
 <div class="space-y-2" data-testid="invite-friend-picker">
   <div class="flex items-center justify-between gap-2">
     <p class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-      Direkt an Freunde senden
+      {m.invite_friend_picker_heading()}
     </p>
     {#if selected.size > 0}
       <span class="text-text-muted text-xs" data-testid="invite-picker-count">
-        {selected.size} ausgewählt
+        {m.invite_friend_picker_selected_count({ count: selected.size })}
       </span>
     {/if}
   </div>
 
   {#if friends.list.length === 0}
     <p class="text-text-muted px-1 py-3 text-sm">
-      Noch keine Freunde — füge erst welche hinzu, um direkt einladen zu können.
+      {m.invite_friend_picker_no_friends()}
     </p>
   {:else}
     <Input
       type="text"
       bind:value={query}
-      placeholder="Freund suchen…"
+      placeholder={m.invite_friend_picker_search_placeholder()}
       autocomplete="off"
       data-testid="invite-picker-search"
     />
@@ -172,7 +175,7 @@
         </li>
       {/each}
       {#if filtered.length === 0}
-        <li class="text-text-muted px-3 py-3 text-sm">Keine Treffer.</li>
+        <li class="text-text-muted px-3 py-3 text-sm">{m.invite_friend_picker_no_results()}</li>
       {/if}
     </ul>
 
@@ -185,12 +188,12 @@
     >
       <SendIcon class="mr-2 size-4" />
       {sending
-        ? 'Senden…'
+        ? m.invite_friend_picker_sending()
         : selected.size === 0
-          ? 'Freunde auswählen'
+          ? m.invite_friend_picker_select_friends()
           : selected.size === 1
-            ? 'An 1 Freund senden'
-            : `An ${selected.size} Freunde senden`}
+            ? m.invite_friend_picker_send_one()
+            : m.invite_friend_picker_send_many({ count: selected.size })}
     </Button>
   {/if}
 </div>

@@ -19,6 +19,7 @@
   import { formatTotpDisplay, stripTotpFormatting, normalizeBackupCode } from '$lib/auth/format';
   import { isElectron } from '$lib/platform/runtime';
   import type { MfaMethod } from '$lib/api/auth';
+  import { m } from '$lib/paraglide/messages.js';
 
   type TotpArgs = { code?: string; backup_code?: string };
   type Props = {
@@ -85,16 +86,16 @@
 >
   <header class="space-y-2 text-center">
     <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
-    <h1 class="text-card-foreground text-2xl font-semibold">Zwei-Faktor-Authentifizierung</h1>
+    <h1 class="text-card-foreground text-2xl font-semibold">{m.login_mfa_title()}</h1>
     <p class="text-muted-foreground text-sm">
       {#if showPasskey && showCodes}
-        Bestätige mit deinem Passkey — oder gib einen Code ein.
+        {m.login_mfa_hint_passkey_or_code()}
       {:else if showPasskey}
-        Bestätige die Anmeldung mit deinem Passkey.
+        {m.login_mfa_hint_passkey_only()}
       {:else if useBackupCode || backupOnly}
-        Gib einen deiner Backup-Codes ein.
+        {m.login_mfa_hint_backup_code()}
       {:else}
-        Öffne deine Authenticator-App und gib den 6-stelligen Code ein.
+        {m.login_mfa_hint_totp()}
       {/if}
     </p>
   </header>
@@ -109,14 +110,14 @@
       data-testid="login-passkey-mfa"
     >
       <FingerprintIcon class="size-4" />
-      Mit Passkey bestätigen
+      {m.login_mfa_confirm_with_passkey()}
     </Button>
   {/if}
 
   {#if showPasskey && showCodes}
     <div class="text-muted-foreground flex items-center gap-3 text-xs">
       <span class="bg-border h-px flex-1"></span>
-      oder Code eingeben
+      {m.login_mfa_or_enter_code()}
       <span class="bg-border h-px flex-1"></span>
     </div>
   {/if}
@@ -128,7 +129,7 @@
           for="login-backup-code"
           class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
         >
-          Backup-Code
+          {m.login_mfa_label_backup_code()}
         </Label>
         <Input
           id="login-backup-code"
@@ -146,7 +147,7 @@
           for="login-totp-code"
           class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
         >
-          Code
+          {m.login_mfa_label_code()}
         </Label>
         <Input
           id="login-totp-code"
@@ -172,7 +173,7 @@
 
   {#if showCodes}
     <Button type="submit" class="w-full" disabled={busy} data-testid="login-totp-submit">
-      {busy ? 'Prüfen…' : 'Bestätigen'}
+      {busy ? m.login_mfa_verifying() : m.login_mfa_confirm()}
     </Button>
   {/if}
 
@@ -184,7 +185,7 @@
         onclick={toggleBackupCode}
         data-testid="login-toggle-backup"
       >
-        {useBackupCode ? '6-stelligen Code verwenden' : 'Backup-Code verwenden'}
+        {useBackupCode ? m.login_mfa_use_totp_code() : m.login_mfa_use_backup_code()}
       </button>
     {:else}
       <span></span>
@@ -195,7 +196,7 @@
       onclick={onCancel}
       data-testid="login-totp-cancel"
     >
-      Abbrechen
+      {m.login_mfa_cancel()}
     </button>
   </div>
 </form>

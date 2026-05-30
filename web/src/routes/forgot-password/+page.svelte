@@ -7,6 +7,7 @@
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import MailCheckIcon from '@lucide/svelte/icons/mail-check';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let emailOrUsername = $state('');
   let error = $state<string | null>(null);
@@ -32,13 +33,13 @@
 
 <div class="flex min-h-dvh">
   <AuthBrandPanel
-    headline="Schon mal passiert."
-    headlineSub="Wir setzen dich zurück."
-    description="Trag deine E-Mail oder deinen Benutzernamen ein — wenn das Konto bei uns liegt, kommt gleich ein Link."
+    headline={m.forgot_password_brand_headline()}
+    headlineSub={m.forgot_password_brand_headline_sub()}
+    description={m.forgot_password_brand_description()}
     features={[
-      'Link gilt 1 Stunde',
-      'Funktioniert auch mit Benutzernamen',
-      'Argon2id-Passwörter, niemals im Klartext gespeichert',
+      m.forgot_password_feature_link_expires(),
+      m.forgot_password_feature_username_works(),
+      m.forgot_password_feature_argon2(),
     ]}
   />
 
@@ -53,17 +54,16 @@
         >
           <MailCheckIcon class="text-primary size-7" />
         </div>
-        <h1 class="text-card-foreground text-2xl font-semibold">Prüf dein Postfach</h1>
+        <h1 class="text-card-foreground text-2xl font-semibold">{m.forgot_password_check_inbox_title()}</h1>
         <p class="text-muted-foreground text-sm">
-          Falls die Adresse bei uns ist, ist eine Email auf dem Weg.
-          Schau auch im Spam-Ordner nach.
+          {m.forgot_password_check_inbox_body()}
         </p>
         <a
           class="text-primary inline-block text-sm hover:underline"
           href="/login"
           data-testid="forgot-back-to-login"
         >
-          Zurück zum Login
+          {m.forgot_password_back_to_login()}
         </a>
       </div>
     {:else}
@@ -74,9 +74,9 @@
       >
         <header class="space-y-2 text-center">
           <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
-          <h1 class="text-card-foreground text-2xl font-semibold">Passwort vergessen?</h1>
+          <h1 class="text-card-foreground text-2xl font-semibold">{m.forgot_password_title()}</h1>
           <p class="text-muted-foreground text-sm">
-            Wir schicken dir einen Link zum Zurücksetzen.
+            {m.forgot_password_subtitle()}
           </p>
         </header>
 
@@ -85,7 +85,7 @@
             for="forgot-identifier"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            E-Mail oder Benutzername
+            {m.forgot_password_email_or_username_label()}
           </Label>
           <Input
             id="forgot-identifier"
@@ -105,11 +105,11 @@
         {/if}
 
         <Button type="submit" class="w-full" disabled={busy} data-testid="forgot-submit">
-          {busy ? 'Senden…' : 'Link senden'}
+          {busy ? m.forgot_password_submit_busy() : m.forgot_password_submit_idle()}
         </Button>
 
         <p class="text-muted-foreground text-center text-sm">
-          <a class="text-primary hover:underline" href="/login">Zurück zum Login</a>
+          <a class="text-primary hover:underline" href="/login">{m.forgot_password_back_to_login()}</a>
         </p>
       </form>
     {/if}

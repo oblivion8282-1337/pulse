@@ -35,6 +35,7 @@
   import FocusIcon from '@lucide/svelte/icons/focus';
   import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
   import XIcon from '@lucide/svelte/icons/x';
+  import { m } from '$lib/paraglide/messages.js';
   import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
   import { VOLUME_BOOST_MAX } from '../volumeBoost';
   import { statsVisible } from '../statsVisible.svelte';
@@ -185,7 +186,7 @@
         type="button"
         onclick={() => onToggleFocus?.()}
         class="group absolute inset-0 flex items-end"
-        aria-label={`${name} in den Fokus holen`}
+        aria-label={m.tile_shell_focus_tile({ name })}
         data-testid={`${testidPrefix}-focus`}
       >
         <div class="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10"></div>
@@ -207,7 +208,7 @@
           onclick={handleCatcherClick}
           ondblclick={handleCatcherDblClick}
           aria-hidden="true"
-          title="Doppelklick für Vollbild"
+          title={m.tile_shell_dblclick_fullscreen()}
         ></div>
       {/if}
 
@@ -236,8 +237,8 @@
           type="button"
           onclick={() => onHide?.()}
           class="absolute right-2 top-2 z-10 {ICON_BTN} hover:bg-red-600 {fadeClass}"
-          aria-label="Diese Kachel ausblenden"
-          title="Ausblenden"
+          aria-label={m.tile_shell_hide_tile()}
+          title={m.tile_shell_hide()}
           data-testid={`${testidPrefix}-hide`}
         >
           <XIcon class={ICON_SIZE} />
@@ -256,7 +257,7 @@
               type="button"
               onclick={() => onToggleMute?.()}
               class="flex items-center text-white hover:text-white/70"
-              aria-label={volume === 0 ? 'Ton an' : 'Stummschalten'}
+              aria-label={volume === 0 ? m.tile_shell_unmute() : m.tile_shell_mute()}
               data-testid={`${testidPrefix}-mute`}
             >
               {#if volume === 0}<VolumeXIcon class="size-4 md:size-3" />{:else}<Volume2Icon
@@ -270,7 +271,7 @@
               value={volume}
               oninput={onVolumeChange}
               class="w-28 accent-white sm:w-20"
-              aria-label="Lautstärke"
+              aria-label={m.tile_shell_volume()}
               data-testid={`${testidPrefix}-volume`}
             />
             <span
@@ -287,7 +288,7 @@
             data-testid={`${testidPrefix}-unblock-audio`}
           >
             <VolumeXIcon class="size-3.5 md:size-3" />
-            Ton aktivieren
+            {m.tile_shell_enable_audio()}
           </button>
         {/if}
         {#if stats}
@@ -295,9 +296,9 @@
             type="button"
             onclick={() => statsVisible.toggle()}
             class="{ICON_BTN} {statsVisible.on ? 'ring-2 ring-primary' : ''}"
-            aria-label={statsVisible.on ? 'Diagnose-Stats ausblenden' : 'Diagnose-Stats einblenden'}
+            aria-label={statsVisible.on ? m.tile_shell_stats_hide() : m.tile_shell_stats_show()}
             aria-pressed={statsVisible.on}
-            title="Diagnose-Stats (Codec/FPS/Bitrate)"
+            title={m.tile_shell_stats_title()}
             data-testid={`${testidPrefix}-stats-toggle`}
           >
             <ActivityIcon class={ICON_SIZE} />
@@ -308,9 +309,9 @@
             type="button"
             onclick={() => onToggleChat?.()}
             class="{ICON_BTN} {chatOpen ? 'ring-2 ring-primary' : ''}"
-            aria-label={chatOpen ? 'Live-Chat schließen' : 'Live-Chat öffnen'}
+            aria-label={chatOpen ? m.tile_shell_chat_close() : m.tile_shell_chat_open()}
             aria-pressed={chatOpen}
-            title="Live-Chat"
+            title={m.tile_shell_chat()}
             data-testid={`${testidPrefix}-chat-toggle`}
           >
             <MessageSquareIcon class={ICON_SIZE} />
@@ -322,8 +323,8 @@
             type="button"
             onclick={() => onDetach?.()}
             class={ICON_BTN}
-            aria-label="In eigenem Fenster öffnen"
-            title="In eigenem Fenster öffnen"
+            aria-label={m.tile_shell_detach()}
+            title={m.tile_shell_detach()}
             data-testid={`${testidPrefix}-detach`}
           >
             <ExternalLinkIcon class={ICON_SIZE} />
@@ -334,8 +335,8 @@
             type="button"
             onclick={() => onToggleFocus?.()}
             class={ICON_BTN}
-            aria-label={focused ? 'Zurück zum Raster' : 'In den Fokus holen'}
-            title={focused ? 'Zurück zum Raster' : 'In den Fokus'}
+            aria-label={focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
+            title={focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
             data-testid={`${testidPrefix}-focus-toggle`}
           >
             {#if focused}<LayoutGridIcon class={ICON_SIZE} />{:else}<FocusIcon
@@ -347,8 +348,8 @@
           type="button"
           onclick={toggleFs}
           class={ICON_BTN}
-          aria-label={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
-          title={isFullscreen ? 'Vollbild verlassen' : 'Vollbild'}
+          aria-label={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
+          title={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
           data-testid={`${testidPrefix}-fullscreen`}
         >
           {#if isFullscreen}<MinimizeIcon class={ICON_SIZE} />{:else}<MaximizeIcon

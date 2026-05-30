@@ -33,6 +33,7 @@
   } from '$lib/api/add-server-flow';
   import { CertLoginError } from '$lib/api/cert-login';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = false,
@@ -83,7 +84,7 @@
     }
     // Duplikat-Check
     if (serversStore.findByHostname(result.hostname)) {
-      error = 'Dieser Server ist bereits in deiner Liste.';
+      error = m.add_server_dialog_already_in_list();
       return;
     }
     info = result.info;
@@ -93,14 +94,14 @@
 
   function mapPreCheckError(reason: string): string {
     if (reason === 'too-old')
-      return 'Server-Update läuft vermutlich, in ein paar Minuten erneut versuchen.';
+      return m.add_server_dialog_error_too_old();
     if (reason === 'unreachable')
-      return 'Server nicht erreichbar — URL prüfen oder VPN?';
+      return m.add_server_dialog_error_unreachable();
     if (reason === 'cors')
-      return 'Server blockt Cross-Origin-Verbindungen. Admin muss CORS einrichten.';
+      return m.add_server_dialog_error_cors();
     if (reason === 'bad-url')
-      return 'Keine gültige URL — z. B. chat.firma.de oder https://chat.firma.de.';
-    return 'Server-Antwort konnte nicht gelesen werden.';
+      return m.add_server_dialog_error_bad_url();
+    return m.add_server_dialog_error_unreadable();
   }
 
   async function confirmAdd(): Promise<void> {
@@ -118,15 +119,15 @@
       });
       markSelfHostDisclaimerSeen(resolvedHostname, r.entry.id);
       activeServer.set(r.entry.id);
-      toast.success(`${labelHost} hinzugefügt`);
-      if (r.inviteError) toast.error(`Invite-Code: ${r.inviteError}`);
-      else if (r.invite) toast.success(`Server „${r.invite.guild.name}" beigetreten`);
+      toast.success(m.add_server_dialog_toast_added({ host: labelHost }));
+      if (r.inviteError) toast.error(m.add_server_dialog_toast_invite_error({ reason: r.inviteError }));
+      else if (r.invite) toast.success(m.add_server_dialog_toast_joined({ name: r.invite.guild.name }));
       reset();
       onClose();
     } catch (err) {
       error = err instanceof CertLoginError
         ? mapCertLoginReason(err.reason)
-        : (err as Error).message ?? 'Verbindung fehlgeschlagen.';
+        : (err as Error).message ?? m.add_server_dialog_error_connection_failed();
     } finally {
       busy = false;
     }
@@ -137,10 +138,9 @@
   <Dialog.Content data-testid="add-server-dialog">
     {#if step === 'url'}
       <Dialog.Header>
-        <Dialog.Title>Server hinzufügen</Dialog.Title>
+        <Dialog.Title>{m.add_server_dialog_title_add()}</Dialog.Title>
         <Dialog.Description>
-          Verbinde dich mit einem Self-Host-Server. Gib die volle URL ein —
-          dein Browser ruft kurz die Server-Info ab.
+          {m.add_server_dialog_description_url()}
         </Dialog.Description>
       </Dialog.Header>
       <form class="space-y-4" onsubmit={runPreCheck}>
@@ -149,7 +149,7 @@
             for="add-server-url"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            Server-URL
+            {m.add_server_dialog_label_url()}
           </Label>
           <Input
             id="add-server-url"
@@ -171,18 +171,18 @@
         {/if}
         <Dialog.Footer>
           <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>
-            Abbrechen
+            {m.add_server_dialog_btn_cancel()}
           </Button>
           <Button type="submit" disabled={busy} data-testid="add-server-precheck">
-            {busy ? 'Prüfe…' : 'Weiter'}
+            {busy ? m.add_server_dialog_btn_checking() : m.add_server_dialog_btn_next()}
           </Button>
         </Dialog.Footer>
       </form>
     {:else}
       <Dialog.Header>
-        <Dialog.Title>Server bestätigen</Dialog.Title>
+        <Dialog.Title>{m.add_server_dialog_title_confirm()}</Dialog.Title>
         <Dialog.Description>
-          Diese Instanz wird zu deiner Server-Liste hinzugefügt.
+          {m.add_server_dialog_description_confirm()}
         </Dialog.Description>
       </Dialog.Header>
       <div class="space-y-4">
@@ -192,9 +192,9 @@
             {resolvedHostname.replace(/^https?:\/\//, '')}
           </div>
           <div class="text-text-muted text-xs">
-            Version <span class="text-text-base font-mono">{info?.server_version}</span>
+            {m.add_server_dialog_version_label()} <span class="text-text-base font-mono">{info?.server_version}</span>
             {#if info?.instance_id}
-              · Instance <span class="font-mono">{info.instance_id}</span>
+              · {m.add_server_dialog_instance_label()} <span class="font-mono">{info.instance_id}</span>
             {/if}
           </div>
           <div class="text-text-muted text-xs">
@@ -205,9 +205,9 @@
         <Alert.Root data-testid="self-host-disclaimer-banner">
           <ShieldAlertIcon />
           <Alert.Description>
-            Du verlässt die Pulse-Cloud — dieser Server wird von
+            {m.add_server_dialog_disclaimer_prefix()}
             <strong>{resolvedHostname.replace(/^https?:\/\//, '')}</strong>
-            betrieben, dort gelten andere Regeln und Datenschutz-Bestimmungen.
+            {m.add_server_dialog_disclaimer_suffix()}
           </Alert.Description>
         </Alert.Root>
 
@@ -216,19 +216,18 @@
             for="add-server-invite"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            Invite-Code (optional)
+            {m.add_server_dialog_label_invite()}
           </Label>
           <Input
             id="add-server-invite"
             type="text"
             bind:value={inviteInput}
             autocomplete="off"
-            placeholder="Vom Self-Host-Admin"
+            placeholder={m.add_server_dialog_invite_placeholder()}
             data-testid="add-server-invite"
           />
           <p class="text-text-muted text-xs">
-            Mit Cert-Login: dein Identitäts-Cert wird gegen den Server signiert,
-            danach (falls Code gesetzt) tritt dieser Account dem Server bei.
+            {m.add_server_dialog_cert_login_hint()}
           </p>
         </div>
 
@@ -241,10 +240,10 @@
 
         <Dialog.Footer>
           <Button type="button" variant="ghost" onclick={() => (step = 'url')} disabled={busy}>
-            Zurück
+            {m.add_server_dialog_btn_back()}
           </Button>
           <Button onclick={confirmAdd} disabled={busy} data-testid="add-server-confirm">
-            {busy ? 'Füge hinzu…' : 'Verstanden, hinzufügen'}
+            {busy ? m.add_server_dialog_btn_adding() : m.add_server_dialog_btn_confirm_add()}
           </Button>
         </Dialog.Footer>
       </div>

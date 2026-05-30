@@ -14,6 +14,7 @@
   import { effectiveBinding } from '$lib/shortcuts/persistence';
   import { displayCombo } from '$lib/shortcuts/format';
   import { settings } from '$lib/stores/settings.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -24,9 +25,9 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content class="max-w-2xl" data-testid="shortcut-cheatsheet">
-    <Dialog.Title>Tastatur-Shortcuts</Dialog.Title>
+    <Dialog.Title>{m.shortcut_cheatsheet_title()}</Dialog.Title>
     <Dialog.Description class="sr-only">
-      Übersicht aller aktiven Tastenkombinationen
+      {m.shortcut_cheatsheet_description()}
     </Dialog.Description>
 
     <div class="max-h-[60vh] space-y-5 overflow-y-auto pr-2">
@@ -53,7 +54,7 @@
 
       <section class="border-border border-t pt-4">
         <h3 class="text-text-muted mb-2 text-xs font-semibold uppercase tracking-wide">
-          Sprache (Halten)
+          {m.shortcut_cheatsheet_voice_section()}
         </h3>
         <div class="flex items-center justify-between gap-3 rounded px-1 py-0.5">
           <span class="text-text-base text-sm">Push-to-Talk</span>
@@ -62,7 +63,7 @@
           </span>
         </div>
         <p class="text-text-muted mt-2 text-xs">
-          Im Tab „Sprache &amp; Video" konfigurierbar.
+          {m.shortcut_cheatsheet_voice_hint()}
         </p>
       </section>
     </div>
@@ -73,7 +74,7 @@
         onclick={() => (open = false)}
         class="text-text-bright bg-bg-input hover:bg-bg-hover2 rounded-md px-3 py-1.5 text-sm transition-colors"
       >
-        Schließen
+        {m.shortcut_cheatsheet_close()}
       </button>
     </div>
   </Dialog.Content>

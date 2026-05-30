@@ -10,6 +10,7 @@
   import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
   import { renderMessage } from './messageRender';
   import { longpress } from '$lib/utils/longpress';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     message,
@@ -146,14 +147,14 @@
       data-testid="message-edit-input"
     ></textarea>
     <div class="text-text-muted mt-0.5 text-[10px]">
-      Enter zum Speichern · Esc zum Abbrechen
+      {m.message_item_edit_hint()}
     </div>
   {:else}
     {#if message.content && !isInviteOnly}
       <div class="text-text-base break-words text-[15px]" data-testid="message-content">
         {@html html}
         {#if isEdited}
-          <span class="text-text-muted text-[10px]" title={message.edited_at ?? ''}>(bearbeitet)</span>
+          <span class="text-text-muted text-[10px]" title={message.edited_at ?? ''}>{m.message_item_edited_label()}</span>
         {/if}
       </div>
     {/if}

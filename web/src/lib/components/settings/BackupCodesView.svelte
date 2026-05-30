@@ -8,6 +8,7 @@
   import { toast } from 'svelte-sonner';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import CopyIcon from '@lucide/svelte/icons/copy';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { codes }: { codes: string[] } = $props();
 
@@ -27,9 +28,9 @@
   async function copyAll() {
     try {
       await navigator.clipboard.writeText(codes.join('\n'));
-      toast.success('In die Zwischenablage kopiert');
+      toast.success(m.backup_codes_view_copied_to_clipboard());
     } catch {
-      toast.error('Kopieren fehlgeschlagen');
+      toast.error(m.backup_codes_view_copy_failed());
     }
   }
 </script>
@@ -50,7 +51,7 @@
       data-testid="backup-codes-download"
     >
       <DownloadIcon class="size-3.5" />
-      Als TXT herunterladen
+      {m.backup_codes_view_download_txt()}
     </button>
     <button
       type="button"
@@ -59,11 +60,10 @@
       data-testid="backup-codes-copy"
     >
       <CopyIcon class="size-3.5" />
-      Kopieren
+      {m.backup_codes_view_copy_all()}
     </button>
   </div>
   <p class="text-text-muted text-xs">
-    Jeder Code funktioniert genau einmal. Bewahre sie an einem sicheren Ort auf — ein neuer Satz macht
-    den alten ungültig.
+    {m.backup_codes_view_hint()}
   </p>
 </div>

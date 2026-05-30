@@ -24,6 +24,7 @@ import { toast } from 'svelte-sonner';
 import { registerWsHandler } from '../handler-registry';
 import { isRecentMention, markRecentMention } from './_mentionSuppression';
 import type { HandlerContext } from './context';
+import { m } from '$lib/paraglide/messages.js';
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('message', (evt) => {
@@ -105,13 +106,13 @@ export function register(ctx: HandlerContext): void {
         // show a "…" placeholder.
         const cached = userCache.get(evt.author_id);
         const senderLabel = cached
-          ? ` von @${cached.display_name ?? cached.username}`
+          ? m.chat_handler_dm_sender_label({ sender: '@' + (cached.display_name ?? cached.username) })
           : '';
         const channelId = evt.channel_id;
         if (!isDnd()) {
-          toast.message(`Neue Nachricht${senderLabel}`, {
+          toast.message(m.chat_handler_dm_new_message({ senderLabel }), {
             action: {
-              label: 'Öffnen',
+              label: m.chat_handler_dm_open(),
               onClick: () => {
                 void goto(`/app/@me/${channelId}`);
               }
@@ -153,15 +154,15 @@ export function register(ctx: HandlerContext): void {
     // the channel — in that case we fall back to a generic body.
     const msg = messages.for(channel_id).find((m) => m.id === message_id);
     const author = msg ? userCache.get(msg.author_id) ?? null : null;
-    const authorName = author?.display_name ?? author?.username ?? 'Jemand';
-    const snippet = msg?.content?.slice(0, 140) ?? 'hat dich erwähnt';
+    const authorName = author?.display_name ?? author?.username ?? m.chat_handler_mention_unknown_author();
+    const snippet = msg?.content?.slice(0, 140) ?? m.chat_handler_mention_fallback_body();
     const channelName = (() => {
       if (guild_id) {
         const list = guilds.channelsByGuild[guild_id] ?? [];
         const c = list.find((x) => x.id === channel_id);
-        return c?.name ? `#${c.name}` : 'einem Kanal';
+        return c?.name ? `#${c.name}` : m.chat_handler_mention_fallback_channel();
       }
-      return 'einer Direktnachricht';
+      return m.chat_handler_mention_fallback_dm();
     })();
     fireInPageNotification({
       kind: guild_id ? 'mention' : 'dm',

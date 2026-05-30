@@ -14,6 +14,7 @@
   import { runIssueFlow } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let username = $state('');
   let email = $state('');
@@ -73,10 +74,10 @@
         const body = err.body as { detail?: { error?: string; suggestions?: string[] } } | null;
         const d = body?.detail;
         if (d?.error === 'username_taken') {
-          error = 'Dieser Benutzername ist schon vergeben.';
+          error = m.register_error_username_taken();
           suggestions = Array.isArray(d.suggestions) ? d.suggestions : [];
         } else if (d?.error === 'email_taken') {
-          error = 'Diese E-Mail ist bereits registriert.';
+          error = m.register_error_email_taken();
         } else {
           error = (err as Error).message;
         }
@@ -85,15 +86,14 @@
         const detail = String((err.body as { detail?: string } | null)?.detail ?? '');
         if (detail.includes('invite code required')) {
           showInvite = true;
-          error = 'Diese Instanz ist nur per Einladung. Bitte gib einen Einladungscode ein.';
+          error = m.register_error_invite_required();
         } else if (detail.includes('invite')) {
           showInvite = true;
-          error = 'Einladungscode ungültig oder abgelaufen.';
+          error = m.register_error_invite_invalid();
         } else if (detail.includes('local registration disabled')) {
-          error =
-            'Dieser Server hat keine eigene Registrierung — melde dich mit deinem howispulse.com-Konto an.';
+          error = m.register_error_local_disabled();
         } else if (detail.includes('closed')) {
-          error = 'Registrierung ist derzeit geschlossen.';
+          error = m.register_error_closed();
         } else {
           error = (err as Error).message;
         }
@@ -114,12 +114,12 @@
 
 <div class="relative flex min-h-dvh">
   <AuthBrandPanel
-    headline="Werd Teil von Pulse."
-    description="In 30 Sekunden eingerichtet. Erstell eine Community, lade Freunde ein, starte einen Voice-Channel."
+    headline={m.register_brand_headline()}
+    description={m.register_brand_description()}
     features={[
-      'Kostenlos, keine Karte nötig',
-      'Argon2id-Passwörter, RS256-Tokens',
-      'Sofort einsatzbereit auf jedem Gerät',
+      m.register_brand_feature_free(),
+      m.register_brand_feature_security(),
+      m.register_brand_feature_ready(),
     ]}
   />
 
@@ -132,12 +132,12 @@
     >
       <header class="space-y-2 text-center">
         <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
-        <h1 class="text-card-foreground text-2xl font-semibold">Konto erstellen</h1>
+        <h1 class="text-card-foreground text-2xl font-semibold">{m.register_heading()}</h1>
       </header>
 
       <div class="space-y-1.5">
         <Label for="reg-username" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Benutzername
+          {m.register_label_username()}
         </Label>
         <Input
           id="reg-username"
@@ -153,7 +153,7 @@
 
       <div class="space-y-1.5">
         <Label for="reg-email" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          E-Mail
+          {m.register_label_email()}
         </Label>
         <Input
           id="reg-email"
@@ -167,7 +167,7 @@
 
       <div class="space-y-1.5">
         <Label for="reg-display" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Anzeigename (optional)
+          {m.register_label_display_name()}
         </Label>
         <Input id="reg-display" type="text" bind:value={displayName} maxlength={64} data-testid="reg-display" />
       </div>
@@ -175,7 +175,7 @@
       {#if showInvite}
         <div class="space-y-1.5">
           <Label for="reg-invite" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            Einladungscode
+            {m.register_label_invite_code()}
           </Label>
           <Input
             id="reg-invite"
@@ -190,7 +190,7 @@
 
       <div class="space-y-1.5">
         <Label for="reg-password" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Passwort
+          {m.register_label_password()}
         </Label>
         <Input
           id="reg-password"
@@ -210,7 +210,7 @@
             {error}
             {#if suggestions.length > 0}
               <div class="mt-2 flex flex-wrap gap-2" data-testid="reg-suggestions">
-                <span class="text-sm">Vorschläge:</span>
+                <span class="text-sm">{m.register_suggestions_label()}</span>
                 {#each suggestions as s (s)}
                   <button
                     type="button"
@@ -228,12 +228,12 @@
       {/if}
 
       <Button type="submit" class="w-full" disabled={busy} data-testid="reg-submit">
-        {busy ? 'Registrieren…' : 'Konto erstellen'}
+        {busy ? m.register_submit_busy() : m.register_submit_idle()}
       </Button>
 
       <p class="text-muted-foreground text-center text-sm">
-        Schon ein Konto?
-        <a class="text-primary hover:underline" href="/login">Anmelden</a>
+        {m.register_have_account()}
+        <a class="text-primary hover:underline" href="/login">{m.register_sign_in_link()}</a>
       </p>
     </form>
   </div>

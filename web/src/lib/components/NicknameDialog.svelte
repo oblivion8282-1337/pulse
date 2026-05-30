@@ -13,6 +13,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { chatApi } from '$lib/api/chat';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = false,
@@ -91,7 +92,7 @@
       onSaved?.(updated.nickname ?? null);
       onClose();
     } catch (err) {
-      toast.error('Nickname konnte nicht gespeichert werden', {
+      toast.error(m.nickname_dialog_save_failed(), {
         description: (err as Error).message
       });
     } finally {
@@ -109,7 +110,7 @@
       onSaved?.(updated.nickname ?? null);
       onClose();
     } catch (err) {
-      toast.error('Nickname konnte nicht zurückgesetzt werden', {
+      toast.error(m.nickname_dialog_reset_failed(), {
         description: (err as Error).message
       });
     } finally {
@@ -122,16 +123,16 @@
   <Dialog.Content data-testid="nickname-dialog">
     <Dialog.Header>
       <Dialog.Title>
-        {isSelf ? 'Eigenen Nickname ändern' : `Nickname für ${fallbackName}`}
+        {isSelf ? m.nickname_dialog_title_self() : m.nickname_dialog_title_other({ name: fallbackName })}
       </Dialog.Title>
       <Dialog.Description>
-        Gilt nur in dieser Community. Leer lassen, um den Standardnamen zu nutzen.
+        {m.nickname_dialog_description()}
       </Dialog.Description>
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
         <Label for="nickname-input" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Nickname
+          {m.nickname_dialog_label()}
         </Label>
         <Input
           id="nickname-input"
@@ -152,14 +153,14 @@
             disabled={busy}
             data-testid="nickname-reset"
           >
-            Zurücksetzen
+            {m.nickname_dialog_reset()}
           </Button>
         {/if}
         <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>
-          Abbrechen
+          {m.nickname_dialog_cancel()}
         </Button>
         <Button type="submit" disabled={busy} data-testid="nickname-submit">
-          {busy ? 'Speichern…' : 'Speichern'}
+          {busy ? m.nickname_dialog_saving() : m.nickname_dialog_save()}
         </Button>
       </Dialog.Footer>
     </form>

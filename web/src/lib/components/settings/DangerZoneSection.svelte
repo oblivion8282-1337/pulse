@@ -11,6 +11,7 @@
   import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
   import { auth } from '$lib/stores/auth.svelte';
   import DeleteAccountDialog from './DeleteAccountDialog.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let deleteOpen = $state(false);
 </script>
@@ -27,10 +28,9 @@
         <TriangleAlertIcon class="size-5" />
       </span>
       <div class="flex flex-col gap-0.5">
-        <h3 class="text-destructive text-sm font-semibold">Gefahrenzone</h3>
+        <h3 class="text-destructive text-sm font-semibold">{m.danger_zone_section_title()}</h3>
         <p class="text-text-muted text-xs">
-          Account löschen — dauerhaft und unwiderruflich. Alle Nachrichten, Mitgliedschaften und
-          Communitys, in denen du Owner bist, gehen verloren.
+          {m.danger_zone_section_description()}
         </p>
       </div>
     </div>
@@ -41,7 +41,7 @@
       class="bg-destructive hover:bg-destructive/90 self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-colors md:py-1.5"
       data-testid="danger-zone-delete-account"
     >
-      Account löschen
+      {m.danger_zone_section_delete_button()}
     </button>
   </section>
 

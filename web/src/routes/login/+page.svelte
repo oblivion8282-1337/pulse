@@ -56,7 +56,7 @@
   /** Surface the raw ceremony error. Passkey login is offered in the browser
    *  only, so no desktop-specific fallback hint is needed here. */
   function passkeyError(err: unknown): string {
-    return err instanceof Error ? err.message : 'Passkey-Anmeldung fehlgeschlagen.';
+    return err instanceof Error ? err.message : m.login_passkey_failed();
   }
 
   function safeRedirect(raw: string | null): string {
@@ -68,10 +68,10 @@
 
   onMount(() => {
     if (page.url.searchParams.get('reset') === '1') {
-      toast.success('Passwort zurückgesetzt — bitte einloggen.');
+      toast.success(m.login_password_reset_success());
     }
     if (page.url.searchParams.get('verified') === '1') {
-      toast.success('Email bestätigt.');
+      toast.success(m.login_email_verified());
     }
     // Big-Bang-Migration auf Cert-Modell: alle Refresh-Tokens wurden beim
     // Deploy revoked (Migration 0018). doRefresh() in client.ts setzt diesen
@@ -79,7 +79,7 @@
     // Logout überrascht den User nicht.
     if (sessionStorage.getItem('pulse.session_expired') === '1') {
       sessionStorage.removeItem('pulse.session_expired');
-      toast.info('Pulse wurde aktualisiert — bitte einmal neu einloggen.', {
+      toast.info(m.login_session_expired_update(), {
         duration: 8000
       });
     }
@@ -163,7 +163,7 @@
       if (err instanceof ApiError && (err.status === 401 || err.status === 410)) {
         mfaTicket = null;
         step = 'credentials';
-        error = 'Anmeldung abgelaufen — bitte erneut einloggen.';
+        error = m.login_session_expired_relogin();
       } else {
         error = passkeyError(err);
       }
@@ -186,7 +186,7 @@
       if (err instanceof ApiError && (err.status === 401 || err.status === 410)) {
         mfaTicket = null;
         step = 'credentials';
-        error = 'Anmeldung abgelaufen — bitte erneut einloggen.';
+        error = m.login_session_expired_relogin();
       } else {
         error = (err as Error).message;
       }
@@ -238,16 +238,16 @@
     bareBg
     externalCursor
     rootClass="z-10"
-    headline="Bleib im Takt."
-    headlineAccent="Takt"
-    headlineSub="Chat · Voice · HQ-Streams."
-    description="Klarer Echtzeit-Voice, Bildschirm-Streaming in voller Auflösung und Text-Chat — vereint in einer Anwendung, die im Browser ebenso läuft wie als Desktop-App."
-    rotatingPrefix="Gemacht für"
-    rotatingWords={['Teams', 'Communities', 'Freunde', 'Projekte']}
+    headline={m.login_brand_headline()}
+    headlineAccent={m.login_brand_headline_accent()}
+    headlineSub={m.login_brand_headline_sub()}
+    description={m.login_brand_description()}
+    rotatingPrefix={m.login_brand_rotating_prefix()}
+    rotatingWords={[m.login_brand_word_teams(), m.login_brand_word_communities(), m.login_brand_word_friends(), m.login_brand_word_projects()]}
     features={[
-      'Glasklarer Echtzeit-Voice mit minimaler Latenz',
-      'Bildschirm-Streaming in voller Auflösung — hohe Frame-Rates, hardwarebeschleunigt',
-      'Überall lauffähig — im Browser und als installierbare Desktop-App für Windows und Linux',
+      m.login_brand_feature_voice(),
+      m.login_brand_feature_streaming(),
+      m.login_brand_feature_crossplatform(),
     ]}
   />
 
@@ -268,8 +268,8 @@
       >
         <header class="space-y-2 text-center">
           <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
-          <h1 class="text-card-foreground text-2xl font-semibold">Willkommen zurück!</h1>
-          <p class="text-muted-foreground text-sm">Wir freuen uns, dich wiederzusehen!</p>
+          <h1 class="text-card-foreground text-2xl font-semibold">{m.login_welcome_back()}</h1>
+          <p class="text-muted-foreground text-sm">{m.login_welcome_sub()}</p>
         </header>
 
         <div class="space-y-1.5">
@@ -277,7 +277,7 @@
             for="login-identifier"
             class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
           >
-            E-Mail oder Benutzername
+            {m.login_label_identifier()}
           </Label>
           <Input
             id="login-identifier"
@@ -295,14 +295,14 @@
               for="login-password"
               class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
             >
-              Passwort
+              {m.login_label_password()}
             </Label>
             <a
               class="text-primary text-xs hover:underline"
               href="/forgot-password"
               data-testid="login-forgot"
             >
-              Passwort vergessen?
+              {m.login_forgot_password()}
             </a>
           </div>
           <Input
@@ -329,7 +329,7 @@
         {#if passkeysAvailable}
           <div class="text-muted-foreground flex items-center gap-3 text-xs">
             <span class="bg-border h-px flex-1"></span>
-            oder
+            {m.login_or_divider()}
             <span class="bg-border h-px flex-1"></span>
           </div>
           <Button
@@ -341,13 +341,13 @@
             data-testid="login-passkey"
           >
             <FingerprintIcon class="size-4" />
-            Mit Passkey anmelden
+            {m.login_passkey_button()}
           </Button>
         {/if}
 
         <p class="text-muted-foreground text-center text-sm">
-          Brauchst du ein Konto?
-          <a class="text-primary hover:underline" href="/register">Registrieren</a>
+          {m.login_no_account()}
+          <a class="text-primary hover:underline" href="/register">{m.login_register_link()}</a>
         </p>
       </form>
     {:else}

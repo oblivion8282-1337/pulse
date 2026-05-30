@@ -22,6 +22,7 @@
   import { gsr, type GsrHealth } from '../gsr';
   import { loadCatalogs, streamSettings } from '../settings.svelte';
 
+  import { m } from '$lib/paraglide/messages.js';
   import OverridesEditor from './OverridesEditor.svelte';
   import MonitorPicker from './MonitorPicker.svelte';
   import AudioModePicker from './AudioModePicker.svelte';
@@ -67,7 +68,7 @@
         data-testid="stream-panel-bridge-error"
       >
         <AlertTriangleIcon class="mt-0.5 size-4 shrink-0" />
-        <span>Bridge-Fehler: {healthError}</span>
+        <span>{m.stream_panel_bridge_error({ error: healthError })}</span>
       </div>
     {:else if health && !gsrAvailable}
       <div
@@ -77,13 +78,13 @@
       >
         <AlertTriangleIcon class="mt-0.5 size-4 shrink-0" />
         <div class="flex flex-col gap-0.5">
-          <span class="font-medium">Streaming-Binary nicht verfügbar.</span>
-          <span>Die Pulse-Desktop-App konnte den Encoder nicht finden.</span>
+          <span class="font-medium">{m.stream_panel_gsr_unavailable_title()}</span>
+          <span>{m.stream_panel_gsr_unavailable_body()}</span>
         </div>
       </div>
     {:else if !channelId}
       <p class="text-text-muted text-xs">
-        Öffne den HQ-Stream aus einem Sprach-Kanal — dorthin wird gestreamt.
+        {m.stream_panel_no_channel_hint()}
       </p>
     {:else}
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">

@@ -15,6 +15,7 @@
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import type { DMChannel } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   // Admins can always create; otherwise gate on the server-wide flag.
   const canCreateGuild = $derived(
@@ -97,18 +98,18 @@
 <div class="glass-panel text-text-muted flex flex-1 items-center justify-center rounded-none text-sm md:rounded-2xl">
   {#if guilds.list.length === 0}
     <div class="text-center">
-      <p class="text-text-bright mb-2 text-lg font-semibold">Noch keine Communitys</p>
+      <p class="text-text-bright mb-2 text-lg font-semibold">{m.app_no_communities()}</p>
       <Button onclick={() => { createMode = 'choose'; creating = true; }} data-testid="empty-create-guild">
-        {canCreateGuild ? 'Community erstellen oder beitreten' : 'Community beitreten'}
+        {canCreateGuild ? m.app_create_or_join_community() : m.app_join_community()}
       </Button>
       {#if !canCreateGuild}
         <p class="text-text-muted mt-2 text-xs">
-          Community-Erstellung ist vom Admin deaktiviert — du kannst aber per Einladung beitreten.
+          {m.app_creation_disabled_hint()}
         </p>
       {/if}
     </div>
   {:else}
-    Wähle eine Community.
+    {m.app_select_community()}
   {/if}
 </div>
 

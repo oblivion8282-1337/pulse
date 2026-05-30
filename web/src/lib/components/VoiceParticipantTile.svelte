@@ -15,6 +15,7 @@
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { p, channelId, guildId }: { p: VoiceParticipant; channelId: string; guildId: string } = $props();
 
@@ -177,11 +178,11 @@
                   class="cursor-pointer rounded-md bg-red-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-red-500 active:scale-95"
                   data-testid="voice-participant-live-badge"
                   title={isHqStreaming && isScreenSharing
-                    ? 'HQ-Stream + Bildschirm öffnen'
+                    ? m.voice_participant_tile_open_hq_and_screen()
                     : isHqStreaming
-                      ? 'HQ-Stream öffnen'
-                      : 'Bildschirm öffnen'}
-                  aria-label="{p.name}s Stream öffnen"
+                      ? m.voice_participant_tile_open_hq_stream()
+                      : m.voice_participant_tile_open_screen()}
+                  aria-label={m.voice_participant_tile_open_stream_aria({ name: p.name })}
                   onclick={(e) => { e.stopPropagation(); openLive(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -197,8 +198,8 @@
                   tabindex="0"
                   class="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-bold leading-none text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95"
                   data-testid="voice-participant-party-badge"
-                  title="Watch Party öffnen"
-                  aria-label="{p.name}s Watch Party öffnen"
+                  title={m.voice_participant_tile_open_watch_party()}
+                  aria-label={m.voice_participant_tile_open_watch_party_aria({ name: p.name })}
                   onclick={(e) => { e.stopPropagation(); openParty(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -214,8 +215,8 @@
                   tabindex="0"
                   class="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-blue-500 active:scale-95"
                   data-testid="voice-participant-cam-badge"
-                  title="Webcam öffnen"
-                  aria-label="{p.name}s Webcam öffnen"
+                  title={m.voice_participant_tile_open_webcam()}
+                  aria-label={m.voice_participant_tile_open_webcam_aria({ name: p.name })}
                   onclick={(e) => { e.stopPropagation(); openCam(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -235,26 +236,26 @@
               : 'font-semibold'}"
             title={p.name}
           >
-            {p.name}{p.isLocal ? ' (du)' : ''}
+            {p.name}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
           </span>
           {#if showMicOff}
             <MicOffIcon
               class="size-3 text-red-400"
-              aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+              aria-label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
               data-testid={isForceMuted ? 'voice-participant-force-muted' : 'voice-participant-mic-muted'}
             />
           {/if}
           {#if showDeafened}
             <HeadphoneOffIcon
               class="size-3 text-red-400"
-              aria-label={isForceDeafened ? 'Vom Mod taubgeschaltet' : 'Ton stummgeschaltet'}
+              aria-label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
               data-testid={isForceDeafened ? 'voice-participant-force-deafened' : 'voice-participant-deafened'}
             />
           {/if}
           {#if canAdjustVolume && volumePct !== 100}
             <span
               class="text-text-muted ml-1 font-mono text-[10px]"
-              title="Eingestellte Lautstärke"
+              title={m.voice_participant_tile_volume_title()}
               data-testid="voice-participant-volume-badge"
             >
               {volumePct}%
@@ -310,18 +311,18 @@
           : 'font-semibold'}"
         title={p.name}
       >
-        {p.name}{p.isLocal ? ' (du)' : ''}
+        {p.name}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
       </span>
       {#if showMicOff}
         <MicOffIcon
           class="size-3 text-red-400"
-          aria-label={isForceMuted ? 'Vom Mod stummgeschaltet' : 'Mikrofon stumm'}
+          aria-label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
         />
       {/if}
       {#if showDeafened}
         <HeadphoneOffIcon
           class="size-3 text-red-400"
-          aria-label={isForceDeafened ? 'Vom Mod taubgeschaltet' : 'Ton stummgeschaltet'}
+          aria-label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
         />
       {/if}
     </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { m } from '$lib/paraglide/messages.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
@@ -87,7 +88,7 @@
     try {
       await voice.connect(channel.id, channel.name);
     } catch (e) {
-      toast.error('Voice-Verbindung fehlgeschlagen', {
+      toast.error(m.voice_channel_view_toast_connect_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
     }
@@ -102,12 +103,12 @@
   let isThisChannel = $derived(voice.channelId === channel.id);
   let statusLabel = $derived(
     voice.connecting
-      ? 'Verbinde…'
+      ? m.voice_channel_view_status_connecting()
       : voice.connected
-        ? `Sprach-Kanal · ${voice.participants.length} ${voice.participants.length === 1 ? 'Teilnehmer' : 'Teilnehmer'}`
+        ? m.voice_channel_view_status_connected({ count: voice.participants.length })
         : voice.error
-          ? `Fehler: ${voice.error}`
-          : 'Nicht verbunden'
+          ? m.voice_channel_view_status_error({ error: voice.error })
+          : m.voice_channel_view_status_disconnected()
   );
 
   function isTypingTarget(el: EventTarget | null): boolean {
@@ -154,19 +155,19 @@
         <button
           class="bg-bg-input/70 text-text-bright hover:bg-bg-hover hover:text-primary flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition-colors"
           onclick={() => openedTiles.resetChannel(channel.id)}
-          aria-label="Alle Streams schließen"
-          title="Alle Streams schließen"
+          aria-label={m.voice_channel_view_close_all_streams_aria()}
+          title={m.voice_channel_view_close_all_streams_aria()}
           data-testid="stream-grid-close-all"
         >
           <XIcon class="size-3.5" />
-          <span class="hidden sm:inline">Alle schließen</span>
-          <span class="sm:hidden">Alle zu</span>
+          <span class="hidden sm:inline">{m.voice_channel_view_close_all()}</span>
+          <span class="sm:hidden">{m.voice_channel_view_close_all_short()}</span>
         </button>
       {/if}
       <button
         class="rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
         onclick={toggleMemberList}
-        aria-label="Mitgliederliste umschalten"
+        aria-label={m.voice_channel_view_toggle_member_list_aria()}
         data-testid="member-list-toggle"
       >
         <UsersIcon class="text-text-muted size-4" />
@@ -178,10 +179,10 @@
     <div class="absolute inset-0 z-10 flex items-center justify-center bg-foreground/30 backdrop-blur-md" data-testid="audio-blocked-overlay">
       <div class="bg-bg-chat flex flex-col items-center gap-3 rounded-2xl border border-border p-8 text-center shadow-2xl backdrop-blur-xl">
         <VolumeXIcon class="text-text-muted size-10" />
-        <p class="text-text-bright text-sm font-medium">Audio ist stummgeschaltet</p>
-        <p class="text-text-muted text-xs">Dein Browser blockiert die automatische Wiedergabe.</p>
+        <p class="text-text-bright text-sm font-medium">{m.voice_channel_view_audio_blocked_title()}</p>
+        <p class="text-text-muted text-xs">{m.voice_channel_view_audio_blocked_hint()}</p>
         <Button onclick={() => void voice.unblockAudio()} data-testid="audio-unblock-btn">
-          Audio aktivieren
+          {m.voice_channel_view_audio_enable()}
         </Button>
       </div>
     </div>
@@ -192,7 +193,7 @@
     {#if isThisChannel && (voice.connected || voice.connecting)}
       {#if voice.participants.length === 0}
         <div class="flex flex-1 items-center justify-center">
-          <p class="text-text-muted text-sm">Verbinde mit dem Sprach-Kanal…</p>
+          <p class="text-text-muted text-sm">{m.voice_channel_view_connecting_channel()}</p>
         </div>
       {:else if streamViewOpen}
         <StreamGrid {channel} />
@@ -214,10 +215,10 @@
             <p class="mt-2 text-sm text-red-400">{voice.error}</p>
           {/if}
           {#if !viewport.isMobile}
-            <p class="text-text-muted text-sm">Klicke „Beitreten", um dem Sprach-Kanal beizutreten.</p>
-            <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">Beitreten</Button>
+            <p class="text-text-muted text-sm">{m.voice_channel_view_join_hint()}</p>
+            <Button class="mt-4" onclick={joinChannel} data-testid="voice-join">{m.voice_channel_view_join_btn()}</Button>
           {:else}
-            <p class="text-text-muted text-sm">Verbinde…</p>
+            <p class="text-text-muted text-sm">{m.voice_channel_view_status_connecting()}</p>
           {/if}
         </div>
       </div>

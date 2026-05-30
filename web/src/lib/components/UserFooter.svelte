@@ -13,6 +13,7 @@
   import { loadTokens } from '$lib/api/storage';
   import { safeAvatarUrl } from '$lib/avatar';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
+  import { m } from '$lib/paraglide/messages.js';
   import AvatarUploadDialog from './AvatarUploadDialog.svelte';
   import SettingsDialog from './SettingsDialog.svelte';
   import StatusPicker from './StatusPicker.svelte';
@@ -64,9 +65,9 @@
           }
         ]);
       }
-      toast.success('Profilbild entfernt');
+      toast.success(m.user_footer_avatar_removed());
     } catch (e) {
-      toast.error('Fehler beim Entfernen', { description: (e as Error).message });
+      toast.error(m.user_footer_avatar_remove_error(), { description: (e as Error).message });
     }
   }
 </script>
@@ -90,29 +91,29 @@
 {#snippet menuItems()}
   <DropdownMenu.Item onclick={() => (uploadOpen = true)} data-testid="avatar-change-btn">
     <ImagePlusIcon class="size-4" />
-    Profilbild ändern
+    {m.user_footer_change_avatar()}
   </DropdownMenu.Item>
   {#if auth.user?.avatar_url}
     <DropdownMenu.Item onclick={onRemoveAvatar} data-testid="avatar-remove-btn">
       <Trash2Icon class="size-4" />
-      Profilbild entfernen
+      {m.user_footer_remove_avatar()}
     </DropdownMenu.Item>
   {/if}
   <DropdownMenu.Separator />
   <DropdownMenu.Item onclick={() => (uiOverlays.settingsOpen = true)} data-testid="open-settings">
     <SettingsIcon class="size-4" />
-    Einstellungen
+    {m.user_footer_settings()}
   </DropdownMenu.Item>
   {#if auth.user?.is_admin}
     <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
       <ShieldIcon class="size-4" />
-      Server-Admin
+      {m.user_footer_server_admin()}
     </DropdownMenu.Item>
   {/if}
   <DropdownMenu.Separator />
   <DropdownMenu.Item onclick={onSignOut} data-testid="sign-out">
     <LogOutIcon class="size-4" />
-    Abmelden
+    {m.user_footer_sign_out()}
   </DropdownMenu.Item>
 {/snippet}
 
@@ -124,7 +125,7 @@
           {...props}
           class="shrink-0 rounded-2xl transition-transform hover:scale-105 active:scale-95"
           data-testid="user-footer-trigger"
-          aria-label="Konto & Einstellungen"
+          aria-label={m.user_footer_account_settings_aria()}
         >
           {@render avatarBlock('size-12')}
         </button>

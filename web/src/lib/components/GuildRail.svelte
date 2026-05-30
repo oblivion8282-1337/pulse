@@ -52,6 +52,7 @@
   import GuildSettingsDialog from './settings/GuildSettingsDialog.svelte';
   import GuildVoiceTooltip from './GuildVoiceTooltip.svelte';
   import type { Guild } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     guilds,
@@ -124,9 +125,9 @@
     try {
       const g = await chatApi.uploadGuildIcon(target.id, file);
       guildsStore.updateGuild(g);
-      toast.success('Community-Bild aktualisiert');
+      toast.success(m.guild_rail_icon_updated());
     } catch (err) {
-      toast.error('Bild-Upload fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.guild_rail_icon_upload_failed(), { description: (err as Error).message });
     }
   }
 
@@ -134,9 +135,9 @@
     try {
       await chatApi.deleteGuildIcon(g.id);
       guildsStore.updateGuild({ ...g, icon_url: null });
-      toast.success('Community-Bild entfernt');
+      toast.success(m.guild_rail_icon_removed());
     } catch (err) {
-      toast.error('Bild entfernen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.guild_rail_icon_remove_failed(), { description: (err as Error).message });
     }
   }
 
@@ -168,7 +169,7 @@
       deleteConfirmOpen = false;
       deleteTarget = null;
     } catch (err) {
-      toast.error('Community löschen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.guild_rail_delete_failed(), { description: (err as Error).message });
     } finally {
       deleteBusy = false;
     }
@@ -219,9 +220,9 @@
         const fallback = serversStore.servers.find((s) => s.isCloud);
         if (fallback) activeServer.set(fallback.id);
       }
-      toast.success(`${label} entfernt`);
+      toast.success(m.guild_rail_server_removed({ label }));
     } catch (err) {
-      toast.error('Entfernen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.guild_rail_server_remove_failed(), { description: (err as Error).message });
     } finally {
       removeServerConfirmOpen = false;
       removeServerTarget = null;
@@ -255,7 +256,7 @@
 <nav
   class="glass-panel flex h-full w-20 flex-col items-center gap-2 overflow-y-auto overflow-x-hidden rounded-none py-3 md:w-16 md:rounded-2xl"
   data-testid="guild-rail"
-  aria-label="Communitys und Server"
+  aria-label={m.guild_rail_nav_label()}
 >
   <!-- Tooltips auf Mobil aus: Hover-Popups (Server-Name/Member-Zahl) poppen
        auf Touch beim Antippen unerwünscht auf. -->
@@ -275,7 +276,7 @@
                 {...props}
                 type="button"
                 class="block"
-                aria-label="Direktnachrichten"
+                aria-label={m.guild_rail_direct_messages()}
                 data-testid="guild-home"
                 onclick={onHomeClick}
               >
@@ -295,7 +296,7 @@
             {#if hasHomeActivity && !homeActive}
               <span
                 class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
-                aria-label="Neues in Direktnachrichten oder Freundschaftsanfragen"
+                aria-label={m.guild_rail_home_activity_dot()}
                 data-testid="home-unread-dot"
               ></span>
             {/if}
@@ -303,7 +304,7 @@
         {/snippet}
       </Tooltip.Trigger>
       <Tooltip.Content side="right">
-        {onHomeClick ? 'Direktnachrichten' : 'Pulse'}
+        {onHomeClick ? m.guild_rail_direct_messages() : 'Pulse'}
       </Tooltip.Content>
     </Tooltip.Root>
 
@@ -366,29 +367,29 @@
         </ContextMenu.Trigger>
         <ContextMenu.Content>
           <ContextMenu.Item onSelect={() => openServerInfo(server)}>
-            Server-Info
+            {m.guild_rail_server_info()}
           </ContextMenu.Item>
           <ContextMenu.Sub>
-            <ContextMenu.SubTrigger>Benachrichtigungen</ContextMenu.SubTrigger>
+            <ContextMenu.SubTrigger>{m.guild_rail_notifications()}</ContextMenu.SubTrigger>
             <ContextMenu.SubContent>
               <ContextMenu.CheckboxItem
                 checked={server.notification_mode === 'all'}
                 onCheckedChange={() => setServerNotif(server, 'all')}
-              >Alle</ContextMenu.CheckboxItem>
+              >{m.guild_rail_notif_all()}</ContextMenu.CheckboxItem>
               <ContextMenu.CheckboxItem
                 checked={server.notification_mode === 'mentions'}
                 onCheckedChange={() => setServerNotif(server, 'mentions')}
-              >Nur Erwähnungen</ContextMenu.CheckboxItem>
+              >{m.guild_rail_notif_mentions()}</ContextMenu.CheckboxItem>
               <ContextMenu.CheckboxItem
                 checked={server.notification_mode === 'none'}
                 onCheckedChange={() => setServerNotif(server, 'none')}
-              >Stumm</ContextMenu.CheckboxItem>
+              >{m.guild_rail_notif_mute()}</ContextMenu.CheckboxItem>
             </ContextMenu.SubContent>
           </ContextMenu.Sub>
           {#if !server.isCloud}
             <ContextMenu.Separator />
             <ContextMenu.Item variant="destructive" onSelect={() => openServerRemove(server)}>
-              <Trash2Icon /> Server entfernen
+              <Trash2Icon /> {m.guild_rail_remove_server()}
             </ContextMenu.Item>
           {/if}
         </ContextMenu.Content>
@@ -435,7 +436,7 @@
                       {#if guildMentioned}
                         <span
                           class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
-                          aria-label="ungelesene Erwähnungen"
+                          aria-label={m.guild_rail_unread_mentions()}
                           data-testid="guild-mention-dot"
                         ></span>
                       {/if}
@@ -464,22 +465,22 @@
                   data-testid="guild-settings"
                 >
                   <SettingsIcon />
-                  Einstellungen
+                  {m.guild_rail_settings()}
                 </ContextMenu.Item>
               {/if}
               {#if canManageGuild}
                 <ContextMenu.Item onSelect={() => openRename(g)} data-testid="guild-rename">
                   <PencilIcon />
-                  Community umbenennen
+                  {m.guild_rail_rename_community()}
                 </ContextMenu.Item>
                 <ContextMenu.Item onSelect={() => openIconPicker(g)} data-testid="guild-icon-set">
                   <ImageIcon />
-                  Community-Bild ändern…
+                  {m.guild_rail_change_icon()}
                 </ContextMenu.Item>
                 {#if g.icon_url}
                   <ContextMenu.Item onSelect={() => removeIcon(g)} data-testid="guild-icon-clear">
                     <ImageOffIcon />
-                    Community-Bild entfernen
+                    {m.guild_rail_remove_icon()}
                   </ContextMenu.Item>
                 {/if}
               {/if}
@@ -487,7 +488,7 @@
                 {#if canManageGuild}<ContextMenu.Separator />{/if}
                 <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
                   <Trash2Icon />
-                  Community löschen
+                  {m.guild_rail_delete_community()}
                 </ContextMenu.Item>
               {/if}
             </ContextMenu.Content>
@@ -509,7 +510,7 @@
             {...props}
             class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
             data-testid="guild-add-menu"
-            aria-label="Hinzufügen"
+            aria-label={m.guild_rail_add()}
           >
             <PlusIcon class="size-5" />
           </button>
@@ -519,19 +520,19 @@
         {#if onCreateClick}
           <DropdownMenu.Item onSelect={() => onCreateClick?.()} data-testid="guild-create">
             <UsersRoundIcon />
-            Community erstellen
+            {m.guild_rail_create_community()}
           </DropdownMenu.Item>
         {/if}
         {#if onJoinClick}
           <DropdownMenu.Item onSelect={() => onJoinClick?.()} data-testid="guild-join">
             <LogInIcon />
-            Community beitreten
+            {m.guild_rail_join_community()}
           </DropdownMenu.Item>
         {/if}
         <DropdownMenu.Separator />
         <DropdownMenu.Item onSelect={() => (addServerOpen = true)} data-testid="server-add">
           <ServerIcon />
-          Server hinzufügen
+          {m.guild_rail_add_server()}
         </DropdownMenu.Item>
       </DropdownMenu.Content>
     </DropdownMenu.Root>
@@ -551,16 +552,15 @@
 <AlertDialog.Root bind:open={removeServerConfirmOpen}>
   <AlertDialog.Content data-testid="remove-server-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Server entfernen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.guild_rail_remove_server_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {removeServerTarget?.label ?? 'Dieser Server'} wird aus deiner Liste entfernt. Deine
-        Daten auf dem Server bleiben dort — nur die lokale Verknüpfung wird gelöscht.
+        {m.guild_rail_remove_server_description({ label: removeServerTarget?.label ?? m.guild_rail_this_server() })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel>{m.guild_rail_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action onclick={confirmServerRemove} data-testid="remove-server-confirm">
-        Entfernen
+        {m.guild_rail_remove_action()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
@@ -588,20 +588,19 @@
 <AlertDialog.Root bind:open={deleteConfirmOpen}>
   <AlertDialog.Content data-testid="delete-guild-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>Community löschen?</AlertDialog.Title>
+      <AlertDialog.Title>{m.guild_rail_delete_community_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {deleteTarget?.name ?? 'Diese Community'} und alle Inhalte werden dauerhaft gelöscht.
-        Diese Aktion kann nicht rückgängig gemacht werden.
+        {m.guild_rail_delete_community_description({ name: deleteTarget?.name ?? m.guild_rail_this_community() })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={deleteBusy}>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel disabled={deleteBusy}>{m.guild_rail_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action
         onclick={confirmDelete}
         disabled={deleteBusy}
         data-testid="delete-guild-confirm"
       >
-        {deleteBusy ? 'Löschen…' : 'Löschen'}
+        {deleteBusy ? m.guild_rail_deleting() : m.guild_rail_delete_action()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

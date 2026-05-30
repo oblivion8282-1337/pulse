@@ -9,6 +9,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import MonitorXIcon from '@lucide/svelte/icons/monitor-x';
   import { auth } from '$lib/stores/auth.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let confirmOpen = $state(false);
   let wiping = $state(false);
@@ -56,12 +57,10 @@
     </span>
     <div class="flex flex-col gap-0.5">
       <span class="text-text-bright text-sm font-medium">
-        Öffentlicher Computer
+        {m.public_computer_safety_title()}
       </span>
       <span class="text-text-muted text-xs">
-        Bist du auf einem öffentlichen oder geteilten Gerät? Lösche alle
-        lokal gespeicherten Pulse-Daten (Schlüssel, Tokens, Einstellungen)
-        und melde dich ab.
+        {m.public_computer_safety_description()}
       </span>
     </div>
   </div>
@@ -72,29 +71,26 @@
     class="text-destructive bg-destructive/10 hover:bg-destructive/20 self-start rounded-md px-3 py-2 text-sm font-medium transition-colors"
     data-testid="public-computer-wipe-btn"
   >
-    Alles löschen + Abmelden
+    {m.public_computer_safety_wipe_button()}
   </button>
 </section>
 
 <AlertDialog.Root bind:open={confirmOpen}>
   <AlertDialog.Content data-testid="public-computer-confirm">
     <AlertDialog.Header>
-      <AlertDialog.Title>Alle Daten löschen und abmelden?</AlertDialog.Title>
+      <AlertDialog.Title>{m.public_computer_safety_confirm_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        Alle lokal gespeicherten Pulse-Daten (Identitäts-Schlüssel, Tokens,
-        Einstellungen, IndexedDB) werden unwiderruflich gelöscht und du wirst
-        abgemeldet. Dein Account und deine Nachrichten auf dem Server bleiben
-        erhalten.
+        {m.public_computer_safety_confirm_description()}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
-      <AlertDialog.Cancel>Abbrechen</AlertDialog.Cancel>
+      <AlertDialog.Cancel>{m.public_computer_safety_cancel()}</AlertDialog.Cancel>
       <AlertDialog.Action
         onclick={wipeAndSignOut}
         disabled={wiping}
         class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
       >
-        {wiping ? 'Lösche…' : 'Jetzt löschen + abmelden'}
+        {wiping ? m.public_computer_safety_wiping() : m.public_computer_safety_confirm_action()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

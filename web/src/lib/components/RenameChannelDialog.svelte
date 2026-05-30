@@ -6,6 +6,7 @@
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     open = false,
@@ -46,7 +47,7 @@
       guilds.updateChannel(updated);
       onClose();
     } catch (err) {
-      toast.error('Umbenennen fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.rename_channel_dialog_rename_failed(), { description: (err as Error).message });
     } finally {
       busy = false;
     }
@@ -56,13 +57,13 @@
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="rename-channel-dialog">
     <Dialog.Header>
-      <Dialog.Title>Kanal umbenennen</Dialog.Title>
-      <Dialog.Description>Neuen Namen eingeben für #{channel?.name ?? ''}</Dialog.Description>
+      <Dialog.Title>{m.rename_channel_dialog_title()}</Dialog.Title>
+      <Dialog.Description>{m.rename_channel_dialog_description({ name: channel?.name ?? '' })}</Dialog.Description>
     </Dialog.Header>
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
         <Label for="rename-channel-name" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-          Kanal-Name
+          {m.rename_channel_dialog_channel_name_label()}
         </Label>
         <Input
           id="rename-channel-name"
@@ -76,9 +77,9 @@
         />
       </div>
       <Dialog.Footer>
-        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>Abbrechen</Button>
+        <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>{m.rename_channel_dialog_cancel()}</Button>
         <Button type="submit" disabled={busy} data-testid="rename-channel-submit">
-          {busy ? 'Speichern…' : 'Umbenennen'}
+          {busy ? m.rename_channel_dialog_saving() : m.rename_channel_dialog_rename()}
         </Button>
       </Dialog.Footer>
     </form>

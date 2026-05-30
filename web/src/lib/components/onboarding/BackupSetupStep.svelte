@@ -15,6 +15,7 @@
   import { createBackup } from '$lib/api/credentials';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import CloudBackupSetupForm from '$lib/components/settings/CloudBackupSetupForm.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   type Step = 'prompt' | 'setup';
 
@@ -27,8 +28,8 @@
   async function skip() {
     await onboardingState.markDecided('skipped');
     if (onboardingState.syncFailed) {
-      toast.warning('Entscheidung nur lokal gespeichert', {
-        description: 'Backup-Einstellung konnte nicht synchronisiert werden — wirkt nur auf diesem Gerät.'
+      toast.warning(m.backup_setup_step_decision_local_only(), {
+        description: m.backup_setup_step_decision_local_only_desc()
       });
     }
   }
@@ -44,14 +45,14 @@
 
   async function handleSetup(password: string) {
     const certId = certStore.cert?.claims.cert_id;
-    if (!certId) { errorMsg = 'Kein aktives Cert — bitte neu anmelden.'; return; }
+    if (!certId) { errorMsg = m.backup_setup_step_error_no_cert(); return; }
     errorMsg = null;
     busy = true;
     try {
       const keypair = await loadKeypair();
-      if (!keypair) { errorMsg = 'Kein lokales Keypair gefunden.'; return; }
+      if (!keypair) { errorMsg = m.backup_setup_step_error_no_keypair(); return; }
       if (!keypair.privateKey.extractable) {
-        errorMsg = 'Keypair nicht exportierbar — bitte neu anmelden.';
+        errorMsg = m.backup_setup_step_error_keypair_not_exportable();
         return;
       }
       const [privJwk, pubJwk] = await Promise.all([
@@ -61,17 +62,17 @@
       const blob = await keyBackupState.encrypt(privJwk, pubJwk, password);
       const label = certStore.cert?.claims.device_label ?? 'Onboarding';
       await createBackup(certId, blob, label.slice(0, 64) || 'Backup');
-      toast.success('Backup gespeichert', {
-        description: 'Dein Keypair ist nun verschlüsselt in der Cloud gesichert.'
+      toast.success(m.backup_setup_step_backup_saved(), {
+        description: m.backup_setup_step_backup_saved_desc()
       });
       await onboardingState.markDecided('configured');
       if (onboardingState.syncFailed) {
-        toast.warning('Entscheidung nur lokal gespeichert', {
-          description: 'Backup-Einstellung konnte nicht synchronisiert werden — wirkt nur auf diesem Gerät.'
+        toast.warning(m.backup_setup_step_decision_local_only(), {
+          description: m.backup_setup_step_decision_local_only_desc()
         });
       }
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : 'Unbekannter Fehler.';
+      errorMsg = err instanceof Error ? err.message : m.backup_setup_step_error_unknown();
     } finally {
       busy = false;
     }
@@ -89,14 +90,12 @@
       <div class="flex items-center gap-2">
         <ShieldIcon class="text-primary size-5 shrink-0" />
         <Dialog.Title>
-          {step === 'prompt' ? 'Backup für deine Geräte-Schlüssel?' : 'Backup einrichten'}
+          {step === 'prompt' ? m.backup_setup_step_title_prompt() : m.backup_setup_step_title_setup()}
         </Dialog.Title>
       </div>
       {#if step === 'prompt'}
         <Dialog.Description>
-          Wenn du dein Gerät verlierst, verlierst du den Zugang zu deinem Konto. Ein
-          Cloud-Backup schützt davor — verschlüsselt mit einem Master-Passwort, das
-          nur du kennst.
+          {m.backup_setup_step_description()}
         </Dialog.Description>
       {/if}
     </Dialog.Header>
@@ -109,7 +108,7 @@
           class="accent-gradient flex-1 rounded-md px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
           data-testid="backup-onboarding-setup-btn"
         >
-          Backup einrichten
+          {m.backup_setup_step_btn_setup()}
         </button>
         <button
           type="button"
@@ -117,7 +116,7 @@
           class="bg-bg-input text-text-base hover:bg-bg-hover flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors"
           data-testid="backup-onboarding-skip-btn"
         >
-          Später, jetzt skippen
+          {m.backup_setup_step_btn_skip()}
         </button>
       </Dialog.Footer>
     {:else}

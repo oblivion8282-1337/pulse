@@ -12,6 +12,7 @@
   import type { PendingAttachment } from '$lib/attachments/upload.svelte';
   import FileIcon from '@lucide/svelte/icons/file';
   import XIcon from '@lucide/svelte/icons/x';
+  import { m } from '$lib/paraglide/messages.js';
 
   let {
     pending,
@@ -53,14 +54,14 @@
             title={p.errorMessage ?? ''}
             data-testid="attachment-error"
           >
-            Fehler
+            {m.attachment_preview_strip_error()}
           </div>
         {/if}
         <button
           type="button"
           class="bg-bg-panel text-text-muted hover:text-text-bright absolute -right-1.5 -top-1.5 rounded-full border border-border p-0.5"
           onclick={() => onRemove(p.localId)}
-          aria-label="Anhang entfernen"
+          aria-label={m.attachment_preview_strip_remove_label()}
           data-testid="attachment-remove"
         >
           <XIcon class="size-3" />

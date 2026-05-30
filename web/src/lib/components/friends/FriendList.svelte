@@ -28,6 +28,7 @@
   import { chatApi } from '$lib/api/chat';
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { onlineOnly = false }: { onlineOnly?: boolean } = $props();
 
@@ -46,19 +47,19 @@
       const dm = await chatApi.createOrGetDMChannel(userId);
       await goto(`/app/@me/${dm.id}`);
     } catch (e) {
-      toast.error('DM konnte nicht geöffnet werden', {
+      toast.error(m.friend_list_dm_open_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
   }
 
   async function unfriend(userId: string) {
-    if (!confirm('Diese Freundschaft wirklich beenden?')) return;
+    if (!confirm(m.friend_list_unfriend_confirm())) return;
     try {
       await friendsApi.removeFriend(userId);
       friends.remove(userId);
     } catch (e) {
-      toast.error('Entfernen fehlgeschlagen', {
+      toast.error(m.friend_list_unfriend_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
     }
@@ -67,11 +68,11 @@
 
 <section class="flex flex-col gap-1" data-testid="friends-list">
   <h2 class="text-text-bright px-1 pb-2 text-xs font-semibold uppercase tracking-wide">
-    {onlineOnly ? 'Online' : 'Alle Freunde'} — {visible.length}
+    {onlineOnly ? m.friend_list_heading_online() : m.friend_list_heading_all()} — {visible.length}
   </h2>
   {#if visible.length === 0}
     <p class="text-text-muted px-1 py-4 text-sm" data-testid="friends-empty">
-      {onlineOnly ? 'Niemand online.' : 'Noch keine Freunde.'}
+      {onlineOnly ? m.friend_list_empty_online() : m.friend_list_empty_all()}
     </p>
   {/if}
   {#each visible as f (f.user_id)}
@@ -120,7 +121,7 @@
         variant="ghost"
         onclick={() => openDM(f.user_id)}
         data-testid="friend-dm-btn"
-        title="Nachricht senden"
+        title={m.friend_list_action_send_message()}
       >
         <MessageCircleIcon class="size-4" />
       </Button>
@@ -129,7 +130,7 @@
         variant="ghost"
         onclick={() => unfriend(f.user_id)}
         data-testid="friend-remove-btn"
-        title="Freund entfernen"
+        title={m.friend_list_action_remove()}
       >
         <UserMinusIcon class="size-4" />
       </Button>

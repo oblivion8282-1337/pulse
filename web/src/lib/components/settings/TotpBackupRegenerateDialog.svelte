@@ -15,6 +15,7 @@
   import { totpBackupRegenerate } from '$lib/api/auth';
   import { stripTotpFormatting } from '$lib/auth/format';
   import BackupCodesView from './BackupCodesView.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -44,11 +45,11 @@
     if (busy) return;
     const digits = stripTotpFormatting(code);
     if (!password) {
-      error = 'Bitte Passwort eingeben.';
+      error = m.totp_backup_regen_error_no_password();
       return;
     }
     if (digits.length !== 6) {
-      error = 'Bitte 6-stelligen Code eingeben.';
+      error = m.totp_backup_regen_error_invalid_code();
       return;
     }
     error = null;
@@ -70,13 +71,12 @@
     <Dialog.Overlay />
     <Dialog.Content data-testid="totp-backup-regen-dialog" class="max-w-md">
       <Dialog.Header>
-        <Dialog.Title>Backup-Codes neu generieren</Dialog.Title>
+        <Dialog.Title>{m.totp_backup_regen_title()}</Dialog.Title>
         <Dialog.Description>
           {#if phase === 'auth'}
-            Bestätige dein Passwort und einen aktuellen Code aus der App. Der alte Satz wird damit
-            ungültig.
+            {m.totp_backup_regen_desc_auth()}
           {:else}
-            Speichere die neuen Codes — der alte Satz funktioniert ab jetzt nicht mehr.
+            {m.totp_backup_regen_desc_codes()}
           {/if}
         </Dialog.Description>
       </Dialog.Header>
@@ -85,7 +85,7 @@
         <form onsubmit={submit} class="space-y-3">
           <div class="space-y-1.5">
             <Label for="totp-regen-password" class="text-text-muted text-xs font-semibold uppercase">
-              Passwort
+              {m.totp_backup_regen_label_password()}
             </Label>
             <Input
               id="totp-regen-password"
@@ -98,7 +98,7 @@
           </div>
           <div class="space-y-1.5">
             <Label for="totp-regen-code" class="text-text-muted text-xs font-semibold uppercase">
-              Aktueller Code
+              {m.totp_backup_regen_label_current_code()}
             </Label>
             <Input
               id="totp-regen-code"
@@ -122,10 +122,10 @@
 
           <Dialog.Footer>
             <Button variant="secondary" type="button" onclick={() => (open = false)} disabled={busy}>
-              Abbrechen
+              {m.totp_backup_regen_cancel()}
             </Button>
             <Button type="submit" disabled={busy} data-testid="totp-regen-submit">
-              {busy ? 'Generieren…' : 'Neue Codes erzeugen'}
+              {busy ? m.totp_backup_regen_generating() : m.totp_backup_regen_submit()}
             </Button>
           </Dialog.Footer>
         </form>
@@ -138,11 +138,11 @@
             bind:checked={saved}
             data-testid="totp-regen-saved-check"
           />
-          Ich habe die neuen Codes gespeichert.
+          {m.totp_backup_regen_saved_confirm()}
         </label>
         <Dialog.Footer>
           <Button onclick={() => (open = false)} disabled={!saved} data-testid="totp-regen-done">
-            Fertig
+            {m.totp_backup_regen_done()}
           </Button>
         </Dialog.Footer>
       {/if}

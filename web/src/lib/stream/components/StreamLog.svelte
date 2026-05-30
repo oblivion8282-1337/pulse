@@ -14,6 +14,7 @@
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
   import { stream } from '../state.svelte';
+  import { m } from '$lib/paraglide/messages.js';
 
   let expanded = $state(false);
   let viewport = $state<HTMLDivElement | null>(null);
@@ -93,14 +94,14 @@
         class="gap-1.5"
         onclick={copyLog}
         data-testid="stream-log-copy"
-        aria-label="Log in die Zwischenablage kopieren"
+        aria-label={m.stream_log_copy_aria_label()}
       >
         {#if copied}
           <CheckIcon class="size-3.5" />
-          Kopiert
+          {m.stream_log_copied()}
         {:else}
           <CopyIcon class="size-3.5" />
-          Kopieren
+          {m.stream_log_copy()}
         {/if}
       </Button>
     {/if}
@@ -114,7 +115,7 @@
       data-testid="stream-log-viewport"
     >
       {#if stream.lastLog.length === 0}
-        <p class="text-text-muted italic">(noch nichts geloggt)</p>
+        <p class="text-text-muted italic">{m.stream_log_empty()}</p>
       {:else}
         {#each stream.lastLog as line, i (i)}
           <div class="whitespace-pre-wrap break-all">{line}</div>

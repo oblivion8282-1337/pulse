@@ -14,6 +14,7 @@
 
   import { onMount } from 'svelte';
   import { getPrivateBrowsingState } from '$lib/identity/private-browsing';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { show = undefined }: { show?: boolean } = $props();
 
@@ -53,10 +54,9 @@
       <line x1="12" y1="17" x2="12.01" y2="17" />
     </svg>
     <div class="flex flex-col gap-0.5">
-      <strong class="font-semibold">Privater Browser erkannt</strong>
+      <strong class="font-semibold">{m.incognito_banner_title()}</strong>
       <span class="text-destructive/80">
-        Dein Geräte-Schlüssel wird im privaten Modus nach dem Schließen des Tabs gelöscht.
-        Öffne Pulse in einem normalen Browser-Fenster, damit dein Geräte-Zertifikat erhalten bleibt.
+        {m.incognito_banner_body()}
       </span>
     </div>
   </div>

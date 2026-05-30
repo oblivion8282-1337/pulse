@@ -3,6 +3,8 @@
  * Missing files are tolerated by the engine — see `engine.ts`.
  */
 
+import { m } from '$lib/paraglide/messages.js';
+
 export type SoundCategory = 'notification' | 'voice' | 'ui';
 
 export type SoundDef = {
@@ -15,67 +17,67 @@ export const SOUNDS = {
   'notification.message': {
     category: 'notification',
     file: 'notification-message',
-    label: 'Neue Nachricht'
+    get label() { return m.sounds_notification_message(); }
   },
   'notification.mention': {
     category: 'notification',
     file: 'notification-mention',
-    label: 'Erwähnung'
+    get label() { return m.sounds_notification_mention(); }
   },
   'notification.dm': {
     category: 'notification',
     file: 'notification-dm',
-    label: 'Direktnachricht'
+    get label() { return m.sounds_notification_dm(); }
   },
   'voice.user_join': {
     category: 'voice',
     file: 'voice-user-join',
-    label: 'Anderer Nutzer joint'
+    get label() { return m.sounds_voice_user_join(); }
   },
   'voice.user_leave': {
     category: 'voice',
     file: 'voice-user-leave',
-    label: 'Anderer Nutzer verlässt'
+    get label() { return m.sounds_voice_user_leave(); }
   },
   'voice.self_join': {
     category: 'voice',
     file: 'voice-self-join',
-    label: 'Eigener Join'
+    get label() { return m.sounds_voice_self_join(); }
   },
   'voice.self_leave': {
     category: 'voice',
     file: 'voice-self-leave',
-    label: 'Eigener Leave'
+    get label() { return m.sounds_voice_self_leave(); }
   },
   'voice.self_mute': {
     category: 'voice',
     file: 'voice-self-mute',
-    label: 'Stummgeschaltet'
+    get label() { return m.sounds_voice_self_mute(); }
   },
   'voice.self_unmute': {
     category: 'voice',
     file: 'voice-self-unmute',
-    label: 'Mikrofon an'
+    get label() { return m.sounds_voice_self_unmute(); }
   },
   'voice.self_deafen': {
     category: 'voice',
     file: 'voice-self-deafen',
-    label: 'Selbst betäubt'
+    get label() { return m.sounds_voice_self_deafen(); }
   },
   'voice.self_undeafen': {
     category: 'voice',
     file: 'voice-self-undeafen',
-    label: 'Sound an'
+    get label() { return m.sounds_voice_self_undeafen(); }
   },
   'ui.send': {
     category: 'ui',
     file: 'ui-send',
-    label: 'Nachricht senden'
+    get label() { return m.sounds_ui_send(); }
   },
   'ui.modal_open': {
     category: 'ui',
     file: 'ui-modal-open',
-    label: 'Dialog öffnen'
+    get label() { return m.sounds_ui_modal_open(); }
   }
 } as const satisfies Record<string, SoundDef>;
 

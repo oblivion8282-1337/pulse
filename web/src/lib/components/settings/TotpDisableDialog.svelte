@@ -13,6 +13,7 @@
   import { totpDisable } from '$lib/api/auth';
   import { auth } from '$lib/stores/auth.svelte';
   import { stripTotpFormatting, normalizeBackupCode } from '$lib/auth/format';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -38,7 +39,7 @@
     e.preventDefault();
     if (busy) return;
     if (!password) {
-      error = 'Bitte Passwort eingeben.';
+      error = m.totp_disable_dialog_error_password_required();
       return;
     }
     error = null;
@@ -47,14 +48,14 @@
       if (useBackup) {
         const normalized = normalizeBackupCode(backupCode);
         if (!normalized) {
-          error = 'Backup-Code darf nicht leer sein.';
+          error = m.totp_disable_dialog_error_backup_code_empty();
           return;
         }
         await totpDisable(password, { backup_code: normalized });
       } else {
         const digits = stripTotpFormatting(code);
         if (digits.length !== 6) {
-          error = 'Bitte 6-stelligen Code eingeben.';
+          error = m.totp_disable_dialog_error_code_invalid();
           return;
         }
         await totpDisable(password, { code: digits });
@@ -74,17 +75,16 @@
     <Dialog.Overlay />
     <Dialog.Content data-testid="totp-disable-dialog" class="max-w-md">
       <Dialog.Header>
-        <Dialog.Title>2FA deaktivieren</Dialog.Title>
+        <Dialog.Title>{m.totp_disable_dialog_title()}</Dialog.Title>
         <Dialog.Description>
-          Du musst beim nächsten Login keine 2FA mehr eingeben — dein Account ist dann weniger
-          geschützt.
+          {m.totp_disable_dialog_description()}
         </Dialog.Description>
       </Dialog.Header>
 
       <form onsubmit={submit} class="space-y-3">
         <div class="space-y-1.5">
           <Label for="totp-disable-password" class="text-text-muted text-xs font-semibold uppercase">
-            Passwort
+            {m.totp_disable_dialog_label_password()}
           </Label>
           <Input
             id="totp-disable-password"
@@ -102,7 +102,7 @@
               for="totp-disable-backup"
               class="text-text-muted text-xs font-semibold uppercase"
             >
-              Backup-Code
+              {m.totp_disable_dialog_label_backup_code()}
             </Label>
             <Input
               id="totp-disable-backup"
@@ -117,7 +117,7 @@
         {:else}
           <div class="space-y-1.5">
             <Label for="totp-disable-code" class="text-text-muted text-xs font-semibold uppercase">
-              Aktueller Code aus der App
+              {m.totp_disable_dialog_label_totp_code()}
             </Label>
             <Input
               id="totp-disable-code"
@@ -142,7 +142,7 @@
           }}
           data-testid="totp-disable-toggle"
         >
-          {useBackup ? '6-stelligen Code verwenden' : 'Backup-Code verwenden'}
+          {useBackup ? m.totp_disable_dialog_toggle_use_totp() : m.totp_disable_dialog_toggle_use_backup()}
         </button>
 
         {#if error}
@@ -154,10 +154,10 @@
 
         <Dialog.Footer>
           <Button variant="secondary" type="button" onclick={() => (open = false)} disabled={busy}>
-            Abbrechen
+            {m.totp_disable_dialog_cancel()}
           </Button>
           <Button type="submit" disabled={busy} data-testid="totp-disable-submit">
-            {busy ? 'Deaktivieren…' : '2FA deaktivieren'}
+            {busy ? m.totp_disable_dialog_submit_busy() : m.totp_disable_dialog_submit()}
           </Button>
         </Dialog.Footer>
       </form>

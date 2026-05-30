@@ -15,6 +15,7 @@ import { directMessages } from '$lib/stores/directMessages.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { friends } from '$lib/stores/friends.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
+import { m } from '$lib/paraglide/messages.js';
 
 export interface ActionCtx {
   userId: string;
@@ -50,7 +51,7 @@ export async function startDM(ctx: ActionCtx): Promise<void> {
     ctx.onAction?.();
     await goto(`/app/@me/${dm.id}`);
   } catch (err) {
-    toast.error('DM konnte nicht geöffnet werden', {
+    toast.error(m.popover_actions_dm_open_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -73,9 +74,9 @@ export async function toggleMute(ctx: ActionCtx): Promise<void> {
       result.muted,
       result.deafened
     );
-    toast.success(next ? `${ctx.displayName} stummgeschaltet` : `Stummschaltung aufgehoben`);
+    toast.success(next ? m.popover_actions_muted({ displayName: ctx.displayName }) : m.popover_actions_unmuted());
   } catch (err) {
-    toast.error('Stummschaltung fehlgeschlagen', {
+    toast.error(m.popover_actions_mute_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -97,9 +98,9 @@ export async function toggleDeafen(ctx: ActionCtx): Promise<void> {
       result.muted,
       result.deafened
     );
-    toast.success(next ? `${ctx.displayName} taubgeschaltet` : `Taubschaltung aufgehoben`);
+    toast.success(next ? m.popover_actions_deafened({ displayName: ctx.displayName }) : m.popover_actions_undeafened());
   } catch (err) {
-    toast.error('Taubschaltung fehlgeschlagen', {
+    toast.error(m.popover_actions_deafen_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -112,11 +113,11 @@ export async function disconnectVoice(ctx: ActionCtx): Promise<void> {
   ctx.setWorking(true);
   try {
     await disconnectFromVoice(ctx.targetVoiceChannelId, ctx.userId);
-    toast.success(`${ctx.displayName} aus dem Voice-Channel entfernt`);
+    toast.success(m.popover_actions_voice_disconnected({ displayName: ctx.displayName }));
     ctx.close();
     ctx.onAction?.();
   } catch (err) {
-    toast.error('Trennen aus Voice fehlgeschlagen', {
+    toast.error(m.popover_actions_voice_disconnect_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -129,11 +130,11 @@ export async function kick(ctx: ActionCtx): Promise<void> {
   ctx.setWorking(true);
   try {
     await chatApi.kickMember(ctx.guildId, ctx.userId);
-    toast.success(`${ctx.displayName} entfernt`);
+    toast.success(m.popover_actions_kicked({ displayName: ctx.displayName }));
     ctx.close();
     ctx.onAction?.();
   } catch (err) {
-    toast.error('Mitglied konnte nicht entfernt werden', {
+    toast.error(m.popover_actions_kick_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -146,11 +147,11 @@ export async function ban(ctx: ActionCtx): Promise<void> {
   ctx.setWorking(true);
   try {
     await chatApi.banUser(ctx.guildId, ctx.userId, null);
-    toast.success(`${ctx.displayName} gesperrt`);
+    toast.success(m.popover_actions_banned({ displayName: ctx.displayName }));
     ctx.close();
     ctx.onAction?.();
   } catch (err) {
-    toast.error('Sperren fehlgeschlagen', {
+    toast.error(m.popover_actions_ban_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -165,12 +166,12 @@ export async function sendFriendRequest(ctx: ActionCtx): Promise<void> {
     const res = await friendsApi.sendFriendRequest(ctx.userId);
     if ('auto_accepted' in res && res.auto_accepted) {
       friends.add(ctx.userId, res.friendship.since);
-      toast.success(`${ctx.displayName} ist jetzt dein Freund!`);
+      toast.success(m.popover_actions_friend_added({ displayName: ctx.displayName }));
     } else {
-      toast.success(`Freundschaftsanfrage an ${ctx.displayName} gesendet`);
+      toast.success(m.popover_actions_friend_request_sent({ displayName: ctx.displayName }));
     }
   } catch (err) {
-    toast.error('Anfrage konnte nicht gesendet werden', {
+    toast.error(m.popover_actions_friend_request_send_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -183,9 +184,9 @@ export async function cancelFriendRequest(ctx: ActionCtx, reqId: string): Promis
   ctx.setWorking(true);
   try {
     await friendsApi.cancelRequest(reqId);
-    toast.success('Anfrage zurückgezogen');
+    toast.success(m.popover_actions_friend_request_cancelled());
   } catch (err) {
-    toast.error('Anfrage konnte nicht zurückgezogen werden', {
+    toast.error(m.popover_actions_friend_request_cancel_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -199,9 +200,9 @@ export async function acceptFriendRequest(ctx: ActionCtx, reqId: string): Promis
   try {
     const friendship = await friendsApi.acceptRequest(reqId);
     friends.add(ctx.userId, friendship.since);
-    toast.success(`${ctx.displayName} ist jetzt dein Freund!`);
+    toast.success(m.popover_actions_friend_added({ displayName: ctx.displayName }));
   } catch (err) {
-    toast.error('Annehmen fehlgeschlagen', {
+    toast.error(m.popover_actions_friend_request_accept_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -214,9 +215,9 @@ export async function declineFriendRequest(ctx: ActionCtx, reqId: string): Promi
   ctx.setWorking(true);
   try {
     await friendsApi.declineRequest(reqId);
-    toast.success('Anfrage abgelehnt');
+    toast.success(m.popover_actions_friend_request_declined());
   } catch (err) {
-    toast.error('Ablehnen fehlgeschlagen', {
+    toast.error(m.popover_actions_friend_request_decline_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -226,15 +227,15 @@ export async function declineFriendRequest(ctx: ActionCtx, reqId: string): Promi
 
 export async function removeFriend(ctx: ActionCtx): Promise<void> {
   if (ctx.isSelf || ctx.isWorking()) return;
-  if (!confirm(`${ctx.displayName} aus der Freundesliste entfernen?`)) return;
+  if (!confirm(m.popover_actions_remove_friend_confirm({ displayName: ctx.displayName }))) return;
   ctx.setWorking(true);
   try {
     await friendsApi.removeFriend(ctx.userId);
     friends.remove(ctx.userId);
-    toast.success(`${ctx.displayName} entfernt`);
+    toast.success(m.popover_actions_friend_removed({ displayName: ctx.displayName }));
     ctx.close();
   } catch (err) {
-    toast.error('Entfernen fehlgeschlagen', {
+    toast.error(m.popover_actions_remove_friend_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -244,16 +245,16 @@ export async function removeFriend(ctx: ActionCtx): Promise<void> {
 
 export async function blockUser(ctx: ActionCtx): Promise<void> {
   if (ctx.isSelf || ctx.isWorking()) return;
-  if (!confirm(`${ctx.displayName} blockieren?`)) return;
+  if (!confirm(m.popover_actions_block_confirm({ displayName: ctx.displayName }))) return;
   ctx.setWorking(true);
   try {
     const result = await friendsApi.blockUser(ctx.userId);
     blocks.add(ctx.userId, result.since);
     friends.remove(ctx.userId);
-    toast.success(`${ctx.displayName} blockiert`);
+    toast.success(m.popover_actions_blocked({ displayName: ctx.displayName }));
     ctx.close();
   } catch (err) {
-    toast.error('Blockieren fehlgeschlagen', {
+    toast.error(m.popover_actions_block_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {
@@ -267,9 +268,9 @@ export async function unblockUser(ctx: ActionCtx): Promise<void> {
   try {
     await friendsApi.unblockUser(ctx.userId);
     blocks.remove(ctx.userId);
-    toast.success(`${ctx.displayName} entblockiert`);
+    toast.success(m.popover_actions_unblocked({ displayName: ctx.displayName }));
   } catch (err) {
-    toast.error('Entblockieren fehlgeschlagen', {
+    toast.error(m.popover_actions_unblock_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {

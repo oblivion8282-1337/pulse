@@ -19,6 +19,7 @@
   import FileIcon from '@lucide/svelte/icons/file';
   import FileTextIcon from '@lucide/svelte/icons/file-text';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import { m } from '$lib/paraglide/messages.js';
 
   let { attachments }: { attachments: Attachment[] } = $props();
 
@@ -57,7 +58,7 @@
           class="block w-fit max-w-md cursor-zoom-in overflow-hidden rounded-xl border border-border focus:outline-none focus:ring-2 focus:ring-primary"
           onclick={() => openLightbox(a)}
           data-testid="attachment-image"
-          aria-label="Bild öffnen: {a.filename ?? 'Anhang'}"
+          aria-label={m.message_attachments_open_image({ filename: a.filename ?? m.message_attachments_unnamed() })}
         >
           <AutoRefreshImage
             attachmentId={a.id}
@@ -103,7 +104,7 @@
           </div>
           <div class="min-w-0 flex-1">
             <p class="text-text-bright truncate font-medium">
-              {a.filename ?? 'Anhang'}
+              {a.filename ?? m.message_attachments_unnamed()}
             </p>
             <p class="text-text-muted text-xs">{fmtBytes(a.size)}</p>
           </div>

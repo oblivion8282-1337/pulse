@@ -24,6 +24,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { Perm, has, toBitfield } from '$lib/permissions/bitfield';
   import type { Member } from '$lib/api/types';
+  import { m } from '$lib/paraglide/messages.js';
 
   function displayName(m: Member): string {
     return m.nickname ?? userCache.displayName(m.user_id);
@@ -49,11 +50,11 @@
   let filteredMembers = $derived(
     !filter.trim()
       ? members
-      : members.filter((m) => {
+      : members.filter((mbr) => {
           const needle = filter.trim().toLowerCase();
-          return (m.nickname ?? '').toLowerCase().includes(needle)
-            || userCache.displayName(m.user_id).toLowerCase().includes(needle)
-            || m.user_id.includes(needle);
+          return (mbr.nickname ?? '').toLowerCase().includes(needle)
+            || userCache.displayName(mbr.user_id).toLowerCase().includes(needle)
+            || mbr.user_id.includes(needle);
         })
   );
 
@@ -62,9 +63,9 @@
       members = await chatApi.listMembers(guildId);
       // Queue username lookups so display_name resolves to a human-
       // readable value rather than the raw snowflake id.
-      for (const m of members) userCache.queue(m.user_id);
+      for (const mbr of members) userCache.queue(mbr.user_id);
     } catch (err) {
-      toast.error('Mitglieder laden fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.member_role_assignment_load_members_failed(), { description: (err as Error).message });
     } finally {
       loading = false;
     }
@@ -80,7 +81,7 @@
         [userId]: new Set(rows.filter((r) => !r.is_everyone).map((r) => r.id))
       };
     } catch (err) {
-      toast.error('Mitglieds-Rollen laden fehlgeschlagen', {
+      toast.error(m.member_role_assignment_load_member_roles_failed(), {
         description: (err as Error).message
       });
     }
@@ -95,9 +96,9 @@
     const missing = rolePerm & ~editorPerm;
     if (missing !== 0n) {
       if (has(rolePerm, Perm.ADMINISTRATOR) && !has(editorPerm, Perm.ADMINISTRATOR)) {
-        return { locked: true, reason: 'ADMINISTRATOR — du hast es selbst nicht' };
+        return { locked: true, reason: m.member_role_assignment_locked_admin() };
       }
-      return { locked: true, reason: 'Rolle grantet Bits, die du selbst nicht hast' };
+      return { locked: true, reason: m.member_role_assignment_locked_missing_bits() };
     }
     return { locked: false, reason: null };
   }
@@ -120,7 +121,7 @@
     } catch (err) {
       // Roll back the optimistic toggle.
       memberRoleIds = { ...memberRoleIds, [userId]: existing };
-      toast.error('Rolle ändern fehlgeschlagen', { description: (err as Error).message });
+      toast.error(m.member_role_assignment_toggle_failed(), { description: (err as Error).message });
     } finally {
       const nextBusy = new Set(busy);
       nextBusy.delete(key);
@@ -135,33 +136,33 @@
       <SearchIcon class="text-text-muted size-4" />
       <Input
         bind:value={filter}
-        placeholder="Mitglied suchen…"
+        placeholder={m.member_role_assignment_search_placeholder()}
         class="h-8 text-sm"
         data-testid="member-filter"
       />
     </div>
     {#if loading}
-      <p class="text-text-muted text-sm">Lädt…</p>
+      <p class="text-text-muted text-sm">{m.member_role_assignment_loading()}</p>
     {:else}
       <ul class="max-h-[60vh] space-y-1 overflow-y-auto pr-1">
-        {#each filteredMembers as m (m.user_id)}
+        {#each filteredMembers as mbr (mbr.user_id)}
           <li>
             <button
               type="button"
               class="hover:bg-bg-hover w-full rounded-lg px-3 py-2 text-left text-sm transition-colors"
-              class:bg-bg-hover={selectedUserId === m.user_id}
-              onclick={() => selectMember(m.user_id)}
-              data-testid={`member-row-${m.user_id}`}
+              class:bg-bg-hover={selectedUserId === mbr.user_id}
+              onclick={() => selectMember(mbr.user_id)}
+              data-testid={`member-row-${mbr.user_id}`}
             >
               <div class="text-text-bright truncate font-medium">
-                {displayName(m)}
+                {displayName(mbr)}
               </div>
-              <div class="text-text-muted truncate text-xs">{m.user_id}</div>
+              <div class="text-text-muted truncate text-xs">{mbr.user_id}</div>
             </button>
           </li>
         {/each}
         {#if filteredMembers.length === 0}
-          <li class="text-text-muted px-3 py-2 text-sm">Keine Treffer.</li>
+          <li class="text-text-muted px-3 py-2 text-sm">{m.member_role_assignment_no_results()}</li>
         {/if}
       </ul>
     {/if}
@@ -169,21 +170,21 @@
 
   <section class="min-w-0 flex-1 overflow-y-auto">
     {#if !selectedUserId}
-      <p class="text-text-muted text-sm">Mitglied auswählen, um Rollen zuzuweisen.</p>
+      <p class="text-text-muted text-sm">{m.member_role_assignment_select_member_hint()}</p>
     {:else if !memberRoleIds[selectedUserId]}
-      <p class="text-text-muted text-sm">Lädt Mitglieds-Rollen…</p>
+      <p class="text-text-muted text-sm">{m.member_role_assignment_loading_roles()}</p>
     {:else if assignableRoles.length === 0}
       <p class="text-text-muted text-sm">
-        Noch keine zuweisbaren Rollen — erstelle erst welche im Rollen-Tab.
+        {m.member_role_assignment_no_assignable_roles()}
       </p>
     {:else}
-      {@const selMember = members.find((m) => m.user_id === selectedUserId)}
+      {@const selMember = members.find((mbr) => mbr.user_id === selectedUserId)}
       <header class="mb-3">
         <h3 class="text-text-bright text-sm font-semibold">
-          Rollen für {selMember ? displayName(selMember) : selectedUserId}
+          {m.member_role_assignment_roles_for({ name: selMember ? displayName(selMember) : (selectedUserId ?? '') })}
         </h3>
         <p class="text-text-muted text-xs">
-          Höhere Position = mächtigere Rolle. @everyone wird implizit zugewiesen.
+          {m.member_role_assignment_position_hint()}
         </p>
       </header>
       <ul class="divide-border divide-y">
@@ -196,7 +197,7 @@
               <div class="text-text-bright text-sm font-medium" style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}>
                 {r.name}
               </div>
-              <div class="text-text-muted text-xs">Position {r.position}</div>
+              <div class="text-text-muted text-xs">{m.member_role_assignment_position({ position: r.position })}</div>
               {#if lock.locked}
                 <div class="text-xs text-amber-500">{lock.reason}</div>
               {/if}
