@@ -34,6 +34,9 @@ pub struct AudioStreamConfig {
     pub sample_rate: u32,
     pub channels: u16,
     pub bitrate_kbps: u32,
+    /// Konstanter A/V-Trim in ms (>0 = Audio später). Aus dem UI-Slider; 0 =
+    /// neutral (dann greift ggf. der `PULSE_HQ_AV_OFFSET_MS`-Env-Fallback).
+    pub av_offset_ms: i32,
 }
 
 impl AudioStreamConfig {
@@ -43,6 +46,7 @@ impl AudioStreamConfig {
         sample_rate: 48_000,
         channels: 2,
         bitrate_kbps: 128,
+        av_offset_ms: 0,
     };
 }
 
@@ -227,6 +231,7 @@ impl FfmpegEncoder {
                 a.sample_rate,
                 a.channels,
                 a.bitrate_kbps,
+                a.av_offset_ms,
             )?),
             None => None,
         };

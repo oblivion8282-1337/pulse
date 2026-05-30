@@ -125,7 +125,10 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
             }
         }
     });
-    let audio_cfg: Option<AudioStreamConfig> = audio_capture.as_ref().map(|_| AudioStreamConfig::DEFAULT);
+    let audio_cfg: Option<AudioStreamConfig> = audio_capture.as_ref().map(|_| AudioStreamConfig {
+        av_offset_ms: params.av_offset_ms,
+        ..AudioStreamConfig::DEFAULT
+    });
 
     // Downscale-Pfad: GPU-Scaler (VideoProcessorBlt) zwischen Capture und
     // Encoder. Der Scaler hat einen eigenen D3D11VA-Ziel-Pool (dst-res, BGRA,

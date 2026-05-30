@@ -80,6 +80,9 @@ pub struct StartParams {
     /// Mauszeiger im Stream zeigen. Default `true` (entspricht GSRs `-cursor yes`).
     /// `false` → WGC `CursorCaptureSettings::WithoutCursor`.
     pub show_cursor: bool,
+    /// Konstanter A/V-Trim in ms (>0 = Audio später) aus dem UI-Slider. 0 =
+    /// neutral. Reicht bis in die `AudioPipeline` durch (dort Sample-Offset).
+    pub av_offset_ms: i32,
 }
 
 pub struct StreamController {
@@ -315,9 +318,10 @@ pub(crate) fn run_cpu_pipeline(params: StartParams, stop_rx: Receiver<()>) -> Re
                 }
             }
         });
-        let audio_cfg: Option<AudioStreamConfig> = audio_capture
-            .as_ref()
-            .map(|_| AudioStreamConfig::DEFAULT);
+        let audio_cfg: Option<AudioStreamConfig> = audio_capture.as_ref().map(|_| AudioStreamConfig {
+            av_offset_ms: params.av_offset_ms,
+            ..AudioStreamConfig::DEFAULT
+        });
 
         // dst_width/dst_height aus override (mit Upscale-Schutz: max = capture-native).
         // Bei Match dst==src degeneriert swscale zu reinem Format-Convert; sonst

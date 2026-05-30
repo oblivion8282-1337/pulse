@@ -137,6 +137,10 @@ export const streamSettings = $state({
   // Mauszeiger im Stream zeigen — default an (entspricht GSRs eingebautem
   // `-cursor yes`). Toggle im OverridesEditor.
   show_cursor: true,
+  // Windows-only: konstanter A/V-Trim in ms (>0 = Ton später). Feintuning für
+  // den Rest-Lippensync, den die QPC-Verankerung nicht abfängt. Auf Linux
+  // ungenutzt (gpu-screen-recorder synct selbst). 0 = neutral.
+  av_offset_ms: 0,
 
   // Catalogs from sidecar (filled by `loadCatalogs()`)
   available_profiles: [] as GsrProfile[],
@@ -165,6 +169,7 @@ const PERSIST_KEYS = [
   'overrides',
   'use_overrides',
   'show_cursor',
+  'av_offset_ms',
 ] as const;
 
 type PersistKey = (typeof PERSIST_KEYS)[number];
@@ -179,6 +184,7 @@ function snapshotPersisted(): Record<PersistKey, unknown> {
     overrides: { ...streamSettings.overrides },
     use_overrides: streamSettings.use_overrides,
     show_cursor: streamSettings.show_cursor,
+    av_offset_ms: streamSettings.av_offset_ms,
   };
 }
 
@@ -235,6 +241,9 @@ function applyPersisted(data: Record<string, unknown>): void {
   }
   if (typeof data.show_cursor === 'boolean') {
     streamSettings.show_cursor = data.show_cursor;
+  }
+  if (typeof data.av_offset_ms === 'number' && Number.isFinite(data.av_offset_ms)) {
+    streamSettings.av_offset_ms = Math.round(data.av_offset_ms);
   }
 
   // Migration cleanup (one-shot, ~2026-05-13): an earlier version auto-added
@@ -432,6 +441,9 @@ export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
       excluded_apps: streamSettings.excluded_apps.slice(),
     },
     show_cursor: streamSettings.show_cursor,
+    // A/V-Trim nur auf Windows mitschicken — der Linux-Sidecar kennt das Feld
+    // nicht (GSR synct selbst), dort wäre es ein toter Wert.
+    ...(isWindows() ? { av_offset_ms: streamSettings.av_offset_ms } : {}),
   };
 
   if (apply) {

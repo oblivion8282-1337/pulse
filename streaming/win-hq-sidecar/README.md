@@ -92,6 +92,12 @@ sauber bei 60 fps. Darum **nicht** der NVIDIA-D3D11-Pfad, sondern der eigene D3D
 - `PULSE_HQ_DISABLE_ZERO_COPY=1` — erzwingt den CPU-Pfad für **jeden** Vendor (NVIDIA wie
   AMD). Für A/B-Debugging; auf AMD = Fallback auf `h264_amf` (Software-NV12-Input).
 - `PULSE_HQ_SIDECAR=<pfad>` — Override für den Resolver in `desktop/electron/sidecar.ts`.
+- `PULSE_HQ_NO_AV_OFFSET=1` — schaltet die QPC-A/V-Verankerung ab (reine Wall-clock,
+  Verhalten vor der Offset-Korrektur).
+- `PULSE_HQ_AV_OFFSET_MS=<ms>` — **Fallback** für den konstanten A/V-Trim (>0 = Ton
+  später). Quelle der Wahrheit ist das UI-Feld „Ton-Versatz" (Windows-only, reist als
+  `av_offset_ms` im `start`-Request mit, `src/encode/audio.rs`); die Env-Var greift nur,
+  wenn der UI-Wert 0 ist.
 
 ## TLS/RTMPS-Fußnote
 

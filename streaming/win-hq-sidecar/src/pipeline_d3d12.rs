@@ -115,8 +115,10 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
             }
         }
     });
-    let audio_cfg: Option<AudioStreamConfig> =
-        audio_capture.as_ref().map(|_| AudioStreamConfig::DEFAULT);
+    let audio_cfg: Option<AudioStreamConfig> = audio_capture.as_ref().map(|_| AudioStreamConfig {
+        av_offset_ms: params.av_offset_ms,
+        ..AudioStreamConfig::DEFAULT
+    });
 
     // ── Encoder (erzeugt D3D12-Device + UAV-fähigen NV12-Pool).
     let mut encoder = FfmpegD3d12Encoder::create(

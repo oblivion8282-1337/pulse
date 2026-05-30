@@ -133,6 +133,7 @@ impl FfmpegHwEncoder {
                 a.sample_rate,
                 a.channels,
                 a.bitrate_kbps,
+                a.av_offset_ms,
             )?),
             None => None,
         };

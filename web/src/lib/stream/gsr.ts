@@ -114,6 +114,10 @@ export interface GsrStartArgs {
   /** Show the mouse cursor in the captured stream. Default true (GSR's
    *  built-in default); set to false to pass `-cursor no`. */
   show_cursor?: boolean;
+  /** Windows-only constant A/V trim in ms (>0 = audio later). Tunes the
+   *  residual lip-sync offset the QPC anchor can't catch. Ignored by the Linux
+   *  sidecar (gpu-screen-recorder syncs internally). Omit/0 = neutral. */
+  av_offset_ms?: number;
 }
 
 export interface GsrStartResult {

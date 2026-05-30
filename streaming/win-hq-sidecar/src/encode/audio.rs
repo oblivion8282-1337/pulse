@@ -39,8 +39,9 @@ pub struct AudioPipeline {
     /// emittierten Packet um 960 erhöht. Brauchen wir separat zu `pts_samples`
     /// weil libopus' Output-Packet-PTS nicht zuverlässig propagiert wird.
     out_pts_samples: i64,
-    /// Fester Trim-Offset in Samples aus `PULSE_HQ_AV_OFFSET_MS` (>0 = Audio
-    /// später). Für den konstanten Rest-Versatz nach der QPC-Verankerung.
+    /// Fester Trim-Offset in Samples (>0 = Audio später). Quelle: UI-Feld
+    /// `av_offset_ms` im `start`-Request, Fallback `PULSE_HQ_AV_OFFSET_MS`.
+    /// Für den konstanten Rest-Versatz nach der QPC-Verankerung.
     trim_samples: i64,
     pub stream_idx: usize,
     pub encoder_time_base: Rational,
@@ -71,6 +72,7 @@ impl AudioPipeline {
         sample_rate: u32,
         channels: u16,
         bitrate_kbps: u32,
+        av_offset_ms: i32,
     ) -> Result<Self> {
         if channels != 2 {
             // libopus unterstützt 1/2/3/4/5/6/8 Kanäle, aber Pulse streamt
@@ -118,12 +120,18 @@ impl AudioPipeline {
 
         // Optionaler fester A/V-Trim (ms → Samples); >0 verschiebt Audio später.
         // Für den konstanten Rest-Versatz nach der QPC-Verankerung (Opus-Delay,
-        // evtl. QPC-Epochen-Differenz). Default 0 = aus.
-        let trim_samples = std::env::var("PULSE_HQ_AV_OFFSET_MS")
-            .ok()
-            .and_then(|v| v.parse::<f64>().ok())
-            .map(|ms| (ms / 1000.0 * sample_rate as f64) as i64)
-            .unwrap_or(0);
+        // evtl. QPC-Epochen-Differenz). Quelle der Wahrheit ist der UI-Wert
+        // (`av_offset_ms`, kommt im `start`-Request mit); ist er 0 (Default/UI
+        // neutral), greift `PULSE_HQ_AV_OFFSET_MS` als Entwickler-Fallback.
+        let offset_ms = if av_offset_ms != 0 {
+            av_offset_ms as f64
+        } else {
+            std::env::var("PULSE_HQ_AV_OFFSET_MS")
+                .ok()
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0)
+        };
+        let trim_samples = (offset_ms / 1000.0 * sample_rate as f64) as i64;
 
         // Stream-Timebase NICHT hier cachen: `output.write_header()` läuft erst
         // NACH `AudioPipeline::create`, bis dahin ist sie 0/0 (uninitialized) —

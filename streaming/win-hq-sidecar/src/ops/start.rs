@@ -8,7 +8,8 @@
 //!  "capture":"portal"|"monitor"|"window"|"App: <name>",
 //!  "audio":{"mode":"Aus|Desktop|Mikrofon|Desktop + Mikrofon","excluded_apps":[]},
 //!  "overrides":{"codec":"h264","bitrate_kbps":4000,"fps":60,"resolution":"1080p"}?,
-//!  "show_cursor":true?}
+//!  "show_cursor":true?,
+//!  "av_offset_ms":0?}   // konstanter A/V-Trim, >0 = Audio später
 //! ```
 //!
 //! Returnt `{"ok":true, "argv":[…redactet…]}`, danach kommen via `events::emit`
@@ -65,6 +66,12 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .get("show_cursor")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+    // Konstanter A/V-Trim in ms (UI-Slider; >0 = Audio später). Fehlt das Feld
+    // → 0 (neutral; dann greift ggf. der `PULSE_HQ_AV_OFFSET_MS`-Env-Fallback).
+    let av_offset_ms = params
+        .get("av_offset_ms")
+        .and_then(|v| v.as_i64().or_else(|| v.as_f64().map(|f| f as i64)))
+        .unwrap_or(0) as i32;
 
     let start_params = StartParams {
         profile,
@@ -78,6 +85,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         override_fps,
         override_resolution,
         show_cursor,
+        av_offset_ms,
     };
 
     let argv = StreamController::singleton().start(start_params)?;

@@ -26,6 +26,7 @@
   import OverridesEditor from './OverridesEditor.svelte';
   import MonitorPicker from './MonitorPicker.svelte';
   import AudioModePicker from './AudioModePicker.svelte';
+  import AvOffsetSlider from './AvOffsetSlider.svelte';
   import StreamControls from './StreamControls.svelte';
   import StreamLog from './StreamLog.svelte';
 
@@ -96,6 +97,11 @@
 
         <Separator />
         <AudioModePicker />
+
+        {#if isWindows()}
+          <Separator />
+          <AvOffsetSlider />
+        {/if}
 
         <Separator />
         <StreamControls {channelId} {onStarted} />
