@@ -224,6 +224,68 @@ async def test_logout_without_refresh_token(client):
     assert r2.status_code == 401
 
 
+# ---- session-renew tests (desktop-shell cookie recovery) --------------
+
+
+@pytest.mark.asyncio
+async def test_renew_with_bearer_sets_fresh_cookie(client):
+    """Bearer-only (no cookie) /session/renew mints a fresh pulse_session.
+
+    Mirrors the desktop shell: a long-lived JWT in localStorage but an
+    expired/absent session cookie. The bearer alone must re-establish the
+    cookie so cookie-only endpoints work again.
+    """
+    login_r = await _register_and_login(client)
+    access = login_r.json()["access_token"]
+
+    r = await client.post(
+        "/session/renew",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert r.status_code == 204, r.text
+    assert "pulse_session" in r.cookies, "renew must emit a fresh session cookie"
+
+    # The fresh cookie must authenticate a cookie-auth path.
+    new_sid = r.cookies["pulse_session"]
+    me = await client.get("/me", headers={"Cookie": f"pulse_session={new_sid}"})
+    assert me.status_code == 200, me.text
+    assert me.json()["email"] == _REG["email"]
+
+
+@pytest.mark.asyncio
+async def test_renew_recovers_after_session_expiry(client, session_factory):
+    """Expired cookie + valid bearer -> renew restores a working session."""
+    login_r = await _register_and_login(client)
+    access = login_r.json()["access_token"]
+    old_sid = login_r.cookies["pulse_session"]
+
+    # Force the original session past its TTL (the 30-min lapse).
+    async with session_factory() as db:
+        row = await db.get(UserSession, str(uuid.UUID(old_sid)))
+        assert row is not None
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await db.commit()
+
+    # Old cookie is now dead...
+    dead = await client.get("/me", headers={"Cookie": f"pulse_session={old_sid}"})
+    assert dead.status_code == 401
+
+    # ...but renewing via the bearer mints a fresh, working session.
+    r = await client.post("/session/renew", headers={"Authorization": f"Bearer {access}"})
+    assert r.status_code == 204, r.text
+    new_sid = r.cookies["pulse_session"]
+    assert new_sid != old_sid
+    me = await client.get("/me", headers={"Cookie": f"pulse_session={new_sid}"})
+    assert me.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_renew_without_auth_returns_401(client):
+    """No bearer and no cookie -> renew can't mint from nothing -> 401."""
+    r = await client.post("/session/renew")
+    assert r.status_code == 401
+
+
 # ---- cleanup tests ----------------------------------------------------
 
 

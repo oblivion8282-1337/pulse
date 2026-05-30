@@ -9,7 +9,7 @@
  * aus api/client.ts ist Bearer-only, daher direktes `fetch` hier.
  */
 
-import { AUTH_BASE, ApiError } from './client';
+import { AUTH_BASE, ApiError, getCloudBearer } from './client';
 import type { KeyBackupBlob, KeyBackupBlobV1, KeyBackupBlobV2 } from '$lib/identity/key-backup.svelte';
 
 // ---------------------------------------------------------------------------
@@ -74,9 +74,40 @@ export interface BackupFetchResponse {
 // Interner Fetch-Helfer (Cookie-Auth, kein Bearer)
 // ---------------------------------------------------------------------------
 
+/**
+ * Etabliert den `pulse_session`-Cookie neu aus einem gültigen Login.
+ *
+ * Der Desktop-Shell hält den JWT dauerhaft (localStorage, auto-refresh), aber
+ * der 30-Min-Cookie wird nur beim Login gesetzt → nach Neustart/Ablauf fehlt er,
+ * obwohl der User eingeloggt ist. `/session/renew` akzeptiert den Bearer und
+ * setzt einen frischen Cookie. Concurrent-Aufrufe teilen sich einen Inflight.
+ */
+let _renewInflight: Promise<boolean> | null = null;
+async function renewSession(): Promise<boolean> {
+  if (_renewInflight) return _renewInflight;
+  _renewInflight = (async () => {
+    try {
+      const bearer = await getCloudBearer();
+      if (!bearer) return false;
+      const resp = await fetch(`${AUTH_BASE}/session/renew`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Authorization: `Bearer ${bearer}` }
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    } finally {
+      _renewInflight = null;
+    }
+  })();
+  return _renewInflight;
+}
+
 async function cookieFetch<T>(
   path: string,
-  opts: { method?: string; body?: unknown } = {}
+  opts: { method?: string; body?: unknown } = {},
+  retried = false
 ): Promise<T> {
   const { method = 'GET', body } = opts;
   const init: RequestInit = {
@@ -87,6 +118,14 @@ async function cookieFetch<T>(
   if (body !== undefined) init.body = JSON.stringify(body);
 
   const resp = await fetch(`${AUTH_BASE}${path}`, init);
+
+  // Fehlender/abgelaufener Session-Cookie → einmal frisch etablieren + retry.
+  // Greift sowohl bei Cookie-only-Endpoints ("missing session cookie") als auch
+  // bei Bearer-or-Cookie-Endpoints, die ohne Cookie auf "missing bearer token"
+  // durchfallen (z.B. /me/profile).
+  if (resp.status === 401 && !retried) {
+    if (await renewSession()) return cookieFetch<T>(path, opts, true);
+  }
 
   if (resp.status === 204) return undefined as T;
   const text = await resp.text();

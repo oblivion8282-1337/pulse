@@ -174,6 +174,14 @@ export async function forceTokenRefresh(): Promise<boolean> {
   return (await refreshIfNeeded(true)) !== null;
 }
 
+/** Frischer Cloud-Bearer (mit Refresh) für Identity-Plane-Aufrufe, die sonst
+ *  Cookie-Auth nutzen (credentials.ts) — nötig, um den `pulse_session`-Cookie
+ *  bei Bedarf neu zu etablieren. `null`, wenn nicht (mehr) eingeloggt. */
+export async function getCloudBearer(force = false): Promise<string | null> {
+  const t = await refreshIfNeeded(force);
+  return t?.access_token ?? null;
+}
+
 /** Holt den Bearer-Token für einen Request — Cloud=JWT (mit Refresh), Self-Host=Session. */
 async function bearerFor(server: ServerEntry | undefined, force = false): Promise<string | null> {
   if (!server || server.isCloud) {

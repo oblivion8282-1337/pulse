@@ -443,6 +443,37 @@ async def login(
     return tokens
 
 
+@router.post("/session/renew", status_code=status.HTTP_204_NO_CONTENT)
+async def renew_session(
+    request: Request,
+    response: Response,
+    session: SessionDep,
+    current: User = Depends(_get_current_user),
+    user_agent: str | None = Header(default=None, alias="User-Agent"),
+) -> None:
+    """Re-establish the ``pulse_session`` browser cookie from a valid auth.
+
+    The desktop shell keeps a long-lived JWT in localStorage and auto-refreshes
+    it, but the short-lived ``pulse_session`` cookie (30 min, minted only at
+    login) is never re-established on app restart — so every cookie-authenticated
+    endpoint (profile, credentials, backups) breaks even though the user is fully
+    signed in. ``_get_current_user`` accepts the Bearer token (or a still-valid
+    cookie); on success we mint a fresh browser session and attach the cookie, so
+    the client can transparently recover without a full re-login.
+    """
+    sid = await create_session(
+        session,
+        user_id=current.id,
+        amr=["pwd"],
+        acr="0",
+        user_agent=user_agent,
+        ip=_client_ip(request),
+    )
+    await session.commit()
+    set_session_cookie(response, sid)
+    return None
+
+
 @router.post("/refresh", response_model=TokensOut)
 async def refresh(
     payload: RefreshIn,
