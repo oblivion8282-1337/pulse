@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "pnpm paraglide:compile",
     "dev": "vite dev --port 5173 --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview",

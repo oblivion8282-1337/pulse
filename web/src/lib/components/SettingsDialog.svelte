@@ -87,7 +87,7 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content
-    class="flex max-h-[85dvh] min-h-[28rem] w-full max-w-3xl gap-0 overflow-hidden p-0 sm:max-w-3xl max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none"
+    class="flex w-full max-w-3xl gap-0 overflow-hidden p-0 sm:h-[min(44rem,85dvh)] sm:max-w-3xl max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none"
     data-testid="settings-dialog"
   >
     <!-- Zugänglicher Dialog-Titel — immer im DOM (auf Mobil wird die <nav> mit
