@@ -90,6 +90,17 @@
   .dark select {
     color-scheme: dark;
   }
+  /* Chromium ignores `color-scheme` for the option list when the <select>
+     carries a custom background, so paint the options explicitly with solid,
+     theme-matched colors (Linux/Windows honour option bg+color). */
+  select option {
+    background-color: #ffffff;
+    color: #111827;
+  }
+  .dark select option {
+    background-color: #18181b;
+    color: #e4e4e7;
+  }
 
   /* Sanfte Tiefen-"Blobs" hinter allem — schimmern in den Lücken der
      floating panels durch. */
