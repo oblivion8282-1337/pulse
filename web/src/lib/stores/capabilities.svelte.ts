@@ -30,6 +30,13 @@ class CapabilitiesStore {
   hqFpsMax = $state(360);
   /** Resolution ceiling; 'Native' = no cap. */
   hqResolutionMax = $state('Native');
+  /** Same, but for the normal browser screen-share path (separate values).
+   * Resolution set is lowercase native/1080p/720p/480p; 'native' = no cap. */
+  nsBitrateMinKbps = $state(1000);
+  nsBitrateMaxKbps = $state(10000);
+  nsFpsMin = $state(1);
+  nsFpsMax = $state(240);
+  nsResolutionMax = $state('native');
   loaded = $state(false);
 
   async hydrate(): Promise<void> {
@@ -43,6 +50,11 @@ class CapabilitiesStore {
       this.hqFpsMin = c.hq_fps_min;
       this.hqFpsMax = c.hq_fps_max;
       this.hqResolutionMax = c.hq_resolution_max;
+      this.nsBitrateMinKbps = c.ns_bitrate_min_kbps;
+      this.nsBitrateMaxKbps = c.ns_bitrate_max_kbps;
+      this.nsFpsMin = c.ns_fps_min;
+      this.nsFpsMax = c.ns_fps_max;
+      this.nsResolutionMax = c.ns_resolution_max;
       this.loaded = true;
     } catch (e) {
       // Boot before auth-token is ready, network blip — leave defaults.
@@ -63,6 +75,11 @@ class CapabilitiesStore {
     hq_fps_min?: number;
     hq_fps_max?: number;
     hq_resolution_max?: string;
+    ns_bitrate_min_kbps?: number;
+    ns_bitrate_max_kbps?: number;
+    ns_fps_min?: number;
+    ns_fps_max?: number;
+    ns_resolution_max?: string;
   }): void {
     this.allowGuildCreation = next.allow_guild_creation;
     this.allowMemberInvites = next.allow_member_invites;
@@ -75,6 +92,11 @@ class CapabilitiesStore {
     if (next.hq_fps_min !== undefined) this.hqFpsMin = next.hq_fps_min;
     if (next.hq_fps_max !== undefined) this.hqFpsMax = next.hq_fps_max;
     if (next.hq_resolution_max !== undefined) this.hqResolutionMax = next.hq_resolution_max;
+    if (next.ns_bitrate_min_kbps !== undefined) this.nsBitrateMinKbps = next.ns_bitrate_min_kbps;
+    if (next.ns_bitrate_max_kbps !== undefined) this.nsBitrateMaxKbps = next.ns_bitrate_max_kbps;
+    if (next.ns_fps_min !== undefined) this.nsFpsMin = next.ns_fps_min;
+    if (next.ns_fps_max !== undefined) this.nsFpsMax = next.ns_fps_max;
+    if (next.ns_resolution_max !== undefined) this.nsResolutionMax = next.ns_resolution_max;
     this.loaded = true;
   }
 
@@ -87,6 +109,11 @@ class CapabilitiesStore {
     this.hqFpsMin = 1;
     this.hqFpsMax = 360;
     this.hqResolutionMax = 'Native';
+    this.nsBitrateMinKbps = 1000;
+    this.nsBitrateMaxKbps = 10000;
+    this.nsFpsMin = 1;
+    this.nsFpsMax = 240;
+    this.nsResolutionMax = 'native';
     this.loaded = false;
   }
 }

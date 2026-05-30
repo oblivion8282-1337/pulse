@@ -169,6 +169,11 @@ export type ServerEvent =
       hq_fps_min?: number;
       hq_fps_max?: number;
       hq_resolution_max?: string;
+      ns_bitrate_min_kbps?: number;
+      ns_bitrate_max_kbps?: number;
+      ns_fps_min?: number;
+      ns_fps_max?: number;
+      ns_resolution_max?: string;
     }
   | {
       op: 'guild_sound_updated';

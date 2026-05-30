@@ -45,6 +45,26 @@ export function clampScreenShareFps(v: unknown): number {
   return Math.min(SCREEN_SHARE_FPS_MAX, Math.max(SCREEN_SHARE_FPS_MIN, Math.round(v)));
 }
 
+// Resolution ordering for the admin ceiling (descending size, 'native' =
+// uncapped). Backs both the settings UI (filter the option list) and the
+// publish path (clamp a chosen value down to the admin-set ns_resolution_max).
+export const NS_RESOLUTION_ORDER: ScreenShareResolution[] = ['native', '1080p', '720p', '480p'];
+
+/** Resolutions allowed under a ceiling (max first → smallest). */
+export function allowedNsResolutions(maxRes: string): ScreenShareResolution[] {
+  const i = NS_RESOLUTION_ORDER.indexOf(maxRes as ScreenShareResolution);
+  if (i < 0) return NS_RESOLUTION_ORDER.slice();
+  return NS_RESOLUTION_ORDER.filter((_, idx) => idx >= i);
+}
+
+/** Clamp a chosen resolution down to the ceiling (bigger choices → the max). */
+export function clampNsResolution(res: string, maxRes: string): ScreenShareResolution {
+  const mi = NS_RESOLUTION_ORDER.indexOf(maxRes as ScreenShareResolution);
+  const ri = NS_RESOLUTION_ORDER.indexOf(res as ScreenShareResolution);
+  if (mi < 0 || ri < 0) return res as ScreenShareResolution;
+  return ri >= mi ? (res as ScreenShareResolution) : (maxRes as ScreenShareResolution);
+}
+
 export function parseScreenShare(raw: unknown): ScreenShareSettings {
   const d = DEFAULTS_SCREEN_SHARE;
   const p = (raw && typeof raw === 'object' ? raw : {}) as Partial<ScreenShareSettings>;

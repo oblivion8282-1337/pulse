@@ -64,6 +64,12 @@ export type Permissions = {
   hq_fps_min: number;
   hq_fps_max: number;
   hq_resolution_max: string;
+  /** Normal-stream (browser screen-share) limits — separate value set. */
+  ns_bitrate_min_kbps: number;
+  ns_bitrate_max_kbps: number;
+  ns_fps_min: number;
+  ns_fps_max: number;
+  ns_resolution_max: string;
 };
 
 export type SmtpProvider = 'brevo' | 'mailgun' | 'resend' | 'gmail' | 'custom';

@@ -26,6 +26,8 @@ import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { settings } from '$lib/stores/settings.svelte';
+import { capabilities } from '$lib/stores/capabilities.svelte';
+import { clampNsResolution } from '$lib/settings-registry/sections/screenShare';
 import { AudioDevices } from './audioDevices.svelte';
 import { createSendProcessor, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
@@ -482,14 +484,23 @@ class VoiceRoom {
     try {
       if (on) {
         const s = settings.screenShare;
+        // Enforce the admin-set normal-stream limits (best-effort, client-side
+        // — LiveKit/the SFU don't gate these). Clamp fps/bitrate into the band
+        // and cap the resolution to the ceiling before building the options.
+        const fps = Math.min(capabilities.nsFpsMax, Math.max(capabilities.nsFpsMin, s.fps));
+        const bitrateMbps = Math.min(
+          capabilities.nsBitrateMaxKbps / 1000,
+          Math.max(capabilities.nsBitrateMinKbps / 1000, s.bitrateMbps)
+        );
+        const resolution = clampNsResolution(s.resolution, capabilities.nsResolutionMax);
         const resMap: Record<string, VideoResolution> = {
-          '1080p': { width: 1920, height: 1080, frameRate: s.fps },
-          '720p': { width: 1280, height: 720, frameRate: s.fps },
-          '480p': { width: 854, height: 480, frameRate: s.fps }
+          '1080p': { width: 1920, height: 1080, frameRate: fps },
+          '720p': { width: 1280, height: 720, frameRate: fps },
+          '480p': { width: 854, height: 480, frameRate: fps }
         };
         const publishOptions: TrackPublishOptions = {
           videoCodec: s.codec,
-          screenShareEncoding: { maxBitrate: s.bitrateMbps * 1_000_000, maxFramerate: s.fps }
+          screenShareEncoding: { maxBitrate: bitrateMbps * 1_000_000, maxFramerate: fps }
         };
         // Win11 + Chrome/Edge 141+: bypass LiveKit's setScreenShareEnabled to
         // pass `windowAudio:"window"` (not exposed in ScreenShareCaptureOptions
@@ -499,7 +510,7 @@ class VoiceRoom {
         // regular LiveKit path there.
         if (await canUseWindowAudioCapture()) {
           const stream = await acquireWindowAudioStream({
-            resolution: s.resolution !== 'native' ? resMap[s.resolution] : undefined
+            resolution: resolution !== 'native' ? resMap[resolution] : undefined
           });
           // Mirror what LiveKit does internally for ScreenShareCaptureOptions
           // — contentHint goes on the track, not in getDisplayMedia constraints.
@@ -512,7 +523,7 @@ class VoiceRoom {
             audio: true,
             contentHint: s.contentHint
           };
-          if (s.resolution !== 'native') captureOptions.resolution = resMap[s.resolution];
+          if (resolution !== 'native') captureOptions.resolution = resMap[resolution];
           await room.localParticipant.setScreenShareEnabled(
             true,
             captureOptions,

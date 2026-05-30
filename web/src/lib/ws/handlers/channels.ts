@@ -40,7 +40,12 @@ export function register(ctx: HandlerContext): void {
       hq_bitrate_max_kbps: evt.hq_bitrate_max_kbps,
       hq_fps_min: evt.hq_fps_min,
       hq_fps_max: evt.hq_fps_max,
-      hq_resolution_max: evt.hq_resolution_max
+      hq_resolution_max: evt.hq_resolution_max,
+      ns_bitrate_min_kbps: evt.ns_bitrate_min_kbps,
+      ns_bitrate_max_kbps: evt.ns_bitrate_max_kbps,
+      ns_fps_min: evt.ns_fps_min,
+      ns_fps_max: evt.ns_fps_max,
+      ns_resolution_max: evt.ns_resolution_max
     });
   });
 

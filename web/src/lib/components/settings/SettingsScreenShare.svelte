@@ -1,33 +1,50 @@
 <script lang="ts">
-  import {
-    settings,
-    SCREEN_SHARE_BITRATE_MIN,
-    SCREEN_SHARE_BITRATE_MAX,
-    SCREEN_SHARE_FPS_MIN,
-    SCREEN_SHARE_FPS_MAX
-  } from '$lib/stores/settings.svelte';
+  import { settings } from '$lib/stores/settings.svelte';
   import type { ScreenShareCodec, ScreenShareResolution } from '$lib/stores/settings.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { allowedNsResolutions, clampNsResolution } from '$lib/settings-registry/sections/screenShare';
 
   const codecs: { value: ScreenShareCodec; label: string; hint: string }[] = [
     { value: 'h264', label: 'H.264', hint: 'Breit kompatibel, Hardware-beschleunigt auf praktisch jedem Setup (NVENC / QuickSync / VideoToolbox)' },
     { value: 'av1', label: 'AV1', hint: 'Beste Qualität bei niedriger Bitrate. HW-Encode nur auf neueren GPUs (Intel ARC, NVIDIA 40-Series, AMD 7000); sonst CPU-only' }
   ];
 
-  const resolutions: { value: ScreenShareResolution; label: string }[] = [
+  const allResolutions: { value: ScreenShareResolution; label: string }[] = [
     { value: 'native', label: 'Nativ (Bildschirmauflösung)' },
     { value: '1080p', label: '1080p (1920×1080)' },
     { value: '720p', label: '720p (1280×720)' },
     { value: '480p', label: '480p (854×480)' }
   ];
 
+  // Admin-set global limits (live via capabilities). Bitrate in Mbit/s.
+  let bMin = $derived(capabilities.nsBitrateMinKbps / 1000);
+  let bMax = $derived(capabilities.nsBitrateMaxKbps / 1000);
+  let fMin = $derived(capabilities.nsFpsMin);
+  let fMax = $derived(capabilities.nsFpsMax);
+  let allowedRes = $derived(allowedNsResolutions(capabilities.nsResolutionMax));
+  let resolutions = $derived(allResolutions.filter((r) => allowedRes.includes(r.value)));
+
+  // Snap stored screen-share settings into the admin band whenever the limits
+  // change (or on mount) — keeps the radios/inputs consistent and the labels
+  // honest. Converges in one pass (clamped === current → no further write).
+  $effect(() => {
+    const s = settings.screenShare;
+    const f = Math.min(fMax, Math.max(fMin, s.fps));
+    if (f !== s.fps) settings.setScreenShareFps(f);
+    const b = Math.min(bMax, Math.max(bMin, s.bitrateMbps));
+    if (b !== s.bitrateMbps) settings.setScreenShareBitrateMbps(b);
+    const r = clampNsResolution(s.resolution, capabilities.nsResolutionMax);
+    if (r !== s.resolution) settings.setScreenShareResolution(r);
+  });
+
   function onBitrateInput(e: Event) {
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (!isNaN(val)) settings.setScreenShareBitrateMbps(val);
+    if (!isNaN(val)) settings.setScreenShareBitrateMbps(Math.min(bMax, Math.max(bMin, val)));
   }
 
   function onFpsInput(e: Event) {
     const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (!isNaN(val)) settings.setScreenShareFps(val);
+    if (!isNaN(val)) settings.setScreenShareFps(Math.min(fMax, Math.max(fMin, val)));
   }
 </script>
 
@@ -92,8 +109,8 @@
     </div>
     <input
       type="number"
-      min={SCREEN_SHARE_FPS_MIN}
-      max={SCREEN_SHARE_FPS_MAX}
+      min={fMin}
+      max={fMax}
       step="1"
       value={settings.screenShare.fps}
       oninput={onFpsInput}
@@ -101,8 +118,8 @@
       data-testid="screenshare-fps-input"
     />
     <p class="text-text-muted text-xs">
-      Default 30. Werte über 60 hängen stark vom Display-Refresh und der GPU/CPU
-      ab — der Encoder unten zeigt dir live, was tatsächlich ankommt.
+      Erlaubt: {fMin}–{fMax} fps. Werte über 60 hängen stark vom Display-Refresh
+      und der GPU/CPU ab — der Encoder unten zeigt dir live, was tatsächlich ankommt.
     </p>
   </div>
 
@@ -113,15 +130,17 @@
     </div>
     <input
       type="range"
-      min={SCREEN_SHARE_BITRATE_MIN}
-      max={SCREEN_SHARE_BITRATE_MAX}
-      step="1"
+      min={bMin}
+      max={bMax}
+      step="0.5"
       value={settings.screenShare.bitrateMbps}
       oninput={onBitrateInput}
       class="accent-primary h-3 w-full md:h-auto"
       data-testid="screenshare-bitrate-slider"
     />
-    <p class="text-text-muted text-xs">Höhere Bitrate = bessere Qualität, mehr Bandbreite.</p>
+    <p class="text-text-muted text-xs">
+      Höhere Bitrate = bessere Qualität, mehr Bandbreite. Erlaubt: {bMin}–{bMax} Mbit/s.
+    </p>
   </div>
 
   <div class="flex flex-col gap-2">
