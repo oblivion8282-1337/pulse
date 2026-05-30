@@ -24,6 +24,7 @@
 import { gsr, type GsrProfile, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
 import { isWindows } from '$lib/platform/runtime';
+import { capabilities } from '$lib/stores/capabilities.svelte';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -61,6 +62,27 @@ export const RESOLUTION_VALUES: ReadonlyArray<string> = [
   '720p',
   '480p',
 ];
+
+// Resolution ordering is descending in size (index 0 = biggest, 'Native' =
+// uncapped source). The admin-set ``hq_resolution_max`` is a *ceiling*: only
+// values at or below it (index >= its index) are allowed. 'Native' as a max
+// means "no cap". Helpers below back both the admin/stream UI (filter the
+// option list) and buildStartArgs (clamp a chosen value).
+
+/** The resolutions allowed under a given ceiling (max first → smallest). */
+export function allowedResolutions(maxRes: string): ReadonlyArray<string> {
+  const maxIdx = RESOLUTION_VALUES.indexOf(maxRes);
+  if (maxIdx < 0) return RESOLUTION_VALUES; // unknown ceiling → don't filter
+  return RESOLUTION_VALUES.filter((_, i) => i >= maxIdx);
+}
+
+/** Clamp a chosen resolution down to the ceiling (bigger choices → the max). */
+export function clampResolution(res: string, maxRes: string): string {
+  const maxIdx = RESOLUTION_VALUES.indexOf(maxRes);
+  const idx = RESOLUTION_VALUES.indexOf(res);
+  if (maxIdx < 0 || idx < 0) return res;
+  return idx >= maxIdx ? res : maxRes;
+}
 
 export const AUDIO_MODES: ReadonlyArray<AudioMode> = [
   'Aus',
@@ -415,11 +437,19 @@ export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
   if (apply) {
     const o = streamSettings.overrides;
     const cleaned: OverrideSet = {};
+    // Authoritative clamp point: enforce the admin-set global HQ limits here,
+    // right before the sidecar call. Best-effort (the server never sees these
+    // params) but covers every normal user. Only explicit values are clamped;
+    // a blank field falls through to the GSR profile default.
     if (o.codec) cleaned.codec = o.codec;
     if (typeof o.bitrate_kbps === 'number' && o.bitrate_kbps > 0)
-      cleaned.bitrate_kbps = Math.min(HQ_BITRATE_MAX_KBPS, o.bitrate_kbps);
-    if (typeof o.fps === 'number' && o.fps > 0) cleaned.fps = o.fps;
-    if (o.resolution) cleaned.resolution = o.resolution;
+      cleaned.bitrate_kbps = Math.min(
+        capabilities.hqBitrateMaxKbps,
+        Math.max(capabilities.hqBitrateMinKbps, o.bitrate_kbps)
+      );
+    if (typeof o.fps === 'number' && o.fps > 0)
+      cleaned.fps = Math.min(capabilities.hqFpsMax, Math.max(capabilities.hqFpsMin, o.fps));
+    if (o.resolution) cleaned.resolution = clampResolution(o.resolution, capabilities.hqResolutionMax);
     if (Object.keys(cleaned).length > 0) args.overrides = cleaned;
   }
   return args;

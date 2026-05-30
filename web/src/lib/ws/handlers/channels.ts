@@ -35,7 +35,12 @@ export function register(ctx: HandlerContext): void {
     capabilities.apply({
       allow_guild_creation: evt.allow_guild_creation,
       allow_member_invites: evt.allow_member_invites,
-      guild_sound_max_size_bytes: evt.guild_sound_max_size_bytes
+      guild_sound_max_size_bytes: evt.guild_sound_max_size_bytes,
+      hq_bitrate_min_kbps: evt.hq_bitrate_min_kbps,
+      hq_bitrate_max_kbps: evt.hq_bitrate_max_kbps,
+      hq_fps_min: evt.hq_fps_min,
+      hq_fps_max: evt.hq_fps_max,
+      hq_resolution_max: evt.hq_resolution_max
     });
   });
 

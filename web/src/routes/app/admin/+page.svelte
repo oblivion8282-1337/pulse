@@ -18,6 +18,7 @@
   import AdminSmtp from '$lib/components/admin/AdminSmtp.svelte';
   import AdminBackup from '$lib/components/admin/AdminBackup.svelte';
   import AdminPermissions from '$lib/components/admin/AdminPermissions.svelte';
+  import AdminStreamLimits from '$lib/components/admin/AdminStreamLimits.svelte';
   import AdminPlugins from '$lib/components/admin/AdminPlugins.svelte';
   import AdminInstances from '$lib/components/admin/AdminInstances.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
@@ -83,6 +84,7 @@
       <AdminRegistration />
       <AdminSmtp />
       <AdminPermissions />
+      <AdminStreamLimits />
       <AdminPlugins />
       {#if isCloud}
         <AdminInstances />

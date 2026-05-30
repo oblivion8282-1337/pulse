@@ -13,11 +13,19 @@
   import {
     streamSettings,
     CODEC_VALUES,
-    RESOLUTION_VALUES,
-    HQ_BITRATE_MIN_KBPS,
-    HQ_BITRATE_MAX_KBPS,
+    allowedResolutions,
+    clampResolution,
     persistSettings,
   } from '../settings.svelte';
+  import { capabilities } from '$lib/stores/capabilities.svelte';
+
+  // Admin-set global limits (live via the capabilities store). The bitrate
+  // field works in kbps; the admin store holds kbps too.
+  let bMin = $derived(capabilities.hqBitrateMinKbps);
+  let bMax = $derived(capabilities.hqBitrateMaxKbps);
+  let fMin = $derived(capabilities.hqFpsMin);
+  let fMax = $derived(capabilities.hqFpsMax);
+  let resOptions = $derived(allowedResolutions(capabilities.hqResolutionMax));
 
   function onCodec(e: Event) {
     const v = (e.currentTarget as HTMLSelectElement).value || 'h264';
@@ -30,7 +38,7 @@
     const n = parseInt(raw, 10);
     streamSettings.overrides = {
       ...streamSettings.overrides,
-      bitrate_kbps: isNaN(n) ? undefined : Math.min(HQ_BITRATE_MAX_KBPS, Math.max(0, n)),
+      bitrate_kbps: isNaN(n) ? undefined : Math.min(bMax, Math.max(bMin, n)),
     };
     persistSettings();
   }
@@ -40,7 +48,7 @@
     const n = parseInt(raw, 10);
     streamSettings.overrides = {
       ...streamSettings.overrides,
-      fps: isNaN(n) ? undefined : Math.min(360, Math.max(0, n)),
+      fps: isNaN(n) ? undefined : Math.min(fMax, Math.max(fMin, n)),
     };
     persistSettings();
   }
@@ -54,7 +62,11 @@
   let codecValue = $derived(streamSettings.overrides.codec ?? 'h264');
   let bitrateValue = $derived(streamSettings.overrides.bitrate_kbps ?? '');
   let fpsValue = $derived(streamSettings.overrides.fps ?? '');
-  let resValue = $derived(streamSettings.overrides.resolution ?? 'Native');
+  // Clamp the *displayed* resolution to the admin ceiling so the select never
+  // shows a now-disallowed value (e.g. 'Native' after the admin caps to 1080p).
+  let resValue = $derived(
+    clampResolution(streamSettings.overrides.resolution ?? 'Native', capabilities.hqResolutionMax)
+  );
 
   function onShowCursor(e: Event) {
     streamSettings.show_cursor = (e.currentTarget as HTMLInputElement).checked;
@@ -88,13 +100,17 @@
       onchange={onResolution}
       data-testid="stream-overrides-resolution"
     >
-      {#each RESOLUTION_VALUES as r (r)}
+      {#each resOptions as r (r)}
         <option value={r}>{r === 'Native' ? 'Native (Bildschirm)' : r}</option>
       {/each}
     </select>
     <p class="text-text-muted text-[11px]">
-      Nichts über deiner Monitorauflösung wählen — der Encoder skaliert dann nur
-      hoch (mehr Bandbreite, kein Detailgewinn).
+      {#if capabilities.hqResolutionMax !== 'Native'}
+        Vom Server-Admin auf max. {capabilities.hqResolutionMax} begrenzt.
+      {:else}
+        Nichts über deiner Monitorauflösung wählen — der Encoder skaliert dann nur
+        hoch (mehr Bandbreite, kein Detailgewinn).
+      {/if}
     </p>
   </div>
 
@@ -103,14 +119,15 @@
     <Input
       id="ov-bitrate"
       type="number"
-      min={HQ_BITRATE_MIN_KBPS}
-      max={HQ_BITRATE_MAX_KBPS}
+      min={bMin}
+      max={bMax}
       step="500"
       placeholder="z.B. 6000"
       value={bitrateValue}
       oninput={onBitrate}
       data-testid="stream-overrides-bitrate"
     />
+    <p class="text-text-muted text-[11px]">Erlaubt: {bMin}–{bMax} kbps.</p>
   </div>
 
   <div class="flex flex-col gap-1.5">
@@ -118,14 +135,15 @@
     <Input
       id="ov-fps"
       type="number"
-      min="1"
-      max="360"
+      min={fMin}
+      max={fMax}
       step="1"
       placeholder="z.B. 60"
       value={fpsValue}
       oninput={onFps}
       data-testid="stream-overrides-fps"
     />
+    <p class="text-text-muted text-[11px]">Erlaubt: {fMin}–{fMax} FPS.</p>
   </div>
  </div>
 

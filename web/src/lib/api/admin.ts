@@ -57,6 +57,13 @@ export type Permissions = {
    * Sounds tab in guild settings reads the live value via the
    * capabilities store; this admin view edits it directly. */
   guild_sound_max_size_bytes: number;
+  /** Global HQ-stream quality limits (best-effort, client-enforced).
+   * ``hq_resolution_max`` is a ceiling; 'Native' = no cap. */
+  hq_bitrate_min_kbps: number;
+  hq_bitrate_max_kbps: number;
+  hq_fps_min: number;
+  hq_fps_max: number;
+  hq_resolution_max: string;
 };
 
 export type SmtpProvider = 'brevo' | 'mailgun' | 'resend' | 'gmail' | 'custom';
