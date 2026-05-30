@@ -2,6 +2,7 @@
   // Cursor-folgendes Radar-Sonar: strahlt aus der übergebenen Position (x/y in
   // px relativ zum positionierten Eltern-Container), verblasst sanft wenn
   // `active=false`. pointer-events-none → schluckt keine Klicks/Eingaben.
+  // Die transform-Transition (120 ms) gibt ein leichtes, sanftes Nachziehen.
   interface Props {
     x: number;
     y: number;
