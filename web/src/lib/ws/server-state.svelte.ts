@@ -24,6 +24,13 @@ const POLL_MS = 1000;
 class ServerStateMirror {
   /** serverId → snapshot. Reactive via $state. */
   byId = $state<Record<string, Snapshot>>({});
+  /** Non-reactive shadow of the last published `byId`, used purely for change
+   *  detection. Diffing against the reactive `byId` proxy would compare a
+   *  proxied `helloMeta` against the raw `conn.helloMeta` (different
+   *  identities) → state_proxy_equality_mismatch warning every poll *and* a
+   *  false "changed", which reassigned `byId` 1×/s in steady state. Compare
+   *  raw-vs-raw here instead. */
+  #last: Record<string, Snapshot> = {};
   #timer: ReturnType<typeof setInterval> | null = null;
 
   start(): void {
@@ -50,14 +57,19 @@ class ServerStateMirror {
         : { state: 'idle', helloMeta: null };
       next[entry.id] = snapshot;
 
-      const prev = this.byId[entry.id];
+      const prev = this.#last[entry.id];
       if (!prev || prev.state !== snapshot.state || prev.helloMeta !== snapshot.helloMeta) {
         changed = true;
       }
     }
+    // Server removed since last poll? Key count shrank → publish the new set.
+    if (!changed && Object.keys(next).length !== Object.keys(this.#last).length) {
+      changed = true;
+    }
 
     // Only reassign if something actually changed, avoiding reactive diffing on steady-state.
     if (changed) {
+      this.#last = next;
       this.byId = next;
     }
   }
