@@ -79,6 +79,47 @@ async def test_get_vapid_public_key_returns_b64url(client, _auth_signer):
 
 
 # ---------------------------------------------------------------------------
+# operator-provided VAPID keys (env): raw PEM or base64-encoded PEM
+
+
+@pytest.mark.parametrize("as_base64", [False, True])
+def test_ensure_vapid_accepts_env_private_key(as_base64):
+    """ensure_vapid trusts operator-provided env keys, accepting the private
+    key as a raw PKCS#8 PEM *or* its base64 encoding (the env_file-safe
+    single-line form — a multi-line PEM can't survive a Docker env_file).
+    Both forms resolve to the identical PEM + public key."""
+    import base64 as _b64
+
+    from dcc_chat_gateway import vapid as vapid_mod
+    from dcc_chat_gateway.config import Settings
+
+    keys = vapid_mod._generate_keypair()
+    provided = (
+        _b64.b64encode(keys.private_pem.encode()).decode()
+        if as_base64
+        else keys.private_pem
+    )
+    vapid_mod.reset_vapid_cache_for_tests()
+    s = Settings(
+        vapid_private_key=provided, vapid_public_key=keys.public_b64url
+    )
+    resolved = vapid_mod.ensure_vapid(s)
+    assert resolved is not None
+    assert resolved.private_pem == keys.private_pem
+    assert resolved.public_b64url == keys.public_b64url
+    vapid_mod.reset_vapid_cache_for_tests()
+
+
+def test_resolve_private_pem_rejects_garbage():
+    """A value that is neither a PEM nor valid base64 must fail loudly at
+    startup rather than silently falling through to a generated keypair."""
+    from dcc_chat_gateway import vapid as vapid_mod
+
+    with pytest.raises(ValueError):
+        vapid_mod._resolve_private_pem("!!! neither pem nor base64 !!!")
+
+
+# ---------------------------------------------------------------------------
 # /subscribe + /subscriptions
 
 

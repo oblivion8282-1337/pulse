@@ -107,6 +107,31 @@ def _persist_keypair_to_disk(path: Path, keys: VapidKeys) -> None:
     tmp.replace(path)
 
 
+def _resolve_private_pem(raw: str) -> str:
+    """Operator-provided private key, accepted as a raw PKCS#8 PEM *or* its
+    base64 encoding.
+
+    The base64 form exists because a multi-line PEM cannot survive a Docker
+    ``env_file``: that format has no multi-line values, and Compose does not
+    expand ``\\n`` escapes (verified against Compose v5.x). base64 collapses
+    the PEM to a single line so it round-trips through ``env_file`` intact.
+
+    Auto-detected: a value starting with ``-----BEGIN`` is used verbatim;
+    anything else is treated as base64 and decoded. Raises ``ValueError`` if
+    it is neither — a misconfigured key should fail loudly at startup, not
+    silently fall through to a freshly generated keypair."""
+    s = raw.strip()
+    if s.startswith("-----BEGIN"):
+        return raw
+    try:
+        return base64.b64decode(s, validate=True).decode("ascii")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValueError(
+            "VAPID_PRIVATE_KEY must be a PKCS#8 PEM "
+            "(-----BEGIN PRIVATE KEY-----) or its base64 encoding"
+        ) from exc
+
+
 def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
     """Resolve the active VAPID keypair, generating + persisting if absent.
 
@@ -130,9 +155,11 @@ def ensure_vapid(settings: Settings | None = None) -> VapidKeys | None:
         return _VAPID
     settings = settings or get_settings()
     # Operator-provided: bypass the on-disk + auto-gen paths entirely.
+    # The private key may be a raw PEM or base64-encoded PEM (see
+    # ``_resolve_private_pem`` — base64 is the env_file-safe single-line form).
     if settings.vapid_private_key and settings.vapid_public_key:
         _VAPID = VapidKeys(
-            private_pem=settings.vapid_private_key,
+            private_pem=_resolve_private_pem(settings.vapid_private_key),
             public_b64url=settings.vapid_public_key,
         )
         return _VAPID

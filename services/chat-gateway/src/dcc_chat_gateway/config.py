@@ -154,6 +154,8 @@ class Settings(BaseSettings):
     # a keypair on first startup and persists it to ``vapid_key_file`` so
     # subsequent restarts use the same key. Self-hosters can pre-provision
     # both keys via env vars to skip the auto-gen + avoid the on-disk file.
+    # ``vapid_private_key`` accepts a raw PKCS#8 PEM or its base64 encoding
+    # (the env_file-safe single-line form — see ``vapid._resolve_private_pem``).
     vapid_private_key: str | None = None
     vapid_public_key: str | None = None
     vapid_subject: str = "mailto:admin@example.com"
