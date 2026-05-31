@@ -36,6 +36,14 @@
     return channelPermissions.hasChannelPermission(guildId, cid, Perm.USE_VIDEO);
   });
 
+  // Front/back camera flip only makes sense on touch devices (phones/tablets)
+  // with two cameras. On desktop — the Electron app or a desktop browser, both
+  // mouse-driven — there's no facingMode to toggle, so the button is noise.
+  // `pointer: coarse` is true for touch as the primary pointer, false for mouse,
+  // regardless of window width (unlike a viewport breakpoint).
+  const isTouchDevice =
+    typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
+
   // Force-mute state for the local user in the current voice channel.
   // The LiveKit token already prevents publish; this flag is purely for
   // disabling the mic-toggle UI + showing the right tooltip so the user
@@ -166,8 +174,9 @@
           </Tooltip.Content>
         </Tooltip.Root>
 
-        <!-- Front-/Rückkamera umschalten — nur sinnvoll wenn die Kamera läuft. -->
-        {#if voice.isCameraOn}
+        <!-- Front-/Rückkamera umschalten — nur auf Touch-Geräten (Handy/Tablet)
+             mit zwei Kameras; auf Desktop (App/Browser) sinnlos. -->
+        {#if voice.isCameraOn && isTouchDevice}
           <Tooltip.Root>
             <Tooltip.Trigger>
               {#snippet child({ props })}
