@@ -593,11 +593,31 @@ class VoiceRoom {
       return;
     }
     try {
-      await room.localParticipant.setCameraEnabled(on, {
-        resolution: { width: 1280, height: 720, frameRate: 30 },
-        facingMode: this.cameraFacing
-      });
-      this.isCameraOn = on;
+      if (on) {
+        await room.localParticipant.setCameraEnabled(true, {
+          resolution: { width: 1280, height: 720, frameRate: 30 },
+          facingMode: this.cameraFacing
+        });
+        this.isCameraOn = true;
+      } else {
+        // Turn the cam OFF by *unpublishing*, not just muting. LiveKit's
+        // setCameraEnabled(false) only mutes — the publication stays alive, so
+        // (a) the server-side track_unpublished webhook never fires and
+        // voice-signaling's camera-presence set keeps the CAM badge lit on every
+        // client, and (b) our own RoomEvent.LocalTrackUnpublished handler never
+        // runs, so localCameraTrack stays set and the self-preview tile lingers.
+        // Unpublishing (stopOnUnpublish=true) tears both down — and releases the
+        // camera hardware/LED, which mute does not. Mirrors screen-share stop.
+        const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+        const track = (pub?.videoTrack as LocalVideoTrack | undefined) ?? this.localCameraTrack;
+        if (track) {
+          await room.localParticipant.unpublishTrack(track, true);
+        } else {
+          await room.localParticipant.setCameraEnabled(false);
+        }
+        this.isCameraOn = false;
+        this.localCameraTrack = null;
+      }
     } catch (e) {
       this.isCameraOn = false;
       // Surface the failure instead of swallowing it. On mobile a denied
