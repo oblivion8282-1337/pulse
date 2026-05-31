@@ -102,6 +102,20 @@ class ChatSettings(Base):
     ns_resolution_max: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="native"
     )
+    # Global webcam capture ceiling for the LiveKit camera path (setCamera).
+    # Like the stream caps above this is best-effort client-enforced — the
+    # publisher clamps its own getUserMedia capture; LiveKit never re-encodes
+    # (PLAN.md anti-pattern). Default 720p/30 mirrors the formerly hard-coded
+    # capture resolution → no behaviour change until an admin raises it.
+    # Resolution set: 1440p > 1080p > 720p > 480p (downscale-only, no 'native'
+    # — a webcam already has a hardware ceiling, so the admin picks an explicit
+    # stage rather than "uncapped").
+    cam_resolution_max: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="720p"
+    )
+    cam_fps_max: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="30"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

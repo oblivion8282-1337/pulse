@@ -37,6 +37,12 @@ class CapabilitiesStore {
   nsFpsMin = $state(1);
   nsFpsMax = $state(240);
   nsResolutionMax = $state('native');
+  /** Webcam capture ceiling. Resolution stage (1440p/1080p/720p/480p — no
+   * 'native') + max fps. Defaults mirror the formerly hard-coded 720p/30
+   * capture, so they're a no-op until an admin changes them. setCamera() reads
+   * these to size its getUserMedia capture. */
+  camResolutionMax = $state('720p');
+  camFpsMax = $state(30);
   loaded = $state(false);
 
   async hydrate(): Promise<void> {
@@ -55,6 +61,8 @@ class CapabilitiesStore {
       this.nsFpsMin = c.ns_fps_min;
       this.nsFpsMax = c.ns_fps_max;
       this.nsResolutionMax = c.ns_resolution_max;
+      this.camResolutionMax = c.cam_resolution_max;
+      this.camFpsMax = c.cam_fps_max;
       this.loaded = true;
     } catch (e) {
       // Boot before auth-token is ready, network blip — leave defaults.
@@ -80,6 +88,8 @@ class CapabilitiesStore {
     ns_fps_min?: number;
     ns_fps_max?: number;
     ns_resolution_max?: string;
+    cam_resolution_max?: string;
+    cam_fps_max?: number;
   }): void {
     this.allowGuildCreation = next.allow_guild_creation;
     this.allowMemberInvites = next.allow_member_invites;
@@ -97,6 +107,8 @@ class CapabilitiesStore {
     if (next.ns_fps_min !== undefined) this.nsFpsMin = next.ns_fps_min;
     if (next.ns_fps_max !== undefined) this.nsFpsMax = next.ns_fps_max;
     if (next.ns_resolution_max !== undefined) this.nsResolutionMax = next.ns_resolution_max;
+    if (next.cam_resolution_max !== undefined) this.camResolutionMax = next.cam_resolution_max;
+    if (next.cam_fps_max !== undefined) this.camFpsMax = next.cam_fps_max;
     this.loaded = true;
   }
 
@@ -114,6 +126,8 @@ class CapabilitiesStore {
     this.nsFpsMin = 1;
     this.nsFpsMax = 240;
     this.nsResolutionMax = 'native';
+    this.camResolutionMax = '720p';
+    this.camFpsMax = 30;
     this.loaded = false;
   }
 }

@@ -70,6 +70,9 @@ export type Permissions = {
   ns_fps_min: number;
   ns_fps_max: number;
   ns_resolution_max: string;
+  /** Webcam capture ceiling (resolution stage + max fps). */
+  cam_resolution_max: string;
+  cam_fps_max: number;
 };
 
 export type SmtpProvider = 'brevo' | 'mailgun' | 'resend' | 'gmail' | 'custom';

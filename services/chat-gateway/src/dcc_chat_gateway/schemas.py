@@ -401,6 +401,9 @@ class PermissionsOut(BaseModel):
     ns_fps_min: int
     ns_fps_max: int
     ns_resolution_max: str
+    # Global webcam capture limits (best-effort, client-enforced).
+    cam_resolution_max: str
+    cam_fps_max: int
 
 
 # Allowed values for ``hq_resolution_max`` — mirrors the frontend
@@ -412,6 +415,10 @@ ALLOWED_HQ_RESOLUTIONS: frozenset[str] = frozenset(
 # Allowed values for ``ns_resolution_max`` — the LiveKit screen-share set
 # (lowercase 'native' = no cap). Distinct set + casing from the HQ one.
 ALLOWED_NS_RESOLUTIONS: frozenset[str] = frozenset({"native", "1080p", "720p", "480p"})
+
+# Allowed values for ``cam_resolution_max`` — explicit webcam capture stages
+# (no 'native': a webcam has a hardware ceiling, the admin picks a stage).
+ALLOWED_CAM_RESOLUTIONS: frozenset[str] = frozenset({"1440p", "1080p", "720p", "480p"})
 
 
 class PermissionsPatch(BaseModel):
@@ -437,6 +444,9 @@ class PermissionsPatch(BaseModel):
     ns_fps_min: Annotated[int | None, Field(default=None, ge=1, le=240)] = None
     ns_fps_max: Annotated[int | None, Field(default=None, ge=1, le=240)] = None
     ns_resolution_max: str | None = None
+    # Webcam capture limits — FPS ceiling 60 (the camera path never exceeds it).
+    cam_fps_max: Annotated[int | None, Field(default=None, ge=1, le=60)] = None
+    cam_resolution_max: str | None = None
 
     @field_validator("hq_resolution_max")
     @classmethod
@@ -450,6 +460,13 @@ class PermissionsPatch(BaseModel):
     def _validate_ns_resolution(cls, v: str | None) -> str | None:
         if v is not None and v not in ALLOWED_NS_RESOLUTIONS:
             raise ValueError(f"ns_resolution_max must be one of {sorted(ALLOWED_NS_RESOLUTIONS)}")
+        return v
+
+    @field_validator("cam_resolution_max")
+    @classmethod
+    def _validate_cam_resolution(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_CAM_RESOLUTIONS:
+            raise ValueError(f"cam_resolution_max must be one of {sorted(ALLOWED_CAM_RESOLUTIONS)}")
         return v
 
 

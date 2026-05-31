@@ -48,5 +48,7 @@ async def get_capabilities(session: SessionDep, _current: CurrentUser):
             ns_fps_min=1,
             ns_fps_max=240,
             ns_resolution_max="native",
+            cam_resolution_max="720p",
+            cam_fps_max=30,
         )
     return row

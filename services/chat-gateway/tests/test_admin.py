@@ -157,6 +157,8 @@ async def test_get_permissions_returns_defaults(client, admin_token):
         "ns_fps_min": 1,
         "ns_fps_max": 240,
         "ns_resolution_max": "native",
+        "cam_resolution_max": "720p",
+        "cam_fps_max": 30,
     }
 
 
@@ -184,6 +186,8 @@ async def test_patch_permissions_records_audit(client, admin_token):
         "ns_fps_min": 1,
         "ns_fps_max": 240,
         "ns_resolution_max": "native",
+        "cam_resolution_max": "720p",
+        "cam_fps_max": 30,
     }
     log = (await client.get("/admin/audit-log", headers=headers)).json()
     entry = next(e for e in log if e["action"] == "permissions.patch")

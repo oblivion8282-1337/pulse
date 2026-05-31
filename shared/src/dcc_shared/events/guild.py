@@ -156,6 +156,9 @@ class PermissionsUpdatedEvent(_EventBase):
     ns_fps_min: int | None = None
     ns_fps_max: int | None = None
     ns_resolution_max: str | None = None
+    # Global webcam capture limits.
+    cam_resolution_max: str | None = None
+    cam_fps_max: int | None = None
 
 
 class GuildSoundUpdatedEvent(_EventBase):

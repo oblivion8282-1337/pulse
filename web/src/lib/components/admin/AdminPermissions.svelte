@@ -15,6 +15,7 @@
   import { toast } from 'svelte-sonner';
   import { adminApi, type Permissions } from '$lib/api/admin';
   import { m } from '$lib/paraglide/messages.js';
+  import AdminCamLimits from './AdminCamLimits.svelte';
 
   let current = $state<Permissions | null>(null);
   let busy = $state<{ allow_guild_creation: boolean; allow_member_invites: boolean }>({
@@ -164,3 +165,5 @@
     <div class="text-text-muted text-sm">{m.admin_permissions_loading()}</div>
   {/if}
 </section>
+
+<AdminCamLimits />

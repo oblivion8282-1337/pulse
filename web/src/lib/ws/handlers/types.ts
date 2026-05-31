@@ -175,6 +175,8 @@ export type ServerEvent =
       ns_fps_min?: number;
       ns_fps_max?: number;
       ns_resolution_max?: string;
+      cam_resolution_max?: string;
+      cam_fps_max?: number;
     }
   | {
       op: 'guild_sound_updated';

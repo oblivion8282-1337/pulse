@@ -577,9 +577,27 @@ class VoiceRoom {
     void this.setScreenShare(!this.isScreenSharing);
   }
 
-  /** Publish/unpublish the local camera track. Capped at 720p/30fps to keep
-   *  egress bandwidth sane when several participants enable their cams at
-   *  once — LiveKit's adaptiveStream still downscales further per subscriber. */
+  /** Webcam capture resolution + fps, derived from the admin-configured
+   *  instance ceiling (capabilities.camResolutionMax / camFpsMax). The
+   *  defaults (720p/30) mirror the formerly hard-coded values, so nothing
+   *  changes until an admin raises the cap in /app/admin. Used for both the
+   *  initial publish and flipCamera's in-place restart so a facing swap keeps
+   *  the same quality. LiveKit's adaptiveStream still downscales per subscriber. */
+  #camCaptureResolution(): { width: number; height: number; frameRate: number } {
+    const dims: Record<string, { width: number; height: number }> = {
+      '1440p': { width: 2560, height: 1440 },
+      '1080p': { width: 1920, height: 1080 },
+      '720p': { width: 1280, height: 720 },
+      '480p': { width: 854, height: 480 }
+    };
+    const d = dims[capabilities.camResolutionMax] ?? dims['720p'];
+    const frameRate = Math.min(Math.max(capabilities.camFpsMax || 30, 1), 60);
+    return { width: d.width, height: d.height, frameRate };
+  }
+
+  /** Publish/unpublish the local camera track. Capture resolution + fps come
+   *  from the admin-configured instance ceiling (#camCaptureResolution); the
+   *  default 720p/30 keeps egress sane when several cams are on at once. */
   async setCamera(on: boolean): Promise<void> {
     const room = this.#room;
     if (!room) {
@@ -595,7 +613,7 @@ class VoiceRoom {
     try {
       if (on) {
         await room.localParticipant.setCameraEnabled(true, {
-          resolution: { width: 1280, height: 720, frameRate: 30 },
+          resolution: this.#camCaptureResolution(),
           facingMode: this.cameraFacing
         });
         this.isCameraOn = true;
@@ -643,7 +661,7 @@ class VoiceRoom {
     const next = this.cameraFacing === 'user' ? 'environment' : 'user';
     try {
       await track.restartTrack({
-        resolution: { width: 1280, height: 720, frameRate: 30 },
+        resolution: this.#camCaptureResolution(),
         facingMode: next
       });
       this.cameraFacing = next;

@@ -45,7 +45,9 @@ export function register(ctx: HandlerContext): void {
       ns_bitrate_max_kbps: evt.ns_bitrate_max_kbps,
       ns_fps_min: evt.ns_fps_min,
       ns_fps_max: evt.ns_fps_max,
-      ns_resolution_max: evt.ns_resolution_max
+      ns_resolution_max: evt.ns_resolution_max,
+      cam_resolution_max: evt.cam_resolution_max,
+      cam_fps_max: evt.cam_fps_max
     });
   });
 

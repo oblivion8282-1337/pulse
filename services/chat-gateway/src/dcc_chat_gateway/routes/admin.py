@@ -240,6 +240,8 @@ async def patch_permissions(
         "ns_fps_min",
         "ns_fps_max",
         "ns_resolution_max",
+        "cam_resolution_max",
+        "cam_fps_max",
     ):
         new = getattr(payload, field)
         if new is not None and new != getattr(row, field):
@@ -285,6 +287,8 @@ async def patch_permissions(
                 ns_fps_min=row.ns_fps_min,
                 ns_fps_max=row.ns_fps_max,
                 ns_resolution_max=row.ns_resolution_max,
+                cam_resolution_max=row.cam_resolution_max,
+                cam_fps_max=row.cam_fps_max,
             ),
         )
     return row
