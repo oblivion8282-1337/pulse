@@ -146,7 +146,8 @@ export async function connectWhep(
     if (!res.ok) {
       throw new WhepError(`WHEP POST failed: HTTP ${res.status} ${res.statusText}`, res.status);
     }
-    resourceUrl = resolveResourceUrl(whepUrl, res.headers.get('Location') ?? res.headers.get('location'));
+    // Headers.get() is case-insensitive per the Fetch spec, so 'Location' also matches 'location'.
+    resourceUrl = resolveResourceUrl(whepUrl, res.headers.get('Location'));
     const answer = await res.text();
     if (!answer.includes('v=')) {
       throw new WhepError('WHEP answer was not valid SDP');
