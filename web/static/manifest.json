@@ -10,6 +10,18 @@
   "background_color": "#f7f7f8",
   "icons": [
     {
+      "src": "/pulse-icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/pulse-icon-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
       "src": "/pulse-mark.svg",
       "type": "image/svg+xml",
       "sizes": "any",

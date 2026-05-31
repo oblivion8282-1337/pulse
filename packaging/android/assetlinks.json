@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.howispulse.pulse",
+      "sha256_cert_fingerprints": [
+        "FA:18:0A:D0:DF:34:9B:95:E5:DD:84:FE:03:88:88:90:FF:E1:68:3D:7D:53:B2:8D:37:F4:CE:DE:C5:CA:C0:9A"
+      ]
+    }
+  }
+]
