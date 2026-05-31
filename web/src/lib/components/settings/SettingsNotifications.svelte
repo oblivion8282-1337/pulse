@@ -6,7 +6,9 @@
     getPushPermissionState,
     requestPushPermission,
     unsubscribeUser,
-    hasActiveSubscription
+    hasActiveSubscription,
+    getNotificationPermissionState,
+    requestNotificationPermission
   } from '$lib/notifications/pushSubscribe';
   import { listSubscriptions, type SubscriptionDescriptor } from '$lib/notifications/api';
   import { ApiError } from '$lib/api/client';
@@ -20,12 +22,29 @@
   let activeOnThisDevice = $state(false);
   let error = $state<string | null>(null);
 
+  // OS-notification permission for the in-page (WS-driven) path. Independent
+  // of web-push: even without server push, mention/DM/friend toasts need this
+  // granted. Drives the "Allow notifications" prompt below the toggles.
+  let notifyPermission = $state<'granted' | 'denied' | 'default' | 'unsupported'>('default');
+  let notifyBusy = $state(false);
+
   // Track whether we're on Electron — push uses native IPC there, the
   // browser-push toggle is hidden.
   const electron = isElectron();
 
+  async function requestNotifyPermission() {
+    if (notifyBusy) return;
+    notifyBusy = true;
+    try {
+      notifyPermission = await requestNotificationPermission();
+    } finally {
+      notifyBusy = false;
+    }
+  }
+
   async function refreshState() {
     permission = getPushPermissionState();
+    notifyPermission = getNotificationPermissionState();
     activeOnThisDevice = await hasActiveSubscription();
     try {
       subs = await listSubscriptions();
@@ -184,5 +203,38 @@
       />
     </label>
 
+    <label class="flex items-center justify-between gap-3 text-sm">
+      <span class="flex flex-col">
+        <span class="text-text-bright">{m.settings_notifications_on_friend_requests_label()}</span>
+        <span class="text-text-muted text-xs">{m.settings_notifications_on_friend_requests_desc()}</span>
+      </span>
+      <input
+        type="checkbox"
+        class="size-5 accent-[var(--brand)] md:size-4"
+        checked={settings.notifications.onFriendRequests}
+        onchange={(e) => settings.setNotifyOnFriendRequests((e.currentTarget as HTMLInputElement).checked)}
+        data-testid="notifications-on-friend-requests"
+      />
+    </label>
+
+    {#if !electron && notifyPermission === 'default'}
+      <!-- The toggles above only fire OS popups once the browser permission is
+           granted. Independent of web-push — this just unlocks the in-page
+           (WS-driven) path. Shown only when not yet decided. -->
+      <div class="mt-1 flex items-center justify-between gap-3 rounded-lg bg-bg-input/60 px-3 py-2 text-sm">
+        <span class="text-text-muted text-xs">{m.settings_notifications_permission_prompt()}</span>
+        <button
+          type="button"
+          onclick={requestNotifyPermission}
+          disabled={notifyBusy}
+          class="accent-gradient shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          data-testid="notifications-permission-request"
+        >
+          {notifyBusy ? '…' : m.settings_notifications_permission_allow()}
+        </button>
+      </div>
+    {:else if !electron && notifyPermission === 'denied'}
+      <p class="text-text-muted text-xs">{m.settings_notifications_permission_blocked()}</p>
+    {/if}
   </section>
 </div>

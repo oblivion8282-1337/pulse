@@ -507,6 +507,8 @@
   "channel_permissions_no_permission": "Du brauchst „Berechtigungen verwalten\" (MANAGE_PERMISSIONS) für diese Community.",
   "channel_permissions_page_title": "Kanal-Berechtigungen — Pulse",
   "chat_handler_dm_new_message": "Neue Nachricht{senderLabel}",
+  "chat_handler_dm_notification_body": "Neue Direktnachricht",
+  "chat_handler_dm_notification_unknown_sender": "Neue Direktnachricht",
   "chat_handler_dm_open": "Öffnen",
   "chat_handler_dm_sender_label": " von {sender}",
   "chat_handler_mention_fallback_body": "hat dich erwähnt",
@@ -713,6 +715,12 @@
   "friend_list_heading_online": "Online",
   "friend_list_unfriend_confirm": "Diese Freundschaft wirklich beenden?",
   "friend_list_unfriend_failed": "Entfernen fehlgeschlagen",
+  "friends_handler_accepted_body": "Ihr seid jetzt befreundet",
+  "friends_handler_accepted_title": "{name} hat deine Freundschaftsanfrage angenommen",
+  "friends_handler_accepted_title_unknown": "Freundschaftsanfrage angenommen",
+  "friends_handler_request_body": "Neue Freundschaftsanfrage",
+  "friends_handler_request_title": "{name} möchte dich als Freund hinzufügen",
+  "friends_handler_request_title_unknown": "Neue Freundschaftsanfrage",
   "friends_page_title": "Freunde",
   "friends_tab_add": "Hinzufügen",
   "friends_tab_all": "Alle",
@@ -1994,5 +2002,10 @@
   "whep_player_popup_blocked": "Popup blockiert",
   "whep_player_popup_blocked_description": "Bitte erlaube Pop-up-Fenster für Pulse und versuche es erneut.",
   "whep_player_stream_load_failed": "Stream konnte nicht geladen werden",
-  "whep_player_waiting_for_stream": "Warte auf den Stream…"
+  "whep_player_waiting_for_stream": "Warte auf den Stream…",
+  "settings_notifications_on_friend_requests_label": "Freundschaftsanfragen",
+  "settings_notifications_on_friend_requests_desc": "Bei Freundschaftsanfragen und angenommenen Anfragen.",
+  "settings_notifications_permission_prompt": "Erlaube Benachrichtigungen, damit Pop-ups erscheinen, wenn das Fenster im Hintergrund ist.",
+  "settings_notifications_permission_allow": "Benachrichtigungen erlauben",
+  "settings_notifications_permission_blocked": "Benachrichtigungen sind im Browser blockiert. Erlaube sie in den Browser-Einstellungen für diese Seite."
 }

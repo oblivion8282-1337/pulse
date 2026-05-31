@@ -23,20 +23,27 @@ export function isDnd(): boolean {
   return presence.myStatus === 'dnd';
 }
 
-export type NotifyKind = 'mention' | 'dm';
+export type NotifyKind = 'mention' | 'dm' | 'friend_request' | 'friend_accept';
 
 export type InPageNotifyInput = {
   kind: NotifyKind;
   title: string;
   body: string;
-  channelId: string;
-  messageId: string;
-  /** null for DMs. */
-  guildId: string | null;
+  /** Chat target — present for mention/dm, omitted for friend events. */
+  channelId?: string;
+  messageId?: string;
+  /** null for DMs, omitted for friend events. */
+  guildId?: string | null;
+  /** Explicit click destination (SPA path). Overrides the channel-derived URL —
+   *  used by friend events that route to /app/friends. */
+  targetUrl?: string;
   iconUrl?: string | null;
 };
 
-function buildTargetUrl(channelId: string, guildId: string | null): string {
+function buildTargetUrl(input: InPageNotifyInput): string {
+  if (input.targetUrl) return input.targetUrl;
+  const { channelId, guildId } = input;
+  if (!channelId) return '/app/friends';
   if (!guildId) return `/app/@me/${channelId}`;
   return `/app/guilds/${guildId}/channels/${channelId}`;
 }
@@ -46,6 +53,11 @@ function shouldFire(kind: NotifyKind): boolean {
   if (presence.myStatus === 'dnd') return false;
   if (kind === 'mention' && !settings.notifications.onMention) return false;
   if (kind === 'dm' && !settings.notifications.onDM) return false;
+  if (
+    (kind === 'friend_request' || kind === 'friend_accept') &&
+    !settings.notifications.onFriendRequests
+  )
+    return false;
   return true;
 }
 
@@ -72,9 +84,10 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
       .show({
         title: input.title,
         body: input.body,
-        channel_id: input.channelId,
-        message_id: input.messageId,
-        guild_id: input.guildId,
+        channel_id: input.channelId ?? '',
+        message_id: input.messageId ?? '',
+        guild_id: input.guildId ?? null,
+        target_url: buildTargetUrl(input),
         icon: input.iconUrl ?? undefined
       })
       .catch(() => undefined);
@@ -97,7 +110,7 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
       } catch {
         /* some browsers don't allow programmatic focus here */
       }
-      void goto(buildTargetUrl(input.channelId, input.guildId));
+      void goto(buildTargetUrl(input));
       n.close();
     });
   } catch {

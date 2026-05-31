@@ -55,6 +55,9 @@ export interface PulseNotifyShowPayload {
   channel_id: string;
   guild_id?: string | null;
   message_id: string;
+  /** Explicit click destination (SPA path). When set, overrides the
+   *  channel-derived URL — friend-event notifications open /app/friends. */
+  target_url?: string;
 }
 
 /** Payload delivered to `pulse.notify.onClick()` listeners. Main has already
@@ -64,6 +67,8 @@ export interface PulseNotifyClickPayload {
   channel_id: string;
   guild_id?: string | null;
   message_id: string;
+  /** Set when the notification carried an explicit target (friend events). */
+  target_url?: string | null;
 }
 
 export interface PulseNotifyApi {

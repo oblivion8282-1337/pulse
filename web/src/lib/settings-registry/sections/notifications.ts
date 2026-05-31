@@ -12,6 +12,10 @@ export type NotificationSettings = {
   browserPushEnabled: boolean;
   onMention: boolean;
   onDM: boolean;
+  /** Friend-system events (request received / your request accepted). One
+   *  shared toggle — they're low-frequency and the same "someone wants to
+   *  connect" category. */
+  onFriendRequests: boolean;
 };
 
 export const DEFAULTS_NOTIFICATIONS: NotificationSettings = {
@@ -20,7 +24,8 @@ export const DEFAULTS_NOTIFICATIONS: NotificationSettings = {
   // user opts in, mentions + DMs both alert by default.
   browserPushEnabled: false,
   onMention: true,
-  onDM: true
+  onDM: true,
+  onFriendRequests: true
 };
 
 function bool(v: unknown, fallback: boolean): boolean {
@@ -38,7 +43,8 @@ export const NOTIFICATIONS_SECTION: SectionConfig<NotificationSettings> = {
     return {
       browserPushEnabled: bool(p.browserPushEnabled, d.browserPushEnabled),
       onMention: bool(p.onMention, d.onMention),
-      onDM: bool(p.onDM, d.onDM)
+      onDM: bool(p.onDM, d.onDM),
+      onFriendRequests: bool(p.onFriendRequests, d.onFriendRequests)
     };
   }
 };

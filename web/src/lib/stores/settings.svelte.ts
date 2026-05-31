@@ -279,6 +279,9 @@ class SettingsStore {
   setNotifyOnDM(v: boolean): void {
     this.#notifications.set('onDM', v);
   }
+  setNotifyOnFriendRequests(v: boolean): void {
+    this.#notifications.set('onFriendRequests', v);
+  }
 
   // --- sounds setters ---
   setSoundsMasterEnabled(v: boolean): void {

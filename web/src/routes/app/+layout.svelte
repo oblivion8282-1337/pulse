@@ -63,7 +63,17 @@
    *  → `navigateTo` event, and Electron `pulse.notify.onClick` → same path.
    *  Kept inline (instead of in `$lib/notifications/`) because it owns the
    *  `goto` import which lives on the page side. */
-  function navigateToFromNotification(channelId: string, guildId: string | null | undefined): void {
+  function navigateToFromNotification(
+    channelId: string,
+    guildId: string | null | undefined,
+    targetUrl?: string | null
+  ): void {
+    // Friend events carry an explicit in-app target (/app/friends); chat
+    // events build the channel URL from the ids.
+    if (targetUrl) {
+      void goto(targetUrl);
+      return;
+    }
     if (!channelId) return;
     const url = guildId
       ? `/app/guilds/${guildId}/channels/${channelId}`
@@ -165,7 +175,7 @@
     const notifyApi = typeof window !== 'undefined' ? window.pulse?.notify : undefined;
     if (notifyApi) {
       _notifyUnsubscribe = notifyApi.onClick((data) => {
-        navigateToFromNotification(data.channel_id, data.guild_id ?? null);
+        navigateToFromNotification(data.channel_id, data.guild_id ?? null, data.target_url ?? null);
       });
     }
   });

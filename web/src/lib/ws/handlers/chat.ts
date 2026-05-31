@@ -119,6 +119,20 @@ export function register(ctx: HandlerContext): void {
             }
           });
         }
+        // OS-level notification when the window is in the background — the
+        // toast above is only visible while Pulse is focused. The helper
+        // self-gates on background + DND + the onDM toggle. Body stays
+        // content-free (sender name only) to match the toast's privacy stance
+        // (DMs go E2EE in Phase 2).
+        const senderName = cached?.display_name ?? cached?.username ?? null;
+        fireInPageNotification({
+          kind: 'dm',
+          title: senderName ?? m.chat_handler_dm_notification_unknown_sender(),
+          body: m.chat_handler_dm_notification_body(),
+          channelId: evt.channel_id,
+          messageId: evt.message_id,
+          guildId: null
+        });
         if (!isRecentMention(evt.message_id) && !isDnd()) {
           sounds.play('notification.dm');
         }

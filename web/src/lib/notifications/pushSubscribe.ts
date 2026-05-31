@@ -39,6 +39,32 @@ export function getPushPermissionState(): PushPermissionState {
 }
 
 /**
+ * OS-notification permission state for the *in-page* path (WS-driven toasts via
+ * `inPage.ts`), independent of web-push. Unlike `getPushPermissionState` this
+ * only needs the `Notification` API — no ServiceWorker/PushManager — so a
+ * deployment without server-side push can still surface mention/DM/friend
+ * notifications. Electron has its own native bridge → 'unsupported'.
+ */
+export function getNotificationPermissionState(): PushPermissionState {
+  if (typeof window === 'undefined' || isElectron()) return 'unsupported';
+  if (!('Notification' in window)) return 'unsupported';
+  return Notification.permission as PushPermissionState;
+}
+
+/**
+ * Request the OS notification permission for the in-page path only — no
+ * web-push subscribe, no VAPID, no backend round-trip. Used by the settings
+ * "Allow notifications" affordance so WS-driven toasts can fire even when the
+ * user never enables server push (or the server has push disabled).
+ */
+export async function requestNotificationPermission(): Promise<PushPermissionState> {
+  if (typeof window === 'undefined' || isElectron()) return 'unsupported';
+  if (!('Notification' in window)) return 'unsupported';
+  const result = await Notification.requestPermission();
+  return result as PushPermissionState;
+}
+
+/**
  * Convert a URL-safe base64 VAPID public key into the raw `Uint8Array`
  * `PushManager.subscribe()` expects. RFC 8292 keys are 65 bytes; we tolerate
  * padding-less input by re-adding `=` so `atob` accepts it.

@@ -1994,5 +1994,18 @@
   "whep_player_popup_blocked": "Popup blocked",
   "whep_player_popup_blocked_description": "Please allow pop-up windows for Pulse and try again.",
   "whep_player_stream_load_failed": "Stream could not be loaded",
-  "whep_player_waiting_for_stream": "Waiting for stream…"
+  "whep_player_waiting_for_stream": "Waiting for stream…",
+  "friends_handler_accepted_body": "You are now friends",
+  "friends_handler_accepted_title": "{name} accepted your friend request",
+  "friends_handler_accepted_title_unknown": "Friend request accepted",
+  "friends_handler_request_body": "New friend request",
+  "friends_handler_request_title": "{name} wants to add you as a friend",
+  "friends_handler_request_title_unknown": "New friend request",
+  "chat_handler_dm_notification_body": "New direct message",
+  "chat_handler_dm_notification_unknown_sender": "New direct message",
+  "settings_notifications_on_friend_requests_label": "Friend requests",
+  "settings_notifications_on_friend_requests_desc": "Friend requests and accepted requests.",
+  "settings_notifications_permission_prompt": "Allow notifications so popups appear when the window is in the background.",
+  "settings_notifications_permission_allow": "Allow notifications",
+  "settings_notifications_permission_blocked": "Notifications are blocked in the browser. Allow them in your browser settings for this site."
 }

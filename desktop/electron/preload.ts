@@ -103,13 +103,19 @@ contextBridge.exposeInMainWorld('pulse', {
       channel_id: string;
       guild_id?: string | null;
       message_id: string;
+      target_url?: string;
     }): Promise<string> => ipcRenderer.invoke('notify:show', payload),
 
     /** Fires when the user clicks a system notification. Main has already
      *  raised + focused the window by the time this arrives; the callback
      *  should route to the channel/message. Returns an unsubscribe fn. */
     onClick: (
-      cb: (data: { channel_id: string; guild_id?: string | null; message_id: string }) => void
+      cb: (data: {
+        channel_id: string;
+        guild_id?: string | null;
+        message_id: string;
+        target_url?: string | null;
+      }) => void
     ): (() => void) => {
       const handler = (_e: unknown, data: unknown): void => {
         // Defensive shape check — IPC payloads are untrusted by convention.
@@ -118,10 +124,13 @@ contextBridge.exposeInMainWorld('pulse', {
         if (typeof d.channel_id !== 'string' || typeof d.message_id !== 'string') return;
         const gid = d.guild_id;
         if (gid !== null && gid !== undefined && typeof gid !== 'string') return;
+        const turl = d.target_url;
+        if (turl !== null && turl !== undefined && typeof turl !== 'string') return;
         cb({
           channel_id: d.channel_id,
           guild_id: (gid as string | null | undefined) ?? null,
           message_id: d.message_id,
+          target_url: (turl as string | null | undefined) ?? null,
         });
       };
       ipcRenderer.on('notify:click', handler);

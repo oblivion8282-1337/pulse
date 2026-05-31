@@ -24,12 +24,27 @@ export interface NotifyPayload {
   channel_id: string;
   guild_id?: string | null;
   message_id: string;
+  target_url?: string;
 }
 
 export interface NotifyClickPayload {
   channel_id: string;
   guild_id?: string | null;
   message_id: string;
+  target_url?: string | null;
+}
+
+/**
+ * Validate the renderer-supplied click target. It is forwarded back to the
+ * renderer and fed to SvelteKit's `goto`, so it must be an in-app absolute
+ * path ("/app/..."). Reject external URLs, protocol-relative ("//evil.com"),
+ * and non-absolute paths so a compromised renderer can't navigate elsewhere.
+ */
+function sanitiseTargetUrl(raw: unknown): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  if (!raw.startsWith('/')) return undefined;
+  if (raw.startsWith('//')) return undefined;
+  return raw.slice(0, 512);
 }
 
 let notifySeq = 0;
@@ -111,6 +126,7 @@ export function wireNotify(getWindow: () => BrowserWindow | null): void {
       channel_id: payload.channel_id,
       guild_id: payload.guild_id ?? null,
       message_id: payload.message_id,
+      target_url: sanitiseTargetUrl(payload.target_url) ?? null,
     };
     notif.on('click', () => {
       // Remove from the live map when clicked so it is GC'd promptly.
