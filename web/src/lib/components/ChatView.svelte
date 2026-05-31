@@ -107,7 +107,11 @@
   // Memoize messageMap to avoid rebuilding on every message push.
   // Only recompute if the set of message IDs changes meaningfully.
   let _cachedMessageMap: Map<string, Message> | null = null;
-  let _lastMapMessageIds = $state<string[]>([]);
+  // Plain (non-reactive) bookkeeping for the memoization below — written from
+  // inside the `messageMap` derived, so it must NOT be `$state` (Svelte 5
+  // forbids mutating reactive state inside a derived → state_unsafe_mutation,
+  // which aborts the render and leaves messages blank). Mirrors _cachedMessageMap.
+  let _lastMapMessageIds: string[] = [];
 
   let messageMap = $derived.by(() => {
     const currentIds = messages.map(m => m.id);
@@ -126,8 +130,11 @@
 
   // Memoize buildItems to avoid full rebuild on simple appends.
   let _cachedItems: ChatItem[] | null = null;
-  let _lastItemsMessageCount = $state(0);
-  let _lastItemsLastMessageId = $state('');
+  // Plain (non-reactive) — written from inside the `items` derived below.
+  // See the note on _lastMapMessageIds: `$state` here throws
+  // state_unsafe_mutation and blanks the message list.
+  let _lastItemsMessageCount = 0;
+  let _lastItemsLastMessageId = '';
 
   let items = $derived.by(() => {
     const len = messages.length;
