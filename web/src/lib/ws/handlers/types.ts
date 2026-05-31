@@ -135,6 +135,7 @@ export type ServerEvent =
       channel_id: string;
       user_ids: string[];
       streaming_user_ids?: string[];
+      camera_user_ids?: string[];
       user_states?: Record<string, UserVoiceState>;
     }
   | {

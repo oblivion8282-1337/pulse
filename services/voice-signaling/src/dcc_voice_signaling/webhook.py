@@ -47,12 +47,13 @@ end
 return 0
 """
 
-# Atomically remove a member from BOTH the presence set and the streaming set,
-# deleting each key if it becomes empty.  Two separate eval calls would leave a
-# window where the presence key is updated but the streaming key is not — a
-# concurrent _publish_state could then read an invalid state (streaming_user_ids
-# contains a user who is absent from user_ids).
-# KEYS[1] = presence set key, KEYS[2] = streaming set key, ARGV[1] = member.
+# Atomically remove a member from the presence, streaming AND camera sets,
+# deleting each key if it becomes empty.  Doing this in one round-trip avoids a
+# window where a concurrent _publish_state reads an inconsistent snapshot
+# (e.g. streaming_user_ids/camera_user_ids containing a user absent from
+# user_ids).
+# KEYS[1] = presence set, KEYS[2] = streaming set, KEYS[3] = camera set,
+# ARGV[1] = member.
 _LUA_LEAVE = """
 redis.call('SREM', KEYS[1], ARGV[1])
 if redis.call('SCARD', KEYS[1]) == 0 then
@@ -62,17 +63,40 @@ redis.call('SREM', KEYS[2], ARGV[1])
 if redis.call('SCARD', KEYS[2]) == 0 then
     redis.call('DEL', KEYS[2])
 end
+redis.call('SREM', KEYS[3], ARGV[1])
+if redis.call('SCARD', KEYS[3]) == 0 then
+    redis.call('DEL', KEYS[3])
+end
 return 0
 """
 
 VOICE_EVENTS_CHANNEL = "voice:events"
 VOICE_ROOM_KEY = "voice:room:{room}"
 VOICE_STREAMING_KEY = "voice:room:{room}:streaming"
+VOICE_CAMERA_KEY = "voice:room:{room}:camera"
 _ROOM_PREFIX = "channel-"
 _IDENTITY_PREFIX = "user-"
 
 # Int values for screen-share sources (Protobuf enum — both video+audio tracks).
 _SCREEN_SHARE_SOURCES = frozenset({int(TrackSource.SCREEN_SHARE), int(TrackSource.SCREEN_SHARE_AUDIO)})
+# Int value for the camera source (Protobuf enum).
+_CAMERA_SOURCE = int(TrackSource.CAMERA)
+
+
+def _is_camera(track) -> bool:  # noqa: ANN001
+    """Return True if this TrackInfo represents a webcam (CAMERA source).
+
+    Unlike ``_is_screen_share`` there is no UNKNOWN-source fallback: a camera
+    track is only counted when LiveKit explicitly tags it ``CAMERA`` (which it
+    does for ``setCameraEnabled``). The screen-share check runs first in the
+    handler and owns the UNKNOWN-video fallback, so the two never collide.
+    """
+    try:
+        if int(track.source) == _CAMERA_SOURCE:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return "CAMERA" in str(track.source).upper()
 
 
 def _is_screen_share(track) -> bool:  # noqa: ANN001
@@ -127,6 +151,10 @@ def streaming_key(room_name: str) -> str:
     return VOICE_STREAMING_KEY.format(room=room_name)
 
 
+def camera_key(room_name: str) -> str:
+    return VOICE_CAMERA_KEY.format(room=room_name)
+
+
 def channel_id_from_room(room_name: str) -> str | None:
     if not room_name.startswith(_ROOM_PREFIX):
         return None
@@ -176,13 +204,16 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     pipe = redis.pipeline(transaction=False)
     pipe.smembers(room_key(room_name))
     pipe.smembers(streaming_key(room_name))
-    members_raw, streamers_raw = await pipe.execute()
+    pipe.smembers(camera_key(room_name))
+    members_raw, streamers_raw, camera_raw = await pipe.execute()
     user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members_raw)
     streaming_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in streamers_raw)
+    camera_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in camera_raw)
     snapshot = VoiceStateSnapshot(
         channel_id=channel_id,
         user_ids=user_ids,
         streaming_user_ids=streaming_user_ids,
+        camera_user_ids=camera_user_ids,
     )
     await redis.publish(
         VOICE_EVENTS_CHANNEL,
@@ -205,15 +236,18 @@ async def _apply_join(redis: Redis, room_name: str, user_id: str) -> None:
 async def _apply_leave(redis: Redis, room_name: str, user_id: str) -> None:
     key = room_key(room_name)
     sk = streaming_key(room_name)
-    # Atomic: remove from BOTH sets in one Lua round-trip.  Using two separate
-    # eval calls would leave a window between them where a concurrent
-    # _publish_state could read an inconsistent snapshot (streaming_user_ids
-    # contains a user absent from user_ids).
-    await redis.eval(_LUA_LEAVE, 2, key, sk, user_id)  # type: ignore[arg-type]
+    ck = camera_key(room_name)
+    # Atomic: remove from ALL three sets in one Lua round-trip.  Separate eval
+    # calls would leave a window where a concurrent _publish_state reads an
+    # inconsistent snapshot (streaming_/camera_user_ids containing a user absent
+    # from user_ids).
+    await redis.eval(_LUA_LEAVE, 3, key, sk, ck, user_id)  # type: ignore[arg-type]
 
 
 async def _apply_room_finished(redis: Redis, room_name: str) -> None:
-    await redis.delete(room_key(room_name), streaming_key(room_name))
+    await redis.delete(
+        room_key(room_name), streaming_key(room_name), camera_key(room_name)
+    )
 
 
 async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) -> None:
@@ -230,6 +264,22 @@ async def _apply_screen_share_stop(redis: Redis, room_name: str, user_id: str) -
     sk = streaming_key(room_name)
     # Atomic: SREM + conditional DEL via Lua (same TOCTOU fix as _apply_leave).
     await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, sk, user_id)  # type: ignore[arg-type]
+
+
+async def _apply_camera_start(redis: Redis, room_name: str, user_id: str) -> None:
+    settings = get_settings()
+    ck = camera_key(room_name)
+    pipe = redis.pipeline(transaction=False)
+    pipe.sadd(ck, user_id)
+    # NX: same ghost-prevention logic as _apply_join.
+    pipe.expire(ck, settings.voice_state_ttl_seconds, nx=True)
+    await pipe.execute()
+
+
+async def _apply_camera_stop(redis: Redis, room_name: str, user_id: str) -> None:
+    ck = camera_key(room_name)
+    # Atomic: SREM + conditional DEL via Lua (same TOCTOU fix as _apply_leave).
+    await redis.eval(_LUA_SREM_DEL_IF_EMPTY, 1, ck, user_id)  # type: ignore[arg-type]
 
 
 @router.post("/webhook", status_code=status.HTTP_204_NO_CONTENT)
@@ -296,15 +346,25 @@ async def livekit_webhook(request: Request) -> None:
         )
         if not has_participant or not has_track:
             return
-        if not _is_screen_share(event.track):
-            return
         user_id = user_id_from_identity(event.participant.identity)
         if user_id is None:
             return
-        log.info("screen_share_event", kind=kind, user_id=user_id, room=room_name)
-        if kind == "track_published":
-            await _apply_screen_share_start(redis, room_name, user_id)
-        else:
-            await _apply_screen_share_stop(redis, room_name, user_id)
-        await _publish_state(redis, room_name, channel_id)
+        # Screen-share check runs first (it owns the UNKNOWN-source video
+        # fallback); camera is only the explicit CAMERA source.
+        if _is_screen_share(event.track):
+            log.info("screen_share_event", kind=kind, user_id=user_id, room=room_name)
+            if kind == "track_published":
+                await _apply_screen_share_start(redis, room_name, user_id)
+            else:
+                await _apply_screen_share_stop(redis, room_name, user_id)
+            await _publish_state(redis, room_name, channel_id)
+            return
+        if _is_camera(event.track):
+            log.info("camera_event", kind=kind, user_id=user_id, room=room_name)
+            if kind == "track_published":
+                await _apply_camera_start(redis, room_name, user_id)
+            else:
+                await _apply_camera_stop(redis, room_name, user_id)
+            await _publish_state(redis, room_name, channel_id)
+            return
         return

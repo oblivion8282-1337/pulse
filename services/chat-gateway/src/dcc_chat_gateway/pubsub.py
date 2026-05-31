@@ -374,10 +374,12 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         """Current presence + streaming sets + per-user states for a voice channel."""
         key = f"voice:room:channel-{channel_id}"
         sk = f"voice:room:channel-{channel_id}:streaming"
-        # Issue both SMEMBERS in parallel rather than sequentially.
-        members, streamers = await asyncio.gather(
+        ck = f"voice:room:channel-{channel_id}:camera"
+        # Issue all SMEMBERS in parallel rather than sequentially.
+        members, streamers, cameras = await asyncio.gather(
             self._redis.smembers(key),
             self._redis.smembers(sk),
+            self._redis.smembers(ck),
         )
         user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members)
         user_states = await self.user_voice_states_for(user_ids)
@@ -385,6 +387,9 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
             "user_ids": user_ids,
             "streaming_user_ids": sorted(
                 m.decode() if isinstance(m, bytes) else m for m in streamers
+            ),
+            "camera_user_ids": sorted(
+                m.decode() if isinstance(m, bytes) else m for m in cameras
             ),
             "user_states": user_states,
         }
@@ -395,7 +400,7 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         states = await asyncio.gather(*(self.voice_state_for(cid) for cid in channel_ids))
         out: list[dict[str, Any]] = []
         for cid, state in zip(channel_ids, states):
-            if state["user_ids"] or state["streaming_user_ids"]:
+            if state["user_ids"] or state["streaming_user_ids"] or state["camera_user_ids"]:
                 out.append({"channel_id": cid, **state})
         return out
 

@@ -284,6 +284,7 @@ def test_voice_state_snapshot_bare() -> None:
         "channel_id": "6",
         "user_ids": ["3"],
         "streaming_user_ids": [],
+        "camera_user_ids": [],
     }
     assert "op" not in dumped
 

@@ -29,12 +29,16 @@ class VoiceStateSnapshot(_EventBase):
     enriched ``user_states`` (per-user mic_muted/deafened) from Redis
     before fan-out. ``streaming_user_ids`` enumerates which members are
     currently browser-screen-sharing (the LiveKit ``track_published``
-    side, not the HQ-stream one).
+    side, not the HQ-stream one). ``camera_user_ids`` enumerates members
+    publishing a webcam track — tracked server-side so out-of-channel
+    members get the "cam on" indicator too (mirrors screen-share), not
+    just clients connected to the LiveKit room.
     """
 
     channel_id: str
     user_ids: list[str]
     streaming_user_ids: list[str] = []
+    camera_user_ids: list[str] = []
 
 
 class VoiceDisconnectEvent(_EventBase):

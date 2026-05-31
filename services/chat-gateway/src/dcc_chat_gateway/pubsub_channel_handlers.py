@@ -143,6 +143,9 @@ async def handle_voice_events(
         "streaming_user_ids": [
             str(u) for u in payload.get("streaming_user_ids", [])
         ],
+        "camera_user_ids": [
+            str(u) for u in payload.get("camera_user_ids", [])
+        ],
         "user_states": user_states,
     }
     async with manager._lock:

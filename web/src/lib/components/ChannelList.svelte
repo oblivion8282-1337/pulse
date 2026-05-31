@@ -318,21 +318,22 @@
             : []}
         {@const memberStates = voicePresence.userStatesIn(c.id)}
         {@const partyHostId = watchPartyPresence.partyIn(c.id)?.host_user_id ?? null}
-        {@const camUserMap =
+        <!-- Who has their webcam on — server-tracked (voice:events), so the CAM
+             badge shows for everyone incl. ourselves and even when we're not
+             connected to this channel. Opening the cam tile still needs a
+             subscribed track, which only exists while connected. -->
+        {@const camUserIds = voicePresence.cameraIn(c.id)}
+        {@const camIdentityFor = (uid: string) =>
           voice.connected && voice.channelId === c.id
-            ? new Map(
-                voice.cameraTracks
-                  .map((ct) => [userIdFromIdentity(ct.identity), ct.identity] as const)
-                  .filter(([uid]) => uid !== null) as [string, string][]
-              )
-            : new Map<string, string>()}
+            ? voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity
+            : undefined}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}
             channelId={c.id}
             guildId={c.guild_id}
             streamingUserIds={streamers}
-            camUserIds={[...camUserMap.keys()]}
+            camUserIds={camUserIds}
             speakingUserIds={speakers}
             watchPartyHostUserId={partyHostId}
             userStates={memberStates}
@@ -359,7 +360,7 @@
               onSelect(c);
             }}
             onCamOpen={(uid) => {
-              const ident = camUserMap.get(uid);
+              const ident = camIdentityFor(uid);
               if (ident) openedTiles.open('cam', c.id, ident);
               onSelect(c);
             }}

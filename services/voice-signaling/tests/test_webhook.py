@@ -180,18 +180,70 @@ async def test_webhook_ignores_unknown_event(webhook_client, redis):
 
 
 @pytest.mark.asyncio
-async def test_webhook_track_published_camera_ignored(webhook_client, redis):
-    """track_published for camera/mic tracks must not touch the streaming set."""
+async def test_webhook_camera_start_stop(webhook_client, redis):
+    """track_published/unpublished for a CAMERA track maintains the camera set
+    (not the streaming set) and publishes camera_user_ids."""
     from livekit.protocol.models import TrackSource
-    from dcc_voice_signaling.webhook import streaming_key
+    from dcc_voice_signaling.webhook import camera_key, streaming_key
 
     cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
     room = f"channel-{cid}"
-    # Camera = source 1
-    body = _event_body("track_published", room, "user-1", track_source=TrackSource.CAMERA)
-    r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
-    assert r.status_code == 204
-    assert await redis.exists(streaming_key(room)) == 0
+    pubsub = redis.pubsub(ignore_subscribe_messages=True)
+    await pubsub.subscribe(VOICE_EVENTS_CHANNEL)
+    try:
+        body = _event_body("participant_joined", room, "user-1")
+        await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        await _drain_one(pubsub)
+
+        # Camera on → track_published with CAMERA source (= 1)
+        body = _event_body("track_published", room, "user-1", track_source=TrackSource.CAMERA)
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        ck = camera_key(room)
+        assert {m.decode() for m in await redis.smembers(ck)} == {"1"}
+        assert await redis.ttl(ck) > 0
+        # Camera must NOT bleed into the screen-share set.
+        assert await redis.exists(streaming_key(room)) == 0
+        decoded = json.loads((await _drain_one(pubsub))["data"])
+        assert decoded["camera_user_ids"] == ["1"]
+        assert decoded["streaming_user_ids"] == []
+
+        # Camera off → track_unpublished
+        body = _event_body("track_unpublished", room, "user-1", track_source=TrackSource.CAMERA)
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        assert await redis.exists(ck) == 0
+        decoded = json.loads((await _drain_one(pubsub))["data"])
+        assert decoded["camera_user_ids"] == []
+    finally:
+        await pubsub.aclose()
+        await redis.delete(room_key(room))
+        await redis.delete(camera_key(room))
+
+
+@pytest.mark.asyncio
+async def test_webhook_participant_left_clears_camera(webhook_client, redis):
+    """participant_left must also remove the user from the camera set
+    (missed track_unpublished self-heal)."""
+    from livekit.protocol.models import TrackSource
+    from dcc_voice_signaling.webhook import camera_key
+
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    try:
+        body = _event_body("participant_joined", room, "user-5")
+        await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        body = _event_body("track_published", room, "user-5", track_source=TrackSource.CAMERA)
+        await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert {m.decode() for m in await redis.smembers(camera_key(room))} == {"5"}
+
+        body = _event_body("participant_left", room, "user-5")
+        r = await webhook_client.post("/webhook", content=body, headers={"Authorization": _sign(body)})
+        assert r.status_code == 204
+        assert await redis.exists(camera_key(room)) == 0
+    finally:
+        await redis.delete(room_key(room))
+        await redis.delete(camera_key(room))
 
 
 @pytest.mark.asyncio

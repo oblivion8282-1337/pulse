@@ -7,6 +7,7 @@ export type VoiceChannelState = {
   channel_id: string;
   user_ids: string[];
   streaming_user_ids?: string[];
+  camera_user_ids?: string[];
   user_states?: Record<string, UserVoiceState>;
 };
 
@@ -15,6 +16,11 @@ class VoicePresenceStore {
   byChannel = $state<Record<string, string[]>>({});
   /** Maps channel_id → streaming_user_ids. */
   streamingByChannel = $state<Record<string, string[]>>({});
+  /** Maps channel_id → camera_user_ids (members with webcam published).
+   * Server-tracked (LiveKit track_published webhook → voice-signaling), so it's
+   * populated even for channels the local user isn't connected to — unlike the
+   * client-only ``voice.cameraTracks`` which only sees subscribed remote tracks. */
+  cameraByChannel = $state<Record<string, string[]>>({});
   /** Maps channel_id → { user_id → {mic_muted, deafened} }. Missing entry
    * for a user means default-off; absence is the common case so we keep the
    * map sparse. */
@@ -34,11 +40,15 @@ class VoicePresenceStore {
   seed(states: VoiceChannelState[]): void {
     const next: Record<string, string[]> = {};
     const nextStreaming: Record<string, string[]> = {};
+    const nextCamera: Record<string, string[]> = {};
     const nextStates: Record<string, Record<string, UserVoiceState>> = {};
     for (const s of states) {
       if (s.user_ids.length > 0) next[s.channel_id] = s.user_ids;
       if (s.streaming_user_ids && s.streaming_user_ids.length > 0) {
         nextStreaming[s.channel_id] = s.streaming_user_ids;
+      }
+      if (s.camera_user_ids && s.camera_user_ids.length > 0) {
+        nextCamera[s.channel_id] = s.camera_user_ids;
       }
       if (s.user_states && Object.keys(s.user_states).length > 0) {
         nextStates[s.channel_id] = s.user_states;
@@ -46,6 +56,7 @@ class VoicePresenceStore {
     }
     this.byChannel = next;
     this.streamingByChannel = nextStreaming;
+    this.cameraByChannel = nextCamera;
     this.userStatesByChannel = nextStates;
   }
 
@@ -71,7 +82,8 @@ class VoicePresenceStore {
     channelId: string,
     userIds: string[],
     streamingUserIds?: string[],
-    userStates?: Record<string, UserVoiceState>
+    userStates?: Record<string, UserVoiceState>,
+    cameraUserIds?: string[]
   ): void {
     if (userIds.length === 0) {
       if (this.byChannel[channelId] !== undefined) {
@@ -89,6 +101,15 @@ class VoicePresenceStore {
       }
     } else {
       this.streamingByChannel = { ...this.streamingByChannel, [channelId]: ids };
+    }
+    const camIds = cameraUserIds ?? [];
+    if (camIds.length === 0) {
+      if (this.cameraByChannel[channelId] !== undefined) {
+        const { [channelId]: _, ...rest } = this.cameraByChannel;
+        this.cameraByChannel = rest;
+      }
+    } else {
+      this.cameraByChannel = { ...this.cameraByChannel, [channelId]: camIds };
     }
     const states = userStates ?? {};
     // Drop entries for users no longer in the channel — the server already
@@ -130,6 +151,16 @@ class VoicePresenceStore {
         this.streamingByChannel = { ...this.streamingByChannel, [channelId]: nextStreaming };
       }
     }
+    const currentCamera = this.cameraByChannel[channelId];
+    if (currentCamera) {
+      const nextCamera = currentCamera.filter((id) => id !== userId);
+      if (nextCamera.length === 0) {
+        const { [channelId]: _, ...rest } = this.cameraByChannel;
+        this.cameraByChannel = rest;
+      } else {
+        this.cameraByChannel = { ...this.cameraByChannel, [channelId]: nextCamera };
+      }
+    }
     const currentStates = this.userStatesByChannel[channelId];
     if (currentStates && currentStates[userId]) {
       const { [userId]: _, ...restStates } = currentStates;
@@ -148,6 +179,10 @@ class VoicePresenceStore {
 
   streamingIn(channelId: string): string[] {
     return this.streamingByChannel[channelId] ?? [];
+  }
+
+  cameraIn(channelId: string): string[] {
+    return this.cameraByChannel[channelId] ?? [];
   }
 
   userStatesIn(channelId: string): Record<string, UserVoiceState> {
@@ -191,6 +226,7 @@ class VoicePresenceStore {
   clear(): void {
     this.byChannel = {};
     this.streamingByChannel = {};
+    this.cameraByChannel = {};
     this.userStatesByChannel = {};
     this.overrideByChannel = {};
   }
