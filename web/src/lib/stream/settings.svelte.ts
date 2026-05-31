@@ -120,6 +120,12 @@ export function audioModeUsesDesktop(mode: string): boolean {
   return mode === 'Desktop' || mode === 'Desktop + Mikrofon';
 }
 
+/** True iff the GPU's reported `video_codecs` mention AV1 (i.e. AV1 encode is
+ *  available). Heuristic: any codec string containing "av1", case-insensitive. */
+function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
+  return (codecs ?? []).some((c) => /av1/i.test(c));
+}
+
 // ── Reactive state ──────────────────────────────────────────────────────────
 
 export const streamSettings = $state({
@@ -175,17 +181,16 @@ const PERSIST_KEYS = [
 type PersistKey = (typeof PERSIST_KEYS)[number];
 
 function snapshotPersisted(): Record<PersistKey, unknown> {
-  return {
-    profile_name: streamSettings.profile_name,
-    capture_source: streamSettings.capture_source,
-    audio_mode: streamSettings.audio_mode,
-    audio_app: streamSettings.audio_app,
-    excluded_apps: streamSettings.excluded_apps.slice(),
-    overrides: { ...streamSettings.overrides },
-    use_overrides: streamSettings.use_overrides,
-    show_cursor: streamSettings.show_cursor,
-    av_offset_ms: streamSettings.av_offset_ms,
-  };
+  const snap = {} as Record<PersistKey, unknown>;
+  for (const key of PERSIST_KEYS) {
+    const value = streamSettings[key];
+    // Clone the mutable fields so the snapshot can't be aliased by later
+    // `$state` mutations; primitives copy by value.
+    if (Array.isArray(value)) snap[key] = value.slice();
+    else if (value && typeof value === 'object') snap[key] = { ...value };
+    else snap[key] = value;
+  }
+  return snap;
 }
 
 const persistDebounced = debounce(() => saveAll(snapshotPersisted()), 300);
@@ -207,8 +212,11 @@ export async function loadPersisted(): Promise<void> {
 }
 
 function applyPersisted(data: Record<string, unknown>): void {
-  if (typeof data.profile_name === 'string') streamSettings.profile_name = data.profile_name;
-  if (typeof data.capture_source === 'string') streamSettings.capture_source = data.capture_source;
+  // Plain string fields: accept any string, no further validation.
+  for (const key of ['profile_name', 'capture_source', 'audio_app'] as const) {
+    if (typeof data[key] === 'string') streamSettings[key] = data[key];
+  }
+
   if (
     typeof data.audio_mode === 'string' &&
     ((AUDIO_MODES as ReadonlyArray<string>).includes(data.audio_mode) ||
@@ -223,7 +231,6 @@ function applyPersisted(data: Record<string, unknown>): void {
   if (isWindows() && streamSettings.audio_mode === 'Desktop + Mikrofon') {
     streamSettings.audio_mode = 'Desktop';
   }
-  if (typeof data.audio_app === 'string') streamSettings.audio_app = data.audio_app;
   if (Array.isArray(data.excluded_apps)) {
     streamSettings.excluded_apps = data.excluded_apps.filter((x): x is string => typeof x === 'string');
   }
@@ -274,9 +281,7 @@ export function defaultProfileForGpu(
 ): string {
   if (profiles.length === 0) return '';
   const names = new Set(profiles.map((p) => p.name));
-  const codecs = (gpuInfo?.video_codecs ?? []).map((c) => c.toLowerCase());
-  // Heuristic: any codec string that mentions "av1" implies AV1 encode support.
-  const hasAv1 = codecs.some((c) => c.includes('av1'));
+  const hasAv1 = gpuHasAv1(gpuInfo?.video_codecs);
   if (hasAv1 && names.has('AV1 Effizient')) return 'AV1 Effizient';
   if (names.has('H.264 Standard')) return 'H.264 Standard';
   return profiles[0].name;
@@ -333,7 +338,7 @@ export async function loadCatalogs(): Promise<void> {
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     // Default codec/bitrate/fps — only if the user hasn't already saved a value.
-    const hasAv1 = (streamSettings.gpu_info?.video_codecs ?? []).some((c) => /av1/i.test(c));
+    const hasAv1 = gpuHasAv1(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
