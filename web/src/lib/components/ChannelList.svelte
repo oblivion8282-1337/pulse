@@ -324,9 +324,11 @@
              subscribed track, which only exists while connected. -->
         {@const camUserIds = voicePresence.cameraIn(c.id)}
         {@const camIdentityFor = (uid: string) =>
-          voice.connected && voice.channelId === c.id
-            ? voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity
-            : undefined}
+          !(voice.connected && voice.channelId === c.id)
+            ? undefined
+            : uid === auth.user?.id
+              ? 'self' // own preview tile uses the 'self' sentinel id (StreamGrid)
+              : voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}

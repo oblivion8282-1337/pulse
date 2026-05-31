@@ -54,17 +54,21 @@
     voice.cameraTracks.filter((c) => openedTiles.isOpen('cam', channel.id, c.identity))
   );
 
-  // Eigene Kamera-Selbstvorschau: erscheint automatisch, sobald man die eigene
-  // Kamera einschaltet (sonst sieht man sich selbst nie). Per X ausblendbar,
-  // ohne die Kamera zu stoppen; Reset bei jedem An/Aus.
-  let selfCamHidden = $state(false);
+  // Eigene Kamera-Selbstvorschau: läuft über dieselbe openedTiles-Mechanik wie
+  // fremde Cams (Sentinel-Identity 'self'), damit das eigene CAM-Badge in der
+  // Teilnehmerliste sie öffnen/wieder einblenden kann. Erscheint automatisch
+  // beim Einschalten (Auto-Open bei jedem An), per X ausblendbar ohne die
+  // Kamera zu stoppen.
+  const SELF_CAM_ID = 'self';
   $effect(() => {
-    voice.isCameraOn;
+    const on = voice.isCameraOn;
     untrack(() => {
-      selfCamHidden = false;
+      if (on) openedTiles.open('cam', channel.id, SELF_CAM_ID);
     });
   });
-  let showSelfCam = $derived(!!voice.localCameraTrack && !selfCamHidden);
+  let showSelfCam = $derived(
+    !!voice.localCameraTrack && openedTiles.isOpen('cam', channel.id, SELF_CAM_ID)
+  );
   let selfCamName = $derived(auth.user ? userCache.displayName(auth.user.id) : 'Du');
   let selfCamMirror = $derived(voice.cameraFacing === 'user');
 
@@ -179,12 +183,12 @@
           channelId={channel.id}
           track={voice.localCameraTrack!}
           name={selfCamName}
-          identity="self"
+          identity={SELF_CAM_ID}
           mirror={selfCamMirror}
           compact={focusMode && focusedKey !== 'selfcam'}
           focused={focusMode && focusedKey === 'selfcam'}
           onToggleFocus={focusHandler('selfcam')}
-          onHide={() => (selfCamHidden = true)}
+          onHide={() => openedTiles.close('cam', channel.id, SELF_CAM_ID)}
         />
       </div>
     {/if}
