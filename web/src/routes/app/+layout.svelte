@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { dev } from '$app/environment';
   import { onMount, onDestroy } from 'svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -135,9 +136,18 @@
     // (see Vite-Plugin output). We register it ourselves rather than relying
     // on auto-register so the browser-push toggle has something to call
     // `pushManager.subscribe()` on. Skipped in dev unless Vite produced one.
+    //
+    // `type` matters: in dev SvelteKit/Vite serves the worker as an ES module
+    // (it does `import { build, files, version } from '$service-worker'`), so
+    // it MUST be registered as `module` — a classic registration throws
+    // "Cannot use import statement outside a module". The prod build bundles
+    // it into a single classic script, so `classic` is correct there.
     if ('serviceWorker' in navigator) {
       try {
-        await navigator.serviceWorker.register('/service-worker.js', { scope: '/' });
+        await navigator.serviceWorker.register('/service-worker.js', {
+          scope: '/',
+          type: dev ? 'module' : 'classic'
+        });
       } catch {
         // Dev sessions / Electron without SW — fine, push falls back to no-op.
       }
