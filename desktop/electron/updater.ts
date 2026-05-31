@@ -18,11 +18,18 @@
  */
 
 import { app, BrowserWindow, ipcMain } from 'electron';
-import { autoUpdater } from 'electron-updater';
 
 export function wireUpdater(getWindow: () => BrowserWindow | null): void {
   // Nur gepackt + Windows: dev = kein Feed, Linux = Flatpak.
   if (!app.isPackaged || process.platform !== 'win32') return;
+
+  // electron-updater wird NUR in den Windows-Builds mitgeliefert (electron-builder
+  // zieht es als Production-Dep in die asar). Das Flatpak/Linux-Bundle enthält es
+  // bewusst NICHT (kein node_modules, esbuild-`--external`). Deshalb erst HIER —
+  // nach dem win32-Gate — lazy requiren: ein Top-Level-Import würde beim Laden des
+  // Moduls ausgeführt und ließe die App auf Linux mit "Cannot find module
+  // 'electron-updater'" crashen, bevor das Gate überhaupt greift.
+  const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
 
   const send = (channel: string, payload?: unknown): void => {
     const win = getWindow();
