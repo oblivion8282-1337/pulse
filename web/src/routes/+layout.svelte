@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster } from '$lib/components/ui/sonner/index.js';
+  import { toast } from 'svelte-sonner';
   import { settings } from '$lib/stores/settings.svelte';
   import { initDesktopPtt } from '$lib/platform/ptt';
   import { initStream } from '$lib/stream/state.svelte';
@@ -85,10 +86,31 @@
       });
     }
 
+    // Auto-Update-Banner (Windows-Desktop). Main (electron-updater) lädt das
+    // Update selbst und feuert `updates:ready`, sobald es installierbereit ist.
+    // Wir zeigen einen persistenten sonner-Toast mit „Neu starten"-Button
+    // (quitAndInstall via main). Ignoriert der User ihn, installiert das Update
+    // automatisch beim nächsten App-Beenden (autoInstallOnAppQuit). `onReady`
+    // feuert außerhalb gepackter Windows-Builds nie → kein Guard nötig.
+    let disposeUpdate: (() => void) | undefined;
+    if (isElectron()) {
+      disposeUpdate = window.pulse?.updates?.onReady((data) => {
+        toast('Update bereit', {
+          description: `Version ${data.version} wird installiert, sobald du neu startest.`,
+          duration: Infinity,
+          action: {
+            label: 'Neu starten',
+            onClick: () => void window.pulse?.updates?.restartNow(),
+          },
+        });
+      });
+    }
+
     return () => {
       disposePtt?.();
       disposeStream?.();
       disposeInvite?.();
+      disposeUpdate?.();
     };
   });
 </script>

@@ -137,4 +137,26 @@ contextBridge.exposeInMainWorld('pulse', {
       return () => ipcRenderer.removeListener('notify:click', handler);
     },
   },
+
+  // Auto-Update (Windows, gepackt). Main (`updater.ts`) lädt Updates selbst über
+  // electron-updater; der Renderer zeigt nur das „Update bereit"-Banner und
+  // triggert den Sofort-Neustart. In dev / im Browser / auf Linux feuert
+  // `onReady` nie (main gated den Updater auf app.isPackaged && win32).
+  updates: {
+    /** Update wurde heruntergeladen + ist installierbereit. Returns unsubscribe-fn. */
+    onReady(cb: (data: { version: string }) => void): () => void {
+      const handler = (_e: unknown, data: unknown): void => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        if (typeof d.version !== 'string') return;
+        cb({ version: d.version });
+      };
+      ipcRenderer.on('updates:ready', handler);
+      return () => ipcRenderer.removeListener('updates:ready', handler);
+    },
+    /** Heruntergeladenes Update installieren + sofort neu starten (Banner-Button). */
+    restartNow: (): Promise<void> => ipcRenderer.invoke('updates:restart'),
+    /** Manueller Re-Check (optional — der Start-Check läuft automatisch in main). */
+    check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
+  },
 });

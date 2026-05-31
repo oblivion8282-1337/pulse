@@ -333,6 +333,11 @@ services:
       # `${HOME}` so future VPS-user changes (e.g. dedicated `pulse` user) don't
       # require editing this file.
       - ${HOME}/pulse/flatpak-repo:/srv/flatpak-repo:ro
+      # Windows-Auto-Update-Feed (electron-updater). win-build.yml rsynct den
+      # NSIS-Installer + latest.yml + .blockmap in diesen Host-Ordner;
+      # web-nginx.conf serviert ihn unter /updates/win/. Read-only; fehlender
+      # Host-Ordner => Docker legt ihn leer an (=> /updates/win/* 404, harmlos).
+      - ${HOME}/pulse/updates-win:/srv/updates-win:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 30s

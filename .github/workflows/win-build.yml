@@ -1,9 +1,11 @@
 name: win-build
 
-# Baut die portable Windows-.exe (Pulse-Desktop inkl. HQ-Streaming-Sidecar)
-# und veröffentlicht sie als Release-Asset unter dem rollenden Tag
-# `desktop-latest`. Eine .exe deckt NVIDIA *und* AMD ab — der Sidecar erkennt
-# die GPU selbst.
+# Baut den Windows-NSIS-Installer (Pulse-Desktop inkl. HQ-Streaming-Sidecar)
+# samt Auto-Update-Artefakten und lädt sie per scp auf den Cloud-VPS, von wo nginx sie
+# unter https://howispulse.com/updates/win/ ausliefert. electron-updater in der
+# App pollt dort `latest.yml`. Gleiches Deploy-Muster wie der Flatpak-OSTree-Push
+# (flatpak.yml) — selbe VPS-SSH-Secrets. Eine .exe deckt NVIDIA *und* AMD ab —
+# der Sidecar erkennt die GPU selbst.
 #
 # Läuft bei jedem main-Push, der den Desktop-Wrapper oder den Windows-Sidecar
 # berührt. Manuell auslösbar via "Run workflow".
@@ -17,8 +19,11 @@ on:
       - '.github/workflows/win-build.yml'
   workflow_dispatch: {}
 
-permissions:
-  contents: write # für das Release-Asset
+# Parallele Pushes dürfen nicht auf dem Upload-Target rasen; laufenden Upload
+# zu Ende laufen lassen (wie flatpak.yml).
+concurrency:
+  group: win-build
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -69,25 +74,58 @@ jobs:
       - name: Dependencies
         run: pnpm install --frozen-lockfile
 
-      # esbuild-Bundle + electron-builder → desktop/release/Pulse-*-portable.exe.
-      # Zieht den Sidecar + DLLs aus streaming/win-hq-sidecar/target/release/
-      # als extraResources (siehe desktop/electron-builder.yml).
-      - name: Portable .exe bauen
+      # esbuild-Bundle + electron-builder → desktop/release/:
+      #   Pulse-Setup-<version>.exe  (NSIS-Installer)
+      #   latest.yml                 (electron-updater-Feed: Version + SHA512)
+      #   *.blockmap                 (Delta-Download-Map)
+      # `dist:win` läuft mit `--publish never` — der Upload macht der scp-Step
+      # unten, nicht electron-builder. Zieht den Sidecar + DLLs aus
+      # streaming/win-hq-sidecar/target/release/ als extraResources (siehe
+      # desktop/electron-builder.yml).
+      - name: NSIS-Installer bauen
         run: pnpm --filter @dcc/desktop run dist:win
 
-      - name: .exe als Workflow-Artefakt
+      # Build-Artefakt als Fallback/Direktdownload (auch ohne erfolgreichen Upload).
+      - name: Installer als Workflow-Artefakt
         uses: actions/upload-artifact@v4
         with:
-          name: Pulse-portable-win
-          path: desktop/release/Pulse-*-portable.exe
+          name: Pulse-Setup-win
+          path: desktop/release/Pulse-Setup-*.exe
           if-no-files-found: error
 
-      # Rollendes Release: jeder Build überschreibt das Asset unter dem festen
-      # Tag `desktop-latest` → stabile Download-URL für die Tester.
-      - name: Release "desktop-latest" aktualisieren
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: desktop-latest
-          name: Pulse Desktop — neuester Build
-          prerelease: true
-          files: desktop/release/Pulse-*-portable.exe
+      # Update-Feed per scp auf den Cloud-VPS (dieselben SSH-Secrets wie
+      # flatpak.yml). nginx serviert ~/pulse/updates-win unter /updates/win/
+      # (siehe infra/prod/web-nginx.conf + docker-compose.yml).
+      - name: SSH für scp einrichten
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      # scp statt rsync: der windows-latest-Runner hat KEIN rsync vorinstalliert
+      # (flatpak.yml läuft auf Ubuntu + apt-get install rsync), aber den
+      # OpenSSH-Client (scp) inkl. Git-Bash. scp lädt nur die genannten Dateien
+      # hoch und löscht NIE etwas — alte Setup-.exe + .blockmap bleiben damit
+      # liegen, sodass electron-updater Delta-Downloads von der Vorgängerversion
+      # fahren kann. Das Zielverzeichnis ~/pulse/updates-win/ muss auf dem Server
+      # existieren (einmalig anlegen; scp legt es nicht an).
+      - name: Update-Feed nach howispulse hochladen
+        shell: bash
+        run: |
+          scp -i ~/.ssh/id_ed25519 \
+            desktop/release/latest.yml \
+            desktop/release/Pulse-Setup-*.exe \
+            desktop/release/Pulse-Setup-*.exe.blockmap \
+            michael@159.195.150.54:pulse/updates-win/
+
+      - name: SSH-Key wieder entfernen
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/id_ed25519

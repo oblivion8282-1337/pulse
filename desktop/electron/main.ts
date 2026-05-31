@@ -32,6 +32,7 @@ import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray } from './tray';
 import { wireNotify } from './notify';
+import { wireUpdater } from './updater';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 
 // Override the user-visible app name BEFORE any other Electron API touches it.
@@ -411,6 +412,8 @@ app.whenReady().then(() => {
   wireSidecar();
   wireScreenShare();
   wireNotify(() => mainWindow);
+  // Auto-Update (Windows, gepackt) — no-op in dev / auf Linux.
+  wireUpdater(() => mainWindow);
   createWindow();
   createTray(
     () => mainWindow,

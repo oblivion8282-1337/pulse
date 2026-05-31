@@ -1,9 +1,15 @@
-# electron-builder — Windows-Portable-Build.
+# electron-builder — Windows-NSIS-Installer mit Auto-Update.
 #
-# Erzeugt EINE einzelne `Pulse-<version>-portable.exe` (kein Installer): die
-# Electron-Runtime + das gebundelte main/preload + der HQ-Streaming-Sidecar
-# (`pulse-win-hq-sidecar.exe` + FFmpeg-DLLs) in einem File. Doppelklick startet,
-# nichts zu installieren.
+# Erzeugt einen NSIS-Installer `Pulse-Setup-<version>.exe` (per-User, oneClick,
+# kein UAC) + die Auto-Update-Artefakte `latest.yml` + `.blockmap`. Der Installer
+# bündelt die Electron-Runtime + das esbuild-Bundle (main/preload) + den
+# HQ-Streaming-Sidecar (`pulse-win-hq-sidecar.exe` + FFmpeg-DLLs).
+#
+# Auto-Update: electron-updater (s. `electron/updater.ts`) pollt beim Start den
+# generic-Feed unter `publish.url` (→ `latest.yml`), lädt neue Versionen selbst
+# und installiert sie beim nächsten Beenden bzw. sofort per Banner-Button. Die
+# CI (`.github/workflows/win-build.yml`) rsynct Setup-.exe + latest.yml +
+# .blockmap nach howispulse.com (gleiches Muster wie der Flatpak-OSTree-Push).
 #
 # Eine .exe deckt NVIDIA *und* AMD ab — der Sidecar erkennt die GPU selbst und
 # wählt den Pfad (NVIDIA-Zero-Copy / AMD-CPU).
@@ -17,8 +23,12 @@ productName: Pulse
 directories:
   output: release
 # Was in die app.asar wandert — das esbuild-Bundle + package.json (für das
-# `main`-Feld) + das App-Icon. Keine node_modules: main.cjs ist bereits
-# gebundelt, `electron` ist external und wird von der Runtime selbst aufgelöst.
+# `main`-Feld) + das App-Icon. `electron-updater` steht in package.json unter
+# `dependencies` (Production) und wird von electron-builder über den
+# Dependency-Walker AUTOMATISCH samt Transitiv-Deps in die asar gezogen — die
+# `files`-Allowlist filtert nur App-Sourcen, nicht die Production-node_modules.
+# main.cjs ist esbuild-gebündelt (electron + electron-updater sind `--external`,
+# werden also zur Laufzeit aus node_modules / der Runtime aufgelöst).
 # `electron/icon.png` MUSS mit rein: `main.ts`/`tray.ts` laden es zur Laufzeit
 # über `path.join(__dirname, '..', 'icon.png')` (= electron/icon.png in der asar)
 # für das Fenster-/Taskbar-/Tray-Icon. Ohne diesen Eintrag fehlt das Icon im
@@ -37,14 +47,30 @@ extraResources:
       - pulse-win-hq-sidecar.exe
       - "*.dll"
 win:
-  target: portable
+  target: nsis
   icon: electron/icon.png
   # winCodeSign (das Tool zum Editieren der exe-Ressourcen/Signieren) enthält
   # macOS-Symlinks, deren Extraktion auf Windows ohne Admin/Developer-Mode
-  # scheitert ("Cannot create symbolic link"). Wir signieren nicht — also den
-  # ganzen Sign-&-Edit-Schritt abschalten. Kosten: das exe-Datei-Icon bleibt
+  # scheitert ("Cannot create symbolic link"). Wir signieren (noch) nicht — also
+  # den ganzen Sign-&-Edit-Schritt abschalten. Kosten: das exe-Datei-Icon bleibt
   # das Electron-Default (Fenster-/Taskbar-Icon setzt die App selbst zur
-  # Laufzeit). Für einen Test-Build irrelevant.
+  # Laufzeit) + SmartScreen warnt beim Erst-Download. Auto-Update läuft trotzdem
+  # (electron-updater verifiziert über die SHA512 aus latest.yml, nicht über die
+  # Signatur). Ein Code-Signing-Cert ist später nachrüstbar.
   signAndEditExecutable: false
-portable:
-  artifactName: Pulse-${version}-portable.exe
+# NSIS-Installer im Discord-Stil: kein Wizard, per-User → kein UAC/Admin nötig
+# (passt zu unsigniert). per-User landet unter %LOCALAPPDATA%\Programs\Pulse;
+# electron-updater installiert Updates an denselben Ort ohne Elevation.
+nsis:
+  oneClick: true
+  perMachine: false
+  artifactName: Pulse-Setup-${version}.exe
+  deleteAppDataOnUninstall: false
+# Auto-Update-Feed (generic). electron-builder schreibt daraus `app-update.yml`
+# in resources/ (electron-updater liest es zur Laufzeit) und erzeugt `latest.yml`
+# neben der Setup-.exe in release/. Der tatsächliche Upload macht NICHT
+# electron-builder (Build läuft mit `--publish never`), sondern der rsync-Step
+# in win-build.yml — diese URL muss exakt der nginx-Route /updates/win/ matchen.
+publish:
+  provider: generic
+  url: https://howispulse.com/updates/win/

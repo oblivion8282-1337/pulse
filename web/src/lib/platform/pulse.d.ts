@@ -97,6 +97,20 @@ export interface PulseInviteApi {
   getPending(): Promise<PulseInvitePayload | null>;
 }
 
+/** Auto-Update bridge (Windows packaged builds). Main (`updater.ts`) runs
+ *  electron-updater and downloads updates itself; the renderer only shows the
+ *  „Update bereit" banner and triggers the immediate restart. `onReady` never
+ *  fires in dev / browser / on Linux (main gates the updater on app.isPackaged
+ *  && win32). Optional on `PulseApi` — only present under Electron. */
+export interface PulseUpdatesApi {
+  /** Fires when an update is downloaded and ready to install. Returns unsubscribe. */
+  onReady(cb: (data: { version: string }) => void): () => void;
+  /** Install the downloaded update and restart now (banner button). */
+  restartNow(): Promise<void>;
+  /** Manually re-trigger an update check (the start-up check runs automatically). */
+  check(): Promise<void>;
+}
+
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
@@ -104,6 +118,7 @@ export interface PulseApi {
   gsr: PulseGsrApi;
   notify: PulseNotifyApi;
   invite?: PulseInviteApi;
+  updates?: PulseUpdatesApi;
 }
 
 declare global {
