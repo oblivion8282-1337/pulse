@@ -87,6 +87,7 @@ DEFAULT_EVERYONE_PERMISSIONS: int = int(
     | Permissions.CONNECT
     | Permissions.SPEAK
     | Permissions.STREAM
+    | Permissions.USE_VIDEO
 )
 
 
