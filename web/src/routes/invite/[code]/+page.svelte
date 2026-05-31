@@ -47,6 +47,11 @@
   let busy = $state(false);
   let error = $state<string | null>(null);
 
+  // Already in this community? Then "Beitreten" is a no-op — disable it and
+  // offer a way back instead of a dead end. `guilds.byId` holds the guilds the
+  // current user has joined. (Same guard as InviteEmbed in the chat card.)
+  let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
+
   // Ensure the deep-link server is in the store and switched to active.
   function ensureDeepLinkServer(): void {
     if (!deepLinkHostname) return;
@@ -186,11 +191,18 @@
       <Button
         class="w-full"
         onclick={join}
-        disabled={busy}
+        disabled={busy || alreadyMember}
         data-testid="invite-join-btn"
       >
-        {busy ? m.invite_page_joining() : m.invite_page_join()}
+        {alreadyMember
+          ? m.invite_page_already_member()
+          : busy
+            ? m.invite_page_joining()
+            : m.invite_page_join()}
       </Button>
+      {#if alreadyMember}
+        <a class="text-primary hover:underline text-sm block" href="/app">{m.invite_page_back_to_app()}</a>
+      {/if}
     {:else if error}
       <Alert.Root variant="destructive" data-testid="invite-load-error">
         <OctagonXIcon />

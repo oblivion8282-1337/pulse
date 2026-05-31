@@ -11,6 +11,7 @@
   import type { InvitePreview } from '$lib/api/types';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { guilds } from '$lib/stores/guilds.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let { code }: { code: string } = $props();
@@ -18,6 +19,11 @@
   let preview = $state<InvitePreview | null>(null);
   let invalid = $state(false);
   let loading = $state(true);
+
+  // Already a member of the community this invite points to? Then "Beitreten"
+  // makes no sense — disable it and relabel. `guilds.byId` holds exactly the
+  // guilds the current user has joined.
+  let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
 
   onMount(async () => {
     try {
@@ -75,8 +81,13 @@
         {m.invite_embed_member_count({ count: preview.member_count })}
       </p>
     </div>
-    <Button size="sm" onclick={handleJoin} data-testid="invite-embed-join-btn">
-      {m.invite_embed_join()}
+    <Button
+      size="sm"
+      onclick={handleJoin}
+      disabled={alreadyMember}
+      data-testid="invite-embed-join-btn"
+    >
+      {alreadyMember ? m.invite_embed_joined() : m.invite_embed_join()}
     </Button>
   {/if}
 </div>
