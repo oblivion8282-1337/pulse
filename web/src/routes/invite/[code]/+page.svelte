@@ -65,6 +65,10 @@
   async function loadPreview(): Promise<void> {
     try {
       preview = await chatApi.getInvitePreview(code);
+      // This route lives outside the /app layout, so the guilds store isn't
+      // hydrated here — pull it (best-effort) so `alreadyMember` can tell
+      // whether the user is already in this community and disable "Beitreten".
+      if (auth.isAuthenticated) void guilds.hydrate().catch(() => undefined);
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) {
         invalid = true;
