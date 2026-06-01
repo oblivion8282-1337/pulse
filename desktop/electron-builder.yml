@@ -1,7 +1,7 @@
 # electron-builder — Windows-NSIS-Installer mit Auto-Update.
 #
-# Erzeugt einen NSIS-Installer `Pulse-Setup-<version>.exe` (per-User, oneClick,
-# kein UAC) + die Auto-Update-Artefakte `latest.yml` + `.blockmap`. Der Installer
+# Erzeugt einen NSIS-Installer `Pulse-Setup-<version>.exe` (per-User, assistierter
+# Wizard, kein UAC) + die Auto-Update-Artefakte `latest.yml` + `.blockmap`. Der Installer
 # bündelt die Electron-Runtime + das esbuild-Bundle (main/preload) + den
 # HQ-Streaming-Sidecar (`pulse-win-hq-sidecar.exe` + FFmpeg-DLLs).
 #
@@ -22,6 +22,10 @@ appId: com.howispulse.pulse
 productName: Pulse
 directories:
   output: release
+  # Branding-Assets für den NSIS-Wizard liegen hier (NICHT `build/` — das ist global
+  # .gitignore'd, Zeile 17). electron-builder findet installerSidebar.bmp / installerHeader.bmp
+  # / installer-/uninstallerIcon.ico / uninstallerSidebar.bmp hier per Namenskonvention.
+  buildResources: build-resources
 # Was in die app.asar wandert — das esbuild-Bundle + package.json (für das
 # `main`-Feld) + das App-Icon. `electron-updater` steht in package.json unter
 # `dependencies` (Production) und wird von electron-builder über den
@@ -58,12 +62,30 @@ win:
   # (electron-updater verifiziert über die SHA512 aus latest.yml, nicht über die
   # Signatur). Ein Code-Signing-Cert ist später nachrüstbar.
   signAndEditExecutable: false
-# NSIS-Installer im Discord-Stil: kein Wizard, per-User → kein UAC/Admin nötig
-# (passt zu unsigniert). per-User landet unter %LOCALAPPDATA%\Programs\Pulse;
-# electron-updater installiert Updates an denselben Ort ohne Elevation.
+# Assistierter NSIS-Wizard (gebrandet), per-User → kein UAC/Admin nötig (passt zu
+# unsigniert). per-User landet unter %LOCALAPPDATA%\Programs\Pulse; electron-updater
+# installiert Updates an denselben Ort ohne Elevation (Auto-Update ruft den Installer
+# mit /S silent auf — der assistierte Wizard erscheint dabei NICHT, nur beim echten
+# Erst-Install per Doppelklick).
+#
+# Vorher war's `oneClick: true` (stiller Installer ganz ohne Fenster) — verwirrend,
+# weil der Erst-Install ohne jedes Feedback durchlief und die App (die ihre UI erst
+# nach Remote-Load von howispulse.com via `ready-to-show` einblendet) "scheinbar nicht
+# startete". Der Wizard mit Welcome-/Fortschritts-/Finish-Seite macht den Install sichtbar.
+#
+# Branding-Assets liegen unter `build-resources/` (s. directories.buildResources) und
+# werden von electron-builder per Namenskonvention automatisch eingebunden:
+# installerSidebar.bmp (164×314, Welcome/Finish),
+# installerHeader.bmp (150×57, Innenseiten), installer-/uninstallerIcon.ico (Setup-
+# Datei-Icon — greift auch ohne signAndEditExecutable, da NSIS sein eigenes Icon setzt),
+# uninstallerSidebar.bmp. Generiert aus electron/icon.png (dunkler Verlauf + Logo + Wortmarke).
 nsis:
-  oneClick: true
-  perMachine: false
+  oneClick: false                          # assistierter Wizard statt stillem Install
+  perMachine: false                        # per-User → kein UAC
+  allowToChangeInstallationDirectory: false # fixe Location (Discord-Stil), kein Verzeichnis-Dialog
+  runAfterFinish: true                     # Finish-Seite: "Pulse jetzt starten"-Häkchen
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
   artifactName: Pulse-Setup-${version}.exe
   deleteAppDataOnUninstall: false
 # Auto-Update-Feed (generic). electron-builder schreibt daraus `app-update.yml`
