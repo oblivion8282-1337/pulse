@@ -52,16 +52,23 @@ extraResources:
       - "*.dll"
 win:
   target: nsis
-  icon: electron/icon.png
-  # winCodeSign (das Tool zum Editieren der exe-Ressourcen/Signieren) enthält
-  # macOS-Symlinks, deren Extraktion auf Windows ohne Admin/Developer-Mode
-  # scheitert ("Cannot create symbolic link"). Wir signieren (noch) nicht — also
-  # den ganzen Sign-&-Edit-Schritt abschalten. Kosten: das exe-Datei-Icon bleibt
-  # das Electron-Default (Fenster-/Taskbar-Icon setzt die App selbst zur
-  # Laufzeit) + SmartScreen warnt beim Erst-Download. Auto-Update läuft trotzdem
-  # (electron-updater verifiziert über die SHA512 aus latest.yml, nicht über die
-  # Signatur). Ein Code-Signing-Cert ist später nachrüstbar.
-  signAndEditExecutable: false
+  # Echtes Multi-Size-.ico (16–256px, aus electron/icon.png generiert) — wird in die
+  # .exe eingebettet UND als App-Icon genutzt. WICHTIG: ein PNG hier reicht NICHT fürs
+  # exe-Embedding via rcedit; es muss ein .ico sein.
+  icon: build-resources/icon.ico
+  # signAndEditExecutable=true: electron-builder bettet via rcedit das Icon + Versions-
+  # Infos in die .exe ein. OHNE das blieb das exe-Datei-Icon das generische Electron-
+  # Atom → der Windows-Taskleisten-Button (der das .exe-/Verknüpfungs-Icon nutzt, nicht
+  # das zur Laufzeit gesetzte Fenster-Icon) zeigte das Default-Icon. Fenster- + Tray-Icon
+  # waren schon korrekt (main.ts/tray.ts setzen sie aus icon.png zur Laufzeit).
+  #
+  # Der frühere "Cannot create symbolic link"-Fehler stammte vom winCodeSign-Entpacken
+  # OHNE Entwicklermodus (lokal). rcedit (reines Icon-/Resource-Editieren) braucht
+  # winCodeSign NICHT — das wird nur fürs echte Signieren geladen, und ohne Zertifikat
+  # signiert electron-builder nicht. Auf den GitHub-Windows-Runnern läuft das Embedding
+  # durch. (Unsigniert bleibt's weiterhin → SmartScreen-Warnung beim Erst-Download;
+  # Auto-Update verifiziert über SHA512 aus latest.yml, nicht über die Signatur.)
+  signAndEditExecutable: true
 # Assistierter NSIS-Wizard (gebrandet), per-User → kein UAC/Admin nötig (passt zu
 # unsigniert). per-User landet unter %LOCALAPPDATA%\Programs\Pulse; electron-updater
 # installiert Updates an denselben Ort ohne Elevation (Auto-Update ruft den Installer
