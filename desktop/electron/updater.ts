@@ -52,10 +52,15 @@ export function wireUpdater(getWindow: () => BrowserWindow | null): void {
   autoUpdater.on('error', (err) => console.error('[updater]', err));
 
   // Renderer-getriggerter Sofort-Neustart aus dem Banner-Button.
-  // isSilent=false (NSIS-Fortschritt zeigen), isForceRunAfter=true (App danach
-  // wieder hochfahren).
+  // isSilent=true → der NSIS-Installer läuft mit /S durch (kein Wizard, keine
+  // Klicks), isForceRunAfter=true → App danach automatisch wieder hochfahren.
+  // Wichtig seit der Umstellung auf den assistierten Wizard (electron-builder.yml
+  // nsis.oneClick=false): mit isSilent=false würde hier beim Auto-Update der VOLLE
+  // Wizard mit Weiter-Klicks aufgehen — unerwünscht. Der gebrandete Wizard ist nur
+  // für den manuellen Erst-Install gedacht; In-App-Updates bleiben nahtlos (Discord-
+  // Stil). Der Install-beim-Beenden-Pfad (autoInstallOnAppQuit) ist ohnehin still.
   ipcMain.handle('updates:restart', () => {
-    autoUpdater.quitAndInstall(false, true);
+    autoUpdater.quitAndInstall(true, true);
   });
   // Optionaler manueller Re-Check aus dem Renderer (der Start-Check unten läuft
   // ohnehin automatisch).
