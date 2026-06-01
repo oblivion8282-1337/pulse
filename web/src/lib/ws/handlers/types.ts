@@ -251,7 +251,8 @@ export type ClientEvent =
       position: number;
     }
   | { op: 'watch_heartbeat'; channel_id: string; position: number }
-  | { op: 'activity' };
+  | { op: 'activity' }
+  | { op: 'ping' };
 
 /** Narrow `ServerEvent` to the variant that has the given `op`. Used by
  *  individual handler modules so they keep static-typing on `evt`. */

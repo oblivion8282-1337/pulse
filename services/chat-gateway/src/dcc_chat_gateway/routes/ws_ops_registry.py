@@ -90,6 +90,7 @@ CORE_OPS: frozenset[str] = frozenset({
     "unsubscribe",
     "voice_self_state",
     "activity",
+    "ping",
     "watch_start",
     "watch_stop",
     "watch_control",

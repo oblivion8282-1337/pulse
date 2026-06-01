@@ -11,7 +11,13 @@ import { currentAccessToken } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
-import { MIN_SERVER_VERSION, RECONNECT_BACKOFF_MS, WS_CLOSE } from '$lib/api/constants';
+import {
+  MIN_SERVER_VERSION,
+  RECONNECT_BACKOFF_MS,
+  WS_CLOSE,
+  WS_PING_INTERVAL_MS,
+  WS_PONG_TIMEOUT_MS,
+} from '$lib/api/constants';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { sounds } from '$lib/sounds/engine';
@@ -83,6 +89,8 @@ export class GatewayConnection {
   private guildDeletedHooks = new Set<GuildDeletedHook>();
   private wantConnected = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPongAt = 0;
   private connectPromise: Promise<void> | null = null;
   private forceRefreshNext = false;
   private _readyDone = false;
@@ -246,6 +254,7 @@ export class GatewayConnection {
           voice.resyncSelfState();
         });
         void gapFillAll(this.subs);
+        this._startHeartbeat();
         resolve();
       });
       ws.addEventListener('message', (event) => {
@@ -253,6 +262,14 @@ export class GatewayConnection {
         try {
           evt = JSON.parse(event.data) as ServerEvent;
         } catch {
+          return;
+        }
+        // Keepalive reply — record liveness and swallow it before the
+        // firstFrame/handler path so it never reaches the dispatch registry
+        // (which would log it as an unknown op). `pong` is never the first
+        // frame: it only arrives in response to a ping we send ≥25s post-open.
+        if ((evt as unknown as { op: string }).op === 'pong') {
+          this.lastPongAt = Date.now();
           return;
         }
         if (firstFrame) {
@@ -277,6 +294,7 @@ export class GatewayConnection {
       });
       ws.addEventListener('close', (event) => {
         this.ws = null;
+        this._stopHeartbeat();
         this._mapCloseCode(event.code);
         // Reject the _dial promise if the socket never opened, then fall
         // through to schedule a reconnect regardless (wantConnected check
@@ -323,6 +341,37 @@ export class GatewayConnection {
     void dispatch(evt);
   }
 
+  /** Start the keepalive once a socket opens. Sends a ping every
+   *  WS_PING_INTERVAL_MS; if no pong has arrived within WS_PONG_TIMEOUT_MS
+   *  the connection is half-open (silent TCP drop, no close event) — force a
+   *  `ws.close()` so the existing close→reconnect path fires. */
+  private _startHeartbeat(): void {
+    this._stopHeartbeat();
+    this.lastPongAt = Date.now();
+    this.heartbeatTimer = setInterval(() => this._heartbeatTick(), WS_PING_INTERVAL_MS);
+  }
+
+  private _stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
+  private _heartbeatTick(): void {
+    const ws = this.ws;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (Date.now() - this.lastPongAt > WS_PONG_TIMEOUT_MS) {
+      // Dead/half-open: closing surfaces the `close` event the dropped TCP
+      // never delivered, which schedules a reconnect (wantConnected stays
+      // true). Stop ticking now; the close handler also calls _stopHeartbeat.
+      this._stopHeartbeat();
+      try { ws.close(); } catch { /* already closing */ }
+      return;
+    }
+    this._sendRaw({ op: 'ping' });
+  }
+
   private _scheduleReconnect(): void {
     if (this.reconnectTimer) return;
     const wait =
@@ -336,6 +385,7 @@ export class GatewayConnection {
 
   disconnect(): void {
     this.wantConnected = false;
+    this._stopHeartbeat();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

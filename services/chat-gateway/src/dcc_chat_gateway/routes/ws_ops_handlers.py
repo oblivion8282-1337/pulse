@@ -173,6 +173,20 @@ async def handle_watch_heartbeat(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_watch.handle_heartbeat(ctx.websocket, ctx.user, msg)
 
 
+@register_ws_op("ping")
+async def handle_ping(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """Keepalive ping → immediate ``pong`` reply.
+
+    The browser WebSocket API can neither send protocol-level pings nor
+    surface a half-open connection (a silently-dropped TCP socket never
+    fires ``close``). So the client sends ``{"op": "ping"}`` on an interval
+    and force-closes + reconnects when no ``pong`` returns within its
+    timeout. This reply is the only thing the server owes — no DB, no Redis,
+    no side effects, so it stays cheap enough to run on every open socket.
+    """
+    await ctx.websocket.send_json({"op": "pong"})
+
+
 @register_ws_op("activity")
 async def handle_activity(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     """Etappe-3 client heartbeat / mouse-move / key-press.
