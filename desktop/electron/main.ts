@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, ipcMain, session, desktopCapturer, shell } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, session, desktopCapturer, shell } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -406,6 +406,9 @@ app.on('second-instance', (_event, argv) => {
 // still works.
 
 app.whenReady().then(() => {
+  // Pulse ist eine Web-App im Fenster — Electrons Default-Menü (File/Edit/View/
+  // Window/Help) hat hier keinen Sinn. Komplett entfernen statt nur ausblenden.
+  Menu.setApplicationMenu(null);
   initStore();
   wireStore();
   wireInvitePull();
