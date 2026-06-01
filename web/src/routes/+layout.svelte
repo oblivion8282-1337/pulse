@@ -2,6 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
+  import { updated } from '$app/state';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster } from '$lib/components/ui/sonner/index.js';
   import { toast } from 'svelte-sonner';
@@ -40,6 +41,26 @@
   initSelfHostReauth();
 
   let { children } = $props();
+
+  // Neue-Web-Version-Hinweis: SvelteKit pollt `_app/version.json` (Intervall in
+  // svelte.config.js). Sobald die deployte Version ≠ der laufenden ist, wird
+  // `updated.current` true → einmaliger persistenter Toast mit „Neu laden".
+  // Greift in Browser + Electron (beide laden die Remote-App), kein Backend
+  // nötig. Guard, damit der Poll den Toast nicht bei jedem Tick neu aufmacht.
+  let _updateToastShown = false;
+  $effect(() => {
+    if (updated.current && !_updateToastShown) {
+      _updateToastShown = true;
+      toast('Neue Version verfügbar', {
+        description: 'Lade neu für die neueste Pulse-Version.',
+        duration: Infinity,
+        action: {
+          label: 'Neu laden',
+          onClick: () => location.reload(),
+        },
+      });
+    }
+  });
 
   // Re-assert the persisted appearance preference (dcc.settings) as the source
   // of truth once ModeWatcher has mounted.
