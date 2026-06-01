@@ -119,11 +119,19 @@ jobs:
       - name: Update-Feed nach howispulse hochladen
         shell: bash
         run: |
+          EXE=$(ls desktop/release/Pulse-Setup-*.exe)
           scp -i ~/.ssh/id_ed25519 \
             desktop/release/latest.yml \
-            desktop/release/Pulse-Setup-*.exe \
-            desktop/release/Pulse-Setup-*.exe.blockmap \
+            "$EXE" \
+            "$EXE.blockmap" \
             michael@159.195.150.54:pulse/updates-win/
+          # Zusätzlich unter festem Dateinamen ablegen → stabiler Direktdownload
+          # zum Weitergeben: https://howispulse.com/updates/win/Pulse-Setup-latest.exe
+          # Wird bei jedem Build überschrieben. electron-updater nutzt ihn NICHT
+          # (liest nur latest.yml) → harmlos neben den versionierten Dateien.
+          scp -i ~/.ssh/id_ed25519 \
+            "$EXE" \
+            michael@159.195.150.54:pulse/updates-win/Pulse-Setup-latest.exe
 
       - name: SSH-Key wieder entfernen
         if: always()
