@@ -206,8 +206,11 @@ Pulse-Instanz. Code-Bezeichner bleiben `guild`/`Guild`. Siehe Memory `project_te
 Top-Level `plugins/` (Referenz: `hello` + `tamagotchi`). Manifest = `plugin.toml` (Backend) + `manifest.ts`
 (Frontend-Spiegel, **manuell synchron halten** — Browser hat kein TOML). Loader: `chat_gateway/plugins/loader.py`
 + `web/src/lib/plugins/loader.ts`. Plugin-Ops **colon-namespaced** (`tamagotchi:feed`, Listener-Validator bypasst
-via `:`), outbound `gateway.sendPluginOp(...)`. **`web/Dockerfile` kopiert `plugins/` ins Image** (sonst keine
-Prod-Discovery). Mechanik-Details (Hot-Reload-Interna, UI-Komponenten) + Stufe B (Bot-API)/C (WASM): `docs/PLUGIN_ROADMAP.md`.
+via `:`), outbound `gateway.sendPluginOp(...)`. **Prod-Discovery braucht `plugins/` in ZWEI Images**: (1)
+`web/Dockerfile` für den Frontend-Spiegel (Build-Zeit), (2) `Dockerfile.service` → chat-gateway-Image für die
+**Backend**-Discovery (`discover_plugins_dir()` walkt vom Loader-Code hoch und sucht `/app/plugins`; ohne den
+`COPY plugins/` läuft `discover_manifests()` leer → alle Plugins erscheinen als „verwaist" und werden nie geladen).
+Mechanik-Details (Hot-Reload-Interna, UI-Komponenten) + Stufe B (Bot-API)/C (WASM): `docs/PLUGIN_ROADMAP.md`.
 
 **Aktivierung = zwei Ebenen** (keine per-User-Aktivierung mehr): (1) **Instanz-Allowlist** `chat.instance_plugin_allowlist`
 (Bootstrap-Admin, `GET/PUT/DELETE /admin/plugins[/{name}]`) — Loader registriert nur Allowlist-Plugins; (2) **Pro-Guild-Toggle**
