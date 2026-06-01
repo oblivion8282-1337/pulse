@@ -70,6 +70,18 @@ class AuthStore {
         // sehen). Sonstige Fehler werden gracefully geschluckt.
         import('$lib/identity/issue-flow')
           .then(async ({ runIssueFlow, RecoveryAvailableError }) => {
+            // Proaktiv den 30-Min-`pulse_session`-Cookie neu etablieren, BEVOR
+            // der erste Cookie-Auth-Call (runIssueFlow → /credentials/issue)
+            // läuft. Nach App-Neustart/Tab-Reload ist nur das JWT in
+            // localStorage da, der kurzlebige Cookie ist längst abgelaufen →
+            // sonst 401 auf den ersten Cookie-Endpoint. cookieFetch self-healt
+            // das zwar via 401→renew→retry, aber das rauscht bei jedem Boot in
+            // die Konsole. Best-effort: schlägt der Renew fehl, bleibt der
+            // 401-Retry in cookieFetch die Auffanglinie.
+            try {
+              const { renewSession } = await import('$lib/api/credentials');
+              await renewSession();
+            } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
             try {
               await runIssueFlow();
             } catch (err) {

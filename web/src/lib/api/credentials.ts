@@ -83,7 +83,7 @@ export interface BackupFetchResponse {
  * setzt einen frischen Cookie. Concurrent-Aufrufe teilen sich einen Inflight.
  */
 let _renewInflight: Promise<boolean> | null = null;
-async function renewSession(): Promise<boolean> {
+export async function renewSession(): Promise<boolean> {
   if (_renewInflight) return _renewInflight;
   _renewInflight = (async () => {
     try {
