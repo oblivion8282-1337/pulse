@@ -79,15 +79,13 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
 
 **`allow_guild_creation` default = FALSE** (Migration 0010, 2026-05-18): Fresh-Deploys sind locked-down — nur der Bootstrap-Admin kann Server anlegen. Admin öffnet's via `/admin/permissions` für alle Member. Vorher war's `true` (= Public-Discord-Modell), was für Self-Host falsche Default-Annahme war. `allow_member_invites` bleibt `true` — das ist per-guild-scoped via `CREATE_INVITES`-Permission, nicht global. Test-Convenience: `services/chat-gateway/tests/conftest.py` seedet die Singleton mit `allow_guild_creation=true` (sonst müssten 80% der Tests erst durch den admin-Toggle gehen).
 
-**Permissions** (Voll-Discord, 2026-05-18):
-- Bitfield in `dcc_shared/permissions.py` — `Permissions(IntFlag)` mit 23 Bits in 52-Bit-Budget (JS-Number-safe), bewusst Gaps zwischen Gruppen (Server-Admin 0-4, Member 8-12, Channel 20-27, Voice 30-36, ADMIN 51) für spätere Erweiterung. `GRANT_ALL_SAFE = (1<<52)-1` — Owner/ADMIN resolven dahin (NICHT `~0`), damit reserved bits Null bleiben.
-- Resolver in `dcc_shared/permission_resolver.py` ist pure-Python + DB-agnostisch via `PermissionContext`-Protocol. Discord-Formel `final = (base | allow) & ~deny`, !VIEW_CHANNEL→revoke_all-Invariante (kann nicht "darf schreiben aber nicht sehen" geben → Exploit-Schutz). @everyone wird über `is_everyone`-Flag implizit als erstes appliziert, dann role-overwrites in position-order, zuletzt user-overwrite.
-- 3 DB-Tabellen (chat-gateway): `roles` (mit `is_everyone` partial unique index), `member_roles` (M:N + composite-FK auf guild_members für CASCADE), `permission_overwrites` (target_type 0=role/1=user). Migration 0009 seedet `@everyone` per existierender Guild mit `DEFAULT_EVERYONE_PERMISSIONS`. POST /guilds auto-seedet die @everyone-Rolle bei neuen Guilds (sonst broken-state vor erstem Resolver-Call).
-- Adapter `dcc_chat_gateway/permissions.py`: `check_permission()`, `resolve_permissions()`, `assert_overwrite_within_editor_scope()` (Anti-Escalation — Editor muss jedes Bit selbst halten, das er grantet oder un-deny't).
-- Routes: `/guilds/{id}/roles` (CRUD), `/guilds/{id}/roles-positions` (bulk reorder), `/guilds/{id}/members/{uid}/roles/{rid}` (assign/unassign), `/guilds/{id}/member-roles` (bulk `{uid: [rid]}` für die MemberList — vermeidet N+1), `/channels/{id}/permissions[/{type}/{tid}]` (overwrites), `/guilds/{id}/transfer-ownership` (Owner-only, `confirm_name`-Gate, no-undo), `/guilds/{id}/permissions/me` (resolved bitfield).
-- WS: `ready.guilds[].{roles[], my_role_ids[], my_permissions, owner_id}` eager-geladen; lazy-load der Channel-Overwrites pro Channel beim Öffnen. Events: `role_created/updated/deleted`, `member_roles_updated` (hint ohne payload — receiver re-fetched), `channel_permissions_updated`. `ConnectionManager` filtert `chat:channel:*`/`voice:events`/`stream:events`/`watch:events` durch `_filter_by_view_channel` (DM-Channels passieren ungehindert — kein Permission-Overlay). Per-Socket `_ws_perms`-Cache lazy-fill, invalidiert auf relevant ops.
-- Frontend: `lib/permissions/bitfield.ts` mirrored den Python-Resolver mit BigInt. Stores `roles.svelte.ts`/`channelPermissions.svelte.ts`/`memberRoles.svelte.ts` mit `seedAll`/`ensure`/`recomputeGuild`. UI-Gates: `roles.hasGuildPermission(gid, Perm.X)`. Settings-Modal `GuildSettingsDialog.svelte` (Rollen + Member-Assignment + Owner-Transfer), Channel-Permissions auf `/channels/{cid}/permissions/+page.svelte`. Drag-Drop + Chevron-Up/Down Buttons (Touch/A11y) für Position-Reorder. MemberList gruppiert nach Top-Hoist-Role, Username-Farbe = Top-Color-Role.
-- **Server-Delete + Owner-Transfer bleiben Owner-only** (kein MANAGE_GUILD-Bypass; ADMIN-Globalflag bypasst Delete aber NICHT Transfer). MANAGE_GUILD ist nur rename/icon/settings.
+**Permissions** (Voll-Discord, 2026-05-18) — Bits + Resolver in `dcc_shared/permissions.py` / `permission_resolver.py` (pure-Python, DB-agnostisch via `PermissionContext`-Protocol); Frontend spiegelt das in `lib/permissions/bitfield.ts` mit BigInt (**synchron halten**). 3 chat-gateway-Tabellen (`roles`/`member_roles`/`permission_overwrites`), Routes (`/guilds/{id}/roles*`, `/channels/{id}/permissions`, `…/transfer-ownership`, `…/permissions/me`) + Stores im Code. Die nicht-offensichtlichen Stücke:
+- Discord-Formel `final = (base | allow) & ~deny`; **!VIEW_CHANNEL → revoke_all-Invariante** (kein „darf schreiben aber nicht sehen" → Exploit-Schutz). Reihenfolge: @everyone (implizit via `is_everyone`) → role-overwrites in position-order → user-overwrite.
+- `GRANT_ALL_SAFE = (1<<52)-1` — Owner/ADMIN resolven dahin, **NICHT `~0`** (reserved bits müssen Null bleiben, JS-Number-safe; 23 Bits mit bewussten Gaps für Erweiterung).
+- `assert_overwrite_within_editor_scope()` (`dcc_chat_gateway/permissions.py`): Anti-Escalation — Editor muss jedes Bit selbst halten, das er grantet/un-deny't.
+- POST /guilds **auto-seedet** die `@everyone`-Rolle (sonst broken-state vor erstem Resolver-Call; Migration 0009 seedet Bestands-Guilds).
+- `ConnectionManager._filter_by_view_channel` gatet `chat:channel:*`/`voice:events`/`stream:events`/`watch:events`; **DM-Channels passieren ungefiltert** (kein Overlay). Per-Socket `_ws_perms`-Cache, invalidiert auf relevante ops.
+- **Server-Delete + Owner-Transfer bleiben Owner-only** (kein MANAGE_GUILD-Bypass; ADMIN-Globalflag bypasst Delete aber NICHT Transfer). MANAGE_GUILD = nur rename/icon/settings.
 
 **Voice-Presence** (wer ist im Voice-Channel): LiveKit-Webhooks → voice-signaling `POST /webhook` (Signatur via
 `livekit.api.WebhookReceiver`, Key `devkey` = `webhook:`-Block in `infra/livekit/livekit.yaml`) → pflegt Redis-Sets
@@ -96,38 +94,13 @@ Bridge; nur mit host-Networking erreichen LiveKit `127.0.0.1:8003` (Webhooks) bz
 `voice_states` → Re-Sync nach Reconnect läuft über den `ready`-Frame (das Backend bietet auch
 `GET /guilds/{id}/voice-state` an, hat aber keinen aktiven Frontend-Consumer).
 
-**HQ-Streaming** (per-User-Pfade — mehrere können in denselben Voice-Channel streamen):
-- `media-svc` (8004): vergibt Stream-Tokens (`POST /channels/{cid}/stream-token`, Auth = Pulse-Access-JWT, von
-  chat-gateway nach Membership-Check weitergereicht; Token = `secrets.token_urlsafe(32)`, EX 4h), hält den
-  Stream-State in Redis, published auf `stream:events`, hat einen Poller gegen `MEDIAMTX_API_URL`
-  (default `localhost:9997/v3/paths/list`, 3s) der Publisher erkennt + den State self-healt. `GET /channels/{cid}/whep?user_id=<uid>` → `{whep_url}` (anonymer Read).
-- `mediamtx-auth-hook` (8005): MediaMTX' `authMethod: http`-Delegation (kein DB/JWT, nur Redis). Publish: Pfad
-  `^channel-(\d+)-(\d+)-([0-9a-f]{8})$` (letzte Gruppe = Per-Publish-Nonce, s.u.), `password`/`token` muss `stream:token:<token>` matchen (`scope=="publish"`, `channel_id`+`user_id` müssen zum Pfad passen) → 200 + schreibt `stream:active:channel-<cid>-<uid>`. Read/playback: anonym, nur Pfad-Check. Alles andere → 401.
-- Redis: `stream:token:<token>` (von media-svc, EX 4h; trägt zusätzlich `nonce` = 8 Hex aus `secrets.token_hex(4)`,
-  frisch pro Token-Issue → MediaMTX-Pfad ist `channel-<cid>-<uid>-<nonce>`, umschifft den 1.17.1-Republish-ICE-Race:
-  gleicher Pfad < Sekunden später = tote WebRTC-Session), `stream:active:channel-<cid>-<uid>` (vom auth-hook beim
-  publish-OK, EX 6h, **ohne** Nonce — Feld `.path` hält den vollen Live-Pfad für media-svc' WHEP-Lookup),
-  `stream:channel:<cid>` → `{user_ids:[...], since}` (vom Poller, EX 6h Self-Heal).
-  `stream:events` Pub/Sub: `{channel_id, user_ids:[...]}` pro State-Change. Key-Namen sind in
-  `dcc_media_svc/streamkeys.py` + `dcc_mediamtx_auth_hook/shared.py` **dupliziert** (die Services teilen keinen Code — synchron halten).
-- chat-gateway: abonniert `stream:events` (neben `voice:events`) → broadcastet `{"op":"stream_state","channel_id":..,"user_ids":[..]}`;
-  `ready.stream_states` liest `stream:channel:*` direkt aus Redis (analog `GET /guilds/{id}/stream-state`, das Backend
-  bietet den Endpoint an, aber das Frontend re-synced ausschließlich über `ready`). Zwei
-  Membership-gateete media-svc-Proxies: `POST /channels/{id}/stream-token` (Channel existiert + User=Member + Channel
-  ist Voice-Channel) und `GET /channels/{id}/whep?user_id=<uid>`. Braucht `MEDIA_SVC_URL` (Dev `http://127.0.0.1:8004`;
-  fehlt media-svc → 502 nur auf diesen Routen, Rest läuft).
-- Push geht über **RTMPS** (`rtmps://<host>:1936/...`, Token nicht im Klartext) — MediaMTX `rtmpEncryption: optional`
-  (plain :1935 bleibt funktionsfähig), self-signed Cert als Host-Volume (`/certs/server.{crt,key}`), UFW `1936/tcp`.
-- Frontend: `web/src/lib/stores/streamPresence.svelte.ts` (`byChannel: channelId→string[]`, `streamersIn()/isStreaming()`,
-  gefüttert aus `ready.stream_states` + WS-`stream_state`), `web/src/lib/stream/whep.ts`
-  (hand-rolled WHEP-Client, ~120 Z., keine neue Dep — Pattern aus dem GSR-`player.html`), `stream/components/WhepPlayer.svelte`
-  (Props `userId`+`name`, Retry-Backoff, „Ton aktivieren"-Overlay bei Autoplay-Block, Stats-Overlay),
-  `components/VoiceChannelView.svelte` (HQ-Streams + Browser-Screenshares in einem responsiven Grid; ein `WhepPlayer`
-  pro fremdem Streamer; eigener Stream → kein Self-Echo, nur Indikator + „Stream beenden"). `gsr.ts`/`state.svelte.ts`/
-  `HqStreamButton`/`StreamPanel` gaten auf `isElectron() && (isLinux() || isWindows()) && stream.gsrAvailable`
-  (Windows hat einen eigenen Rust-Sidecar — s.u. **Windows-HQ-Sidecar**).
-- HQ-Panel ist abgespeckt: nur Codec(H.264/AV1)/Auflösung (Native/1080p/720p/480p, downscale-only)/Bitrate/FPS + Audio
-  (inkl. „Bestimmte App" → `audio_mode="App: <name>"` → GSR `-a app:<name>`) + Start/Stop + Log. Pfad/Modus immer Channel/Portal.
+**HQ-Streaming** (per-User-Pfade — mehrere können in denselben Voice-Channel streamen). Voller Datenfluss, Redis-Key-Schema (TTLs, `stream:token/active/channel`, `stream:events`) + Route-Signaturen → `streaming/README.md`. Die Stolpersteine:
+- **media-svc** (8004) vergibt Stream-Tokens (von chat-gateway nach Membership-Check weitergereicht) + pollt `MEDIAMTX_API_URL` (3s) zum Publisher-Self-Heal. **mediamtx-auth-hook** (8005) = MediaMTX `authMethod: http`, nur Redis (kein DB/JWT): Publish prüft Token gegen Pfad, Read/Playback anonym, alles andere 401.
+- **Nonce gegen Republish-ICE-Race**: jeder Token-Issue bekommt frische 8-Hex-Nonce → MediaMTX-Pfad `channel-<cid>-<uid>-<nonce>`. Gleicher Pfad < Sekunden später = tote WebRTC-Session (MediaMTX-1.17.1-Bug). `stream:active:*` hält den vollen Live-Pfad **ohne** Nonce für den WHEP-Lookup.
+- **Redis-Key-Namen sind in `dcc_media_svc/streamkeys.py` + `dcc_mediamtx_auth_hook/shared.py` dupliziert** (Services teilen keinen Code — synchron halten).
+- chat-gateway braucht `MEDIA_SVC_URL` (Dev `http://127.0.0.1:8004`); fehlt media-svc → **502 nur** auf den Stream-Routen, Rest läuft. Re-Sync läuft ausschließlich über den `ready`-Frame (`GET …/stream-state` existiert, kein Frontend-Consumer).
+- Push = **RTMPS** (`rtmps://<host>:1936`, MediaMTX `rtmpEncryption: optional` → plain :1935 bleibt, self-signed Cert `/certs/server.{crt,key}`, UFW `1936/tcp`).
+- Frontend: WHEP-Client `web/src/lib/stream/whep.ts` (hand-rolled, keine neue Dep — Pattern aus GSR-`player.html`). Gating überall `isElectron() && (isLinux() || isWindows()) && stream.gsrAvailable` (Windows = eigener Rust-Sidecar). HQ-Panel: Codec/Auflösung (downscale-only)/Bitrate/FPS/Audio — App-Audio via `audio_mode="App: <name>"` → GSR `-a app:<name>`.
 
 **Desktop ↔ Sidecar-Bridge**: Electron-Main spawnt den Plattform-Sidecar **lazy** beim ersten `gsr:call` aus dem
 Renderer — Linux = Python (`streaming/gsr-sidecar/control.py`), Windows = Rust-Binary
@@ -230,61 +203,23 @@ Pulse-Instanz. Code-Bezeichner bleiben `guild`/`Guild`. Siehe Memory `project_te
 
 ## Plugin-System (Stufe A)
 
-Top-Level `plugins/` mit Referenz-Plugins `hello` + `tamagotchi`. Manifest = `plugin.toml` (Backend) +
-`manifest.ts` (Frontend-Spiegel, manuell synchron halten — Browser hat kein TOML). Backend-Loader
-`chat_gateway/plugins/loader.py` (Discovery beim Startup), Frontend-Loader `web/src/lib/plugins/loader.ts`.
-Plugin-Ops sind **colon-namespaced** (`tamagotchi:feed`) — der Listener-Validator bypasst sie via `:`.
-Outbound: `gateway.sendPluginOp(...)`. **`web/Dockerfile` kopiert `plugins/` ins Image** (sonst keine
-Discovery in Prod). Stufe B (Bot-API) + C (WASM) skizziert in `docs/PLUGIN_ROADMAP.md`, nicht gebaut.
+Top-Level `plugins/` (Referenz: `hello` + `tamagotchi`). Manifest = `plugin.toml` (Backend) + `manifest.ts`
+(Frontend-Spiegel, **manuell synchron halten** — Browser hat kein TOML). Loader: `chat_gateway/plugins/loader.py`
++ `web/src/lib/plugins/loader.ts`. Plugin-Ops **colon-namespaced** (`tamagotchi:feed`, Listener-Validator bypasst
+via `:`), outbound `gateway.sendPluginOp(...)`. **`web/Dockerfile` kopiert `plugins/` ins Image** (sonst keine
+Prod-Discovery). Mechanik-Details (Hot-Reload-Interna, UI-Komponenten) + Stufe B (Bot-API)/C (WASM): `docs/PLUGIN_ROADMAP.md`.
 
-**Aktivierungsmodell (zwei Ebenen, ab Plugin-Admin-Activation-PR)** — KEINE per-User-Aktivierung mehr:
+**Aktivierung = zwei Ebenen** (keine per-User-Aktivierung mehr): (1) **Instanz-Allowlist** `chat.instance_plugin_allowlist`
+(Bootstrap-Admin, `GET/PUT/DELETE /admin/plugins[/{name}]`) — Loader registriert nur Allowlist-Plugins; (2) **Pro-Guild-Toggle**
+`chat.guild_plugins` (`MANAGE_GUILD`, `PUT /guilds/{id}/plugins/{name}`). Admin-PUT/DELETE wirken **live** (Single-Pod,
+`asyncio.Lock`); Guild-Toggle nach ≤60 s (`ws_op_gate`-Cache). Cross-Pod-Notify ist Publish-Only (kein Subscriber, Stufe-B-Vorbereitung).
 
-1. **Instanz-Allowlist** (`chat.instance_plugin_allowlist`, Bootstrap-Admin (`is_admin=true`)) — was darf
-   auf der Instanz laufen? Loader registriert **nur Allowlist-Plugins**. API: `GET/PUT/DELETE /admin/plugins[/{name}]`.
-2. **Pro-Guild-Toggle** (`chat.guild_plugins`, Guild-Admin mit `MANAGE_GUILD`) — pro Server an/aus.
-   API: `GET /guilds/{id}/plugins`, `PUT /guilds/{id}/plugins/{name}`.
-
-**`hello` ist Sonderfall**: immer in der Allowlist (Loader-Self-Heal in `plugins/allowlist.py` +
-Migrations-Seed in `0020`), nicht entfernbar (409), nicht togglebar pro Guild (409). Plugin-Ops
-`hello:*` bypassen Membership + Guild-Toggle.
-
-**WS-Op-Gate** (`plugins/ws_op_gate.py`): vor jedem Plugin-Op-Dispatch — Allowlist + Membership +
-Guild-Toggle (60s-TTL-Cache fürs Toggle-Read). Error-Codes: 4040 (allowlist), 4041 (`guild_id` fehlt),
-4042 (non-member), 4043 (nicht aktiviert). **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen**
-(außer `hello:*`).
-
-**Hot-Reload**: Admin-PUT/DELETE auf `/admin/plugins/{name}` wirken **live** (Single-Pod) — der PUT
-ruft `plugins.loader.activate_plugin` (lädt Backend + `register()`) und aktualisiert
-`app.state.plugin_allowlist` unter `asyncio.Lock`; DELETE entfernt aus dem Snapshot + ruft
-`PluginManager.forget` (Op-/Channel-Registries werden ausgerollt). Cross-Pod-Notify auf
-`plugin:allowlist:changed` ist Publish-Only (Stufe-B-Vorbereitung, kein Subscriber). Guild-Toggle-
-Mutationen wirken nach ≤60 s (`ws_op_gate`-Cache-TTL). Trade-off bei DELETE: die im Loader-Lauf
-registrierten WS-Op-Handler bleiben im Dispatch-Dict, sind aber durch das Allowlist-Gate sofort
-inert — siehe `plugins/loader.deactivate_plugin` für die Begründung (Python-Module nicht sauber
-entladbar, Re-Add-Race vermieden).
-
-**Frontend-Aktivierungs-State (UI)**: Loader (`web/src/lib/plugins/loader.ts`) registriert beim Boot
-**alle** entdeckten Plugins (kein per-User-Activation-Filter — `activation-state.svelte.ts` ist weg).
-Pro-Guild-UI-Sichtbarkeit prüft `guild-activation.svelte.ts` (`Map<guildId, Set<enabledNames>>`,
-beim Guild-Mount aus `GET /guilds/{id}/plugins` befüllt, Reset bei Sign-Out). UI-Komponenten checken
-mit `isPluginEnabledForGuild(guildId, name)`. **DMs/Friends-Kontext = plugin-frei** (`guildId === ''`).
-Admin-UI: `AdminPlugins.svelte` (Allowlist) auf `/app/admin`, `GuildPluginsEditor.svelte` (Pro-Guild)
-als Tab im `GuildSettingsDialog`. Es gibt **keinen Plugin-Tab in den User-Settings** mehr.
-
-**Plugin-State-Storage (PR3)**: `scope.type` im Manifest ist **State-Scope**, nicht Activation-Scope.
-Per-User-State → `chat.user_preferences` (Section-Name = Plugin-Name); Per-Guild-State →
-`chat.guild_plugin_state` ((guild_id, plugin_name) → JSONB, Migration 0021). Helper
-`plugins/state_store.py::apply_atomic_update` macht race-safe Mutate (SELECT FOR UPDATE auf Postgres,
-File-DB-Serialisierung auf SQLite). Cross-Pod-Broadcasts laufen auf `plugin:<name>:events`-Redis-
-Channel; im Manifest unter `[plugin.uses].channels` deklarieren, dann subscribt der Lifespan via
-`ConnectionManager.subscribe_plugin_channels` nach dem Loader-Run. Channel-Handler filtert Targets
-über `_ws_guilds` (Guild-Membership). Beispiel: `plugins/tamagotchi/backend.py` — Pet pro Guild,
-alle Mitglieder füttern; Widget in der **rechten Sidebar der Channel-Page** (`<aside data-testid=
-"guild-plugin-rail">`), nicht mehr im `SidebarFooter`. **Plugin-Backend muss DB-Session über
-`ctx.manager._session_factory` holen** (nicht direkt `from dcc_chat_gateway.db import SessionLocal`),
-sonst sehen ws_app-Tests die ungepatchte Memory-DB.
-**Bekannte Limitation**: kein Server-Push für Toggle-Änderungen — Cross-Session-Updates sieht der
-Client erst beim nächsten Guild-Mount/Reload.
+Die Stolpersteine:
+- **`hello` ist Sonderfall**: immer allowlisted (Self-Heal `plugins/allowlist.py` + Seed Migration 0020), nicht entfernbar/togglebar (409); `hello:*`-Ops bypassen Membership + Guild-Toggle.
+- **Plugin-Ops müssen `guild_id: SnowflakeId` im Payload führen** (außer `hello:*`). `ws_op_gate`-Error-Codes: 4040 allowlist · 4041 guild_id fehlt · 4042 non-member · 4043 nicht aktiviert.
+- **Plugin-Backend muss die DB-Session über `ctx.manager._session_factory` holen** (nicht `from dcc_chat_gateway.db import SessionLocal`) — sonst sehen ws_app-Tests die ungepatchte Memory-DB.
+- State: `scope.type` im Manifest = **State-Scope, nicht Activation**. Per-User → `chat.user_preferences`, per-Guild → `chat.guild_plugin_state` (JSONB, Migration 0021), race-safe via `plugins/state_store.py::apply_atomic_update`. Cross-Pod-Broadcasts auf `plugin:<name>:events` (im Manifest `[plugin.uses].channels` deklarieren). Tamagotchi-Widget in der rechten Channel-Sidebar (`<aside data-testid="guild-plugin-rail">`).
+- **DMs/Friends-Kontext = plugin-frei** (`guildId === ''`). **Limitation**: kein Server-Push für Toggle-Änderungen → Client sieht sie erst beim nächsten Guild-Mount/Reload.
 
 ## Flatpak-Packaging — `packaging/`
 
