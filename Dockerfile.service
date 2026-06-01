@@ -44,6 +44,14 @@ COPY services/${SVC_DIR}/ services/${SVC_DIR}/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --package "dcc-${SVC_DIR}"
 
+# 3) Top-Level plugins/ (hello + tamagotchi) → /app/plugins, damit der
+# chat-gateway-Loader sie per discover_plugins_dir()-Walk-up findet (sucht
+# einen `plugins/`-Sibling, hier /app/plugins). Ohne das läuft die
+# Backend-Plugin-Discovery in Prod leer → alle Plugins erscheinen als
+# "verwaist" und werden nie geladen. Nur chat-gateway nutzt es; für die
+# anderen Services ist der Ordner harmloser Ballast (wenige KB).
+COPY plugins/ plugins/
+
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM python:${PYTHON_VERSION}-slim AS runtime
 ARG SVC_DIR
