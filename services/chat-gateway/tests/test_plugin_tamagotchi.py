@@ -80,6 +80,7 @@ _EXPECTED_OPS = (
     "tamagotchi:play",
     "tamagotchi:sleep",
     "tamagotchi:reset",
+    "tamagotchi:revive",
 )
 _EXPECTED_CHANNEL = "plugin:tamagotchi:events"
 

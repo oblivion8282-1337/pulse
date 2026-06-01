@@ -31,7 +31,7 @@ import {
 import { gateway } from '../../web/src/lib/ws/connection';
 import { request } from '../../web/src/lib/api/client';
 
-import { DEFAULT_PET, parsePet, type PetState } from './store';
+import { DEFAULT_PET, parsePet, levelForXp, XP_PER_ACTION, type PetState } from './store';
 import {
   clearAll,
   deletePet,
@@ -103,9 +103,15 @@ function clamp(v: number): number {
   return Math.max(0, Math.min(100, v));
 }
 
+/** XP-Gewinn einer Pflege-Aktion (optimistisch). */
+function withXp(s: PetState): { xp: number; level: number } {
+  const xp = s.xp + XP_PER_ACTION;
+  return { xp, level: levelForXp(xp) };
+}
+
 export function feed(guildId: string): void {
   if (!guildId) return;
-  applyOptimistic(guildId, (s) => ({ ...s, hunger: clamp(s.hunger + 20) }));
+  applyOptimistic(guildId, (s) => ({ ...s, hunger: clamp(s.hunger + 20), ...withXp(s) }));
   gateway.sendPluginOp('tamagotchi:feed', { guild_id: guildId });
 }
 
@@ -114,14 +120,15 @@ export function play(guildId: string): void {
   applyOptimistic(guildId, (s) => ({
     ...s,
     happiness: clamp(s.happiness + 20),
-    energy: clamp(s.energy - 10)
+    energy: clamp(s.energy - 10),
+    ...withXp(s)
   }));
   gateway.sendPluginOp('tamagotchi:play', { guild_id: guildId });
 }
 
 export function sleep(guildId: string): void {
   if (!guildId) return;
-  applyOptimistic(guildId, (s) => ({ ...s, energy: clamp(s.energy + 30) }));
+  applyOptimistic(guildId, (s) => ({ ...s, energy: clamp(s.energy + 30), ...withXp(s) }));
   gateway.sendPluginOp('tamagotchi:sleep', { guild_id: guildId });
 }
 
@@ -129,6 +136,14 @@ export function reset(guildId: string): void {
   if (!guildId) return;
   applyOptimistic(guildId, () => ({ ...DEFAULT_PET }));
   gateway.sendPluginOp('tamagotchi:reset', { guild_id: guildId });
+}
+
+/** Wiederbeleben — MANAGE_GUILD-gated im Backend. KEIN Optimistic-Update:
+ *  fehlt die Permission, kommt ein Error-Frame zurück und der State bleibt
+ *  unverändert; bei Erfolg überschreibt der ``state_update``-Broadcast. */
+export function revive(guildId: string): void {
+  if (!guildId) return;
+  gateway.sendPluginOp('tamagotchi:revive', { guild_id: guildId });
 }
 
 /** Vergiss alle gecachten Pet-States (Sign-Out). */

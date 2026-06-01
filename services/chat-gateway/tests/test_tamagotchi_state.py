@@ -1,19 +1,20 @@
-"""Backend-State-Verhalten des Tamagotchi-Plugins (PR3 Server-shared).
+"""Backend-State-Schicht des Tamagotchi-Plugins (Server-shared Pet).
 
-Drei Bereiche:
+Zwei Bereiche:
 
-* **Mutators** — feed/play/sleep/reset arbeiten direkt auf einem dict,
-  cappen Stats auf 0–100, refreshen ``lastUpdatedAt``.
 * **State-Store** — ``apply_atomic_update`` persistiert, race-safe
   (Concurrency-Test mit ``asyncio.gather`` von 5 parallelen Feeds).
 * **HTTP-Endpoint** — ``GET /guilds/{id}/plugins/tamagotchi/state``
   liefert Default ohne DB-Row, persistierten State danach, 403 für
   Nicht-Mitglieder.
 
+Die Pet-Spiel-Logik (Decay/Tod/XP/Aktionen) liegt seit v0.3.0 in
+``plugins/tamagotchi/mechanics.py`` und wird in
+``test_tamagotchi_mechanics.py`` isoliert getestet.
+
 Plugin-Backend (``plugins/tamagotchi/backend.py``) wird über das
 synthetische ``pulse_plugin.tamagotchi.backend``-Import via Loader
-geladen — siehe Loader-Pfad. Wir importieren die Funktionen direkt
-über das geladene Modul.
+geladen; wir laden es hier direkt für ``DEFAULT_STATE``.
 """
 
 from __future__ import annotations
@@ -34,8 +35,7 @@ from dcc_chat_gateway.plugins.state_store import (
 
 
 # ---------------------------------------------------------------------------
-# Plugin-Modul direkt laden — wir wollen die _mutate_*-Funktionen testen,
-# ohne den Plugin-Loader durchlaufen zu müssen.
+# Plugin-Modul direkt laden — für DEFAULT_STATE (default_state-Argument).
 # ---------------------------------------------------------------------------
 _TAMAGOTCHI_DIR = Path(__file__).resolve().parents[3] / "plugins" / "tamagotchi"
 
@@ -69,55 +69,25 @@ async def _seed_allowlist(session_factory, names: list[str]) -> None:
         await s.commit()
 
 
-# ---------------------------------------------------------------------------
-# Pure-Mutator-Tests — kein DB-Bedarf.
-# ---------------------------------------------------------------------------
+# Die Pure-Spiel-Logik (feed/play/sleep/reset/revive, Decay, Tod, XP) lebt
+# seit v0.3.0 in ``plugins/tamagotchi/mechanics.py`` und ist dort isoliert
+# getestet (``test_tamagotchi_mechanics.py``). Die DB-Schicht-Tests unten
+# prüfen ``apply_atomic_update`` (Persistenz + Race-Safety) und nutzen dafür
+# bewusst *einfache* test-lokale Mutatoren — sie sollen die Store-Mechanik
+# isoliert prüfen, nicht die (zeit-/zustandsabhängige) Pet-Lifecycle-Logik.
 
 
-def test_feed_increments_hunger_capped_at_100():
-    state = dict(tama.DEFAULT_STATE)
-    state["hunger"] = 90
-    out = tama._mutate_feed(state)
-    assert out["hunger"] == 100  # 90 + 20 → capped
+def _bump_hunger(state: dict[str, Any]) -> dict[str, Any]:
+    out = dict(state)
+    out["hunger"] = min(100, out.get("hunger", 80) + 20)
+    return out
 
 
-def test_play_adds_happiness_subtracts_energy():
-    state = dict(tama.DEFAULT_STATE)
-    state["happiness"] = 50
-    state["energy"] = 30
-    out = tama._mutate_play(state)
-    assert out["happiness"] == 70
-    assert out["energy"] == 20
-
-
-def test_play_floors_energy_at_zero():
-    state = dict(tama.DEFAULT_STATE)
-    state["energy"] = 5
-    out = tama._mutate_play(state)
-    assert out["energy"] == 0
-
-
-def test_sleep_caps_energy_at_100():
-    state = dict(tama.DEFAULT_STATE)
-    state["energy"] = 90
-    out = tama._mutate_sleep(state)
-    assert out["energy"] == 100
-
-
-def test_reset_returns_default():
-    state = {"name": "Custom", "hunger": 5, "happiness": 5, "energy": 5}
-    out = tama._mutate_reset(state)
-    assert out["name"] == "Tamagotchi"
-    assert out["hunger"] == 80
-    assert out["happiness"] == 80
-    assert out["energy"] == 80
-
-
-def test_merge_defaults_clamps_garbage_input():
-    out = tama._merge_defaults({"hunger": 9999, "happiness": -50, "energy": "broken"})
-    assert out["hunger"] == 100
-    assert out["happiness"] == 0
-    assert out["energy"] == 80  # ValueError fallback
+def _bump_play(state: dict[str, Any]) -> dict[str, Any]:
+    out = dict(state)
+    out["happiness"] = min(100, out.get("happiness", 80) + 20)
+    out["energy"] = max(0, out.get("energy", 80) - 10)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +105,7 @@ async def test_apply_atomic_update_creates_default_row(session_factory):
             guild_id=1234,
             plugin_name="tamagotchi",
             default_state=dict(tama.DEFAULT_STATE),
-            mutate=tama._mutate_feed,
+            mutate=_bump_hunger,
             actor_user_id=42,
         )
     assert out["hunger"] == 100  # 80 (default) + 20
@@ -159,7 +129,7 @@ async def test_apply_atomic_update_second_call_mutates_existing(session_factory)
             guild_id=1235,
             plugin_name="tamagotchi",
             default_state=dict(tama.DEFAULT_STATE),
-            mutate=tama._mutate_feed,
+            mutate=_bump_hunger,
             actor_user_id=1,
         )
     async with session_factory() as s:
@@ -168,7 +138,7 @@ async def test_apply_atomic_update_second_call_mutates_existing(session_factory)
             guild_id=1235,
             plugin_name="tamagotchi",
             default_state=dict(tama.DEFAULT_STATE),
-            mutate=tama._mutate_feed,
+            mutate=_bump_hunger,
             actor_user_id=2,
         )
     # Erster feed: 80→100 (capped); zweiter feed: 100→100 (immer noch capped).
@@ -194,7 +164,7 @@ async def test_get_state_returns_persisted_value(session_factory):
             guild_id=5555,
             plugin_name="tamagotchi",
             default_state=dict(tama.DEFAULT_STATE),
-            mutate=tama._mutate_play,
+            mutate=_bump_play,
             actor_user_id=10,
         )
     async with session_factory() as s:
@@ -222,7 +192,7 @@ async def test_concurrent_feeds_are_serialised(session_factory):
                 guild_id=gid,
                 plugin_name="tamagotchi",
                 default_state=dict(tama.DEFAULT_STATE),
-                mutate=tama._mutate_feed,
+                mutate=_bump_hunger,
                 actor_user_id=1,
             )
 
@@ -289,7 +259,7 @@ async def test_get_state_after_persisted_mutation(
             guild_id=gid,
             plugin_name="tamagotchi",
             default_state=dict(tama.DEFAULT_STATE),
-            mutate=tama._mutate_feed,
+            mutate=_bump_hunger,
             actor_user_id=1,
         )
 

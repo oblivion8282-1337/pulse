@@ -21,10 +21,10 @@
 
 [plugin]
 name = "tamagotchi"
-version = "0.2.0"
+version = "0.3.0"
 api = "1"
 author = "Pulse Maintainer"
-description = "Virtuelles Server-Haustier — alle Mitglieder füttern es gemeinsam"
+description = "Virtuelles Server-Haustier — füttern, leveln, am Leben halten"
 
 [plugin.scope]
 # `scope.type` beschreibt seit PR3 den **State**-Scope. Vorher: per-user
@@ -55,6 +55,7 @@ ws_ops = [
   "tamagotchi:play",
   "tamagotchi:sleep",
   "tamagotchi:reset",
+  "tamagotchi:revive",
   "tamagotchi:state_update"
 ]
 ws_emit_ops = ["tamagotchi:state_update"]

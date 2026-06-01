@@ -9,10 +9,10 @@ import type { PluginManifest } from '../../web/src/lib/plugins/manifest-types';
 
 const manifest: PluginManifest = {
   name: 'tamagotchi',
-  version: '0.2.0',
+  version: '0.3.0',
   api: '1',
   author: 'Pulse Maintainer',
-  description: 'Virtuelles Server-Haustier — alle Mitglieder füttern es gemeinsam',
+  description: 'Virtuelles Server-Haustier — füttern, leveln, am Leben halten',
   // PR3: State-Scope ist per-guild — ein Pet pro Server, geteilt zwischen
   // allen Mitgliedern. Activation läuft ebenfalls pro Guild
   // (MANAGE_GUILD-Toggle). Siehe docs/PLUGIN_MANIFEST.md "Aktivierungs- vs
@@ -29,6 +29,7 @@ const manifest: PluginManifest = {
       'tamagotchi:play',
       'tamagotchi:sleep',
       'tamagotchi:reset',
+      'tamagotchi:revive',
       'tamagotchi:state_update'
     ],
     ws_emit_ops: ['tamagotchi:state_update'],
