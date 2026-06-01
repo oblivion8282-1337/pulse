@@ -29,6 +29,13 @@ export default defineConfig({
       if (filePath.endsWith('workletProcessor.js')) return false;
       return undefined;
     },
+    rollupOptions: {
+      // PLUGIN_TIMINGS-Diagnose von rolldown (Vite 8) abschalten: der
+      // Zeitfresser ist `vite-plugin-sveltekit-guard` (SvelteKit-intern,
+      // nicht von uns beeinflussbar) — die Warnung ist rein informativ und
+      // rauscht sonst bei jedem Build. Siehe rolldown.rs/options/checks.
+      checks: { pluginTimings: false }
+    }
   },
   server: {
     port: 5173,
