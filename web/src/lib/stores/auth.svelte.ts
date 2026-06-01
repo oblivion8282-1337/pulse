@@ -79,7 +79,7 @@ class AuthStore {
             // die Konsole. Best-effort: schlägt der Renew fehl, bleibt der
             // 401-Retry in cookieFetch die Auffanglinie.
             try {
-              const { renewSession } = await import('$lib/api/credentials');
+              const { renewSession } = await import('$lib/api/cookie-client');
               await renewSession();
             } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
             try {

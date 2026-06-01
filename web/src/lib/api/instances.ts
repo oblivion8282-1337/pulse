@@ -14,6 +14,7 @@
  */
 
 import { AUTH_BASE, ApiError } from './client';
+import { cookieFetch, renewSession, safeParse, extractDetail } from './cookie-client';
 
 // ---------------------------------------------------------------------------
 // Typen — gespiegelt von den Pydantic-Schemas im Backend
@@ -98,50 +99,6 @@ export interface RotateSecretResult {
 }
 
 // ---------------------------------------------------------------------------
-// Interner Fetch-Helfer (Cookie-Auth, kein Bearer)
-// ---------------------------------------------------------------------------
-
-async function cookieFetch<T>(
-  path: string,
-  opts: { method?: string; body?: unknown } = {}
-): Promise<T> {
-  const { method = 'GET', body } = opts;
-  const init: RequestInit = {
-    method,
-    credentials: 'include',
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined
-  };
-  if (body !== undefined) init.body = JSON.stringify(body);
-
-  const resp = await fetch(`${AUTH_BASE}${path}`, init);
-
-  if (resp.status === 204) return undefined as T;
-  const text = await resp.text();
-  const data = text ? safeParse(text) : null;
-  if (!resp.ok) {
-    const detail = extractDetail(data);
-    throw new ApiError(resp.status, data, detail ?? resp.statusText);
-  }
-  return data as T;
-}
-
-function safeParse(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function extractDetail(data: unknown): string | null {
-  if (data && typeof data === 'object' && 'detail' in (data as Record<string, unknown>)) {
-    const d = (data as { detail: unknown }).detail;
-    if (typeof d === 'string') return d;
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // User-Endpoints (/me/*)
 // ---------------------------------------------------------------------------
 
@@ -178,9 +135,12 @@ export const instancesApi = {
    * Gibt die Response direkt zurück — Aufrufer triggert Download via URL.
    */
   async downloadComposeSnippet(instanceId: string): Promise<void> {
-    const resp = await fetch(`${AUTH_BASE}/me/instances/${instanceId}/docker-compose-snippet`, {
-      credentials: 'include'
-    });
+    const url0 = `${AUTH_BASE}/me/instances/${instanceId}/docker-compose-snippet`;
+    let resp = await fetch(url0, { credentials: 'include' });
+    // Abgelaufener Cookie → renewen + einmal retry (s. cookieFetch).
+    if (resp.status === 401 && (await renewSession())) {
+      resp = await fetch(url0, { credentials: 'include' });
+    }
     if (!resp.ok) {
       const text = await resp.text();
       const data = safeParse(text);
