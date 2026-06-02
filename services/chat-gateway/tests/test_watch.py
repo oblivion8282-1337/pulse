@@ -1136,3 +1136,64 @@ async def test_host_reconnect_within_grace_cancels_end(redis):
         assert new["host_user_id"] == "111"  # party still there
     finally:
         await redis.delete(f"watch:channel-{cid}")
+
+
+# =============================================================================
+# 6. Departure helpers — end_if_host (immediate) / end_or_grace_if_host (grace)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_end_if_host_deletes_for_host(redis):
+    from dcc_chat_gateway.routes.watch_handoff import end_if_host
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await end_if_host(redis, cid, "111")
+    assert await redis.get(f"watch:channel-{cid}") is None
+
+
+@pytest.mark.asyncio
+async def test_end_if_host_noop_for_viewer(redis):
+    from dcc_chat_gateway.routes.watch_handoff import end_if_host
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    try:
+        await end_if_host(redis, cid, "222")  # viewer leaving
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "111"
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_end_or_grace_if_host_schedules_for_host(redis, monkeypatch):
+    from dcc_chat_gateway.routes.watch_handoff import end_or_grace_if_host
+
+    monkeypatch.setattr(watchkeys, "WATCH_HOST_GRACE_S", 0)
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    try:
+        await end_or_grace_if_host(redis, mgr, cid, "111")
+        await mgr._watch_end_timers[cid][1]
+        assert await redis.get(f"watch:channel-{cid}") is None
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_end_or_grace_if_host_noop_for_viewer(redis):
+    from dcc_chat_gateway.routes.watch_handoff import end_or_grace_if_host
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    try:
+        await end_or_grace_if_host(redis, mgr, cid, "222")  # viewer
+        assert cid not in mgr._watch_end_timers
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "111"
+    finally:
+        await redis.delete(f"watch:channel-{cid}")

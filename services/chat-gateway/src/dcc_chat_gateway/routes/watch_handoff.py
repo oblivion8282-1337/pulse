@@ -36,6 +36,28 @@ def _channel_id(value: object) -> str | None:
     return s
 
 
+async def end_if_host(redis, channel_id: str, departing_uid: str) -> None:
+    """Host left deliberately (tile unmount / channel switch) → end the party
+    now. No-op if the departing user is a viewer."""
+    if redis is None:
+        return
+    state = await watchkeys.read_state(redis, channel_id)
+    if state is None or str(state.get("host_user_id")) != str(departing_uid):
+        return
+    await watchkeys.delete_state(redis, channel_id)
+
+
+async def end_or_grace_if_host(redis, manager, channel_id: str, departing_uid: str) -> None:
+    """Host's WS dropped → start the grace timer (party ends after
+    WATCH_HOST_GRACE_S unless the host reconnects). No-op for a viewer."""
+    if redis is None:
+        return
+    state = await watchkeys.read_state(redis, channel_id)
+    if state is None or str(state.get("host_user_id")) != str(departing_uid):
+        return
+    manager.schedule_host_end(redis, channel_id, str(departing_uid))
+
+
 async def promote_or_end(redis, manager, channel_id: str, departing_uid: str) -> None:
     """The departing user just left the watcher set. If they were the host,
     promote the oldest remaining watcher; if none remain, end the party."""
