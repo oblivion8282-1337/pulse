@@ -118,6 +118,8 @@ async def handle_handoff(websocket: WebSocket, user, msg: dict[str, Any]) -> Non
             return
         new_state = watchkeys.promoted_state(state, target)
         await watchkeys.write_state(redis, cid, new_state)
+        mgr.cancel_host_end(cid)  # defensive: host changed → drop any pending grace
         return
     # No target → promote next oldest (host stays a viewer in the registry).
     await promote_or_end(redis, mgr, cid, str(user.id))
+    mgr.cancel_host_end(cid)  # defensive: host changed → drop any pending grace
