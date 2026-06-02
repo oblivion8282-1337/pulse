@@ -22,6 +22,7 @@ State shape (all snowflake-ish ids as strings):
 from __future__ import annotations
 
 import json
+import os
 import time
 
 from redis.asyncio import Redis
@@ -31,6 +32,12 @@ from dcc_shared.events import WatchStateSnapshot
 WATCH_STATE_KEY = "watch:channel-{channel_id}"
 WATCH_EVENTS_CHANNEL = "watch:events"
 WATCH_TTL_SECONDS = 6 * 3600
+
+# Grace window after a host's WS drops before the party ends. Covers brief
+# blips / sleep so the host keeps the party across a reconnect. Env-overridable
+# so the E2E suite can run it short. Read at call time (see schedule_host_end)
+# so tests can monkeypatch this module attribute.
+WATCH_HOST_GRACE_S = float(os.environ.get("WATCH_HOST_GRACE_S", "30"))
 
 WATCH_CHAT_KEY = "watch:chat:channel-{channel_id}"
 WATCH_CHAT_TTL_S = 6 * 3600
