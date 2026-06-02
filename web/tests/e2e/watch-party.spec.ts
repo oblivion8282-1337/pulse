@@ -413,4 +413,83 @@ test.describe.serial('Watch Party E2E', () => {
       )
       .toBeFalsy();
   });
+
+  test('host reconnect re-announces watch_join → party survives the grace window', async () => {
+    // Regression for the "watch party keeps dying on its own" bug: a transparent
+    // WS reconnect drops the host's socket → the server starts the grace timer;
+    // the mounted tile never re-fires onMount, so unless the GatewayConnection
+    // re-emits watch_join on reconnect, the party ends ~grace later. This drives
+    // the *real* GatewayConnection (the app's own ws can't be force-dropped from
+    // a test, and the tile needs LiveKit the harness lacks) and simulates a
+    // reconnect by dropping + re-dialing — exercising the same `open` handler
+    // the auto-reconnect path runs.
+    //
+    // Use a FRESH voice channel: prior tests leave Alice's persistent 'host'
+    // socket in the watcher registry, which would keep her "present" across the
+    // socket drop and mask the bug (no fully-left → no grace timer). A new
+    // channel guarantees the test socket is the only watcher.
+    const reconnCid = await createChannel(alicePage, guildId, 'Voice-Reconnect', 1);
+    const diag = await alicePage.evaluate(
+      async ({ cid }) => {
+        // @ts-expect-error - Vite-served path resolved at browser runtime
+        const mod = await import('/src/lib/ws/gateway-connection.ts');
+        // `any`: the test deliberately reaches private fields (ws/wantConnected)
+        // to simulate a transparent socket drop.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const conn: any = new mod.GatewayConnection({
+          serverId: 'cloud-wp-reconnect-test',
+          hostname: location.host,
+          isCloud: true
+        });
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__wpReconn = conn;
+        await conn.connect();
+        await conn.waitForReady();
+        conn.startWatchParty(cid, 'https://www.youtube.com/watch?v=abc12345678');
+        await new Promise((r) => setTimeout(r, 400)); // let watch_start register
+        conn.sendWatchJoin(cid); // host tile "mounts" → registry + watchJoins set
+        await new Promise((r) => setTimeout(r, 200));
+        const watchJoinsHasCid = conn.watchJoins?.has?.(cid) ?? false;
+        // Transparent reconnect. Await the old socket's `close` event FIRST so
+        // the gateway's own close handler runs (nulls this.ws, and — because
+        // wantConnected is false — schedules no auto-reconnect) before we
+        // re-dial. Otherwise the late close event clobbers the new socket.
+        conn.wantConnected = false;
+        const old = conn.ws;
+        await new Promise<void>((res) => {
+          old.addEventListener('close', () => res(), { once: true });
+          old.close();
+        });
+        conn.wantConnected = true;
+        await conn.connect(); // fresh socket → `open` handler re-emits watch_join (the fix)
+        await conn.waitForReady();
+        await new Promise((r) => setTimeout(r, 150)); // let the re-emitted join land
+        return { watchJoinsHasCid, wsOpen: conn.ws?.readyState === 1 };
+      },
+      { cid: reconnCid }
+    );
+    expect(diag.watchJoinsHasCid, 'watchJoins tracked the channel').toBe(true);
+    expect(diag.wsOpen, 'reconnected socket is open').toBe(true);
+
+    // Past the grace window (1s in E2E) — without the fix the party is gone.
+    await alicePage.waitForTimeout(2000);
+    const survivor = (await getGuildWatchState(alicePage, guildId)).find(
+      (e) => e.channel_id === reconnCid
+    );
+    expect(survivor?.state, 'party survived host reconnect').toBeTruthy();
+    expect(survivor!.state!.host_user_id).toBe(aliceUserId);
+    expect(survivor!.state!.source).toMatchObject({ type: 'youtube', embed_id: 'abc12345678' });
+
+    // Cleanup: stop the party and tear down the test connection.
+    await alicePage.evaluate(
+      async ({ cid }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const conn: any = (window as any).__wpReconn;
+        conn?.stopWatchParty?.(cid);
+        await new Promise((r) => setTimeout(r, 100));
+        conn?.disconnect?.();
+      },
+      { cid: reconnCid }
+    );
+  });
 });

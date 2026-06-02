@@ -84,6 +84,9 @@ export class GatewayConnection {
   private ws: WebSocket | null = null;
   private attempt = 0;
   private subs = new Set<string>();
+  // Watch-party channels this socket has joined (mount = join, unmount =
+  // leave). Re-announced on every reconnect — see the `open` handler.
+  private watchJoins = new Set<string>();
   private listeners = new Set<WsListener>();
   private channelDeletedHooks = new Set<ChannelDeletedHook>();
   private guildDeletedHooks = new Set<GuildDeletedHook>();
@@ -250,6 +253,14 @@ export class GatewayConnection {
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
+        // Re-announce watch-party membership. A transparent reconnect drops
+        // the old socket; the server then starts a WATCH_HOST_GRACE_S timer
+        // that ends the party unless the host rejoins. The mounted tile never
+        // re-fires onMount across a reconnect, so without this the party dies
+        // ~30s after any blip. Mirrors the voice resync below.
+        for (const cid of this.watchJoins) {
+          this._sendRaw({ op: 'watch_join', channel_id: cid });
+        }
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           voice.resyncSelfState();
         });
@@ -395,6 +406,7 @@ export class GatewayConnection {
       this.ws = null;
     }
     this.subs.clear();
+    this.watchJoins.clear();
     this.state = 'idle';
   }
 
@@ -425,8 +437,14 @@ export class GatewayConnection {
     senders.sendWatchControl(this._raw, channelId, action, position);
   sendWatchHeartbeat = (channelId: string, position: number): boolean =>
     senders.sendWatchHeartbeat(this._raw, channelId, position);
-  sendWatchJoin = (channelId: string): boolean => senders.sendWatchJoin(this._raw, channelId);
-  sendWatchLeave = (channelId: string): boolean => senders.sendWatchLeave(this._raw, channelId);
+  sendWatchJoin = (channelId: string): boolean => {
+    this.watchJoins.add(channelId);
+    return senders.sendWatchJoin(this._raw, channelId);
+  };
+  sendWatchLeave = (channelId: string): boolean => {
+    this.watchJoins.delete(channelId);
+    return senders.sendWatchLeave(this._raw, channelId);
+  };
   sendWatchHandoff = (channelId: string, targetUserId?: string): boolean =>
     senders.sendWatchHandoff(this._raw, channelId, targetUserId);
   sendActivity(): boolean { return this._sendRaw({ op: 'activity' }); }
