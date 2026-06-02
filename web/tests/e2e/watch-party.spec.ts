@@ -147,7 +147,8 @@ async function wsCall(
             m.op === 'hello' ||
             m.op === 'ready' ||
             m.op === 'presence_update' ||
-            m.op === 'voice_state'
+            m.op === 'voice_state' ||
+            m.op === 'watch_watchers'
           )
             return;
           clearTimeout(t);
@@ -175,6 +176,88 @@ async function getGuildWatchState(page: Page, guildId: string): Promise<
     return res.json();
   }, guildId);
   return r.watch_states ?? [];
+}
+
+/**
+ * Persistent-WS helpers. Unlike `wsCall` (open → send → close), these keep a
+ * socket open across evaluate() calls by stashing it on `window.__wp[label]`,
+ * with a message log. Needed because host-handoff cleanup now ends a solo
+ * party the instant the host's only socket closes — so the host must stay
+ * connected while we drive joins / handoffs / disconnects.
+ */
+async function wsOpen(page: Page, label: string, timeoutMs = 5000): Promise<void> {
+  await page.evaluate(
+    ({ label, timeoutMs }) =>
+      new Promise<void>((resolve, reject) => {
+        const token = localStorage.getItem('dcc.tokens.access');
+        if (!token) return reject(new Error('no access token in localStorage'));
+        const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+        const ws = new WebSocket(
+          `${proto}://${location.host}/api/ws/ws?token=${encodeURIComponent(token)}`
+        );
+        const store = ((window as unknown as { __wp: Record<string, unknown> }).__wp ??= {});
+        store[label] = { ws, log: [] as unknown[] };
+        const t = setTimeout(() => reject(new Error('ws open timed out')), timeoutMs);
+        ws.onmessage = (e) => {
+          (store[label] as { log: unknown[] }).log.push(JSON.parse(e.data));
+        };
+        ws.onopen = () => {
+          clearTimeout(t);
+          resolve();
+        };
+        ws.onerror = () => {
+          clearTimeout(t);
+          reject(new Error('ws error'));
+        };
+      }),
+    { label, timeoutMs }
+  );
+}
+
+async function wsSend(page: Page, label: string, payload: object): Promise<void> {
+  await page.evaluate(
+    ({ label, payload }) => {
+      const h = (window as unknown as { __wp: Record<string, { ws: WebSocket }> }).__wp[label];
+      h.ws.send(JSON.stringify(payload));
+    },
+    { label, payload }
+  );
+}
+
+/** Resolve once a frame matching `opName` (and optional substring in JSON)
+ * lands in the persistent socket's log. */
+async function wsWaitFor(
+  page: Page,
+  label: string,
+  opName: string,
+  contains = '',
+  timeoutMs = 5000
+): Promise<Record<string, unknown>> {
+  return page.evaluate(
+    ({ label, opName, contains, timeoutMs }) =>
+      new Promise((resolve, reject) => {
+        const h = (window as unknown as { __wp: Record<string, { log: Record<string, unknown>[] }> })
+          .__wp[label];
+        const deadline = Date.now() + timeoutMs;
+        const check = () => {
+          const hit = h.log.find(
+            (m) => m.op === opName && (!contains || JSON.stringify(m).includes(contains))
+          );
+          if (hit) return resolve(hit);
+          if (Date.now() > deadline) return reject(new Error(`wsWaitFor ${opName} timed out`));
+          setTimeout(check, 50);
+        };
+        check();
+      }),
+    { label, opName, contains, timeoutMs }
+  );
+}
+
+async function wsClose(page: Page, label: string): Promise<void> {
+  await page.evaluate((label) => {
+    const store = (window as unknown as { __wp?: Record<string, { ws: WebSocket }> }).__wp;
+    store?.[label]?.ws.close();
+  }, label);
 }
 
 test.describe.serial('Watch Party E2E', () => {
@@ -258,13 +341,16 @@ test.describe.serial('Watch Party E2E', () => {
     expect(out.httpOnly).toBeNull();
   });
 
-  test('watch_start via WS produces a party visible to both via REST', async () => {
-    const resp = await wsCall(alicePage, {
+  test('watch_start via persistent host socket is visible to both via REST', async () => {
+    // Host must stay connected: disconnect cleanup now ends a solo party the
+    // instant the host's last socket closes. wsOpen keeps Alice's socket open.
+    await wsOpen(alicePage, 'host');
+    await wsSend(alicePage, 'host', {
       op: 'watch_start',
       channel_id: voiceChannelId,
       source_url: 'https://www.youtube.com/watch?v=abc12345678'
     });
-    expect(resp.op).toBe('watch_state');
+    await wsWaitFor(alicePage, 'host', 'watch_state');
 
     const matchPartyShape = (states: Awaited<ReturnType<typeof getGuildWatchState>>) => {
       const e = states.find((s) => s.channel_id === voiceChannelId);
@@ -278,32 +364,65 @@ test.describe.serial('Watch Party E2E', () => {
   });
 
   test('only host can stop; second start gets 4014', async () => {
-    // Bob (non-host) tries to stop — server replies 4015.
-    const bobStop = await wsCall(bobPage, {
-      op: 'watch_stop',
-      channel_id: voiceChannelId
-    });
+    // The party is held open by Alice's persistent 'host' socket. Bob's
+    // single-shot wsCall sockets never join the watcher set, so closing them
+    // does not disturb the party.
+    const bobStop = await wsCall(bobPage, { op: 'watch_stop', channel_id: voiceChannelId });
     expect(bobStop).toMatchObject({ op: 'error', code: 4015 });
 
-    // Bob (or anyone else) tries to start a second party — 4014.
     const bobStart = await wsCall(bobPage, {
       op: 'watch_start',
       channel_id: voiceChannelId,
       source_url: 'https://youtu.be/xyz12345678'
     });
     expect(bobStart).toMatchObject({ op: 'error', code: 4014 });
+  });
 
-    // Alice (host) stops cleanly. Server broadcasts state=null.
-    const aliceStop = await wsCall(alicePage, {
-      op: 'watch_stop',
-      channel_id: voiceChannelId
+  test('explicit watch_handoff transfers host to a chosen watcher', async () => {
+    // Bob opens a persistent socket and joins the watcher set.
+    await wsOpen(bobPage, 'watch');
+    await wsSend(bobPage, 'watch', { op: 'watch_join', channel_id: voiceChannelId });
+    await wsWaitFor(bobPage, 'watch', 'watch_watchers', bobUserId);
+
+    // Alice (host) hands off to Bob.
+    await wsSend(alicePage, 'host', {
+      op: 'watch_handoff',
+      channel_id: voiceChannelId,
+      target_user_id: bobUserId
     });
-    expect(aliceStop.op).toBe('watch_state');
-    expect((aliceStop as unknown as { state: unknown }).state).toBeNull();
+    await expect
+      .poll(async () => {
+        const s = (await getGuildWatchState(alicePage, guildId)).find(
+          (e) => e.channel_id === voiceChannelId
+        );
+        return s?.state?.host_user_id;
+      })
+      .toBe(bobUserId);
+  });
 
-    // REST re-sync now shows no party for either user.
-    expect(
-      (await getGuildWatchState(alicePage, guildId)).find((s) => s.channel_id === voiceChannelId)
-    ).toBeUndefined();
+  test('host disconnect promotes the oldest remaining watcher', async () => {
+    // After the handoff Bob is host (via 'watch'); Alice is still a watcher
+    // (via 'host', joined earliest). Close Bob's socket → promote to Alice.
+    await wsClose(bobPage, 'watch');
+    await expect
+      .poll(async () => {
+        const s = (await getGuildWatchState(alicePage, guildId)).find(
+          (e) => e.channel_id === voiceChannelId
+        );
+        return s?.state?.host_user_id;
+      })
+      .toBe(aliceUserId);
+  });
+
+  test('closing the last watcher ends the party', async () => {
+    // Alice is now the only watcher + host. Closing her socket → solo → end.
+    await wsClose(alicePage, 'host');
+    await expect
+      .poll(async () =>
+        (await getGuildWatchState(alicePage, guildId)).find(
+          (e) => e.channel_id === voiceChannelId
+        )
+      )
+      .toBeFalsy();
   });
 });
