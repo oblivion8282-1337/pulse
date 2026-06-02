@@ -37,6 +37,7 @@ from dcc_chat_gateway.pubsub_friend_cache import _FriendCacheMixin
 from dcc_chat_gateway.pubsub_listener import _ListenerMixin
 from dcc_chat_gateway.pubsub_perm_filter import _PermFilterMixin
 from dcc_chat_gateway.security import AuthenticatedUser
+from dcc_chat_gateway.watch_registry import _WatchRegistryMixin
 from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, read_states_for
 
 log = logging.getLogger(__name__)
@@ -58,7 +59,9 @@ __all__ = [
 ]
 
 
-class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
+class ConnectionManager(
+    _ListenerMixin, _PermFilterMixin, _FriendCacheMixin, _WatchRegistryMixin
+):
     # Max parallel WebSocket connections per user. Each connection multiplies
     # the fan-out cost of every pub/sub event; a single user with N sockets
     # turns one event into N `send_json` calls (with 5s timeouts each).
@@ -129,6 +132,7 @@ class ConnectionManager(_ListenerMixin, _PermFilterMixin, _FriendCacheMixin):
         # lose plugin-channel messages.
         self._plugin_channels: list[str] = []
         self._lock = asyncio.Lock()
+        self._init_watch_registry()
         self._started = False
 
     async def start(self) -> None:
