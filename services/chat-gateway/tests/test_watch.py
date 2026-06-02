@@ -641,11 +641,13 @@ async def test_ready_carries_watch_states(ws_app, _auth_signer, redis):
 
 
 @pytest.mark.asyncio
-async def test_cleanup_on_disconnect_promotes_to_remaining_watcher(redis):
-    """Host socket closes with another watcher present → promote, not end."""
+async def test_cleanup_on_disconnect_schedules_end_not_promote(redis, monkeypatch):
+    """Host socket closes with another watcher present → grace timer ends the
+    party; it is NOT promoted to the remaining watcher."""
     from dcc_chat_gateway.routes import ws_watch
     from dcc_chat_gateway.security import AuthenticatedUser
 
+    monkeypatch.setattr(watchkeys, "WATCH_HOST_GRACE_S", 0)
     uid = random.randint(1, 1_000_000)
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
@@ -657,18 +659,19 @@ async def test_cleanup_on_disconnect_promotes_to_remaining_watcher(redis):
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
         await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {cid})
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
-        assert new["host_user_id"] == "999"
+        await mgr._watch_end_timers[cid][1]  # await the scheduled end
+        assert await redis.get(f"watch:channel-{cid}") is None
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
 
 @pytest.mark.asyncio
-async def test_cleanup_on_disconnect_ends_when_solo(redis):
-    """Host socket closes with no other watcher → party ends."""
+async def test_cleanup_on_disconnect_ends_when_solo(redis, monkeypatch):
+    """Host socket closes with no other watcher → party ends after grace."""
     from dcc_chat_gateway.routes import ws_watch
     from dcc_chat_gateway.security import AuthenticatedUser
 
+    monkeypatch.setattr(watchkeys, "WATCH_HOST_GRACE_S", 0)
     uid = random.randint(1, 1_000_000)
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
@@ -678,6 +681,7 @@ async def test_cleanup_on_disconnect_ends_when_solo(redis):
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {cid})
+    await mgr._watch_end_timers[cid][1]
     assert await redis.get(f"watch:channel-{cid}") is None
 
 
@@ -700,6 +704,7 @@ async def test_cleanup_on_disconnect_multitab_keeps_party(redis):
     try:
         # tab1 disconnects — user still watches via tab2 → no promotion/end.
         await ws_watch.cleanup_on_disconnect(tab1, user, mgr, {cid})
+        assert cid not in mgr._watch_end_timers  # no grace timer scheduled
         new = json.loads(await redis.get(f"watch:channel-{cid}"))
         assert new["host_user_id"] == str(uid)
     finally:
@@ -1193,6 +1198,58 @@ async def test_end_or_grace_if_host_noop_for_viewer(redis):
     try:
         await end_or_grace_if_host(redis, mgr, cid, "222")  # viewer
         assert cid not in mgr._watch_end_timers
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "111"
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+# =============================================================================
+# 7. handle_leave — host ends immediately (no grace), viewer leaves cleanly
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_handle_leave_host_ends_immediately(redis):
+    """Host watch_leave (channel switch / tile close) ends the party at once —
+    no grace timer, no promotion to the other watcher."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    uid = random.randint(1, 1_000_000)
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    host_ws = _ErrWS(redis, mgr)
+    await mgr.watch_join(cid, str(uid), host_ws, now_ms=1000)
+    await mgr.watch_join(cid, "999", object(), now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+
+    user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
+    try:
+        await ws_watch.handle_leave(host_ws, user, {"channel_id": cid}, watched_parties={cid})
+        assert cid not in mgr._watch_end_timers  # no grace timer
+        assert await redis.get(f"watch:channel-{cid}") is None  # ended now
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_handle_leave_viewer_keeps_party(redis):
+    """A viewer leaving via watch_leave does not touch the party."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    host_ws = _ErrWS(redis, mgr)
+    viewer_ws = _ErrWS(redis, mgr)
+    await mgr.watch_join(cid, "111", host_ws, now_ms=1000)
+    await mgr.watch_join(cid, "222", viewer_ws, now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+
+    user = AuthenticatedUser(id=222, username="u222", is_admin=False, payload={})
+    try:
+        await ws_watch.handle_leave(viewer_ws, user, {"channel_id": cid}, watched_parties={cid})
         new = json.loads(await redis.get(f"watch:channel-{cid}"))
         assert new["host_user_id"] == "111"
     finally:

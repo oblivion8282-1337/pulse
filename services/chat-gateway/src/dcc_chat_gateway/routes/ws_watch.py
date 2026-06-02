@@ -165,9 +165,9 @@ async def handle_leave(
     fully_left = await mgr.watch_leave(cid, str(user.id), websocket)
     await mgr.broadcast_watchers(cid)
     if fully_left:
-        from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+        from dcc_chat_gateway.routes.watch_handoff import end_if_host
 
-        await promote_or_end(_redis(websocket), mgr, cid, str(user.id))
+        await end_if_host(_redis(websocket), cid, str(user.id))
 
 
 async def handle_stop(
@@ -195,6 +195,9 @@ async def handle_stop(
         return
     await watchkeys.delete_state(redis, cid)
     hosted_parties.discard(cid)
+    mgr = _manager(websocket)
+    if mgr is not None:
+        mgr.cancel_host_end(cid)
 
 
 async def handle_control(
@@ -273,7 +276,7 @@ async def cleanup_on_disconnect(
     socket set is still accurate."""
     if not watched_parties:
         return
-    from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+    from dcc_chat_gateway.routes.watch_handoff import end_or_grace_if_host
 
     redis = _redis(websocket)
     for cid in list(watched_parties):
@@ -281,6 +284,6 @@ async def cleanup_on_disconnect(
             fully_left = await manager.watch_leave(cid, str(user.id), websocket)
             await manager.broadcast_watchers(cid)
             if fully_left:
-                await promote_or_end(redis, manager, cid, str(user.id))
+                await end_or_grace_if_host(redis, manager, cid, str(user.id))
         except Exception:
             log.exception("watch-party disconnect cleanup failed for channel %s", cid)
