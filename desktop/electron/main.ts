@@ -137,7 +137,8 @@ const TARGET_URL = DEV_URL ?? PROD_URL;
 // Pre-computed origin of the target URL to avoid re-parsing on every navigation event.
 const TARGET_ORIGIN = new URL(TARGET_URL).origin;
 // DevTools no longer pop open on launch. Set PULSE_DEVTOOLS=1 to auto-open them
-// (detached); otherwise the standard accelerator (Ctrl+Shift+I) still toggles them.
+// (detached); otherwise Ctrl+Shift+I / F12 toggle them via the before-input-event
+// handler in createWindow (the default-menu accelerator is gone — menu removed).
 const OPEN_DEVTOOLS = process.env.PULSE_DEVTOOLS === '1';
 
 let mainWindow: BrowserWindow | null = null;
@@ -210,6 +211,37 @@ function createWindow(): void {
     if (_isAllowedOrigin(url)) return { action: 'allow' };
     void shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // Reload + DevTools accelerators used to come from Electron's default menu,
+  // which we remove (setApplicationMenu(null)) to hide the menu bar. Re-add just
+  // those shortcuts via before-input-event so the bar stays gone but F5 / reload
+  // and the DevTools toggle work again.
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const wc = mainWindow?.webContents;
+    if (!wc) return;
+    const mod = input.control || input.meta; // Ctrl (win/linux) or Cmd (macOS)
+    const key = input.key.toLowerCase(); // 'F5'/'F12'/'R' come uppercased — normalise
+    // Plain reload: F5 / Ctrl|Cmd+R. Force-reload (bypass cache): Shift+F5,
+    // Ctrl+F5 (Windows convention), Ctrl|Cmd+Shift+R.
+    const reload = (key === 'f5' && !input.shift && !mod) || (mod && key === 'r' && !input.shift);
+    const forceReload =
+      (key === 'f5' && (input.shift || mod)) || (mod && key === 'r' && input.shift);
+    if (reload) {
+      event.preventDefault();
+      wc.reload();
+    } else if (forceReload) {
+      event.preventDefault();
+      wc.reloadIgnoringCache();
+    } else if (
+      key === 'f12' ||
+      (mod && input.shift && key === 'i') || // Ctrl/Cmd+Shift+I (win/linux)
+      (input.meta && input.alt && key === 'i') // Cmd+Alt+I (macOS)
+    ) {
+      event.preventDefault();
+      wc.toggleDevTools();
+    }
   });
 
   void mainWindow.loadURL(TARGET_URL);
