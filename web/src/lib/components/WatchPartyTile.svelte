@@ -4,56 +4,38 @@
   Native Player-Chrome ist für alle aktiv — sonst gibt's keinen Lautstärke-
   Slider / Qualitäts-Picker / Fullscreen-Button (wir können in einem
   iframe-Player nicht selektiv nur play/pause ausblenden). Trade-off:
-  Viewer kann lokal pausieren/seeken; das broadcasted aber nichts, und
-  Heartbeats lassen ihn in Ruhe solange er pausiert ist. Drückt er wieder
-  Play, snappt's auf die aktuelle Host-Position.
+  Viewer kann lokal pausieren/seeken; das broadcasted aber nichts.
 
-  Host-Broadcasts (play/pause/seek) sind 300ms trailing-debounced. YouTube
-  feuert während Ad-Breaks / Buffer-Phasen mehrere PLAYING/PAUSED-Events
-  hintereinander; ohne Debounce würden Viewer dabei rapide hin- und
-  herspringen (das war der „Endlosschleife"-Bug).
+  Die gesamte Host/Viewer-Sync-Orchestrierung (Drift-Korrektur, Heartbeat,
+  Broadcast-Debounce, Programmatic-Sync-Guard) lebt im PartyController
+  (`lib/watch/partyController.svelte.ts`) — dieses Component ist nur die
+  Hülle + Player-Auswahl + Host-Controls.
 
-  Sync-Strategie (Viewer):
-    * Erste Anwendung nach Player-ready → applyHard.
-    * is_playing flippt oder Position weicht > 2s vom heartbeat-
-      extrapolierten Wert ab (= Host hat geseekt/Play-Pause) → applyHard.
-    * Sonst (reiner Heartbeat) → applySoft (nur Drift, kein play/pause).
-    * Viewer hat lokal pausiert → keine Drift-Korrektur, bis er wieder
-      selbst auf Play drückt.
-
-  Programmatic-Sync-Guard:
-    YT.seekTo() und Twitch.seek() triggern intern wieder PLAYING-State-
-    Changes → unser `play`-Event-Handler würde applyHard rekursiv aufrufen,
-    der seekt erneut, der Player feuert wieder PLAYING, … = sub-Sekunden-
-    Endlosschleife im Viewer. `syncingUntil` blendet play/pause-Events
-    aus, die innerhalb von SYNC_QUIET_MS nach einer eigenen Sync-Operation
-    eintreffen. Manuelles Pausieren/Play durch den User (außerhalb des
-    Fensters) bleibt voll funktional.
+  Watcher-Lifecycle: Mount → watch_join, Unmount → watch_leave. Damit weiß
+  der Server, wer die Kachel offen hat → Host-Handoff promotet beim Wegfall
+  des Hosts den ältesten verbliebenen Watcher.
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import XIcon from '@lucide/svelte/icons/x';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
+  import WatchPartyHandoffMenu from './WatchPartyHandoffMenu.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { isPassiveSource, type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
+  import { watchWatchers } from '$lib/stores/watchWatchers.svelte';
   import { gateway } from '$lib/ws/connection';
   import NativeVideoPlayer from '$lib/watch/players/NativeVideoPlayer.svelte';
   import TwitchPlayer from '$lib/watch/players/TwitchPlayer.svelte';
   import YouTubePlayer from '$lib/watch/players/YouTubePlayer.svelte';
   import { prefetchYoutubeTitle, youtubeTitle } from '$lib/watch/youtubeMeta.svelte';
-  import {
-    DriftCorrector,
-    expectedPosition,
-    startHeartbeat,
-    type PlayerEvent,
-    type PlayerHandle
-  } from '$lib/watch/sync';
+  import { PartyController } from '$lib/watch/partyController.svelte';
+  import type { PlayerEvent, PlayerHandle } from '$lib/watch/sync';
 
   interface Props {
     channelId: string;
@@ -89,250 +71,70 @@
     }
   }
 
-  let player = $state<PlayerHandle | undefined>(undefined);
-  let stopHeartbeat: (() => void) | undefined;
-  const corrector = new DriftCorrector();
-
-  // Last `party` value we synced against — drives the transition-vs-heartbeat
-  // decision in the viewer $effect. Plain `let`, not $state, so updating it
-  // inside the effect doesn't re-trigger it.
-  let prevParty: WatchPartyState | undefined;
-  // Did the viewer manually pause? Set on player 'pause' events, cleared on
-  // player 'play' events. Heartbeats skip drift correction while true so
-  // someone who paused to grab a drink isn't dragged back to playing 3s later.
-  let viewerPaused = false;
-
-  // Position diff vs heartbeat-extrapolated value above which we treat the
-  // update as a host seek (and applyHard) instead of a heartbeat.
-  const SEEK_DETECTION_THRESHOLD_S = 2.0;
-
-  // Window during which player-emitted play/pause events are ignored as the
-  // echo of our own programmatic seek/play/pause. 2000ms covers slow YT
-  // seek round-trips — BUFFERING → PLAYING typically lands within 200-500ms
-  // but spikes to 1-1.5s on weak devices / busy networks. The original
-  // 750ms (2b8e3b0) caught the median but leaked the spikes, and a leaked
-  // PLAYING event re-entered syncHard → seek → another buffer → another
-  // late PLAYING … the stutter-back-and-forth viewers see as "looping".
-  // 2000ms < heartbeat interval (3000ms) so legitimate manual play/pause
-  // outside the post-sync echo window still works.
-  const SYNC_QUIET_MS = 2000;
-  let syncingUntil = 0;
-
-  function syncHard(p: PlayerHandle, s: WatchPartyState): void {
-    const before = p.getCurrentTime();
-    const expected = expectedPosition(s);
-    const action = corrector.applyHard(p, s);
-    if (action !== 'none') {
-      syncingUntil = Date.now() + SYNC_QUIET_MS;
-    }
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.log('[wp] syncHard', {
-        action,
-        playerBefore: before.toFixed(2),
-        expected: expected.toFixed(2),
-        drift: (expected - before).toFixed(2),
-        isPlaying: s.is_playing,
-        statePos: s.position.toFixed(2),
-        quietFor: SYNC_QUIET_MS
-      });
-    }
-  }
-  function syncSoft(p: PlayerHandle, s: WatchPartyState): void {
-    const before = p.getCurrentTime();
-    const expected = expectedPosition(s);
-    const action = corrector.applySoft(p, s);
-    if (action !== 'none') {
-      syncingUntil = Date.now() + SYNC_QUIET_MS;
-    }
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.log('[wp] syncSoft', {
-        action,
-        playerBefore: before.toFixed(2),
-        expected: expected.toFixed(2),
-        drift: (expected - before).toFixed(2),
-        isPlaying: s.is_playing,
-        statePos: s.position.toFixed(2)
-      });
-    }
-  }
-
-  // Trailing-debounce window for host control broadcasts. YouTube fires
-  // multiple PLAYING/PAUSED events in rapid succession during ad breaks and
-  // buffer recovery — without this, viewers would ping-pong between play
-  // and pause every time the host hit a buffer.
-  const BROADCAST_DEBOUNCE_MS = 300;
-  let pendingBroadcast:
-    | { action: 'play' | 'pause' | 'seek'; position: number }
-    | undefined;
-  let broadcastTimer: number | undefined;
-
   const isHost = $derived(!!auth.user && party.host_user_id === auth.user.id);
   const hostName = $derived(userCache.displayName(party.host_user_id));
-  // Passive sources (Twitch live) have no seekable position — skip
-  // heartbeats, drift correction, and play/pause broadcast. The "host" only
-  // owns start/stop. All viewers share the embed at their own buffer depth
-  // (~1-2s spread on Twitch's Source quality), no central sync possible.
+  // Passive sources (Twitch live) have no seekable position — no central sync.
   const isPassive = $derived(isPassiveSource(party.source));
+
+  const controller = new PartyController(
+    () => channelId,
+    () => party,
+    () => isHost,
+    () => isPassive
+  );
+  function handleReady(handle: PlayerHandle): void {
+    controller.onReady(handle);
+  }
+  function handleEvent(e: PlayerEvent): void {
+    controller.onEvent(e);
+  }
+
+  // Viewer-Sync + Host-Heartbeat: re-run on every `party` change.
+  $effect(() => {
+    controller.syncViewer();
+  });
+  $effect(() => {
+    controller.syncHeartbeat();
+  });
+
+  // Watcher-Registry: mount = join, unmount = leave (covers tile-close +
+  // channel-switch unmount + party-end unmount).
+  onMount(() => {
+    gateway.sendWatchJoin(channelId);
+    return () => gateway.sendWatchLeave(channelId);
+  });
+
+  onDestroy(() => controller.dispose());
 
   $effect(() => {
     userCache.queue(party.host_user_id);
   });
 
-  // Viewer: align the player to the remote state. Distinguishes a host-
-  // driven transition (force play/pause/position) from a heartbeat (only
-  // correct position drift, never override the viewer's local pause).
-  // Passive sources (live) don't sync at all — just embed it.
+  // New-host toast: fires when control transfers TO me (not on start-as-host).
+  let prevHostId: string | undefined;
   $effect(() => {
-    const p = player;
-    if (!p || isHost || isPassive) return;
-    const cur = party;
-    const prev = prevParty;
-    prevParty = cur;
-    if (!prev) {
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.log('[wp] viewer effect: INITIAL', {
-          statePos: cur.position.toFixed(2),
-          isPlaying: cur.is_playing,
-          playerTime: p.getCurrentTime().toFixed(2)
-        });
-      }
-      viewerPaused = !cur.is_playing;
-      syncHard(p, cur);
-      return;
+    const h = party.host_user_id;
+    const me = auth.user?.id;
+    if (me && h === me && prevHostId !== undefined && prevHostId !== me) {
+      toast.success(m.watch_party_tile_now_controlling());
     }
-    const playingFlipped = prev.is_playing !== cur.is_playing;
-    const expectedFromPrev = expectedPosition(prev, cur.updated_at);
-    const positionJumped =
-      Math.abs(cur.position - expectedFromPrev) > SEEK_DETECTION_THRESHOLD_S;
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.log('[wp] viewer effect', {
-        branch: playingFlipped ? 'transition-play' : positionJumped ? 'transition-seek' : 'heartbeat',
-        prevPos: prev.position.toFixed(2),
-        curPos: cur.position.toFixed(2),
-        expectedFromPrev: expectedFromPrev.toFixed(2),
-        positionDelta: (cur.position - expectedFromPrev).toFixed(2),
-        prevPlaying: prev.is_playing,
-        curPlaying: cur.is_playing,
-        viewerPaused,
-        deltaMsBetweenStates: cur.updated_at - prev.updated_at
-      });
-    }
-    if (playingFlipped || positionJumped) {
-      viewerPaused = !cur.is_playing;
-      syncHard(p, cur);
-      return;
-    }
-    if (!viewerPaused) syncSoft(p, cur);
+    prevHostId = h;
   });
 
+  // Current watchers other than me — fed to the handoff picker.
+  const otherWatchers = $derived(
+    watchWatchers.watchersIn(channelId).filter((id) => id !== auth.user?.id)
+  );
+
+  // Lazy-fetch the YouTube video title via oEmbed.
   $effect(() => {
-    const p = player;
-    if (!p || !isHost || isPassive) {
-      stopHeartbeat?.();
-      stopHeartbeat = undefined;
-      return;
-    }
-    if (stopHeartbeat) return;
-    stopHeartbeat = startHeartbeat(
-      (pos) => gateway.sendWatchHeartbeat(channelId, pos),
-      p
-    );
-    return () => {
-      stopHeartbeat?.();
-      stopHeartbeat = undefined;
-    };
+    if (party.source.type === 'youtube') prefetchYoutubeTitle(party.source.embed_id);
   });
-
-  onDestroy(() => {
-    stopHeartbeat?.();
-    if (broadcastTimer !== undefined) clearTimeout(broadcastTimer);
-    if (player) corrector.dispose(player);
-    player?.destroy();
-  });
-
-  function handleReady(handle: PlayerHandle): void {
-    player = handle;
-    // The $effect above will run on the next tick with prevParty=undefined
-    // and applyHard the initial state — no manual call needed here.
-  }
-
-  function handleEvent(e: PlayerEvent): void {
-    if (isHost) {
-      // Live: host's local play/pause is just local — nothing to broadcast,
-      // viewers each manage their own playback against the live edge.
-      if (isPassive) return;
-      if (e.type === 'play') scheduleBroadcast('play', e.position);
-      else if (e.type === 'pause') scheduleBroadcast('pause', e.position);
-      else if (e.type === 'seek') scheduleBroadcast('seek', e.position);
-      return;
-    }
-    if (isPassive) return; // viewer side: nothing to suppress / re-sync on live
-    // Viewer events don't broadcast. We track them locally so a manual pause
-    // sticks (next heartbeat won't undo it) and a manual play re-engages
-    // drift correction. Suppress the echo of our own programmatic
-    // seek/play/pause — siehe SYNC_QUIET_MS-Block oben.
-    const now = Date.now();
-    const msToWindowEnd = syncingUntil - now;
-    if ((e.type === 'play' || e.type === 'pause') && now < syncingUntil) {
-      if (import.meta.env.DEV) {
-        // eslint-disable-next-line no-console
-        console.log('[wp] handleEvent SUPPRESSED', {
-          type: e.type,
-          position: e.position?.toFixed?.(2),
-          msToWindowEnd
-        });
-      }
-      return;
-    }
-    if (import.meta.env.DEV) {
-      // eslint-disable-next-line no-console
-      console.log('[wp] handleEvent', {
-        type: e.type,
-        position: 'position' in e ? e.position?.toFixed?.(2) : undefined,
-        msToWindowEnd,
-        viewerPaused
-      });
-    }
-    if (e.type === 'pause') viewerPaused = true;
-    else if (e.type === 'play') {
-      viewerPaused = false;
-      if (player) syncHard(player, party);
-    }
-  }
-
-  function scheduleBroadcast(
-    action: 'play' | 'pause' | 'seek',
-    position: number
-  ): void {
-    pendingBroadcast = { action, position };
-    if (broadcastTimer !== undefined) clearTimeout(broadcastTimer);
-    broadcastTimer = window.setTimeout(() => {
-      if (pendingBroadcast) {
-        gateway.sendWatchControl(
-          channelId,
-          pendingBroadcast.action,
-          pendingBroadcast.position
-        );
-        pendingBroadcast = undefined;
-      }
-      broadcastTimer = undefined;
-    }, BROADCAST_DEBOUNCE_MS);
-  }
 
   function stop(): void {
     if (!isHost) return;
     gateway.stopWatchParty(channelId);
   }
-
-  // Lazy-fetch the YouTube video title via oEmbed; the cache pushes the
-  // resolved title back into the reactive label once it lands.
-  $effect(() => {
-    if (party.source.type === 'youtube') prefetchYoutubeTitle(party.source.embed_id);
-  });
 
   const sourceLabel = $derived.by(() => {
     const s = party.source;
@@ -379,7 +181,7 @@
   {#snippet nameExtra()}
     {#if isPassive}
       <span
-        class="rounded-full bg-red-500/30 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-red-200 backdrop-blur-sm"
+        class="rounded-full bg-red-500/30 px-2 py-1 text-[10px] font-semibold tracking-wider text-red-200 uppercase backdrop-blur-sm"
         title={m.watch_party_tile_live_badge_title()}
         data-testid="watch-party-live-badge"
       >
@@ -395,6 +197,7 @@
   {/snippet}
   {#snippet controlsExtra()}
     {#if isHost}
+      <WatchPartyHandoffMenu {channelId} others={otherWatchers} />
       <button
         type="button"
         onclick={stop}
