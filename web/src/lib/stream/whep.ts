@@ -50,14 +50,25 @@ async function waitForIceGathering(pc: RTCPeerConnection): Promise<void> {
   await new Promise<void>((resolve) => {
     const done = () => {
       pc.removeEventListener('icegatheringstatechange', onChange);
+      pc.removeEventListener('icecandidate', onCandidate);
       clearTimeout(timer);
       resolve();
     };
     const onChange = () => {
       if (pc.iceGatheringState === 'complete') done();
     };
+    // A server-reflexive (STUN) candidate is the one a remote viewer actually
+    // needs to reach the MediaMTX host candidate through NAT; once we have it
+    // there's no point waiting for the full gathering to finish (the remaining
+    // host-only LAN candidates don't help a remote peer). This cuts the fixed
+    // pre-POST delay from the 2 s cap to a few hundred ms on a healthy network,
+    // while the timeout still bounds the worst case.
+    const onCandidate = (e: RTCPeerConnectionIceEvent) => {
+      if (e.candidate?.type === 'srflx') done();
+    };
     const timer = setTimeout(done, ICE_GATHERING_TIMEOUT_MS);
     pc.addEventListener('icegatheringstatechange', onChange);
+    pc.addEventListener('icecandidate', onCandidate);
   });
 }
 

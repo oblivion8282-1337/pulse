@@ -125,6 +125,13 @@
 
   // Retry backoff: publisher may not be online yet (404) or transient net loss.
   const RETRY_MS = [1000, 2000, 3000, 5000, 5000];
+  // ICE must reach `connected` within this window after the WHEP answer is
+  // applied. connectWhep() resolves at setRemoteDescription — *before* media
+  // actually flows — so without this watchdog a stalled ICE path (lost UDP to
+  // MediaMTX, no relay fallback) would sit in `connecting` until Chromium's own
+  // ~10-30 s timeout flips it to `failed`. That stall is the "Reconnect dauert
+  // sehr lange"; recycling here cuts a dead attempt down to ~7 s + backoff.
+  const CONNECT_TIMEOUT_MS = 7000;
   let attempt = 0;
   let session: WhepSession | null = null;
   // Active connectionstatechange listener for the current session — held so
@@ -132,6 +139,8 @@
   // closure to the previous (closed) RTCPeerConnection.
   let connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  // Watchdog for the connecting→connected transition (see CONNECT_TIMEOUT_MS).
+  let connectTimer: ReturnType<typeof setTimeout> | null = null;
   let statsTimer: ReturnType<typeof setInterval> | null = null;
   const statsReader = new WhepStatsReader();
   let disposed = false;
@@ -143,6 +152,10 @@
     if (retryTimer) {
       clearTimeout(retryTimer);
       retryTimer = null;
+    }
+    if (connectTimer) {
+      clearTimeout(connectTimer);
+      connectTimer = null;
     }
     if (statsTimer) {
       clearInterval(statsTimer);
@@ -203,22 +216,47 @@
         return;
       }
       session = s;
-      attempt = 0;
-      phase = 'playing';
       detail = '';
+      // connectWhep() resolved at setRemoteDescription — ICE is NOT up yet. Stay
+      // in the current ('connecting'/'retrying') phase and only flip to
+      // 'playing' once the PC truly reaches `connected`; otherwise the overlay
+      // would clear over a black, media-less video.
+      const onConnected = () => {
+        if (connectTimer) {
+          clearTimeout(connectTimer);
+          connectTimer = null;
+        }
+        attempt = 0;
+        phase = 'playing';
+        detail = '';
+      };
+      const recycle = () => {
+        void teardown().then(() => {
+          if (!disposed && runChannelId === cid) scheduleRetry();
+        });
+      };
       connListener = () => {
         if (disposed || session !== s) return;
         const st = s.pc.connectionState;
         // `disconnected` is transient — Chromium recovers it back to `connected`
         // most of the time. Only retry on the definitive states; otherwise we
-        // tear down every micro-glitch on the UDP path and loop for ~18s.
-        if (st === 'failed' || st === 'closed') {
-          void teardown().then(() => {
-            if (!disposed && runChannelId === cid) scheduleRetry();
-          });
-        }
+        // tear down every micro-glitch on the UDP path and loop.
+        if (st === 'connected') onConnected();
+        else if (st === 'failed' || st === 'closed') recycle();
       };
       s.pc.addEventListener('connectionstatechange', connListener);
+      // The PC may already be connected before we attached the listener (fast
+      // LAN path); otherwise arm the watchdog so a stalled ICE negotiation is
+      // recycled long before Chromium's own ~10-30 s `failed` timeout fires.
+      if (s.pc.connectionState === 'connected') {
+        onConnected();
+      } else {
+        connectTimer = setTimeout(() => {
+          connectTimer = null;
+          if (disposed || session !== s) return;
+          if (s.pc.connectionState !== 'connected') recycle();
+        }, CONNECT_TIMEOUT_MS);
+      }
       // Video ist muted, also autoplay-tauglich; der Audio-Block hängt jetzt
       // am AudioContext (kann suspended sein bevor der User klickt).
       statsReader.reset();
