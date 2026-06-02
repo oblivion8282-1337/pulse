@@ -11,6 +11,7 @@ import { gateway } from '$lib/ws/connection';
 import {
   DriftCorrector,
   expectedPosition,
+  hostPlaybackStalled,
   startHeartbeat,
   type PlayerEvent,
   type PlayerHandle
@@ -54,6 +55,21 @@ export class PartyController {
     if (!prev) {
       this.#viewerPaused = !cur.is_playing;
       this.#syncHard(p, cur);
+      return;
+    }
+    // Host minimized/occluded: its throttled media keeps is_playing=true but
+    // its position barely advances, so cur.position lands far below where
+    // wall-clock says the host should be. Without this guard that reads as a
+    // backward "seek" and the corrector hard-seeks the viewer back every
+    // ~2s — a stutter loop. Skip correction until the host resumes advancing.
+    if (hostPlaybackStalled(prev, cur)) {
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.log('[wp] host stalled — skip drift correction', {
+          posDelta: (cur.position - prev.position).toFixed(2),
+          wallDelta: ((cur.updated_at - prev.updated_at) / 1000).toFixed(2)
+        });
+      }
       return;
     }
     const playingFlipped = prev.is_playing !== cur.is_playing;

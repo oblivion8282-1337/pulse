@@ -171,6 +171,12 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      // Keep timers + media running at full rate when the window is
+      // minimized/occluded. Default (true) throttles a backgrounded
+      // renderer: a watch-party host's <video> stalls while is_playing stays
+      // true, so it broadcasts a frozen position and viewers loop on backward
+      // drift-seeks. Also keeps the voice/PTT timers honest in the tray.
+      backgroundThrottling: false,
     },
   });
 

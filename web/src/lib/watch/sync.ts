@@ -85,6 +85,30 @@ export function expectedPosition(state: WatchPartyState, nowMs = Date.now()): nu
   return state.position + elapsed;
 }
 
+/** Gap thresholds for {@link hostPlaybackStalled}. */
+const STALL_MIN_GAP_S = 1.5;
+const STALL_ADVANCE_RATIO = 0.5;
+const STALL_BACKSTEP_TOLERANCE_S = 1.0;
+
+/** True when the host is nominally playing but its position barely moved
+ * against wall-clock between two heartbeats — i.e. the host's media pipeline
+ * is throttled/frozen (window minimized or occluded) while is_playing stays
+ * true.
+ *
+ * Signature: `is_playing` on both frames, a real wall-clock gap, and the
+ * position advanced far less than that gap WITHOUT being a deliberate
+ * backward seek (which shows a large negative delta and must still resync via
+ * the hard path). Catching this lets the viewer skip drift correction instead
+ * of hard-seeking backward to the frozen position every ~2s — the loop a
+ * backgrounded host otherwise triggers. */
+export function hostPlaybackStalled(prev: WatchPartyState, cur: WatchPartyState): boolean {
+  if (!prev.is_playing || !cur.is_playing) return false;
+  const wallDelta = (cur.updated_at - prev.updated_at) / 1000;
+  if (wallDelta < STALL_MIN_GAP_S) return false;
+  const posDelta = cur.position - prev.position;
+  return posDelta > -STALL_BACKSTEP_TOLERANCE_S && posDelta < wallDelta * STALL_ADVANCE_RATIO;
+}
+
 export type DriftAction = 'none' | 'nudge-up' | 'nudge-down' | 'seek';
 
 /** Holds the transient playbackRate-nudge timer so we can reset it on the
