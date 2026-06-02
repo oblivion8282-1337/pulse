@@ -16,6 +16,15 @@ class Settings(BaseSettings):
     jwks_cache_seconds: int = 3600
 
     livekit_url: str = "ws://localhost:7880"
+    # Optional internal address for SERVER-side LiveKit API calls (the
+    # reconcile loop + admin mute/disconnect ops). The public ``livekit_url``
+    # routes through Caddy/nginx, which is *down during a deploy* — so the
+    # startup reconcile (whose whole job is covering the deploy gap) would
+    # itself fail on the web layer. Pointing the API client straight at the
+    # host (e.g. ``http://host.docker.internal:7880``) removes that dependency.
+    # Unset → fall back to ``livekit_url`` (dev/tests, already localhost).
+    # Browser clients still get ``livekit_url`` as their ws_url (token.py).
+    livekit_api_url: str | None = None
     livekit_api_key: str = "devkey"
     livekit_api_secret: str = "devsecretdevsecretdevsecretdevsecret"
     livekit_token_ttl_seconds: int = 60 * 60 * 4  # 4h

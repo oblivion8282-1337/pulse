@@ -259,6 +259,11 @@ services:
     depends_on:
       redis: { condition: service_healthy }
       auth: { condition: service_started }
+    extra_hosts:
+      # → LiveKit API (:7880) on the host for server-side calls (reconcile loop
+      #   + admin ops). Set LIVEKIT_API_URL=http://host.docker.internal:7880 in
+      #   .env so they bypass the public Caddy/nginx path (down during deploys).
+      - "host.docker.internal:host-gateway"
     # LiveKit (network_mode: host) posts webhooks to http://127.0.0.1:8003/webhook
     ports:
       - "127.0.0.1:8003:8000"

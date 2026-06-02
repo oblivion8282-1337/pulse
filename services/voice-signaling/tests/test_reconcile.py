@@ -179,3 +179,27 @@ async def test_reconcile_ignores_non_channel_rooms(redis):
     lk = _FakeLiveKitAPI({"some-other-room": [_FakeParticipant("user-1")]})
     summary = await reconcile_once(redis, lk, ttl_seconds=3600)
     assert summary["rooms"] == 0
+
+
+# --- server-side LiveKit API host selection --------------------------------
+class _Cfg:
+    def __init__(self, livekit_url, livekit_api_url=None):
+        self.livekit_url = livekit_url
+        self.livekit_api_url = livekit_api_url
+
+
+def test_api_host_prefers_internal_url():
+    from dcc_voice_signaling.app import _livekit_api_host
+
+    cfg = _Cfg("wss://howispulse.com/livekit", "http://host.docker.internal:7880")
+    assert _livekit_api_host(cfg) == "http://host.docker.internal:7880"
+
+
+def test_api_host_falls_back_to_public_and_normalises_scheme():
+    from dcc_voice_signaling.app import _livekit_api_host
+
+    # Unset internal → public URL, ws(s):// normalised to http(s)://.
+    assert _livekit_api_host(_Cfg("wss://howispulse.com/livekit")) == (
+        "https://howispulse.com/livekit"
+    )
+    assert _livekit_api_host(_Cfg("ws://localhost:7880")) == "http://localhost:7880"

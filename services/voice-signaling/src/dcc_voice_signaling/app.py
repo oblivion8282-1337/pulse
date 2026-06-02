@@ -15,6 +15,19 @@ from dcc_voice_signaling.routes import chat_gateway as _chat_gateway
 
 log = structlog.get_logger(__name__)
 
+
+def _livekit_api_host(settings) -> str:  # noqa: ANN001
+    """Resolve the host for server-side LiveKit API calls.
+
+    Prefers ``livekit_api_url`` (a direct internal address that bypasses the
+    web layer) and falls back to the public ``livekit_url``. Normalises the
+    ws(s):// scheme the AccessToken/ws_url uses to the http(s):// the twirp
+    API client needs.
+    """
+    raw = settings.livekit_api_url or settings.livekit_url
+    return raw.replace("wss://", "https://").replace("ws://", "http://")
+
+
 _DEV_KEY = "devkey"
 _DEV_SECRET = "devsecretdevsecretdevsecretdevsecret"
 from dcc_voice_signaling.routes import router
@@ -55,9 +68,7 @@ async def lifespan(app: FastAPI):
     # TCP+TLS handshake and JWT signing across multiple calls.
     livekit_api_client: lk.LiveKitAPI | None = None
     if settings.livekit_api_key and settings.livekit_api_secret:
-        host = settings.livekit_url.replace("wss://", "https://").replace(
-            "ws://", "http://"
-        )
+        host = _livekit_api_host(settings)
         livekit_api_client = lk.LiveKitAPI(
             host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
         )
