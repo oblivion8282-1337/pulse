@@ -852,3 +852,170 @@ async def test_get_watch_chat_non_member_403(client, _auth_signer):
     ).json()
     r = await client.get(f"/channels/{vc['id']}/watch-party/chat", headers=_auth(outsider))
     assert r.status_code == 403
+
+
+# =============================================================================
+# 5. Host-Handoff — promotion core + explicit handoff
+# =============================================================================
+
+
+def _reg_mgr():
+    """A bare ConnectionManager-shaped object carrying just the watcher
+    registry (real mixin) + a no-op broadcast — enough for promotion tests."""
+    from dcc_chat_gateway.watch_registry import _WatchRegistryMixin
+
+    class _Mgr(_WatchRegistryMixin):
+        def __init__(self):
+            self._lock = asyncio.Lock()
+            self._init_watch_registry()
+
+        async def broadcast_watchers(self, cid):
+            pass
+
+    return _Mgr()
+
+
+def _state(host: str = "111", **over) -> dict:
+    base = {
+        "source": {"type": "youtube", "embed_id": "abc12345678"},
+        "host_user_id": host,
+        "position": 0.0,
+        "is_playing": True,
+        "updated_at": watchkeys.now_ms(),
+        "started_at": watchkeys.now_ms(),
+    }
+    base.update(over)
+    return base
+
+
+class _ErrWS:
+    """Minimal websocket stand-in that records error frames + exposes
+    app.state.{redis,connection_manager}."""
+
+    def __init__(self, redis, mgr):
+        state = type("S", (), {"redis": redis, "connection_manager": mgr})()
+        self.app = type("A", (), {"state": state})()
+        self.errors: list[tuple[int, str]] = []
+
+    async def send_json(self, payload):
+        if payload.get("op") == "error":
+            self.errors.append((payload["code"], payload["msg"]))
+
+
+def test_promoted_state_swaps_host_and_refreshes_position():
+    base = _state(host="111", position=10.0, updated_at=1000)
+    out = watchkeys.promoted_state(base, "222", now_ms_val=3000)
+    assert out["host_user_id"] == "222"
+    assert out["is_playing"] is True
+    assert out["position"] == pytest.approx(12.0)  # 10 + (3000-1000)/1000
+    assert out["updated_at"] == 3000
+    assert base["host_user_id"] == "111"  # original untouched
+
+
+@pytest.mark.asyncio
+async def test_promote_or_end_promotes_oldest_other_watcher(redis):
+    from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    host_ws = object()
+    await mgr.watch_join(cid, "111", host_ws, now_ms=1000)
+    await mgr.watch_join(cid, "222", object(), now_ms=2000)
+    await mgr.watch_join(cid, "333", object(), now_ms=3000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111", position=5.0)), ex=600)
+    try:
+        await mgr.watch_leave(cid, "111", host_ws)
+        await promote_or_end(redis, mgr, cid, "111")
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "222"
+        assert new["is_playing"] is True
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_promote_or_end_deletes_when_no_watchers_left(redis):
+    from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await promote_or_end(redis, mgr, cid, "111")
+    assert await redis.get(f"watch:channel-{cid}") is None
+
+
+@pytest.mark.asyncio
+async def test_promote_or_end_noop_for_non_host_departure(redis):
+    from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await mgr.watch_join(cid, "111", object(), now_ms=1000)
+    await mgr.watch_join(cid, "222", object(), now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    try:
+        await promote_or_end(redis, mgr, cid, "222")  # viewer leaves
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "111"
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_handoff_to_valid_target_swaps_host(redis):
+    from dcc_chat_gateway.routes import watch_handoff
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await mgr.watch_join(cid, "111", object(), now_ms=1000)
+    await mgr.watch_join(cid, "222", object(), now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    ws = _ErrWS(redis, mgr)
+    user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
+    try:
+        await watch_handoff.handle_handoff(ws, user, {"channel_id": cid, "target_user_id": "222"})
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "222"
+        assert ws.errors == []
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_handoff_to_non_watcher_errors_4018(redis):
+    from dcc_chat_gateway.routes import watch_handoff
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await mgr.watch_join(cid, "111", object(), now_ms=1000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    ws = _ErrWS(redis, mgr)
+    user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
+    try:
+        await watch_handoff.handle_handoff(ws, user, {"channel_id": cid, "target_user_id": "999"})
+        assert ws.errors and ws.errors[0][0] == 4018
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "111"
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_handoff_by_non_host_errors_4015(redis):
+    from dcc_chat_gateway.routes import watch_handoff
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await mgr.watch_join(cid, "111", object(), now_ms=1000)
+    await mgr.watch_join(cid, "222", object(), now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    ws = _ErrWS(redis, mgr)
+    user = AuthenticatedUser(id=222, username="u222", is_admin=False, payload={})
+    try:
+        await watch_handoff.handle_handoff(ws, user, {"channel_id": cid, "target_user_id": "111"})
+        assert ws.errors and ws.errors[0][0] == 4015
+    finally:
+        await redis.delete(f"watch:channel-{cid}")

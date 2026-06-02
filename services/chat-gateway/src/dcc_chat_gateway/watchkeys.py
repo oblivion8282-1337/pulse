@@ -41,6 +41,29 @@ def now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def expected_position(state: dict, now_ms_val: int | None = None) -> float:
+    """Server-side mirror of the frontend ``expectedPosition``: where the host
+    clock says playback is right now."""
+    pos = float(state.get("position") or 0.0)
+    if not state.get("is_playing"):
+        return pos
+    now = now_ms_val if now_ms_val is not None else now_ms()
+    elapsed = max(0.0, (now - int(state.get("updated_at") or 0)) / 1000.0)
+    return pos + elapsed
+
+
+def promoted_state(state: dict, new_host_id: str, now_ms_val: int | None = None) -> dict:
+    """Return a copy of ``state`` with the host swapped, position refreshed to
+    the extrapolated value, and updated_at bumped. ``is_playing`` is preserved
+    so the new host's player resumes seamlessly."""
+    now = now_ms_val if now_ms_val is not None else now_ms()
+    out = dict(state)
+    out["host_user_id"] = str(new_host_id)
+    out["position"] = expected_position(state, now)
+    out["updated_at"] = now
+    return out
+
+
 async def read_state(redis: Redis, channel_id: str) -> dict | None:
     raw = await redis.get(WATCH_STATE_KEY.format(channel_id=channel_id))
     if raw is None:
