@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     # would otherwise leave a ghost participant forever.
     voice_state_ttl_seconds: int = 60 * 60 * 6  # 6h
 
+    # Periodic LiveKit→Redis presence reconciliation (reconcile.py). Polls the
+    # actual participant list and rewrites the voice:room:* sets to match —
+    # closes the webhook-gap (deploy/restart) and NX-TTL-expiry blind spots the
+    # event-driven webhook path cannot heal on its own. Runs once on startup,
+    # then every interval. Set enabled=False to fall back to webhook-only.
+    voice_reconcile_enabled: bool = True
+    voice_reconcile_interval_seconds: int = 30
+
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # chat-gateway is the source of truth for guild/channel membership. Token

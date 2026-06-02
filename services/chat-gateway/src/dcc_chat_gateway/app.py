@@ -244,6 +244,10 @@ async def lifespan(app: FastAPI):
 
 def create_app(*, skip_redis: bool = False) -> FastAPI:
     settings = get_settings()
+    # Scrub ``token=…`` (WS query-param auth) from uvicorn access logs before
+    # any request is served. Idempotent — safe across repeated create_app calls.
+    from dcc_chat_gateway.log_filters import install_access_log_redaction
+    install_access_log_redaction()
     app = FastAPI(title="dcc-chat-gateway", version="0.1.0", lifespan=lifespan)
     app.state.skip_redis = skip_redis
     # Default-Snapshot, damit Tests ohne Lifespan (REST-only-Fixture)

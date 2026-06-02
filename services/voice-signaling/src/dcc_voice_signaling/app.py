@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 
 import structlog
@@ -62,9 +63,35 @@ async def lifespan(app: FastAPI):
         )
         app.state.livekit_api = livekit_api_client
 
+    # Periodic LiveKit→Redis presence reconciliation. Needs both Redis and a
+    # LiveKit API client; skipped in tests (skip_redis) and when disabled.
+    reconcile_task: asyncio.Task | None = None
+    if (
+        redis is not None
+        and livekit_api_client is not None
+        and settings.voice_reconcile_enabled
+    ):
+        from dcc_voice_signaling.reconcile import reconcile_loop
+
+        reconcile_task = asyncio.create_task(
+            reconcile_loop(
+                redis,
+                livekit_api_client,
+                interval_seconds=settings.voice_reconcile_interval_seconds,
+                ttl_seconds=settings.voice_state_ttl_seconds,
+            ),
+            name="dcc-voice-reconcile",
+        )
+
     try:
         yield
     finally:
+        if reconcile_task is not None:
+            reconcile_task.cancel()
+            try:
+                await reconcile_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
         await _chat_gateway._close_http_client()
         if livekit_api_client is not None:
             try:
