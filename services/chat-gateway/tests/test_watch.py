@@ -112,13 +112,18 @@ def test_parse_twitch_rejects_reserved_and_multipath():
     assert parse_source("https://www.twitch.tv/" + "a" * 26) is None
 
 
-def test_parse_native_mp4_webm_m3u8():
+def test_parse_native_mp4_webm():
     for url in (
         "https://example.com/movie.mp4",
         "https://cdn.example.com/path/to/clip.webm",
-        "https://example.com/stream/index.m3u8",
     ):
         assert parse_source(url) == {"type": "native", "url": url}
+
+
+def test_parse_rejects_hls_m3u8():
+    # HLS isn't playable by the plain <video> viewer on Chromium/Electron, so
+    # the parser rejects it rather than accepting an un-playable source.
+    assert parse_source("https://example.com/stream/index.m3u8") is None
 
 
 def test_parse_rejects_http():
@@ -1062,3 +1067,33 @@ async def test_handle_join_registers_and_broadcasts(redis):
     assert cid in watched
     assert str(uid) in await mgr.watchers(cid)
     assert broadcasts == [cid]
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_rejects_out_of_range_position(redis):
+    """A heartbeat above _MAX_POSITION_S must be dropped (same bound as
+    handle_control) — it cannot move the stored position."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    cid = str(random.randint(10**18, 10**19 - 1))
+    # updated_at far in the past so the debounce wouldn't block a valid write.
+    await redis.set(
+        f"watch:channel-{cid}",
+        json.dumps(_state(host="111", position=5.0, updated_at=watchkeys.now_ms() - 60_000)),
+        ex=600,
+    )
+    ws = _ErrWS(redis, _reg_mgr())
+    user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
+    try:
+        await ws_watch.handle_heartbeat(
+            ws, user, {"channel_id": cid, "position": ws_watch._MAX_POSITION_S + 1}
+        )
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["position"] == 5.0  # unchanged — heartbeat dropped
+        # Sanity: a within-bounds heartbeat does move it.
+        await ws_watch.handle_heartbeat(ws, user, {"channel_id": cid, "position": 42.0})
+        moved = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert moved["position"] == 42.0
+    finally:
+        await redis.delete(f"watch:channel-{cid}")

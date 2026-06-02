@@ -16,7 +16,11 @@ Supported v1:
     doesn't expose seek/position on live streams, and viewers' HLS buffers
     keep them within ~1-2s anyway). The host role reduces to "started it /
     can stop it".
-  * Native — direct ``https://`` URL ending in ``.mp4`` / ``.webm`` / ``.m3u8``.
+  * Native — direct ``https://`` URL ending in ``.mp4`` / ``.webm``. (HLS
+    ``.m3u8`` is intentionally NOT accepted: the viewer is a plain ``<video>``
+    element and Pulse targets Chromium/Electron, which can't play HLS natively
+    — accepting it would only produce a silent load failure. Re-add together
+    with an hls.js MSE path if HLS is ever wanted.)
 
 Returns the parsed source dict, or ``None`` for anything we can't sync.
 """
@@ -31,7 +35,7 @@ _MAX_URL_LEN = 2048
 
 _YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _TWITCH_VOD_PATH = re.compile(r"^/videos/(\d+)/?$")
-_NATIVE_SUFFIX = re.compile(r"\.(mp4|webm|m3u8)$", re.IGNORECASE)
+_NATIVE_SUFFIX = re.compile(r"\.(mp4|webm)$", re.IGNORECASE)
 _YOUTUBE_HOSTS = {
     "youtube.com",
     "www.youtube.com",
@@ -171,7 +175,7 @@ def parse_source(url: object) -> dict | None:
                 return {"type": "twitch_live", "channel": parts[0]}
         return None
 
-    # --- Native mp4/webm/m3u8 ---
+    # --- Native mp4/webm ---
     if _NATIVE_SUFFIX.search(u.path):
         if _is_private_host(host):
             return None

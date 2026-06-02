@@ -13,7 +13,7 @@ const MAX_URL_LEN = 2048;
 const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
 const TWITCH_VOD_PATH = /^\/videos\/(\d+)\/?$/;
 const TWITCH_CHANNEL_NAME = /^[A-Za-z0-9_]{1,25}$/;
-const NATIVE_SUFFIX = /\.(mp4|webm|m3u8)$/i;
+const NATIVE_SUFFIX = /\.(mp4|webm)$/i;
 
 const YOUTUBE_HOSTS = new Set([
   'youtube.com',
@@ -136,7 +136,8 @@ export function parseSource(input: string): WatchSource | null {
     return null;
   }
 
-  // Native — direct https URL ending in mp4/webm/m3u8.
+  // Native — direct https URL ending in mp4/webm. HLS (.m3u8) is not accepted:
+  // the player is a plain <video> and Chromium/Electron can't play HLS natively.
   if (NATIVE_SUFFIX.test(u.pathname)) {
     return { type: 'native', url };
   }

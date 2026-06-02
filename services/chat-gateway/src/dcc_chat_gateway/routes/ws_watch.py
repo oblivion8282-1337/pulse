@@ -237,7 +237,14 @@ async def handle_heartbeat(
     # spamming error frames — the host emits one every ~3s during playback.
     cid_int = _channel_id(msg.get("channel_id"))
     position = msg.get("position")
-    if cid_int is None or not isinstance(position, (int, float)) or position < 0:
+    # Same position bounds as handle_control — an out-of-range heartbeat must
+    # not be able to set a position the control op would reject.
+    if (
+        cid_int is None
+        or not isinstance(position, (int, float))
+        or position < 0
+        or position > _MAX_POSITION_S
+    ):
         return
     cid = str(cid_int)
     redis = _redis(websocket)

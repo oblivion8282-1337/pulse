@@ -132,15 +132,17 @@ export class DriftCorrector {
     // Only apply the seek lead when playing; when paused, seek to the
     // exact expected position without any lookahead.
     const target = expected + (state.is_playing ? SEEK_LEAD_S : 0);
-    // eslint-disable-next-line no-console
-    console.log('[wp] SEEK', {
-      from: actual.toFixed(2),
-      to: target.toFixed(2),
-      expected: expected.toFixed(2),
-      lead: SEEK_LEAD_S.toFixed(2),
-      drift: drift.toFixed(2),
-      direction: drift > 0 ? 'forward' : 'backward'
-    });
+    if (import.meta.env.DEV) {
+      // eslint-disable-next-line no-console
+      console.log('[wp] SEEK', {
+        from: actual.toFixed(2),
+        to: target.toFixed(2),
+        expected: expected.toFixed(2),
+        lead: SEEK_LEAD_S.toFixed(2),
+        drift: drift.toFixed(2),
+        direction: drift > 0 ? 'forward' : 'backward'
+      });
+    }
     player.seek(target);
     // Only apply post-seek nudge when playing; when paused, reset to 1.0x.
     if (state.is_playing) {

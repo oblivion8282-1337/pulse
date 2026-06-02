@@ -1,9 +1,10 @@
 <!--
-  Native HTML5 <video> wrapper for mp4 / webm / m3u8 sources.
+  Native HTML5 <video> wrapper for mp4 / webm sources.
 
-  m3u8 plays natively on Safari + recent Chromium via MSE; older browsers
-  would need hls.js (not bundled in v1 — Pulse is desktop/PWA-focussed on
-  Chromium).
+  HLS (.m3u8) is NOT supported: this is a plain <video> element and Pulse
+  targets Chromium/Electron, which can't play HLS natively. The source parser
+  rejects .m3u8 so it never reaches here. Add hls.js + an MSE path if HLS is
+  ever wanted.
 
   Native `controls` is always on so viewers get volume / fullscreen /
   scrubbing. Viewer-driven play/pause/seek events are ignored by
