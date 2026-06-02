@@ -52,7 +52,14 @@ async def promote_or_end(redis, manager, channel_id: str, departing_uid: str) ->
     if next_uid is None:
         await watchkeys.delete_state(redis, channel_id)
         return
-    new_state = watchkeys.promoted_state(state, next_uid)
+    # Re-read after next_host released the lock: guard against a concurrent
+    # promotion / stop having changed (or cleared) the host in the meantime, so
+    # two interleaved departures can't double-write or resurrect a stopped
+    # party. Also picks up the freshest position for the extrapolation.
+    fresh = await watchkeys.read_state(redis, channel_id)
+    if fresh is None or str(fresh.get("host_user_id")) != str(departing_uid):
+        return
+    new_state = watchkeys.promoted_state(fresh, next_uid)
     await watchkeys.write_state(redis, channel_id, new_state)
     log.info(
         "watch-party promoted channel=%s from=%s to=%s",
