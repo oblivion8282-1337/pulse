@@ -636,84 +636,67 @@ async def test_ready_carries_watch_states(ws_app, _auth_signer, redis):
 
 
 @pytest.mark.asyncio
-async def test_cleanup_on_disconnect_deletes_hosted_party(redis):
-    """Unit-test the cleanup helper directly. Asserting the same path via the
-    WS layer races with TestClient's portal cancellation — the production
-    finally block has no such cancellation pressure on graceful disconnect."""
+async def test_cleanup_on_disconnect_promotes_to_remaining_watcher(redis):
+    """Host socket closes with another watcher present → promote, not end."""
     from dcc_chat_gateway.routes import ws_watch
     from dcc_chat_gateway.security import AuthenticatedUser
 
     uid = random.randint(1, 1_000_000)
     cid = str(random.randint(10**18, 10**19 - 1))
-    state = {
-        "source": {"type": "youtube", "embed_id": "abc12345678"},
-        "host_user_id": str(uid),
-        "position": 0,
-        "is_playing": True,
-        "updated_at": watchkeys.now_ms(),
-        "started_at": watchkeys.now_ms(),
-    }
-    await redis.set(f"watch:channel-{cid}", json.dumps(state), ex=600)
-
-    class _Mgr:
-        def user_socket_count(self, _uid):
-            return 1  # last socket about to close
-
-    class _State:
-        def __init__(self, r):
-            self.redis = r
-
-    class _App:
-        def __init__(self, r):
-            self.state = _State(r)
-
-    class _WS:
-        def __init__(self, r):
-            self.app = _App(r)
+    mgr = _reg_mgr()
+    host_ws = _ErrWS(redis, mgr)  # same instance is redis source + registry key
+    await mgr.watch_join(cid, str(uid), host_ws, now_ms=1000)
+    await mgr.watch_join(cid, "999", object(), now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
-    await ws_watch.cleanup_on_disconnect(_WS(redis), user, _Mgr(), {cid})
+    try:
+        await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {cid})
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "999"
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_cleanup_on_disconnect_ends_when_solo(redis):
+    """Host socket closes with no other watcher → party ends."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    uid = random.randint(1, 1_000_000)
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    host_ws = _ErrWS(redis, mgr)
+    await mgr.watch_join(cid, str(uid), host_ws, now_ms=1000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+
+    user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
+    await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {cid})
     assert await redis.get(f"watch:channel-{cid}") is None
 
 
 @pytest.mark.asyncio
-async def test_cleanup_skips_when_user_has_other_sockets(redis):
-    """Another socket of the same user is still connected → party survives."""
+async def test_cleanup_on_disconnect_multitab_keeps_party(redis):
+    """A sibling socket of the host is still watching → host stays, no end."""
     from dcc_chat_gateway.routes import ws_watch
     from dcc_chat_gateway.security import AuthenticatedUser
 
     uid = random.randint(1, 1_000_000)
     cid = str(random.randint(10**18, 10**19 - 1))
-    state = {
-        "source": {"type": "youtube", "embed_id": "abc12345678"},
-        "host_user_id": str(uid),
-        "position": 0,
-        "is_playing": True,
-        "updated_at": watchkeys.now_ms(),
-        "started_at": watchkeys.now_ms(),
-    }
-    await redis.set(f"watch:channel-{cid}", json.dumps(state), ex=600)
-
-    class _Mgr:
-        def user_socket_count(self, _uid):
-            return 2  # sibling socket still alive
-
-    class _State:
-        def __init__(self, r):
-            self.redis = r
-
-    class _App:
-        def __init__(self, r):
-            self.state = _State(r)
-
-    class _WS:
-        def __init__(self, r):
-            self.app = _App(r)
+    mgr = _reg_mgr()
+    tab1 = _ErrWS(redis, mgr)
+    tab2 = _ErrWS(redis, mgr)
+    await mgr.watch_join(cid, str(uid), tab1, now_ms=1000)
+    await mgr.watch_join(cid, str(uid), tab2, now_ms=1000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
-        await ws_watch.cleanup_on_disconnect(_WS(redis), user, _Mgr(), {cid})
-        assert await redis.get(f"watch:channel-{cid}") is not None
+        # tab1 disconnects — user still watches via tab2 → no promotion/end.
+        await ws_watch.cleanup_on_disconnect(tab1, user, mgr, {cid})
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == str(uid)
     finally:
         await redis.delete(f"watch:channel-{cid}")
 

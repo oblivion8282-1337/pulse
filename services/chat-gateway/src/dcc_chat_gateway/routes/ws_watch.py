@@ -258,20 +258,22 @@ async def cleanup_on_disconnect(
     websocket: WebSocket,
     user: AuthenticatedUser,
     manager,
-    hosted_parties: set[str],
+    watched_parties: set[str],
 ) -> None:
-    """End any parties this socket hosted, but only if no other socket of the
-    same user could keep hosting. Must run before ``manager.remove_socket``
-    so the count still includes the disconnecting connection."""
-    if not hosted_parties or manager.user_socket_count(user.id) > 1:
+    """Socket closing: leave every party this socket watched, promoting a new
+    host (or ending the party) wherever this socket's user was the host and is
+    now fully gone. Runs BEFORE ``manager.remove_socket`` so the registry's
+    socket set is still accurate."""
+    if not watched_parties:
         return
+    from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+
     redis = _redis(websocket)
-    if redis is None:
-        return
-    for cid in list(hosted_parties):
+    for cid in list(watched_parties):
         try:
-            state = await watchkeys.read_state(redis, cid)
-            if state and str(state.get("host_user_id")) == str(user.id):
-                await watchkeys.delete_state(redis, cid)
+            fully_left = await manager.watch_leave(cid, str(user.id), websocket)
+            await manager.broadcast_watchers(cid)
+            if fully_left:
+                await promote_or_end(redis, manager, cid, str(user.id))
         except Exception:
-            log.exception("watch-party cleanup failed for channel %s", cid)
+            log.exception("watch-party disconnect cleanup failed for channel %s", cid)

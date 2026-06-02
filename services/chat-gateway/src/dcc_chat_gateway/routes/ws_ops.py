@@ -32,6 +32,7 @@ from dcc_chat_gateway.db import SessionLocal  # noqa: F401
 # registry is fully populated.
 from dcc_chat_gateway.plugins.ws_op_gate import check_plugin_op_gate, parse_plugin_op
 from dcc_chat_gateway.routes import ws_ops_handlers  # noqa: F401
+from dcc_chat_gateway.routes import ws_watch
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, get_handler
 from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -188,11 +189,16 @@ async def run_session_op_loop(
                 await expiry_task
             except (asyncio.CancelledError, Exception):  # noqa: BLE001
                 pass
-        # Watch parties are NOT auto-cleaned on socket close: a brief
-        # network blip / page refresh would otherwise kill the host's
-        # party while they're trying to reconnect. Explicit user actions
-        # (PhoneOff, channel switch, X-on-tile) end the party via the
-        # watch_stop op; everything else falls through to the 6h Redis TTL.
+        # Watch parties: leave the watcher registry for every party this
+        # socket watched and promote a new host (or end the party) where this
+        # user was the host. Must run before remove_socket so the registry's
+        # socket set still includes this connection.
+        try:
+            await ws_watch.cleanup_on_disconnect(
+                websocket, user, manager, ctx.watched_parties
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("watch cleanup_on_disconnect failed for user=%s", user.id)
         await manager.remove_socket(websocket)
         if manager.user_socket_count(user.id) == 0:
             try:
