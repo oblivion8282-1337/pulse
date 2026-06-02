@@ -13,9 +13,12 @@ Ein Host-WLAN-Drop bei Minute 90 killt den Film für die ganze Runde. Es gibt ke
 Host-Wechsel.
 
 Zwei verwandte Review-Befunde hängen mit dran:
-- **Reconnect-Zombie (#2):** `hosted_parties` ist ein per-Socket-Set. Nach einem
-  WS-Reconnect ist der Channel nicht mehr drin → `cleanup_on_disconnect` feuert nie
-  wieder → Party bleibt bis zur 6h-TTL als Geist stehen.
+- **Disconnect-Zombie (#2):** `cleanup_on_disconnect` (in `ws_watch.py`) ist **toter
+  Code** — nur aus Tests aufgerufen, nie aus dem Dispatcher (`ws_ops.py` Z.191–195
+  vermeidet Cleanup bewusst, um Refresh/Blips zu überleben). Folge: jeder Host-Disconnect
+  hinterlässt eine unsteuerbare Zombie-Party bis zur 6h-TTL. Das Feature wirt das aktive
+  Disconnect-Handling erstmals korrekt — über die Watcher-Registry statt der toten
+  Funktion.
 - **Multi-Tab-Host-Konflikt (#3):** Zwei echte Tabs desselben Users werten beide
   `isHost` über `host_user_id`-Match → beide broadcasten Control.
 
@@ -32,9 +35,11 @@ Aus dem Brainstorming festgeklopft:
    - Host gibt explizit ab (inkl. gezielt an eine bestimmte Person)
 3. **Promotions-Ziel:** der **älteste verbliebene Watcher** (längste Zugehörigkeit
    zur Party).
-4. **Leere Watcher-Menge:** Party **sofort beenden** (entspricht heutigem Verhalten;
-   der Solo-Host-Reconnect-Edge ist bewusst akzeptiert — bei null Zuschauern schaut eh
-   niemand weiter).
+4. **Leere Watcher-Menge:** Party **sofort beenden**. (Achtung: das ist NICHT das
+   heutige Verhalten — heute lingert die Party bei Host-Disconnect bis zur 6h-TTL, s.u.
+   Wir führen mit diesem Feature aktives Disconnect-Handling erst ein.) Der
+   Solo-Host-Refresh-Edge ist bewusst akzeptiert — bei null Zuschauern schaut eh niemand
+   weiter.
 5. **Explizites Handoff-UI mit Personen-Picker** in v1 (nicht nur „an nächsten").
 
 ## Kern-Erkenntnis
