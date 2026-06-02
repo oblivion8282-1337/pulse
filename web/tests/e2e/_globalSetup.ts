@@ -278,7 +278,10 @@ export default async function globalSetup() {
     // from 127.0.0.1 within one minute. Loosen to keep the suite reliable;
     // production stays on the default 5/min.
     RATE_LIMIT_REGISTER: '1000/minute',
-    RATE_LIMIT_LOGIN: '1000/minute'
+    RATE_LIMIT_LOGIN: '1000/minute',
+    // Host-disconnect grace: 30s in prod, 1s in E2E so the "party ends after a
+    // host disconnect" assertion resolves fast.
+    WATCH_HOST_GRACE_S: '1'
   };
 
   // Apply migrations + truncate so every test run starts clean.

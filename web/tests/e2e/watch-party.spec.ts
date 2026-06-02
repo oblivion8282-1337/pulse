@@ -400,23 +400,11 @@ test.describe.serial('Watch Party E2E', () => {
       .toBe(bobUserId);
   });
 
-  test('host disconnect promotes the oldest remaining watcher', async () => {
+  test('host disconnect ends the party after the grace window (no promotion)', async () => {
     // After the handoff Bob is host (via 'watch'); Alice is still a watcher
-    // (via 'host', joined earliest). Close Bob's socket → promote to Alice.
+    // (via 'host'). Closing Bob's socket starts the grace timer (1s in E2E);
+    // with no reconnect the party ENDS — it is NOT promoted to Alice.
     await wsClose(bobPage, 'watch');
-    await expect
-      .poll(async () => {
-        const s = (await getGuildWatchState(alicePage, guildId)).find(
-          (e) => e.channel_id === voiceChannelId
-        );
-        return s?.state?.host_user_id;
-      })
-      .toBe(aliceUserId);
-  });
-
-  test('closing the last watcher ends the party', async () => {
-    // Alice is now the only watcher + host. Closing her socket → solo → end.
-    await wsClose(alicePage, 'host');
     await expect
       .poll(async () =>
         (await getGuildWatchState(alicePage, guildId)).find(
