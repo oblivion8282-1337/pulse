@@ -32,6 +32,7 @@ import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray } from './tray';
 import { wireNotify } from './notify';
+import { wirePower } from './power';
 import { wireUpdater } from './updater';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 
@@ -453,6 +454,9 @@ app.whenReady().then(() => {
   wireSidecar();
   wireScreenShare();
   wireNotify(() => mainWindow);
+  // Display-sleep inhibitor — renderer toggles it while a watch-party / HQ
+  // stream is actively playing (`window.pulse.power.keepAwake`).
+  wirePower();
   // Auto-Update (Windows, gepackt) — no-op in dev / auf Linux.
   wireUpdater(() => mainWindow);
   createWindow();

@@ -111,6 +111,14 @@ export interface PulseUpdatesApi {
   check(): Promise<void>;
 }
 
+/** Display-sleep inhibitor bridge. The renderer (`$lib/platform/wakeLock`)
+ *  refcounts leases and toggles this on the 0↔1 boundary while a watch-party /
+ *  HQ stream is actively playing; main holds one `powerSaveBlocker`. Returns
+ *  whether the blocker is currently active. */
+export interface PulsePowerApi {
+  keepAwake(on: boolean): Promise<boolean>;
+}
+
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
@@ -119,6 +127,7 @@ export interface PulseApi {
   notify: PulseNotifyApi;
   invite?: PulseInviteApi;
   updates?: PulseUpdatesApi;
+  power?: PulsePowerApi;
 }
 
 declare global {

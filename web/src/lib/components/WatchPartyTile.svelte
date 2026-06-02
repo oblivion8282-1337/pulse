@@ -30,6 +30,7 @@
   import { isPassiveSource, type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
   import { watchWatchers } from '$lib/stores/watchWatchers.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { acquireWakeLock } from '$lib/platform/wakeLock';
   import NativeVideoPlayer from '$lib/watch/players/NativeVideoPlayer.svelte';
   import TwitchPlayer from '$lib/watch/players/TwitchPlayer.svelte';
   import YouTubePlayer from '$lib/watch/players/YouTubePlayer.svelte';
@@ -88,6 +89,16 @@
   function handleEvent(e: PlayerEvent): void {
     controller.onEvent(e);
   }
+
+  // Keep the monitor awake while video is actively playing — live sources
+  // (Twitch live) always while open, seekable sources while the host plays.
+  // Releases on pause / hidden tab / unmount (handled in the wake-lock helper
+  // + the effect cleanup), so an idle paused tile lets the screen sleep again.
+  $effect(() => {
+    if (!(isPassive || party.is_playing)) return;
+    const release = acquireWakeLock();
+    return release;
+  });
 
   // Viewer-Sync + Host-Heartbeat: re-run on every `party` change.
   $effect(() => {

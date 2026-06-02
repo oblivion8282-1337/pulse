@@ -159,4 +159,11 @@ contextBridge.exposeInMainWorld('pulse', {
     /** Manueller Re-Check (optional — der Start-Check läuft automatisch in main). */
     check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
   },
+
+  // Display-sleep inhibitor. The renderer refcounts leases (see
+  // `$lib/platform/wakeLock`) and flips this on the 0↔1 boundary; main holds a
+  // single `powerSaveBlocker('prevent-display-sleep')`.
+  power: {
+    keepAwake: (on: boolean): Promise<boolean> => ipcRenderer.invoke('power:keepAwake', on),
+  },
 });

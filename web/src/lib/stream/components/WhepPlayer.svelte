@@ -24,6 +24,7 @@
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, formatDiagnostic, type StreamStats } from '../whep-stats';
   import { VolumeBoost } from '../volumeBoost';
+  import { acquireWakeLock } from '$lib/platform/wakeLock';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
   import StreamChatPanel from './StreamChatPanel.svelte';
@@ -104,6 +105,14 @@
   let detail = $state<string>('');
   let audioBlocked = $state(false);
   let stats = $state<StreamStats | null>(null);
+
+  // Keep the monitor awake while the live stream is actually playing — releases
+  // on retry/error/hidden tab/unmount so an idle dead tile lets the screen sleep.
+  $effect(() => {
+    if (phase !== 'playing') return;
+    const release = acquireWakeLock();
+    return release;
+  });
 
   // Stats-Diagnose in die Zwischenablage (Button in der Stats-Pille).
   let copied = $state(false);
