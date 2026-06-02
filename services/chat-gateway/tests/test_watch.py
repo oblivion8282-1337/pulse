@@ -1097,3 +1097,42 @@ async def test_heartbeat_rejects_out_of_range_position(redis):
         assert moved["position"] == 42.0
     finally:
         await redis.delete(f"watch:channel-{cid}")
+
+
+# =============================================================================
+# 5. Host-sticky grace timer (registry) — schedule / cancel / expire
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_grace_expires_ends_party(redis, monkeypatch):
+    """Host gone, no reconnect within the grace → party ends."""
+    monkeypatch.setattr(watchkeys, "WATCH_HOST_GRACE_S", 0)
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    try:
+        mgr.schedule_host_end(redis, cid, "111")
+        await mgr._watch_end_timers[cid][1]  # await the scheduled task
+        assert await redis.get(f"watch:channel-{cid}") is None
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_host_reconnect_within_grace_cancels_end(redis):
+    """Host rejoins as a watcher before the grace expires → timer cancelled,
+    party intact."""
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    try:
+        mgr.schedule_host_end(redis, cid, "111")  # default 30s grace
+        assert cid in mgr._watch_end_timers
+        await mgr.watch_join(cid, "111", object())  # host returns
+        assert cid not in mgr._watch_end_timers  # timer cancelled
+        await asyncio.sleep(0)  # let cancellation settle
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == "111"  # party still there
+    finally:
+        await redis.delete(f"watch:channel-{cid}")

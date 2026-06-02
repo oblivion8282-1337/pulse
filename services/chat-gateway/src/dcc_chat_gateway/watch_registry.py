@@ -15,9 +15,12 @@ single-pod today.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+from dcc_chat_gateway import watchkeys
 
 
 def _now_ms() -> int:
@@ -36,9 +39,11 @@ class _WatchRegistryMixin:
     the host ``__init__``."""
 
     _watchers: dict[str, dict[str, _WatcherEntry]]
+    _watch_end_timers: dict[str, tuple[str, "asyncio.Task[Any]"]]
 
     def _init_watch_registry(self) -> None:
         self._watchers = {}
+        self._watch_end_timers = {}
 
     async def watch_join(
         self, channel_id: str, user_id: str, websocket: Any, *, now_ms: int | None = None
@@ -51,6 +56,8 @@ class _WatchRegistryMixin:
                 entry = _WatcherEntry(joined_at=ts)
                 chan[user_id] = entry
             entry.sockets.add(websocket)
+        # Host returned within the grace window → cancel the pending party-end.
+        self.cancel_host_end(channel_id, host_uid=user_id)
 
     async def watch_leave(self, channel_id: str, user_id: str, websocket: Any) -> bool:
         """Remove one socket. Returns True iff the user fully left the channel
@@ -83,6 +90,49 @@ class _WatchRegistryMixin:
                 if best is None or entry.joined_at < best[0]:
                     best = (entry.joined_at, uid)
             return best[1] if best else None
+
+    def schedule_host_end(
+        self, redis, channel_id: str, host_uid: str, *, delay: float | None = None
+    ) -> None:
+        """Host fully left via a connection drop. Schedule the party to end
+        after a grace window unless the host reconnects (rejoins as a watcher)
+        in time. Idempotent per channel — replaces any pending timer."""
+        if delay is None:
+            delay = watchkeys.WATCH_HOST_GRACE_S
+        self.cancel_host_end(channel_id)
+        task = asyncio.create_task(
+            self._host_end_after_grace(redis, channel_id, str(host_uid), delay)
+        )
+        self._watch_end_timers[channel_id] = (str(host_uid), task)
+
+    def cancel_host_end(self, channel_id: str, *, host_uid: str | None = None) -> None:
+        """Cancel a pending grace timer. With ``host_uid`` only cancel when the
+        timer is for that host (used on the host's own reconnect)."""
+        entry = self._watch_end_timers.get(channel_id)
+        if entry is None:
+            return
+        if host_uid is not None and entry[0] != str(host_uid):
+            return
+        entry[1].cancel()
+        self._watch_end_timers.pop(channel_id, None)
+
+    async def _host_end_after_grace(
+        self, redis, channel_id: str, host_uid: str, delay: float
+    ) -> None:
+        try:
+            await asyncio.sleep(delay)
+            async with self._lock:
+                chan = self._watchers.get(channel_id)
+                if chan and host_uid in chan:
+                    return  # host reconnected within the grace window
+            state = await watchkeys.read_state(redis, channel_id)
+            if state is None or str(state.get("host_user_id")) != host_uid:
+                return  # already ended or host changed (explicit handoff)
+            await watchkeys.delete_state(redis, channel_id)
+        finally:
+            entry = self._watch_end_timers.get(channel_id)
+            if entry is not None and entry[1] is asyncio.current_task():
+                self._watch_end_timers.pop(channel_id, None)
 
     async def watchers(self, channel_id: str) -> list[str]:
         """All user ids currently watching this channel (unordered snapshot)."""
