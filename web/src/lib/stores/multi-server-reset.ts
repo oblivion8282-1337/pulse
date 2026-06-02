@@ -41,6 +41,7 @@ import { roles } from './roles.svelte';
 import { streamPresence } from './streamPresence.svelte';
 import { voicePresence } from './voicePresence.svelte';
 import { watchPartyPresence } from './watchPartyPresence.svelte';
+import { watchWatchers } from './watchWatchers.svelte';
 import { resetGuildPluginsCache } from '$lib/plugins';
 import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
 
@@ -66,6 +67,7 @@ export function resetServerScopedStores(): void {
   voicePresence.clear();
   streamPresence.clear();
   watchPartyPresence.clear();
+  watchWatchers.clear();
   friends.clear();
   friendRequests.clear();
   blocks.clear();

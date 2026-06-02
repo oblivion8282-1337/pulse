@@ -28,6 +28,17 @@ export function sendWatchControl(
 export function sendWatchHeartbeat(send: SendRaw, channelId: string, position: number): boolean {
   return send({ op: 'watch_heartbeat', channel_id: channelId, position });
 }
+export function sendWatchJoin(send: SendRaw, channelId: string): boolean {
+  return send({ op: 'watch_join', channel_id: channelId });
+}
+export function sendWatchLeave(send: SendRaw, channelId: string): boolean {
+  return send({ op: 'watch_leave', channel_id: channelId });
+}
+export function sendWatchHandoff(
+  send: SendRaw, channelId: string, targetUserId?: string,
+): boolean {
+  return send({ op: 'watch_handoff', channel_id: channelId, target_user_id: targetUserId });
+}
 
 export function sendPluginOp(send: SendRaw, op: string, payload?: Record<string, unknown>): boolean {
   if (!op.includes(':')) {

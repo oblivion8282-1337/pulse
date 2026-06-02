@@ -68,6 +68,9 @@ export const gateway = {
   sendWatchControl: (cid: string, a: 'play' | 'pause' | 'seek', p: number) =>
     _active().sendWatchControl(cid, a, p),
   sendWatchHeartbeat: (cid: string, p: number) => _active().sendWatchHeartbeat(cid, p),
+  sendWatchJoin: (cid: string) => _active().sendWatchJoin(cid),
+  sendWatchLeave: (cid: string) => _active().sendWatchLeave(cid),
+  sendWatchHandoff: (cid: string, target?: string) => _active().sendWatchHandoff(cid, target),
   sendActivity: () => _active().sendActivity(),
   sendPluginOp: (op: string, payload?: Record<string, unknown>) =>
     _active().sendPluginOp(op, payload),

@@ -425,6 +425,10 @@ export class GatewayConnection {
     senders.sendWatchControl(this._raw, channelId, action, position);
   sendWatchHeartbeat = (channelId: string, position: number): boolean =>
     senders.sendWatchHeartbeat(this._raw, channelId, position);
+  sendWatchJoin = (channelId: string): boolean => senders.sendWatchJoin(this._raw, channelId);
+  sendWatchLeave = (channelId: string): boolean => senders.sendWatchLeave(this._raw, channelId);
+  sendWatchHandoff = (channelId: string, targetUserId?: string): boolean =>
+    senders.sendWatchHandoff(this._raw, channelId, targetUserId);
   sendActivity(): boolean { return this._sendRaw({ op: 'activity' }); }
   sendPluginOp = (op: string, payload?: Record<string, unknown>): boolean =>
     senders.sendPluginOp(this._raw, op, payload);

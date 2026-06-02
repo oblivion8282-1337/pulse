@@ -159,6 +159,7 @@ export type ServerEvent =
       message: StreamChatMessage;
     }
   | { op: 'watch_state'; channel_id: string; state: WatchPartyState | null }
+  | { op: 'watch_watchers'; channel_id: string; user_ids: string[] }
   | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
   | {
       op: 'permissions_updated';
@@ -251,6 +252,9 @@ export type ClientEvent =
       position: number;
     }
   | { op: 'watch_heartbeat'; channel_id: string; position: number }
+  | { op: 'watch_join'; channel_id: string }
+  | { op: 'watch_leave'; channel_id: string }
+  | { op: 'watch_handoff'; channel_id: string; target_user_id?: string }
   | { op: 'activity' }
   | { op: 'ping' };
 
