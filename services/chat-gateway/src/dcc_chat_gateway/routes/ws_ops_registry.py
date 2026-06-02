@@ -65,6 +65,8 @@ class WSOpContext:
     subscribed: dict[str, int | None] = field(default_factory=dict)
     # Channel ids of watch parties this socket has started.
     hosted_parties: set[str] = field(default_factory=set)
+    # Channel ids of watch parties this socket currently watches (tile mounted).
+    watched_parties: set[str] = field(default_factory=set)
     # Voice channel id (as string) the user is currently in, as reported by
     # voice_self_state. ``None`` when not in a voice channel.
     current_voice_channel: str | None = None

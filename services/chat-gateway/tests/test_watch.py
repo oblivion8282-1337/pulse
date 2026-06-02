@@ -294,6 +294,13 @@ async def test_watch_start_writes_state_and_broadcasts(ws_app, _auth_signer):
                         }
                     )
                     got = ws.receive_json()
+                    # watch_start now also emits a watch_watchers frame (direct
+                    # in-process broadcast) which can arrive before the
+                    # Redis-routed watch_state. Skip any watch_watchers frames.
+                    while got["op"] == "watch_watchers":
+                        assert got["channel_id"] == cid
+                        assert str(uid) in got["user_ids"]
+                        got = ws.receive_json()
                     assert got["op"] == "watch_state"
                     assert got["channel_id"] == cid
                     assert got["state"]["source"]["embed_id"] == "abc12345678"
@@ -390,7 +397,10 @@ async def test_watch_start_rejects_already_active(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                ws.receive_json()  # watch_state broadcast
+                # First start emits watch_watchers + watch_state — drain to state.
+                got = ws.receive_json()
+                while got["op"] != "watch_state":
+                    got = ws.receive_json()
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -399,6 +409,8 @@ async def test_watch_start_rejects_already_active(ws_app, _auth_signer):
                     }
                 )
                 err = ws.receive_json()
+                while err["op"] == "watch_watchers":
+                    err = ws.receive_json()
                 assert err["op"] == "error"
                 assert err["code"] == 4014
 
@@ -1019,3 +1031,51 @@ async def test_handoff_by_non_host_errors_4015(redis):
         assert ws.errors and ws.errors[0][0] == 4015
     finally:
         await redis.delete(f"watch:channel-{cid}")
+
+
+class _FakeSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_handle_join_registers_and_broadcasts(redis):
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    broadcasts: list[str] = []
+
+    mgr = _reg_mgr()
+
+    async def _rec(cid):
+        broadcasts.append(cid)
+
+    mgr.broadcast_watchers = _rec  # type: ignore[method-assign]
+
+    cid_int = random.randint(10**18, 10**19 - 1)
+    cid = str(cid_int)
+    uid = random.randint(1, 1_000_000)
+
+    ws = _ErrWS(redis, mgr)
+    watched: set[str] = set()
+
+    async def _ok(session, c, u):
+        return type("Chan", (), {"type": 1, "guild_id": 1})()  # CHANNEL_TYPE_VOICE == 1
+
+    orig = ws_watch.channel_membership
+    ws_watch.channel_membership = _ok
+    try:
+        await ws_watch.handle_join(
+            ws, AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={}),
+            {"channel_id": cid},
+            session_factory=lambda: _FakeSession(),
+            watched_parties=watched,
+        )
+    finally:
+        ws_watch.channel_membership = orig
+    assert cid in watched
+    assert str(uid) in await mgr.watchers(cid)
+    assert broadcasts == [cid]

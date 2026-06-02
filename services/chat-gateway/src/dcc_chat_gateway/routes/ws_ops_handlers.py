@@ -36,7 +36,7 @@ from dcc_chat_gateway.presence_status import (
     set_presence_status,
     update_activity,
 )
-from dcc_chat_gateway.routes import ws_watch
+from dcc_chat_gateway.routes import watch_handoff, ws_watch
 from dcc_chat_gateway.routes._deps import channel_membership, resolve_channel_for_user
 from dcc_chat_gateway.routes.ws_op_send import handle_send
 from dcc_chat_gateway.routes.ws_ops_registry import WSOpContext, register_ws_op
@@ -153,7 +153,31 @@ async def handle_watch_start(ctx: WSOpContext, msg: dict[str, Any]) -> None:
         msg,
         session_factory=SessionLocal,
         hosted_parties=ctx.hosted_parties,
+        watched_parties=ctx.watched_parties,
     )
+
+
+@register_ws_op("watch_join")
+async def handle_watch_join(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_join(
+        ctx.websocket,
+        ctx.user,
+        msg,
+        session_factory=SessionLocal,
+        watched_parties=ctx.watched_parties,
+    )
+
+
+@register_ws_op("watch_leave")
+async def handle_watch_leave(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_leave(
+        ctx.websocket, ctx.user, msg, watched_parties=ctx.watched_parties
+    )
+
+
+@register_ws_op("watch_handoff")
+async def handle_watch_handoff(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await watch_handoff.handle_handoff(ctx.websocket, ctx.user, msg)
 
 
 @register_ws_op("watch_stop")

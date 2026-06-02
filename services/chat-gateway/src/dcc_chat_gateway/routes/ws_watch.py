@@ -54,6 +54,10 @@ def _redis(websocket: WebSocket):
     return getattr(websocket.app.state, "redis", None)
 
 
+def _manager(websocket: WebSocket):
+    return getattr(websocket.app.state, "connection_manager", None)
+
+
 async def _err(websocket: WebSocket, code: int, msg: str) -> None:
     await websocket.send_json({"op": "error", "code": code, "msg": msg})
 
@@ -65,6 +69,7 @@ async def handle_start(
     *,
     session_factory: Callable,
     hosted_parties: set[str],
+    watched_parties: set[str],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
     source_url = msg.get("source_url")
@@ -107,6 +112,62 @@ async def handle_start(
     }
     await watchkeys.write_state(redis, cid, state)
     hosted_parties.add(cid)
+    # The host is implicitly a watcher (their tile is mounted) — add them to
+    # the registry so a later host departure can promote, and tell viewers.
+    mgr = _manager(websocket)
+    if mgr is not None:
+        await mgr.watch_join(cid, str(user.id), websocket)
+        watched_parties.add(cid)
+        await mgr.broadcast_watchers(cid)
+
+
+async def handle_join(
+    websocket: WebSocket,
+    user: AuthenticatedUser,
+    msg: dict[str, Any],
+    *,
+    session_factory: Callable,
+    watched_parties: set[str],
+) -> None:
+    cid_int = _channel_id(msg.get("channel_id"))
+    if cid_int is None:
+        await _err(websocket, 4012, "channel_id required")
+        return
+    async with session_factory() as session:
+        channel = await channel_membership(session, cid_int, user.id)
+        if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+            await _err(websocket, 4004, "channel not accessible")
+            return
+    cid = str(cid_int)
+    mgr = _manager(websocket)
+    if mgr is None:
+        return
+    await mgr.watch_join(cid, str(user.id), websocket)
+    watched_parties.add(cid)
+    await mgr.broadcast_watchers(cid)
+
+
+async def handle_leave(
+    websocket: WebSocket,
+    user: AuthenticatedUser,
+    msg: dict[str, Any],
+    *,
+    watched_parties: set[str],
+) -> None:
+    cid_int = _channel_id(msg.get("channel_id"))
+    if cid_int is None:
+        return
+    cid = str(cid_int)
+    watched_parties.discard(cid)
+    mgr = _manager(websocket)
+    if mgr is None:
+        return
+    fully_left = await mgr.watch_leave(cid, str(user.id), websocket)
+    await mgr.broadcast_watchers(cid)
+    if fully_left:
+        from dcc_chat_gateway.routes.watch_handoff import promote_or_end
+
+        await promote_or_end(_redis(websocket), mgr, cid, str(user.id))
 
 
 async def handle_stop(
