@@ -73,8 +73,14 @@ export LIVEKIT_API_SECRET='${LIVEKIT_SECRET}'
 export LIVEKIT_URL='wss://${PULSE_HOSTNAME}/livekit'
 export LIVEKIT_API_URL='http://127.0.0.1:7880'
 
-# MediaMTX API (media-svc polls it)
+# MediaMTX — API ist intern (media-svc pollt sie). Ingest-Host + Public-Base
+# MÜSSEN aber die öffentliche Adresse sein: media-svc baut daraus die RTMPS-Push-
+# URL für den GSR-Sidecar und die WHEP-Playback-URL für den Viewer-Client. Ohne
+# diese Vars defaultet media-svc auf localhost → HQ-Streaming-URLs unbrauchbar von
+# außen (F16, gleicher Fall wie LIVEKIT_URL/F15). WHEP läuft über Caddy /whep → 8889.
 export MEDIAMTX_API_URL='http://127.0.0.1:9997/v3/paths/list'
+export MEDIAMTX_INGEST_HOST='${PULSE_HOSTNAME}'
+export MEDIAMTX_PUBLIC_BASE='https://${PULSE_HOSTNAME}/whep'
 
 # CORS — Cloud-Foundation needs to embed self-host endpoints
 export CORS_ALLOW_ORIGINS='${PULSE_CLOUD_ORIGIN},https://${PULSE_HOSTNAME}'
