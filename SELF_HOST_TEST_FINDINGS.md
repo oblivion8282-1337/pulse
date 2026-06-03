@@ -181,3 +181,28 @@ Fix (implementiert, Commit s.u.):
   den aufgelösten Namen vor der rohen LiveKit-Identity.
 - Tests: `test_users_resolve.py` (5) + `synthetic_user_id`-Population in `test_profile_cache.py`.
 - Deploy: Cloud (auth+web+chat, Migration `migrate-chat` 0031) **und** Hetzner-allinone (Rebuild + Redeploy).
+
+**F19 — Teil 2+3 (beim Live-Test freigelegt, GELÖST + verifiziert):** L1-L3 reichten nicht — der Push
+existierte gar nicht + verifizierte falsch:
+- **L4 (Commit d3cc2ca):** Das Frontend hat das `profile_statement` **nie an den Server gepusht** (Handler war
+  da, Sender fehlte) → `CachedUserProfile` blieb leer. Fix: im `open`-Handler jeder WS-Connection
+  (`gateway-connection.ts`) `{op:'profile_statement', jwt: statement.raw}` senden.
+- **L5 (Commit 82a81bc):** Der Handler las hartcodiert `REDIS_JWKS_KEY` (= auf Self-Host die **lokale**
+  auth-svc-JWKS) → das Cloud-signierte Statement scheiterte an der Signatur. **Und** schloss dabei die WS mit
+  `4047` → reconnect→re-push→`4047`-Loop (teils der „session expired"-Effekt). Fix in `ws_ops_handlers.py`:
+  mode-aware `REDIS_CLOUD_JWKS_KEY` auf Self-Hosts (wie cert-login) + bei ungültigem Statement nur loggen+skippen.
+- **Verifiziert:** Self-Host-DB cached `dev | dev | 1645520347282241315`, Voice-Tile zeigt „dev (du)", keine
+  4047/Signatur-Fehler in den Logs.
+
+## F18 — Self-Host-Session läuft ab / Reload verliert Token → „session expired" (GELÖST 2026-06-04)
+Self-Host-Session-Token (TTL 5 Min, `dcc_shared/session_tokens.py`) ist **in-memory** (XSS-Härtung) → bei jedem
+Tab-Reload weg, und ohne proaktiven Refresh nach 5 Min abgelaufen. REST-Hydrate-Calls warfen
+`SessionExpiredError` → App lud nicht voll, „Erneut versuchen"-UI.
+
+Fix (Commit fd377dd, **cloud-web only**, frontend):
+- **Auto-Reauth bei KEIN Token** (`client.ts::bearerWithReauth`): `request()`/`requestForm()` warfen bei
+  `bearerFor()==null` **sofort** `SessionExpiredError` — ohne Reauth. Der Retry lief nur bei einer 401-*Antwort*,
+  nicht beim Kein-Token-Fall. Jetzt erst reaktiv re-authentifizieren (passwortloser Cert-Login) + erneut auflösen.
+- **Proaktiver Refresh** (`self-host-reauth.ts`): Timer re-mintet den Token 60 s vor Ablauf, solange eine aktive
+  WS-Connection besteht (an `sessionTokens.set/clear` gekoppelt). Idle-Server → Token lapst → reaktiver Reauth.
+- **Verifiziert:** Reload → Self-Host lädt sauber, kein „session expired", kein „Erneut versuchen".
