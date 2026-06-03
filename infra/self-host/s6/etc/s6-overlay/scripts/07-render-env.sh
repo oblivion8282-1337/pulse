@@ -65,7 +65,13 @@ export CHAT_GATEWAY_CHALLENGE_SECRET='${CERT_CHALLENGE}'
 # LiveKit (voice-signaling mints tokens with these; livekit-server validates)
 export LIVEKIT_API_KEY='${LIVEKIT_KEY}'
 export LIVEKIT_API_SECRET='${LIVEKIT_SECRET}'
-export LIVEKIT_URL='ws://127.0.0.1:7880'
+# LIVEKIT_URL ist die ws_url, die der Browser-Client bekommt → MUSS die
+# öffentliche, über Caddy erreichbare Adresse sein (/livekit → 7880). Vorher
+# stand hier ws://127.0.0.1:7880 → der Client versuchte 127.0.0.1 zu erreichen
+# (ERR_CONNECTION_REFUSED, F15). Server-seitige LiveKit-API-Calls (Token-Mint,
+# Reconcile, Admin-Mute) gehen über LIVEKIT_API_URL direkt intern.
+export LIVEKIT_URL='wss://${PULSE_HOSTNAME}/livekit'
+export LIVEKIT_API_URL='http://127.0.0.1:7880'
 
 # MediaMTX API (media-svc polls it)
 export MEDIAMTX_API_URL='http://127.0.0.1:9997/v3/paths/list'

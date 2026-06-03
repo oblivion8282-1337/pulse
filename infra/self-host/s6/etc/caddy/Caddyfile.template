@@ -90,14 +90,19 @@
     # ------------------------------------------------------------------ #
     # WHEP für MediaMTX HQ-Streaming (8889)                              #
     # ------------------------------------------------------------------ #
-    handle /whep/* {
+    # handle_path strippt das /whep-Prefix (wie die Cloud-nginx mit
+    # ``proxy_pass …:8889/``) — MediaMTX erwartet den Pfad ohne /whep.
+    handle_path /whep/* {
         reverse_proxy 127.0.0.1:8889
     }
 
     # ------------------------------------------------------------------ #
     # LiveKit WebSocket (7880)                                            #
     # ------------------------------------------------------------------ #
-    handle /livekit/* {
+    # handle_path (NICHT handle) strippt /livekit → LiveKit sieht /rtc/v1.
+    # Die Cloud-nginx macht dasselbe via ``proxy_pass …:7880/`` (trailing slash).
+    # Ohne Strip bekäme LiveKit /livekit/rtc/v1 → Voice-Connect schlägt fehl (F15).
+    handle_path /livekit/* {
         reverse_proxy 127.0.0.1:7880
     }
 
