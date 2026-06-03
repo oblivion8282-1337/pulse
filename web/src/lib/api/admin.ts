@@ -132,6 +132,32 @@ export type ChatStats = {
   storage_free_bytes: number | null;
 };
 
+/** Self-Host pg_dump-Snapshots (F11b) — vom Instanz-backup-Service. */
+export type SelfHostBackupEntry = {
+  filename: string;
+  size_bytes: number;
+  created_at: string;
+};
+export type SelfHostBackupStatus = {
+  enabled: boolean;
+  directory: string;
+  backups: SelfHostBackupEntry[];
+  last_backup_at: string | null;
+  total_bytes: number;
+};
+
+/** Instanzweite Nutzer (F11c) — die `cached_user_profiles` der aktiven
+ * Self-Host-Instanz. `user_identifier` ist die pairwise-sub (TEXT, kein
+ * Snowflake). `banned_at != null` = instanzweit gebannt. */
+export type InstanceMember = {
+  user_identifier: string;
+  username: string;
+  display_name: string;
+  avatar_hash: string | null;
+  banned_at: string | null;
+  ban_reason: string | null;
+};
+
 export type AuditLogEntry = {
   id: string;
   actor_id: string;
@@ -275,6 +301,27 @@ export const adminApi = {
     return request<Omit<AuditLogEntry, 'source'>[]>(`/admin/audit-log?${params}`, {
       endpoint: 'chat'
     });
+  },
+  /** Self-Host-Backup-Status — gegen die aktive Instanz (chat-gateway). */
+  selfHostBackups(): Promise<SelfHostBackupStatus> {
+    return request<SelfHostBackupStatus>('/admin/self-host/backups', { endpoint: 'chat' });
+  },
+
+  /** Instanzweite Member-Verwaltung (F11c) — gegen die aktive Instanz. */
+  listMembers(): Promise<InstanceMember[]> {
+    return request<InstanceMember[]>('/admin/members', { endpoint: 'chat' });
+  },
+  banMember(userIdentifier: string, reason?: string): Promise<InstanceMember> {
+    return request<InstanceMember>(
+      `/admin/members/${encodeURIComponent(userIdentifier)}/ban`,
+      { method: 'POST', endpoint: 'chat', body: { reason: reason ?? null } }
+    );
+  },
+  unbanMember(userIdentifier: string): Promise<InstanceMember> {
+    return request<InstanceMember>(
+      `/admin/members/${encodeURIComponent(userIdentifier)}/unban`,
+      { method: 'POST', endpoint: 'chat' }
+    );
   },
 
   // ---- merged convenience -------------------------------------------------

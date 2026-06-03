@@ -50,8 +50,11 @@ import time
 import jwt
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.models import CachedUserProfile
 from dcc_chat_gateway.credential_validator import (
     resolve_user_identifier,
     validate_cert,
@@ -321,7 +324,7 @@ async def _claim_challenge_once(challenge_token: str, redis) -> None:
     status_code=status.HTTP_200_OK,
 )
 async def cert_login_verify(
-    body: VerifyRequest, request: Request
+    body: VerifyRequest, request: Request, session: SessionDep
 ) -> VerifyResponse:
     """Verify the Ed25519 signature over the challenge nonce and mint a session token."""
     _enforce_cert_login_rate(request)
@@ -383,6 +386,21 @@ async def cert_login_verify(
             is_owner_admin = int(cert_claims.user_id) == settings.pulse_instance_owner_id
         except (TypeError, ValueError):
             is_owner_admin = False
+
+    # 5c. Instance-wide ban gate (F11c). A Cloud-admin can ban a user on this
+    #     Self-Host instance (banned_at on the cached profile) → deny the
+    #     session token. The instance owner is exempt so an admin can never
+    #     lock themselves out permanently (e.g. accidental self-ban).
+    if not is_owner_admin:
+        banned_at = (
+            await session.execute(
+                select(CachedUserProfile.banned_at).where(
+                    CachedUserProfile.user_identifier == identifier
+                )
+            )
+        ).scalar_one_or_none()
+        if banned_at is not None:
+            raise HTTPException(status_code=403, detail="instance banned")
 
     # 6. Mint + persist session token.
     token = issue_session_token(

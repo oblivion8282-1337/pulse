@@ -17,12 +17,14 @@
   import AdminRegistration from '$lib/components/admin/AdminRegistration.svelte';
   import AdminSmtp from '$lib/components/admin/AdminSmtp.svelte';
   import AdminBackup from '$lib/components/admin/AdminBackup.svelte';
+  import AdminSelfHostBackup from '$lib/components/admin/AdminSelfHostBackup.svelte';
   import AdminPermissions from '$lib/components/admin/AdminPermissions.svelte';
   import AdminStreamLimits from '$lib/components/admin/AdminStreamLimits.svelte';
   import AdminNormalStreamLimits from '$lib/components/admin/AdminNormalStreamLimits.svelte';
   import AdminPlugins from '$lib/components/admin/AdminPlugins.svelte';
   import AdminInstances from '$lib/components/admin/AdminInstances.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
+  import AdminMembers from '$lib/components/admin/AdminMembers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { m } from '$lib/paraglide/messages.js';
@@ -88,6 +90,8 @@
            Auf Self-Host ausblenden; Backup + User bekommen eigene Instanz-Varianten. -->
       {#if isCloud}
         <AdminBackup />
+      {:else}
+        <AdminSelfHostBackup />
       {/if}
       <AdminAttachments />
       {#if isCloud}
@@ -101,6 +105,9 @@
       {#if isCloud}
         <AdminInstances />
         <AdminUsers />
+      {:else}
+        <!-- Self-Host: instanzweite Member-Verwaltung statt der Cloud-User-Liste. -->
+        <AdminMembers />
       {/if}
       <AdminAuditLog {isCloud} />
     </main>

@@ -1,0 +1,51 @@
+#!/bin/sh
+# Self-Host-Backup — periodischer pg_dump nach $DATA/backups mit Retention.
+# Die Cloud nutzt einen separaten restic-Sidecar (infra/prod/backup/); der
+# Single-Container-Self-Host hat den nicht, also macht dieser Service einfache
+# komprimierte pg_dump-Snapshots auf das persistente /data-Volume. Der
+# chat-gateway-Endpoint GET /admin/self-host/backups liest dasselbe Verzeichnis
+# und zeigt den Status im Admin-Panel (F11b).
+#
+# Env (aus /etc/pulse/env.sh + Dockerfile-Defaults):
+#   POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB / PULSE_DATA_PATH
+#   PULSE_BACKUP_INTERVAL_SECONDS (default 86400 = täglich)
+#   PULSE_BACKUP_RETENTION        (default 7 — wie viele Dumps behalten)
+#   PULSE_BACKUP_DISABLED=true    → Service idlet (für externe Backup-Lösungen)
+exec 2>&1
+. /etc/pulse/env.sh
+
+DATA="${PULSE_DATA_PATH:-/data}"
+DIR="${DATA}/backups"
+INTERVAL="${PULSE_BACKUP_INTERVAL_SECONDS:-86400}"
+KEEP="${PULSE_BACKUP_RETENTION:-7}"
+
+if [ "${PULSE_BACKUP_DISABLED:-false}" = "true" ]; then
+    echo "[backup] PULSE_BACKUP_DISABLED=true — Service idlet (kein automatisches Backup)."
+    exec sleep infinity
+fi
+
+mkdir -p "$DIR"
+chown pulse:pulse "$DIR" 2>/dev/null || true
+export PGPASSWORD="$POSTGRES_PASSWORD"
+
+echo "[backup] aktiv: interval=${INTERVAL}s retention=${KEEP} dir=${DIR}"
+
+while true; do
+    TS=$(date -u +%Y%m%dT%H%M%SZ)
+    OUT="${DIR}/pulse-${TS}.dump"
+    echo "[backup] pg_dump ${POSTGRES_DB} → ${OUT}"
+    # -Fc = custom format (komprimiert, via pg_restore wiederherstellbar).
+    # Als pulse-User schreiben, damit die Datei dem Volume-Owner gehört.
+    if gosu pulse sh -c "pg_dump --format=custom --compress=6 --no-owner --no-privileges -h 127.0.0.1 -U '${POSTGRES_USER}' '${POSTGRES_DB}' > '${OUT}.part'"; then
+        mv "${OUT}.part" "${OUT}"
+        echo "[backup] ok ($(du -h "${OUT}" 2>/dev/null | cut -f1))"
+        # Retention: nur die KEEP neuesten Dumps behalten, ältere löschen.
+        ls -1t "${DIR}"/pulse-*.dump 2>/dev/null | tail -n +"$((KEEP + 1))" | while read -r old; do
+            rm -f "$old" && echo "[backup] pruned $(basename "$old")"
+        done
+    else
+        rm -f "${OUT}.part"
+        echo "[backup] FEHLER: pg_dump fehlgeschlagen"
+    fi
+    sleep "$INTERVAL"
+done

@@ -71,6 +71,12 @@ class CachedUserProfile(Base):
     stale: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Instance-wide ban (F11c). ``banned_at`` set → the cert-holder is denied a
+    # session token at cert-login (see routes/cert_login.py). NULL = not banned.
+    banned_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    ban_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (Index("ix_cached_user_profiles_username", "username"),)
 
