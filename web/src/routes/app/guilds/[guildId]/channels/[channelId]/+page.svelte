@@ -54,6 +54,13 @@
       connectedVoiceChannel.id !== channelId &&
       activeChannel?.type === 0
   );
+
+  // Auf Mobil hat ein Voice-Kanal keine eigene Vollbild-Seite: stattdessen
+  // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Hält die
+  // Liste offen, sobald der aktive Kanal ein Voice-Kanal ist (auch nach Reload).
+  $effect(() => {
+    if (viewport.isMobile && isVoiceChannel) navDrawer.open = true;
+  });
   let visibleMessages = $derived(messages.for(channelId));
   // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
   // aktiviert (MANAGE_GUILD-Admin-Toggle, siehe `guildPluginsApi`).
@@ -266,6 +273,14 @@
   }
 
   async function selectChannel(c: Channel) {
+    // Voice-Kanal auf Mobil: direkt beitreten und die Kanal-Liste offen lassen
+    // (keine große Vollbild-Voice-Ansicht). Status erscheint im Dock + inline.
+    if (viewport.isMobile && c.type === 1) {
+      void voice.connect(c.id, c.name);
+      navDrawer.open = true;
+      if (c.id !== channelId) await goto(`/app/guilds/${guildId}/channels/${c.id}`);
+      return;
+    }
     navDrawer.open = false;
     if (c.id === channelId) return;
     await goto(`/app/guilds/${guildId}/channels/${c.id}`);
@@ -438,8 +453,9 @@
   />
 {/snippet}
 
-<!-- Chat/Voice: Desktop dauerhaft; Mobil nur solange der Drawer zu ist. -->
-{#if !viewport.isMobile || !navDrawer.open}
+<!-- Chat/Voice: Desktop dauerhaft; Mobil nur solange der Drawer zu ist und der
+     aktive Kanal kein Voice-Kanal ist (Voice = Liste bleibt, keine Vollbild-Seite). -->
+{#if !viewport.isMobile || (!navDrawer.open && !isVoiceChannel)}
   {#if showVoiceStack && connectedVoiceChannel}
     {@const vc = connectedVoiceChannel}
     <MobileVoiceStack
