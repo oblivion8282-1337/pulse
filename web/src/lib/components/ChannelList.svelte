@@ -13,7 +13,7 @@
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
-  import { voicePresence } from '$lib/stores/voicePresence.svelte';
+  import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
@@ -98,6 +98,28 @@
       });
     }
     onSelect(c);
+  }
+
+  // Mute/Deafen für die Liste: Basis ist die Server-Presence (einzige Quelle
+  // für Kanäle, in denen wir nicht sind). Für den Kanal, mit dem wir VERBUNDEN
+  // sind, überlagern wir das Live-Mute aus dem LiveKit-Store — so ist die Liste
+  // deckungsgleich mit der mittleren VoiceChannelView (auch bei OS-Mutes beim
+  // Handy-Sperren, die nie über die Server-Presence laufen). Remote-Deafen
+  // kennt LiveKit nicht (reines App-Flag) → bleibt aus der Presence; das eigene
+  // Deafen ziehen wir live. Berührt NUR die Mute-Anzeige, nicht die
+  // Mitgliederliste (die kommt weiter aus voicePresence.usersIn).
+  function memberStatesFor(channelId: string): Record<string, UserVoiceState> {
+    const base = voicePresence.userStatesIn(channelId);
+    if (!(voice.connected && voice.channelId === channelId)) return base;
+    const merged: Record<string, UserVoiceState> = { ...base };
+    for (const p of voice.participants) {
+      if (!p.userId) continue;
+      merged[p.userId] = {
+        mic_muted: p.micMuted,
+        deafened: p.isLocal ? voice.deafened : (merged[p.userId]?.deafened ?? false)
+      };
+    }
+    return merged;
   }
 
   function openDelete(c: Channel) {
@@ -316,7 +338,7 @@
           voice.connected && voice.channelId === c.id
             ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
             : []}
-        {@const memberStates = voicePresence.userStatesIn(c.id)}
+        {@const memberStates = memberStatesFor(c.id)}
         {@const partyHostId = watchPartyPresence.partyIn(c.id)?.host_user_id ?? null}
         <!-- Who has their webcam on — server-tracked (voice:events), so the CAM
              badge shows for everyone incl. ourselves and even when we're not
