@@ -95,6 +95,44 @@ WORKER_ID_CHAT/VOICE/MEDIA=103/104/105    (s. F4)
 - **Das ist auch der Weg, wie die Test-Instanz auf dem Hetzner laufen wird** (Host-
   Caddy davor).
 
+### F7 — well-known-Routing im allinone-Caddy fehlte  [GEFIXT + live verifiziert]
+Nur jwks.json war zu auth-svc geroutet; pulse-server-info (→chat-gateway 8002),
+revoked-credentials/version-policy/suspended-instances (→auth 8001) fielen in den
+SPA-Fallback (HTML statt JSON) → "Server hinzufügen"-Pre-Check + Poller kaputt.
+Fix `Caddyfile.template` (named path-matcher — `handle` nimmt keine Multi-Pfade).
+
+### F8 — Doppelte CORS-Header (Caddy + FastAPI)  [GEFIXT + live verifiziert]
+Caddy setzte CORS zusätzlich zu den FastAPI-CORSMiddlewares → 2× ACAO → Browser
+verwirft als CORS-Fehler ("Failed to fetch") → Pre-Check/Cert-Login bricht.
+Fix: CORS-Block aus `Caddyfile.template` raus (Services machen CORS, wie Cloud-nginx).
+
+### F9 — BLOCKER: Cert-Login-verify crasht (Session-Signing-Key)  [GEFIXT + live verifiziert]
+`cert_login.py` liest `SESSION_SIGNING_KEY_FILE` (Default relativ `./data/jwt_keys/...`),
+unter s6 (cwd=/opt/pulse/services/chat-gateway) nicht beschreibbar → PermissionError →
+500 ohne CORS-Header → im Browser als CORS-Fehler maskiert. `07-render-env.sh` setzte
+nur die toten Namen `PULSE_SESSION_TOKEN_PRIVATE/_PUBLIC`. Fix: `SESSION_SIGNING_KEY_FILE
+=/data/jwt_keys/session_signing.pem` rendern. **Damit läuft der Cert-Login E2E durch.**
+
+### F10 — weitere relative Upload-Pfade (vorsorglich)  [OFFEN]
+`guild_icon_upload_dir` (./uploads/guild-icons, chat) + `avatar_upload_dir`
+(./uploads/avatars, auth) sind ebenfalls relativ → würden bei Icon-/Avatar-Upload
+genauso crashen wie F9. Im allinone auf /data umbiegen (+ mkdir/chown). Noch nicht getestet.
+
+### F11 — Admin-Panel mischt Cloud- und Self-Host-Endpoints  [OFFEN, Design-Entscheidung]
+Auf der aktiven Self-Host-Instanz laden einige Admin-Bereiche ihre Daten von der
+CLOUD-auth statt von der Instanz: `howispulse.com/api/auth/admin/{stats,settings,smtp,
+backup-status,users,audit-log}` → 403 (dev ist kein Cloud-Admin). Die chat-gateway-
+Bereiche (`/api/chat/admin/*`: permissions, plugins, dm-limits, stats, audit) gehen
+korrekt an die Instanz (200, session_token-admin-Claim akzeptiert).
+Kern: Cert-Login-Admins haben kein auth-svc-Token für die Instanz-auth. Offene Fragen:
+welche auth-svc-Admin-Funktionen sind auf Self-Host überhaupt sinnvoll, und wie
+authentifiziert man sie (session_token an Instanz-auth-svc statt Cloud)? Braucht Design.
+
+## Test-Durchlauf 2 (2026-06-03) — Onboarding + Cert-Login FUNKTIONIERT
+Antrag (dev) → Approval (oblivion, Badge ✓) → allinone behind-proxy auf Hetzner
+hinter Host-Caddy → Pre-Check ✓ → Cert-Login challenge+verify ✓ → Instanz eingebunden,
+verbunden, dev als Admin erkannt (Panel lädt, chat-gateway-Admin 200). Offen: F10, F11, Voice/HQ.
+
 ## Test-Durchlauf 1 (2026-06-03)
 - Cloud-Admin `oblivion` approved Antrag von `dev` für `pulse.unicutmedia.com`.
 - Werte (instance_id/client_id/owner_id/secret) liegen beim Tester, nicht im Repo.

@@ -43,9 +43,15 @@ export JWT_AUDIENCE=pulse-self-host
 export JWT_ACCESS_TTL_SECONDS=900
 export JWT_REFRESH_TTL_SECONDS=2592000
 
-# Self-Host session-token signing (Ed25519 — for /cert-login session tokens)
-export PULSE_SESSION_TOKEN_PRIVATE='${KEYS}/session-token-signing.pem'
-export PULSE_SESSION_TOKEN_PUBLIC='${KEYS}/session-token-signing.pub.pem'
+# Self-Host session-token signing (Ed25519 — for /cert-login session tokens).
+# The chat-gateway reads SESSION_SIGNING_KEY_FILE (settings.session_signing_key_file);
+# its default is the RELATIVE "./data/jwt_keys/session_signing.pem", which under
+# s6 (cwd=/opt/pulse/services/chat-gateway) is non-writable → cert-login/verify
+# crashes with PermissionError and the browser only sees a masked CORS error.
+# The key is lazily generated + persisted on first cert-login, so it MUST point
+# at the writable /data volume. (PULSE_SESSION_TOKEN_* were the wrong names — no
+# code reads them.)
+export SESSION_SIGNING_KEY_FILE='${KEYS}/session_signing.pem'
 
 # Internal cross-service auth
 export INTERNAL_SERVICE_SECRET='${INTERNAL_SECRET}'

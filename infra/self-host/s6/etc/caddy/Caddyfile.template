@@ -21,19 +21,15 @@
     }
 
     # ------------------------------------------------------------------ #
-    # CORS — Pulse Cloud darf Credentials mitsenden                      #
+    # CORS: NICHT hier setzen. Die FastAPI-Services (auth/chat/media/voice)
+    # haben jeweils CORSMiddleware (CORS_ALLOW_ORIGINS) und setzen
+    # Access-Control-Allow-Origin/-Credentials + beantworten OPTIONS-Preflights
+    # selbst — exakt wie in der Cloud (web-nginx.conf setzt ebenfalls kein CORS).
+    # Würde Caddy die Header zusätzlich setzen, kämen sie DOPPELT
+    # (zwei Access-Control-Allow-Origin) → der Browser verwirft die Antwort als
+    # CORS-Fehler ("Failed to fetch") und "Server hinzufügen" / Cert-Login bricht.
+    # MediaMTX (/whep) bringt sein eigenes CORS via mediamtx.yml mit.
     # ------------------------------------------------------------------ #
-    @cors_preflight method OPTIONS
-    handle @cors_preflight {
-        header Access-Control-Allow-Origin "{$PULSE_CLOUD_ORIGIN}"
-        header Access-Control-Allow-Credentials "true"
-        header Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-        header Access-Control-Allow-Headers "Authorization, Content-Type, X-Requested-With"
-        header Access-Control-Max-Age "3600"
-        respond 204
-    }
-    header Access-Control-Allow-Origin "{$PULSE_CLOUD_ORIGIN}"
-    header Access-Control-Allow-Credentials "true"
 
     # ------------------------------------------------------------------ #
     # Health (öffentlich, kein Auth) — für Monitoring/Uptime-Checks      #
