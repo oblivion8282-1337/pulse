@@ -253,6 +253,14 @@ export class GatewayConnection {
         for (const cid of this.subs) {
           this._sendRaw({ op: 'subscribe', channel_id: cid });
         }
+        // F19: Cloud-signiertes Profile-Statement pushen, damit der Server (v.a.
+        // Self-Hosts) unseren Anzeige-Namen cachen kann (CachedUserProfile) —
+        // sonst zeigt die Member-Liste/Voice-Kachel nur die rohe user-<id>.
+        // Best-effort; dyn. Import vermeidet einen Import-Zyklus.
+        void import('$lib/identity/profile-statement.svelte').then(({ profileStatementStore }) => {
+          const raw = profileStatementStore.statement?.raw;
+          if (raw && this.ws === ws) this._sendRaw({ op: 'profile_statement', jwt: raw });
+        });
         // Re-announce watch-party membership. A transparent reconnect drops
         // the old socket; the server then starts a WATCH_HOST_GRACE_S timer
         // that ends the party unless the host rejoins. The mounted tile never

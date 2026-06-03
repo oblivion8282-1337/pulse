@@ -236,6 +236,9 @@ export type ServerEvent =
 export type ClientEvent =
   | { op: 'subscribe'; channel_id: string }
   | { op: 'unsubscribe'; channel_id: string }
+  // Cloud-signiertes Profile-Statement → der Server cached den Anzeige-Namen
+  // (CachedUserProfile). Ohne das zeigen Self-Hosts nur die rohe user-<id> (F19).
+  | { op: 'profile_statement'; jwt: string }
   | { op: 'send'; channel_id: string; content: string; nonce: string; reply_to_id?: string | null }
   | {
       op: 'voice_self_state';
