@@ -15,7 +15,14 @@
  * ausschließlich Cookie-Auth.
  */
 
-import { loadKeypair, generateKeypair, saveKeypair, exportPublicKey } from './keypair.svelte';
+import {
+  loadKeypair,
+  generateKeypair,
+  saveKeypair,
+  exportPublicKey,
+  keypairStore,
+  type WebCryptoKeypair,
+} from './keypair.svelte';
 import { certStore, parseCertClaims } from './cert.svelte';
 import type { IdentityCert } from './cert.svelte';
 import { profileStatementStore, parseStatementClaims } from './profile-statement.svelte';
@@ -139,6 +146,37 @@ export interface IssueFlowResult {
  *
  * Wirft bei Netzwerk- oder Cookie-Auth-Fehlern (caller zeigt Toast).
  */
+/**
+ * Stellt sicher, dass ein **backup-fähiges (exportierbares)** Ed25519-Keypair
+ * vorliegt — Voraussetzung fürs Cloud-Backup (das den privaten Schlüssel
+ * exportieren + verschlüsseln muss).
+ *
+ * Hintergrund: Keypairs werden bewusst `extractable:false` erzeugt (XSS-Schutz),
+ * und der Issue-Flow generiert sie non-extractable. Will der User Backup
+ * aktivieren, braucht es einmalig ein exportierbares Keypair. Dieser Helfer
+ * erzeugt es (`forBackup:true`) UND stellt das Geräte-Cert mit dem neuen Pubkey
+ * neu aus (das alte läuft regulär aus). Ist das aktuelle Keypair bereits
+ * exportierbar, ist das ein No-op (gibt es unverändert zurück).
+ *
+ * Wirft bei Issue-/Cookie-Auth-Fehlern (Caller zeigt Fehlermeldung).
+ */
+export async function ensureBackupCapableKeypair(): Promise<WebCryptoKeypair> {
+  const existing = await loadKeypair();
+  if (existing && existing.privateKey.extractable) return existing;
+
+  const label = buildDeviceLabel();
+  const kp = await generateKeypair({ forBackup: true });
+  await saveKeypair(kp);
+  await keypairStore.load(); // reaktiven Store aktualisieren
+
+  const pubkeyB64 = await exportPublicKey(kp);
+  const issueResp = await issueCert(pubkeyB64, label);
+  const claims = parseCertClaims(issueResp.cert);
+  if (!claims) throw new Error('SERVER_RETURNED_INVALID_CERT_JWT');
+  await certStore.setCert({ raw: issueResp.cert, claims });
+  return kp;
+}
+
 export async function runIssueFlow(): Promise<IssueFlowResult> {
   const label = buildDeviceLabel();
 

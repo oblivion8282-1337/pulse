@@ -14,6 +14,7 @@
   import { loadKeypair, saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
   import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
   import { serverVault } from '$lib/identity/server-vault.svelte';
+  import { ensureBackupCapableKeypair } from '$lib/identity/issue-flow';
   import { createBackup, getBackup, deleteBackup, reconstructBlob } from '$lib/api/credentials';
   import type { BackupFetchResponse } from '$lib/api/credentials';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -53,17 +54,20 @@
   const cancelFlow = () => setView('idle');
 
   async function handleSetup(password: string) {
-    if (!certId) return;
     errorMsg = null;
     busy = true;
     try {
-      const keypair = await loadKeypair();
-      if (!keypair) {
-        errorMsg = m.cloud_backup_error_no_keypair();
-        return;
+      // Backup braucht ein exportierbares Keypair. Ist das aktuelle non-extractable
+      // (Default = XSS-Schutz), erzeugt ensureBackupCapableKeypair einmalig ein
+      // exportierbares + stellt das Cert neu aus.
+      let keypair = await loadKeypair();
+      if (!keypair || !keypair.privateKey.extractable) {
+        keypair = await ensureBackupCapableKeypair();
       }
-      if (!keypair.privateKey.extractable) {
-        errorMsg = m.cloud_backup_error_keypair_not_extractable();
+      // Cert kann gerade neu ausgestellt worden sein → frische cert_id aus dem Store.
+      const activeCertId = certStore.cert?.claims.cert_id;
+      if (!activeCertId) {
+        errorMsg = m.cloud_backup_error_no_keypair();
         return;
       }
 
@@ -74,8 +78,8 @@
 
       const blob = await keyBackupState.encrypt(privateKeyJwk, publicKeyJwk, password);
       const deviceLabel = certStore.cert?.claims.device_label ?? 'Unbekanntes Gerät';
-      await createBackup(certId, blob, deviceLabel.slice(0, 64) || 'Backup');
-      existingBackup = await getBackup(certId);
+      await createBackup(activeCertId, blob, deviceLabel.slice(0, 64) || 'Backup');
+      existingBackup = await getBackup(activeCertId);
 
       // E2E-Server-Vault aktivieren/re-keyen (Setup ODER Master-Passwort-Update).
       // Best-effort: scheitert das, bleibt das Keypair-Backup trotzdem gültig.

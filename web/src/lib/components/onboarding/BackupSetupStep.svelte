@@ -13,6 +13,7 @@
   import { loadKeypair } from '$lib/identity/keypair.svelte';
   import { keyBackupState } from '$lib/identity/key-backup.svelte';
   import { serverVault } from '$lib/identity/server-vault.svelte';
+  import { ensureBackupCapableKeypair } from '$lib/identity/issue-flow';
   import { createBackup } from '$lib/api/credentials';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import CloudBackupSetupForm from '$lib/components/settings/CloudBackupSetupForm.svelte';
@@ -45,17 +46,17 @@
   }
 
   async function handleSetup(password: string) {
-    const certId = certStore.cert?.claims.cert_id;
-    if (!certId) { errorMsg = m.backup_setup_step_error_no_cert(); return; }
     errorMsg = null;
     busy = true;
     try {
-      const keypair = await loadKeypair();
-      if (!keypair) { errorMsg = m.backup_setup_step_error_no_keypair(); return; }
-      if (!keypair.privateKey.extractable) {
-        errorMsg = m.backup_setup_step_error_keypair_not_exportable();
-        return;
+      // Backup braucht ein exportierbares Keypair → ggf. einmalig erzeugen + Cert
+      // neu ausstellen (Default ist non-extractable, XSS-Schutz).
+      let keypair = await loadKeypair();
+      if (!keypair || !keypair.privateKey.extractable) {
+        keypair = await ensureBackupCapableKeypair();
       }
+      const certId = certStore.cert?.claims.cert_id;
+      if (!certId) { errorMsg = m.backup_setup_step_error_no_cert(); return; }
       const [privJwk, pubJwk] = await Promise.all([
         crypto.subtle.exportKey('jwk', keypair.privateKey),
         crypto.subtle.exportKey('jwk', keypair.publicKey),

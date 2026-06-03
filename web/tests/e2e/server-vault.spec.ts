@@ -181,3 +181,48 @@ test('server-vault: Master-Passwort-Wechsel re-keyt den Tresor (kein Sync-Tod)',
   expect(r.afterOldPw).toBe(false); // mit altem Passwort kommt der Server nicht zurück
   expect(r.afterNewPw).toBe(true); // mit neuem Passwort schon → Re-Key hat funktioniert
 });
+
+test('backup-setup UI: non-extractable Keypair wird upgegradet → Backup + Vault entstehen', async ({
+  page,
+}) => {
+  const ts = Date.now();
+  const username = `vault_ui_${ts}`;
+  const PW = 'master-pass-secure-123';
+
+  await page.goto('/register');
+  await page.getByTestId('reg-username').fill(username);
+  await page.getByTestId('reg-email').fill(`${username}@dcc-test.example.com`);
+  await page.getByTestId('reg-password').fill('sup3r-secret-pass');
+  await page.getByTestId('reg-submit').click();
+  await page.waitForURL(/\/app/);
+
+  // Onboarding-Backup-Dialog → echtes UI durchklicken (treibt ensureBackupCapableKeypair).
+  await expect(page.getByTestId('backup-onboarding-setup-btn')).toBeVisible({ timeout: 12000 });
+  await page.getByTestId('backup-onboarding-setup-btn').click();
+  await page.getByTestId('backup-password-input').fill(PW);
+  await page.getByTestId('backup-password-confirm-input').fill(PW);
+  await page.getByTestId('backup-confirm-btn').click();
+
+  // Kein "nicht exportierbar"-Fehler mehr; Dialog schließt bei Erfolg.
+  await expect(page.getByTestId('backup-error')).toHaveCount(0);
+  await expect(page.getByTestId('backup-onboarding-dialog')).toBeHidden({ timeout: 20000 });
+
+  const r = await page.evaluate(async () => {
+    const importDev = (p: string) => import(/* @vite-ignore */ p);
+    const kp = await importDev('/src/lib/identity/keypair.svelte.ts');
+    const cred = await importDev('/src/lib/api/credentials.ts');
+    const vaultApi = await importDev('/src/lib/api/server-vault.ts');
+    const keypair = await kp.loadKeypair();
+    const list = await cred.listCerts();
+    const vault = await vaultApi.getServerVault();
+    return {
+      extractable: !!keypair?.privateKey?.extractable,
+      hasBackup: list.devices.some((d: { has_backup: boolean }) => d.has_backup),
+      hasVault: !!vault,
+    };
+  });
+
+  expect(r.extractable).toBe(true); // Keypair ist jetzt backup-fähig (Fix wirkt)
+  expect(r.hasBackup).toBe(true); // Cloud-Key-Backup wurde angelegt
+  expect(r.hasVault).toBe(true); // Server-Vault wurde mit-angelegt (unlockForSetup)
+});
