@@ -45,6 +45,29 @@ export const isLinux = (): boolean => {
   return /\blinux\b/i.test(navigator.userAgent) && !/android/i.test(navigator.userAgent);
 };
 
+/**
+ * Best-effort "are we on a phone/tablet?" check.
+ *
+ * Used to switch the remote voice-audio playback path: mobile browsers
+ * (Android Chrome, iOS Safari) and the Android TWA suspend a *backgrounded*
+ * AudioContext within seconds of a screen lock, which kills call audio. On
+ * those we play remote mic tracks through an unmuted `<audio>` element — which
+ * the OS keeps alive as background media — instead of the Web Audio gain graph
+ * (see `voice/audioElements.ts`). Never true in the desktop Electron shell.
+ */
+export const isMobile = (): boolean => {
+  if (isElectron()) return false;
+  if (typeof navigator === 'undefined') return false;
+  const uaData = (navigator as Navigator & { userAgentData?: { mobile?: boolean } })
+    .userAgentData;
+  if (typeof uaData?.mobile === 'boolean') return uaData.mobile;
+  // iPadOS 13+ ships a macOS-like UA, so the UA regex misses it — detect the
+  // touch-capable "Mac" separately.
+  const ua = navigator.userAgent;
+  const isIpad = /Macintosh/.test(ua) && (navigator.maxTouchPoints ?? 0) > 1;
+  return isIpad || /Android|iPhone|iPad|iPod/i.test(ua);
+};
+
 /** Best-effort "are we on Windows?" check. Same shape as `isLinux()`. */
 export const isWindows = (): boolean => {
   if (typeof navigator === 'undefined') return false;

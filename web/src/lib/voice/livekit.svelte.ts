@@ -25,6 +25,7 @@ import { voiceState } from './state.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { RemoteAudioElements } from './audioElements';
+import { setVoiceMediaSession, clearVoiceMediaSession } from './mediaSession';
 import { settings } from '$lib/stores/settings.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { clampNsResolution } from '$lib/settings-registry/sections/screenShare';
@@ -344,6 +345,10 @@ class VoiceRoom {
     // setDeafened ran (PTT mode + not deafened = both false → no setter fired,
     // but we still want to clear any stale state from a previous session).
     this.#publishSelfState();
+    // Register an OS media session so mobile keeps the call audio alive while
+    // backgrounded / screen-locked (paired with the unmuted <audio> path in
+    // RemoteAudioElements). No-op off mobile.
+    setVoiceMediaSession(this.channelName);
     sounds.play('voice.self_join', { guildId: guilds.guildIdForChannel(channelId) });
   }
 
@@ -1158,6 +1163,7 @@ class VoiceRoom {
     this.#sendSpeakingDetector.reset();
     this.#remoteSpeaking.clear();
     this.#audioEls.clear();
+    clearVoiceMediaSession();
     this.#room = null;
     this.#sendProcessorMode = 'off';
     this.#noiseGateSetter = null;

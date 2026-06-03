@@ -1,40 +1,63 @@
 import type { RemoteAudioTrack } from 'livekit-client';
+import { isMobile } from '$lib/platform/runtime';
 
 type SinkCapable = { setSinkId?: (id: string) => Promise<void> };
 
 interface AudioNodeBundle {
-  source: MediaStreamAudioSourceNode;
+  /** Null on the mobile path — there the `<audio>` element is the audible
+   *  source and no Web Audio graph is built. */
+  source: MediaStreamAudioSourceNode | null;
   /** Null while effective gain ≤ 1.0 — at default volume the path is a
    *  straight `source → gain → destination`. Spliced in lazily once the user
-   *  boosts above 100 %, removed again when they reset. */
+   *  boosts above 100 %, removed again when they reset. Always null on mobile. */
   compressor: DynamicsCompressorNode | null;
-  gain: GainNode;
+  /** Null on the mobile path (see `source`). */
+  gain: GainNode | null;
   /** Null while the playback limiter is off. When on, sits at the tail of the
    *  chain (gain → limiter → destination) so it catches the final post-makeup
-   *  level — a participant who suddenly shouts can't blow past your ears. */
+   *  level — a participant who suddenly shouts can't blow past your ears.
+   *  Always null on mobile. */
   limiter: DynamicsCompressorNode | null;
-  /** Muted <audio> sink that keeps Chromium's WebRTC decoder running. Without
-   *  it, MediaStreamAudioSourceNode produces no output for RTCPeerConnection
-   *  tracks — known Chromium bug. We never hear this element (muted=true);
-   *  the audible path is source → [compressor →] gain → [limiter →] ctx.destination. */
+  /** Desktop: muted <audio> sink that keeps Chromium's WebRTC decoder running.
+   *  Without it, MediaStreamAudioSourceNode produces no output for
+   *  RTCPeerConnection tracks — known Chromium bug. We never hear this element
+   *  (muted=true); the audible path is source → [compressor →] gain → [limiter →]
+   *  ctx.destination.
+   *  Mobile: this element IS the audible path (unmuted) — see the class doc. */
   anchor: HTMLAudioElement;
   userId: string;
 }
 
 /**
- * Owns the Web Audio routing for remote participant mic tracks (not
- * screen-share — those live in ScreenShareTile). Default path is a 1:1
- * pass-through `source → gain → destination`; a DynamicsCompressorNode is
- * spliced in only while a user is boosted >100 %, to catch the clipping
- * linear gain would otherwise produce on loud speakers. A second, optional
- * DynamicsCompressorNode (brick-wall limiter) can be spliced into the tail
- * via `setLimiterEnabled` to clamp participants who suddenly get very loud.
+ * Owns the playback routing for remote participant mic tracks (not
+ * screen-share — those live in ScreenShareTile).
  *
- * Why not the previous `<audio>` approach: `HTMLMediaElement.volume` is
- * spec-clamped to 0..1, so a per-user "louder than 100 %" slider had no way
+ * **Desktop path (Web Audio graph).** Default path is a 1:1 pass-through
+ * `source → gain → destination`; a DynamicsCompressorNode is spliced in only
+ * while a user is boosted >100 %, to catch the clipping linear gain would
+ * otherwise produce on loud speakers. A second, optional DynamicsCompressorNode
+ * (brick-wall limiter) can be spliced into the tail via `setLimiterEnabled` to
+ * clamp participants who suddenly get very loud.
+ *
+ * Why not the previous `<audio>` approach on desktop: `HTMLMediaElement.volume`
+ * is spec-clamped to 0..1, so a per-user "louder than 100 %" slider had no way
  * to work. A Web Audio graph has no such ceiling.
+ *
+ * **Mobile path (`<audio>` element).** Android Chrome / iOS Safari / the TWA
+ * suspend a *backgrounded* AudioContext within a few seconds of a screen lock,
+ * cutting call audio. An unmuted media element, by contrast, is kept alive by
+ * the OS as background media (paired with a MediaSession — see
+ * `voice/mediaSession.ts`). So on mobile we skip the Web Audio graph entirely
+ * and play each remote track straight through its `<audio>` element. Trade-off:
+ * `HTMLMediaElement.volume` is clamped to 0..1, so the per-user >100 % boost is
+ * capped at 100 % on mobile. No makeup gain is applied either — the element
+ * plays the track at its natural level (the +12 dB makeup only compensated the
+ * Chromium level loss through MediaStreamAudioSourceNode, which isn't in play
+ * here).
  */
 export class RemoteAudioElements {
+  /** Mobile devices play through the <audio> element; desktop uses Web Audio. */
+  #mobile = isMobile();
   #ctx: AudioContext | null = null;
   #nodes = new Map<string, AudioNodeBundle>();
   /** Secondary index: userId → Set of track SIDs. Allows O(1) lookup in
@@ -63,7 +86,8 @@ export class RemoteAudioElements {
   /** Compensates for the Chromium-side level loss when WebRTC audio is routed
    *  through MediaStreamAudioSourceNode instead of direct HTMLAudioElement
    *  playback, plus the sender-side AGC being off while RNNoise is the active
-   *  mic filter. UI "100 %" maps to a Web Audio gain of 4.0 (+12 dB). */
+   *  mic filter. UI "100 %" maps to a Web Audio gain of 4.0 (+12 dB). Desktop
+   *  only — the mobile <audio> path plays at the track's natural level. */
   static readonly DEFAULT_MAKEUP_GAIN = 4.0;
   deafened = false;
   outputDeviceId = '';
@@ -79,26 +103,51 @@ export class RemoteAudioElements {
     return ctx;
   }
 
-  /** Called when a remote audio track is subscribed. `onBlocked` fires if the
-   *  AudioContext is suspended (autoplay policy) — same trigger semantics as
-   *  the old HTMLAudioElement-based flow. */
+  /** Called when a remote audio track is subscribed. `onBlocked` fires if
+   *  playback can't start (autoplay policy: a suspended AudioContext on desktop,
+   *  or a rejected `<audio>.play()` on mobile). */
   attach(track: RemoteAudioTrack, userId: string, onBlocked: () => void): void {
     const sid = track.sid;
     if (!sid) return;
     if (this.#nodes.has(sid)) return;
     const mst = track.mediaStreamTrack;
     if (!mst) return;
-    const ctx = this.#ensureContext();
     const stream = new MediaStream([mst]);
 
     const anchor = document.createElement('audio');
     anchor.autoplay = true;
-    anchor.muted = true;
     anchor.srcObject = stream;
     anchor.style.display = 'none';
+
+    if (this.#mobile) {
+      // The <audio> element IS the audible path — it survives a backgrounded
+      // screen lock where an AudioContext would be suspended.
+      anchor.muted = this.deafened;
+      anchor.volume = this.#elementVolume(userId);
+      if (this.outputDeviceId) void this.#applyElementSink(anchor, this.outputDeviceId);
+      document.body.appendChild(anchor);
+      const node: AudioNodeBundle = {
+        source: null,
+        compressor: null,
+        gain: null,
+        limiter: null,
+        anchor,
+        userId
+      };
+      this.#nodes.set(sid, node);
+      this.#indexUser(userId, sid);
+      const p = anchor.play();
+      if (p) void p.catch(() => onBlocked());
+      return;
+    }
+
+    // Desktop: muted anchor only keeps the WebRTC decoder running; the audible
+    // path is the Web Audio graph below.
+    anchor.muted = true;
     document.body.appendChild(anchor);
     void anchor.play().catch(() => undefined);
 
+    const ctx = this.#ensureContext();
     const source = ctx.createMediaStreamSource(stream);
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
@@ -107,10 +156,7 @@ export class RemoteAudioElements {
     source.connect(gain);
     this.#syncNode(node);
     this.#nodes.set(sid, node);
-    // Maintain secondary userId→sids index for O(1) setUserVolume lookup.
-    let sids = this.#userSids.get(userId);
-    if (!sids) { sids = new Set(); this.#userSids.set(userId, sids); }
-    sids.add(sid);
+    this.#indexUser(userId, sid);
 
     if (ctx.state === 'suspended') {
       void ctx.resume().then(() => { if (ctx.state !== 'running') onBlocked(); }).catch(() => onBlocked());
@@ -120,9 +166,9 @@ export class RemoteAudioElements {
   detach(sid: string): void {
     const node = this.#nodes.get(sid);
     if (!node) return;
-    try { node.source.disconnect(); } catch { /* already gone */ }
+    try { node.source?.disconnect(); } catch { /* already gone */ }
     try { node.compressor?.disconnect(); } catch { /* already gone */ }
-    try { node.gain.disconnect(); } catch { /* already gone */ }
+    try { node.gain?.disconnect(); } catch { /* already gone */ }
     try { node.limiter?.disconnect(); } catch { /* already gone */ }
     node.anchor.srcObject = null;
     node.anchor.remove();
@@ -137,6 +183,10 @@ export class RemoteAudioElements {
 
   setDeafened(on: boolean): void {
     this.deafened = on;
+    if (this.#mobile) {
+      for (const node of this.#nodes.values()) node.anchor.muted = on;
+      return;
+    }
     for (const node of this.#nodes.values()) this.#syncNode(node);
   }
 
@@ -149,7 +199,9 @@ export class RemoteAudioElements {
     if (sids) {
       for (const sid of sids) {
         const node = this.#nodes.get(sid);
-        if (node) this.#syncNode(node);
+        if (!node) continue;
+        if (this.#mobile) node.anchor.volume = this.#elementVolume(userId);
+        else this.#syncNode(node);
       }
     }
   }
@@ -162,11 +214,20 @@ export class RemoteAudioElements {
       const clamped = Math.max(0, Math.min(4, v));
       if (clamped !== 1) this.#userVolumes.set(uid, clamped);
     }
-    for (const node of this.#nodes.values()) this.#syncNode(node);
+    for (const node of this.#nodes.values()) {
+      if (this.#mobile) node.anchor.volume = this.#elementVolume(node.userId);
+      else this.#syncNode(node);
+    }
   }
 
   async setOutputDevice(deviceId: string): Promise<void> {
     this.outputDeviceId = deviceId;
+    if (this.#mobile) {
+      await Promise.all(
+        [...this.#nodes.values()].map((n) => this.#applyElementSink(n.anchor, deviceId))
+      );
+      return;
+    }
     if (this.#ctx) await this.#applySink(this.#ctx, deviceId);
   }
 
@@ -184,15 +245,31 @@ export class RemoteAudioElements {
     for (const sid of [...this.#nodes.keys()]) this.detach(sid);
   }
 
+  /** Maintain the secondary userId→sids index for O(1) setUserVolume lookup. */
+  #indexUser(userId: string, sid: string): void {
+    let sids = this.#userSids.get(userId);
+    if (!sids) { sids = new Set(); this.#userSids.set(userId, sids); }
+    sids.add(sid);
+  }
+
+  /** Effective `<audio>.volume` (0..1) for the mobile path. The per-user >100 %
+   *  boost is capped at 100 % since HTMLMediaElement.volume can't exceed 1.0. */
+  #elementVolume(userId: string): number {
+    const mult = this.#userVolumes.get(userId) ?? 1;
+    return Math.max(0, Math.min(1, mult));
+  }
+
   #computeGain(userId: string): number {
     if (this.deafened) return 0;
     const userMultiplier = this.#userVolumes.get(userId) ?? 1;
     return userMultiplier * RemoteAudioElements.DEFAULT_MAKEUP_GAIN;
   }
 
-  /** Toggle the playback peak limiter for every current + future track. */
+  /** Toggle the playback peak limiter for every current + future track.
+   *  No-op on mobile (the limiter is a Web Audio tail node). */
   setLimiterEnabled(on: boolean): void {
     this.#limiterEnabled = on;
+    if (this.#mobile) return;
     const ctx = this.#ctx;
     if (!ctx) return;
     for (const node of this.#nodes.values()) this.#applyLimiterTail(node, ctx);
@@ -202,10 +279,11 @@ export class RemoteAudioElements {
    *  (when the user-facing volume is >100 %) or out (otherwise). The makeup
    *  factor is intentionally excluded from the compressor trigger — otherwise
    *  every track would be compressed at default volume, which is the bug this
-   *  whole branch exists to fix. Idempotent. */
+   *  whole branch exists to fix. Idempotent. Desktop-only (no-op without a
+   *  Web Audio graph). */
   #syncNode(node: AudioNodeBundle): void {
     const ctx = this.#ctx;
-    if (!ctx) return;
+    if (!ctx || !node.gain || !node.source) return;
     node.gain.gain.value = this.#computeGain(node.userId);
     const needsCompressor = (this.#userVolumes.get(node.userId) ?? 1) > 1;
     if (needsCompressor && !node.compressor) {
@@ -232,8 +310,9 @@ export class RemoteAudioElements {
   /** Splice the peak limiter into `node`'s tail (gain → limiter → destination)
    *  or remove it (gain → destination), matching `#limiterEnabled`. Idempotent
    *  — only rewires when the actual state differs, so a plain volume change
-   *  doesn't glitch the graph. */
+   *  doesn't glitch the graph. Desktop-only. */
   #applyLimiterTail(node: AudioNodeBundle, ctx: AudioContext): void {
+    if (!node.gain) return;
     if (this.#limiterEnabled && !node.limiter) {
       try { node.gain.disconnect(ctx.destination); } catch { /* not connected */ }
       const lim = ctx.createDynamicsCompressor();
@@ -262,6 +341,17 @@ export class RemoteAudioElements {
       await cap.setSinkId(deviceId);
     } catch {
       /* Chrome ≥110 / Electron supports this; Firefox/Safari don't yet. */
+    }
+  }
+
+  async #applyElementSink(el: HTMLAudioElement, deviceId: string): Promise<void> {
+    if (!deviceId) return;
+    const cap = el as unknown as SinkCapable;
+    if (typeof cap.setSinkId !== 'function') return;
+    try {
+      await cap.setSinkId(deviceId);
+    } catch {
+      /* setSinkId on media elements: not supported everywhere (esp. iOS). */
     }
   }
 }
