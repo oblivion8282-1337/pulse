@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.14, FastAPI, redis.asyncio, pytest + pytest-asyncio (`REDIS_URL=redis://localhost:6380/0 uv run --all-packages pytest`), Playwright (E2E).
 
-**Spec:** `docs/superpowers/specs/2026-06-02-watch-party-host-sticky-design.md`
+**Spec:** `docs/specs/2026-06-02-watch-party-host-sticky-design.md`
 
 ---
 

@@ -6,7 +6,7 @@
 
 **Architecture:** Neue Komponente `MobileVoiceStack.svelte` rendert den verbundenen Voice-Kanal (`VoiceChannelView`) als untere Karte und ein durchgereichtes Chat-Snippet als obere Karte mit Swipe-down-/Tap-Zurück-Geste. `+page.svelte` schaltet via abgeleitetem `showVoiceStack` zwischen Stapel und heutigem Verhalten. Layout im normalen Flex-Fluss, damit das Eingabefeld über dem `VoiceControlBar`-Dock bleibt.
 
-**Tech Stack:** Svelte 5 Runes, Tailwind 4, Pointer-Events (keine neue Dependency). Spec: `docs/superpowers/specs/2026-06-03-mobile-voice-text-card-stack-design.md`.
+**Tech Stack:** Svelte 5 Runes, Tailwind 4, Pointer-Events (keine neue Dependency). Spec: `docs/specs/2026-06-03-mobile-voice-text-card-stack-design.md`.
 
 ---
 
