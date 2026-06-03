@@ -56,10 +56,24 @@
   );
 
   // Auf Mobil hat ein Voice-Kanal keine eigene Vollbild-Seite: stattdessen
-  // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Hält die
-  // Liste offen, sobald der aktive Kanal ein Voice-Kanal ist (auch nach Reload).
+  // bleibt die Kanal-Liste sichtbar (oben Text-, unten Sprachkanäle). Zusätzlich
+  // Auto-Rejoin beim Laden/Navigieren auf einen Voice-Kanal — sonst ist man nach
+  // einem Reload "auf dem Kanal", aber nicht verbunden (→ Text-Kanal zeigt
+  // Vollbild statt Karten-Stapel). Spiegelt das frühere
+  // VoiceChannelView.onMount-Auto-Join, das mit der Vollbild-Seite entfiel.
+  // Nur EINMAL pro Kanal-Landing (Guard) und untracked gelesen — NICHT reaktiv
+  // auf Verbindungsabbruch, sonst würde "Verlassen" sofort wieder beitreten;
+  // und nur, wenn wir nirgends im Voice sind (kein Auto-Switch).
+  let autoJoinedVoiceChannel = '';
   $effect(() => {
-    if (viewport.isMobile && isVoiceChannel) navDrawer.open = true;
+    if (!viewport.isMobile || !isVoiceChannel) return;
+    navDrawer.open = true;
+    const ch = activeChannel;
+    if (!ch || autoJoinedVoiceChannel === ch.id) return;
+    autoJoinedVoiceChannel = ch.id;
+    untrack(() => {
+      if (!voice.connected && !voice.connecting) void voice.connect(ch.id, ch.name);
+    });
   });
   let visibleMessages = $derived(messages.for(channelId));
   // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
