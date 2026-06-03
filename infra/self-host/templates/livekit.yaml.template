@@ -1,0 +1,25 @@
+# LiveKit-Config für Pulse Self-Host (gerendert von 05-init-livekit.sh:
+# @@LIVEKIT_KEY@@ / @@LIVEKIT_SECRET@@ werden beim Container-Start ersetzt).
+#
+# Ohne dieses Template fällt 05-init-livekit auf eine Minimal-Config zurück, die
+# KEIN use_external_ip kennt → LiveKit nimmt die interne Docker-IP (10.x) als
+# ICE-Kandidat → externe Clients bekommen keine Media-Verbindung (F13).
+port: 7880
+bind_addresses:
+  - 0.0.0.0
+rtc:
+  tcp_port: 7881
+  port_range_start: 7882
+  port_range_end: 7892
+  # LiveKit ermittelt seine öffentliche IP per STUN und gibt SIE als ICE-Kandidat
+  # aus (nicht die interne Docker-Bridge-IP). Das ist der Standardweg hinter
+  # NAT/Docker und macht ein manuelles PULSE_PUBLIC_IP für den direkten Media-
+  # Pfad überflüssig. coturn (TURN-Relay) deckt zusätzlich restriktive NATs ab.
+  use_external_ip: true
+keys:
+  @@LIVEKIT_KEY@@: "@@LIVEKIT_SECRET@@"
+webhook:
+  api_key: @@LIVEKIT_KEY@@
+  urls:
+    - http://127.0.0.1:8003/webhook
+log_level: info

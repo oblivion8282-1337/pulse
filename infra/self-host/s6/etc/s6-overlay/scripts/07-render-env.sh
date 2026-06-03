@@ -100,6 +100,13 @@ export PULSE_ADMIN_EMAIL='${PULSE_ADMIN_EMAIL}'
 export PULSE_CLOUD_CLIENT_ID='${PULSE_CLOUD_CLIENT_ID}'
 export PULSE_CLOUD_CLIENT_SECRET='${PULSE_CLOUD_CLIENT_SECRET}'
 
+# Upload-Verzeichnisse (F10). Die Defaults sind relativ (./uploads/...) und unter
+# s6 (cwd=/opt/pulse/services/*) nicht beschreibbar → Avatar-/Guild-Icon-Upload
+# crasht mit PermissionError (wie F9). Auf das persistente /data-Volume zeigen;
+# die Dirs legt 01-init-data-dirs (pulse-owned) an.
+export AVATAR_UPLOAD_DIR='${DATA}/uploads/avatars'
+export GUILD_ICON_UPLOAD_DIR='${DATA}/uploads/guild-icons'
+
 # Logging
 export PULSE_LOG_LEVEL='${PULSE_LOG_LEVEL:-info}'
 
