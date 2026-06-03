@@ -80,20 +80,29 @@
     </header>
 
     <main class="mx-auto flex w-full max-w-4xl flex-col gap-6 px-6 py-8">
-      <AdminOverview />
-      <AdminBackup />
+      <AdminOverview {isCloud} />
+      <!-- Registrierung, SMTP, Cloud-Backup-Status, Cloud-User-Verwaltung laufen
+           über die auth-svc-Identity-Plane (Cloud) und sind für einen Cert-Login-
+           Admin auf einer Self-Host-Instanz weder erreichbar (403) noch inhaltlich
+           sinnvoll (keine lokalen auth.users, Self-Host hat eigenes pg_dump-Backup).
+           Auf Self-Host ausblenden; Backup + User bekommen eigene Instanz-Varianten. -->
+      {#if isCloud}
+        <AdminBackup />
+      {/if}
       <AdminAttachments />
-      <AdminRegistration />
-      <AdminSmtp />
+      {#if isCloud}
+        <AdminRegistration />
+        <AdminSmtp />
+      {/if}
       <AdminPermissions />
       <AdminStreamLimits />
       <AdminNormalStreamLimits />
       <AdminPlugins />
       {#if isCloud}
         <AdminInstances />
+        <AdminUsers />
       {/if}
-      <AdminUsers />
-      <AdminAuditLog />
+      <AdminAuditLog {isCloud} />
     </main>
   </div>
 {/if}

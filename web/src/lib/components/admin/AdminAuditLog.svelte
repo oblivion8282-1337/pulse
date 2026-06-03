@@ -14,6 +14,10 @@
   import RefreshCcwIcon from '@lucide/svelte/icons/refresh-ccw';
   import { m } from '$lib/paraglide/messages.js';
 
+  // Self-Host (isCloud=false): nur der chat-gateway-Audit von der Instanz; der
+  // auth-svc-Audit liegt auf der Cloud und ist hier nicht zugänglich/leer.
+  let { isCloud = true }: { isCloud?: boolean } = $props();
+
   let entries = $state<AuditLogEntry[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
@@ -22,7 +26,7 @@
   async function load() {
     loading = true;
     try {
-      const merged = await adminApi.mergedAuditLog(50);
+      const merged = await adminApi.mergedAuditLog(50, isCloud);
       entries = merged;
       // Prefetch involved usernames so we can render "@alice" not "47683…".
       for (const e of merged) {

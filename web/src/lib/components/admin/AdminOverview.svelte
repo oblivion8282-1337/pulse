@@ -13,15 +13,21 @@
   import MessageSquareIcon from '@lucide/svelte/icons/message-square';
   import HardDriveIcon from '@lucide/svelte/icons/hard-drive';
 
+  // Auf Self-Host (isCloud=false) gibt es keine auth.users — die auth-Stats
+  // (User/Admin/Disabled-Count) kämen von der Cloud-auth und sind hier
+  // irrelevant (+ 403, weil der Cert-Login-Admin dort kein Cloud-Admin ist).
+  // Wir laden dann nur die chat-Stats von der Instanz und blenden die
+  // User-Kachel aus.
+  let { isCloud = true }: { isCloud?: boolean } = $props();
+
   let auth = $state<AuthStats | null>(null);
   let chat = $state<ChatStats | null>(null);
   let error = $state<string | null>(null);
 
   onMount(async () => {
     try {
-      const [a, c] = await Promise.all([adminApi.authStats(), adminApi.chatStats()]);
-      auth = a;
-      chat = c;
+      chat = await adminApi.chatStats();
+      if (isCloud) auth = await adminApi.authStats();
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
@@ -40,18 +46,20 @@
 
   {#if error}
     <p class="text-red-400 text-sm">{m.admin_overview_stats_load_error({ error: error ?? '' })}</p>
-  {:else if auth && chat}
+  {:else if chat}
     <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-      <div class="flex flex-col gap-1 rounded-xl bg-bg-hover/50 p-3" data-testid="stat-users">
-        <div class="text-text-muted flex items-center gap-1.5 text-xs">
-          <UsersIcon class="size-3.5" />
-          User
+      {#if auth}
+        <div class="flex flex-col gap-1 rounded-xl bg-bg-hover/50 p-3" data-testid="stat-users">
+          <div class="text-text-muted flex items-center gap-1.5 text-xs">
+            <UsersIcon class="size-3.5" />
+            User
+          </div>
+          <div class="text-text-bright text-2xl font-semibold">{auth.user_count}</div>
+          <div class="text-text-muted text-xs">
+            {m.admin_overview_user_detail({ adminCount: auth.admin_count, disabledCount: auth.disabled_count })}
+          </div>
         </div>
-        <div class="text-text-bright text-2xl font-semibold">{auth.user_count}</div>
-        <div class="text-text-muted text-xs">
-          {m.admin_overview_user_detail({ adminCount: auth.admin_count, disabledCount: auth.disabled_count })}
-        </div>
-      </div>
+      {/if}
 
       <div class="flex flex-col gap-1 rounded-xl bg-bg-hover/50 p-3" data-testid="stat-guilds">
         <div class="text-text-muted flex items-center gap-1.5 text-xs">

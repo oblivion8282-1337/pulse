@@ -279,10 +279,17 @@ export const adminApi = {
 
   // ---- merged convenience -------------------------------------------------
 
-  /** Fetch both audit logs, tag with their source, sort newest-first. */
-  async mergedAuditLog(limit = 50): Promise<AuditLogEntry[]> {
+  /**
+   * Fetch both audit logs, tag with their source, sort newest-first.
+   *
+   * ``includeAuth=false`` (Self-Host): nur der chat-gateway-Audit von der aktiven
+   * Instanz. Der auth-svc-Audit liegt auf der Cloud (Identity-Plane) und ist für
+   * einen Cert-Login-Admin nicht zugänglich (403) + inhaltlich leer (keine
+   * lokalen auth.users-Aktionen).
+   */
+  async mergedAuditLog(limit = 50, includeAuth = true): Promise<AuditLogEntry[]> {
     const [a, c] = await Promise.all([
-      this.authAuditLog({ limit }),
+      includeAuth ? this.authAuditLog({ limit }) : Promise.resolve([]),
       this.chatAuditLog({ limit })
     ]);
     const tagged: AuditLogEntry[] = [
