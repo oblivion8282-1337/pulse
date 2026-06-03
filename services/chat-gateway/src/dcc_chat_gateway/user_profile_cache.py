@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import jwt
+from dcc_shared.session_tokens import synthesize_self_host_user_id
 from jwt.algorithms import RSAAlgorithm
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -180,6 +181,18 @@ async def upsert_profile_statement(
             )
         user_identifier = compute_pairwise_sub(sub, int(instance_id), seed_b64)
 
+    # Numeric id used by the rest of the chat schema (GuildMember.user_id,
+    # messages.author_id) + the LiveKit voice identity. Cloud: raw numeric user
+    # id; Self-Host: deterministic synth from the pairwise-sub. Lets the /users
+    # name-resolution endpoint map a numeric id back to this profile (F19).
+    # Cloud subs are numeric in practice — guard against non-numeric (the chat
+    # /users endpoint is unused in cloud mode anyway, so NULL there is harmless).
+    synthetic_user_id: int | None
+    if instance_mode == "cloud":
+        synthetic_user_id = int(user_identifier) if user_identifier.isdigit() else None
+    else:
+        synthetic_user_id = synthesize_self_host_user_id(user_identifier)
+
     # ── Step 8: load existing profile for replay check ────────────────────────
     new_iat_dt = datetime.fromtimestamp(int(raw_iat), tz=timezone.utc)
 
@@ -209,6 +222,7 @@ async def upsert_profile_statement(
         existing.last_statement_iat = new_iat_dt
         existing.updated_at = datetime.now(tz=timezone.utc)
         existing.stale = False
+        existing.synthetic_user_id = synthetic_user_id
         session.add(existing)
         return existing
 
@@ -221,6 +235,7 @@ async def upsert_profile_statement(
         last_statement_iat=new_iat_dt,
         updated_at=datetime.now(tz=timezone.utc),
         stale=False,
+        synthetic_user_id=synthetic_user_id,
     )
     session.add(profile)
     return profile

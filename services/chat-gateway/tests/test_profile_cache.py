@@ -244,6 +244,43 @@ async def test_self_host_mode_identifier_is_pairwise(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+async def test_self_host_populates_synthetic_user_id(session: AsyncSession):
+    """synthetic_user_id = synthesize(pairwise) — the numeric id the rest of the
+    chat schema (GuildMember.user_id / LiveKit user-<id>) uses for this member (F19)."""
+    from dcc_shared.session_tokens import synthesize_self_host_user_id
+
+    seed = b"\xab" * 32
+    stmt = _make_statement(sub="user-77")
+    profile = await upsert_profile_statement(
+        session,
+        stmt,
+        cloud_jwks=_cloud_jwks(),
+        instance_mode="self-host",
+        instance_id="7",
+        pairwise_seed=seed,
+    )
+    assert profile.synthetic_user_id == synthesize_self_host_user_id(profile.user_identifier)
+    assert profile.synthetic_user_id > 0
+
+
+@pytest.mark.asyncio
+async def test_cloud_mode_synthetic_id_is_numeric_sub(session: AsyncSession):
+    """Cloud: synthetic_user_id == int(sub) for a numeric sub; None for non-numeric."""
+    numeric = _make_statement(sub="100200300")
+    profile = await upsert_profile_statement(
+        session, numeric, cloud_jwks=_cloud_jwks(), instance_mode="cloud"
+    )
+    assert profile.synthetic_user_id == 100200300
+
+    await session.rollback()
+    nonnum = _make_statement(sub="user-abc", iat_offset=1)
+    profile2 = await upsert_profile_statement(
+        session, nonnum, cloud_jwks=_cloud_jwks(), instance_mode="cloud"
+    )
+    assert profile2.synthetic_user_id is None
+
+
+@pytest.mark.asyncio
 async def test_self_host_different_instances_different_identifiers(session: AsyncSession):
     seed = b"\xca\xfe" * 16
     stmt_a = _make_statement(sub="user-1", iat_offset=0)

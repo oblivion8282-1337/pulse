@@ -77,6 +77,14 @@ class CachedUserProfile(Base):
         DateTime(timezone=True), nullable=True
     )
     ban_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Numeric id used everywhere else in the chat schema (GuildMember.user_id,
+    # messages.author_id) + the LiveKit voice identity. Self-Host: derived via
+    # ``synthesize_self_host_user_id(pairwise_sub)``; Cloud: ``int(user_identifier)``.
+    # Lets the ``/users`` name-resolution endpoint map a numeric id back to this
+    # profile (F19). Nullable + indexed; populated on the next statement upsert.
+    synthetic_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, index=True
+    )
 
     __table_args__ = (Index("ix_cached_user_profiles_username", "username"),)
 

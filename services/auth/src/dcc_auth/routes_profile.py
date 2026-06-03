@@ -48,7 +48,11 @@ def _issue_statement(user: User, signer: JwtSigner) -> str:
         # every real statement is rejected (the typ claim above is not checked).
         "purpose": "profile-statement",
         "username": user.username,
-        "display_name": user.display_name,
+        # Self-Host-Validator (user_profile_cache.upsert_profile_statement)
+        # verlangt einen non-null display_name. Hat der User keinen gesetzt,
+        # auf den username zurückfallen — sonst wird das Statement verworfen
+        # und der Self-Host kann den Member nie anzeigen (F19).
+        "display_name": user.display_name or user.username,
         "avatar_hash": user.avatar_hash,
         "profile_color": user.profile_color,
         # Per-user pairwise seed (mirrors the Identity-Cert). Self-host

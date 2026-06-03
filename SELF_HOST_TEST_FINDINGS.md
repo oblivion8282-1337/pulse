@@ -158,3 +158,26 @@ Voice-Infra geprüft (kein 2-Client-Call, auf Wunsch): LiveKit + coturn laufen, 
 - Cloud-Admin `oblivion` approved Antrag von `dev` für `pulse.unicutmedia.com`.
 - Werte (instance_id/client_id/owner_id/secret) liegen beim Tester, nicht im Repo.
 - Durchlauf 2 nach Image-Rebuild + Cloud-Deploy der Fixes ausstehend.
+
+## F19 — Self-Host-Member-Namen (Voice-Kachel + Member-Liste zeigen `user-<id>` / `…`)
+Beobachtet 2026-06-03: auf `pulse.unicutmedia.com` zeigt die Voice-Kachel `user-1645520347282241315`
+und die Member-Liste `…` statt „dev". Voice selbst verbindet (F17 ok), keine Konsolen-Fehler.
+
+Root-Cause (3 gestapelte Lücken):
+1. **Cloud-Auth** stellt das Profile-Statement mit `display_name: null` aus (dev hat keinen gesetzt)
+   → Self-Host-Validator (`user_profile_cache.upsert_profile_statement`, verlangt display_name) verwirft es
+   → kein `CachedUserProfile`.
+2. **Frontend** löst alle Namen über `GET /users` mit hartem `endpoint:'auth'` (Cloud) auf — die Cloud
+   kennt die Self-Host-pairwise/Synth-IDs nicht → Fallback `…` / rohe `user-<id>`.
+3. **Keine Brücke** numerische Synth-ID (`synthesize_self_host_user_id(pairwise)`, in GuildMember/LiveKit)
+   ↔ `CachedUserProfile` (key = base62-pairwise) → selbst ein korrekter Self-Host-Lookup fände nichts.
+
+Fix (implementiert, Commit s.u.):
+- **L1 Cloud-Auth** `routes_profile._issue_statement`: `display_name = user.display_name or username`.
+- **L2 chat-gateway**: `CachedUserProfile.synthetic_user_id` (Spalte + Index, Migration `0031`), im Upsert
+  befüllt; neuer `GET /users?ids=…` löst numerische IDs → UserSummary auf.
+- **L3 Frontend** `userCache`: auf Self-Host `endpoint:'chat'` (Self-Host /users) statt Cloud, mit
+  Cloud-Fallback für unaufgelöste IDs (DM-/Friends-Namen bleiben heil); `VoiceParticipantTile` bevorzugt
+  den aufgelösten Namen vor der rohen LiveKit-Identity.
+- Tests: `test_users_resolve.py` (5) + `synthetic_user_id`-Population in `test_profile_cache.py`.
+- Deploy: Cloud (auth+web+chat, Migration `migrate-chat` 0031) **und** Hetzner-allinone (Rebuild + Redeploy).

@@ -39,6 +39,7 @@ from dcc_chat_gateway.routes import (
     sounds,
     stream_chat,
     streaming,
+    users,
     watch,
     watch_chat,
     ws,
@@ -80,6 +81,7 @@ router.include_router(admin_members.router)
 router.include_router(admin_plugins.router)
 router.include_router(guild_plugins.router)
 router.include_router(mention_search.router)
+router.include_router(users.router)
 router.include_router(internal.router)
 router.include_router(ws.router)
 

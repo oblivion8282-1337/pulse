@@ -25,7 +25,13 @@
 
   let glow = $derived(p.isSpeaking ? Math.min(1, 0.35 + p.audioLevel * 2) : 0);
   let glowOpacity = $derived(glow > 0 ? 0.35 + glow * 0.5 : 0);
-  let initial = $derived((p.name.trim()[0] ?? '?').toUpperCase());
+  // LiveKit setzt den Teilnehmer-Namen (``p.name``) — auf Self-Hosts fällt der
+  // mangels Username auf die rohe ``user-<id>``-Identity zurück. Sobald der
+  // userCache den Namen aufgelöst hat (via Self-Host /users, F19), den bevorzugen.
+  let resolvedName = $derived(
+    p.userId && userCache.get(p.userId) ? userCache.displayName(p.userId) : p.name
+  );
+  let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
 
   let volumePct = $derived(
@@ -112,7 +118,7 @@
 {#if p.userId}
 <UserProfilePopover
   userId={p.userId}
-  displayName={p.name}
+  displayName={resolvedName}
   avatarUrl={avatarSrc}
   {guildId}
 >
@@ -163,7 +169,7 @@
           {/if}
           <Avatar.Root class="relative size-20 {ringClass}">
             {#if avatarSrc}
-              <Avatar.Image src={avatarSrc} alt={p.name} />
+              <Avatar.Image src={avatarSrc} alt={resolvedName} />
             {/if}
             <Avatar.Fallback class="accent-gradient text-primary-foreground text-xl font-semibold">
               {initial}
@@ -182,7 +188,7 @@
                     : isHqStreaming
                       ? m.voice_participant_tile_open_hq_stream()
                       : m.voice_participant_tile_open_screen()}
-                  aria-label={m.voice_participant_tile_open_stream_aria({ name: p.name })}
+                  aria-label={m.voice_participant_tile_open_stream_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openLive(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -199,7 +205,7 @@
                   class="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-sm font-bold leading-none text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95"
                   data-testid="voice-participant-party-badge"
                   title={m.voice_participant_tile_open_watch_party()}
-                  aria-label={m.voice_participant_tile_open_watch_party_aria({ name: p.name })}
+                  aria-label={m.voice_participant_tile_open_watch_party_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openParty(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -216,7 +222,7 @@
                   class="cursor-pointer rounded-md bg-blue-600 px-3 py-1.5 text-sm font-bold leading-none text-white shadow-sm hover:bg-blue-500 active:scale-95"
                   data-testid="voice-participant-cam-badge"
                   title={m.voice_participant_tile_open_webcam()}
-                  aria-label={m.voice_participant_tile_open_webcam_aria({ name: p.name })}
+                  aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openCam(); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -234,9 +240,9 @@
             class="text-text-bright max-w-28 truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
               ? 'font-bold'
               : 'font-semibold'}"
-            title={p.name}
+            title={resolvedName}
           >
-            {p.name}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
+            {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
           </span>
           {#if showMicOff}
             <MicOffIcon
@@ -266,7 +272,7 @@
     {/snippet}
   {#snippet extra()}
     {#if canAdjustVolume && p.userId}
-      <VoiceUserVolumeControl userId={p.userId} name={p.name} />
+      <VoiceUserVolumeControl userId={p.userId} name={resolvedName} />
     {/if}
   {/snippet}
 </UserProfilePopover>
@@ -297,7 +303,7 @@
       {/if}
       <Avatar.Root class="relative size-20">
         {#if avatarSrc}
-          <Avatar.Image src={avatarSrc} alt={p.name} />
+          <Avatar.Image src={avatarSrc} alt={resolvedName} />
         {/if}
         <Avatar.Fallback class="accent-gradient text-primary-foreground text-xl font-semibold">
           {initial}
@@ -309,9 +315,9 @@
         class="text-text-bright max-w-28 truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
           ? 'font-bold'
           : 'font-semibold'}"
-        title={p.name}
+        title={resolvedName}
       >
-        {p.name}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
+        {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
       </span>
       {#if showMicOff}
         <MicOffIcon

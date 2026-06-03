@@ -1,4 +1,5 @@
 import { request } from '$lib/api/client';
+import { activeServer } from '$lib/stores/active-server.svelte';
 
 export type UserSummary = {
   id: string;
@@ -43,21 +44,44 @@ class UserCacheStore {
     ids.forEach((id) => this.pending.delete(id));
     this.debounceTimer = null;
     try {
+      // Auf einem Self-Host kennt die Cloud-Auth die per-Instanz-IDs nicht →
+      // Namen vom Self-Host (endpoint 'chat') holen statt von der Cloud.
+      const onSelfHost = activeServer.current ? !activeServer.current.isCloud : false;
       const result = await request<UserSummary[]>(
         `/users?ids=${ids.join(',')}`,
-        { endpoint: 'auth' }
+        { endpoint: onSelfHost ? 'chat' : 'auth' }
       );
       const returned = new Set<string>();
       for (const u of result) {
         this.byId[u.id] = u;
         returned.add(u.id);
       }
-      // Tombstone ids the server didn't return so we stop re-fetching them.
-      // Only on a *successful* response — a network failure is transient and
-      // must stay retryable (handled by the catch leaving them un-tombstoned).
-      for (const id of ids) {
-        if (!returned.has(id)) this.unknown.add(id);
+
+      let unresolved = ids.filter((id) => !returned.has(id));
+      // Cloud-Fallback: was der Self-Host nicht kennt (z.B. DM-Empfänger /
+      // Freunde = Cloud-User), bei der Cloud-Auth nachschlagen. Verhindert eine
+      // Regression der DM-/Friends-Namen, während man auf einem Self-Host ist.
+      // (`endpoint:'auth'` ist immer Cloud-relativ.)
+      if (onSelfHost && unresolved.length > 0) {
+        try {
+          const cloud = await request<UserSummary[]>(
+            `/users?ids=${unresolved.join(',')}`,
+            { endpoint: 'auth' }
+          );
+          for (const u of cloud) {
+            this.byId[u.id] = u;
+            returned.add(u.id);
+          }
+          unresolved = unresolved.filter((id) => !returned.has(id));
+        } catch {
+          // transient — bleibt retrybar (nicht tombstonen)
+          unresolved = [];
+        }
       }
+      // Tombstone ids no source returned so we stop re-fetching them. Only on a
+      // *successful* response — a network failure leaves them un-tombstoned
+      // (retryable) via the empty-list assignment above / the outer catch.
+      for (const id of unresolved) this.unknown.add(id);
     } catch {
       // silent — display fallback until next attempt
     }
