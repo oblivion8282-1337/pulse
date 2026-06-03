@@ -133,6 +133,21 @@ Antrag (dev) → Approval (oblivion, Badge ✓) → allinone behind-proxy auf He
 hinter Host-Caddy → Pre-Check ✓ → Cert-Login challenge+verify ✓ → Instanz eingebunden,
 verbunden, dev als Admin erkannt (Panel lädt, chat-gateway-Admin 200). Offen: F10, F11, Voice/HQ.
 
+### F13 — Voice-Infra im allinone nicht für externe Clients konfiguriert  [OFFEN, "Phase 6.B"]
+Voice-Infra geprüft (kein 2-Client-Call, auf Wunsch): LiveKit + coturn laufen, aber:
+- **`livekit.yaml.template` fehlt komplett** → 05-init-livekit nutzt die Minimal-
+  Fallback-Config (loggt "Phase 6.B not applied"), OHNE `rtc.use_external_ip`/`node_ip`.
+  LiveKit meldet `nodeIP: 10.0.4.2` (interne Docker-IP) → ICE-Kandidaten zeigen ins
+  Docker-Netz, externe Clients bekommen keine Media-Verbindung.
+- **coturn** (04-init-coturn.sh) rendert die turnserver.conf ohne `external-ip`;
+  `PULSE_PUBLIC_IP` wird nur im Kommentar erwähnt, nirgends real verdrahtet.
+- `PULSE_HTTP`/Signaling (Caddy /livekit WS, /api/voice) ist erreichbar — nur der
+  Media-Plane (UDP/ICE/TURN) ist unkonfiguriert.
+- **Fix-Paket:** livekit.yaml.template anlegen (use_external_ip:true ODER node_ip aus
+  PULSE_PUBLIC_IP) + ins Image kopieren; coturn external-ip aus PULSE_PUBLIC_IP setzen;
+  PULSE_PUBLIC_IP in .env.example + Auto-Detect. Substanzielles eigenes Paket.
+- **HQ-Streaming** ist Electron-Desktop-only (GSR-Sidecar) → per Browser/CDP gar nicht testbar.
+
 ## Test-Durchlauf 1 (2026-06-03)
 - Cloud-Admin `oblivion` approved Antrag von `dev` für `pulse.unicutmedia.com`.
 - Werte (instance_id/client_id/owner_id/secret) liegen beim Tester, nicht im Repo.
