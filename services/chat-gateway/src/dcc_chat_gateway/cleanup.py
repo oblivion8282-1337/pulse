@@ -68,13 +68,16 @@ async def cleanup_loop(settings: Settings, engine: AsyncEngine) -> None:
         settings.push_subscription_idle_days,
     )
     while True:
+        # Erst schlafen, dann sweepen — gleiche Test-Isolation wie der attachments
+        # reaper: so läuft in kurzlebigen Lifespan-Tests keine DB-Iteration, die
+        # beim Engine-Disposal einen Greenlet-/Connection-Fehler werfen könnte.
+        await asyncio.sleep(interval_s)
         try:
             await _run_once(engine, settings)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             log.exception("push_subscription_cleanup_failed")
-        await asyncio.sleep(interval_s)
 
 
 __all__ = ["cleanup_loop", "_run_once"]

@@ -402,13 +402,19 @@ async def reaper_loop() -> None:
     """
     log.info("attachments reaper start", interval_s=REAPER_INTERVAL_S)
     while True:
+        # Erst schlafen, dann reapen. So macht der Task in (kurzlebigen) Tests, die
+        # den echten Lifespan starten, NIE eine DB-Iteration → kein Greenlet-/
+        # Connection-Fehler (sqlalchemy e3q8), wenn das Test-Teardown die Engine
+        # disposed während eine reap-Query läuft (CI-Flake, rutschte durch die
+        # --reruns-Filter). In Produktion ist der Initial-Delay irrelevant:
+        # Orphans werden erst ab ORPHAN_AGE_S (>1 h) eingesammelt.
+        await asyncio.sleep(REAPER_INTERVAL_S)
         try:
             await _reap_once()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             log.exception("attachments reaper iteration failed")
-        await asyncio.sleep(REAPER_INTERVAL_S)
 
 
 REAPER_BATCH_SIZE = 500
