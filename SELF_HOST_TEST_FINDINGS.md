@@ -80,6 +80,21 @@ WORKER_ID_CHAT/VOICE/MEDIA=103/104/105    (s. F4)
 
 ---
 
+### F6 — allinone unbrauchbar hinter bestehendem Reverse-Proxy / auf geteiltem Host  [GEFIXT]
+- **Symptom:** Interner Caddy erzwingt 80/443 (TLS + Routing). Auf einem Host mit
+  bereits laufendem Proxy (z.B. Hetzner-Host-Caddy für andere Dienste) → Port-
+  Konflikt, allinone nicht startbar. `auto`/`provided` terminieren beide TLS im
+  Container.
+- **Fix:** neuer `PULSE_TLS_MODE=behind-proxy` — interner Caddy macht nur HTTP-
+  Routing auf `PULSE_HTTP_PORT` (Default 8080), kein TLS/ACME, keine 80/443. Der
+  vorhandene externe Proxy terminiert TLS und braucht nur EINE Regel
+  (`pulse.domain → http://<container>:8080`). Routing bleibt komplett im Container.
+  `09-init-caddy.sh` (Site-Adresse → `:PORT`, + Fail bei unbekanntem Modus),
+  `.env.example` + `docs/SELF_HOST.md` (Caddy- + nginx-Copy-paste), Dockerfile EXPOSE.
+- Verifiziert: alle 3 Modi (auto/provided/behind-proxy) + Tippfehler-Fail getestet.
+- **Das ist auch der Weg, wie die Test-Instanz auf dem Hetzner laufen wird** (Host-
+  Caddy davor).
+
 ## Test-Durchlauf 1 (2026-06-03)
 - Cloud-Admin `oblivion` approved Antrag von `dev` für `pulse.unicutmedia.com`.
 - Werte (instance_id/client_id/owner_id/secret) liegen beim Tester, nicht im Repo.

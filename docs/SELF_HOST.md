@@ -139,6 +139,62 @@ Container-Restarts.
 **Problem:** „Caddy hängt beim Start" → DNS-A-Record fehlt oder Ports gesperrt.
 Lösung: DNS prüfen, Firewall checken, dann Container neustarten.
 
+### Hinter einem bestehenden Reverse-Proxy (`PULSE_TLS_MODE=behind-proxy`)
+
+Wenn auf dem Host **schon ein Reverse-Proxy läuft** (z.B. weil andere Dienste
+80/443 belegen), terminierst du TLS dort und lässt den Pulse-Container nur
+HTTP-Routing machen. Der Container belegt dann **keine 80/443**:
+
+```bash
+docker run -d --name pulse --restart unless-stopped \
+  -v pulse-data:/data \
+  -p 127.0.0.1:8080:8080 \
+  -p 3478:3478 -p 3478:3478/udp -p 7882-7892:7882-7892/udp \
+  --env-file /pfad/zu/.env \
+  -e PULSE_TLS_MODE=behind-proxy \
+  ghcr.io/oblivion8282-1337/pulse-allinone:edge
+```
+
+Dann **eine** Proxy-Regel auf `http://127.0.0.1:8080`. Der Container kümmert sich
+intern um das gesamte Pfad-Routing (`/api/*`, `/ws`, `/whep`, `/livekit`, SPA) —
+du reichst einfach alles durch.
+
+**Caddy** (WebSockets sind automatisch dabei — wirklich nur diese zwei Zeilen):
+
+```caddy
+pulse.firma.de {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+**nginx** (WebSocket-Header musst du explizit weiterreichen):
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name pulse.firma.de;
+    # ssl_certificate / ssl_certificate_key … (z.B. via certbot)
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket-Upgrade (für /ws + /livekit zwingend):
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+}
+```
+
+**Wichtig:** Voice (LiveKit/coturn) läuft über **UDP** (3478, 7882–7892), nicht
+über den HTTP-Proxy — diese Ports musst du weiterhin direkt am Container öffnen
+(siehe `-p` oben). Reines Chat/Login funktioniert auch ohne sie.
+
+Interner Port via `PULSE_HTTP_PORT` änderbar (Default 8080), falls 8080 belegt ist.
+
 ### DynDNS (keine statische IP)
 
 Dienste wie [DuckDNS](https://www.duckdns.org) oder

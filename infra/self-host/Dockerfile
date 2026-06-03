@@ -287,6 +287,9 @@ RUN groupadd -g 10001 pulse \
 
 # Ports:
 #   80, 443           — Caddy (HTTP/3 over UDP/443 also; phase 6.B may add 443/udp)
+#                       — bei PULSE_TLS_MODE=auto/provided. Bei behind-proxy ungenutzt.
+#   8080              — Caddy HTTP-only (nur bei PULSE_TLS_MODE=behind-proxy;
+#                       Port via PULSE_HTTP_PORT änderbar). Externer Proxy zeigt hierauf.
 #   3478, 3478/udp    — coturn STUN/TURN
 #   7882-7892/udp     — LiveKit ICE
 #   1936              — MediaMTX RTMPS ingest (HQ-stream push; raw TCP, can't go via Caddy)
@@ -294,7 +297,7 @@ RUN groupadd -g 10001 pulse \
 # Internal-only (NOT exposed): 5432 (pg), 6379 (redis), 7880 (livekit ws),
 #   8002–8005 (python services), 8888/8889 (mediamtx hls/whep, proxied via Caddy),
 #   9997 (mediamtx api).
-EXPOSE 80 443 1936 3478 3478/udp 7882-7892/udp 8189/udp
+EXPOSE 80 443 8080 1936 3478 3478/udp 7882-7892/udp 8189/udp
 
 VOLUME ["/data"]
 
