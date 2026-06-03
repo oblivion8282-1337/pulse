@@ -55,7 +55,8 @@
     # for Let's Encrypt in PULSE_TLS_MODE=auto. Without these the SPA-Fallback
     # (handle {} below) returns index.html → Clients/Cloud-Poller get HTML instead
     # of JSON (JSONDecodeError, silent CRL/JWKS failure, broken "Server hinzufügen").
-    handle /.well-known/jwks.json /.well-known/revoked-credentials /.well-known/pulse-version-policy.json /.well-known/pulse-suspended-instances {
+    @wellknown_auth path /.well-known/jwks.json /.well-known/revoked-credentials /.well-known/pulse-version-policy.json /.well-known/pulse-suspended-instances
+    handle @wellknown_auth {
         reverse_proxy 127.0.0.1:8001
     }
     # pulse-server-info is the "Server hinzufügen" pre-check — served by
