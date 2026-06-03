@@ -113,10 +113,10 @@ unter s6 (cwd=/opt/pulse/services/chat-gateway) nicht beschreibbar → Permissio
 nur die toten Namen `PULSE_SESSION_TOKEN_PRIVATE/_PUBLIC`. Fix: `SESSION_SIGNING_KEY_FILE
 =/data/jwt_keys/session_signing.pem` rendern. **Damit läuft der Cert-Login E2E durch.**
 
-### F10 — weitere relative Upload-Pfade (vorsorglich)  [OFFEN]
-`guild_icon_upload_dir` (./uploads/guild-icons, chat) + `avatar_upload_dir`
-(./uploads/avatars, auth) sind ebenfalls relativ → würden bei Icon-/Avatar-Upload
-genauso crashen wie F9. Im allinone auf /data umbiegen (+ mkdir/chown). Noch nicht getestet.
+### F10 — weitere relative Upload-Pfade  [GEFIXT + live verifiziert]
+`guild_icon_upload_dir` + `avatar_upload_dir` waren relativ → Upload-Crash wie F9.
+`07-render-env.sh` setzt jetzt AVATAR_UPLOAD_DIR + GUILD_ICON_UPLOAD_DIR auf
+/data/uploads/* (Dirs legt 01-init-data-dirs bereits an). In env.sh verifiziert.
 
 ### F11 — Admin-Panel mischt Cloud- und Self-Host-Endpoints  [OFFEN, Design-Entscheidung]
 Auf der aktiven Self-Host-Instanz laden einige Admin-Bereiche ihre Daten von der
@@ -133,7 +133,13 @@ Antrag (dev) → Approval (oblivion, Badge ✓) → allinone behind-proxy auf He
 hinter Host-Caddy → Pre-Check ✓ → Cert-Login challenge+verify ✓ → Instanz eingebunden,
 verbunden, dev als Admin erkannt (Panel lädt, chat-gateway-Admin 200). Offen: F10, F11, Voice/HQ.
 
-### F13 — Voice-Infra im allinone nicht für externe Clients konfiguriert  [OFFEN, "Phase 6.B"]
+### F13 — Voice-Media-Infra nicht für externe Clients konfiguriert  [GEFIXT + live verifiziert]
+Fix: `infra/self-host/templates/livekit.yaml.template` angelegt (rtc.use_external_ip:true)
+→ LiveKit meldet jetzt `nodeIP: 77.42.71.166` (öffentliche IP) + `using external IPs`
+statt der internen 10.x. coturn `external-ip` via PULSE_PUBLIC_IP/Autodetect
+(`external-ip=77.42.71.166`). Damit zeigen ICE-Kandidaten nach außen — echte Calls
+von außen sind möglich. (Voller 2-Client-Call/HQ = manueller Desktop-Test.)
+Ursprünglich (Befund):
 Voice-Infra geprüft (kein 2-Client-Call, auf Wunsch): LiveKit + coturn laufen, aber:
 - **`livekit.yaml.template` fehlt komplett** → 05-init-livekit nutzt die Minimal-
   Fallback-Config (loggt "Phase 6.B not applied"), OHNE `rtc.use_external_ip`/`node_ip`.
