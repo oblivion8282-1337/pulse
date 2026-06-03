@@ -21,7 +21,11 @@ ARG PYTHON_VERSION=3.13
 # below where upstream publishes checksums (see TODOs for the few that don't).
 ARG S6_OVERLAY_VERSION=3.2.0.2
 ARG CADDY_VERSION=2.8.4
-ARG LIVEKIT_VERSION=1.8.4
+# v1.11.0 = protocol 16 (Cloud-Parität, prod nutzt livekit-server:v1.11). 1.8.4
+# war protocol 15 → der neuere livekit-client (2.18.9, protocol 16) brach die
+# WebRTC-Negotiation ab (/rtc/v1 404, "unsupported datachannel _data_track",
+# negotiation timeout) trotz erfolgreichem Signaling + UDP-ICE (F17).
+ARG LIVEKIT_VERSION=1.11.0
 ARG MEDIAMTX_VERSION=1.17.1
 ARG TARGETARCH=amd64
 
