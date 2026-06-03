@@ -4,14 +4,33 @@
   Inhalte ausgelagert in AdminInstancesPending / Active / Suspended.
 -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import AdminInstancesPending from './AdminInstancesPending.svelte';
   import AdminInstancesActive from './AdminInstancesActive.svelte';
   import AdminInstancesSuspended from './AdminInstancesSuspended.svelte';
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
+  import { adminInstancesApi } from '$lib/api/instances';
 
   type Tab = 'pending' | 'active' | 'suspended';
   let activeTab = $state<Tab>('pending');
+
+  // Pending-Antrags-Counter: ohne ihn merkt ein Cloud-Admin gar nicht, dass ein
+  // neuer Self-Host-Antrag eingegangen ist (es gibt keine Push-Notification).
+  // Beim Öffnen des Admin-Panels geladen + nach jeder Approve/Reject-Aktion
+  // (Callback aus AdminInstancesPending) neu gezogen.
+  let pendingCount = $state<number | null>(null);
+
+  async function refreshPendingCount() {
+    try {
+      const apps = await adminInstancesApi.listApplications('pending');
+      pendingCount = apps.length;
+    } catch {
+      pendingCount = null; // Fehler still — Badge bleibt einfach aus.
+    }
+  }
+
+  onMount(refreshPendingCount);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'pending', label: m.admin_instances_tab_pending() },
@@ -27,7 +46,18 @@
   <div class="mb-4 flex items-start gap-3">
     <ServerIcon class="text-text-muted mt-0.5 size-5 shrink-0" />
     <div class="min-w-0">
-      <h2 class="text-text-bright text-base font-semibold">{m.admin_instances_heading()}</h2>
+      <h2 class="text-text-bright text-base font-semibold flex items-center gap-2">
+        {m.admin_instances_heading()}
+        {#if pendingCount && pendingCount > 0}
+          <span
+            class="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold text-black"
+            title={m.admin_instances_pending_badge({ count: pendingCount })}
+            data-testid="instances-pending-badge"
+          >
+            {pendingCount}
+          </span>
+        {/if}
+      </h2>
       <p class="text-text-muted text-xs mt-0.5">
         {m.admin_instances_description()}
       </p>
@@ -46,12 +76,19 @@
         data-testid="instances-tab-{t.id}"
       >
         {t.label}
+        {#if t.id === 'pending' && pendingCount && pendingCount > 0}
+          <span
+            class="ml-1.5 inline-flex min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-black align-middle"
+          >
+            {pendingCount}
+          </span>
+        {/if}
       </button>
     {/each}
   </div>
 
   {#if activeTab === 'pending'}
-    <AdminInstancesPending />
+    <AdminInstancesPending onchange={refreshPendingCount} />
   {:else if activeTab === 'active'}
     <AdminInstancesActive />
   {:else}

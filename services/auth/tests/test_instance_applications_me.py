@@ -363,11 +363,19 @@ async def test_snippet_happy_path(client, alice_cookie, alice_instance):
     assert r.status_code == 200
     assert "text/plain" in r.headers["content-type"]
     body = r.text
+    # Var-Namen MÜSSEN exakt die sein, die der allinone-Container liest
+    # (10-check-cloud-creds.sh / 07-render-env.sh) — sonst startet er nicht.
     assert f"PULSE_INSTANCE_ID={alice_instance.id}" in body
-    assert f"PULSE_INSTANCE_CLIENT_ID={alice_instance.client_id}" in body
-    assert f"WORKER_ID_CHAT={alice_instance.worker_id_chat}" in body
-    # Kein Klartext-Secret
-    assert "client_secret" not in body.lower().replace("client_secret", "REDACTED")
+    assert f"PULSE_CLOUD_CLIENT_ID={alice_instance.client_id}" in body
+    assert f"PULSE_INSTANCE_OWNER_ID={alice_instance.registered_by}" in body
+    assert f"PULSE_HOSTNAME={alice_instance.hostname}" in body
+    assert "PULSE_ADMIN_EMAIL=" in body
+    # Der alte (kaputte) INSTANCE_CLIENT-Name darf NICHT mehr vorkommen.
+    assert "PULSE_INSTANCE_CLIENT_ID" not in body
+    # Worker-IDs ignoriert der Single-Container → nicht mehr im Snippet.
+    assert "WORKER_ID_CHAT" not in body
+    # Kein Klartext-Secret — nur der Platzhalter.
+    assert f"PULSE_CLOUD_CLIENT_SECRET=<...>" in body
     # Placeholder-Hinweis vorhanden
     assert "Approval" in body or "Secret" in body
 

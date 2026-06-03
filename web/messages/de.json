@@ -111,6 +111,7 @@
   "admin_instances_active_suspending": "Wird gesperrt…",
   "admin_instances_description": "Anträge prüfen, Instanzen verwalten und Secrets rotieren.",
   "admin_instances_heading": "Self-Host-Instanzen",
+  "admin_instances_pending_badge": "{count} offene Anträge",
   "admin_instances_pending_approve_btn": "Genehmigen",
   "admin_instances_pending_approve_failed": "Genehmigung fehlgeschlagen",
   "admin_instances_pending_cancel": "Abbrechen",

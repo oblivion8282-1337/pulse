@@ -63,11 +63,18 @@ docker run -d --name pulse \
   -p 3478:3478 -p 3478:3478/udp \
   -p 7882-7892:7882-7892/udp \
   -e PULSE_HOSTNAME=chat.firma.de \
+  -e PULSE_INSTANCE_ID=123456789 \
+  -e PULSE_INSTANCE_OWNER_ID=987654321 \
   -e PULSE_CLOUD_CLIENT_ID=sh_live_xxxx \
   -e PULSE_CLOUD_CLIENT_SECRET=xxxx \
   -e PULSE_ADMIN_EMAIL=admin@firma.de \
   ghcr.io/oblivion8282-1337/pulse-allinone:stable
 ```
+
+`PULSE_INSTANCE_ID`, `PULSE_INSTANCE_OWNER_ID`, `PULSE_CLOUD_CLIENT_ID` und das
+`client_secret` stammen alle aus dem Approval auf howispulse.com. Am einfachsten
+lädst du unter **„Meine Instanzen"** das fertige `.env`-Snippet herunter (enthält
+alles außer dem Secret) und nutzt die `--env-file`-Variante unten.
 
 Alle Env-Vars und Defaults: `infra/self-host/.env.example`.
 

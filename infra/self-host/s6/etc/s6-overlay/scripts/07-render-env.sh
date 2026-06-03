@@ -76,12 +76,21 @@ export SNOWFLAKE_WORKER_ID_AUTH=1
 export SNOWFLAKE_WORKER_ID_CHAT=2
 export SNOWFLAKE_WORKER_ID_VOICE=3
 
-# Self-host identity (for Phase 4–6 cloud-pairing)
+# Self-host identity.
 export PULSE_HOSTNAME='${PULSE_HOSTNAME}'
 export PULSE_INSTANCE_MODE=self-host
+# PULSE_INSTANCE_ID = the Snowflake-ID the Cloud assigned at approval. Without it
+# chat-gateway hard-fails on startup (app.py — pulse_instance_id==0 +
+# mode=self-host → RuntimeError). The longrun services source ONLY this env.sh,
+# so the docker-run -e value MUST be rendered through here — handing it to the
+# container env alone never reaches the services.
+export PULSE_INSTANCE_ID='${PULSE_INSTANCE_ID}'
 export PULSE_INSTANCE_OWNER_ID='${PULSE_INSTANCE_OWNER_ID}'
 export PULSE_CLOUD_ORIGIN='${PULSE_CLOUD_ORIGIN}'
 export PULSE_ADMIN_EMAIL='${PULSE_ADMIN_EMAIL}'
+# Cloud-pairing credentials (reserved for the Phase 4–6 instance↔Cloud
+# handshake — heartbeat / suspend-enforcement). Rendered so they're ready;
+# no service consumes them yet.
 export PULSE_CLOUD_CLIENT_ID='${PULSE_CLOUD_CLIENT_ID}'
 export PULSE_CLOUD_CLIENT_SECRET='${PULSE_CLOUD_CLIENT_SECRET}'
 

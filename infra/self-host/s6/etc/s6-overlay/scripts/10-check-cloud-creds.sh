@@ -1,5 +1,5 @@
 #!/bin/sh
-# Hard-fail if mandatory env vars are missing. The four pulse-required vars
+# Hard-fail if mandatory env vars are missing. The pulse-required vars
 # (Phase 6 plan, "Pflicht-Env-Vars"). All others have defaults.
 set -eu
 
@@ -14,6 +14,7 @@ check_var() {
 }
 
 check_var PULSE_HOSTNAME
+check_var PULSE_INSTANCE_ID
 check_var PULSE_CLOUD_CLIENT_ID
 check_var PULSE_CLOUD_CLIENT_SECRET
 check_var PULSE_ADMIN_EMAIL
@@ -29,12 +30,16 @@ Set these in your \`docker run\` (or compose file). Example:
     -v pulse-data:/data \\
     -p 443:443 -p 80:80 -p 7882-7892:7882-7892/udp -p 3478:3478 -p 3478:3478/udp \\
     -e PULSE_HOSTNAME=chat.firma.de \\
+    -e PULSE_INSTANCE_ID=... \\
+    -e PULSE_INSTANCE_OWNER_ID=... \\
     -e PULSE_CLOUD_CLIENT_ID=... \\
     -e PULSE_CLOUD_CLIENT_SECRET=... \\
     -e PULSE_ADMIN_EMAIL=admin@firma.de \\
     ghcr.io/oblivion8282-1337/pulse-allinone:stable
 
-The client_id/secret pair comes from approval on howispulse.com
+instance_id, owner_id, client_id and client_secret all come from approval on
+howispulse.com — copy the ready-to-use .env from "Meine Instanzen" (Download)
+and fill in the client_secret you saved at approval time.
 (see docs/SELF_HOST.md → "Setup für Self-Hoster", step 4).
 EOF
     exit 1

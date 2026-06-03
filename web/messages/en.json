@@ -111,6 +111,7 @@
   "admin_instances_active_suspending": "Suspending…",
   "admin_instances_description": "Review applications, manage instances, and rotate secrets.",
   "admin_instances_heading": "Self-Host Instances",
+  "admin_instances_pending_badge": "{count} pending applications",
   "admin_instances_pending_approve_btn": "Approve",
   "admin_instances_pending_approve_failed": "Approval failed",
   "admin_instances_pending_cancel": "Cancel",

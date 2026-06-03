@@ -34,13 +34,18 @@ docker run -d --name pulse \
     -p 7882-7892:7882-7892/udp \
     -p 3478:3478 -p 3478:3478/udp \
     -e PULSE_HOSTNAME=chat.firma.de \
+    -e PULSE_INSTANCE_ID=... \
+    -e PULSE_INSTANCE_OWNER_ID=... \
     -e PULSE_CLOUD_CLIENT_ID=... \
     -e PULSE_CLOUD_CLIENT_SECRET=... \
     -e PULSE_ADMIN_EMAIL=admin@firma.de \
     ghcr.io/oblivion8282-1337/pulse-allinone:stable
 ```
 
-The four `-e` vars are mandatory; cont-init aborts with a clear error otherwise.
+The six `-e` vars are mandatory; cont-init aborts with a clear error otherwise.
+`PULSE_INSTANCE_ID`, `PULSE_INSTANCE_OWNER_ID`, `PULSE_CLOUD_CLIENT_ID` and the
+secret come from the Cloud approval — the ready-made `.env` under "Meine
+Instanzen" on howispulse.com carries all but the secret.
 All internal secrets (Postgres password, JWT keys, coturn shared-secret,
 LiveKit API key pair) are **generated on first boot** in `/data/jwt_keys/`
 and persisted across container restarts.

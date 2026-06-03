@@ -264,8 +264,15 @@ async def get_docker_compose_snippet(
     """Gibt ein .env-Snippet für die Self-Host-Instanz zurück.
 
     Nur der Eigentümer kann das abrufen. 404 statt 403 um Existence-Leak
-    zu vermeiden. client_secret fehlt absichtlich — es war nur bei Approval
-    einmalig sichtbar (Phase 2.3).
+    zu vermeiden.
+
+    Die Var-Namen MÜSSEN exakt die sein, die der allinone-Container liest
+    (``10-check-cloud-creds.sh`` / ``07-render-env.sh``): ``PULSE_CLOUD_CLIENT_*``
+    (nicht ``PULSE_INSTANCE_CLIENT_*``), und der Container verlangt zusätzlich
+    ``PULSE_INSTANCE_OWNER_ID``, ``PULSE_HOSTNAME`` und ``PULSE_ADMIN_EMAIL`` —
+    sonst failt der Startup-Check. ``client_secret`` fehlt absichtlich (nur bei
+    Approval einmalig sichtbar). Worker-IDs tauchen NICHT auf: der Single-
+    Container nutzt feste interne IDs (1/2/3) und ignoriert sie.
     """
     user = await _require_user(request, db)
 
@@ -282,18 +289,24 @@ async def get_docker_compose_snippet(
         f"# Pulse Self-Host — Instance {inst.id}\n"
         f"# Hostname: {inst.hostname}\n"
         f"#\n"
-        f"# HINWEIS: Trag dein bei der Freischaltung erhaltenes Secret unter\n"
-        f"# PULSE_INSTANCE_CLIENT_SECRET ein. Es wird nur einmalig angezeigt.\n"
+        f"# Fertige .env für den allinone-Container. Drei Werte musst du noch\n"
+        f"# selbst eintragen (mit <...> markiert):\n"
+        f"#   PULSE_CLOUD_CLIENT_SECRET — bei der Freischaltung EINMALIG gezeigt.\n"
+        f"#   PULSE_ADMIN_EMAIL         — deine Mail (Let's-Encrypt / ACME).\n"
+        f"# Danach: docker run --env-file dieser-datei ... pulse-allinone:stable\n"
         f"\n"
+        f"PULSE_HOSTNAME={inst.hostname}\n"
         f"PULSE_INSTANCE_ID={inst.id}\n"
-        f"PULSE_INSTANCE_CLIENT_ID={inst.client_id}\n"
-        f"PULSE_INSTANCE_CLIENT_SECRET=<...>  "
-        f"# Trag hier dein bei Approval erhaltenes Secret ein!\n"
+        f"PULSE_INSTANCE_OWNER_ID={inst.registered_by}\n"
         f"PULSE_INSTANCE_MODE=self-host\n"
         f"PULSE_CLOUD_ORIGIN=https://howispulse.com\n"
-        f"WORKER_ID_CHAT={inst.worker_id_chat}\n"
-        f"WORKER_ID_VOICE={inst.worker_id_voice}\n"
-        f"WORKER_ID_MEDIA={inst.worker_id_media}\n"
+        f"\n"
+        f"# Cloud-Pairing-Credentials (client_id fix, secret von dir):\n"
+        f"PULSE_CLOUD_CLIENT_ID={inst.client_id}\n"
+        f"PULSE_CLOUD_CLIENT_SECRET=<...>  "
+        f"# Trag hier dein bei Approval erhaltenes Secret ein!\n"
+        f"\n"
+        f"PULSE_ADMIN_EMAIL=<...>  # z.B. admin@{inst.hostname}\n"
     )
 
     return Response(

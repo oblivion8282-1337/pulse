@@ -12,6 +12,10 @@
   import ClipboardIcon from '@lucide/svelte/icons/clipboard';
   import CheckIcon from '@lucide/svelte/icons/check';
 
+  // Eltern (AdminInstances) hält den Pending-Badge-Count — nach jeder
+  // Approve/Reject-Aktion Bescheid geben, damit das Badge live stimmt.
+  let { onchange }: { onchange?: () => void } = $props();
+
   let apps = $state<AdminApplication[]>([]);
   let loading = $state(true);
   let loadError = $state<string | null>(null);
@@ -53,6 +57,7 @@
     try {
       const result = await adminInstancesApi.approveApplication(id);
       apps = apps.filter((a) => a.id !== id);
+      onchange?.();
       secretResult = result;
       secretDialogOpen = true;
     } catch (e) {
@@ -72,6 +77,7 @@
     try {
       await adminInstancesApi.rejectApplication(rejectTarget.id, rejectReason.trim());
       apps = apps.filter((a) => a.id !== rejectTarget!.id);
+      onchange?.();
       toast.success(m.admin_instances_pending_rejected({ username: rejectTarget.applicant_username }));
       rejectOpen = false;
       rejectReason = '';
