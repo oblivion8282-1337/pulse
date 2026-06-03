@@ -48,6 +48,8 @@ import { gateway } from '$lib/ws/connection';
 import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
+import { acquireWakeLock } from '$lib/platform/wakeLock';
+import { isMobile } from '$lib/platform/runtime';
 
 export type { ScreenShareTrack, CameraTrack };
 
@@ -181,6 +183,16 @@ class VoiceRoom {
 
   /** Mic state captured at deafen-on so un-deafen can restore it. */
   #micEnabledBeforeDeafen = false;
+  /** Release fn for the screen wake-lock held while connected on mobile (so the
+   *  phone's auto-lock can't blank the screen and suspend the outgoing mic).
+   *  Null when not held. */
+  #releaseWakeLock: (() => void) | null = null;
+  /** Stable visibilitychange ref (for add/removeEventListener). On return to the
+   *  foreground we recover a mic the OS muted while we were backgrounded. */
+  #onVisible = (): void => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    void this.#recoverMicAfterForeground();
+  };
   #teardownDone = false;
   /** Monotonic connect counter. Each `connect()` captures its value; an
    *  await that returns to find `#connectGen` moved on knows a newer
@@ -349,6 +361,12 @@ class VoiceRoom {
     // backgrounded / screen-locked (paired with the unmuted <audio> path in
     // RemoteAudioElements). No-op off mobile.
     setVoiceMediaSession(this.channelName);
+    // Mobile: hold the screen awake so auto-lock can't suspend the mic, and watch
+    // for foreground returns to recover a mic the OS muted while backgrounded.
+    this.#ensureWakeLock();
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.#onVisible);
+    }
     sounds.play('voice.self_join', { guildId: guilds.guildIdForChannel(channelId) });
   }
 
@@ -397,6 +415,31 @@ class VoiceRoom {
     }
     this.#refreshParticipants();
     this.#publishSelfState();
+  }
+
+  /** Hold a screen wake-lock while connected on mobile so the phone's auto-lock
+   *  can't blank the screen and suspend the outgoing mic. Idempotent; mobile-only
+   *  (no point forcing a desktop monitor awake during a call). */
+  #ensureWakeLock(): void {
+    if (!isMobile() || this.#releaseWakeLock) return;
+    this.#releaseWakeLock = acquireWakeLock();
+  }
+
+  /** On return to the foreground: if the user intends mic-on but the OS muted the
+   *  track while backgrounded (mobile screen-lock), re-enable it. Mobile browsers
+   *  can't keep capture alive in the background — this at least recovers the mic
+   *  so the user isn't silently muted after unlocking. No-op when the mic is
+   *  already live, in PTT/deafen, or admin-force-muted. */
+  async #recoverMicAfterForeground(): Promise<void> {
+    const room = this.#room;
+    if (!room) return;
+    if (!this.micEnabled || this.pttMode || this.deafened) return;
+    if (this.#selfOverride().muted) return; // admin force-mute: leave as-is
+    if (room.localParticipant.isMicrophoneEnabled) return; // already live, nothing to do
+    await this.setMicEnabled(true);
+    if (room.localParticipant.isMicrophoneEnabled) {
+      toast.success(m.voice_mic_restored_after_background());
+    }
   }
 
   /** Admin force-mute / force-deafen for the local user in the current
@@ -1164,6 +1207,11 @@ class VoiceRoom {
     this.#remoteSpeaking.clear();
     this.#audioEls.clear();
     clearVoiceMediaSession();
+    this.#releaseWakeLock?.();
+    this.#releaseWakeLock = null;
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.#onVisible);
+    }
     this.#room = null;
     this.#sendProcessorMode = 'off';
     this.#noiseGateSetter = null;

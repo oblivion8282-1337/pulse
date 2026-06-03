@@ -893,6 +893,7 @@
   "livekit_connection_failed": "Failed to connect to LiveKit",
   "livekit_microphone_access_failed": "Microphone access failed",
   "livekit_screenshare_failed": "Screen sharing failed",
+  "voice_mic_restored_after_background": "Microphone was muted while locked – re-enabled.",
   "livekit_screenshare_unavailable": "Screen sharing is not available here.",
   "livekit_token_request_failed": "Token request failed",
   "login_brand_description": "Crystal-clear real-time voice, full-resolution screen streaming, and text chat — all in one app that runs in the browser as well as a desktop client.",

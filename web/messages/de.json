@@ -901,6 +901,7 @@
   "livekit_connection_failed": "Verbindung zu LiveKit fehlgeschlagen",
   "livekit_microphone_access_failed": "Mikrofon-Zugriff fehlgeschlagen",
   "livekit_screenshare_failed": "Bildschirm teilen fehlgeschlagen",
+  "voice_mic_restored_after_background": "Mikrofon war beim Sperren stumm – wieder aktiviert.",
   "livekit_screenshare_unavailable": "Bildschirm teilen ist hier nicht verfügbar.",
   "livekit_token_request_failed": "Token-Anfrage fehlgeschlagen",
   "login_brand_description": "Klarer Echtzeit-Voice, Bildschirm-Streaming in voller Auflösung und Text-Chat — vereint in einer Anwendung, die im Browser ebenso läuft wie als Desktop-App.",
