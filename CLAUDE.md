@@ -225,6 +225,11 @@ unter `encrypted_server_vaults` (auth-svc, Migration 0026, per-User-PK) abgelegt
   Hostname), `_applyingRemote`-Flag unterdrückt die Push-Schleife während des Merges.
 - **Voraussetzung: User hat ein Cloud-Backup-Passwort** (ohne Master-Passwort kein Vault-Key). Wiring in
   `CloudBackup.svelte`, `BackupSetupStep.svelte`, `recover/+page.svelte`.
+- **Keypair-Export-Voraussetzung** (Fix 2026-06-03): Keypairs sind `extractable:false` (XSS-Schutz) — Backup braucht aber
+  ein exportierbares. `generateKeypair({forBackup:true})` war toter Code → Backup war faktisch nie nutzbar (immer
+  „ohne Export-Erlaubnis erstellt"). Fix: `issue-flow.ts::ensureBackupCapableKeypair()` erzeugt **nur beim Aktivieren von
+  Backup** einmalig ein exportierbares Keypair + stellt das Cert neu aus (Default bleibt non-extractable). Aufgerufen in
+  `CloudBackup.handleSetup` + `BackupSetupStep.handleSetup` (Keypair sicherstellen statt Fehler, dann frische cert_id).
 - **Bekannte v1-Limits:** Multi-Device-Push = Last-Write-Wins (Merge nur beim Pull); Master-Passwort-Wechsel rettet nur
   Server, die lokal **oder** per altem IDB-Key lesbar sind (rein remote-only Server anderer Geräte können verloren gehen).
 - Tests: `services/auth/tests/test_server_vault.py` (13) + `web/tests/e2e/server-vault.spec.ts` (2, treibt den echten
