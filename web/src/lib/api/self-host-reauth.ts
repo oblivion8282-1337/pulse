@@ -81,8 +81,43 @@ function reauthOnce(serverId: string): Promise<boolean> {
   return p;
 }
 
-/** Registriert den Re-Auth-Hook beim API-Client UND beim WS-Gateway-Pool.
- *  Einmal beim App-Boot aufrufen. */
+// ---------------------------------------------------------------------------
+// Proaktiver Refresh (F18): re-mintet den Self-Host-Session-Token VOR Ablauf
+// (TTL = 5 Min), solange eine aktive WS-Connection besteht. So bleibt die
+// Session permanent frisch und es gibt keine SessionExpiredError mid-session.
+// Idle-Server (keine offene Connection) lässt den Token bewusst ablaufen → der
+// reaktive Reauth (bearerWithReauth in client.ts) heilt bei der nächsten Nutzung.
+// ---------------------------------------------------------------------------
+
+const REFRESH_BUFFER_MS = 60_000; // 60 s vor dem 5-Min-Ablauf neu minten
+const refreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelRefresh(serverId: string): void {
+  const t = refreshTimers.get(serverId);
+  if (t) clearTimeout(t);
+  refreshTimers.delete(serverId);
+}
+
+function scheduleProactiveRefresh(serverId: string): void {
+  cancelRefresh(serverId);
+  const entry = sessionTokens.get(serverId);
+  if (!entry) return;
+  const delay = Math.max(0, entry.expiresAt - Date.now() - REFRESH_BUFFER_MS);
+  refreshTimers.set(
+    serverId,
+    setTimeout(() => {
+      refreshTimers.delete(serverId);
+      const conn = gatewayPool.peek(serverId);
+      if (conn && (conn.state === 'open' || conn.state === 'connecting')) {
+        // reauthOnce → sessionTokens.set → Listener plant den nächsten Refresh.
+        void reauthOnce(serverId);
+      }
+    }, delay),
+  );
+}
+
+/** Registriert den Re-Auth-Hook beim API-Client UND beim WS-Gateway-Pool +
+ *  den proaktiven Refresh-Scheduler. Einmal beim App-Boot aufrufen. */
 export function initSelfHostReauth(): void {
   const fireAndForget = (serverId: string) => {
     void reauthOnce(serverId);
@@ -93,4 +128,9 @@ export function initSelfHostReauth(): void {
   // den 401-betroffenen Fetch mit frischem Token retrien — User muss
   // den Submit nicht zweimal klicken.
   setClientReauthAsync(reauthOnce);
+  // Proaktiver Refresh: an jeden Token-Set/-Clear koppeln.
+  sessionTokens.setChangeListener((serverId, action) => {
+    if (action === 'set') scheduleProactiveRefresh(serverId);
+    else cancelRefresh(serverId);
+  });
 }

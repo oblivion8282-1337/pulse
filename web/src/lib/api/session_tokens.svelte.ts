@@ -16,9 +16,18 @@ type TokenEntry = {
 
 class SessionTokens {
   readonly #map = new Map<string, TokenEntry>();
+  #onChange: ((serverId: string, action: 'set' | 'clear') => void) | null = null;
+
+  /** Listener für den proaktiven Refresh-Scheduler (self-host-reauth.ts) —
+   *  feuert bei jedem set/clear, damit der Scheduler den Refresh-Timer eines
+   *  Servers an dessen aktuelles Ablaufdatum koppeln kann. */
+  setChangeListener(fn: ((serverId: string, action: 'set' | 'clear') => void) | null): void {
+    this.#onChange = fn;
+  }
 
   set(serverId: string, token: string, expiresAt: number): void {
     this.#map.set(serverId, { token, expiresAt });
+    this.#onChange?.(serverId, 'set');
   }
 
   get(serverId: string): TokenEntry | undefined {
@@ -27,6 +36,7 @@ class SessionTokens {
 
   clear(serverId: string): void {
     this.#map.delete(serverId);
+    this.#onChange?.(serverId, 'clear');
   }
 
   isValid(serverId: string): boolean {

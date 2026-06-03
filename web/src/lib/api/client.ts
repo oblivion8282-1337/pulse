@@ -208,6 +208,23 @@ export type RequestOpts = {
 /** Phase 4.2: optionaler 3. Parameter routed das Request an einen anderen Server. */
 export type RequestRoute = { serverId?: string };
 
+/** Holt einen Bearer für den Server. Hat ein Self-Host **keinen** gültigen
+ *  Session-Token (abgelaufen ODER beim Tab-Reload verloren — der Store ist
+ *  in-memory), wird **proaktiv re-authentifiziert** (passwortloser Cert-Login)
+ *  und erneut aufgelöst, statt sofort SessionExpiredError zu werfen (F18).
+ *  Gibt null zurück, wenn kein Token zu holen ist (z.B. Reauth nicht möglich). */
+async function bearerWithReauth(
+  server: ServerEntry | undefined,
+  isSelfHost: boolean,
+): Promise<string | null> {
+  let bearer = await bearerFor(server);
+  if (!bearer && isSelfHost && server && _selfHostReauthAsync) {
+    const ok = await _selfHostReauthAsync(server.id);
+    if (ok) bearer = await bearerFor(server);
+  }
+  return bearer;
+}
+
 export async function request<T>(
   path: string,
   opts: RequestOpts = {},
@@ -224,7 +241,7 @@ export async function request<T>(
 
   let bearer: string | null = null;
   if (auth) {
-    bearer = await bearerFor(server);
+    bearer = await bearerWithReauth(server, isSelfHost);
     if (!bearer) {
       if (isSelfHost) throw new SessionExpiredError(server!.id);
       throw new ApiError(401, null, 'not authenticated');
@@ -323,7 +340,7 @@ export async function requestForm<T>(
   const url = buildUrl(server, endpoint, path);
   const isSelfHost = !!server && !server.isCloud;
 
-  let bearer = await bearerFor(server);
+  let bearer = await bearerWithReauth(server, isSelfHost);
   if (!bearer) {
     if (isSelfHost) throw new SessionExpiredError(server!.id);
     throw new ApiError(401, null, 'not authenticated');
