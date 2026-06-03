@@ -23,6 +23,7 @@
   import { getBackup, reconstructBlob } from '$lib/api/credentials';
   import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
   import { saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
+  import { serverVault } from '$lib/identity/server-vault.svelte';
   import {
     runIssueFlow,
     declineRecovery,
@@ -91,6 +92,8 @@
       ]);
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
       await keypairStore.load();
+      // E2E-Server-Vault wiederherstellen → Self-Host-Server-Liste zurückholen.
+      try { await serverVault.unlockForRestore(password); } catch { /* Vault degradiert still */ }
       resetRecoveryDecline();
       toast.success(m.recover_toast_success_title(), {
         description: m.recover_toast_success_description(),

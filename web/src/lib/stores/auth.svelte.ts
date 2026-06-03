@@ -14,6 +14,7 @@ import type { User } from '$lib/api/types';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
+import { serverVault } from '$lib/identity/server-vault.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
@@ -58,6 +59,10 @@ class AuthStore {
       this.user = await me();
       if (this.user) {
         readState.hydrateForUser(this.user.id);
+        // E2E-Server-Vault: liegt ein Key in IDB (Gerät hat Backup eingerichtet),
+        // die synchronisierte Self-Host-Server-Liste mergen. Best-effort, kein
+        // Passwort nötig — der Key persistiert non-extractable in IndexedDB.
+        void serverVault.pullIfUnlocked();
         // Schritt 3b: pull server-backed settings sections so plugins
         // that opted into cross-device sync see the latest state.
         // Best-effort; a network blip just leaves the local slice in
@@ -122,6 +127,9 @@ class AuthStore {
     // by the login flow's `auth.setUser(...)` call right after the
     // tokens are saved.
     void hydrateServerSections();
+    // E2E-Server-Vault: bei Login ohne Tab-Reload (SPA-Navigation) den Pull
+    // ebenfalls anstoßen, falls ein Tresor-Key in IDB liegt. Best-effort.
+    void serverVault.pullIfUnlocked();
   }
 
   signOut(): void {
@@ -163,6 +171,9 @@ class AuthStore {
     void certStore.wipe();
     void keypairStore.wipe();
     void profileStatementStore.wipe();
+    // E2E-Server-Vault-Key (IDB) wischen — verhindert dass ein nächster User
+    // auf demselben Gerät mit dem alten Key pusht/pullt.
+    void serverVault.wipe();
     void goto('/login');
   }
 }

@@ -29,6 +29,7 @@ from dcc_auth.routes_profile import router as profile_router
 from dcc_auth.routes_suspended_instances import router as suspended_instances_router
 from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_search import router as search_router
+from dcc_auth.routes_server_vault import router as server_vault_router
 from dcc_auth.routes_sessions import router as sessions_router
 from dcc_auth.routes_totp import router as totp_router
 from dcc_auth.routes_webauthn import router as webauthn_router
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(webauthn_login_router)
     app.include_router(credentials_router)
     app.include_router(backups_router)
+    app.include_router(server_vault_router)
     app.include_router(crl_router)
     app.include_router(complaints_router)
     app.include_router(suspended_instances_router)

@@ -511,6 +511,7 @@ class UserSession(Base):
 # ---------------------------------------------------------------------------
 from dcc_auth.models_credentials import (  # noqa: E402, F401
     EncryptedKeyBackup,
+    EncryptedServerVault,
     IssuedCredential,
     UsernameReservation,
 )

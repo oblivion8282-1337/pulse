@@ -12,6 +12,7 @@
   import { certStore } from '$lib/identity/cert.svelte';
   import { loadKeypair } from '$lib/identity/keypair.svelte';
   import { keyBackupState } from '$lib/identity/key-backup.svelte';
+  import { serverVault } from '$lib/identity/server-vault.svelte';
   import { createBackup } from '$lib/api/credentials';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import CloudBackupSetupForm from '$lib/components/settings/CloudBackupSetupForm.svelte';
@@ -62,6 +63,8 @@
       const blob = await keyBackupState.encrypt(privJwk, pubJwk, password);
       const label = certStore.cert?.claims.device_label ?? 'Onboarding';
       await createBackup(certId, blob, label.slice(0, 64) || 'Backup');
+      // E2E-Server-Vault mit demselben Master-Passwort aktivieren + Liste pushen.
+      try { await serverVault.unlockForSetup(password); } catch { /* Vault degradiert still */ }
       toast.success(m.backup_setup_step_backup_saved(), {
         description: m.backup_setup_step_backup_saved_desc()
       });

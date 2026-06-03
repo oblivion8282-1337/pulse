@@ -13,6 +13,7 @@
   import { certStore } from '$lib/identity/cert.svelte';
   import { loadKeypair, saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
   import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
+  import { serverVault } from '$lib/identity/server-vault.svelte';
   import { createBackup, getBackup, deleteBackup, reconstructBlob } from '$lib/api/credentials';
   import type { BackupFetchResponse } from '$lib/api/credentials';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -76,6 +77,10 @@
       await createBackup(certId, blob, deviceLabel.slice(0, 64) || 'Backup');
       existingBackup = await getBackup(certId);
 
+      // E2E-Server-Vault aktivieren/re-keyen (Setup ODER Master-Passwort-Update).
+      // Best-effort: scheitert das, bleibt das Keypair-Backup trotzdem gültig.
+      try { await serverVault.unlockForSetup(password); } catch { /* Vault degradiert still */ }
+
       toast.success(m.cloud_backup_toast_saved(), {
         description: m.cloud_backup_toast_saved_desc()
       });
@@ -101,6 +106,10 @@
       ]);
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
       await keypairStore.load();
+
+      // E2E-Server-Vault mit demselben Master-Passwort wiederherstellen → Self-
+      // Host-Server-Liste kommt zurück. Best-effort.
+      try { await serverVault.unlockForRestore(password); } catch { /* Vault degradiert still */ }
 
       toast.success(m.cloud_backup_toast_recovered(), {
         description: m.cloud_backup_toast_recovered_desc()

@@ -12,6 +12,7 @@
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
+  import { serverVault } from '$lib/identity/server-vault.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { initSelfHostReauth } from '$lib/api/self-host-reauth';
   import { isElectron } from '$lib/platform/runtime';
@@ -26,6 +27,9 @@
   // Phase 4.1: Multi-Server-Store + Active-Server synchron vor allem anderen
   // initialisieren, damit Consumers immer einen fertigen State vorfinden.
   serversStore.init();
+  // E2E-Server-Vault: Debounced-Push-Listener registrieren (no-op solange kein
+  // Tresor-Key in IDB liegt). Pull beim Hydrate läuft über auth._doHydrate.
+  serverVault.attach();
   activeServer.init(serversStore);
   // Eager-Bootstrap der WS-Handler-Registry: die Default-Handler werden im
   // GatewayConnection-Konstruktor via bootstrapHandlersOnce installiert.

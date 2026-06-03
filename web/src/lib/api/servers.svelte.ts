@@ -98,6 +98,19 @@ function saveToStorage(entries: ServerEntry[]): void {
 class ServersStore {
   servers = $state<ServerEntry[]>([]);
 
+  /** Optionaler Listener, der nach jeder Mutation feuert (E2E-Vault-Push).
+   *  Wird via setChangeListener registriert, um Circular-Imports zu vermeiden
+   *  (servers.svelte.ts importiert NICHT den Vault). */
+  private _onChange: (() => void) | null = null;
+
+  setChangeListener(fn: (() => void) | null): void {
+    this._onChange = fn;
+  }
+
+  private _notifyChange(): void {
+    this._onChange?.();
+  }
+
   /**
    * Muss synchron vor dem ersten Store-Zugriff aufgerufen werden.
    * Auto-Migration: fehlt pulse.servers → Cloud-Eintrag anlegen.
@@ -142,6 +155,7 @@ class ServersStore {
     };
     this.servers = [...this.servers, entry];
     saveToStorage(this.servers);
+    this._notifyChange();
     return entry;
   }
 
@@ -153,6 +167,7 @@ class ServersStore {
     }
     this.servers = this.servers.filter((s) => s.id !== serverId);
     saveToStorage(this.servers);
+    this._notifyChange();
   }
 
   update(serverId: string, patch: Partial<ServerEntry>): void {
@@ -160,6 +175,7 @@ class ServersStore {
       s.id === serverId ? { ...s, ...patch, id: s.id } : s,
     );
     saveToStorage(this.servers);
+    this._notifyChange();
   }
 
   find(serverId: string): ServerEntry | undefined {

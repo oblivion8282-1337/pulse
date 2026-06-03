@@ -95,20 +95,20 @@ const PBKDF2_ITERATIONS = 600_000;
  * Erzeugt n kryptografisch sichere Zufallsbytes.
  * `.slice()` stellt einen echten ArrayBuffer ohne SharedArrayBuffer-Risiko sicher.
  */
-function randomBytes(n: number): Uint8Array<ArrayBuffer> {
+export function randomBytes(n: number): Uint8Array<ArrayBuffer> {
   const buf = new Uint8Array(n);
   crypto.getRandomValues(buf);
   return buf.slice() as Uint8Array<ArrayBuffer>;
 }
 
 /** Uint8Array/ArrayBuffer → Base64 (standard). */
-function toBase64(buf: ArrayBuffer | Uint8Array): string {
+export function toBase64(buf: ArrayBuffer | Uint8Array): string {
   const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
   return btoa(String.fromCharCode(...u8));
 }
 
 /** Base64 → Uint8Array<ArrayBuffer>. */
-function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
+export function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
@@ -118,7 +118,7 @@ function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
 }
 
 /** Argon2id → AES-256-GCM-CryptoKey. */
-async function deriveKeyArgon2id(
+export async function deriveKeyArgon2id(
   password: string,
   salt: Uint8Array<ArrayBuffer>
 ): Promise<CryptoKey> {
@@ -271,6 +271,25 @@ export async function decryptKeypair(
 
   return parsed;
 }
+
+// ---------------------------------------------------------------------------
+// Vault-Krypto-Parameter (Single-Source) — die generischen encryptJsonWithKey/
+// decryptJsonWithKey-Helfer leben in vault-crypto.ts und nutzen diese Werte.
+// Argon2id-Params identisch zum Keypair-Backup (v=2).
+// ---------------------------------------------------------------------------
+
+/** Länge des KDF-Salts in Bytes (öffentlich für Vault-Salt-Generierung). */
+export const KDF_SALT_BYTES = SALT_BYTES;
+/** Länge des AES-GCM-IV in Bytes. */
+export const GCM_IV_BYTES = IV_BYTES;
+
+/** Argon2id-Parameter als serialisierbares Objekt (für vault kdf_params). */
+export const ARGON2ID_KDF_PARAMS = {
+  name: 'Argon2id' as const,
+  parallelism: A2_PARALLELISM,
+  memory_kib: A2_MEMORY_KIB,
+  iterations: A2_ITERATIONS
+};
 
 // ---------------------------------------------------------------------------
 // Svelte-5-Runes-State (Backup-Status, kein persistenter State nötig)

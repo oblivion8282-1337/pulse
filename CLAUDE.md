@@ -205,6 +205,31 @@ Redis-Key abgelaufen ist. Automatische idle/online-Sweeper-Übergänge bleiben R
 **UI-Terminologie:** die Discord-„Guild"-Sache heißt im UI **„Community"** (nicht „Gilde"/„Server"); „Server" =
 Pulse-Instanz. Code-Bezeichner bleiben `guild`/`Guild`. Siehe Memory `project_terminology_community`.
 
+**E2E-Server-Vault — Zero-Knowledge-Sync der Self-Host-Server-Liste** (2026-06-03): `pulse.servers`
+(`web/src/lib/api/servers.svelte.ts`) ist gerätelokaler localStorage — neues Gerät/geleerter Storage → Self-Host-Server
+weg, kein Account-Restore (Privacy-Design des Cert-Modells: die Cloud soll *nicht* wissen, wo du Mitglied bist). Der Vault
+löst das **ohne** das Privacy-Versprechen zu brechen: die Liste der Nicht-Cloud-Server wird clientseitig verschlüsselt
+(Argon2id→AES-256-GCM, **gleicher Master-Passwort-Key wie das Cloud-Key-Backup** — Unified-Password) und als opaker Blob
+unter `encrypted_server_vaults` (auth-svc, Migration 0026, per-User-PK) abgelegt. Cloud sieht nur Chiffretext. Stolpersteine:
+- Krypto-Helfer: `web/src/lib/identity/vault-crypto.ts` (`encrypt/decryptJsonWithKey`) reusen `deriveKeyArgon2id` + Params
+  aus `key-backup.svelte.ts` (Single-Source). Store-Logik: `server-vault.svelte.ts` (`serverVault`-Singleton).
+- **Vault-Key liegt non-extractable in IndexedDB** (`pulse-identity`/`pulse.vault-key`) → überlebt Sessions (Push ohne
+  Re-Prompt), XSS-sicher, wird in `auth.signOut()` via `serverVault.wipe()` gewischt.
+- **Zwei Entsperr-Pfade, bewusst getrennt:** `unlockForSetup(pw)` (Backup-Setup/Update + Onboarding) re-keyt aus der
+  **lokalen Liste als Wahrheit** mit *frischem* Salt → überlebt Master-Passwort-Wechsel, kann nie aussperren.
+  `unlockForRestore(pw)` (Recover-Flows) leitet den Key aus pw + dem **Salt des Remote-Vaults** ab; falsches Passwort →
+  wirft `VAULT_DECRYPT_FAILED` **ohne den Remote-Vault zu überschreiben** (kein Datenverlust durch Tippfehler).
+  `pullIfUnlocked()` (in `_doHydrate` + `setUser`) zieht ohne Passwort, wenn ein Key in IDB liegt.
+- Push ist **debounced** (1500 ms) über `serversStore.setChangeListener` (in `+layout.svelte` via `serverVault.attach()`
+  registriert — servers.svelte.ts importiert den Vault *nicht*, vermeidet Circular-Dep). Merge ist additiv (dedupe per
+  Hostname), `_applyingRemote`-Flag unterdrückt die Push-Schleife während des Merges.
+- **Voraussetzung: User hat ein Cloud-Backup-Passwort** (ohne Master-Passwort kein Vault-Key). Wiring in
+  `CloudBackup.svelte`, `BackupSetupStep.svelte`, `recover/+page.svelte`.
+- **Bekannte v1-Limits:** Multi-Device-Push = Last-Write-Wins (Merge nur beim Pull); Master-Passwort-Wechsel rettet nur
+  Server, die lokal **oder** per altem IDB-Key lesbar sind (rein remote-only Server anderer Geräte können verloren gehen).
+- Tests: `services/auth/tests/test_server_vault.py` (13) + `web/tests/e2e/server-vault.spec.ts` (2, treibt den echten
+  Vault per `page.evaluate`-Dynamic-Import gegen das echte Backend — Push/Restore + Re-Key-Beweis).
+
 ## Plugin-System (Stufe A)
 
 Top-Level `plugins/` (Referenz: `hello` + `tamagotchi`). Manifest = `plugin.toml` (Backend) + `manifest.ts`
