@@ -6,6 +6,7 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import MobileVoiceStack from '$lib/components/MobileVoiceStack.svelte';
   import { isPluginEnabledForGuild } from '$lib/plugins';
   import TamagotchiWidget from '../../../../../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -41,6 +42,18 @@
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null
   );
   let isVoiceChannel = $derived(activeChannel?.type === 1);
+  // Mobil + im Voice + Text-Kanal derselben Community angesehen → Karten-Stapel.
+  let connectedVoiceChannel = $derived<Channel | null>(
+    voice.connected && voice.channelId
+      ? (channelsForGuild.find((c: Channel) => c.id === voice.channelId) ?? null)
+      : null
+  );
+  let showVoiceStack = $derived(
+    viewport.isMobile &&
+      !!connectedVoiceChannel &&
+      connectedVoiceChannel.id !== channelId &&
+      activeChannel?.type === 0
+  );
   let visibleMessages = $derived(messages.for(channelId));
   // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
   // aktiviert (MANAGE_GUILD-Admin-Toggle, siehe `guildPluginsApi`).
@@ -244,14 +257,12 @@
   }
 
   async function selectGuild(id: string) {
-    // Server-Icon ist der Drawer-Trigger. Gleicher Server → Liste auf/zu;
-    // anderer Server → wechseln und Liste aufklappen.
-    if (id === guildId) {
-      navDrawer.open = !navDrawer.open;
-      return;
-    }
+    // Server-Icon öffnet immer die Kanal-Liste (Gilde → Text- → Sprachkanäle);
+    // kein Auf-/Zu-Toggle mehr. Geschlossen wird sie durch Kanal-Auswahl.
     navDrawer.open = true;
-    await goto(`/app/guilds/${id}/channels/_`);
+    if (id !== guildId) {
+      await goto(`/app/guilds/${id}/channels/_`);
+    }
   }
 
   async function selectChannel(c: Channel) {
@@ -415,9 +426,28 @@
   />
 {/if}
 
+{#snippet chatBody()}
+  <ChatView
+    channel={activeChannel}
+    messages={visibleMessages}
+    onSend={sendMessage}
+    isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
+    onEditMessage={editMessage}
+    onDeleteMessage={deleteMessage}
+    onToggleReaction={toggleReaction}
+  />
+{/snippet}
+
 <!-- Chat/Voice: Desktop dauerhaft; Mobil nur solange der Drawer zu ist. -->
 {#if !viewport.isMobile || !navDrawer.open}
-  {#if isVoiceChannel && activeChannel}
+  {#if showVoiceStack && connectedVoiceChannel}
+    {@const vc = connectedVoiceChannel}
+    <MobileVoiceStack
+      voiceChannel={vc}
+      onReturnToVoice={() => goto(`/app/guilds/${guildId}/channels/${vc.id}`)}
+      chat={chatBody}
+    />
+  {:else if isVoiceChannel && activeChannel}
     {#key activeChannel.id}
       <VoiceChannelView channel={activeChannel} />
     {/key}
@@ -430,15 +460,7 @@
       >{pm.channel_page_retry()}</Button>
     </section>
   {:else}
-    <ChatView
-      channel={activeChannel}
-      messages={visibleMessages}
-      onSend={sendMessage}
-      isOwner={!!activeGuild && roles.hasGuildPermission(activeGuild.id, Perm.MANAGE_MESSAGES)}
-      onEditMessage={editMessage}
-      onDeleteMessage={deleteMessage}
-      onToggleReaction={toggleReaction}
-    />
+    {@render chatBody()}
   {/if}
 {/if}
 
