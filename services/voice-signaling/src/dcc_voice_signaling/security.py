@@ -1,4 +1,20 @@
-"""JWKS-based access-token verification (mirrors chat-gateway)."""
+"""Token verification — mirrors chat-gateway's two-shape dispatch.
+
+Two distinct token shapes flow through this module:
+
+* **Cloud Access-JWT** — RS256, ``kid`` header, ``typ=access``. Validated
+  against the JWKS pulled from auth-svc (``auth_jwks_url``).
+* **Self-Host Session-JWT** — EdDSA, no ``kid``, ``typ=session``,
+  ``iss=pulse-self-host``. Minted by chat-gateway after a Cert-Auth handshake.
+  Validated here via :mod:`dcc_shared.session_tokens` so the dispatch matches
+  chat-gateway exactly — without it, ``POST /token`` 401s with "missing kid"
+  on a self-host instance and voice is unusable (F14).
+
+Dispatch is keyed off cryptographic structure (``kid`` header presence), not a
+payload claim: a Cloud token (with ``kid``) never reaches the self-host
+validator and vice versa. A kid-less token is only accepted in self-host mode;
+in cloud mode it still 401s with "missing kid" exactly as before.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +26,10 @@ from typing import Annotated, Any
 
 import httpx
 import jwt
+from dcc_shared.session_tokens import (
+    synthesize_self_host_user_id,
+    validate_session_token,
+)
 from fastapi import Depends, Header, HTTPException, status
 from jwt.algorithms import RSAAlgorithm
 
@@ -113,19 +133,9 @@ async def _force_refresh_keys() -> dict[str, Any]:
         return keys
 
 
-async def decode_token(token: str) -> dict[str, Any]:
+async def _decode_cloud_token(token: str, kid: str) -> dict[str, Any]:
+    """Validate a Cloud-issued RS256 Access-JWT against the JWKS cache."""
     settings = get_settings()
-    try:
-        header = jwt.get_unverified_header(token)
-    except jwt.PyJWTError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
-    kid = header.get("kid")
-    # Reject tokens without a kid *before* touching the cache. Otherwise an
-    # attacker could flood the endpoint with kid-less self-signed JWTs and
-    # force one JWKS-fetch per request (the cache invalidation below would
-    # otherwise fire on every miss).
-    if not kid:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
     keys = await _get_keys()
     if kid not in keys:
         # Possibly a key rollover — force-refresh once (single-flight inside).
@@ -145,6 +155,58 @@ async def decode_token(token: str) -> dict[str, Any]:
     if payload.get("typ") != "access":
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="not an access token")
     return payload
+
+
+def _decode_self_host_session_token(token: str) -> dict[str, Any]:
+    """Validate a locally-issued Self-Host Session-JWT (EdDSA, no ``kid``).
+
+    Synthesises a Cloud-Access-JWT-shaped payload — identical to chat-gateway's
+    ``_decode_self_host_session_token`` — so ``get_current_user`` and the token
+    route can read ``sub``/``username`` without a per-mode branch. ``sub`` is
+    the synthetic 63-bit int (decimal string) derived from the pairwise-sub;
+    the pairwise-sub stays available under ``pairwise_sub``.
+    """
+    settings = get_settings()
+    claims = validate_session_token(token, key_path=settings.session_signing_key_file)
+    if claims is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token")
+    synthetic_id = synthesize_self_host_user_id(claims.user_identifier)
+    return {
+        "sub": str(synthetic_id),
+        "username": "",
+        "admin": claims.admin,
+        "typ": "access",
+        "iat": claims.iat,
+        "exp": claims.exp,
+        "cert_id": claims.cert_id,
+        "pairwise_sub": claims.user_identifier,
+        "self_host": True,
+    }
+
+
+async def decode_token(token: str) -> dict[str, Any]:
+    """Decode + validate a bearer token (Cloud RS256 *or* Self-Host EdDSA).
+
+    Dispatch is keyed off the ``kid`` header: present → Cloud RS256/JWKS path;
+    absent → Self-Host session-JWT path, but only in self-host mode. A kid-less
+    token in cloud mode keeps the historical "missing kid" rejection (and
+    avoids the JWKS-flood attack the original guard was protecting against).
+    """
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid token") from exc
+    kid = header.get("kid")
+    if kid:
+        return await _decode_cloud_token(token, kid)
+
+    # No ``kid`` → could be a Self-Host session-JWT. Only accept in self-host
+    # mode; otherwise reject with "missing kid" exactly like before (also stops
+    # an attacker from flooding the JWKS-fetch path with kid-less tokens).
+    settings = get_settings()
+    if settings.pulse_instance_mode != "self-host":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing kid")
+    return _decode_self_host_session_token(token)
 
 
 @dataclass(frozen=True)

@@ -27,13 +27,18 @@ that could be attacker-controlled.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any
 
 import httpx
 import jwt
+
+# ``synthesize_self_host_user_id`` moved to ``dcc_shared`` so voice-signaling
+# can share it. Re-exported here for backward compatibility — existing imports
+# (``from dcc_chat_gateway.security import synthesize_self_host_user_id``) keep
+# working unchanged.
+from dcc_shared.session_tokens import synthesize_self_host_user_id  # noqa: F401
 from fastapi import Depends, Header, HTTPException, status
 from jwt.algorithms import RSAAlgorithm
 
@@ -145,27 +150,6 @@ async def _force_refresh_keys() -> dict[str, Any]:
         )
         _cache_generation += 1
         return keys
-
-
-def synthesize_self_host_user_id(pairwise_sub: str) -> int:
-    """Map a pairwise-sub (Base64url string) to a stable 63-bit positive int.
-
-    Existing chat-gateway tables use ``BigInteger`` user-id FKs (``messages.
-    author_id``, ``guild_members.user_id`` …) — a TEXT migration is out of scope
-    for the Self-Host bring-up. Instead we derive a deterministic 63-bit
-    numeric id from the pairwise-sub (truncated SHA-256) and store *that* in
-    the existing columns. The pairwise-sub itself stays available via
-    ``AuthenticatedUser.user_identifier`` for any code that wants the
-    string form (e.g. ``CachedUserProfile.user_identifier``).
-
-    Same pairwise-sub → same int forever. Different pairwise-subs collide with
-    probability ~ 2⁻⁶³ → ignorable for any realistic instance population.
-    Self-Host runs in its own DB (``dcc_selfhost``) so collision with Cloud
-    snowflake ids is irrelevant; the value never travels off-instance.
-    """
-    digest = hashlib.sha256(pairwise_sub.encode()).digest()
-    # Top 8 bytes, clear sign bit → positive 63-bit int (fits BIGINT signed).
-    return int.from_bytes(digest[:8], "big") & 0x7FFF_FFFF_FFFF_FFFF
 
 
 async def _decode_cloud_token(token: str) -> dict[str, Any]:

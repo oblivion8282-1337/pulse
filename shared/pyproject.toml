@@ -8,6 +8,12 @@ dependencies = [
     # Every Pulse service already pulls pydantic transitively (FastAPI), so
     # this is a hard-pin of an existing dep, not a new one.
     "pydantic>=2.7",
+    # Self-Host session-token validation (dcc_shared.session_tokens). Both
+    # pyjwt[crypto] and cryptography are already direct deps of every backend
+    # service that imports this module (auth/chat-gateway/voice-signaling), so
+    # these are hard-pins of existing transitive deps, not new dependencies.
+    "pyjwt[crypto]>=2.10",
+    "cryptography>=42",
 ]
 
 [build-system]

@@ -705,11 +705,17 @@ name = "dcc-shared"
 version = "0.1.0"
 source = { editable = "shared" }
 dependencies = [
+    { name = "cryptography" },
     { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.7" }]
+requires-dist = [
+    { name = "cryptography", specifier = ">=42" },
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
+]
 
 [[package]]
 name = "dcc-voice-signaling"

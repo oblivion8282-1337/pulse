@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -14,6 +15,22 @@ class Settings(BaseSettings):
     jwt_audience: str = "dcc"
     jwt_issuer: str = "dcc-auth"
     jwks_cache_seconds: int = 3600
+
+    # Self-Host identity model (DE 11 / DE 14) — mirrors chat-gateway.
+    # ``cloud``   — Cloud instance; tokens are Cloud-issued RS256 Access-JWTs.
+    # ``self-host`` — Self-hosted instance; users log in via Cert-Login and
+    # chat-gateway mints a local EdDSA *session token* (no ``kid`` header). In
+    # self-host mode voice-signaling accepts those just like chat-gateway does
+    # (see security.py::decode_token), otherwise ``POST /token`` would 401 with
+    # "missing kid" and voice would be unusable. Default matches chat-gateway.
+    pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
+
+    # Path to the locally-generated Ed25519 session-signing key (DE 9). Must be
+    # the *same file* chat-gateway minted with, so voice-signaling can verify
+    # the EdDSA signature. The allinone self-host image mounts both services at
+    # ``/data/jwt_keys/session_signing.pem`` (rendered by 07-render-env.sh as
+    # SESSION_SIGNING_KEY_FILE).
+    session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
 
     livekit_url: str = "ws://localhost:7880"
     # Optional internal address for SERVER-side LiveKit API calls (the
