@@ -16,8 +16,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import WebSocketDisconnect
-
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
 
@@ -254,8 +252,8 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
     send the frame speculatively and include the JWT once it has one.
     """
     from dcc_chat_gateway.credential_validator import (
+        REDIS_CLOUD_JWKS_KEY,
         REDIS_JWKS_KEY,
-        _build_pubkey_from_jwks,
     )
     from dcc_chat_gateway.user_profile_cache import (
         ProfileStatementInvalid,
@@ -267,9 +265,20 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
     if not statement_jwt or not isinstance(statement_jwt, str):
         return  # no-op — client sent frame without JWT
 
-    # Fetch JWKS from Redis cache (fail-open when cache is cold).
+    # Fetch the Cloud JWKS from Redis (fail-open when cache is cold). The
+    # statement is Cloud-signed, so on a Self-Host we must verify against the
+    # CLOUD JWKS (``auth:cloud_jwks:cached``, warmed by crl_poller) — NOT the
+    # local auth-svc JWKS (``auth:jwks:cached``), whose key differs. On Cloud the
+    # two are identical. Mirrors credential_validator._get_jwks_keys (cert-login).
+    from dcc_chat_gateway.config import get_settings as _get_settings
+
+    jwks_key = (
+        REDIS_CLOUD_JWKS_KEY
+        if _get_settings().pulse_instance_mode == "self-host"
+        else REDIS_JWKS_KEY
+    )
     try:
-        raw_jwks = await ctx.redis.get(REDIS_JWKS_KEY)
+        raw_jwks = await ctx.redis.get(jwks_key)
     except Exception:  # noqa: BLE001
         log.warning("profile_statement: redis unavailable, skipping")
         return
@@ -308,15 +317,10 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
     except ProfileStatementReplay:
         log.debug("profile_statement: replay for user=%s, ignoring", ctx.user.id)
     except ProfileStatementInvalid as exc:
+        # A bad/unverifiable profile statement is a NON-critical, optional cache
+        # update — log + skip, never disconnect. (Previously raised 4047, which
+        # turned any verification failure into a reconnect→re-push→disconnect
+        # loop and made the instance unusable, e.g. on a transient JWKS mismatch.)
         log.warning("profile_statement: invalid for user=%s: %s", ctx.user.id, exc)
-        try:
-            await ctx.websocket.close(code=4047, reason="invalid profile statement")
-        except Exception:  # noqa: BLE001
-            pass
-        # Signal the op-loop to stop cleanly. Without this raise the loop
-        # would call receive_text() on the already-closed socket, which may
-        # raise RuntimeError (not caught by the loop's WebSocketDisconnect
-        # handler) instead of a graceful disconnect.
-        raise WebSocketDisconnect(code=4047)
     except Exception:  # noqa: BLE001
         log.exception("profile_statement: unexpected error for user=%s", ctx.user.id)
