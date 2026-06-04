@@ -343,6 +343,10 @@ services:
       # web-nginx.conf serviert ihn unter /updates/win/. Read-only; fehlender
       # Host-Ordner => Docker legt ihn leer an (=> /updates/win/* 404, harmlos).
       - ${HOME}/pulse/updates-win:/srv/updates-win:ro
+      # Direkt-Downloads (z.B. Android-APK-Testbuilds), per scp nach
+      # ~/pulse/downloads/ gelegt; web-nginx.conf serviert sie unter /downloads/.
+      # Bewusst getrennt vom Windows-Feed. Read-only; fehlender Ordner => 404.
+      - ${HOME}/pulse/downloads:/srv/downloads:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null || exit 1"]
       interval: 30s
