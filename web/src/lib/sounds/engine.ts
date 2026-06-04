@@ -1,9 +1,13 @@
 /**
  * Sound playback engine. HTMLAudioElement-pooled to allow rapid retriggers
- * without re-loading the asset. Tolerant of missing files — a 404 marks the
- * URL as "missing" and silences further plays for it (no console-spam, no
- * exception). Autoplay policy: the very first play before user-gesture may
- * be blocked by Chromium; we catch and swallow.
+ * without re-loading the asset. Tolerant of missing files — a genuinely
+ * unplayable asset (decoder failure / 404 → MEDIA_ERR_SRC_NOT_SUPPORTED)
+ * marks the URL as "missing" and silences further plays for it (no
+ * console-spam, no exception). Transient errors (network abort, a play
+ * interrupted by a quick leave) do NOT blacklist — they only discard the one
+ * bad pooled element so the next play rebuilds a fresh one. Autoplay policy:
+ * the very first play before user-gesture may be blocked by Chromium; we
+ * catch and swallow.
  *
  * Volume = settings.sounds.masterVolume * category.volume (gated by
  * masterEnabled + category.enabled). `test(id)` bypasses the toggle gating
@@ -109,7 +113,20 @@ class SoundEngine {
     const last = this.#lastPlay.get(url) ?? 0;
     if (now - last < DEBOUNCE_MS) return;
     this.#lastPlay.set(url, now);
+    this.#start(url, gain, true);
+  }
 
+  /**
+   * Acquire a pooled element and play it. A pooled element can be left in a
+   * state where `play()` rejects: a prior play was *interrupted* (you left the
+   * channel while the join chime was still loading/playing → AbortError), the
+   * element was paused mid-load, or a transient seek/decode race hit. When that
+   * happens we discard the bad element and retry ONCE with a freshly-built one
+   * — without that retry the same broken element keeps getting reused and the
+   * sound silently goes missing on a re-join. We do NOT retry NotAllowedError
+   * (autoplay block): a fresh element won't help until the next user gesture.
+   */
+  #start(url: string, gain: number, allowRetry: boolean): void {
     const audio = this.#acquire(url);
     if (!audio) return;
     audio.volume = clamp01(gain);
@@ -120,9 +137,29 @@ class SoundEngine {
     }
     const p = audio.play();
     if (p && typeof p.catch === 'function') {
-      p.catch(() => {
-        /* autoplay-block or other transient errors — silent */
+      p.catch((err: unknown) => {
+        const name = err instanceof DOMException ? err.name : '';
+        if (allowRetry && name !== 'NotAllowedError') {
+          this.#discard(url, audio);
+          this.#start(url, gain, false);
+        }
+        /* NotAllowedError (autoplay) or second failure — silent */
       });
+    }
+  }
+
+  /** Drop a single element from its pool so the next acquire rebuilds a fresh
+   *  one. Pauses it first to release the decoder. */
+  #discard(url: string, audio: HTMLAudioElement): void {
+    const pool = this.#pool.get(url);
+    if (pool) {
+      const i = pool.indexOf(audio);
+      if (i >= 0) pool.splice(i, 1);
+    }
+    try {
+      audio.pause();
+    } catch {
+      /* ignore */
     }
   }
 
@@ -147,11 +184,15 @@ class SoundEngine {
     const a = new Audio(url);
     a.preload = 'auto';
     a.addEventListener('error', () => {
-      // MEDIA_ERR_NETWORK (2) typically maps to 404, MEDIA_ERR_SRC_NOT_SUPPORTED
-      // (4) covers wrong codec / decoder failure. Both mean "stop trying".
-      const code = a.error?.code;
-      if (code === 2 || code === 4) {
+      // MEDIA_ERR_SRC_NOT_SUPPORTED (4) = wrong codec / decoder failure / 404 →
+      // genuinely unplayable, blacklist the URL so we stop trying. MEDIA_ERR_*
+      // ABORTED (1) / NETWORK (2) are typically transient (a load interrupted
+      // by a quick leave, dev-server latency) — don't blacklist, just drop this
+      // element so the next play rebuilds a fresh one.
+      if (a.error?.code === 4) {
         this.#missing.add(url);
+      } else {
+        this.#discard(url, a);
       }
     });
     pool.push(a);
