@@ -30,6 +30,7 @@ export type CertLoginReason =
   | 'cert-invalid'
   | 'challenge-expired'
   | 'signature-invalid'
+  | 'rate-limited'
   | 'network'
   | 'unknown';
 
@@ -68,16 +69,41 @@ function b64urlEncode(bytes: Uint8Array): string {
 // Fetch-Helfer — direkter Cross-Origin-POST mit konsistenter Error-Map.
 // ---------------------------------------------------------------------------
 
-async function postJSON(url: string, body: unknown): Promise<Response> {
-  try {
-    return await fetch(url, {
-      method: 'POST',
-      mode: 'cors',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    throw new CertLoginError('network', undefined, (err as Error).message);
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Wieviele ms warten wir nach einem 429? `Retry-After` (Sekunden) wird
+ *  respektiert, sonst ein kurzer Default; gedeckelt, damit ein bösartiger
+ *  Server-Header uns nicht minutenlang blockiert. */
+function retryAfterMs(resp: Response, attempt: number): number {
+  const hdr = resp.headers.get('Retry-After');
+  const secs = hdr ? Number.parseInt(hdr, 10) : NaN;
+  if (Number.isFinite(secs) && secs > 0) return Math.min(secs * 1000, 5000);
+  return Math.min(500 * 2 ** attempt, 2000); // 500ms, 1s, 2s …
+}
+
+/** POST mit begrenztem Retry bei 429. Der ``cert-login``-Endpoint ist
+ *  per-IP rate-limited (10–30/min) — ein kurzzeitiger Burst (Multi-Tab,
+ *  proaktiver Refresh + reaktives Re-Auth) kann das Budget treffen. Ein
+ *  paar Backoff-Retries heilen den transienten Fall, statt die Re-Auth
+ *  (und damit z.B. das Community-Erstellen) hart fehlschlagen zu lassen. */
+async function postJSON(url: string, body: unknown, maxRetries = 2): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    let resp: Response;
+    try {
+      resp = await fetch(url, {
+        method: 'POST',
+        mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new CertLoginError('network', undefined, (err as Error).message);
+    }
+    if (resp.status === 429 && attempt < maxRetries) {
+      await sleep(retryAfterMs(resp, attempt));
+      continue;
+    }
+    return resp;
   }
 }
 
@@ -86,6 +112,7 @@ function reasonForStatus(status: number, detail: string | null): CertLoginReason
   if (detail === 'challenge_expired') return 'challenge-expired';
   if (detail === 'signature_invalid' || detail === 'cert_mismatch') return 'signature-invalid';
   if (status === 410) return 'challenge-expired';
+  if (status === 429) return 'rate-limited';
   if (status === 401) return 'cert-invalid';
   return 'unknown';
 }

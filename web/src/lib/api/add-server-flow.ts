@@ -18,7 +18,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { request, type RequestOpts } from './client';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
-import { certLogin, CertLoginError } from './cert-login';
+import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
 import type { AcceptInviteResult, InvitePreview } from './types';
 
 export type AddServerSuccess = {
@@ -95,16 +95,7 @@ export function acceptInvite(
 // ---------------------------------------------------------------------------
 
 /** Deutsche Fehlermeldung für einen CertLoginError.reason. */
-export function mapCertLoginReason(
-  reason:
-    | 'no-cert'
-    | 'no-keypair'
-    | 'cert-invalid'
-    | 'challenge-expired'
-    | 'signature-invalid'
-    | 'network'
-    | 'unknown',
-): string {
+export function mapCertLoginReason(reason: CertLoginReason): string {
   if (reason === 'no-cert' || reason === 'no-keypair')
     return m.add_server_flow_no_cert();
   if (reason === 'cert-invalid')
@@ -112,6 +103,7 @@ export function mapCertLoginReason(
   if (reason === 'challenge-expired') return m.add_server_flow_challenge_expired();
   if (reason === 'signature-invalid')
     return m.add_server_flow_signature_invalid();
+  if (reason === 'rate-limited') return m.add_server_flow_rate_limited();
   if (reason === 'network') return m.add_server_flow_network_error();
   return m.add_server_flow_cert_login_failed();
 }

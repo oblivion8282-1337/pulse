@@ -46,6 +46,7 @@
   "add_server_flow_challenge_expired": "Challenge abgelaufen — bitte erneut versuchen.",
   "add_server_flow_invite_failed": "Invite fehlgeschlagen",
   "add_server_flow_network_error": "Server nicht erreichbar.",
+  "add_server_flow_rate_limited": "Zu viele Anmeldeversuche — bitte einen Moment warten und erneut versuchen.",
   "add_server_flow_no_cert": "Kein Identitäts-Cert auf diesem Gerät — bitte zuerst einloggen.",
   "add_server_flow_signature_invalid": "Signatur ungültig — Keypair passt nicht zum Cert.",
   "admin_attachments_description": "Globale Limits. Guild-Channels haben eigene Limits, die pro Community eingestellt werden.",

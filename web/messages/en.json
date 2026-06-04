@@ -46,6 +46,7 @@
   "add_server_flow_challenge_expired": "Challenge expired — please try again.",
   "add_server_flow_invite_failed": "Invite failed",
   "add_server_flow_network_error": "Server unreachable.",
+  "add_server_flow_rate_limited": "Too many sign-in attempts — please wait a moment and try again.",
   "add_server_flow_no_cert": "No identity cert on this device — please log in first.",
   "add_server_flow_signature_invalid": "Invalid signature — keypair does not match the cert.",
   "admin_attachments_description": "Global limits. Guild channels have their own limits configured per community.",

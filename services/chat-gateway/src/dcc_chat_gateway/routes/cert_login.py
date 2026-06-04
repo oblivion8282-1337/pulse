@@ -135,7 +135,13 @@ def _reset_challenge_secret_for_tests() -> None:
 # only (single-pod self-host — same caveat as ``ratelimit.py``); a multi-pod
 # deployment should front this with Caddy's rate-limit directive.
 
-_CERT_LOGIN_RATE_LIMIT = 10      # requests allowed per window per IP
+# 30/60s ≈ 15 vollständige Re-Auths (challenge+verify) pro Minute pro IP.
+# Der frühere Wert (10) war für die legitime Re-Auth-Last zu knapp: ein
+# 5-Min-Session-Token + proaktiver Refresh + reaktives Re-Auth + mehrere
+# Tabs/Popups hinter derselben IP (NAT, Watch-Party/Stream-Detach-Fenster)
+# rissen das Budget — cert-login lieferte 429 und Re-Auth (z.B. das
+# Community-Erstellen) schlug fehl. DoS-Schutz bleibt (pro-IP, in-process).
+_CERT_LOGIN_RATE_LIMIT = 30      # requests allowed per window per IP
 _CERT_LOGIN_RATE_WINDOW = 60.0   # seconds
 _CERT_LOGIN_BUCKETS_MAX = 10_000  # hard cap: evict oldest entry when full
 
@@ -196,7 +202,15 @@ def _enforce_cert_login_rate(request: Request) -> None:
         return
     start, count = entry
     if count >= _CERT_LOGIN_RATE_LIMIT:
-        raise HTTPException(status_code=429, detail="rate_limited")
+        # Retry-After = verbleibende Sekunden im Fenster, damit der Client
+        # gezielt backofft (cert-login.ts respektiert den Header), statt blind
+        # in dasselbe Limit zu retrien. Mindestens 1s.
+        retry_after = max(1, int(_CERT_LOGIN_RATE_WINDOW - (now - start)) + 1)
+        raise HTTPException(
+            status_code=429,
+            detail="rate_limited",
+            headers={"Retry-After": str(retry_after)},
+        )
     _cert_login_buckets[ip] = (start, count + 1)
 
 
