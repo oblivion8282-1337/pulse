@@ -14,6 +14,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { rolesApi } from '$lib/api/roles';
@@ -23,7 +24,9 @@
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
-  let guild = $derived(guilds.byId[guildId]);
+  // Fallback auf den multi-server ``serverGuilds``-Cache, falls der WS noch
+  // auf einem anderen Server hängt (``guilds.byId`` ist single-server-scoped).
+  let guild = $derived(guilds.byId[guildId] ?? serverGuilds.findGuild(guildId));
   let channel = $derived(
     (guilds.channelsByGuild[guildId] ?? []).find((c) => c.id === channelId)
   );

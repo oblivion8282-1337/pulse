@@ -31,6 +31,20 @@ class ServerGuildsStore {
     return this.byServer[serverId] ?? [];
   }
 
+  /** Sucht eine Community über *alle* Server hinweg. Robust gegen die
+   *  WS/Route-Divergenz: ``guildsStore.byId`` hält nur die Communitys des
+   *  aktiv verbundenen Servers (der Ready-Handler reapt fremde), während
+   *  dieser Cache multi-server ist. ChannelList/ChatView nutzen das als
+   *  Fallback, damit der Community-Name auch dann steht, wenn der WS noch
+   *  auf einem anderen Server hängt. */
+  findGuild(guildId: string): Guild | undefined {
+    for (const list of Object.values(this.byServer)) {
+      const hit = list.find((g) => g.id === guildId);
+      if (hit) return hit;
+    }
+    return undefined;
+  }
+
   /** Best-effort REST-Fetch, dedupliziert pro Server-ID. Fehler werden
    *  geschluckt (Sidebar zeigt dann nur die anderen Sektionen).
    *

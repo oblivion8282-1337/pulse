@@ -15,6 +15,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { guildSounds } from '$lib/stores/guildSounds.svelte';
@@ -36,7 +37,13 @@
 
   let guildId = $derived(page.params.guildId ?? '');
   let channelId = $derived(page.params.channelId ?? '');
-  let activeGuild = $derived<typeof guilds.byId[string] | undefined>(guilds.byId[guildId]);
+  // ``guilds.byId`` hält nur die Communitys des aktiv verbundenen Servers
+  // (der Ready-Handler reapt fremde). Hängt der WS noch auf einem anderen
+  // Server, ist der Eintrag hier leer → Fallback auf den multi-server
+  // ``serverGuilds``-Cache, damit der Community-Name nicht zu „—" wird.
+  let activeGuild = $derived<typeof guilds.byId[string] | undefined>(
+    guilds.byId[guildId] ?? serverGuilds.findGuild(guildId)
+  );
   let channelsForGuild = $derived<Channel[]>(guilds.channelsByGuild[guildId] ?? []);
   let activeChannel = $derived<Channel | null>(
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null

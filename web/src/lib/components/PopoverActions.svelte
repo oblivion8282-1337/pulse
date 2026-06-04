@@ -14,6 +14,7 @@
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
   import BanIcon from '@lucide/svelte/icons/ban';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { Perm } from '$lib/permissions/bitfield';
@@ -63,13 +64,13 @@
   let canKick = $derived.by(() => {
     if (!guildId || isSelf) return false;
     // Can't kick the guild owner even with KICK_MEMBERS.
-    const ownerId = guilds.byId[guildId]?.owner_id;
+    const ownerId = (guilds.byId[guildId] ?? serverGuilds.findGuild(guildId))?.owner_id;
     if (ownerId && ownerId === userId) return false;
     return roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS);
   });
   let canBan = $derived.by(() => {
     if (!guildId || isSelf) return false;
-    const ownerId = guilds.byId[guildId]?.owner_id;
+    const ownerId = (guilds.byId[guildId] ?? serverGuilds.findGuild(guildId))?.owner_id;
     if (ownerId && ownerId === userId) return false;
     return roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS);
   });
