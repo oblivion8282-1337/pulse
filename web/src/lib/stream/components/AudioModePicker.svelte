@@ -25,6 +25,7 @@
   import XIcon from '@lucide/svelte/icons/x';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import LockIcon from '@lucide/svelte/icons/lock';
   import { isWindows } from '$lib/platform/runtime';
   import { m } from '$lib/paraglide/messages.js';
   import {
@@ -39,6 +40,12 @@
     persistSettings,
     type AudioMode,
   } from '../settings.svelte';
+
+  // Mirror of the sidecar's PULSE_SELF_NODE_NAME (profiles.py): Pulse's own
+  // audio node is ALWAYS excluded from system-audio capture (the sidecar adds
+  // app-inverse:Pulse) to prevent the voice echo. The UI shows it as a pinned,
+  // non-removable chip and hides it from the add-list — no manual step needed.
+  const PULSE_SELF_NODE_NAME = 'Pulse';
 
   let pickedToAdd = $state('');
   let refreshing = $state(false);
@@ -71,7 +78,9 @@
   );
   let selectedApp = $derived(appFromAudioMode(streamSettings.audio_mode) || streamSettings.audio_app);
   let availableForAdd = $derived(
-    streamSettings.available_audio_apps.filter((a) => !streamSettings.excluded_apps.includes(a)),
+    streamSettings.available_audio_apps.filter(
+      (a) => !streamSettings.excluded_apps.includes(a) && a !== PULSE_SELF_NODE_NAME,
+    ),
   );
 
   function onModeChange(mode: AudioMode) {
@@ -227,29 +236,36 @@
         </Button>
       </div>
 
-      {#if streamSettings.excluded_apps.length === 0}
-        <p class="text-text-muted text-xs italic">{m.audio_mode_picker_no_apps_excluded()}</p>
-      {:else}
-        <div class="flex flex-wrap gap-1.5" data-testid="stream-audio-excluded-list">
-          {#each streamSettings.excluded_apps as app (app)}
-            <span
-              class="bg-bg-chat text-text-bright inline-flex items-center gap-1 rounded-full border border-border py-0.5 pr-0.5 pl-2 text-xs"
+      <div class="flex flex-wrap gap-1.5" data-testid="stream-audio-excluded-list">
+        <!-- Pulse's own audio is ALWAYS excluded from system capture (the
+             sidecar adds app-inverse:Pulse) so voice playback isn't recaptured
+             → echo. Pinned + non-removable, so it's visibly automatic. -->
+        <span
+          class="bg-bg-chat text-text-muted inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-xs"
+          data-testid="stream-audio-auto-excluded"
+          title={m.audio_mode_picker_pulse_auto_hint()}
+        >
+          <LockIcon class="size-3 opacity-60" />
+          {PULSE_SELF_NODE_NAME}
+        </span>
+        {#each streamSettings.excluded_apps.filter((a) => a !== PULSE_SELF_NODE_NAME) as app (app)}
+          <span
+            class="bg-bg-chat text-text-bright inline-flex items-center gap-1 rounded-full border border-border py-0.5 pr-0.5 pl-2 text-xs"
+          >
+            <span class="max-w-[14ch] truncate">{app}</span>
+            <Button
+              type="button"
+              size="icon-xs"
+              variant="ghost"
+              class="hover:text-destructive size-4 rounded-full"
+              onclick={() => removeExcludedApp(app)}
+              aria-label={m.audio_mode_picker_remove_app({ app })}
             >
-              <span class="max-w-[14ch] truncate">{app}</span>
-              <Button
-                type="button"
-                size="icon-xs"
-                variant="ghost"
-                class="hover:text-destructive size-4 rounded-full"
-                onclick={() => removeExcludedApp(app)}
-                aria-label={m.audio_mode_picker_remove_app({ app })}
-              >
-                <XIcon class="size-3" />
-              </Button>
-            </span>
-          {/each}
-        </div>
-      {/if}
+              <XIcon class="size-3" />
+            </Button>
+          </span>
+        {/each}
+      </div>
 
       <div class="flex items-center gap-2">
         <select

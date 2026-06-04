@@ -350,6 +350,7 @@
   "audio_mode_picker_no_apps_excluded": "Keine Apps ausgeschlossen.",
   "audio_mode_picker_no_running_apps": "(keine laufenden Audio-Apps — Refresh klicken)",
   "audio_mode_picker_off": "Aus",
+  "audio_mode_picker_pulse_auto_hint": "Pulse wird bei System-Audio immer ausgeschlossen — sonst landet dein Voice-Chat als Echo im Stream.",
   "audio_mode_picker_refresh_app_list": "App-Liste neu laden",
   "audio_mode_picker_remove_app": "{app} entfernen",
   "audio_mode_picker_select_app": "App auswählen",
