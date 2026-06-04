@@ -9,6 +9,7 @@
 import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
+import { presence } from '$lib/stores/presence.svelte';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { fireInPageNotification } from '$lib/notifications/inPage';
@@ -48,6 +49,12 @@ export function register(): void {
     const wasMyOutgoing = !!friendRequests.outgoing[evt.data.request_id];
     friendRequests.removeById(evt.data.request_id);
     friends.add(evt.data.friendship.user_id, evt.data.friendship.since);
+    // Seed the new friend's presence from the event so the Online tab renders
+    // them immediately. Without this the peer has no status entry yet and
+    // shows as offline until the next ready-frame reseed (a page reload).
+    if (evt.data.friendship.status) {
+      presence.applyStatusChange(evt.data.friendship.user_id, evt.data.friendship.status);
+    }
     userCache.queue(evt.data.friendship.user_id);
     void directMessages.hydrate().catch(() => undefined);
     if (wasMyOutgoing) {

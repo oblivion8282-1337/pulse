@@ -230,7 +230,16 @@ export type ServerEvent =
   | { op: 'friend_request_received'; data: FriendRequest }
   | {
       op: 'friend_request_accepted';
-      data: { request_id: string; friendship: { user_id: string; since: string } };
+      data: {
+        request_id: string;
+        // ``status`` is the new friend's masked presence (invisible→offline),
+        // included by the server so the Online tab shows them without a reload.
+        friendship: {
+          user_id: string;
+          since: string;
+          status?: 'online' | 'idle' | 'dnd' | 'offline';
+        };
+      };
     }
   | { op: 'friend_request_declined'; data: { request_id: string } }
   | { op: 'friend_request_cancelled'; data: { request_id: string } }

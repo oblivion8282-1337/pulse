@@ -44,6 +44,7 @@ from dcc_chat_gateway.friend_schemas import (
     FriendRequestOut,
 )
 from dcc_chat_gateway.models import FriendRequest, Friendship
+from dcc_chat_gateway.presence_status import _mask, get_presence_status
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -154,11 +155,20 @@ async def create_friend_request(
         # tab-syncing works even though the POSTing tab already knows the
         # outcome from the response. Stale outgoing-request rows for both
         # sides are wiped above; the FE drops them on the event id match.
+        # Enrich with each peer's masked presence status — see the standard
+        # accept path below for why (Online tab hides status-less peers).
+        redis = request.app.state.redis
+        try:
+            status_target = _mask(await get_presence_status(redis, target))
+            status_me = _mask(await get_presence_status(redis, me))
+        except Exception:  # noqa: BLE001 — presence enrichment is non-critical
+            status_target = status_me = None
         accepted_payload_for_me = {
             "request_id": str(reverse.id),
             "friendship": {
                 "user_id": str(target),
                 "since": friendship.created_at.isoformat(),
+                **({"status": status_target} if status_target else {}),
             },
         }
         accepted_payload_for_target = {
@@ -166,6 +176,7 @@ async def create_friend_request(
             "friendship": {
                 "user_id": str(me),
                 "since": friendship.created_at.isoformat(),
+                **({"status": status_me} if status_me else {}),
             },
         }
         await publish_friend_event(
@@ -300,12 +311,25 @@ async def accept_friend_request(
         sa_delete(FriendRequest).where(FriendRequest.id == row.id)
     )
     await session.commit()
+    # Carry each side's *current* presence status (invisible→offline masked)
+    # so the freshly-added friend renders with the correct online dot right
+    # away. Without it the client has no status for the new peer, so the
+    # Online tab treats them as offline and hides them until the next
+    # ready-frame reseed (i.e. a page reload). Best-effort — a Redis hiccup
+    # must never fail the accept, which has already committed.
+    redis = request.app.state.redis
+    try:
+        status_other = _mask(await get_presence_status(redis, other))
+        status_me = _mask(await get_presence_status(redis, me))
+    except Exception:  # noqa: BLE001 — presence enrichment is non-critical
+        status_other = status_me = None
     # Fan-out to BOTH sides so a multi-tab session everywhere converges.
     me_payload = {
         "request_id": str(row.id),
         "friendship": {
             "user_id": str(other),
             "since": friendship.created_at.isoformat(),
+            **({"status": status_other} if status_other else {}),
         },
     }
     other_payload = {
@@ -313,6 +337,7 @@ async def accept_friend_request(
         "friendship": {
             "user_id": str(me),
             "since": friendship.created_at.isoformat(),
+            **({"status": status_me} if status_me else {}),
         },
     }
     await publish_friend_event(
