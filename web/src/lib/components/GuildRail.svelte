@@ -535,26 +535,20 @@
         <DropdownMenu.Root>
           <DropdownMenu.Trigger>
             {#snippet child({ props })}
-              <Tooltip.Root>
-                <Tooltip.Trigger>
-                  {#snippet child({ props: tipProps })}
-                    <button
-                      {...props}
-                      {...tipProps}
-                      class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:rounded-lg hover:bg-primary/10"
-                      data-testid={`guild-create-menu-${server.id}`}
-                      aria-label={canCreateHere
-                        ? m.guild_rail_create_community()
-                        : m.guild_rail_join_community()}
-                    >
-                      <PlusIcon class="size-4" />
-                    </button>
-                  {/snippet}
-                </Tooltip.Trigger>
-                <Tooltip.Content side="right">
-                  {canCreateHere ? m.guild_rail_create_community() : m.guild_rail_join_community()}
-                </Tooltip.Content>
-              </Tooltip.Root>
+              <!-- KEIN Tooltip-Wrapper: ein zweiter Trigger-Spread (tipProps)
+                   überschreibt die Klick-Handler des DropdownMenu-Triggers, dann
+                   öffnet das Menü nur per Tastatur, nicht per Maus. aria-label
+                   deckt die Zugänglichkeit ab. -->
+              <button
+                {...props}
+                class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:rounded-lg hover:bg-primary/10"
+                data-testid={`guild-create-menu-${server.id}`}
+                aria-label={canCreateHere
+                  ? m.guild_rail_create_community()
+                  : m.guild_rail_join_community()}
+              >
+                <PlusIcon class="size-4" />
+              </button>
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content side="right" align="start" class="w-56">
