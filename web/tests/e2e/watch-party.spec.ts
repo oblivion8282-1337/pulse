@@ -492,4 +492,49 @@ test.describe.serial('Watch Party E2E', () => {
       { cid: reconnCid }
     );
   });
+
+  test('detach handover: popup sibling socket keeps the party when the main socket leaves', async () => {
+    // Regression for the "host detaching their party into a popup kills it" bug.
+    // The popup is a separate window with its own gateway session (a sibling
+    // socket of the same user). The frontend fix suppresses the inline tile's
+    // `watch_leave` until the popup has joined, so the host's last socket never
+    // leaves before the popup takes over. This drives that handover through the
+    // real gateway + Redis at the WS layer (the tile itself needs LiveKit +
+    // a YouTube iframe the harness deliberately avoids): once the popup socket
+    // has joined, the main socket leaving must NOT end the party.
+    const cid = await createChannel(alicePage, guildId, 'Voice-Detach', 1);
+
+    // Main window: start + join (the host anchor; handle_start already joins
+    // this socket, the explicit join mirrors the inline tile's onMount).
+    await wsOpen(alicePage, 'wpmain');
+    await wsSend(alicePage, 'wpmain', {
+      op: 'watch_start',
+      channel_id: cid,
+      source_url: 'https://www.youtube.com/watch?v=abc12345678'
+    });
+    await wsWaitFor(alicePage, 'wpmain', 'watch_state');
+    await wsSend(alicePage, 'wpmain', { op: 'watch_join', channel_id: cid });
+
+    // Popup window: same user, sibling socket joins and takes over.
+    await wsOpen(alicePage, 'wppopup');
+    await wsSend(alicePage, 'wppopup', { op: 'watch_join', channel_id: cid });
+    await wsWaitFor(alicePage, 'wppopup', 'watch_watchers', aliceUserId);
+
+    // Main window leaves (reattach / main-window close). With the popup holding
+    // the watcher anchor, the party survives — host stays Alice, not ended.
+    await wsSend(alicePage, 'wpmain', { op: 'watch_leave', channel_id: cid });
+    await expect
+      .poll(async () => {
+        const s = (await getGuildWatchState(alicePage, guildId)).find(
+          (e) => e.channel_id === cid
+        );
+        return s?.state?.host_user_id;
+      })
+      .toBe(aliceUserId);
+
+    // Cleanup: stop the party (host can stop from either of her sockets).
+    await wsSend(alicePage, 'wppopup', { op: 'watch_stop', channel_id: cid });
+    await wsClose(alicePage, 'wpmain');
+    await wsClose(alicePage, 'wppopup');
+  });
 });

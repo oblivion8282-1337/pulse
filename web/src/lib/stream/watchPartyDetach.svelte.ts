@@ -53,6 +53,19 @@ class DetachedWatchParties {
     return this.#set.has(channelId);
   }
 
+  /** Whether a tile unmounting for this channel should SKIP its `watch_leave`.
+   * True while the party is detached into a popup: the inline tile unmounts the
+   * instant `open()` flips `#set`, but the popup runs in a fresh window with its
+   * own gateway session and needs a cold-start (auth → connect → ready → join)
+   * before it joins the watcher set. A `watch_leave` from the inline tile in
+   * that gap is the host's *last* socket leaving → the server ends the party
+   * (`end_if_host`) before the popup can take over. Suppressing it keeps the
+   * main-window socket as the watcher anchor until the popup is up; the popup's
+   * own join is purely additive (same user, sibling socket). */
+  shouldSuppressLeave(channelId: string): boolean {
+    return this.#set.has(channelId);
+  }
+
   open(channelId: string): boolean {
     const existing = this.#windows.get(channelId);
     if (existing && !existing.closed) {
@@ -83,6 +96,16 @@ class DetachedWatchParties {
 
   notifyClosed(channelId: string): void {
     this.#channel?.postMessage({ kind: 'closed', cid: channelId } satisfies WatchDetachMessage);
+  }
+
+  /** The party ended while detached. Drop the detached flag so a later re-open
+   * of the same channel starts clean. The popup self-closes on the null-state
+   * push; this just clears the main window's local tracking. The caller (the
+   * `watch_state` null handler) additionally releases the main-window watcher
+   * anchor, since {@link shouldSuppressLeave} held its `watch_leave` back and
+   * the inline tile won't remount on an ended party to release it itself. */
+  markPartyEnded(channelId: string): void {
+    this.#markAttached(channelId);
   }
 
   onCloseRequest(cb: (cid: string) => void): () => void {

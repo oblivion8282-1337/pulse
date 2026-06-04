@@ -109,10 +109,17 @@
   });
 
   // Watcher-Registry: mount = join, unmount = leave (covers tile-close +
-  // channel-switch unmount + party-end unmount).
+  // channel-switch unmount + party-end unmount). Ausnahme: ein Unmount, der nur
+  // durchs Abdocken ins Popup ausgelöst wird, darf KEIN watch_leave senden —
+  // sonst beendet `end_if_host` die Party, bevor das Popup (eigene Session,
+  // Kaltstart) gejoint hat. Das Popup übernimmt den Watcher-Eintrag; das
+  // Hauptfenster bleibt der Anker, bis es regulär schließt/disconnected.
   onMount(() => {
     gateway.sendWatchJoin(channelId);
-    return () => gateway.sendWatchLeave(channelId);
+    return () => {
+      if (detachedWatchParties.shouldSuppressLeave(channelId)) return;
+      gateway.sendWatchLeave(channelId);
+    };
   });
 
   onDestroy(() => controller.dispose());

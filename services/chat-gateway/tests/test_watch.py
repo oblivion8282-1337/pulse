@@ -711,6 +711,60 @@ async def test_cleanup_on_disconnect_multitab_keeps_party(redis):
         await redis.delete(f"watch:channel-{cid}")
 
 
+@pytest.mark.asyncio
+async def test_detach_sibling_socket_keeps_party_when_main_leaves(redis):
+    """Detach handover: the host's popup window joins as a sibling socket of the
+    same user, then the main window leaves (reattach / main-window close). The
+    party must survive on the popup anchor — NOT end. This is the server-side
+    invariant the frontend detach fix relies on (suppress the inline tile's
+    leave until the popup has joined, then either socket may leave safely)."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    uid = random.randint(1, 1_000_000)
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    main_ws = _ErrWS(redis, mgr)  # main window (anchor)
+    popup_ws = _ErrWS(redis, mgr)  # detached popup, same user
+    await mgr.watch_join(cid, str(uid), main_ws, now_ms=1000)
+    await mgr.watch_join(cid, str(uid), popup_ws, now_ms=2000)
+    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+
+    user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
+    try:
+        # Main window leaves deliberately while the popup still holds the party.
+        await ws_watch.handle_leave(main_ws, user, {"channel_id": cid}, watched_parties={cid})
+        assert cid not in mgr._watch_end_timers  # no grace timer
+        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        assert new["host_user_id"] == str(uid)  # party intact, still hosted by uid
+        assert str(uid) in await mgr.watchers(cid)  # popup socket still a watcher
+    finally:
+        await redis.delete(f"watch:channel-{cid}")
+
+
+@pytest.mark.asyncio
+async def test_watch_leave_after_party_end_is_clean_noop(redis):
+    """Phantom-anchor cleanup path: after a detached party has ended, the main
+    window releases its held-back anchor with a late `watch_leave`. With no
+    state left it must be a clean no-op — no error frame, registry entry gone,
+    party stays ended."""
+    from dcc_chat_gateway.routes import ws_watch
+    from dcc_chat_gateway.security import AuthenticatedUser
+
+    uid = random.randint(1, 1_000_000)
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    main_ws = _ErrWS(redis, mgr)
+    await mgr.watch_join(cid, str(uid), main_ws, now_ms=1000)  # phantom anchor
+    # Party already ended → no state key in redis.
+
+    user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
+    await ws_watch.handle_leave(main_ws, user, {"channel_id": cid}, watched_parties={cid})
+    assert main_ws.errors == []  # no error frame
+    assert await mgr.watchers(cid) == []  # anchor removed from registry
+    assert await redis.get(f"watch:channel-{cid}") is None  # still ended
+
+
 # =============================================================================
 # 4. Watch-Chat REST endpoints
 # =============================================================================
