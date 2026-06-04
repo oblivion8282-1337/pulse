@@ -122,14 +122,14 @@
         </div>
         <div class="flex shrink-0 items-center gap-2">
           <input
-            type="number" min="0.1" max="32" step="0.5"
+            type="number" min="0.1" max="32" step="any"
             bind:value={bitrateMinMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="ns-bitrate-min" aria-label={m.admin_normal_stream_limits_bitrate_min_label()}
           />
           <span class="text-text-muted text-xs">{m.admin_normal_stream_limits_to()}</span>
           <input
-            type="number" min="0.1" max="32" step="0.5"
+            type="number" min="0.1" max="32" step="any"
             bind:value={bitrateMaxMbit}
             class="w-20 rounded-md border border-border bg-bg-input px-2 py-1 text-right text-sm tabular-nums text-text-bright focus:border-primary focus:outline-none"
             data-testid="ns-bitrate-max" aria-label={m.admin_normal_stream_limits_bitrate_max_label()}

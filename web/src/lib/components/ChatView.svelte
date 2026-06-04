@@ -5,6 +5,7 @@
   import UsersIcon from '@lucide/svelte/icons/users';
   import MessageItem from './MessageItem.svelte';
   import MessageInput from './MessageInput.svelte';
+  import { plainifyMentions } from './messageRender';
   import MemberList from './MemberList.svelte';
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
   import type { Channel, Message } from '$lib/api/types';
@@ -54,6 +55,32 @@
   let namePrefix = $derived(headerKind === 'dm' ? '@' : '#');
 
   let replyTarget = $state<Message | null>(null);
+
+  // Composer instance — the whole ChatView is a file drop zone (Discord-style)
+  // and forwards dropped files into the composer's pending-upload strip.
+  let composer = $state<MessageInput | undefined>();
+  let dragActive = $state(false);
+  let dragDepth = 0; // dragenter/leave fire per child — count to stay sane
+
+  const dropAllowed = $derived(!!channel && !composerDisabled);
+
+  function onZoneDragEnter(e: DragEvent) {
+    if (!dropAllowed || !e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault(); dragDepth++; dragActive = true;
+  }
+  function onZoneDragOver(e: DragEvent) {
+    if (dropAllowed && e.dataTransfer?.types.includes('Files')) e.preventDefault();
+  }
+  function onZoneDragLeave() {
+    if (!dragActive) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) dragActive = false;
+  }
+  function onZoneDrop(e: DragEvent) {
+    if (!dropAllowed || !e.dataTransfer?.types.includes('Files')) return;
+    e.preventDefault(); dragDepth = 0; dragActive = false;
+    if (e.dataTransfer.files?.length) composer?.addExternalFiles(e.dataTransfer.files);
+  }
 
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
@@ -235,11 +262,11 @@
       // Parent isn't loaded (older than our window or deleted) — show a stub.
       return { id: m.reply_to_id, author: '…', snippet: pm.chat_view_older_message() };
     }
-    return { id: parent.id, author: authorName(parent), snippet: snippet(parent.content) };
+    return { id: parent.id, author: authorName(parent), snippet: snippet(plainifyMentions(parent.content)) };
   }
 
   const replyBanner = $derived(
-    replyTarget ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(replyTarget.content) } : null
+    replyTarget ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(plainifyMentions(replyTarget.content)) } : null
   );
 
   function startReply(m: Message) {
@@ -278,7 +305,22 @@
   }
 </script>
 
-<section class="glass-panel flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl">
+<section
+  class="glass-panel relative flex h-full min-w-0 flex-1 flex-col overflow-hidden rounded-none md:rounded-2xl"
+  aria-label={channel ? channel.name : pm.chat_view_select_channel()}
+  ondragenter={onZoneDragEnter}
+  ondragover={onZoneDragOver}
+  ondragleave={onZoneDragLeave}
+  ondrop={onZoneDrop}
+>
+  {#if dragActive}
+    <div
+      class="bg-primary/10 border-primary text-primary pointer-events-none absolute inset-0 z-30 m-2 flex items-center justify-center rounded-2xl border-2 border-dashed text-base font-semibold backdrop-blur-sm"
+      data-testid="chat-drop-overlay"
+    >
+      {pm.message_input_drop_files_hint()}
+    </div>
+  {/if}
   <header class="flex h-14 items-center gap-2.5 px-3 md:px-5">
     {#if channel}
       {#if headerKind === 'dm'}
@@ -354,6 +396,8 @@
       <ComposerDisabledBanner reason={composerDisabledReason} />
     {/if}
     <MessageInput
+      bind:this={composer}
+      handleDrop={false}
       channelId={channel.id}
       placeholder={viewport.isMobile
         ? `${namePrefix}${channel.name}`

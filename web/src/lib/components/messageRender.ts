@@ -189,6 +189,23 @@ export function parseMentionMarkers(content: string): Mention[] {
 }
 
 /**
+ * Plain-text mention resolution for previews/snippets — reply quotes, the
+ * composer reply banner, notification bodies. Converts the wire markers
+ * `<@id>` / `<@&id>` into a readable `@name` with no markdown or HTML, so the
+ * result is safe to drop into a plain `{text}` slot. Unlike `rewriteMentions`
+ * this resolves *every* marker (no server mention-list needed) — a preview
+ * doesn't carry pill semantics, it just shouldn't leak the raw `<@id>` token.
+ */
+export function plainifyMentions(content: string): string {
+  let out = content;
+  // Users `<@123>` (the `\d` guard means this never touches role `<@&123>`).
+  out = out.replace(/<@(\d{1,20})>/g, (_full, id: string) => userMentionLabel(id));
+  // Roles `<@&456>`.
+  out = out.replace(/<@&(\d{1,20})>/g, (_full, id: string) => roleMentionLabel(id));
+  return out;
+}
+
+/**
  * Public render entry point. Safe to call with `mentions=undefined` — the
  * markup pass becomes a no-op and the output matches the legacy renderer.
  */

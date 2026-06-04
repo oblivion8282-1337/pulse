@@ -24,13 +24,19 @@
     replyTo = null,
     onCancelReply,
     disabled = false,
-    disabledReason = ''
+    disabledReason = '',
+    handleDrop = true
   }: {
     channelId?: string | null;
     placeholder?: string;
     onSend: (text: string, attachmentIds: string[]) => void;
     replyTo?: { id: string; author: string; snippet: string } | null;
     onCancelReply?: () => void;
+    /** When false, this composer skips its own drag-drop (overlay + handlers)
+     *  because a parent owns a wider drop zone (ChatView makes the whole
+     *  channel droppable and forwards files via `addExternalFiles`). Default
+     *  true keeps the standalone stream/watch-party chat composer droppable. */
+    handleDrop?: boolean;
     /** When true the input, attachment button and submit are inert. Used
      *  by the DM hard-cut foundation (Etappe 4): DMs without a confirmed
      *  friendship freeze the composer until friendship resumes. The
@@ -87,6 +93,14 @@
     }
   }
 
+  /** Entry point for files dropped *outside* the composer — the whole
+   *  ChatView is a drop zone (Discord-style), and it forwards the files here
+   *  so they land in this composer's pending-upload strip. No-op when
+   *  attachments are off (watch-party / stream chat). */
+  export function addExternalFiles(files: FileList | File[]): void {
+    addFiles(files);
+  }
+
   function removeAttachment(localId: string) {
     aborts.get(localId)?.();
     aborts.delete(localId);
@@ -136,17 +150,22 @@
   }
 
   function onDragEnter(e: DragEvent) {
-    if (!e.dataTransfer?.types.includes('Files')) return;
+    if (!handleDrop || !e.dataTransfer?.types.includes('Files')) return;
     e.preventDefault(); dragDepth++; isDragging = true;
   }
   const onDragOver = (e: DragEvent) =>
-    e.dataTransfer?.types.includes('Files') && e.preventDefault();
+    handleDrop && e.dataTransfer?.types.includes('Files') && e.preventDefault();
   const onDragLeave = () => {
+    if (!handleDrop) return;
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth === 0) isDragging = false;
   };
   function onDrop(e: DragEvent) {
-    e.preventDefault(); dragDepth = 0; isDragging = false;
+    // When a parent owns the drop zone (handleDrop=false) we don't touch the
+    // event — it bubbles to the ChatView section handler. Otherwise (standalone
+    // composer) we handle it here and stopPropagation so it isn't double-added.
+    if (!handleDrop) return;
+    e.preventDefault(); e.stopPropagation(); dragDepth = 0; isDragging = false;
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
   }
 
