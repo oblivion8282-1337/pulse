@@ -30,6 +30,9 @@ import { m } from '$lib/paraglide/messages.js';
 export function register(ctx: HandlerContext): void {
   registerWsHandler('message', (evt) => {
     messages.upsert(evt.data);
+    // A delivered message means the author just stopped typing — drop their
+    // "X schreibt …" immediately instead of waiting out the 6s TTL.
+    typing.clear(evt.data.channel_id, evt.data.author_id);
     // Own messages don't make a channel unread for ourselves.
     if (evt.data.author_id !== auth.user?.id) {
       readState.recordSeen(evt.data.channel_id, evt.data.id);

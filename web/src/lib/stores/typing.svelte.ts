@@ -36,6 +36,15 @@ class TypingTracker {
     this.#byChannel = { ...this.#byChannel, [channelId]: next };
   }
 
+  /** Drop a user's typing entry *now* — called when their message arrives so
+   *  "X schreibt …" vanishes the instant the message lands instead of
+   *  lingering until the TTL fires. Cancels the pending expiry timer too. */
+  clear(channelId: string, userId: string): void {
+    const t = this.#timers.get(`${channelId}:${userId}`);
+    if (t) clearTimeout(t);
+    this.#clear(channelId, userId);
+  }
+
   #clear(channelId: string, userId: string): void {
     this.#timers.delete(`${channelId}:${userId}`);
     const set = this.#byChannel[channelId];
