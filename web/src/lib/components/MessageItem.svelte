@@ -61,10 +61,15 @@
   // Invite-Embed-Detection: extract the first /invite/<code> from the content.
   // Require an explicit https?:// prefix so bare /invite/XXXXXXXX substrings
   // (e.g. in path segments of unrelated URLs) do not trigger an embed fetch.
-  const INVITE_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9]{8})\b/;
+  // Capture-Gruppe 1 = Code, 2 = optionaler ``?host=<fqdn>`` (Self-Host-Invite).
+  const INVITE_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9]{8})(?:\?host=([^\s&#]+))?/;
   const inviteCode = $derived.by(() => {
     const m = message.content.match(INVITE_RE);
     return m ? m[1] : null;
+  });
+  const inviteHost = $derived.by(() => {
+    const m = message.content.match(INVITE_RE);
+    return m && m[2] ? decodeURIComponent(m[2]) : null;
   });
   // Suppress the raw text entirely when the message is *only* the invite link
   // (possibly with surrounding whitespace).
@@ -159,7 +164,7 @@
       </div>
     {/if}
     {#if inviteCode}
-      <InviteEmbed code={inviteCode} />
+      <InviteEmbed code={inviteCode} host={inviteHost} />
     {/if}
     <MessageAttachments {attachments} />
     <MessageReactions reactions={reactions} onToggle={handleToggle} />

@@ -4,25 +4,25 @@ import { rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
-
-/**
- * Pull the invite code out of a pasted full link (e.g.
- * `https://howispulse.com/invite/abcd1234`) or accept a bare code.
- */
-export function parseInviteCode(input: string): string {
-	const trimmed = input.trim();
-	const m = trimmed.match(/\/invite\/([^/?#\s]+)/i);
-	return (m ? m[1] : trimmed).trim();
-}
+import { parseInviteLink } from './inviteLink';
 
 /**
  * Accept an invite (given a pasted link or a bare code), refresh the guild
  * list, and navigate into the joined guild. Throws on an empty input or an
  * invalid/expired code (ApiError) — callers should surface that to the user.
+ *
+ * Self-Host (Link trägt ``?host=``): NICHT inline gegen den aktiven Server
+ * akzeptieren (der Code lebt auf einem anderen Backend) → auf die
+ * ``/invite/[code]?host=``-Route umleiten, die den Server hinzufügt,
+ * cert-login macht und dann beitritt.
  */
 export async function joinGuildByInvite(input: string): Promise<void> {
-	const code = parseInviteCode(input);
+	const { code, host } = parseInviteLink(input);
 	if (!code) throw new Error('Bitte einen Einladungslink oder -code eingeben.');
+	if (host) {
+		await goto(`/invite/${code}?host=${encodeURIComponent(host)}`);
+		return;
+	}
 	const result = await chatApi.acceptInvite(code);
 	await guilds.hydrate();
 	// Pull roles for the newly-joined guild so UI gates resolve correctly

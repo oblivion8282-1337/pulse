@@ -27,6 +27,7 @@
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { buildInviteLink } from '$lib/guilds/inviteLink';
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -76,7 +77,7 @@
   async function send() {
     if (sending || !inviteCode || selected.size === 0) return;
     sending = true;
-    const link = `${window.location.origin}/invite/${inviteCode}`;
+    const link = buildInviteLink(inviteCode);
     const targets = Array.from(selected);
     // Send in parallel — the per-DM round-trip is independent, no
     // need to serialize. Promise.allSettled keeps one failure from

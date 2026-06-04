@@ -844,6 +844,7 @@
   "invite_dialog_title": "Invite People",
   "invite_dialog_uses_unlimited": "Unlimited",
   "invite_embed_invalid": "Invite is invalid or has expired.",
+  "invite_embed_self_host_title": "Invitation to a server",
   "invite_embed_join": "Join",
   "invite_embed_joined": "Already joined",
   "invite_embed_member_count": "{count} members",

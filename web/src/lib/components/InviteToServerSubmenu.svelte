@@ -8,6 +8,7 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
+  import { buildInviteLink } from '$lib/guilds/inviteLink';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Guild } from '$lib/api/types';
@@ -42,7 +43,7 @@
         expiresInSeconds: 86400
       });
       const dm = await chatApi.createOrGetDMChannel(friendUserId);
-      const link = `${window.location.origin}/invite/${invite.code}`;
+      const link = buildInviteLink(invite.code);
       await chatApi.postMessage(dm.id, link);
       toast.success(m.invite_to_server_submenu_invite_sent({ friendName }));
       onDone();

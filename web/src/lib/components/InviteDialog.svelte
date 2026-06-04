@@ -4,6 +4,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
+  import { buildInviteLink } from '$lib/guilds/inviteLink';
   import type { Invite } from '$lib/api/types';
   import InviteListItem from './InviteListItem.svelte';
   import InviteFriendPicker from './InviteFriendPicker.svelte';
@@ -50,9 +51,9 @@
     { value: '100', label: '100' }
   ]);
 
-  let inviteLink = $derived(
-    invite ? `${typeof window !== 'undefined' ? window.location.origin : ''}/invite/${invite.code}` : ''
-  );
+  // Self-Host-Invites tragen ``?host=`` (siehe inviteLink.ts) — sonst fragt der
+  // Empfänger seinen Cloud-Server ab und bekommt „ungültig". Cloud = link-pur.
+  let inviteLink = $derived(invite ? buildInviteLink(invite.code) : '');
 
   async function generateInvite() {
     busy = true;

@@ -14,7 +14,13 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  let { code }: { code: string } = $props();
+  // ``host`` (bare FQDN) ist gesetzt, wenn der Link auf einen Self-Host zeigt.
+  // Dann können wir die Preview NICHT inline laden — der Empfänger ist meist
+  // noch kein Mitglied dieses Servers (kein Session-Token) und sein aktiver
+  // Server ist ein anderer. Wir zeigen stattdessen eine schlanke Karte und
+  // leiten „Beitreten" über die ``/invite/[code]?host=``-Route (die den Server
+  // hinzufügt, cert-login macht und dann beitritt).
+  let { code, host = null }: { code: string; host?: string | null } = $props();
 
   let preview = $state<InvitePreview | null>(null);
   let invalid = $state(false);
@@ -26,6 +32,11 @@
   let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
 
   onMount(async () => {
+    // Self-Host (host gesetzt): keine Inline-Preview, Karte rendert ohne Fetch.
+    if (host) {
+      loading = false;
+      return;
+    }
     try {
       preview = await chatApi.getInvitePreview(code);
     } catch (e) {
@@ -44,7 +55,7 @@
   }
 
   function handleJoin() {
-    void goto(`/invite/${code}`);
+    void goto(host ? `/invite/${code}?host=${encodeURIComponent(host)}` : `/invite/${code}`);
   }
 </script>
 
@@ -61,6 +72,21 @@
       </div>
     </div>
     <div class="h-8 w-20 rounded-lg bg-bg-hover animate-pulse shrink-0"></div>
+  {:else if host}
+    <Avatar.Root class="size-10 shrink-0">
+      <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
+        {guildInitial(host)}
+      </Avatar.Fallback>
+    </Avatar.Root>
+    <div class="min-w-0 flex-1">
+      <p class="text-text-bright truncate text-sm font-semibold">
+        {m.invite_embed_self_host_title()}
+      </p>
+      <p class="text-text-muted truncate text-xs" data-testid="invite-embed-host">{host}</p>
+    </div>
+    <Button size="sm" onclick={handleJoin} data-testid="invite-embed-join-btn">
+      {m.invite_embed_join()}
+    </Button>
   {:else if invalid || !preview}
     <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
     <Button variant="outline" size="sm" disabled>{m.invite_embed_join()}</Button>

@@ -852,6 +852,7 @@
   "invite_dialog_title": "Leute einladen",
   "invite_dialog_uses_unlimited": "Unbegrenzt",
   "invite_embed_invalid": "Einladung ungültig oder abgelaufen.",
+  "invite_embed_self_host_title": "Einladung zu einem Server",
   "invite_embed_join": "Beitreten",
   "invite_embed_joined": "Bereits beigetreten",
   "invite_embed_member_count": "{count} Mitglieder",
