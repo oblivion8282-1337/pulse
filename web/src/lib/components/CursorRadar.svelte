@@ -2,7 +2,8 @@
   // Cursor-folgendes Radar-Sonar: strahlt aus der übergebenen Position (x/y in
   // px relativ zum positionierten Eltern-Container), verblasst sanft wenn
   // `active=false`. pointer-events-none → schluckt keine Klicks/Eingaben.
-  // Die transform-Transition (120 ms) gibt ein leichtes, sanftes Nachziehen.
+  // Position folgt der Maus direkt (keine transform-Transition) — eine
+  // Verzögerung würde bei schnellen Bewegungen sichtbar nachziehen/ruckeln.
   interface Props {
     x: number;
     y: number;
@@ -16,7 +17,7 @@
   class="pointer-events-none absolute left-0 top-0 h-[120px] w-[120px]"
   style="transform: translate3d(calc({x}px - 50%), calc({y}px - 50%), 0);
          opacity: {active ? 1 : 0};
-         transition: transform 120ms ease-out, opacity 500ms ease;"
+         transition: opacity 500ms ease;"
   aria-hidden="true"
 >
   <!-- Statischer Rahmen-Ring -->
