@@ -284,6 +284,14 @@ class StreamController:
             self._set_state("starting")
             self._start_time = time.monotonic()
 
+            # GSR must NOT inherit PULSE_PROP. The Electron app sets
+            # PULSE_PROP=node.name=Pulse so its OWN audio streams are named
+            # "Pulse" (so desktop capture can drop them via app-inverse:Pulse →
+            # kills the voice echo). But GSR is a grandchild and would inherit it
+            # too — renaming GSR's own libpulse capture node ("gsr-combined-*")
+            # to "Pulse", which breaks GSR's internal self-linking and produces a
+            # SILENT stream. Strip it so GSR's capture node keeps its name.
+            gsr_env = {k: v for k, v in os.environ.items() if k != "PULSE_PROP"}
             try:
                 self._proc = subprocess.Popen(
                     argv,
@@ -293,6 +301,7 @@ class StreamController:
                     bufsize=0,                  # unbuffered (binary mode → line-buffering nicht supported)
                     start_new_session=True,     # eigene Prozess-Gruppe → sauber stoppbar
                     preexec_fn=_hide_argv_from_proc,  # hide argv from /proc for other users
+                    env=gsr_env,
                 )
             except (OSError, FileNotFoundError) as e:
                 self._proc = None

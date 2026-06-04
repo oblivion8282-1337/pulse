@@ -215,24 +215,43 @@ def _audio_label_to_base_arg(label: str) -> str | None:
     return None
 
 
+# Node-Name unserer eigenen Electron-Audio-Streams (gesetzt via PULSE_PROP in
+# desktop/electron/main.ts). Wird beim Desktop-Capture IMMER ausgeschlossen,
+# damit Pulses Voice-Wiedergabe nicht zurück in den Stream läuft (Echo).
+PULSE_SELF_NODE_NAME = "Pulse"
+
+
 def build_audio_arg(audio_mode_label: str, excluded_apps: list[str]) -> str | None:
     """Baut das finale GSR -a Argument aus Hauptquelle + persistenten Excludes.
 
-    Logik unverändert aus dem GSR-Original — siehe Doku dort.
+    Bei Desktop-Capture wird IMMER ``app-inverse:Pulse`` ergänzt (zusätzlich zu
+    den user-gewählten Excludes), damit Pulses eigener Ton — v. a. die
+    Voice-Wiedergabe — nicht mitgecaptured wird und als Echo im Stream landet.
+    Voraussetzung: die App benennt ihre Audio-Node via PULSE_PROP in "Pulse"
+    (main.ts) UND der Sidecar entfernt PULSE_PROP aus GSRs Env
+    (stream_controller.py) — sonst hieße GSRs eigene Capture-Node auch "Pulse"
+    und das interne Linking bräche (stiller Stream).
     """
     base = _audio_label_to_base_arg(audio_mode_label)
     if base is None:
         return None  # Aus
-    if not excluded_apps:
-        return base
 
     # App-spezifische Hauptquelle: Excludes irrelevant (GSR-Limit)
     if base.startswith("app:"):
         return base
 
+    # Desktop-Modi: Pulse immer ausschließen (zusätzlich zu user-Excludes).
+    uses_desktop = base in ("default_output", "default_output|default_input")
+    inverse_apps = list(excluded_apps)
+    if uses_desktop and PULSE_SELF_NODE_NAME not in inverse_apps:
+        inverse_apps.append(PULSE_SELF_NODE_NAME)
+
+    if not inverse_apps:
+        return base
+
     # Strip any `|` characters from app names — `|` is GSR's argument separator
     # and a name containing it would silently split the -a value into extra tokens.
-    sanitized = [a.replace("|", "") for a in excluded_apps]
+    sanitized = [a.replace("|", "") for a in inverse_apps]
     inverse_chunk = "|".join(f"app-inverse:{a}" for a in sanitized if a)
 
     if base == "default_output":

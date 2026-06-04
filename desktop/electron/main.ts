@@ -36,6 +36,21 @@ import { wirePower } from './power';
 import { wireUpdater } from './updater';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 
+// Linux audio: name our PulseAudio/PipeWire streams "Pulse" instead of the
+// Chromium default. The GSR HQ-stream excludes our own audio from desktop
+// capture via `app-inverse:Pulse` (else our playback of voice participants is
+// recaptured into the stream → echo). PULSE_PROP is read by libpulse when
+// Chromium's audio service connects; setting it here (before any Electron API)
+// propagates to that child process. No-op on Windows/macOS.
+//   IMPORTANT: the GSR sidecar STRIPS PULSE_PROP before launching
+//   gpu-screen-recorder — GSR is a grandchild and would otherwise rename its
+//   OWN libpulse capture node ("gsr-combined-*") to "Pulse", breaking its
+//   internal self-linking and yielding a SILENT stream. See
+//   streaming/gsr-sidecar/stream_controller.py.
+if (process.platform === 'linux' && !process.env.PULSE_PROP) {
+  process.env.PULSE_PROP = 'node.name=Pulse';
+}
+
 // Override the user-visible app name BEFORE any other Electron API touches it.
 // `app.getName()` falls back to package.json `name`, which is `@dcc/desktop` —
 // KDE/Plasma's StatusNotifier surfaces that as "@dcc/desktop status icon" in
