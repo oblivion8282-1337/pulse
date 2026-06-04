@@ -241,6 +241,9 @@ export type ServerEvent =
       op: 'presence_status_changed';
       data: { user_id: string; status: PresenceStatus | 'invisible' };
     }
+  // Ephemeral "user is typing" signal for a text channel / DM. No persistence;
+  // the client tracks a short TTL per (channel, user) and shows "… schreibt".
+  | { op: 'typing'; channel_id: string; user_id: string }
   | { op: 'error'; code: number; msg: string };
 
 export type ClientEvent =
@@ -269,6 +272,7 @@ export type ClientEvent =
   | { op: 'watch_leave'; channel_id: string }
   | { op: 'watch_handoff'; channel_id: string; target_user_id?: string }
   | { op: 'activity' }
+  | { op: 'typing'; channel_id: string }
   | { op: 'ping' };
 
 /** Narrow `ServerEvent` to the variant that has the given `op`. Used by

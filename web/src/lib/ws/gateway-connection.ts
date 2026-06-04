@@ -456,6 +456,9 @@ export class GatewayConnection {
   sendWatchHandoff = (channelId: string, targetUserId?: string): boolean =>
     senders.sendWatchHandoff(this._raw, channelId, targetUserId);
   sendActivity(): boolean { return this._sendRaw({ op: 'activity' }); }
+  /** Ephemeral "I'm typing" signal for a text channel / DM. Fire-and-forget;
+   *  the caller (composer) debounces so this isn't sent on every keystroke. */
+  sendTyping(channelId: string): boolean { return this._sendRaw({ op: 'typing', channel_id: channelId }); }
   sendPluginOp = (op: string, payload?: Record<string, unknown>): boolean =>
     senders.sendPluginOp(this._raw, op, payload);
 

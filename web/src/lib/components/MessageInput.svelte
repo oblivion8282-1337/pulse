@@ -21,6 +21,7 @@
     channelId = null,
     placeholder = m.message_input_placeholder(),
     onSend,
+    onTyping,
     replyTo = null,
     onCancelReply,
     disabled = false,
@@ -30,6 +31,10 @@
     channelId?: string | null;
     placeholder?: string;
     onSend: (text: string, attachmentIds: string[]) => void;
+    /** Fired (cheaply, on every keystroke with non-empty content) so the
+     *  parent can broadcast a debounced "typing" signal. Optional — the
+     *  stream/watch-party chat composer doesn't wire it. */
+    onTyping?: () => void;
     replyTo?: { id: string; author: string; snippet: string } | null;
     onCancelReply?: () => void;
     /** When false, this composer skips its own drag-drop (overlay + handlers)
@@ -245,7 +250,7 @@
       rows="1"
       bind:value={text}
       onkeydown={onKeydown}
-      oninput={() => mentionOverlay?.update()}
+      oninput={() => { mentionOverlay?.update(); if (text.trim()) onTyping?.(); }}
       onkeyup={() => mentionOverlay?.update()}
       onclick={() => mentionOverlay?.update()}
       onpaste={onPaste}

@@ -70,6 +70,10 @@ class WSOpContext:
     # Voice channel id (as string) the user is currently in, as reported by
     # voice_self_state. ``None`` when not in a voice channel.
     current_voice_channel: str | None = None
+    # Per-channel monotonic timestamp of the last ``typing`` broadcast this
+    # socket sent — server-side throttle backstop for the typing indicator.
+    # Lives on the context (per connection) so it's freed on disconnect.
+    last_typing: dict[str, float] = field(default_factory=dict)
     # Optional DB session passed from the plugin op-gate to avoid double
     # session acquisition. Only set for plugin ops that pass the gate.
     # Internal use only; handlers should not rely on this being set.
@@ -92,6 +96,7 @@ CORE_OPS: frozenset[str] = frozenset({
     "unsubscribe",
     "voice_self_state",
     "activity",
+    "typing",
     "ping",
     "watch_start",
     "watch_stop",

@@ -14,6 +14,7 @@ WebSocket loop runs.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from dcc_shared.permission_resolver import has_permission
@@ -231,6 +232,44 @@ async def handle_activity(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     except Exception:  # noqa: BLE001
         log.exception("activity op failed for user=%s", ctx.user.id)
     # No reply — lightweight, fire-and-forget.
+
+
+# Server-side backstop throttle for the typing indicator. The frontend already
+# debounces to ~once/3s; this guards against a misbehaving/malicious client
+# flooding the channel fan-out. Per-connection state (``ctx.last_typing``) so
+# it's freed on disconnect.
+_TYPING_THROTTLE_S = 2.0
+
+
+@register_ws_op("typing")
+async def handle_typing(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """Ephemeral "user is typing" signal for a text channel / DM.
+
+    Broadcasts ``{op: "typing", channel_id, user_id}`` to the channel's
+    subscribers and returns — no persistence, no reply, no web-push. Only fires
+    for channels this socket is *subscribed* to: ``subscribe`` already enforced
+    VIEW_CHANNEL for guild text channels (and DM membership), and
+    ``manager.publish`` re-applies the view-channel filter at delivery, so no
+    extra permission lookup is needed. The sender receives its own echo (cheap)
+    and the client ignores its own ``user_id``.
+    """
+    cid_int = _channel_id(msg.get("channel_id"))
+    if cid_int is None:
+        return
+    cid = str(cid_int)
+    if cid not in ctx.subscribed:
+        return  # not viewing this channel — nothing to announce
+    now = time.monotonic()
+    if now - ctx.last_typing.get(cid, 0.0) < _TYPING_THROTTLE_S:
+        return
+    ctx.last_typing[cid] = now
+    try:
+        await ctx.manager.publish(
+            cid,
+            {"op": "typing", "channel_id": cid, "user_id": str(ctx.user.id)},
+        )
+    except Exception:  # noqa: BLE001
+        log.exception("typing publish failed for channel %s", cid)
 
 
 # ``send`` op is registered in routes.ws_op_send. Re-register here so

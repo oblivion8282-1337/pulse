@@ -14,6 +14,7 @@ import { directMessages } from '$lib/stores/directMessages.svelte';
 import { streamChat } from '$lib/stores/streamChat.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
+import { typing } from '$lib/stores/typing.svelte';
 import { userCache } from '$lib/stores/users.svelte';
 import { auth } from '$lib/stores/auth.svelte';
 import { guilds } from '$lib/stores/guilds.svelte';
@@ -54,6 +55,13 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('reaction_remove', (evt) => {
     messages.applyReaction(evt.data, -1);
+  });
+
+  registerWsHandler('typing', (evt) => {
+    // Ephemeral "X schreibt …". The sender gets its own echo back — ignore it.
+    if (evt.user_id === auth.user?.id) return;
+    userCache.queue(evt.user_id); // so we can show their name
+    typing.mark(evt.channel_id, evt.user_id);
   });
 
   registerWsHandler('message_ack', () => {

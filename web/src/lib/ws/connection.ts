@@ -72,6 +72,7 @@ export const gateway = {
   sendWatchLeave: (cid: string) => _active().sendWatchLeave(cid),
   sendWatchHandoff: (cid: string, target?: string) => _active().sendWatchHandoff(cid, target),
   sendActivity: () => _active().sendActivity(),
+  sendTyping: (cid: string) => _active().sendTyping(cid),
   sendPluginOp: (op: string, payload?: Record<string, unknown>) =>
     _active().sendPluginOp(op, payload),
   // State (reaktiv im Sinne von Re-Read pro Zugriff)

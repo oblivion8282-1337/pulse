@@ -11,6 +11,8 @@
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { typing } from '$lib/stores/typing.svelte';
+  import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { m as pm } from '$lib/paraglide/messages.js';
@@ -290,6 +292,27 @@
     replyTarget = null;
   }
 
+  // Typing indicator. The composer fires onTyping on every keystroke; we
+  // debounce to one broadcast per 3s (the store keeps each user "typing" for
+  // 6s, so a steady typer stays lit without spamming the channel).
+  let lastTypingSent = 0;
+  function notifyTyping() {
+    if (!channel) return;
+    const now = Date.now();
+    if (now - lastTypingSent < 3000) return;
+    lastTypingSent = now;
+    gateway.sendTyping(channel.id);
+  }
+
+  const typingLabel = $derived.by(() => {
+    const ids = typing.others(channel?.id, auth.user?.id);
+    if (ids.length === 0) return '';
+    const names = ids.map((id) => userCache.displayName(id));
+    if (names.length === 1) return pm.chat_view_typing_one({ name: names[0] });
+    if (names.length === 2) return pm.chat_view_typing_two({ a: names[0], b: names[1] });
+    return pm.chat_view_typing_many();
+  });
+
   function canEditMessage(m: Message): boolean {
     return !!auth.user && m.author_id === auth.user.id && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
@@ -395,9 +418,19 @@
     {#if composerDisabled && composerDisabledReason}
       <ComposerDisabledBanner reason={composerDisabledReason} />
     {/if}
+    {#if typingLabel}
+      <div
+        class="text-text-muted h-4 truncate px-4 text-xs italic md:px-5"
+        data-testid="typing-indicator"
+        aria-live="polite"
+      >
+        {typingLabel}
+      </div>
+    {/if}
     <MessageInput
       bind:this={composer}
       handleDrop={false}
+      onTyping={notifyTyping}
       channelId={channel.id}
       placeholder={viewport.isMobile
         ? `${namePrefix}${channel.name}`

@@ -128,6 +128,18 @@ class DmBumpEvent(_EventBase):
     author_id: str
 
 
+class TypingEvent(_EventBase):
+    """``op="typing"`` — ephemeral "user is typing" ping on a channel.
+
+    No persistence, no body. Broadcast to the channel's subscribers
+    (VIEW_CHANNEL-filtered in the listener); each client keeps the sender
+    "typing" for a short TTL and ignores its own echo."""
+
+    op: Literal["typing"] = "typing"
+    channel_id: str
+    user_id: str
+
+
 class MentionAddedData(_EventBase):
     channel_id: str
     message_id: str
