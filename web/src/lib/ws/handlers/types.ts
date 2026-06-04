@@ -67,6 +67,9 @@ export type ReadyEvent = {
   voice_states?: VoiceChannelState[];
   stream_states?: StreamChannelState[];
   watch_states?: WatchChannelEntry[];
+  /** Server clock (unix ms) at ready-send time — seeds the watch-party clock
+   * offset so position extrapolation uses the shared server clock. */
+  server_now?: number;
   online_user_ids?: string[];
   voice_overrides?: {
     channel_id: string;
@@ -158,7 +161,14 @@ export type ServerEvent =
       streamer_id: string;
       message: StreamChatMessage;
     }
-  | { op: 'watch_state'; channel_id: string; state: WatchPartyState | null }
+  | {
+      op: 'watch_state';
+      channel_id: string;
+      state: WatchPartyState | null;
+      /** Server clock (unix ms) at push time — keeps the client's clock
+       * offset calibrated for position extrapolation. */
+      server_now?: number;
+    }
   | { op: 'watch_watchers'; channel_id: string; user_ids: string[] }
   | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
   | {

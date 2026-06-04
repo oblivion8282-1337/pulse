@@ -13,6 +13,7 @@ import { directMessages } from '$lib/stores/directMessages.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { streamPresence } from '$lib/stores/streamPresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
+import { clockSync } from '$lib/watch/clockSync';
 import { presence } from '$lib/stores/presence.svelte';
 import { friends } from '$lib/stores/friends.svelte';
 import { friendRequests } from '$lib/stores/friendRequests.svelte';
@@ -68,6 +69,9 @@ export function register(ctx: ReadyContext): void {
     voicePresence.seedOverrides(evt.voice_overrides ?? []);
     streamPresence.seed(evt.stream_states ?? []);
     watchPartyPresence.seed(evt.watch_states ?? []);
+    // Calibrate the watch-party clock offset on connect so position
+    // extrapolation uses the server clock from the first frame on.
+    if (typeof evt.server_now === 'number') clockSync.record(evt.server_now);
     presence.seed(evt.online_user_ids ?? []);
     // Etappe 4 friend-system seeding. All fields optional in the
     // ready frame for back-compat with older mocked tests; we fall

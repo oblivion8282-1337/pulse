@@ -73,6 +73,10 @@ export class PartyController {
       return;
     }
     const playingFlipped = prev.is_playing !== cur.is_playing;
+    // Server-vs-server compare (both timestamps are server-stamped): pass
+    // cur.updated_at explicitly so this stays on the raw server axis. Do NOT
+    // let it fall back to the clock-calibrated default — there is no client
+    // clock involved here, so calibration would be wrong.
     const expectedFromPrev = expectedPosition(prev, cur.updated_at);
     const positionJumped =
       Math.abs(cur.position - expectedFromPrev) > SEEK_DETECTION_THRESHOLD_S;

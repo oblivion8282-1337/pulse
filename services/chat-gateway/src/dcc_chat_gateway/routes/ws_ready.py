@@ -27,7 +27,7 @@ import logging
 from fastapi import WebSocket
 from sqlalchemy import or_, select
 
-from dcc_chat_gateway import s3
+from dcc_chat_gateway import s3, watchkeys
 from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.friend_events import (
     load_blocks_in,
@@ -404,6 +404,11 @@ async def build_and_send_ready_frame(
         {
             "op": "ready",
             "user_id": str(user.id),
+            # Server clock at ready-send time. Lets the client calibrate its
+            # clock offset immediately on connect so watch-party position
+            # extrapolation uses the shared server clock from the first frame
+            # (live watch_state pushes keep it fresh thereafter).
+            "server_now": watchkeys.now_ms(),
             # Admin status for THIS server (cloud: from auth.users; self-host:
             # the instance owner, set at cert-login). Lets the client gate the
             # admin panel per active server without an auth-svc /me round-trip.

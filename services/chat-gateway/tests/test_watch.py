@@ -311,6 +311,10 @@ async def test_watch_start_writes_state_and_broadcasts(ws_app, _auth_signer):
                     assert got["state"]["source"]["embed_id"] == "abc12345678"
                     assert got["state"]["host_user_id"] == str(uid)
                     assert got["state"]["is_playing"] is True
+                    # Carries the server clock so viewers calibrate their offset
+                    # and extrapolate position against the shared server clock.
+                    assert isinstance(got["server_now"], int)
+                    assert got["server_now"] > 0
                     raw = r.get(f"watch:channel-{cid}")
                     assert raw is not None
                     data = json.loads(raw)
@@ -634,6 +638,9 @@ async def test_ready_carries_watch_states(ws_app, _auth_signer, redis):
                     assert payload["op"] == "ready"
                     states = {s["channel_id"]: s["state"] for s in payload["watch_states"]}
                     assert states[cid]["host_user_id"] == "777"
+                    # ready seeds the client's server-clock offset on connect.
+                    assert isinstance(payload["server_now"], int)
+                    assert payload["server_now"] > 0
 
         await asyncio.to_thread(_connect)
     finally:

@@ -31,7 +31,7 @@ from dcc_chat_gateway.pubsub_channels import (
     VOICE_EVENTS_CHANNEL,
 )
 from dcc_chat_gateway.pubsub_event_validation import maybe_drop
-from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL
+from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, now_ms
 
 # Side-effect: registers ``guild:events`` — kept in its own module so this
 # file stays under the 350-line policy.
@@ -176,6 +176,10 @@ async def handle_watch_events(
         "op": "watch_state",
         "channel_id": watch_cid,
         "state": payload.get("state"),
+        # Server-clock timestamp so viewers can calibrate their local clock
+        # offset and extrapolate playback position against the server clock
+        # (the single shared time base) instead of their own skewed Date.now().
+        "server_now": now_ms(),
     }
     async with manager._lock:
         raw_targets = list(manager._connections)

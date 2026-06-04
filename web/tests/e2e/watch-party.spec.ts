@@ -537,4 +537,57 @@ test.describe.serial('Watch Party E2E', () => {
     await wsClose(alicePage, 'wpmain');
     await wsClose(alicePage, 'wppopup');
   });
+
+  test('watch_state push carries server_now for clock calibration', async () => {
+    // The drift fix needs the server clock on the wire so viewers can calibrate
+    // their offset and extrapolate position against the shared server clock
+    // (not their own skewed Date.now()). Verify the push actually carries it.
+    const cid = await createChannel(alicePage, guildId, 'Voice-Clock', 1);
+    await wsOpen(alicePage, 'clk');
+    await wsSend(alicePage, 'clk', {
+      op: 'watch_start',
+      channel_id: cid,
+      source_url: 'https://youtu.be/abc12345678'
+    });
+    const frame = await wsWaitFor(alicePage, 'clk', 'watch_state', cid);
+    expect(typeof frame.server_now, 'watch_state carries server_now').toBe('number');
+    expect(frame.server_now as number).toBeGreaterThan(0);
+
+    await wsSend(alicePage, 'clk', { op: 'watch_stop', channel_id: cid });
+    await wsClose(alicePage, 'clk');
+  });
+
+  test('clockSync calibrates the server-clock offset (pure math)', async () => {
+    // Exercises the real module with injected client times — deterministic, no
+    // dependency on the machine's actual clock. This is the core of the drift
+    // fix: position extrapolation runs on clockSync.now() (= local + offset)
+    // instead of raw Date.now(), so each client's clock skew cancels out.
+    const out = await alicePage.evaluate(async () => {
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/watch/clockSync.ts')) as {
+        ClockSync: new () => {
+          record: (s: number, c?: number) => void;
+          now: (c?: number) => number;
+          offsetMs: number;
+          calibrated: boolean;
+        };
+      };
+      const c = new mod.ClockSync();
+      const before = c.now(1000); // offset 0 before any sample → identity
+      c.record(10_000, 3_000); // first sample seeds directly → offset 7000
+      const offset1 = c.offsetMs;
+      const now1 = c.now(3_000); // 3000 + 7000
+      c.record(10_500, 4_000); // sample 6500; EMA 0.2 → 7000 + 0.2*(6500-7000)
+      const offset2 = c.offsetMs;
+      c.record(Number.NaN, 5_000); // non-finite ignored
+      const offset3 = c.offsetMs;
+      return { before, offset1, now1, offset2, offset3, calibrated: c.calibrated };
+    });
+    expect(out.before).toBe(1000); // uncalibrated = raw local clock (no regression)
+    expect(out.offset1).toBe(7000);
+    expect(out.now1).toBe(10_000);
+    expect(out.offset2).toBeCloseTo(6900, 6); // EMA pulled toward the new sample
+    expect(out.offset3).toBeCloseTo(6900, 6); // NaN sample left it unchanged
+    expect(out.calibrated).toBe(true);
+  });
 });

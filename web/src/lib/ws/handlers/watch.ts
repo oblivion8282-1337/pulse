@@ -7,11 +7,15 @@ import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { watchWatchers } from '$lib/stores/watchWatchers.svelte';
 import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+import { clockSync } from '$lib/watch/clockSync';
 import { gateway } from '$lib/ws/connection';
 import { registerWsHandler } from '../handler-registry';
 
 export function register(): void {
   registerWsHandler('watch_state', (evt) => {
+    // Keep the server-clock offset fresh on every push (host heartbeats
+    // arrive ~every 3 s) so position extrapolation stays calibrated.
+    if (typeof evt.server_now === 'number') clockSync.record(evt.server_now);
     watchPartyPresence.apply(evt.channel_id, evt.state);
     if (evt.state === null) {
       watchChat.clear(evt.channel_id);

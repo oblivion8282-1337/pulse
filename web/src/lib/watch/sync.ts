@@ -44,6 +44,7 @@
  */
 
 import type { WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
+import { clockSync } from '$lib/watch/clockSync';
 
 export type PlayerEvent =
   | { type: 'ready' }
@@ -78,8 +79,14 @@ const SEEK_LEAD_S = 1.5;
  * NUDGE_DURATION_MS because buffer recovery isn't instantaneous. */
 const POST_SEEK_NUDGE_MS = 3000;
 
-/** Where the host's clock says we should be right now. */
-export function expectedPosition(state: WatchPartyState, nowMs = Date.now()): number {
+/** Where the host's clock says we should be right now.
+ *
+ * `nowMs` defaults to the *calibrated server clock* ({@link clockSync.now}),
+ * NOT raw `Date.now()` — `state.updated_at` is a server timestamp, so mixing
+ * in a skewed local clock would offset every viewer by their clock error.
+ * Callers comparing two server timestamps (e.g. `expectedPosition(prev,
+ * cur.updated_at)`) pass `nowMs` explicitly and stay on the raw server axis. */
+export function expectedPosition(state: WatchPartyState, nowMs = clockSync.now()): number {
   if (!state.is_playing) return state.position;
   const elapsed = Math.max(0, (nowMs - state.updated_at) / 1000);
   return state.position + elapsed;
