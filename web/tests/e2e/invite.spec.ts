@@ -108,8 +108,9 @@ test.describe.serial('Invite Flow E2E', () => {
 
   test('Cara joins via the "+" dialog — bad code shows an error, the real code joins', async () => {
     await register(caraPage, CARA);
-    // "+" menu → "Community beitreten" opens the dialog straight on the join form
-    await caraPage.getByTestId('guild-add-menu').click();
+    // Per-server "+" menu → "Community beitreten" opens the dialog straight on
+    // the join form. (One server in E2E = the cloud → first per-server "+".)
+    await caraPage.locator('[data-testid^="guild-create-menu-"]').first().click();
     await caraPage.getByTestId('guild-join').click();
     await expect(caraPage.getByTestId('create-guild-dialog')).toBeVisible();
     // a bogus code surfaces an inline error and keeps the dialog open

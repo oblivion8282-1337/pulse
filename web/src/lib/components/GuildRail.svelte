@@ -44,6 +44,7 @@
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import AddServerDialog from './sidebar/AddServerDialog.svelte';
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
   import ServerIconButton from './sidebar/ServerIconButton.svelte';
@@ -216,6 +217,7 @@
       gatewayPool.close(id);
       serversStore.remove(id);
       serverGuilds.forget(id);
+      serverCapabilities.forget(id);
       if (activeServer.serverId === id) {
         const fallback = serversStore.servers.find((s) => s.isCloud);
         if (fallback) activeServer.set(fallback.id);
@@ -238,6 +240,31 @@
       activeServer.set(serverId);
     }
     onSelect(g);
+  }
+
+  // Darf der User auf DIESEM Server eine Community erstellen? Admin des Servers
+  // (Cloud: ``auth.user.is_admin``; Self-Host: ``serverAdmin`` aus dem
+  // Ready-Frame) ODER der Server hat ``allow_guild_creation`` offen. Der
+  // Capabilities-Flag wird pro Server geladen (serverCapabilities); solange er
+  // fehlt, zeigt das „+" nur für Admins (kein optimistisches Flackern).
+  function canCreateOnServer(server: ServerEntry): boolean {
+    const adminHere = server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id);
+    if (adminHere) return true;
+    return serverCapabilities.get(server.id)?.allowGuildCreation ?? false;
+  }
+
+  // Per-Server-„+"-Aktionen: erst den Server aktivieren (falls nötig), dann den
+  // Erstellen-/Beitreten-Dialog des Eltern-Views öffnen. Der Dialog läuft gegen
+  // den aktiven Server, daher landet die neue/beigetretene Community garantiert
+  // auf genau dem Server, dessen „+" geklickt wurde.
+  function createOnServer(serverId: string): void {
+    if (serverId !== activeServer.serverId) activeServer.set(serverId);
+    onCreateClick?.();
+  }
+
+  function joinOnServer(serverId: string): void {
+    if (serverId !== activeServer.serverId) activeServer.set(serverId);
+    onJoinClick?.();
   }
 
   // Kompakter Section-Header pro Server: 2-Letter-Initialen, Klick öffnet
@@ -496,46 +523,83 @@
         </ContextMenu.Root>
       {/each}
 
+      <!-- Per-Server-„+": Mini-Menü für DIESEN Server. IMMER sichtbar (jedes
+           Mitglied kann einer Community beitreten); nur der Punkt „Community
+           erstellen" ist gegatet (``canCreateOnServer`` = Admin oder
+           allow_guild_creation). Klick aktiviert erst den Server, dann öffnet
+           der Eltern-Dialog → neue/beigetretene Community landet garantiert auf
+           genau diesem Server. Bewusst kleiner als die Community-Icons
+           (size-9, gestrichelt), damit es als Sektions-Aktion liest. -->
+      {#if onCreateClick || onJoinClick}
+        {@const canCreateHere = !!onCreateClick && canCreateOnServer(server)}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Tooltip.Root>
+                <Tooltip.Trigger>
+                  {#snippet child({ props: tipProps })}
+                    <button
+                      {...props}
+                      {...tipProps}
+                      class="border-primary/40 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl border border-dashed bg-transparent transition-all hover:rounded-lg hover:bg-primary/10"
+                      data-testid={`guild-create-menu-${server.id}`}
+                      aria-label={canCreateHere
+                        ? m.guild_rail_create_community()
+                        : m.guild_rail_join_community()}
+                    >
+                      <PlusIcon class="size-4" />
+                    </button>
+                  {/snippet}
+                </Tooltip.Trigger>
+                <Tooltip.Content side="right">
+                  {canCreateHere ? m.guild_rail_create_community() : m.guild_rail_join_community()}
+                </Tooltip.Content>
+              </Tooltip.Root>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content side="right" align="start" class="w-56">
+            {#if canCreateHere}
+              <DropdownMenu.Item
+                onSelect={() => createOnServer(server.id)}
+                data-testid="guild-create"
+              >
+                <UsersRoundIcon />
+                {m.guild_rail_create_community()}
+              </DropdownMenu.Item>
+            {/if}
+            {#if onJoinClick}
+              <DropdownMenu.Item onSelect={() => joinOnServer(server.id)} data-testid="guild-join">
+                <LogInIcon />
+                {m.guild_rail_join_community()}
+              </DropdownMenu.Item>
+            {/if}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
+
     {/each}
 
-    <!-- Ein einziger "+"-Button am Ende: öffnet ein Menü mit "Community
-         erstellen" (auf dem aktiven Server) ODER "Server hinzufügen". Ersetzt
-         die früheren zwei optisch identischen "+"-Knöpfe (per-Server-Create +
-         globaler Server-Add), die verwirrend wirkten. -->
-    <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger>
+    <!-- "Server hinzufügen" ist bewusst abgesetzt ganz unten — es betrifft die
+         ganze App (neuer Self-Host/Cloud-Verbund), nicht eine einzelne
+         Community. Der flex-Spacer schiebt es ans Leisten-Ende. -->
+    <div class="min-h-2 flex-1 shrink-0" aria-hidden="true"></div>
+    <div class="bg-border my-1 h-px w-8 shrink-0" aria-hidden="true"></div>
+    <Tooltip.Root>
+      <Tooltip.Trigger>
         {#snippet child({ props })}
           <button
             {...props}
-            class="border-primary/30 text-primary flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-bg-input transition-all hover:rounded-xl hover:bg-bg-hover"
-            data-testid="guild-add-menu"
-            aria-label={m.guild_rail_add()}
+            class="border-border text-text-muted hover:text-text-bright flex size-10 shrink-0 items-center justify-center rounded-2xl border border-dashed bg-transparent transition-all hover:rounded-xl hover:bg-bg-hover"
+            data-testid="server-add"
+            aria-label={m.guild_rail_add_server()}
+            onclick={() => (addServerOpen = true)}
           >
-            <PlusIcon class="size-5" />
+            <ServerIcon class="size-5" />
           </button>
         {/snippet}
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Content side="right" align="end" class="w-56">
-        {#if onCreateClick}
-          <DropdownMenu.Item onSelect={() => onCreateClick?.()} data-testid="guild-create">
-            <UsersRoundIcon />
-            {m.guild_rail_create_community()}
-          </DropdownMenu.Item>
-        {/if}
-        {#if onJoinClick}
-          <DropdownMenu.Item onSelect={() => onJoinClick?.()} data-testid="guild-join">
-            <LogInIcon />
-            {m.guild_rail_join_community()}
-          </DropdownMenu.Item>
-        {/if}
-        <DropdownMenu.Separator />
-        <DropdownMenu.Item onSelect={() => (addServerOpen = true)} data-testid="server-add">
-          <ServerIcon />
-          {m.guild_rail_add_server()}
-        </DropdownMenu.Item>
-      </DropdownMenu.Content>
-    </DropdownMenu.Root>
+      </Tooltip.Trigger>
+      <Tooltip.Content side="right">{m.guild_rail_add_server()}</Tooltip.Content>
+    </Tooltip.Root>
   </Tooltip.Provider>
 
   <!-- Eigener User: auf Mobil unten in der Server-Spalte, nur das Avatar-

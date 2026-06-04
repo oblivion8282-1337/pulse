@@ -155,6 +155,9 @@ class AuthStore {
     settings.resetUserScoped();
     // Sidebar-Variante-B-Snapshot: pro-Server-Community-Liste wegwerfen.
     void import('$lib/stores/serverGuilds.svelte').then((m) => m.serverGuilds.clear());
+    void import('$lib/stores/serverCapabilities.svelte').then((m) =>
+      m.serverCapabilities.clear(),
+    );
     // Decline-Flag zurücksetzen: ein "Als neues Gerät weiter" gilt nur für
     // die laufende Session — beim nächsten Login soll der User wieder den
     // Recover-Dialog bekommen können.

@@ -5,6 +5,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -53,6 +54,10 @@
     const activeId = activeServer.serverId;
     queueMicrotask(() => {
       for (const id of serverIds) {
+        // Capabilities für JEDEN Server (auch den aktiven) — die GuildRail
+        // gatet das per-Server-„+" (Community erstellen) anhand
+        // ``allow_guild_creation`` dieses Servers.
+        void serverCapabilities.ensureLoaded(id);
         if (id === activeId) continue;
         void serverGuilds.ensureLoaded(id);
       }
@@ -122,6 +127,7 @@
     // (Bridge-Effect weiter unten); für alle anderen reicht ein
     // best-effort REST-Snapshot.
     for (const s of serversStore.servers) {
+      void serverCapabilities.ensureLoaded(s.id);
       if (s.id === activeServer.serverId) continue;
       void serverGuilds.ensureLoaded(s.id);
     }

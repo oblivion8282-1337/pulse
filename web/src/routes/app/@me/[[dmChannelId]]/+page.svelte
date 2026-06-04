@@ -8,9 +8,6 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
-  import { capabilities } from '$lib/stores/capabilities.svelte';
-  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
-  import { activeServer } from '$lib/stores/active-server.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -249,13 +246,7 @@
   currentUserId={auth.user?.id ?? null}
   homeActive={true}
   onSelect={selectGuild}
-  onCreateClick={
-    auth.user?.is_admin ||
-    serverAdmin.isAdmin(activeServer.serverId) ||
-    capabilities.allowGuildCreation
-      ? () => goto('/app?add=create')
-      : undefined
-  }
+  onCreateClick={() => goto('/app?add=create')}
   onJoinClick={() => goto('/app?add=join')}
   onHomeClick={async () => {
     navDrawer.open = !navDrawer.open;

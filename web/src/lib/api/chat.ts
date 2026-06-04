@@ -226,7 +226,7 @@ export const chatApi = {
    *  toggles these via `/admin/permissions`; the frontend gates create-
    *  guild + create-invite buttons on the result. Refetched live via
    *  the `permissions_updated` WS event. */
-  getCapabilities(): Promise<{
+  getCapabilities(opts?: { serverId?: string }): Promise<{
     allow_guild_creation: boolean;
     allow_member_invites: boolean;
     guild_sound_max_size_bytes: number;
@@ -243,7 +243,7 @@ export const chatApi = {
     cam_resolution_max: string;
     cam_fps_max: number;
   }> {
-    return request('/capabilities', { endpoint: 'chat' });
+    return request('/capabilities', { endpoint: 'chat' }, { serverId: opts?.serverId });
   },
   addReaction(messageId: string, emoji: string): Promise<void> {
     return request<void>(

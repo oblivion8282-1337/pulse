@@ -87,7 +87,7 @@ test.describe.serial('Roles + Permissions E2E', () => {
     inviteCode = (await linkInput.inputValue()).split('/invite/')[1];
     await alice.keyboard.press('Escape');
 
-    await bob.getByTestId('guild-add-menu').click();
+    await bob.locator('[data-testid^="guild-create-menu-"]').first().click();
     await bob.getByTestId('guild-join').click();
     await bob.getByTestId('join-guild-input').fill(inviteCode);
     await bob.getByTestId('join-guild-submit').click();

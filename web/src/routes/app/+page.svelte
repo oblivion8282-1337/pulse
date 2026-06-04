@@ -88,7 +88,7 @@
   currentUserId={auth.user?.id ?? null}
   homeActive={true}
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
-  onCreateClick={canCreateGuild ? () => { createMode = 'create'; creating = true; } : undefined}
+  onCreateClick={() => { createMode = 'create'; creating = true; }}
   onJoinClick={() => { createMode = 'join'; creating = true; }}
   onHomeClick={() => goto('/app/@me')}
 />

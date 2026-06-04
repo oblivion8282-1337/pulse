@@ -452,9 +452,7 @@
   activeGuildId={guildId}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={canCreateGuild
-    ? () => { createGuildMode = 'create'; creatingGuild = true; }
-    : undefined}
+  onCreateClick={() => { createGuildMode = 'create'; creatingGuild = true; }}
   onJoinClick={() => { createGuildMode = 'join'; creatingGuild = true; }}
   onHomeClick={() => { navDrawer.open = true; void goto('/app/@me'); }}
   onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
