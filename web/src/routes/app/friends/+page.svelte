@@ -15,6 +15,8 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
@@ -62,7 +64,11 @@
   homeActive={true}
   onSelect={selectGuild}
   onCreateClick={
-    auth.user?.is_admin || capabilities.allowGuildCreation ? () => goto('/app?add=create') : undefined
+    auth.user?.is_admin ||
+    serverAdmin.isAdmin(activeServer.serverId) ||
+    capabilities.allowGuildCreation
+      ? () => goto('/app?add=create')
+      : undefined
   }
   onJoinClick={() => goto('/app?add=join')}
   onHomeClick={async () => {

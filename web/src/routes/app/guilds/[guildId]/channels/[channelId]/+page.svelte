@@ -14,6 +14,8 @@
   import CreateChannelDialog from '$lib/components/CreateChannelDialog.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
@@ -43,6 +45,16 @@
   // ``serverGuilds``-Cache, damit der Community-Name nicht zu „—" wird.
   let activeGuild = $derived<typeof guilds.byId[string] | undefined>(
     guilds.byId[guildId] ?? serverGuilds.findGuild(guildId)
+  );
+  // Community-Erstellung darf, wer Admin des *aktiven* Servers ist (Cloud:
+  // ``auth.user.is_admin``; Self-Host: ``serverAdmin`` aus dem Ready-Frame —
+  // ein Cert-User hat dort kein auth/me) ODER wenn der Server das offen
+  // geschaltet hat (``allow_guild_creation``). Ohne den serverAdmin-Zweig
+  // konnte ein Self-Host-Admin keine Community anlegen.
+  let canCreateGuild = $derived(
+    !!auth.user?.is_admin ||
+      serverAdmin.isAdmin(activeServer.serverId) ||
+      capabilities.allowGuildCreation
   );
   let channelsForGuild = $derived<Channel[]>(guilds.channelsByGuild[guildId] ?? []);
   let activeChannel = $derived<Channel | null>(
@@ -440,7 +452,7 @@
   activeGuildId={guildId}
   currentUserId={auth.user?.id ?? null}
   onSelect={(g) => selectGuild(g.id)}
-  onCreateClick={!!auth.user?.is_admin || capabilities.allowGuildCreation
+  onCreateClick={canCreateGuild
     ? () => { createGuildMode = 'create'; creatingGuild = true; }
     : undefined}
   onJoinClick={() => { createGuildMode = 'join'; creatingGuild = true; }}
@@ -525,7 +537,7 @@
 
 <CreateGuildDialog
   open={creatingGuild}
-  canCreate={!!auth.user?.is_admin || capabilities.allowGuildCreation}
+  canCreate={canCreateGuild}
   initialMode={createGuildMode}
   onClose={() => (creatingGuild = false)}
   onCreate={createGuild}

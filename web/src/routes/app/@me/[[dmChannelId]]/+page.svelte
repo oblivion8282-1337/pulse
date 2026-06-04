@@ -9,6 +9,8 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -248,7 +250,9 @@
   homeActive={true}
   onSelect={selectGuild}
   onCreateClick={
-    auth.user?.is_admin || capabilities.allowGuildCreation
+    auth.user?.is_admin ||
+    serverAdmin.isAdmin(activeServer.serverId) ||
+    capabilities.allowGuildCreation
       ? () => goto('/app?add=create')
       : undefined
   }

@@ -8,6 +8,8 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { guildSounds } from '$lib/stores/guildSounds.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -17,9 +19,13 @@
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
-  // Admins can always create; otherwise gate on the server-wide flag.
+  // Admins können immer erstellen — auf der Cloud via ``auth.user.is_admin``,
+  // auf einem Self-Host via ``serverAdmin`` (Ready-Frame; Cert-User hat dort
+  // kein auth/me). Sonst greift der server-weite ``allow_guild_creation``-Flag.
   const canCreateGuild = $derived(
-    !!auth.user?.is_admin || capabilities.allowGuildCreation
+    !!auth.user?.is_admin ||
+      serverAdmin.isAdmin(activeServer.serverId) ||
+      capabilities.allowGuildCreation
   );
 
   let creating = $state(false);
