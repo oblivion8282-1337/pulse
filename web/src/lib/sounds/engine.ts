@@ -184,12 +184,22 @@ class SoundEngine {
     const a = new Audio(url);
     a.preload = 'auto';
     a.addEventListener('error', () => {
-      // MEDIA_ERR_SRC_NOT_SUPPORTED (4) = wrong codec / decoder failure / 404 →
-      // genuinely unplayable, blacklist the URL so we stop trying. MEDIA_ERR_*
-      // ABORTED (1) / NETWORK (2) are typically transient (a load interrupted
-      // by a quick leave, dev-server latency) — don't blacklist, just drop this
-      // element so the next play rebuilds a fresh one.
-      if (a.error?.code === 4) {
+      // Only a *genuine* load failure — the resource never produced any
+      // decodable data (404, wrong container/codec) — should blacklist the URL
+      // so we stop retrying. Detect that by readyState < HAVE_CURRENT_DATA: the
+      // element never reached playable data.
+      //
+      // An element that HAD buffered playable data and then errors is NOT
+      // missing — it's a transient decode/seek glitch. Some Ogg/Vorbis files
+      // make Chromium's FFmpeg demuxer throw MEDIA_ERR_SRC_NOT_SUPPORTED (4)
+      // with "DEMUXER_ERROR_COULD_NOT_PARSE: PTS is not defined" when a *pooled*
+      // element is re-seeked (`currentTime = 0`) for replay — even though the
+      // file plays fine on a fresh element. Blacklisting on that permanently
+      // silences a working sound for the whole session (join chime vanishes
+      // after the first leave+rejoin). So we only discard the poisoned element;
+      // the next play rebuilds a fresh one, which re-decodes cleanly.
+      const neverLoaded = a.readyState < 2; // < HAVE_CURRENT_DATA
+      if (a.error?.code === 4 && neverLoaded) {
         this.#missing.add(url);
       } else {
         this.#discard(url, a);
