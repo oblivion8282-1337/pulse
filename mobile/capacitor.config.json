@@ -1,0 +1,9 @@
+{
+  "appId": "com.howispulse.app",
+  "appName": "Pulse",
+  "webDir": "www",
+  "server": {
+    "url": "https://howispulse.com/app",
+    "cleartext": false
+  }
+}

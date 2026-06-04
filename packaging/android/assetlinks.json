@@ -5,7 +5,8 @@
       "namespace": "android_app",
       "package_name": "com.howispulse.pulse",
       "sha256_cert_fingerprints": [
-        "FA:18:0A:D0:DF:34:9B:95:E5:DD:84:FE:03:88:88:90:FF:E1:68:3D:7D:53:B2:8D:37:F4:CE:DE:C5:CA:C0:9A"
+        "FA:18:0A:D0:DF:34:9B:95:E5:DD:84:FE:03:88:88:90:FF:E1:68:3D:7D:53:B2:8D:37:F4:CE:DE:C5:CA:C0:9A",
+        "A0:9B:FA:0E:C6:75:41:4F:5D:EE:16:B3:9A:CE:72:54:E2:BB:A2:06:15:3D:3C:F7:39:D6:99:97:BC:4B:12:F2"
       ]
     }
   }

@@ -99,3 +99,8 @@ Pulse-*-*.zip
 # Local dev artifacts (CDP-monitor + electron log capture, used to debug the
 # Windows HQ-sidecar pipeline) — never commit.
 /target-*
+
+# Android sideload/test builds (large binaries — built on demand, never commit).
+# The mobile/ Capacitor project tracks its source; build/ + .gradle are covered
+# by the global `build/` rule above and mobile/android/.gitignore.
+*.apk
