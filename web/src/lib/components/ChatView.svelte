@@ -420,11 +420,16 @@
     {/if}
     {#if typingLabel}
       <div
-        class="text-text-muted h-4 truncate px-4 text-xs italic md:px-5"
+        class="text-text-base flex h-5 items-center gap-2 px-4 text-xs md:px-5"
         data-testid="typing-indicator"
         aria-live="polite"
       >
-        {typingLabel}
+        <span class="typing-dots inline-flex items-center gap-1" aria-hidden="true">
+          <span class="bg-primary size-1.5 rounded-full"></span>
+          <span class="bg-primary size-1.5 rounded-full"></span>
+          <span class="bg-primary size-1.5 rounded-full"></span>
+        </span>
+        <span class="truncate font-medium">{typingLabel}</span>
       </div>
     {/if}
     <MessageInput
@@ -443,3 +448,36 @@
     />
   {/if}
 </section>
+
+<style>
+  /* Typing indicator — three dots that ripple in sequence (Discord-style).
+     Color/size/shape come from Tailwind utility classes on the spans; this
+     block only carries the keyframe + staggered delays. */
+  .typing-dots > span {
+    animation: typing-bounce 1.3s infinite ease-in-out both;
+  }
+  .typing-dots > span:nth-child(1) {
+    animation-delay: -0.32s;
+  }
+  .typing-dots > span:nth-child(2) {
+    animation-delay: -0.16s;
+  }
+  @keyframes typing-bounce {
+    0%,
+    80%,
+    100% {
+      transform: scale(0.5);
+      opacity: 0.45;
+    }
+    40% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .typing-dots > span {
+      animation: none;
+      opacity: 0.7;
+    }
+  }
+</style>
