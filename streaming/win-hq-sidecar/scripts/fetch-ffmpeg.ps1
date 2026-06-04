@@ -28,7 +28,7 @@ $Zip = Join-Path $Dist 'ffmpeg-n8.1-win64-lgpl-shared.zip'
 $Target = Join-Path $Dist 'n8.1-lgpl-shared'
 
 $Url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip'
-$ExpectedSha = 'c9acc29c2b614bd6ea40e08c27f3b532413894a27d7fd69242221a9a71319aca'
+$ExpectedSha = '0584d9f5153f3dc56cece06467bae870d8d97c5fc41f2b3c4e3d09f9ea7d4a4c'
 
 if (-not (Test-Path $Dist)) {
     New-Item -ItemType Directory -Path $Dist | Out-Null
