@@ -24,6 +24,7 @@
   import { connectWhep, WhepError, type WhepSession } from '../whep';
   import { WhepStatsReader, formatDiagnostic, type StreamStats } from '../whep-stats';
   import { VolumeBoost } from '../volumeBoost';
+  import { getStreamVolume, setStreamVolume } from '../streamVolume';
   import { acquireWakeLock } from '$lib/platform/wakeLock';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
@@ -62,9 +63,16 @@
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
-  let volume = $state(100);
+  // Restore the viewer's last level for *this* streamer (per-userId, persisted
+  // in localStorage) instead of snapping back to 100 % on every remount.
+  // userId is stable for this instance — the parent keys each tile by uid
+  // ({#each ... (uid)}), so a different streamer is a fresh mount. Capturing
+  // the initial prop value here is intentional.
+  // svelte-ignore state_referenced_locally
+  const initialVolume = getStreamVolume(userId);
+  let volume = $state(initialVolume);
   // Remembers last non-zero volume so the mute toggle can restore it.
-  let prevVolume = $state(100);
+  let prevVolume = $state(initialVolume > 0 ? initialVolume : 100);
   let chatOpen = $state(false);
 
   function handleDetach(): void {
@@ -89,6 +97,7 @@
     volume = Number((e.currentTarget as HTMLInputElement).value);
     if (volume > 0) prevVolume = volume;
     applyVolume();
+    setStreamVolume(userId, volume);
   }
 
   function toggleMute() {
@@ -99,6 +108,7 @@
       volume = prevVolume > 0 ? prevVolume : 100;
     }
     applyVolume();
+    setStreamVolume(userId, volume);
   }
 
   let phase = $state<'connecting' | 'playing' | 'retrying' | 'error'>('connecting');
@@ -218,6 +228,7 @@
           audioBlocked = boost.suspended;
         } else {
           videoEl.muted = false;
+          applyVolume();
         }
       });
       if (disposed || runChannelId !== cid) {
