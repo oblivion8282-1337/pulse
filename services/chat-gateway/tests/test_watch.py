@@ -563,7 +563,7 @@ async def test_watch_stop_deletes_state(ws_app, _auth_signer):
 
 @pytest.mark.asyncio
 async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
-    """Two heartbeats within 2s → only the first propagates."""
+    """Heartbeats inside the debounce window are dropped (no position write)."""
     def _run():
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
@@ -578,9 +578,9 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
                 )
                 first = _wait_for_watch_state(ws, channel_id=cid, is_playing=True)
                 first_updated = first["state"]["updated_at"]
-                # Spam two heartbeats back-to-back — only the second would
-                # write because the start-event reset updated_at to "now".
-                # With the 2s debounce both must be dropped.
+                # Spam two heartbeats back-to-back — the start-event just reset
+                # updated_at to "now", so both land inside the debounce window
+                # (`_HEARTBEAT_DEBOUNCE_MS`) and must be dropped.
                 ws.send_json({"op": "watch_heartbeat", "channel_id": cid, "position": 5})
                 ws.send_json({"op": "watch_heartbeat", "channel_id": cid, "position": 6})
                 # Send a control op to provoke a broadcast and verify updated_at

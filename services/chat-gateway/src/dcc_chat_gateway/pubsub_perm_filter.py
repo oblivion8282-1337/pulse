@@ -14,10 +14,17 @@ via ``self.`` through cooperative inheritance.
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from dcc_shared.permission_resolver import has_permission
 from dcc_shared.permissions import Permissions
 from fastapi import WebSocket
+
+log = logging.getLogger(__name__)
+
+# Signed 64-bit bounds — channel ids live in a Postgres BIGINT column.
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 
 
 class _PermFilterMixin:
@@ -284,6 +291,15 @@ class _PermFilterMixin:
         except (TypeError, ValueError):
             # Non-parseable channel_id means the channel is unknown — drop the
             # broadcast entirely rather than leaking it to all members.
+            return []
+        # Channel ids are stored in a signed-64-bit BIGINT column. An id outside
+        # that range can't match any real channel and would make asyncpg raise
+        # (``value out of int64 range``) — which, before the listener was
+        # hardened, killed the whole pubsub task. Treat as unknown → drop, and
+        # log so we can trace the client/source that emitted the bad id (a real
+        # frontend bug — valid Pulse snowflakes never exceed this range).
+        if not (_INT64_MIN <= cid_int <= _INT64_MAX):
+            log.warning("broadcast filter: channel_id %s out of int64 range — dropping", cid_int)
             return []
         from dcc_chat_gateway.models import Channel, DirectMessageChannel
 

@@ -93,7 +93,11 @@ export function expectedPosition(state: WatchPartyState, nowMs = clockSync.now()
 }
 
 /** Gap thresholds for {@link hostPlaybackStalled}. */
-const STALL_MIN_GAP_S = 1.5;
+// Must sit below the ~1s heartbeat cadence (see startHeartbeat) — at 1.5 the
+// guard would never engage at 1s spacing, re-exposing the minimized-host
+// stutter loop it exists to prevent. 0.8 still clears normal jitter (a playing
+// host advances ~1s/beat → posDelta ≈ wallDelta, never reads as stalled).
+const STALL_MIN_GAP_S = 0.8;
 const STALL_ADVANCE_RATIO = 0.5;
 const STALL_BACKSTEP_TOLERANCE_S = 1.0;
 
@@ -207,11 +211,19 @@ export class DriftCorrector {
 }
 
 /** Host-side: emit a heartbeat every `intervalMs` while playing. Returns a
- * stop function — call it on unmount or when the host hands off control. */
+ * stop function — call it on unmount or when the host hands off control.
+ *
+ * 1s cadence (matches watchparty.me's CMD:ts): the host's position is the
+ * single authority and YouTube fires no seek event, so a host scrub only
+ * reaches viewers via this heartbeat. At 3s a backward jump was masked by
+ * forward playback within the window and landed in the nudge band; at 1s the
+ * viewer's positionJumped check catches it and hard-seeks within ~1s. The
+ * backend debounce (`_HEARTBEAT_DEBOUNCE_MS`) must stay below this interval or
+ * it drops every other beat — keep the two in sync. */
 export function startHeartbeat(
   send: (position: number) => void,
   player: PlayerHandle,
-  intervalMs = 3000
+  intervalMs = 1000
 ): () => void {
   const id = window.setInterval(() => {
     try {

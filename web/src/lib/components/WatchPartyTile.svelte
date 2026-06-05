@@ -85,6 +85,15 @@
   );
   function handleReady(handle: PlayerHandle): void {
     controller.onReady(handle);
+    // The player handle is a plain field, not reactive — assigning it does NOT
+    // re-run the sync $effects below. Crucially syncHeartbeat()'s effect only
+    // reads the memoized isHost/isPassive deriveds (which don't change after
+    // mount), so it runs ONCE at mount when the player isn't ready yet and
+    // never again → the host heartbeat would never start and nothing would
+    // propagate. Kick both now that the player exists; the effects still handle
+    // later party/role changes.
+    controller.syncHeartbeat();
+    controller.syncViewer();
   }
   function handleEvent(e: PlayerEvent): void {
     controller.onEvent(e);
@@ -100,10 +109,14 @@
     return release;
   });
 
-  // Viewer-Sync + Host-Heartbeat: re-run on every `party` change.
+  // Viewer-Sync: re-runs on every `party` change (syncViewer reads `party`).
   $effect(() => {
     controller.syncViewer();
   });
+  // Host-Heartbeat: re-runs when the role (isHost/isPassive) flips — e.g. a
+  // handoff stops/starts it. The INITIAL start happens in handleReady (this
+  // effect can't, since the player handle isn't reactive and isHost/isPassive
+  // don't change after mount).
   $effect(() => {
     controller.syncHeartbeat();
   });

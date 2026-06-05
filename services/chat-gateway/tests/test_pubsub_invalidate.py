@@ -202,6 +202,26 @@ async def test_filter_dm_channel_passes_through(app, session_factory):
     assert set(kept) == {ws_a, ws_b}
 
 
+@pytest.mark.asyncio
+async def test_filter_drops_out_of_int64_channel_id(app, session_factory):
+    """A broadcast carrying a channel_id outside the signed-64-bit BIGINT
+    range must be dropped WITHOUT touching the DB. Passing such an id to
+    ``session.get(Channel, ...)`` makes asyncpg raise ``value out of int64
+    range`` — which, because the pubsub listener didn't isolate handler
+    errors, killed the whole listener task and silently stopped ALL real-time
+    delivery (chat, voice, watch-party play/pause/seek). Regression guard for
+    that outage; the production trigger was a watch:events id of
+    9927288708794076651."""
+    manager = app.state.connection_manager
+    ws = _FakeWS("viewer")
+    await _register(manager, ws, 33_333)
+
+    # 2**63 is one past the signed-int64 max — same shape as the real bad id.
+    # Must return [] and, crucially, must NOT raise.
+    kept = await manager._filter_by_view_channel([ws], str(2**63 + 123))  # type: ignore[arg-type]
+    assert kept == []
+
+
 # ---- bug #3: parallel permission resolves ---------------------------------
 
 

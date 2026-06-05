@@ -47,9 +47,17 @@ export class PartyController {
    * player to the remote state: host-driven transition → applyHard, plain
    * heartbeat → applySoft (never override the viewer's local pause). */
   syncViewer(): void {
-    const p = this.#player;
-    if (!p || this.getIsHost() || this.getIsPassive()) return;
+    // Read the reactive getters FIRST so this method (driven from a $effect)
+    // always registers party/isHost/isPassive as dependencies. If the `!p`
+    // player guard short-circuits ahead of them, an effect whose first run
+    // happens before the player's async onReady captures NO reactive deps and
+    // never re-runs — the viewer then stops drift-correcting and won't follow
+    // a host backward seek. (handleReady kicks the first run once ready.)
     const cur = this.getParty();
+    const isHost = this.getIsHost();
+    const isPassive = this.getIsPassive();
+    const p = this.#player;
+    if (!p || isHost || isPassive) return;
     const prev = this.#prevParty;
     this.#prevParty = cur;
     if (!prev) {
@@ -90,8 +98,13 @@ export class PartyController {
 
   /** Drive from a $effect: starts/stops the host heartbeat based on role. */
   syncHeartbeat(): void {
+    // Reactive getters first (same reason as syncViewer): the effect must keep
+    // tracking isHost/isPassive so a handoff that flips the role re-runs this
+    // and stops the heartbeat. The initial start is kicked from handleReady.
+    const isHost = this.getIsHost();
+    const isPassive = this.getIsPassive();
     const p = this.#player;
-    if (!p || !this.getIsHost() || this.getIsPassive()) {
+    if (!p || !isHost || isPassive) {
       this.#stopHeartbeat?.();
       this.#stopHeartbeat = undefined;
       return;

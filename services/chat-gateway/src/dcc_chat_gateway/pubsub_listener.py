@@ -99,15 +99,28 @@ class _ListenerMixin:
                     # is wasteful but not a bug; logging would spam if
                     # Redis ever broadcasts management traffic.
                     continue
-                await handler(self, channel, msg)
+                try:
+                    await handler(self, channel, msg)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    # A single handler failing on one event (malformed payload,
+                    # an id out of int64 range, a transient DB error) must NOT
+                    # kill the listener. If it did, ALL real-time delivery
+                    # (chat, voice, watch, stream) would silently stop for every
+                    # client on this pod until something happened to call
+                    # ``start()`` again — exactly the failure that left watch-
+                    # party play/pause/seek dead. Log the bad event and move on.
+                    log.exception(
+                        "pubsub handler for %s failed; skipping this event", channel
+                    )
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            # A fatal error here would otherwise leave ``_started = True``
-            # with a dead task — no further ``start()`` would do anything.
-            # Reset the flag so the next ``start()`` (e.g. a health-check-
-            # triggered restart, or a fresh request path that calls
-            # ``start()``) can bring it back.
+            # Reaching here means the loop itself broke (e.g. the Redis
+            # connection dropped in get_message) — genuinely fatal. Leaving
+            # ``_started = True`` with a dead task would make every later
+            # ``start()`` a no-op, so reset the flag to allow a restart.
             log.exception("pubsub listener crashed; flagging for restart")
             self._started = False
             raise

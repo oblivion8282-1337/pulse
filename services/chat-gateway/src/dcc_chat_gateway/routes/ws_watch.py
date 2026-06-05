@@ -35,9 +35,12 @@ log = logging.getLogger(__name__)
 # Wider than typical WHEP/voice rooms — covers a 100h Twitch VOD.
 _MAX_POSITION_S = 360_000
 
-# Per-host heartbeat write debounce. Drift correction on viewers tolerates
-# 2-3s gaps, so paying a Redis write more often is wasteful.
-_HEARTBEAT_DEBOUNCE_MS = 2000
+# Per-host heartbeat write debounce. Only needs to collapse genuine back-to-
+# back bursts (reconnect double-send, UI race — those land within a few ms);
+# it must stay comfortably below the host's ~1s heartbeat cadence (web
+# `startHeartbeat`) so no regular beat is dropped even under timer throttling.
+# 500ms gives a 500ms margin on the 1s interval while still killing bursts.
+_HEARTBEAT_DEBOUNCE_MS = 500
 
 
 def _channel_id(value: object) -> int | None:
