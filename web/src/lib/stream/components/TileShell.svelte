@@ -258,8 +258,11 @@
           </div>
         {/if}
 
-        <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand -->
-        {#if isFullscreen}
+        <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand.
+             NICHT bei der Watch-Party (staticHud) — dort würde das Overlay die
+             nativen iframe-Controls verdecken; die kriegt stattdessen die
+             solide Leiste darunter (siehe unten). -->
+        {#if isFullscreen && !staticHud}
           <div
             class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
           >
@@ -279,8 +282,11 @@
       {/if}
     </div>
 
-    <!-- Solide Steuerleiste UNTER dem Video (nicht im Vollbild, nicht compact). -->
-    {#if !compact && !isFullscreen}
+    <!-- Solide Steuerleiste UNTER dem Video. Normalerweise nur außerhalb des
+         Vollbilds — aber die Watch-Party (staticHud) behält sie auch im
+         Vollbild solide darunter, damit das iframe (leicht kleiner) seine
+         nativen Controls frei darüber behält. -->
+    {#if !compact && (!isFullscreen || staticHud)}
       <div class="bg-bg-panel border-t border-border">
         <TileDock {...dockProps} overlay={false} wide={dockWide} />
       </div>
