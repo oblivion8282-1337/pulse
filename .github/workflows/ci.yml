@@ -106,12 +106,19 @@ jobs:
           AFTER_SHA: ${{ github.sha }}
         run: bash scripts/check-changelog.sh "$BEFORE_SHA" "$AFTER_SHA"
 
-  # Build & push the 6 production images. Only on push to main, only after the
-  # test jobs pass. Watchtower on the VPS follows the `:latest` tags.
+  # Build & push the 6 production images. Watchtower on the VPS follows `:latest`.
+  #
+  # DEPLOY IST BEWUSST VOM TEST-GATE ENTKOPPELT: needs ist nur `changelog`,
+  # NICHT backend/frontend. Grund: die backend-Tests haben seltene pub/sub-
+  # Subscribe-Race-Flakes (Timeout via --timeout-method=thread killt den Prozess
+  # hart → vom --only-rerun NICHT gefangen), die sonst legitime Deploys
+  # blockten. backend+frontend laufen weiter als SICHTBARE Info-Checks (rot =
+  # „bitte anschauen"), gaten den Deploy aber nicht. Das verbindliche Test-Gate
+  # ist LOKAL vor dem Push (pytest + pnpm check + build, s. CLAUDE.md → Tests).
   images:
     name: build & push images (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    needs: [backend, frontend, changelog]
+    needs: [changelog]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

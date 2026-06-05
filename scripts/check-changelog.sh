@@ -7,9 +7,14 @@
 # Usage: check-changelog.sh <before-sha> <after-sha>
 #   In ci.yml mit ${{ github.event.before }} und ${{ github.sha }} aufgerufen.
 #
-# "Nur Doku" (*.md, docs/) und die changelog.json selbst zählen NICHT als
-# Code-Änderung — reine Doku-Pushes brauchen keinen Eintrag.
+# Nur USER-FACING Code verlangt einen Eintrag. Nicht-user-facing Pfade (Doku,
+# CI/Workflows, Infra, Packaging, Build-Scripts, Tests, Config, changelog
+# selbst) sind ausgenommen — die ändern nichts, was ein Endnutzer im
+# „Was ist neu?"-Dialog sehen würde.
 set -euo pipefail
+
+# Erweitern, wenn neue nicht-user-facing Top-Level-Bereiche dazukommen.
+NON_USER_FACING='(^|/)[^/]*\.md$|^docs/|^\.github/|^infra/|^packaging/|^scripts/|(^|/)Dockerfile[^/]*$|\.toml$|/tests/|(^|/)conftest\.py$|^web/static/changelog\.json$'
 
 before="${1:-}"
 after="${2:-HEAD}"
@@ -30,11 +35,11 @@ changed="$(git diff --name-only "$before" "$after")"
 echo "Geänderte Dateien in diesem Push:"
 echo "$changed" | sed 's/^/  /'
 
-# Code = alles außer reiner Doku und der changelog.json selbst.
-code="$(echo "$changed" | grep -vE '(^|/)[^/]*\.md$|^docs/|^web/static/changelog\.json$' || true)"
+# Code = alles außer den nicht-user-facing Pfaden oben.
+code="$(echo "$changed" | grep -vE "$NON_USER_FACING" || true)"
 
 if [[ -z "$code" ]]; then
-  echo "✓ Nur Doku/Changelog geändert — kein neuer Eintrag nötig."
+  echo "✓ Nur nicht-user-facing Änderungen (Doku/CI/Infra/Tests) — kein Eintrag nötig."
   exit 0
 fi
 

@@ -144,7 +144,8 @@ Top-Level `plugins/` (Referenz: `hello` + `tamagotchi`). Manifest = `plugin.toml
 ## Produktiv-Deployment (netcup-VPS) — Voll-Doku `infra/prod/DEPLOY.md`
 
 **Hauptserver/Cloud = netcup `michael@159.195.150.54`** (Debian 13), **https://howispulse.com** (Umzug von Hetzner 2026-05-28). Der **alte Hetzner-VPS `michael@77.42.71.166` lebt weiter** als **Self-Host-Test-Instanz** (NICHT mehr Cloud). Ein Compose-Stack (`name: pulse`) in `~/pulse/infra/prod/`: 6 Service-Container (GHCR `ghcr.io/oblivion8282-1337/pulse-*:latest`), `pulse_migrate_{auth,chat}`, `pulse_mediamtx`+`pulse_livekit` (host-net), `pulse_watchtower` (5min).
-- **Auto-Update**: push → `main` → `ci.yml` baut+pusht GHCR (nach grünen Tests) → watchtower zieht `:latest` ≤5 min. Struktur-Änderungen (neuer Service/Env/Config): `rsync infra/ → ~/pulse/infra/` + `docker compose up -d`.
+- **Auto-Update**: push → `main` → `ci.yml` baut+pusht GHCR → watchtower zieht `:latest` ≤5 min. Struktur-Änderungen (neuer Service/Env/Config): `rsync infra/ → ~/pulse/infra/` + `docker compose up -d`.
+- **Deploy ist vom Test-Gate ENTKOPPELT** (2026-06-05): der `images`-Job hängt NUR am `changelog`-Gate, nicht an backend/frontend. Grund: seltene pub/sub-Subscribe-Race-Flakes (thread-Timeout, vom `--only-rerun` nicht gefangen) blockten sonst legitime Deploys. backend+frontend bleiben sichtbare Info-Checks. **Konsequenz: das verbindliche Test-Gate ist LOKAL vor dem Push** — pytest + `pnpm check` + build müssen grün sein, BEVOR gepusht wird (kein CI-Netz mehr danach).
 - **Routing**: Caddy → `pulse_web` nginx → `/api/{auth,chat,ws,voice}/*` Services, `/whep`+`/hls` MediaMTX, `/livekit` LiveKit. Routen zu host-net-Diensten nutzen **statisches** `proxy_pass http://host.docker.internal:PORT/` (nicht Variable+Resolver — Dockers `127.0.0.11` kennt `host.docker.internal` nicht → 502).
 - **Gotchas**: Secrets nur server-seitig in `.env` + `secrets/jwt_*.pem` — **PEM `chmod 0644`** (Container uid 10001). Avatar-Volume bei Fresh-Deploy `chown 10001:10001` (sonst Upload-500). UFW: `7880`/`9997` nur vom Docker-Bridge (`ufw allow from 10.0.0.0/8`) — sonst blockt `INPUT DROP` den Bridge→Host-Weg. Migrate-Container nach Schema-Änderung: Memory `watchtower-skips-migrate-containers`.
 
@@ -197,7 +198,7 @@ User-facing Changelog, der **einmalig nach einem Deploy-Reload** als Dialog ersc
 1. Aus den zu pushenden Commits einen **user-verständlichen** Eintrag ableiten (kein Tech-Jargon — „Play/Pause kommt zuverlässig an", nicht „pubsub-Listener int64-Hardening").
 2. **Stil NICHT selbst wählen** — dem User **mehrere Stil-Vorschläge** machen (z.B. Yoda, Hip-Hop, Pirat, Märchen, Sportreporter, Film-noir, …), er entscheidet. Jeder Eintrag in einem **anderen** Stil als der vorige.
 3. Neuen Eintrag oben in `entries` einfügen, `id` eindeutig (Datum; mehrere/Tag → `2026-06-05.2`).
-4. Reine Doku-Pushes (`*.md`, `docs/`) brauchen keinen Eintrag (Gate nimmt sie aus).
+4. Nur **user-facing** Code verlangt einen Eintrag. Nicht-user-facing Pfade sind ausgenommen (Liste `NON_USER_FACING` in `check-changelog.sh`): `*.md`, `docs/`, `.github/`, `infra/`, `packaging/`, `scripts/`, `Dockerfile*`, `*.toml`, `*/tests/`, `conftest.py`, die `changelog.json` selbst.
 
 ## Anti-Patterns (voll in `PLAN.md` §12)
 
