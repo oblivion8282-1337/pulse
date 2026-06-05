@@ -1,22 +1,22 @@
 <!--
   TileShell — gemeinsame Chrome für alle Video-Kacheln eines Voice-Channels
-  (HQ-Stream, Screenshare, Webcam, Watch Party). Trägt Rahmen, Name-Pille,
-  Auto-Fade-/Tap-HUD, Control-Leiste, Stats-Toggle, Fullscreen, Hide, Detach,
-  Fokus-Umschalter und die Chat-Slots. Die vier Tile-Komponenten liefern nur
-  ihren Video-Inhalt + kind-spezifische Stücke als Snippets.
+  (HQ-Stream, Screenshare, Webcam, Watch Party). Trägt Rahmen, Video-Fläche,
+  die Steuerleiste (`TileDock`), Stats-Overlay, Fullscreen, Detach/Hide/Fokus
+  und die Chat-Slots. Die vier Tile-Komponenten liefern nur ihren Video-Inhalt
+  + kind-spezifische Stücke als Snippets.
 
-  HUD-Modi:
-   * Fade (Default): Maus-Bewegung zeigt das HUD, nach 2,5 s ohne Aktivität
-     fadet es weg. Auf Touch: Tap aufs Video togglet es (kein Zeit-Fade).
-   * staticHud (Watch Party): HUD bleibt sichtbar, kein Catcher-Layer — ein
-     transparenter Klick-Fänger über dem YouTube/Twitch-iframe würde dessen
-     native Player-Controls blockieren.
+  Steuerung (Player-Stil): die Buttons liegen NICHT mehr auf dem Video, sondern
+  in einer soliden Leiste DARUNTER (`TileDock overlay=false`). Nur im Vollbild
+  wird die Leiste zum fadenden Overlay über dem unteren Bildrand
+  (`overlay=true`) — immersiv, taucht bei Maus-/Tap-Aktivität auf und fadet nach
+  2,5 s weg. Für die Watch-Party (iframe) ist die Leiste-darunter ideal: der
+  alte Klick-Fänger über dem iframe (`staticHud`) entfällt, weil nichts mehr
+  über dem Video liegt.
 
-  compact (Filmstrip-Kachel im Fokus-Modus): kein HUD, das ganze Tile ist ein
-  Button der `onToggleFocus` feuert. Wichtig: das `media`-Snippet liegt IMMER
-  an derselben Stelle im DOM — `compact` tauscht nur die Chrome darüber, nie
-  das Video selbst. Ein Umschalten des Fokus darf die WHEP-/LiveKit-Verbindung
-  nicht neu aufbauen.
+  compact (Filmstrip-Kachel im Fokus-Modus): keine Leiste, das ganze Tile ist
+  ein Button der `onToggleFocus` feuert. Das `media`-Snippet liegt IMMER an
+  derselben Stelle im DOM — `compact`/Fokus-Wechsel tauscht nur die Chrome
+  darüber, nie das Video selbst (sonst WHEP-/LiveKit-Reconnect).
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -25,21 +25,11 @@
   import MonitorIcon from '@lucide/svelte/icons/monitor';
   import VideoIcon from '@lucide/svelte/icons/video';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
-  import Volume2Icon from '@lucide/svelte/icons/volume-2';
-  import VolumeXIcon from '@lucide/svelte/icons/volume-x';
-  import MaximizeIcon from '@lucide/svelte/icons/maximize';
-  import MinimizeIcon from '@lucide/svelte/icons/minimize';
-  import MessageSquareIcon from '@lucide/svelte/icons/message-square';
-  import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
-  import ActivityIcon from '@lucide/svelte/icons/activity';
-  import FocusIcon from '@lucide/svelte/icons/focus';
-  import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
-  import XIcon from '@lucide/svelte/icons/x';
   import { m } from '$lib/paraglide/messages.js';
   import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
-  import { VOLUME_BOOST_MAX } from '../volumeBoost';
   import { statsVisible } from '../statsVisible.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import TileDock from './TileDock.svelte';
 
   let {
     kind,
@@ -82,11 +72,11 @@
     nameTestid?: string;
     /** <video>-Element für den iOS-Fullscreen-Fallback. iframe → null. */
     video?: HTMLVideoElement | null;
-    /** HUD erzwungen sichtbar (Verbinde-/Fehler-Overlay, audioBlocked). */
+    /** HUD im Vollbild erzwungen sichtbar (Verbinde-/Fehler-Overlay). */
     forceHud?: boolean;
-    /** Watch Party: HUD bleibt stehen, kein Klick-Fänger über dem iframe. */
+    /** Watch Party: Leiste im Vollbild dauerhaft sichtbar (iframe-Controls). */
     staticHud?: boolean;
-    /** Gesetzt → Lautstärke-Pille wird gerendert (HQ + Screenshare). */
+    /** Gesetzt → Lautstärke-Regler wird gerendert (HQ + Screenshare). */
     volume?: number;
     onVolumeChange?: (e: Event) => void;
     onToggleMute?: () => void;
@@ -96,7 +86,7 @@
     onToggleChat?: () => void;
     onDetach?: () => void;
     onHide?: () => void;
-    /** Filmstrip-Kachel im Fokus-Modus: kein HUD, ganzes Tile = Fokus-Button. */
+    /** Filmstrip-Kachel im Fokus-Modus: keine Leiste, ganzes Tile = Fokus. */
     compact?: boolean;
     /** Diese Kachel ist die fokussierte (große) im Fokus-Modus. */
     focused?: boolean;
@@ -119,26 +109,29 @@
   );
 
   let containerEl = $state<HTMLDivElement | null>(null);
+  let leftColEl = $state<HTMLDivElement | null>(null);
   let isFullscreen = $state(false);
+  // Nur im Vollbild relevant: die Overlay-Leiste fadet nach Inaktivität.
   let hudVisible = $state(true);
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
   const HUD_HIDE_AFTER_MS = 2500;
+  // Reicht die Kachelbreite für alle Controls inline? Sonst kollabiert TileDock
+  // in ein ⋯-Menü. Im Vollbild ist die Kachel groß → immer wide.
+  let dockWide = $state(true);
+  const DOCK_WIDE_MIN = 340;
 
-  // staticHud → immer sichtbar; sonst Fade-/Tap-State. compact → nie.
-  let hudEffective = $derived(!compact && (staticHud || hudVisible || forceHud));
-  let showStats = $derived(!!stats && statsVisible.on && hudEffective);
-  let fadeClass = $derived(
+  const hudEffective = $derived(staticHud || hudVisible || forceHud);
+  const fadeClass = $derived(
     `transition-opacity duration-300 ${hudEffective ? 'opacity-100' : 'pointer-events-none opacity-0'}`
   );
-
-  // Runde Icon-Buttons: auf Touch ≥44px Trefferfläche (p-3 + size-5), auf
-  // Desktop kompakt (p-1.5 + size-3.5).
-  const ICON_BTN =
-    'flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-black/75 md:p-1.5';
-  const ICON_SIZE = 'size-5 md:size-3.5';
+  // Stats-Pille (Diagnose) oben links: im Tile immer sichtbar wenn eingeschaltet,
+  // im Vollbild an den Fade gekoppelt.
+  const showStats = $derived(!!stats && statsVisible.on && (!isFullscreen || hudEffective));
+  // Detach gibt's nicht im Vollbild und nicht auf Mobile.
+  const showDetach = $derived(!!onDetach && !isFullscreen && !viewport.isMobile);
 
   function pokeHud(): void {
-    if (viewport.isMobile || staticHud || compact) return;
+    if (!isFullscreen || compact || staticHud) return;
     hudVisible = true;
     if (hideTimer) clearTimeout(hideTimer);
     hideTimer = setTimeout(() => {
@@ -147,7 +140,8 @@
   }
 
   function handleCatcherClick(): void {
-    if (viewport.isMobile) hudVisible = !hudVisible;
+    // Im Vollbild auf Touch: Tap blendet die Overlay-Leiste ein/aus.
+    if (viewport.isMobile && isFullscreen) hudVisible = !hudVisible;
   }
   function handleCatcherDblClick(): void {
     if (!viewport.isMobile) toggleFs();
@@ -157,14 +151,58 @@
     toggleFullscreen(containerEl, video);
   }
 
+  const dockProps = $derived({
+    kindIcon: KindIcon,
+    kindIconColor,
+    name,
+    nameTestid,
+    nameExtra,
+    testidPrefix,
+    volume,
+    onVolumeChange,
+    onToggleMute,
+    audioBlocked,
+    onEnableAudio,
+    hasStats: !!stats,
+    chatOpen,
+    onToggleChat,
+    controlsExtra,
+    onDetach,
+    showDetach,
+    onToggleFocus,
+    focused,
+    isFullscreen,
+    onToggleFullscreen: toggleFs,
+    onHide
+  });
+
   onMount(() => {
-    if (!viewport.isMobile && !staticHud) pokeHud();
     function onFsChange() {
       isFullscreen = isDocFullscreen();
+      if (isFullscreen) {
+        // Vollbild = große Kachel → sofort wide, sonst blitzt für einen Frame
+        // das ⋯-Menü auf, bevor der ResizeObserver nachzieht.
+        dockWide = true;
+        pokeHud();
+      } else {
+        hudVisible = true;
+        if (hideTimer) clearTimeout(hideTimer);
+      }
     }
     document.addEventListener('fullscreenchange', onFsChange);
+
+    let ro: ResizeObserver | null = null;
+    if (leftColEl && typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver((entries) => {
+        const w = entries[0]?.contentRect.width ?? 0;
+        dockWide = w >= DOCK_WIDE_MIN;
+      });
+      ro.observe(leftColEl);
+    }
+
     return () => {
       document.removeEventListener('fullscreenchange', onFsChange);
+      ro?.disconnect();
       if (hideTimer) clearTimeout(hideTimer);
     };
   });
@@ -176,199 +214,76 @@
   data-testid={containerTestid}
   data-identity={identity}
 >
-  <div class="relative flex min-w-0 flex-1 flex-col" onmousemove={pokeHud} role="presentation">
-    {@render media()}
-    {@render overlay?.()}
+  <div bind:this={leftColEl} class="flex min-w-0 flex-1 flex-col">
+    <div class="relative flex min-h-0 flex-1 flex-col" onmousemove={pokeHud} role="presentation">
+      {@render media()}
+      {@render overlay?.()}
 
-    {#if compact}
-      <!-- Filmstrip-Kachel: das ganze Tile ist ein Fokus-Button. -->
-      <button
-        type="button"
-        onclick={() => onToggleFocus?.()}
-        class="group absolute inset-0 flex items-end"
-        aria-label={m.tile_shell_focus_tile({ name })}
-        data-testid={`${testidPrefix}-focus`}
-      >
-        <div class="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10"></div>
-        <div
-          class="relative m-1 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white"
-        >
-          <KindIcon class="size-2.5 {kindIconColor}" />
-          <span class="max-w-24 truncate">{name}</span>
-        </div>
-      </button>
-    {:else}
-      {#if !staticHud}
-        <!-- Transparenter Klick-Fänger über dem Video (nicht über iframes!):
-             fängt Tap-to-Toggle (Mobile) + Doppelklick-Fullscreen (Desktop).
-             Vor dem HUD im DOM → HUD-Buttons stacken darüber. -->
-        <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-        <div
-          class="absolute inset-0 cursor-pointer"
-          onclick={handleCatcherClick}
-          ondblclick={handleCatcherDblClick}
-          aria-hidden="true"
-          title={m.tile_shell_dblclick_fullscreen()}
-        ></div>
-      {/if}
-
-      <!-- Name-Pille unten links -->
-      <div class="absolute bottom-2 left-2 flex items-center gap-1.5 {fadeClass}">
-        <div
-          class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
-          data-testid={nameTestid}
-        >
-          <KindIcon class="size-3 {kindIconColor}" />
-          <span class="max-w-32 truncate">{name}</span>
-        </div>
-        {@render nameExtra?.()}
-      </div>
-
-      <!-- Diagnose-Stats oben links — nur wenn global eingeschaltet -->
-      {#if showStats}
-        <div class="absolute left-2 top-2 {fadeClass}">
-          {@render stats?.()}
-        </div>
-      {/if}
-
-      <!-- Hide oben rechts -->
-      {#if onHide}
+      {#if compact}
+        <!-- Filmstrip-Kachel: das ganze Tile ist ein Fokus-Button. -->
         <button
           type="button"
-          onclick={() => onHide?.()}
-          class="absolute right-2 top-2 z-10 {ICON_BTN} hover:bg-red-600 {fadeClass}"
-          aria-label={m.tile_shell_hide_tile()}
-          title={m.tile_shell_hide()}
-          data-testid={`${testidPrefix}-hide`}
+          onclick={() => onToggleFocus?.()}
+          class="group absolute inset-0 flex items-end"
+          aria-label={m.tile_shell_focus_tile({ name })}
+          data-testid={`${testidPrefix}-focus`}
         >
-          <XIcon class={ICON_SIZE} />
+          <div class="absolute inset-0 bg-black/30 transition-colors group-hover:bg-black/10"></div>
+          <div
+            class="relative m-1 flex items-center gap-1 rounded-full bg-black/65 px-2 py-0.5 text-[10px] text-white"
+          >
+            <KindIcon class="size-2.5 {kindIconColor}" />
+            <span class="max-w-24 truncate">{name}</span>
+          </div>
         </button>
-      {/if}
+      {:else}
+        {#if !staticHud}
+          <!-- Transparenter Klick-Fänger über dem Video (nicht über iframes!):
+               Doppelklick → Fullscreen (Desktop), Tap → Leiste toggeln nur im
+               Vollbild (Mobile). -->
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <div
+            class="absolute inset-0 cursor-pointer"
+            onclick={handleCatcherClick}
+            ondblclick={handleCatcherDblClick}
+            aria-hidden="true"
+            title={m.tile_shell_dblclick_fullscreen()}
+          ></div>
+        {/if}
 
-      <!-- Control-Leiste unten rechts. flex-wrap: bei vielen Buttons auf
-           schmalen Phones zieht die Leiste eine zweite Zeile nach oben,
-           statt aus dem Tile zu laufen. -->
-      <div
-        class="absolute bottom-2 right-2 flex max-w-[calc(100%-1rem)] flex-wrap items-center justify-end gap-1.5 sm:gap-2 {fadeClass}"
-      >
-        {#if volume !== undefined}
-          <div class="flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 backdrop-blur-sm">
-            <button
-              type="button"
-              onclick={() => onToggleMute?.()}
-              class="flex items-center text-white hover:text-white/70"
-              aria-label={volume === 0 ? m.tile_shell_unmute() : m.tile_shell_mute()}
-              data-testid={`${testidPrefix}-mute`}
-            >
-              {#if volume === 0}<VolumeXIcon class="size-4 md:size-3" />{:else}<Volume2Icon
-                  class="size-4 md:size-3"
-                />{/if}
-            </button>
-            <input
-              type="range"
-              min="0"
-              max={VOLUME_BOOST_MAX}
-              value={volume}
-              oninput={onVolumeChange}
-              class="w-28 accent-white sm:w-20"
-              aria-label={m.tile_shell_volume()}
-              data-testid={`${testidPrefix}-volume`}
-            />
-            <span
-              class="w-9 text-right font-mono text-[11px] tabular-nums text-white/85"
-              data-testid={`${testidPrefix}-volume-percent`}
-            >{volume}%</span>
+        <!-- Diagnose-Stats oben links — nur wenn global eingeschaltet -->
+        {#if showStats}
+          <div class="absolute left-2 top-2 {isFullscreen ? fadeClass : ''}">
+            {@render stats?.()}
           </div>
         {/if}
-        {#if audioBlocked}
-          <button
-            type="button"
-            onclick={() => onEnableAudio?.()}
-            class="flex items-center gap-1.5 rounded-full bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 md:py-1"
-            data-testid={`${testidPrefix}-unblock-audio`}
-          >
-            <VolumeXIcon class="size-3.5 md:size-3" />
-            {m.tile_shell_enable_audio()}
-          </button>
-        {/if}
-        {#if stats}
-          <button
-            type="button"
-            onclick={() => statsVisible.toggle()}
-            class="{ICON_BTN} {statsVisible.on ? 'ring-2 ring-primary' : ''}"
-            aria-label={statsVisible.on ? m.tile_shell_stats_hide() : m.tile_shell_stats_show()}
-            aria-pressed={statsVisible.on}
-            title={m.tile_shell_stats_title()}
-            data-testid={`${testidPrefix}-stats-toggle`}
-          >
-            <ActivityIcon class={ICON_SIZE} />
-          </button>
-        {/if}
-        {#if onToggleChat}
-          <button
-            type="button"
-            onclick={() => onToggleChat?.()}
-            class="{ICON_BTN} {chatOpen ? 'ring-2 ring-primary' : ''}"
-            aria-label={chatOpen ? m.tile_shell_chat_close() : m.tile_shell_chat_open()}
-            aria-pressed={chatOpen}
-            title={m.tile_shell_chat()}
-            data-testid={`${testidPrefix}-chat-toggle`}
-          >
-            <MessageSquareIcon class={ICON_SIZE} />
-          </button>
-        {/if}
-        {@render controlsExtra?.()}
-        {#if onDetach && !isFullscreen && !viewport.isMobile}
-          <button
-            type="button"
-            onclick={() => onDetach?.()}
-            class={ICON_BTN}
-            aria-label={m.tile_shell_detach()}
-            title={m.tile_shell_detach()}
-            data-testid={`${testidPrefix}-detach`}
-          >
-            <ExternalLinkIcon class={ICON_SIZE} />
-          </button>
-        {/if}
-        {#if onToggleFocus}
-          <button
-            type="button"
-            onclick={() => onToggleFocus?.()}
-            class={ICON_BTN}
-            aria-label={focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
-            title={focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
-            data-testid={`${testidPrefix}-focus-toggle`}
-          >
-            {#if focused}<LayoutGridIcon class={ICON_SIZE} />{:else}<FocusIcon
-                class={ICON_SIZE}
-              />{/if}
-          </button>
-        {/if}
-        <button
-          type="button"
-          onclick={toggleFs}
-          class={ICON_BTN}
-          aria-label={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
-          title={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
-          data-testid={`${testidPrefix}-fullscreen`}
-        >
-          {#if isFullscreen}<MinimizeIcon class={ICON_SIZE} />{:else}<MaximizeIcon
-              class={ICON_SIZE}
-            />{/if}
-        </button>
-      </div>
 
-      {#if isFullscreen && chatOpen}
-        {@render chatOverlay?.()}
+        <!-- Vollbild: Leiste als fadendes Overlay über dem unteren Bildrand -->
+        {#if isFullscreen}
+          <div
+            class="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/45 to-transparent pt-10 {fadeClass}"
+          >
+            <TileDock {...dockProps} overlay wide={dockWide} />
+          </div>
+        {/if}
+
+        {#if isFullscreen && chatOpen}
+          {@render chatOverlay?.()}
+        {/if}
+        {#if chatOpen && !isFullscreen && viewport.isMobile}
+          <!-- Mobile: Chat als Vollflächen-Overlay statt Seitenpanel. -->
+          <div class="absolute inset-0 z-20">
+            {@render chatPanel?.()}
+          </div>
+        {/if}
       {/if}
-      {#if chatOpen && !isFullscreen && viewport.isMobile}
-        <!-- Mobile: der Chat würde als Seitenpanel das Video auf einen
-             Streifen quetschen → stattdessen Vollflächen-Overlay über dem
-             Video. Zurück zum Stream über den X-Button im Chat-Header. -->
-        <div class="absolute inset-0 z-20">
-          {@render chatPanel?.()}
-        </div>
-      {/if}
+    </div>
+
+    <!-- Solide Steuerleiste UNTER dem Video (nicht im Vollbild, nicht compact). -->
+    {#if !compact && !isFullscreen}
+      <div class="bg-bg-panel border-t border-border">
+        <TileDock {...dockProps} overlay={false} wide={dockWide} />
+      </div>
     {/if}
   </div>
 
