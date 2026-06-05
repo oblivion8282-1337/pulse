@@ -18,6 +18,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { gateway } from '$lib/ws/connection';
   import { parseSource } from '$lib/watch/source';
+  import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   interface Props {
@@ -52,6 +53,10 @@
       });
       return;
     }
+    // Open the tile for the host right away — the creator shouldn't have to
+    // click their own party's badge to see it. Viewers still open it via the
+    // badge. (Idempotent; the `watch_state` push then mounts the player.)
+    openedTiles.openParty(channelId);
     url = '';
     open = false;
   }
