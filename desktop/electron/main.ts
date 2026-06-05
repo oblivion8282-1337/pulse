@@ -228,6 +228,27 @@ function createWindow(): void {
     void shell.openExternal(url);
     return { action: 'deny' };
   });
+  // Electron creates the allowed popup at about:blank and — in this
+  // Electron/Chromium build — does NOT auto-navigate it to the requested URL,
+  // so detached stream/watch windows stayed blank (white). Force the load here.
+  // We deliberately do NOT give the child the contextBridge preload: the
+  // detached viewer needs nothing from `window.pulse`, and running it as a
+  // plain (browser-like, `isElectron()===false`) window matches the path that
+  // already works in a real browser. Re-apply the off-origin nav guard though.
+  mainWindow.webContents.on('did-create-window', (child, { url }) => {
+    if (url) void child.loadURL(url);
+    child.webContents.on('will-navigate', (e, navUrl) => {
+      if (!_isAllowedOrigin(navUrl)) {
+        e.preventDefault();
+        void shell.openExternal(navUrl);
+      }
+    });
+    child.webContents.setWindowOpenHandler(({ url: childUrl }) => {
+      if (_isAllowedOrigin(childUrl)) return { action: 'allow' };
+      void shell.openExternal(childUrl);
+      return { action: 'deny' };
+    });
+  });
 
   // Reload + DevTools accelerators used to come from Electron's default menu,
   // which we remove (setApplicationMenu(null)) to hide the menu bar. Re-add just
@@ -460,6 +481,17 @@ app.on('second-instance', (_event, argv) => {
 // still works.
 
 app.whenReady().then(() => {
+  // DIAG: jeder Renderer-/GPU-Crash mit Grund ins Log (sonst still). Hilft beim
+  // Debuggen der abgedockten Popup-Fenster.
+  app.on('web-contents-created', (_e, contents) => {
+    contents.on('render-process-gone', (_ev, details) => {
+      console.error('[render-process-gone]', contents.getURL().slice(0, 80), JSON.stringify(details));
+    });
+    contents.on('unresponsive', () => console.error('[unresponsive]', contents.getURL().slice(0, 80)));
+  });
+  app.on('child-process-gone', (_e, details) => {
+    console.error('[child-process-gone]', JSON.stringify(details));
+  });
   // Pulse ist eine Web-App im Fenster — Electrons Default-Menü (File/Edit/View/
   // Window/Help) hat hier keinen Sinn. Komplett entfernen statt nur ausblenden.
   Menu.setApplicationMenu(null);

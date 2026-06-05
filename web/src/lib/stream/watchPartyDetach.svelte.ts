@@ -13,6 +13,15 @@
  * Schließung beim Hauptfenster, damit der Player wieder inline mountet).
  */
 const CHANNEL_NAME = 'pulse:watch-party-detach';
+/** Window-scoped suppress marker. sessionStorage (not the reactive `#set`) is
+ * what `shouldSuppressLeave` actually reads: it is one store per window
+ * regardless of how many times the module gets evaluated (HMR / dual-eval), and
+ * it is set *before* `window.open()` so the inline tile's unmount — which can
+ * fire synchronously off the focus-steal of opening the popup, i.e. before the
+ * reactive `#set` write — still sees the marker. Time-stamped so a stale value
+ * can never suppress forever. */
+const SUPPRESS_PREFIX = 'pulse:wp-suppress-leave:';
+const SUPPRESS_TTL_MS = 30_000;
 
 type WatchDetachMessage =
   | { kind: 'closed'; cid: string }
@@ -63,6 +72,12 @@ class DetachedWatchParties {
    * main-window socket as the watcher anchor until the popup is up; the popup's
    * own join is purely additive (same user, sibling socket). */
   shouldSuppressLeave(channelId: string): boolean {
+    try {
+      const raw = sessionStorage.getItem(SUPPRESS_PREFIX + channelId);
+      if (raw && Date.now() - Number(raw) < SUPPRESS_TTL_MS) return true;
+    } catch {
+      /* sessionStorage unavailable — fall through to the reactive flag */
+    }
     return this.#set.has(channelId);
   }
 
@@ -78,8 +93,24 @@ class DetachedWatchParties {
     const x = Math.round((window.screen.availWidth - w) / 2);
     const y = Math.round((window.screen.availHeight - h) / 2);
     const features = `popup=yes,width=${w},height=${h},left=${x},top=${y},resizable=yes`;
+    // Mark BEFORE window.open(): opening the popup steals focus, which can
+    // synchronously unmount the inline tile (→ its `watch_leave` cleanup) before
+    // the reactive `#set` write below lands. The sessionStorage marker is what
+    // `shouldSuppressLeave` reads, so it must be set first.
+    try {
+      sessionStorage.setItem(SUPPRESS_PREFIX + channelId, String(Date.now()));
+    } catch {
+      /* ignore */
+    }
     const popup = window.open(url, `pulse-watch-${channelId}`, features);
-    if (!popup) return false;
+    if (!popup) {
+      try {
+        sessionStorage.removeItem(SUPPRESS_PREFIX + channelId);
+      } catch {
+        /* ignore */
+      }
+      return false;
+    }
     this.#windows.set(channelId, popup);
     this.#set = new Set(this.#set).add(channelId);
     this.#ensurePollRunning();
@@ -120,6 +151,13 @@ class DetachedWatchParties {
   }
 
   #markAttached(channelId: string): void {
+    // Handoff is over (reattach / party ended / popup closed) — drop the
+    // window-scoped suppress marker so the next real unmount leaves normally.
+    try {
+      sessionStorage.removeItem(SUPPRESS_PREFIX + channelId);
+    } catch {
+      /* ignore */
+    }
     if (!this.#set.has(channelId)) return;
     const next = new Set(this.#set);
     next.delete(channelId);
@@ -131,6 +169,11 @@ class DetachedWatchParties {
     for (const [k, w] of this.#windows) {
       if (w.closed) {
         this.#windows.delete(k);
+        try {
+          sessionStorage.removeItem(SUPPRESS_PREFIX + k);
+        } catch {
+          /* ignore */
+        }
         if (this.#set.has(k)) {
           const next = new Set(this.#set);
           next.delete(k);

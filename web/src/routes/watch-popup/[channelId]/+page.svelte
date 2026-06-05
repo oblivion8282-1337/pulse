@@ -37,15 +37,32 @@
   // Fenster-Hülle rum.
   $effect(() => {
     if (!channelId) return;
-    // Nach Mount + Subscribe ein paar hundert ms Grace-Period für den
-    // ersten `ready`-Snapshot — sonst würden wir uns sofort schließen
-    // weil die Party-State noch nicht geladen ist.
-    const grace = setTimeout(() => {
-      if (!watchPartyPresence.partyIn(channelId)) {
-        try { window.close(); } catch {}
-      }
-    }, 1500);
-    return () => clearTimeout(grace);
+    let cancelled = false;
+    // Self-close only AFTER the gateway has delivered its `ready` snapshot —
+    // that's the first moment we'd actually know whether the party exists. A
+    // fixed timer raced the popup's cold-start (auth → connect → ready can
+    // exceed any fixed grace) and closed the window before the still-alive
+    // party ever arrived. A short settle lets the seeded `watch_state` apply.
+    gateway
+      .waitForReady()
+      .then(() => {
+        if (cancelled) return;
+        setTimeout(() => {
+          if (!cancelled && !watchPartyPresence.partyIn(channelId)) {
+            try {
+              window.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        }, 600);
+      })
+      .catch(() => {
+        /* never became ready — the layout's auth guard handles that path */
+      });
+    return () => {
+      cancelled = true;
+    };
   });
 
   // Reagiert auf eine ende-der-party-Push nach dem Initial-Load.
