@@ -89,12 +89,29 @@ jobs:
       - name: Build
         run: pnpm --filter @dcc/web build
 
+  # Changelog-Gate: jeder Deploy, der Code/Verhalten ändert, MUSS einen Eintrag
+  # in web/static/changelog.json mitbringen (s. scripts/check-changelog.sh +
+  # CLAUDE.md → "Changelog"). Blockt sonst den images-Job → kein stiller Deploy
+  # ohne "Was ist neu?"-Eintrag.
+  changelog:
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # check-changelog.sh diff't before..after
+      - name: Changelog-Pflicht prüfen
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: bash scripts/check-changelog.sh "$BEFORE_SHA" "$AFTER_SHA"
+
   # Build & push the 6 production images. Only on push to main, only after the
   # test jobs pass. Watchtower on the VPS follows the `:latest` tags.
   images:
     name: build & push images (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    needs: [backend, frontend]
+    needs: [backend, frontend, changelog]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: read

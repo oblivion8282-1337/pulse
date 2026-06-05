@@ -11,6 +11,7 @@
   import { initStream } from '$lib/stream/state.svelte';
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
+  import ChangelogGate from '$lib/components/ChangelogGate.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { serverVault } from '$lib/identity/server-vault.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
@@ -151,5 +152,7 @@
 </div>
 
 <ShortcutHost />
+
+<ChangelogGate />
 
 <Toaster position="bottom-right" richColors />

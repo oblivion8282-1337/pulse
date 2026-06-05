@@ -189,6 +189,16 @@ Einzel-Infra: MediaMTX `docker compose -f streaming/server/docker-compose.yml up
 - **Lies zuerst, ändere danach. Keine neuen Dependencies ohne Rückfrage. Tests proaktiv laufen lassen.**
 - **Niemals Stream-Keys/Tokens loggen.** `~/Dokumente/GPU_Screen_Recorder/` ist READ-ONLY — nur vendored `streaming/`-Kopie modifizieren.
 
+## Changelog — „Was ist neu?"-Dialog nach dem Update-Reload
+
+User-facing Changelog, der **einmalig nach einem Deploy-Reload** als Dialog erscheint (wegklickbar, dann bis zum nächsten Update weg). Quelle: **`web/static/changelog.json`** (neuester Eintrag zuerst; Felder `id`/`date`/`style`/`title`/`intro?`/`items[]`/`outro?`). Mechanik: `ChangelogGate.svelte` (im `+layout.svelte`) vergleicht `entries[0].id` mit `localStorage['pulse.changelog.lastSeen']` — Erstbesuch wird still markiert (kein Popup für Neulinge), sonst werden alle seither neuen Einträge gezeigt. `ChangelogDialog.svelte` rendert sie (Plain-Text, kein Markdown — Content ist repo-eigen). nginx serviert `/changelog.json` **no-cache** (`web-nginx.conf`, analog `version.json`).
+
+**Pflicht-Workflow vor JEDEM Push auf main** (sonst blockt das CI-Gate `scripts/check-changelog.sh` → Job `changelog` in `ci.yml` → `images` hängt davon ab):
+1. Aus den zu pushenden Commits einen **user-verständlichen** Eintrag ableiten (kein Tech-Jargon — „Play/Pause kommt zuverlässig an", nicht „pubsub-Listener int64-Hardening").
+2. **Stil NICHT selbst wählen** — dem User **mehrere Stil-Vorschläge** machen (z.B. Yoda, Hip-Hop, Pirat, Märchen, Sportreporter, Film-noir, …), er entscheidet. Jeder Eintrag in einem **anderen** Stil als der vorige.
+3. Neuen Eintrag oben in `entries` einfügen, `id` eindeutig (Datum; mehrere/Tag → `2026-06-05.2`).
+4. Reine Doku-Pushes (`*.md`, `docs/`) brauchen keinen Eintrag (Gate nimmt sie aus).
+
 ## Anti-Patterns (voll in `PLAN.md` §12)
 
 - ❌ Shared DB-Tabellen zwischen Services · ❌ HS256 JWT (nur RS256)

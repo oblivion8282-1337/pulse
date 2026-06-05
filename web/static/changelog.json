@@ -1,0 +1,22 @@
+{
+  "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
+  "entries": [
+    {
+      "id": "2026-06-05",
+      "date": "2026-06-05",
+      "style": "Teleshopping",
+      "title": "🔥 Das große Pulse-Update — heute exklusiv für Sie!",
+      "intro": "Sehen Sie selbst, liebe Zuschauer — was wir Ihnen heute mitbringen, das gibt's so nur EINMAL, und Sie sind live dabei!",
+      "items": [
+        "Die Watch-Party startet ab jetzt GANZ VON ALLEIN — kein Suchen, kein Play-Button mehr! Erstellen, zurücklehnen, fertig!",
+        "Und das Beste: Play, Pause und Vorspulen kommen GARANTIERT bei jedem Zuschauer an — alle perfekt synchron, wie von Geisterhand!",
+        "Aber das ist noch nicht alles! Ihre YouTube-Videos starten jetzt ruckelfrei und ohne nerviges Hängen — ein Klick und ZACK, es läuft!",
+        "Sie wollten ein Fenster abdocken? Kein Problem mehr! Schluss mit Abstürzen und weißen Fenstern — Ihre Party überlebt jeden Umzug!",
+        "Greifen Sie zu bei unserer NAGELNEUEN Steuerleiste für alle Video-Kacheln — und im Vollbild verdeckt sie NIE WIEDER die YouTube- und Twitch-Knöpfe!",
+        "Exklusiv und völlig gratis: Die Lautstärke jedes Streamers wird jetzt dauerhaft gespeichert — über Tab-Wechsel und Neustarts hinweg, ein für alle Mal!",
+        "Und als allerletztes Schmankerl: brandneue Sounds für Stream-Start und -Stopp, plus Ihre eigenen Server-Sounds spielen endlich zuverlässig!"
+      ],
+      "outro": "Aber Achtung — greifen Sie JETZT zu: Klicken Sie auf „Neu laden\" und erleben Sie das neue Pulse! Nur solange der Vorrat reicht! 📞✨"
+    }
+  ]
+}
