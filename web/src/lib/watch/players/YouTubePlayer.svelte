@@ -78,6 +78,16 @@
     const startPlaying = untrack(() => autoplay);
     let player: YTPlayer | undefined;
     let disposed = false;
+    // CyTube's `pauseSeekRaceCondition` (player/youtube.coffee): calling
+    // pause() before the player has ever fired a PLAYING event makes the YT
+    // iframe "do weird things" — historically a hard crash, today a swallowed
+    // pause / stuck player. Our "play immediately on create/join" flow
+    // (commits 2cbda80 / c961085) hits exactly this: applyHard pause()+seek()
+    // can run from onReady before YT has started. So we DEFER a pre-PLAYING
+    // pause and replay it on the first PLAYING event; play() cancels a pending
+    // one. seek() before PLAYING is safe (CyTube seeks in its lead-in path).
+    let firstPlayingSeen = false;
+    let pendingPause = false;
 
     void loadApi().then((YT) => {
       if (disposed || !mount) return;
@@ -94,8 +104,17 @@
         events: {
           onReady: () => {
             const handle: PlayerHandle = {
-              play: () => player?.playVideo(),
-              pause: () => player?.pauseVideo(),
+              play: () => {
+                // Cancel any pause deferred before the first PLAYING event.
+                pendingPause = false;
+                player?.playVideo();
+              },
+              pause: () => {
+                // Before the first PLAYING event, don't pause directly (the
+                // race above) — defer and replay it in onStateChange.
+                if (firstPlayingSeen) player?.pauseVideo();
+                else pendingPause = true;
+              },
               seek: (t: number) => player?.seekTo(t, true),
               getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
               setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
@@ -114,8 +133,21 @@
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onStateChange: (e: any) => {
             const t = Number(player?.getCurrentTime() ?? 0);
-            if (e.data === YT.PlayerState.PLAYING) onEvent?.({ type: 'play', position: t });
-            else if (e.data === YT.PlayerState.PAUSED) onEvent?.({ type: 'pause', position: t });
+            if (e.data === YT.PlayerState.PLAYING) {
+              firstPlayingSeen = true;
+              if (pendingPause) {
+                // Replay the deferred pre-PLAYING pause now that it's safe.
+                // The brief PLAYING was only the race workaround firing — do
+                // NOT surface it as 'play', or a host would broadcast a
+                // phantom play and viewers would resync to it.
+                pendingPause = false;
+                player?.pauseVideo();
+                return;
+              }
+              onEvent?.({ type: 'play', position: t });
+            } else if (e.data === YT.PlayerState.PAUSED) {
+              onEvent?.({ type: 'pause', position: t });
+            }
           },
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           onError: (e: any) => {
