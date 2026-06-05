@@ -8,6 +8,7 @@
   import BellIcon from '@lucide/svelte/icons/bell';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MousePointerClickIcon from '@lucide/svelte/icons/mouse-pointer-click';
+  import VideoIcon from '@lucide/svelte/icons/video';
   import { m } from '$lib/paraglide/messages.js';
 
   type CategoryView = {
@@ -35,6 +36,12 @@
       title: m.settings_sounds_category_ui_title(),
       hint: m.settings_sounds_category_ui_hint(),
       icon: MousePointerClickIcon
+    },
+    {
+      key: 'stream',
+      title: m.settings_sounds_category_stream_title(),
+      hint: m.settings_sounds_category_stream_hint(),
+      icon: VideoIcon
     }
   ];
 

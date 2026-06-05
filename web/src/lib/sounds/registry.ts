@@ -5,7 +5,7 @@
 
 import { m } from '$lib/paraglide/messages.js';
 
-export type SoundCategory = 'notification' | 'voice' | 'ui';
+export type SoundCategory = 'notification' | 'voice' | 'ui' | 'stream';
 
 export type SoundDef = {
   category: SoundCategory;
@@ -68,6 +68,21 @@ export const SOUNDS = {
     category: 'voice',
     file: 'voice-self-undeafen',
     get label() { return m.sounds_voice_self_undeafen(); }
+  },
+  'stream.user_start': {
+    category: 'stream',
+    file: 'stream-user-start',
+    get label() { return m.sounds_stream_user_start(); }
+  },
+  'stream.user_stop': {
+    category: 'stream',
+    file: 'stream-user-stop',
+    get label() { return m.sounds_stream_user_stop(); }
+  },
+  'stream.self_start': {
+    category: 'stream',
+    file: 'stream-self-start',
+    get label() { return m.sounds_stream_self_start(); }
   },
   'ui.send': {
     category: 'ui',

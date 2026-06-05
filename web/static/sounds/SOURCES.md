@@ -1,6 +1,6 @@
 # Pulse-Sound-Assets
 
-13 Sound-Files in diesem Verzeichnis (`web/static/sounds/`). Engine ist
+16 Sound-Files in diesem Verzeichnis (`web/static/sounds/`). Engine ist
 404-tolerant — solange ein File fehlt, ist der zugehörige Sound stiller
 No-Op. Sobald du eine Datei droppst, greift sie beim nächsten
 `pnpm build` (statisches Asset, kein Code-Change nötig).
@@ -22,6 +22,9 @@ No-Op. Sobald du eine Datei droppst, greift sie beim nächsten
 | `voice-self-undeafen.ogg`       | `voice.self_undeafen`      | voice         | Du gehst aus deafen                                                  |
 | `ui-send.ogg`                   | `ui.send`                  | ui            | Nachricht-Send queued (default Kategorie OFF)                        |
 | `ui-modal-open.ogg`             | `ui.modal_open`            | ui            | Settings-Dialog öffnet (default Kategorie OFF)                       |
+| `stream-user-start.ogg`         | `stream.user_start`        | stream        | Anderer Nutzer startet HQ-Stream in deinem Channel                    |
+| `stream-user-stop.ogg`          | `stream.user_stop`         | stream        | Anderer Nutzer stoppt HQ-Stream in deinem Channel                     |
+| `stream-self-start.ogg`         | `stream.self_start`        | stream        | Dein eigener HQ-Stream geht live (Bestätigungston)                    |
 
 ## Quellen — empfohlene CC0/Pixabay-Pakete
 
@@ -59,18 +62,27 @@ aber riesiger Pool.
 
 ## Codec / Format
 
-- Engine erwartet `.ogg` (Opus oder Vorbis im OGG-Container — Browser
-  decodieren beides). MP3/WAV gehen technisch auch, aber dann muss
-  `SOUND_EXT` in `web/src/lib/sounds/engine.ts` angepasst werden, und
-  alle Files brauchen dieselbe Endung.
-- Empfehlung: bei OGG bleiben, mono ist okay (HTMLAudioElement decodiert
+- Engine probiert pro Sound-ID eine **Fallback-Kette** in
+  `SOUND_EXTS = ['ogg', 'mp3']` (Reihenfolge in
+  `web/src/lib/sounds/engine.ts`). Erstes erfolgreiches Load gewinnt,
+  der Rest bleibt 404-tolerant unangetastet. Du kannst also pro Sound
+  **wahlweise** `.ogg` oder `.mp3` droppen — was auch immer Pixabay
+  liefert.
+- WAV ist nicht in der Chain — kein sinnvoller UI-Sound ist 5× größer
+  als nötig. Per-Guild-Uploads bleiben davon unberührt (eigene
+  Content-Type-Pin am MinIO-Upload in
+  `services/chat-gateway/src/dcc_chat_gateway/sounds.py`).
+- Empfehlung: OGG Vorbis wenn verfügbar (kleiner, decodiert in jedem
+  Browser), MP3 als Fallback. mono ist okay (HTMLAudioElement decodiert
   ohne extra Setup), 44.1 kHz, 96–128 kbps. Files sollen 100–800 ms lang
   sein — UI-Sounds < 200 ms, Voice/Notification-Pings 300–500 ms.
 
 ## ffmpeg-Konvertierung & Normalisierung
 
-Pixabay liefert meistens MP3. Konvertieren + auf gemeinsame Lautheit
-ziehen (alle Sounds gleich laut bei selber Slider-Position):
+Pixabay liefert meistens MP3. Du kannst sie **direkt** als
+`stream-user-start.mp3` etc. droppen — die Engine probiert `.mp3` als
+Fallback. Wenn du OGG haben willst (etwas kleiner, decodiert schneller),
+konvertiere + normalisiere auf gemeinsame Lautheit:
 
 ```fish
 # Eine Datei MP3 → OGG Vorbis, normalisiert auf EBU R128 (-23 LUFS)

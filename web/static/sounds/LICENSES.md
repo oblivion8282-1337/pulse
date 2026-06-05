@@ -23,6 +23,9 @@ Trail.
 | `voice-self-undeafen.ogg`   | `Audio/switch10.ogg`       |
 | `ui-send.ogg`               | `Audio/click1.ogg`         |
 | `ui-modal-open.ogg`         | `Audio/rollover2.ogg`      |
+| `stream-user-start.ogg`     | _noch nicht zugeordnet — Pixabay/Freesound-Pick_ |
+| `stream-user-stop.ogg`      | _noch nicht zugeordnet — Pixabay/Freesound-Pick_ |
+| `stream-self-start.ogg`     | _noch nicht zugeordnet — Pixabay/Freesound-Pick_ |
 
 Pack-Download (Stand 2026-05-18):
 <https://kenney.nl/media/pages/assets/ui-audio/490d233f68-1677590494/kenney_ui-audio.zip>

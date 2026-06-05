@@ -27,6 +27,7 @@
   import BellIcon from '@lucide/svelte/icons/bell';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MousePointerClickIcon from '@lucide/svelte/icons/mouse-pointer-click';
+  import VideoIcon from '@lucide/svelte/icons/video';
 
   import { chatApi, type GuildSoundOverrideOut } from '$lib/api/chat';
   import { sounds } from '$lib/sounds/engine';
@@ -60,7 +61,8 @@
   const categories: { key: SoundCategoryKey; title: string; icon: typeof BellIcon }[] = [
     { key: 'notification', title: m.guild_sounds_cat_notification(), icon: BellIcon },
     { key: 'voice', title: m.guild_sounds_cat_voice(), icon: MicIcon },
-    { key: 'ui', title: m.guild_sounds_cat_ui(), icon: MousePointerClickIcon }
+    { key: 'ui', title: m.guild_sounds_cat_ui(), icon: MousePointerClickIcon },
+    { key: 'stream', title: m.guild_sounds_cat_stream(), icon: VideoIcon }
   ];
 
   function rowFor(id: SoundId): GuildSoundOverrideOut | undefined {

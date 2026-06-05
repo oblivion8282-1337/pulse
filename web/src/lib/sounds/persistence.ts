@@ -4,7 +4,7 @@
  * project's 500-line hard cap.
  */
 
-export type SoundCategoryKey = 'notification' | 'voice' | 'ui';
+export type SoundCategoryKey = 'notification' | 'voice' | 'ui' | 'stream';
 
 export type SoundCategorySettings = {
   enabled: boolean;
@@ -19,6 +19,7 @@ export type SoundsSettings = {
   notification: SoundCategorySettings;
   voice: SoundCategorySettings;
   ui: SoundCategorySettings;
+  stream: SoundCategorySettings;
 };
 
 export const DEFAULT_SOUNDS: SoundsSettings = {
@@ -27,8 +28,9 @@ export const DEFAULT_SOUNDS: SoundsSettings = {
   notification: { enabled: true, volume: 1 },
   voice: { enabled: true, volume: 1 },
   // UI feedback (send-click, dialog-pop) is the noisiest category; default off
-  // so we don't auto-annoy power users. Notifications + voice match Discord.
-  ui: { enabled: false, volume: 1 }
+  // so we don't auto-annoy power users. Notifications + voice + stream match Discord.
+  ui: { enabled: false, volume: 1 },
+  stream: { enabled: true, volume: 1 }
 };
 
 function clampVolume(v: unknown, fallback: number): number {
@@ -71,7 +73,8 @@ export function parseSounds(
     masterVolume: clampVolume(p.masterVolume, d.masterVolume),
     notification: parseCategory(p.notification, d.notification),
     voice: parseCategory(p.voice, d.voice),
-    ui: parseCategory(p.ui, d.ui)
+    ui: parseCategory(p.ui, d.ui),
+    stream: parseCategory(p.stream, d.stream)
   };
 }
 

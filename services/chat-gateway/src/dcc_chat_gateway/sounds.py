@@ -25,6 +25,9 @@ VALID_SOUND_IDS: frozenset[str] = frozenset(
         "voice.self_undeafen",
         "ui.send",
         "ui.modal_open",
+        "stream.user_start",
+        "stream.user_stop",
+        "stream.self_start",
     }
 )
 
