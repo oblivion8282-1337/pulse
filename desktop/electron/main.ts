@@ -194,6 +194,11 @@ function createWindow(): void {
       // true, so it broadcasts a frozen position and viewers loop on backward
       // drift-seeks. Also keeps the voice/PTT timers honest in the tray.
       backgroundThrottling: false,
+      // Watch-party videos (YouTube/Twitch/native) must start playing the
+      // instant a party is created/joined — with sound. Chromium's default
+      // gates autoplay-with-audio behind a fresh user gesture, which the async
+      // player load loses. The desktop shell is trusted, so lift the gate.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
@@ -224,9 +229,19 @@ function createWindow(): void {
     }
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (_isAllowedOrigin(url)) return { action: 'allow' };
-    void shell.openExternal(url);
-    return { action: 'deny' };
+    if (!_isAllowedOrigin(url)) {
+      void shell.openExternal(url);
+      return { action: 'deny' };
+    }
+    // Allow — no preload (browser-like popup, see did-create-window), but lift
+    // the autoplay gate so a detached watch-party plays immediately, like the
+    // main window.
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        webPreferences: { autoplayPolicy: 'no-user-gesture-required' },
+      },
+    };
   });
   // Electron creates the allowed popup at about:blank and — in this
   // Electron/Chromium build — does NOT auto-navigate it to the requested URL,

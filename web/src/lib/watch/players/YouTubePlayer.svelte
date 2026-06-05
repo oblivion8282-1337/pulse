@@ -49,6 +49,7 @@
 </script>
 
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { WatchSourceYouTube } from '$lib/stores/watchPartyPresence.svelte';
   import type { PlayerEvent, PlayerHandle } from '../sync';
 
@@ -58,16 +59,23 @@
 
   interface Props {
     source: WatchSourceYouTube;
+    /** Start playing immediately (mount-time only). True when the party is in
+     * its playing state — leverages the user-activation from the create/join
+     * click so host + viewer don't have to press play manually. */
+    autoplay?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, onReady, onEvent }: Props = $props();
+  let { source, autoplay = false, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
 
   $effect(() => {
     if (!mount) return;
+    // mount-time only — read without tracking so a later is_playing flip
+    // doesn't tear down and rebuild the player.
+    const startPlaying = untrack(() => autoplay);
     let player: YTPlayer | undefined;
     let disposed = false;
 
@@ -76,7 +84,7 @@
       player = new YT.Player(mount, {
         videoId: source.embed_id,
         playerVars: {
-          autoplay: 0,
+          autoplay: startPlaying ? 1 : 0,
           controls: 1,
           modestbranding: 1,
           rel: 0,

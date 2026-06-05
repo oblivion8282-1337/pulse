@@ -20,6 +20,7 @@
   no-op; the drift corrector falls back to hard seeks on VODs.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type {
     WatchSourceTwitch,
     WatchSourceTwitchLive
@@ -31,11 +32,13 @@
 
   interface Props {
     source: WatchSourceTwitch | WatchSourceTwitchLive;
+    /** Start playing immediately (mount-time only) — see YouTubePlayer. */
+    autoplay?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, onReady, onEvent }: Props = $props();
+  let { source, autoplay = false, onReady, onEvent }: Props = $props();
 
   let mount = $state<HTMLDivElement | undefined>();
   const elementId = `twitch-player-${Math.random().toString(36).slice(2)}`;
@@ -73,6 +76,7 @@
 
   $effect(() => {
     if (!mount) return;
+    const startPlaying = untrack(() => autoplay); // mount-time only
     let player: TwitchPlayer | undefined;
     let disposed = false;
 
@@ -82,7 +86,7 @@
         parent: [window.location.hostname],
         width: '100%',
         height: '100%',
-        autoplay: false,
+        autoplay: startPlaying,
         muted: false
       };
       if (source.type === 'twitch_live') options.channel = source.channel;

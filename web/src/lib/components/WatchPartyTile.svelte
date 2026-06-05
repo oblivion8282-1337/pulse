@@ -188,11 +188,26 @@
   {#snippet media()}
     <div class="relative min-h-0 w-full flex-1 bg-black">
       {#if party.source.type === 'youtube'}
-        <YouTubePlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+        <YouTubePlayer
+          source={party.source}
+          autoplay={isPassive || party.is_playing}
+          onReady={handleReady}
+          onEvent={handleEvent}
+        />
       {:else if party.source.type === 'twitch' || party.source.type === 'twitch_live'}
-        <TwitchPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+        <TwitchPlayer
+          source={party.source}
+          autoplay={isPassive || party.is_playing}
+          onReady={handleReady}
+          onEvent={handleEvent}
+        />
       {:else}
-        <NativeVideoPlayer source={party.source} onReady={handleReady} onEvent={handleEvent} />
+        <NativeVideoPlayer
+          source={party.source}
+          autoplay={isPassive || party.is_playing}
+          onReady={handleReady}
+          onEvent={handleEvent}
+        />
       {/if}
     </div>
   {/snippet}

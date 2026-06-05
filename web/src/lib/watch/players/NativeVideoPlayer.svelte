@@ -17,11 +17,17 @@
 
   interface Props {
     source: WatchSourceNative;
+    /** Start playing immediately (mount-time only) — see YouTubePlayer. */
+    autoplay?: boolean;
     onReady?: (handle: PlayerHandle) => void;
     onEvent?: (e: PlayerEvent) => void;
   }
 
-  let { source, onReady, onEvent }: Props = $props();
+  let { source, autoplay = false, onReady, onEvent }: Props = $props();
+  // Capture once at mount: a later is_playing flip is driven by the controller
+  // via the handle, not by re-toggling the element attribute.
+  // svelte-ignore state_referenced_locally
+  const startPlaying = autoplay;
 
   let video = $state<HTMLVideoElement | undefined>();
 
@@ -83,6 +89,7 @@
   src={source.url}
   controls
   playsinline
+  autoplay={startPlaying}
   class="h-full w-full bg-black"
 >
   <track kind="captions" />
