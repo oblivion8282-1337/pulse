@@ -33,6 +33,13 @@ class GuildStore {
   async loadChannels(guildId: string): Promise<Channel[]> {
     const channels = await chatApi.listChannels(guildId);
     this.channelsByGuild = { ...this.channelsByGuild, [guildId]: channels };
+    // Keep the reverse index in sync — without this, `guildIdForChannel`
+    // returns null for every bulk-loaded channel (only the WS-lifecycle
+    // `addChannel`/`updateChannel` paths populated it). That silently
+    // drops the guild context on sound playback: per-guild overrides are
+    // never consulted, and stream sounds (which have no bundled fallback)
+    // go completely silent.
+    for (const c of channels) this.channelToGuild.set(c.id, guildId);
     return channels;
   }
 
@@ -74,6 +81,10 @@ class GuildStore {
     delete nextById[guildId];
     this.byId = nextById;
     const nextChannels = { ...this.channelsByGuild };
+    // Drop the guild's channels from the reverse index too, so a later
+    // `guildIdForChannel` for a now-orphaned channel id can't return a
+    // stale guild (now that `loadChannels` actually populates the index).
+    for (const c of nextChannels[guildId] ?? []) this.channelToGuild.delete(c.id);
     delete nextChannels[guildId];
     this.channelsByGuild = nextChannels;
   }
