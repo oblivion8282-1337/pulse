@@ -25,7 +25,21 @@ docker build \
 Build takes a few minutes — multi-stage builds the uv workspace (Python),
 the SvelteKit SPA (Node) and downloads four pinned upstream binaries.
 
-## Run
+## Run (empfohlen: Docker Compose)
+
+Die mitgelieferte `docker-compose.yml` startet den Pulse-Server **und** den
+Watchtower-Auto-Updater zusammen — so ist das Auto-Update von Anfang an dabei
+(sonst ein leicht zu übersehender Extra-Schritt, siehe [Watchtower](#watchtower)):
+
+```bash
+cp .env.example .env      # 6 Pflicht-Vars eintragen (.env-Download via "Meine Instanzen")
+docker compose up -d
+```
+
+Das deckt den Standardfall (Auto-TLS auf 80/443) ab; die `behind-proxy`-Variante
+ist in der `docker-compose.yml` auskommentiert beschrieben.
+
+## Run (manuell, ohne Compose)
 
 ```bash
 docker run -d --name pulse \
@@ -41,6 +55,9 @@ docker run -d --name pulse \
     -e PULSE_ADMIN_EMAIL=admin@firma.de \
     ghcr.io/oblivion8282-1337/pulse-allinone:stable
 ```
+
+Beim manuellen `docker run` musst du den Watchtower-Container separat starten
+(siehe [Watchtower](#watchtower)) — Compose nimmt dir das ab.
 
 The six `-e` vars are mandatory; cont-init aborts with a clear error otherwise.
 `PULSE_INSTANCE_ID`, `PULSE_INSTANCE_OWNER_ID`, `PULSE_CLOUD_CLIENT_ID` and the

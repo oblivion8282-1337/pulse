@@ -1,0 +1,61 @@
+# Pulse Self-Host — All-in-One + Auto-Update in einem.
+#
+#   1. .env.example nach .env kopieren und die 6 Pflicht-Vars eintragen
+#      (am einfachsten: howispulse.com → "Meine Instanzen" → .env-Download).
+#   2. docker compose up -d
+#
+# Damit läuft der Pulse-Server UND der Watchtower-Updater zusammen — du musst
+# Auto-Update nicht mehr separat einrichten (das war vorher ein leicht zu
+# übersehender Extra-Schritt).
+#
+# Standard = Auto-TLS: der eingebettete Caddy holt automatisch ein Let's-Encrypt-
+# Zertifikat für PULSE_HOSTNAME. Voraussetzung: Port 80 + 443 sind öffentlich
+# erreichbar und der DNS-A-Record zeigt auf diese Maschine.
+
+services:
+  pulse:
+    image: ghcr.io/oblivion8282-1337/pulse-allinone:stable
+    container_name: pulse
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - pulse-data:/data
+    ports:
+      # HTTP/HTTPS — Auto-TLS (PULSE_TLS_MODE=auto). Port 80 wird zusätzlich für
+      # die Let's-Encrypt-Challenge gebraucht.
+      - "80:80"
+      - "443:443"
+      # Voice (LiveKit WebRTC) + HQ-Stream-ICE
+      - "7882-7892:7882-7892/udp"
+      # TURN/STUN (coturn) — NAT-Traversal für Voice
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      # HQ-Streaming RTMPS-Ingest
+      - "1936:1936/tcp"
+    # Hinweis: Die Watchtower-Labels (enable + scope=pulse) sind bereits ins
+    # Image gebacken — der watchtower-Service unten greift diesen Container
+    # automatisch auf, ohne dass hier Labels nötig sind.
+    #
+    # --- behind-proxy-Alternative ------------------------------------------
+    # Läuft auf der Maschine SCHON ein Reverse-Proxy (Caddy/nginx/Traefik) auf
+    # 80/443? Dann in der .env PULSE_TLS_MODE=behind-proxy setzen, die beiden
+    # 80/443-Zeilen oben entfernen und stattdessen nur den internen HTTP-Port
+    # exponieren:
+    #     - "127.0.0.1:8080:8080"
+    # und im vorhandenen Proxy EINE Regel anlegen:
+    #     pulse.deine-domain  →  http://127.0.0.1:8080
+
+  watchtower:
+    image: ghcr.io/nicholas-fedor/watchtower:latest
+    container_name: pulse-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    # --scope pulse → aktualisiert NUR Container mit dem Label
+    # com.centurylinklabs.watchtower.scope=pulse (das All-in-One-Image trägt es).
+    # Andere Container auf derselben Maschine bleiben unangetastet.
+    # --cleanup entfernt das alte Image nach jedem Update.
+    command: --label-enable --scope pulse --interval 300 --cleanup
+
+volumes:
+  pulse-data:
