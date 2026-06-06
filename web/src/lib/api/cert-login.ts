@@ -31,6 +31,8 @@ export type CertLoginReason =
   | 'challenge-expired'
   | 'signature-invalid'
   | 'rate-limited'
+  | 'join-closed'
+  | 'join-requires-invite'
   | 'network'
   | 'unknown';
 
@@ -111,6 +113,8 @@ function reasonForStatus(status: number, detail: string | null): CertLoginReason
   if (detail === 'cert_invalid') return 'cert-invalid';
   if (detail === 'challenge_expired') return 'challenge-expired';
   if (detail === 'signature_invalid' || detail === 'cert_mismatch') return 'signature-invalid';
+  if (detail === 'join_closed') return 'join-closed';
+  if (detail === 'join_requires_invite') return 'join-requires-invite';
   if (status === 410) return 'challenge-expired';
   if (status === 429) return 'rate-limited';
   if (status === 401) return 'cert-invalid';
@@ -135,9 +139,12 @@ async function readDetail(resp: Response): Promise<string | null> {
  *
  * @param serverHostname  Voller Origin inkl. Schema, z.B. "https://chat.firma.de"
  *                        (kein trailing slash — caller normalisiert).
+ * @param joinCode        Optionaler Server-Beitritts-Code (für geschlossene /
+ *                        invite-only-Server). Wird nur beim Erstkontakt benötigt
+ *                        — Re-Auth (self-host-reauth.ts) lässt ihn weg.
  * @throws CertLoginError mit `.reason`-Tag fürs UI-Mapping.
  */
-export async function certLogin(serverHostname: string): Promise<CertLoginResult> {
+export async function certLogin(serverHostname: string, joinCode?: string): Promise<CertLoginResult> {
   // 1. Cert + Keypair laden (pure helpers — kein Store-State erforderlich,
   //    funktioniert auch wenn die Stores noch nicht hydriert sind).
   const cert = await loadCert();
@@ -165,11 +172,13 @@ export async function certLogin(serverHostname: string): Promise<CertLoginResult
   const signature = b64urlEncode(sigBytes);
 
   // 4. Verify
-  const vResp = await postJSON(`${base}/cert-login/verify`, {
+  const verifyBody: Record<string, unknown> = {
     cert: cert.raw,
     challenge_token: challenge.challenge_token,
     signature,
-  });
+  };
+  if (joinCode) verifyBody.join_code = joinCode;
+  const vResp = await postJSON(`${base}/cert-login/verify`, verifyBody);
   if (!vResp.ok) {
     const detail = await readDetail(vResp);
     throw new CertLoginError(reasonForStatus(vResp.status, detail), vResp.status);

@@ -50,9 +50,24 @@ export type ChatSettings = {
   dm_attachment_max_count_per_message: number;
 };
 
+export type JoinMode = 'open' | 'invite_only' | 'closed';
+
+export type JoinInvite = {
+  code: string;
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  max_uses: number | null;
+  uses: number;
+  revoked: boolean;
+  note: string | null;
+};
+
 export type Permissions = {
   allow_guild_creation: boolean;
   allow_member_invites: boolean;
+  /** Self-Host-only: Beitritts-Modus (open / invite_only / closed). */
+  join_mode: JoinMode;
   /** Per-file cap (bytes) for per-guild sound-override uploads. The
    * Sounds tab in guild settings reads the live value via the
    * capabilities store; this admin view edits it directly. */
@@ -305,6 +320,28 @@ export const adminApi = {
   /** Self-Host-Backup-Status — gegen die aktive Instanz (chat-gateway). */
   selfHostBackups(): Promise<SelfHostBackupStatus> {
     return request<SelfHostBackupStatus>('/admin/self-host/backups', { endpoint: 'chat' });
+  },
+
+  /** Self-Host-Beitritts-Einladungen (join-invites) — gegen die aktive Instanz. */
+  listJoinInvites(): Promise<JoinInvite[]> {
+    return request<JoinInvite[]>('/admin/join-invites', { endpoint: 'chat' });
+  },
+  createJoinInvite(payload: {
+    expires_in_days?: number | null;
+    max_uses?: number | null;
+    note?: string | null;
+  }): Promise<JoinInvite> {
+    return request<JoinInvite>('/admin/join-invites', {
+      method: 'POST',
+      endpoint: 'chat',
+      body: payload
+    });
+  },
+  revokeJoinInvite(code: string): Promise<void> {
+    return request<void>(`/admin/join-invites/${encodeURIComponent(code)}`, {
+      method: 'DELETE',
+      endpoint: 'chat'
+    });
   },
 
   /** Instanzweite Member-Verwaltung (F11c) — gegen die aktive Instanz. */

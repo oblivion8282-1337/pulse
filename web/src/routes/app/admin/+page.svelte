@@ -26,6 +26,7 @@
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminMembers from '$lib/components/admin/AdminMembers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
+  import AdminJoinControl from '$lib/components/admin/AdminJoinControl.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -99,6 +100,9 @@
         <AdminSmtp />
       {/if}
       <AdminPermissions />
+      {#if !isCloud}
+        <AdminJoinControl />
+      {/if}
       <AdminStreamLimits />
       <AdminNormalStreamLimits />
       <AdminPlugins />

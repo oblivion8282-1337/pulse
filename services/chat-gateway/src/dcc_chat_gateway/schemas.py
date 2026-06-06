@@ -388,6 +388,9 @@ class PermissionsOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     allow_guild_creation: bool
     allow_member_invites: bool
+    # Self-Host join gate: open | invite_only | closed. Surfaced so the admin
+    # UI can show/set the current mode. Cloud ignores it (no gated cert-join).
+    join_mode: str
     guild_sound_max_size_bytes: int
     # Global HQ-stream quality limits (best-effort, client-enforced).
     hq_bitrate_min_kbps: int
@@ -420,10 +423,16 @@ ALLOWED_NS_RESOLUTIONS: frozenset[str] = frozenset({"native", "1080p", "720p", "
 # (no 'native': a webcam has a hardware ceiling, the admin picks a stage).
 ALLOWED_CAM_RESOLUTIONS: frozenset[str] = frozenset({"1440p", "1080p", "720p", "480p"})
 
+# Allowed values for ``join_mode`` (Self-Host join gate). Mirrors
+# ``membership.JOIN_MODES``.
+ALLOWED_JOIN_MODES: frozenset[str] = frozenset({"open", "invite_only", "closed"})
+
 
 class PermissionsPatch(BaseModel):
     allow_guild_creation: bool | None = None
     allow_member_invites: bool | None = None
+    # Self-Host join gate: open | invite_only | closed.
+    join_mode: str | None = None
     # Bound: 4 KB floor (a 1-frame OGG is ~2 KB; below that = abuse),
     # 5 MB ceiling (anything larger isn't a "UI sound" anymore).
     guild_sound_max_size_bytes: Annotated[
@@ -447,6 +456,13 @@ class PermissionsPatch(BaseModel):
     # Webcam capture limits — FPS ceiling 60 (the camera path never exceeds it).
     cam_fps_max: Annotated[int | None, Field(default=None, ge=1, le=60)] = None
     cam_resolution_max: str | None = None
+
+    @field_validator("join_mode")
+    @classmethod
+    def _validate_join_mode(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_JOIN_MODES:
+            raise ValueError(f"join_mode must be one of {sorted(ALLOWED_JOIN_MODES)}")
+        return v
 
     @field_validator("hq_resolution_max")
     @classmethod

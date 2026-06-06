@@ -38,12 +38,14 @@ export async function addServerWithCertLogin(args: {
   label: string;
   instanceId?: string;
   inviteCode?: string;
+  /** Server-Beitritts-Code für invite_only / closed-Server — NICHT der Community-Invite. */
+  joinCode?: string;
 }): Promise<AddServerSuccess> {
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
   let result;
   try {
-    result = await certLogin(args.hostname);
+    result = await certLogin(args.hostname, args.joinCode);
   } catch (err) {
     // Rollback — ServerEntry war provisional.
     try { serversStore.remove(entry.id); } catch { /* Cloud nie hier */ }
@@ -94,7 +96,7 @@ export function acceptInvite(
 // 250-Z.-Cap bleibt.
 // ---------------------------------------------------------------------------
 
-/** Deutsche Fehlermeldung für einen CertLoginError.reason. */
+/** Fehlermeldung für einen CertLoginError.reason. */
 export function mapCertLoginReason(reason: CertLoginReason): string {
   if (reason === 'no-cert' || reason === 'no-keypair')
     return m.add_server_flow_no_cert();
@@ -104,6 +106,8 @@ export function mapCertLoginReason(reason: CertLoginReason): string {
   if (reason === 'signature-invalid')
     return m.add_server_flow_signature_invalid();
   if (reason === 'rate-limited') return m.add_server_flow_rate_limited();
+  if (reason === 'join-closed') return m.add_server_flow_join_closed();
+  if (reason === 'join-requires-invite') return m.add_server_flow_join_requires_invite();
   if (reason === 'network') return m.add_server_flow_network_error();
   return m.add_server_flow_cert_login_failed();
 }

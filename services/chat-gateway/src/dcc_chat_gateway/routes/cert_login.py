@@ -54,7 +54,8 @@ from sqlalchemy import select
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import CachedUserProfile
+from dcc_chat_gateway.membership import add_member, is_member, redeem_join_invite
+from dcc_chat_gateway.models import CachedUserProfile, ChatSettings
 from dcc_chat_gateway.credential_validator import (
     resolve_user_identifier,
     validate_cert,
@@ -233,6 +234,10 @@ class VerifyRequest(BaseModel):
     cert: str
     challenge_token: str
     signature: str  # base64url(Ed25519 signature over the raw nonce bytes)
+    # Optional join-invite code. Only consulted on first contact when the
+    # instance is in ``invite_only`` join-mode (self-host); ignored for the
+    # owner, existing members, and ``open`` mode.
+    join_code: str | None = None
 
 
 class VerifyResponse(BaseModel):
@@ -332,6 +337,46 @@ async def _claim_challenge_once(challenge_token: str, redis) -> None:
         raise HTTPException(status_code=410, detail="challenge_consumed")
 
 
+async def _enforce_join_gate(
+    session, identifier: str, is_owner_admin: bool, join_code: str | None
+) -> None:
+    """Self-Host join gate. Lets the request through or raises 403.
+
+    On success (the owner, an existing member, or a permitted first-contact)
+    this commits the membership write so the new ``instance_members`` row /
+    redeemed invite-use survives even though the verify route mints its token
+    via Redis (no later SQL commit). Raises ``HTTPException`` 403 to deny.
+    """
+    # Owner: always in; record membership on first sight.
+    if is_owner_admin:
+        await add_member(session, identifier, joined_via="owner")
+        await session.commit()
+        return
+
+    # Existing member: always in, never asked for an invite again (re-auth path).
+    if await is_member(session, identifier):
+        return
+
+    # First contact — decide by join_mode.
+    row = await session.get(ChatSettings, 1)
+    join_mode = row.join_mode if row is not None else "invite_only"
+
+    if join_mode == "open":
+        await add_member(session, identifier, joined_via="open")
+        await session.commit()
+        return
+
+    if join_mode == "closed":
+        raise HTTPException(status_code=403, detail="join_closed")
+
+    # invite_only: require a valid code.
+    if join_code and await redeem_join_invite(session, join_code):
+        await add_member(session, identifier, joined_via=join_code)
+        await session.commit()
+        return
+    raise HTTPException(status_code=403, detail="join_requires_invite")
+
+
 @router.post(
     "/cert-login/verify",
     response_model=VerifyResponse,
@@ -415,6 +460,15 @@ async def cert_login_verify(
         ).scalar_one_or_none()
         if banned_at is not None:
             raise HTTPException(status_code=403, detail="instance banned")
+
+    # 5d. Join gate (Self-Host only). Cloud mode has no gated cert-join — the
+    #     Cloud is the identity provider, every cert-holder is implicitly a
+    #     "member", so we skip the gate entirely (and never touch instance_members
+    #     in cloud mode). The order matters: owner first, then existing members
+    #     (the critical re-auth path — a member must NEVER be asked for an invite
+    #     again), then first-contact handling by join_mode.
+    if settings.pulse_instance_mode == "self-host":
+        await _enforce_join_gate(session, identifier, is_owner_admin, body.join_code)
 
     # 6. Mint + persist session token.
     token = issue_session_token(

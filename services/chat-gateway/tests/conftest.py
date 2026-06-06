@@ -126,8 +126,13 @@ async def engine():
         # toggle it explicitly via the admin endpoint (see test_permissions).
         # Prod default is false (locked down — only the bootstrap admin
         # opens it up).
+        # ``join_mode='open'`` is a test-suite convenience (prod default is
+        # 'invite_only', locked-down). The cert-login tests run in self-host
+        # mode and would otherwise hit the first-contact join gate; tests that
+        # exercise the gate set join_mode explicitly.
         await conn.exec_driver_sql(
-            "INSERT INTO chat_settings (id, allow_guild_creation) VALUES (1, true)"
+            "INSERT INTO chat_settings (id, allow_guild_creation, join_mode) "
+            "VALUES (1, true, 'open')"
         )
     yield eng
     await eng.dispose()
@@ -227,7 +232,8 @@ async def ws_app(_auth_signer, tmp_path):
             table.schema = None
         await conn.run_sync(Base.metadata.create_all)
         await conn.exec_driver_sql(
-            "INSERT INTO chat_settings (id, allow_guild_creation) VALUES (1, true)"
+            "INSERT INTO chat_settings (id, allow_guild_creation, join_mode) "
+            "VALUES (1, true, 'open')"
         )
     await bootstrap_engine.dispose()
 

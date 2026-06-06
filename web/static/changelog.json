@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-06.2",
+      "date": "2026-06-06",
+      "style": "Türsteher",
+      "title": "🔥 Ohne die richtige Gästeliste läuft hier gar nichts",
+      "intro": "Dein Server, deine Regeln: Ab sofort entscheidest du, wer durch die Tür kommt.",
+      "items": [
+        "Neuer Schalter am Samtseil — du stellst deinen eigenen Server auf „Offen für alle\", „Nur mit Einladung\" oder „Komplett dicht\".",
+        "Einladungs-Codes verteilst du selbst: erstellen, mit Ablaufdatum oder Nutzungslimit versehen, und jederzeit wieder kassieren.",
+        "Wer reinwill, gibt seinen Code beim Hinzufügen des Servers ein — kein Code, keine Tür.",
+        "Und keine Sorge um die Stammgäste: Wer schon drin ist, bleibt drin — niemand wird durch die neue Tür ausgesperrt.",
+        "Frisch aufgesetzte Server stehen ab Werk auf „Nur mit Einladung\" — sicher von der ersten Minute an."
+      ],
+      "outro": "Du als Hausherr kommst natürlich immer rein. 🛂"
+    },
+    {
       "id": "2026-06-06",
       "date": "2026-06-06",
       "style": "Detektiv",

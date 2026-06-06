@@ -52,6 +52,15 @@ class ChatSettings(Base):
     allow_member_invites: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
+    # Self-Host join gate. ``open`` = any cert-holder joins on first cert-login,
+    # ``invite_only`` = first contact needs a valid join-invite code,
+    # ``closed`` = no new members at all (existing members + the owner still get
+    # in). Defaults to ``invite_only`` so a fresh self-hosted instance is
+    # locked-down (mirrors ``allow_guild_creation=false``). Enforced in
+    # ``routes/cert_login.py`` (self-host only — Cloud has no gated cert-join).
+    join_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="invite_only"
+    )
     # Per-file cap (bytes) for per-guild sound-override uploads. Tunable
     # by the Pulse-instance admin via /admin/permissions; the route layer
     # in chat-gateway enforces it on PUT. 512 KB default = comfortable

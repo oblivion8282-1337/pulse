@@ -21,6 +21,7 @@ from dcc_chat_gateway.models.friendships import (
     UserPrivacy,
 )
 from dcc_chat_gateway.models.guilds import Guild, GuildBan, GuildInvite, GuildMember
+from dcc_chat_gateway.models.membership import InstanceJoinInvite, InstanceMember
 from dcc_chat_gateway.models.messages import (
     MENTION_EVERYONE_TARGET_ID,
     MENTION_TYPE_EVERYONE,
@@ -64,6 +65,8 @@ __all__ = [
     "GuildPlugin",
     "GuildPluginState",
     "GuildSoundOverride",
+    "InstanceJoinInvite",
+    "InstanceMember",
     "InstancePluginAllowlist",
     "MemberRole",
     "Message",
