@@ -94,11 +94,18 @@ run it separately:
 
 ```bash
 docker run -d --name pulse-watchtower \
+    --restart unless-stopped \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    containrrr/watchtower --label-enable --scope pulse --interval 300
+    ghcr.io/nicholas-fedor/watchtower:latest --label-enable --scope pulse --interval 300 --cleanup
 ```
 
-The all-in-one container ships with the right labels so Watchtower picks it up.
+The all-in-one container ships with the right labels (`com.centurylinklabs.watchtower.enable=true`
++ `…scope=pulse`) so Watchtower picks it up.
+
+> **Note:** the original `containrrr/watchtower` image is effectively
+> unmaintained and uses a Docker API client (v1.25) too old for modern daemons
+> (min v1.40) — it crash-loops with a "client version too old" error. Use the
+> actively-maintained `ghcr.io/nicholas-fedor/watchtower` fork instead.
 
 ## Architecture
 
