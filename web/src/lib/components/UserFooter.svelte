@@ -4,6 +4,8 @@
   import { toast } from 'svelte-sonner';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
+  import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
@@ -37,6 +39,17 @@
   let initial = $derived(displayName.slice(0, 1).toUpperCase());
 
   let avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
+
+  // Admin ist PRO Server (vgl. routes/app/admin/+page.svelte): Cloud →
+  // auth.user.is_admin (auth /me); Self-Host → der is_admin aus dem ready-Frame
+  // dieses Servers (Cert-Login-User haben dort kein auth /me). Ohne diese
+  // Unterscheidung bleibt der Server-Admin-Eintrag für Self-Host-Admins
+  // versteckt, weil ihr Cloud-Account kein is_admin trägt.
+  let canAdminHere = $derived(
+    activeServer.current?.isCloud
+      ? (auth.user?.is_admin ?? false)
+      : serverAdmin.isAdmin(activeServer.current?.id ?? '')
+  );
 
   async function onSignOut() {
     const t = loadTokens();
@@ -104,7 +117,7 @@
     <SettingsIcon class="size-4" />
     {m.user_footer_settings()}
   </DropdownMenu.Item>
-  {#if auth.user?.is_admin}
+  {#if canAdminHere}
     <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
       <ShieldIcon class="size-4" />
       {m.user_footer_server_admin()}

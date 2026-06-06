@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-06",
+      "date": "2026-06-06",
+      "style": "Detektiv",
+      "title": "🕵️ Der Fall des verschwundenen Admin-Knopfes",
+      "intro": "Ein Hinweis ging ein: Auf der eigenen, selbst gehosteten Cloud war der Admin spurlos ausgesperrt. Wir haben ermittelt.",
+      "items": [
+        "Wer eine eigene Pulse-Instanz betreibt, findet im Profilmenü unten links jetzt wieder den Knopf „Server-Admin\" — und kommt damit an die Einstellungen seines eigenen Servers."
+      ],
+      "outro": "Fall geschlossen. Auf der großen Pulse Cloud bleibt der Knopf wie gehabt nur für echte Admins sichtbar."
+    },
+    {
       "id": "2026-06-05",
       "date": "2026-06-05",
       "style": "Teleshopping",
