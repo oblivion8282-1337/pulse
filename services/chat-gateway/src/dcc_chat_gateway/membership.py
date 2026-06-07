@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import func, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway.models import GuildInvite, InstanceJoinInvite, InstanceMember
+from dcc_chat_gateway.models import Guild, GuildInvite, InstanceJoinInvite, InstanceMember
 
 # Allowed values for ``chat_settings.join_mode`` (mirrored in the admin schema).
 JOIN_MODES: frozenset[str] = frozenset({"open", "invite_only", "closed"})
@@ -109,10 +109,42 @@ async def community_invite_grants_access(
     return True
 
 
+async def public_community_grants_access(
+    session: AsyncSession, handle: str
+) -> bool:
+    """True iff ``handle`` names a **public** community on this instance.
+
+    The Self-Host *instance*-membership grant for the public-address flow
+    (Stufe 4 / Entscheidung 5): a public community is its own permission to
+    join the instance — community-scoped, ``join_mode``-independent.
+
+    Unlike ``community_invite_grants_access`` (which deliberately does NOT bypass
+    ``closed``), a public-community grant is checked **before** the ``join_mode``
+    branch in the gate and therefore admits even in ``closed`` mode. Rationale
+    (plan Entscheidung 5 + the Stufe-4 note): a community publicly opening its
+    doors is its own decision; the legacy instance lock does not gate it. The
+    future single "Server gesperrt" not-aus toggle (Stufe 5) will override even
+    this — it does not exist yet, so today the only gate is the ``is_public``
+    flag itself.
+
+    An empty/unknown handle, or one that resolves to a *non-public* community,
+    returns ``False`` → the caller grants nothing. Reading live state means a
+    community flipped back to private stops granting access immediately on the
+    next cert-login (replay-safe — no state carried over time).
+    """
+    if not handle:
+        return False
+    guild = (
+        await session.execute(select(Guild).where(Guild.handle == handle))
+    ).scalar_one_or_none()
+    return guild is not None and guild.is_public
+
+
 __all__ = [
     "JOIN_MODES",
     "add_member",
     "community_invite_grants_access",
     "is_member",
+    "public_community_grants_access",
     "redeem_join_invite",
 ]

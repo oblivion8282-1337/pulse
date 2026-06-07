@@ -24,6 +24,7 @@ from dcc_chat_gateway.schemas import (
     GuildIn,
     GuildOut,
     GuildPatchIn,
+    GuildSettingsOut,
     MemberIn,
     MemberNicknameIn,
     MemberOut,
@@ -129,6 +130,35 @@ async def get_guild(guild_id: int, session: SessionDep, current: CurrentUser):
     return guild
 
 
+def _address_path(handle: str | None) -> str | None:
+    """Host-relative public-address path for a handle (``/c/<handle>``)."""
+    return f"/c/{handle}" if handle else None
+
+
+@router.get("/guilds/{guild_id}/settings", response_model=GuildSettingsOut)
+async def get_guild_settings(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+):
+    """Public-address settings (handle + is_public + computed address path).
+
+    Requires ``MANAGE_GUILD`` — the handle/address is a server-management
+    concern, and we don't want a regular member enumerating whether a community
+    is publicly addressable from inside."""
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    await check_permission(session, current, guild_id, Permissions.MANAGE_GUILD)
+    return GuildSettingsOut(
+        id=guild.id,
+        name=guild.name,
+        handle=guild.handle,
+        is_public=guild.is_public,
+        address_path=_address_path(guild.handle),
+    )
+
+
 @router.patch("/guilds/{guild_id}", response_model=GuildOut)
 async def patch_guild(
     guild_id: int,
@@ -137,7 +167,18 @@ async def patch_guild(
     current: CurrentUser,
     request: Request,
 ):
-    """Rename / update guild metadata. Requires ``MANAGE_GUILD``.
+    """Rename / update guild metadata + public-address settings. Requires
+    ``MANAGE_GUILD``.
+
+    Public-address rules (Stufe 4):
+      * ``handle`` must be a valid slug (format checked in the schema) and
+        **unique per instance** — a collision raises 409 (DB partial-unique
+        index closes the TOCTOU window; we don't pre-check-then-write).
+      * ``handle=""`` clears the handle, but only if the community is *not*
+        becoming/staying public — a public community must keep an address.
+      * ``is_public=true`` requires a handle to exist (either already set or
+        being set in the same patch); otherwise 400. We compute the *resulting*
+        handle from the patch so a single call can set handle + flag together.
 
     Broadcasts ``op:guild_updated`` on guild:events so every connected client
     can refresh its sidebar without a refetch.
@@ -150,7 +191,38 @@ async def patch_guild(
         guild.name = payload.name
     if payload.icon_url is not None:
         guild.icon_url = payload.icon_url
-    await session.commit()
+
+    # ---- Public-address fields ------------------------------------------
+    # Resolve the handle the guild will have AFTER this patch (None = unchanged).
+    if payload.handle is not None:
+        new_handle = None if payload.handle == "" else payload.handle
+    else:
+        new_handle = guild.handle
+    # Resolve the is_public the guild will have after this patch.
+    new_is_public = payload.is_public if payload.is_public is not None else guild.is_public
+
+    # Invariant: a public community must have a handle. Reject either clearing
+    # the handle while public, or flipping public without one.
+    if new_is_public and not new_handle:
+        raise HTTPException(
+            400, detail="a public community must have a handle"
+        )
+
+    if payload.handle is not None:
+        guild.handle = new_handle
+    if payload.is_public is not None:
+        guild.is_public = payload.is_public
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        # The per-instance handle unique index fired: another community on this
+        # instance already owns this handle. Closes the check-then-write race —
+        # we never pre-query for the handle, we let the DB be the arbiter.
+        await session.rollback()
+        raise HTTPException(  # noqa: B904
+            status.HTTP_409_CONFLICT, detail="handle is already taken"
+        )
     await session.refresh(guild)
     await _publish_guild_event(
         request, GuildUpdatedEvent(guild=_guild_dict(guild))

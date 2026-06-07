@@ -96,6 +96,7 @@ async def _attempt_join(
     owner_id: int = 0,
     join_code=None,
     community_grant_code=None,
+    public_join_handle=None,
 ):
     """Run challenge→sign→verify. Returns the httpx Response."""
     priv = Ed25519PrivateKey.generate()
@@ -113,7 +114,27 @@ async def _attempt_join(
             body["join_code"] = join_code
         if community_grant_code is not None:
             body["community_grant_code"] = community_grant_code
+        if public_join_handle is not None:
+            body["public_join_handle"] = public_join_handle
         return await client.post("/cert-login/verify", json=body)
+
+
+async def _seed_public_guild(
+    session_factory, handle: str, *, is_public: bool = True, guild_id: int = 888
+) -> None:
+    """Install a guild with a handle + public flag so the public-community
+    instance grant has a real community to validate against."""
+    async with session_factory() as s:
+        s.add(
+            Guild(
+                id=guild_id,
+                name="PublicCommunity",
+                owner_id=1,
+                handle=handle,
+                is_public=is_public,
+            )
+        )
+        await s.commit()
 
 
 async def _seed_guild_invite(
@@ -406,6 +427,92 @@ async def test_community_invite_member_reauth_without_code(
     cert_login_route._reset_cert_login_rate_for_tests()
     # Re-auth with NO code — must still pass (existing member).
     again = await _attempt_join(client, _route_settings, user_id="1008")
+    assert again.status_code == 200, again.text
+
+
+# ---------------------------------------------------------------------------
+# Public-community instance grant (Stufe 4 / Entscheidung 5)
+# ---------------------------------------------------------------------------
+#
+# A currently-public community is its OWN permission to join the instance —
+# join_mode-INDEPENDENT (admits even in ``closed``). A non-public/unknown handle
+# grants nothing. Non-consuming, no separate code.
+
+
+@pytest.mark.asyncio
+async def test_public_handle_grants_instance_membership(
+    client, _route_settings, session_factory
+):
+    """In invite_only mode, a public-community handle admits a first-contact
+    user with no code and records membership."""
+    await _set_join_mode(session_factory, "invite_only")
+    await _seed_public_guild(session_factory, "openhouse")
+    resp = await _attempt_join(
+        client, _route_settings, user_id="2001", public_join_handle="openhouse"
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(await _members(session_factory)) == 1
+    async with session_factory() as s:
+        ident = resp.json()["pairwise_sub"]
+        row = await s.get(InstanceMember, ident)
+        assert row.joined_via == "public_community"
+
+
+@pytest.mark.asyncio
+async def test_public_handle_bypasses_closed(client, _route_settings, session_factory):
+    """Unlike a community-invite code, a public-community handle is
+    join_mode-INDEPENDENT — it admits even in ``closed`` mode (Entscheidung 5;
+    only the future 'Server gesperrt' toggle will override it)."""
+    await _set_join_mode(session_factory, "closed")
+    await _seed_public_guild(session_factory, "evenclosed")
+    resp = await _attempt_join(
+        client, _route_settings, user_id="2002", public_join_handle="evenclosed"
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(await _members(session_factory)) == 1
+
+
+@pytest.mark.asyncio
+async def test_non_public_handle_grants_nothing(
+    client, _route_settings, session_factory
+):
+    """A community with a handle but NOT public grants no instance access."""
+    await _set_join_mode(session_factory, "invite_only")
+    await _seed_public_guild(session_factory, "stillprivate", is_public=False)
+    resp = await _attempt_join(
+        client, _route_settings, user_id="2003", public_join_handle="stillprivate"
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "join_requires_invite"
+    assert await _members(session_factory) == set()
+
+
+@pytest.mark.asyncio
+async def test_unknown_handle_grants_nothing(
+    client, _route_settings, session_factory
+):
+    await _set_join_mode(session_factory, "invite_only")
+    resp = await _attempt_join(
+        client, _route_settings, user_id="2004", public_join_handle="nosuchhandle"
+    )
+    assert resp.status_code == 403
+    assert await _members(session_factory) == set()
+
+
+@pytest.mark.asyncio
+async def test_public_handle_member_reauth_without_handle(
+    client, _route_settings, session_factory
+):
+    """Once joined via a public handle, the member re-auths with no handle at
+    all (the critical re-auth path)."""
+    await _set_join_mode(session_factory, "invite_only")
+    await _seed_public_guild(session_factory, "reauthpub")
+    first = await _attempt_join(
+        client, _route_settings, user_id="2005", public_join_handle="reauthpub"
+    )
+    assert first.status_code == 200, first.text
+    cert_login_route._reset_cert_login_rate_for_tests()
+    again = await _attempt_join(client, _route_settings, user_id="2005")
     assert again.status_code == 200, again.text
 
 

@@ -6,6 +6,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,8 +38,32 @@ class Guild(Base):
     attachment_max_count_per_message: Mapped[int] = mapped_column(
         SmallInteger, nullable=False, server_default="4"
     )
+    # Public community address (Stufe 4). ``handle`` is the stable vanity slug
+    # (``<host>/c/<handle>``); ``is_public`` is the gate that makes the address
+    # actually resolve (preview + public join). A handle can exist while
+    # ``is_public`` is false — toggling back to private keeps the handle stable
+    # so the same address works on re-activation. ``handle`` is unique *per
+    # instance* (the partial unique index below; NULLs are not constrained).
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    handle: Mapped[str | None] = mapped_column(String(32), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # Per-instance handle uniqueness. Partial (WHERE handle IS NOT NULL) so
+        # the many guilds without a handle don't collide on NULL. Postgres
+        # treats NULLs as distinct anyway, but the partial predicate makes the
+        # intent explicit and keeps the index small.
+        Index(
+            "uq_guilds_handle",
+            "handle",
+            unique=True,
+            postgresql_where=text("handle IS NOT NULL"),
+            sqlite_where=text("handle IS NOT NULL"),
+        ),
     )
 
 

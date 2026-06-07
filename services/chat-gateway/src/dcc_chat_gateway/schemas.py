@@ -57,6 +57,51 @@ class GuildOut(BaseModel):
 class GuildPatchIn(BaseModel):
     name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
     icon_url: Annotated[str | None, Field(default=None, max_length=512)] = None
+    # Public-address fields (Stufe 4). Both optional so a single PATCH can set
+    # one without touching the other. ``handle`` is validated for *format* here
+    # (3–32 lowercase-slug); per-instance uniqueness is a DB constraint enforced
+    # in the route (409 on collision). ``handle=""`` (empty string) clears the
+    # handle — but only when the community is not public (the route guards that
+    # a public community must keep a handle). The min/max bounds below intentionally
+    # allow the empty string; ``validate_handle`` rejects malformed non-empty values.
+    handle: Annotated[str | None, Field(default=None, max_length=32)] = None
+    is_public: bool | None = None
+
+    @field_validator("handle")
+    @classmethod
+    def _validate_handle(cls, v: str | None) -> str | None:
+        # ``None`` = don't touch; ``""`` = clear (handled in the route).
+        # Any other value must be a well-formed, non-reserved slug.
+        if v is None or v == "":
+            return v
+        from dcc_chat_gateway.community_handle import validate_handle
+
+        try:
+            return validate_handle(v)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+
+
+class GuildSettingsOut(BaseModel):
+    """Public-address view of a guild's settings (Stufe 4).
+
+    Returned by ``GET /guilds/{id}/settings`` so the community-settings UI can
+    render the handle field + the public toggle + a copyable address. The
+    ``address_path`` is the host-relative part (``/c/<handle>``); the client
+    prepends the instance host it is connected to to form the full URL — the
+    backend doesn't know its own public hostname reliably (behind Caddy/nginx)."""
+
+    id: int
+    name: str
+    handle: str | None
+    is_public: bool
+    # Host-relative public address path, e.g. ``/c/coolserver``. ``None`` until
+    # a handle is set (no address exists yet).
+    address_path: str | None
+
+    @field_serializer("id")
+    def _ser_id(self, v: int) -> str:
+        return _id_str(v)
 
 
 class TransferOwnershipIn(BaseModel):
@@ -347,6 +392,33 @@ class InvitePreviewOut(BaseModel):
 
 
 class InviteAcceptOut(BaseModel):
+    guild: InviteGuildOut
+    channel_id: int | None
+
+    @field_serializer("channel_id")
+    def _ser_channel(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
+
+
+# ---- Public community address (Stufe 4) ------------------------------------
+
+
+class PublicCommunityPreviewOut(BaseModel):
+    """Anonymous-safe preview of a public community (``GET /c/{handle}``).
+
+    Deliberately minimal: name + member count + the public flag. Only ever
+    returned for an ``is_public`` community — a private one 404s so its very
+    existence (and member count) does not leak via the handle namespace."""
+
+    guild: InviteGuildOut
+    member_count: int
+    is_public: bool
+
+
+class PublicCommunityJoinOut(BaseModel):
+    """Result of ``POST /c/{handle}/join`` — same shape as an invite-accept so
+    the client can navigate to a landing channel right after joining."""
+
     guild: InviteGuildOut
     channel_id: int | None
 
