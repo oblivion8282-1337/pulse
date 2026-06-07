@@ -16,6 +16,9 @@ import dcc_chat_gateway.config as chat_cfg
 
 from .conftest import install_friendship_sync, receive_skipping
 
+# DM routes and ready-frame DM payload are cloud-only.
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

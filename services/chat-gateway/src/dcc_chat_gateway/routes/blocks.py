@@ -17,7 +17,8 @@ friend-requests / DMs in both directions.
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import and_, delete as sa_delete, or_, select
+from sqlalchemy import and_, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
@@ -25,9 +26,10 @@ from dcc_chat_gateway.friend_events import publish_friend_event
 from dcc_chat_gateway.friend_helpers import sort_pair
 from dcc_chat_gateway.friend_schemas import BlockOut, CreateBlockIn
 from dcc_chat_gateway.models import FriendRequest, Friendship, UserBlock
+from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.security import CurrentUser
 
-router = APIRouter()
+router = APIRouter(dependencies=[CloudOnly])
 
 
 @router.post("/blocks", response_model=BlockOut)

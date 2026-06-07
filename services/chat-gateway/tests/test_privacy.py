@@ -15,6 +15,9 @@ import random
 import pytest
 from sqlalchemy import select
 
+# Privacy routes are part of the Social layer — cloud-only.
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
 from dcc_chat_gateway.friend_privacy import (
     DM_POLICY_NOBODY,
     FRIEND_REQ_POLICY_NOBODY,

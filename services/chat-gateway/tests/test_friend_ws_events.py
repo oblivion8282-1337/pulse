@@ -16,6 +16,9 @@ import random
 
 import pytest
 
+# Friend/block routes are cloud-only — ensure cloud mode for all tests here.
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
 
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

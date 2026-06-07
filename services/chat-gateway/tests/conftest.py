@@ -335,6 +335,24 @@ async def friend_pair(session_factory):
     return _install
 
 
+@pytest.fixture
+def cloud_mode(_isolate_chat_settings):
+    """Switch the test settings to cloud mode for the duration of one test.
+
+    Friend-system / DM / Block routes are cloud-only (``require_cloud``
+    dependency returns 404 on self-host).  Test modules that cover those
+    routes must opt-in via a ``pytestmark`` or a per-test fixture request:
+
+        pytestmark = pytest.mark.usefixtures("cloud_mode")
+
+    The fixture depends on ``_isolate_chat_settings`` so it runs *after*
+    the per-test reset (which resets to "self-host") and can safely
+    override the mode for this single test.
+    """
+    _isolate_chat_settings.pulse_instance_mode = "cloud"
+    return _isolate_chat_settings
+
+
 def install_friendship_sync(db_url: str, uid_a: int, uid_b: int) -> None:
     """Synchronously install a friendship row (for ws_app tests).
 

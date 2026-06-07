@@ -52,6 +52,14 @@ router.include_router(guilds.router)
 router.include_router(bans.router)
 router.include_router(guild_icons.router)
 router.include_router(channels.router)
+# Friend-system / DM / Block routes are cloud-only (global social layer).
+# The ``require_cloud`` dependency (applied inside each router) returns 404
+# on self-host at request time. The routers are still registered so the
+# module graph stays stable regardless of instance mode — the guard is
+# evaluated per-request, which lets the test-suite override the mode via
+# fixture without re-importing the module. DB tables (friendships,
+# dm_channels, …) are left intact on self-hosts — harmless dead weight;
+# the Cloud needs them in its own schema.
 router.include_router(dms.router)
 router.include_router(friends.router)
 router.include_router(blocks.router)

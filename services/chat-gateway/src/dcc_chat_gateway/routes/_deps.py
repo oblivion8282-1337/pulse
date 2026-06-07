@@ -2,9 +2,31 @@
 
 from __future__ import annotations
 
-from fastapi import HTTPException, status
+from fastapi import Depends, HTTPException, status
 
 from dcc_chat_gateway.models import Channel, DirectMessageChannel, GuildMember
+
+
+async def require_cloud() -> None:
+    """FastAPI dependency — raises 404 on self-host instances.
+
+    The Friend/DM/Block social layer is cloud-only (global identity).
+    Self-host instances do not serve these routes; the underlying DB tables
+    are left intact (harmless dead weight — the Cloud needs them in its own
+    schema). Returning 404 (not 403) avoids leaking that the route exists.
+
+    Late-imports ``get_settings`` so that test fixtures which replace
+    ``dcc_chat_gateway.config.get_settings`` at the module level are
+    respected at dependency-evaluation time (not at import time).
+    """
+    import dcc_chat_gateway.config as _cfg  # noqa: PLC0415
+
+    if _cfg.get_settings().pulse_instance_mode != "cloud":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="not found")
+
+
+#: Shorthand for ``Depends(require_cloud)`` — import this in router files.
+CloudOnly = Depends(require_cloud)
 
 
 async def require_member(session, guild_id: int, user_id: int) -> None:

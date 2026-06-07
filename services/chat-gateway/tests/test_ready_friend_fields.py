@@ -17,6 +17,9 @@ import dcc_chat_gateway.config as chat_cfg
 
 from .conftest import install_friendship_sync, receive_skipping
 
+# Ready-frame social fields are cloud-only — ensure cloud mode for all tests.
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
 
 def _auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

@@ -24,12 +24,12 @@ from dcc_chat_gateway.friend_helpers import (
     friendship_exists,
 )
 from dcc_chat_gateway.models import DirectMessageChannel, Friendship, UserBlock
-from dcc_chat_gateway.routes._deps import dm_member_check
+from dcc_chat_gateway.routes._deps import CloudOnly, dm_member_check
 from dcc_chat_gateway.schemas import DMChannelCreateIn, DMChannelOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
-router = APIRouter()
+router = APIRouter(dependencies=[CloudOnly])
 
 
 def _wire(

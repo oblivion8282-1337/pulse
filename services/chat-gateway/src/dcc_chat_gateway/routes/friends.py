@@ -23,7 +23,8 @@ from __future__ import annotations
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import delete as sa_delete, or_, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
@@ -46,10 +47,11 @@ from dcc_chat_gateway.friend_schemas import (
 from dcc_chat_gateway.models import FriendRequest, Friendship
 from dcc_chat_gateway.presence_status import _mask, get_presence_status
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
+from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 
-router = APIRouter()
+router = APIRouter(dependencies=[CloudOnly])
 
 
 async def _refetch_friendship(session, me: int, other: int) -> Friendship:

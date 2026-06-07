@@ -5,11 +5,19 @@ isn't drowned by the 300+ lines of DB hydration that build the initial
 state snapshot sent on every WS connect.
 
 The Ready payload bundles: the user's guilds + roles + their resolved
-guild-permissions, DM channels, current voice presence + stream + watch
-state, sound-override URLs, friend list + pending requests + blocks +
-privacy settings + own/peer presence status. Loading is batched (one
-query per topic over the user's guild set) so the round-trip cost stays
-bounded as the user count grows.
+guild-permissions, DM channels (cloud only), current voice presence +
+stream + watch state, sound-override URLs, friend list + pending
+requests + blocks + privacy settings (cloud only) + own/peer presence
+status. Loading is batched (one query per topic over the user's guild
+set) so the round-trip cost stays bounded as the user count grows.
+
+**Cloud vs. self-host split:**
+On self-host instances the Social layer (friends / DMs / blocks /
+friend_requests / privacy) is not served. The ``ready`` frame omits
+those keys entirely on self-host so the frontend's cloud-only Social
+handler has a clean signal. ``online_user_ids`` on self-host contains
+only guild members (friend_set is empty → the presence-status peer
+union reduces to guild-members-only, which is correct).
 
 Side effects beyond ``websocket.send_json``: hydrates the
 ConnectionManager's per-socket caches (guild membership for precise
@@ -230,91 +238,112 @@ async def build_and_send_ready_frame(
                 viewable_vc_ids.update(visible)
             voice_channel_ids = [str(cid) for cid in viewable_vc_ids]
 
-        dm_stmt = (
-            select(DirectMessageChannel)
-            .where(
-                or_(
-                    DirectMessageChannel.user_a_id == user.id,
-                    DirectMessageChannel.user_b_id == user.id,
-                )
-            )
-            .order_by(
-                DirectMessageChannel.last_message_id.desc().nullslast(),
-                DirectMessageChannel.id.desc(),
-            )
-        )
-        dm_rows = list((await session.execute(dm_stmt)).scalars())
+        import dcc_chat_gateway.config as _cfg  # noqa: PLC0415
 
-        # ---- Etappe-2 friend-system payload (friends / pending requests /
-        # blocks / privacy). Loaded as a single small batch so the Ready
-        # round-trip stays one DB chunk. ``friend_set`` + ``blocks_*`` feed
-        # both the Ready frame AND the ConnectionManager's per-socket caches
-        # (hydrated below). ``friend_since`` is the per-friend "since"
-        # timestamp that the FE shows on the friends panel — built in the
-        # same SELECT to avoid an N+1.
-        from dcc_chat_gateway.models import Friendship as _Friendship
+        _is_cloud = _cfg.get_settings().pulse_instance_mode == "cloud"
 
-        friendship_rows = list(
-            (
-                await session.execute(
-                    select(_Friendship).where(
-                        or_(
-                            _Friendship.user_a_id == user.id,
-                            _Friendship.user_b_id == user.id,
-                        )
+        # Social payload (DMs / friends / blocks / privacy) is cloud-only.
+        # On self-host we skip all four DB queries — the tables exist but
+        # are not served (global Friend-system lives on the Cloud exclusively).
+        if _is_cloud:
+            dm_stmt = (
+                select(DirectMessageChannel)
+                .where(
+                    or_(
+                        DirectMessageChannel.user_a_id == user.id,
+                        DirectMessageChannel.user_b_id == user.id,
                     )
                 )
-            ).scalars()
-        )
-        friend_since: dict[int, str] = {}
-        friend_set: set[int] = set()
-        for fr in friendship_rows:
-            other = fr.user_b_id if fr.user_a_id == user.id else fr.user_a_id
-            friend_set.add(other)
-            friend_since[other] = fr.created_at.isoformat()
-        blocks_out_set = await load_blocks_out(session, user.id)
-        blocks_in_set = await load_blocks_in(session, user.id)
-        req_in_rows = list(
-            (
-                await session.execute(
-                    select(FriendRequest)
-                    .where(FriendRequest.receiver_id == user.id)
-                    .order_by(FriendRequest.created_at.desc())
+                .order_by(
+                    DirectMessageChannel.last_message_id.desc().nullslast(),
+                    DirectMessageChannel.id.desc(),
                 )
-            ).scalars()
-        )
-        req_out_rows = list(
-            (
-                await session.execute(
-                    select(FriendRequest)
-                    .where(FriendRequest.sender_id == user.id)
-                    .order_by(FriendRequest.created_at.desc())
+            )
+            dm_rows = list((await session.execute(dm_stmt)).scalars())
+
+            # ---- Etappe-2 friend-system payload (friends / pending requests /
+            # blocks / privacy). Loaded as a single small batch so the Ready
+            # round-trip stays one DB chunk. ``friend_set`` + ``blocks_*`` feed
+            # both the Ready frame AND the ConnectionManager's per-socket caches
+            # (hydrated below). ``friend_since`` is the per-friend "since"
+            # timestamp that the FE shows on the friends panel — built in the
+            # same SELECT to avoid an N+1.
+            from dcc_chat_gateway.models import Friendship as _Friendship
+
+            friendship_rows = list(
+                (
+                    await session.execute(
+                        select(_Friendship).where(
+                            or_(
+                                _Friendship.user_a_id == user.id,
+                                _Friendship.user_b_id == user.id,
+                            )
+                        )
+                    )
+                ).scalars()
+            )
+            friend_since: dict[int, str] = {}
+            friend_set: set[int] = set()
+            for fr in friendship_rows:
+                other = fr.user_b_id if fr.user_a_id == user.id else fr.user_a_id
+                friend_set.add(other)
+                friend_since[other] = fr.created_at.isoformat()
+            blocks_out_set = await load_blocks_out(session, user.id)
+            blocks_in_set = await load_blocks_in(session, user.id)
+            req_in_rows = list(
+                (
+                    await session.execute(
+                        select(FriendRequest)
+                        .where(FriendRequest.receiver_id == user.id)
+                        .order_by(FriendRequest.created_at.desc())
+                    )
+                ).scalars()
+            )
+            req_out_rows = list(
+                (
+                    await session.execute(
+                        select(FriendRequest)
+                        .where(FriendRequest.sender_id == user.id)
+                        .order_by(FriendRequest.created_at.desc())
+                    )
+                ).scalars()
+            )
+            privacy_row = await session.get(UserPrivacy, user.id)
+            # ``can_send`` per DM = friendship + no block. We already have both
+            # sets; intersect in-memory.
+            dm_channels = []
+            for d in dm_rows:
+                other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
+                can_send = (
+                    other in friend_set
+                    and other not in blocks_out_set
+                    and other not in blocks_in_set
                 )
-            ).scalars()
-        )
-        privacy_row = await session.get(UserPrivacy, user.id)
-        # ``can_send`` per DM = friendship + no block. We already have both
-        # sets; intersect in-memory.
-        dm_channels = []
-        for d in dm_rows:
-            other = d.user_b_id if d.user_a_id == user.id else d.user_a_id
-            can_send = (
-                other in friend_set
-                and other not in blocks_out_set
-                and other not in blocks_in_set
-            )
-            dm_channels.append(
-                {
-                    "id": str(d.id),
-                    "other_user_id": str(other),
-                    "last_message_id": (
-                        str(d.last_message_id) if d.last_message_id is not None else None
-                    ),
-                    "created_at": d.created_at.isoformat(),
-                    "can_send": can_send,
-                }
-            )
+                dm_channels.append(
+                    {
+                        "id": str(d.id),
+                        "other_user_id": str(other),
+                        "last_message_id": (
+                            str(d.last_message_id) if d.last_message_id is not None else None
+                        ),
+                        "created_at": d.created_at.isoformat(),
+                        "can_send": can_send,
+                    }
+                )
+        else:
+            # self-host: no social data loaded; empty sentinels for the blocks below.
+            friend_set = set()
+            friend_since = {}
+            blocks_out_set: set[int] = set()
+            blocks_in_set: set[int] = set()
+            dm_channels = []
+            req_in_rows = []
+            req_out_rows = []
+            privacy_row = None
+
         # Peer presence: union of confirmed friends + all other guild members.
+        # On self-host ``friend_set`` is empty so this reduces to guild-members-only,
+        # which is correct (no cross-server Social presence on self-host).
         # Folded into the first session block to avoid opening a second DB
         # connection for a single SELECT (was a separate SessionLocal context).
         all_peer_ids: set[int] = set(friend_set)
@@ -379,6 +408,8 @@ async def build_and_send_ready_frame(
     # Hydrate the per-socket friend/block caches in the same loop so the
     # very first mention fan-out / presence broadcast against this socket
     # sees a warm state (no DB round-trip).
+    # On self-host all three sets are empty (no Social layer) — still call
+    # hydrate so the manager's internal dicts are initialised for this socket.
     await manager.hydrate_friend_caches(
         websocket,
         friends=friend_set,
@@ -386,63 +417,65 @@ async def build_and_send_ready_frame(
         blocks_in=blocks_in_set,
     )
 
-    # Privacy row: defaults when no row exists yet (fresh account).
-    if privacy_row is None:
-        privacy_dict = {
-            "dm_policy": DEFAULT_DM_POLICY,
-            "friend_request_policy": DEFAULT_FRIEND_REQ_POLICY,
-            "show_in_search": DEFAULT_SHOW_IN_SEARCH,
-        }
-    else:
-        privacy_dict = {
-            "dm_policy": privacy_row.dm_policy,
-            "friend_request_policy": privacy_row.friend_request_policy,
-            "show_in_search": privacy_row.show_in_search,
-        }
+    # Build the base ready frame (guild + voice + stream + watch + presence).
+    payload: dict = {
+        "op": "ready",
+        "user_id": str(user.id),
+        # Server clock at ready-send time. Lets the client calibrate its
+        # clock offset immediately on connect so watch-party position
+        # extrapolation uses the shared server clock from the first frame
+        # (live watch_state pushes keep it fresh thereafter).
+        "server_now": watchkeys.now_ms(),
+        # Admin status for THIS server (cloud: from auth.users; self-host:
+        # the instance owner, set at cert-login). Lets the client gate the
+        # admin panel per active server without an auth-svc /me round-trip.
+        "is_admin": user.is_admin,
+        "guilds": guilds,
+        "voice_states": voice_states,
+        "stream_states": stream_states,
+        "watch_states": watch_states,
+        "voice_overrides": voice_overrides,
+        "online_user_ids": manager.online_user_ids(),
+        # Etappe-3 presence status payload.
+        # ``presence_status``: the caller's own real status (never masked).
+        # ``user_presence_statuses``: map of visible peers → masked status.
+        "presence_status": own_presence_status,
+        "user_presence_statuses": user_presence_statuses,
+    }
 
-    await websocket.send_json(
-        {
-            "op": "ready",
-            "user_id": str(user.id),
-            # Server clock at ready-send time. Lets the client calibrate its
-            # clock offset immediately on connect so watch-party position
-            # extrapolation uses the shared server clock from the first frame
-            # (live watch_state pushes keep it fresh thereafter).
-            "server_now": watchkeys.now_ms(),
-            # Admin status for THIS server (cloud: from auth.users; self-host:
-            # the instance owner, set at cert-login). Lets the client gate the
-            # admin panel per active server without an auth-svc /me round-trip.
-            "is_admin": user.is_admin,
-            "guilds": guilds,
-            "dm_channels": dm_channels,
-            "voice_states": voice_states,
-            "stream_states": stream_states,
-            "watch_states": watch_states,
-            "voice_overrides": voice_overrides,
-            "online_user_ids": manager.online_user_ids(),
-            # Etappe 2 friend-system Ready payload — clients seed their
-            # stores from this and live-sync via the lifecycle WS events.
-            "friends": [
-                {"user_id": str(uid), "since": friend_since[uid]}
-                for uid in sorted(friend_set)
-            ],
-            "friend_requests_in": [
-                FriendRequestOut.model_validate(r).model_dump(mode="json")
-                for r in req_in_rows
-            ],
-            "friend_requests_out": [
-                FriendRequestOut.model_validate(r).model_dump(mode="json")
-                for r in req_out_rows
-            ],
-            "blocked_user_ids": [str(u) for u in sorted(blocks_out_set)],
-            "privacy": privacy_dict,
-            # Etappe-3 presence status payload.
-            # ``presence_status``: the caller's own real status (never masked).
-            # ``user_presence_statuses``: map of visible peers → masked status.
-            "presence_status": own_presence_status,
-            "user_presence_statuses": user_presence_statuses,
-        }
-    )
+    if _is_cloud:
+        # Privacy row: defaults when no row exists yet (fresh account).
+        if privacy_row is None:
+            privacy_dict = {
+                "dm_policy": DEFAULT_DM_POLICY,
+                "friend_request_policy": DEFAULT_FRIEND_REQ_POLICY,
+                "show_in_search": DEFAULT_SHOW_IN_SEARCH,
+            }
+        else:
+            privacy_dict = {
+                "dm_policy": privacy_row.dm_policy,
+                "friend_request_policy": privacy_row.friend_request_policy,
+                "show_in_search": privacy_row.show_in_search,
+            }
+        # Etappe-2 friend-system payload — cloud only. Self-host omits these
+        # keys entirely so the frontend's Social handler has a clean signal.
+        payload["dm_channels"] = dm_channels
+        payload["friends"] = [
+            {"user_id": str(uid), "since": friend_since[uid]}
+            for uid in sorted(friend_set)
+        ]
+        payload["friend_requests_in"] = [
+            FriendRequestOut.model_validate(r).model_dump(mode="json")
+            for r in req_in_rows
+        ]
+        payload["friend_requests_out"] = [
+            FriendRequestOut.model_validate(r).model_dump(mode="json")
+            for r in req_out_rows
+        ]
+        payload["blocked_user_ids"] = [str(u) for u in sorted(blocks_out_set)]
+        payload["privacy"] = privacy_dict
+
+    await websocket.send_json(payload)
 
     # Presence broadcast goes out AFTER `ready` so the listener loop cannot
     # race a ``presence_update`` ahead of this socket's own ``ready`` frame

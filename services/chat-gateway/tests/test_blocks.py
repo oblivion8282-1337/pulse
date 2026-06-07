@@ -16,6 +16,9 @@ from sqlalchemy import select
 
 from dcc_chat_gateway.models import FriendRequest, Friendship, UserBlock
 
+# Block routes are cloud-only — ensure cloud mode for all tests in this file.
+pytestmark = pytest.mark.usefixtures("cloud_mode")
+
 
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}

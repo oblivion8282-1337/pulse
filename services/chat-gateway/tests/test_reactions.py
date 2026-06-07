@@ -70,7 +70,7 @@ async def test_guild_reaction_add_and_remove(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_dm_reaction_add_and_remove(client, _auth_signer, friend_pair):
+async def test_dm_reaction_add_and_remove(client, _auth_signer, friend_pair, cloud_mode):
     """Regression: DM reactions used to always 404 because reactions.py
     looked up the channel in the guild ``Channel`` table only."""
     t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
@@ -92,7 +92,7 @@ async def test_dm_reaction_add_and_remove(client, _auth_signer, friend_pair):
 
 
 @pytest.mark.asyncio
-async def test_non_member_cannot_react_to_dm(client, _auth_signer, friend_pair):
+async def test_non_member_cannot_react_to_dm(client, _auth_signer, friend_pair, cloud_mode):
     """A third user (not in the DM) gets 404 — same status as listing the DM."""
     t_a, _, _, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
     msg = (

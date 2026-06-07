@@ -27,9 +27,12 @@ from dcc_chat_gateway.friend_privacy import (
 )
 from dcc_chat_gateway.friend_schemas import PrivacyOut, PrivacyUpdate
 from dcc_chat_gateway.models import UserPrivacy
+from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.security import CurrentUser
 
-router = APIRouter()
+# Privacy settings are part of the Social layer (dm_policy / friend_request_policy /
+# show_in_search) — cloud-only, same as friends / DMs / blocks.
+router = APIRouter(dependencies=[CloudOnly])
 
 
 def _row_to_out(row: UserPrivacy | None) -> PrivacyOut:

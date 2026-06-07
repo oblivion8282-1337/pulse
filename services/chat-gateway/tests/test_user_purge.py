@@ -646,7 +646,7 @@ async def test_purge_clears_guild_bans(
 
 @pytest.mark.asyncio
 async def test_purge_deletes_dm_channels(
-    client, session_factory, _auth_signer, _internal_secret_set, friend_pair
+    client, session_factory, _auth_signer, _internal_secret_set, friend_pair, cloud_mode
 ):
     t_a, uid_a = await _register(_auth_signer)
     t_b, uid_b = await _register(_auth_signer)
@@ -695,7 +695,7 @@ async def test_purge_deletes_dm_channels(
 
 @pytest.mark.asyncio
 async def test_purge_clears_friendship_system(
-    client, session_factory, _auth_signer, _internal_secret_set, monkeypatch
+    client, session_factory, _auth_signer, _internal_secret_set, monkeypatch, cloud_mode
 ):
     """Purging a user must drop every row that mentions them across
     friendships, friend_requests, user_blocks, user_privacy."""
