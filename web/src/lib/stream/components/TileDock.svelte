@@ -137,7 +137,7 @@
           max={VOLUME_BOOST_MAX}
           value={volume}
           oninput={onVolumeChange}
-          class="{wide ? 'w-24' : 'w-16'} {overlay ? 'accent-white' : 'accent-primary'}"
+          class="{wide ? 'w-24' : 'w-16'} {overlay ? 'accent-white' : 'accent-[#d4d4d8]'}"
           aria-label={m.tile_shell_volume()}
           data-testid={`${testidPrefix}-volume`}
         />
