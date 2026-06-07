@@ -1,6 +1,7 @@
 import { auth } from './auth.svelte';
 import { activeServer } from './active-server.svelte';
 import { serverUser } from './serverUser.svelte';
+import { dispatchingServerId } from '$lib/ws/gateway-connection';
 
 /**
  * This account's user id ON THE ACTIVE SERVER.
@@ -26,4 +27,25 @@ import { serverUser } from './serverUser.svelte';
  */
 export function currentServerUserId(): string | null {
   return serverUser.idFor(activeServer.current?.id) ?? auth.user?.id ?? null;
+}
+
+/**
+ * This account's user id ON THE *DISPATCHING* SERVER — use this inside WS
+ * handlers that can now run for **either** the active connection (guild
+ * events) **or** the Cloud-Background connection (global Friends/DMs/Presence,
+ * Stufe 1). For active-only ops this equals ``currentServerUserId()`` (the
+ * dispatching connection *is* the active one); for a Cloud-background DM-bump
+ * while a self-host is active it resolves to the **Cloud** id, so the DM
+ * member-check (``user_a_id === me``) matches instead of comparing against the
+ * self-host's pairwise id and silently dropping the event.
+ *
+ * MUST be read synchronously at event time (before any ``await``): the gateway
+ * sets the dispatching connection synchronously right before ``dispatch()``.
+ * Falls back to the active-server id (then ``auth.user.id``) when no dispatch
+ * is in flight (e.g. a direct/unit call outside the WS path).
+ */
+export function dispatchingUserId(): string | null {
+  const sid = dispatchingServerId();
+  if (sid) return serverUser.idFor(sid) ?? auth.user?.id ?? null;
+  return currentServerUserId();
 }

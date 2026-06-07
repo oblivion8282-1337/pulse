@@ -80,11 +80,21 @@ class ActiveServer {
 
     resetServerScopedStores();
 
-    // Proaktiv konnektieren. `gateway`-Proxy würde es lazy beim nächsten
-    // Call auch tun — das Anstoßen hier sorgt nur dafür, dass der
-    // ready-Frame früh landet, statt erst bei der ersten User-Action.
     try {
-      void gatewayPool.for(serverId).connect().catch((err: unknown) => {
+      const conn = gatewayPool.for(serverId);
+      // Global-Friends Stufe 1 (Option B): die Ziel-Connection bleibt über
+      // Switches hinweg offen (Background-Cloud-Pattern). Ist sie schon offen
+      // und hat einen ready gecached, returnt `connect()` unten früh → KEIN
+      // neuer ready, der den eben geleerten Server-Teil neu seedet. Darum den
+      // gecachten ready synchron mit `_isActive=true` re-dispatchen. Das ist
+      // reiner In-Memory-Replay (kein Socket-Drop), berührt NUR diese
+      // Connection und lässt die Hintergrund-Cloud-Connection unangetastet.
+      // Frische/noch-nicht-ready Connection → Replay liefert false, der
+      // `connect()` unten holt den echten ready.
+      conn.replayReadyForActivation();
+      // Proaktiv konnektieren. Idempotent: schon offen → no-op; sonst landet
+      // der echte ready-Frame früh, statt erst bei der ersten User-Action.
+      void conn.connect().catch((err: unknown) => {
         console.warn('[active-server] connect failed for', serverId, err);
       });
     } catch (err) {

@@ -182,6 +182,21 @@ class ServersStore {
     return this.servers.find((s) => s.id === serverId);
   }
 
+  /** Der Cloud-ServerEntry (Identitäts-/Social-Plane). Es gibt immer genau
+   *  einen (init() garantiert ihn). Global-Friends Stufe 1: Freunde/DMs/
+   *  Requests/Blocks/Presence sind cloud-only — die zugehörigen REST/WS-Calls
+   *  müssen gegen DIESEN Server laufen, nicht gegen den aktiven (der ein
+   *  Self-Host sein kann). */
+  cloud(): ServerEntry | undefined {
+    return this.servers.find((s) => s.isCloud);
+  }
+
+  /** Die lokale UUID des Cloud-Servers (für `request(..., { serverId })`-Routing
+   *  und `gatewayPool.for(cloudServerId())`). */
+  cloudId(): string | undefined {
+    return this.cloud()?.id;
+  }
+
   findByHostname(hostname: string): ServerEntry | undefined {
     const normalized = normalizeHostname(hostname);
     return this.servers.find((s) => s.hostname === normalized);

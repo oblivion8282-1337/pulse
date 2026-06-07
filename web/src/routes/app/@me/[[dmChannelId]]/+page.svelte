@@ -12,7 +12,8 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { messages } from '$lib/stores/messages.svelte';
   import { chatApi } from '$lib/api/chat';
-  import { gateway } from '$lib/ws/connection';
+  import { cloudGateway } from '$lib/ws/connection';
+  import { serversStore } from '$lib/api/servers.svelte';
   import { readState } from '$lib/stores/readState.svelte';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
@@ -20,6 +21,11 @@
   import { toast } from 'svelte-sonner';
   import type { Channel, DMChannel, Message } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
+
+  // Global-Friends Stufe 1: DMs leben in der Cloud. Alle DM-REST-Calls werden
+  // explizit gegen den Cloud-Server geroutet (sonst laufen sie bei aktivem
+  // Self-Host gegen den falschen Server), WS-DM-Ops gehen über `cloudGateway`.
+  const cloudRoute = { serverId: serversStore.cloudId() };
 
   let dmChannelId = $derived(page.params.dmChannelId ?? '');
   let activeDM = $derived<DMChannel | undefined>(
@@ -69,7 +75,7 @@
     if (prevDM !== cid) return;
     if (!directMessages.byId[cid]) return;
     void chatApi
-      .listMessages(cid)
+      .listMessages(cid, {}, cloudRoute)
       .then((history) => {
         if (untrack(() => prevDM) === cid) messages.setInitial(cid, history);
       })
@@ -87,7 +93,7 @@
   onDestroy(() => {
     for (const handle of pendingOptimisticTimeouts.values()) clearTimeout(handle);
     pendingOptimisticTimeouts.clear();
-    if (prevDM) gateway.unsubscribe(prevDM);
+    if (prevDM) cloudGateway.unsubscribe(prevDM);
   });
 
   async function switchTo(cid: string) {
@@ -96,7 +102,7 @@
     const prev = untrack(() => prevDM);
 
     if (cid === prev) return;
-    if (prev) gateway.unsubscribe(prev);
+    if (prev) cloudGateway.unsubscribe(prev);
 
     if (!cid) {
       untrack(() => (prevDM = ''));
@@ -108,7 +114,7 @@
       // finished, or the recipient opening a freshly-created DM).
       try {
         resolving = true;
-        const dm = await chatApi.getDMChannel(cid);
+        const dm = await chatApi.getDMChannel(cid);  // cloud-routed internally
         if (isStale()) return;
         directMessages.upsert(dm);
       } catch (err) {
@@ -124,7 +130,7 @@
     const alreadyLoaded = !!messages.loadedChannels[cid];
     try {
       if (!alreadyLoaded) {
-        const history = await chatApi.listMessages(cid);
+        const history = await chatApi.listMessages(cid, {}, cloudRoute);
         if (isStale()) return;
         messages.setInitial(cid, history);
       }
@@ -136,9 +142,9 @@
     }
 
     if (isStale()) return;
-    gateway.subscribe(cid);
+    cloudGateway.subscribe(cid);
     // Backfill anything that landed while the subscription was dropped.
-    if (alreadyLoaded) void gateway.gapFill(cid);
+    if (alreadyLoaded) void cloudGateway.gapFill(cid);
     const loaded = messages.for(cid);
     const latestSeen = loaded[loaded.length - 1]?.id;
     if (latestSeen) readState.recordSeen(cid, latestSeen);
@@ -184,7 +190,7 @@
     // attachment_ids and presigned URLs need server-side signing anyway.
     // Pure-text messages stay on the WS fast-path.
     if (attachmentIds.length > 0) {
-      chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds })
+      chatApi.postMessage(cid, text, { nonce, replyToId, attachmentIds }, cloudRoute)
         .then((real) => messages.upsert(real))
         .catch((e) => {
           messages.removeOptimistic(cid, tmpId);
@@ -192,7 +198,7 @@
         });
       return;
     }
-    const queued = gateway.send(cid, text, nonce, replyToId);
+    const queued = cloudGateway.send(cid, text, nonce, replyToId);
     if (!queued) {
       messages.removeOptimistic(cid, tmpId);
       toast.error(m.dm_page_no_connection());
@@ -210,7 +216,7 @@
 
   async function editMessage(msg: Message, content: string) {
     try {
-      await chatApi.editMessage(msg.id, content);
+      await chatApi.editMessage(msg.id, content, {}, cloudRoute);
     } catch (e) {
       toast.error(m.dm_page_edit_failed());
       console.error(e);
@@ -220,7 +226,7 @@
   async function deleteMessage(msg: Message) {
     if (!confirm(m.dm_page_delete_confirm())) return;
     try {
-      await chatApi.deleteMessage(msg.id);
+      await chatApi.deleteMessage(msg.id, cloudRoute);
     } catch (e) {
       toast.error(m.dm_page_delete_failed());
       console.error(e);
@@ -230,9 +236,9 @@
   async function toggleReaction(msg: Message, emoji: string, currentlyMine: boolean) {
     try {
       if (currentlyMine) {
-        await chatApi.removeReaction(msg.id, emoji);
+        await chatApi.removeReaction(msg.id, emoji, cloudRoute);
       } else {
-        await chatApi.addReaction(msg.id, emoji);
+        await chatApi.addReaction(msg.id, emoji, cloudRoute);
       }
     } catch (e) {
       toast.error(m.dm_page_reaction_failed());
@@ -275,6 +281,7 @@
       messages={visibleMessages}
       onSend={sendMessage}
       headerKind="dm"
+      cloudScoped
       showMemberList={false}
       composerDisabled={activeDM.can_send === false}
       composerDisabledReason={m.dm_page_composer_disabled_reason()}

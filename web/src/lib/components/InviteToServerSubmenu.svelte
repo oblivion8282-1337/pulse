@@ -8,6 +8,7 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
+  import { serversStore } from '$lib/api/servers.svelte';
   import { buildInviteLink } from '$lib/guilds/inviteLink';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
@@ -42,9 +43,12 @@
         maxUses: 1,
         expiresInSeconds: 86400
       });
+      // DM ist cloud-only (Global-Friends Stufe 1) → DM-Channel + Message gegen
+      // die Cloud routen. Der Invite selbst (createInvite oben) gehört zum
+      // aktiven Server der Guild und bleibt aktiv-geroutet.
       const dm = await chatApi.createOrGetDMChannel(friendUserId);
       const link = buildInviteLink(invite.code);
-      await chatApi.postMessage(dm.id, link);
+      await chatApi.postMessage(dm.id, link, {}, { serverId: serversStore.cloudId() });
       toast.success(m.invite_to_server_submenu_invite_sent({ friendName }));
       onDone();
     } catch (e) {

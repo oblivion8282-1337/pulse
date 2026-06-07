@@ -12,6 +12,7 @@
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
+  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -114,10 +115,31 @@
     // `gateway.waitForReady()` so the layout doesn't paint with an empty
     // GuildRail between WS-open and Ready-arrival.
     void gateway.connect().catch((e) => console.error('gateway connect', e));
+    // Global-Friends Stufe 1: die Cloud-Connection ist die globale Social-Quelle
+    // (Freunde/DMs/Requests/Blocks/Freund-Presence) und muss dauerhaft connected
+    // sein — auch wenn der restaurierte aktive Server ein Self-Host ist. connect()
+    // ist idempotent: ist Cloud==aktiv, no-op (die obige connect() läuft schon).
+    const cloudId = serversStore.cloudId();
+    let cloudConn: { waitForReady: () => Promise<void> } | null = null;
+    if (cloudId && cloudId !== activeServer.serverId) {
+      try {
+        const c = gatewayPool.for(cloudId);
+        cloudConn = c;
+        void c.connect().catch((e) => console.error('cloud gateway connect', e));
+      } catch (e) {
+        console.error('cloud gateway pool', e);
+      }
+    }
     await Promise.all([
       directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
       capabilities.hydrate().catch((e) => console.error('capabilities.hydrate failed', e)),
-      gateway.waitForReady().catch((e) => console.error('gateway ready', e))
+      gateway.waitForReady().catch((e) => console.error('gateway ready', e)),
+      // Auf den Cloud-ready warten, damit die Social-Stores vor dem ersten Paint
+      // geseedet sind (sonst flackert die Freundesliste leer). Nur wenn Cloud
+      // ≠ aktiv — sonst deckt `gateway.waitForReady()` es bereits ab.
+      cloudConn
+        ? cloudConn.waitForReady().catch((e) => console.error('cloud gateway ready', e))
+        : Promise.resolve()
     ]);
     hydrated = true;
 

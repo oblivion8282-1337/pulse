@@ -9,7 +9,7 @@ import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
 import { privacy } from './privacy.svelte';
 import { onboardingState } from '$lib/stores/onboardingState.svelte';
-import { resetServerScopedStores } from './multi-server-reset';
+import { resetServerScopedStores, resetSocialStores } from './multi-server-reset';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
@@ -136,10 +136,14 @@ class AuthStore {
   signOut(): void {
     clearTokens();
     this.user = null;
-    // Server-scoped Stores: Helper aus Phase 4.5 — leert 15 Stores +
-    // Plugin-Toggle-Cache. Anti-Drift: jeder neue Server-scoped Store
+    // Server-scoped Stores: Helper aus Phase 4.5 — leert die Guild-Realtime-
+    // Stores + Plugin-Toggle-Cache. Anti-Drift: jeder neue Server-scoped Store
     // gehört in `multi-server-reset.ts`, nicht hier.
     resetServerScopedStores();
+    // Global-Friends Stufe 1: die Social-Stores (Freunde/DMs/Requests/Blocks/
+    // Freund-Presence) sind NICHT mehr Teil von resetServerScopedStores
+    // (überleben Server-Switch bewusst) → bei Sign-Out separat leeren.
+    resetSocialStores();
     // readState: vollständig clear() bei Sign-Out (storageKey wegnehmen,
     // damit nachfolgende markRead-Aufrufe vom Re-Login nicht auf den alten
     // User schreiben). Der user-gekeyte localStorage-Eintrag bleibt

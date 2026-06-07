@@ -15,6 +15,7 @@
 
 import { gatewayPool } from './gateway-pool.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
+import { serversStore } from '$lib/api/servers.svelte';
 import type { GatewayConnection, WsListener, ChannelDeletedHook, GuildDeletedHook } from './gateway-connection';
 
 export type { GatewayConnection, WsListener, ChannelDeletedHook, GuildDeletedHook };
@@ -90,3 +91,39 @@ export const gateway = {
 export function setActiveGateway(serverId: string): void {
   activeServer.set(serverId);
 }
+
+/**
+ * Resolved die **Cloud**-Connection im Pool (nicht den aktiven Server).
+ * Global-Friends Stufe 1: DMs leben in der Cloud, daher müssen DM-WS-Ops
+ * (subscribe/unsubscribe/send/typing/gapFill) gegen die Cloud-Connection
+ * laufen — sonst ginge ein DM-Send bei aktivem Self-Host an den falschen
+ * Server. Wirft, wenn (unerwartet) kein Cloud-Eintrag existiert; `init()`
+ * garantiert ihn.
+ */
+function _cloud(): GatewayConnection {
+  const id = serversStore.cloudId();
+  if (!id) {
+    throw new Error('cloudGateway: no cloud server entry (serversStore.init() not called?)');
+  }
+  return gatewayPool.for(id);
+}
+
+/**
+ * Wie `gateway`, aber fest auf die **Cloud**-Connection gepinnt. Nur die für
+ * DMs/Social relevante Methoden-Surface — andere Ops (Voice/Watch/Stream)
+ * sind aktiv-server-gebunden und gehören NICHT hierher. Die DM/Friends-UI
+ * nutzt diesen Accessor statt `gateway`.
+ */
+export const cloudGateway = {
+  connect: () => _cloud().connect(),
+  waitForReady: () => _cloud().waitForReady(),
+  on: (l: WsListener) => _cloud().on(l),
+  subscribe: (cid: string) => _cloud().subscribe(cid),
+  unsubscribe: (cid: string) => _cloud().unsubscribe(cid),
+  gapFill: (cid: string) => _cloud().gapFill(cid),
+  send: (cid: string, content: string, nonce: string, replyToId?: string | null) =>
+    _cloud().send(cid, content, nonce, replyToId),
+  sendTyping: (cid: string) => _cloud().sendTyping(cid),
+  get state() { return _cloud().state; },
+  get serverId() { return _cloud().serverId; },
+};

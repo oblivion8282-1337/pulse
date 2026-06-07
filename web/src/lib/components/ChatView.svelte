@@ -13,7 +13,7 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
   import { typing } from '$lib/stores/typing.svelte';
-  import { gateway } from '$lib/ws/connection';
+  import { gateway, cloudGateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -32,6 +32,7 @@
     showMemberList = true,
     composerDisabled = false,
     composerDisabledReason = '',
+    cloudScoped = false,
     onEditMessage,
     onDeleteMessage,
     onToggleReaction
@@ -42,6 +43,12 @@
     isOwner?: boolean;
     /** 'dm' swaps the # for an @-style icon and prefixes names with @. */
     headerKind?: 'channel' | 'dm';
+    /** Global-Friends Stufe 1: DMs leben in der Cloud. Bei `true` gehen
+     *  Typing-Signale über die Cloud-Connection und "ist das meine Nachricht?"
+     *  vergleicht gegen die Cloud-User-ID (auth.user.id) statt gegen die
+     *  aktive-Server-ID — sonst stimmt bei aktivem Self-Host weder das
+     *  Typing-Ziel noch der Self-Echo-Filter. */
+    cloudScoped?: boolean;
     /** Hide the member-list toggle + inline panel (DMs have no member list). */
     showMemberList?: boolean;
     /** Lock the composer (no typing, no submit). Drives the DM hard-cut
@@ -98,7 +105,8 @@
   // Eigene Identität AUF DEM AKTIVEN SERVER (Cloud-id ≠ Self-Host-id). Für jeden
   // "ist das meine Nachricht?"-Vergleich gegen server-lokale IDs — siehe
   // currentServerUser-Helfer.
-  let myId = $derived(currentServerUserId());
+  // Cloud-scoped (DM) → Cloud-User-ID (auth.user.id); sonst aktive-Server-ID.
+  let myId = $derived(cloudScoped ? (auth.user?.id ?? null) : currentServerUserId());
 
   $effect(() => {
     const toQueue = messages
@@ -313,7 +321,7 @@
     const now = Date.now();
     if (now - lastTypingSent < 3000) return;
     lastTypingSent = now;
-    gateway.sendTyping(channel.id);
+    (cloudScoped ? cloudGateway : gateway).sendTyping(channel.id);
   }
 
   const typingLabel = $derived.by(() => {

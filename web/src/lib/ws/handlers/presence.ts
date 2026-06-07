@@ -3,7 +3,7 @@
  * `presence_status_changed` (status incl. "invisible" for the own user).
  */
 import { presence, type PresenceStatus, type OwnPresenceStatus } from '$lib/stores/presence.svelte';
-import { currentServerUserId } from '$lib/stores/currentServerUser';
+import { dispatchingUserId } from '$lib/stores/currentServerUser';
 import { registerWsHandler } from '../handler-registry';
 
 export function register(): void {
@@ -12,7 +12,11 @@ export function register(): void {
   });
 
   registerWsHandler('presence_status_changed', (evt) => {
-    const me = currentServerUserId();
+    // Own envelope: "me" must be resolved against the DISPATCHING connection.
+    // A Cloud-background presence_status_changed (self-host active) carries the
+    // Cloud id; comparing against the active self-host id would mis-route the
+    // own/peer split.
+    const me = dispatchingUserId();
     if (me && evt.data.user_id === me) {
       // Own envelope carries the REAL status (incl. "invisible").
       presence.setOwnStatus(evt.data.status as OwnPresenceStatus);

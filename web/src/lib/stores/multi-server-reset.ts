@@ -46,7 +46,17 @@ import { resetGuildPluginsCache } from '$lib/plugins';
 import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
 
 /**
- * Leert alle 15 Server-scoped Stores. Idempotent.
+ * Leert die Server-scoped Stores (Guild-Realtime des aktiven Servers).
+ * Idempotent. Aufgerufen beim Server-**Switch** und (zusammen mit
+ * `resetSocialStores()`) beim **Sign-Out**.
+ *
+ * **WICHTIG (Global-Friends Stufe 1):** Die Social-Stores
+ * (`friends`/`friendRequests`/`blocks`/`directMessages` + die globale
+ * Freund-`presence`) sind **NICHT** mehr Teil dieses Resets. Sie werden global
+ * aus der **persistenten Cloud-Connection** gespeist und überleben einen
+ * Server-Switch bewusst — beim Switch sendet die Cloud keinen neuen ready-Frame,
+ * ein Wipe würde sie also dauerhaft leeren. Sie werden nur bei Sign-Out via
+ * `resetSocialStores()` geleert.
  *
  * **Reihenfolge spielt keine Rolle** — die Stores haben keine Inter-Dependencies
  * im Reset-Pfad. UI-Components, die einen `$derived` auf mehreren der Stores
@@ -56,7 +66,6 @@ import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
  */
 export function resetServerScopedStores(): void {
   guilds.clear();
-  directMessages.clear();
   messages.clear();
   // readState: nur Memory-Cache, localStorage bleibt (userId-keyed).
   readState.resetCacheOnly();
@@ -68,12 +77,21 @@ export function resetServerScopedStores(): void {
   streamPresence.clear();
   watchPartyPresence.clear();
   watchWatchers.clear();
-  friends.clear();
-  friendRequests.clear();
-  blocks.clear();
-  presence.clear();
   // Plugin-pro-Guild-Toggle-Cache liegt außerhalb der Store-Klassen.
   resetGuildPluginsCache();
   // Guild-member autocomplete cache — stale after server-switch / sign-out.
   memberListCache.clear();
+}
+
+/**
+ * Leert die globale Social-Schicht (Cloud): Freunde/Requests/Blocks/DMs +
+ * Freund-Presence. **Nur bei Sign-Out** — beim Server-Switch bleiben diese
+ * Stores stehen (siehe `resetServerScopedStores`). Idempotent.
+ */
+export function resetSocialStores(): void {
+  friends.clear();
+  friendRequests.clear();
+  blocks.clear();
+  directMessages.clear();
+  presence.clear();
 }

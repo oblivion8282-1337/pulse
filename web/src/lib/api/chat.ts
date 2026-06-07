@@ -1,4 +1,5 @@
 import { request, requestForm } from './client';
+import { serversStore } from './servers.svelte';
 import type {
   AcceptInviteResult,
   Ban,
@@ -148,21 +149,26 @@ export const chatApi = {
     return request<Channel>(`/channels/${channelId}`, { method: 'PATCH', body: payload });
   },
 
-  // Messages
+  // Messages. ``route`` (optional) pinnt das Request an einen bestimmten
+  // Server — Guild-Channels lassen es weg (→ aktiver Server), DMs übergeben
+  // den Cloud-Server (Global-Friends Stufe 1: DMs sind cloud-only und müssen
+  // auch bei aktivem Self-Host gegen die Cloud laufen).
   listMessages(
     channelId: string,
-    opts: { before?: string; after?: string; limit?: number } = {}
+    opts: { before?: string; after?: string; limit?: number } = {},
+    route: { serverId?: string } = {}
   ): Promise<Message[]> {
     const params = new URLSearchParams();
     if (opts.before) params.set('before', opts.before);
     if (opts.after) params.set('after', opts.after);
     params.set('limit', String(opts.limit ?? 50));
-    return request<Message[]>(`/channels/${channelId}/messages?${params.toString()}`);
+    return request<Message[]>(`/channels/${channelId}/messages?${params.toString()}`, {}, route);
   },
   postMessage(
     channelId: string,
     content: string,
-    opts: { nonce?: string; replyToId?: string | null; attachmentIds?: string[] } = {}
+    opts: { nonce?: string; replyToId?: string | null; attachmentIds?: string[] } = {},
+    route: { serverId?: string } = {}
   ): Promise<Message> {
     return request<Message>(`/channels/${channelId}/messages`, {
       method: 'POST',
@@ -172,20 +178,21 @@ export const chatApi = {
         reply_to_id: opts.replyToId ?? null,
         attachment_ids: opts.attachmentIds ?? []
       }
-    });
+    }, route);
   },
   editMessage(
     messageId: string,
     content: string,
-    opts: { attachmentIds?: string[] } = {}
+    opts: { attachmentIds?: string[] } = {},
+    route: { serverId?: string } = {}
   ): Promise<Message> {
     return request<Message>(`/messages/${messageId}`, {
       method: 'PATCH',
       body: { content, attachment_ids: opts.attachmentIds ?? [] }
-    });
+    }, route);
   },
-  deleteMessage(messageId: string): Promise<void> {
-    return request<void>(`/messages/${messageId}`, { method: 'DELETE' });
+  deleteMessage(messageId: string, route: { serverId?: string } = {}): Promise<void> {
+    return request<void>(`/messages/${messageId}`, { method: 'DELETE' }, route);
   },
 
   // ── Attachments (two-phase upload) ─────────────────────────────────────
@@ -245,33 +252,36 @@ export const chatApi = {
   }> {
     return request('/capabilities', { endpoint: 'chat' }, { serverId: opts?.serverId });
   },
-  addReaction(messageId: string, emoji: string): Promise<void> {
+  addReaction(messageId: string, emoji: string, route: { serverId?: string } = {}): Promise<void> {
     return request<void>(
       `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
-      { method: 'PUT' }
+      { method: 'PUT' },
+      route
     );
   },
-  removeReaction(messageId: string, emoji: string): Promise<void> {
+  removeReaction(messageId: string, emoji: string, route: { serverId?: string } = {}): Promise<void> {
     return request<void>(
       `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
-      { method: 'DELETE' }
+      { method: 'DELETE' },
+      route
     );
   },
 
   // Direct messages — 1:1 DM channels. Polymorphic with guild channels at the
   // wire level: once a DM channel id is in hand, list/post messages go through
   // the same `/channels/{id}/messages` endpoints as guild channels.
+  // Global-Friends Stufe 1: DMs sind cloud-only → immer gegen den Cloud-Server.
   listDMChannels(): Promise<DMChannel[]> {
-    return request<DMChannel[]>('/dm-channels');
+    return request<DMChannel[]>('/dm-channels', {}, { serverId: serversStore.cloudId() });
   },
   createOrGetDMChannel(targetUserId: string): Promise<DMChannel> {
     return request<DMChannel>('/dm-channels', {
       method: 'POST',
       body: { target_user_id: targetUserId }
-    });
+    }, { serverId: serversStore.cloudId() });
   },
   getDMChannel(dmChannelId: string): Promise<DMChannel> {
-    return request<DMChannel>(`/dm-channels/${dmChannelId}`);
+    return request<DMChannel>(`/dm-channels/${dmChannelId}`, {}, { serverId: serversStore.cloudId() });
   },
 
   // Invites

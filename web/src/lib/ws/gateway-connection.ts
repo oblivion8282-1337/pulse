@@ -24,6 +24,7 @@ import { sounds } from '$lib/sounds/engine';
 import { dispatch } from './handler-registry';
 import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
 import { gapFillAll, gapFillChannel } from './gapFill';
+import { backgroundEligible } from './dispatch-rules';
 import * as senders from './gateway-senders';
 import type { ServerEvent, ClientEvent } from './handlers/types';
 
@@ -66,6 +67,29 @@ export function setSelfHostReauthHandler(fn: ((serverId: string) => void) | null
 let _dispatchingConn: GatewayConnection | null = null;
 const _EMPTY_SUBS = new Set<string>();
 
+/** Die `serverId` der gerade dispatchenden Connection. Social-Handler, die
+ *  jetzt auch Cloud-Background-Events bekommen (dm_bump/message/presence in
+ *  DMs), müssen ihr "me" gegen DIESE Connection auflösen, nicht gegen den
+ *  aktiven Server: bei aktivem Self-Host kommt ein Cloud-DM-Bump über die
+ *  Cloud-Connection rein → "me" ist die Cloud-User-ID, nicht die Self-Host-ID.
+ *  Da Dispatch synchron ist (`_dispatchingConn = this` direkt vor `dispatch()`)
+ *  und die betroffenen Handler ihr "me" VOR jedem `await` lesen, ist das
+ *  race-frei. Für Guild-/Voice-Ops (aktiv-only) == aktive Connection → keine
+ *  Verhaltensänderung. */
+export function dispatchingServerId(): string | null {
+  return _dispatchingConn?.serverId ?? null;
+}
+
+/** Lokale (nicht-Wire) Stempel, die `_handle` aufs ready-Event setzt. Beim
+ *  Cachen entfernen, damit ein späterer Replay sie aus der *dann*-aktuellen
+ *  Wahrheit neu ableitet, nie aus einem veralteten Stempel. */
+type ReadyStamps = { _isActive?: boolean; _isCloud?: boolean; _serverId?: string };
+function stripReadyStamps(evt: ServerEvent): ServerEvent {
+  const { _isActive, _isCloud, _serverId, ...rest } = evt as ServerEvent & ReadyStamps;
+  void _isActive; void _isCloud; void _serverId;
+  return rest as ServerEvent;
+}
+
 /** Semver-Compare. Returns negative/0/positive (a vs b). */
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
@@ -100,6 +124,12 @@ export class GatewayConnection {
   private _preReadyBuffer: ServerEvent[] = [];
   private _readyPromise: Promise<void> | null = null;
   private _readyResolve: (() => void) | null = null;
+  /** Letzter empfangener (roher) `ready`-Frame dieser Connection. Gecached für
+   *  den Server-Switch-Replay: `connect()` returnt früh, wenn die Connection
+   *  schon offen ist (`readyState <= 1`) → es kommt KEIN neuer ready, der den
+   *  geleerten Server-Teil (guilds/voice/…) neu seedet. `replayReadyForActivation()`
+   *  re-dispatcht diesen Cache mit `_isActive=true`. */
+  private _lastReadyEvent: ServerEvent | null = null;
 
   /** Reaktiv: erstes Hello-Frame des Servers (nur Self-Host). */
   helloMeta: HelloMeta | null = null;
@@ -140,8 +170,48 @@ export class GatewayConnection {
       this._readyResolve = null;
     }
     this._readyDone = true;
-    for (const buffered of this._preReadyBuffer) void dispatch(buffered);
+    // Replay the pre-ready buffer — but apply the SAME dispatch rule as
+    // `_handle`: a non-active Cloud-Background-Connection may only flush its
+    // background-eligible ops (e.g. a buffered DM `dm_bump`), never its
+    // buffered guild events (those would overwrite the *active* server's
+    // stores). The active connection flushes everything it buffered.
+    const isActive = this.serverId === activeServer.serverId;
+    for (const buffered of this._preReadyBuffer) {
+      if (isActive || (this.isCloud && backgroundEligible(buffered))) {
+        void dispatch(buffered);
+      }
+    }
     this._preReadyBuffer = [];
+  }
+
+  /**
+   * Server-Switch-Replay (Global-Friends Stufe 1, Option B). Beim Switch ZU
+   * dieser (bereits offenen, `_readyDone`) Connection returnt `connect()` früh
+   * → es kommt KEIN neuer ready-Frame, der den von `resetServerScopedStores()`
+   * geleerten Server-Teil (guilds/voice/stream/watch/roles/sounds/clock) neu
+   * seedet. Hier re-dispatchen wir den gecachten letzten ready-Frame mit
+   * `_isActive=true`, sodass der ready-Handler den Server-Teil neu anwendet.
+   *
+   * - **Reiner In-Memory-Replay** — KEIN `ws.close()`, KEIN reconnect, KEIN
+   *   Timer. Damit gibt es per Konstruktion keine Reconnect-Race und die
+   *   Hintergrund-Cloud-Connection (falls != this) bleibt unangetastet.
+   * - `_isCloud`/`_serverId` aus dieser Connection; der ready-Handler ignoriert
+   *   den Social-Teil weiterhin, wenn `!isCloud` (Self-Host). Ist `this` die
+   *   Cloud, läuft der Social-Seed mit (idempotent).
+   *
+   * Returns `true`, wenn ein Replay lief; `false`, wenn (noch) kein ready
+   * gecached ist → der Caller muss auf den normalen `connect()`/ready-Pfad
+   * vertrauen (frische Connection liefert ohnehin einen echten ready).
+   */
+  replayReadyForActivation(): boolean {
+    if (!this._readyDone || !this._lastReadyEvent) return false;
+    const evt = stripReadyStamps(this._lastReadyEvent) as ServerEvent & ReadyStamps;
+    evt._isActive = true;
+    evt._isCloud = this.isCloud;
+    evt._serverId = this.serverId;
+    _dispatchingConn = this;
+    void dispatch(evt);
+    return true;
   }
 
   on(listener: WsListener): () => void {
@@ -343,20 +413,50 @@ export class GatewayConnection {
   }
 
   private _handle(evt: ServerEvent): void {
+    // Cache the raw `ready` for the server-switch replay (see _lastReadyEvent).
+    // Store a stamp-free shallow clone so a later replay re-derives the
+    // active/cloud flags from the *then*-current truth, never a stale stamp.
+    if (evt.op === 'ready') this._lastReadyEvent = stripReadyStamps(evt);
     if (!this._readyDone && BUFFER_BEFORE_READY.has(evt.op)) {
       this._preReadyBuffer.push(evt);
       return;
     }
-    // Race-Guard (Phase 4.5+): wenn dieser Server nicht mehr der aktive ist,
-    // skip die globalen Store-Handler. Beispiel-Szenario: User wechselt von
-    // A→B, A's Connection reconnectet danach und schickt einen ready-Frame —
-    // ohne Guard würde der die B-Stores mit A-Daten überschreiben.
-    // Per-Connection-Listener (useGatewayListener) sind davon unberührt;
-    // die werden bei A→B-Switch automatisch von $effect deregistriert.
-    if (this.serverId !== activeServer.serverId) return;
+    // Race-Guard (Phase 4.5+): grundsätzlich dispatcht nur die **aktive**
+    // Connection. Beispiel-Szenario: User wechselt von A→B, A's Connection
+    // reconnectet danach und schickt einen ready-Frame — ohne Guard würde der
+    // die B-Stores mit A-Daten überschreiben. Per-Connection-Listener
+    // (useGatewayListener) sind davon unberührt; die werden bei A→B-Switch
+    // automatisch von $effect deregistriert.
+    //
+    // Global-Friends Stufe 1: die **Cloud**-Connection darf eine definierte
+    // Op-Allowlist (`backgroundEligible`: Freunde/DMs/Friend-Requests/Blocks/
+    // Freund-Presence) AUCH im Hintergrund dispatchen, damit die globale
+    // Social-Schicht live bleibt, während ein Self-Host aktiv ist.
+    const isActive = this.serverId === activeServer.serverId;
+    if (!isActive) {
+      // `ready` ist die Ausnahme zur Allowlist: die Cloud-Background-Connection
+      // MUSS ihren ready-Frame dispatchen, weil er die globalen Social-Stores
+      // seedet (friends/dm_channels/friend_requests/blocks/eigener Status). Der
+      // ready-Handler wendet dann via `_isActive`/`_isCloud` nur den Social-
+      // Teil an, nie den Server-Teil. Alles andere bleibt auf die
+      // `backgroundEligible`-Allowlist beschränkt.
+      const allowed = evt.op === 'ready' ? this.isCloud : this.isCloud && backgroundEligible(evt);
+      if (!allowed) return;
+    }
     // Mark this as the dispatching connection so the global handler-context
-    // (subs/unsubscribe/hooks/onReadySeeded) resolves to it, not to cloud.
+    // (subs/unsubscribe/hooks/onReadySeeded) + die social-„me"-Auflösung
+    // (dispatchingServerId) auf diese Connection zeigen, nicht auf cloud.
     _dispatchingConn = this;
+    // ready-Split: dem ready-Handler synchron mitgeben, ob DIESE Connection
+    // aktiv und/oder Cloud ist. Server-Teil läuft nur bei aktiv, Social-Teil
+    // nur bei Cloud (Cloud==aktiv → beides, heutiges Verhalten). Non-Wire-
+    // Felder, vom Server nie gesendet — nur lokal gestempelt.
+    if (evt.op === 'ready') {
+      const r = evt as ServerEvent & { _isActive?: boolean; _isCloud?: boolean; _serverId?: string };
+      r._isActive = isActive;
+      r._isCloud = this.isCloud;
+      r._serverId = this.serverId;
+    }
     void dispatch(evt);
   }
 

@@ -27,6 +27,7 @@
   import { friends } from '$lib/stores/friends.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { serversStore } from '$lib/api/servers.svelte';
   import { buildInviteLink } from '$lib/guilds/inviteLink';
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
@@ -84,8 +85,11 @@
     // blocking the rest.
     const results = await Promise.allSettled(
       targets.map(async (uid) => {
+        // DMs sind cloud-only (Global-Friends Stufe 1) → DM-Channel + Message
+        // gegen die Cloud routen, nicht gegen den aktiven Server.
+        const cloudRoute = { serverId: serversStore.cloudId() };
         const dm = await chatApi.createOrGetDMChannel(uid);
-        await chatApi.postMessage(dm.id, link);
+        await chatApi.postMessage(dm.id, link, {}, cloudRoute);
       })
     );
     const ok = results.filter((r) => r.status === 'fulfilled').length;
