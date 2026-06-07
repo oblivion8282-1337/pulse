@@ -1,8 +1,12 @@
-"""Tests for the Self-Host join gate + join-invite admin routes (0032).
+"""Tests for the Self-Host join gate (Stufe 5 — "Server gesperrt" toggle).
 
-Covers ``routes/cert_login.py``'s join gate (owner / existing member /
-first-contact by join_mode) and ``routes/admin_join_invites.py`` (mint / list /
-revoke + audit log). ``validate_cert`` is monkey-patched just like
+Covers ``routes/cert_login.py``'s join gate. Gate order:
+    owner → existing member → ``locked`` not-aus → per-community grants
+    (public-community handle / community-invite code).
+
+The single ``chat_settings.locked`` toggle overrides BOTH grant paths — it is
+checked before either, so a sealed instance admits no new member regardless of
+how they arrived. ``validate_cert`` is monkey-patched just like
 ``test_cert_login.py`` — this file focuses on the join logic layered on top.
 """
 
@@ -20,9 +24,7 @@ from dcc_chat_gateway.models import (
     ChatSettings,
     Guild,
     GuildInvite,
-    InstanceJoinInvite,
     InstanceMember,
-    ModAuditLog,
 )
 from dcc_chat_gateway.routes import cert_login as cert_login_route
 from dcc_chat_gateway.session_tokens import reset_session_signer
@@ -81,10 +83,10 @@ def _patch_validate(claims: CertClaims | None):
     return patch.object(cert_login_route, "validate_cert", _fake)
 
 
-async def _set_join_mode(session_factory, mode: str) -> None:
+async def _set_locked(session_factory, locked: bool) -> None:
     async with session_factory() as s:
         row = await s.get(ChatSettings, 1)
-        row.join_mode = mode
+        row.locked = locked
         await s.commit()
 
 
@@ -94,7 +96,6 @@ async def _attempt_join(
     *,
     user_id: str,
     owner_id: int = 0,
-    join_code=None,
     community_grant_code=None,
     public_join_handle=None,
 ):
@@ -110,8 +111,6 @@ async def _attempt_join(
         raw = base64.urlsafe_b64decode(ch["nonce"] + "==")
         sig = _b64url(priv.sign(raw))
         body = {"cert": "stub", "challenge_token": ch["challenge_token"], "signature": sig}
-        if join_code is not None:
-            body["join_code"] = join_code
         if community_grant_code is not None:
             body["community_grant_code"] = community_grant_code
         if public_join_handle is not None:
@@ -172,30 +171,39 @@ async def _members(session_factory) -> set[str]:
 
 
 # ---------------------------------------------------------------------------
-# Owner + existing-member paths (every mode)
+# Owner + existing-member paths (locked + unlocked)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["open", "invite_only", "closed"])
-async def test_owner_joins_without_invite(client, _route_settings, session_factory, mode):
-    await _set_join_mode(session_factory, mode)
+@pytest.mark.parametrize("locked", [False, True])
+async def test_owner_joins_regardless_of_lock(
+    client, _route_settings, session_factory, locked
+):
+    """The owner always gets in — even on a sealed instance (no self-lockout)."""
+    await _set_locked(session_factory, locked)
     resp = await _attempt_join(client, _route_settings, user_id="555", owner_id=555)
     assert resp.status_code == 200, resp.text
     assert len(await _members(session_factory)) == 1
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["open", "invite_only", "closed"])
-async def test_existing_member_reauth_no_invite(client, _route_settings, session_factory, mode):
-    """Re-auth path: an already-joined member never needs an invite again."""
-    # First join while open.
-    await _set_join_mode(session_factory, "open")
-    first = await _attempt_join(client, _route_settings, user_id="777")
+@pytest.mark.parametrize("locked", [False, True])
+async def test_existing_member_reauth_regardless_of_lock(
+    client, _route_settings, session_factory, locked
+):
+    """Re-auth path: an already-joined member is checked BEFORE the lock, so a
+    sealed instance never evicts current members."""
+    # First join while unlocked via a public handle.
+    await _set_locked(session_factory, False)
+    await _seed_public_guild(session_factory, "firsthouse")
+    first = await _attempt_join(
+        client, _route_settings, user_id="777", public_join_handle="firsthouse"
+    )
     assert first.status_code == 200, first.text
     identifier = first.json()["pairwise_sub"]
-    # Now lock the instance down and re-auth — must still pass.
-    await _set_join_mode(session_factory, mode)
+    # Now (maybe) seal the instance and re-auth with NO grant — must still pass.
+    await _set_locked(session_factory, locked)
     cert_login_route._reset_cert_login_rate_for_tests()
     again = await _attempt_join(client, _route_settings, user_id="777")
     assert again.status_code == 200, again.text
@@ -203,125 +211,99 @@ async def test_existing_member_reauth_no_invite(client, _route_settings, session
 
 
 # ---------------------------------------------------------------------------
-# First-contact by join_mode
+# Unlocked: per-community grants admit a new member
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_first_contact_open(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "open")
+async def test_unlocked_no_grant_denied(client, _route_settings, session_factory):
+    """Unlocked but no grant at all → still denied (access is per-community)."""
+    await _set_locked(session_factory, False)
     resp = await _attempt_join(client, _route_settings, user_id="111")
-    assert resp.status_code == 200, resp.text
-    assert len(await _members(session_factory)) == 1
-
-
-@pytest.mark.asyncio
-async def test_first_contact_closed(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "closed")
-    resp = await _attempt_join(client, _route_settings, user_id="222")
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "join_closed"
+    assert resp.json()["detail"] == "join_not_permitted"
     assert await _members(session_factory) == set()
 
 
 @pytest.mark.asyncio
-async def test_first_contact_invite_only_no_code(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "invite_only")
-    resp = await _attempt_join(client, _route_settings, user_id="333")
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "join_requires_invite"
-
-
-@pytest.mark.asyncio
-async def test_first_contact_invite_only_valid_code(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "invite_only")
-    async with session_factory() as s:
-        s.add(InstanceJoinInvite(code="GOODCODE", created_by="admin", max_uses=5))
-        await s.commit()
-    resp = await _attempt_join(client, _route_settings, user_id="444", join_code="GOODCODE")
+async def test_unlocked_public_handle_admits(client, _route_settings, session_factory):
+    await _set_locked(session_factory, False)
+    await _seed_public_guild(session_factory, "openhouse")
+    resp = await _attempt_join(
+        client, _route_settings, user_id="2001", public_join_handle="openhouse"
+    )
     assert resp.status_code == 200, resp.text
     assert len(await _members(session_factory)) == 1
     async with session_factory() as s:
-        inv = await s.get(InstanceJoinInvite, "GOODCODE")
-        assert inv.uses == 1
-
-
-# ---------------------------------------------------------------------------
-# Invite validity
-# ---------------------------------------------------------------------------
+        ident = resp.json()["pairwise_sub"]
+        row = await s.get(InstanceMember, ident)
+        assert row.joined_via == "public_community"
 
 
 @pytest.mark.asyncio
-async def test_invite_max_uses_exhausted(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "invite_only")
-    async with session_factory() as s:
-        s.add(InstanceJoinInvite(code="SPENT", created_by="admin", max_uses=1, uses=1))
-        await s.commit()
-    resp = await _attempt_join(client, _route_settings, user_id="901", join_code="SPENT")
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "join_requires_invite"
-
-
-@pytest.mark.asyncio
-async def test_invite_revoked(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "invite_only")
-    async with session_factory() as s:
-        s.add(InstanceJoinInvite(code="DEAD", created_by="admin", revoked=True))
-        await s.commit()
-    resp = await _attempt_join(client, _route_settings, user_id="902", join_code="DEAD")
-    assert resp.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_invite_expired(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "invite_only")
-    past = datetime.now(UTC) - timedelta(days=1)
-    async with session_factory() as s:
-        s.add(InstanceJoinInvite(code="OLD", created_by="admin", expires_at=past))
-        await s.commit()
-    resp = await _attempt_join(client, _route_settings, user_id="903", join_code="OLD")
-    assert resp.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_invite_future_expiry_works(client, _route_settings, session_factory):
-    await _set_join_mode(session_factory, "invite_only")
-    future = datetime.now(UTC) + timedelta(days=7)
-    async with session_factory() as s:
-        s.add(InstanceJoinInvite(code="FRESH", created_by="admin", expires_at=future))
-        await s.commit()
-    resp = await _attempt_join(client, _route_settings, user_id="904", join_code="FRESH")
-    assert resp.status_code == 200, resp.text
-
-
-# ---------------------------------------------------------------------------
-# Community-Invite instance grant (Stufe 2 / B-lite)
-# ---------------------------------------------------------------------------
-#
-# A live community (GuildInvite) invite is itself the permission to join the
-# *instance* — community-scoped, no separate join_code. Additive: the legacy
-# join_code path still works (covered above), and ``closed`` mode is never
-# bypassed by a community invite (the owner's hard lock).
-
-
-@pytest.mark.asyncio
-async def test_community_invite_grants_instance_membership(
-    client, _route_settings, session_factory
-):
-    """A valid community invite admits a first-contact user in invite_only
-    mode without any instance join_code, and records membership."""
-    await _set_join_mode(session_factory, "invite_only")
+async def test_unlocked_community_invite_admits(client, _route_settings, session_factory):
+    await _set_locked(session_factory, False)
     await _seed_guild_invite(session_factory, "LIVECOMM")
     resp = await _attempt_join(
         client, _route_settings, user_id="1001", community_grant_code="LIVECOMM"
     )
     assert resp.status_code == 200, resp.text
     assert len(await _members(session_factory)) == 1
-    # Provenance marker is the community-invite path.
     async with session_factory() as s:
         ident = resp.json()["pairwise_sub"]
         row = await s.get(InstanceMember, ident)
         assert row.joined_via == "community_invite"
+
+
+# ---------------------------------------------------------------------------
+# locked: the "Server gesperrt" not-aus overrides BOTH grant paths
+# ---------------------------------------------------------------------------
+#
+# This is the security-critical contract of Stufe 5: a sealed instance admits no
+# NEW member, regardless of how they arrived — the lock is checked before every
+# grant path.
+
+
+@pytest.mark.asyncio
+async def test_locked_blocks_no_grant(client, _route_settings, session_factory):
+    await _set_locked(session_factory, True)
+    resp = await _attempt_join(client, _route_settings, user_id="222")
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "join_locked"
+    assert await _members(session_factory) == set()
+
+
+@pytest.mark.asyncio
+async def test_locked_blocks_community_invite(client, _route_settings, session_factory):
+    """A live community invite must NOT bypass the lock (overrides Stufe 2)."""
+    await _set_locked(session_factory, True)
+    await _seed_guild_invite(session_factory, "LIVELCKD")
+    resp = await _attempt_join(
+        client, _route_settings, user_id="1007", community_grant_code="LIVELCKD"
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "join_locked"
+    assert await _members(session_factory) == set()
+
+
+@pytest.mark.asyncio
+async def test_locked_blocks_public_handle(client, _route_settings, session_factory):
+    """A public-community handle must NOT bypass the lock — unlike the old
+    ``closed`` asymmetry, the single ``locked`` toggle overrides public too
+    (Entscheidung 7 / Stufe 5)."""
+    await _set_locked(session_factory, True)
+    await _seed_public_guild(session_factory, "evensealed")
+    resp = await _attempt_join(
+        client, _route_settings, user_id="2002", public_join_handle="evensealed"
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "join_locked"
+    assert await _members(session_factory) == set()
+
+
+# ---------------------------------------------------------------------------
+# Community-invite grant validity (unlocked)
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -329,9 +311,8 @@ async def test_community_invite_does_not_consume_guild_invite_use(
     client, _route_settings, session_factory
 ):
     """The instance grant is non-consuming — the GuildInvite's use is spent
-    later by accept_invite, not here. So re-auth on the same code keeps working
-    and the use count never moves at cert-login."""
-    await _set_join_mode(session_factory, "invite_only")
+    later by accept_invite, not here."""
+    await _set_locked(session_factory, False)
     await _seed_guild_invite(session_factory, "NOCONSUM", max_uses=1)
     resp = await _attempt_join(
         client, _route_settings, user_id="1002", community_grant_code="NOCONSUM"
@@ -346,12 +327,12 @@ async def test_community_invite_does_not_consume_guild_invite_use(
 async def test_community_invite_unknown_code_grants_nothing(
     client, _route_settings, session_factory
 ):
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     resp = await _attempt_join(
         client, _route_settings, user_id="1003", community_grant_code="NOSUCHCODE"
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "join_requires_invite"
+    assert resp.json()["detail"] == "join_not_permitted"
     assert await _members(session_factory) == set()
 
 
@@ -359,7 +340,7 @@ async def test_community_invite_unknown_code_grants_nothing(
 async def test_community_invite_revoked_grants_nothing(
     client, _route_settings, session_factory
 ):
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     await _seed_guild_invite(session_factory, "DEADCOMM", revoked=True)
     resp = await _attempt_join(
         client, _route_settings, user_id="1004", community_grant_code="DEADCOMM"
@@ -372,7 +353,7 @@ async def test_community_invite_revoked_grants_nothing(
 async def test_community_invite_expired_grants_nothing(
     client, _route_settings, session_factory
 ):
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     past = datetime.now(UTC) - timedelta(days=1)
     await _seed_guild_invite(session_factory, "OLDCOMM", expires_at=past)
     resp = await _attempt_join(
@@ -386,28 +367,12 @@ async def test_community_invite_expired_grants_nothing(
 async def test_community_invite_exhausted_grants_nothing(
     client, _route_settings, session_factory
 ):
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     await _seed_guild_invite(session_factory, "FULLCOMM", max_uses=1, uses=1)
     resp = await _attempt_join(
         client, _route_settings, user_id="1006", community_grant_code="FULLCOMM"
     )
     assert resp.status_code == 403
-    assert await _members(session_factory) == set()
-
-
-@pytest.mark.asyncio
-async def test_community_invite_does_not_bypass_closed(
-    client, _route_settings, session_factory
-):
-    """``closed`` mode is the owner's hard lock — a live community invite must
-    not bypass it (mirrors the future single 'Server gesperrt' toggle)."""
-    await _set_join_mode(session_factory, "closed")
-    await _seed_guild_invite(session_factory, "LIVECLSD")
-    resp = await _attempt_join(
-        client, _route_settings, user_id="1007", community_grant_code="LIVECLSD"
-    )
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "join_closed"
     assert await _members(session_factory) == set()
 
 
@@ -418,58 +383,20 @@ async def test_community_invite_member_reauth_without_code(
     """Once joined via a community invite, the member re-auths with no code at
     all (the critical re-auth path — community invites must not be re-demanded
     on every 5-minute token refresh)."""
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     await _seed_guild_invite(session_factory, "REAUTHCM")
     first = await _attempt_join(
         client, _route_settings, user_id="1008", community_grant_code="REAUTHCM"
     )
     assert first.status_code == 200, first.text
     cert_login_route._reset_cert_login_rate_for_tests()
-    # Re-auth with NO code — must still pass (existing member).
     again = await _attempt_join(client, _route_settings, user_id="1008")
     assert again.status_code == 200, again.text
 
 
 # ---------------------------------------------------------------------------
-# Public-community instance grant (Stufe 4 / Entscheidung 5)
+# Public-community grant validity (unlocked)
 # ---------------------------------------------------------------------------
-#
-# A currently-public community is its OWN permission to join the instance —
-# join_mode-INDEPENDENT (admits even in ``closed``). A non-public/unknown handle
-# grants nothing. Non-consuming, no separate code.
-
-
-@pytest.mark.asyncio
-async def test_public_handle_grants_instance_membership(
-    client, _route_settings, session_factory
-):
-    """In invite_only mode, a public-community handle admits a first-contact
-    user with no code and records membership."""
-    await _set_join_mode(session_factory, "invite_only")
-    await _seed_public_guild(session_factory, "openhouse")
-    resp = await _attempt_join(
-        client, _route_settings, user_id="2001", public_join_handle="openhouse"
-    )
-    assert resp.status_code == 200, resp.text
-    assert len(await _members(session_factory)) == 1
-    async with session_factory() as s:
-        ident = resp.json()["pairwise_sub"]
-        row = await s.get(InstanceMember, ident)
-        assert row.joined_via == "public_community"
-
-
-@pytest.mark.asyncio
-async def test_public_handle_bypasses_closed(client, _route_settings, session_factory):
-    """Unlike a community-invite code, a public-community handle is
-    join_mode-INDEPENDENT — it admits even in ``closed`` mode (Entscheidung 5;
-    only the future 'Server gesperrt' toggle will override it)."""
-    await _set_join_mode(session_factory, "closed")
-    await _seed_public_guild(session_factory, "evenclosed")
-    resp = await _attempt_join(
-        client, _route_settings, user_id="2002", public_join_handle="evenclosed"
-    )
-    assert resp.status_code == 200, resp.text
-    assert len(await _members(session_factory)) == 1
 
 
 @pytest.mark.asyncio
@@ -477,21 +404,19 @@ async def test_non_public_handle_grants_nothing(
     client, _route_settings, session_factory
 ):
     """A community with a handle but NOT public grants no instance access."""
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     await _seed_public_guild(session_factory, "stillprivate", is_public=False)
     resp = await _attempt_join(
         client, _route_settings, user_id="2003", public_join_handle="stillprivate"
     )
     assert resp.status_code == 403
-    assert resp.json()["detail"] == "join_requires_invite"
+    assert resp.json()["detail"] == "join_not_permitted"
     assert await _members(session_factory) == set()
 
 
 @pytest.mark.asyncio
-async def test_unknown_handle_grants_nothing(
-    client, _route_settings, session_factory
-):
-    await _set_join_mode(session_factory, "invite_only")
+async def test_unknown_handle_grants_nothing(client, _route_settings, session_factory):
+    await _set_locked(session_factory, False)
     resp = await _attempt_join(
         client, _route_settings, user_id="2004", public_join_handle="nosuchhandle"
     )
@@ -505,7 +430,7 @@ async def test_public_handle_member_reauth_without_handle(
 ):
     """Once joined via a public handle, the member re-auths with no handle at
     all (the critical re-auth path)."""
-    await _set_join_mode(session_factory, "invite_only")
+    await _set_locked(session_factory, False)
     await _seed_public_guild(session_factory, "reauthpub")
     first = await _attempt_join(
         client, _route_settings, user_id="2005", public_join_handle="reauthpub"
@@ -517,7 +442,7 @@ async def test_public_handle_member_reauth_without_handle(
 
 
 # ---------------------------------------------------------------------------
-# Admin routes
+# Admin toggle
 # ---------------------------------------------------------------------------
 
 
@@ -526,69 +451,29 @@ def _auth(token: str) -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_admin_join_invite_mint_list_revoke(client, admin_token, session_factory):
-    token, _uid = admin_token
-    # mint
-    created = await client.post(
-        "/admin/join-invites",
-        json={"max_uses": 3, "note": "for friends"},
-        headers=_auth(token),
-    )
-    assert created.status_code == 201, created.text
-    code = created.json()["code"]
-    assert created.json()["max_uses"] == 3
-    assert created.json()["uses"] == 0
-    assert created.json()["revoked"] is False
-
-    # list (newest first, includes it)
-    listed = await client.get("/admin/join-invites", headers=_auth(token))
-    assert listed.status_code == 200
-    assert any(r["code"] == code for r in listed.json())
-
-    # revoke (idempotent)
-    r1 = await client.delete(f"/admin/join-invites/{code}", headers=_auth(token))
-    assert r1.status_code == 204
-    r2 = await client.delete(f"/admin/join-invites/{code}", headers=_auth(token))
-    assert r2.status_code == 204
-    async with session_factory() as s:
-        inv = await s.get(InstanceJoinInvite, code)
-        assert inv.revoked is True
-
-    # audit log written (create + 2x revoke)
-    async with session_factory() as s:
-        rows = (
-            await s.execute(
-                select(ModAuditLog.action_type).order_by(ModAuditLog.id)
-            )
-        ).scalars().all()
-    assert "join_invite_create" in rows
-    assert "join_invite_revoke" in rows
-
-
-@pytest.mark.asyncio
-async def test_admin_join_invite_requires_admin(client, access_token):
-    token, _uid = access_token
-    resp = await client.post("/admin/join-invites", json={}, headers=_auth(token))
-    assert resp.status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_admin_patch_join_mode(client, admin_token, session_factory):
+async def test_admin_patch_locked(client, admin_token, session_factory):
     token, _uid = admin_token
     resp = await client.patch(
-        "/admin/permissions", json={"join_mode": "closed"}, headers=_auth(token)
+        "/admin/permissions", json={"locked": True}, headers=_auth(token)
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["join_mode"] == "closed"
+    assert resp.json()["locked"] is True
     async with session_factory() as s:
         row = await s.get(ChatSettings, 1)
-        assert row.join_mode == "closed"
+        assert row.locked is True
 
 
 @pytest.mark.asyncio
-async def test_admin_patch_join_mode_invalid(client, admin_token):
+async def test_admin_patch_locked_back_to_false(client, admin_token, session_factory):
     token, _uid = admin_token
-    resp = await client.patch(
-        "/admin/permissions", json={"join_mode": "bogus"}, headers=_auth(token)
+    await client.patch(
+        "/admin/permissions", json={"locked": True}, headers=_auth(token)
     )
-    assert resp.status_code == 422
+    resp = await client.patch(
+        "/admin/permissions", json={"locked": False}, headers=_auth(token)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["locked"] is False
+    async with session_factory() as s:
+        row = await s.get(ChatSettings, 1)
+        assert row.locked is False

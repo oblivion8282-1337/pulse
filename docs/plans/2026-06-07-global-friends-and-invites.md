@@ -137,6 +137,33 @@ Die öffentliche Community ist ihre **eigene** Zugangserlaubnis: ein Beitritt f�
 - auth-svc `registration_mode`/`registration_invites` (lokale Accounts) **unangetastet** lassen — andere Ebene.
 - `IDENTITY_CONCEPT.md` + CLAUDE.md aktualisieren.
 
+#### Stufe 5 — Detaildesign (Backend implementiert 2026-06-08)
+
+**Umgesetzt: das Backend. Kein Frontend (Admin-UI / `AddServerDialog`-Schritt entfernen folgt separat).**
+
+**1. Modell + Migration 0035 (single-head, reversibel).**
+- `ChatSettings.locked: bool` (NOT NULL, default `false`) ersetzt `ChatSettings.join_mode` (`models/admin.py`). Migration `0035_instance_locked_toggle` (Revises `0034`): fügt `chat_settings.locked` an, **droppt** `chat_settings.join_mode`, **droppt** die `instance_join_invites`-Tabelle (+ Index). Downgrade stellt alles wieder her (Tabelle + Index + `join_mode` String(16) default `invite_only`, dann `locked` weg). Round-Trip (upgrade→downgrade→upgrade) gegen Postgres verifiziert. `locked` default `false` → jede Bestands-Instanz kommt **entsperrt** zurück (die per-Community-Gates machen die eigentliche Zugangskontrolle); der frühere `join_mode`-Wert wird nicht übertragen.
+- **Entfernt:** Model `InstanceJoinInvite` (`models/membership.py`), Helper `redeem_join_invite` + Konstante `JOIN_MODES` (`membership.py`), Routes-Modul `admin_join_invites.py` (+ Registrierung in `routes/__init__.py`). Neuer Helper `membership.py::is_instance_locked` (liest die Singleton; **fehlende Singleton = locked**, fail-closed).
+
+**2. cert-login-Gate (`_enforce_join_gate`) — sicherheitskritisch. Neue Reihenfolge:**
+`owner` → `existing member` (re-auth) → **`locked`** → per-Community-Grants (`public_join_handle` ODER `community_grant_code`) → sonst 403 `join_not_permitted`.
+- **`locked` sitzt VOR allen Grant-Pfaden** und ist nicht-differenzierend (`403 join_locked`). Damit übersticht er **beide** Grants — community-invite UND public-handle. Die alte `closed`-Asymmetrie (public umging `closed`, community-invite nicht) **verschwindet**: es gibt kein `closed`/`join_mode` mehr, nur den einen `locked`-Schalter, der alles übersticht.
+- **`existing member` wird VOR `locked` geprüft** — ein gesperrter Server wirft bestehende Mitglieder nie raus (der kritische Re-Auth-Pfad; ein Mitglied wird nie erneut nach einer Erlaubnis gefragt).
+- Das `join_code`/`redeem_join_invite`-Feld + der Legacy-Pfad sind **entfernt** (`VerifyRequest.join_code` weg; die beiden Grant-Felder bleiben).
+- `ban`-Gate (5c) läuft weiterhin **vor** dem Join-Gate (5d).
+
+**3. Öffentlicher Beitritt (`POST /c/{handle}/join`) — defensiver `locked`-Check.** Auf **Self-Host** wird ein **neuer** Instanz-Beitritt bei `locked` abgelehnt (`403 join_locked`), geprüft **vor** jedem Membership-Write: `is_self_host AND NOT is_instance_member(...) AND is_instance_locked(...)`. Bestehende Instanz-Mitglieder treten der Community weiter bei (auch der Backfill der `InstanceMember`-Zeile bleibt erlaubt); Cloud hat keinen Instanz-Lock. Hauptschutz ist der cert-login-Gate (ein neuer User kann ohne Session-Token gar nicht hierher); dies ist Gürtel-und-Hosenträger gegen einen neuen Instanz-Grant über diesen Pfad.
+
+**4. Admin-Settings.** `PermissionsOut`/`PermissionsPatch`: `join_mode: str` → `locked: bool` (+ `ALLOWED_JOIN_MODES`/Validator entfernt). `PATCH /admin/permissions` setzt/auditet `locked` (Admin-only, wie zuvor `join_mode`). `capabilities.py`-Fallback: `join_mode="invite_only"` → `locked=False`.
+
+**Getroffene Annahmen / Default-Entscheidungen (vom User zu reviewen):**
+- a) **`locked` default `false`** — Bestands-Instanzen kommen entsperrt zurück (per-Community-Gates kontrollieren den Zugang). Der frühere `join_mode`-Wert (z.B. `closed`) wird **nicht** auf `locked=true` gemappt; wer seinen Server zu hatte, muss `locked` neu setzen.
+- b) **Fehlende Singleton = locked** (fail-closed im Gate) — ein kaputter Deploy öffnet die Tür nicht still. (Der `capabilities`-UI-Fallback ist `false`, weil er nur ein UI-Hint ist, kein Gate.)
+- c) **`join_not_permitted` vs. `join_locked`** als zwei distinkte 403-Detail-Codes — `join_locked` (Server gesperrt) ist für den User differenzierbar von „kein Grant" (`join_not_permitted`); beide sind 403 ohne Existenz-Leak einer privaten Community.
+- d) **Defensiver `locked`-Check auch im `/c/.../join`-Pfad** (nicht nur cert-login) — redundant, aber billig; schließt jeden Pfad, über den dieser Endpoint einen neuen Instanz-Grant coinen könnte.
+
+**Restrisiko / Zugangs-Audit:** Über `locked` hinaus existiert auf einem Self-Host **kein** Pfad, über den ein NEUER User Instanz-Zugang bekommt — beide Grant-Pfade (`public_join_handle`, `community_grant_code`) sitzen unter dem Lock, der Legacy-`join_code`-Pfad ist weg, und der `/c/.../join`-Endpoint blockt einen neuen Instanz-Beitritt bei `locked` ebenfalls. Bestehende Mitglieder + der Owner kommen weiter rein (gewollt — Not-Aus sperrt **neue** Beitritte, kein Lockout). Cloud-Mode hat keinen Instanz-Lock (jeder Cert-Holder ist implizit Mitglied) — das ist unverändert und außerhalb des Self-Host-Schlosses.
+
 ## Risiken / offene Entscheidungen
 
 - **Handle-Namespace & Moderation** (Squatting, anstößige Namen) — Vergabe-Policy festlegen.

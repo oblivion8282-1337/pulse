@@ -81,6 +81,19 @@ def _sign_nonce(priv: Ed25519PrivateKey, nonce_b64: str) -> str:
     return _b64url(sig)
 
 
+async def _seed_public_guild(session_factory, handle: str = "openhouse") -> None:
+    """Install a public community so a first-contact non-owner cert-holder is
+    admitted by the public-community grant (the join gate now denies a new
+    member with no admission path; these tests focus on cert-login *mechanics*,
+    not the gate). Passing ``public_join_handle`` is the lightest faithful way
+    to clear the gate without making the user the owner."""
+    from dcc_chat_gateway.models import Guild
+
+    async with session_factory() as s:
+        s.add(Guild(id=888, name="PublicCommunity", owner_id=1, handle=handle, is_public=True))
+        await s.commit()
+
+
 @pytest.fixture(autouse=True)
 def _route_settings(tmp_path):
     """Override ``cert_login.get_settings`` so the route sees the test config.
@@ -166,7 +179,7 @@ async def test_challenge_invalid_cert(client):
 
 
 @pytest.mark.asyncio
-async def test_verify_happy_path_self_host(client, _route_settings):
+async def test_verify_happy_path_self_host(client, _route_settings, session_factory):
     """Self-host mode → session_token + pairwise_sub (hashed, not user_id)."""
     priv = Ed25519PrivateKey.generate()
     pub_b64 = _b64url(priv.public_key().public_bytes_raw())
@@ -174,6 +187,7 @@ async def test_verify_happy_path_self_host(client, _route_settings):
 
     _route_settings.pulse_instance_mode = "self-host"
     _route_settings.pulse_instance_id = 42
+    await _seed_public_guild(session_factory)
 
     with _patch_validate(claims):
         ch = await client.post("/cert-login/challenge", json={"cert": "stub"})
@@ -187,6 +201,7 @@ async def test_verify_happy_path_self_host(client, _route_settings):
                 "cert": "stub",
                 "challenge_token": ch_body["challenge_token"],
                 "signature": sig,
+                "public_join_handle": "openhouse",
             },
         )
     assert v.status_code == 200, v.text
@@ -205,9 +220,15 @@ async def test_verify_happy_path_self_host(client, _route_settings):
     assert session.cert_id == claims.cert_id
 
 
-async def _verify_as(client, _route_settings, *, user_id: str, owner_id: int):
+async def _verify_as(
+    client, _route_settings, *, user_id: str, owner_id: int, public_join_handle=None
+):
     """Run the full challenge→sign→verify as ``user_id`` with the instance
-    configured to owner ``owner_id``; return the decoded SessionClaims."""
+    configured to owner ``owner_id``; return the decoded SessionClaims.
+
+    A non-owner first-contact must clear the join gate — pass
+    ``public_join_handle`` (a pre-seeded public community) for that.
+    """
     priv = Ed25519PrivateKey.generate()
     pub_b64 = _b64url(priv.public_key().public_bytes_raw())
     claims = _make_claims(user_id=user_id, device_pubkey=pub_b64)
@@ -217,10 +238,10 @@ async def _verify_as(client, _route_settings, *, user_id: str, owner_id: int):
     with _patch_validate(claims):
         ch = (await client.post("/cert-login/challenge", json={"cert": "stub"})).json()
         sig = _sign_nonce(priv, ch["nonce"])
-        v = await client.post(
-            "/cert-login/verify",
-            json={"cert": "stub", "challenge_token": ch["challenge_token"], "signature": sig},
-        )
+        body = {"cert": "stub", "challenge_token": ch["challenge_token"], "signature": sig}
+        if public_join_handle is not None:
+            body["public_join_handle"] = public_join_handle
+        v = await client.post("/cert-login/verify", json=body)
     assert v.status_code == 200, v.text
     return validate_session_token(
         v.json()["session_token"], key_path=_route_settings.session_signing_key_file
@@ -229,16 +250,22 @@ async def _verify_as(client, _route_settings, *, user_id: str, owner_id: int):
 
 @pytest.mark.asyncio
 async def test_verify_owner_becomes_admin(client, _route_settings):
-    """Cert-holder whose user_id == PULSE_INSTANCE_OWNER_ID → admin session."""
+    """Cert-holder whose user_id == PULSE_INSTANCE_OWNER_ID → admin session.
+
+    The owner clears the join gate unconditionally — no grant needed."""
     session = await _verify_as(client, _route_settings, user_id="555", owner_id=555)
     assert session is not None
     assert session.admin is True
 
 
 @pytest.mark.asyncio
-async def test_verify_non_owner_not_admin(client, _route_settings):
-    """A non-owner cert-holder gets a normal (non-admin) session."""
-    session = await _verify_as(client, _route_settings, user_id="555", owner_id=999)
+async def test_verify_non_owner_not_admin(client, _route_settings, session_factory):
+    """A non-owner cert-holder gets a normal (non-admin) session. The non-owner
+    is admitted through the join gate by a public-community handle."""
+    await _seed_public_guild(session_factory)
+    session = await _verify_as(
+        client, _route_settings, user_id="555", owner_id=999, public_join_handle="openhouse"
+    )
     assert session is not None
     assert session.admin is False
 

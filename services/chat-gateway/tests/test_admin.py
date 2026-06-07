@@ -146,7 +146,7 @@ async def test_get_permissions_returns_defaults(client, admin_token):
     assert r.json() == {
         "allow_guild_creation": True,
         "allow_member_invites": True,
-        "join_mode": "open",
+        "locked": False,
         "guild_sound_max_size_bytes": 524288,
         "hq_bitrate_min_kbps": 1000,
         "hq_bitrate_max_kbps": 10000,
@@ -176,7 +176,7 @@ async def test_patch_permissions_records_audit(client, admin_token):
     assert r.json() == {
         "allow_guild_creation": False,
         "allow_member_invites": False,
-        "join_mode": "open",
+        "locked": False,
         "guild_sound_max_size_bytes": 524288,
         "hq_bitrate_min_kbps": 1000,
         "hq_bitrate_max_kbps": 10000,

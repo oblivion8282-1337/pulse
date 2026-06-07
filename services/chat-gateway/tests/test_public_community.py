@@ -355,7 +355,7 @@ async def test_join_public_grants_instance_membership_self_host(
     client, _auth_signer, session_factory
 ):
     """On a Self-Host, joining a public community grants community-scoped
-    instance membership (join_mode-independent, Entscheidung 5)."""
+    instance membership (Entscheidung 5)."""
     from dcc_chat_gateway.models import InstanceMember
     from sqlalchemy import select
 
@@ -371,3 +371,34 @@ async def test_join_public_grants_instance_membership_self_host(
             await s.execute(select(InstanceMember.joined_via))
         ).scalars().all()
     assert "public_community" in rows
+
+
+@pytest.mark.asyncio
+async def test_join_public_blocked_when_locked_self_host(
+    client, _auth_signer, session_factory
+):
+    """"Server gesperrt" (locked) toggle blocks a NEW instance join via the
+    public-community path on a Self-Host (defensive — the primary lock is the
+    cert-login gate). Existing members are unaffected (covered by the gate
+    tests)."""
+    from dcc_chat_gateway.models import ChatSettings, InstanceMember
+    from sqlalchemy import select
+
+    owner_t, _ = await _register_user(_auth_signer)
+    joiner_t, joiner_uid = await _register_user(_auth_signer)
+    await _make_public(client, owner_t, handle="lockedhouse")
+    # Seal the instance.
+    async with session_factory() as s:
+        row = await s.get(ChatSettings, 1)
+        row.locked = True
+        await s.commit()
+
+    r = await client.post("/c/lockedhouse/join", headers=auth(joiner_t))
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"] == "join_locked"
+    # The joiner became neither an instance member nor a guild member.
+    async with session_factory() as s:
+        rows = (
+            await s.execute(select(InstanceMember.user_identifier))
+        ).scalars().all()
+    assert str(joiner_uid) not in rows

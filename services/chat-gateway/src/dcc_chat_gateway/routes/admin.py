@@ -218,9 +218,9 @@ async def patch_permissions(
         }
         row.allow_member_invites = payload.allow_member_invites
 
-    if payload.join_mode is not None and payload.join_mode != row.join_mode:
-        changes["join_mode"] = {"from": row.join_mode, "to": payload.join_mode}
-        row.join_mode = payload.join_mode
+    if payload.locked is not None and payload.locked != row.locked:
+        changes["locked"] = {"from": row.locked, "to": payload.locked}
+        row.locked = payload.locked
 
     if (
         payload.guild_sound_max_size_bytes is not None

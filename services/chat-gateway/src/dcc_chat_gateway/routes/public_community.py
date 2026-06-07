@@ -15,12 +15,11 @@ Access-control model (the security-critical part):
     how many members it has.
   * **Public = its own permission (Entscheidung 5).** Joining a public community
     is a self-contained admission: it adds the ``guild_members`` row AND, on a
-    Self-Host, the community-scoped ``instance_members`` row — **independent of
-    the instance ``join_mode``**. A public community is the community's own
-    decision to be open; the legacy ``open/invite_only/closed`` instance lock
-    does not gate it. (The future single "Server gesperrt" not-aus toggle from
-    Stufe 5 will override even this — it does not exist yet, so today the only
-    gate is the ``is_public`` flag itself.)
+    Self-Host, the community-scoped ``instance_members`` row — a public community
+    is the community's own decision to be open. The single "Server gesperrt"
+    (``locked``) not-aus toggle (Stufe 5) overrides even this on a Self-Host: a
+    NEW instance join is refused (403) while locked. Existing instance members
+    (and Cloud, which has no instance lock) still join the community normally.
   * **Banned users can't join** (403) — the ban check runs before and is
     re-checked inside the transaction to close the concurrent-ban race.
   * **Idempotent** — an existing member is a no-op success.
@@ -37,7 +36,11 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.membership import add_member as add_instance_member
+from dcc_chat_gateway.membership import (
+    add_member as add_instance_member,
+    is_instance_locked,
+    is_member as is_instance_member,
+)
 from dcc_chat_gateway.models import Guild, GuildMember
 from dcc_chat_gateway.schemas import (
     InviteGuildOut,
@@ -113,8 +116,10 @@ async def join_public_community(
 ):
     """Join a public community by handle.
 
-    On a Self-Host this also grants community-scoped *instance* membership,
-    independent of ``join_mode`` (Entscheidung 5). Banned users get 403;
+    On a Self-Host this also grants community-scoped *instance* membership
+    (Entscheidung 5). The single "Server gesperrt" (``locked``) not-aus toggle
+    (Stufe 5) overrides it: a NEW instance join is refused (403) while locked —
+    existing instance members and Cloud are unaffected. Banned users get 403;
     already-members get an idempotent success.
     """
     guild = await _public_guild_or_404(session, handle)
@@ -136,10 +141,24 @@ async def join_public_community(
 
     is_self_host = _cfg.get_settings().pulse_instance_mode == "self-host"
 
+    # "Server gesperrt" not-aus toggle (Stufe 5). Defensive instance-grant guard:
+    # the primary lock sits in the cert-login gate (a new user can't even mint a
+    # session token while locked), but block here too so this path never coins a
+    # NEW instance membership on a sealed self-host. Existing instance members
+    # pass (re-join the community freely); Cloud has no instance lock. Checked
+    # before any membership write so a locked instance stays sealed.
+    if (
+        is_self_host
+        and not await is_instance_member(session, current.user_identifier)
+        and await is_instance_locked(session)
+    ):
+        raise HTTPException(403, detail="join_locked")
+
     # Already a member: idempotent no-op success. We still make sure the
     # instance-membership row exists on self-host (covers the edge where a user
     # is a guild member but somehow lacks the instance row — e.g. data from
-    # before public-join existed).
+    # before public-join existed; the lock guard above already let an existing
+    # instance member through, and a non-member would have been refused).
     existing = await session.get(GuildMember, (guild_id, current.id))
     if existing is not None:
         if is_self_host:
@@ -155,8 +174,9 @@ async def join_public_community(
     # first check and now can't slip through.
     session.add(GuildMember(guild_id=guild_id, user_id=current.id))
     if is_self_host:
-        # Public community = its own permission → grant instance membership,
-        # join_mode-independent. ``add_instance_member`` is idempotent + flushes.
+        # Public community = its own permission → grant instance membership (the
+        # ``locked`` guard above already rejected a new join on a sealed
+        # instance). ``add_instance_member`` is idempotent + flushes.
         await add_instance_member(
             session, current.user_identifier, joined_via="public_community"
         )

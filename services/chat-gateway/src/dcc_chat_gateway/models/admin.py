@@ -52,14 +52,18 @@ class ChatSettings(Base):
     allow_member_invites: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
-    # Self-Host join gate. ``open`` = any cert-holder joins on first cert-login,
-    # ``invite_only`` = first contact needs a valid join-invite code,
-    # ``closed`` = no new members at all (existing members + the owner still get
-    # in). Defaults to ``invite_only`` so a fresh self-hosted instance is
-    # locked-down (mirrors ``allow_guild_creation=false``). Enforced in
-    # ``routes/cert_login.py`` (self-host only — Cloud has no gated cert-join).
-    join_mode: Mapped[str] = mapped_column(
-        String(16), nullable=False, server_default="invite_only"
+    # Self-Host "Server gesperrt" not-aus toggle (Stufe 5 / Entscheidung 7).
+    # When ``true`` the instance refuses **every** new join — it overrides BOTH
+    # grant paths (the community-invite grant AND the public-community handle).
+    # Existing members + the owner still get in (re-auth). ``false`` (default) =
+    # the instance is open to the per-community access paths. This replaces the
+    # former 3-way ``join_mode`` (open/invite_only/closed) + the
+    # ``InstanceJoinInvite`` code system — access is now decided per community
+    # (friend-invite grant or public address), with this single lock on top.
+    # Enforced in ``routes/cert_login.py`` (self-host only — Cloud has no gated
+    # cert-join) + defensively in ``routes/public_community.py``.
+    locked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
     # Per-file cap (bytes) for per-guild sound-override uploads. Tunable
     # by the Pulse-instance admin via /admin/permissions; the route layer

@@ -7,7 +7,6 @@ from fastapi import APIRouter
 from dcc_chat_gateway.routes import (
     admin,
     admin_backups,
-    admin_join_invites,
     admin_members,
     admin_plugins,
     attachments,
@@ -90,7 +89,6 @@ router.include_router(reports.router)
 router.include_router(mod_queue.router)
 router.include_router(admin.router)
 router.include_router(admin_backups.router)
-router.include_router(admin_join_invites.router)
 router.include_router(admin_members.router)
 router.include_router(admin_plugins.router)
 router.include_router(guild_plugins.router)

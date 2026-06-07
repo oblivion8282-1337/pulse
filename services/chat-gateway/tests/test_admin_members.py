@@ -178,6 +178,16 @@ async def test_cert_login_banned_user_403(client, session_factory, tmp_path):
         claims = _make_claims(user_id="555", device_pubkey=pub)
         identifier = compute_pairwise_sub("555", 42, claims.pairwise_seed)
 
+        # Pre-seed the user as an instance member so the first verify clears the
+        # join gate via the existing-member path (this test exercises the ban
+        # gate, not the join gate). The ban gate runs *before* the join gate, so
+        # after banning the second verify is still rejected at the ban check.
+        from dcc_chat_gateway.models import InstanceMember
+
+        async with session_factory() as s:
+            s.add(InstanceMember(user_identifier=identifier, joined_via="migrated"))
+            await s.commit()
+
         # Not banned yet → 200.
         ok = await _full_verify(client, claims, priv)
         assert ok.status_code == 200, ok.text

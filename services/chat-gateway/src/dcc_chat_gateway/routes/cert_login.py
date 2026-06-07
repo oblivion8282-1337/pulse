@@ -62,11 +62,11 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.membership import (
     add_member,
     community_invite_grants_access,
+    is_instance_locked,
     is_member,
     public_community_grants_access,
-    redeem_join_invite,
 )
-from dcc_chat_gateway.models import CachedUserProfile, ChatSettings
+from dcc_chat_gateway.models import CachedUserProfile
 from dcc_chat_gateway.session_tokens import (
     SESSION_TTL_SECONDS,
     issue_session_token,
@@ -240,23 +240,19 @@ class VerifyRequest(BaseModel):
     cert: str
     challenge_token: str
     signature: str  # base64url(Ed25519 signature over the raw nonce bytes)
-    # Optional join-invite code. Only consulted on first contact when the
-    # instance is in ``invite_only`` join-mode (self-host); ignored for the
-    # owner, existing members, and ``open`` mode.
-    join_code: str | None = None
     # Optional Community-Invite code (Stufe 2 / B-lite). A *live* community
     # (``GuildInvite``) invite is itself the permission to join this instance —
-    # the user joining a community via a friend-invite does not carry a separate
-    # ``join_code``. Additive to ``join_code`` (both coexist); consulted on
-    # first contact in ``invite_only`` mode. ``closed`` mode still blocks (the
-    # owner's hard lock is never bypassed by a community invite).
+    # the user joining a community via a friend-invite carries this code. One of
+    # the two per-community access paths; consulted on first contact when the
+    # instance is not ``locked``. The single "Server gesperrt" (``locked``)
+    # not-aus toggle (Stufe 5) is checked first and is never bypassed by it.
     community_grant_code: str | None = None
     # Optional public-community handle (Stufe 4 / Entscheidung 5). If set AND the
-    # named community is currently ``is_public``, it grants instance membership
-    # **independent of ``join_mode``** — a public community is its own permission
-    # to join the instance (even in ``closed`` mode; only the future "Server
-    # gesperrt" not-aus toggle from Stufe 5 will override it). A non-public or
-    # unknown handle grants nothing.
+    # named community is currently ``is_public``, it grants instance membership —
+    # a public community is its own permission to join the instance. The other
+    # per-community access path. The single "Server gesperrt" (``locked``)
+    # not-aus toggle (Stufe 5) is checked first and overrides even this; a
+    # non-public or unknown handle grants nothing.
     public_join_handle: str | None = None
 
 
@@ -361,78 +357,67 @@ async def _enforce_join_gate(
     session,
     identifier: str,
     is_owner_admin: bool,
-    join_code: str | None,
     community_grant_code: str | None = None,
     public_join_handle: str | None = None,
 ) -> None:
     """Self-Host join gate. Lets the request through or raises 403.
 
     On success (the owner, an existing member, or a permitted first-contact)
-    this commits the membership write so the new ``instance_members`` row /
-    redeemed invite-use survives even though the verify route mints its token
-    via Redis (no later SQL commit). Raises ``HTTPException`` 403 to deny.
+    this commits the membership write so the new ``instance_members`` row
+    survives even though the verify route mints its token via Redis (no later
+    SQL commit). Raises ``HTTPException`` 403 to deny.
 
-    Admission paths beyond owner / existing-member:
-      0. ``public_join_handle`` — a currently-public community (Stufe 4). This is
-         the community's **own** permission and is ``join_mode``-INDEPENDENT
-         (checked before the ``join_mode`` branch → admits even in ``closed``).
-         Non-consuming, no separate code.
-      1. ``community_grant_code`` — a live community (``GuildInvite``) invite
-         (Stufe 2 / B-lite). Consulted in ``invite_only`` mode; does NOT bypass
-         ``closed``. Not consumed here (the use is spent later in
-         ``accept_invite``).
-      2. ``join_code`` — the legacy instance-level ``InstanceJoinInvite``
-         (``invite_only`` only; this consumes one use of that code).
+    Gate order (Stufe 5 — security-critical):
+      1. **owner** — always in; record membership on first sight.
+      2. **existing member** — always in, never asked again (the re-auth path;
+         this runs BEFORE the lock so a sealed instance never evicts members).
+      3. **``locked``** — the single "Server gesperrt" not-aus toggle. If on,
+         403 ``join_locked`` — non-differentiating, BEFORE any grant path, so it
+         overrides BOTH community-invite grants AND public-community handles
+         (Entscheidung 7). There is no per-community escape hatch above the lock.
+      4. **grant paths** (only reached when not locked):
+         - ``public_join_handle`` — a currently-public community (Stufe 4 /
+           Entscheidung 5). The community's own permission. Non-consuming.
+         - ``community_grant_code`` — a live ``GuildInvite`` (Stufe 2 / B-lite).
+           Non-consuming (the use is spent later in ``accept_invite``).
+         No grant → 403 ``join_not_permitted``.
     """
-    # Owner: always in; record membership on first sight.
+    # 1. Owner: always in; record membership on first sight.
     if is_owner_admin:
         await add_member(session, identifier, joined_via="owner")
         await session.commit()
         return
 
-    # Existing member: always in, never asked for an invite again (re-auth path).
+    # 2. Existing member: always in, never asked again (re-auth path). Checked
+    #    before the lock so a sealed instance never locks out current members.
     if await is_member(session, identifier):
         return
 
-    # Public-community grant (Stufe 4 / Entscheidung 5). A public community is
-    # its OWN permission to join the instance — join_mode-independent, so this is
-    # checked BEFORE the join_mode branch (it admits even in ``closed``). A
-    # non-public / unknown handle grants nothing → fall through to the normal
-    # gate. (The future "Server gesperrt" not-aus toggle from Stufe 5 will be the
-    # one thing that overrides this; it does not exist yet.)
+    # 3. "Server gesperrt" not-aus toggle. Checked BEFORE every grant path so it
+    #    overrides BOTH the public-community handle AND the community-invite
+    #    grant — a sealed instance admits no new member regardless of how they
+    #    arrived (Entscheidung 7 / Stufe 5). Non-differentiating 403.
+    if await is_instance_locked(session):
+        raise HTTPException(status_code=403, detail="join_locked")
+
+    # 4. Per-community grant paths (only reached when the instance is not locked).
+    #    Public-community grant (Stufe 4 / Entscheidung 5): a public community is
+    #    its OWN permission to join the instance. Non-consuming, no code.
     if await public_community_grants_access(session, public_join_handle or ""):
         await add_member(session, identifier, joined_via="public_community")
         await session.commit()
         return
 
-    # First contact — decide by join_mode.
-    row = await session.get(ChatSettings, 1)
-    join_mode = row.join_mode if row is not None else "invite_only"
-
-    if join_mode == "open":
-        await add_member(session, identifier, joined_via="open")
-        await session.commit()
-        return
-
-    if join_mode == "closed":
-        # The owner's hard lock. A community invite deliberately does NOT bypass
-        # ``closed`` (mirrors the future single "Server gesperrt" not-aus toggle
-        # from Entscheidung 7 — Stufe 5).
-        raise HTTPException(status_code=403, detail="join_closed")
-
-    # invite_only: a live community invite grants instance access (community-
-    # scoped, non-consuming). Checked first because it's the friend-invite path.
+    #    Community-invite grant (Stufe 2 / B-lite): a live community invite is
+    #    itself the permission to join the instance (community-scoped,
+    #    non-consuming — the use is spent later in ``accept_invite``).
     if await community_invite_grants_access(session, community_grant_code or ""):
         await add_member(session, identifier, joined_via="community_invite")
         await session.commit()
         return
 
-    # invite_only: otherwise require a valid instance join_code (legacy path).
-    if join_code and await redeem_join_invite(session, join_code):
-        await add_member(session, identifier, joined_via=join_code)
-        await session.commit()
-        return
-    raise HTTPException(status_code=403, detail="join_requires_invite")
+    # No grant → deny.
+    raise HTTPException(status_code=403, detail="join_not_permitted")
 
 
 @router.post(
@@ -524,13 +509,12 @@ async def cert_login_verify(
     #     "member", so we skip the gate entirely (and never touch instance_members
     #     in cloud mode). The order matters: owner first, then existing members
     #     (the critical re-auth path — a member must NEVER be asked for an invite
-    #     again), then first-contact handling by join_mode.
+    #     again), then the "Server gesperrt" lock, then the per-community grants.
     if settings.pulse_instance_mode == "self-host":
         await _enforce_join_gate(
             session,
             identifier,
             is_owner_admin,
-            body.join_code,
             body.community_grant_code,
             body.public_join_handle,
         )
