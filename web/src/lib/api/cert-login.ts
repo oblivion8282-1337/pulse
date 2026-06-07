@@ -113,8 +113,10 @@ function reasonForStatus(status: number, detail: string | null): CertLoginReason
   if (detail === 'cert_invalid') return 'cert-invalid';
   if (detail === 'challenge_expired') return 'challenge-expired';
   if (detail === 'signature_invalid' || detail === 'cert_mismatch') return 'signature-invalid';
-  if (detail === 'join_closed') return 'join-closed';
-  if (detail === 'join_requires_invite') return 'join-requires-invite';
+  // Stufe 5: das Backend wirft `join_locked` (Server gesperrt) bzw.
+  // `join_not_permitted` (kein gültiger Grant) statt der alten join_mode-Codes.
+  if (detail === 'join_locked') return 'join-closed';
+  if (detail === 'join_not_permitted') return 'join-requires-invite';
   if (status === 410) return 'challenge-expired';
   if (status === 429) return 'rate-limited';
   if (status === 401) return 'cert-invalid';
