@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-07.2",
+      "date": "2026-06-07",
+      "style": "Wetterbericht",
+      "title": "Heiter bis hellgrau",
+      "intro": "Die Lage in der Pulse-Region, übersichtlich für Sie zusammengefasst:",
+      "items": [
+        "Über der Desktop-App ziehen Büroklammer-Wolken auf: Dateien lädst du dort jetzt über das Büroklammer-Symbol hoch. Reinziehen (Drag-and-Drop) und Einfügen mit Strg+V wurden eingestellt — die sorgten für Störungen. Im Browser bleibt es sonnig, beides läuft weiter wie gewohnt.",
+        "Beim Stream-Schauen kühlt der Lautstärkeregler von kräftigem Blau auf ein ruhiges Hellgrau ab."
+      ],
+      "outro": "Aussichten: stabil."
+    },
+    {
       "id": "2026-06-07",
       "date": "2026-06-07",
       "style": "Klartext",
