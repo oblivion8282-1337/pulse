@@ -80,12 +80,19 @@ test.describe.serial('Roles + Permissions E2E', () => {
     // ChannelList renders the invite button only after the channel list
     // hydrates — wait for the channel name to settle first.
     await expect(alice.getByTestId('active-channel-name')).toBeVisible({ timeout: 15_000 });
-    await expect(alice.getByTestId('invite-open-btn')).toBeVisible({ timeout: 10_000 });
-    await alice.getByTestId('invite-open-btn').click();
-    const linkInput = alice.getByTestId('invite-link-input');
-    await expect(linkInput).toHaveValue(/\/invite\/[A-Za-z0-9]{8}/, { timeout: 10_000 });
-    inviteCode = (await linkInput.inputValue()).split('/invite/')[1];
-    await alice.keyboard.press('Escape');
+
+    // Invite-Code per API erstellen (Link-Dialog gibt keine Links mehr aus)
+    inviteCode = await alice.evaluate(async (gid: string) => {
+      const token = localStorage.getItem('dcc.tokens.access');
+      const r = await fetch(`/api/chat/guilds/${gid}/invites`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ max_uses: 1, expires_in_seconds: 86400 })
+      });
+      if (!r.ok) throw new Error(`createInvite failed: ${r.status}`);
+      const data = await r.json() as { code: string };
+      return data.code;
+    }, guildId);
 
     await bob.locator('[data-testid^="guild-create-menu-"]').first().click();
     await bob.getByTestId('guild-join').click();

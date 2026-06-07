@@ -137,14 +137,22 @@ async function readDetail(resp: Response): Promise<string | null> {
 /**
  * Vollständiger Cert-Login gegen einen Self-Host-Server.
  *
- * @param serverHostname  Voller Origin inkl. Schema, z.B. "https://chat.firma.de"
- *                        (kein trailing slash — caller normalisiert).
- * @param joinCode        Optionaler Server-Beitritts-Code (für geschlossene /
- *                        invite-only-Server). Wird nur beim Erstkontakt benötigt
- *                        — Re-Auth (self-host-reauth.ts) lässt ihn weg.
+ * @param serverHostname       Voller Origin inkl. Schema, z.B. "https://chat.firma.de"
+ *                             (kein trailing slash — caller normalisiert).
+ * @param joinCode             Optionaler Server-Beitritts-Code (für geschlossene /
+ *                             invite-only-Server). Wird nur beim Erstkontakt benötigt
+ *                             — Re-Auth (self-host-reauth.ts) lässt ihn weg.
+ * @param communityGrantCode   Optionaler Community-Invite-Code — gewährt beim
+ *                             cert-login/verify community-scoped Instanz-Mitgliedschaft.
+ *                             Stufe 3: wird als `community_grant_code` im Verify-Body
+ *                             mitgegeben, wenn vorhanden.
  * @throws CertLoginError mit `.reason`-Tag fürs UI-Mapping.
  */
-export async function certLogin(serverHostname: string, joinCode?: string): Promise<CertLoginResult> {
+export async function certLogin(
+  serverHostname: string,
+  joinCode?: string,
+  communityGrantCode?: string,
+): Promise<CertLoginResult> {
   // 1. Cert + Keypair laden (pure helpers — kein Store-State erforderlich,
   //    funktioniert auch wenn die Stores noch nicht hydriert sind).
   const cert = await loadCert();
@@ -178,6 +186,7 @@ export async function certLogin(serverHostname: string, joinCode?: string): Prom
     signature,
   };
   if (joinCode) verifyBody.join_code = joinCode;
+  if (communityGrantCode) verifyBody.community_grant_code = communityGrantCode;
   const vResp = await postJSON(`${base}/cert-login/verify`, verifyBody);
   if (!vResp.ok) {
     const detail = await readDetail(vResp);

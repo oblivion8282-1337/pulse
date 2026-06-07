@@ -1,38 +1,35 @@
 <!--
   Inline invite card rendered inside a message when the content contains an
   `/invite/<code>` URL. Fetches the preview on mount and shows server name,
-  icon, member count, and a "Beitreten"-button that navigates to /invite/<code>.
+  icon, member count, and a "Beitreten"-button.
+
+  ``host`` (bare FQDN) ist gesetzt, wenn der Link auf einen Self-Host zeigt.
+  Dann können wir die Preview NICHT inline laden — der Empfänger ist meist
+  noch kein Mitglied dieses Servers. Wir zeigen eine schlanke Karte und
+  rufen `joinGuildByInvite` direkt auf (Cert-Login-Flow).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import { chatApi } from '$lib/api/chat';
   import { ApiError } from '$lib/api/client';
   import type { InvitePreview } from '$lib/api/types';
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
-  // ``host`` (bare FQDN) ist gesetzt, wenn der Link auf einen Self-Host zeigt.
-  // Dann können wir die Preview NICHT inline laden — der Empfänger ist meist
-  // noch kein Mitglied dieses Servers (kein Session-Token) und sein aktiver
-  // Server ist ein anderer. Wir zeigen stattdessen eine schlanke Karte und
-  // leiten „Beitreten" über die ``/invite/[code]?host=``-Route (die den Server
-  // hinzufügt, cert-login macht und dann beitritt).
   let { code, host = null }: { code: string; host?: string | null } = $props();
 
   let preview = $state<InvitePreview | null>(null);
   let invalid = $state(false);
   let loading = $state(true);
+  let joining = $state(false);
 
-  // Already a member of the community this invite points to? Then "Beitreten"
-  // makes no sense — disable it and relabel. `guilds.byId` holds exactly the
-  // guilds the current user has joined.
   let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
 
   onMount(async () => {
-    // Self-Host (host gesetzt): keine Inline-Preview, Karte rendert ohne Fetch.
     if (host) {
       loading = false;
       return;
@@ -40,11 +37,7 @@
     try {
       preview = await chatApi.getInvitePreview(code);
     } catch (e) {
-      if (e instanceof ApiError && e.status === 404) {
-        invalid = true;
-      } else {
-        invalid = true;
-      }
+      invalid = true;
     } finally {
       loading = false;
     }
@@ -54,8 +47,19 @@
     return name.trim().charAt(0).toUpperCase();
   }
 
-  function handleJoin() {
-    void goto(host ? `/invite/${code}?host=${encodeURIComponent(host)}` : `/invite/${code}`);
+  async function handleJoin() {
+    if (joining) return;
+    joining = true;
+    try {
+      const input = host ? `https://app/invite/${code}?host=${encodeURIComponent(host)}` : code;
+      await joinGuildByInvite(input);
+    } catch (e) {
+      toast.error(m.invite_embed_invalid(), {
+        description: e instanceof Error ? e.message : undefined
+      });
+    } finally {
+      joining = false;
+    }
   }
 </script>
 
@@ -84,8 +88,8 @@
       </p>
       <p class="text-text-muted truncate text-xs" data-testid="invite-embed-host">{host}</p>
     </div>
-    <Button size="sm" onclick={handleJoin} data-testid="invite-embed-join-btn">
-      {m.invite_embed_join()}
+    <Button size="sm" onclick={handleJoin} disabled={joining} data-testid="invite-embed-join-btn">
+      {joining ? '…' : m.invite_embed_join()}
     </Button>
   {:else if invalid || !preview}
     <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
@@ -110,10 +114,10 @@
     <Button
       size="sm"
       onclick={handleJoin}
-      disabled={alreadyMember}
+      disabled={alreadyMember || joining}
       data-testid="invite-embed-join-btn"
     >
-      {alreadyMember ? m.invite_embed_joined() : m.invite_embed_join()}
+      {alreadyMember ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
     </Button>
   {/if}
 </div>

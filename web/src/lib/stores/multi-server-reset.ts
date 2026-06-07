@@ -28,6 +28,7 @@
 
 import { blocks } from './blocks.svelte';
 import { channelPermissions } from './channelPermissions.svelte';
+import { communityInvites } from './communityInvites.svelte';
 import { directMessages } from './directMessages.svelte';
 import { friendRequests } from './friendRequests.svelte';
 import { friends } from './friends.svelte';
@@ -94,4 +95,5 @@ export function resetSocialStores(): void {
   blocks.clear();
   directMessages.clear();
   presence.clear();
+  communityInvites.clear();
 }

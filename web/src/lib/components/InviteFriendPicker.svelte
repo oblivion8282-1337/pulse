@@ -1,22 +1,16 @@
 <!--
-  Multi-select friend list rendered inside InviteDialog so the user
-  can DM the invite link to several friends in one go (mirrors
-  Discord's "Send to friends" panel).
+  Multi-select friend list rendered inside InviteDialog.
+  Sendet pro ausgewähltem Freund einen Community-Invite via POST /community-invites
+  (statt eines Roh-Links per DM — Stufe 3).
 
-  Behaviour:
-    - Lists all friends, optionally filtered by a search box that
-      matches both display_name and @handle (case-insensitive).
-    - Selection toggles on row click. Bulk "Send"-button posts the
-      invite link to each selected friend's DM channel; failures per
-      friend are reported in a partial-success toast, the rest still
-      get sent.
-    - Empty state when the user has no friends yet — no point in
-      hiding the section, the prompt itself nudges them.
+  Flow pro Freund:
+    1. chatApi.createInvite(guildId, {maxUses:1, expiresInSeconds:86400})
+       → frischer host-Invite-Code auf dem aktiven/hostenden Server
+    2. communityInvitesApi.create({invitee_id, target_host, target_instance_id,
+       target_guild_id, target_guild_name, code})
+       → Cloud-Broker-Call
 
-  Sender flow per friend:
-    chatApi.createOrGetDMChannel(uid) -> postMessage(dm.id, link)
-  Same shape as InviteToServerSubmenu so a future refactor can hoist
-  this into a shared helper if a third caller appears.
+  Partial-Success-Toast wie bisher.
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
@@ -25,19 +19,20 @@
   import CheckIcon from '@lucide/svelte/icons/check';
   import SendIcon from '@lucide/svelte/icons/send';
   import { friends } from '$lib/stores/friends.svelte';
+  import { guilds } from '$lib/stores/guilds.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { chatApi } from '$lib/api/chat';
-  import { serversStore } from '$lib/api/servers.svelte';
-  import { buildInviteLink } from '$lib/guilds/inviteLink';
+  import { communityInvitesApi } from '$lib/api/community-invites';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
-    inviteCode,
+    guildId,
     disabled = false
   }: {
-    inviteCode: string;
+    guildId: string;
     disabled?: boolean;
   } = $props();
 
@@ -45,8 +40,6 @@
   let selected = $state<Set<string>>(new Set());
   let sending = $state(false);
 
-  // Make sure profile data for all friends is in the cache so we can
-  // render their name + avatar. queue() debounces a batch fetch.
   $effect(() => {
     for (const f of friends.list) userCache.queue(f.user_id);
   });
@@ -76,22 +69,35 @@
   }
 
   async function send() {
-    if (sending || !inviteCode || selected.size === 0) return;
+    if (sending || !guildId || selected.size === 0) return;
     sending = true;
-    const link = buildInviteLink(inviteCode);
+
+    const srv = activeServer.current;
+    const targetHost = srv?.hostname ?? '';
+    const targetInstanceId = srv?.instance_id ?? null;
+    const guild = guilds.byId[guildId];
+    const guildName = guild?.name ?? guildId;
+
     const targets = Array.from(selected);
-    // Send in parallel — the per-DM round-trip is independent, no
-    // need to serialize. Promise.allSettled keeps one failure from
-    // blocking the rest.
     const results = await Promise.allSettled(
       targets.map(async (uid) => {
-        // DMs sind cloud-only (Global-Friends Stufe 1) → DM-Channel + Message
-        // gegen die Cloud routen, nicht gegen den aktiven Server.
-        const cloudRoute = { serverId: serversStore.cloudId() };
-        const dm = await chatApi.createOrGetDMChannel(uid);
-        await chatApi.postMessage(dm.id, link, {}, cloudRoute);
+        // 1. Frischen host-Invite-Code minten (single-use, 24h)
+        const invite = await chatApi.createInvite(guildId, {
+          maxUses: 1,
+          expiresInSeconds: 86400
+        });
+        // 2. Community-Invite über den Cloud-Broker schicken
+        await communityInvitesApi.create({
+          invitee_id: uid,
+          target_host: targetHost,
+          target_instance_id: targetInstanceId,
+          target_guild_id: guildId,
+          target_guild_name: guildName,
+          code: invite.code
+        });
       })
     );
+
     const ok = results.filter((r) => r.status === 'fulfilled').length;
     const fail = results.length - ok;
     if (ok > 0 && fail === 0) {
@@ -188,7 +194,7 @@
       type="button"
       class="w-full"
       onclick={send}
-      disabled={disabled || sending || selected.size === 0 || !inviteCode}
+      disabled={disabled || sending || selected.size === 0}
       data-testid="invite-picker-send"
     >
       <SendIcon class="mr-2 size-4" />

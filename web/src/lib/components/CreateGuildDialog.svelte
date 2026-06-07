@@ -5,6 +5,8 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
+  import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
+  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
   import { m } from '$lib/paraglide/messages.js';
 
   type Mode = 'choose' | 'create' | 'join';
@@ -31,8 +33,10 @@
     onClose: () => void;
     /** Create a new server with this name. May throw — the dialog shows the error. */
     onCreate: (name: string) => void | Promise<void>;
-    /** Join via a pasted invite link or a bare code. May throw — the dialog shows the error. */
-    onJoin: (linkOrCode: string) => void | Promise<void>;
+    /** Join via a pasted invite link or a bare code. May throw — the dialog shows the error.
+     *  ``confirmed`` wird durchgereicht, nachdem der User den Erstkontakt mit einem
+     *  neuen Self-Host bestätigt hat (Sicherheits-Gate). */
+    onJoin: (linkOrCode: string, confirmed?: boolean) => void | Promise<void>;
   } = $props();
 
   let mode = $state<Mode>('choose');
@@ -85,21 +89,50 @@
     }
   }
 
-  async function submitJoin(e: SubmitEvent) {
-    e.preventDefault();
-    const trimmed = inviteInput.trim();
-    if (!trimmed || busy) return;
+  // Erstkontakt-Bestätigung für neue, unbekannte Self-Hosts.
+  let confirmOpen = $state(false);
+  let confirmHost = $state('');
+  let pendingJoinInput = $state<string | null>(null);
+
+  async function runJoin(input: string, confirmed: boolean) {
     busy = true;
     error = null;
     try {
-      await onJoin(trimmed);
+      await onJoin(input, confirmed);
     } catch (err) {
+      if (err instanceof SelfHostContactConfirmRequired) {
+        confirmHost = err.hostname;
+        pendingJoinInput = input;
+        confirmOpen = true;
+        busy = false;
+        return;
+      }
       error =
         (err as { status?: number })?.status === 404
           ? m.create_guild_dialog_invite_invalid()
           : (err as Error)?.message || m.create_guild_dialog_join_failed();
       busy = false;
     }
+  }
+
+  function submitJoin(e: SubmitEvent) {
+    e.preventDefault();
+    const trimmed = inviteInput.trim();
+    if (!trimmed || busy) return;
+    void runJoin(trimmed, false);
+  }
+
+  function onConfirmContact() {
+    const input = pendingJoinInput;
+    confirmOpen = false;
+    pendingJoinInput = null;
+    if (input) void runJoin(input, true);
+  }
+
+  function onCancelContact() {
+    confirmOpen = false;
+    pendingJoinInput = null;
+    busy = false;
   }
 </script>
 
@@ -213,3 +246,10 @@
     {/if}
   </Dialog.Content>
 </Dialog.Root>
+
+<SelfHostContactConfirmDialog
+  open={confirmOpen}
+  hostname={confirmHost}
+  onConfirm={onConfirmContact}
+  onCancel={onCancelContact}
+/>

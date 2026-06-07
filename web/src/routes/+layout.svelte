@@ -1,7 +1,6 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
   import { updated } from '$app/state';
   import { ModeWatcher } from 'mode-watcher';
   import { Toaster } from '$lib/components/ui/sonner/index.js';
@@ -19,6 +18,9 @@
   import { isElectron } from '$lib/platform/runtime';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initLocale } from '$lib/i18n';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
 
   // Sprache so früh wie möglich festlegen (synchron, vor dem ersten Render),
   // damit alle Texte direkt in der richtigen Sprache erscheinen — „de sonst en"
@@ -46,6 +48,40 @@
   initSelfHostReauth();
 
   let { children } = $props();
+
+  // Erstkontakt-Bestätigung für Electron-Deeplink-Invites zu neuen, unbekannten
+  // Self-Hosts (Sicherheits-Gate — siehe joinGuildByInvite / SelfHostContactConfirmRequired).
+  let inviteConfirmOpen = $state(false);
+  let inviteConfirmHost = $state('');
+  let pendingInviteLink = $state<string | null>(null);
+
+  /** Startet den Deeplink-Join; bei einem unbestätigten neuen Self-Host wird der
+   *  Bestätigungs-Dialog geöffnet statt direkt zu kontaktieren. */
+  async function runDeepLinkJoin(link: string, confirmed: boolean): Promise<void> {
+    try {
+      await joinGuildByInvite(link, confirmed);
+    } catch (e) {
+      if (e instanceof SelfHostContactConfirmRequired) {
+        inviteConfirmHost = e.hostname;
+        pendingInviteLink = link;
+        inviteConfirmOpen = true;
+        return;
+      }
+      console.error('invite deep-link', e);
+    }
+  }
+
+  function onConfirmInviteContact(): void {
+    const link = pendingInviteLink;
+    inviteConfirmOpen = false;
+    pendingInviteLink = null;
+    if (link) void runDeepLinkJoin(link, true);
+  }
+
+  function onCancelInviteContact(): void {
+    inviteConfirmOpen = false;
+    pendingInviteLink = null;
+  }
 
   // Neue-Web-Version-Hinweis: SvelteKit pollt `_app/version.json` (Intervall in
   // svelte.config.js). Sobald die deployte Version ≠ der laufenden ist, wird
@@ -91,23 +127,21 @@
     void loadPlugins().catch((err) => console.error('[plugins] loadAll failed', err));
     // Wire the Electron invite deep-link bridge (Phase 5.3). When main
     // receives a pulse://invite?host=...&code=... URL (validated there),
-    // it sends {hostname, code} over IPC. We navigate to the existing
-    // /invite/[code] route with ?host= so the user sees a disclaimer before
-    // any server contact happens.
+    // it sends {hostname, code} over IPC. We join via joinGuildByInvite —
+    // which gates the FIRST contact with a new, unknown Self-Host behind a
+    // confirmation dialog (runDeepLinkJoin handles the gate).
     let disposeInvite: (() => void) | undefined;
     if (isElectron()) {
       disposeInvite = window.pulse?.invite?.onLink((data) => {
-        void goto(
-          `/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`
-        );
+        const fakeLink = `https://app/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`;
+        void runDeepLinkJoin(fakeLink, false);
       });
       // Pull any deep-link that arrived before this onMount listener was
       // registered (finding 156 — completes pull-based delivery).
       void window.pulse?.invite?.getPending().then((data) => {
         if (data) {
-          void goto(
-            `/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`
-          );
+          const fakeLink = `https://app/invite/${encodeURIComponent(data.code)}?host=${encodeURIComponent(data.hostname)}`;
+          void runDeepLinkJoin(fakeLink, false);
         }
       });
     }
@@ -154,5 +188,12 @@
 <ShortcutHost />
 
 <ChangelogGate />
+
+<SelfHostContactConfirmDialog
+  open={inviteConfirmOpen}
+  hostname={inviteConfirmHost}
+  onConfirm={onConfirmInviteContact}
+  onCancel={onCancelInviteContact}
+/>
 
 <Toaster position="bottom-right" richColors />

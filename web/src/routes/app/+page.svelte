@@ -77,8 +77,8 @@
     await goto(`/app/guilds/${g.id}/channels/${c.id}`);
   }
 
-  async function joinGuild(linkOrCode: string) {
-    await joinGuildByInvite(linkOrCode);
+  async function joinGuild(linkOrCode: string, confirmed?: boolean) {
+    await joinGuildByInvite(linkOrCode, confirmed ?? false);
     creating = false;
   }
 </script>

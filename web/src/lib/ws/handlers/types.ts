@@ -15,6 +15,7 @@ import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 import type { WatchChannelEntry, WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
 import type { FriendRequest } from '$lib/stores/friendRequests.svelte';
+import type { CommunityInvitePayload } from '$lib/api/community-invites';
 import type { PrivacySettings } from '$lib/stores/privacy.svelte';
 import type { PresenceStatus, OwnPresenceStatus } from '$lib/stores/presence.svelte';
 
@@ -253,7 +254,10 @@ export type ServerEvent =
   // Ephemeral "user is typing" signal for a text channel / DM. No persistence;
   // the client tracks a short TTL per (channel, user) and shows "… schreibt".
   | { op: 'typing'; channel_id: string; user_id: string }
-  | { op: 'error'; code: number; msg: string };
+  | { op: 'error'; code: number; msg: string }
+  // ---- Community Invites (Stufe 3) ----------------------------------------
+  | { op: 'community_invite_received'; data: CommunityInvitePayload }
+  | { op: 'community_invite_removed'; data: { id: string } };
 
 export type ClientEvent =
   | { op: 'subscribe'; channel_id: string }

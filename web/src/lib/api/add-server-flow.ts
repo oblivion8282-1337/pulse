@@ -19,6 +19,7 @@ import { request, type RequestOpts } from './client';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
+import { communityInvitesApi, type CommunityInvitePayload } from './community-invites';
 import type { AcceptInviteResult, InvitePreview } from './types';
 
 export type AddServerSuccess = {
@@ -28,6 +29,51 @@ export type AddServerSuccess = {
 };
 
 /**
+ * Sentinel-Fehler: wird geworfen, BEVOR ein **neuer, unbekannter** Self-Host
+ * kontaktiert wird (Cert-Challenge gegen `target_host` würde sonst
+ * IP/Zeitpunkt/pairwise_sub an einen evtl. präparierten Host leaken).
+ *
+ * Der Caller fängt ihn, zeigt dem User einen Bestätigungs-Dialog mit dem
+ * Hostnamen und ruft die ursprüngliche Funktion erneut auf — diesmal mit
+ * `confirmed: true`. Cloud-Ziele und bereits bekannte Server lösen ihn NIE aus.
+ */
+export class SelfHostContactConfirmRequired extends Error {
+  constructor(public readonly hostname: string) {
+    super('self-host-contact-confirm-required');
+    this.name = 'SelfHostContactConfirmRequired';
+  }
+}
+
+/** Normalisiert einen bare/vollen Hostname auf HTTPS-Origin (lowercase, kein
+ *  trailing slash) — gleiche Regel wie serversStore.normalizeHostname, hier
+ *  dupliziert, weil die dortige Fassung privat ist. */
+function normalizeSelfHostUrl(raw: string): string {
+  const trimmed = raw.trim().toLowerCase().replace(/\/$/, '');
+  if (trimmed.startsWith('http://')) return `https://${trimmed.slice('http://'.length)}`;
+  if (!trimmed.startsWith('https://')) return `https://${trimmed}`;
+  return trimmed;
+}
+
+/** True, wenn der User den Erstkontakt mit diesem Self-Host schon bestätigt hat
+ *  (localStorage-Flag aus markSelfHostDisclaimerSeen / dem Bestätigungs-Dialog). */
+export function selfHostContactConfirmed(hostname: string): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(`pulse.disclaimer_accepted_${hostname}`) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Merkt sich, dass der User den Erstkontakt mit diesem Self-Host bestätigt hat. */
+export function markSelfHostContactConfirmed(hostname: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(`pulse.disclaimer_accepted_${hostname}`, '1');
+  } catch { /* Quota/Private-Browsing: silent */ }
+}
+
+/**
  * Hängt den Server an, holt den Session-Token, optional Invite akzeptieren.
  *
  * @throws CertLoginError wenn der Cert-Login fehlschlägt (kein ServerEntry persistiert).
@@ -35,17 +81,23 @@ export type AddServerSuccess = {
  */
 export async function addServerWithCertLogin(args: {
   hostname: string;
-  label: string;
+  label?: string;
   instanceId?: string;
   inviteCode?: string;
   /** Server-Beitritts-Code für invite_only / closed-Server — NICHT der Community-Invite. */
   joinCode?: string;
+  /**
+   * Community-Invite-Code (Stufe 3). Wird als `community_grant_code` an
+   * cert-login/verify weitergegeben → gewährt community-scoped Mitgliedschaft
+   * auf dem Self-Host-Server beim ersten Login.
+   */
+  communityGrantCode?: string;
 }): Promise<AddServerSuccess> {
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
   let result;
   try {
-    result = await certLogin(args.hostname, args.joinCode);
+    result = await certLogin(args.hostname, args.joinCode, args.communityGrantCode);
   } catch (err) {
     // Rollback — ServerEntry war provisional.
     try { serversStore.remove(entry.id); } catch { /* Cloud nie hier */ }
@@ -110,6 +162,84 @@ export function mapCertLoginReason(reason: CertLoginReason): string {
   if (reason === 'join-requires-invite') return m.add_server_flow_join_requires_invite();
   if (reason === 'network') return m.add_server_flow_network_error();
   return m.add_server_flow_cert_login_failed();
+}
+
+// ---------------------------------------------------------------------------
+// Community-Invite-Accept-Flow (Stufe 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Nimmt eine Community-Einladung an.
+ *
+ * - Cloud-Community (target_host == Cloud): einfaches `acceptInvite` cloud-geroutet.
+ * - Self-Host-Community: `addServerWithCertLogin` mit `communityGrantCode` (gewährt
+ *   Instanz-Mitgliedschaft via cert-login/verify) UND `inviteCode` (Guild-Beitritt
+ *   via POST /invites/{code}/accept).
+ *
+ * **Sicherheits-Gate:** Bei einem **neuen, unbekannten** Self-Host wird VOR dem
+ * ersten Kontakt `SelfHostContactConfirmRequired` geworfen, solange `confirmed`
+ * nicht true ist und der User den Host noch nicht früher bestätigt hat (sonst
+ * leakt die Cert-Challenge Metadaten an einen evtl. präparierten Host). Der
+ * Caller zeigt einen Bestätigungs-Dialog und ruft mit `confirmed: true` erneut auf.
+ * Cloud-Ziele und bereits bekannte Server lösen das Gate nie aus.
+ *
+ * Nach erfolgreichem Join wird der Invite via `communityInvitesApi.remove` B-lite gelöscht.
+ * Wirft einen `Error` mit Klartext-Meldung — Caller zeigt Toast.
+ */
+export async function acceptCommunityInvite(
+  inv: CommunityInvitePayload,
+  confirmed = false,
+): Promise<void> {
+  const cloudEntry = serversStore.servers.find((s) => s.isCloud);
+  const cloudId = cloudEntry?.id;
+  if (!cloudId) throw new Error('Kein Cloud-Server konfiguriert.');
+
+  // Cloud-Community wenn target_host der Cloud-Hostname entspricht
+  const cloudHostname = cloudEntry.hostname;
+  const isCloud = !inv.target_host || inv.target_host === cloudHostname;
+
+  if (isCloud) {
+    // Cloud-Community: invite-code direkt bei der Cloud einlösen.
+    await acceptInvite(inv.code, { serverId: cloudId });
+  } else {
+    // Self-Host: Server hinzufügen (falls noch nicht da) + cert-login mit grant-code.
+    const normalized = normalizeSelfHostUrl(inv.target_host);
+    let entry = serversStore.findByHostname(normalized);
+    if (!entry) {
+      // Erstkontakt-Gate: neuer, unbekannter Self-Host → bestätigen lassen, BEVOR
+      // wir die Cert-Challenge gegen target_host schicken.
+      if (!confirmed && !selfHostContactConfirmed(normalized)) {
+        throw new SelfHostContactConfirmRequired(normalized);
+      }
+      markSelfHostContactConfirmed(normalized);
+      // Server noch unbekannt → hinzufügen + cert-login mit community_grant_code.
+      // label = guild-name als Orientierung; kann der User später umbenennen.
+      //
+      // ABSICHT: communityGrantCode === inviteCode === inv.code. Ein gültiger
+      // host-GuildInvite-Code dient laut Backend-Kontrakt ZUGLEICH als
+      // `community_grant_code` (gewährt die community-scoped Instanz-Mitgliedschaft
+      // im cert-login/verify) UND als `inviteCode` (Guild-Beitritt via
+      // POST /invites/{code}/accept). Derselbe Code, zwei Verwendungen.
+      const result = await addServerWithCertLogin({
+        hostname: normalized,
+        label: inv.target_guild_name,
+        instanceId: inv.target_instance_id ?? undefined,
+        inviteCode: inv.code,
+        communityGrantCode: inv.code,
+      });
+      entry = result.entry;
+    } else {
+      // Server bereits bekannt → nur Invite akzeptieren.
+      await acceptInvite(inv.code, { serverId: entry.id });
+    }
+  }
+
+  // B-lite: Invite nach erfolgreichem Join entfernen (best-effort — kein Fail-Block).
+  try {
+    await communityInvitesApi.remove(inv.id);
+  } catch {
+    /* ignoriert — der Join hat geklappt, nur die Cleanup-Anfrage ist fehlgeschlagen */
+  }
 }
 
 /** Setzt die zwei Disclaimer-Flags (hostname-keyed + serverId-keyed) im

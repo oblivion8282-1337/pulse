@@ -1,15 +1,21 @@
 <!--
   Submenu rendered inside PopoverFriendActions when the user clicks
   "Zu Server einladen". Lists all guilds where the caller has CREATE_INVITES
-  permission; clicking one sends a single-use 24h invite to the friend via DM.
+  permission; clicking one sends a Community-Invite (Stufe 3) statt einem
+  Roh-Link per DM.
+
+  Flow:
+    1. chatApi.createInvite(guild.id, {maxUses:1, expiresInSeconds:86400})
+       → host-Invite-Code auf dem Ziel-Server
+    2. communityInvitesApi.create({...}) → Cloud-Broker
 -->
 <script lang="ts">
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
-  import { serversStore } from '$lib/api/servers.svelte';
-  import { buildInviteLink } from '$lib/guilds/inviteLink';
+  import { communityInvitesApi } from '$lib/api/community-invites';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { toast } from 'svelte-sonner';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import type { Guild } from '$lib/api/types';
@@ -39,16 +45,21 @@
     if (working) return;
     working = true;
     try {
+      // 1. Frischen host-Invite-Code minten (single-use, 24h)
       const invite = await chatApi.createInvite(guild.id, {
         maxUses: 1,
         expiresInSeconds: 86400
       });
-      // DM ist cloud-only (Global-Friends Stufe 1) → DM-Channel + Message gegen
-      // die Cloud routen. Der Invite selbst (createInvite oben) gehört zum
-      // aktiven Server der Guild und bleibt aktiv-geroutet.
-      const dm = await chatApi.createOrGetDMChannel(friendUserId);
-      const link = buildInviteLink(invite.code);
-      await chatApi.postMessage(dm.id, link, {}, { serverId: serversStore.cloudId() });
+      // 2. Community-Invite über den Cloud-Broker schicken
+      const srv = activeServer.current;
+      await communityInvitesApi.create({
+        invitee_id: friendUserId,
+        target_host: srv?.hostname ?? '',
+        target_instance_id: srv?.instance_id ?? null,
+        target_guild_id: guild.id,
+        target_guild_name: guild.name,
+        code: invite.code
+      });
       toast.success(m.invite_to_server_submenu_invite_sent({ friendName }));
       onDone();
     } catch (e) {
