@@ -16,6 +16,7 @@ from dcc_chat_gateway.routes import (
     capabilities,
     cert_login,
     channels,
+    community_invites,
     dms,
     friends,
     guild_icons,
@@ -62,6 +63,7 @@ router.include_router(channels.router)
 # the Cloud needs them in its own schema.
 router.include_router(dms.router)
 router.include_router(friends.router)
+router.include_router(community_invites.router)
 router.include_router(blocks.router)
 router.include_router(privacy.router)
 router.include_router(preferences.router)

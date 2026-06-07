@@ -53,14 +53,19 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.membership import add_member, is_member, redeem_join_invite
-from dcc_chat_gateway.models import CachedUserProfile, ChatSettings
 from dcc_chat_gateway.credential_validator import (
     resolve_user_identifier,
     validate_cert,
     verify_challenge_signature,
 )
+from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.membership import (
+    add_member,
+    community_invite_grants_access,
+    is_member,
+    redeem_join_invite,
+)
+from dcc_chat_gateway.models import CachedUserProfile, ChatSettings
 from dcc_chat_gateway.session_tokens import (
     SESSION_TTL_SECONDS,
     issue_session_token,
@@ -238,6 +243,13 @@ class VerifyRequest(BaseModel):
     # instance is in ``invite_only`` join-mode (self-host); ignored for the
     # owner, existing members, and ``open`` mode.
     join_code: str | None = None
+    # Optional Community-Invite code (Stufe 2 / B-lite). A *live* community
+    # (``GuildInvite``) invite is itself the permission to join this instance —
+    # the user joining a community via a friend-invite does not carry a separate
+    # ``join_code``. Additive to ``join_code`` (both coexist); consulted on
+    # first contact in ``invite_only`` mode. ``closed`` mode still blocks (the
+    # owner's hard lock is never bypassed by a community invite).
+    community_grant_code: str | None = None
 
 
 class VerifyResponse(BaseModel):
@@ -338,7 +350,11 @@ async def _claim_challenge_once(challenge_token: str, redis) -> None:
 
 
 async def _enforce_join_gate(
-    session, identifier: str, is_owner_admin: bool, join_code: str | None
+    session,
+    identifier: str,
+    is_owner_admin: bool,
+    join_code: str | None,
+    community_grant_code: str | None = None,
 ) -> None:
     """Self-Host join gate. Lets the request through or raises 403.
 
@@ -346,6 +362,14 @@ async def _enforce_join_gate(
     this commits the membership write so the new ``instance_members`` row /
     redeemed invite-use survives even though the verify route mints its token
     via Redis (no later SQL commit). Raises ``HTTPException`` 403 to deny.
+
+    Two first-contact admission paths in ``invite_only`` mode, additive:
+      1. ``join_code`` — the legacy instance-level ``InstanceJoinInvite`` (this
+         consumes one use of that code).
+      2. ``community_grant_code`` — a live community (``GuildInvite``) invite
+         (Stufe 2 / B-lite). The community invite is itself the permission to
+         join the instance; it is *not* consumed here (the use is spent later
+         when the user actually joins the community via ``accept_invite``).
     """
     # Owner: always in; record membership on first sight.
     if is_owner_admin:
@@ -367,9 +391,19 @@ async def _enforce_join_gate(
         return
 
     if join_mode == "closed":
+        # The owner's hard lock. A community invite deliberately does NOT bypass
+        # ``closed`` (mirrors the future single "Server gesperrt" not-aus toggle
+        # from Entscheidung 7 — Stufe 5).
         raise HTTPException(status_code=403, detail="join_closed")
 
-    # invite_only: require a valid code.
+    # invite_only: a live community invite grants instance access (community-
+    # scoped, non-consuming). Checked first because it's the friend-invite path.
+    if await community_invite_grants_access(session, community_grant_code or ""):
+        await add_member(session, identifier, joined_via="community_invite")
+        await session.commit()
+        return
+
+    # invite_only: otherwise require a valid instance join_code (legacy path).
     if join_code and await redeem_join_invite(session, join_code):
         await add_member(session, identifier, joined_via=join_code)
         await session.commit()
@@ -468,7 +502,13 @@ async def cert_login_verify(
     #     (the critical re-auth path — a member must NEVER be asked for an invite
     #     again), then first-contact handling by join_mode.
     if settings.pulse_instance_mode == "self-host":
-        await _enforce_join_gate(session, identifier, is_owner_admin, body.join_code)
+        await _enforce_join_gate(
+            session,
+            identifier,
+            is_owner_admin,
+            body.join_code,
+            body.community_grant_code,
+        )
 
     # 6. Mint + persist session token.
     token = issue_session_token(

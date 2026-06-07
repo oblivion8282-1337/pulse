@@ -7,10 +7,12 @@ join-invite routes. Kept stateless — the caller owns commit/rollback.
 
 from __future__ import annotations
 
-from sqlalchemy import func, select, update
+from datetime import UTC, datetime
+
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway.models import InstanceJoinInvite, InstanceMember
+from dcc_chat_gateway.models import GuildInvite, InstanceJoinInvite, InstanceMember
 
 # Allowed values for ``chat_settings.join_mode`` (mirrored in the admin schema).
 JOIN_MODES: frozenset[str] = frozenset({"open", "invite_only", "closed"})
@@ -60,9 +62,57 @@ async def redeem_join_invite(session: AsyncSession, code: str) -> bool:
     return result.rowcount == 1
 
 
+async def community_invite_grants_access(
+    session: AsyncSession, code: str
+) -> bool:
+    """True iff ``code`` is a **live** community (``GuildInvite``) invite.
+
+    This is the Self-Host *instance*-membership grant for the Community-Invite
+    flow (Stufe 2 / B-lite): a valid community invite is itself the permission
+    to join the instance — no separate ``InstanceJoinInvite`` join_code needed.
+
+    Deliberately *non-consuming*: it only checks current validity (not revoked,
+    not expired, not use-exhausted). The invite's single ``use`` is consumed
+    later by ``invites.py::accept_invite`` when the user actually joins the
+    community. Granting instance access here without burning a use mirrors the
+    real lock semantics — instance membership is a coarser gate than community
+    membership, and a user may legitimately re-auth (mint a fresh session) many
+    times against one community invite.
+
+    An empty/unknown/revoked/expired/exhausted code returns ``False`` → the
+    caller grants nothing. (Replay-safety: because this reads live state, a
+    code that was revoked or whose use-budget the host later exhausts stops
+    granting access immediately on the next cert-login.)
+
+    Deliberately **not guild-scoped**: this only asserts the code is a live
+    invite *of this instance*, not that it points at a specific community. Any
+    live ``GuildInvite`` of the instance therefore grants *instance* access —
+    that's fine, because instance membership is only the coarse gate. The real
+    per-community check happens in ``accept_invite`` (atomic guarded UPDATE,
+    correct guild binding, burns the use). Same trust level as a public
+    ``join_code``: knowing any live invite of the instance lets you in the door;
+    the sensitive resource (community membership) is gated separately.
+    """
+    if not code:
+        return False
+    inv = await session.get(GuildInvite, code)
+    if inv is None or inv.revoked_at is not None:
+        return False
+    now = datetime.now(tz=UTC)
+    expires_at = inv.expires_at
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at is not None and expires_at <= now:
+        return False
+    if inv.max_uses is not None and inv.uses >= inv.max_uses:
+        return False
+    return True
+
+
 __all__ = [
     "JOIN_MODES",
     "add_member",
+    "community_invite_grants_access",
     "is_member",
     "redeem_join_invite",
 ]

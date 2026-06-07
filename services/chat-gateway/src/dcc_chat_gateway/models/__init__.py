@@ -14,6 +14,7 @@ from dcc_chat_gateway.models.channels import (
     Channel,
     DirectMessageChannel,
 )
+from dcc_chat_gateway.models.community_invites import CommunityInvite
 from dcc_chat_gateway.models.friendships import (
     FriendRequest,
     Friendship,
@@ -48,6 +49,7 @@ __all__ = [
     "Report",
     "CHANNEL_TYPE_TEXT",
     "CHANNEL_TYPE_VOICE",
+    "CommunityInvite",
     "MENTION_EVERYONE_TARGET_ID",
     "MENTION_TYPE_EVERYONE",
     "MENTION_TYPE_ROLE",

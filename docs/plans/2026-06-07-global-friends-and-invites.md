@@ -60,6 +60,37 @@ Freundeslisten/DMs werden eine **globale Cloud-Schicht** (eine Liste überall, s
 - **Accept-Auto-Join:** Client führt automatisch aus — Self-Host: Server adden → Cert-Login → **community-scoped Instanz-Beitritt** (Token gewährt Membership) → Community-Beitritt; Cloud: direkt Community-Beitritt. Erfolgreicher Accept löscht den Broker-Datensatz (B-lite).
 - **Backend Self-Host:** Community-Invite-Token muss instanz-scoped Membership gewähren (analog heutigem `join_code`, aber an die Community gebunden).
 
+#### Stufe 2 — Detaildesign (Backend implementiert 2026-06-07)
+
+**Umgesetzt: das Backend des Brokers + der Self-Host-Instanz-Grant. Kein Frontend (Stufe 3), keine Frontend-API-Funktionen.**
+
+**1. Cloud-Invite-Broker (cloud-only).**
+- Tabelle `chat.community_invites` (Model `models/community_invites.py::CommunityInvite`, Migration `0033_community_invites`): `id` (Snowflake), `inviter_id`, `invitee_id`, `target_host`, `target_instance_id?`, `target_guild_id`, `target_guild_name` (Preview-Snapshot), `code` (host-gemünzter `GuildInvite`-Code), `created_at`, `expires_at?`. Liegt im **chat**-Schema, wird aber **nur auf der Cloud** beschrieben/gelesen (Router trägt `CloudOnly` — auf Self-Host 404 auf allen drei Routen; Tabelle dort harmlose Dead-Weight wie `friendships`/`dm_channels`).
+- Routen (`routes/community_invites.py`, alle hinter `CloudOnly`):
+  - `POST /community-invites` `{invitee_id, target_host, target_instance_id?, target_guild_id, target_guild_name, code, expires_in_seconds?}` → **Friend-Gate** (Produktmodell „erst befreundet, DANN einladen") → Zeile anlegen + WS-Event `community_invite_received` **nur an den invitee** (über `publish_friend_event`/`publish_user_event` auf `user:events`, gleicher Pfad wie `friend_*`). Per-inviter-Rate-Limit (`ratelimit.py::"community_invite"` = 30/h). **Dedupe:** gleiche `(inviter, invitee, target_guild)` kollabiert auf **eine** Zeile (alter Code wird vorm Insert gelöscht — neuester Code/Expiry gewinnt), damit ein gespammter „Einladen"-Button keine Kartenflut macht. Selbst-Einladung → 400.
+    - **Friend-Gate (Reihenfolge):** (1) **Block** in **irgendeiner** Richtung → 403 `block_in_place` (Block gewinnt immer, auch über eine veraltete Freundschaft hinweg — `block_exists_either_way`); (2) keine **bestätigte** Freundschaft → 403 `not_friends` (`friendship_exists` gegen die cloud-globale `friendships`-Tabelle, **dieselbe Quelle** wie `friends`/`ws_ready`). Beides aus `friend_helpers.py` wiederverwendet (kein Eigenbau). Konsequenz: nur ein sozialer Kontakt kann überhaupt eine Karte beim invitee landen (schließt Restrisiko #3 der ersten Iteration).
+  - `GET /community-invites` → pending Invites des **current user** (= invitee), newest-first, ≤200; **lazy TTL-Sweep** der eigenen abgelaufenen Zeilen vorab (kein Background-Task — Zeilen sind kurzlebig + werden bei Accept gelöscht; globaler Sweeper ist v1-Overkill).
+  - `DELETE /community-invites/{id}` → **B-lite: Zeile löschen** (kein „consumed"-Flag, kein dauerhaftes Mitglieder-Register). Autorisiert für **invitee ODER inviter** (guarded `DELETE … RETURNING`); Fremde bekommen 404 (kein Existenz-Leak). WS-Event `community_invite_removed` an den invitee (Multi-Tab-Sync — deckt „in Tab A angenommen" **und** „inviter rescinded" ab).
+- **Events:** `shared/events/community.py` (`CommunityInviteReceivedEvent` mit free-form `data`; `CommunityInviteRemovedEvent` mit `{invite_id}`), in `EVENT_REGISTRY` registriert.
+
+**2. Self-Host-Instanz-Grant (der sicherheitskritische Teil).**
+- **Wer ein gültiger, aktiver `GuildInvite`-Code ist die Erlaubnis, der Instanz beizutreten** — community-scoped, **ohne** separaten `join_code`. Additiv eingehängt; das bestehende `join_code`/`join_mode`-System bleibt unverändert (Abbau erst Stufe 5).
+- Mechanik: `VerifyRequest` (cert-login) bekommt ein **optionales** Feld `community_grant_code`. `_enforce_join_gate` prüft im `invite_only`-First-Contact: `membership.py::community_invite_grants_access(code)` → True nur wenn der `GuildInvite` existiert, **nicht** revoked, **nicht** abgelaufen, **nicht** use-erschöpft. Trifft das zu → `add_member(joined_via="community_invite")` (Instanz-Membership). Sonst Fallback auf den Legacy-`join_code`-Pfad.
+- **Non-consuming:** Der Grant verbraucht **keine** `GuildInvite`-Nutzung. Die eine Nutzung wird **später** in `invites.py::accept_invite` beim echten Community-Beitritt verbraucht. Begründung: Instanz-Membership ist ein gröberes Schloss als Community-Membership, und der 5-Min-Session-Token wird oft re-auth't — ein use-Verbrauch pro cert-login würde einen `max_uses=1`-Invite beim ersten Re-Auth sprengen. (Test deckt das ab.)
+- **Re-Auth-Pfad:** Wer einmal via Community-Invite drin ist, ist `instance_members`-Mitglied → künftige cert-logins gehen über den „existing member"-Zweig **ohne** Code (kritisch: Invite darf nicht bei jedem Token-Refresh neu verlangt werden).
+- **Default-Entscheidung `closed`:** Ein Community-Invite **übersticht `closed` NICHT** (Owner-Not-Aus). Spiegelt den künftigen einzelnen „Server gesperrt"-Toggle aus Entscheidung 7/Stufe 5. In `open`-Mode kommt sowieso jeder rein.
+
+**3. Datenfluss + Sicherheitsmodell des Self-Host-Grants (kurz).**
+Der inviter ist über die **Cloud** authentifiziert; den Berechtigungs-Beweis liefert der **host-gemünzte `code`** (ein lebender `GuildInvite` auf dem Zielserver). Die Cloud **validiert den Code nicht** (sie kann die Invite-Tabelle eines Self-Hosts gar nicht erreichen) — sie **relayed** nur `{host, code}` + Zustellung an den invitee. Der Code gewährt **für sich genommen nichts**: Zugang entsteht erst, wenn der **Host** den lebenden Invite zur Accept-Zeit nachprüft — beim cert-login (`community_grant_code` → `community_invite_grants_access`, live-Read) **und** beim Community-Beitritt (`accept_invite`, atomarer guarded UPDATE, verbraucht die Nutzung). Ein abgelaufener/revoked/erschöpfter/unbekannter Code gewährt **nichts** (live-Read → revoke/erschöpfung wirken sofort beim nächsten cert-login; replay-sicher, weil kein State über die Zeit getragen wird).
+
+**Getroffene Annahmen / Default-Entscheidungen (vom User zu reviewen):**
+- a) **Grant non-consuming** (s.o.) — bewusst entkoppelt von der Community-`use`-Zählung.
+- b) **Community-Invite umgeht `closed` nicht** — konservativster Default; falls Community-Invites auch `closed` durchbrechen sollen, wäre das eine explizite Änderung.
+- c) **Dedupe pro `(inviter, invitee, guild)`** (eine Karte) statt N Karten.
+- d) Rate-Limit **30/h pro inviter** (in-process, single-pod-Caveat wie der Rest von `ratelimit.py`).
+- e) Broker-Zeile trägt `target_guild_name` als **Preview-Snapshot** (nie für Zugangskontrolle benutzt); bei Umbenennung der Community veraltet er bis zum nächsten Invite.
+- f) **TTL lazy** (Sweep beim GET des invitee) statt Background-Task.
+
 ### Stufe 3 — UX „Leute einladen" + Annehmen-Karte
 - `InviteDialog`/`InviteFriendPicker` → strukturierter „Leute einladen"-Flow (nur Freunde, Multi-Select), erzeugt Freund-Invites statt Roh-Links.
 - Empfänger: strukturierte „Beitreten"-Karte (Notification/DM) mit Ein-Klick-Auto-Join.

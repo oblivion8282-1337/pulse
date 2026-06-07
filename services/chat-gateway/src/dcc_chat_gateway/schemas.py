@@ -355,6 +355,49 @@ class InviteAcceptOut(BaseModel):
         return _id_str(v) if v is not None else None
 
 
+# ---- Community-Invite-Broker (Stufe 2 / B-lite, cloud-only) ----------------
+
+
+_MAX_COMMUNITY_INVITE_TTL = 30 * 24 * 3600  # 30 days
+
+
+class CreateCommunityInviteIn(BaseModel):
+    invitee_id: SnowflakeId
+    target_host: Annotated[str, Field(min_length=1, max_length=255)]
+    target_instance_id: SnowflakeId | None = None
+    target_guild_id: SnowflakeId
+    target_guild_name: Annotated[str, Field(min_length=1, max_length=128)]
+    # Host-coined GuildInvite code — relayed verbatim, never validated by the
+    # Cloud (only the host can verify it). Bounded so a caller can't stuff the
+    # row with megabytes.
+    code: Annotated[str, Field(min_length=1, max_length=255)]
+    expires_in_seconds: Annotated[
+        int | None, Field(default=None, ge=60, le=_MAX_COMMUNITY_INVITE_TTL)
+    ] = None
+
+
+class CommunityInviteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    inviter_id: int
+    invitee_id: int
+    target_host: str
+    target_instance_id: int | None
+    target_guild_id: int
+    target_guild_name: str
+    code: str
+    created_at: datetime
+    expires_at: datetime | None
+
+    @field_serializer("id", "inviter_id", "invitee_id", "target_guild_id")
+    def _ser_ids(self, v: int) -> str:
+        return _id_str(v)
+
+    @field_serializer("target_instance_id")
+    def _ser_instance(self, v: int | None) -> str | None:
+        return _id_str(v) if v is not None else None
+
+
 # ---- Admin ----------------------------------------------------------------
 
 

@@ -138,6 +138,19 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
     "friend_removed": {"op": "friend_removed", "data": {"user_id": "4"}},
     "user_blocked": {"op": "user_blocked", "data": {"user_id": "4"}},
     "user_unblocked": {"op": "user_unblocked", "data": {"user_id": "4"}},
+    "community_invite_received": {
+        "op": "community_invite_received",
+        "data": {
+            "id": "9",
+            "inviter_id": "3",
+            "target_host": "pulse.firma.de",
+            "code": "ABCD1234",
+        },
+    },
+    "community_invite_removed": {
+        "op": "community_invite_removed",
+        "data": {"invite_id": "9"},
+    },
     "channel_created": {"op": "channel_created", "channel": {"id": "6"}},
     "channel_updated": {"op": "channel_updated", "channel": {"id": "6"}},
     "channel_deleted": {

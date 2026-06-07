@@ -20,6 +20,7 @@ _RULES: dict[str, tuple[int, float]] = {
     "message": (10, 1.0),           # 10 messages / second (REST POST + WS send)
     "create_guild": (10, 60.0),     # 10 guilds / minute
     "friend_request": (10, 3600.0), # 10 friend requests / hour
+    "community_invite": (30, 3600.0), # 30 community invites / hour (per inviter)
     "report": (10, 3600.0),         # 10 reports / hour
     "attach": (20, 60.0),           # 20 upload-URL requests / minute
 }
