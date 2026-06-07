@@ -14,6 +14,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
+  import { isElectron } from '$lib/platform/runtime';
 
   // `channelId` null → watch-party / stream-chat composer: attachments
   // (paperclip / paste / drop) are wired off, mention popup still works.
@@ -66,6 +67,12 @@
 
   let isDragging = $state(false);
   let dragDepth = 0; // dragenter/leave fire on every child — count to stay sane
+
+  // Drag&drop file upload is gated off in the Electron desktop app: a sandboxed
+  // renderer loading the remote web app can't read OS-dropped file bytes
+  // (size 0 → upload 422). `handleDrop` still lets a parent own the zone
+  // (ChatView). Browsers are unaffected — drop works there.
+  const dropEnabled = $derived(handleDrop && !isElectron());
 
   // Mention overlay owns the popup state; we just forward textarea events.
   let mentionOverlay: MentionTriggerOverlay | undefined = $state();
@@ -120,7 +127,10 @@
   };
   const onPaste = (e: ClipboardEvent) => {
     const files = e.clipboardData?.files;
-    if (!files?.length) return;
+    // Skip file-paste in Electron: the pasted file's bytes are unreadable in
+    // the sandboxed remote renderer (size 0 → 422). Text paste is untouched
+    // (no files → early return → browser default). Browser file-paste works.
+    if (!files?.length || isElectron()) return;
     e.preventDefault(); // don't paste a path string into the textarea
     addFiles(files);
   };
@@ -155,21 +165,22 @@
   }
 
   function onDragEnter(e: DragEvent) {
-    if (!handleDrop || !e.dataTransfer?.types.includes('Files')) return;
+    if (!dropEnabled || !e.dataTransfer?.types.includes('Files')) return;
     e.preventDefault(); dragDepth++; isDragging = true;
   }
   const onDragOver = (e: DragEvent) =>
-    handleDrop && e.dataTransfer?.types.includes('Files') && e.preventDefault();
+    dropEnabled && e.dataTransfer?.types.includes('Files') && e.preventDefault();
   const onDragLeave = () => {
-    if (!handleDrop) return;
+    if (!dropEnabled) return;
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth === 0) isDragging = false;
   };
   function onDrop(e: DragEvent) {
-    // When a parent owns the drop zone (handleDrop=false) we don't touch the
-    // event — it bubbles to the ChatView section handler. Otherwise (standalone
-    // composer) we handle it here and stopPropagation so it isn't double-added.
-    if (!handleDrop) return;
+    // When a parent owns the drop zone (handleDrop=false) — or we're in the
+    // Electron app where drop is disabled (dropEnabled=false) — we don't touch
+    // the event. handleDrop=false lets it bubble to the ChatView section
+    // handler; Electron just no-ops (the 📎 picker is the path there).
+    if (!dropEnabled) return;
     e.preventDefault(); e.stopPropagation(); dragDepth = 0; isDragging = false;
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
   }

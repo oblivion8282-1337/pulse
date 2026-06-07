@@ -14,6 +14,7 @@
   import { typing } from '$lib/stores/typing.svelte';
   import { gateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
+  import { isElectron } from '$lib/platform/runtime';
   import { safeAvatarUrl } from '$lib/avatar';
   import { m as pm } from '$lib/paraglide/messages.js';
 
@@ -64,7 +65,12 @@
   let dragActive = $state(false);
   let dragDepth = 0; // dragenter/leave fire per child — count to stay sane
 
-  const dropAllowed = $derived(!!channel && !composerDisabled);
+  // Drag&drop attachment upload is disabled in the Electron desktop app: a
+  // sandboxed renderer loading the remote web app can't read the bytes of an
+  // OS-dropped file (size 0 → upload 422 + broken blob preview). The 📎 file
+  // picker grants proper access and stays the supported path there. Browsers
+  // are unaffected — drop works fine.
+  const dropAllowed = $derived(!!channel && !composerDisabled && !isElectron());
 
   function onZoneDragEnter(e: DragEvent) {
     if (!dropAllowed || !e.dataTransfer?.types.includes('Files')) return;
