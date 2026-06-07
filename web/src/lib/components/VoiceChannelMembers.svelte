@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { userCache } from '$lib/stores/users.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { settings } from '$lib/stores/settings.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -58,7 +58,7 @@
   const streamingSet = $derived(new Set(streamingUserIds));
   const camSet = $derived(new Set(camUserIds));
   const speakingSet = $derived(new Set(speakingUserIds));
-  const selfId = $derived(auth.user?.id ?? null);
+  const selfId = $derived(currentServerUserId());
 
   $effect(() => {
     for (const id of userIds) userCache.queue(id);

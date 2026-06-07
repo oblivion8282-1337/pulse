@@ -16,7 +16,7 @@ import { watchChat } from '$lib/stores/watchChat.svelte';
 import { readState } from '$lib/stores/readState.svelte';
 import { typing } from '$lib/stores/typing.svelte';
 import { userCache } from '$lib/stores/users.svelte';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { fireInPageNotification, isDnd } from '$lib/notifications/inPage';
 import { sounds } from '$lib/sounds/engine';
@@ -34,7 +34,7 @@ export function register(ctx: HandlerContext): void {
     // "X schreibt …" immediately instead of waiting out the 6s TTL.
     typing.clear(evt.data.channel_id, evt.data.author_id);
     // Own messages don't make a channel unread for ourselves.
-    if (evt.data.author_id !== auth.user?.id) {
+    if (evt.data.author_id !== currentServerUserId()) {
       readState.recordSeen(evt.data.channel_id, evt.data.id);
       // We only get this op for channels we're subscribed to — i.e. the
       // one we're currently viewing — so it's safe to also mark it read.
@@ -62,7 +62,7 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('typing', (evt) => {
     // Ephemeral "X schreibt …". The sender gets its own echo back — ignore it.
-    if (evt.user_id === auth.user?.id) return;
+    if (evt.user_id === currentServerUserId()) return;
     userCache.queue(evt.user_id); // so we can show their name
     typing.mark(evt.channel_id, evt.user_id);
   });
@@ -73,7 +73,7 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('channel_bump', (evt) => {
-    if (evt.author_id !== auth.user?.id && guilds.byId[evt.guild_id]) {
+    if (evt.author_id !== currentServerUserId() && guilds.byId[evt.guild_id]) {
       readState.recordSeen(evt.channel_id, evt.message_id);
       // If we're currently viewing this channel the message op already
       // ran the markRead — but in case the bump arrived first, do it
@@ -89,7 +89,7 @@ export function register(ctx: HandlerContext): void {
   registerWsHandler('dm_bump', (evt) => {
     // We get this fanned to every connected socket — first decide if
     // we're a member (one of the two user ids). Non-members ignore.
-    const me = auth.user?.id;
+    const me = currentServerUserId();
     if (!me) return;
     const isMember = evt.user_a_id === me || evt.user_b_id === me;
     if (!isMember) return;

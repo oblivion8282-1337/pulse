@@ -42,7 +42,7 @@ import {
 } from './windowAudioCapture';
 import { installH264HwHint } from './h264HwHint';
 import { nameFor, userIdFromIdentity } from './identity';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
 import { gateway } from '$lib/ws/connection';
 import { sounds } from '$lib/sounds/engine';
@@ -383,9 +383,9 @@ class VoiceRoom {
     sounds.play('voice.self_leave', { guildId: guilds.guildIdForChannel(this.channelId ?? '') });
     if (opts.reason === 'user') {
       const cid = this.channelId;
-      if (cid && auth.user) {
+      if (cid) {
         const party = watchPartyPresence.partyIn(cid);
-        if (party && party.host_user_id === auth.user.id) {
+        if (party && party.host_user_id === currentServerUserId()) {
           gateway.stopWatchParty(cid);
         }
       }
@@ -448,7 +448,7 @@ class VoiceRoom {
    *  lives at those entry points, reading the same store the buttons do. */
   #selfOverride(): { muted: boolean; deafened: boolean } {
     const cid = this.channelId;
-    const uid = auth.user?.id;
+    const uid = currentServerUserId();
     if (!cid || !uid) return { muted: false, deafened: false };
     return {
       muted: voicePresence.isForceMuted(cid, uid),
@@ -1218,7 +1218,7 @@ class VoiceRoom {
     this.#makeupSetter = null;
     this.state = ConnectionState.Disconnected;
     if (this.channelId) {
-      const myUserId = auth.user?.id;
+      const myUserId = currentServerUserId();
       if (myUserId) voicePresence.removeUser(this.channelId, myUserId);
       // Tell the gateway we're no longer in a voice channel so it drops our
       // mute/deafen state and republishes the channel snapshot to peers.

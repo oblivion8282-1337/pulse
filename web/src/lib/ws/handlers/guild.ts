@@ -8,7 +8,7 @@ import { guilds } from '$lib/stores/guilds.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import {
   guildPluginActivation,
@@ -60,7 +60,7 @@ export function register(ctx: HandlerContext): void {
     // lazy cache for this (guild, user) so the next access re-fetches
     // with the new state. Lazy loading will trigger if/when the
     // member list is actually rendered.
-    if (auth.user?.id === evt.user_id) {
+    if (currentServerUserId() === evt.user_id) {
       void roles.refreshMyRoles(evt.guild_id);
     }
     memberRoles.invalidate(evt.guild_id, evt.user_id);

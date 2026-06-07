@@ -24,7 +24,7 @@
   import { chatApi } from '$lib/api/chat';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { messages } from '$lib/stores/messages.svelte';
@@ -61,6 +61,7 @@
   let deleteConfirmOpen = $state(false);
   let deleteBusy = $state(false);
 
+  let myId = $derived(currentServerUserId());
   let textChannels = $derived(channels.filter((c) => c.type === 0));
   let voiceChannels = $derived(channels.filter((c) => c.type === 1));
 
@@ -80,7 +81,7 @@
   // mirroring routes/invites.py.
   const canInvite = $derived(
     !!guild && roles.hasGuildPermission(guild.id, Perm.CREATE_INVITES)
-      && (auth.user?.id === guild.owner_id || capabilities.allowMemberInvites)
+      && (myId === guild.owner_id || capabilities.allowMemberInvites)
   );
 
   function openRename(c: Channel) {
@@ -348,7 +349,7 @@
         {@const camIdentityFor = (uid: string) =>
           !(voice.connected && voice.channelId === c.id)
             ? undefined
-            : uid === auth.user?.id
+            : uid === myId
               ? 'self' // own preview tile uses the 'self' sentinel id (StreamGrid)
               : voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>

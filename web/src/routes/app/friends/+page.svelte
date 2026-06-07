@@ -12,8 +12,8 @@
   import { page } from '$app/state';
   import GuildRail from '$lib/components/GuildRail.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
@@ -57,7 +57,7 @@
 <GuildRail
   guilds={guilds.list}
   activeGuildId={''}
-  currentUserId={auth.user?.id ?? null}
+  currentUserId={currentServerUserId()}
   homeActive={true}
   onSelect={selectGuild}
   onCreateClick={() => goto('/app?add=create')}

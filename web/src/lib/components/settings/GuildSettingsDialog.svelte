@@ -24,7 +24,7 @@
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { Perm } from '$lib/permissions/bitfield';
   import { rolesApi } from '$lib/api/roles';
   import type { Guild } from '$lib/api/types';
@@ -56,7 +56,7 @@
   let canManageRoles = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_ROLES)
   );
-  let isOwner = $derived(!!guild && auth.user?.id === guild.owner_id);
+  let isOwner = $derived(!!guild && currentServerUserId() === guild.owner_id);
   let myPermissions = $derived(
     guildId ? roles.myGuildPerms[guildId] ?? '0' : '0'
   );

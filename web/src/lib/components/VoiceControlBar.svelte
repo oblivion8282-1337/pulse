@@ -14,7 +14,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import ScreenShareModeButton from './ScreenShareModeButton.svelte';
@@ -50,7 +50,7 @@
   // sees *why* their mic is locked instead of an opaque silent failure.
   let selfForceMuted = $derived.by(() => {
     const cid = voice.channelId;
-    const uid = auth.user?.id;
+    const uid = currentServerUserId();
     if (!cid || !uid) return false;
     return voicePresence.isForceMuted(cid, uid);
   });
@@ -59,7 +59,7 @@
   // themselves until the override is cleared.
   let selfForceDeafened = $derived.by(() => {
     const cid = voice.channelId;
-    const uid = auth.user?.id;
+    const uid = currentServerUserId();
     if (!cid || !uid) return false;
     return voicePresence.isForceDeafened(cid, uid);
   });

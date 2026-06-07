@@ -22,7 +22,7 @@
   import NicknameDialog from './NicknameDialog.svelte';
   import PopoverActions from './PopoverActions.svelte';
   import PopoverFriendActions from './PopoverFriendActions.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import type { Snippet } from 'svelte';
@@ -69,7 +69,7 @@
     open = false;
   }
 
-  let isSelf = $derived(!!auth.user && userId === auth.user.id);
+  let isSelf = $derived(userId === currentServerUserId());
   let canEditNickname = $derived.by(() => {
     if (!guildId) return false;
     return isSelf

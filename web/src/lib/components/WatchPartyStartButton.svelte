@@ -14,7 +14,7 @@
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
   import StopCircleIcon from '@lucide/svelte/icons/stop-circle';
   import { toast } from 'svelte-sonner';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { gateway } from '$lib/ws/connection';
   import { parseSource } from '$lib/watch/source';
@@ -32,7 +32,7 @@
 
   const party = $derived(watchPartyPresence.partyIn(channelId));
   const active = $derived(party !== undefined);
-  const isHost = $derived(!!party && !!auth.user && party.host_user_id === auth.user.id);
+  const isHost = $derived(!!party && party.host_user_id === currentServerUserId());
   const parsed = $derived(url.trim() ? parseSource(url.trim()) : null);
   const showParseError = $derived(url.trim().length > 0 && parsed === null);
 

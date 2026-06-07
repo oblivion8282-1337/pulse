@@ -10,6 +10,7 @@
   import ComposerDisabledBanner from './ComposerDisabledBanner.svelte';
   import type { Channel, Message } from '$lib/api/types';
   import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
   import { typing } from '$lib/stores/typing.svelte';
   import { gateway } from '$lib/ws/connection';
@@ -94,9 +95,14 @@
   let lastCount = $state(0);
   let memberListOpen = $state(false);
 
+  // Eigene Identität AUF DEM AKTIVEN SERVER (Cloud-id ≠ Self-Host-id). Für jeden
+  // "ist das meine Nachricht?"-Vergleich gegen server-lokale IDs — siehe
+  // currentServerUser-Helfer.
+  let myId = $derived(currentServerUserId());
+
   $effect(() => {
     const toQueue = messages
-      .filter((m) => !auth.user || m.author_id !== auth.user.id)
+      .filter((m) => !myId || m.author_id !== myId)
       .map((m) => m.author_id);
     untrack(() => {
       for (const id of toQueue) userCache.queue(id);
@@ -311,7 +317,7 @@
   }
 
   const typingLabel = $derived.by(() => {
-    const ids = typing.others(channel?.id, auth.user?.id);
+    const ids = typing.others(channel?.id, myId ?? undefined);
     if (ids.length === 0) return '';
     const names = ids.map((id) => userCache.displayName(id));
     if (names.length === 1) return pm.chat_view_typing_one({ name: names[0] });
@@ -320,17 +326,17 @@
   });
 
   function canEditMessage(m: Message): boolean {
-    return !!auth.user && m.author_id === auth.user.id && !m.id.startsWith('tmp-') && !m.deleted_at;
+    return !!myId && m.author_id === myId && !m.id.startsWith('tmp-') && !m.deleted_at;
   }
   function canDeleteMessage(m: Message): boolean {
-    if (!auth.user) return false;
+    if (!myId) return false;
     if (m.id.startsWith('tmp-')) return false;
-    return m.author_id === auth.user.id || isOwner;
+    return m.author_id === myId || isOwner;
   }
   // Nur fremde Nachrichten melden (nicht die eigenen).
   function canReportMessage(m: Message): boolean {
-    if (!auth.user) return false;
-    return m.author_id !== auth.user.id;
+    if (!myId) return false;
+    return m.author_id !== myId;
   }
 </script>
 

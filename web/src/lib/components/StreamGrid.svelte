@@ -19,7 +19,7 @@
   import CameraTile from './CameraTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import WatchPartyTile from './WatchPartyTile.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
@@ -35,6 +35,8 @@
 
   let { channel }: { channel: Channel } = $props();
 
+  let myId = $derived(currentServerUserId());
+
   // What the viewer has actually opened, in this channel, per kind.
   // Detached tiles are excluded — they're showing in a separate window.
   let openHqIds = $derived(
@@ -42,7 +44,7 @@
       .streamersIn(channel.id)
       .filter(
         (uid) =>
-          uid !== auth.user?.id &&
+          uid !== myId &&
           openedTiles.isOpen('hq', channel.id, uid) &&
           !detachedStreams.has(channel.id, uid)
       )
@@ -69,7 +71,7 @@
   let showSelfCam = $derived(
     !!voice.localCameraTrack && openedTiles.isOpen('cam', channel.id, SELF_CAM_ID)
   );
-  let selfCamName = $derived(auth.user ? userCache.displayName(auth.user.id) : 'Du');
+  let selfCamName = $derived(myId ? userCache.displayName(myId) : 'Du');
   let selfCamMirror = $derived(voice.cameraFacing === 'user');
 
   let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
@@ -83,8 +85,8 @@
   // when any HQ stream is live in the channel, regardless of whether the
   // viewer has opened the tile yet — keeps the "X streamt (HQ)" hint visible.
   let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
-  let iAmHqStreaming = $derived(!!auth.user && hqStreamers.includes(auth.user.id));
-  let hqStreamersOther = $derived(hqStreamers.filter((uid) => uid !== auth.user?.id));
+  let iAmHqStreaming = $derived(!!myId && hqStreamers.includes(myId));
+  let hqStreamersOther = $derived(hqStreamers.filter((uid) => uid !== myId));
   let hqLabel = $derived.by(() => {
     const others = hqStreamersOther.length;
     if (iAmHqStreaming) {

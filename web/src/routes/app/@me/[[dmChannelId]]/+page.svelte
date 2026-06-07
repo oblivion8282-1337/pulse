@@ -6,6 +6,7 @@
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -243,7 +244,7 @@
 <GuildRail
   guilds={guilds.list}
   activeGuildId={''}
-  currentUserId={auth.user?.id ?? null}
+  currentUserId={currentServerUserId()}
   homeActive={true}
   onSelect={selectGuild}
   onCreateClick={() => goto('/app?add=create')}

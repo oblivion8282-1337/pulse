@@ -6,6 +6,7 @@
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import { Button } from '$lib/components/ui/button/index.js';
   import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
@@ -85,7 +86,7 @@
 <GuildRail
   guilds={guilds.list}
   activeGuildId={null}
-  currentUserId={auth.user?.id ?? null}
+  currentUserId={currentServerUserId()}
   homeActive={true}
   onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
   onCreateClick={() => { createMode = 'create'; creating = true; }}

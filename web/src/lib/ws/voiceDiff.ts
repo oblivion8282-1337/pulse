@@ -9,14 +9,14 @@
  * who were already there when we walked in.
  */
 import { sounds } from '$lib/sounds/engine';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
 
 export function fireVoiceDiff(channelId: string, oldIds: string[], newIds: string[]): void {
   // Lazy import to avoid the circular dep with voice/livekit.
   void import('$lib/voice/livekit.svelte').then(({ voice }) => {
     if (voice.channelId !== channelId) return;
-    const me = auth.user?.id;
+    const me = currentServerUserId();
     const oldSet = new Set(oldIds);
     const newSet = new Set(newIds);
     const gid = guilds.guildIdForChannel(channelId);

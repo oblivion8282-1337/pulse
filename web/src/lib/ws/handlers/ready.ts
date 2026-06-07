@@ -22,6 +22,7 @@ import { privacy } from '$lib/stores/privacy.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+import { serverUser } from '$lib/stores/serverUser.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { registerWsHandler } from '../handler-registry';
 import type { Guild } from '$lib/api/types';
@@ -94,7 +95,13 @@ export function register(ctx: ReadyContext): void {
     // server — esp. self-hosts, where there's no auth-svc /me). Absent in
     // older/mocked frames → treat as non-admin.
     const sid = activeServer.current?.id;
-    if (sid) serverAdmin.set(sid, evt.is_admin ?? false);
+    if (sid) {
+      serverAdmin.set(sid, evt.is_admin ?? false);
+      // This account's user id ON THIS server — the Cloud id and a self-host
+      // id differ, so "is this message mine?" checks must use this, not
+      // `auth.user.id` (see serverUser store).
+      serverUser.set(sid, evt.user_id);
+    }
     ctx.onReadySeeded();
   });
 }

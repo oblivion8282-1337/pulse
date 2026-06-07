@@ -20,7 +20,7 @@ import DOMPurify from 'dompurify';
 import type { Mention } from '$lib/api/types';
 import { userCache } from '$lib/stores/users.svelte';
 import { roles } from '$lib/stores/roles.svelte';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { memberRoles } from '$lib/stores/memberRoles.svelte';
 
 const ALLOWED_TAGS = [
@@ -97,7 +97,7 @@ function roleMentionLabel(id: string): string {
  * directly, or via a role the user holds in any guild. Drives the
  * `mention--self` highlight class. */
 function isSelfMention(m: Mention): boolean {
-  const meId = auth.user?.id;
+  const meId = currentServerUserId();
   if (!meId) return false;
   if (m.type === 0) return m.id === meId;
   if (m.type === 1) {

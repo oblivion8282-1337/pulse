@@ -25,7 +25,7 @@
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { toast } from 'svelte-sonner';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
   import { isPassiveSource, type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
   import { watchWatchers } from '$lib/stores/watchWatchers.svelte';
@@ -62,6 +62,7 @@
 
   // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
   let chatOpen = $state(false);
+  let myId = $derived(currentServerUserId());
 
   function handleDetach(): void {
     const opened = detachedWatchParties.open(channelId);
@@ -72,7 +73,7 @@
     }
   }
 
-  const isHost = $derived(!!auth.user && party.host_user_id === auth.user.id);
+  const isHost = $derived(!!myId && party.host_user_id === myId);
   const hostName = $derived(userCache.displayName(party.host_user_id));
   // Passive sources (Twitch live) have no seekable position — no central sync.
   const isPassive = $derived(isPassiveSource(party.source));
@@ -145,7 +146,7 @@
   let prevHostId: string | undefined;
   $effect(() => {
     const h = party.host_user_id;
-    const me = auth.user?.id;
+    const me = currentServerUserId();
     if (me && h === me && prevHostId !== undefined && prevHostId !== me) {
       toast.success(m.watch_party_tile_now_controlling());
     }
@@ -154,7 +155,7 @@
 
   // Current watchers other than me — fed to the handoff picker.
   const otherWatchers = $derived(
-    watchWatchers.watchersIn(channelId).filter((id) => id !== auth.user?.id)
+    watchWatchers.watchersIn(channelId).filter((id) => id !== myId)
   );
 
   // Lazy-fetch the YouTube video title via oEmbed.

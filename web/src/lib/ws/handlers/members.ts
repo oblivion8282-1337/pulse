@@ -9,7 +9,7 @@
  */
 import { guilds } from '$lib/stores/guilds.svelte';
 import { messages } from '$lib/stores/messages.svelte';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { chatApi } from '$lib/api/chat';
@@ -18,7 +18,7 @@ import type { HandlerContext } from './context';
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('guild_member_removed', (evt) => {
-    if (auth.user && evt.user_id === auth.user.id) {
+    if (evt.user_id === currentServerUserId()) {
       // The kicked user is us. Drop the guild locally — mirrors the
       // ``guild_deleted`` cleanup path (subscriptions, messages,
       // navigation hook). The WS itself isn't force-closed; the next
@@ -40,7 +40,7 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('guild_member_added', (evt) => {
-    if (auth.user && evt.user_id === auth.user.id) {
+    if (evt.user_id === currentServerUserId()) {
       // We just joined a guild on another tab / via an invite — fetch it
       // so this WS session starts tracking it (voice presence, channel
       // lifecycle, role list, sound overrides). Best-effort.

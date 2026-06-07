@@ -18,11 +18,11 @@
  * no extra store lookup required.
  */
 import { sounds } from '$lib/sounds/engine';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
 
 export function fireStreamDiff(channelId: string, oldIds: string[], newIds: string[]): void {
-  const me = auth.user?.id;
+  const me = currentServerUserId();
   const oldSet = new Set(oldIds);
   const newSet = new Set(newIds);
   const gid = guilds.guildIdForChannel(channelId);

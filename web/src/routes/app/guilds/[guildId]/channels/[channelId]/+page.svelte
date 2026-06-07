@@ -13,6 +13,7 @@
   import CreateGuildDialog from '$lib/components/CreateGuildDialog.svelte';
   import CreateChannelDialog from '$lib/components/CreateChannelDialog.svelte';
   import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
@@ -372,7 +373,7 @@
     messages.addOptimistic({
       id: tmpId,
       channel_id: cid,
-      author_id: auth.user.id,
+      author_id: currentServerUserId() ?? auth.user.id,
       content: text,
       nonce,
       reply_to_id: replyToId,
@@ -450,7 +451,7 @@
 <GuildRail
   guilds={guilds.list}
   activeGuildId={guildId}
-  currentUserId={auth.user?.id ?? null}
+  currentUserId={currentServerUserId()}
   onSelect={(g) => selectGuild(g.id)}
   onCreateClick={() => { createGuildMode = 'create'; creatingGuild = true; }}
   onJoinClick={() => { createGuildMode = 'join'; creatingGuild = true; }}

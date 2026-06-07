@@ -5,7 +5,7 @@
  * matching `voice-signaling/_livekit_update_participant` note in CLAUDE.md.
  */
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
-import { auth } from '$lib/stores/auth.svelte';
+import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
@@ -28,7 +28,7 @@ export function register(ctx: HandlerContext): void {
     // LiveKit may have already removed the participant, but the
     // explicit disconnect ensures our UI state catches up
     // immediately instead of waiting for the close event.
-    if (auth.user?.id === evt.user_id) {
+    if (currentServerUserId() === evt.user_id) {
       void import('$lib/voice/livekit.svelte').then(({ voice }) => {
         if (voice.channelId !== evt.channel_id) return;
         void voice.disconnect();
@@ -51,7 +51,7 @@ export function register(ctx: HandlerContext): void {
     // (voice_disconnect) for actual enforcement. Mute is server-enforced
     // via LiveKit publish-permissions (see voice-signaling/_livekit_update_participant).
     // Lazy-imported to avoid the circular dep with voice/livekit.
-    if (auth.user?.id === evt.user_id) {
+    if (currentServerUserId() === evt.user_id) {
       void import('$lib/voice/livekit.svelte').then(({ voice }) => {
         if (voice.channelId !== evt.channel_id) return;
         if (evt.deafened !== voice.deafened) voice.setDeafened(evt.deafened);

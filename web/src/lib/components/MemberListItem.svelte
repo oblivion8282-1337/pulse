@@ -7,7 +7,7 @@
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
   import { directMessages } from '$lib/stores/directMessages.svelte';
-  import { auth } from '$lib/stores/auth.svelte';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
@@ -53,7 +53,7 @@
    * here so the member-list right-click works without left-clicking
    * through the profile popover first. */
   async function openDmWith(targetUserId: string): Promise<void> {
-    if (targetUserId === auth.user?.id) return;
+    if (targetUserId === currentServerUserId()) return;
     try {
       const dm = await chatApi.createOrGetDMChannel(targetUserId);
       directMessages.upsert(dm);
@@ -167,9 +167,9 @@
       </div>
     {/snippet}
   </ContextMenu.Trigger>
-  {#if member.user_id !== auth.user?.id || canQuickRole}
+  {#if member.user_id !== currentServerUserId() || canQuickRole}
     <ContextMenu.Content>
-      {#if member.user_id !== auth.user?.id}
+      {#if member.user_id !== currentServerUserId()}
         <ContextMenu.Item
           onSelect={() => openDmWith(member.user_id)}
           data-testid="member-dm-menu"

@@ -1,5 +1,5 @@
 import type { Message, ReactionAggregate } from '$lib/api/types';
-import { auth } from './auth.svelte';
+import { currentServerUserId } from './currentServerUser';
 
 class MessageStore {
   // Newest at the end. We dedupe on `id` and merge `nonce` echoes.
@@ -134,7 +134,7 @@ class MessageStore {
     if (idx < 0) return;
     const msg = list[idx];
     const reactions: ReactionAggregate[] = msg.reactions ? msg.reactions.map((r) => ({ ...r })) : [];
-    const isMe = !!auth.user && evt.user_id === auth.user.id;
+    const isMe = evt.user_id === currentServerUserId();
     const rIdx = reactions.findIndex((r) => r.emoji === evt.emoji);
     if (delta === 1) {
       if (rIdx < 0) reactions.push({ emoji: evt.emoji, count: 1, me: isMe });

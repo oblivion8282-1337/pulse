@@ -11,6 +11,7 @@
 
 import { rolesApi, type Role } from '$lib/api/roles';
 import { auth } from './auth.svelte';
+import { currentServerUserId } from './currentServerUser';
 import { guilds } from './guilds.svelte';
 import { activeServer } from './active-server.svelte';
 import { serverAdmin } from './serverAdmin.svelte';
@@ -112,7 +113,7 @@ class RoleStore {
    * Backend pushes only "something changed for this (guild, user)" — we
    * re-fetch to learn what specifically. */
   async refreshMyRoles(guildId: string): Promise<void> {
-    const me = auth.user?.id;
+    const me = currentServerUserId();
     if (!me) return;
     try {
       const rows = await rolesApi.listMemberRoles(guildId, me);
@@ -130,7 +131,7 @@ class RoleStore {
    * mutation that could change the caller's resolved perms; cheaper
    * than waiting for a round-trip to `/permissions/me`. */
   recomputeGuild(guildId: string): void {
-    const me = auth.user?.id;
+    const me = currentServerUserId();
     if (!me) return;
     const guild = guilds.byId[guildId];
     const isOwner = !!guild && !!guild.owner_id && guild.owner_id === me;

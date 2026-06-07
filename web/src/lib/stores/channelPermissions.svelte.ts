@@ -7,6 +7,7 @@
 
 import { overwritesApi, type Overwrite } from '$lib/api/roles';
 import { auth } from './auth.svelte';
+import { currentServerUserId } from './currentServerUser';
 import { guilds } from './guilds.svelte';
 import { roles } from './roles.svelte';
 import { activeServer } from './active-server.svelte';
@@ -59,7 +60,7 @@ class ChannelPermissionsStore {
    * matches what the resolver would compute with an empty overwrite
    * list. */
   resolveForUser(guildId: string, channelId: string): bigint {
-    const me = auth.user?.id;
+    const me = currentServerUserId();
     if (!me) return 0n;
     const guild = guilds.byId[guildId];
     const isOwner = !!guild && guild.owner_id === me;
