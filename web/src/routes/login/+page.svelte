@@ -23,6 +23,7 @@
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
   import { isElectron } from '$lib/platform/runtime';
+  import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
 
   type Step = 'credentials' | 'mfa';
 
@@ -108,6 +109,22 @@
         return;
       }
       console.warn('[identity] issue-flow fehlgeschlagen:', err);
+    }
+
+    // Pending-Community-Adresse: nach dem Login beitreten (D-Flow Stufe 4).
+    // Format: `?pendingAddress=<handle>` oder `?pendingAddress=<handle>&pendingHost=<fqdn>`
+    const pendingHandle = page.url.searchParams.get('pendingAddress');
+    if (pendingHandle) {
+      const pendingHost = page.url.searchParams.get('pendingHost') ?? null;
+      const input = pendingHost
+        ? `https://${pendingHost}/c/${pendingHandle}`
+        : `c/${pendingHandle}`;
+      try {
+        await joinGuildByInvite(input);
+        return; // joinGuildByInvite navigiert selbst
+      } catch {
+        // Best-effort: bei Fehler normal nach /app weiterleiten
+      }
     }
 
     const redirect = safeRedirect(page.url.searchParams.get('redirect'));

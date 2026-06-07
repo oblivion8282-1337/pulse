@@ -146,12 +146,16 @@ async function readDetail(resp: Response): Promise<string | null> {
  *                             cert-login/verify community-scoped Instanz-Mitgliedschaft.
  *                             Stufe 3: wird als `community_grant_code` im Verify-Body
  *                             mitgegeben, wenn vorhanden.
+ * @param publicJoinHandle     Optionaler öffentlicher Community-Handle (Stufe 4).
+ *                             Wird als `public_join_handle` im Verify-Body mitgegeben —
+ *                             gewährt community-scoped Mitgliedschaft via öffentlicher Adresse.
  * @throws CertLoginError mit `.reason`-Tag fürs UI-Mapping.
  */
 export async function certLogin(
   serverHostname: string,
   joinCode?: string,
   communityGrantCode?: string,
+  publicJoinHandle?: string,
 ): Promise<CertLoginResult> {
   // 1. Cert + Keypair laden (pure helpers — kein Store-State erforderlich,
   //    funktioniert auch wenn die Stores noch nicht hydriert sind).
@@ -187,6 +191,7 @@ export async function certLogin(
   };
   if (joinCode) verifyBody.join_code = joinCode;
   if (communityGrantCode) verifyBody.community_grant_code = communityGrantCode;
+  if (publicJoinHandle) verifyBody.public_join_handle = publicJoinHandle;
   const vResp = await postJSON(`${base}/cert-login/verify`, verifyBody);
   if (!vResp.ok) {
     const detail = await readDetail(vResp);

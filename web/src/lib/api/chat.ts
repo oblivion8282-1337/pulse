@@ -11,6 +11,20 @@ import type {
   Member,
   Message
 } from './types';
+
+/** Response of `GET /guilds/{id}/settings` (MANAGE_GUILD-gated). */
+export type GuildSettings = {
+  handle: string | null;
+  is_public: boolean;
+};
+
+/** Response von `GET /c/{handle}` — öffentliche Community-Vorschau.
+ *  Spiegelt `PublicCommunityPreviewOut` aus dem Backend. */
+export type PublicCommunityPreview = {
+  guild: { id: string; name: string; icon_url: string | null };
+  member_count: number;
+  is_public: boolean;
+};
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 
@@ -306,6 +320,41 @@ export const chatApi = {
   },
   acceptInvite(code: string): Promise<AcceptInviteResult> {
     return request<AcceptInviteResult>(`/invites/${code}/accept`, { method: 'POST' });
+  },
+
+  // Public address (Stufe 4)
+  /** MANAGE_GUILD-gated: aktuellen Handle + is_public-Status holen. */
+  getGuildSettings(id: string): Promise<GuildSettings> {
+    return request<GuildSettings>(`/guilds/${id}/settings`);
+  },
+  /** MANAGE_GUILD-gated: Handle und/oder is_public setzen. 400 = Handle fehlt bei
+   *  is_public=true; 409 = Handle bereits vergeben.
+   *  Hinweis: Backend gibt GuildOut zurück (kein handle/is_public) — Caller holt
+   *  danach getGuildSettings für den aktualisierten State. */
+  patchGuildPublicAddress(
+    id: string,
+    payload: { handle?: string | null; is_public?: boolean },
+  ): Promise<Guild> {
+    return request<Guild>(`/guilds/${id}`, { method: 'PATCH', body: payload });
+  },
+  /** Öffentliche Community-Vorschau. Erfordert Auth (Backend: CurrentUser).
+   *  ``route`` pinnt das Request an einen bestimmten Server — auf der Cloud weglassen. */
+  getPublicCommunityPreview(
+    handle: string,
+    route: { serverId?: string } = {},
+  ): Promise<PublicCommunityPreview> {
+    return request<PublicCommunityPreview>(`/c/${encodeURIComponent(handle)}`, {}, route);
+  },
+  /** Öffentlicher Community-Beitritt. Idempotent; 404 wenn nicht public, 403 gebannt. */
+  joinPublicCommunity(
+    handle: string,
+    route: { serverId?: string } = {},
+  ): Promise<AcceptInviteResult> {
+    return request<AcceptInviteResult>(
+      `/c/${encodeURIComponent(handle)}/join`,
+      { method: 'POST' },
+      route,
+    );
   },
 
   // HQ streaming (T4) — chat-gateway is the membership-gated front door for media-svc.

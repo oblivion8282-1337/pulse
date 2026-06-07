@@ -21,6 +21,7 @@
   import PuzzleIcon from '@lucide/svelte/icons/puzzle';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
+  import GlobeIcon from '@lucide/svelte/icons/globe';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -34,6 +35,7 @@
   import BansList from './BansList.svelte';
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
+  import GuildPublicAddressEditor from './GuildPublicAddressEditor.svelte';
   import ModQueue from '$lib/components/admin/ModQueue.svelte';
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -48,7 +50,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'modqueue' | 'auditlog' | 'ownership';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
   let tab = $state<Tab>('roles');
   let initialized = $state(false);
 
@@ -264,6 +266,17 @@
             <PuzzleIcon class="size-4" /> {m.guild_settings_dialog_tab_plugins()}
           </button>
         {/if}
+        {#if canManagePlugins}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'publicaddress'}
+            onclick={() => selectTab('publicaddress')}
+            data-testid="settings-tab-publicaddress"
+          >
+            <GlobeIcon class="size-4" /> {m.guild_settings_dialog_tab_publicaddress()}
+          </button>
+        {/if}
         {#if canSeeModQueue}
           <button
             type="button"
@@ -317,6 +330,8 @@
           <GuildSoundsEditor {guildId} />
         {:else if tab === 'plugins' && canManagePlugins}
           <GuildPluginsEditor {guildId} />
+        {:else if tab === 'publicaddress' && canManagePlugins}
+          <GuildPublicAddressEditor {guildId} />
         {:else if tab === 'modqueue' && canSeeModQueue}
           <ModQueue {guildId} />
         {:else if tab === 'auditlog' && canSeeAuditLog}

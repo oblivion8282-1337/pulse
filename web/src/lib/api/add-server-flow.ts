@@ -92,12 +92,18 @@ export async function addServerWithCertLogin(args: {
    * auf dem Self-Host-Server beim ersten Login.
    */
   communityGrantCode?: string;
+  /**
+   * Öffentlicher Community-Handle (Stufe 4). Wird als `public_join_handle` an
+   * cert-login/verify weitergegeben → gewährt community-scoped Mitgliedschaft
+   * auf dem Self-Host-Server beim ersten Login via öffentlicher Adresse.
+   */
+  publicJoinHandle?: string;
 }): Promise<AddServerSuccess> {
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
   let result;
   try {
-    result = await certLogin(args.hostname, args.joinCode, args.communityGrantCode);
+    result = await certLogin(args.hostname, args.joinCode, args.communityGrantCode, args.publicJoinHandle);
   } catch (err) {
     // Rollback — ServerEntry war provisional.
     try { serversStore.remove(entry.id); } catch { /* Cloud nie hier */ }
