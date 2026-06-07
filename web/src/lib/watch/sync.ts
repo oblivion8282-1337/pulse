@@ -120,6 +120,30 @@ export function hostPlaybackStalled(prev: WatchPartyState, cur: WatchPartyState)
   return posDelta > -STALL_BACKSTEP_TOLERANCE_S && posDelta < wallDelta * STALL_ADVANCE_RATIO;
 }
 
+/** Decide what a viewer should do when the window returns to the foreground
+ * after having been hidden.
+ *
+ * While the window is hidden the browser (and every mobile WebView) freezes /
+ * pauses background `<video>` playback, so the player's clock stops while the
+ * host's `expected` position keeps advancing with wall-clock. Drift correction
+ * is therefore SUSPENDED while hidden (see PartyController.syncViewer) — running
+ * it would seek a frozen player on every heartbeat and queue a backlog that
+ * fires as a fast-forward stutter burst the moment we come back, the "minimize →
+ * highspeed catch-up → loop" bug.
+ *
+ * On return we instead do exactly ONE hard resync to the host's current
+ * position — UNLESS this client is the host (it's the authority, never
+ * corrected), the source is passive (Twitch live: no seekable position), or the
+ * viewer had paused locally (respect their pause; they resync on manual play).
+ */
+export function shouldResyncOnForeground(opts: {
+  isHost: boolean;
+  isPassive: boolean;
+  viewerPaused: boolean;
+}): boolean {
+  return !opts.isHost && !opts.isPassive && !opts.viewerPaused;
+}
+
 export type DriftAction = 'none' | 'nudge-up' | 'nudge-down' | 'seek';
 
 /** Holds the transient playbackRate-nudge timer so we can reset it on the

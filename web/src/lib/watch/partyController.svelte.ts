@@ -12,6 +12,7 @@ import {
   DriftCorrector,
   expectedPosition,
   hostPlaybackStalled,
+  shouldResyncOnForeground,
   startHeartbeat,
   type PlayerEvent,
   type PlayerHandle
@@ -31,13 +32,57 @@ export class PartyController {
   #stopHeartbeat: (() => void) | undefined;
   #pending: { action: 'play' | 'pause' | 'seek'; position: number } | undefined;
   #broadcastTimer: number | undefined;
+  /** True while the window/tab is hidden. Drift correction is suspended in this
+   * state — the browser freezes background media, so seeking the player every
+   * heartbeat only queues a stutter burst for when we return. */
+  #hidden = false;
 
   constructor(
     private getChannelId: () => string,
     private getParty: () => WatchPartyState,
     private getIsHost: () => boolean,
     private getIsPassive: () => boolean
-  ) {}
+  ) {
+    if (typeof document !== 'undefined') {
+      this.#hidden = document.visibilityState === 'hidden';
+      document.addEventListener('visibilitychange', this.#onVisibility);
+    }
+  }
+
+  /** Stable ref (add/removeEventListener). Suspends correction while hidden and
+   * does ONE clean hard resync on return — see {@link shouldResyncOnForeground}
+   * for the full rationale. This is the fix for the "minimize → video freezes →
+   * fast-forwards through the lost time → stuck in a catch-up loop" report:
+   * without it, each host heartbeat that arrives while we're hidden hard-seeks a
+   * frozen player, and the backlog plays out as a seek storm on return. */
+  #onVisibility = (): void => {
+    if (typeof document === 'undefined') return;
+    const hidden = document.visibilityState === 'hidden';
+    if (hidden === this.#hidden) return;
+    this.#hidden = hidden;
+    const p = this.#player;
+    if (hidden) {
+      // Drop any in-flight playbackRate nudge so we don't come back stuck at
+      // 1.05x (its reset setTimeout is unreliable under background throttling).
+      if (p) this.#corrector.dispose(p);
+      return;
+    }
+    // Foreground again: the player was frozen while `expected` ran on, so we're
+    // far behind. Snap once instead of letting the per-heartbeat correction
+    // backlog fire. Host / passive / locally-paused viewers are left untouched.
+    if (
+      !p ||
+      !shouldResyncOnForeground({
+        isHost: this.getIsHost(),
+        isPassive: this.getIsPassive(),
+        viewerPaused: this.#viewerPaused
+      })
+    )
+      return;
+    const cur = this.getParty();
+    this.#prevParty = cur; // re-anchor so the next heartbeat reads as continuous
+    this.#syncHard(p, cur);
+  };
 
   onReady(handle: PlayerHandle): void {
     this.#player = handle;
@@ -58,6 +103,12 @@ export class PartyController {
     const isPassive = this.getIsPassive();
     const p = this.#player;
     if (!p || isHost || isPassive) return;
+    // Window hidden: the browser has frozen/paused the player. Correcting now
+    // seeks a frozen player on every heartbeat and queues a backlog that fires
+    // as a fast-forward stutter burst on return. Suspend until #onVisibility
+    // does a single clean resync. Do NOT advance #prevParty — the resync
+    // re-anchors it, so detection stays continuous across the hidden gap.
+    if (this.#hidden) return;
     const prev = this.#prevParty;
     this.#prevParty = cur;
     if (!prev) {
@@ -135,6 +186,9 @@ export class PartyController {
   }
 
   dispose(): void {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.#onVisibility);
+    }
     this.#stopHeartbeat?.();
     if (this.#broadcastTimer !== undefined) clearTimeout(this.#broadcastTimer);
     if (this.#player) this.#corrector.dispose(this.#player);

@@ -590,4 +590,87 @@ test.describe.serial('Watch Party E2E', () => {
     expect(out.offset3).toBeCloseTo(6900, 6); // NaN sample left it unchanged
     expect(out.calibrated).toBe(true);
   });
+
+  test('drift corrector: frozen player loops on seeks; one hard resync settles', async () => {
+    // Models the "minimize → freeze → highspeed catch-up loop" bug at the
+    // DriftCorrector level (deterministic, no real player). A backgrounded
+    // viewer's player is frozen while the host's position runs on; every
+    // heartbeat then drift-corrects a frozen player and hard-seeks. The fix the
+    // PartyController layers on top is "suspend while hidden, ONE applyHard on
+    // return" — once the player is caught up, soft correction returns 'none'
+    // and the loop is broken.
+    const out = await alicePage.evaluate(async () => {
+      type DriftAction = 'none' | 'nudge-up' | 'nudge-down' | 'seek';
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/watch/sync.ts')) as {
+        DriftCorrector: new () => {
+          applySoft: (p: unknown, s: unknown) => DriftAction;
+          applyHard: (p: unknown, s: unknown) => DriftAction;
+          dispose: (p: unknown) => void;
+        };
+        expectedPosition: (s: unknown, now?: number) => number;
+      };
+      const calls: string[] = [];
+      let t = 0; // frozen player clock (window minimized)
+      const player = {
+        play: () => calls.push('play'),
+        pause: () => calls.push('pause'),
+        seek: () => calls.push('seek'),
+        getCurrentTime: () => t,
+        setPlaybackRate: () => calls.push('rate'),
+        setVolume: () => {},
+        destroy: () => {}
+      };
+      const dc = new mod.DriftCorrector();
+      const now = Date.now();
+      // Host is ~120 s ahead of the frozen viewer.
+      const state = { position: 120, is_playing: true, updated_at: now };
+
+      // BUG: each heartbeat against a frozen player hard-seeks (drift ≫ 2 s).
+      const soft1 = dc.applySoft(player, state);
+      const soft2 = dc.applySoft(player, state);
+      const seeksWhileFrozen = calls.filter((c) => c === 'seek').length;
+
+      // FIX: one clean hard resync, player lands at the host position → settles.
+      calls.length = 0;
+      dc.dispose(player);
+      const hard = dc.applyHard(player, state);
+      const playedOnHard = calls.includes('play');
+      const seeksOnHard = calls.filter((c) => c === 'seek').length;
+      t = mod.expectedPosition(state); // caught up to the host
+      const settle = dc.applySoft(player, state);
+      return { soft1, soft2, seeksWhileFrozen, hard, playedOnHard, seeksOnHard, settle };
+    });
+    expect(out.soft1).toBe('seek'); // frozen + far behind → hard seek
+    expect(out.soft2).toBe('seek'); // still frozen → seeks AGAIN (the loop)
+    expect(out.seeksWhileFrozen).toBe(2);
+    expect(out.hard).toBe('seek');
+    expect(out.playedOnHard).toBe(true); // applyHard forces play
+    expect(out.seeksOnHard).toBe(1); // exactly one snap, not a burst
+    expect(out.settle).toBe('none'); // caught up → no further seeks (loop broken)
+  });
+
+  test('shouldResyncOnForeground: only a plain following viewer resyncs', async () => {
+    // The PartyController calls this on visibilitychange→visible to decide
+    // whether to snap. Host (authority), passive/live (no seekable position)
+    // and locally-paused viewers must be left untouched.
+    const out = await alicePage.evaluate(async () => {
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/watch/sync.ts')) as {
+        shouldResyncOnForeground: (o: {
+          isHost: boolean;
+          isPassive: boolean;
+          viewerPaused: boolean;
+        }) => boolean;
+      };
+      const f = mod.shouldResyncOnForeground;
+      return {
+        plain: f({ isHost: false, isPassive: false, viewerPaused: false }),
+        host: f({ isHost: true, isPassive: false, viewerPaused: false }),
+        passive: f({ isHost: false, isPassive: true, viewerPaused: false }),
+        paused: f({ isHost: false, isPassive: false, viewerPaused: true })
+      };
+    });
+    expect(out).toEqual({ plain: true, host: false, passive: false, paused: false });
+  });
 });

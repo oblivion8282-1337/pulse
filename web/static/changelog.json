@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-07",
+      "date": "2026-06-07",
+      "style": "Klartext",
+      "title": "🎬 Watch-Party: sauberer Wiedereinstieg nach dem Minimieren",
+      "intro": "Ein Fehler beim Minimieren der App während einer Watch-Party ist behoben.",
+      "items": [
+        "Wenn du die App während einer Watch-Party minimierst, fror das Video ein und raste beim Zurückkommen im Schnelldurchlauf durch die verpasste Zeit — teils in einer Endlosschleife. Das passiert nicht mehr.",
+        "Beim Zurückkehren springt das Video jetzt einmal sauber an die aktuelle Stelle der Party.",
+        "Hast du selbst pausiert, bleibst du pausiert — du wirst beim Zurückkommen nicht ungefragt wieder gestartet."
+      ]
+    },
+    {
       "id": "2026-06-06.2",
       "date": "2026-06-06",
       "style": "Türsteher",
