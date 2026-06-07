@@ -1,10 +1,10 @@
 <!--
   AddServerDialog — Phase 5.2.
 
-  Drei-Schritt-Wizard:
+  Zwei-Schritt-Wizard:
     1. URL-Eingabe (https://… oder host:port)
-    2. Pre-Check via /.well-known/pulse-server-info (Version, Issuer, Capabilities)
-    3. Self-Host-Disclaimer + Server-Einladungscode (join_code) + Community-Invite-Code
+    2. Pre-Check via /.well-known/pulse-server-info (Version, Issuer, Capabilities),
+       dann Self-Host-Disclaimer + optionaler Community-Invite-Code.
   Nach „Hinzufügen": ServerEntry wird in serversStore geschrieben, Cert-Login
   läuft (POST /cert-login/{challenge,verify}), Session-Token landet in
   sessionTokens, optional Invite-Code wird gegen den neuen Server akzeptiert,
@@ -13,6 +13,12 @@
   Bei Cert-Login-Fail wird der ServerEntry wieder gerollbacked. Bei Invite-
   Fail bleibt der Server bestehen (User hat einen funktionierenden Account,
   nur der Invite hat nicht geklappt) — Fehler wird per Toast gezeigt.
+
+  Hinweis: join_code (Server-Einladungscode) wurde in Stufe 5 entfernt. Das
+  Backend kennt kein join_code mehr — Beitritt läuft nur noch per Community-
+  Invite-Code (communityGrantCode) oder öffentlicher Adresse (publicJoinHandle).
+  Für gesperrte Server (locked=true) gibt der cert-login einen 403 zurück,
+  der als „join-closed"-Fehler im UI angezeigt wird.
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -46,7 +52,6 @@
   let step = $state<Step>('url');
   let urlInput = $state('');
   let inviteInput = $state('');
-  let joinCodeInput = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
   let info = $state<ServerInfo | null>(null);
@@ -56,7 +61,6 @@
     step = 'url';
     urlInput = '';
     inviteInput = '';
-    joinCodeInput = '';
     busy = false;
     error = null;
     info = null;
@@ -111,14 +115,17 @@
     error = null;
     const labelHost = resolvedHostname.replace(/^https?:\/\//, '');
     const code = inviteInput.trim();
-    const jc = joinCodeInput.trim();
     try {
       const r = await addServerWithCertLogin({
         hostname: resolvedHostname,
         label: labelHost,
         instanceId: info.instance_id ?? undefined,
+        // Derselbe Guild-Invite-Code dient beiden Zwecken: communityGrantCode
+        // gewährt die Instanz-Mitgliedschaft im cert-login/verify, inviteCode
+        // tritt danach der Community bei (join_code gibt es seit Stufe 5 nicht
+        // mehr — ohne Grant 403t das Gate).
+        communityGrantCode: code || undefined,
         inviteCode: code || undefined,
-        joinCode: jc || undefined,
       });
       markSelfHostDisclaimerSeen(resolvedHostname, r.entry.id);
       activeServer.set(r.entry.id);
@@ -188,7 +195,6 @@
         {error}
         {busy}
         bind:inviteInput
-        bind:joinCodeInput
         onBack={() => (step = 'url')}
         onConfirm={confirmAdd}
       />

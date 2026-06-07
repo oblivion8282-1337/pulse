@@ -84,8 +84,6 @@ export async function addServerWithCertLogin(args: {
   label?: string;
   instanceId?: string;
   inviteCode?: string;
-  /** Server-Beitritts-Code für invite_only / closed-Server — NICHT der Community-Invite. */
-  joinCode?: string;
   /**
    * Community-Invite-Code (Stufe 3). Wird als `community_grant_code` an
    * cert-login/verify weitergegeben → gewährt community-scoped Mitgliedschaft
@@ -103,7 +101,7 @@ export async function addServerWithCertLogin(args: {
 
   let result;
   try {
-    result = await certLogin(args.hostname, args.joinCode, args.communityGrantCode, args.publicJoinHandle);
+    result = await certLogin(args.hostname, args.communityGrantCode, args.publicJoinHandle);
   } catch (err) {
     // Rollback — ServerEntry war provisional.
     try { serversStore.remove(entry.id); } catch { /* Cloud nie hier */ }
@@ -164,8 +162,8 @@ export function mapCertLoginReason(reason: CertLoginReason): string {
   if (reason === 'signature-invalid')
     return m.add_server_flow_signature_invalid();
   if (reason === 'rate-limited') return m.add_server_flow_rate_limited();
-  if (reason === 'join-closed') return m.add_server_flow_join_closed();
-  if (reason === 'join-requires-invite') return m.add_server_flow_join_requires_invite();
+  if (reason === 'join-closed' || reason === 'join-requires-invite')
+    return m.add_server_flow_join_closed();
   if (reason === 'network') return m.add_server_flow_network_error();
   return m.add_server_flow_cert_login_failed();
 }

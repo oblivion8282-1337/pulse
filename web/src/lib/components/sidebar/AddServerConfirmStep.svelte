@@ -1,7 +1,7 @@
 <!--
   AddServerConfirmStep — Schritt 2 des AddServerDialog-Wizards.
-  Zeigt Server-Info, Disclaimer, Server-Einladungscode (join_code) und
-  Community-Invite-Code. Ruft confirmAdd-Callback bei Bestätigung.
+  Zeigt Server-Info, Disclaimer und optionalen Community-Invite-Code.
+  Ruft confirmAdd-Callback bei Bestätigung.
 -->
 <script lang="ts">
   import * as Dialog from '$lib/components/ui/dialog/index.js';
@@ -19,7 +19,6 @@
     info,
     resolvedHostname,
     inviteInput = $bindable(''),
-    joinCodeInput = $bindable(''),
     error,
     busy,
     onBack,
@@ -28,7 +27,6 @@
     info: ServerInfo;
     resolvedHostname: string;
     inviteInput: string;
-    joinCodeInput: string;
     error: string | null;
     busy: boolean;
     onBack: () => void;
@@ -69,26 +67,6 @@
       {m.add_server_dialog_disclaimer_suffix()}
     </Alert.Description>
   </Alert.Root>
-
-  <div class="space-y-1.5">
-    <Label
-      for="add-server-join-code"
-      class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
-    >
-      {m.add_server_dialog_label_join_code()}
-    </Label>
-    <Input
-      id="add-server-join-code"
-      type="text"
-      bind:value={joinCodeInput}
-      autocomplete="off"
-      placeholder={m.add_server_dialog_join_code_placeholder()}
-      data-testid="add-server-join-code"
-    />
-    <p class="text-text-muted text-xs">
-      {m.add_server_dialog_join_code_hint()}
-    </p>
-  </div>
 
   <div class="space-y-1.5">
     <Label
