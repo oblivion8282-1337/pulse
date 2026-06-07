@@ -1,0 +1,13 @@
+#!/bin/sh
+# MinIO — embedded S3-compatible object store for message attachments.
+# Loopback-only bind (127.0.0.1:9000); the browser reaches it via Caddy
+# (/pulse-attachments/* → :9000). Data lives on the persistent /data volume
+# (/data/minio). The web console UI is disabled (MINIO_BROWSER=off) — it's
+# never exposed and the storage-usage admin tile only needs the S3 admin API,
+# which stays available regardless. Root creds + MINIO_SERVER_URL come from
+# /etc/pulse/env.sh (rendered by 07-render-env from the generated secrets).
+exec 2>&1
+. /etc/pulse/env.sh
+export MINIO_BROWSER=off
+exec /usr/sbin/gosu pulse /usr/local/bin/minio server /data/minio \
+  --address 127.0.0.1:9000

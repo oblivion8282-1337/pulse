@@ -107,6 +107,25 @@
     }
 
     # ------------------------------------------------------------------ #
+    # MinIO (S3-API) — Message-Attachments (Path-Style, Bucket = Prefix) #
+    # ------------------------------------------------------------------ #
+    # Presigned URLs, die der Browser PUTet/GETtet, zeigen auf
+    # /<bucket>/<key> = /pulse-attachments/... . MinIO kann NICHT unter einem
+    # Sub-Pfad laufen (MINIO_SERVER_URL mit /s3 verwirft das Prefix → kaputte
+    # Signaturen, in der Cloud empirisch verifiziert), darum leiten wir das
+    # Bucket-Prefix unverändert weiter — exakt wie die Cloud-nginx
+    # (location /pulse-attachments/). NUR das Bucket-Prefix ist öffentlich;
+    # MinIOs Admin-/Console-API bleibt unerreichbar (keine Caddy-Route dahin).
+    # `handle` (NICHT handle_path) — der Bucket-Name ist Teil des S3-Pfads.
+    # SigV4 signiert den Host-Header → Host auf den Public-Host zwingen, damit
+    # er zur vom chat-gateway signierten URL passt.
+    handle /pulse-attachments/* {
+        reverse_proxy 127.0.0.1:9000 {
+            header_up Host {host}
+        }
+    }
+
+    # ------------------------------------------------------------------ #
     # Internal Endpoints — JWT-validiert, nicht öffentlich dokumentiert  #
     # ------------------------------------------------------------------ #
 

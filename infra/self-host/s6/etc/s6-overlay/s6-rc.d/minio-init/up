@@ -1,0 +1,1 @@
+/bin/sh -c ". /etc/pulse/env.sh && exec /usr/sbin/gosu pulse /opt/pulse/venv/bin/python3 /etc/s6-overlay/scripts/init-minio-bucket.py"

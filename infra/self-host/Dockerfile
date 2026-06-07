@@ -27,6 +27,10 @@ ARG CADDY_VERSION=2.8.4
 # negotiation timeout) trotz erfolgreichem Signaling + UDP-ICE (F17).
 ARG LIVEKIT_VERSION=1.11.0
 ARG MEDIAMTX_VERSION=1.17.1
+# MinIO — S3-compatible object store for message attachments. Pinned to the
+# SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
+# Format is the upstream RELEASE.<timestamp> tag, used verbatim in the URL.
+ARG MINIO_VERSION=RELEASE.2025-09-07T16-13-09Z
 ARG TARGETARCH=amd64
 
 # SHA-256 checksums for all bundled binaries. Pinned to a specific upstream
@@ -40,6 +44,7 @@ ARG TARGETARCH=amd64
 #   - LiveKit: official checksums.txt in the GitHub release.
 #   - Caddy + MediaMTX: re-hashed from the upstream release tarballs (Caddy
 #     publishes SHA-512 only; MediaMTX publishes no checksums file at all).
+#   - MinIO: official .sha256sum sidecar next to each release binary.
 ARG SHA256_S6_NOARCH=6dbcde158a3e78b9bb141d7bcb5ccb421e563523babbe2c64470e76f4fd02dae
 ARG SHA256_S6_X86_64=59289456ab1761e277bd456a95e737c06b03ede99158beb24f12b165a904f478
 ARG SHA256_S6_AARCH64=8b22a2eaca4bf0b27a43d36e65c89d2701738f628d1abd0cea5569619f66f785
@@ -49,6 +54,8 @@ ARG SHA256_LIVEKIT_AMD64=3e76ed51ecdfefc3005e4257095dccd1ccc8f8b77517d9f2353de79
 ARG SHA256_LIVEKIT_ARM64=6741466bc12e75544338292ab2c1c02c02f3c626568230b5548fffc53e5a87ff
 ARG SHA256_MEDIAMTX_AMD64=ee1cbcf8108dcb5fccf4c4e5a746846ea1c2055c099dd2fdb03391c519508829
 ARG SHA256_MEDIAMTX_ARM64=389e5bd330eb93d6a96e329a3cf567a41c8d2e7cc187bfad9db04c7ad905a97b
+ARG SHA256_MINIO_AMD64=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
+ARG SHA256_MINIO_ARM64=5c83cd2cf151717ba0243f73e1c7802ff36e272b67144bdd7f1f7d684fd6f03d
 
 # ── Stage 1 ────────────────────────────────────────────────────────────────
 # Python-Services: build the uv workspace, produce a self-contained .venv
@@ -129,6 +136,9 @@ ARG SHA256_LIVEKIT_AMD64
 ARG SHA256_LIVEKIT_ARM64
 ARG SHA256_MEDIAMTX_AMD64
 ARG SHA256_MEDIAMTX_ARM64
+ARG MINIO_VERSION
+ARG SHA256_MINIO_AMD64
+ARG SHA256_MINIO_ARM64
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils tar \
@@ -197,6 +207,22 @@ RUN set -eux; \
     mkdir -p /opt/mediamtx; \
     tar -C /opt/mediamtx -xzf mediamtx.tar.gz mediamtx
 
+# MinIO — single static binary (not a tarball). Upstream ships a .sha256sum
+# sidecar per release; we pin the hash via the top-level ARGs. The "archive"
+# path keeps versioned copies of the binary (the file IS the binary).
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) MINIO_ARCH=amd64; SHA256_MINIO="${SHA256_MINIO_AMD64}" ;; \
+        arm64) MINIO_ARCH=arm64; SHA256_MINIO="${SHA256_MINIO_ARM64}" ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o minio \
+        "https://dl.min.io/server/minio/release/linux-${MINIO_ARCH}/archive/minio.${MINIO_VERSION}"; \
+    echo "${SHA256_MINIO}  minio" | sha256sum -c -; \
+    mkdir -p /opt/minio; \
+    mv minio /opt/minio/minio; \
+    chmod +x /opt/minio/minio
+
 # ── Stage 4 — runtime ─────────────────────────────────────────────────────
 # Debian Bookworm (NOT Alpine — coturn + Postgres + Python+uv expect glibc;
 # also keeps the door open for NVIDIA-compat down the line).
@@ -207,7 +233,7 @@ ARG PYTHON_VERSION
 
 LABEL org.opencontainers.image.source="https://github.com/oblivion8282-1337/pulse" \
       org.opencontainers.image.title="Pulse Self-Host All-in-One" \
-      org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + coturn + Caddy)" \
+      org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + MinIO + coturn + Caddy)" \
       org.opencontainers.image.version="${PULSE_VERSION}" \
       com.centurylinklabs.watchtower.enable="true" \
       com.centurylinklabs.watchtower.scope="pulse"
@@ -258,7 +284,8 @@ COPY --from=binaries /opt/s6/      /
 COPY --from=binaries /opt/caddy/caddy            /usr/local/bin/caddy
 COPY --from=binaries /opt/livekit/livekit-server /usr/local/bin/livekit-server
 COPY --from=binaries /opt/mediamtx/mediamtx      /usr/local/bin/mediamtx
-RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx
+COPY --from=binaries /opt/minio/minio            /usr/local/bin/minio
+RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/minio
 
 # Python venv + service source from stage 1 — already at /opt/pulse, no path
 # rewrite needed (UV_PROJECT_ENVIRONMENT made the venv live at /opt/pulse/venv
@@ -302,7 +329,7 @@ RUN groupadd -g 10001 pulse \
 #   8189/udp          — MediaMTX WebRTC/WHEP ICE (HQ-stream playback media plane)
 # Internal-only (NOT exposed): 5432 (pg), 6379 (redis), 7880 (livekit ws),
 #   8002–8005 (python services), 8888/8889 (mediamtx hls/whep, proxied via Caddy),
-#   9997 (mediamtx api).
+#   9000 (minio S3 API, proxied via Caddy /pulse-attachments/*), 9997 (mediamtx api).
 EXPOSE 80 443 8080 1936 3478 3478/udp 7882-7892/udp 8189/udp
 
 VOLUME ["/data"]

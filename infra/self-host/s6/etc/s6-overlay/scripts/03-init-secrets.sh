@@ -46,6 +46,15 @@ write_if_missing() {
 [ -f "${KEYS}/livekit.secret" ] || write_if_missing \
     "${KEYS}/livekit.secret" "$(gen_hex)"
 
+# MinIO root credentials — embedded S3 object store for message attachments.
+# Doubles as the S3 access-key/secret the chat-gateway signs presigned URLs
+# with. MinIO requires user ≥3 chars + password ≥8; both satisfied. Generated
+# once and persisted, so existing buckets keep matching creds across restarts.
+[ -f "${KEYS}/minio.user" ] || write_if_missing \
+    "${KEYS}/minio.user" "pulse-$(python3 -c 'import secrets; print(secrets.token_hex(4))')"
+[ -f "${KEYS}/minio.password" ] || write_if_missing \
+    "${KEYS}/minio.password" "$(gen_hex)"
+
 # Self-Host JWT signing keypair — Ed25519 for Self-Host session tokens
 # (Phase 5 issues those for /cert-login; the key here is what chat-gateway
 # uses to sign + voice-signaling/media-svc to verify).

@@ -2,9 +2,9 @@
 
 `ghcr.io/oblivion8282-1337/pulse-allinone:stable` — one container that bundles every
 Pulse-Backend-Service, an embedded Postgres + Redis, LiveKit (voice SFU),
-MediaMTX (HQ-stream relay), coturn (TURN/STUN), and Caddy (reverse proxy +
-auto-TLS), supervised by [s6-overlay](https://github.com/just-containers/s6-overlay)
-v3 as PID 1.
+MediaMTX (HQ-stream relay), MinIO (S3 object store for message attachments),
+coturn (TURN/STUN), and Caddy (reverse proxy + auto-TLS), supervised by
+[s6-overlay](https://github.com/just-containers/s6-overlay) v3 as PID 1.
 
 This file documents the **build + run** flow for the image. End-user setup
 docs (Cloud-approval, DNS, port-forwarding) land in `docs/SELF_HOST.md` —
@@ -64,8 +64,8 @@ The six `-e` vars are mandatory; cont-init aborts with a clear error otherwise.
 secret come from the Cloud approval — the ready-made `.env` under "Meine
 Instanzen" on howispulse.com carries all but the secret.
 All internal secrets (Postgres password, JWT keys, coturn shared-secret,
-LiveKit API key pair) are **generated on first boot** in `/data/jwt_keys/`
-and persisted across container restarts.
+LiveKit API key pair, MinIO root credentials) are **generated on first boot**
+in `/data/jwt_keys/` and persisted across container restarts.
 
 ## What's inside
 
@@ -75,6 +75,7 @@ and persisted across container restarts.
 | Caddy | v2.8.4 | github.com/caddyserver/caddy | SHA-256 pinned per artifact |
 | LiveKit | v1.8.4 | github.com/livekit/livekit | SHA-256 pinned per artifact |
 | MediaMTX | v1.17.1 | github.com/bluenviron/mediamtx | SHA-256 pinned per artifact |
+| MinIO | RELEASE.2025-09-07T16-13-09Z | dl.min.io | SHA-256 pinned (upstream .sha256sum) |
 | Postgres | 15 (Debian Bookworm) | apt | — (Debian-signed package) |
 | Redis | 7 (Debian Bookworm) | apt | — (Debian-signed package) |
 | coturn | (Debian Bookworm) | apt | — (Debian-signed package) |
@@ -139,6 +140,8 @@ cont-init  (oneshot — runs cont-init-main.sh, blocks until all secrets/configs
   ├── mediamtx-auth-hook  (waits for redis)
   ├── livekit             (waits for voice-signaling)
   ├── mediamtx            (waits for media-svc + mediamtx-auth-hook)
+  ├── minio               (waits for cont-init; embedded S3 store for attachments)
+  ├── minio-init          (oneshot — waits for minio; creates the attachments bucket, best-effort)
   ├── coturn              (waits for cont-init; sleeps forever if PULSE_TURN_DISABLED=true)
   └── caddy               (waits for chat-gateway/voice-signaling/media-svc/auth)
 ```
@@ -169,10 +172,12 @@ infra/self-host/
 │       │   ├── mediamtx-auth-hook/
 │       │   ├── livekit/            # go binaries
 │       │   ├── mediamtx/
+│       │   ├── minio/              # embedded S3 object store (message attachments)
+│       │   ├── minio-init/         # oneshot — creates the attachments bucket
 │       │   ├── coturn/             # turn server
 │       │   └── caddy/              # reverse proxy (Caddyfile aus etc/caddy/Caddyfile.template)
 │       ├── etc/caddy/
-│       │   └── Caddyfile.template  # auto-TLS, security headers, /api/* + WHEP routing
+│       │   └── Caddyfile.template  # auto-TLS, security headers, /api/* + WHEP + /pulse-attachments/* routing
 │       └── scripts/                # cont-init steps — Ausführungsreihenfolge regelt cont-init-main.sh, nicht die Dateinummer
 │           ├── cont-init-main.sh
 │           ├── 10-check-cloud-creds.sh  # FIRST (fail-fast bei fehlenden Env-Vars)
@@ -185,6 +190,7 @@ infra/self-host/
 │           ├── 08-init-mediamtx.sh
 │           ├── 09-init-caddy.sh    # Caddyfile aus Template; auto + provided TLS-Modus
 │           ├── 06-run-migrations.sh # LAST (Postgres muss erst hoch sein)
+│           ├── init-minio-bucket.py # minio-init oneshot: SigV4 PUT /pulse-attachments (botocore+httpx)
 │           └── restart-gate.sh
 └── usr/local/bin/
     └── pulse-health                # Container HEALTHCHECK (bash /dev/tcp Probes)
@@ -201,6 +207,7 @@ infra/self-host/
 | `/data/caddy/` | TLS certs + ACME state | yes |
 | `/data/livekit/` | LiveKit ephemeral state | no (regeneriert) |
 | `/data/mediamtx/` | MediaMTX state + self-signed RTMPS cert | no (regeneriert beim First-Start) |
+| `/data/minio/` | MinIO object store — message attachments | **YES — verlieren = alle Anhänge weg** |
 | `/data/uploads/avatars` | user avatars | yes |
 | `/data/uploads/guild-icons` | guild icons | yes |
 | `/data/backups/` | pg_dump snapshots (Phase 6 plan DE 10b) | yes |

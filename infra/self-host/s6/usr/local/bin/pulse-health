@@ -37,4 +37,8 @@ timeout 1 bash -c '</dev/tcp/127.0.0.1/5432'
 timeout 1 bash -c '</dev/tcp/127.0.0.1/6379'
 timeout 1 bash -c '</dev/tcp/127.0.0.1/7880'
 
+# MinIO (S3 API) — embedded attachments store. TCP-Port reicht; ein echter
+# S3-Request bräuchte SigV4. start-period deckt den Cold-Start ab.
+timeout 1 bash -c '</dev/tcp/127.0.0.1/9000'
+
 echo "ok"
