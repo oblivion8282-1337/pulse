@@ -538,6 +538,40 @@ test.describe.serial('Watch Party E2E', () => {
     await wsClose(alicePage, 'wppopup');
   });
 
+  test('inVoiceChannel gates the tile watch_leave: UI nav while still in voice does NOT leave', async () => {
+    // Regression for "navigating to a text channel / another community kills the
+    // host's watch party". The WatchPartyTile lives only while its voice channel
+    // is the one being VIEWED, so it unmounts on any such nav — but the LiveKit
+    // voice connection (and the party) keep running. The tile's unmount cleanup
+    // therefore skips watch_leave while `inVoiceChannel(channelId)` holds; only a
+    // real voice leave / channel switch (which flips voiceState BEFORE the tile
+    // unmounts) lets the leave through. We exercise the real guard module against
+    // the real voiceState store — deterministic, no LiveKit needed (the harness
+    // brings up none).
+    const out = await alicePage.evaluate(async () => {
+      // @ts-expect-error - Vite-served path resolved at browser runtime
+      const mod = (await import('/src/lib/voice/state.svelte.ts')) as {
+        voiceState: { channelId: string | null; connected: boolean };
+        inVoiceChannel: (cid: string) => boolean;
+      };
+      const { voiceState, inVoiceChannel } = mod;
+      // Connected to the party's voice channel → mere UI nav must NOT leave.
+      voiceState.connected = true;
+      voiceState.channelId = '777';
+      const sameChannel = inVoiceChannel('777'); // tile unmounts → leave suppressed
+      const otherChannel = inVoiceChannel('888'); // a tile for a different channel
+      // Voice fully left (voice.disconnect tore down before the tile unmounts) →
+      // the normal watch_leave must run again.
+      voiceState.connected = false;
+      voiceState.channelId = null;
+      const afterDisconnect = inVoiceChannel('777');
+      return { sameChannel, otherChannel, afterDisconnect };
+    });
+    expect(out.sameChannel, 'still in this voice channel → suppress watch_leave').toBe(true);
+    expect(out.otherChannel, 'a tile for a different channel → leave normally').toBe(false);
+    expect(out.afterDisconnect, 'voice fully left → leave normally').toBe(false);
+  });
+
   test('watch_state push carries server_now for clock calibration', async () => {
     // The drift fix needs the server clock on the wire so viewers can calibrate
     // their offset and extrapolate position against the shared server clock

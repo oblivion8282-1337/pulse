@@ -29,6 +29,7 @@
   import { userCache } from '$lib/stores/users.svelte';
   import { isPassiveSource, type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
   import { watchWatchers } from '$lib/stores/watchWatchers.svelte';
+  import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { gateway } from '$lib/ws/connection';
   import { acquireWakeLock } from '$lib/platform/wakeLock';
   import NativeVideoPlayer from '$lib/watch/players/NativeVideoPlayer.svelte';
@@ -123,15 +124,26 @@
   });
 
   // Watcher-Registry: mount = join, unmount = leave (covers tile-close +
-  // channel-switch unmount + party-end unmount). Ausnahme: ein Unmount, der nur
-  // durchs Abdocken ins Popup ausgelöst wird, darf KEIN watch_leave senden —
-  // sonst beendet `end_if_host` die Party, bevor das Popup (eigene Session,
-  // Kaltstart) gejoint hat. Das Popup übernimmt den Watcher-Eintrag; das
-  // Hauptfenster bleibt der Anker, bis es regulär schließt/disconnected.
+  // channel-switch unmount + party-end unmount). Zwei Ausnahmen, in denen das
+  // Unmount KEIN watch_leave senden darf:
+  //  1. Abdocken ins Popup — sonst beendet `end_if_host` die Party, bevor das
+  //     Popup (eigene Session, Kaltstart) gejoint hat. Das Popup übernimmt den
+  //     Watcher-Eintrag; das Hauptfenster bleibt Anker bis es regulär schliesst.
+  //  2. Reine UI-Navigation, während wir noch im Voice-Kanal DIESER Party
+  //     hängen: das Tile lebt nur, solange der Voice-Kanal in der UI angesehen
+  //     wird, also unmountet es beim Klick auf einen Text-Kanal / eine andere
+  //     Community. Die Voice-Verbindung (livekit) besteht weiter — die Party an
+  //     ihr UI-Tile zu binden würde den Host beim blossen Weg-Navigieren aus
+  //     seiner Party werfen (`end_if_host`). Die Party gehört an die Voice-
+  //     Lebensdauer: ein echter Voice-Wechsel/-Leave (`voice.disconnect`) räumt
+  //     die Host-Party über `stopWatchParty` ab UND setzt `voiceState` auf
+  //     disconnected, bevor das Tile unmountet — dann greift dieser Guard nicht
+  //     und das watch_leave läuft wieder normal (für Viewer korrekt).
   onMount(() => {
     gateway.sendWatchJoin(channelId);
     return () => {
       if (detachedWatchParties.shouldSuppressLeave(channelId)) return;
+      if (inVoiceChannel(channelId)) return;
       gateway.sendWatchLeave(channelId);
     };
   });
@@ -194,7 +206,16 @@
   {chatOpen}
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
-  onHide={() => openedTiles.closeParty(channelId)}
+  onHide={() => {
+    // Explizites Schließen der Kachel per X: ein Zuschauer verlässt damit die
+    // Party aktiv (raus aus der Watcher-Registry), auch wenn er im Voice bleibt
+    // — im Gegensatz zu reinem UI-Wegnavigieren, das der inVoiceChannel-Guard im
+    // Unmount abfängt. Der Host behält seine Party (Host-sticky); für ihn ist das
+    // X nur Verstecken, kein Beenden. Der Unmount-Guard unterdrückt danach das
+    // doppelte watch_leave (er ist ja noch im Voice).
+    if (!isHost) gateway.sendWatchLeave(channelId);
+    openedTiles.closeParty(channelId);
+  }}
   {compact}
   {focused}
   {onToggleFocus}

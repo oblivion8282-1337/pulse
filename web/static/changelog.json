@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.4",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Watch-Party bricht beim Kanalwechsel nicht mehr ab",
+      "intro": "Eine Korrektur an Watch-Partys:",
+      "items": [
+        "Wechselst du als Host einer Watch-Party in der Ansicht zu einem Textkanal oder einer anderen Community, läuft die Party jetzt weiter. Bisher endete sie dabei.",
+        "Beendet wird sie weiterhin, sobald du den Sprachkanal verlässt oder in einen anderen Sprachkanal wechselst."
+      ]
+    },
+    {
       "id": "2026-06-08.3",
       "date": "2026-06-08",
       "style": "Sachlich",
