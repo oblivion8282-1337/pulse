@@ -17,7 +17,8 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import { BackupRequiredError } from '$lib/api/add-server-flow';
+  import { BackupRequiredError, SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -48,21 +49,48 @@
     return name.trim().charAt(0).toUpperCase();
   }
 
-  async function handleJoin() {
-    if (joining) return;
+  // Erstkontakt-Bestätigung für neue, unbekannte Self-Hosts.
+  let confirmOpen = $state(false);
+  let confirmHost = $state('');
+  let pendingInput = $state('');
+
+  async function doJoin(input: string, confirmed: boolean) {
     joining = true;
     try {
-      const input = host ? `https://app/invite/${code}?host=${encodeURIComponent(host)}` : code;
-      await joinGuildByInvite(input);
+      await joinGuildByInvite(input, confirmed);
     } catch (e) {
       // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler-Toast.
       if (e instanceof BackupRequiredError) return;
+      // Neuer, unbekannter Self-Host → Erstkontakt-Dialog zeigen, dann mit
+      // confirmed=true erneut beitreten (sonst bleibt der Beitritt still hängen).
+      if (e instanceof SelfHostContactConfirmRequired) {
+        confirmHost = e.hostname;
+        pendingInput = input;
+        confirmOpen = true;
+        return;
+      }
       toast.error(m.invite_embed_invalid(), {
         description: e instanceof Error ? e.message : undefined
       });
     } finally {
-      joining = false;
+      if (!confirmOpen) joining = false;
     }
+  }
+
+  function handleJoin() {
+    if (joining) return;
+    const input = host ? `https://app/invite/${code}?host=${encodeURIComponent(host)}` : code;
+    void doJoin(input, false);
+  }
+
+  function onConfirmContact() {
+    confirmOpen = false;
+    void doJoin(pendingInput, true);
+  }
+
+  function onCancelContact() {
+    confirmOpen = false;
+    joining = false;
   }
 </script>
 
@@ -124,3 +152,10 @@
     </Button>
   {/if}
 </div>
+
+<SelfHostContactConfirmDialog
+  open={confirmOpen}
+  hostname={confirmHost}
+  onConfirm={onConfirmContact}
+  onCancel={onCancelContact}
+/>
