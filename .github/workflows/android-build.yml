@@ -25,6 +25,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # secrets duerfen nicht direkt in step-if stehen -> hier auf einen env-Flag
+    # mappen und unten darauf pruefen.
+    env:
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +73,7 @@ jobs:
       # veroeffentlichen. Ohne sie wird dieser Block uebersprungen.
       - name: Release-APK bauen + signieren
         id: release
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
         working-directory: mobile/android
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
