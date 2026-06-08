@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.8",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Beitreten und Community-Bilder bei selbst gehosteten Servern",
+      "intro": "Zwei Korrekturen rund um selbst gehostete Server:",
+      "items": [
+        "Eine Einladung in eine Community auf einem selbst gehosteten Server lässt sich jetzt auch dann annehmen, wenn der Server bereits in deiner Liste steht. Bisher schlug der Beitritt in diesem Fall fehl.",
+        "Das Bild einer Community auf einem selbst gehosteten Server wird jetzt korrekt angezeigt, statt als kaputtes Bild zu erscheinen."
+      ]
+    },
+    {
       "id": "2026-06-08.7",
       "date": "2026-06-08",
       "style": "Sachlich",

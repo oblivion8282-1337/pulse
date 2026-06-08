@@ -13,6 +13,8 @@ import {
   selfHostContactConfirmed,
   markSelfHostContactConfirmed,
 } from '$lib/api/add-server-flow';
+import { certLogin } from '$lib/api/cert-login';
+import { sessionTokens } from '$lib/api/session_tokens.svelte';
 
 // ---------------------------------------------------------------------------
 // Parse helpers
@@ -119,7 +121,15 @@ async function joinByPublicHandle(
 
   const existing = serversStore.findByHostname(hostname);
   if (existing) {
-    // Server bereits bekannt → nur beitreten
+    // Server bereits bekannt — aber evtl. ohne echte Mitgliedschaft (Phantom-
+    // Eintrag). Wie im Invite-Pfad: ZUERST cert-login MIT dem ``public_join_handle``
+    // (gewährt Mitgliedschaft, falls die Community öffentlich ist; idempotent,
+    // falls schon Mitglied), DANN joinPublicCommunity.
+    const auth = await certLogin(existing.hostname, undefined, handle);
+    sessionTokens.set(existing.id, auth.session_token, Date.now() + auth.expires_in * 1000);
+    if (!existing.pairwise_sub) {
+      serversStore.update(existing.id, { pairwise_sub: auth.pairwise_sub });
+    }
     const result = await chatApi.joinPublicCommunity(handle, { serverId: existing.id });
     activeServer.set(existing.id);
     await navigateAfterJoin(result.guild.id, result.channel_id);
@@ -176,8 +186,21 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
     let serverId: string;
     const existing = serversStore.findByHostname(hostname);
     if (existing) {
-      // Server bekannt: Invite direkt dort akzeptieren
+      // Server bekannt — ABER der lokale Eintrag kann existieren, OHNE dass wir
+      // wirklich Instanz-Mitglied sind (Phantom-Eintrag aus einem abgebrochenen
+      // Erst-Join oder einem Account-Switch-Leak). ``acceptInvite`` braucht aber
+      // eine gültige Session, und der cert-login mintet die nur, wenn wir schon
+      // Mitglied sind ODER ein Grant-Code die Mitgliedschaft gewährt. Darum hier
+      // ZUERST ein cert-login MIT dem ``community_grant_code`` (heilt den
+      // Phantom-Eintrag; idempotent, falls schon Mitglied → member-Pfad im Gate),
+      // DANN acceptInvite. Ohne das scheitert ein Beitritt über einen bereits
+      // gelisteten Self-Host mit ``join_not_permitted``.
       serverId = existing.id;
+      const auth = await certLogin(existing.hostname, code);
+      sessionTokens.set(serverId, auth.session_token, Date.now() + auth.expires_in * 1000);
+      if (!existing.pairwise_sub) {
+        serversStore.update(serverId, { pairwise_sub: auth.pairwise_sub });
+      }
       const result = await acceptInvite(code, { serverId });
       await guilds.hydrate();
       if (result.channel_id) {

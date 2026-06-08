@@ -27,6 +27,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
+  import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
@@ -430,6 +431,7 @@
         {@const active = isActiveServer && activeGuildId === g.id}
         {@const guildChannels = isActiveServer ? (guildsStore.channelsByGuild[g.id] ?? []) : []}
         {@const guildMentioned = isActiveServer && !active && readState.hasGuildMentions(guildChannels.map((c) => c.id))}
+        {@const iconSrc = guildIconSrc(g.icon_url, server.hostname)}
         <ContextMenu.Root>
           <ContextMenu.Trigger>
             {#snippet child({ props })}
@@ -447,15 +449,15 @@
                         {...props}
                         {...tipProps}
                         class="relative flex size-12 items-center justify-center overflow-hidden rounded-2xl text-xs font-bold text-white transition-all md:size-10 hover:rounded-xl data-[active=true]:rounded-xl data-[active=true]:shadow-[0_0_8px_color-mix(in_oklab,var(--primary)_70%,transparent),0_0_22px_color-mix(in_oklab,var(--primary)_55%,transparent)]"
-                        style={g.icon_url?.startsWith('https://') || g.icon_url?.startsWith('/')
+                        style={iconSrc
                           ? ''
                           : 'background-image: linear-gradient(135deg in oklab, var(--accent-grad-from), var(--accent-grad-to));'}
                         data-active={active}
                         onclick={() => selectGuildFromServer(g, server.id)}
                         data-testid={`guild-${g.id}`}
                       >
-                        {#if g.icon_url}
-                          <img src={g.icon_url} alt={g.name} class="size-full object-cover" />
+                        {#if iconSrc}
+                          <img src={iconSrc} alt={g.name} class="size-full object-cover" />
                         {:else}
                           {initials(g.name)}
                         {/if}
