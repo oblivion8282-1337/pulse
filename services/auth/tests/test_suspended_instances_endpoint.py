@@ -33,7 +33,7 @@ class _FakeRedis:
         val = self._strings.get(key)
         return val.encode() if val is not None else None
 
-    async def set(self, key: str, value: str):
+    async def set(self, key: str, value: str, ex: int | None = None):
         self._strings[key] = value if isinstance(value, str) else value.decode()
 
     async def delete(self, *keys: str):

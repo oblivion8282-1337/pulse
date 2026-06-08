@@ -71,6 +71,7 @@ class StreamConfig:
     bitrate_override: int | None
     fps_override: int | None
     resolution_override: str | None
+    show_cursor: bool = True
 
 
 class StreamController:
@@ -279,6 +280,7 @@ class StreamController:
                 bitrate_override=bitrate_override,
                 fps_override=fps_override,
                 resolution_override=resolution_override,
+                show_cursor=show_cursor,
             )
             self._last_fps = None
             self._set_state("starting")
@@ -418,12 +420,20 @@ class StreamController:
         # Exit-Code merken *bevor* das stopped-Event feuert, damit control.py
         # ihn in das IPC-Event packen kann (Protokoll-Vertrag aus streaming/README.md).
         self._last_exit_code = exit_code
-        # Direkt auf "stopped" — KEIN Zwischen-"idle". Sonst sieht der Renderer
-        # state=idle → state=stopped, und UI die auf "idle" den Start-Button
-        # wieder freigibt würde kurz flackern. "error" überschreiben wir nicht.
-        if self._state != "error":
-            self._set_state("stopped")
+        # Zustandsübergang + Cleanup unter demselben Lock wie start() / stop(),
+        # damit ein paralleles stop() keine Race auf _state/_proc/_start_time hat.
+        # _set_state ruft keinen Lock → kein Deadlock. Callbacks werden erst
+        # *nach* dem Lock-Release gefeuert (on_log unten), da externe Callbacks
+        # nie unter Lock laufen sollen. on_state ist die Ausnahme: es wird in
+        # _set_state inline gerufen, aber _set_state selbst nimmt keinen Lock,
+        # sodass auch on_state→stop() keine Re-Entrancy auslöst (stop() greift
+        # nur lesend auf _proc ohne Lock).
         with self._lock:
+            # Direkt auf "stopped" — KEIN Zwischen-"idle". Sonst sieht der Renderer
+            # state=idle → state=stopped, und UI die auf "idle" den Start-Button
+            # wieder freigibt würde kurz flackern. "error" überschreiben wir nicht.
+            if self._state != "error":
+                self._set_state("stopped")
             self._proc = None
             self._start_time = None
         if self._on_log:

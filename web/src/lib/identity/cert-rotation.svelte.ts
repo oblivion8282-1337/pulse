@@ -51,6 +51,7 @@ async function doRotation(): Promise<void> {
     // Device-Label aus bestehendem Cert übernehmen
     const label = cert.claims.device_label ?? 'Renewed Device';
     const resp = await issueCert(pubkeyB64, label);
+    if (!_running) return; // Logout während des Netzwerk-Calls — Store-Write abbrechen
     const claims = parseCertClaims(resp.cert);
     if (!claims) return;
     const renewed: IdentityCert = { raw: resp.cert, claims };

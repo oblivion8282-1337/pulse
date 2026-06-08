@@ -18,7 +18,7 @@ import secrets
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -33,6 +33,11 @@ from dcc_auth.models_instances import (
 )
 from dcc_auth.models import User
 from dcc_auth.routes import _require_admin
+from dcc_auth.routes_suspended_instances import (
+    _get_redis,
+    suspended_list_add,
+    suspended_list_remove,
+)
 from dcc_auth.security import hash_password
 from dcc_auth.snowflake import next_id
 
@@ -373,6 +378,7 @@ async def list_instances(
 @router.delete("/instances/{instance_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def suspend_instance(
     instance_id: int,
+    request: Request,
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
     reason: Annotated[str | None, Query(max_length=500)] = None,
@@ -394,6 +400,11 @@ async def suspend_instance(
     )
     await session.commit()
 
+    # Bust the public suspended-instances cache so the next poll sees the change.
+    redis = await _get_redis(request)
+    if redis is not None:
+        await suspended_list_add(redis, instance_id, reason)
+
 
 # --------------------------------------------------------------------------- #
 # 6. POST /admin/instances/{id}/unsuspend                                       #
@@ -403,6 +414,7 @@ async def suspend_instance(
 @router.post("/instances/{instance_id}/unsuspend", status_code=status.HTTP_204_NO_CONTENT)
 async def unsuspend_instance(
     instance_id: int,
+    request: Request,
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
 ):
@@ -419,6 +431,11 @@ async def unsuspend_instance(
     if instance.suspended_entry is not None:
         await session.delete(instance.suspended_entry)
     await session.commit()
+
+    # Bust the public suspended-instances cache so the next poll sees the change.
+    redis = await _get_redis(request)
+    if redis is not None:
+        await suspended_list_remove(redis, instance_id)
 
 
 # --------------------------------------------------------------------------- #

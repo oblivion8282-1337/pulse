@@ -38,6 +38,11 @@ router = APIRouter()
 ZSET_KEY = "auth:revoked_certs"
 ETAG_KEY = "auth:revoked_certs:etag"
 
+# Safety-net TTL (seconds) for the derived ETag cache. The ZSET itself is the
+# source of truth (entries self-prune by score); the ETag is only a hint and
+# must not survive forever if a recompute is ever missed. 1h >> 60s max-age.
+_ETAG_TTL_SECONDS = 3600
+
 # Version string: PULSE_VERSION env → pyproject.toml fallback.
 _VERSION: str | None = None
 
@@ -140,7 +145,7 @@ async def revoked_credentials(
         cert_ids = await _prune_and_fetch_from_redis(redis)
         etag_str = _compute_etag(cert_ids)
         # Persist updated ETag (auto-prune may have shrunk the list).
-        await redis.set(ETAG_KEY, etag_str)
+        await redis.set(ETAG_KEY, etag_str, ex=_ETAG_TTL_SECONDS)
     else:
         # Slow path: no Redis, hit the DB.
         cert_ids = await _fetch_from_db(session)
@@ -189,6 +194,6 @@ async def _invalidate_etag_cache(redis) -> None:
         raw = await redis.zrange(ZSET_KEY, 0, -1)
         cert_ids = [m.decode() if isinstance(m, bytes) else m for m in raw]
         etag = _compute_etag(cert_ids)
-        await redis.set(ETAG_KEY, etag)
+        await redis.set(ETAG_KEY, etag, ex=_ETAG_TTL_SECONDS)
     except Exception:  # noqa: BLE001
         log.warning("crl: ETag cache invalidation failed")

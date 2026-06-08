@@ -319,6 +319,63 @@ async def test_create_dedupes_same_inviter_invitee_guild(
 
 
 @pytest.mark.asyncio
+async def test_reinvite_same_code_does_not_stack_card(
+    client, _auth_signer, friend_pair, session_factory
+):
+    """Re-invite mit IDENTISCHEM Code erzeugt genau EINE DM-Karte.
+
+    Bug N9: die alte Bedingung ``old_code and old_code != inv.code`` schloss
+    den Gleich-Code-Fall aus → ``_find_prior_invite_dm`` wurde nie gerufen →
+    zweite identische Karte wurde gepostet statt die bestehende zu finden.
+    """
+    from dcc_chat_gateway.models import DirectMessageChannel, Message
+    from sqlalchemy import select
+
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+
+    # Erster Invite mit Code SAME0000.
+    r1 = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, code="SAME0000"),
+        headers=auth(t_a),
+    )
+    assert r1.status_code == 201, r1.text
+
+    # Zweiter Invite mit IDENTISCHEM Code.
+    r2 = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, code="SAME0000"),
+        headers=auth(t_a),
+    )
+    assert r2.status_code == 201, r2.text
+
+    lo, hi = sorted((uid_a, uid_b))
+    async with session_factory() as s:
+        dm = (
+            await s.execute(
+                select(DirectMessageChannel).where(
+                    DirectMessageChannel.user_a_id == lo,
+                    DirectMessageChannel.user_b_id == hi,
+                )
+            )
+        ).scalars().first()
+        assert dm is not None
+        msgs = (
+            await s.execute(
+                select(Message).where(
+                    Message.channel_id == dm.id,
+                    Message.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+    # Genau eine Karte — keine Doppelung trotz identischem Code.
+    assert len(msgs) == 1
+    assert "SAME0000" in msgs[0].content
+
+
+@pytest.mark.asyncio
 async def test_reinvite_after_card_deleted_posts_fresh(
     client, _auth_signer, friend_pair, session_factory
 ):

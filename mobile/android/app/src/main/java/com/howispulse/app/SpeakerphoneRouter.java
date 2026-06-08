@@ -100,9 +100,21 @@ public class SpeakerphoneRouter {
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Nur eingreifen, wenn tatsächlich ein Kommunikations-Audiomodus
+                // läuft (Voice/WHEP-Audio). setCommunicationDevice ist ohnehin nur
+                // in MODE_IN_COMMUNICATION wirksam; bei jedem onResume ohne Call
+                // (reines Chatten) wäre der Aufruf ein No-op und könnte mit einer
+                // anderen App im Kommunikationsmodus kollidieren. Sobald Chromium
+                // den Modus tatsächlich auf COMMUNICATION schaltet, ruft der
+                // OnModeChangedListener apply() erneut — dann greift es.
+                if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
                 applyApi31();
             } else {
                 // API 24–30: deprecated, aber auf diesen Versionen der einzige Weg.
+                // Hier KEIN Mode-Gate: auf diesen Versionen gibt es keinen
+                // OnModeChangedListener (nur ab API 31 registriert), der einen nach
+                // onResume gestarteten Call nachträglich abfangen könnte. Daher
+                // weiter best-effort proaktiv setzen.
                 audioManager.setSpeakerphoneOn(true);
             }
         } catch (Exception e) {

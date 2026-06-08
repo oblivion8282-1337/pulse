@@ -102,7 +102,8 @@ async def _peek_token(redis: Redis, token: str) -> dict[str, Any] | None:
     """GET the token record without consuming it.
 
     Returns the parsed record dict, or None if the token is absent or unparseable.
-    Does NOT delete the key — call ``_consume_token`` after all validation passes.
+    Does NOT delete the key — call ``_consume_token_and_mark_active`` after all
+    validation passes.
     """
     if not token:
         return None
@@ -116,33 +117,55 @@ async def _peek_token(redis: Redis, token: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-async def _consume_token(redis: Redis, token: str) -> bool:
-    """Atomically consume (DEL) the token record.
+# Atomically consume (DEL) the token AND, only if it was still present, write
+# the ``stream:active`` publisher record in the SAME round-trip. This closes a
+# window where Redis could flap between the DEL and the active-write, leaving a
+# consumed token but no active record — the stream would then be invisible to
+# WHEP (404) with no error surfaced. Either both happen or neither does.
+# KEYS[1] = token key, KEYS[2] = active key.
+# ARGV[1] = active payload JSON, ARGV[2] = active TTL seconds.
+# Returns 1 if the token was consumed (this request won the single-use race),
+# 0 if it was already gone (concurrent consumer) — in which case the active
+# record is NOT written and the caller denies.
+_LUA_CONSUME_AND_MARK = """
+if redis.call('DEL', KEYS[1]) == 0 then
+    return 0
+end
+redis.call('SET', KEYS[2], ARGV[1], 'EX', tonumber(ARGV[2]))
+return 1
+"""
 
-    Returns True if the token was still present and is now deleted (this
-    request won the race), False if another concurrent request already consumed
-    it. Callers that get False should treat the auth as denied to enforce
-    single-use semantics even under concurrent retries.
+
+async def _consume_token_and_mark_active(
+    redis: Redis, token: str, channel_id: str, user_id: str, path: str
+) -> bool:
+    """Atomically consume the token and write the publisher-active record.
+
+    Returns True if the token was still present (this request won the single-use
+    race) and the active record was written; False if another concurrent request
+    already consumed it (then nothing is written). Callers that get False must
+    treat the auth as denied to enforce single-use semantics under concurrent
+    retries.
+
+    The active record (``user_id``/``started_at``/``path``) is set with an EX
+    TTL so a re-publish refreshes the self-heal window and overwrites ``path``
+    — media-svc's WHEP-URL lookup then always returns the latest publish's path
+    (with its per-session nonce).
     """
-    return bool(await redis.delete(TOKEN_KEY.format(token=token)))
-
-
-async def _mark_publisher_active(
-    redis: Redis, channel_id: str, user_id: str, path: str
-) -> None:
     settings = get_settings()
     payload = json.dumps(
         {"user_id": user_id, "started_at": datetime.now(UTC).isoformat(), "path": path},
         separators=(",", ":"),
     )
-    # SET EX — a re-publish refreshes the TTL (self-heal window stays bounded)
-    # and overwrites ``path`` so media-svc's WHEP-URL lookup always returns the
-    # latest publish's path (with its per-session nonce).
-    await redis.set(
+    consumed = await redis.eval(  # type: ignore[arg-type]
+        _LUA_CONSUME_AND_MARK,
+        2,
+        TOKEN_KEY.format(token=token),
         ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id),
         payload,
-        ex=settings.publisher_ttl_seconds,
+        str(settings.publisher_ttl_seconds),
     )
+    return bool(consumed)
 
 
 async def _handle(req: AuthRequest, redis: Redis) -> None:
@@ -183,11 +206,15 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
                 path=req.path,
                 token_nonce=rec.get("nonce"),
             )
-        # Step 2 — all checks passed; now atomically consume the token so that
-        # a concurrent request for the same token is denied (single-use).
-        if not await _consume_token(redis, req.credential):
+        # Step 2 — all checks passed; atomically consume the token AND write the
+        # publisher-active record in one round-trip, so a Redis flap can't leave
+        # a consumed token without an active record (which would 404 on WHEP).
+        # A False return means a concurrent request already consumed the token
+        # (single-use) → deny, with nothing written.
+        if not await _consume_token_and_mark_active(
+            redis, req.credential, channel_id, path_user_id, req.path
+        ):
             raise _deny("publish_token_already_consumed", path=req.path)
-        await _mark_publisher_active(redis, channel_id, path_user_id, req.path)
         log.info("auth_publish_ok", channel_id=channel_id, user_id=path_user_id, protocol=req.protocol)
         return  # 200
 

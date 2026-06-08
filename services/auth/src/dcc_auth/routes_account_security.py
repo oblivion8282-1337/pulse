@@ -74,7 +74,9 @@ async def change_password(
     settings = get_settings()
     await _check_rate(request, "password_change", settings.rate_limit_password_reset)
 
-    if not verify_password(payload.current_password, current.password_hash):
+    if not await asyncio.to_thread(
+        verify_password, payload.current_password, current.password_hash
+    ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="current password incorrect"
         )
@@ -129,7 +131,9 @@ async def request_email_change(
     settings = get_settings()
     await _check_rate(request, "email_change", settings.rate_limit_email_verify_send)
 
-    if not verify_password(payload.current_password, current.password_hash):
+    if not await asyncio.to_thread(
+        verify_password, payload.current_password, current.password_hash
+    ):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="current password incorrect"
         )

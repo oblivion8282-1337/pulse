@@ -84,7 +84,7 @@
           {@const isActive = activeTab === t.key}
           {@const badge =
             t.key === 'pending'
-              ? friendRequests.incomingList.length + friendRequests.outgoingList.length
+              ? friendRequests.incomingList.length
               : 0}
           <button
             type="button"

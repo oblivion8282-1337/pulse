@@ -226,7 +226,12 @@ async def totp_backup_regen(
     pw_ok = await asyncio.to_thread(verify_password, payload.password, current.password_hash)
     if not pw_ok:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
-    if not pyotp.TOTP(current.totp_secret).verify(payload.code, valid_window=1):
+    # Use the same replay-protected path as login (totp_last_counter check +
+    # bump) — a bare ``TOTP.verify`` would let an intercepted code be replayed
+    # here within its 30s window. ``backup_code=None`` forces the TOTP branch.
+    if not await _consume_second_factor(
+        session, current, code=payload.code, backup_code=None
+    ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid code")
 
     await session.execute(delete(BackupCode).where(BackupCode.user_id == current.id))

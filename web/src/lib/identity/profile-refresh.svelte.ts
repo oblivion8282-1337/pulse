@@ -37,6 +37,7 @@ let _running = false;
 async function doRefresh(): Promise<void> {
   try {
     const resp = await getProfileStatement();
+    if (!_running) return; // Logout während des Netzwerk-Calls — Store-Write abbrechen
     const claims = parseStatementClaims(resp.token);
     if (!claims) return; // ungültiges JWT — ignorieren, next Tick versucht es nochmal
     const statement: ProfileStatement = { raw: resp.token, claims };

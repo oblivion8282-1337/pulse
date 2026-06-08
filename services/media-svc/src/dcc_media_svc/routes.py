@@ -41,8 +41,8 @@ log = structlog.get_logger(__name__)
 # In-process per-user rate limiter for stream-token issuance.
 # Prevents a single user from flooding Redis with token keys.
 # Per-process only — for multi-worker deployments this should move to Redis.
-# Uses bucketing by 60-second windows to avoid O(N) full-dict scans.
-# {user_id: (window_start_monotonic, count)}
+# Uses a sliding-window-counter (two fixed buckets: current + previous) to
+# avoid O(N) full-dict scans while still approximating a true sliding window.
 # ---------------------------------------------------------------------------
 _TOKEN_RATE_LIMIT = 10   # max tokens per user per window
 _TOKEN_RATE_WINDOW = 60.0  # seconds
@@ -55,9 +55,13 @@ _token_rate_window_boundary = 0.0
 def _check_token_rate(user_id: int) -> bool:
     """Return True if the call is allowed, False if over budget.
 
-    Uses a two-bucket windowing scheme: current and previous windows.
-    On window boundary, the current bucket becomes previous and a new
-    current bucket is created. No full-dict scanning needed.
+    Sliding-window-counter: the request's effective count is the current
+    window's tally plus the previous window's tally weighted by the fraction
+    of the previous window that still overlaps the trailing 60 s
+    (``current + previous * (1 - elapsed/window)``). As the current window
+    fills, the previous window's contribution decays linearly to zero. This
+    closes the fixed-window boundary doubling (where a user could spend the
+    full budget at the end of one window and again at the start of the next).
     """
     global _token_rate_window_boundary, _token_rate_buckets_current, _token_rate_buckets_previous
     now = monotonic()
@@ -66,16 +70,23 @@ def _check_token_rate(user_id: int) -> bool:
 
     # If we've moved to a new window, rotate the buckets.
     if window_boundary != _token_rate_window_boundary:
+        # A multi-window jump (idle user) leaves the old "previous" bucket
+        # fully stale → drop it rather than carry forward an ancient tally.
+        if window_boundary - _token_rate_window_boundary > _TOKEN_RATE_WINDOW:
+            _token_rate_buckets_previous = {}
+        else:
+            _token_rate_buckets_previous = _token_rate_buckets_current
         _token_rate_window_boundary = window_boundary
-        _token_rate_buckets_previous = _token_rate_buckets_current
         _token_rate_buckets_current = {}
 
-    # Count tokens in current window only. Entries in the previous window
-    # are from the *previous* 60-second slot and are stale for a new request.
-    count = _token_rate_buckets_current.get(user_id, 0)
-    if count >= _TOKEN_RATE_LIMIT:
+    elapsed = now - window_boundary
+    prev_weight = 1.0 - (elapsed / _TOKEN_RATE_WINDOW)
+    current = _token_rate_buckets_current.get(user_id, 0)
+    previous = _token_rate_buckets_previous.get(user_id, 0)
+    weighted = current + previous * prev_weight
+    if weighted >= _TOKEN_RATE_LIMIT:
         return False
-    _token_rate_buckets_current[user_id] = count + 1
+    _token_rate_buckets_current[user_id] = current + 1
     return True
 
 router = APIRouter()

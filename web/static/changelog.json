@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.7",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Weitere Korrekturen und Härtung im Hintergrund",
+      "intro": "Eine Reihe kleinerer Fehlerbehebungen und Stabilitätsverbesserungen:",
+      "items": [
+        "Schickt dir jemand dieselbe Community-Einladung noch einmal, wird die vorhandene Beitreten-Karte aktualisiert, statt eine zweite zu posten.",
+        "Die Anzeige offener Freundschaftsanfragen ist einheitlicher: Der Hinweispunkt am Home-Symbol und das Badge am Tab „Ausstehend“ zählen jetzt beide nur die eingehenden Anfragen.",
+        "Auf dem Handy kommt der Ton im Sprachkanal noch zuverlässiger über den Lautsprecher.",
+        "Dazu mehrere unsichtbare Verbesserungen an Stabilität und Sicherheit."
+      ]
+    },
+    {
       "id": "2026-06-08.6",
       "date": "2026-06-08",
       "style": "Sachlich",

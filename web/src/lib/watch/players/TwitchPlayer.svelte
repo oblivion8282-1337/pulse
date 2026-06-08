@@ -19,6 +19,40 @@
   Twitch's Embed API has no `setPlaybackRate` — our handle implements it as a
   no-op; the drift corrector falls back to hard seeks on VODs.
 -->
+<script module lang="ts">
+  // Module-level singleton load of the Twitch Embed API. Re-entries return the
+  // existing promise so we never inject the script twice.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let moduleApiPromise: Promise<any> | undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function loadApi(): Promise<any> {
+    if (moduleApiPromise) return moduleApiPromise;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    if (w.Twitch?.Player) {
+      moduleApiPromise = Promise.resolve(w.Twitch);
+      return moduleApiPromise;
+    }
+    moduleApiPromise = new Promise((resolve) => {
+      const existing = document.querySelector<HTMLScriptElement>(
+        'script[src="https://embed.twitch.tv/embed/v1.js"]'
+      );
+      const onLoad = () => resolve(w.Twitch);
+      if (existing) {
+        existing.addEventListener('load', onLoad, { once: true });
+        return;
+      }
+      const s = document.createElement('script');
+      s.src = 'https://embed.twitch.tv/embed/v1.js';
+      s.async = true;
+      s.addEventListener('load', onLoad, { once: true });
+      document.head.appendChild(s);
+    });
+    return moduleApiPromise;
+  }
+</script>
+
 <script lang="ts">
   import { untrack } from 'svelte';
   import type {
@@ -43,36 +77,6 @@
   let mount = $state<HTMLDivElement | undefined>();
   const elementId = `twitch-player-${Math.random().toString(36).slice(2)}`;
   const isLive = $derived(source.type === 'twitch_live');
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let apiPromise: Promise<any> | undefined;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  function loadApi(): Promise<any> {
-    if (apiPromise) return apiPromise;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const w = window as any;
-    if (w.Twitch?.Player) {
-      apiPromise = Promise.resolve(w.Twitch);
-      return apiPromise;
-    }
-    apiPromise = new Promise((resolve) => {
-      const existing = document.querySelector<HTMLScriptElement>(
-        'script[src="https://embed.twitch.tv/embed/v1.js"]'
-      );
-      const onLoad = () => resolve(w.Twitch);
-      if (existing) {
-        existing.addEventListener('load', onLoad, { once: true });
-        return;
-      }
-      const s = document.createElement('script');
-      s.src = 'https://embed.twitch.tv/embed/v1.js';
-      s.async = true;
-      s.addEventListener('load', onLoad, { once: true });
-      document.head.appendChild(s);
-    });
-    return apiPromise;
-  }
 
   $effect(() => {
     if (!mount) return;

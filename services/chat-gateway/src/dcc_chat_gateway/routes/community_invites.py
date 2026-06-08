@@ -142,7 +142,7 @@ async def _send_invite_dm(
         dm = await ensure_dm_channel(session, inv.inviter_id, inv.invitee_id)
         prior = (
             await _find_prior_invite_dm(session, dm.id, inv.inviter_id, old_code)
-            if old_code and old_code != inv.code
+            if old_code
             else None
         )
         if prior is not None:

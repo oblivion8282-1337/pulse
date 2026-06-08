@@ -37,6 +37,11 @@ router = APIRouter()
 _ETAG_KEY = "auth:suspended_instances:etag"
 _BODY_KEY = "auth:suspended_instances:body"
 
+# Safety-net TTL (seconds): the cache is invalidated explicitly on every
+# suspend/unsuspend, but a lost invalidation must not pin a stale list forever.
+# 1h is well above the 60s public max-age and bounds any drift.
+_CACHE_TTL_SECONDS = 3600
+
 
 # ---------------------------------------------------------------------------
 # Redis helpers
@@ -167,8 +172,8 @@ async def suspended_instances(
         ids, updated_at = await _fetch_from_db(session)
         etag_str = _compute_etag(ids, updated_at)
         body = _build_body(ids, updated_at)
-        await redis.set(_ETAG_KEY, etag_str)
-        await redis.set(_BODY_KEY, json.dumps(body))
+        await redis.set(_ETAG_KEY, etag_str, ex=_CACHE_TTL_SECONDS)
+        await redis.set(_BODY_KEY, json.dumps(body), ex=_CACHE_TTL_SECONDS)
     else:
         # No Redis — compute from DB every time
         ids, updated_at = await _fetch_from_db(session)

@@ -12,10 +12,11 @@ reset call.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from sqlalchemy import or_, select, update
 
 from dcc_auth.config import get_settings
@@ -23,7 +24,8 @@ from dcc_auth.db import SessionDep
 from dcc_auth.email import (
     compose_password_reset_email,
     issue_verification_email,
-    send_email,
+    resolve_smtp_config,
+    send_email_with,
 )
 from dcc_auth.models import (
     EmailVerificationToken,
@@ -41,7 +43,29 @@ from dcc_auth.schemas import (
 )
 from dcc_auth.security import hash_password
 
+log = logging.getLogger(__name__)
+
 router = APIRouter()
+
+
+async def _send_reset_email_bg(cfg, to: str, subject: str, body: str) -> None:
+    """Background mail send — failures are logged, never re-raised.
+
+    Runs AFTER the 204 has gone out, so neither the status code nor the
+    response latency can betray whether the account exists. A flaky SMTP
+    relay therefore can't turn a forgot-password request for a real user
+    into a 500 (and a missing user into a 204) — the enumeration oracle.
+
+    ``cfg`` is the SMTP config resolved while the request session was still
+    open (DB-first); ``None`` means no SMTP configured → the send is skipped
+    just like the inline ``send_email`` no-SMTP path did.
+    """
+    try:
+        if cfg is None:
+            return  # no SMTP configured — nothing to send (matches send_email)
+        await send_email_with(cfg, to, subject, body)
+    except Exception:  # noqa: BLE001
+        log.warning("password_reset_email_failed for %s", to, exc_info=True)
 
 
 # ---- Password-reset -----------------------------------------------------
@@ -52,14 +76,16 @@ async def password_forgot(
     payload: PasswordForgotIn,
     request: Request,
     session: SessionDep,
+    background_tasks: BackgroundTasks,
 ) -> Response:
     """Always 204 — existence of the account is NOT leaked.
 
     If a user matches, we invalidate every still-active reset token for that
     user (so an attacker re-requesting can't keep the previous URL live) and
-    email a fresh one. The mail send is awaited inline; failures bubble as
-    500 only when SMTP is configured — without SMTP the body lands in the
-    service log instead.
+    email a fresh one. The mail send runs in a ``BackgroundTasks`` task AFTER
+    the response is sent — so neither the 204 nor the response latency reveals
+    whether the account exists, even if SMTP fails (failures are logged, never
+    surfaced as a 500). Disabled/suspended accounts are treated as non-existent.
     """
     settings = get_settings()
     await _check_rate(request, "password_forgot", settings.rate_limit_password_forgot)
@@ -71,7 +97,7 @@ async def password_forgot(
         )
     ).scalar_one_or_none()
 
-    if user is None or user.disabled:
+    if user is None or user.disabled or user.is_suspended:
         # Enumeration guard: same 204 either way + don't issue a token.
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -98,7 +124,11 @@ async def password_forgot(
 
     reset_url = f"{settings.app_base_url.rstrip('/')}/reset-password/{plaintext}"
     subject, body = compose_password_reset_email(user.email, reset_url)
-    await send_email(user.email, subject, body, session=session)
+    # Resolve SMTP config while the session is still open (DB-first), then hand
+    # the send off to a background task so a slow/failing relay never delays or
+    # changes the response. ``None`` → no SMTP configured → background no-op.
+    cfg = await resolve_smtp_config(session)
+    background_tasks.add_task(_send_reset_email_bg, cfg, user.email, subject, body)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -127,7 +157,7 @@ async def password_reset(
         )
 
     user = await session.get(User, row.user_id)
-    if user is None or user.disabled:
+    if user is None or user.disabled or user.is_suspended:
         from fastapi import HTTPException
 
         raise HTTPException(

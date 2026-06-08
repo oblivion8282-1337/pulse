@@ -28,6 +28,7 @@ paths can never disagree on naming or screen-share/camera detection.
 from __future__ import annotations
 
 import asyncio
+import json
 
 import structlog
 from redis.asyncio import Redis
@@ -48,26 +49,61 @@ log = structlog.get_logger(__name__)
 _KEY_PREFIX = "voice:room:"
 _SCAN_PATTERN = f"{_KEY_PREFIX}channel-*"
 
+# Atomically rewrite the presence, streaming AND camera sets for one room in a
+# single round-trip, so a concurrent ``_publish_state`` can never observe a
+# partially-rewritten snapshot (e.g. the new presence set with the old
+# streaming set, yielding streaming_user_ids that contain a user absent from
+# user_ids). Each set is replaced wholesale: DEL, then SADD the desired members
+# (decoded from a JSON array argument), then a plain non-NX EXPIRE. An empty
+# target leaves the key deleted — mirroring the webhook's leave-empty +
+# room_finished behaviour, where an absent key reads as "nobody".
+#
+# KEYS[1] = presence set, KEYS[2] = streaming set, KEYS[3] = camera set.
+# ARGV[1..3] = JSON arrays of member strings for KEYS[1..3].
+# ARGV[4] = TTL seconds (applied to whichever keys end up non-empty).
+_LUA_SET_EXACT_TRIPLE = """
+local ttl = tonumber(ARGV[4])
+for i = 1, 3 do
+    redis.call('DEL', KEYS[i])
+    local members = cjson.decode(ARGV[i])
+    if #members > 0 then
+        redis.call('SADD', KEYS[i], unpack(members))
+        redis.call('EXPIRE', KEYS[i], ttl)
+    end
+end
+return 0
+"""
 
-async def _set_exact(redis: Redis, key: str, members: set[str], ttl_seconds: int) -> None:
-    """Make ``key`` hold exactly ``members`` (atomically), with a fresh TTL.
 
-    Empty target → delete the key, mirroring the webhook's leave-empty +
-    room_finished behaviour (an absent key reads as "nobody"). The DEL+SADD
-    runs in a MULTI transaction so a concurrent ``_publish_state`` never sees
-    a half-written set.
+async def _set_exact_triple(
+    redis: Redis,
+    presence_key: str,
+    streaming_key_: str,
+    camera_key_: str,
+    members: set[str],
+    streaming: set[str],
+    camera: set[str],
+    ttl_seconds: int,
+) -> None:
+    """Rewrite all three per-room sets atomically (single Lua round-trip).
+
+    Plain (non-NX) EXPIRE: reconcile is now the authority, so refreshing the
+    TTL every pass is correct — a set only expires if reconcile itself stops
+    running (backstop), not while a channel stays occupied. Doing the three
+    rewrites in one Lua script (vs. three separate transactions) closes the
+    window in which a reader could see a mismatched mix of old/new sets.
     """
-    if not members:
-        await redis.delete(key)
-        return
-    pipe = redis.pipeline(transaction=True)
-    pipe.delete(key)
-    pipe.sadd(key, *members)
-    # Plain (non-NX) expire: reconcile is now the authority, so refreshing the
-    # TTL every pass is correct — the set only expires if reconcile itself
-    # stops running (backstop), not while a channel stays occupied.
-    pipe.expire(key, ttl_seconds)
-    await pipe.execute()
+    await redis.eval(  # type: ignore[arg-type]
+        _LUA_SET_EXACT_TRIPLE,
+        3,
+        presence_key,
+        streaming_key_,
+        camera_key_,
+        json.dumps(sorted(members), separators=(",", ":")),
+        json.dumps(sorted(streaming), separators=(",", ":")),
+        json.dumps(sorted(camera), separators=(",", ":")),
+        str(ttl_seconds),
+    )
 
 
 async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str, int]:
@@ -101,9 +137,16 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
                     streaming.add(uid)
                 elif _is_camera(track):
                     camera.add(uid)
-        await _set_exact(redis, room_key(room_name), members, ttl_seconds)
-        await _set_exact(redis, streaming_key(room_name), streaming, ttl_seconds)
-        await _set_exact(redis, camera_key(room_name), camera, ttl_seconds)
+        await _set_exact_triple(
+            redis,
+            room_key(room_name),
+            streaming_key(room_name),
+            camera_key(room_name),
+            members,
+            streaming,
+            camera,
+            ttl_seconds,
+        )
         await _publish_state(redis, room_name, cid)
 
     # Clear ghost channels: a ``voice:room:channel-<id>`` set still in Redis

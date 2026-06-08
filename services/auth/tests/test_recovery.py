@@ -41,6 +41,23 @@ async def test_password_forgot_returns_204_for_missing_user(client):
 
 
 @pytest.mark.asyncio
+async def test_password_forgot_suspended_user_is_silent(client, session_factory):
+    """A suspended account must be indistinguishable from a non-existent one:
+    204, and crucially NO reset token issued (it could otherwise be redeemed)."""
+    await _register(client)
+    async with session_factory() as s:
+        user = (await s.execute(select(User))).scalar_one()
+        user.is_suspended = True
+        await s.commit()
+
+    r = await client.post("/password/forgot", json={"email_or_username": REG["email"]})
+    assert r.status_code == 204
+    async with session_factory() as s:
+        rows = (await s.execute(select(PasswordResetToken))).scalars().all()
+        assert rows == []  # no token leaked for a suspended account
+
+
+@pytest.mark.asyncio
 async def test_password_forgot_creates_token_and_invalidates_old(client, session_factory):
     await _register(client)
 
@@ -303,6 +320,31 @@ async def _enable_2fa(client, bearer) -> str:
     r = await client.post("/totp/verify-setup", json={"code": code}, headers=bearer)
     assert r.status_code == 200
     return setup["secret"]
+
+
+@pytest.mark.asyncio
+async def test_backup_regen_rejects_replayed_totp_code(client):
+    """The same live TOTP code must not pass /totp/backup-codes/regenerate
+    twice — replay protection (totp_last_counter) applies here as in login."""
+    tokens = await _register(client)
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+    secret = await _enable_2fa(client, bearer)
+
+    code = pyotp.TOTP(secret).now()
+    r1 = await client.post(
+        "/totp/backup-codes/regenerate",
+        json={"password": REG["password"], "code": code},
+        headers=bearer,
+    )
+    assert r1.status_code == 200, r1.text
+
+    # Replay the exact same code in the same window → must be rejected.
+    r2 = await client.post(
+        "/totp/backup-codes/regenerate",
+        json={"password": REG["password"], "code": code},
+        headers=bearer,
+    )
+    assert r2.status_code == 401
 
 
 @pytest.mark.asyncio
