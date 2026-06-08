@@ -32,7 +32,7 @@
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="changelog-dialog" class="max-h-[80vh] overflow-y-auto">
     <Dialog.Header>
-      <Dialog.Title>Was ist neu? ✨</Dialog.Title>
+      <Dialog.Title>Was ist neu?</Dialog.Title>
       <Dialog.Description>Frisch aktualisiert — hier die Neuigkeiten.</Dialog.Description>
     </Dialog.Header>
 
@@ -69,7 +69,7 @@
     </div>
 
     <Dialog.Footer>
-      <Button onclick={onClose} data-testid="changelog-close">Cool, weiter! 🎉</Button>
+      <Button onclick={onClose} data-testid="changelog-close">Verstanden</Button>
     </Dialog.Footer>
   </Dialog.Content>
 </Dialog.Root>

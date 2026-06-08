@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Globale Freunde und ein neues Einladungs-Modell",
+      "intro": "Mehrere Änderungen rund um Freunde und das Beitreten zu Communities:",
+      "items": [
+        "Deine Freundesliste ist jetzt überall gleich — eine Liste, unabhängig davon, auf welchem Server du gerade bist.",
+        "Leute lädst du jetzt aus deiner Freundesliste in eine Community ein. Sie bekommen eine Beitreten-Karte und treten mit einem Klick bei. Kopierbare Einladungslinks gibt es nicht mehr.",
+        "Öffentliche Communities haben eine feste Adresse, die du teilen kannst. Wer beitreten möchte, gibt sie unter „Community beitreten“ ein."
+      ],
+      "outro": "Bestehende Communities und Mitgliedschaften bleiben unverändert."
+    },
+    {
       "id": "2026-06-07.2",
       "date": "2026-06-07",
       "style": "Wetterbericht",

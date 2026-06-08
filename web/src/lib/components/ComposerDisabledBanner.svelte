@@ -5,6 +5,7 @@
   field. Displayed by ChatView when composerDisabled === true.
 -->
 <script lang="ts">
+  import LockIcon from '@lucide/svelte/icons/lock';
   import { m } from '$lib/paraglide/messages.js';
 
   let { reason }: { reason: string } = $props();
@@ -23,6 +24,6 @@
   data-testid="composer-disabled-banner"
   role="status"
 >
-  <span class="text-text-muted text-lg">🔒</span>
+  <LockIcon class="text-text-muted size-4 shrink-0" aria-hidden="true" />
   <p class="text-text-muted text-sm">{text}</p>
 </div>
