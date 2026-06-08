@@ -1,0 +1,113 @@
+name: android-build
+
+# Baut die Android-APK (Capacitor-Wrapper um howispulse.com, com.howispulse.app)
+# und stellt sie bereit: immer als Workflow-Artefakt (Debug), und falls die
+# Keystore-Secrets gesetzt sind zusaetzlich als signierte Release-APK per scp auf
+# den Cloud-VPS unter https://howispulse.com/downloads/. Gleiches SSH-Deploy-Muster
+# wie win-build.yml / flatpak.yml (selbe VPS-Secrets).
+#
+# Der Wrapper laedt das Web-Frontend remote (server.url = howispulse.com/app), die
+# APK buendelt KEINE Web-Assets — nur native AEnderungen (z.B. SpeakerphoneRouter)
+# brauchen einen Rebuild. Laeuft bei main-Pushes, die mobile/ beruehren.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - '.github/workflows/android-build.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: android-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Capacitor 8 verlangt JDK 21 (JDK 17 -> "invalid source release: 21").
+      - name: JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+
+      # cap sync schreibt die capacitor.config + Plugin-Verdrahtung nach
+      # android/. Braucht die mobile/-Dependencies. Best-effort: bei einem reinen
+      # nativen Fix ist das android/-Verzeichnis schon konsistent, aber sync haelt
+      # es robust gegen kuenftige Plugin-/Config-AEnderungen.
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Capacitor sync
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: Debug-APK bauen
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Debug-APK als Workflow-Artefakt
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulse-android-debug
+          path: mobile/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # --- Optionaler signierter Release-Pfad (nur wenn Keystore-Secrets da) ---
+      # Setze die vier Secrets, um eine signierte Release-APK zu erzeugen + zu
+      # veroeffentlichen. Ohne sie wird dieser Block uebersprungen.
+      - name: Release-APK bauen + signieren
+        id: release
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: mobile/android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASS: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > /tmp/release.keystore
+          ./gradlew assembleRelease --no-daemon --stacktrace
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          UNSIGNED=app/build/outputs/apk/release/app-release-unsigned.apk
+          ALIGNED=/tmp/pulse-release-aligned.apk
+          "$BT/zipalign" -f 4 "$UNSIGNED" "$ALIGNED"
+          "$BT/apksigner" sign --ks /tmp/release.keystore \
+            --ks-pass "pass:$KS_PASS" --ks-key-alias "$KEY_ALIAS" \
+            --key-pass "pass:$KEY_PASS" --out /tmp/pulse-release.apk "$ALIGNED"
+          rm -f /tmp/release.keystore
+
+      - name: SSH fuer scp einrichten
+        if: ${{ steps.release.conclusion == 'success' }}
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 644 ~/.ssh/known_hosts
+
+      # Stabiler Direktdownload: https://howispulse.com/downloads/pulse-latest.apk
+      - name: Release-APK nach howispulse hochladen
+        if: ${{ steps.release.conclusion == 'success' }}
+        shell: bash
+        run: |
+          scp -i ~/.ssh/id_ed25519 /tmp/pulse-release.apk \
+            michael@159.195.150.54:pulse/downloads/pulse-latest.apk
+
+      - name: SSH-Key entfernen
+        if: always()
+        shell: bash
+        run: rm -f ~/.ssh/id_ed25519
