@@ -256,14 +256,19 @@
   }
 
   function authorName(m: Message): string {
-    if (auth.user && m.author_id === auth.user.id) {
+    // Eigene Nachrichten gegen ``myId`` matchen, NICHT gegen ``auth.user.id``:
+    // im Self-Host ist die eigene ``author_id`` die server-lokale ID (pairwise),
+    // nicht die Cloud-ID. ``myId`` ist DM→Cloud-ID, sonst die server-lokale ID
+    // (currentServerUserId). Ohne das fällt der eigene Name auf den leeren
+    // userCache durch → „…".
+    if (auth.user && m.author_id === myId) {
       return auth.user.display_name ?? auth.user.username;
     }
     return userCache.displayName(m.author_id);
   }
 
   function avatarUrl(m: Message): string | null {
-    const raw = auth.user && m.author_id === auth.user.id
+    const raw = auth.user && m.author_id === myId
       ? auth.user.avatar_url
       : (userCache.get(m.author_id)?.avatar_url ?? null);
     return safeAvatarUrl(raw);

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.9",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Eigener Name in Textkanälen selbst gehosteter Server",
+      "intro": "Eine Korrektur für selbst gehostete Server:",
+      "items": [
+        "In Textkanälen auf einem selbst gehosteten Server wurde bei deinen eigenen Nachrichten statt deines Namens nur „…“ angezeigt. Jetzt steht dort wieder dein Name."
+      ]
+    },
+    {
       "id": "2026-06-08.8",
       "date": "2026-06-08",
       "style": "Sachlich",
