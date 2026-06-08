@@ -73,11 +73,17 @@ class CommunityInvite(Base):
         # Pending-list lookup for the invitee (newest first).
         Index("ix_community_invites_invitee", "invitee_id", "created_at"),
         # Dedupe / rate-context lookup: one inviter → one invitee → one guild.
+        # UNIQUE: the broker collapses repeat invites onto a single row, and the
+        # DB constraint is the only thing that makes that race-safe — two
+        # near-simultaneous POSTs (a double-clicked button) would otherwise each
+        # insert a row and stack two "Beitreten"-Karten. With the unique index
+        # the loser's INSERT raises IntegrityError, which the route catches.
         Index(
             "ix_community_invites_dedupe",
             "inviter_id",
             "invitee_id",
             "target_guild_id",
+            unique=True,
         ),
         # Sweeper scan over expiring rows.
         Index("ix_community_invites_expires", "expires_at"),

@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.6",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Mehrere Korrekturen",
+      "intro": "Kleinere Fehlerbehebungen in dieser Version:",
+      "items": [
+        "Lädst du jemanden schnell mehrfach in dieselbe Community ein, entsteht jetzt nur noch eine Beitreten-Karte statt mehrerer.",
+        "Beim Wechsel zwischen Servern bleiben deine Freunde verlässlich als online angezeigt.",
+        "Auf dem Handy kommt der Ton im Sprachkanal zuverlässig über den Lautsprecher — auch wenn USB-Zubehör wie ein Ladeadapter angeschlossen ist."
+      ],
+      "outro": "Bestehende Konten und Mitgliedschaften bleiben unverändert."
+    },
+    {
       "id": "2026-06-08.5",
       "date": "2026-06-08",
       "style": "Sachlich",

@@ -132,9 +132,17 @@ public class SpeakerphoneRouter {
     }
 
     /**
-     * True, wenn ein externes Audio-Ausgabegerät (kabelgebundenes Headset,
-     * USB-Audio, Bluetooth A2DP/SCO, Hörgerät) angeschlossen ist. In dem Fall
-     * soll der Ton dort bleiben und NICHT auf den Lautsprecher gezwungen werden.
+     * True, wenn ein echtes externes Audio-AUSGABEGERÄT (kabelgebundenes
+     * Headset/Kopfhörer, USB-Headset, Bluetooth A2DP/SCO, Hörgerät) angeschlossen
+     * ist. In dem Fall soll der Ton dort bleiben und NICHT auf den Lautsprecher
+     * gezwungen werden.
+     *
+     * BEWUSST OHNE {@code TYPE_USB_DEVICE}: dieser generische Typ taucht je nach
+     * OEM auch für USB-Peripherie OHNE Audiofunktion auf (OTG-Adapter, Lade-Hubs,
+     * Tastaturen). Würden wir ihn mitzählen, bräche {@link #apply()} ab und der
+     * Voice-Ton bliebe in der leisen Hörmuschel, sobald irgendein USB-Gerät
+     * steckt. Ein echtes USB-Audiogerät meldet sich als {@code TYPE_USB_HEADSET}
+     * (das bleibt drin) bzw. wird ohnehin zum aktiven Kommunikationsgerät.
      */
     private boolean hasExternalAudioRoute() {
         if (audioManager == null) return false;
@@ -145,7 +153,6 @@ public class SpeakerphoneRouter {
                 case AudioDeviceInfo.TYPE_WIRED_HEADSET:
                 case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
                 case AudioDeviceInfo.TYPE_USB_HEADSET:
-                case AudioDeviceInfo.TYPE_USB_DEVICE:
                 case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
                 case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
                 case AudioDeviceInfo.TYPE_HEARING_AID:

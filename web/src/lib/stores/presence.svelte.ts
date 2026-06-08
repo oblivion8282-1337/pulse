@@ -72,6 +72,17 @@ class PresenceStore {
   }
 
   isOnline(userId: string): boolean {
+    // Den autoritativen Status-Map ZUERST konsultieren: ``onlineIds`` ist die
+    // server-lokale Legacy-Menge, die ``seed()`` bei jedem ready komplett
+    // ersetzt — ein Switch auf einen Self-Host (dessen ready ``seed`` mit den
+    // Self-Host-pairwise-IDs aufruft) würde sonst die Cloud-Freunde aus
+    // ``onlineIds`` werfen, obwohl ihr Online-Status in ``statuses`` (Cloud-
+    // seedStatuses/applyStatusChange) weiter korrekt ist. ID-Räume sind
+    // disjunkt (Cloud-IDs vs. pairwise), also ist das Vorziehen kollisionsfrei.
+    // Self-Host-Guild-Mitglieder stehen nicht in ``statuses`` → Fallback auf die
+    // (für den aktiven Server frisch geseedete) Legacy-Menge.
+    const status = this.statuses[userId];
+    if (status !== undefined) return status !== 'offline';
     return this.onlineIds.has(userId);
   }
 

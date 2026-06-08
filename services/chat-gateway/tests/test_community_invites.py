@@ -381,6 +381,41 @@ async def test_reinvite_after_card_deleted_posts_fresh(
     assert "NEW00000" in live[0].content
 
 
+@pytest.mark.asyncio
+async def test_unique_dedupe_index_rejects_duplicate_triple(session_factory):
+    """The dedupe index is UNIQUE — the DB itself rejects a second row for the
+    same (inviter, invitee, guild). That's what makes the broker's collapse
+    race-safe: a concurrent double-POST can't stack two rows / two cards (the
+    route catches the resulting IntegrityError and resolves to the winner's
+    row). Guards against the model index silently losing ``unique=True``."""
+    from sqlalchemy.exc import IntegrityError
+
+    from dcc_chat_gateway.models import CommunityInvite
+    from dcc_chat_gateway.snowflake import next_id
+
+    def _row() -> CommunityInvite:
+        return CommunityInvite(
+            id=next_id(),
+            inviter_id=111,
+            invitee_id=222,
+            target_host="pulse.firma.de",
+            target_instance_id=100,
+            target_guild_id=42,
+            target_guild_name="Cool Community",
+            code="ABCD1234",
+        )
+
+    async with session_factory() as s:
+        s.add(_row())
+        await s.commit()
+
+    # Same triple, fresh id → the unique index must reject the second insert.
+    async with session_factory() as s:
+        s.add(_row())
+        with pytest.raises(IntegrityError):
+            await s.commit()
+
+
 # ---- rate limit ------------------------------------------------------------
 
 

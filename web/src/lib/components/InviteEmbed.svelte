@@ -54,7 +54,17 @@
   let confirmHost = $state('');
   let pendingInput = $state('');
 
+  // Harte Reentrancy-Sperre (NICHT reaktiv): garantiert, dass nie zwei
+  // ``doJoin``-Flows gleichzeitig laufen. ``joining`` steuert nur die Button-
+  // Optik und wird im BackupRequiredError-/Cancel-Fall früh zurückgesetzt
+  // (Button wieder klickbar zum Retry) — ohne diese Sperre könnte ein Klick im
+  // Schließ-Animationsfenster des Backup-Gate-Dialogs einen zweiten
+  // Cert-Login-Flow anstoßen.
+  let busy = false;
+
   async function doJoin(input: string, confirmed: boolean) {
+    if (busy) return;
+    busy = true;
     joining = true;
     try {
       await joinGuildByInvite(input, confirmed);
@@ -73,6 +83,7 @@
         description: e instanceof Error ? e.message : undefined
       });
     } finally {
+      busy = false;
       if (!confirmOpen) joining = false;
     }
   }

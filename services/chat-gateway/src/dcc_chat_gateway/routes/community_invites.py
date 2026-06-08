@@ -32,8 +32,8 @@ from urllib.parse import quote
 
 from dcc_shared.events import DmBumpEvent, MessageUpdateEvent
 from fastapi import APIRouter, HTTPException, Request, status
-from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
@@ -249,40 +249,70 @@ async def create_community_invite(
         )
 
     # Dedupe: collapse a repeat invite (same inviter→invitee→guild) onto a
-    # single live row so a spammed "invite" button can't pile up cards. We
-    # read the prior row's code first (to rewrite its DM card in place rather
-    # than stack a second one), then delete it and insert the fresh one — the
-    # newest code/expiry wins (the host may have minted a new invite).
-    prior_code = (
+    # single live row so a spammed "invite" button can't pile up cards.
+    #
+    # Race-safe: ``SELECT … FOR UPDATE`` locks an existing triple, so two
+    # concurrent re-invites serialise (the second blocks until the first
+    # commits, then rewrites the SAME row + card). For the first-ever invite
+    # there is no row to lock — two concurrent inserts can both pass the SELECT,
+    # but the UNIQUE ``ix_community_invites_dedupe`` index then rejects the
+    # loser's INSERT (IntegrityError, caught below → resolves to the winner's
+    # row, no second card). We read the prior code first to rewrite the stale DM
+    # card in place, and UPDATE in place (no delete+insert) so the PK stays
+    # stable and the row is never briefly missing.
+    existing = (
         await session.execute(
-            select(CommunityInvite.code).where(
+            select(CommunityInvite)
+            .where(
                 CommunityInvite.inviter_id == current.id,
                 CommunityInvite.invitee_id == payload.invitee_id,
                 CommunityInvite.target_guild_id == payload.target_guild_id,
             )
+            .with_for_update()
         )
     ).scalars().first()
-    await session.execute(
-        sa_delete(CommunityInvite).where(
-            CommunityInvite.inviter_id == current.id,
-            CommunityInvite.invitee_id == payload.invitee_id,
-            CommunityInvite.target_guild_id == payload.target_guild_id,
-        )
-    )
 
-    invite = CommunityInvite(
-        id=next_id(),
-        inviter_id=current.id,
-        invitee_id=payload.invitee_id,
-        target_host=payload.target_host,
-        target_instance_id=payload.target_instance_id,
-        target_guild_id=payload.target_guild_id,
-        target_guild_name=payload.target_guild_name,
-        code=payload.code,
-        expires_at=expires_at,
-    )
-    session.add(invite)
-    await session.commit()
+    prior_code = existing.code if existing is not None else None
+    if existing is not None:
+        existing.target_host = payload.target_host
+        existing.target_instance_id = payload.target_instance_id
+        existing.target_guild_name = payload.target_guild_name
+        existing.code = payload.code
+        existing.expires_at = expires_at
+        invite = existing
+    else:
+        invite = CommunityInvite(
+            id=next_id(),
+            inviter_id=current.id,
+            invitee_id=payload.invitee_id,
+            target_host=payload.target_host,
+            target_instance_id=payload.target_instance_id,
+            target_guild_id=payload.target_guild_id,
+            target_guild_name=payload.target_guild_name,
+            code=payload.code,
+            expires_at=expires_at,
+        )
+        session.add(invite)
+
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Lost the first-invite race: a concurrent identical invite already
+        # created the row (unique dedupe index) and dropped the card. Roll back
+        # and return the winner's row WITHOUT posting a second card.
+        await session.rollback()
+        winner = (
+            await session.execute(
+                select(CommunityInvite).where(
+                    CommunityInvite.inviter_id == current.id,
+                    CommunityInvite.invitee_id == payload.invitee_id,
+                    CommunityInvite.target_guild_id == payload.target_guild_id,
+                )
+            )
+        ).scalars().first()
+        if winner is None:
+            raise
+        return CommunityInviteOut.model_validate(winner)
     await session.refresh(invite)
 
     out = CommunityInviteOut.model_validate(invite)
