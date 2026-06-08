@@ -17,7 +17,6 @@ import * as presence from './presence';
 import * as stream from './stream';
 import * as watch from './watch';
 import * as friends from './friends';
-import * as communityInvites from './community-invites';
 import * as ready from './ready';
 import * as error from './error';
 
@@ -38,6 +37,5 @@ export function registerAllHandlers(
   stream.register();
   watch.register();
   friends.register();
-  communityInvites.register();
   error.register();
 }

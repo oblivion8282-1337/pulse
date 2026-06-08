@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.3",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Community-Einladungen kommen jetzt in den Nachrichten an",
+      "intro": "Eine Änderung daran, wie Einladungen in eine Community zugestellt werden:",
+      "items": [
+        "Lädt dich jemand aus deiner Freundesliste in eine Community ein, erscheint die Einladung jetzt als Nachricht in eurem Chat — mit einer Beitreten-Karte. Bisher lag sie in der Freundesliste bei den ausstehenden Anfragen.",
+        "Lädt dich dieselbe Person erneut in dieselbe Community ein, wird die vorhandene Karte aktualisiert, statt eine zweite zu schicken."
+      ]
+    },
+    {
       "id": "2026-06-08.2",
       "date": "2026-06-08",
       "style": "Sachlich",

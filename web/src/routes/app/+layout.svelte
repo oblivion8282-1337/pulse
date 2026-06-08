@@ -9,8 +9,6 @@
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
-  import { communityInvites } from '$lib/stores/communityInvites.svelte';
-  import { communityInvitesApi } from '$lib/api/community-invites';
   import { readState } from '$lib/stores/readState.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { gateway } from '$lib/ws/connection';
@@ -135,9 +133,6 @@
     await Promise.all([
       directMessages.hydrate().catch((e) => console.error('directMessages.hydrate failed', e)),
       capabilities.hydrate().catch((e) => console.error('capabilities.hydrate failed', e)),
-      communityInvitesApi.list()
-        .then((invites) => communityInvites.seedAll(invites))
-        .catch((e) => console.error('communityInvites.hydrate failed', e)),
       gateway.waitForReady().catch((e) => console.error('gateway ready', e)),
       // Auf den Cloud-ready warten, damit die Social-Stores vor dem ersten Paint
       // geseedet sind (sonst flackert die Freundesliste leer). Nur wenn Cloud

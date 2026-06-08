@@ -73,8 +73,15 @@
     sending = true;
 
     const srv = activeServer.current;
-    const targetHost = srv?.hostname ?? '';
-    const targetInstanceId = srv?.instance_id ?? null;
+    if (!srv?.hostname) {
+      // Ohne aktiven Server-Host fehlt dem Broker der Routing-Key (Backend
+      // verlangt target_host non-empty → sonst 422). Früh + klar abbrechen.
+      toast.error(m.invite_friend_picker_send_failed());
+      sending = false;
+      return;
+    }
+    const targetHost = srv.hostname;
+    const targetInstanceId = srv.instance_id ?? null;
     const guild = guilds.byId[guildId];
     const guildName = guild?.name ?? guildId;
 

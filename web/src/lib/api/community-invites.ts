@@ -1,14 +1,16 @@
 /**
  * Community-Invite REST wrapper (Global-Friends Stufe 3).
  *
- * Alle Calls sind cloud-geroutet (`cloudRoute()`), da Community-Invites
- * eine Cloud-Broker-Funktion sind — analog zu friends.ts.
+ * Cloud-geroutet (`cloudRoute()`), da Community-Invites eine Cloud-Broker-
+ * Funktion sind — analog zu friends.ts.
  *
  * Backend-Kontrakt (Cloud-only):
- *   POST  /community-invites  {invitee_id, target_host, target_instance_id?,
- *                              target_guild_id, target_guild_name, code}
- *   GET   /community-invites  → CommunityInvite[]
- *   DELETE /community-invites/{id}
+ *   POST /community-invites  {invitee_id, target_host, target_instance_id?,
+ *                             target_guild_id, target_guild_name, code}
+ *
+ * Der Broker erzeugt serverseitig eine DM mit „Beitreten"-Karte an den
+ * Invitee (`routes/community_invites.py`). Es gibt deshalb KEINE separate
+ * Pending-Liste mehr — entsprechend kein GET/DELETE-Wrapper hier.
  */
 
 import { request } from './client';
@@ -49,13 +51,5 @@ export const communityInvitesApi = {
       method: 'POST',
       body
     }, cloudRoute());
-  },
-
-  list(): Promise<CommunityInvitePayload[]> {
-    return request<CommunityInvitePayload[]>('/community-invites', {}, cloudRoute());
-  },
-
-  remove(id: string): Promise<void> {
-    return request<void>(`/community-invites/${id}`, { method: 'DELETE' }, cloudRoute());
   }
 };

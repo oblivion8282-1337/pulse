@@ -30,8 +30,6 @@ const PURE_SOCIAL_OPS: ReadonlySet<ServerEvent['op']> = new Set([
   'user_blocked',
   'user_unblocked',
   'dm_bump',
-  'community_invite_received',
-  'community_invite_removed',
 ]);
 
 /**

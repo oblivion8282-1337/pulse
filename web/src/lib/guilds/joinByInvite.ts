@@ -192,10 +192,16 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
         throw new SelfHostContactConfirmRequired(hostname);
       }
       markSelfHostContactConfirmed(hostname);
-      // Neuer Server: hinzufügen + cert-login + invite
+      // Neuer Server: hinzufügen + cert-login + invite.
+      // WICHTIG: Bei einem Self-Host-Community-Invite dient derselbe Code
+      // ZUGLEICH als `community_grant_code` (gewährt die community-scoped
+      // Instanz-Mitgliedschaft im cert-login/verify) UND als `inviteCode`
+      // (Guild-Beitritt via POST /invites/{code}/accept). Ohne den Grant
+      // scheitert der cert-login beim Erstkontakt mit 403 (join-requires-invite).
       const { entry, invite } = await addServerWithCertLogin({
         hostname,
         inviteCode: code,
+        communityGrantCode: code,
       });
       serverId = entry.id;
       activeServer.set(serverId);

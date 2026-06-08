@@ -52,10 +52,17 @@
       });
       // 2. Community-Invite über den Cloud-Broker schicken
       const srv = activeServer.current;
+      if (!srv?.hostname) {
+        // Ohne aktiven Server-Host fehlt dem Broker der Routing-Key
+        // (Backend verlangt target_host non-empty → sonst 422). Früh + klar
+        // abbrechen statt einen leeren String zu senden.
+        toast.error(m.invite_to_server_submenu_invite_error());
+        return;
+      }
       await communityInvitesApi.create({
         invitee_id: friendUserId,
-        target_host: srv?.hostname ?? '',
-        target_instance_id: srv?.instance_id ?? null,
+        target_host: srv.hostname,
+        target_instance_id: srv.instance_id ?? null,
         target_guild_id: guild.id,
         target_guild_name: guild.name,
         code: invite.code

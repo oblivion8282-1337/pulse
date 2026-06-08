@@ -59,6 +59,37 @@ async def _find_pair(session, a: int, b: int) -> DirectMessageChannel | None:
     return (await session.execute(stmt)).scalars().first()
 
 
+async def ensure_dm_channel(
+    session, user_id: int, other_id: int
+) -> DirectMessageChannel:
+    """Idempotently find-or-create the 1:1 DM channel between two users.
+
+    Pure persistence helper (no friend/block gate, no commit-of-the-caller's
+    transaction beyond what creating the row needs): callers that already know
+    the pair is allowed to message — e.g. the community-invite broker, where
+    inviter and invitee are confirmed friends by the time we get here — can
+    reuse the same idempotent sorted-pair logic the route handler uses without
+    re-running the friend-gate. Handles the concurrent-create race the same way
+    ``create_or_get_dm_channel`` does (re-fetch after the UNIQUE violation).
+    """
+    a, b = sorted((user_id, other_id))
+    existing = await _find_pair(session, a, b)
+    if existing is not None:
+        return existing
+    dm = DirectMessageChannel(id=next_id(), user_a_id=a, user_b_id=b)
+    session.add(dm)
+    try:
+        await session.commit()
+    except IntegrityError:
+        await session.rollback()
+        existing = await _find_pair(session, a, b)
+        if existing is None:
+            raise
+        return existing
+    await session.refresh(dm)
+    return dm
+
+
 async def _can_send_batch(
     session, caller_id: int, other_ids: set[int]
 ) -> dict[int, bool]:
@@ -143,24 +174,12 @@ async def create_or_get_dm_channel(
     if not await friendship_exists(session, current.id, target):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not_friends")
 
-    a, b = sorted((current.id, target))
-
-    existing = await _find_pair(session, a, b)
-    if existing is not None:
-        return _wire(existing, current.id, can_send=True)
-
-    dm = DirectMessageChannel(id=next_id(), user_a_id=a, user_b_id=b)
-    session.add(dm)
     try:
-        await session.commit()
-    except IntegrityError:
-        # Concurrent create raced us to the UNIQUE constraint — re-fetch.
-        await session.rollback()
-        existing = await _find_pair(session, a, b)
-        if existing is None:
-            raise HTTPException(500, detail="dm creation race lost")
-        return _wire(existing, current.id, can_send=True)
-    await session.refresh(dm)
+        dm = await ensure_dm_channel(session, current.id, target)
+    except IntegrityError as err:
+        # Concurrent create raced us to the UNIQUE constraint and the re-fetch
+        # still came up empty — surface the same 500 as before.
+        raise HTTPException(500, detail="dm creation race lost") from err
     return _wire(dm, current.id, can_send=True)
 
 

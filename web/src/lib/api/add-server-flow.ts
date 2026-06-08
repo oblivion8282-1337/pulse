@@ -19,7 +19,6 @@ import { request, type RequestOpts } from './client';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
-import { communityInvitesApi, type CommunityInvitePayload } from './community-invites';
 import type { AcceptInviteResult, InvitePreview } from './types';
 import { backupGate } from '$lib/stores/backup-gate.svelte';
 
@@ -60,16 +59,6 @@ export class BackupRequiredError extends Error {
     super('backup-required');
     this.name = 'BackupRequiredError';
   }
-}
-
-/** Normalisiert einen bare/vollen Hostname auf HTTPS-Origin (lowercase, kein
- *  trailing slash) — gleiche Regel wie serversStore.normalizeHostname, hier
- *  dupliziert, weil die dortige Fassung privat ist. */
-function normalizeSelfHostUrl(raw: string): string {
-  const trimmed = raw.trim().toLowerCase().replace(/\/$/, '');
-  if (trimmed.startsWith('http://')) return `https://${trimmed.slice('http://'.length)}`;
-  if (!trimmed.startsWith('https://')) return `https://${trimmed}`;
-  return trimmed;
 }
 
 /** True, wenn der User den Erstkontakt mit diesem Self-Host schon bestätigt hat
@@ -191,84 +180,6 @@ export function mapCertLoginReason(reason: CertLoginReason): string {
     return m.add_server_flow_join_closed();
   if (reason === 'network') return m.add_server_flow_network_error();
   return m.add_server_flow_cert_login_failed();
-}
-
-// ---------------------------------------------------------------------------
-// Community-Invite-Accept-Flow (Stufe 3)
-// ---------------------------------------------------------------------------
-
-/**
- * Nimmt eine Community-Einladung an.
- *
- * - Cloud-Community (target_host == Cloud): einfaches `acceptInvite` cloud-geroutet.
- * - Self-Host-Community: `addServerWithCertLogin` mit `communityGrantCode` (gewährt
- *   Instanz-Mitgliedschaft via cert-login/verify) UND `inviteCode` (Guild-Beitritt
- *   via POST /invites/{code}/accept).
- *
- * **Sicherheits-Gate:** Bei einem **neuen, unbekannten** Self-Host wird VOR dem
- * ersten Kontakt `SelfHostContactConfirmRequired` geworfen, solange `confirmed`
- * nicht true ist und der User den Host noch nicht früher bestätigt hat (sonst
- * leakt die Cert-Challenge Metadaten an einen evtl. präparierten Host). Der
- * Caller zeigt einen Bestätigungs-Dialog und ruft mit `confirmed: true` erneut auf.
- * Cloud-Ziele und bereits bekannte Server lösen das Gate nie aus.
- *
- * Nach erfolgreichem Join wird der Invite via `communityInvitesApi.remove` B-lite gelöscht.
- * Wirft einen `Error` mit Klartext-Meldung — Caller zeigt Toast.
- */
-export async function acceptCommunityInvite(
-  inv: CommunityInvitePayload,
-  confirmed = false,
-): Promise<void> {
-  const cloudEntry = serversStore.servers.find((s) => s.isCloud);
-  const cloudId = cloudEntry?.id;
-  if (!cloudId) throw new Error('Kein Cloud-Server konfiguriert.');
-
-  // Cloud-Community wenn target_host der Cloud-Hostname entspricht
-  const cloudHostname = cloudEntry.hostname;
-  const isCloud = !inv.target_host || inv.target_host === cloudHostname;
-
-  if (isCloud) {
-    // Cloud-Community: invite-code direkt bei der Cloud einlösen.
-    await acceptInvite(inv.code, { serverId: cloudId });
-  } else {
-    // Self-Host: Server hinzufügen (falls noch nicht da) + cert-login mit grant-code.
-    const normalized = normalizeSelfHostUrl(inv.target_host);
-    let entry = serversStore.findByHostname(normalized);
-    if (!entry) {
-      // Erstkontakt-Gate: neuer, unbekannter Self-Host → bestätigen lassen, BEVOR
-      // wir die Cert-Challenge gegen target_host schicken.
-      if (!confirmed && !selfHostContactConfirmed(normalized)) {
-        throw new SelfHostContactConfirmRequired(normalized);
-      }
-      markSelfHostContactConfirmed(normalized);
-      // Server noch unbekannt → hinzufügen + cert-login mit community_grant_code.
-      // label = guild-name als Orientierung; kann der User später umbenennen.
-      //
-      // ABSICHT: communityGrantCode === inviteCode === inv.code. Ein gültiger
-      // host-GuildInvite-Code dient laut Backend-Kontrakt ZUGLEICH als
-      // `community_grant_code` (gewährt die community-scoped Instanz-Mitgliedschaft
-      // im cert-login/verify) UND als `inviteCode` (Guild-Beitritt via
-      // POST /invites/{code}/accept). Derselbe Code, zwei Verwendungen.
-      const result = await addServerWithCertLogin({
-        hostname: normalized,
-        label: inv.target_guild_name,
-        instanceId: inv.target_instance_id ?? undefined,
-        inviteCode: inv.code,
-        communityGrantCode: inv.code,
-      });
-      entry = result.entry;
-    } else {
-      // Server bereits bekannt → nur Invite akzeptieren.
-      await acceptInvite(inv.code, { serverId: entry.id });
-    }
-  }
-
-  // B-lite: Invite nach erfolgreichem Join entfernen (best-effort — kein Fail-Block).
-  try {
-    await communityInvitesApi.remove(inv.id);
-  } catch {
-    /* ignoriert — der Join hat geklappt, nur die Cleanup-Anfrage ist fehlgeschlagen */
-  }
 }
 
 /** Setzt die zwei Disclaimer-Flags (hostname-keyed + serverId-keyed) im

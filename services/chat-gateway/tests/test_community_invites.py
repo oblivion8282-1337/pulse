@@ -1,16 +1,17 @@
 """Tests for the Cloud-only Community-Invite-Broker (Stufe 2 / B-lite).
 
-Covers ``routes/community_invites.py``:
-  * create → row + ``community_invite_received`` push to the invitee only
+Covers ``routes/community_invites.py`` (POST-only since 2026-06-08 — the
+invite is delivered as a **DM** with a join-card, there's no friends-tab list,
+so no GET/DELETE route + no ``community_invite_received`` push anymore):
+  * create → row written + invite link dropped as a DM (cloud + self-host link)
+  * create no longer emits a ``community_invite_received`` push
   * friend-gate: only confirmed friends may be invited; blocks (either way) deny
-  * list → pending invites for the current user (invitee)
-  * delete (accept/decline, B-lite) → row gone + ``community_invite_removed``
+  * dedupe (re-invite) → single row, the existing DM card rewritten in place
   * rate-limit per inviter
-  * TTL: expired rows are swept on GET; an expired row grants nothing
-  * CloudOnly gate: self-host returns 404 on every route
+  * CloudOnly gate: self-host returns 404 on POST
 
-The WS fan-out is asserted by spying on ``manager.publish_user_event`` (same
-pattern as ``test_friend_ws_events.py``).
+The (absence of a) WS push is asserted by spying on
+``manager.publish_user_event`` (same pattern as ``test_friend_ws_events.py``).
 
 Product model: "erst befreundet, DANN einladen" → every success-path test wires
 a confirmed friendship between inviter and invitee first (via the ``friend_pair``
@@ -20,10 +21,8 @@ conftest fixture, which writes a ``friendships`` row directly).
 from __future__ import annotations
 
 import random
-from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import update
 
 # Broker is cloud-only — ensure cloud mode for all tests here.
 pytestmark = pytest.mark.usefixtures("cloud_mode")
@@ -80,9 +79,14 @@ def _ops_for(captured, target_uid: int) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_create_emits_received_to_invitee_only(
+async def test_create_returns_row_and_no_user_push(
     client, _auth_signer, captured_events, friend_pair
 ):
+    """POST returns the broker row and emits NO ``community_invite_*`` push.
+
+    Delivery is now the DM card (asserted in the DM tests below); the old
+    per-user push to the invitee is gone, so neither party gets one.
+    """
     t_a, uid_a = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
@@ -96,12 +100,99 @@ async def test_create_emits_received_to_invitee_only(
     assert body["target_host"] == "pulse.firma.de"
     assert body["target_guild_name"] == "Cool Community"
     assert body["code"] == "ABCD1234"
-    # Only the invitee gets the card; the inviter has the REST response.
-    assert _ops_for(captured_events, uid_b) == ["community_invite_received"]
+    # No more friends-tab card → no ``community_invite_received``/_removed push
+    # to either party (the DM is the delivery channel now).
+    assert _ops_for(captured_events, uid_b) == []
     assert _ops_for(captured_events, uid_a) == []
-    env = next(e for (tid, e) in captured_events if tid == str(uid_b))
-    assert env["data"]["inviter_id"] == str(uid_a)
-    assert env["data"]["code"] == "ABCD1234"
+
+
+@pytest.mark.asyncio
+async def test_create_drops_invite_dm_self_host(
+    client, _auth_signer, friend_pair, session_factory
+):
+    """A self-host invite lands as a DM whose content is the host-tagged link.
+
+    The DM must be authored by the inviter, sit in the inviter↔invitee DM
+    channel, and carry ``…/invite/<code>?host=<fqdn>`` so the receiving
+    client's ``INVITE_RE`` renders the "Beitreten"-card.
+    """
+    from dcc_chat_gateway.models import DirectMessageChannel, Message
+
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    r = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, target_host="pulse.firma.de", code="ABCD1234"),
+        headers=auth(t_a),
+    )
+    assert r.status_code == 201, r.text
+
+    lo, hi = sorted((uid_a, uid_b))
+    async with session_factory() as s:
+        from sqlalchemy import select
+
+        dm = (
+            await s.execute(
+                select(DirectMessageChannel).where(
+                    DirectMessageChannel.user_a_id == lo,
+                    DirectMessageChannel.user_b_id == hi,
+                )
+            )
+        ).scalars().first()
+        assert dm is not None, "invite did not create the DM channel"
+        msgs = (
+            await s.execute(
+                select(Message).where(Message.channel_id == dm.id)
+            )
+        ).scalars().all()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert msg.author_id == uid_a
+    assert (
+        msg.content == "https://howispulse.com/invite/ABCD1234?host=pulse.firma.de"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_drops_invite_dm_cloud(
+    client, _auth_signer, friend_pair, session_factory
+):
+    """A Cloud invite (target_host == Cloud origin) yields a host-less link."""
+    from dcc_chat_gateway.models import DirectMessageChannel, Message
+
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    r = await client.post(
+        "/community-invites",
+        json=_payload(
+            uid_b, target_host="https://howispulse.com", code="CLOUD000"
+        ),
+        headers=auth(t_a),
+    )
+    assert r.status_code == 201, r.text
+
+    lo, hi = sorted((uid_a, uid_b))
+    async with session_factory() as s:
+        from sqlalchemy import select
+
+        dm = (
+            await s.execute(
+                select(DirectMessageChannel).where(
+                    DirectMessageChannel.user_a_id == lo,
+                    DirectMessageChannel.user_b_id == hi,
+                )
+            )
+        ).scalars().first()
+        assert dm is not None
+        msg = (
+            await s.execute(
+                select(Message).where(Message.channel_id == dm.id)
+            )
+        ).scalars().first()
+    assert msg is not None
+    assert msg.content == "https://howispulse.com/invite/CLOUD000"
 
 
 @pytest.mark.asyncio
@@ -167,12 +258,15 @@ async def test_create_requires_auth(client, _auth_signer):
 
 @pytest.mark.asyncio
 async def test_create_dedupes_same_inviter_invitee_guild(
-    client, _auth_signer, captured_events, friend_pair
+    client, _auth_signer, friend_pair, session_factory
 ):
     """A repeat invite (same inviter→invitee→guild) collapses to one row, with
-    the newest code winning."""
+    the newest code winning — AND the existing DM card is rewritten in place
+    (no second card stacked, the stale code is gone from the thread)."""
+    from dcc_chat_gateway.models import CommunityInvite, DirectMessageChannel, Message
+
     t_a, uid_a = await _register(_auth_signer)
-    t_b, uid_b = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
     await client.post(
         "/community-invites",
@@ -184,126 +278,107 @@ async def test_create_dedupes_same_inviter_invitee_guild(
         json=_payload(uid_b, code="NEW00000"),
         headers=auth(t_a),
     )
-    listing = (
-        await client.get("/community-invites", headers=auth(t_b))
-    ).json()
-    assert len(listing) == 1
-    assert listing[0]["code"] == "NEW00000"
 
+    from sqlalchemy import select
 
-# ---- list ------------------------------------------------------------------
+    lo, hi = sorted((uid_a, uid_b))
+    async with session_factory() as s:
+        # Exactly one broker row, newest code wins.
+        rows = (
+            await s.execute(
+                select(CommunityInvite).where(
+                    CommunityInvite.inviter_id == uid_a,
+                    CommunityInvite.invitee_id == uid_b,
+                )
+            )
+        ).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].code == "NEW00000"
+        # Exactly one DM card; it points at the new code, the old one is gone.
+        dm = (
+            await s.execute(
+                select(DirectMessageChannel).where(
+                    DirectMessageChannel.user_a_id == lo,
+                    DirectMessageChannel.user_b_id == hi,
+                )
+            )
+        ).scalars().first()
+        msgs = (
+            await s.execute(
+                select(Message).where(
+                    Message.channel_id == dm.id,
+                    Message.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+    assert len(msgs) == 1
+    assert "NEW00000" in msgs[0].content
+    assert "OLD00000" not in msgs[0].content
+    # Rewritten in place → marked edited.
+    assert msgs[0].edited_at is not None
 
 
 @pytest.mark.asyncio
-async def test_list_returns_pending_for_invitee(
-    client, _auth_signer, friend_pair
+async def test_reinvite_after_card_deleted_posts_fresh(
+    client, _auth_signer, friend_pair, session_factory
 ):
+    """If the inviter deleted the old card, the re-invite posts a fresh DM
+    rather than failing to find one to rewrite."""
+    from dcc_chat_gateway.models import CommunityInvite, DirectMessageChannel, Message
+
     t_a, uid_a = await _register(_auth_signer)
-    t_b, uid_b = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
     await friend_pair(uid_a, uid_b)
-    # Two different guilds → two rows.
     await client.post(
         "/community-invites",
-        json=_payload(uid_b, target_guild_id="1", code="C1AAAAAA"),
+        json=_payload(uid_b, code="OLD00000"),
         headers=auth(t_a),
     )
+
+    from datetime import UTC, datetime
+
+    from sqlalchemy import select, update
+
+    lo, hi = sorted((uid_a, uid_b))
+    async with session_factory() as s:
+        # Simulate the user deleting the first card.
+        await s.execute(
+            update(Message)
+            .where(Message.author_id == uid_a)
+            .values(deleted_at=datetime.now(tz=UTC))
+        )
+        await s.commit()
+
     await client.post(
         "/community-invites",
-        json=_payload(uid_b, target_guild_id="2", code="C2AAAAAA"),
+        json=_payload(uid_b, code="NEW00000"),
         headers=auth(t_a),
     )
-    listing = (await client.get("/community-invites", headers=auth(t_b))).json()
-    assert len(listing) == 2
-    assert {row["code"] for row in listing} == {"C1AAAAAA", "C2AAAAAA"}
-
-
-@pytest.mark.asyncio
-async def test_list_only_own_invites(client, _auth_signer, friend_pair):
-    """An invitee never sees invites addressed to a different user."""
-    t_a, uid_a = await _register(_auth_signer)
-    _, uid_b = await _register(_auth_signer)
-    t_c, _ = await _register(_auth_signer)
-    await friend_pair(uid_a, uid_b)
-    await client.post(
-        "/community-invites", json=_payload(uid_b), headers=auth(t_a)
-    )
-    # uid_c lists — sees nothing (the invite is for uid_b).
-    listing = (await client.get("/community-invites", headers=auth(t_c))).json()
-    assert listing == []
-
-
-# ---- delete (B-lite accept/decline) ---------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_delete_by_invitee_removes_row_and_emits(
-    client, _auth_signer, captured_events, friend_pair
-):
-    t_a, uid_a = await _register(_auth_signer)
-    t_b, uid_b = await _register(_auth_signer)
-    await friend_pair(uid_a, uid_b)
-    created = (
-        await client.post(
-            "/community-invites", json=_payload(uid_b), headers=auth(t_a)
-        )
-    ).json()
-    captured_events.clear()
-    r = await client.delete(
-        f"/community-invites/{created['id']}", headers=auth(t_b)
-    )
-    assert r.status_code == 204
-    # B-lite: row is gone.
-    listing = (await client.get("/community-invites", headers=auth(t_b))).json()
-    assert listing == []
-    # Invitee's other tabs get the removal.
-    assert _ops_for(captured_events, uid_b) == ["community_invite_removed"]
-    env = next(e for (tid, e) in captured_events if tid == str(uid_b))
-    # ``publish_friend_event`` validates the data against the typed
-    # CommunityInviteRemovedEvent → ``data`` is the pydantic submodel, not a
-    # plain dict (same as the friend_request_declined path). Read its field.
-    assert env["data"].invite_id == created["id"]
-
-
-@pytest.mark.asyncio
-async def test_delete_by_inviter_allowed(client, _auth_signer, friend_pair):
-    """The inviter may rescind their own pending invite."""
-    t_a, uid_a = await _register(_auth_signer)
-    _, uid_b = await _register(_auth_signer)
-    await friend_pair(uid_a, uid_b)
-    created = (
-        await client.post(
-            "/community-invites", json=_payload(uid_b), headers=auth(t_a)
-        )
-    ).json()
-    r = await client.delete(
-        f"/community-invites/{created['id']}", headers=auth(t_a)
-    )
-    assert r.status_code == 204
-
-
-@pytest.mark.asyncio
-async def test_delete_by_stranger_404(client, _auth_signer, friend_pair):
-    """A third party cannot delete (nor learn the row exists)."""
-    t_a, uid_a = await _register(_auth_signer)
-    _, uid_b = await _register(_auth_signer)
-    t_c, _ = await _register(_auth_signer)
-    await friend_pair(uid_a, uid_b)
-    created = (
-        await client.post(
-            "/community-invites", json=_payload(uid_b), headers=auth(t_a)
-        )
-    ).json()
-    r = await client.delete(
-        f"/community-invites/{created['id']}", headers=auth(t_c)
-    )
-    assert r.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_delete_unknown_404(client, _auth_signer):
-    t, _ = await _register(_auth_signer)
-    r = await client.delete("/community-invites/999999", headers=auth(t))
-    assert r.status_code == 404
+    async with session_factory() as s:
+        dm = (
+            await s.execute(
+                select(DirectMessageChannel).where(
+                    DirectMessageChannel.user_a_id == lo,
+                    DirectMessageChannel.user_b_id == hi,
+                )
+            )
+        ).scalars().first()
+        live = (
+            await s.execute(
+                select(Message).where(
+                    Message.channel_id == dm.id,
+                    Message.deleted_at.is_(None),
+                )
+            )
+        ).scalars().all()
+        broker = (
+            await s.execute(
+                select(CommunityInvite).where(CommunityInvite.invitee_id == uid_b)
+            )
+        ).scalars().all()
+    assert len(broker) == 1
+    assert len(live) == 1
+    assert "NEW00000" in live[0].content
 
 
 # ---- rate limit ------------------------------------------------------------
@@ -333,55 +408,16 @@ async def test_create_rate_limited_per_inviter(
     assert r.status_code == 429
 
 
-# ---- TTL -------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_expired_invite_swept_on_list(
-    client, _auth_signer, session_factory, friend_pair
-):
-    t_a, uid_a = await _register(_auth_signer)
-    t_b, uid_b = await _register(_auth_signer)
-    await friend_pair(uid_a, uid_b)
-    created = (
-        await client.post(
-            "/community-invites",
-            json=_payload(uid_b, expires_in_seconds=3600),
-            headers=auth(t_a),
-        )
-    ).json()
-    # Force the row into the past.
-    from dcc_chat_gateway.models import CommunityInvite
-
-    async with session_factory() as s:
-        await s.execute(
-            update(CommunityInvite)
-            .where(CommunityInvite.id == int(created["id"]))
-            .values(expires_at=datetime.now(tz=UTC) - timedelta(seconds=1))
-            .execution_options(synchronize_session=False)
-        )
-        await s.commit()
-    # GET sweeps it; the pending list is empty and the row is deleted.
-    listing = (await client.get("/community-invites", headers=auth(t_b))).json()
-    assert listing == []
-    async with session_factory() as s:
-        assert await s.get(CommunityInvite, int(created["id"])) is None
-
-
 # ---- CloudOnly gate --------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_self_host_returns_404(client, _auth_signer, _isolate_chat_settings):
-    """On a self-host instance every broker route 404s (CloudOnly guard)."""
+    """On a self-host instance the broker POST 404s (CloudOnly guard)."""
     _isolate_chat_settings.pulse_instance_mode = "self-host"
     t_a, _ = await _register(_auth_signer)
     _, uid_b = await _register(_auth_signer)
     r_post = await client.post(
         "/community-invites", json=_payload(uid_b), headers=auth(t_a)
     )
-    r_get = await client.get("/community-invites", headers=auth(t_a))
-    r_del = await client.delete("/community-invites/1", headers=auth(t_a))
     assert r_post.status_code == 404
-    assert r_get.status_code == 404
-    assert r_del.status_code == 404

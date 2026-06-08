@@ -17,10 +17,8 @@
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
-  import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import FriendList from '$lib/components/friends/FriendList.svelte';
   import PendingRequests from '$lib/components/friends/PendingRequests.svelte';
-  import PendingCommunityInvites from '$lib/components/friends/PendingCommunityInvites.svelte';
   import BlockedList from '$lib/components/friends/BlockedList.svelte';
   import AddFriendPanel from '$lib/components/friends/AddFriendPanel.svelte';
   import type { DMChannel } from '$lib/api/types';
@@ -87,7 +85,6 @@
           {@const badge =
             t.key === 'pending'
               ? friendRequests.incomingList.length + friendRequests.outgoingList.length
-                + communityInvites.incomingList.length
               : 0}
           <button
             type="button"
@@ -117,7 +114,6 @@
       {:else if activeTab === 'all'}
         <FriendList />
       {:else if activeTab === 'pending'}
-        <PendingCommunityInvites />
         <PendingRequests />
       {:else if activeTab === 'blocked'}
         <BlockedList />
