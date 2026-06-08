@@ -61,6 +61,15 @@ authHTTPExclude:
   - action: api
   - action: metrics
   - action: pprof
+
+# Pulse HQ channel streams use DYNAMIC paths (channel-<id>-<uid>-<nonce>).
+# MediaMTX rejects any path not listed here as "not configured" → without this
+# catch-all EVERY publish is refused and the GSR push dies silently (no error).
+# The auth hook (authMethod: http) still allows/denies each connection per
+# path + token; this only lets MediaMTX accept the dynamic path names at all.
+# Mirrors infra/prod/mediamtx.yml.
+paths:
+  all_others:
 EOF
     # The only reachable ICE host candidate is the public hostname — the
     # container's interface IPs are internal bridge addrs. Appended after the
