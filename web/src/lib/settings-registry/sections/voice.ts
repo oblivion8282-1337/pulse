@@ -11,6 +11,9 @@ export type VoiceSettings = {
   pttMode: boolean;
   pttKey: string;
   userVolumes: Record<string, number>;
+  /** Master playback volume for incoming voice (all participants), 0..2.
+   *  Device-local — phone and desktop keep independent levels. */
+  outputVolume: number;
 };
 
 export const USER_VOLUME_MIN = 0;
@@ -19,14 +22,27 @@ export const USER_VOLUME_MAX = 4;
  *  FIFO-dropped at write time. */
 const MAX_USER_VOLUMES = 256;
 
+/** Master output-volume bounds. 0 = silence, 1.0 = unchanged, 2.0 = +6 dB.
+ *  Desktop's Web Audio path has no 0..1 ceiling so the boost is real; the
+ *  mobile `<audio>` path caps it at 1.0 (HTMLMediaElement.volume limit). */
+export const OUTPUT_VOLUME_MIN = 0;
+export const OUTPUT_VOLUME_MAX = 2;
+export const OUTPUT_VOLUME_DEFAULT = 1;
+
 export const DEFAULTS_VOICE: VoiceSettings = {
   pttMode: false,
   pttKey: 'v',
-  userVolumes: {}
+  userVolumes: {},
+  outputVolume: OUTPUT_VOLUME_DEFAULT
 };
 
 export function clampUserVolume(v: number): number {
   return Math.min(USER_VOLUME_MAX, Math.max(USER_VOLUME_MIN, v));
+}
+
+export function clampOutputVolume(v: unknown): number {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return OUTPUT_VOLUME_DEFAULT;
+  return Math.min(OUTPUT_VOLUME_MAX, Math.max(OUTPUT_VOLUME_MIN, v));
 }
 
 export function capUserVolumes(map: Record<string, number>): Record<string, number> {
@@ -62,7 +78,8 @@ export const VOICE_SECTION: SectionConfig<VoiceSettings> = {
       pttMode: bool(v.pttMode, d.pttMode),
       pttKey:
         typeof v.pttKey === 'string' && v.pttKey.length > 0 ? v.pttKey.toLowerCase() : d.pttKey,
-      userVolumes: parseUserVolumes(v.userVolumes)
+      userVolumes: parseUserVolumes(v.userVolumes),
+      outputVolume: clampOutputVolume(v.outputVolume)
     };
   }
 };

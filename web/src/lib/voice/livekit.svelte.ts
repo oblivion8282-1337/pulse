@@ -301,6 +301,7 @@ class VoiceRoom {
     this.#audioEls.deafened = this.deafened;
     this.#audioEls.outputDeviceId = this.#devices.selectedOutputId;
     this.#audioEls.setUserVolumes(settings.voice.userVolumes);
+    this.#audioEls.setMasterVolume(settings.voice.outputVolume);
     this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
     this.#wireEvents(room);
 
@@ -813,6 +814,12 @@ class VoiceRoom {
    *  Persisting happens in `settings.setLimiterEnabled` — call both. */
   setLimiterEnabled(on: boolean): void {
     this.#audioEls.setLimiterEnabled(on);
+  }
+
+  /** Live-apply the master playback volume (0..2) to all subscribed tracks.
+   *  Persisting happens in `settings.setOutputVolume` — call both. */
+  setOutputVolume(v: number): void {
+    this.#audioEls.setMasterVolume(v);
   }
 
   /**

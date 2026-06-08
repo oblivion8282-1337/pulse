@@ -93,6 +93,11 @@ export class RemoteAudioElements {
   outputDeviceId = '';
   /** Whether the playback peak limiter is spliced into each node's tail. */
   #limiterEnabled = false;
+  /** Master playback volume for ALL incoming voice (multiplies every per-user
+   *  factor). 1.0 = unchanged. Device-local — set from settings.voice.outputVolume.
+   *  On the mobile `<audio>` path the effective element volume is clamped to
+   *  0..1, so a master >100 % can't boost there (only attenuate). */
+  #masterVolume = 1;
 
   #ensureContext(): AudioContext {
     if (this.#ctx && this.#ctx.state !== 'closed') return this.#ctx;
@@ -206,6 +211,19 @@ export class RemoteAudioElements {
     }
   }
 
+  /** Set the master playback volume (0..2) for ALL incoming voice. Applies live
+   *  to every current track and is picked up by future ones via attach(). On
+   *  mobile a value >1.0 is capped to 1.0 by the element-volume clamp. */
+  setMasterVolume(volume: number): void {
+    const clamped = Math.max(0, Math.min(2, volume));
+    if (clamped === this.#masterVolume) return;
+    this.#masterVolume = clamped;
+    for (const node of this.#nodes.values()) {
+      if (this.#mobile) node.anchor.volume = this.#elementVolume(node.userId);
+      else this.#syncNode(node);
+    }
+  }
+
   /** Replace the entire per-user volume table (e.g. on connect, from persisted settings). */
   setUserVolumes(volumes: Record<string, number>): void {
     this.#userVolumes.clear();
@@ -252,17 +270,17 @@ export class RemoteAudioElements {
     sids.add(sid);
   }
 
-  /** Effective `<audio>.volume` (0..1) for the mobile path. The per-user >100 %
-   *  boost is capped at 100 % since HTMLMediaElement.volume can't exceed 1.0. */
+  /** Effective `<audio>.volume` (0..1) for the mobile path. Per-user × master,
+   *  both capped at 100 % since HTMLMediaElement.volume can't exceed 1.0. */
   #elementVolume(userId: string): number {
-    const mult = this.#userVolumes.get(userId) ?? 1;
+    const mult = (this.#userVolumes.get(userId) ?? 1) * this.#masterVolume;
     return Math.max(0, Math.min(1, mult));
   }
 
   #computeGain(userId: string): number {
     if (this.deafened) return 0;
     const userMultiplier = this.#userVolumes.get(userId) ?? 1;
-    return userMultiplier * RemoteAudioElements.DEFAULT_MAKEUP_GAIN;
+    return userMultiplier * this.#masterVolume * RemoteAudioElements.DEFAULT_MAKEUP_GAIN;
   }
 
   /** Toggle the playback peak limiter for every current + future track.

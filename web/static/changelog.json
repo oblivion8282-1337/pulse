@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.5",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Neue Lautstärke-Regler für Sprachkanäle",
+      "intro": "Zwei Verbesserungen in den Audio-Einstellungen:",
+      "items": [
+        "Neuer Regler für die Wiedergabe-Lautstärke: Du stellst ein, wie laut du die anderen im Sprachkanal hörst.",
+        "Das Mikrofon lässt sich jetzt deutlich leiser stellen — bis 10 Prozent statt bisher nur bis 50 Prozent. Praktisch, wenn dein Mikrofon zu laut ist.",
+        "Beide Werte gelten pro Gerät: Handy und Computer behalten ihre eigenen Einstellungen."
+      ]
+    },
+    {
       "id": "2026-06-08.4",
       "date": "2026-06-08",
       "style": "Sachlich",

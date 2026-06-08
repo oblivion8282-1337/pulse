@@ -29,7 +29,7 @@ export const NOISE_GATE_DB_MIN = -60;
 export const NOISE_GATE_DB_MAX = -20;
 export const NOISE_GATE_DB_DEFAULT = -45;
 
-export const INPUT_MAKEUP_MIN = 0.5;
+export const INPUT_MAKEUP_MIN = 0.1;
 export const INPUT_MAKEUP_MAX = 4;
 export const INPUT_MAKEUP_DEFAULT = 1;
 

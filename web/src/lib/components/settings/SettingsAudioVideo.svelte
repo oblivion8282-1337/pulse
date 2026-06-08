@@ -11,6 +11,7 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { deviceDisplayName } from '$lib/voice/devices';
   import MicGainControl from './MicGainControl.svelte';
+  import OutputVolumeControl from './OutputVolumeControl.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let listeningForPttKey = $state(false);
@@ -194,6 +195,9 @@
       {/each}
     </select>
   </div>
+
+  <!-- Ausgangslautstärke (Master, Wiedergabe) -->
+  <OutputVolumeControl />
 
   <!-- Lautstärke-Limiter (Wiedergabe) -->
   <div class="flex flex-col gap-2">

@@ -37,10 +37,14 @@ import {
 import {
   VOICE_SECTION,
   clampUserVolume,
+  clampOutputVolume,
   capUserVolumes,
   type VoiceSettings,
   USER_VOLUME_MIN,
-  USER_VOLUME_MAX
+  USER_VOLUME_MAX,
+  OUTPUT_VOLUME_MIN,
+  OUTPUT_VOLUME_MAX,
+  OUTPUT_VOLUME_DEFAULT
 } from '$lib/settings-registry/sections/voice';
 import {
   SCREEN_SHARE_SECTION,
@@ -243,6 +247,10 @@ class SettingsStore {
   getUserVolume(userId: string): number {
     return this.#voice.value.userVolumes[userId] ?? 1;
   }
+  /** Master playback volume for incoming voice (0..2). Device-local. */
+  setOutputVolume(v: number): void {
+    this.#voice.set('outputVolume', clampOutputVolume(v));
+  }
 
   // --- screen-share setters ---
   setScreenShareCodec(v: ScreenShareCodec): void {
@@ -340,6 +348,9 @@ export {
   SCREEN_SHARE_FPS_MAX,
   USER_VOLUME_MIN,
   USER_VOLUME_MAX,
+  OUTPUT_VOLUME_MIN,
+  OUTPUT_VOLUME_MAX,
+  OUTPUT_VOLUME_DEFAULT,
   INPUT_MAKEUP_MIN,
   INPUT_MAKEUP_MAX,
   INPUT_MAKEUP_DEFAULT
