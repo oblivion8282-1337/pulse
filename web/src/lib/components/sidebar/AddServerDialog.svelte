@@ -34,6 +34,7 @@
     addServerWithCertLogin,
     mapCertLoginReason,
     markSelfHostDisclaimerSeen,
+    BackupRequiredError,
   } from '$lib/api/add-server-flow';
   import { CertLoginError } from '$lib/api/cert-login';
   import { toast } from 'svelte-sonner';
@@ -135,6 +136,10 @@
       reset();
       onClose();
     } catch (err) {
+      // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler im
+      // Dialog. busy wird im finally zurückgesetzt, der User kann es erneut
+      // versuchen.
+      if (err instanceof BackupRequiredError) return;
       error = err instanceof CertLoginError
         ? mapCertLoginReason(err.reason)
         : (err as Error).message ?? m.add_server_dialog_error_connection_failed();

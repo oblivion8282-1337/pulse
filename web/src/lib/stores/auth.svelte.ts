@@ -21,6 +21,8 @@ import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
 import { stopProfileRefresh } from '$lib/identity/profile-refresh.svelte';
 import { stopCertRotation } from '$lib/identity/cert-rotation.svelte';
+import { activeServer } from './active-server.svelte';
+import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
 
 const ACCESS_KEY = 'dcc.tokens.access';
 
@@ -59,6 +61,10 @@ class AuthStore {
     try {
       this.user = await me();
       if (this.user) {
+        // Account-Switch-Schutz VOR dem Tresor-Pull: meldet sich ein anderer
+        // User am selben Gerät an, erst die Artefakte des Vorgängers räumen,
+        // damit `pullIfUnlocked()` nicht mit dessen Schlüssel/Liste arbeitet.
+        await this._enforceDeviceOwner(this.user.id);
         readState.hydrateForUser(this.user.id);
         // E2E-Server-Vault: liegt ein Key in IDB (Gerät hat Backup eingerichtet),
         // die synchronisierte Self-Host-Server-Liste mergen. Best-effort, kein
@@ -121,16 +127,104 @@ class AuthStore {
     }
   }
 
-  setUser(user: User): void {
+  async setUser(user: User): Promise<void> {
     this.user = user;
     readState.hydrateForUser(user.id);
-    // Same Schritt-3b cross-device hydrate as in _doHydrate. Triggered
-    // by the login flow's `auth.setUser(...)` call right after the
-    // tokens are saved.
+    // Account-Switch-Schutz zuerst (Login ohne Tab-Reload). Wird hier AWAITED,
+    // damit ein direkt nachfolgender Issue-Flow (login/register rufen `await
+    // setUser` → `runIssueFlow`) garantiert NACH den IDB-Wipes läuft und nie das
+    // Keypair eines Vorgängers liest. Bei gleichem User ist der Cleanup ein
+    // No-Op, sodass der reguläre Re-Login (und Patch-Updates wie Avatar/TOTP)
+    // nichts verlieren.
+    await this._enforceDeviceOwner(user.id);
+    // Schritt-3b cross-device hydrate, ausgelöst direkt nach dem Token-Save.
     void hydrateServerSections();
-    // E2E-Server-Vault: bei Login ohne Tab-Reload (SPA-Navigation) den Pull
-    // ebenfalls anstoßen, falls ein Tresor-Key in IDB liegt. Best-effort.
+    // E2E-Server-Vault: bei Login ohne Tab-Reload den Pull anstoßen, falls ein
+    // Tresor-Key in IDB liegt. Best-effort.
     void serverVault.pullIfUnlocked();
+  }
+
+  /**
+   * Geräte-Besitzer-Wächter (Account-Switch-Schutz). Hinterlegt pro Gerät, wem
+   * es zuletzt gehörte (`pulse.identity_owner`). Meldet sich ein **anderer** User
+   * am selben Rechner an, werden die kontogebundenen, gerätelokalen Artefakte des
+   * Vorgängers entfernt — sonst sähe der neue User dessen Self-Host-Liste und
+   * erbte dessen Identität/Tresor (der gerätelokale `pulse.servers`-Leak). Der
+   * rechtmäßige Besitzer stellt alles beim nächsten eigenen Login per Master-
+   * Passwort aus dem Server-Tresor wieder her.
+   *
+   * Läuft auf Web UND Electron identisch (Electron lädt denselben Renderer);
+   * der native Stream-Store wird über `clearLegacyStreamCredentials()` defensiv
+   * mit-entleert. Gleicher User → reiner No-Op (nur Owner-Tag setzen).
+   */
+  private async _enforceDeviceOwner(userId: string): Promise<void> {
+    if (typeof window === 'undefined') return;
+    const OWNER_KEY = 'pulse.identity_owner';
+    let prev: string | null = null;
+    try {
+      prev = window.localStorage.getItem(OWNER_KEY);
+    } catch {
+      /* localStorage unzugänglich → Wächter degradiert still */
+    }
+    if (prev && prev !== userId) {
+      // Tresor-Key ZUERST wischen (synchron `cached=null`), damit das folgende
+      // Liste-Leeren keinen Push mit dem Schlüssel des Vorgängers auslöst.
+      const vaultWipe = serverVault.wipe();
+      // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
+      for (const s of serversStore.servers) {
+        if (s.isCloud) continue;
+        gatewayPool.close(s.id);
+        sessionTokens.clear(s.id);
+      }
+      // Self-Hosts aus der Geräte-Liste entfernen (silent: kein Tresor-Push).
+      serversStore.keepOnlyCloud(true);
+      const cloudId = serversStore.cloudId();
+      if (cloudId) activeServer.set(cloudId);
+      else {
+        // Defensive: ohne Cloud-Eintrag (sollte nach init() nie passieren) den
+        // stale active_server-Verweis wenigstens aus localStorage räumen.
+        try {
+          window.localStorage.removeItem('pulse.active_server');
+        } catch {
+          /* ignore */
+        }
+      }
+      // In-Memory-Reste leeren (greift im SPA-Login-Pfad ohne Reload).
+      resetServerScopedStores();
+      resetSocialStores();
+      // User-gebundene UX-Marker des Vorgängers räumen (wie signOut), damit der
+      // neue User Onboarding/Changelog/Self-Host-Disclaimer frisch bekommt und
+      // keine „schon gesehen"-Flags erbt. Disclaimer-Flags sind self-host-
+      // gebunden — nach dem keepOnlyCloud existiert kein Self-Host mehr, also
+      // alle wegfegen.
+      onboardingState.reset();
+      try {
+        for (const k of Object.keys(window.localStorage)) {
+          if (k.startsWith('pulse.disclaimer_')) window.localStorage.removeItem(k);
+        }
+        window.localStorage.removeItem('pulse.changelog.lastSeen');
+        // onboardingState.reset() leert nur den Memory-State; den persistierten
+        // Cache des Vorgängers hier mitnehmen (sonst erst beim nächsten init geheilt).
+        window.localStorage.removeItem('pulse.backup_onboarding_decided');
+      } catch {
+        /* ignore */
+      }
+      // Identitäts-Material des Vorgängers (IndexedDB) + Legacy-Stream-Keys
+      // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
+      // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
+      await Promise.allSettled([
+        vaultWipe,
+        certStore.wipe(),
+        keypairStore.wipe(),
+        profileStatementStore.wipe(),
+        clearLegacyStreamCredentials(),
+      ]);
+    }
+    try {
+      window.localStorage.setItem(OWNER_KEY, userId);
+    } catch {
+      /* ignore */
+    }
   }
 
   signOut(): void {

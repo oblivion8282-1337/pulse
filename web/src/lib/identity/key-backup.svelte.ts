@@ -117,6 +117,37 @@ export function fromBase64(b64: string): Uint8Array<ArrayBuffer> {
   return bytes as Uint8Array<ArrayBuffer>;
 }
 
+/** Alphabet für generierte Wiederherstellungs-Schlüssel: 30 Zeichen ohne die
+ *  optisch verwechselbaren I, L, O, U, 0, 1 — fürs fehlerfreie Abschreiben. */
+const RECOVERY_KEY_ALPHABET = 'ABCDEFGHJKMNPQRSTVWXYZ23456789';
+
+/**
+ * Erzeugt einen starken, gut lesbaren Wiederherstellungs-Schlüssel als Master-
+ * Passwort-Ersatz (Generator-Modus im Backup-Setup). Standard: 5 Gruppen à 5
+ * Zeichen (`XXXXX-XXXXX-…`) = 25 Zeichen aus einem 30er-Alphabet ≈ 122 Bit
+ * Entropie — weit über der 12-Zeichen-Mindestlänge. Der Bindestrich-getrennte
+ * String IST der Schlüssel (wird 1:1 als Passwort abgeleitet); Kopieren/Download
+ * liefern ihn exakt, sodass die Wiederherstellung per Einfügen funktioniert.
+ *
+ * Rejection-Sampling (`< max`) verhindert den Modulo-Bias, den ein simples
+ * `byte % 30` einführen würde.
+ */
+export function generateRecoveryKey(groups = 5, groupLen = 5): string {
+  const alphabetLen = RECOVERY_KEY_ALPHABET.length;
+  const max = Math.floor(256 / alphabetLen) * alphabetLen; // 240 — Bias-Schutz
+  const total = groups * groupLen;
+  const chars: string[] = [];
+  while (chars.length < total) {
+    const buf = randomBytes(total);
+    for (let i = 0; i < buf.length && chars.length < total; i++) {
+      if (buf[i] < max) chars.push(RECOVERY_KEY_ALPHABET[buf[i] % alphabetLen]);
+    }
+  }
+  const parts: string[] = [];
+  for (let i = 0; i < total; i += groupLen) parts.push(chars.slice(i, i + groupLen).join(''));
+  return parts.join('-');
+}
+
 /** Argon2id → AES-256-GCM-CryptoKey. */
 export async function deriveKeyArgon2id(
   password: string,

@@ -17,6 +17,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { BackupRequiredError } from '$lib/api/add-server-flow';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -54,6 +55,8 @@
       const input = host ? `https://app/invite/${code}?host=${encodeURIComponent(host)}` : code;
       await joinGuildByInvite(input);
     } catch (e) {
+      // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler-Toast.
+      if (e instanceof BackupRequiredError) return;
       toast.error(m.invite_embed_invalid(), {
         description: e instanceof Error ? e.message : undefined
       });

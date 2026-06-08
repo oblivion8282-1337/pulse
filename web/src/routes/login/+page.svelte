@@ -87,7 +87,10 @@
   });
 
   async function completeLogin() {
-    auth.setUser(await me());
+    // `await`: der Account-Switch-Cleanup in setUser muss VOR runIssueFlow
+    // abgeschlossen sein, sonst läse der Issue-Flow evtl. das Keypair eines
+    // Vorgängers (Account-Wechsel am selben Gerät ohne Sign-out).
+    await auth.setUser(await me());
 
     // Identity-Flow: Cert ausstellen + Profile-Statement holen. Blockierend
     // weil bei RecoveryAvailableError ein Redirect zu /recover gemacht

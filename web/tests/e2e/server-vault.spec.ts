@@ -199,6 +199,9 @@ test('backup-setup UI: non-extractable Keypair wird upgegradet → Backup + Vaul
   // Onboarding-Backup-Dialog → echtes UI durchklicken (treibt ensureBackupCapableKeypair).
   await expect(page.getByTestId('backup-onboarding-setup-btn')).toBeVisible({ timeout: 12000 });
   await page.getByTestId('backup-onboarding-setup-btn').click();
+  // Setup-Form startet im Generator-Modus; für den eigenen-Passwort-Pfad
+  // erst auf "Eigenes Passwort" umschalten, dann die Felder ausfüllen.
+  await page.getByTestId('backup-mode-own').click();
   await page.getByTestId('backup-password-input').fill(PW);
   await page.getByTestId('backup-password-confirm-input').fill(PW);
   await page.getByTestId('backup-confirm-btn').click();

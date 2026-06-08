@@ -13,7 +13,11 @@
   import XIcon from '@lucide/svelte/icons/x';
   import { communityInvites } from '$lib/stores/communityInvites.svelte';
   import { communityInvitesApi, type CommunityInvitePayload } from '$lib/api/community-invites';
-  import { acceptCommunityInvite, SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import {
+    acceptCommunityInvite,
+    SelfHostContactConfirmRequired,
+    BackupRequiredError
+  } from '$lib/api/add-server-flow';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
@@ -42,6 +46,11 @@
       await acceptCommunityInvite(inv, confirmed);
       communityInvites.remove(inv.id);
     } catch (e) {
+      // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler-Toast.
+      if (e instanceof BackupRequiredError) {
+        joiningId = null;
+        return;
+      }
       if (e instanceof SelfHostContactConfirmRequired) {
         // Erstkontakt-Gate: Dialog öffnen, auf Bestätigung warten.
         confirmHost = e.hostname;

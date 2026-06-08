@@ -43,7 +43,9 @@
         display_name: displayName.trim() || null,
         invite_code: inviteCode.trim() || null
       });
-      auth.setUser(await me());
+      // `await`: Account-Switch-Cleanup in setUser vor dem Issue-Flow abschließen
+      // (Konsistenz mit dem Login-Pfad; bei frischer Registration ohnehin No-Op).
+      await auth.setUser(await me());
 
       // Identity-Flow: Cert + Profile-Statement ausstellen + Refresh-Timer
       // starten. Bei frischer Registration kann **per Definition** kein

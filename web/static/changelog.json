@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
   "entries": [
     {
+      "id": "2026-06-08.2",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Sicherer Geräte-Wechsel und ein Generator für das Backup-Passwort",
+      "intro": "Mehrere Verbesserungen rund um Backup und gemeinsam genutzte Geräte:",
+      "items": [
+        "Meldet sich auf einem geteilten Gerät ein anderes Konto an, sind die selbst hinzugefügten Server des vorigen Kontos nicht mehr sichtbar. Deine eigene Liste holst du dir beim nächsten Login mit deinem Backup-Passwort zurück.",
+        "Beim Einrichten des Backups kannst du dir jetzt einen starken Wiederherstellungs-Schlüssel erzeugen lassen und ihn kopieren oder als Datei speichern, statt dir selbst ein Passwort auszudenken.",
+        "Bevor du einem selbst gehosteten Server beitrittst, richtest du einmalig ein Backup ein. So bleibt deine Server-Liste auch nach einem Gerätewechsel wiederherstellbar."
+      ],
+      "outro": "Bestehende Konten und Mitgliedschaften bleiben unverändert."
+    },
+    {
       "id": "2026-06-08",
       "date": "2026-06-08",
       "style": "Sachlich",

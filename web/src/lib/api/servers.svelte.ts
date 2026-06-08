@@ -170,6 +170,24 @@ class ServersStore {
     this._notifyChange();
   }
 
+  /**
+   * Entfernt alle Self-Host-Einträge und behält nur den Cloud-Server.
+   * Genutzt vom Account-Switch-Cleanup (auth `_enforceDeviceOwner`), wenn ein
+   * fremder Geräte-Besitzer am selben Rechner erkannt wird — schließt den
+   * gerätelokalen `pulse.servers`-Leak.
+   *
+   * **`silent=true` ist beim Cleanup zwingend:** es unterdrückt den
+   * Change-Listener, sonst liefe ein Server-Tresor-Push und überschriebe den
+   * Tresor des Vorgängers mit der gerade geleerten Liste (Datenverlust).
+   */
+  keepOnlyCloud(silent = false): void {
+    const cloudOnly = this.servers.filter((s) => s.isCloud);
+    if (cloudOnly.length === this.servers.length) return; // bereits nur Cloud
+    this.servers = cloudOnly;
+    saveToStorage(this.servers);
+    if (!silent) this._notifyChange();
+  }
+
   update(serverId: string, patch: Partial<ServerEntry>): void {
     this.servers = this.servers.map((s) =>
       s.id === serverId ? { ...s, ...patch, id: s.id } : s,

@@ -21,6 +21,7 @@ import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
 import { communityInvitesApi, type CommunityInvitePayload } from './community-invites';
 import type { AcceptInviteResult, InvitePreview } from './types';
+import { backupGate } from '$lib/stores/backup-gate.svelte';
 
 export type AddServerSuccess = {
   entry: ServerEntry;
@@ -41,6 +42,23 @@ export class SelfHostContactConfirmRequired extends Error {
   constructor(public readonly hostname: string) {
     super('self-host-contact-confirm-required');
     this.name = 'SelfHostContactConfirmRequired';
+  }
+}
+
+/**
+ * Sentinel-Fehler: wird geworfen, wenn der Beitritt zu einem Self-Host-Server
+ * abgebrochen wird, weil noch kein Cloud-Backup eingerichtet ist (der
+ * BackupGate-Dialog wurde vom User geschlossen, statt das Setup abzuschließen).
+ *
+ * Self-Host-Server liegen nur gerätelokal + im backup-verschlüsselten Tresor —
+ * ohne Backup gingen sie bei Gerätewechsel/Account-Switch verloren. Der Caller
+ * fängt diesen Fehler und bricht **still** ab (kein Fehler-Toast — der Abbruch
+ * war eine bewusste User-Entscheidung).
+ */
+export class BackupRequiredError extends Error {
+  constructor() {
+    super('backup-required');
+    this.name = 'BackupRequiredError';
   }
 }
 
@@ -97,6 +115,13 @@ export async function addServerWithCertLogin(args: {
    */
   publicJoinHandle?: string;
 }): Promise<AddServerSuccess> {
+  // Backup-Pflicht: Self-Host-Server überleben Gerätewechsel/Account-Switch nur
+  // über den backup-verschlüsselten Server-Tresor. Ohne Cloud-Backup öffnet der
+  // Gate einen Setup-Dialog; bricht der User ihn ab, wird der Beitritt
+  // verworfen (BackupRequiredError → Caller bricht still ab). Cloud-Ziele
+  // erreichen diese Funktion nie, brauchen das also nicht.
+  if (!(await backupGate.ensure())) throw new BackupRequiredError();
+
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
   let result;

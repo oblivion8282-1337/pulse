@@ -121,6 +121,24 @@ export async function saveAll(values: Record<string, unknown>): Promise<void> {
   }
 }
 
+/**
+ * Account-Switch-Defensive: leert den Legacy-`custom_servers`-Eintrag (Custom-
+ * RTMP-Ziele samt Klartext-Stream-Keys aus der Tauri-Ära). Der heutige
+ * Channel-Mode-Stream-Pfad schreibt diesen Key nicht mehr (siehe
+ * `stream/settings.svelte.ts` → `PERSIST_KEYS`), aber ein von einer alten
+ * Version migrierter `pulse-stream.json` kann ihn noch tragen. Beim Wechsel des
+ * Geräte-Besitzers wird er geleert, damit der nächste User am selben Rechner
+ * keine Stream-Keys des Vorgängers erbt. Die gerätspezifischen Capture-
+ * Präferenzen (Codec, Quelle, Audio) bleiben — sie tragen keine Secrets.
+ *
+ * Greift über die vorhandene `saveAll`-Maschinerie in beiden Umgebungen:
+ * Electron schreibt via `store:setAll`-IPC in `pulse-stream.json`, der Browser
+ * merged in den `pulse.stream`-localStorage-Blob.
+ */
+export async function clearLegacyStreamCredentials(): Promise<void> {
+  await saveAll({ custom_servers: [] });
+}
+
 /** Simple debounce — schedule a single async call after `delayMs` of quiet. */
 export function debounce<Args extends readonly unknown[]>(
   fn: (...args: Args) => void | Promise<void>,
