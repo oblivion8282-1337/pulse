@@ -25,7 +25,7 @@
 </script>
 
 <div
-  class="bg-bg-elev text-text-bright max-h-[70vh] w-full overflow-y-auto rounded-xl border border-border p-4 shadow-lg"
+  class="bg-bg-panel text-text-bright max-h-[70vh] w-full overflow-y-auto rounded-xl border border-border p-4 shadow-lg backdrop-blur-xl"
   data-testid="changelog-toast"
 >
   <div class="flex items-start justify-between gap-3">
