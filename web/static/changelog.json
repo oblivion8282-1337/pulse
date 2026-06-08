@@ -1,6 +1,17 @@
 {
-  "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als Dialog gezeigt (siehe web/src/lib/components/ChangelogGate.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt.",
+  "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
+    {
+      "id": "2026-06-08.10",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Neuigkeiten erscheinen jetzt als Hinweis statt als Fenster",
+      "intro": "Eine Änderung daran, wie dir nach einem Update gezeigt wird, was neu ist:",
+      "items": [
+        "Der „Was ist neu?“-Hinweis öffnet sich nicht mehr als Fenster mitten im Bild, sondern erscheint als Meldung unten rechts.",
+        "Du kannst dabei normal weiterarbeiten — zum Beispiel in einen Sprachkanal wechseln — und die Meldung wegklicken, wenn du sie gelesen hast."
+      ]
+    },
     {
       "id": "2026-06-08.9",
       "date": "2026-06-08",
@@ -124,7 +135,7 @@
       "id": "2026-06-07",
       "date": "2026-06-07",
       "style": "Klartext",
-      "title": "🎬 Watch-Party: sauberer Wiedereinstieg nach dem Minimieren",
+      "title": "Watch-Party: sauberer Wiedereinstieg nach dem Minimieren",
       "intro": "Ein Fehler beim Minimieren der App während einer Watch-Party ist behoben.",
       "items": [
         "Wenn du die App während einer Watch-Party minimierst, fror das Video ein und raste beim Zurückkommen im Schnelldurchlauf durch die verpasste Zeit — teils in einer Endlosschleife. Das passiert nicht mehr.",
@@ -136,7 +147,7 @@
       "id": "2026-06-06.2",
       "date": "2026-06-06",
       "style": "Türsteher",
-      "title": "🔥 Ohne die richtige Gästeliste läuft hier gar nichts",
+      "title": "Ohne die richtige Gästeliste läuft hier gar nichts",
       "intro": "Dein Server, deine Regeln: Ab sofort entscheidest du, wer durch die Tür kommt.",
       "items": [
         "Neuer Schalter am Samtseil — du stellst deinen eigenen Server auf „Offen für alle\", „Nur mit Einladung\" oder „Komplett dicht\".",
@@ -145,13 +156,13 @@
         "Und keine Sorge um die Stammgäste: Wer schon drin ist, bleibt drin — niemand wird durch die neue Tür ausgesperrt.",
         "Frisch aufgesetzte Server stehen ab Werk auf „Nur mit Einladung\" — sicher von der ersten Minute an."
       ],
-      "outro": "Du als Hausherr kommst natürlich immer rein. 🛂"
+      "outro": "Du als Hausherr kommst natürlich immer rein."
     },
     {
       "id": "2026-06-06",
       "date": "2026-06-06",
       "style": "Detektiv",
-      "title": "🕵️ Der Fall des verschwundenen Admin-Knopfes",
+      "title": "Der Fall des verschwundenen Admin-Knopfes",
       "intro": "Ein Hinweis ging ein: Auf der eigenen, selbst gehosteten Cloud war der Admin spurlos ausgesperrt. Wir haben ermittelt.",
       "items": [
         "Wer eine eigene Pulse-Instanz betreibt, findet im Profilmenü unten links jetzt wieder den Knopf „Server-Admin\" — und kommt damit an die Einstellungen seines eigenen Servers."
@@ -162,7 +173,7 @@
       "id": "2026-06-05",
       "date": "2026-06-05",
       "style": "Teleshopping",
-      "title": "🔥 Das große Pulse-Update — heute exklusiv für Sie!",
+      "title": "Das große Pulse-Update — heute exklusiv für Sie!",
       "intro": "Sehen Sie selbst, liebe Zuschauer — was wir Ihnen heute mitbringen, das gibt's so nur EINMAL, und Sie sind live dabei!",
       "items": [
         "Die Watch-Party startet ab jetzt GANZ VON ALLEIN — kein Suchen, kein Play-Button mehr! Erstellen, zurücklehnen, fertig!",
@@ -173,7 +184,7 @@
         "Exklusiv und völlig gratis: Die Lautstärke jedes Streamers wird jetzt dauerhaft gespeichert — über Tab-Wechsel und Neustarts hinweg, ein für alle Mal!",
         "Und als allerletztes Schmankerl: brandneue Sounds für Stream-Start und -Stopp, plus Ihre eigenen Server-Sounds spielen endlich zuverlässig!"
       ],
-      "outro": "Aber Achtung — greifen Sie JETZT zu: Klicken Sie auf „Neu laden\" und erleben Sie das neue Pulse! Nur solange der Vorrat reicht! 📞✨"
+      "outro": "Aber Achtung — greifen Sie JETZT zu: Klicken Sie auf „Neu laden\" und erleben Sie das neue Pulse! Nur solange der Vorrat reicht!"
     }
   ]
 }

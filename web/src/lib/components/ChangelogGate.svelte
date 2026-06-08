@@ -1,25 +1,34 @@
 <!--
-  ChangelogGate: entscheidet beim App-Start, ob das Changelog-Dialog gezeigt
-  wird. Mechanik:
+  ChangelogGate: entscheidet beim App-Start, ob das „Was ist neu?"-Changelog
+  gezeigt wird, und zeigt es als NICHT-blockierenden Toast (unten rechts, via
+  sonner) — KEIN modaler Dialog mehr. So kann der User nebenher weiterarbeiten
+  (z.B. in einen Voice-Channel joinen), während der Toast steht, und ihn
+  wegklicken.
+
+  Mechanik:
    - lädt /changelog.json (no-cache; nginx serviert sie ohne Cache, s.
      web-nginx.conf, analog zu /_app/version.json)
    - vergleicht die neueste Eintrags-id mit localStorage 'pulse.changelog.lastSeen'
-   - lastSeen ≠ neueste id (inkl. Erstbesuch ohne Wert): die neuen Einträge
-     anzeigen, beim Schließen lastSeen hochsetzen → erscheint genau EINMAL nach
-     dem Update-Reload bzw. beim nächsten App-Start. Auch Erstnutzer sehen das
-     aktuelle Changelog (bewusst keine Neuling-Sonderbehandlung).
+   - lastSeen ≠ neueste id (inkl. Erstbesuch): die seither neuen Einträge zeigen.
+   - Der Toast erscheint erst, wenn der User EINGELOGGT ist (auth.user gesetzt) —
+     nie auf dem Login-Screen, sondern im App-Kontext. „Gesehen" wird beim
+     Anzeigen markiert → erscheint genau EINMAL pro Update, kein Re-Show beim
+     nächsten Reload.
   Changelog ist nice-to-have: jeder Fehler (fetch/parse/localStorage) wird
   geschluckt, der App-Start darf nie daran hängen.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import ChangelogDialog from './ChangelogDialog.svelte';
+  import { toast } from 'svelte-sonner';
+  import ChangelogToast from './ChangelogToast.svelte';
+  import { auth } from '$lib/stores/auth.svelte';
   import { isChangelogEntry, type ChangelogEntry } from '$lib/changelog/types';
 
   const LAST_SEEN_KEY = 'pulse.changelog.lastSeen';
 
   let entries = $state<ChangelogEntry[]>([]);
-  let open = $state(false);
+  // Nicht-reaktiver Einmal-Guard: der Toast darf pro Mount nur einmal feuern.
+  let fired = false;
 
   function readLastSeen(): string | null {
     try {
@@ -62,14 +71,22 @@
       // Historie aufdrängen.
       const idx = lastSeen === null ? -1 : all.findIndex((e) => e.id === lastSeen);
       entries = idx === -1 ? all.slice(0, 1) : all.slice(0, idx);
-      if (entries.length > 0) open = true;
     })();
   });
 
-  function handleClose(): void {
-    open = false;
-    if (entries.length > 0) writeLastSeen(entries[0].id);
-  }
+  // Toast erst feuern, wenn etwas Neues da ist UND der User eingeloggt ist.
+  // ``auth.user`` ist reaktiv ($state) → der Effect läuft erneut, sobald die
+  // Hydration/der Login ihn setzt. ``fired`` stellt einmaliges Feuern sicher.
+  $effect(() => {
+    if (fired || entries.length === 0 || !auth.user) return;
+    fired = true;
+    const seenId = entries[0].id;
+    toast.custom(ChangelogToast, {
+      componentProps: { entries },
+      duration: Number.POSITIVE_INFINITY, // bleibt bis zum Wegklicken
+      dismissible: true,
+    });
+    // Einmal gezeigt → als gesehen markieren (kein Re-Show beim nächsten Reload).
+    writeLastSeen(seenId);
+  });
 </script>
-
-<ChangelogDialog {entries} {open} onClose={handleClose} />
