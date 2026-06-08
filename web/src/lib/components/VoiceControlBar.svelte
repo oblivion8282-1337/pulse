@@ -9,6 +9,8 @@
   import VideoIcon from '@lucide/svelte/icons/video';
   import VideoOffIcon from '@lucide/svelte/icons/video-off';
   import SwitchCameraIcon from '@lucide/svelte/icons/switch-camera';
+  import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import EarIcon from '@lucide/svelte/icons/ear';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -19,6 +21,9 @@
   import { Perm } from '$lib/permissions/bitfield';
   import ScreenShareModeButton from './ScreenShareModeButton.svelte';
   import WatchPartyStartButton from './WatchPartyStartButton.svelte';
+  import { onMount } from 'svelte';
+  import { isCapacitorAndroid } from '$lib/platform/runtime';
+  import { setAudioRoute, getAudioRoute } from '$lib/platform/audioRoute';
 
   // Camera-toggle gate: same shape as the HQ-stream button. Hide when
   // the channel's resolved permissions lack USE_VIDEO. Falls back to
@@ -64,6 +69,22 @@
     return voicePresence.isForceDeafened(cid, uid);
   });
 
+  // Manueller Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
+  // (ruft das native AudioRoute-Plugin). Im Browser/Electron unsichtbar/No-op.
+  // Default = Lautsprecher (= nativer Auto-Modus); Tippen erzwingt Hörmuschel
+  // bzw. zurück. Onmount mit dem nativen Stand synchronisieren.
+  const showAudioRouteToggle = isCapacitorAndroid();
+  let speakerOn = $state(true);
+  onMount(() => {
+    if (!showAudioRouteToggle) return;
+    void getAudioRoute().then((r) => {
+      speakerOn = r !== 'earpiece';
+    });
+  });
+  function toggleAudioRoute(): void {
+    speakerOn = !speakerOn;
+    void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
+  }
 </script>
 
 <div
@@ -146,6 +167,31 @@
           {/if}
         </Tooltip.Content>
       </Tooltip.Root>
+
+      <!-- Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App (nativer
+           AudioRoute-Toggle). Behebt den earpiece-Default im Kommunikationsmodus. -->
+      {#if showAudioRouteToggle}
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                variant={speakerOn ? 'default' : 'ghost'}
+                size="icon-sm"
+                class="size-14 md:size-8"
+                onclick={toggleAudioRoute}
+                data-testid="voice-audio-route-toggle"
+                aria-label={speakerOn ? 'Auf Hörmuschel umschalten' : 'Auf Lautsprecher umschalten'}
+              >
+                {#if speakerOn}<Volume2Icon class="size-6 md:size-4" />{:else}<EarIcon class="size-6 md:size-4" />{/if}
+              </Button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>
+            {speakerOn ? 'Lautsprecher (tippen für Hörmuschel)' : 'Hörmuschel (tippen für Lautsprecher)'}
+          </Tooltip.Content>
+        </Tooltip.Root>
+      {/if}
 
       <!-- Watch-Party auf Mobil ausgeblendet — Desktop-Feature (s. Phase 6). -->
       {#if voice.channelId && !viewport.isMobile}

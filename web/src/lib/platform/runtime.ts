@@ -29,6 +29,23 @@ export const isElectron = (): boolean =>
 export const isDesktop = (): boolean => isElectron();
 
 /**
+ * True inside the Capacitor Android wrapper app (the APK that loads
+ * howispulse.com remotely). Capacitor injects a native bridge whose
+ * `isNativePlatform()` returns true there and never in a plain browser. This
+ * wrapper is Android-only, so native-platform is a sufficient signal (we
+ * deliberately don't gate on `getPlatform() === 'android'` — under a
+ * `server.url` config some Capacitor versions report `'web'` there, which would
+ * wrongly hide native UI). Used to gate native-only controls like the
+ * earpiece/speaker audio toggle (the native `AudioRoute` plugin).
+ */
+export const isCapacitorAndroid = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const cap = (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } })
+    .Capacitor;
+  return !!cap?.isNativePlatform?.();
+};
+
+/**
  * Best-effort "are we on Linux?" check.
  *
  * A UA-based guess is good enough for our gates (the GSR streaming UI also

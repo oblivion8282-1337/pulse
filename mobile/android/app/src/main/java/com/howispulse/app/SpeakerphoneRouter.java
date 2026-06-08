@@ -4,50 +4,57 @@ import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import java.util.List;
 import java.util.concurrent.Executor;
 
 /**
- * Zwingt die WebRTC-Wiedergabe auf den lauten Medien-/Freisprech-Lautsprecher.
+ * Routet die WebRTC-/Stream-Wiedergabe auf das gewünschte Ausgabegerät.
  *
- * Das Problem: Sobald die WebView ein {@code getUserMedia({audio})} /
- * {@code RTCPeerConnection} öffnet (LiveKit-Voice, aber auch WHEP-Streams mit
- * Audio), schaltet Chromium den System-Audio-Modus auf
- * {@link AudioManager#MODE_IN_COMMUNICATION}. In diesem Modus routet Android die
- * Wiedergabe per Default auf den HÖRMUSCHEL-Lautsprecher (earpiece, Telefonie),
- * nicht auf den lauten Medien-Lautsprecher — der Ton kommt dadurch sehr leise
- * und „wie aus dem Telefon-Hörer".
+ * Das Problem: Sobald die WebView eine {@code RTCPeerConnection} / {@code
+ * getUserMedia} öffnet, schaltet Chromium den System-Audio-Modus auf
+ * {@link AudioManager#MODE_IN_COMMUNICATION}. In diesem Modus routet Android per
+ * Default auf die HÖRMUSCHEL (earpiece, Telefonie) statt auf den lauten Medien-
+ * Lautsprecher — der Ton kommt „wie aus dem Telefon-Hörer".
  *
- * Gegenmittel (Standard-Pattern aus Googles AppRTC / Jitsi-AudioManager):
- *  - API 31+: {@link AudioManager#setCommunicationDevice} mit dem
- *    BUILTIN_SPEAKER. Das ist der von Google ab Android 12 vorgesehene,
- *    nicht-deprecatete Weg.
- *  - API 24–30: das ältere {@link AudioManager#setSpeakerphoneOn}(true).
+ * Zwei Betriebsarten:
+ *  - {@link #ROUTE_AUTO} (Default): erzwingt den Lautsprecher, solange KEIN
+ *    Headset/Bluetooth steckt (dann bleibt der Ton dort).
+ *  - {@link #ROUTE_SPEAKER}/{@link #ROUTE_EARPIECE}: manueller Override aus dem
+ *    UI-Umschalter — die explizite User-Wahl gewinnt, auch über ein Headset.
  *
- * Re-Assert: Chromium setzt den Modus erst, NACHDEM die App schon resumed ist,
- * und kann ihn mitten in einer Session umschalten (z. B. beim Stummschalten des
- * Mics). Deshalb hängen wir uns ab API 31 an
- * {@link AudioManager.OnModeChangedListener} und erzwingen den Lautsprecher
- * jedes Mal neu, wenn der Modus auf COMMUNICATION kippt. Zusätzlich wird
- * {@link #apply()} bei jedem {@code onResume} der Activity gerufen.
- *
- * BEWUSST KONSERVATIV: Wir setzen NICHT den Audio-Modus selbst (das überlässt
- * den Chromium/WebRTC), routen nur das Ausgabegerät. Bei angeschlossenem
- * Headset/Bluetooth fassen wir nichts an — dann soll das Audio dort bleiben.
- *
- * Steckt ein kabelgebundenes/Bluetooth-Audiogerät, wird KEIN Speaker erzwungen.
+ * Robustheit gegen den Chromium-Race (das war der Bug der reinen Mode-Gate-
+ * Variante): {@code setCommunicationDevice} wirkt nur in
+ * {@code MODE_IN_COMMUNICATION}, und Chromium wählt unmittelbar nach dem
+ * Mode-Switch SELBST ein Ausgabegerät. Deshalb:
+ *  1. {@link AudioManager.OnModeChangedListener} → bei Wechsel auf COMMUNICATION
+ *     sofort anwenden.
+ *  2. verzögertes Re-Apply (150/500 ms), um einen direkt folgenden Chromium-
+ *     Override zu übersteuern.
+ *  3. {@link AudioManager.OnCommunicationDeviceChangedListener} → holt unsere
+ *     Wahl zurück, falls Chromium das Gerät später wegnimmt („letztes Wort").
+ *     Self-Trigger-Schutz: re-asserten nur, wenn das aktuelle Gerät ≠ Ziel ist.
  */
 public class SpeakerphoneRouter {
+
+    public static final int ROUTE_AUTO = 0;
+    public static final int ROUTE_SPEAKER = 1;
+    public static final int ROUTE_EARPIECE = 2;
 
     private static final String TAG = "PulseAudio";
 
     private final AudioManager audioManager;
     private final Executor mainExecutor;
+    private final Handler handler = new Handler(Looper.getMainLooper());
 
-    /** API 31+ Mode-Change-Listener; null auf älteren Geräten / wenn nicht registriert. */
+    /** Aktuelle Routing-Wahl. ``volatile``: vom Plugin-Thread setzbar. */
+    private volatile int route = ROUTE_AUTO;
+
     private AudioManager.OnModeChangedListener modeListener;
+    private AudioManager.OnCommunicationDeviceChangedListener commDeviceListener;
 
     public SpeakerphoneRouter(Context context, Executor mainExecutor) {
         this.audioManager = (AudioManager) context.getApplicationContext()
@@ -55,106 +62,144 @@ public class SpeakerphoneRouter {
         this.mainExecutor = mainExecutor;
     }
 
-    /** Einmalig nach Activity-Create aufrufen: registriert (ab API 31) den
-     *  Mode-Change-Listener und erzwingt einmal den Lautsprecher. */
+    /** Einmalig nach Activity-Create: registriert (ab API 31) die Listener und
+     *  wendet einmal an. */
     public void start() {
         if (audioManager == null) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && modeListener == null) {
-            modeListener = (mode) -> {
-                if (mode == AudioManager.MODE_IN_COMMUNICATION) {
-                    apply();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (modeListener == null) {
+                modeListener = (mode) -> {
+                    if (mode == AudioManager.MODE_IN_COMMUNICATION) apply();
+                };
+                try {
+                    audioManager.addOnModeChangedListener(mainExecutor, modeListener);
+                } catch (Exception e) {
+                    Log.w(TAG, "addOnModeChangedListener failed", e);
                 }
-            };
-            try {
-                audioManager.addOnModeChangedListener(mainExecutor, modeListener);
-            } catch (Exception e) {
-                Log.w(TAG, "addOnModeChangedListener failed", e);
+            }
+            if (commDeviceListener == null) {
+                commDeviceListener = (device) -> onCommDeviceChanged();
+                try {
+                    audioManager.addOnCommunicationDeviceChangedListener(
+                            mainExecutor, commDeviceListener);
+                } catch (Exception e) {
+                    Log.w(TAG, "addOnCommunicationDeviceChangedListener failed", e);
+                }
             }
         }
         apply();
     }
 
-    /** Beim Activity-Destroy aufrufen: Listener wieder abmelden. */
+    /** Beim Activity-Destroy: Listener abmelden. */
     public void stop() {
         if (audioManager == null) return;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && modeListener != null) {
-            try {
-                audioManager.removeOnModeChangedListener(modeListener);
-            } catch (Exception e) {
-                Log.w(TAG, "removeOnModeChangedListener failed", e);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (modeListener != null) {
+                try { audioManager.removeOnModeChangedListener(modeListener); }
+                catch (Exception e) { Log.w(TAG, "removeOnModeChangedListener failed", e); }
+                modeListener = null;
             }
-            modeListener = null;
+            if (commDeviceListener != null) {
+                try { audioManager.removeOnCommunicationDeviceChangedListener(commDeviceListener); }
+                catch (Exception e) { Log.w(TAG, "removeOnCommunicationDeviceChangedListener failed", e); }
+                commDeviceListener = null;
+            }
+        }
+        handler.removeCallbacksAndMessages(null);
+    }
+
+    /** Manueller Umschalter aus dem UI (AudioRoute-Plugin). ``ROUTE_AUTO`` stellt
+     *  das automatische Verhalten (Lautsprecher, sofern kein Headset) wieder her. */
+    public void setRoute(int newRoute) {
+        this.route = newRoute;
+        apply();
+        // Gegen den Chromium-Override direkt nach einem Mode-Switch / einer
+        // Geräte-Umschaltung noch zwei Mal kurz danach erneut durchsetzen.
+        handler.postDelayed(this::apply, 150);
+        handler.postDelayed(this::apply, 500);
+    }
+
+    public int currentRoute() {
+        return route;
+    }
+
+    public String routeName() {
+        switch (route) {
+            case ROUTE_SPEAKER: return "speaker";
+            case ROUTE_EARPIECE: return "earpiece";
+            default: return "auto";
         }
     }
 
+    private int targetDeviceType() {
+        // AUTO + SPEAKER → Lautsprecher; nur EARPIECE → Hörmuschel.
+        return route == ROUTE_EARPIECE
+                ? AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                : AudioDeviceInfo.TYPE_BUILTIN_SPEAKER;
+    }
+
     /**
-     * Erzwingt — sofern KEIN Headset/Bluetooth steckt — die Wiedergabe auf den
-     * eingebauten Lautsprecher. Idempotent; jederzeit gefahrlos aufrufbar
-     * (onResume, Mode-Change). No-op ohne AudioManager.
+     * Wendet die aktuelle Routing-Wahl an. Idempotent, jederzeit gefahrlos
+     * aufrufbar (onResume, Mode-/Device-Change, verzögertes Re-Apply).
      */
     public void apply() {
         if (audioManager == null) return;
-        if (hasExternalAudioRoute()) {
-            // Headset / Bluetooth aktiv → Nutzer-Intention respektieren, nichts erzwingen.
+        // Nur im AUTO-Modus ein Headset/Bluetooth respektieren; ein MANUELLER
+        // Override ist die explizite User-Entscheidung und gewinnt auch dann.
+        if (route == ROUTE_AUTO && hasExternalAudioRoute()) {
             return;
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Nur eingreifen, wenn tatsächlich ein Kommunikations-Audiomodus
-                // läuft (Voice/WHEP-Audio). setCommunicationDevice ist ohnehin nur
-                // in MODE_IN_COMMUNICATION wirksam; bei jedem onResume ohne Call
-                // (reines Chatten) wäre der Aufruf ein No-op und könnte mit einer
-                // anderen App im Kommunikationsmodus kollidieren. Sobald Chromium
-                // den Modus tatsächlich auf COMMUNICATION schaltet, ruft der
-                // OnModeChangedListener apply() erneut — dann greift es.
+                // setCommunicationDevice wirkt NUR in MODE_IN_COMMUNICATION; sonst
+                // ist es wirkungslos. Der Mode-/Device-Listener triggert apply()
+                // erneut, sobald der Modus tatsächlich auf COMMUNICATION kippt.
                 if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
-                applyApi31();
+                applyApi31(targetDeviceType());
             } else {
-                // API 24–30: deprecated, aber auf diesen Versionen der einzige Weg.
-                // Hier KEIN Mode-Gate: auf diesen Versionen gibt es keinen
-                // OnModeChangedListener (nur ab API 31 registriert), der einen nach
-                // onResume gestarteten Call nachträglich abfangen könnte. Daher
-                // weiter best-effort proaktiv setzen.
-                audioManager.setSpeakerphoneOn(true);
+                // API 24–30: deprecated, aber der einzige Weg. setSpeakerphoneOn
+                // deckt nur Speaker/earpiece ab (kein explizites Earpiece-Device).
+                audioManager.setSpeakerphoneOn(targetDeviceType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
             }
         } catch (Exception e) {
-            Log.w(TAG, "speaker routing failed", e);
+            Log.w(TAG, "audio routing failed", e);
         }
     }
 
-    private void applyApi31() {
-        // BUILTIN_SPEAKER aus der Liste der verfügbaren Kommunikations-Geräte ziehen
-        // und als Kommunikations-Ausgabegerät setzen. setCommunicationDevice ist
-        // der ab Android 12 vorgesehene Ersatz für setSpeakerphoneOn.
+    private void applyApi31(int deviceType) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
-        AudioDeviceInfo speaker = null;
+        AudioDeviceInfo target = null;
         List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
         for (AudioDeviceInfo d : devices) {
-            if (d.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
-                speaker = d;
+            if (d.getType() == deviceType) {
+                target = d;
                 break;
             }
         }
-        if (speaker != null) {
-            boolean ok = audioManager.setCommunicationDevice(speaker);
-            if (!ok) {
-                Log.w(TAG, "setCommunicationDevice(speaker) returned false");
-            }
+        if (target != null) {
+            boolean ok = audioManager.setCommunicationDevice(target);
+            if (!ok) Log.w(TAG, "setCommunicationDevice returned false for type " + deviceType);
         }
+    }
+
+    /** Re-Assert, wenn ein anderer (Chromium) das Kommunikationsgerät umgestellt
+     *  hat. Self-Trigger-Schutz: passiert nichts, wenn das Gerät schon stimmt. */
+    private void onCommDeviceChanged() {
+        if (audioManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
+        if (route == ROUTE_AUTO && hasExternalAudioRoute()) return;
+        AudioDeviceInfo cur = audioManager.getCommunicationDevice();
+        if (cur != null && cur.getType() == targetDeviceType()) return; // schon korrekt → kein Loop
+        apply();
     }
 
     /**
      * True, wenn ein echtes externes Audio-AUSGABEGERÄT (kabelgebundenes
      * Headset/Kopfhörer, USB-Headset, Bluetooth A2DP/SCO, Hörgerät) angeschlossen
-     * ist. In dem Fall soll der Ton dort bleiben und NICHT auf den Lautsprecher
-     * gezwungen werden.
+     * ist. Nur im AUTO-Modus relevant.
      *
      * BEWUSST OHNE {@code TYPE_USB_DEVICE}: dieser generische Typ taucht je nach
-     * OEM auch für USB-Peripherie OHNE Audiofunktion auf (OTG-Adapter, Lade-Hubs,
-     * Tastaturen). Würden wir ihn mitzählen, bräche {@link #apply()} ab und der
-     * Voice-Ton bliebe in der leisen Hörmuschel, sobald irgendein USB-Gerät
-     * steckt. Ein echtes USB-Audiogerät meldet sich als {@code TYPE_USB_HEADSET}
-     * (das bleibt drin) bzw. wird ohnehin zum aktiven Kommunikationsgerät.
+     * OEM auch für USB-Peripherie OHNE Audiofunktion auf (OTG-Adapter, Lade-Hubs).
      */
     private boolean hasExternalAudioRoute() {
         if (audioManager == null) return false;

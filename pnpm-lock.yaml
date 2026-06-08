@@ -29,6 +29,9 @@ importers:
 
   web:
     dependencies:
+      '@capacitor/core':
+        specifier: ^8.4.0
+        version: 8.4.0
       '@fontsource-variable/plus-jakarta-sans':
         specifier: ^5.2.8
         version: 5.2.8
@@ -134,6 +137,9 @@ packages:
 
   '@bufbuild/protobuf@1.10.1':
     resolution: {integrity: sha512-wJ8ReQbHxsAfXhrf9ixl0aYbZorRuOWpBNzm8pL8ftmSxQx/wnJD5Eg861NwJU/czy2VXFIebCeZnZrI9rktIQ==}
+
+  '@capacitor/core@8.4.0':
+    resolution: {integrity: sha512-LrS1xPIrqLtJABBIPDGXxxKmI9OyesrzWw8DiHbxhSC9JoiLUleUAJlX1a0LWIVLRbuY4Szgf9huFeRqYH2SAQ==}
 
   '@develar/schema-utils@2.6.5':
     resolution: {integrity: sha512-0cp4PsWQ/9avqTVMCtZ+GirikIA36ikvjtHweU4/j8yLtgObI0+JUPhYFScgwlteveGB1rt3Cm8UhN04XayDig==}
@@ -2398,6 +2404,10 @@ snapshots:
   7zip-bin@5.2.0: {}
 
   '@bufbuild/protobuf@1.10.1': {}
+
+  '@capacitor/core@8.4.0':
+    dependencies:
+      tslib: 2.8.1
 
   '@develar/schema-utils@2.6.5':
     dependencies:

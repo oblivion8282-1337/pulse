@@ -38,10 +38,19 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // MUSS vor super.onCreate registriert werden, damit die Bridge das Plugin
+        // kennt, bevor die WebView lädt (Capacitor-Konvention).
+        registerPlugin(AudioRoutePlugin.class);
         super.onCreate(savedInstanceState);
         speakerRouter = new SpeakerphoneRouter(this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
         ensurePermissionsThenStartMicService();
+    }
+
+    /** Vom {@link AudioRoutePlugin} genutzt, damit der UI-Umschalter und das
+     *  automatische Routing denselben Router-Zustand teilen. */
+    public SpeakerphoneRouter getSpeakerphoneRouter() {
+        return speakerRouter;
     }
 
     @Override
