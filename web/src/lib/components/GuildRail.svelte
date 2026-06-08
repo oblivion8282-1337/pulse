@@ -24,6 +24,7 @@
   import UsersRoundIcon from '@lucide/svelte/icons/users-round';
   import LogInIcon from '@lucide/svelte/icons/log-in';
   import ServerIcon from '@lucide/svelte/icons/server';
+  import LogOutIcon from '@lucide/svelte/icons/log-out';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
@@ -97,6 +98,9 @@
   let deleteTarget = $state<Guild | null>(null);
   let deleteConfirmOpen = $state(false);
   let deleteBusy = $state(false);
+  let leaveTarget = $state<Guild | null>(null);
+  let leaveConfirmOpen = $state(false);
+  let leaveBusy = $state(false);
   // Server-settings modal — opened from the context-menu, replaces the
   // /settings page navigation.
   let settingsTarget = $state<Guild | null>(null);
@@ -174,6 +178,30 @@
       toast.error(m.guild_rail_delete_failed(), { description: (err as Error).message });
     } finally {
       deleteBusy = false;
+    }
+  }
+
+  function openLeave(g: Guild) {
+    leaveTarget = g;
+    leaveConfirmOpen = true;
+  }
+
+  async function confirmLeave() {
+    if (!leaveTarget) return;
+    const id = leaveTarget.id;
+    leaveBusy = true;
+    try {
+      await chatApi.leaveGuild(id);
+      // Lokal entfernen + (falls aktiv) wegnavigieren — gleiche UX wie beim
+      // Delete; das ``guild_member_removed``-WS-Event räumt parallel mit auf.
+      guildsStore.remove(id);
+      onGuildDeleted?.(id);
+      leaveConfirmOpen = false;
+      leaveTarget = null;
+    } catch (err) {
+      toast.error(m.guild_rail_leave_failed(), { description: (err as Error).message });
+    } finally {
+      leaveBusy = false;
     }
   }
 
@@ -486,7 +514,8 @@
               </Tooltip.Root>
             {/snippet}
           </ContextMenu.Trigger>
-          {#if isActiveServer && (canManageGuild || canManageRoles || isOwner || (server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id)))}
+          {#if isActiveServer}
+            {@const isServerAdmin = server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id)}
             <ContextMenu.Content>
               {#if canManageRoles || isOwner}
                 <ContextMenu.Item
@@ -513,11 +542,20 @@
                   </ContextMenu.Item>
                 {/if}
               {/if}
-              {#if isOwner || (server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id))}
+              {#if isOwner || isServerAdmin}
                 {#if canManageGuild}<ContextMenu.Separator />{/if}
                 <ContextMenu.Item variant="destructive" onSelect={() => openDelete(g)} data-testid="guild-delete">
                   <Trash2Icon />
                   {m.guild_rail_delete_community()}
+                </ContextMenu.Item>
+              {/if}
+              <!-- Verlassen: jedes Mitglied AUSSER dem Owner (der muss erst
+                   übertragen/löschen). Funktioniert identisch Cloud + Self-Host. -->
+              {#if !isOwner}
+                {#if canManageGuild || canManageRoles || isServerAdmin}<ContextMenu.Separator />{/if}
+                <ContextMenu.Item variant="destructive" onSelect={() => openLeave(g)} data-testid="guild-leave">
+                  <LogOutIcon />
+                  {m.guild_rail_leave_community()}
                 </ContextMenu.Item>
               {/if}
             </ContextMenu.Content>
@@ -661,6 +699,27 @@
         data-testid="delete-guild-confirm"
       >
         {deleteBusy ? m.guild_rail_deleting() : m.guild_rail_delete_action()}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root bind:open={leaveConfirmOpen}>
+  <AlertDialog.Content data-testid="leave-guild-dialog">
+    <AlertDialog.Header>
+      <AlertDialog.Title>{m.guild_rail_leave_community_title()}</AlertDialog.Title>
+      <AlertDialog.Description>
+        {m.guild_rail_leave_community_description({ name: leaveTarget?.name ?? m.guild_rail_this_community() })}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={leaveBusy}>{m.guild_rail_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action
+        onclick={confirmLeave}
+        disabled={leaveBusy}
+        data-testid="leave-guild-confirm"
+      >
+        {leaveBusy ? m.guild_rail_leaving() : m.guild_rail_leave_action()}
       </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>

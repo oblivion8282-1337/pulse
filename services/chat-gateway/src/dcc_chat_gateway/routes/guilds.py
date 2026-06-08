@@ -466,6 +466,76 @@ async def patch_member(
     return member
 
 
+async def _remove_guild_member(
+    session: SessionDep,
+    request: Request,
+    guild_id: int,
+    user_id: int,
+    member: GuildMember,
+) -> None:
+    """Shared member-removal mechanics for kick + leave.
+
+    Wipes per-channel user-target overwrites (composite FKs only cascade
+    ``member_roles``), deletes the membership, evicts the user from this guild's
+    voice channels, and broadcasts ``guild_member_removed``. The CALLER owns the
+    authorization guard (kick → ``KICK_MEMBERS``; leave → self) plus the
+    owner/not-self checks.
+    """
+    channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
+    channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
+    if channel_ids:
+        await session.execute(
+            sa_delete(PermissionOverwrite).where(
+                PermissionOverwrite.channel_id.in_(channel_ids),
+                PermissionOverwrite.target_type == 1,
+                PermissionOverwrite.target_id == user_id,
+            )
+        )
+    await session.delete(member)
+    await session.commit()
+    # Yank the user out of LiveKit + clear voice-overrides for every voice
+    # channel of this guild. Fire-and-forget — failure is logged but doesn't
+    # unwind the removal (the WS event already went out, membership is gone).
+    await evict_user_from_guild_voice(session, guild_id, user_id)
+    mgr = getattr(request.app.state, "connection_manager", None)
+    if mgr is not None:
+        await mgr.publish_guild_event(
+            GuildMemberRemovedEvent(
+                guild_id=str(guild_id), user_id=str(user_id)
+            )
+        )
+
+
+@router.delete(
+    "/guilds/{guild_id}/members/@me",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def leave_guild(
+    guild_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Leave a guild (self-removal). Any member may leave EXCEPT the owner —
+    the owner must transfer ownership or delete the guild first (a guild is
+    never left ownerless). Works identically on Cloud and Self-Host.
+
+    MUST be declared before the ``{user_id}`` kick route so ``@me`` matches the
+    literal path instead of being parsed as ``user_id`` (mirrors the @me/{id}
+    PATCH pair above). Same removal mechanics as ``kick_member``, gated on
+    "self" instead of ``KICK_MEMBERS``.
+    """
+    guild = await session.get(Guild, guild_id)
+    if guild is None:
+        raise HTTPException(404, detail="guild not found")
+    if guild.owner_id == current.id:
+        raise HTTPException(403, detail="owner_cannot_leave")
+    member = await session.get(GuildMember, (guild_id, current.id))
+    if member is None:
+        raise HTTPException(404, detail="member not found")
+    await _remove_guild_member(session, request, guild_id, current.id, member)
+
+
 @router.delete(
     "/guilds/{guild_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -480,7 +550,7 @@ async def kick_member(
     """Remove a member from a guild. Requires ``KICK_MEMBERS``.
 
     Restrictions:
-      * cannot kick yourself — leave-flow is a separate concept (not built);
+      * cannot kick yourself — use the ``@me`` leave route instead;
       * cannot kick the guild owner — ownership transfer is the only path;
       * member-role rows cascade via the composite FK on ``member_roles``;
       * per-channel user-target permission overwrites for this user are
@@ -505,33 +575,7 @@ async def kick_member(
     await check_permission(
         session, current, guild_id, Permissions.KICK_MEMBERS
     )
-    # Wipe per-channel user-target overwrites — composite FKs only cascade
-    # member_roles; channel overwrites live on a different table and would
-    # otherwise come back if the user is re-invited later.
-    channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
-    channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
-    if channel_ids:
-        await session.execute(
-            sa_delete(PermissionOverwrite).where(
-                PermissionOverwrite.channel_id.in_(channel_ids),
-                PermissionOverwrite.target_type == 1,
-                PermissionOverwrite.target_id == user_id,
-            )
-        )
-    await session.delete(member)
-    await session.commit()
-    # Yank the kicked user out of LiveKit + clear any voice-overrides
-    # for every voice channel of this guild. Fire-and-forget — failure
-    # is logged but doesn't unwind the kick (the WS event already went
-    # out and the membership is gone).
-    await evict_user_from_guild_voice(session, guild_id, user_id)
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            GuildMemberRemovedEvent(
-                guild_id=str(guild_id), user_id=str(user_id)
-            )
-        )
+    await _remove_guild_member(session, request, guild_id, user_id, member)
 
 
 @router.get("/guilds/{guild_id}/members", response_model=list[MemberOut])

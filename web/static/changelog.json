@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-08.12",
+      "date": "2026-06-08",
+      "style": "Sachlich",
+      "title": "Communities verlassen",
+      "intro": "Eine neue Möglichkeit für Mitglieder:",
+      "items": [
+        "Du kannst eine Community jetzt selbst verlassen — Rechtsklick auf das Community-Symbol, dann „Community verlassen". Das gilt für Communities in der Cloud genauso wie auf selbst gehosteten Servern.",
+        "Nur der Besitzer einer Community kann sie nicht einfach verlassen — er überträgt sie zuerst an jemand anderen oder löscht sie."
+      ]
+    },
+    {
       "id": "2026-06-08.11",
       "date": "2026-06-08",
       "style": "Sachlich",

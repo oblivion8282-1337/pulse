@@ -152,11 +152,12 @@ async def test_kick_wipes_user_channel_overwrites(
             headers=auth(s["t_owner"]),
         )
     ).json()
-    await client.put(
-        f"/channels/{channel['id']}/permissions/user/{s['uid_a']}",
+    pr = await client.put(
+        f"/channels/{channel['id']}/permissions/1/{s['uid_a']}",  # 1 = user target_type
         json={"allow": "0", "deny": "1048576"},  # deny VIEW_CHANNEL
         headers=auth(s["t_owner"]),
     )
+    assert pr.status_code == 200, pr.text  # overwrite must actually exist first
     # Kick A.
     r = await client.delete(
         f"/guilds/{gid}/members/{s['uid_a']}",

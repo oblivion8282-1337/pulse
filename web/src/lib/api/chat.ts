@@ -125,6 +125,10 @@ export const chatApi = {
   kickMember(guildId: string, userId: string): Promise<void> {
     return request<void>(`/guilds/${guildId}/members/${userId}`, { method: 'DELETE' });
   },
+  /** Leave a community yourself (self-removal). Works for Cloud + Self-Host. */
+  leaveGuild(guildId: string): Promise<void> {
+    return request<void>(`/guilds/${guildId}/members/@me`, { method: 'DELETE' });
+  },
 
   // Bans
   listBans(guildId: string): Promise<Ban[]> {
