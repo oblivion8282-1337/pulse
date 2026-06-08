@@ -12,15 +12,20 @@ path), keep the highest ``id`` per triple (snowflake ids are time-ordered, so
 that's the newest) and delete the rest, otherwise the unique index can't be
 created.
 
-Revision ID: 0036_community_invites_unique_dedupe
+Revision ID: 0036_invite_unique_dedupe
 Revises: 0035_instance_locked_toggle
+
+NB: the revision id is kept short — ``alembic_version.version_num`` is
+``varchar(32)``, so a longer id fails the post-migration version bookkeeping
+(``value too long``) and, under Postgres transactional DDL, rolls the whole
+migration back.
 """
 
 from __future__ import annotations
 
 from alembic import op
 
-revision = "0036_community_invites_unique_dedupe"
+revision = "0036_invite_unique_dedupe"
 down_revision = "0035_instance_locked_toggle"
 branch_labels = None
 depends_on = None

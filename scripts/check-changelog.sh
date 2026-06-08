@@ -14,7 +14,11 @@
 set -euo pipefail
 
 # Erweitern, wenn neue nicht-user-facing Top-Level-Bereiche dazukommen.
-NON_USER_FACING='(^|/)[^/]*\.md$|^docs/|^\.github/|^infra/|^packaging/|^scripts/|(^|/)Dockerfile[^/]*$|\.toml$|/tests/|(^|/)conftest\.py$|^web/static/changelog\.json$'
+# Alembic-Migrationen (``*/alembic/...``) sind Schema-Plumbing: die
+# user-sichtbare Wirkung wird vom begleitenden Code-Commit (Model/Route)
+# angekündigt, der das Gate ohnehin auslöst. Ein reiner Migrations-Commit
+# (z.B. ein Revision-Hotfix) braucht keinen eigenen Eintrag.
+NON_USER_FACING='(^|/)[^/]*\.md$|^docs/|^\.github/|^infra/|^packaging/|^scripts/|(^|/)Dockerfile[^/]*$|\.toml$|/tests/|(^|/)conftest\.py$|/alembic/|^web/static/changelog\.json$'
 
 before="${1:-}"
 after="${2:-HEAD}"
