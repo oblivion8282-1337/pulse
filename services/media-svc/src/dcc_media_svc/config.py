@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +24,16 @@ class Settings(BaseSettings):
     jwt_audience: str = "dcc"
     jwt_issuer: str = "dcc-auth"
     jwks_cache_seconds: int = 3600
+
+    # Self-Host: media-svc must ALSO accept the locally-issued EdDSA Session-JWT
+    # (no ``kid``) that chat-gateway forwards on a self-host instance — mirrors
+    # chat-gateway / voice-signaling. Without it HQ-streaming 401s on self-host
+    # (the forwarded bearer is a self-host session token, not a Cloud RS256
+    # access token). Must point at the SAME signing key file the instance mints
+    # session tokens with (all-in-one: shared /data/jwt_keys). Cloud sets
+    # ``PULSE_INSTANCE_MODE=cloud`` → the self-host path is never taken there.
+    pulse_instance_mode: Literal["cloud", "self-host"] = "self-host"
+    session_signing_key_file: str = "./data/jwt_keys/session_signing.pem"
 
     # MediaMTX control API — localhost-only on the box MediaMTX runs on, which is
     # the same box media-svc is co-located on in prod. In dev that's the local
