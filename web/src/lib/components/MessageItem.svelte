@@ -7,7 +7,9 @@
   import MessageAttachments from './MessageAttachments.svelte';
   import MessageReactions from './MessageReactions.svelte';
   import InviteEmbed from './InviteEmbed.svelte';
+  import LinkEmbed from './LinkEmbed.svelte';
   import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
+  import { detectEmbeds } from '$lib/embeds/providers';
   import { renderMessage } from './messageRender';
   import { longpress } from '$lib/utils/longpress';
   import { m } from '$lib/paraglide/messages.js';
@@ -75,6 +77,11 @@
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
   const isPending = $derived(message.id.startsWith('tmp-'));
+
+  // Link-Previews: erkenne unterstützte Provider-URLs (YouTube/Vimeo/Spotify)
+  // im Inhalt und rendere darunter je eine Karte. Der Rohlink bleibt im Text
+  // klickbar (Discord-Verhalten) — die Karte ist additiv.
+  const linkEmbeds = $derived(detectEmbeds(message.content));
 
   function formatTime(iso: string): string {
     const d = new Date(iso);
@@ -160,6 +167,9 @@
     {#if inviteCode}
       <InviteEmbed code={inviteCode} host={inviteHost} />
     {/if}
+    {#each linkEmbeds as embed (embed.url)}
+      <LinkEmbed url={embed.url} provider={embed.provider} />
+    {/each}
     <MessageAttachments {attachments} />
     <MessageReactions reactions={reactions} onToggle={handleToggle} />
   {/if}

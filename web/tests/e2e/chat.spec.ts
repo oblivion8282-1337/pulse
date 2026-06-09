@@ -209,4 +209,36 @@ test.describe.serial('Discord-Clone E2E', () => {
     await expect(pill).toBeVisible({ timeout: 10_000 });
     await expect(pill).toHaveText(/\d+/);
   });
+
+  test('Alice posts a YouTube link; an oEmbed preview card renders', async () => {
+    // Mock the client-side oEmbed call so the test is hermetic (no real YT hit).
+    await alicePage.route('**/youtube.com/oembed*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          title: 'Never Gonna Give You Up',
+          author_name: 'Rick Astley',
+          thumbnail_url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+          provider_name: 'YouTube',
+          type: 'video'
+        })
+      });
+    });
+    // Re-park Alice on the channel the previous test may have left (the mention
+    // test only moved Bob, but be defensive about focus).
+    await alicePage.goto(`/app/guilds/${guildId}/channels/${channelId}`);
+    await alicePage.waitForURL(new RegExp(`/app/guilds/${guildId}/channels/${channelId}`));
+    await alicePage.getByTestId('message-input').click();
+    await alicePage
+      .getByTestId('message-input')
+      .fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    await alicePage.getByTestId('message-input').press('Enter');
+
+    const card = alicePage.getByTestId('link-embed');
+    await expect(card).toBeVisible({ timeout: 5_000 });
+    await expect(card.getByTestId('link-embed-title')).toHaveText('Never Gonna Give You Up');
+    await expect(card.getByTestId('link-embed-author')).toHaveText('Rick Astley');
+    await expect(card).toHaveAttribute('href', /youtube\.com\/watch\?v=dQw4w9WgXcQ/);
+  });
 });
