@@ -42,6 +42,24 @@ from dcc_chat_gateway.watchkeys import WATCH_EVENTS_CHANNEL, read_states_for
 
 log = logging.getLogger(__name__)
 
+
+def _decode_sorted(members: Iterable[Any]) -> list[str]:
+    """Decode a Redis SMEMBERS result (bytes or str entries) to a sorted
+    list of str."""
+    return sorted(m.decode() if isinstance(m, bytes) else m for m in members)
+
+
+def _loads_redis_dict(raw: bytes | str | None) -> dict[str, Any] | None:
+    """Decode a raw Redis value (bytes/str/None) into a JSON object, or
+    ``None`` when the key is absent / malformed / not a JSON object."""
+    if raw is None:
+        return None
+    try:
+        data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return data if isinstance(data, dict) else None
+
 # Channel-name + key-template constants live in ``pubsub_channels``; re-exported
 # above so existing ``from dcc_chat_gateway.pubsub import GUILD_EVENTS_CHANNEL``
 # imports keep working.
@@ -385,16 +403,12 @@ class ConnectionManager(
             self._redis.smembers(sk),
             self._redis.smembers(ck),
         )
-        user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members)
+        user_ids = _decode_sorted(members)
         user_states = await self.user_voice_states_for(user_ids)
         return {
             "user_ids": user_ids,
-            "streaming_user_ids": sorted(
-                m.decode() if isinstance(m, bytes) else m for m in streamers
-            ),
-            "camera_user_ids": sorted(
-                m.decode() if isinstance(m, bytes) else m for m in cameras
-            ),
+            "streaming_user_ids": _decode_sorted(streamers),
+            "camera_user_ids": _decode_sorted(cameras),
             "user_states": user_states,
         }
 
@@ -421,13 +435,8 @@ class ConnectionManager(
         raws = await self._redis.mget(*keys)
         result: list[dict[str, Any]] = []
         for k, raw in zip(keys, raws):
-            if raw is None:
-                continue
-            try:
-                data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(data, dict):
+            data = _loads_redis_dict(raw)
+            if data is None:
                 continue
             # ``voice:override:channel-<cid>:user-<uid>`` — split out the user_id.
             uid = k.rsplit(":user-", 1)[-1]
@@ -476,13 +485,8 @@ class ConnectionManager(
         raws = await self._redis.mget(*keys)
         out: dict[str, dict[str, bool]] = {}
         for uid, raw in zip(user_ids, raws):
-            if raw is None:
-                continue
-            try:
-                data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-            except (ValueError, TypeError):
-                continue
-            if not isinstance(data, dict):
+            data = _loads_redis_dict(raw)
+            if data is None:
                 continue
             mic_muted = bool(data.get("mic_muted"))
             deafened = bool(data.get("deafened"))
@@ -545,18 +549,7 @@ class ConnectionManager(
         ``stream:channel:<id>`` (→ ``{user_ids: [...], since}``); we only read
         it (mirroring how voice presence reads ``voice:room:*``)."""
         raw = await self._redis.get(STREAM_CHANNEL_STATE_KEY.format(channel_id=channel_id))
-        if raw is None:
-            return None
-        try:
-            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-        except (ValueError, TypeError, AttributeError):
-            return None
-        if not isinstance(data, dict):
-            return None
-        uids = [str(u) for u in (data.get("user_ids") or []) if u]
-        if not uids:
-            return None
-        return {"channel_id": channel_id, "user_ids": uids}
+        return self._parse_stream_state(channel_id, raw)
 
     @staticmethod
     def _parse_stream_state(
@@ -565,13 +558,8 @@ class ConnectionManager(
         """Parse a raw Redis value from ``stream:channel:<id>`` into the
         standard ``{"channel_id": ..., "user_ids": [...]}`` shape, or
         ``None`` when the key is absent / empty / malformed."""
-        if raw is None:
-            return None
-        try:
-            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
-        except (ValueError, TypeError, AttributeError):
-            return None
-        if not isinstance(data, dict):
+        data = _loads_redis_dict(raw)
+        if data is None:
             return None
         uids = [str(u) for u in (data.get("user_ids") or []) if u]
         if not uids:
@@ -599,8 +587,6 @@ class ConnectionManager(
         active party are omitted. See ``watchkeys.py`` for the state shape."""
         return await read_states_for(self._redis, channel_ids)
 
-
-
     def user_socket_count(self, user_id: int) -> int:
         """How many open sockets the given user currently has. Used by the WS
         endpoint to decide whether ending one socket should end that user's
@@ -618,8 +604,4 @@ class ConnectionManager(
         client can update its online/offline member grouping in real time."""
         from dcc_shared.events import PresenceUpdateEvent
 
-        envelope = PresenceUpdateEvent(user_id=user_id, online=online)
-        await self._redis.publish(
-            GUILD_EVENTS_CHANNEL,
-            json.dumps(envelope.model_dump(mode="json"), separators=(",", ":")),
-        )
+        await self.publish_guild_event(PresenceUpdateEvent(user_id=user_id, online=online))
