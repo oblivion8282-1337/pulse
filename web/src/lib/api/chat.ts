@@ -51,6 +51,30 @@ export type StreamTokenResponse = {
   expires_in_s: number;
 };
 
+/** Global-Friends Stufe 1: DMs sind cloud-only → immer gegen den Cloud-Server routen. */
+function cloudRoute(): { serverId?: string } {
+  return { serverId: serversStore.cloudId() };
+}
+
+/** Read-only view of the server-wide permission flags. */
+export type ServerCapabilities = {
+  allow_guild_creation: boolean;
+  allow_member_invites: boolean;
+  guild_sound_max_size_bytes: number;
+  hq_bitrate_min_kbps: number;
+  hq_bitrate_max_kbps: number;
+  hq_fps_min: number;
+  hq_fps_max: number;
+  hq_resolution_max: string;
+  ns_bitrate_min_kbps: number;
+  ns_bitrate_max_kbps: number;
+  ns_fps_min: number;
+  ns_fps_max: number;
+  ns_resolution_max: string;
+  cam_resolution_max: string;
+  cam_fps_max: number;
+};
+
 export const chatApi = {
   // Guilds. ``serverId`` routet das Request an einen spezifischen Server-
   // Eintrag (Sidebar braucht das für die Multi-Server-Sektionen — sonst
@@ -111,10 +135,7 @@ export const chatApi = {
     return request<Member[]>(`/guilds/${guildId}/members`);
   },
   setSelfNickname(guildId: string, nickname: string): Promise<Member> {
-    return request<Member>(`/guilds/${guildId}/members/@me`, {
-      method: 'PATCH',
-      body: { nickname }
-    });
+    return this.setMemberNickname(guildId, '@me', nickname);
   },
   setMemberNickname(guildId: string, userId: string, nickname: string): Promise<Member> {
     return request<Member>(`/guilds/${guildId}/members/${userId}`, {
@@ -251,38 +272,26 @@ export const chatApi = {
    *  toggles these via `/admin/permissions`; the frontend gates create-
    *  guild + create-invite buttons on the result. Refetched live via
    *  the `permissions_updated` WS event. */
-  getCapabilities(opts?: { serverId?: string }): Promise<{
-    allow_guild_creation: boolean;
-    allow_member_invites: boolean;
-    guild_sound_max_size_bytes: number;
-    hq_bitrate_min_kbps: number;
-    hq_bitrate_max_kbps: number;
-    hq_fps_min: number;
-    hq_fps_max: number;
-    hq_resolution_max: string;
-    ns_bitrate_min_kbps: number;
-    ns_bitrate_max_kbps: number;
-    ns_fps_min: number;
-    ns_fps_max: number;
-    ns_resolution_max: string;
-    cam_resolution_max: string;
-    cam_fps_max: number;
-  }> {
+  getCapabilities(opts?: { serverId?: string }): Promise<ServerCapabilities> {
     return request('/capabilities', { endpoint: 'chat' }, { serverId: opts?.serverId });
   },
-  addReaction(messageId: string, emoji: string, route: { serverId?: string } = {}): Promise<void> {
+  _reactionRequest(
+    method: 'PUT' | 'DELETE',
+    messageId: string,
+    emoji: string,
+    route: { serverId?: string }
+  ): Promise<void> {
     return request<void>(
       `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
-      { method: 'PUT' },
+      { method },
       route
     );
   },
+  addReaction(messageId: string, emoji: string, route: { serverId?: string } = {}): Promise<void> {
+    return this._reactionRequest('PUT', messageId, emoji, route);
+  },
   removeReaction(messageId: string, emoji: string, route: { serverId?: string } = {}): Promise<void> {
-    return request<void>(
-      `/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
-      { method: 'DELETE' },
-      route
-    );
+    return this._reactionRequest('DELETE', messageId, emoji, route);
   },
 
   // Direct messages — 1:1 DM channels. Polymorphic with guild channels at the
@@ -290,16 +299,16 @@ export const chatApi = {
   // the same `/channels/{id}/messages` endpoints as guild channels.
   // Global-Friends Stufe 1: DMs sind cloud-only → immer gegen den Cloud-Server.
   listDMChannels(): Promise<DMChannel[]> {
-    return request<DMChannel[]>('/dm-channels', {}, { serverId: serversStore.cloudId() });
+    return request<DMChannel[]>('/dm-channels', {}, cloudRoute());
   },
   createOrGetDMChannel(targetUserId: string): Promise<DMChannel> {
     return request<DMChannel>('/dm-channels', {
       method: 'POST',
       body: { target_user_id: targetUserId }
-    }, { serverId: serversStore.cloudId() });
+    }, cloudRoute());
   },
   getDMChannel(dmChannelId: string): Promise<DMChannel> {
-    return request<DMChannel>(`/dm-channels/${dmChannelId}`, {}, { serverId: serversStore.cloudId() });
+    return request<DMChannel>(`/dm-channels/${dmChannelId}`, {}, cloudRoute());
   },
 
   // Invites

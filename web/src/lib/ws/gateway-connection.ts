@@ -83,10 +83,9 @@ export function dispatchingServerId(): string | null {
 /** Lokale (nicht-Wire) Stempel, die `_handle` aufs ready-Event setzt. Beim
  *  Cachen entfernen, damit ein späterer Replay sie aus der *dann*-aktuellen
  *  Wahrheit neu ableitet, nie aus einem veralteten Stempel. */
-type ReadyStamps = { _isActive?: boolean; _isCloud?: boolean; _serverId?: string };
+export type ReadyStamps = { _isActive?: boolean; _isCloud?: boolean; _serverId?: string };
 function stripReadyStamps(evt: ServerEvent): ServerEvent {
-  const { _isActive, _isCloud, _serverId, ...rest } = evt as ServerEvent & ReadyStamps;
-  void _isActive; void _isCloud; void _serverId;
+  const { _isActive: _i1, _isCloud: _i2, _serverId: _i3, ...rest } = evt as ServerEvent & ReadyStamps;
   return rest as ServerEvent;
 }
 
@@ -408,6 +407,9 @@ export class GatewayConnection {
     }
   }
 
+  /** Public gap-fill trigger. Passes `force=true` to bypass the debounce /
+   *  already-in-progress guard in `gapFillChannel`, so callers always get a
+   *  fresh fetch regardless of the channel's recent request state. */
   async gapFill(channelId: string): Promise<void> {
     await gapFillChannel(channelId, true);
   }

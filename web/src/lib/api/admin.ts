@@ -186,6 +186,13 @@ export type BackupStatus = {
   stale_threshold_seconds: number;
 };
 
+function paginationParams(opts: { before?: string; limit?: number }, defaultLimit = 50): URLSearchParams {
+  const params = new URLSearchParams();
+  if (opts.before) params.set('before', opts.before);
+  params.set('limit', String(opts.limit ?? defaultLimit));
+  return params;
+}
+
 export const adminApi = {
   // ---- auth-svc -----------------------------------------------------------
 
@@ -193,9 +200,7 @@ export const adminApi = {
     return request<AuthStats>('/admin/stats', { endpoint: 'auth' });
   },
   listUsers(opts: { before?: string; limit?: number } = {}): Promise<AdminUser[]> {
-    const params = new URLSearchParams();
-    if (opts.before) params.set('before', opts.before);
-    params.set('limit', String(opts.limit ?? 50));
+    const params = paginationParams(opts);
     return request<AdminUser[]>(`/admin/users?${params}`, { endpoint: 'auth' });
   },
   patchUser(
@@ -241,9 +246,7 @@ export const adminApi = {
   authAuditLog(
     opts: { before?: string; limit?: number } = {}
   ): Promise<Omit<AuditLogEntry, 'source'>[]> {
-    const params = new URLSearchParams();
-    if (opts.before) params.set('before', opts.before);
-    params.set('limit', String(opts.limit ?? 50));
+    const params = paginationParams(opts);
     return request<Omit<AuditLogEntry, 'source'>[]>(`/admin/audit-log?${params}`, {
       endpoint: 'auth'
     });
@@ -297,9 +300,7 @@ export const adminApi = {
   chatAuditLog(
     opts: { before?: string; limit?: number } = {}
   ): Promise<Omit<AuditLogEntry, 'source'>[]> {
-    const params = new URLSearchParams();
-    if (opts.before) params.set('before', opts.before);
-    params.set('limit', String(opts.limit ?? 50));
+    const params = paginationParams(opts);
     return request<Omit<AuditLogEntry, 'source'>[]>(`/admin/audit-log?${params}`, {
       endpoint: 'chat'
     });

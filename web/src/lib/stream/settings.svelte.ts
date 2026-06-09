@@ -270,24 +270,6 @@ function applyPersisted(data: Record<string, unknown>): void {
 let loading = false;
 
 /**
- * Pick a default profile name from the GPU's reported `video_codecs`. Mirrors
- * the old Qt `_set_default_profile_for_gpu` logic from `ui/stream_window.py`:
- * AV1-encode → "AV1 Effizient", otherwise "H.264 Standard". Falls neither
- * matches the available-profiles catalog, we fall back to the first entry.
- */
-export function defaultProfileForGpu(
-  gpuInfo: GsrGpuInfo | null,
-  profiles: ReadonlyArray<GsrProfile>,
-): string {
-  if (profiles.length === 0) return '';
-  const names = new Set(profiles.map((p) => p.name));
-  const hasAv1 = gpuHasAv1(gpuInfo?.video_codecs);
-  if (hasAv1 && names.has('AV1 Effizient')) return 'AV1 Effizient';
-  if (names.has('H.264 Standard')) return 'H.264 Standard';
-  return profiles[0].name;
-}
-
-/**
  * Idempotently fetch profiles + audio-apps + GPU info from the sidecar, then
  * **load persisted settings** and finally **apply the channel-mode defaults**
  * (codec from the GPU) to any field the user hadn't already chosen. Persistence
@@ -396,16 +378,6 @@ export async function refreshMonitors(): Promise<void> {
   }
 }
 
-/** True iff the current selection is the synthetic "Custom" profile. */
-export function isCustomProfile(): boolean {
-  return streamSettings.profile_name === 'Custom';
-}
-
-/** Look up the currently selected profile in the catalog (or `undefined`). */
-export function currentProfile(): GsrProfile | undefined {
-  return streamSettings.available_profiles.find((p) => p.name === streamSettings.profile_name);
-}
-
 // ── Mapping helpers ─────────────────────────────────────────────────────────
 
 /** Args for the per-channel pathway: the chat-gateway-minted publish token and
@@ -431,7 +403,7 @@ export interface ChannelStreamArg {
  * the token used like a stream key, `push_url` taken verbatim when present).
  */
 export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
-  const apply = streamSettings.use_overrides || isCustomProfile();
+  const apply = streamSettings.use_overrides || streamSettings.profile_name === 'Custom';
 
   const args: GsrStartArgs = {
     profile: streamSettings.profile_name,

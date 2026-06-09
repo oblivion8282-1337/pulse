@@ -25,6 +25,7 @@ import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
 import { serverUser } from '$lib/stores/serverUser.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { registerWsHandler } from '../handler-registry';
+import type { ReadyStamps } from '../gateway-connection';
 import type { ReadyEvent } from './types';
 import type { Guild } from '$lib/api/types';
 
@@ -48,11 +49,7 @@ export function register(ctx: ReadyContext): void {
     // Background-ready. Die Flags stempelt `gateway-connection._handle`
     // synchron vor dem Dispatch auf das (lokale, nie über die Leitung
     // gesendete) ready-Event.
-    const stamped = evt as ReadyEvent & {
-      _isActive?: boolean;
-      _isCloud?: boolean;
-      _serverId?: string;
-    };
+    const stamped = evt as ReadyEvent & ReadyStamps;
     // Default true (back-compat): ältere/gemockte Frames ohne Stempel werden
     // wie früher behandelt — beides anwenden (entspricht Cloud==aktiv).
     const isActive = stamped._isActive ?? true;

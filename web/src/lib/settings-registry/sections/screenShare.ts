@@ -45,6 +45,10 @@ export function clampScreenShareFps(v: unknown): number {
   return Math.min(SCREEN_SHARE_FPS_MAX, Math.max(SCREEN_SHARE_FPS_MIN, Math.round(v)));
 }
 
+export function clampScreenShareBitrateMbps(v: number): number {
+  return Math.min(SCREEN_SHARE_BITRATE_MAX, Math.max(SCREEN_SHARE_BITRATE_MIN, v));
+}
+
 // Resolution ordering for the admin ceiling (descending size, 'native' =
 // uncapped). Backs both the settings UI (filter the option list) and the
 // publish path (clamp a chosen value down to the admin-set ns_resolution_max).

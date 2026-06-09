@@ -54,18 +54,6 @@ function endpointPath(endpoint: ApiEndpoint): string {
   return CHAT_BASE;
 }
 
-/** Resolved den Hostname-Prefix für ein Request.
- *  Ohne `serverId` → Active-Server (Default Cloud).
- *  Mit `serverId` → der genannte Server.
- *  Fallback (kein Match) → Cloud-Hostname. */
-export function apiBase(serverId?: string): string {
-  if (serverId) {
-    const entry = serversStore.find(serverId);
-    return entry?.hostname ?? CLOUD_HOSTNAME;
-  }
-  return activeServer.current?.hostname ?? CLOUD_HOSTNAME;
-}
-
 /** Resolved den ServerEntry für ein Request (oder undefined → Cloud-Default).
  *  `forceCloud=true` ignoriert activeServer und gibt immer den Cloud-Entry
  *  zurück — wird für die Identity-Plane-Endpoints genutzt. */
@@ -108,6 +96,19 @@ export function setSelfHostReauthAsyncHandler(
   fn: ((serverId: string) => Promise<boolean>) | null,
 ): void {
   _selfHostReauthAsync = fn;
+}
+
+/** Gemeinsamer Helfer: Server + URL + isSelfHost aus Endpoint + Pfad + Route. */
+function resolveRoute(
+  endpoint: ApiEndpoint,
+  path: string,
+  route: RequestRoute,
+): { server: ServerEntry | undefined; url: string; isSelfHost: boolean } {
+  const resolved = resolveServer(route.serverId);
+  const server = endpoint === 'auth' ? resolveServer(undefined, true) : resolved;
+  const url = buildUrl(server, endpoint, path);
+  const isSelfHost = !!server && !server.isCloud;
+  return { server, url, isSelfHost };
 }
 
 let _refreshInflight: Promise<Tokens | null> | null = null;
@@ -234,10 +235,7 @@ export async function request<T>(
   // Identity-Plane ist immer Cloud-only — selbst wenn der activeServer
   // auf einen Self-Host zeigt, muss /register/login/me/credentials/…
   // gegen die Cloud laufen (s. buildUrl-Kommentar).
-  const resolved = resolveServer(route.serverId);
-  const server = endpoint === 'auth' ? resolveServer(undefined, true) : resolved;
-  const url = buildUrl(server, endpoint, path);
-  const isSelfHost = !!server && !server.isCloud;
+  const { server, url, isSelfHost } = resolveRoute(endpoint, path, route);
 
   let bearer: string | null = null;
   if (auth) {
@@ -294,6 +292,10 @@ export async function request<T>(
     }
   }
 
+  return parseResponse<T>(resp);
+}
+
+async function parseResponse<T>(resp: Response): Promise<T> {
   if (resp.status === 204) return undefined as T;
   const text = await resp.text();
   const data = text ? safeParse(text) : null;
@@ -335,10 +337,7 @@ export async function requestForm<T>(
   const { endpoint = 'chat', method = 'POST' } = opts;
   // Symmetrisch zu request(): Identity-Plane-Endpoints (auth) gehen immer
   // gegen die Cloud, egal welcher Server gerade aktiv ist.
-  const resolved = resolveServer(route.serverId);
-  const server = endpoint === 'auth' ? resolveServer(undefined, true) : resolved;
-  const url = buildUrl(server, endpoint, path);
-  const isSelfHost = !!server && !server.isCloud;
+  const { server, url, isSelfHost } = resolveRoute(endpoint, path, route);
 
   let bearer = await bearerWithReauth(server, isSelfHost);
   if (!bearer) {
@@ -367,9 +366,5 @@ export async function requestForm<T>(
     bearer = refreshed.access_token;
     resp = await fetch(url, make(bearer));
   }
-  if (resp.status === 204) return undefined as T;
-  const text = await resp.text();
-  const data = text ? safeParse(text) : null;
-  if (!resp.ok) throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
-  return data as T;
+  return parseResponse<T>(resp);
 }

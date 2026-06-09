@@ -76,8 +76,8 @@ export class BackupDecryptError extends Error {
 // Konstanten
 // ---------------------------------------------------------------------------
 
-const SALT_BYTES = 16;
-const IV_BYTES = 12;
+export const KDF_SALT_BYTES = 16;
+export const GCM_IV_BYTES = 12;
 
 // Argon2id-Parameter (Bitwarden-Standard)
 const A2_PARALLELISM = 4;
@@ -104,7 +104,7 @@ export function randomBytes(n: number): Uint8Array<ArrayBuffer> {
 /** Uint8Array/ArrayBuffer → Base64 (standard). */
 export function toBase64(buf: ArrayBuffer | Uint8Array): string {
   const u8 = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
-  return btoa(String.fromCharCode(...u8));
+  return btoa(Array.from(u8, b => String.fromCharCode(b)).join(''));
 }
 
 /** Base64 → Uint8Array<ArrayBuffer>. */
@@ -219,8 +219,8 @@ export async function encryptKeypair(
   publicKeyJwk: JsonWebKey,
   masterPassword: string
 ): Promise<KeyBackupBlobV2> {
-  const salt = randomBytes(SALT_BYTES);
-  const iv = randomBytes(IV_BYTES);
+  const salt = randomBytes(KDF_SALT_BYTES);
+  const iv = randomBytes(GCM_IV_BYTES);
 
   const aesKey = await deriveKeyArgon2id(masterPassword, salt);
 
@@ -308,11 +308,6 @@ export async function decryptKeypair(
 // decryptJsonWithKey-Helfer leben in vault-crypto.ts und nutzen diese Werte.
 // Argon2id-Params identisch zum Keypair-Backup (v=2).
 // ---------------------------------------------------------------------------
-
-/** Länge des KDF-Salts in Bytes (öffentlich für Vault-Salt-Generierung). */
-export const KDF_SALT_BYTES = SALT_BYTES;
-/** Länge des AES-GCM-IV in Bytes. */
-export const GCM_IV_BYTES = IV_BYTES;
 
 /** Argon2id-Parameter als serialisierbares Objekt (für vault kdf_params). */
 export const ARGON2ID_KDF_PARAMS = {

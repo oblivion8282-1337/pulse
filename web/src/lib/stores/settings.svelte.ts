@@ -52,6 +52,7 @@ import {
   type ScreenShareResolution,
   type ScreenShareSettings,
   clampScreenShareFps,
+  clampScreenShareBitrateMbps,
   SCREEN_SHARE_BITRATE_MIN,
   SCREEN_SHARE_BITRATE_MAX,
   SCREEN_SHARE_FPS_MIN,
@@ -263,10 +264,7 @@ class SettingsStore {
     this.#screenShare.set('fps', clampScreenShareFps(v));
   }
   setScreenShareBitrateMbps(v: number): void {
-    this.#screenShare.set(
-      'bitrateMbps',
-      Math.min(SCREEN_SHARE_BITRATE_MAX, Math.max(SCREEN_SHARE_BITRATE_MIN, v))
-    );
+    this.#screenShare.set('bitrateMbps', clampScreenShareBitrateMbps(v));
   }
   setScreenShareContentHint(v: 'motion' | 'detail'): void {
     this.#screenShare.set('contentHint', v);
