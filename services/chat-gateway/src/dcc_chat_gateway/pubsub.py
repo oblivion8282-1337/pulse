@@ -179,6 +179,41 @@ class ConnectionManager(
         # plugin messages are not lost after a listener crash + restart.
         if self._plugin_channels:
             await self._pubsub.subscribe(*self._plugin_channels)
+        # Wait until Redis has acknowledged every subscription before we start
+        # serving. Pub/sub is fire-and-forget: a message published in the
+        # window between our SUBSCRIBE being sent and Redis registering it is
+        # silently dropped. The per-channel acks arrive in order and *before*
+        # any real message, so draining them guarantees the subscription is
+        # live — closing the rare subscribe-race where a just-connected client
+        # misses the first event it triggers (the root of the intermittent
+        # WS-test timeouts). Bounded + best-effort: a hiccup logs and proceeds
+        # rather than wedging startup. No real traffic can be in the buffer
+        # yet (nothing has published at lifespan-start), so we never drop a
+        # message here.
+        acks_expected = 1 + 5 + len(self._plugin_channels)  # psubscribe + fixed + plugins
+        acks_seen = 0
+        empty_polls = 0
+        while acks_seen < acks_expected and empty_polls < 3:
+            confirm = await self._pubsub.get_message(
+                ignore_subscribe_messages=False, timeout=0.5
+            )
+            if confirm is None:
+                empty_polls += 1
+                continue
+            if confirm.get("type") in ("subscribe", "psubscribe"):
+                acks_seen += 1
+            else:
+                # A real message can be buffered here during a self-heal
+                # re-subscribe (the connection stayed subscribed while the
+                # listener was down). Deliver it instead of dropping it — on a
+                # cold start no real traffic exists yet, so this is a no-op then.
+                await self._dispatch_message(confirm)
+        if acks_seen < acks_expected:
+            log.warning(
+                "pubsub: drained %d/%d subscribe acks before listen (continuing)",
+                acks_seen,
+                acks_expected,
+            )
         self._listener_task = asyncio.create_task(self._listen(), name="dcc-chat-pubsub")
         self._started = True
 

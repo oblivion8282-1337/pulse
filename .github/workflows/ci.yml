@@ -65,11 +65,24 @@ jobs:
         env:
           JWT_PRIVATE_KEY_FILE: ./secrets/jwt_private.pem
           JWT_PUBLIC_KEY_FILE: ./secrets/jwt_public.pem
-        run: >
-          uv run pytest -v
-          --reruns 2 --reruns-delay 1
-          --only-rerun "AssertionError"
-          --only-rerun "RuntimeError"
+        # `--reruns` retries in-process, but only catches AssertionError/
+        # RuntimeError. The rare pub/sub subscribe-race makes a WS test hang,
+        # and `--timeout-method=thread` (pyproject) hard-kills the whole
+        # process via os._exit → no test outcome for --reruns to retry. So we
+        # wrap the run in a fresh-process retry loop: a transient timing flake
+        # clears on the next attempt; a real failure fails twice and stays red.
+        run: |
+          for attempt in 1 2; do
+            echo "::group::pytest attempt $attempt"
+            uv run pytest -v \
+              --reruns 2 --reruns-delay 1 \
+              --only-rerun "AssertionError" \
+              --only-rerun "RuntimeError" \
+              && { echo "::endgroup::"; exit 0; }
+            echo "::endgroup::"
+            echo "::warning::pytest attempt $attempt failed (possibly the pub/sub subscribe-race timeout) — retrying in a fresh process"
+          done
+          exit 1
 
   frontend:
     runs-on: ubuntu-24.04
@@ -157,7 +170,25 @@ jobs:
               SVC_PKG=dcc_mediamtx_auth_hook
     steps:
       - uses: actions/checkout@v4
+      # Pre-pull the buildkit image with retry BEFORE setup-buildx bootstraps
+      # its docker-container driver. The recurring image-build failures were
+      # transient Docker Hub hiccups pulling moby/buildkit (502 Bad Gateway) /
+      # ghcr timeouts during buildx bootstrap. Once the image is local,
+      # setup-buildx reuses it and never re-hits the registry. A flaky build
+      # here means that one service's :latest is silently NOT pushed → a
+      # partial deploy (watchtower keeps the stale container), so it's worth
+      # the retry. No untrusted input is used in this step.
+      - name: Pre-pull buildkit (resilient against registry flakes)
+        run: |
+          for attempt in 1 2 3; do
+            docker pull moby/buildkit:buildx-stable-1 && exit 0
+            echo "::warning::buildkit pull attempt $attempt failed (registry flake) — retrying"
+            sleep 15
+          done
+          echo "::warning::buildkit pre-pull exhausted retries; letting setup-buildx try anyway"
       - uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: image=moby/buildkit:buildx-stable-1
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io

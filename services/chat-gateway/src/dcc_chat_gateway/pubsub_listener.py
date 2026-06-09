@@ -79,6 +79,38 @@ class _ListenerMixin:
                 return None
         return data
 
+    async def _dispatch_message(self, msg) -> None:
+        """Route one pub/sub message dict to its channel handler.
+
+        Shared by the listen loop and ``start()``'s subscribe-ack drain (the
+        drain may encounter a real message buffered during a self-heal
+        re-subscribe — it must be delivered, not dropped). Non-message frames
+        (subscribe acks) are ignored. Handler failures are isolated: a single
+        bad event (malformed payload, an id out of int64 range, a transient DB
+        error) must NOT propagate and kill the listener — if it did, ALL
+        real-time delivery (chat, voice, watch, stream) would silently stop for
+        every client on this pod until something called ``start()`` again
+        (exactly the failure that left watch-party play/pause/seek dead).
+        """
+        if msg.get("type") not in ("message", "pmessage"):
+            return
+        channel = msg.get("channel")
+        if isinstance(channel, bytes):
+            channel = channel.decode()
+        handler = get_channel_handler(channel)
+        if handler is None:
+            # No registered handler — silently ignore. Subscribing to a channel
+            # we don't dispatch is wasteful but not a bug; logging would spam.
+            return
+        try:
+            await handler(self, channel, msg)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception(
+                "pubsub handler for %s failed; skipping this event", channel
+            )
+
     async def _listen(self) -> None:
         try:
             while True:
@@ -87,33 +119,7 @@ class _ListenerMixin:
                 )
                 if msg is None:
                     continue
-                if msg.get("type") not in ("message", "pmessage"):
-                    continue
-                channel = msg.get("channel")
-                if isinstance(channel, bytes):
-                    channel = channel.decode()
-                handler = get_channel_handler(channel)
-                if handler is None:
-                    # No registered handler for this channel — silently
-                    # ignore. Subscribing to a channel we don't dispatch
-                    # is wasteful but not a bug; logging would spam if
-                    # Redis ever broadcasts management traffic.
-                    continue
-                try:
-                    await handler(self, channel, msg)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:  # noqa: BLE001
-                    # A single handler failing on one event (malformed payload,
-                    # an id out of int64 range, a transient DB error) must NOT
-                    # kill the listener. If it did, ALL real-time delivery
-                    # (chat, voice, watch, stream) would silently stop for every
-                    # client on this pod until something happened to call
-                    # ``start()`` again — exactly the failure that left watch-
-                    # party play/pause/seek dead. Log the bad event and move on.
-                    log.exception(
-                        "pubsub handler for %s failed; skipping this event", channel
-                    )
+                await self._dispatch_message(msg)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
