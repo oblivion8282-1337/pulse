@@ -105,6 +105,21 @@
   const hasOverflow = $derived(hasStats || !!onToggleChat || showDetach || !!onToggleFocus || !!onHide);
 </script>
 
+{#snippet fullscreenBtn()}
+  <button
+    type="button"
+    onclick={() => onToggleFullscreen?.()}
+    class={btn()}
+    aria-label={isFullscreen
+      ? m.tile_shell_fullscreen_exit()
+      : m.tile_shell_fullscreen_enter()}
+    title={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
+    data-testid={`${testidPrefix}-fullscreen`}
+  >
+    {#if isFullscreen}<MinimizeIcon class={ICON} />{:else}<MaximizeIcon class={ICON} />{/if}
+  </button>
+{/snippet}
+
 <div class="flex items-center gap-2 px-2 py-1.5 {overlay ? 'text-white' : 'text-text'}">
   <!-- Name (im Narrow-Modus nur das Kind-Icon, um Platz für Volume zu schaffen) -->
   <div class="flex min-w-0 items-center gap-1.5 text-xs">
@@ -217,18 +232,7 @@
           {#if focused}<LayoutGridIcon class={ICON} />{:else}<FocusIcon class={ICON} />{/if}
         </button>
       {/if}
-      <button
-        type="button"
-        onclick={() => onToggleFullscreen?.()}
-        class={btn()}
-        aria-label={isFullscreen
-          ? m.tile_shell_fullscreen_exit()
-          : m.tile_shell_fullscreen_enter()}
-        title={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
-        data-testid={`${testidPrefix}-fullscreen`}
-      >
-        {#if isFullscreen}<MinimizeIcon class={ICON} />{:else}<MaximizeIcon class={ICON} />{/if}
-      </button>
+      {@render fullscreenBtn()}
       {#if onHide}
         <button
           type="button"
@@ -245,18 +249,7 @@
       {/if}
     {:else}
       <!-- Schmale Kachel: Vollbild bleibt inline, Rest ins ⋯-Menü -->
-      <button
-        type="button"
-        onclick={() => onToggleFullscreen?.()}
-        class={btn()}
-        aria-label={isFullscreen
-          ? m.tile_shell_fullscreen_exit()
-          : m.tile_shell_fullscreen_enter()}
-        title={isFullscreen ? m.tile_shell_fullscreen_exit() : m.tile_shell_fullscreen_enter()}
-        data-testid={`${testidPrefix}-fullscreen`}
-      >
-        {#if isFullscreen}<MinimizeIcon class={ICON} />{:else}<MaximizeIcon class={ICON} />{/if}
-      </button>
+      {@render fullscreenBtn()}
       {#if hasOverflow}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger>
@@ -279,7 +272,7 @@
                 onclick={() => statsVisible.toggle()}
                 data-testid={`${testidPrefix}-stats-toggle`}
               >
-                <ActivityIcon class="size-4" />
+                <ActivityIcon class={ICON} />
                 {statsVisible.on ? m.tile_shell_stats_hide() : m.tile_shell_stats_show()}
               </DropdownMenu.Item>
             {/if}
@@ -288,7 +281,7 @@
                 onclick={() => onToggleChat?.()}
                 data-testid={`${testidPrefix}-chat-toggle`}
               >
-                <MessageSquareIcon class="size-4" />
+                <MessageSquareIcon class={ICON} />
                 {chatOpen ? m.tile_shell_chat_close() : m.tile_shell_chat_open()}
               </DropdownMenu.Item>
             {/if}
@@ -297,8 +290,8 @@
                 onclick={() => onToggleFocus?.()}
                 data-testid={`${testidPrefix}-focus-toggle`}
               >
-                {#if focused}<LayoutGridIcon class="size-4" />{:else}<FocusIcon
-                    class="size-4"
+                {#if focused}<LayoutGridIcon class={ICON} />{:else}<FocusIcon
+                    class={ICON}
                   />{/if}
                 {focused ? m.tile_shell_focus_back_to_grid() : m.tile_shell_focus_enter()}
               </DropdownMenu.Item>
@@ -308,7 +301,7 @@
                 onclick={() => onDetach?.()}
                 data-testid={`${testidPrefix}-detach`}
               >
-                <ExternalLinkIcon class="size-4" />
+                <ExternalLinkIcon class={ICON} />
                 {m.tile_shell_detach()}
               </DropdownMenu.Item>
             {/if}
@@ -319,7 +312,7 @@
                 variant="destructive"
                 data-testid={`${testidPrefix}-hide`}
               >
-                <XIcon class="size-4" />
+                <XIcon class={ICON} />
                 {m.tile_shell_hide()}
               </DropdownMenu.Item>
             {/if}

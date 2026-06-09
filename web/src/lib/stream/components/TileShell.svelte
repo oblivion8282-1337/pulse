@@ -30,6 +30,7 @@
   import { statsVisible } from '../statsVisible.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import TileDock from './TileDock.svelte';
+  import type { TileKind } from '../openedTiles.svelte';
 
   let {
     kind,
@@ -61,7 +62,7 @@
     chatPanel,
     chatOverlay
   }: {
-    kind: 'hq' | 'screen' | 'cam' | 'party';
+    kind: TileKind;
     /** data-testid des äußeren Containers (kind-spezifisch, kein Schema). */
     containerTestid: string;
     /** Prefix für alle inneren Testids: `${prefix}-mute`, `-fullscreen`, … */
@@ -192,7 +193,7 @@
     document.addEventListener('fullscreenchange', onFsChange);
 
     let ro: ResizeObserver | null = null;
-    if (leftColEl && typeof ResizeObserver !== 'undefined') {
+    if (leftColEl) {
       ro = new ResizeObserver((entries) => {
         const w = entries[0]?.contentRect.width ?? 0;
         dockWide = w >= DOCK_WIDE_MIN;

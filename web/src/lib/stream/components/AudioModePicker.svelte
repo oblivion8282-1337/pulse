@@ -70,11 +70,10 @@
 
   let appMode = $derived(isAppAudioMode(streamSettings.audio_mode));
   let usesDesktop = $derived(audioModeUsesDesktop(streamSettings.audio_mode));
-  let secondaryActive = $derived(
-    SECONDARY_MODES.includes(streamSettings.audio_mode as AudioMode),
-  );
   let secondaryLabel = $derived(
-    secondaryActive ? label(streamSettings.audio_mode as AudioMode) : '',
+    SECONDARY_MODES.includes(streamSettings.audio_mode as AudioMode)
+      ? label(streamSettings.audio_mode as AudioMode)
+      : '',
   );
   let selectedApp = $derived(appFromAudioMode(streamSettings.audio_mode) || streamSettings.audio_app);
   let availableForAdd = $derived(
@@ -82,6 +81,10 @@
       (a) => !streamSettings.excluded_apps.includes(a) && a !== PULSE_SELF_NODE_NAME,
     ),
   );
+
+  function modeSlug(mode: string): string {
+    return mode.toLowerCase().replace(/[ +]+/g, '-');
+  }
 
   function onModeChange(mode: AudioMode) {
     streamSettings.audio_mode = mode;
@@ -129,7 +132,7 @@
         variant={streamSettings.audio_mode === mode ? 'default' : 'secondary'}
         aria-checked={streamSettings.audio_mode === mode}
         onclick={() => onModeChange(mode)}
-        data-testid="stream-audio-mode-{mode.toLowerCase().replace(/[ +]+/g, '-')}"
+        data-testid="stream-audio-mode-{modeSlug(mode)}"
       >
         {label(mode)}
       </Button>
@@ -153,7 +156,7 @@
             {...props}
             type="button"
             size="xs"
-            variant={secondaryActive ? 'default' : 'ghost'}
+            variant={!!secondaryLabel ? 'default' : 'ghost'}
             aria-label={m.audio_mode_picker_more_options()}
             title={secondaryLabel || m.audio_mode_picker_more_options()}
             data-testid="stream-audio-secondary-trigger"
@@ -166,7 +169,7 @@
         {#each SECONDARY_MODES as mode (mode)}
           <DropdownMenu.Item
             onclick={() => onModeChange(mode)}
-            data-testid="stream-audio-mode-{mode.toLowerCase().replace(/[ +]+/g, '-')}"
+            data-testid="stream-audio-mode-{modeSlug(mode)}"
           >
             {#if streamSettings.audio_mode === mode}
               <span aria-hidden="true">✓</span>

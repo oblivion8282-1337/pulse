@@ -93,22 +93,22 @@
     boost?.setVolume(v);
   }
 
-  function handleVolume(e: Event) {
-    volume = Number((e.currentTarget as HTMLInputElement).value);
-    if (volume > 0) prevVolume = volume;
+  function commitVolume(newVol: number) {
+    volume = newVol;
     applyVolume();
     setStreamVolume(userId, volume);
   }
 
+  function handleVolume(e: Event) {
+    const newVol = Number((e.currentTarget as HTMLInputElement).value);
+    if (newVol > 0) prevVolume = newVol;
+    commitVolume(newVol);
+  }
+
   function toggleMute() {
-    if (volume > 0) {
-      prevVolume = volume;
-      volume = 0;
-    } else {
-      volume = prevVolume > 0 ? prevVolume : 100;
-    }
-    applyVolume();
-    setStreamVolume(userId, volume);
+    const newVol = volume > 0 ? 0 : prevVolume > 0 ? prevVolume : 100;
+    if (volume > 0) prevVolume = volume;
+    commitVolume(newVol);
   }
 
   let phase = $state<'connecting' | 'playing' | 'retrying' | 'error'>('connecting');
@@ -126,16 +126,16 @@
 
   // Stats-Diagnose in die Zwischenablage (Button in der Stats-Pille).
   let copied = $state(false);
-  let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+  let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
   async function copyDiagnostic() {
     if (!stats) return;
     try {
       await navigator.clipboard.writeText(formatDiagnostic(stats.diagnostic, { name }));
       copied = true;
-      if (copyResetTimer) clearTimeout(copyResetTimer);
+      clearTimeout(copyResetTimer);
       copyResetTimer = setTimeout(() => {
         copied = false;
-        copyResetTimer = null;
+        copyResetTimer = undefined;
       }, 1500);
     } catch {
       /* clipboard API kann in non-secure-Contexts failen — silent */
@@ -157,10 +157,10 @@
   // teardown can remove it. Without removal each retry would attach a fresh
   // closure to the previous (closed) RTCPeerConnection.
   let connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
   // Watchdog for the connecting→connected transition (see CONNECT_TIMEOUT_MS).
-  let connectTimer: ReturnType<typeof setTimeout> | null = null;
-  let statsTimer: ReturnType<typeof setInterval> | null = null;
+  let connectTimer: ReturnType<typeof setTimeout> | undefined;
+  let statsTimer: ReturnType<typeof setInterval> | undefined;
   const statsReader = new WhepStatsReader();
   let disposed = false;
   // Track which channel the current run is for, so a late async result from a
@@ -168,18 +168,12 @@
   let runChannelId = '';
 
   function clearTimers() {
-    if (retryTimer) {
-      clearTimeout(retryTimer);
-      retryTimer = null;
-    }
-    if (connectTimer) {
-      clearTimeout(connectTimer);
-      connectTimer = null;
-    }
-    if (statsTimer) {
-      clearInterval(statsTimer);
-      statsTimer = null;
-    }
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+    clearTimeout(connectTimer);
+    connectTimer = undefined;
+    clearInterval(statsTimer);
+    statsTimer = undefined;
   }
 
   async function teardown() {
@@ -200,7 +194,7 @@
     attempt += 1;
     phase = 'retrying';
     retryTimer = setTimeout(() => {
-      retryTimer = null;
+      retryTimer = undefined;
       void start();
     }, wait);
   }
@@ -224,28 +218,24 @@
         // kein AudioContext), unmuten und Slider operiert auf el.volume (≤100%).
         if (boost?.attach(stream)) {
           videoEl.muted = true;
-          applyVolume();
           audioBlocked = boost.suspended;
         } else {
           videoEl.muted = false;
-          applyVolume();
         }
+        applyVolume();
       });
       if (disposed || runChannelId !== cid) {
         await s.close();
         return;
       }
       session = s;
-      detail = '';
       // connectWhep() resolved at setRemoteDescription — ICE is NOT up yet. Stay
       // in the current ('connecting'/'retrying') phase and only flip to
       // 'playing' once the PC truly reaches `connected`; otherwise the overlay
       // would clear over a black, media-less video.
       const onConnected = () => {
-        if (connectTimer) {
-          clearTimeout(connectTimer);
-          connectTimer = null;
-        }
+        clearTimeout(connectTimer);
+        connectTimer = undefined;
         attempt = 0;
         phase = 'playing';
         detail = '';
@@ -272,7 +262,7 @@
         onConnected();
       } else {
         connectTimer = setTimeout(() => {
-          connectTimer = null;
+          connectTimer = undefined;
           if (disposed || session !== s) return;
           if (s.pc.connectionState !== 'connected') recycle();
         }, CONNECT_TIMEOUT_MS);
@@ -332,7 +322,7 @@
     disposed = true;
     void teardown();
     boost?.dispose();
-    if (copyResetTimer) clearTimeout(copyResetTimer);
+    clearTimeout(copyResetTimer);
   });
 </script>
 

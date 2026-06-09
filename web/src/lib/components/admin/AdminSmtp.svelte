@@ -71,12 +71,11 @@
   // When the admin picks a non-custom preset, fill host/port/use_ssl from
   // the preset (but leave the creds they may have already typed).
   function applyPreset(next: SmtpProvider) {
+    if (next === 'custom') return;
     const p = SMTP_PRESETS[next];
-    if (next !== 'custom') {
-      host = p.host;
-      port = p.port;
-      useSsl = p.use_ssl;
-    }
+    host = p.host;
+    port = p.port;
+    useSsl = p.use_ssl;
   }
 
   const preset = $derived(SMTP_PRESETS[provider]);
@@ -101,7 +100,7 @@
       host: host || null,
       port,
       username: username || null,
-      password: password ? password : undefined,
+      password: password || undefined,
       from_email: fromEmail || null,
       use_ssl: useSsl
     };
@@ -132,16 +131,7 @@
     testing = true;
     lastTestError = null;
     try {
-      const res = await adminApi.testSmtp({
-        to,
-        provider,
-        host: host || null,
-        port,
-        username: username || null,
-        password: password ? password : undefined,
-        from_email: fromEmail || null,
-        use_ssl: useSsl
-      });
+      const res = await adminApi.testSmtp({ to, ...buildPatch() });
       lastTestOk = res.ok;
       lastTestError = res.error;
       if (res.ok) toast.success(m.admin_smtp_test_sent({ to }));

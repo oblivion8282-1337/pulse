@@ -35,6 +35,10 @@
   let rejecting = $state(false);
   let rejectError = $state<string | null>(null);
 
+  function errMsg(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+  }
+
   onMount(async () => { await reload(); });
 
   async function reload() {
@@ -43,7 +47,7 @@
     try {
       apps = await adminInstancesApi.listApplications('pending');
     } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e);
+      loadError = errMsg(e);
     } finally {
       loading = false;
     }
@@ -62,7 +66,7 @@
       secretDialogOpen = true;
     } catch (e) {
       toast.error(m.admin_instances_pending_approve_failed(), {
-        description: e instanceof Error ? e.message : String(e)
+        description: errMsg(e)
       });
     } finally {
       busy[id] = false;
@@ -83,7 +87,7 @@
       rejectReason = '';
       rejectTarget = null;
     } catch (e) {
-      rejectError = e instanceof Error ? e.message : String(e);
+      rejectError = errMsg(e);
     } finally {
       rejecting = false;
     }
@@ -96,12 +100,7 @@
     setTimeout(() => (copied = false), 2000);
   }
 
-  function onSecretClose() {
-    // Kein auto-dismiss — nur über den Button schließbar.
-    secretDialogOpen = false;
-    secretResult = null;
-    copied = false;
-  }
+
 </script>
 
 {#if loading}
@@ -141,7 +140,7 @@
           </button>
           <button
             type="button"
-            onclick={() => { rejectTarget = app; rejectReason = ''; rejectError = null; rejectOpen = true; }}
+            onclick={() => { rejectTarget = app; rejectOpen = true; }}
             disabled={!!busy[app.id]}
             class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
           >
@@ -184,7 +183,7 @@
 <!-- Secret anzeigen — kein auto-dismiss! -->
 <Dialog.Root
   open={secretDialogOpen}
-  onOpenChange={(v) => { if (!v) onSecretClose(); }}
+  onOpenChange={(v) => { if (!v) { secretDialogOpen = false; secretResult = null; copied = false; } }}
 >
   <Dialog.Portal>
     <Dialog.Overlay />
@@ -217,7 +216,7 @@
         </p>
       </div>
       <div class="flex justify-end pt-2">
-        <button type="button" onclick={onSecretClose}
+        <button type="button" onclick={() => { secretDialogOpen = false; secretResult = null; copied = false; }}
           class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium">
           {m.admin_instances_pending_secret_close()}
         </button>
