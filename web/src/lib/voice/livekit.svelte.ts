@@ -58,6 +58,10 @@ export type { ScreenShareTrack, CameraTrack };
 // QSV/AMF) statt OpenH264 nimmt. Details siehe `h264HwHint.ts`.
 installH264HwHint();
 
+/** Reused collator for participant-name sorting — far cheaper than calling
+ *  String.localeCompare (which resolves a fresh collator) on every comparison. */
+const NAME_COLLATOR = new Intl.Collator();
+
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
   identity: string;
@@ -253,6 +257,12 @@ class VoiceRoom {
     return settings.voice.pttMode;
   }
 
+  /** Sound-playback context for the current channel's guild — used by the
+   *  self join/leave/mute/deafen cues. */
+  get #soundCtx(): { guildId: string | null } {
+    return { guildId: guilds.guildIdForChannel(this.channelId ?? '') };
+  }
+
   get connected(): boolean {
     return this.state === ConnectionState.Connected;
   }
@@ -341,7 +351,6 @@ class VoiceRoom {
     voiceState.channelId = channelId;
     voiceState.connected = room.state === ConnectionState.Connected;
     this.#refreshParticipants();
-    this.#startLevelPolling();
     await this.#devices.refresh(room);
 
     // Re-check again after devices.refresh() — same risk of a concurrent
@@ -381,7 +390,7 @@ class VoiceRoom {
   async disconnect(opts: { reason?: 'user' } = {}): Promise<void> {
     const room = this.#room;
     if (!room) return;
-    sounds.play('voice.self_leave', { guildId: guilds.guildIdForChannel(this.channelId ?? '') });
+    sounds.play('voice.self_leave', this.#soundCtx);
     if (opts.reason === 'user') {
       const cid = this.channelId;
       if (cid) {
@@ -465,9 +474,7 @@ class VoiceRoom {
     // un-deafen — they've taken ownership of the mic state.
     if (this.deafened) this.#micEnabledBeforeDeafen = false;
     const target = !this.micEnabled;
-    sounds.play(target ? 'voice.self_unmute' : 'voice.self_mute', {
-      guildId: guilds.guildIdForChannel(this.channelId ?? '')
-    });
+    sounds.play(target ? 'voice.self_unmute' : 'voice.self_mute', this.#soundCtx);
     void this.setMicEnabled(target);
   }
 
@@ -509,9 +516,7 @@ class VoiceRoom {
     }
     this.deafened = on;
     this.#audioEls.setDeafened(on);
-    sounds.play(on ? 'voice.self_deafen' : 'voice.self_undeafen', {
-      guildId: guilds.guildIdForChannel(this.channelId ?? '')
-    });
+    sounds.play(on ? 'voice.self_deafen' : 'voice.self_undeafen', this.#soundCtx);
     this.#publishSelfState();
   }
   toggleDeafen(): void {
@@ -863,9 +868,7 @@ class VoiceRoom {
       // Processor swap replaces the published mediaStreamTrack — rebind raw meter.
       this.#attachLocalAnalyser();
     } catch (e) {
-      this.#sendProcessorMode = 'off';
-      this.#noiseGateSetter = null;
-      this.#makeupSetter = null;
+      this.#clearProcessorHandles();
       this.#resetSendLevel();
       toast.error(m.livekit_audio_path_update_failed(), {
         description: e instanceof Error ? e.message : undefined
@@ -885,6 +888,15 @@ class VoiceRoom {
    *  via the slider's onchange handler. Persisting is the caller's job. */
   setInputMakeupGain(v: number): void {
     this.#makeupSetter?.(v);
+  }
+
+  /** Drop every send-processor handle back to the raw-mic baseline (no
+   *  processor installed). Shared by applyNoiseFilter's stop/catch paths, the
+   *  LocalTrackUnpublished handler, and #teardown. */
+  #clearProcessorHandles(): void {
+    this.#sendProcessorMode = 'off';
+    this.#noiseGateSetter = null;
+    this.#makeupSetter = null;
   }
 
   // --- internals -----------------------------------------------------
@@ -998,9 +1010,7 @@ class VoiceRoom {
           this.localCameraTrack = null;
         }
         if (pub.source === Track.Source.Microphone) {
-          this.#sendProcessorMode = 'off';
-          this.#noiseGateSetter = null;
-          this.#makeupSetter = null;
+          this.#clearProcessorHandles();
           this.#localMic.detach();
           this.#resetSendLevel();
         }
@@ -1102,19 +1112,8 @@ class VoiceRoom {
     for (const p of room.remoteParticipants.values()) {
       out.push(toVP(p, false));
     }
-    out.sort((a, b) => (a.isLocal === b.isLocal ? a.name.localeCompare(b.name) : a.isLocal ? -1 : 1));
+    out.sort((a, b) => (a.isLocal === b.isLocal ? NAME_COLLATOR.compare(a.name, b.name) : a.isLocal ? -1 : 1));
     this.participants = out;
-  }
-
-  #startLevelPolling(): void {
-    // No-op: audioLevel is updated by #refreshParticipants() which is already
-    // triggered by ActiveSpeakersChanged. isSpeaking is updated in real time
-    // via #onRemoteSpeakingChange / #setLocalSpeaking. A separate poll at 200 ms
-    // was redundant and allocated a new array on every tick with N participants.
-  }
-
-  #stopLevelPolling(): void {
-    // No interval to clear — polling was removed (finding 115).
   }
 
   #attachLocalAnalyser(): void {
@@ -1140,37 +1139,41 @@ class VoiceRoom {
     // -45 dBFS at the gain node's input ⇒ louder at the tap after makeup)
     // means audio is genuinely flowing.
     this.#sendSpeakingDetector.feed(rms);
-    // RMS bar (smooth, peak-meter ballistics).
-    let level = 0;
-    if (rms > 0.0005) {
-      const db = 20 * Math.log10(rms);
-      level = Math.max(0, Math.min(1, (db + 50) / 45));
-    }
-    if (level > this.#sendDisplayLevel) this.#sendDisplayLevel = level;
-    else this.#sendDisplayLevel = this.#sendDisplayLevel * 0.85 + level * 0.15;
+    // RMS bar (smooth) and peak-hold (slow decay) — same dBFS scale, different
+    // decay; see #meterBallistics.
+    this.#sendDisplayLevel = this.#meterBallistics(rms, this.#sendDisplayLevel, 0.85);
     this.localSendLevel = this.#sendDisplayLevel;
-    // Peak-hold (same scale; slow decay so the peak line is readable).
-    let peakLevel = 0;
-    if (peak > 0.0005) {
-      const pdb = 20 * Math.log10(peak);
-      peakLevel = Math.max(0, Math.min(1, (pdb + 50) / 45));
-    }
-    if (peakLevel > this.#sendDisplayPeak) this.#sendDisplayPeak = peakLevel;
-    else this.#sendDisplayPeak = this.#sendDisplayPeak * 0.97 + peakLevel * 0.03;
+    this.#sendDisplayPeak = this.#meterBallistics(peak, this.#sendDisplayPeak, 0.97);
     this.localSendPeak = this.#sendDisplayPeak;
-    // Clip on raw peak amplitude > ~-1 dBFS.
-    const now = performance.now();
-    if (peak >= 0.891) {
-      this.#sendClipUntilMs = now + 300;
-      if (!this.#sendClipping) {
-        this.#sendClipping = true;
-        this.localSendClip = true;
+    // Clip on raw peak amplitude > ~-1 dBFS. Read the clock only while a clip is
+    // active or starting — the common (quiet) frame skips the timestamp entirely.
+    if (peak >= 0.891 || this.#sendClipping) {
+      const now = performance.now();
+      if (peak >= 0.891) {
+        this.#sendClipUntilMs = now + 300;
+        if (!this.#sendClipping) {
+          this.#sendClipping = true;
+          this.localSendClip = true;
+        }
+      } else if (now >= this.#sendClipUntilMs) {
+        this.#sendClipping = false;
+        this.localSendClip = false;
       }
-    } else if (this.#sendClipping && now >= this.#sendClipUntilMs) {
-      this.#sendClipping = false;
-      this.localSendClip = false;
     }
   };
+
+  /** Peak-meter ballistics shared by the RMS bar and the peak-hold line:
+   *  instant attack (jump up), then exponential decay toward the new level by
+   *  `decayFactor` per frame. Maps the raw 0..1 amplitude onto a −50..−5 dBFS
+   *  bar (0..1) first. */
+  #meterBallistics(raw: number, current: number, decayFactor: number): number {
+    let level = 0;
+    if (raw > 0.0005) {
+      const db = 20 * Math.log10(raw);
+      level = Math.max(0, Math.min(1, (db + 50) / 45));
+    }
+    return level > current ? level : current * decayFactor + level * (1 - decayFactor);
+  }
 
   #resetSendLevel(): void {
     this.#sendDisplayLevel = 0;
@@ -1207,7 +1210,6 @@ class VoiceRoom {
   #teardown(): void {
     if (this.#teardownDone) return;
     this.#teardownDone = true;
-    this.#stopLevelPolling();
     this.#localMic.detach();
     this.#resetSendLevel();
     this.#sendSpeakingDetector.reset();
@@ -1220,9 +1222,7 @@ class VoiceRoom {
       document.removeEventListener('visibilitychange', this.#onVisible);
     }
     this.#room = null;
-    this.#sendProcessorMode = 'off';
-    this.#noiseGateSetter = null;
-    this.#makeupSetter = null;
+    this.#clearProcessorHandles();
     this.state = ConnectionState.Disconnected;
     if (this.channelId) {
       const myUserId = currentServerUserId();
