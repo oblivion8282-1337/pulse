@@ -11,6 +11,17 @@ import type { NoiseSuppressionMode } from '$lib/stores/settings.svelte';
  *  rebuilding the graph within the same context. */
 const _workletModulesRegistered = new WeakSet<AudioContext>();
 
+/** Close an AudioContext we own; no-op if we borrowed it or it is already closed. */
+async function closeOwnedContext(ctx: AudioContext | null, ownsCtx: boolean): Promise<void> {
+  if (ownsCtx && ctx && ctx.state !== 'closed') {
+    try {
+      await ctx.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 /** Hysteresis: gate closes 5 dB below the open threshold so it doesn't
  *  rapidly toggle around the boundary during steady-level breaths/sibilants. */
 const GATE_CLOSE_BELOW_OPEN_DB = 5;
@@ -155,8 +166,10 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
       this.#wasmBinary = await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseSimdWasmPath });
     }
     if (!_workletModulesRegistered.has(ctx)) {
-      await ctx.audioWorklet.addModule(rnnoiseWorkletPath);
-      await ctx.audioWorklet.addModule(noiseGateWorkletPath);
+      await Promise.all([
+        ctx.audioWorklet.addModule(rnnoiseWorkletPath),
+        ctx.audioWorklet.addModule(noiseGateWorkletPath),
+      ]);
       _workletModulesRegistered.add(ctx);
     }
 
@@ -183,7 +196,7 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
     this.#gate = gate;
     this.#gain = gain;
     this.#tap = tap;
-    this.#tapBuf = new Float32Array(new ArrayBuffer(tap.fftSize * Float32Array.BYTES_PER_ELEMENT));
+    this.#tapBuf = new Float32Array(tap.fftSize);
     this.#dest = dest;
     this.processedTrack = dest.stream.getAudioTracks()[0];
     if (this.#tapCb && this.#tapRaf === null) this.#tapLoop();
@@ -213,13 +226,7 @@ class RnnoiseGatedTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
     this.#tapBuf = null;
     this.#dest = null;
     this.processedTrack = undefined;
-    if (this.#ownsCtx && this.#ctx && this.#ctx.state !== 'closed') {
-      try {
-        await this.#ctx.close();
-      } catch {
-        /* ignore */
-      }
-    }
+    await closeOwnedContext(this.#ctx, this.#ownsCtx);
     this.#ctx = null;
     this.#ownsCtx = false;
   }
@@ -312,7 +319,7 @@ class GainOnlyTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
     this.#source = source;
     this.#gain = gain;
     this.#tap = tap;
-    this.#tapBuf = new Float32Array(new ArrayBuffer(tap.fftSize * Float32Array.BYTES_PER_ELEMENT));
+    this.#tapBuf = new Float32Array(tap.fftSize);
     this.#dest = dest;
     this.processedTrack = dest.stream.getAudioTracks()[0];
     if (this.#tapCb && this.#tapRaf === null) this.#tapLoop();
@@ -337,13 +344,7 @@ class GainOnlyTrackProcessor implements TrackProcessor<Track.Kind.Audio> {
     this.#tapBuf = null;
     this.#dest = null;
     this.processedTrack = undefined;
-    if (this.#ownsCtx && this.#ctx && this.#ctx.state !== 'closed') {
-      try {
-        await this.#ctx.close();
-      } catch {
-        /* ignore */
-      }
-    }
+    await closeOwnedContext(this.#ctx, this.#ownsCtx);
     this.#ctx = null;
     this.#ownsCtx = false;
   }

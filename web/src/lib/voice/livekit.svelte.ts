@@ -62,6 +62,15 @@ installH264HwHint();
  *  String.localeCompare (which resolves a fresh collator) on every comparison. */
 const NAME_COLLATOR = new Intl.Collator();
 
+/** Static camera resolution map — width/height only; frameRate is dynamic and
+ *  added at call-site from capabilities.camFpsMax. */
+const CAM_DIMS: Record<string, { width: number; height: number }> = {
+  '1440p': { width: 2560, height: 1440 },
+  '1080p': { width: 1920, height: 1080 },
+  '720p': { width: 1280, height: 720 },
+  '480p': { width: 854, height: 480 }
+};
+
 export type VoiceParticipant = {
   /** LiveKit identity, e.g. `user-<snowflake>`. */
   identity: string;
@@ -177,11 +186,7 @@ class VoiceRoom {
   #remoteSpeaking = new RemoteSpeakingTracker((identity, speaking) =>
     this.#onRemoteSpeakingChange(identity, speaking)
   );
-  /** Display-level state for the send meter (peak-meter ballistics, identical
-   *  shape to what LocalMicAnalyser does for raw mic but driven by the
-   *  in-processor tap callback so we stay in the processor's AudioContext). */
-  #sendDisplayLevel = 0;
-  #sendDisplayPeak = 0;
+  /** Clip-flag and timer for the send meter. */
   #sendClipping = false;
   #sendClipUntilMs = 0;
 
@@ -638,13 +643,7 @@ class VoiceRoom {
    *  initial publish and flipCamera's in-place restart so a facing swap keeps
    *  the same quality. LiveKit's adaptiveStream still downscales per subscriber. */
   #camCaptureResolution(): { width: number; height: number; frameRate: number } {
-    const dims: Record<string, { width: number; height: number }> = {
-      '1440p': { width: 2560, height: 1440 },
-      '1080p': { width: 1920, height: 1080 },
-      '720p': { width: 1280, height: 720 },
-      '480p': { width: 854, height: 480 }
-    };
-    const d = dims[capabilities.camResolutionMax] ?? dims['720p'];
+    const d = CAM_DIMS[capabilities.camResolutionMax] ?? CAM_DIMS['720p'];
     const frameRate = Math.min(Math.max(capabilities.camFpsMax || 30, 1), 60);
     return { width: d.width, height: d.height, frameRate };
   }
@@ -1141,10 +1140,8 @@ class VoiceRoom {
     this.#sendSpeakingDetector.feed(rms);
     // RMS bar (smooth) and peak-hold (slow decay) — same dBFS scale, different
     // decay; see #meterBallistics.
-    this.#sendDisplayLevel = this.#meterBallistics(rms, this.#sendDisplayLevel, 0.85);
-    this.localSendLevel = this.#sendDisplayLevel;
-    this.#sendDisplayPeak = this.#meterBallistics(peak, this.#sendDisplayPeak, 0.97);
-    this.localSendPeak = this.#sendDisplayPeak;
+    this.localSendLevel = this.#meterBallistics(rms, this.localSendLevel, 0.85);
+    this.localSendPeak = this.#meterBallistics(peak, this.localSendPeak, 0.97);
     // Clip on raw peak amplitude > ~-1 dBFS. Read the clock only while a clip is
     // active or starting — the common (quiet) frame skips the timestamp entirely.
     if (peak >= 0.891 || this.#sendClipping) {
@@ -1176,8 +1173,6 @@ class VoiceRoom {
   }
 
   #resetSendLevel(): void {
-    this.#sendDisplayLevel = 0;
-    this.#sendDisplayPeak = 0;
     this.#sendClipping = false;
     this.#sendClipUntilMs = 0;
     this.localSendLevel = 0;
