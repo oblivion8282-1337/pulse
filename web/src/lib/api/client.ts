@@ -10,8 +10,10 @@
  *  - Self-Host (`isCloud: false`) → Bearer aus `sessionTokens.get(id).token`
  *    (kein JWT-Refresh — Cert-Re-Auth-Hook via `setSelfHostReauthHandler`).
  *
- * Failed refresh kicks the user out via `clearTokens()` — callers can then
- * route back to /login.
+ * Nur eine *definitive* Auth-Ablehnung (401/403 von `/refresh`) wirft den User
+ * via `clearTokens()` raus. *Transiente* Fehler (offline, 5xx/429 während eines
+ * Deploys) werfen `NetworkError`, BEHALTEN die Tokens und überlassen dem
+ * Aufrufer den Retry — sonst loggt jeder Deploy-Blip die User aus.
  */
 
 import { clearTokens, isAccessExpired, loadTokens, saveTokens } from './storage';
@@ -40,6 +42,35 @@ export class SessionExpiredError extends Error {
     this.name = 'SessionExpiredError';
     this.serverId = serverId;
   }
+}
+
+/**
+ * Transienter Fehler beim Reden mit auth-svc (offline, Timeout, 5xx/429
+ * während eines rollenden Deploys). Die Session ist NICHT tot — die Tokens
+ * werden bewusst BEHALTEN, damit der Aufrufer erneut versuchen kann, statt den
+ * User auszuloggen. Abgrenzung zu `ApiError(401/403)`: das heißt, der Server
+ * hat die Credentials/den Refresh-Token wirklich abgelehnt → Session tot.
+ *
+ * Hintergrund: Beim Container-Neustart (watchtower) liefert der Proxy für ein
+ * paar Sekunden 502/503. Würde man das wie eine Auth-Ablehnung behandeln
+ * (clearTokens), müsste sich nach jedem Deploy, der zufällig mit einem
+ * Refresh/Reload zusammenfällt, jeder betroffene User neu einloggen.
+ */
+export class NetworkError extends Error {
+  status: number;
+  constructor(status = 0, message?: string) {
+    super(message ?? `network error${status ? ` (${status})` : ''}`);
+    this.name = 'NetworkError';
+    this.status = status;
+  }
+}
+
+/** True, wenn der Fehler bedeutet, dass die Session definitiv nicht mehr
+ *  authentifiziert ist und die Tokens gelöscht gehören (Server hat
+ *  Refresh/Credentials abgelehnt). Ein transienter/Offline-Fehler ist NICHT
+ *  definitiv — siehe `NetworkError`. */
+export function isDefinitiveAuthError(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 401 || err.status === 403);
 }
 
 export type ApiEndpoint = 'auth' | 'chat' | 'voice';
@@ -142,29 +173,37 @@ async function doRefresh(intendedRefreshToken: string): Promise<Tokens | null> {
   const fresh = loadTokens();
   if (!fresh) return null;
   if (fresh.refresh_token !== intendedRefreshToken) return fresh;
+  let resp: Response;
   try {
-    const resp = await fetch(`${AUTH_BASE}/refresh`, {
+    resp = await fetch(`${AUTH_BASE}/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: fresh.refresh_token }),
     });
-    if (!resp.ok) {
-      clearTokens();
-      _refreshLocked = true;
-      if (typeof sessionStorage !== 'undefined') {
-        sessionStorage.setItem('pulse.session_expired', '1');
-      }
-      return null;
-    }
+  } catch {
+    // auth-svc gar nicht erreichbar (offline, DNS, oder mitten im Deploy ohne
+    // Upstream am Proxy). Transient — Tokens NICHT löschen, sonst loggt ein
+    // kurzer Deploy-Blip jeden User aus. Aufrufer soll retrien; Session bleibt.
+    throw new NetworkError(0, 'refresh request failed (network)');
+  }
+  if (resp.ok) {
     const data = (await resp.json()) as Tokens;
     saveTokens(data);
     _refreshLocked = false;
     return data;
-  } catch {
+  }
+  // Server erreicht, aber abgelehnt. Nur eine echte Auth-Ablehnung (Refresh-
+  // Token ungültig / revoked / Family-Reuse) killt die Session. 5xx/429/408
+  // sind transient (Service-Neustart im Deploy) → Tokens behalten, retrien.
+  if (resp.status === 401 || resp.status === 403) {
     clearTokens();
     _refreshLocked = true;
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem('pulse.session_expired', '1');
+    }
     return null;
   }
+  throw new NetworkError(resp.status, `refresh failed transiently (${resp.status})`);
 }
 
 export function resetRefreshLock(): void {
@@ -172,15 +211,26 @@ export function resetRefreshLock(): void {
 }
 
 export async function forceTokenRefresh(): Promise<boolean> {
-  return (await refreshIfNeeded(true)) !== null;
+  try {
+    return (await refreshIfNeeded(true)) !== null;
+  } catch {
+    // NetworkError = transient. Konnte jetzt nicht refreshen, aber die Session
+    // ist nicht tot — Fehlschlag melden ohne zu werfen; Aufrufer retried später.
+    return false;
+  }
 }
 
 /** Frischer Cloud-Bearer (mit Refresh) für Identity-Plane-Aufrufe, die sonst
  *  Cookie-Auth nutzen (credentials.ts) — nötig, um den `pulse_session`-Cookie
  *  bei Bedarf neu zu etablieren. `null`, wenn nicht (mehr) eingeloggt. */
 export async function getCloudBearer(force = false): Promise<string | null> {
-  const t = await refreshIfNeeded(force);
-  return t?.access_token ?? null;
+  try {
+    const t = await refreshIfNeeded(force);
+    return t?.access_token ?? null;
+  } catch {
+    // Transient (NetworkError) — kein Bearer jetzt, aber Session intakt.
+    return null;
+  }
 }
 
 /** Holt den Bearer-Token für einen Request — Cloud=JWT (mit Refresh), Self-Host=Session. */

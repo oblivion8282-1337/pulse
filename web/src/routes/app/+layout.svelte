@@ -15,7 +15,7 @@
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
   import { viewport } from '$lib/stores/viewport.svelte';
-  import { voice } from '$lib/voice/livekit.svelte';
+  import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
@@ -142,6 +142,12 @@
         : Promise.resolve()
     ]);
     hydrated = true;
+
+    // Voice-Resume: war der User vor einem Reload (manuelles F5 oder „Neu
+    // laden" nach einem Update) in einem Voice-Channel, jetzt — nach Auth +
+    // WS-Ready — automatisch zurückverbinden. Fire-and-forget; no-op, wenn
+    // kein Resume-Eintrag vorliegt.
+    void resumeVoiceIfPending();
 
     // Etappe 4: presence activity heartbeat. Throttled (≤1/60s) fire-and-
     // forget op that keeps the user off the idle sweeper. Wired up here

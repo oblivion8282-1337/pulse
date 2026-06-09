@@ -44,6 +44,8 @@ import { installH264HwHint } from './h264HwHint';
 import { nameFor, userIdFromIdentity } from './identity';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { activeServer } from '$lib/stores/active-server.svelte';
+import { saveVoiceResume, clearVoiceResume, loadVoiceResume } from './resume';
 import { gateway } from '$lib/ws/connection';
 import { sounds } from '$lib/sounds/engine';
 import { toast } from 'svelte-sonner';
@@ -275,8 +277,15 @@ class VoiceRoom {
     return this.state === ConnectionState.Connecting || this.state === ConnectionState.SignalReconnecting;
   }
 
-  /** Connect to the LiveKit room backing the given voice channel. */
-  async connect(channelId: string, channelName: string): Promise<void> {
+  /** Connect to the LiveKit room backing the given voice channel.
+   *  `opts.startMuted` / `opts.startDeafened` lassen den Mic beim Join aus bzw.
+   *  starten deafened — genutzt vom Voice-Resume nach einem Reload, um den
+   *  vorherigen Zustand wiederherzustellen statt blind „live on join". */
+  async connect(
+    channelId: string,
+    channelName: string,
+    opts: { startMuted?: boolean; startDeafened?: boolean } = {}
+  ): Promise<void> {
     if (this.#room && (this.connected || this.connecting)) {
       if (this.channelId === channelId) return;
       // Switching channels = user-driven leave of the old one. End any
@@ -362,11 +371,19 @@ class VoiceRoom {
     // connect that replaced this.#room during the await.
     if (gen !== this.#connectGen) return;
 
-    // Live on join (Discord-style), unless PTT mode keeps the mic muted.
-    if (!this.pttMode) {
+    // Live on join (Discord-style), unless PTT mode keeps the mic muted — or
+    // the caller restores a muted/deafened state (voice-resume after a reload).
+    const startMuted = opts.startMuted || opts.startDeafened;
+    if (!this.pttMode && !startMuted) {
       await this.setMicEnabled(true);
     } else {
       this.micEnabled = false;
+    }
+    // Restore deafen BEFORE publishing so peers see the right state immediately.
+    // setDeafened auch mutet den Mic — daher nach dem (übersprungenen) Mic-On.
+    if (opts.startDeafened) {
+      this.deafened = true;
+      this.#audioEls.setDeafened(true);
     }
     // Make sure the gateway has our state even if neither setMicEnabled nor
     // setDeafened ran (PTT mode + not deafened = both false → no setter fired,
@@ -397,6 +414,10 @@ class VoiceRoom {
     if (!room) return;
     sounds.play('voice.self_leave', this.#soundCtx);
     if (opts.reason === 'user') {
+      // Explizites Verlassen (Auflegen / Channel-Wechsel) → kein Auto-Rejoin
+      // beim nächsten Reload. Transport-Trennungen (Reload/WS-Blip) lassen den
+      // Resume-Eintrag bewusst stehen.
+      clearVoiceResume();
       const cid = this.channelId;
       if (cid) {
         const party = watchPartyPresence.partyIn(cid);
@@ -1262,8 +1283,24 @@ class VoiceRoom {
   /** Push the local mute/deafen state to the chat-gateway so peers see it.
    * No-op when we are not currently connected to a voice channel — the
    * gateway only accepts state for a valid voice channel id. */
+  /** Persist enough to auto-rejoin this channel after a reload (voice-resume).
+   *  Mirrors the current mute/deafen so the restored session matches. No-op
+   *  when not in a channel. */
+  #saveResume(): void {
+    if (!this.channelId) return;
+    saveVoiceResume({
+      serverId: activeServer.serverId,
+      channelId: this.channelId,
+      channelName: this.channelName ?? '',
+      muted: !this.micEnabled,
+      deafened: this.deafened,
+    });
+  }
+
   #publishSelfState(): void {
     if (!this.channelId) return;
+    // Keep the reload-resume snapshot in sync with every mute/deafen change.
+    this.#saveResume();
     try {
       gateway.sendVoiceSelfState(this.channelId, !this.micEnabled, this.deafened);
     } catch {
@@ -1282,3 +1319,40 @@ class VoiceRoom {
 }
 
 export const voice = new VoiceRoom();
+
+/**
+ * Nach dem Boot aufrufen (sobald Auth + WS-Ready stehen): war der User vor
+ * einem Reload in einem Voice-Channel, automatisch zurückverbinden — inkl.
+ * Mute/Deafen. Quelle ist der sessionStorage-Eintrag aus `resume.ts`.
+ *
+ * Sicherheits-/Korrektheits-Gates:
+ *  - kein Rejoin, wenn schon (ver)bunden;
+ *  - nur wenn der gemerkte Server == aktiver Server ist (sonst andere Token-/
+ *    Membership-Welt — vermeidet ungewollte Server-Switch-Seiteneffekte);
+ *  - schlägt der Connect fehl (Channel gelöscht, Token verweigert), wird der
+ *    Resume-Eintrag verworfen, damit es keine Reload-Schleife gibt.
+ *
+ * Hinweis Autoplay: Nach einem Reload gibt es keine User-Geste → die Wiedergabe
+ * fremder Audiospuren kann bis zum ersten Klick blockiert sein (`audioBlocked`
+ * + bestehender Unblock-Pfad in der UI). Der eigene Mic-Publish braucht keine
+ * Geste, wenn die Berechtigung schon erteilt war.
+ */
+export async function resumeVoiceIfPending(): Promise<void> {
+  const r = loadVoiceResume();
+  if (!r) return;
+  if (voice.connected || voice.connecting) return;
+  // Nur im exakt selben Server-Kontext rejoinen. Ein Reload trifft denselben
+  // aktiven Server (persistiert), also matcht das im Normalfall. Stimmen die
+  // ids nicht überein (oder fehlt die gemerkte id), NICHT rejoinen — ein Join
+  // in eine unbestätigte Server-/Token-/Membership-Welt wäre falsch.
+  if (r.serverId !== activeServer.serverId) return;
+  try {
+    await voice.connect(r.channelId, r.channelName, {
+      startMuted: r.muted,
+      startDeafened: r.deafened,
+    });
+  } catch {
+    // Channel weg / Token verweigert → stale Resume entfernen (keine Schleife).
+    clearVoiceResume();
+  }
+}

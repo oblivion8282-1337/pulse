@@ -1,5 +1,7 @@
 import { me } from '$lib/api/auth';
+import { isDefinitiveAuthError } from '$lib/api/client';
 import { clearTokens, loadTokens } from '$lib/api/storage';
+import { clearVoiceResume } from '$lib/voice/resume';
 import { readState } from './readState.svelte';
 import { userCache } from './users.svelte';
 import { capabilities } from './capabilities.svelte';
@@ -56,10 +58,30 @@ class AuthStore {
     return this._hydrateInflight;
   }
 
+  /**
+   * Holt `/me`, wiederholt transiente Fehler (offline, Deploy-Fenster-5xx) mit
+   * Backoff. Ein definitives 401/403 wird sofort weitergeworfen (Session tot);
+   * nach Ausschöpfen der Retries wird der letzte transiente Fehler geworfen,
+   * sodass der Aufrufer die Tokens BEHÄLT. Verhindert, dass ein kurzer Backend-
+   * Neustart (Deploy) den User ausloggt. ~17,5 s Worst-Case bevor aufgegeben
+   * wird — die meisten Deploys sind in diesem Fenster wieder oben.
+   */
+  private async _fetchMeResilient(): Promise<User> {
+    const backoffMs = [500, 1000, 2000, 4000, 5000, 5000];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await me();
+      } catch (e) {
+        if (isDefinitiveAuthError(e) || attempt >= backoffMs.length) throw e;
+        await new Promise((r) => setTimeout(r, backoffMs[attempt]));
+      }
+    }
+  }
+
   private async _doHydrate(): Promise<void> {
     this.loading = true;
     try {
-      this.user = await me();
+      this.user = await this._fetchMeResilient();
       if (this.user) {
         // Account-Switch-Schutz VOR dem Tresor-Pull: meldet sich ein anderer
         // User am selben Gerät an, erst die Artefakte des Vorgängers räumen,
@@ -118,9 +140,20 @@ class AuthStore {
           })
           .catch(() => {/* silent — degradiert gracefully */});
       }
-    } catch {
-      clearTokens();
-      this.user = null;
+    } catch (e) {
+      if (isDefinitiveAuthError(e)) {
+        // Der Server hat uns wirklich abgelehnt — Session tot. Tokens löschen,
+        // app/+layout leitet danach auf /login um.
+        clearTokens();
+        this.user = null;
+      } else {
+        // Transient (offline / Deploy-5xx), auch nach den Retries noch nicht
+        // erreichbar. Tokens BEHALTEN, damit der nächste Reload — oder die
+        // WS-Reconnect-Schleife — die Session wiederherstellt, OHNE dass der
+        // User sein Passwort neu eintippen muss. `user` bleibt für diesen Boot
+        // null (app/+layout zeigt /login, aber ein Reload heilt ohne Re-Login).
+        this.user = null;
+      }
     } finally {
       this.loading = false;
       this._hydrateInflight = null;
@@ -192,6 +225,9 @@ class AuthStore {
       // In-Memory-Reste leeren (greift im SPA-Login-Pfad ohne Reload).
       resetServerScopedStores();
       resetSocialStores();
+      // Voice-Resume des Vorgängers verwerfen, damit ein anderer User am selben
+      // Gerät nicht in dessen Channel auto-rejoined.
+      clearVoiceResume();
       // User-gebundene UX-Marker des Vorgängers räumen (wie signOut), damit der
       // neue User Onboarding/Changelog/Self-Host-Disclaimer frisch bekommt und
       // keine „schon gesehen"-Flags erbt. Disclaimer-Flags sind self-host-
@@ -229,6 +265,9 @@ class AuthStore {
 
   signOut(): void {
     clearTokens();
+    // Voice-Resume verwerfen — nach explizitem Logout darf der nächste Boot
+    // nicht in den alten Channel zurückspringen.
+    clearVoiceResume();
     this.user = null;
     // Server-scoped Stores: Helper aus Phase 4.5 — leert die Guild-Realtime-
     // Stores + Plugin-Toggle-Cache. Anti-Drift: jeder neue Server-scoped Store

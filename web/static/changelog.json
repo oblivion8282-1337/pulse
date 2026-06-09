@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-09.4",
+      "date": "2026-06-09",
+      "style": "Locker",
+      "title": "Kein Rauswurf mehr nach Updates",
+      "items": [
+        "Updates schmeißen dich nicht mehr aus deinem Account — kein lästiges Neu-Einloggen mehr.",
+        "Warst du gerade im Sprachkanal und lädst neu? Pulse holt dich automatisch direkt wieder rein."
+      ]
+    },
+    {
       "id": "2026-06-09.3",
       "date": "2026-06-09",
       "style": "Sachlich",
