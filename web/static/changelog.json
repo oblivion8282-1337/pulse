@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-09.2",
+      "date": "2026-06-09",
+      "style": "Sachlich",
+      "title": "Stabilität und Tempo",
+      "items": [
+        "Reaktionen, Sprachkanäle und die Mitglieder- sowie Statusanzeige laden beim Verbinden etwas schneller.",
+        "Ein Speicherproblem im Hintergrund wurde behoben, das über die Zeit unnötig Speicher belegt hat."
+      ]
+    },
+    {
       "id": "2026-06-09",
       "date": "2026-06-09",
       "style": "Locker",
