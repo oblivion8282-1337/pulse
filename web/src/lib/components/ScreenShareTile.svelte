@@ -57,7 +57,7 @@
   let audioEl = $state<HTMLAudioElement | null>(null);
   let volume = $state(100);
   // Remembers last non-zero volume so the mute toggle can restore it.
-  let prevVolume = $state(100);
+  let prevVolume = 100;
   let localBlocked = $state(false);
   // Document-PiP: das ganze Tile wird in ein separates OS-Floating-Fenster
   // geMOUNTET. Selber JS-Context, Track bleibt direkt nutzbar.
@@ -75,6 +75,8 @@
   let stats = $state<ReceiveStats | null>(null);
   const statsReader = new ReceiveStatsReader();
   let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+  const errMsg = (e: unknown) => e instanceof Error ? `${e.name}: ${e.message}` : String(e);
 
   function applyVolume() {
     const v = volume / 100;
@@ -101,7 +103,7 @@
         height: Math.min(680, Math.round(window.screen.availHeight * 0.65))
       });
     } catch (e) {
-      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      const msg = errMsg(e);
       console.error('[docpip] requestWindow rejected:', e);
       toast.error(m.screen_share_tile_pip_open_failed(), {
         description: msg,
@@ -123,7 +125,7 @@
       });
       win.addEventListener('pagehide', reattachDocPip);
     } catch (e) {
-      const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      const msg = errMsg(e);
       console.error('[docpip] mount/adopt failed:', e);
       toast.error(m.screen_share_tile_pip_init_failed(), {
         description: msg,
@@ -162,12 +164,12 @@
       stats = null;
       return;
     }
-    statsReader.reset();
-    void statsReader.read(t).then((s) => { if (s) stats = s; });
-    statsTimer = setInterval(async () => {
+    const cb = async () => {
       const next = await statsReader.read(t);
       if (next) stats = next;
-    }, 1000);
+    };
+    void cb();
+    statsTimer = setInterval(cb, 1000);
     return () => {
       if (statsTimer) {
         clearInterval(statsTimer);

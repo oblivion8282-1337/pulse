@@ -43,12 +43,11 @@
   // icon shows even if LiveKit's reported ``micMuted`` is false (e.g. the
   // publish was killed entirely rather than soft-muted) and so deafen —
   // which LiveKit has no concept of — is visible at all.
-  let isForceMuted = $derived(
-    !!p.userId && voicePresence.isForceMuted(channelId, p.userId)
+  let serverOverride = $derived(
+    p.userId ? voicePresence.overrideByChannel[channelId]?.[p.userId] : undefined
   );
-  let isForceDeafened = $derived(
-    !!p.userId && voicePresence.isForceDeafened(channelId, p.userId)
-  );
+  let isForceMuted = $derived(!!p.userId && !!serverOverride?.muted);
+  let isForceDeafened = $derived(!!p.userId && !!serverOverride?.deafened);
   // Remote deafen comes from the server's per-user voice state (gateway pushes
   // ``user_states`` in each ``voice_state`` snapshot). Local user pulls from
   // ``voice.deafened`` directly so the icon flips instantly on self-toggle
@@ -75,17 +74,26 @@
     !!p.userId && watchPartyPresence.partyIn(channelId)?.host_user_id === p.userId
   );
   // The LiveKit cam track for this participant, if subscribed + unmuted.
-  let camTrack = $derived(voice.cameraTracks.find((c) => c.identity === p.identity));
-  let hasCam = $derived(!!camTrack);
+  let hasCam = $derived(voice.cameraTracks.some((c) => c.identity === p.identity));
+  const BASE_RING = 'ring-2 ring-offset-2 ring-offset-background';
   let ringClass = $derived(
     isLive
-      ? 'ring-2 ring-red-500 ring-offset-2 ring-offset-background'
+      ? `${BASE_RING} ring-red-500`
       : isPartyHost
-        ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+        ? `${BASE_RING} ring-primary`
         : hasCam
-          ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-background'
+          ? `${BASE_RING} ring-blue-500`
           : ''
   );
+
+  function badgeKeydown(fn: () => void) {
+    return (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      e.stopPropagation();
+      fn();
+    };
+  }
 
   function openLive(): void {
     // Open whichever live source(s) this user actually has. HQ takes the
@@ -190,12 +198,7 @@
                       : m.voice_participant_tile_open_screen()}
                   aria-label={m.voice_participant_tile_open_stream_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openLive(); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openLive();
-                  }}
+                  onkeydown={badgeKeydown(openLive)}
                 >LIVE</span>
               {/if}
               {#if isPartyHost}
@@ -207,12 +210,7 @@
                   title={m.voice_participant_tile_open_watch_party()}
                   aria-label={m.voice_participant_tile_open_watch_party_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openParty(); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openParty();
-                  }}
+                  onkeydown={badgeKeydown(openParty)}
                 >PARTY</span>
               {/if}
               {#if hasCam}
@@ -224,12 +222,7 @@
                   title={m.voice_participant_tile_open_webcam()}
                   aria-label={m.voice_participant_tile_open_webcam_aria({ name: resolvedName })}
                   onclick={(e) => { e.stopPropagation(); openCam(); }}
-                  onkeydown={(e) => {
-                    if (e.key !== 'Enter' && e.key !== ' ') return;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    openCam();
-                  }}
+                  onkeydown={badgeKeydown(openCam)}
                 >CAM</span>
               {/if}
             </div>

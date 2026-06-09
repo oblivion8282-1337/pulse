@@ -78,6 +78,7 @@
   const hostName = $derived(userCache.displayName(party.host_user_id));
   // Passive sources (Twitch live) have no seekable position — no central sync.
   const isPassive = $derived(isPassiveSource(party.source));
+  const autoplay = $derived(isPassive || party.is_playing);
 
   const controller = new PartyController(
     () => channelId,
@@ -106,7 +107,7 @@
   // Releases on pause / hidden tab / unmount (handled in the wake-lock helper
   // + the effect cleanup), so an idle paused tile lets the screen sleep again.
   $effect(() => {
-    if (!(isPassive || party.is_playing)) return;
+    if (!autoplay) return;
     const release = acquireWakeLock();
     return release;
   });
@@ -158,7 +159,7 @@
   let prevHostId: string | undefined;
   $effect(() => {
     const h = party.host_user_id;
-    const me = currentServerUserId();
+    const me = myId;
     if (me && h === me && prevHostId !== undefined && prevHostId !== me) {
       toast.success(m.watch_party_tile_now_controlling());
     }
@@ -225,21 +226,21 @@
       {#if party.source.type === 'youtube'}
         <YouTubePlayer
           source={party.source}
-          autoplay={isPassive || party.is_playing}
+          autoplay={autoplay}
           onReady={handleReady}
           onEvent={handleEvent}
         />
       {:else if party.source.type === 'twitch' || party.source.type === 'twitch_live'}
         <TwitchPlayer
           source={party.source}
-          autoplay={isPassive || party.is_playing}
+          autoplay={autoplay}
           onReady={handleReady}
           onEvent={handleEvent}
         />
       {:else}
         <NativeVideoPlayer
           source={party.source}
-          autoplay={isPassive || party.is_playing}
+          autoplay={autoplay}
           onReady={handleReady}
           onEvent={handleEvent}
         />

@@ -49,25 +49,26 @@
   const isTouchDevice =
     typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches;
 
+  // Gemeinsamer Basiswert für Force-Mute/Deafen-Ableitungen.
+  const selfContext = $derived.by(() => {
+    const cid = voice.channelId;
+    const uid = currentServerUserId();
+    return cid && uid ? { cid, uid } : null;
+  });
+
   // Force-mute state for the local user in the current voice channel.
   // The LiveKit token already prevents publish; this flag is purely for
   // disabling the mic-toggle UI + showing the right tooltip so the user
   // sees *why* their mic is locked instead of an opaque silent failure.
-  let selfForceMuted = $derived.by(() => {
-    const cid = voice.channelId;
-    const uid = currentServerUserId();
-    if (!cid || !uid) return false;
-    return voicePresence.isForceMuted(cid, uid);
-  });
+  let selfForceMuted = $derived(
+    selfContext ? voicePresence.isForceMuted(selfContext.cid, selfContext.uid) : false
+  );
   // Server force-deafen: voice.setDeafened is driven from the WS event
   // handler; this flag just disables the toggle so the user can't undeafen
   // themselves until the override is cleared.
-  let selfForceDeafened = $derived.by(() => {
-    const cid = voice.channelId;
-    const uid = currentServerUserId();
-    if (!cid || !uid) return false;
-    return voicePresence.isForceDeafened(cid, uid);
-  });
+  let selfForceDeafened = $derived(
+    selfContext ? voicePresence.isForceDeafened(selfContext.cid, selfContext.uid) : false
+  );
 
   // Manueller Lautsprecher/Hörmuschel-Umschalter — nur in der Android-App
   // (ruft das native AudioRoute-Plugin). Im Browser/Electron unsichtbar/No-op.
@@ -85,6 +86,9 @@
     speakerOn = !speakerOn;
     void setAudioRoute(speakerOn ? 'speaker' : 'earpiece');
   }
+
+  const btnCls = 'size-14 md:size-8';
+  const iconCls = 'size-6 md:size-4';
 </script>
 
 <div
@@ -115,7 +119,7 @@
               {...props}
               variant={voice.micEnabled && !selfForceMuted ? 'secondary' : 'destructive'}
               size="icon-sm"
-              class="size-14 md:size-8"
+              class={btnCls}
               onclick={() => voice.toggleMic()}
               disabled={selfForceMuted}
               data-testid="voice-mic-toggle"
@@ -125,7 +129,7 @@
                   ? 'Mikrofon stummschalten'
                   : 'Mikrofon aktivieren'}
             >
-              {#if voice.micEnabled && !selfForceMuted}<MicIcon class="size-6 md:size-4" />{:else}<MicOffIcon class="size-6 md:size-4" />{/if}
+              {#if voice.micEnabled && !selfForceMuted}<MicIcon class={iconCls} />{:else}<MicOffIcon class={iconCls} />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
@@ -145,7 +149,7 @@
               {...props}
               variant={voice.deafened ? 'destructive' : 'secondary'}
               size="icon-sm"
-              class="size-14 md:size-8"
+              class={btnCls}
               onclick={() => voice.toggleDeafen()}
               disabled={selfForceDeafened}
               data-testid="voice-deafen-toggle"
@@ -155,7 +159,7 @@
                   ? 'Ton aktivieren'
                   : 'Ton stummschalten'}
             >
-              {#if voice.deafened}<HeadphoneOffIcon class="size-6 md:size-4" />{:else}<HeadphonesIcon class="size-6 md:size-4" />{/if}
+              {#if voice.deafened}<HeadphoneOffIcon class={iconCls} />{:else}<HeadphonesIcon class={iconCls} />{/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
@@ -178,12 +182,12 @@
                 {...props}
                 variant={speakerOn ? 'default' : 'ghost'}
                 size="icon-sm"
-                class="size-14 md:size-8"
+                class={btnCls}
                 onclick={toggleAudioRoute}
                 data-testid="voice-audio-route-toggle"
                 aria-label={speakerOn ? 'Auf Hörmuschel umschalten' : 'Auf Lautsprecher umschalten'}
               >
-                {#if speakerOn}<Volume2Icon class="size-6 md:size-4" />{:else}<EarIcon class="size-6 md:size-4" />{/if}
+                {#if speakerOn}<Volume2Icon class={iconCls} />{:else}<EarIcon class={iconCls} />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
@@ -206,12 +210,12 @@
                 {...props}
                 variant={voice.isCameraOn ? 'default' : 'ghost'}
                 size="icon-sm"
-                class="size-14 md:size-8"
+                class={btnCls}
                 onclick={() => voice.toggleCamera()}
                 data-testid="voice-camera-toggle"
                 aria-label={voice.isCameraOn ? 'Kamera ausschalten' : 'Kamera einschalten'}
               >
-                {#if voice.isCameraOn}<VideoIcon class="size-6 md:size-4" />{:else}<VideoOffIcon class="size-6 md:size-4" />{/if}
+                {#if voice.isCameraOn}<VideoIcon class={iconCls} />{:else}<VideoOffIcon class={iconCls} />{/if}
               </Button>
             {/snippet}
           </Tooltip.Trigger>
@@ -230,12 +234,12 @@
                   {...props}
                   variant="ghost"
                   size="icon-sm"
-                  class="size-14 md:size-8"
+                  class={btnCls}
                   onclick={() => voice.flipCamera()}
                   data-testid="voice-camera-flip"
                   aria-label="Kamera wechseln"
                 >
-                  <SwitchCameraIcon class="size-6 md:size-4" />
+                  <SwitchCameraIcon class={iconCls} />
                 </Button>
               {/snippet}
             </Tooltip.Trigger>
@@ -256,12 +260,12 @@
               {...props}
               variant="destructive"
               size="icon-sm"
-              class="ml-auto max-md:ml-0 size-14 md:size-8"
+              class="ml-auto max-md:ml-0 {btnCls}"
               onclick={() => voice.disconnect({ reason: 'user' })}
               data-testid="voice-disconnect"
               aria-label="Voice verlassen"
             >
-              <PhoneOffIcon class="size-6 md:size-4" />
+              <PhoneOffIcon class={iconCls} />
             </Button>
           {/snippet}
         </Tooltip.Trigger>
