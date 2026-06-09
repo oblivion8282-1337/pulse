@@ -19,6 +19,10 @@ def _id_str(value: int) -> str:
     return str(value)
 
 
+def _opt_id_str(v: int | None) -> str | None:
+    return _id_str(v) if v is not None else None
+
+
 def _coerce_id(value: object) -> int:
     """Accept snowflake IDs as int or string.
 
@@ -228,7 +232,7 @@ class MessageOut(BaseModel):
 
     @field_serializer("id", "channel_id", "author_id", "reply_to_id")
     def _ser_ids(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 class AttachmentUploadIn(BaseModel):
@@ -297,7 +301,7 @@ class DMChannelOut(BaseModel):
 
     @field_serializer("id", "other_user_id", "last_message_id")
     def _ser_ids(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 class MemberIn(BaseModel):
@@ -368,7 +372,7 @@ class InviteOut(BaseModel):
 
     @field_serializer("guild_id", "channel_id")
     def _ser_ids(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 class InviteGuildOut(BaseModel):
@@ -388,7 +392,7 @@ class InvitePreviewOut(BaseModel):
 
     @field_serializer("channel_id")
     def _ser_channel(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 class InviteAcceptOut(BaseModel):
@@ -397,7 +401,7 @@ class InviteAcceptOut(BaseModel):
 
     @field_serializer("channel_id")
     def _ser_channel(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 # ---- Public community address (Stufe 4) ------------------------------------
@@ -424,13 +428,13 @@ class PublicCommunityJoinOut(BaseModel):
 
     @field_serializer("channel_id")
     def _ser_channel(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 # ---- Community-Invite-Broker (Stufe 2 / B-lite, cloud-only) ----------------
 
 
-_MAX_COMMUNITY_INVITE_TTL = 30 * 24 * 3600  # 30 days
+_MAX_COMMUNITY_INVITE_TTL = _MAX_INVITE_TTL  # same 30-day ceiling
 
 
 class CreateCommunityInviteIn(BaseModel):
@@ -467,7 +471,7 @@ class CommunityInviteOut(BaseModel):
 
     @field_serializer("target_instance_id")
     def _ser_instance(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)
 
 
 # ---- Admin ----------------------------------------------------------------
@@ -539,6 +543,12 @@ ALLOWED_NS_RESOLUTIONS: frozenset[str] = frozenset({"native", "1080p", "720p", "
 # (no 'native': a webcam has a hardware ceiling, the admin picks a stage).
 ALLOWED_CAM_RESOLUTIONS: frozenset[str] = frozenset({"1440p", "1080p", "720p", "480p"})
 
+def _check_resolution(v: str | None, allowed: frozenset[str], field: str) -> str | None:
+    if v is not None and v not in allowed:
+        raise ValueError(f"{field} must be one of {sorted(allowed)}")
+    return v
+
+
 class PermissionsPatch(BaseModel):
     allow_guild_creation: bool | None = None
     allow_member_invites: bool | None = None
@@ -571,23 +581,17 @@ class PermissionsPatch(BaseModel):
     @field_validator("hq_resolution_max")
     @classmethod
     def _validate_hq_resolution(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_HQ_RESOLUTIONS:
-            raise ValueError(f"hq_resolution_max must be one of {sorted(ALLOWED_HQ_RESOLUTIONS)}")
-        return v
+        return _check_resolution(v, ALLOWED_HQ_RESOLUTIONS, "hq_resolution_max")
 
     @field_validator("ns_resolution_max")
     @classmethod
     def _validate_ns_resolution(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_NS_RESOLUTIONS:
-            raise ValueError(f"ns_resolution_max must be one of {sorted(ALLOWED_NS_RESOLUTIONS)}")
-        return v
+        return _check_resolution(v, ALLOWED_NS_RESOLUTIONS, "ns_resolution_max")
 
     @field_validator("cam_resolution_max")
     @classmethod
     def _validate_cam_resolution(cls, v: str | None) -> str | None:
-        if v is not None and v not in ALLOWED_CAM_RESOLUTIONS:
-            raise ValueError(f"cam_resolution_max must be one of {sorted(ALLOWED_CAM_RESOLUTIONS)}")
-        return v
+        return _check_resolution(v, ALLOWED_CAM_RESOLUTIONS, "cam_resolution_max")
 
 
 class GuildSoundOverrideOut(BaseModel):
@@ -760,4 +764,4 @@ class AdminAuditLogEntry(BaseModel):
 
     @field_serializer("id", "actor_id", "target_id")
     def _ids_to_str(self, v: int | None) -> str | None:
-        return _id_str(v) if v is not None else None
+        return _opt_id_str(v)

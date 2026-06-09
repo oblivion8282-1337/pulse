@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 # Signed 64-bit bounds — channel ids live in a Postgres BIGINT column.
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
+_VIEW_CHANNEL_BIT = int(Permissions.VIEW_CHANNEL)
 
 
 class _PermFilterMixin:
@@ -182,14 +183,7 @@ class _PermFilterMixin:
                 return
             if uid:
                 self._invalidate_for_member(uid)
-        elif op == "channel_permissions_updated":
-            try:
-                cid = int(payload.get("channel_id", "0"))
-            except (TypeError, ValueError):
-                return
-            if cid:
-                self._invalidate_for_channel(cid)
-        elif op == "channel_deleted":
+        elif op in ("channel_permissions_updated", "channel_deleted"):
             try:
                 cid = int(payload.get("channel_id", "0"))
             except (TypeError, ValueError):
@@ -352,12 +346,11 @@ class _PermFilterMixin:
                 # Populate the cache for each cold non-admin socket so the
                 # gather below hits only the hot path.  Store VIEW_CHANNEL bit
                 # when allowed, 0 when denied — sufficient for can_view_channel().
-                _view_bit = int(Permissions.VIEW_CHANNEL)
                 for ws, uid in zip(cache_miss_sockets, cache_miss_uids):
                     if ws in self._ws_user:
                         allowed = uid in can_view_ids
                         self._ws_perms.setdefault(ws, {})[cid_int] = (
-                            _view_bit if allowed else 0
+                            _VIEW_CHANNEL_BIT if allowed else 0
                         )
 
         # All non-admin sockets are warm; admin sockets resolve lazily below.

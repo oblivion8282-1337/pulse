@@ -148,7 +148,7 @@ class ConnectionManager(
         # subscribe_plugin_channels at lifespan time). Re-subscribed on every
         # start() call so that a crashed + restarted listener does not silently
         # lose plugin-channel messages.
-        self._plugin_channels: list[str] = []
+        self._plugin_channels: set[str] = set()
         self._lock = asyncio.Lock()
         self._init_watch_registry()
         self._started = False
@@ -243,9 +243,7 @@ class ConnectionManager(
         async with self._lock:
             self._subs[channel_id].add(ws)
             # Keep the reverse index in sync.
-            if ws not in self._ws_channels:
-                self._ws_channels[ws] = set()
-            self._ws_channels[ws].add(channel_id)
+            self._ws_channels.setdefault(ws, set()).add(channel_id)
 
     async def unsubscribe(self, ws: WebSocket, channel_id: str) -> None:
         async with self._lock:
@@ -372,11 +370,7 @@ class ConnectionManager(
         # Track the channel names so start() can re-subscribe them after a
         # listener crash recovery (built-in channels are re-subscribed by
         # start(); plugin channels need the same treatment).
-        existing = set(self._plugin_channels)
-        for ch in channels:
-            if ch not in existing:
-                self._plugin_channels.append(ch)
-                existing.add(ch)
+        self._plugin_channels.update(channels)
         log.info(
             "pubsub: subscribed %d additional plugin channel(s): %s",
             len(channels),
@@ -471,10 +465,7 @@ class ConnectionManager(
         per_channel = await asyncio.gather(
             *(self._overrides_for_channel(cid) for cid in channel_ids)
         )
-        out: list[dict[str, Any]] = []
-        for entries in per_channel:
-            out.extend(entries)
-        return out
+        return [e for entries in per_channel for e in entries]
 
     async def user_voice_states_for(self, user_ids: list[str]) -> dict[str, dict[str, bool]]:
         """Read per-user mute/deafen state for the given user_ids. Missing keys

@@ -35,6 +35,7 @@ import logging
 from fastapi import WebSocket
 from sqlalchemy import or_, select
 
+import dcc_chat_gateway.config as _cfg
 from dcc_chat_gateway import s3, watchkeys
 from dcc_chat_gateway.db import SessionLocal
 from dcc_chat_gateway.friend_events import (
@@ -52,6 +53,7 @@ from dcc_chat_gateway.models import (
     Channel,
     DirectMessageChannel,
     FriendRequest,
+    Friendship,
     Guild,
     GuildMember,
     GuildSoundOverride,
@@ -65,6 +67,7 @@ from dcc_chat_gateway.permissions import (
 )
 from dcc_chat_gateway.presence_status import (
     STATUS_ONLINE,
+    _mask,
     get_presence_status_raw,
     get_presence_statuses_bulk,
     load_durable_status,
@@ -122,7 +125,7 @@ async def build_and_send_ready_frame(
                 ).scalars()
             )
             for role in role_rows:
-                roles_by_guild.setdefault(role.guild_id, []).append(role)
+                roles_by_guild[role.guild_id].append(role)
             my_mr_rows = list(
                 (
                     await session.execute(
@@ -134,7 +137,7 @@ async def build_and_send_ready_frame(
                 ).scalars()
             )
             for mr in my_mr_rows:
-                my_role_ids.setdefault(mr.guild_id, []).append(mr.role_id)
+                my_role_ids[mr.guild_id].append(mr.role_id)
         # Sound overrides: batched across the user's guilds → presigned-GET
         # URLs per (guild, sound_id). Ready ships the URL set in one shot
         # so the engine can pre-resolve guild→sound_id→url maps without
@@ -161,7 +164,7 @@ async def build_and_send_ready_frame(
                 *(s3.presigned_get_url(srow.storage_key) for srow in sound_rows)
             )
             for srow, url in zip(sound_rows, urls):
-                sound_overrides_by_guild.setdefault(srow.guild_id, []).append(
+                sound_overrides_by_guild[srow.guild_id].append(
                     {"sound_id": srow.sound_id, "url": url}
                 )
         guilds = []
@@ -238,8 +241,6 @@ async def build_and_send_ready_frame(
                 viewable_vc_ids.update(visible)
             voice_channel_ids = [str(cid) for cid in viewable_vc_ids]
 
-        import dcc_chat_gateway.config as _cfg  # noqa: PLC0415
-
         _is_cloud = _cfg.get_settings().pulse_instance_mode == "cloud"
 
         # Social payload (DMs / friends / blocks / privacy) is cloud-only.
@@ -268,15 +269,13 @@ async def build_and_send_ready_frame(
             # (hydrated below). ``friend_since`` is the per-friend "since"
             # timestamp that the FE shows on the friends panel — built in the
             # same SELECT to avoid an N+1.
-            from dcc_chat_gateway.models import Friendship as _Friendship
-
             friendship_rows = list(
                 (
                     await session.execute(
-                        select(_Friendship).where(
+                        select(Friendship).where(
                             or_(
-                                _Friendship.user_a_id == user.id,
-                                _Friendship.user_b_id == user.id,
+                                Friendship.user_a_id == user.id,
+                                Friendship.user_b_id == user.id,
                             )
                         )
                     )
@@ -288,8 +287,10 @@ async def build_and_send_ready_frame(
                 other = fr.user_b_id if fr.user_a_id == user.id else fr.user_a_id
                 friend_set.add(other)
                 friend_since[other] = fr.created_at.isoformat()
-            blocks_out_set = await load_blocks_out(session, user.id)
-            blocks_in_set = await load_blocks_in(session, user.id)
+            blocks_out_set, blocks_in_set = await asyncio.gather(
+                load_blocks_out(session, user.id),
+                load_blocks_in(session, user.id),
+            )
             req_in_rows = list(
                 (
                     await session.execute(
@@ -399,10 +400,8 @@ async def build_and_send_ready_frame(
             own_presence_status = STATUS_ONLINE
     peer_statuses_raw = await get_presence_statuses_bulk(redis, list(all_peer_ids))
     # Mask invisible → offline for all peers (own status is delivered real).
-    from dcc_chat_gateway.presence_status import _mask as _psmask
-
     user_presence_statuses: dict[str, str] = {
-        str(uid): _psmask(st) for uid, st in peer_statuses_raw.items()
+        str(uid): _mask(st) for uid, st in peer_statuses_raw.items()
     }
 
     # Hydrate the per-socket friend/block caches in the same loop so the

@@ -344,16 +344,9 @@ async def filter_viewable_channels(
 
     out: set[int] = set()
     for cid in channel_ids:
-        ctx = _Ctx(
-            user=base.user,
-            admin=base.admin,
-            owner=base.owner,
-            member=base.member,
-            roles=base.roles,
-            overwrites=ow_by_channel.get(cid, {}),
-        )
+        base.overwrites = ow_by_channel.get(cid, {})
         if has_permission(
-            calculate_channel_permissions(ctx), Permissions.VIEW_CHANNEL
+            calculate_channel_permissions(base), Permissions.VIEW_CHANNEL
         ):
             out.add(cid)
     return out

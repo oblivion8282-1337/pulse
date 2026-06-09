@@ -365,14 +365,13 @@ async def add_member(
         member = await session.get(GuildMember, (guild_id, payload.user_id))
         return member  # type: ignore[return-value]
     await session.refresh(member)
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            GuildMemberAddedEvent(
-                guild_id=str(guild_id),
-                user_id=str(payload.user_id),
-            )
-        )
+    await _publish_guild_event(
+        request,
+        GuildMemberAddedEvent(
+            guild_id=str(guild_id),
+            user_id=str(payload.user_id),
+        ),
+    )
     return member
 
 
@@ -388,20 +387,6 @@ def _normalise_nickname(value: str | None) -> str | None:
         return None
     stripped = value.strip()
     return stripped or None
-
-
-async def _publish_member_updated(
-    request: Request, guild_id: int, user_id: int, nickname: str | None
-) -> None:
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            GuildMemberUpdatedEvent(
-                guild_id=str(guild_id),
-                user_id=str(user_id),
-                nickname=nickname,
-            )
-        )
 
 
 @router.patch(
@@ -429,7 +414,14 @@ async def patch_self_member(
     member.nickname = _normalise_nickname(payload.nickname)
     await session.commit()
     await session.refresh(member)
-    await _publish_member_updated(request, guild_id, current.id, member.nickname)
+    await _publish_guild_event(
+        request,
+        GuildMemberUpdatedEvent(
+            guild_id=str(guild_id),
+            user_id=str(current.id),
+            nickname=member.nickname,
+        ),
+    )
     return member
 
 
@@ -462,7 +454,14 @@ async def patch_member(
     member.nickname = _normalise_nickname(payload.nickname)
     await session.commit()
     await session.refresh(member)
-    await _publish_member_updated(request, guild_id, user_id, member.nickname)
+    await _publish_guild_event(
+        request,
+        GuildMemberUpdatedEvent(
+            guild_id=str(guild_id),
+            user_id=str(user_id),
+            nickname=member.nickname,
+        ),
+    )
     return member
 
 
@@ -497,13 +496,10 @@ async def _remove_guild_member(
     # channel of this guild. Fire-and-forget — failure is logged but doesn't
     # unwind the removal (the WS event already went out, membership is gone).
     await evict_user_from_guild_voice(session, guild_id, user_id)
-    mgr = getattr(request.app.state, "connection_manager", None)
-    if mgr is not None:
-        await mgr.publish_guild_event(
-            GuildMemberRemovedEvent(
-                guild_id=str(guild_id), user_id=str(user_id)
-            )
-        )
+    await _publish_guild_event(
+        request,
+        GuildMemberRemovedEvent(guild_id=str(guild_id), user_id=str(user_id)),
+    )
 
 
 @router.delete(

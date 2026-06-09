@@ -25,11 +25,10 @@ that messages.py uses, and the orphan reaper task.
 from __future__ import annotations
 
 import asyncio
-import logging
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Iterable
+from typing import Iterable
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -41,8 +40,7 @@ from dcc_chat_gateway.db import SessionDep, SessionLocal
 from dcc_chat_gateway.models import ChatSettings, Guild, MessageAttachment
 from dcc_chat_gateway.permissions import (
     Permissions,
-    has_permission,
-    resolve_permissions,
+    check_permission,
 )
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.schemas import (
@@ -140,11 +138,10 @@ async def create_upload_url(
     kind, ch = await resolve_channel_or_raise(session, channel_id, current.id)
     # ATTACH_FILES gate (guild channels only — DMs have no permission overlay).
     if kind == "guild":
-        perms = await resolve_permissions(
-            session, current, ch.guild_id, channel_id=channel_id
+        await check_permission(
+            session, current, ch.guild_id, Permissions.ATTACH_FILES,
+            channel_id=channel_id,
         )
-        if not has_permission(perms, Permissions.ATTACH_FILES):
-            raise HTTPException(403, detail="missing permission: ATTACH_FILES")
     max_size, _max_count = await _limits_for_channel(session, kind=kind, ch=ch)
 
     if payload.size > max_size:

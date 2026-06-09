@@ -179,10 +179,7 @@ class PluginManager:
                     # Roll back every new registration before raising so
                     # the dispatch tables can't observe a half-activated
                     # plugin.
-                    for op in new_ops:
-                        unregister_ws_op(op)
-                    for ch in new_channels:
-                        unregister_channel_handler(ch)
+                    self._unregister_registrations(new_ops, new_channels)
                     raise PluginPermissionError(
                         name, undeclared_ops, undeclared_channels
                     )
@@ -212,6 +209,23 @@ class PluginManager:
             log.exception("plugin %s: activation failed", name)
             raise
 
+    # ---- helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _unregister_registrations(
+        ops: object, channels: object
+    ) -> None:
+        """Unregister every WS op and channel handler in *ops* / *channels*.
+
+        Accepts any iterable (set, list, …). Snapshots both into lists
+        before iterating so callers need not worry about mutation-during-
+        iteration when passing live sets.
+        """
+        for op in list(ops):  # type: ignore[arg-type]
+            unregister_ws_op(op)
+        for ch in list(channels):  # type: ignore[arg-type]
+            unregister_channel_handler(ch)
+
     def deactivate(self, name: str) -> PluginRecord:
         """Remove every WS op + channel handler the plugin registered.
 
@@ -234,10 +248,7 @@ class PluginManager:
                 rec.deactivate_hook()
             except Exception:  # noqa: BLE001
                 log.exception("plugin %s: deactivate hook raised", name)
-        for op in list(rec.registered_ws_ops):
-            unregister_ws_op(op)
-        for ch in list(rec.registered_channels):
-            unregister_channel_handler(ch)
+        self._unregister_registrations(rec.registered_ws_ops, rec.registered_channels)
         rec.registered_ws_ops.clear()
         rec.registered_channels.clear()
         rec.deactivate_hook = None

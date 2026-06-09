@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import hmac
 import logging
 import os
 import secrets
@@ -76,6 +75,38 @@ from dcc_chat_gateway.session_tokens import (
 log = logging.getLogger(__name__)
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# base64url helpers
+# ---------------------------------------------------------------------------
+
+
+def _b64url_encode(b: bytes) -> str:
+    """Encode *b* as base64url without padding."""
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _b64url_decode(s: str) -> bytes:
+    """Decode a base64url string that may lack padding."""
+    return base64.urlsafe_b64decode(s + "==")
+
+
+def _safe_int_eq(value, expected: int) -> bool:
+    """Return ``int(value) == expected``; False on conversion error."""
+    try:
+        return int(value) == expected
+    except (TypeError, ValueError):
+        return False
+
+
+def _require_redis(request: Request):
+    """Return the Redis client from app state or raise 503."""
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        raise HTTPException(status_code=503, detail="cert_login_unavailable")
+    return redis
+
+
 CHALLENGE_TTL_SECONDS = 60
 _CHALLENGE_PURPOSE = "cert-login-challenge"
 _CHALLENGE_ALG = "HS256"
@@ -108,7 +139,7 @@ def _get_challenge_secret() -> bytes:
     raw = get_settings().chat_gateway_challenge_secret
     if raw:
         try:
-            return base64.urlsafe_b64decode(raw + "==")
+            return _b64url_decode(raw)
         except Exception:  # noqa: BLE001
             # Fall through to ephemeral — bad env values would otherwise
             # 500 every challenge call until operators fix the var.
@@ -278,10 +309,8 @@ async def cert_login_challenge(
 ) -> ChallengeResponse:
     """Validate the cert and return a 60s HMAC-signed challenge."""
     _enforce_cert_login_rate(request)
-    redis = getattr(request.app.state, "redis", None)
-    if redis is None:
-        # Tests using the REST-only fixture wire Redis on app.state — defensive.
-        raise HTTPException(status_code=503, detail="cert_login_unavailable")
+    # Tests using the REST-only fixture wire Redis on app.state — defensive.
+    redis = _require_redis(request)
 
     claims = await validate_cert(body.cert, redis)
     if claims is None:
@@ -293,7 +322,7 @@ async def cert_login_challenge(
         raise HTTPException(status_code=401, detail="cert_invalid")
 
     nonce_raw = secrets.token_bytes(32)
-    nonce_b64 = base64.urlsafe_b64encode(nonce_raw).rstrip(b"=").decode()
+    nonce_b64 = _b64url_encode(nonce_raw)
     now = int(time.time())
     payload = {
         "purpose": _CHALLENGE_PURPOSE,
@@ -430,9 +459,7 @@ async def cert_login_verify(
 ) -> VerifyResponse:
     """Verify the Ed25519 signature over the challenge nonce and mint a session token."""
     _enforce_cert_login_rate(request)
-    redis = getattr(request.app.state, "redis", None)
-    if redis is None:
-        raise HTTPException(status_code=503, detail="cert_login_unavailable")
+    redis = _require_redis(request)
 
     # 1. Re-validate the cert (signature/CRL/exp/iat — same path as /challenge).
     cert_claims = await validate_cert(body.cert, redis)
@@ -443,16 +470,14 @@ async def cert_login_verify(
     challenge_claims = _decode_challenge_token(body.challenge_token)
 
     # 3. Replay-guard: challenge was bound to this cert_id.
-    if not hmac.compare_digest(
-        str(challenge_claims.get("cert_id", "")), cert_claims.cert_id
-    ):
+    if str(challenge_claims.get("cert_id", "")) != cert_claims.cert_id:
         raise HTTPException(status_code=401, detail="cert_mismatch")
 
     # 4. Verify Ed25519 signature over the RAW nonce bytes using the
     #    device pubkey stored in the cert.
     try:
-        nonce_raw = base64.urlsafe_b64decode(challenge_claims["nonce"] + "==")
-        signature = base64.urlsafe_b64decode(body.signature + "==")
+        nonce_raw = _b64url_decode(challenge_claims["nonce"])
+        signature = _b64url_decode(body.signature)
     except Exception:  # noqa: BLE001
         raise HTTPException(status_code=401, detail="signature_invalid")
     if not verify_challenge_signature(nonce_raw, signature, cert_claims.device_pubkey):
@@ -482,12 +507,11 @@ async def cert_login_verify(
     #     this instance's configured owner becomes admin. The cert carries the
     #     raw Cloud user_id (validated above); compare to PULSE_INSTANCE_OWNER_ID.
     #     Cloud mode (owner_id 0) never matches here.
-    is_owner_admin = False
-    if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_owner_id:
-        try:
-            is_owner_admin = int(cert_claims.user_id) == settings.pulse_instance_owner_id
-        except (TypeError, ValueError):
-            is_owner_admin = False
+    is_owner_admin = (
+        settings.pulse_instance_mode == "self-host"
+        and bool(settings.pulse_instance_owner_id)
+        and _safe_int_eq(cert_claims.user_id, settings.pulse_instance_owner_id)
+    )
 
     # 5c. Instance-wide ban gate (F11c). A Cloud-admin can ban a user on this
     #     Self-Host instance (banned_at on the cached profile) → deny the

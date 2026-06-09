@@ -13,6 +13,7 @@ WebSocket loop runs.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -221,9 +222,7 @@ async def handle_activity(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     try:
         await update_activity(ctx.redis, ctx.user.id)
         current_status = await get_presence_status(ctx.redis, ctx.user.id)
-        if current_status == STATUS_ONLINE:
-            pass  # already online, nothing to broadcast
-        elif current_status not in (STATUS_DND, STATUS_INVISIBLE):
+        if current_status not in (STATUS_ONLINE, STATUS_DND, STATUS_INVISIBLE):
             # Was idle → return to online
             await set_presence_status(ctx.redis, ctx.user.id, STATUS_ONLINE)
             await broadcast_presence_status_changed(
@@ -309,11 +308,12 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
     # CLOUD JWKS (``auth:cloud_jwks:cached``, warmed by crl_poller) — NOT the
     # local auth-svc JWKS (``auth:jwks:cached``), whose key differs. On Cloud the
     # two are identical. Mirrors credential_validator._get_jwks_keys (cert-login).
-    from dcc_chat_gateway.config import get_settings as _get_settings
+    from dcc_chat_gateway.config import get_settings
 
+    settings = get_settings()
     jwks_key = (
         REDIS_CLOUD_JWKS_KEY
-        if _get_settings().pulse_instance_mode == "self-host"
+        if settings.pulse_instance_mode == "self-host"
         else REDIS_JWKS_KEY
     )
     try:
@@ -329,17 +329,12 @@ async def handle_profile_statement(ctx: WSOpContext, msg: dict[str, Any]) -> Non
     if isinstance(raw_jwks, bytes):
         raw_jwks = raw_jwks.decode()
 
-    import json as _json
-
     try:
-        cloud_jwks = _json.loads(raw_jwks)
+        cloud_jwks = json.loads(raw_jwks)
     except Exception:  # noqa: BLE001
         log.warning("profile_statement: could not parse JWKS JSON")
         return
 
-    from dcc_chat_gateway.config import get_settings
-
-    settings = get_settings()
     try:
         async with SessionLocal() as session:
             # instance_mode from config (NOT hardcoded): self-host keys the

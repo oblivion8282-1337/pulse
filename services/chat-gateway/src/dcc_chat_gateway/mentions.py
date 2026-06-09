@@ -79,15 +79,9 @@ def parse_markers(content: str) -> set[tuple[int, int]]:
     """
     out: set[tuple[int, int]] = set()
     for m in _MENTION_USER_RE.finditer(content):
-        try:
-            out.add((MENTION_TYPE_USER, int(m.group(1))))
-        except ValueError:
-            continue
+        out.add((MENTION_TYPE_USER, int(m.group(1))))
     for m in _MENTION_ROLE_RE.finditer(content):
-        try:
-            out.add((MENTION_TYPE_ROLE, int(m.group(1))))
-        except ValueError:
-            continue
+        out.add((MENTION_TYPE_ROLE, int(m.group(1))))
     if MENTION_EVERYONE_RE.search(content):
         out.add((MENTION_TYPE_EVERYONE, MENTION_EVERYONE_TARGET_ID))
     return out
@@ -126,21 +120,22 @@ async def filter_to_valid(
     valid_users: set[int] = set()
     valid_roles: set[int] = set()
 
-    if guild_id is not None and user_targets:
-        rows = (
-            await session.execute(
-                select(GuildMember.user_id).where(
-                    GuildMember.guild_id == guild_id,
-                    GuildMember.user_id.in_(user_targets),
+    if user_targets:
+        if guild_id is not None:
+            rows = (
+                await session.execute(
+                    select(GuildMember.user_id).where(
+                        GuildMember.guild_id == guild_id,
+                        GuildMember.user_id.in_(user_targets),
+                    )
                 )
-            )
-        ).all()
-        valid_users = {r[0] for r in rows}
-    elif guild_id is None and user_targets:
-        # DM channel: no guild membership to check against. Accept the
-        # marker — the channel is by definition a two-person room, and
-        # the recipient resolves who actually got pinged on their end.
-        valid_users = set(user_targets)
+            ).all()
+            valid_users = {r[0] for r in rows}
+        else:
+            # DM channel: no guild membership to check against. Accept the
+            # marker — the channel is by definition a two-person room, and
+            # the recipient resolves who actually got pinged on their end.
+            valid_users = set(user_targets)
 
     if guild_id is not None and role_targets:
         rows = (
@@ -235,6 +230,14 @@ def serialize_mentions(rows: list[MessageMention] | None) -> list[dict]:
         {"type": m.mention_type, "id": str(m.target_id)}
         for m in rows
     ]
+
+
+def serialize_mention_targets(valid_mentions: set[tuple[int, int]]) -> list[dict]:
+    """Wire shape for a freshly-resolved mention set (``filter_to_valid`` output):
+    ``[{"type": int, "id": str}]``, deterministically ordered. Mirrors
+    ``serialize_mentions`` but for the ``(type, id)``-tuple form used on the
+    post/edit broadcast path (kept in sync — same key shape + sorted order)."""
+    return [{"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)]
 
 
 async def _expand_mention_targets(

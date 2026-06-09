@@ -11,7 +11,6 @@ Mention parsing + persistence + per-user fan-out live in
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Annotated
@@ -27,21 +26,16 @@ from dcc_chat_gateway.friend_helpers import (
 )
 from dcc_chat_gateway.mentions import (
     MENTION_EVERYONE_RE as _MENTION_EVERYONE_RE,
-)
-from dcc_chat_gateway.mentions import (
     fan_out_mention_events,
     filter_to_valid,
     mentions_for,
     parse_markers,
     persist_for_message,
+    serialize_mention_targets,
 )
 from dcc_chat_gateway.message_helpers import (
     broadcast as _broadcast,
-)
-from dcc_chat_gateway.message_helpers import (
     reactions_for as _reactions_for,
-)
-from dcc_chat_gateway.message_helpers import (
     serialize_message,
 )
 from dcc_chat_gateway.models import (
@@ -58,6 +52,7 @@ from dcc_chat_gateway.permissions import (
 from dcc_chat_gateway.push import fan_out_mention_push
 from dcc_chat_gateway.routes._deps import resolve_channel_or_raise
 from dcc_chat_gateway.routes.attachments import (
+    _limits_for_channel,
     bind_attachments,
     hard_delete_attachments,
     serialize_attachments,
@@ -196,7 +191,6 @@ async def post_message(
 
     # Count-limit per the per-guild / chat-settings cap.
     if payload.attachment_ids:
-        from dcc_chat_gateway.routes.attachments import _limits_for_channel
         _max_size, max_count = await _limits_for_channel(session, kind=kind, ch=ch)
         if len(payload.attachment_ids) > max_count:
             raise HTTPException(
@@ -247,9 +241,7 @@ async def post_message(
     await session.commit()
     await session.refresh(msg)
 
-    mentions_serial = [
-        {"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)
-    ]
+    mentions_serial = serialize_mention_targets(valid_mentions)
 
     # Bare payload — the pubsub listener auto-wraps as {"op": "message", "data": ...}.
     # Sign attachments NOW so the broadcast carries usable URLs for every
@@ -393,7 +385,6 @@ async def edit_message(
     # Enforce the per-guild / DM attachment count limit on edits just as
     # post_message does — otherwise a user can bypass the cap by editing.
     if desired_ids:
-        from dcc_chat_gateway.routes.attachments import _limits_for_channel
         _max_size, max_count = await _limits_for_channel(session, kind=kind, ch=ch)
         if len(desired_ids) > max_count:
             raise HTTPException(
@@ -445,9 +436,7 @@ async def edit_message(
     reactions = (await _reactions_for(session, [msg.id], current.id)).get(msg.id, [])
     attachments = (await serialize_attachments(session, [msg.id])).get(msg.id, [])
     atts_serial = [a.model_dump(mode="json") for a in attachments]
-    mentions_serial = [
-        {"type": t, "id": str(tid)} for (t, tid) in sorted(valid_mentions)
-    ]
+    mentions_serial = serialize_mention_targets(valid_mentions)
     payload_out = serialize_message(
         msg, reactions, attachments=atts_serial, mentions=mentions_serial
     )

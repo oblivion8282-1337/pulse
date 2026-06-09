@@ -64,6 +64,16 @@ from dcc_chat_gateway.plugins.registry import PluginManager, get_manager
 
 log = logging.getLogger(__name__)
 
+
+def _resolve_mgr(manager: PluginManager | None) -> PluginManager:
+    """Return *manager* if given, otherwise fall back to the global singleton."""
+    return manager if manager is not None else get_manager()
+
+
+def _is_plugin_subdir(p: Path) -> bool:
+    """True if *p* is a valid plugin subdirectory (dir, not dotfile/underscore)."""
+    return p.is_dir() and not p.name.startswith((".", "_"))
+
 # Re-export so consumers don't need to import from two modules.
 __all__ = [
     "DEFAULT_PLUGIN_API",
@@ -179,13 +189,13 @@ def load_directory(
     Per-plugin errors are logged and the rest of the directory is
     processed — a broken plugin must not gate the working ones.
     """
-    mgr = manager if manager is not None else get_manager()
+    mgr = _resolve_mgr(manager)
     if not path.is_dir():
         log.info("plugin directory %s does not exist; nothing to load", path)
         return []
     loaded: list[PluginManifest] = []
     for child in sorted(path.iterdir()):
-        if not child.is_dir() or child.name.startswith((".", "_")):
+        if not _is_plugin_subdir(child):
             continue
         try:
             manifest = _load_one(child, mgr)
@@ -226,7 +236,7 @@ def _parse_manifests_in_dir(path: Path) -> list[tuple[Path, PluginManifest]]:
     if not path.is_dir():
         return out
     for child in sorted(path.iterdir()):
-        if not child.is_dir() or child.name.startswith((".", "_")):
+        if not _is_plugin_subdir(child):
             continue
         manifest_path = child / "plugin.toml"
         if not manifest_path.is_file():
@@ -279,7 +289,7 @@ def load_directory_with_allowlist(
     ohne erneuten Filesystem-Scan aktivieren könnte (Stufe-B-Hook für
     Hot-Reload).
     """
-    mgr = manager if manager is not None else get_manager()
+    mgr = _resolve_mgr(manager)
     result = LoadResult()
     if not path.is_dir():
         log.info("plugin directory %s does not exist; nothing to load", path)
@@ -360,7 +370,7 @@ def activate_plugin(
     ist (der PUT-Handler hat das eigentlich schon mit 404 abgefangen —
     Double-Check für den Fall, dass jemand den Loader direkt aufruft).
     """
-    mgr = manager if manager is not None else get_manager()
+    mgr = _resolve_mgr(manager)
     rec = mgr.get(plugin_name)
     if rec is not None:
         try:
@@ -435,7 +445,4 @@ def deactivate_plugin(
     Volles ``deactivate()`` machen wir nur in Tests + beim
     Service-Shutdown (:meth:`PluginManager.deactivate_all`).
     """
-    _ = plugin_name
-    _ = manager
-    # Bewusst kein Aufruf — siehe Doku-String oben.
-    return None
+    pass

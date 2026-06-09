@@ -45,7 +45,7 @@ from dcc_chat_gateway.friend_schemas import (
     FriendRequestOut,
 )
 from dcc_chat_gateway.models import FriendRequest, Friendship
-from dcc_chat_gateway.presence_status import _mask, get_presence_status
+from dcc_chat_gateway.presence_status import _mask, get_presence_status, get_presence_statuses_bulk
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.security import CurrentUser
@@ -161,8 +161,9 @@ async def create_friend_request(
         # accept path below for why (Online tab hides status-less peers).
         redis = request.app.state.redis
         try:
-            status_target = _mask(await get_presence_status(redis, target))
-            status_me = _mask(await get_presence_status(redis, me))
+            bulk = await get_presence_statuses_bulk(redis, [target, me])
+            status_target = _mask(bulk[str(target)])
+            status_me = _mask(bulk[str(me)])
         except Exception:  # noqa: BLE001 — presence enrichment is non-critical
             status_target = status_me = None
         accepted_payload_for_me = {
@@ -321,8 +322,9 @@ async def accept_friend_request(
     # must never fail the accept, which has already committed.
     redis = request.app.state.redis
     try:
-        status_other = _mask(await get_presence_status(redis, other))
-        status_me = _mask(await get_presence_status(redis, me))
+        bulk = await get_presence_statuses_bulk(redis, [other, me])
+        status_other = _mask(bulk[str(other)])
+        status_me = _mask(bulk[str(me)])
     except Exception:  # noqa: BLE001 — presence enrichment is non-critical
         status_other = status_me = None
     # Fan-out to BOTH sides so a multi-tab session everywhere converges.
@@ -376,7 +378,6 @@ async def decline_friend_request(
         op="friend_request_declined",
         data={"request_id": str(row.id)},
     )
-    return None
 
 
 @router.delete(
@@ -404,7 +405,6 @@ async def cancel_friend_request(
         op="friend_request_cancelled",
         data={"request_id": str(row.id)},
     )
-    return None
 
 
 # ---- friends list / unfriend ---------------------------------------------
@@ -455,4 +455,3 @@ async def delete_friendship(
         op="friend_removed",
         data={"user_id": str(me)},
     )
-    return None
