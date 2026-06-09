@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-09.5",
+      "date": "2026-06-09",
+      "style": "Sachlich",
+      "title": "Link-Vorschauen und stabilere Livestreams",
+      "items": [
+        "Links zu YouTube, Vimeo und Spotify zeigen in Nachrichten jetzt eine Vorschau mit Vorschaubild und Titel, statt nur der reinen Adresse.",
+        "Beim gemeinsamen Ansehen von Livestreams in einer Watch-Party bleibt das Bild bei einzelnen Zuschauern nicht mehr in einer Ruckelschleife hängen. Der Host kann den Stream zudem 30 Sekunden zurücksetzen, falls der Puffer einmal nicht mithält."
+      ]
+    },
+    {
       "id": "2026-06-09.4",
       "date": "2026-06-09",
       "style": "Locker",
