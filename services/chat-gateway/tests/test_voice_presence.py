@@ -391,3 +391,66 @@ async def test_voice_disconnect_event_pushed_to_connected_client(
                 }
 
     await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_ready_hides_private_voice_channel_from_denied_member(
+    ws_app, _auth_signer, redis
+):
+    """A voice channel with VIEW_CHANNEL denied to a member must not leak into
+    that member's ready frame — not its id, not its occupant list. The owner
+    still sees it. Pins the security boundary of the snapshot-based
+    ``filter_viewable_channels_from_snapshot`` path used by ws_ready: a bug in
+    the per-guild filtering would surface here as a private channel appearing
+    in the denied member's ``voice_states``.
+    """
+    from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+    from dcc_shared.permissions import Permissions
+
+    def _setup():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            member_uid = random.randint(1, 1_000_000)
+            member_token = _auth_signer.issue_access(member_uid, f"m{member_uid}")
+            g = tc.post(
+                "/guilds", json={"name": "g"}, headers=_auth(owner_token)
+            ).json()
+            tc.post(
+                f"/guilds/{g['id']}/members",
+                json={"user_id": member_uid},
+                headers=_auth(owner_token),
+            )
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Secret", "type": 1},
+                headers=_auth(owner_token),
+            ).json()
+            # Deny VIEW_CHANNEL to the member on this voice channel.
+            r = tc.put(
+                f"/channels/{vc['id']}/permissions/{OVERWRITE_TARGET_USER}/{member_uid}",
+                json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+                headers=_auth(owner_token),
+            )
+            assert r.status_code == 200, r.text
+            return owner_token, member_token, vc["id"]
+
+    owner_token, member_token, cid = await asyncio.to_thread(_setup)
+    # Occupy the channel so a viewable client would carry it in voice_states.
+    await redis.sadd(f"voice:room:channel-{cid}", "777")
+
+    def _ready(token):
+        with TestClient(ws_app) as tc:
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                ws.receive_json()  # hello
+                payload = ws.receive_json()  # ready
+                assert payload["op"] == "ready"
+                return {s["channel_id"] for s in payload["voice_states"]}
+
+    try:
+        owner_states = await asyncio.to_thread(_ready, owner_token)
+        member_states = await asyncio.to_thread(_ready, member_token)
+        assert cid in owner_states  # owner views all → sees the occupant
+        assert cid not in member_states  # denied member → channel fully hidden
+    finally:
+        await redis.delete(f"voice:room:channel-{cid}")

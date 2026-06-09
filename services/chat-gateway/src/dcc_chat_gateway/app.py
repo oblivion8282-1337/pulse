@@ -240,6 +240,10 @@ async def lifespan(app: FastAPI):
         # we took above — they may have been created from a non-Redis test
         # path too.
         await s3.shutdown_clients()
+        # Same for the voice-evict httpx singleton (kick/ban → voice-signaling).
+        from dcc_chat_gateway import voice_evict
+
+        await voice_evict.shutdown_client()
 
 
 def create_app(*, skip_redis: bool = False) -> FastAPI:

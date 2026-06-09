@@ -352,6 +352,69 @@ async def filter_viewable_channels(
     return out
 
 
+def filter_viewable_channels_from_snapshot(
+    user: AuthenticatedUser,
+    guild_owner_id: int,
+    member_roles: list[Role],
+    channel_ids: list[int],
+    overwrites_by_channel: dict[int, dict[tuple[int, int], Override]],
+    *,
+    is_member: bool,
+) -> set[int]:
+    """Pure-Python ``VIEW_CHANNEL`` filter from already-batched data.
+
+    Behaviour-identical to :func:`filter_viewable_channels` but does **no**
+    DB I/O: the caller supplies the guild's owner, the user's roles
+    (``member_roles`` — explicit assignments + @everyone, the same snapshot
+    fed to :func:`resolve_guild_permissions_from_snapshot`) and a
+    ``{channel_id: {(target_type, target_id): Override}}`` map of the relevant
+    overwrites. Lets the WS ``ready`` frame filter every guild's voice channels
+    using one cross-guild overwrite query plus the roles/membership it already
+    loaded, instead of the 2 redundant SELECTs/guild that going through
+    ``_load_context`` would re-issue.
+
+    ``is_member`` is authoritative (callers build the guild list from a
+    ``GuildMember`` JOIN → pass ``True``). Owner / global-admin short-circuit
+    to "all visible" exactly as the DB variant does.
+    """
+    if not channel_ids:
+        return set()
+    if guild_owner_id == user.id or user.is_admin:
+        return set(channel_ids)
+    if not is_member:
+        return set()
+
+    snapshots = [
+        RoleSnapshot(
+            id=r.id,
+            position=r.position,
+            permissions=r.permissions,
+            is_everyone=r.is_everyone,
+        )
+        for r in member_roles
+    ]
+    # Pre-sort once (outside the per-channel loop) so calculate_channel_permissions
+    # doesn't re-sort the same list O(N channels) times — matches the DB variant.
+    snapshots.sort(key=lambda r: (not r.is_everyone, r.position))
+
+    ctx = _Ctx(
+        user=user.id,
+        admin=user.is_admin,
+        owner=False,
+        member=True,
+        roles=snapshots,
+        overwrites={},
+    )
+    out: set[int] = set()
+    for cid in channel_ids:
+        ctx.overwrites = overwrites_by_channel.get(cid, {})
+        if has_permission(
+            calculate_channel_permissions(ctx), Permissions.VIEW_CHANNEL
+        ):
+            out.add(cid)
+    return out
+
+
 __all__ = [
     "OVERWRITE_TARGET_ROLE",
     "OVERWRITE_TARGET_USER",
@@ -359,6 +422,7 @@ __all__ = [
     "assert_overwrite_within_editor_scope",
     "check_permission",
     "filter_viewable_channels",
+    "filter_viewable_channels_from_snapshot",
     "has_permission",
     "members_who_can_view",
     "resolve_guild_permissions_from_snapshot",

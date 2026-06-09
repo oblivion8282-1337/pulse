@@ -168,6 +168,28 @@ async def get_presence_statuses_bulk(
     return out
 
 
+async def _get_present_statuses_bulk(
+    redis: Redis, user_ids: list[str]
+) -> dict[str, str]:
+    """Like :func:`get_presence_statuses_bulk` but *omits* absent keys instead
+    of defaulting them to ``online``.  Used by the sweeper so a churned user
+    whose 24 h status key has expired is treated as "gone" (skipped) rather
+    than being re-demoted to ``idle`` — with a fresh broadcast + key write —
+    on every pass."""
+    if not user_ids:
+        return {}
+    keys = [PRESENCE_STATUS_KEY.format(user_id=uid) for uid in user_ids]
+    raws = await redis.mget(*keys)
+    out: dict[str, str] = {}
+    for uid, raw in zip(user_ids, raws):
+        if raw is None:
+            continue
+        value = raw.decode() if isinstance(raw, bytes) else raw
+        if value in VALID_SET_STATUSES:
+            out[str(uid)] = value
+    return out
+
+
 async def update_activity(redis: Redis, user_id: int | str) -> None:
     """Record current time as the user's last-activity timestamp in the ZSET."""
     now_ms = int(time.time() * 1000)
@@ -268,8 +290,20 @@ async def _run_sweep(redis: Redis) -> None:
         (raw.decode() if isinstance(raw, bytes) else raw) for raw in stale
     ]
 
-    # Batch-read all stale users' statuses in one MGET instead of N GETs.
-    statuses = await get_presence_statuses_bulk(redis, stale_uids)
+    # Drop the swept batch from the activity ZSET. Without this the set grows
+    # unbounded (every user who ever connected stays forever) and — worse —
+    # once >_SWEEP_BATCH_SIZE dormant users accumulate, the score-ordered
+    # ZRANGEBYSCORE keeps returning the *same* oldest batch every minute while
+    # entries past the batch are never reached. ``update_activity`` re-adds a
+    # user on their next WS frame, so removing stale entries is safe. Remove
+    # exactly what we fetched (not a cutoff range) so users that became stale
+    # after the read but were not processed this pass aren't silently dropped.
+    await redis.zrem(PRESENCE_ACTIVITY_ZSET, *stale_uids)
+
+    # Read only *present* status keys (no online-default): a user whose 24 h
+    # status key expired has been gone for ≥24 h and must not be re-demoted to
+    # idle every pass — they're simply removed from tracking above.
+    statuses = await _get_present_statuses_bulk(redis, stale_uids)
 
     to_demote = [uid for uid in stale_uids if statuses.get(uid) == STATUS_ONLINE]
     if not to_demote:

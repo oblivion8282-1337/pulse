@@ -58,13 +58,15 @@ from dcc_chat_gateway.models import (
     GuildMember,
     GuildSoundOverride,
     MemberRole,
+    PermissionOverwrite,
     Role,
     UserPrivacy,
 )
 from dcc_chat_gateway.permissions import (
-    filter_viewable_channels,
+    filter_viewable_channels_from_snapshot,
     resolve_guild_permissions_from_snapshot,
 )
+from dcc_shared.permission_resolver import Override
 from dcc_chat_gateway.presence_status import (
     STATUS_ONLINE,
     _mask,
@@ -230,14 +232,43 @@ async def build_and_send_ready_frame(
                     )
                 ).all()
             )
-            # Group by guild so filter_viewable_channels can batch all
-            # overwrites for each guild in one IN-query (no N+1).
             vcs_by_guild: dict[int, list[int]] = {}
             for cid, gid in vc_with_guild:
                 vcs_by_guild.setdefault(gid, []).append(cid)
+            # One overwrite query across *all* voice channels of *all* guilds,
+            # then resolve VIEW_CHANNEL per guild purely in-memory from the
+            # roles/membership snapshots already loaded above. The old per-guild
+            # filter_viewable_channels() re-issued a GuildMember PK-get + a roles
+            # SELECT for every guild on every WS connect — pure redundancy.
+            all_vc_ids = [cid for cid, _ in vc_with_guild]
+            ow_by_channel: dict[int, dict[tuple[int, int], Override]] = {}
+            if all_vc_ids:
+                for ow in (
+                    await session.execute(
+                        select(PermissionOverwrite).where(
+                            PermissionOverwrite.channel_id.in_(all_vc_ids)
+                        )
+                    )
+                ).scalars():
+                    ow_by_channel.setdefault(ow.channel_id, {})[
+                        (ow.target_type, ow.target_id)
+                    ] = Override(allow=ow.allow_bf, deny=ow.deny_bf)
+            owner_by_guild = {g.id: g.owner_id for g in guild_rows}
             viewable_vc_ids: set[int] = set()
             for gid, cids in vcs_by_guild.items():
-                visible = await filter_viewable_channels(session, user, gid, cids)
+                guild_roles = roles_by_guild.get(gid, [])
+                my_role_id_set = set(my_role_ids.get(gid, []))
+                member_roles_snapshot = [
+                    r for r in guild_roles if r.id in my_role_id_set or r.is_everyone
+                ]
+                visible = filter_viewable_channels_from_snapshot(
+                    user,
+                    owner_by_guild.get(gid, 0),
+                    member_roles_snapshot,
+                    cids,
+                    ow_by_channel,
+                    is_member=True,
+                )
                 viewable_vc_ids.update(visible)
             voice_channel_ids = [str(cid) for cid in viewable_vc_ids]
 

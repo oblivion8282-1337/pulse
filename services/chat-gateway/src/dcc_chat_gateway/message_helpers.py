@@ -24,7 +24,7 @@ import logging
 from typing import Any
 
 from fastapi import Request
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import Message, MessageReaction
@@ -38,34 +38,37 @@ async def reactions_for(
 ) -> dict[int, list[dict]]:
     """Return ``{message_id: [{emoji, count, me}, ...]}`` for ``message_ids``.
 
-    One round-trip; we fold the rows by (message_id, emoji) in Python so we
-    can compute ``me`` without a second query.
+    One round-trip, aggregated in SQL (``GROUP BY message_id, emoji``) so the
+    DB transfers one row per distinct emoji rather than one per individual
+    reaction — the row count no longer scales with reactions-per-message. The
+    ``me`` flag is folded in the same query via ``MAX(CASE …)``. Emojis stay
+    ordered ascending per message (matching the previous Python fold, which
+    inserted in ``ORDER BY emoji`` order).
     """
     if not message_ids:
         return {}
+    me_flag = func.max(
+        case((MessageReaction.user_id == current_user_id, 1), else_=0)
+    )
     rows = (
         await session.execute(
             select(
                 MessageReaction.message_id,
                 MessageReaction.emoji,
-                MessageReaction.user_id,
+                func.count().label("count"),
+                me_flag.label("me"),
             )
             .where(MessageReaction.message_id.in_(message_ids))
-            .order_by(
-                MessageReaction.message_id,
-                MessageReaction.emoji,
-                MessageReaction.created_at,
-            )
+            .group_by(MessageReaction.message_id, MessageReaction.emoji)
+            .order_by(MessageReaction.message_id, MessageReaction.emoji)
         )
     ).all()
-    out: dict[int, dict[str, dict]] = {}
-    for mid, emoji, uid in rows:
-        per_msg = out.setdefault(mid, {})
-        agg = per_msg.setdefault(emoji, {"emoji": emoji, "count": 0, "me": False})
-        agg["count"] += 1
-        if uid == current_user_id:
-            agg["me"] = True
-    return {mid: list(emojis.values()) for mid, emojis in out.items()}
+    out: dict[int, list[dict]] = {}
+    for mid, emoji, count, me in rows:
+        out.setdefault(mid, []).append(
+            {"emoji": emoji, "count": int(count), "me": bool(me)}
+        )
+    return out
 
 
 def serialize_message(

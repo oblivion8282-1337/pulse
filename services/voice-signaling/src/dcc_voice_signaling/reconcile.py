@@ -106,6 +106,55 @@ async def _set_exact_triple(
     )
 
 
+async def _reconcile_room(
+    redis: Redis, lk_api, room_name: str, cid: str, ttl_seconds: int
+) -> None:
+    """Rewrite one room's three sets from its live LiveKit participant list,
+    then publish the fresh snapshot. Pulled out of ``reconcile_once`` so the
+    per-room work (a gRPC ``list_participants`` round-trip each) can run
+    concurrently across rooms rather than serially."""
+    from livekit import api as lk
+
+    parts = await lk_api.room.list_participants(
+        lk.ListParticipantsRequest(room=room_name)
+    )
+    members: set[str] = set()
+    streaming: set[str] = set()
+    camera: set[str] = set()
+    for p in parts.participants:
+        uid = user_id_from_identity(p.identity)
+        if uid is None:
+            continue
+        members.add(uid)
+        for track in p.tracks:
+            # Screen-share check first — it owns the UNKNOWN-source video
+            # fallback (same precedence as the webhook handler).
+            if _is_screen_share(track):
+                streaming.add(uid)
+            elif _is_camera(track):
+                camera.add(uid)
+    await _set_exact_triple(
+        redis,
+        room_key(room_name),
+        streaming_key(room_name),
+        camera_key(room_name),
+        members,
+        streaming,
+        camera,
+        ttl_seconds,
+    )
+    await _publish_state(redis, room_name, cid)
+
+
+async def _clear_ghost_room(redis: Redis, room_name: str, cid: str) -> None:
+    """Delete one ghost room's sets and publish the empty snapshot so clients
+    clear it. Each room is independent → safe to run concurrently."""
+    await redis.delete(
+        room_key(room_name), streaming_key(room_name), camera_key(room_name)
+    )
+    await _publish_state(redis, room_name, cid)  # publishes empty → clients clear
+
+
 async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str, int]:
     """Run one full reconciliation pass. Returns a small summary for logging."""
     from livekit import api as lk
@@ -118,40 +167,20 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
         if cid is not None:
             active[r.name] = cid
 
-    for room_name, cid in active.items():
-        parts = await lk_api.room.list_participants(
-            lk.ListParticipantsRequest(room=room_name)
+    # Reconcile every active room concurrently — each is an independent gRPC +
+    # Redis round-trip, so wall-clock is the slowest single room, not the sum.
+    if active:
+        await asyncio.gather(
+            *(
+                _reconcile_room(redis, lk_api, room_name, cid, ttl_seconds)
+                for room_name, cid in active.items()
+            )
         )
-        members: set[str] = set()
-        streaming: set[str] = set()
-        camera: set[str] = set()
-        for p in parts.participants:
-            uid = user_id_from_identity(p.identity)
-            if uid is None:
-                continue
-            members.add(uid)
-            for track in p.tracks:
-                # Screen-share check first — it owns the UNKNOWN-source video
-                # fallback (same precedence as the webhook handler).
-                if _is_screen_share(track):
-                    streaming.add(uid)
-                elif _is_camera(track):
-                    camera.add(uid)
-        await _set_exact_triple(
-            redis,
-            room_key(room_name),
-            streaming_key(room_name),
-            camera_key(room_name),
-            members,
-            streaming,
-            camera,
-            ttl_seconds,
-        )
-        await _publish_state(redis, room_name, cid)
 
     # Clear ghost channels: a ``voice:room:channel-<id>`` set still in Redis
     # for a room LiveKit no longer has (missed ``room_finished``/``_left``).
-    stale = 0
+    # Collect first (the SCAN cursor can't overlap the deletes), then fan out.
+    ghosts: list[tuple[str, str]] = []
     async for raw in redis.scan_iter(match=_SCAN_PATTERN):
         key = raw.decode() if isinstance(raw, (bytes, bytearray)) else raw
         suffix = key[len(_KEY_PREFIX) :]  # channel-<id>[:streaming|:camera]
@@ -163,13 +192,14 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
         cid = channel_id_from_room(room_name)
         if cid is None:
             continue
-        await redis.delete(
-            room_key(room_name), streaming_key(room_name), camera_key(room_name)
-        )
-        await _publish_state(redis, room_name, cid)  # publishes empty → clients clear
-        stale += 1
+        ghosts.append((room_name, cid))
 
-    return {"rooms": len(active), "stale_cleared": stale}
+    if ghosts:
+        await asyncio.gather(
+            *(_clear_ghost_room(redis, room_name, cid) for room_name, cid in ghosts)
+        )
+
+    return {"rooms": len(active), "stale_cleared": len(ghosts)}
 
 
 async def reconcile_loop(
