@@ -370,6 +370,11 @@ async def _consume_second_factor(
         ).scalar_one_or_none()
         if row is None:
             return False
+        # The WHERE clause above already filters on code_hash == digest, but keep
+        # the explicit constant-time verify as defence-in-depth on this auth path
+        # (cheap, and avoids relying on DB-comparison timing properties).
+        if not verify_token(normalized, row.code_hash):
+            return False
         row.used_at = datetime.now(UTC)
         return True
     return False
