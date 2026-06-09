@@ -23,6 +23,7 @@
   import ChangelogToast from './ChangelogToast.svelte';
   import { auth } from '$lib/stores/auth.svelte';
   import { isChangelogEntry, type ChangelogEntry } from '$lib/changelog/types';
+  import { isMobile, isCapacitorAndroid } from '$lib/platform/runtime';
 
   const LAST_SEEN_KEY = 'pulse.changelog.lastSeen';
 
@@ -46,6 +47,12 @@
   }
 
   onMount(() => {
+    // Kein „Was ist neu?"-Toast auf Mobile-Browsern oder im Android-APK
+    // (Capacitor-Wrapper): dort ist er unerwünscht und überlagert u.a. die
+    // Eingabeleiste. Früh raus, bevor überhaupt /changelog.json geladen wird.
+    // ``lastSeen`` wird bewusst NICHT gesetzt, damit derselbe User den Eintrag
+    // auf dem Desktop weiterhin sieht.
+    if (isMobile() || isCapacitorAndroid()) return;
     void (async () => {
       let all: ChangelogEntry[];
       try {
