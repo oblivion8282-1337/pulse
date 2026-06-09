@@ -19,6 +19,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import XIcon from '@lucide/svelte/icons/x';
+  import RewindIcon from '@lucide/svelte/icons/rewind';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
   import WatchPartyHandoffMenu from './WatchPartyHandoffMenu.svelte';
@@ -78,6 +79,9 @@
   const hostName = $derived(userCache.displayName(party.host_user_id));
   // Passive sources (Twitch live) have no seekable position — no central sync.
   const isPassive = $derived(isPassiveSource(party.source));
+  // YouTube can be a live stream; the host gets a manual "30s back" escape
+  // hatch (in case auto-detection misses) — see PartyController.backToBuffer.
+  const isYouTube = $derived(party.source.type === 'youtube');
   const autoplay = $derived(isPassive || party.is_playing);
 
   const controller = new PartyController(
@@ -266,6 +270,18 @@
   {/snippet}
   {#snippet controlsExtra()}
     {#if isHost}
+      {#if isYouTube}
+        <button
+          type="button"
+          onclick={() => controller.backToBuffer()}
+          class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 md:p-1.5"
+          aria-label={m.watch_party_tile_rewind30_aria()}
+          title={m.watch_party_tile_rewind30_aria()}
+          data-testid="watch-party-rewind30"
+        >
+          <RewindIcon class="size-5 md:size-3.5" />
+        </button>
+      {/if}
       <WatchPartyHandoffMenu {channelId} others={otherWatchers} />
       <button
         type="button"

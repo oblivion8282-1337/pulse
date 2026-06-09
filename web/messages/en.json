@@ -2066,6 +2066,7 @@
   "watch_party_tile_now_controlling": "You're now controlling the Watch Party",
   "watch_party_tile_popup_blocked": "Popup blocked",
   "watch_party_tile_popup_blocked_description": "Please allow pop-up windows for Pulse and try again.",
+  "watch_party_tile_rewind30_aria": "Skip back 30 seconds",
   "watch_party_tile_stop_aria": "Stop Watch Party",
   "watch_popup_loading": "Loading Watch Party…",
   "watch_popup_page_title": "Pulse — Watch Party",

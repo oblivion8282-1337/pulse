@@ -58,6 +58,11 @@ export interface PlayerHandle {
   pause(): void;
   seek(position: number): void;
   getCurrentTime(): number;
+  /** Total media duration in seconds. For a YouTube LIVE event this returns
+   * the elapsed time since the stream began — it GROWS ~1s/s — which is what
+   * {@link LiveDetector} keys off. VOD/native return a constant; players with
+   * no meaningful duration (Twitch) return 0. */
+  getDuration(): number;
   /** Optional — Twitch's Embed API doesn't expose this. Implementations
    * that can't honour it should make this a no-op. */
   setPlaybackRate(rate: number): void;
@@ -142,6 +147,55 @@ export function shouldResyncOnForeground(opts: {
   viewerPaused: boolean;
 }): boolean {
   return !opts.isHost && !opts.isPassive && !opts.viewerPaused;
+}
+
+/** Minimum wall-clock gap between two duration samples before the delta is
+ * trustworthy. Heartbeats are ~1s apart; 0.8 reliably clears one beat of
+ * scheduler jitter. */
+const LIVE_SAMPLE_MIN_GAP_S = 0.8;
+/** A live event's getDuration() grows ~1s per wall second; a VOD's is flat.
+ * Live iff the duration grew by more than half the elapsed wall time — well
+ * clear of either case, no false positives from jitter. */
+const LIVE_GROWTH_RATIO = 0.5;
+/** How far behind the live edge the host backs the party off so everyone sits
+ * in buffered DVR territory instead of fighting the un-seekable live edge.
+ * See {@link PlayerHandle.getDuration} and PartyController.backToBuffer. */
+export const LIVE_BACKOFF_S = 30;
+
+/** Detects a YouTube live broadcast from getDuration() growth across two
+ * samples. Per the IFrame API docs, getDuration() on a live event returns the
+ * elapsed time since the stream began (so it GROWS even while locally paused);
+ * on a VOD it is constant. The API exposes no direct live flag, so growth is
+ * the only signal. One verdict per instance — once decided it sticks. Pure +
+ * injectable (caller passes the wall clock) so it's testable without a player. */
+export class LiveDetector {
+  #first: { dur: number; atMs: number } | undefined;
+  #verdict: boolean | null = null;
+
+  /** Fold one (duration-seconds, wall-ms) sample in. Returns the verdict once
+   * decided (true = live, false = VOD), else null while more samples are
+   * needed. Samples with a non-positive duration (metadata not loaded yet) are
+   * ignored. */
+  sample(durationS: number, atMs: number): boolean | null {
+    if (this.#verdict !== null) return this.#verdict;
+    if (!Number.isFinite(durationS) || durationS <= 0) return null;
+    if (!this.#first || durationS < this.#first.dur) {
+      // (Re)seed the baseline. A duration that went BACKWARDS means the first
+      // sample was stale (fresh player object / API jitter) — a live counter
+      // only ever grows — so restart instead of mis-verdicting it as VOD.
+      this.#first = { dur: durationS, atMs };
+      return null;
+    }
+    const wallDelta = (atMs - this.#first.atMs) / 1000;
+    if (wallDelta < LIVE_SAMPLE_MIN_GAP_S) return null;
+    const durDelta = durationS - this.#first.dur;
+    this.#verdict = durDelta > wallDelta * LIVE_GROWTH_RATIO;
+    return this.#verdict;
+  }
+
+  get verdict(): boolean | null {
+    return this.#verdict;
+  }
 }
 
 export type DriftAction = 'none' | 'nudge-up' | 'nudge-down' | 'seek';

@@ -117,6 +117,7 @@
               },
               seek: (t: number) => player?.seekTo(t, true),
               getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
+              getDuration: () => Number(player?.getDuration() ?? 0),
               setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
               setVolume: (p: number) => player?.setVolume(Math.max(0, Math.min(100, p))),
               destroy: () => {

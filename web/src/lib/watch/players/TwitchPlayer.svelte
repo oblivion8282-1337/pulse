@@ -117,6 +117,9 @@
             player?.seek(t);
           },
           getCurrentTime: safeTime,
+          // Not used for sync (live has no meaningful duration); the live
+          // detector only ever runs against YouTube sources.
+          getDuration: () => 0,
           setPlaybackRate: () => {
             /* Twitch Embed API doesn't expose playbackRate. */
           },

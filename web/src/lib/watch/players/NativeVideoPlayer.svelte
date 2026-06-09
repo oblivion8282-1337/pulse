@@ -52,6 +52,7 @@
           v.currentTime = t;
         },
         getCurrentTime: () => v.currentTime,
+        getDuration: () => (Number.isFinite(v.duration) ? v.duration : 0),
         setPlaybackRate: (r: number) => {
           v.playbackRate = r;
         },

@@ -12,6 +12,8 @@ import {
   DriftCorrector,
   expectedPosition,
   hostPlaybackStalled,
+  LIVE_BACKOFF_S,
+  LiveDetector,
   shouldResyncOnForeground,
   startHeartbeat,
   type PlayerEvent,
@@ -36,6 +38,11 @@ export class PartyController {
    * state — the browser freezes background media, so seeking the player every
    * heartbeat only queues a stutter burst for when we return. */
   #hidden = false;
+  /** Host-side live detection (YouTube). Fed from the heartbeat tick; once it
+   * verdicts "live" we back the party off the live edge ONCE. See
+   * {@link #maybeDetectLive}. */
+  #liveDetector = new LiveDetector();
+  #liveBackoffDone = false;
 
   constructor(
     private getChannelId: () => string,
@@ -161,10 +168,41 @@ export class PartyController {
       return;
     }
     if (this.#stopHeartbeat) return;
-    this.#stopHeartbeat = startHeartbeat(
-      (pos) => gateway.sendWatchHeartbeat(this.getChannelId(), pos),
-      p
-    );
+    this.#stopHeartbeat = startHeartbeat((pos) => {
+      gateway.sendWatchHeartbeat(this.getChannelId(), pos);
+      this.#maybeDetectLive();
+    }, p);
+  }
+
+  /** Host-side live detection, piggybacked on the heartbeat tick (no extra
+   * timer). A YouTube live stream synced like a VOD hard-seeks viewers to a
+   * position at/after the live edge; that seek clamps to the edge and re-drifts
+   * → the "stutter loop" (worst for whoever lags furthest behind the live
+   * edge). Once we verdict "live" we back the whole party off the edge ONCE so
+   * everyone sits in buffered DVR territory where drift correction works.
+   * YouTube only — Twitch live is already passive, native is always a VOD. */
+  #maybeDetectLive(): void {
+    if (this.#liveBackoffDone || this.#liveDetector.verdict === false) return;
+    if (this.getParty().source.type !== 'youtube') return;
+    const p = this.#player;
+    if (!p) return;
+    if (this.#liveDetector.sample(p.getDuration(), Date.now()) === true) {
+      this.#liveBackoffDone = true;
+      this.backToBuffer();
+    }
+  }
+
+  /** Pull the party back off the live edge into buffered DVR territory: the
+   * host seeks back `seconds` and broadcasts it, and every viewer follows via
+   * the heartbeat/positionJumped path. Fired automatically once on live
+   * detection and manually from the tile's rewind button when a viewer's
+   * buffer can't keep up at the live edge. No-op for non-host / passive. */
+  backToBuffer(seconds = LIVE_BACKOFF_S): void {
+    const p = this.#player;
+    if (!p || !this.getIsHost() || this.getIsPassive()) return;
+    const target = Math.max(0, p.getCurrentTime() - seconds);
+    p.seek(target);
+    gateway.sendWatchControl(this.getChannelId(), 'seek', target);
   }
 
   onEvent(e: PlayerEvent): void {
