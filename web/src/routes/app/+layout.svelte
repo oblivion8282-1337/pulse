@@ -143,17 +143,6 @@
     ]);
     hydrated = true;
 
-    // Sidebar-Variante B: für jeden non-aktiven Server (Cloud + Self-Hosts)
-    // einmal die Community-Liste pullen, damit die Sektionen parallel gefüllt
-    // sind. Aktiver Server wird vom WS-Ready-Frame autoritativ befüllt
-    // (Bridge-Effect weiter unten); für alle anderen reicht ein
-    // best-effort REST-Snapshot.
-    for (const s of serversStore.servers) {
-      void serverCapabilities.ensureLoaded(s.id);
-      if (s.id === activeServer.serverId) continue;
-      void serverGuilds.ensureLoaded(s.id);
-    }
-
     // Etappe 4: presence activity heartbeat. Throttled (≤1/60s) fire-and-
     // forget op that keeps the user off the idle sweeper. Wired up here
     // so it lives exactly as long as the /app session.
@@ -211,7 +200,7 @@
   onDestroy(() => {
     disposeActivityHeartbeat();
     gateway.disconnect();
-    void import('$lib/voice/livekit.svelte').then(({ voice }) => voice.disconnect());
+    voice.disconnect();
     if (typeof document !== 'undefined') document.title = 'Pulse';
     if (_swMessageHandler && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker.removeEventListener('message', _swMessageHandler);
@@ -230,16 +219,9 @@
   $effect(() => {
     if (typeof document === 'undefined') return;
     const dmUnread = directMessages.list.some((dm) => readState.isUnread(dm.id));
-    let channelUnread = false;
-    for (const list of Object.values(guilds.channelsByGuild)) {
-      for (const c of list) {
-        if (c.type === 0 && readState.isUnread(c.id)) {
-          channelUnread = true;
-          break;
-        }
-      }
-      if (channelUnread) break;
-    }
+    const channelUnread = Object.values(guilds.channelsByGuild)
+      .flat()
+      .some((c) => c.type === 0 && readState.isUnread(c.id));
     document.title = dmUnread || channelUnread ? '● Pulse' : 'Pulse';
   });
 </script>

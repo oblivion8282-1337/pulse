@@ -277,8 +277,7 @@
   // Capabilities-Flag wird pro Server geladen (serverCapabilities); solange er
   // fehlt, zeigt das „+" nur für Admins (kein optimistisches Flackern).
   function canCreateOnServer(server: ServerEntry): boolean {
-    const adminHere = server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id);
-    if (adminHere) return true;
+    if (isAdminOnServer(server)) return true;
     return serverCapabilities.get(server.id)?.allowGuildCreation ?? false;
   }
 
@@ -306,6 +305,21 @@
       .map((w) => w[0]?.toUpperCase() ?? '')
       .slice(0, 2)
       .join('') || '?';
+  }
+
+  // Cloud: is_admin-Flag aus dem Auth-State; Self-Host: serverAdmin-Store aus
+  // dem Ready-Frame. Zentralisiert den doppelten Ausdruck (canCreateOnServer +
+  // Template-@const).
+  function isAdminOnServer(server: ServerEntry): boolean {
+    return server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id);
+  }
+
+  // Status-Dot-Farbe für Self-Host-Server-Section-Header.
+  function serverStateDotColor(state: string): string {
+    if (state === 'open') return 'bg-emerald-500';
+    if (state === 'connecting' || state === 'starting' || state === 'updating') return 'bg-amber-500';
+    if (state === 'incompatible' || state === 'cors-blocked' || state === 'mfa-required') return 'bg-red-500';
+    return 'bg-gray-500';
   }
 </script>
 
@@ -374,6 +388,7 @@
       {@const isActiveServer = activeServer.serverId === server.id}
       {@const sectionGuilds = serverGuilds.get(server.id)}
       {@const sState = serverState.get(server.id).state}
+      {@const isServerAdmin = isAdminOnServer(server)}
       {#if sectionIdx > 0}
         <div class="bg-border my-2 h-px w-8 shrink-0" aria-hidden="true"></div>
       {/if}
@@ -403,13 +418,7 @@
                     {:else}
                       {serverInitials(server.label)}
                       <span
-                        class="size-1.5 rounded-full {sState === 'open'
-                          ? 'bg-emerald-500'
-                          : sState === 'connecting' || sState === 'starting' || sState === 'updating'
-                            ? 'bg-amber-500'
-                            : sState === 'incompatible' || sState === 'cors-blocked' || sState === 'mfa-required'
-                              ? 'bg-red-500'
-                              : 'bg-gray-500'}"
+                        class="size-1.5 rounded-full {serverStateDotColor(sState)}"
                         data-testid="server-state-dot"
                         aria-label={`Status: ${sState}`}
                       ></span>
@@ -458,7 +467,8 @@
         {@const canManageRoles = isActiveServer && roles.hasGuildPermission(g.id, Perm.MANAGE_ROLES)}
         {@const active = isActiveServer && activeGuildId === g.id}
         {@const guildChannels = isActiveServer ? (guildsStore.channelsByGuild[g.id] ?? []) : []}
-        {@const guildMentioned = isActiveServer && !active && readState.hasGuildMentions(guildChannels.map((c) => c.id))}
+        {@const guildChannelIds = isActiveServer && !active ? guildChannels.map((c) => c.id) : []}
+        {@const guildMentioned = isActiveServer && !active && readState.hasGuildMentions(guildChannelIds)}
         {@const iconSrc = guildIconSrc(g.icon_url, server.hostname)}
         <ContextMenu.Root>
           <ContextMenu.Trigger>
@@ -515,7 +525,6 @@
             {/snippet}
           </ContextMenu.Trigger>
           {#if isActiveServer}
-            {@const isServerAdmin = server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id)}
             <ContextMenu.Content>
               {#if canManageRoles || isOwner}
                 <ContextMenu.Item

@@ -99,6 +99,7 @@
   // Server-shared Tamagotchi: nur rendern wenn Plugin für die Guild
   // aktiviert (MANAGE_GUILD-Admin-Toggle, siehe `guildPluginsApi`).
   // Auf Mobil weggelassen — die rechte Sidebar ist dort zu eng.
+  let currentSrvUserId = $derived(currentServerUserId());
   let showTamagotchi = $derived(
     !viewport.isMobile &&
       !!guildId &&
@@ -149,7 +150,7 @@
     const cid = channelId;
     if (!cid || messages.loadedChannels[cid]) return;
     if (prevChannel !== cid) return; // initial switchTo path handles its own fetch
-    const ch = guilds.channelsByGuild[guildId]?.find((c) => c.id === cid);
+    const ch = channelsForGuild.find((c) => c.id === cid);
     if (!ch || ch.type !== 0) return;
     void chatApi
       .listMessages(cid)
@@ -340,7 +341,7 @@
   }
 
   async function joinGuild(linkOrCode: string, confirmed?: boolean) {
-    await joinGuildByInvite(linkOrCode, confirmed ?? false);
+    await joinGuildByInvite(linkOrCode, confirmed);
     creatingGuild = false;
   }
 
@@ -451,12 +452,12 @@
 <GuildRail
   guilds={guilds.list}
   activeGuildId={guildId}
-  currentUserId={currentServerUserId()}
+  currentUserId={currentSrvUserId}
   onSelect={(g) => selectGuild(g.id)}
   onCreateClick={() => { createGuildMode = 'create'; creatingGuild = true; }}
   onJoinClick={() => { createGuildMode = 'join'; creatingGuild = true; }}
   onHomeClick={() => { navDrawer.open = true; void goto('/app/@me'); }}
-  onGuildDeleted={(gId) => { if (gId === guildId) void handleRemoteGuildDeleted(gId); }}
+  onGuildDeleted={handleRemoteGuildDeleted}
 />
 
 <!-- Channel-Liste: Desktop dauerhaft; Mobil als eigene Spalte rechts der

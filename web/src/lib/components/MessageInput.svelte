@@ -79,12 +79,7 @@
 
   // DM channels aren't in the store → guildId stays null → autocomplete
   // suppresses role + everyone suggestions.
-  const guildId = $derived.by<string | null>(() => {
-    if (!channelId) return null;
-    for (const [gid, list] of Object.entries(guilds.channelsByGuild))
-      if (list.some((c) => c.id === channelId)) return gid;
-    return null;
-  });
+  const guildId = $derived(channelId ? guilds.guildIdForChannel(channelId) : null);
 
   const anyUploading = $derived(pending.some((p) => p.state === 'uploading' || p.state === 'queued'));
   const sendDisabled = $derived(
@@ -185,6 +180,8 @@
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
   }
 
+  const onMentionSync = () => mentionOverlay?.update();
+
   function insertEmoji(emoji: string) {
     const ta = textarea;
     if (!ta) { text = text + emoji; pickerOpen = false; return; }
@@ -262,8 +259,8 @@
       bind:value={text}
       onkeydown={onKeydown}
       oninput={() => { mentionOverlay?.update(); if (text.trim()) onTyping?.(); }}
-      onkeyup={() => mentionOverlay?.update()}
-      onclick={() => mentionOverlay?.update()}
+      onkeyup={onMentionSync}
+      onclick={onMentionSync}
       onpaste={onPaste}
       onblur={() => mentionOverlay?.close()}
       placeholder={effectivePlaceholder}

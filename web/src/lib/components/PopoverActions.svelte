@@ -22,6 +22,10 @@
   import { m } from '$lib/paraglide/messages.js';
 
   const CHANNEL_TYPE_VOICE = 1;
+  const BTN_BASE =
+    'hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50';
+  const BTN_DANGER =
+    'hover:bg-red-500/10 hover:text-red-400 text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-red-500/10 data-[armed=true]:text-red-400';
 
   // ``popoverOpen`` mirrors the parent popover's ``open`` for confirm-
   // state reset. ``onOpenNickDialog`` is a callback because the dialog
@@ -61,17 +65,19 @@
     }
   });
 
+  // Single source of truth for the guild-owner lookup used by canKick + canBan.
+  let guildOwnerId = $derived(
+    (guilds.byId[guildId!] ?? serverGuilds.findGuild(guildId!))?.owner_id
+  );
   let canKick = $derived.by(() => {
     if (!guildId || isSelf) return false;
     // Can't kick the guild owner even with KICK_MEMBERS.
-    const ownerId = (guilds.byId[guildId] ?? serverGuilds.findGuild(guildId))?.owner_id;
-    if (ownerId && ownerId === userId) return false;
+    if (guildOwnerId && guildOwnerId === userId) return false;
     return roles.hasGuildPermission(guildId, Perm.KICK_MEMBERS);
   });
   let canBan = $derived.by(() => {
     if (!guildId || isSelf) return false;
-    const ownerId = (guilds.byId[guildId] ?? serverGuilds.findGuild(guildId))?.owner_id;
-    if (ownerId && ownerId === userId) return false;
+    if (guildOwnerId && guildOwnerId === userId) return false;
     return roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS);
   });
 
@@ -89,26 +95,16 @@
     }
     return null;
   });
-  let canMute = $derived.by(
-    () =>
-      !!guildId &&
-      !isSelf &&
-      !!targetVoiceChannelId &&
-      roles.hasGuildPermission(guildId, Perm.MUTE_MEMBERS)
+  // Shared pre-condition for all three voice-action permissions.
+  let canVoiceAction = $derived(!!guildId && !isSelf && !!targetVoiceChannelId);
+  let canMute = $derived(
+    canVoiceAction && roles.hasGuildPermission(guildId!, Perm.MUTE_MEMBERS)
   );
-  let canDeafen = $derived.by(
-    () =>
-      !!guildId &&
-      !isSelf &&
-      !!targetVoiceChannelId &&
-      roles.hasGuildPermission(guildId, Perm.DEAFEN_MEMBERS)
+  let canDeafen = $derived(
+    canVoiceAction && roles.hasGuildPermission(guildId!, Perm.DEAFEN_MEMBERS)
   );
-  let canDisconnectVoice = $derived.by(
-    () =>
-      !!guildId &&
-      !isSelf &&
-      !!targetVoiceChannelId &&
-      roles.hasGuildPermission(guildId, Perm.MOVE_MEMBERS)
+  let canDisconnectVoice = $derived(
+    canVoiceAction && roles.hasGuildPermission(guildId!, Perm.MOVE_MEMBERS)
   );
   let isForceMuted = $derived(
     !!targetVoiceChannelId && voicePresence.isForceMuted(targetVoiceChannelId, userId)
@@ -144,7 +140,7 @@
     {#if !isSelf}
       <button
         type="button"
-        class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+        class={BTN_BASE}
         onclick={() => actions.startDM(ctx())}
         disabled={working}
         data-testid="popover-dm-btn"
@@ -156,7 +152,7 @@
     {#if canEditNickname}
       <button
         type="button"
-        class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+        class={BTN_BASE}
         onclick={onOpenNickDialog}
         data-testid="popover-nickname-btn"
       >
@@ -167,7 +163,7 @@
     {#if canMute}
       <button
         type="button"
-        class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+        class={BTN_BASE}
         onclick={() => actions.toggleMute(ctx())}
         disabled={working}
         data-testid="popover-mute-btn"
@@ -184,7 +180,7 @@
     {#if canDeafen}
       <button
         type="button"
-        class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+        class={BTN_BASE}
         onclick={() => actions.toggleDeafen(ctx())}
         disabled={working}
         title="Force-deafen is UI-only — the user can still hear on modified clients. Use Disconnect to fully remove them."
@@ -202,7 +198,7 @@
     {#if canDisconnectVoice}
       <button
         type="button"
-        class="hover:bg-bg-hover hover:text-primary text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50"
+        class={BTN_BASE}
         onclick={() => actions.disconnectVoice(ctx())}
         disabled={working}
         data-testid="popover-voice-disconnect-btn"
@@ -214,7 +210,7 @@
     {#if canKick}
       <button
         type="button"
-        class="hover:bg-red-500/10 hover:text-red-400 text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-red-500/10 data-[armed=true]:text-red-400"
+        class={BTN_DANGER}
         data-armed={kickConfirmArmed}
         onclick={() => (kickConfirmArmed ? actions.kick(ctx()) : (kickConfirmArmed = true))}
         disabled={working}
@@ -233,7 +229,7 @@
     {#if canBan}
       <button
         type="button"
-        class="hover:bg-red-500/10 hover:text-red-400 text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors disabled:opacity-50 data-[armed=true]:bg-red-500/10 data-[armed=true]:text-red-400"
+        class={BTN_DANGER}
         data-armed={banConfirmArmed}
         onclick={() => (banConfirmArmed ? actions.ban(ctx()) : (banConfirmArmed = true))}
         disabled={working}

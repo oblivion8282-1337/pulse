@@ -63,20 +63,14 @@
   // (e.g. in path segments of unrelated URLs) do not trigger an embed fetch.
   // Capture-Gruppe 1 = Code, 2 = optionaler ``?host=<fqdn>`` (Self-Host-Invite).
   const INVITE_RE = /https?:\/\/[^\s]+\/invite\/([A-Za-z0-9]{8})(?:\?host=([^\s&#]+))?/;
-  const inviteCode = $derived.by(() => {
-    const m = message.content.match(INVITE_RE);
-    return m ? m[1] : null;
-  });
-  const inviteHost = $derived.by(() => {
-    const m = message.content.match(INVITE_RE);
-    return m && m[2] ? decodeURIComponent(m[2]) : null;
-  });
+  const inviteMatch = $derived(message.content.match(INVITE_RE));
+  const inviteCode = $derived(inviteMatch ? inviteMatch[1] : null);
+  const inviteHost = $derived(inviteMatch && inviteMatch[2] ? decodeURIComponent(inviteMatch[2]) : null);
   // Suppress the raw text entirely when the message is *only* the invite link
   // (possibly with surrounding whitespace).
-  const isInviteOnly = $derived.by(() => {
-    if (!inviteCode) return false;
-    return message.content.trim().replace(INVITE_RE, '').trim() === '';
-  });
+  const isInviteOnly = $derived(
+    !!inviteCode && message.content.trim().replace(INVITE_RE, '').trim() === ''
+  );
   // Optimistic copy still awaiting its server echo — it has no real id yet,
   // so edit / delete / react would hit `/messages/tmp-…` and 4xx. Gate them
   // until the echo swaps in the persisted message.
@@ -171,6 +165,21 @@
   {/if}
 {/snippet}
 
+{#snippet actions()}
+  {#if !editing}
+    <MessageActions
+      canEdit={canEdit && !isPending}
+      canDelete={canDelete && !isPending}
+      canReport={canReport && !isPending}
+      onReply={() => onReply(message)}
+      onEdit={startEdit}
+      onDelete={() => onDelete(message)}
+      onReact={(e) => handleToggle(e, false)}
+      onReport={() => (reportOpen = true)}
+    />
+  {/if}
+{/snippet}
+
 {#if isContinuation}
   <div
     class="group relative mx-2 flex gap-3 rounded-2xl px-3 py-0.5 transition-colors hover:bg-bg-hover"
@@ -184,18 +193,7 @@
     <div class="min-w-0 flex-1">
       {@render body()}
     </div>
-    {#if !editing}
-      <MessageActions
-        canEdit={canEdit && !isPending}
-        canDelete={canDelete && !isPending}
-        canReport={canReport && !isPending}
-        onReply={() => onReply(message)}
-        onEdit={startEdit}
-        onDelete={() => onDelete(message)}
-        onReact={(e) => handleToggle(e, false)}
-        onReport={() => (reportOpen = true)}
-      />
-    {/if}
+    {@render actions()}
   </div>
 {:else}
   <div
@@ -221,18 +219,7 @@
       </div>
       {@render body()}
     </div>
-    {#if !editing}
-      <MessageActions
-        canEdit={canEdit && !isPending}
-        canDelete={canDelete && !isPending}
-        canReport={canReport && !isPending}
-        onReply={() => onReply(message)}
-        onEdit={startEdit}
-        onDelete={() => onDelete(message)}
-        onReact={(e) => handleToggle(e, false)}
-        onReport={() => (reportOpen = true)}
-      />
-    {/if}
+    {@render actions()}
   </div>
 {/if}
 

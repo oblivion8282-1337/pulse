@@ -143,39 +143,14 @@
     }
   });
 
-  function formatDividerLabel(date: Date): string {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 86400000);
+  function formatDividerLabel(date: Date, today: Date, yesterday: Date): string {
     const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
     if (d.getTime() === today.getTime()) return pm.chat_view_today();
     if (d.getTime() === yesterday.getTime()) return pm.chat_view_yesterday();
     return d.toLocaleDateString('de-DE', { day: 'numeric', month: 'long', year: 'numeric' });
   }
 
-  // Memoize messageMap to avoid rebuilding on every message push.
-  // Only recompute if the set of message IDs changes meaningfully.
-  let _cachedMessageMap: Map<string, Message> | null = null;
-  // Plain (non-reactive) bookkeeping for the memoization below — written from
-  // inside the `messageMap` derived, so it must NOT be `$state` (Svelte 5
-  // forbids mutating reactive state inside a derived → state_unsafe_mutation,
-  // which aborts the render and leaves messages blank). Mirrors _cachedMessageMap.
-  let _lastMapMessageIds: string[] = [];
-
-  let messageMap = $derived.by(() => {
-    const currentIds = messages.map(m => m.id);
-    // Only rebuild if the number of messages or any existing ID changed
-    // (edit/delete scenarios). For append-only, check length first.
-    if (
-      _cachedMessageMap === null ||
-      currentIds.length !== _lastMapMessageIds.length ||
-      currentIds.some((id, i) => id !== _lastMapMessageIds[i])
-    ) {
-      _cachedMessageMap = new Map(messages.map(m => [m.id, m]));
-      _lastMapMessageIds = currentIds;
-    }
-    return _cachedMessageMap;
-  });
+  let messageMap = $derived(new Map(messages.map((m) => [m.id, m])));
 
   // Memoize buildItems to avoid full rebuild on simple appends.
   let _cachedItems: ChatItem[] | null = null;
@@ -188,6 +163,9 @@
   let items = $derived.by(() => {
     const len = messages.length;
     const lastId = len > 0 ? messages[len - 1].id : '';
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
 
     // If only new messages were appended (tail unchanged), append only the new items.
     if (
@@ -206,7 +184,7 @@
         const prevDateStr = prevDate ? prevDate.toDateString() : null;
 
         if (!prevDate || mDateStr !== prevDateStr) {
-          newItems.push({ kind: 'divider', label: formatDividerLabel(mDate), key: `div-${m.id}` });
+          newItems.push({ kind: 'divider', label: formatDividerLabel(mDate, today, yesterday), key: `div-${m.id}` });
         }
 
         const isContinuation =
@@ -220,7 +198,7 @@
       _cachedItems = [..._cachedItems, ...newItems];
     } else {
       // Edit/delete/restructure: full rebuild
-      _cachedItems = buildItems(messages);
+      _cachedItems = buildItems(messages, today, yesterday);
     }
 
     _lastItemsMessageCount = len;
@@ -228,7 +206,7 @@
     return _cachedItems;
   });
 
-  function buildItems(msgs: Message[]): ChatItem[] {
+  function buildItems(msgs: Message[], today: Date, yesterday: Date): ChatItem[] {
     const result: ChatItem[] = [];
     for (let i = 0; i < msgs.length; i++) {
       const m = msgs[i];
@@ -240,7 +218,7 @@
 
       // Date divider when day changes
       if (!prevDate || mDateStr !== prevDateStr) {
-        result.push({ kind: 'divider', label: formatDividerLabel(mDate), key: `div-${m.id}` });
+        result.push({ kind: 'divider', label: formatDividerLabel(mDate, today, yesterday), key: `div-${m.id}` });
       }
 
       // Continuation: same author, within 7 min, no divider separating them
@@ -296,12 +274,6 @@
     replyTarget ? { id: replyTarget.id, author: authorName(replyTarget), snippet: snippet(plainifyMentions(replyTarget.content)) } : null
   );
 
-  function startReply(m: Message) {
-    replyTarget = m;
-  }
-  function cancelReply() {
-    replyTarget = null;
-  }
   function jumpToReply(parentId: string) {
     const el = scrollContainer?.querySelector(`[data-message-id="${parentId}"]`);
     if (el instanceof HTMLElement) {
@@ -420,7 +392,7 @@
                 canEdit={canEditMessage(item.message)}
                 canDelete={canDeleteMessage(item.message)}
                 canReport={canReportMessage(item.message)}
-                onReply={startReply}
+                onReply={(m) => (replyTarget = m)}
                 onEditSubmit={onEditMessage}
                 onDelete={onDeleteMessage}
                 onToggleReaction={onToggleReaction}
@@ -467,7 +439,7 @@
         : pm.chat_view_message_placeholder({ preposition: headerKind === 'dm' ? pm.chat_view_placeholder_to() : pm.chat_view_placeholder_in(), prefix: namePrefix, name: channel.name })}
       onSend={handleSend}
       replyTo={replyBanner}
-      onCancelReply={cancelReply}
+      onCancelReply={() => (replyTarget = null)}
       disabled={composerDisabled}
       disabledReason={composerDisabledReason}
     />

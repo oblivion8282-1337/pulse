@@ -12,48 +12,52 @@
   import type { Member } from '$lib/api/types';
   import { chatApi } from '$lib/api/chat';
 
+  function roleColorHex(color: number): string {
+    return '#' + color.toString(16).padStart(6, '0');
+  }
+
   /**
    * Module-level cache shared across all MentionAutocomplete instances.
    * Stores the resolved member list per guildId and deduplicates concurrent
    * fetches — so if MemberList and MentionAutocomplete both request the same
    * guild simultaneously, only one HTTP call is made.
    */
-  const memberListCache = new (class {
-    private results = new Map<string, Member[]>();
-    private inflight = new Map<string, Promise<Member[]>>();
+  const _results = new Map<string, Member[]>();
+  const _inflight = new Map<string, Promise<Member[]>>();
 
+  const memberListCache = {
     get(guildId: string): Promise<Member[]> {
-      const cached = this.results.get(guildId);
+      const cached = _results.get(guildId);
       if (cached) return Promise.resolve(cached);
 
-      const flying = this.inflight.get(guildId);
+      const flying = _inflight.get(guildId);
       if (flying) return flying;
 
       const p = chatApi.listMembers(guildId).then(
         (list) => {
-          this.results.set(guildId, list);
-          this.inflight.delete(guildId);
+          _results.set(guildId, list);
+          _inflight.delete(guildId);
           return list;
         },
         (err) => {
-          this.inflight.delete(guildId);
+          _inflight.delete(guildId);
           throw err;
         }
       );
-      this.inflight.set(guildId, p);
+      _inflight.set(guildId, p);
       return p;
-    }
+    },
 
     /** Invalidate a guild's cache entry (e.g. on member join/leave). */
     invalidate(guildId: string): void {
-      this.results.delete(guildId);
-    }
+      _results.delete(guildId);
+    },
 
     clear(): void {
-      this.results.clear();
-      this.inflight.clear();
-    }
-  })();
+      _results.clear();
+      _inflight.clear();
+    },
+  };
 
   export { memberListCache };
 </script>
@@ -115,11 +119,6 @@
     !!guildId && roles.hasGuildPermission(guildId, Perm.MENTION_EVERYONE)
   );
 
-  function displayFor(m: Member): string {
-    if (m.nickname) return m.nickname;
-    return userCache.displayName(m.user_id);
-  }
-
   const items = $derived.by<Item[]>(() => {
     const q = query.trim().toLowerCase();
     const out: Item[] = [];
@@ -140,14 +139,14 @@
           kind: 'role',
           id: r.id,
           label: r.name,
-          color: r.color != null ? '#' + r.color.toString(16).padStart(6, '0') : null
+          color: r.color != null ? roleColorHex(r.color) : null
         });
       }
     }
 
     for (const m of members) {
-      const label = displayFor(m);
       const u = userCache.get(m.user_id);
+      const label = m.nickname ?? (u ? (u.display_name ?? u.username) : '…');
       const username = u?.username ?? '';
       if (q && !label.toLowerCase().includes(q) && !username.toLowerCase().includes(q)) {
         continue;
@@ -169,7 +168,7 @@
 
   // Reset selection when the candidate list changes (e.g. query narrows).
   $effect(() => {
-    void items.length;
+    items.length;
     activeIdx = 0;
   });
 

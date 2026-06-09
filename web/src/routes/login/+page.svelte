@@ -46,6 +46,10 @@
   // Ringe ragen sonst rund um die Karte hervor, während man tippt).
   let overCard = $state(false);
 
+  function trackCard(_x: number, _y: number, active: boolean) {
+    overCard = active;
+  }
+
   // WebAuthn API presence is fixed for the page's lifetime — `ssr=false`, so
   // `window` is always there by the time this runs. Passkeys are only offered
   // in the browser: inside the desktop shell a browser-stored passkey is
@@ -117,21 +121,23 @@
     // Pending-Community-Adresse: nach dem Login beitreten (D-Flow Stufe 4).
     // Format: `?pendingAddress=<handle>` oder `?pendingAddress=<handle>&pendingHost=<fqdn>`
     const pendingHandle = page.url.searchParams.get('pendingAddress');
-    if (pendingHandle) {
-      const pendingHost = page.url.searchParams.get('pendingHost') ?? null;
-      const input = pendingHost
-        ? `https://${pendingHost}/c/${pendingHandle}`
-        : `c/${pendingHandle}`;
-      try {
-        await joinGuildByInvite(input);
-        return; // joinGuildByInvite navigiert selbst
-      } catch {
-        // Best-effort: bei Fehler normal nach /app weiterleiten
-      }
+    if (!pendingHandle) {
+      const redirect = safeRedirect(page.url.searchParams.get('redirect'));
+      await goto(redirect);
+      return;
+    }
+    const pendingHost = page.url.searchParams.get('pendingHost') ?? null;
+    const input = pendingHost
+      ? `https://${pendingHost}/c/${pendingHandle}`
+      : `c/${pendingHandle}`;
+    try {
+      await joinGuildByInvite(input);
+      return; // joinGuildByInvite navigiert selbst
+    } catch {
+      // Best-effort: bei Fehler normal nach /app weiterleiten
     }
 
-    const redirect = safeRedirect(page.url.searchParams.get('redirect'));
-    await goto(redirect);
+    await goto(safeRedirect(page.url.searchParams.get('redirect')));
   }
 
   async function submit(e: Event) {
@@ -284,7 +290,7 @@
         class="bg-card w-full max-w-md cursor-auto space-y-4 rounded-xl p-8 shadow-2xl"
         onsubmit={submit}
         aria-label="login form"
-        use:cursorTrack={(_x, _y, active) => (overCard = active)}
+        use:cursorTrack={trackCard}
       >
         <header class="space-y-2 text-center">
           <img src="/pulse-mark.svg" alt="Pulse" width="56" height="56" class="mx-auto size-14" />
@@ -343,7 +349,7 @@
         {/if}
 
         <Button type="submit" class="w-full" disabled={busy} data-testid="login-submit">
-          {busy ? `${m.login_submit()}…` : m.login_submit()}
+          {m.login_submit()}{busy ? '…' : ''}
         </Button>
 
         {#if passkeysAvailable}
@@ -373,7 +379,7 @@
     {:else}
       <div
         class="w-full max-w-md cursor-auto"
-        use:cursorTrack={(_x, _y, active) => (overCard = active)}
+        use:cursorTrack={trackCard}
       >
         <LoginMfaForm
           methods={mfaMethods}

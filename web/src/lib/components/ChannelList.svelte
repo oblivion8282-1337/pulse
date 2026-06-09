@@ -12,7 +12,7 @@
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { voiceState } from '$lib/voice/state.svelte';
+  import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -36,6 +36,9 @@
   import RenameChannelDialog from './RenameChannelDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
   import SidebarFooter from './SidebarFooter.svelte';
+
+  const CHANNEL_BTN_CLASS =
+    'group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary';
 
   let {
     guild,
@@ -226,7 +229,7 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+              class={CHANNEL_BTN_CLASS}
               data-active={activeChannelId === c.id}
               data-unread={isUnread}
               onclick={() => onSelect(c)}
@@ -290,14 +293,14 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class="group flex w-full items-center gap-3 rounded-xl px-3 py-4 text-left text-base font-medium transition-colors md:gap-2.5 md:py-2 md:text-sm hover:bg-bg-hover hover:text-text-bright data-[active=true]:bg-[var(--accent-soft)] data-[active=true]:font-semibold data-[active=true]:text-primary"
+              class={CHANNEL_BTN_CLASS}
               data-active={activeChannelId === c.id}
               onclick={() => selectChannel(c)}
               data-testid={`channel-${c.id}`}
             >
               <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
               <span class="truncate">{c.name}</span>
-              {#if voiceState.channelId === c.id && voiceState.connected}
+              {#if inVoiceChannel(c.id)}
                 <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title={m.channel_list_connected()}></span>
               {/if}
             </button>
@@ -332,8 +335,9 @@
       </ContextMenu.Root>
       {@const members = voicePresence.usersIn(c.id)}
       {#if members.length > 0}
+        {@const voiceStreamers = voicePresence.streamingIn(c.id)}
         {@const streamers = [
-          ...new Set([...voicePresence.streamingIn(c.id), ...streamPresence.streamersIn(c.id)]),
+          ...new Set([...voiceStreamers, ...streamPresence.streamersIn(c.id)]),
         ]}
         {@const speakers =
           voice.connected && voice.channelId === c.id
@@ -369,11 +373,11 @@
             }}
             onLiveOpen={(uid) => {
               // Open whichever live source(s) this user actually has.
-              if (streamPresence.streamersIn(c.id).includes(uid)) {
+              if (streamers.includes(uid)) {
                 if (detachedStreams.has(c.id, uid)) detachedStreams.open(c.id, uid);
                 else openedTiles.open('hq', c.id, uid);
               }
-              if (voicePresence.streamingIn(c.id).includes(uid)) {
+              if (voiceStreamers.includes(uid)) {
                 // Screen-share keyed by LiveKit identity — only available
                 // if we're connected to this channel. Outside that, the
                 // tile can't mount anyway (no subscribed track).

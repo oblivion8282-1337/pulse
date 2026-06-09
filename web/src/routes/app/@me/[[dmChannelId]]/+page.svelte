@@ -56,7 +56,7 @@
   let resolving = $state(false);
 
   let prevDM = $state('');
-  let switchGen = $state(0);
+  let switchGen = 0;
   const pendingOptimisticTimeouts = new Map<string, ReturnType<typeof setTimeout>>();
 
   // Mirrors the channel-page effect: when the DM id in the URL changes, load
@@ -234,12 +234,9 @@
   }
 
   async function toggleReaction(msg: Message, emoji: string, currentlyMine: boolean) {
+    const action = currentlyMine ? chatApi.removeReaction : chatApi.addReaction;
     try {
-      if (currentlyMine) {
-        await chatApi.removeReaction(msg.id, emoji, cloudRoute);
-      } else {
-        await chatApi.addReaction(msg.id, emoji, cloudRoute);
-      }
+      await action(msg.id, emoji, cloudRoute);
     } catch (e) {
       toast.error(m.dm_page_reaction_failed());
       console.error(e);

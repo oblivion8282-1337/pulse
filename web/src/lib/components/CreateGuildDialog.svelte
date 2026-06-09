@@ -97,26 +97,26 @@
   async function runJoin(input: string, confirmed: boolean) {
     busy = true;
     error = null;
+    let succeeded = false;
     try {
       await onJoin(input, confirmed);
+      succeeded = true;
+      // success → the parent navigates to the new guild and this dialog unmounts.
     } catch (err) {
       // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler.
-      if (err instanceof BackupRequiredError) {
-        busy = false;
-        return;
-      }
+      if (err instanceof BackupRequiredError) return;
       if (err instanceof SelfHostContactConfirmRequired) {
         confirmHost = err.hostname;
         pendingJoinInput = input;
         confirmOpen = true;
-        busy = false;
         return;
       }
       error =
         (err as { status?: number })?.status === 404
           ? m.create_guild_dialog_invite_invalid()
           : (err as Error)?.message || m.create_guild_dialog_join_failed();
-      busy = false;
+    } finally {
+      if (!succeeded) busy = false;
     }
   }
 
@@ -139,6 +139,10 @@
     pendingJoinInput = null;
     busy = false;
   }
+
+  const choiceBtnClass =
+    'border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors';
+  const fieldLabelClass = 'text-muted-foreground text-xs font-semibold uppercase tracking-wide';
 </script>
 
 <Dialog.Root {open} onOpenChange={handleOpenChange}>
@@ -154,7 +158,7 @@
         {#if canCreate}
           <button
             type="button"
-            class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
+            class={choiceBtnClass}
             onclick={() => (mode = 'create')}
             data-testid="create-guild-choice"
           >
@@ -166,7 +170,7 @@
         {/if}
         <button
           type="button"
-          class="border-border hover:bg-bg-hover flex w-full items-center gap-3 rounded-xl border p-4 text-left transition-colors"
+          class={choiceBtnClass}
           onclick={() => (mode = 'join')}
           data-testid="join-guild-choice"
         >
@@ -185,7 +189,7 @@
         <div class="space-y-1.5">
           <Label
             for="create-guild-name"
-            class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
+            class={fieldLabelClass}
           >
             {m.create_guild_dialog_name_label()}
           </Label>
@@ -221,7 +225,7 @@
         <div class="space-y-1.5">
           <Label
             for="join-guild-input"
-            class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
+            class={fieldLabelClass}
           >
             {m.create_guild_dialog_invite_label()}
           </Label>
