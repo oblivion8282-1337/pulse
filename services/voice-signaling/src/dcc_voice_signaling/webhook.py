@@ -83,6 +83,11 @@ _SCREEN_SHARE_SOURCES = frozenset({int(TrackSource.SCREEN_SHARE), int(TrackSourc
 _CAMERA_SOURCE = int(TrackSource.CAMERA)
 
 
+def _as_str(m: bytes | str) -> str:
+    """Decode a Redis set member to str (members may be bytes or str)."""
+    return m.decode() if isinstance(m, bytes) else m
+
+
 def _is_camera(track) -> bool:  # noqa: ANN001
     """Return True if this TrackInfo represents a webcam (CAMERA source).
 
@@ -96,7 +101,7 @@ def _is_camera(track) -> bool:  # noqa: ANN001
             return True
     except (TypeError, ValueError):
         pass
-    return "CAMERA" in str(track.source).upper()
+    return False
 
 
 def _is_screen_share(track) -> bool:  # noqa: ANN001
@@ -206,9 +211,9 @@ async def _publish_state(redis: Redis, room_name: str, channel_id: str) -> None:
     pipe.smembers(streaming_key(room_name))
     pipe.smembers(camera_key(room_name))
     members_raw, streamers_raw, camera_raw = await pipe.execute()
-    user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in members_raw)
-    streaming_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in streamers_raw)
-    camera_user_ids = sorted(m.decode() if isinstance(m, bytes) else m for m in camera_raw)
+    user_ids = sorted(_as_str(m) for m in members_raw)
+    streaming_user_ids = sorted(_as_str(m) for m in streamers_raw)
+    camera_user_ids = sorted(_as_str(m) for m in camera_raw)
     snapshot = VoiceStateSnapshot(
         channel_id=channel_id,
         user_ids=user_ids,

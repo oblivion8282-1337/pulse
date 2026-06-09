@@ -16,11 +16,16 @@ USERNAME_PATTERN = r"^[a-zA-Z0-9_.-]{3,32}$"
 TOTP_CODE_PATTERN = r"^\d{6}$"
 BACKUP_CODE_PATTERN = r"^[0-9A-Fa-f]{8}$"
 
+# Shared field-type aliases — keep constraints in one place.
+_PasswordField = Annotated[str, Field(min_length=8, max_length=128)]
+_CurrentPasswordField = Annotated[str, Field(min_length=1, max_length=128)]
+_TicketField = Annotated[str, Field(min_length=10, max_length=4096)]
+
 
 class RegisterIn(BaseModel):
     username: Annotated[str, Field(pattern=USERNAME_PATTERN)]
     email: EmailStr
-    password: Annotated[str, Field(min_length=8, max_length=128)]
+    password: _PasswordField
     display_name: Annotated[str | None, Field(default=None, max_length=64)] = None
     # Required only when the server is in ``invite_only`` mode; ignored
     # otherwise. Validated + consumed in the /register handler.
@@ -29,12 +34,11 @@ class RegisterIn(BaseModel):
 
 class LoginIn(BaseModel):
     email_or_username: Annotated[str, Field(min_length=3, max_length=255)]
-    password: Annotated[str, Field(min_length=1, max_length=128)]
+    password: _CurrentPasswordField
 
 
 class RefreshIn(BaseModel):
     refresh_token: Annotated[str, Field(max_length=4096)]
-
 
 
 
@@ -294,7 +298,7 @@ class PasswordForgotIn(BaseModel):
 
 class PasswordResetIn(BaseModel):
     token: Annotated[str, Field(min_length=10, max_length=128)]
-    new_password: Annotated[str, Field(min_length=8, max_length=128)]
+    new_password: _PasswordField
 
 
 class EmailVerifyConfirmIn(BaseModel):
@@ -304,15 +308,15 @@ class EmailVerifyConfirmIn(BaseModel):
 class PasswordChangeIn(BaseModel):
     """Authenticated password change — current pw required as a re-auth gate."""
 
-    current_password: Annotated[str, Field(min_length=1, max_length=128)]
-    new_password: Annotated[str, Field(min_length=8, max_length=128)]
+    current_password: _CurrentPasswordField
+    new_password: _PasswordField
 
 
 class EmailChangeRequestIn(BaseModel):
     """Authenticated email change — current pw gates it; new address gets a link."""
 
     new_email: EmailStr
-    current_password: Annotated[str, Field(min_length=1, max_length=128)]
+    current_password: _CurrentPasswordField
 
 
 class EmailChangeConfirmIn(BaseModel):
@@ -334,7 +338,7 @@ class TotpVerifySetupOut(BaseModel):
 
 
 class TotpDisableIn(BaseModel):
-    password: Annotated[str, Field(min_length=1, max_length=128)]
+    password: _CurrentPasswordField
     code: Annotated[str | None, Field(default=None, pattern=TOTP_CODE_PATTERN)] = None
     backup_code: Annotated[
         str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)
@@ -342,12 +346,12 @@ class TotpDisableIn(BaseModel):
 
 
 class TotpBackupRegenIn(BaseModel):
-    password: Annotated[str, Field(min_length=1, max_length=128)]
+    password: _CurrentPasswordField
     code: Annotated[str, Field(pattern=TOTP_CODE_PATTERN)]
 
 
 class LoginTotpIn(BaseModel):
-    mfa_ticket: Annotated[str, Field(min_length=10, max_length=4096)]
+    mfa_ticket: _TicketField
     code: Annotated[str | None, Field(default=None, pattern=TOTP_CODE_PATTERN)] = None
     backup_code: Annotated[
         str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)
@@ -396,7 +400,7 @@ class WebAuthnRegisterVerifyIn(BaseModel):
     owns its shape. ``name`` is the user's label for the new passkey.
     """
 
-    challenge_ticket: Annotated[str, Field(min_length=10, max_length=4096)]
+    challenge_ticket: _TicketField
     credential: dict[str, Any]
     name: Annotated[str, Field(min_length=1, max_length=64)]
 
@@ -451,7 +455,7 @@ class WebAuthnLoginVerifyIn(BaseModel):
     the password step authenticated); omitted on the passwordless path.
     """
 
-    challenge_ticket: Annotated[str, Field(min_length=10, max_length=4096)]
+    challenge_ticket: _TicketField
     credential: dict[str, Any]
     mfa_ticket: Annotated[str | None, Field(default=None, max_length=4096)] = None
 
@@ -500,7 +504,7 @@ class AccountDeleteIn(BaseModel):
         confirm" makes sense.
     """
 
-    password: Annotated[str, Field(min_length=1, max_length=128)]
+    password: _CurrentPasswordField
     code: Annotated[str | None, Field(default=None, pattern=TOTP_CODE_PATTERN)] = None
     backup_code: Annotated[
         str | None, Field(default=None, pattern=BACKUP_CODE_PATTERN)

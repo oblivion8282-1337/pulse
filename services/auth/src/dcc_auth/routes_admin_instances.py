@@ -81,6 +81,9 @@ class ApplicationOut(BaseModel):
     applicant_username: str
 
 
+_SECRET_WARNING = "Speichere das client_secret jetzt — es wird nicht mehr angezeigt."
+
+
 class ApprovalOut(BaseModel):
     instance_id: str  # Snowflake-String-API
     hostname: str
@@ -92,7 +95,7 @@ class ApprovalOut(BaseModel):
     # Cloud user-id of the instance owner (the applicant). The self-hoster sets
     # this as PULSE_INSTANCE_OWNER_ID so they auto-become admin at cert-login.
     owner_user_id: str
-    warning: str = "Speichere das client_secret jetzt — es wird nicht mehr angezeigt."
+    warning: str = _SECRET_WARNING
 
 
 class RejectIn(BaseModel):
@@ -116,7 +119,7 @@ class InstanceOut(BaseModel):
 class RotateSecretOut(BaseModel):
     instance_id: str  # Snowflake-String-API
     client_secret: str
-    warning: str = "Speichere das client_secret jetzt — es wird nicht mehr angezeigt."
+    warning: str = _SECRET_WARNING
 
 
 # --------------------------------------------------------------------------- #
@@ -124,6 +127,14 @@ class RotateSecretOut(BaseModel):
 # --------------------------------------------------------------------------- #
 
 _SELF_HOST_WORKER_START = 100  # Worker-IDs 1-99 reserviert für Cloud
+
+
+def _stamp_review(app_row: InstanceApplication, actor: User) -> None:
+    """Set reviewed_by / reviewed_at on an application row."""
+    app_row.reviewed_by = actor.id
+    app_row.reviewed_at = datetime.now(UTC)
+
+
 _WORKER_ID_MAX = 1023  # Snowflake 10-bit-Range
 
 
@@ -189,23 +200,20 @@ async def list_applications(
         .options(selectinload(InstanceApplication.applicant))
     )
     rows = (await session.execute(stmt)).scalars().all()
-
-    out = []
-    for row in rows:
-        out.append(
-            ApplicationOut(
-                id=str(row.id),
-                hostname=row.hostname,
-                purpose=row.purpose,
-                expected_users=row.expected_users,
-                contact_email=row.contact_email,
-                notes=row.notes,
-                status=row.status,
-                created_at=row.created_at,
-                applicant_username=row.applicant.username,
-            )
+    return [
+        ApplicationOut(
+            id=str(row.id),
+            hostname=row.hostname,
+            purpose=row.purpose,
+            expected_users=row.expected_users,
+            contact_email=row.contact_email,
+            notes=row.notes,
+            status=row.status,
+            created_at=row.created_at,
+            applicant_username=row.applicant.username,
         )
-    return out
+        for row in rows
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -220,6 +228,11 @@ async def approve_application(
     actor: Annotated[User, Depends(_require_admin)],
 ):
     """Approve an application, create the RegisteredInstance, allocate worker IDs."""
+    # Generate credentials once — hash is independent of worker IDs / DB row.
+    client_id = secrets.token_urlsafe(16)
+    client_secret_plain = secrets.token_urlsafe(32)
+    client_secret_hash = await asyncio.to_thread(hash_password, client_secret_plain)
+
     # Retry loop for worker-ID UNIQUE conflicts (max 5 attempts)
     for attempt in range(5):
         # SELECT FOR UPDATE — serialises parallel approvals
@@ -245,11 +258,6 @@ async def approve_application(
         # Allocate worker IDs
         wid_chat, wid_voice, wid_media = await _allocate_worker_ids(session)
 
-        # Generate credentials
-        client_id = secrets.token_urlsafe(16)
-        client_secret_plain = secrets.token_urlsafe(32)
-        client_secret_hash = await asyncio.to_thread(hash_password, client_secret_plain)
-
         instance_id = next_id()
         instance = RegisteredInstance(
             id=instance_id,
@@ -265,8 +273,7 @@ async def approve_application(
         session.add(instance)
 
         app_row.status = "approved"
-        app_row.reviewed_by = actor.id
-        app_row.reviewed_at = datetime.now(UTC)
+        _stamp_review(app_row, actor)
         app_row.approved_instance_id = instance_id
 
         try:
@@ -278,7 +285,6 @@ async def approve_application(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="worker-id allocation conflict, try again",
                 )
-            continue
 
         return ApprovalOut(
             instance_id=str(instance_id),
@@ -291,7 +297,7 @@ async def approve_application(
             owner_user_id=str(app_row.applicant_user_id),
         )
 
-    # Should never reach here
+    # unreachable: loop only exits via return/raise
     raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="approval failed")
 
 
@@ -320,8 +326,7 @@ async def reject_application(
         )
 
     app_row.status = "rejected"
-    app_row.reviewed_by = actor.id
-    app_row.reviewed_at = datetime.now(UTC)
+    _stamp_review(app_row, actor)
     app_row.rejection_reason = body.rejection_reason
     await session.commit()
 
@@ -352,22 +357,20 @@ async def list_instances(
         stmt = stmt.where(RegisteredInstance.status == status_filter)
 
     rows = (await session.execute(stmt)).scalars().all()
-    out = []
-    for row in rows:
-        out.append(
-            InstanceOut(
-                id=str(row.id),
-                hostname=row.hostname,
-                client_id=row.client_id,
-                worker_id_chat=row.worker_id_chat,
-                worker_id_voice=row.worker_id_voice,
-                worker_id_media=row.worker_id_media,
-                status=row.status,
-                registered_at=row.registered_at,
-                registrar_username=row.registrar.username,
-            )
+    return [
+        InstanceOut(
+            id=str(row.id),
+            hostname=row.hostname,
+            client_id=row.client_id,
+            worker_id_chat=row.worker_id_chat,
+            worker_id_voice=row.worker_id_voice,
+            worker_id_media=row.worker_id_media,
+            status=row.status,
+            registered_at=row.registered_at,
+            registrar_username=row.registrar.username,
         )
-    return out
+        for row in rows
+    ]
 
 
 # --------------------------------------------------------------------------- #

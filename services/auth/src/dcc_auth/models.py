@@ -276,7 +276,7 @@ class WebAuthnCredential(Base):
     # echoed back in future allowCredentials so the browser picks the right
     # authenticator without prompting through every option.
     transports: Mapped[list | None] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"), nullable=True
+        _JsonbOrJson, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -443,7 +443,7 @@ class AdminAuditLog(Base):
     action: Mapped[str] = mapped_column(String(64), nullable=False)
     target_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     payload: Mapped[dict] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"), nullable=False, server_default="{}"
+        _JsonbOrJson, nullable=False, server_default="{}"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -484,7 +484,7 @@ class UserSession(Base):
     )
     # Auth-method references: ["pwd"], ["pwd","otp"], ["webauthn"], etc.
     amr: Mapped[list] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"),
+        _JsonbOrJson,
         nullable=False,
         server_default=text("'[]'"),
         default=list,

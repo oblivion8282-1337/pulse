@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import hashlib
+import ipaddress
 import uuid
 from datetime import UTC, datetime
+from time import monotonic
 
 import jwt
 import structlog
@@ -59,6 +62,10 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 
 def _signer_dep() -> JwtSigner:
+    """Re-exported FastAPI dependency for the JWT signer. Several sibling
+    route modules (routes_webauthn*, routes_totp, routes_profile,
+    routes_account_security) import this symbol, so it stays as a thin
+    ``get_signer`` alias rather than calling ``get_signer`` everywhere."""
     return get_signer()
 
 
@@ -82,8 +89,6 @@ def _invalidate_smtp_cache() -> None:
 
 async def _get_smtp_config_cached(session) -> object | None:
     """Return the effective SmtpConfig, cached for up to _SMTP_CACHE_TTL seconds."""
-    from time import monotonic
-
     global _smtp_cache
     now = monotonic()
     if _smtp_cache is not None and now - _smtp_cache[0] < _SMTP_CACHE_TTL:
@@ -115,7 +120,6 @@ async def _issue_tokens(
     user_agent: str | None,
     ip_hash: str | None = None,
 ) -> TokensOut:
-    settings = get_settings()
     blocked = await _email_gate_blocked(session, user)
     access = signer.issue_access(
         user.id, user.username, is_admin=user.is_admin, email_blocked=blocked
@@ -134,7 +138,6 @@ async def _issue_tokens(
     )
     session.add(rt)
     await session.flush()
-    _ = settings  # silence unused
     return TokensOut(access_token=access, refresh_token=refresh)
 
 
@@ -153,7 +156,7 @@ async def _get_current_user(
     request: Request,
     session: SessionDep,
     authorization: str | None = Header(default=None),
-    signer: JwtSigner = Depends(_signer_dep),
+    signer: JwtSigner = Depends(get_signer),
 ) -> User:
     """Authenticate via Bearer token OR browser-session cookie.
 
@@ -216,7 +219,7 @@ async def register(
     request: Request,
     response: Response,
     session: SessionDep,
-    signer: JwtSigner = Depends(_signer_dep),
+    signer: JwtSigner = Depends(get_signer),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
 ):
     settings = get_settings()
@@ -378,7 +381,7 @@ async def login(
     request: Request,
     response: Response,
     session: SessionDep,
-    signer: JwtSigner = Depends(_signer_dep),
+    signer: JwtSigner = Depends(get_signer),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
 ):
     settings = get_settings()
@@ -479,7 +482,7 @@ async def refresh(
     payload: RefreshIn,
     request: Request,
     session: SessionDep,
-    signer: JwtSigner = Depends(_signer_dep),
+    signer: JwtSigner = Depends(get_signer),
     user_agent: str | None = Header(default=None, alias="User-Agent"),
 ):
     try:
@@ -544,7 +547,7 @@ async def logout(
     response: Response,
     payload: LogoutIn,
     session: SessionDep,
-    signer: JwtSigner = Depends(_signer_dep),
+    signer: JwtSigner = Depends(get_signer),
 ):
     # --- Revoke refresh token (JWT path, optional) ---
     decoded = None
@@ -609,7 +612,7 @@ async def _require_admin(current: User = Depends(_get_current_user)) -> User:
 
 
 @router.get("/.well-known/jwks.json")
-async def jwks(signer: JwtSigner = Depends(_signer_dep)) -> dict:
+async def jwks(signer: JwtSigner = Depends(get_signer)) -> dict:
     return signer.jwks()
 
 
@@ -669,8 +672,6 @@ _trusted_networks_cache: tuple[str, list] | None = None
 
 def _peer_is_trusted(peer: str) -> bool:
     """Whether ``peer`` matches any entry in ``Settings.trusted_proxies``."""
-    import ipaddress
-
     global _trusted_networks_cache
     settings = get_settings()
     raw = settings.trusted_proxies or ""
@@ -708,9 +709,6 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     caller could send 2×N requests at a window edge. Expired entries are
     pruned on every access, bounding memory growth to active IPs only.
     """
-    import collections
-    from time import monotonic
-
     # Parse "N/period" — period in {second, minute, hour}.
     n_str, period = rule.split("/")
     n = int(n_str)

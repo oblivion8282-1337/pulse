@@ -370,8 +370,6 @@ async def _consume_second_factor(
         ).scalar_one_or_none()
         if row is None:
             return False
-        if not verify_token(normalized, row.code_hash):
-            return False
         row.used_at = datetime.now(UTC)
         return True
     return False
