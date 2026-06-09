@@ -194,13 +194,13 @@
             >
               <div class="flex min-w-0 flex-col">
                 <span class="text-text-base truncate">{SOUNDS[id].label}</span>
-                <span class="text-text-muted truncate text-xs">
+                <span class="text-text-muted truncate text-xs" data-testid="guild-sounds-status-{id}">
                   {#if row}
-                    <span data-testid="guild-sounds-status-{id}">
+                    <span>
                       {m.guild_sounds_status_custom({ filename: row.original_filename, size: fmtBytes(row.file_size) })}
                     </span>
                   {:else}
-                    <span class="opacity-60" data-testid="guild-sounds-status-{id}">{m.guild_sounds_status_default()}</span>
+                    <span class="opacity-60">{m.guild_sounds_status_default()}</span>
                   {/if}
                 </span>
               </div>

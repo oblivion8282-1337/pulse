@@ -94,11 +94,10 @@
     dragId = null;
     dragOverId = null;
     if (!sourceId || sourceId === targetId) return;
-    const nonEveryone = sortedRoles.filter((r) => !r.is_everyone);
-    const fromIdx = nonEveryone.findIndex((r) => r.id === sourceId);
-    const toIdx = nonEveryone.findIndex((r) => r.id === targetId);
+    const fromIdx = nonEveryoneIdx.get(sourceId) ?? -1;
+    const toIdx = nonEveryoneList.findIndex((r) => r.id === targetId);
     if (fromIdx < 0 || toIdx < 0) return;
-    const reordered = [...nonEveryone];
+    const reordered = [...nonEveryoneList];
     const [moved] = reordered.splice(fromIdx, 1);
     reordered.splice(toIdx, 0, moved);
     await commitOrder(reordered);
@@ -109,12 +108,11 @@
    * still the primary path on desktop. @everyone is locked at the
    * bottom; swaps that would cross it are no-ops. */
   async function move(roleId: string, direction: -1 | 1): Promise<void> {
-    const nonEveryone = sortedRoles.filter((r) => !r.is_everyone);
-    const idx = nonEveryone.findIndex((r) => r.id === roleId);
+    const idx = nonEveryoneIdx.get(roleId) ?? -1;
     if (idx < 0) return;
     const target = idx + direction;
-    if (target < 0 || target >= nonEveryone.length) return;
-    const reordered = [...nonEveryone];
+    if (target < 0 || target >= nonEveryoneList.length) return;
+    const reordered = [...nonEveryoneList];
     [reordered[idx], reordered[target]] = [reordered[target], reordered[idx]];
     await commitOrder(reordered);
   }
@@ -127,6 +125,7 @@
   let editColorEnabled = $state(false);
   let editHoist = $state(false);
   let editMentionable = $state(false);
+  let editColorInt = $derived(editColorEnabled ? parseInt(editColor.replace('#', ''), 16) : null);
   let isSaving = $state(false);
   let deleteConfirm = $state(false);
 
@@ -164,13 +163,10 @@
       dirty = false;
       return;
     }
-    const currentColour = editColorEnabled
-      ? parseInt(editColor.replace('#', ''), 16)
-      : null;
     dirty =
       editName !== selectedRole.name ||
       editPermissions !== selectedRole.permissions ||
-      currentColour !== selectedRole.color ||
+      editColorInt !== selectedRole.color ||
       editHoist !== selectedRole.hoist ||
       editMentionable !== selectedRole.mentionable;
   });
@@ -238,14 +234,11 @@
     try {
       // ``color: null`` clears the colour (members fall back to default
       // text colour). HTML's <input type="color"> only emits "#rrggbb"
-      // strings; parse to int once before the PATCH.
-      const colourInt = editColorEnabled
-        ? parseInt(editColor.replace('#', ''), 16)
-        : null;
+      // strings; editColorInt derives the parsed int reactively.
       const r = await rolesApi.patch(guildId, selectedRole.id, {
         name: selectedRole.is_everyone ? undefined : editName,
         permissions: editPermissions,
-        color: colourInt,
+        color: editColorInt,
         hoist: editHoist,
         mentionable: editMentionable
       });

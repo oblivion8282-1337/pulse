@@ -33,8 +33,6 @@
   let deleteDialogOpen = $state(false);
 
   const certId = $derived(certStore.cert?.claims.cert_id ?? null);
-  const hasBackup = $derived(existingBackup !== null);
-  const hasLocalKeypair = $derived(keypairStore.keypair !== null);
   const backupDateLabel = $derived.by(() => {
     if (!existingBackup) return '';
     try { return new Intl.DateTimeFormat('de-DE', { dateStyle: 'long' }).format(new Date(existingBackup.created_at)); }
@@ -49,9 +47,10 @@
   });
 
   function setView(v: ViewState) { errorMsg = null; viewState = v; }
-  const openSetup = () => setView('setup');
-  const openRecover = () => setView('recover');
-  const cancelFlow = () => setView('idle');
+
+  function errText(err: unknown, fallback: string): string {
+    return err instanceof Error ? err.message : fallback;
+  }
 
   async function handleSetup(password: string) {
     errorMsg = null;
@@ -88,9 +87,9 @@
       toast.success(m.cloud_backup_toast_saved(), {
         description: m.cloud_backup_toast_saved_desc()
       });
-      cancelFlow();
+      setView('idle');
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : m.cloud_backup_error_unknown_backup();
+      errorMsg = errText(err, m.cloud_backup_error_unknown_backup());
     } finally {
       busy = false;
     }
@@ -118,12 +117,12 @@
       toast.success(m.cloud_backup_toast_recovered(), {
         description: m.cloud_backup_toast_recovered_desc()
       });
-      cancelFlow();
+      setView('idle');
     } catch (err) {
       if (err instanceof BackupDecryptError) {
         errorMsg = m.cloud_backup_error_wrong_password();
       } else {
-        errorMsg = err instanceof Error ? err.message : m.cloud_backup_error_unknown_recover();
+        errorMsg = errText(err, m.cloud_backup_error_unknown_recover());
       }
     } finally {
       busy = false;
@@ -170,14 +169,14 @@
       <span>{m.cloud_backup_loading()}</span>
     </div>
   {:else if viewState === 'idle'}
-    {#if hasBackup}
+    {#if existingBackup}
       <p class="text-text-muted text-xs">
         {m.cloud_backup_existing_info({ date: backupDateLabel, device: existingBackup!.device_label })}
       </p>
       <div class="flex flex-wrap gap-2">
         <button
           type="button"
-          onclick={openSetup}
+          onclick={() => setView('setup')}
           class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="backup-update-btn"
         >
@@ -185,7 +184,7 @@
         </button>
         <button
           type="button"
-          onclick={openRecover}
+          onclick={() => setView('recover')}
           class="bg-bg-input text-text-base hover:bg-bg-hover rounded-md px-3 py-2 text-xs font-medium transition-colors md:py-1.5"
           data-testid="backup-recover-btn"
         >
@@ -206,7 +205,7 @@
       <p class="text-text-muted text-xs">{m.cloud_backup_no_backup()}</p>
       <button
         type="button"
-        onclick={openSetup}
+        onclick={() => setView('setup')}
         class="accent-gradient self-start rounded-md px-3 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 md:py-1.5"
         data-testid="backup-setup-btn"
       >
@@ -217,7 +216,7 @@
   {:else if viewState === 'setup'}
     <CloudBackupSetupForm
       onSubmit={handleSetup}
-      onCancel={cancelFlow}
+      onCancel={() => setView('idle')}
       {busy}
       error={errorMsg}
     />
@@ -225,10 +224,10 @@
   {:else if viewState === 'recover'}
     <CloudBackupRecoverForm
       onSubmit={handleRecover}
-      onCancel={cancelFlow}
+      onCancel={() => setView('idle')}
       {busy}
       error={errorMsg}
-      warnOverwrite={hasLocalKeypair}
+      warnOverwrite={keypairStore.keypair !== null}
     />
   {/if}
 </section>

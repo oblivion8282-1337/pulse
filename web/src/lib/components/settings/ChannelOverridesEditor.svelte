@@ -53,6 +53,10 @@
     { perm: Perm.USE_VIDEO, label: m.channel_overrides_perm_use_video() }
   ];
 
+  function owKey(ow: { target_type: 0 | 1; target_id: string }): string {
+    return `${ow.target_type}:${ow.target_id}`;
+  }
+
   let overwrites = $derived<Overwrite[]>(channelPermissions.byChannel[channelId] ?? []);
   let availableRoles = $derived(rolesStore.byGuild[guildId] ?? []);
 
@@ -73,7 +77,7 @@
     let nextSeeded = seededKeys;
     let mutated = false;
     for (const ow of overwrites) {
-      const k = `${ow.target_type}:${ow.target_id}`;
+      const k = owKey(ow);
       if (nextSeeded.has(k)) continue;
       if (!mutated) {
         next = { ...buffers };
@@ -143,7 +147,7 @@
       channelPermissions.apply(
         channelId,
         (channelPermissions.byChannel[channelId] ?? []).filter(
-          (ow) => `${ow.target_type}:${ow.target_id}` !== target
+          (ow) => owKey(ow) !== target
         )
       );
       // Forget the seed-once guard for this row so adding the same
@@ -188,17 +192,12 @@
       // overwrite list only repaints after the WS broadcast lands, which
       // makes the UI feel laggy on slow links.
       const current = channelPermissions.byChannel[channelId] ?? [];
-      const exists = current.some(
-        (ow) => ow.target_type === created.target_type && ow.target_id === created.target_id
-      );
+      const createdKey = owKey(created);
+      const exists = current.some((ow) => owKey(ow) === createdKey);
       channelPermissions.apply(
         channelId,
         exists
-          ? current.map((ow) =>
-              ow.target_type === created.target_type && ow.target_id === created.target_id
-                ? created
-                : ow
-            )
+          ? current.map((ow) => (owKey(ow) === createdKey ? created : ow))
           : [...current, created]
       );
       if (targetType === 0) addRoleId = '';
@@ -215,8 +214,10 @@
     return m.nickname ?? userCache.displayName(m.user_id);
   }
 
+  const editorBits = $derived(toBitfield(editorPermissions));
+
   function isEditorAllowed(perm: Permission): boolean {
-    return has(toBitfield(editorPermissions), perm);
+    return has(editorBits, perm);
   }
 </script>
 
@@ -288,8 +289,8 @@
     </p>
   {/if}
 
-  {#each overwrites as ow (ow.target_type + ':' + ow.target_id)}
-    {@const key = `${ow.target_type}:${ow.target_id}`}
+  {#each overwrites as ow (owKey(ow))}
+    {@const key = owKey(ow)}
     <section class="rounded-lg border border-border p-4" data-testid={`override-${key}`}>
       <header class="mb-3 flex items-center justify-between">
         <h3 class="text-text-bright text-sm font-semibold">{labelFor(ow)}</h3>

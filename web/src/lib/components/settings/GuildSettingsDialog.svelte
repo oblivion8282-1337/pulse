@@ -65,16 +65,11 @@
   let canBanMembers = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS)
   );
+  // Sounds, Plugins, PublicAddress und AuditLog benutzen alle MANAGE_GUILD.
   // Sound-overrides reuse MANAGE_GUILD on the backend (server-rename /
   // icon / settings sit on the same bit). Matches Discord's "manage
-  // server" grouping.
-  let canManageSounds = $derived(
-    !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
-  );
-  // Plugin-Toggles benutzen denselben MANAGE_GUILD-Bit wie Sounds —
-  // semantisch passt das (alles "Server konfigurieren"). Das Backend
-  // gated GET/PUT /guilds/{id}/plugins ebenfalls auf MANAGE_GUILD.
-  let canManagePlugins = $derived(
+  // server" grouping. Plugin-Toggles and AuditLog are gated identically.
+  let canManageGuild = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
   );
   // Mod-Queue: sichtbar wenn MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD.
@@ -83,10 +78,6 @@
       (roles.hasGuildPermission(guildId, Perm.MANAGE_MESSAGES) ||
         roles.hasGuildPermission(guildId, Perm.BAN_MEMBERS) ||
         roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD))
-  );
-  // Audit-Log: nur MANAGE_GUILD.
-  let canSeeAuditLog = $derived(
-    !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
   );
 
   // Default to the first tab the caller is allowed to see when the dialog
@@ -97,8 +88,7 @@
       initialized = true;
       if (canManageRoles) tab = 'roles';
       else if (canBanMembers) tab = 'bans';
-      else if (canManageSounds) tab = 'sounds';
-      else if (canManagePlugins) tab = 'plugins';
+      else if (canManageGuild) tab = 'sounds';
       else if (canSeeModQueue) tab = 'modqueue';
       else if (isOwner) tab = 'ownership';
     } else if (!open) {
@@ -244,7 +234,7 @@
             <BanIcon class="size-4" /> {m.guild_settings_dialog_tab_bans()}
           </button>
         {/if}
-        {#if canManageSounds}
+        {#if canManageGuild}
           <button
             type="button"
             class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
@@ -254,8 +244,6 @@
           >
             <Volume2Icon class="size-4" /> {m.guild_settings_dialog_tab_sounds()}
           </button>
-        {/if}
-        {#if canManagePlugins}
           <button
             type="button"
             class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
@@ -265,8 +253,6 @@
           >
             <PuzzleIcon class="size-4" /> {m.guild_settings_dialog_tab_plugins()}
           </button>
-        {/if}
-        {#if canManagePlugins}
           <button
             type="button"
             class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
@@ -288,7 +274,7 @@
             <FlagIcon class="size-4" /> {m.guild_settings_dialog_tab_modqueue()}
           </button>
         {/if}
-        {#if canSeeAuditLog}
+        {#if canManageGuild}
           <button
             type="button"
             class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
@@ -326,15 +312,15 @@
           <MemberRoleAssignment {guildId} editorPermissions={myPermissions} />
         {:else if tab === 'bans' && canBanMembers}
           <BansList {guildId} />
-        {:else if tab === 'sounds' && canManageSounds}
+        {:else if tab === 'sounds' && canManageGuild}
           <GuildSoundsEditor {guildId} />
-        {:else if tab === 'plugins' && canManagePlugins}
+        {:else if tab === 'plugins' && canManageGuild}
           <GuildPluginsEditor {guildId} />
-        {:else if tab === 'publicaddress' && canManagePlugins}
+        {:else if tab === 'publicaddress' && canManageGuild}
           <GuildPublicAddressEditor {guildId} />
         {:else if tab === 'modqueue' && canSeeModQueue}
           <ModQueue {guildId} />
-        {:else if tab === 'auditlog' && canSeeAuditLog}
+        {:else if tab === 'auditlog' && canManageGuild}
           <AuditLogViewer {guildId} />
         {:else if tab === 'ownership' && isOwner}
           <OwnerTransferSection {guild} />

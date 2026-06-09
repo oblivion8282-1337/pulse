@@ -19,6 +19,8 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
 
+  const DEFAULT_COLOR = '#9ca3af';
+
   const initial = $derived({
     username: auth.user?.username ?? '',
     displayName: auth.user?.display_name ?? '',
@@ -29,7 +31,7 @@
   let username = $state('');
   let displayName = $state('');
   let useColor = $state(false);
-  let profileColor = $state('#9ca3af');
+  let profileColor = $state(DEFAULT_COLOR);
   let lastSeededUserId = $state<string | null>(null);
 
   $effect(() => {
@@ -37,12 +39,18 @@
     if (!u) return;
     if (u.id !== lastSeededUserId) {
       lastSeededUserId = u.id;
+      lastReservation = null;
       username = u.username;
       displayName = u.display_name ?? '';
       useColor = !!u.profile_color;
-      profileColor = u.profile_color ?? '#9ca3af';
+      profileColor = u.profile_color ?? DEFAULT_COLOR;
     }
   });
+
+  async function refreshUser() {
+    const [user] = await Promise.all([me(), forceProfileRefresh()]);
+    auth.setUser(user);
+  }
 
   // ---- Username ------------------------------------------------------------
   let usernameBusy = $state(false);
@@ -61,8 +69,7 @@
     usernameSuggestions = [];
     try {
       lastReservation = await changeUsername(username.trim());
-      auth.setUser(await me());
-      await forceProfileRefresh();
+      await refreshUser();
       toast.success(m.settings_profile_username_changed(), {
         description: m.settings_profile_old_name_reserved(),
       });
@@ -90,9 +97,9 @@
   let profileBusy = $state(false);
   let profileError = $state<string | null>(null);
 
-  const displayNameDirty = $derived(displayName.trim() !== (initial.displayName ?? ''));
+  const displayNameDirty = $derived(displayName.trim() !== initial.displayName);
   const colorDirty = $derived(
-    useColor ? profileColor !== (initial.profileColor ?? '#9ca3af') : !!initial.profileColor,
+    useColor ? profileColor !== (initial.profileColor ?? DEFAULT_COLOR) : !!initial.profileColor,
   );
   const profileDirty = $derived(displayNameDirty || colorDirty);
 
@@ -105,8 +112,7 @@
       if (displayNameDirty) payload.display_name = displayName.trim() || null;
       if (colorDirty) payload.profile_color = useColor ? profileColor : null;
       await updateProfile(payload);
-      auth.setUser(await me());
-      await forceProfileRefresh();
+      await refreshUser();
       toast.success(m.settings_profile_saved());
     } catch (err) {
       profileError = err instanceof Error ? err.message : m.settings_profile_unknown_error();
