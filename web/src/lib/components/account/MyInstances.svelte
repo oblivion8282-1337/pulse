@@ -78,18 +78,18 @@
     </div>
   </div>
 
-  <!-- Secret-Hinweis -->
-  <div class="border-border bg-amber-500/10 flex gap-2 rounded-xl border border-amber-500/30 p-3">
-    <p class="text-amber-200 text-xs leading-relaxed">
-      {m.my_instances_secret_hint()}
-    </p>
-  </div>
-
   {#if loading}
     <p class="text-text-muted text-sm">{m.my_instances_loading()}</p>
   {:else if instances.length === 0}
     <p class="text-text-muted text-sm">{m.my_instances_empty()}</p>
   {:else}
+    <!-- Setup-Hinweis — nur wenn es überhaupt eine Instanz gibt -->
+    <div class="border-border bg-bg-input/40 flex gap-2 rounded-xl border p-3">
+      <p class="text-text-muted text-xs leading-relaxed">
+        {m.my_instances_secret_hint()}
+      </p>
+    </div>
+
     <div class="flex flex-col gap-2">
       {#each instances as inst (inst.id)}
         <div class="border-border bg-bg-input/30 rounded-xl border p-3 flex flex-col gap-2"

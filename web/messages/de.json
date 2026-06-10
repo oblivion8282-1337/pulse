@@ -1153,7 +1153,7 @@
   "my_instances_guide_worker_ids": "Worker-IDs (Chat/Voice/Media):",
   "my_instances_guide_worker_ids_suffix": "— eingetragen im .env-Snippet.",
   "my_instances_loading": "Lade…",
-  "my_instances_secret_hint": "Dein Client-Secret wurde dir einmalig nach Genehmigung angezeigt. Falls du es verloren hast, bitte einen Admin um eine Secret-Rotation.",
+  "my_instances_secret_hint": "Zum Einrichten oder Neu-Aufsetzen deines Servers nutze „Server einrichten“ — der Befehl bringt alle Zugangsdaten sicher mit. Du musst dir kein Secret merken.",
   "my_instances_status_active": "Aktiv",
   "my_instances_status_suspended": "Gesperrt",
   "my_instances_subtitle": "Deine freigeschalteten Self-Host-Server.",
