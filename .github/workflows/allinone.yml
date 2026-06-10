@@ -9,11 +9,15 @@
 #   ghcr.io/oblivion8282-1337/pulse-allinone:sha-<short>   (every build, for forensics)
 #
 # Trigger options (all do the same build, different tags applied):
-#   1. push to main         → :edge + :sha-<short>
+#   1. push to main         → :edge + :stable + :sha-<short>   (PHASEN-POLICY, s.u.)
 #   2. push tag v*.*.*      → :stable + :vX.Y.Z + :vX.Y + :vX + :sha-<short>
 #   3. workflow_dispatch    → :edge (no input) or :stable (release_version input)
 #
-# Self-Hoster pin to :stable, get updates via Watchtower; :edge is for testing.
+# PHASEN-POLICY (2026-06-10): In der aktuellen Früh-/Security-Phase taggt JEDER
+# main-Push auch :stable, damit ALLE Self-Hosts (egal ob :edge- oder :stable-
+# gepinnt) jeden Push automatisch via Watchtower ziehen — wie die Cloud :latest.
+# Zum Umstellen auf echte getaggte Releases: ":stable" aus dem edge-Zweig im
+# "Compute version + tags"-Step wieder entfernen.
 #
 # Build platforms: linux/amd64 + linux/arm64 (arm64 via QEMU emulation).
 # Cold build ~30 min, warm with gha-cache ~5 min.
@@ -97,8 +101,15 @@ jobs:
                 "${IMAGE}:sha-${SHORT_SHA}")
             fi
           else
+            # PHASEN-POLICY (2026-06-10): main-Pushes taggen bewusst AUCH :stable,
+            # nicht nur :edge. In der aktuellen Früh-/Security-Phase müssen ALLE
+            # Self-Hosts (auch die :stable-gepinnten Compose-Installs) jeden
+            # main-Push automatisch ziehen — wie die Cloud :latest. Sobald wir auf
+            # getaggte Releases umstellen, diese Zeile (":stable" im edge-Zweig)
+            # wieder entfernen → dann ist :stable erneut nur tag-gegated.
             TAGS=$(printf '%s\n' \
               "${IMAGE}:edge" \
+              "${IMAGE}:stable" \
               "${IMAGE}:sha-${SHORT_SHA}")
           fi
 
