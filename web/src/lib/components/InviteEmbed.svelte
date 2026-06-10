@@ -16,8 +16,14 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { serversStore } from '$lib/api/servers.svelte';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import { BackupRequiredError, SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
+  import {
+    BackupRequiredError,
+    SelfHostContactConfirmRequired,
+    getInvitePreviewOn
+  } from '$lib/api/add-server-flow';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -30,6 +36,38 @@
   let joining = $state(false);
 
   let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
+
+  // Self-Host-Karte: Sind wir auf dem Ziel-Server schon Mitglied, können wir
+  // die Preview DORT laden und Mitgliedschaft prüfen → Button wird zu
+  // „Beigetreten" statt dauerhaft klickbar zu bleiben. Reaktiv: greift auch,
+  // sobald man dem Server über genau diese Karte beigetreten ist.
+  let selfHostServer = $derived(host ? serversStore.findByHostname(host) : undefined);
+  let selfHostPreview = $state<InvitePreview | null>(null);
+  // Dedupe pro Server-Zustand (NICHT reaktiv): Schlüssel enthält pairwise_sub,
+  // das erst nach erfolgreichem Cert-Login gesetzt wird — ein Fehlversuch im
+  // Provisional-Fenster (noch kein Token) blockiert so den Post-Join-Retry
+  // nicht, aber unabhängige Store-Writes feuern keine Request-Wiederholungen.
+  const previewAttempted = new Set<string>();
+
+  $effect(() => {
+    const srv = selfHostServer;
+    if (!host || !srv || selfHostPreview) return;
+    const key = `${srv.id}:${srv.pairwise_sub ?? ''}`;
+    if (previewAttempted.has(key)) return;
+    previewAttempted.add(key);
+    void serverGuilds.ensureLoaded(srv.id);
+    getInvitePreviewOn(code, { serverId: srv.id })
+      .then((p) => (selfHostPreview = p))
+      .catch(() => {
+        /* keine Session / Code tot → Karte bleibt im schlanken Modus */
+      });
+  });
+
+  let alreadyMemberSelfHost = $derived(
+    !!selfHostServer &&
+      !!selfHostPreview &&
+      serverGuilds.get(selfHostServer.id).some((g) => g.id === selfHostPreview!.guild.id)
+  );
 
   onMount(async () => {
     if (host) {
@@ -126,12 +164,17 @@
     </Avatar.Root>
     <div class="min-w-0 flex-1">
       <p class="text-text-bright truncate text-sm font-semibold">
-        {m.invite_embed_self_host_title()}
+        {selfHostPreview?.guild.name ?? m.invite_embed_self_host_title()}
       </p>
       <p class="text-text-muted truncate text-xs" data-testid="invite-embed-host">{host}</p>
     </div>
-    <Button size="sm" onclick={handleJoin} disabled={joining} data-testid="invite-embed-join-btn">
-      {joining ? '…' : m.invite_embed_join()}
+    <Button
+      size="sm"
+      onclick={handleJoin}
+      disabled={alreadyMemberSelfHost || joining}
+      data-testid="invite-embed-join-btn"
+    >
+      {alreadyMemberSelfHost ? m.invite_embed_joined() : joining ? '…' : m.invite_embed_join()}
     </Button>
   {:else if invalid || !preview}
     <div class="text-text-muted flex-1 text-sm">{m.invite_embed_invalid()}</div>
