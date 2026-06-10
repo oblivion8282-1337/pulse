@@ -30,8 +30,54 @@ def _livekit_api_host(settings) -> str:  # noqa: ANN001
 
 _DEV_KEY = "devkey"
 _DEV_SECRET = "devsecretdevsecretdevsecretdevsecret"
+# Placeholder aus infra/prod/.env.example — wer das File 1:1 deployed, darf
+# nicht still mit einem öffentlich bekannten "Secret" starten.
+_PLACEHOLDER_SECRET = "__CHANGE_ME__"
+_LOCAL_LIVEKIT_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "host.docker.internal"})
 from dcc_voice_signaling.routes import router
 from dcc_voice_signaling.webhook import router as webhook_router
+
+
+def _livekit_url_is_local(url: str) -> bool:
+    """True wenn die LIVEKIT_URL auf einen lokalen Host zeigt (Dev-Setup)."""
+    from urllib.parse import urlsplit
+
+    host = urlsplit(url).hostname or ""
+    return host in _LOCAL_LIVEKIT_HOSTS
+
+
+def _enforce_secret_guards(settings) -> None:  # noqa: ANN001
+    """Fail-fast bei öffentlich bekannten Credentials in einem Nicht-Dev-Setup.
+
+    Die LiveKit-Dev-Keys (devkey/devsecret…) stehen im Repo — wer sie gegen
+    einen ÖFFENTLICH erreichbaren LiveKit verwendet, erlaubt jedem das Minten
+    gültiger Voice-Tokens. Lokales Dev (LIVEKIT_URL auf localhost) bleibt
+    erlaubt und warnt nur. ``__CHANGE_ME__`` (der .env.example-Platzhalter)
+    ist in JEDEM Setup ein Fehler.
+    """
+    if settings.livekit_api_secret == _PLACEHOLDER_SECRET:
+        raise RuntimeError(
+            "LIVEKIT_API_SECRET is still the .env.example placeholder __CHANGE_ME__ — "
+            "set a real secret before starting voice-signaling."
+        )
+    if settings.internal_service_secret == _PLACEHOLDER_SECRET:
+        raise RuntimeError(
+            "INTERNAL_SERVICE_SECRET is still the .env.example placeholder __CHANGE_ME__ — "
+            "set a real secret (same value as chat-gateway) or leave it empty to disable "
+            "the internal endpoint."
+        )
+    dev_creds = settings.livekit_api_key == _DEV_KEY or settings.livekit_api_secret == _DEV_SECRET
+    if dev_creds and not _livekit_url_is_local(settings.livekit_url):
+        raise RuntimeError(
+            "LiveKit dev credentials (devkey/devsecret…) with a non-local LIVEKIT_URL "
+            f"({settings.livekit_url!r}) — anyone who knows the public dev keys could mint "
+            "voice tokens. Set LIVEKIT_API_KEY/LIVEKIT_API_SECRET."
+        )
+    if dev_creds:
+        log.warning(
+            "livekit_dev_credentials",
+            msg="using LiveKit dev credentials — set LIVEKIT_API_KEY/SECRET in production",
+        )
 
 
 @asynccontextmanager
@@ -39,8 +85,7 @@ async def lifespan(app: FastAPI):
     from livekit import api as lk
 
     settings = get_settings()
-    if settings.livekit_api_key == _DEV_KEY or settings.livekit_api_secret == _DEV_SECRET:
-        log.warning("livekit_dev_credentials", msg="using LiveKit dev credentials — set LIVEKIT_API_KEY/SECRET in production")
+    _enforce_secret_guards(settings)
     if settings.chat_gateway_url is None:
         log.warning(
             "chat_gateway_url_unset",

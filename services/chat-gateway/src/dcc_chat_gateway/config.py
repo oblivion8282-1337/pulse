@@ -111,6 +111,16 @@ class Settings(BaseSettings):
     # 6 h matches the recommended max-age from DE 12.
     cloud_policy_poll_interval: int = 6 * 3600  # 6 h
 
+    # IPs / CIDRs whose ``X-Forwarded-For`` wir für das per-IP-Rate-Limiting
+    # (cert-login) vertrauen — Spiegel von auth-svc ``trusted_proxies``.
+    # Hinter Caddy/nginx ist die Socket-IP IMMER die Proxy-IP: ohne XFF teilen
+    # sich alle Nutzer einen Bucket (gegenseitiges Aussperren möglich) und ein
+    # einzelner Angreifer ist faktisch ungedrosselt. Default loopback-only:
+    # deckt den All-in-one-Self-Host ab (Caddy im selben Container); die Cloud
+    # setzt TRUSTED_PROXIES in der .env auf das pulse-net (siehe .env.example).
+    # Von nicht gelisteten Peers wird XFF ignoriert (Spoofing-Schutz).
+    trusted_proxies: str = "127.0.0.1,::1"
+
     # Self-Host identity model (DE 11 / DE 14)
     # ``cloud``   — Cloud instance; user_id used directly as identifier.
     # ``self-host`` — Self-hosted instance; pairwise-sub replaces user_id.

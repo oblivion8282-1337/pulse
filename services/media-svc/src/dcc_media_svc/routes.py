@@ -5,12 +5,17 @@ Endpoints:
     token (called by chat-gateway after it has checked the user's channel
     membership; the Pulse access token it forwards is verified here and the
     `sub` becomes the token's user_id). The push URL targets a fresh path
-    ``channel-<cid>-<uid>-<nonce>`` (nonce = 8 hex per issue, see ``streamkeys``).
+    ``channel-<cid>-<uid>-<nonce>`` (nonce = 32 hex per issue, see ``streamkeys``).
   * ``GET /channels/{channel_id}/stream`` — current set of HQ streamers in the
     channel (``{channel_id, user_ids: [...], since?}``).
   * ``GET /channels/{channel_id}/whep?user_id=<uid>`` — the WHEP playback URL
     for that user's *current* stream (reads ``stream:active:*`` to find the
     live path with its nonce). 404 if the user isn't streaming.
+
+All routes require a valid bearer (Cloud RS256 or Self-Host session token) —
+chat-gateway forwards the caller's token after its own membership/permission
+checks. The whep route used to be anonymous; a self-host Caddy exposing
+``/api/media/*`` then leaked stream URLs to anyone, bypassing VIEW_CHANNEL.
 """
 
 from __future__ import annotations
@@ -210,7 +215,12 @@ async def get_stream_state(
 
 
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
-async def get_whep_url(channel_id: ChannelId, user_id: UserIdQuery, request: Request) -> WhepOut:
+async def get_whep_url(
+    channel_id: ChannelId,
+    user_id: UserIdQuery,
+    user: CurrentUser,
+    request: Request,
+) -> WhepOut:
     """WHEP URL for ``user_id``'s live stream in ``channel_id``.
 
     The MediaMTX path now carries a per-publish nonce, so we can't compute it
@@ -218,6 +228,11 @@ async def get_whep_url(channel_id: ChannelId, user_id: UserIdQuery, request: Req
     the auth-hook updates on every successful publish-auth. 404 if there's no
     live publisher for that user; the WhepPlayer treats that the same as a
     publisher-not-up situation and keeps retrying.
+
+    ``user`` (the verified bearer) is required even though the VIEW_CHANNEL
+    check lives in chat-gateway: without it, a deployment that exposes
+    media-svc directly (the self-host Caddy used to) hands the nonce'd WHEP
+    URL to unauthenticated callers.
     """
     redis = _get_redis(request)
     raw = await redis.get(ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id))

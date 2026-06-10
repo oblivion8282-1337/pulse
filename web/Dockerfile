@@ -29,5 +29,8 @@ RUN pnpm --filter @dcc/web build
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 COPY infra/prod/web-nginx.conf /etc/nginx/conf.d/default.conf
+# Security-Header-Snippet — bewusst NICHT nach conf.d/ (würde dort als
+# http-Level-Config doppelt greifen); web-nginx.conf includet es explizit.
+COPY infra/prod/security-headers.inc /etc/nginx/security-headers.inc
 COPY --from=builder /app/web/build /usr/share/nginx/html
 EXPOSE 80

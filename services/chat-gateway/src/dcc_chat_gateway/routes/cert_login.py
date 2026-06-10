@@ -51,6 +51,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from dcc_chat_gateway.client_ip import client_ip as resolve_client_ip
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.credential_validator import (
     resolve_user_identifier,
@@ -195,15 +196,14 @@ def _reset_cert_login_rate_for_tests() -> None:
 def _client_ip(request: Request) -> str:
     """Best-effort client IP for rate-limit keying.
 
-    Uses the direct socket peer address (``request.client.host``) set by the
-    ASGI server, which always reflects the actual connecting party (the trusted
-    reverse proxy when deployed behind Caddy/nginx).  X-Forwarded-For is
-    intentionally ignored here: it is trivially spoofable by any caller who
-    injects an arbitrary header before the proxy appends its own entry, and
-    using it would allow an attacker to bypass the per-IP rate limit entirely.
+    Delegiert an ``client_ip.py``: X-Forwarded-For wird NUR ausgewertet, wenn
+    der Socket-Peer in ``Settings.trusted_proxies`` steht. Die frühere Variante
+    (immer Socket-Peer) war hinter Caddy/nginx wirkungslos — alle Clients
+    landeten im Bucket der Proxy-IP: gegenseitiges Aussperren (DoS) möglich,
+    ein einzelner Angreifer faktisch ungedrosselt. Von untrusted Peers bleibt
+    XFF ignoriert (Spoofing-Schutz wie zuvor).
     """
-    client = request.client
-    return client.host if client else "unknown"
+    return resolve_client_ip(request)
 
 
 def _enforce_cert_login_rate(request: Request) -> None:

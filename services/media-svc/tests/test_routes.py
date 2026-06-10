@@ -122,7 +122,8 @@ async def test_get_stream_state_reflects_redis(client, redis, auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_get_whep_url_returns_active_path(client, redis):
+async def test_get_whep_url_returns_active_path(client, redis, auth_signer):
+    access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
     path = f"channel-{cid}-42-deadbeef"
     await redis.set(
@@ -130,7 +131,7 @@ async def test_get_whep_url_returns_active_path(client, redis):
         json.dumps({"user_id": "42", "started_at": "2026-05-14T00:00:00+00:00", "path": path}),
     )
     try:
-        r = await client.get(f"/channels/{cid}/whep?user_id=42")
+        r = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
         assert r.status_code == 200
         assert r.json() == {"whep_url": f"http://stream.test:8889/{path}/whep"}
     finally:
@@ -138,14 +139,25 @@ async def test_get_whep_url_returns_active_path(client, redis):
 
 
 @pytest.mark.asyncio
-async def test_get_whep_url_404_when_no_active_stream(client):
+async def test_get_whep_url_requires_auth(client):
+    """Anonymous callers must never get the nonce'd WHEP URL — a self-host
+    deployment exposing media-svc directly would otherwise leak streams."""
     cid = _unique_cid()
     r = await client.get(f"/channels/{cid}/whep?user_id=42")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_get_whep_url_404_when_no_active_stream(client, auth_signer):
+    access = auth_signer.issue_access(7, "bob")
+    cid = _unique_cid()
+    r = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
     assert r.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_get_whep_url_requires_user_id(client):
+async def test_get_whep_url_requires_user_id(client, auth_signer):
+    access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
-    r = await client.get(f"/channels/{cid}/whep")
+    r = await client.get(f"/channels/{cid}/whep", headers=_auth(access))
     assert r.status_code == 422

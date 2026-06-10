@@ -44,6 +44,14 @@ log = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     app.state.rate_buckets = {}
     settings = get_settings()
+    # Fail-fast: der .env.example-Platzhalter ist öffentlich bekannt — damit zu
+    # starten hieße, /internal/* (Account-Purge etc.) mit einem allgemein
+    # bekannten "Secret" zu schützen. Leer/None = Endpoint deaktiviert, ok.
+    if settings.internal_service_secret == "__CHANGE_ME__":
+        raise RuntimeError(
+            "INTERNAL_SERVICE_SECRET is still the .env.example placeholder __CHANGE_ME__ — "
+            "set a real secret (same value as chat-gateway) or leave it unset."
+        )
     # Token-cleanup background task. Skipped under tests (the conftest sets
     # app.state.skip_cleanup = True after create_app so the per-test
     # in-memory SQLite engine isn't held open by a stray task).

@@ -77,6 +77,14 @@ async def lifespan(app: FastAPI):
             "Set PULSE_INSTANCE_ID in your .env file to the Snowflake-ID assigned "
             "by the Cloud at approval time."
         )
+    # Fail-fast: der .env.example-Platzhalter ist öffentlich bekannt — damit zu
+    # starten hieße, die internen Service-zu-Service-Endpoints mit einem
+    # allgemein bekannten "Secret" zu schützen. Leer = deaktiviert, ok.
+    if settings.internal_service_secret == "__CHANGE_ME__":
+        raise RuntimeError(
+            "INTERNAL_SERVICE_SECRET is still the .env.example placeholder __CHANGE_ME__ — "
+            "set a real secret (same value on auth-svc/voice-signaling) or leave it unset."
+        )
     # Resolve / auto-generate the Web-Push VAPID keypair. Logs the
     # *public* half (the browser needs it; not secret) on first call;
     # NEVER logs the private PEM. ``ensure_vapid`` is idempotent so

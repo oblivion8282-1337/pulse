@@ -10,9 +10,15 @@
     # ------------------------------------------------------------------ #
     # Security-Headers (Plan §Phase 6, identisch Cloud-Production)       #
     # ------------------------------------------------------------------ #
+    # Die CSP spiegelt die Meta-CSP in web/src/app.html (ohne die Dev-
+    # localhost-Einträge) — als Header-Policy gilt die SCHNITTMENGE beider
+    # Policies. Eine engere Header-CSP (frühere Version: script-src 'self',
+    # kein frame-src) blockt sonst die YouTube/Twitch-Embeds der Watch-Party,
+    # das Theme-FOUC-Inline-Script und das WASM des Noise-Filters.
+    # Änderungen an der Meta-CSP hier nachziehen (und in web-nginx.conf).
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
-        Content-Security-Policy "default-src 'self'; connect-src 'self' wss://*; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'"
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://www.youtube.com https://www.youtube-nocookie.com https://embed.twitch.tv; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://player.twitch.tv https://embed.twitch.tv; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws: wss: https: stun: turn:; font-src 'self' data:; media-src 'self' blob: https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
         X-Frame-Options DENY
         X-Content-Type-Options nosniff
         Referrer-Policy strict-origin-when-cross-origin
@@ -77,15 +83,25 @@
         }
     }
 
-    # voice-signaling (8003)
+    # voice-signaling (8003) — Webhook + interne Endpoints sind NICHT öffentlich
+    # (Spiegel der Cloud-nginx `deny all`-Blocks): /webhook ist zwar LiveKit-
+    # signaturgeprüft und /internal/* fail-closed, aber öffentlich erreichbar
+    # wären sie ein Webhook-Flooding-/Defense-in-Depth-Gap. LiveKit ruft den
+    # Webhook containerintern auf 127.0.0.1:8003 auf, nie über Caddy.
+    @voice_restricted path /api/voice/webhook /api/voice/internal/*
+    handle @voice_restricted {
+        respond 403
+    }
     handle_path /api/voice/* {
         reverse_proxy 127.0.0.1:8003
     }
 
-    # media-svc (8004)
-    handle_path /api/media/* {
-        reverse_proxy 127.0.0.1:8004
-    }
+    # media-svc (8004): bewusst KEINE öffentliche Route. Der einzige legitime
+    # Pfad läuft über chat-gateway (/api/chat/channels/{id}/stream-token bzw.
+    # /whep), das Membership + VIEW_CHANNEL prüft und den Bearer weiterreicht.
+    # Eine frühere direkte /api/media/*-Route exponierte GET /channels/{id}/whep
+    # (damals ohne Auth) → Stream-URLs für Nicht-Mitglieder. Das Frontend
+    # spricht /api/media nie direkt an.
 
     # ------------------------------------------------------------------ #
     # WHEP für MediaMTX HQ-Streaming (8889)                              #
