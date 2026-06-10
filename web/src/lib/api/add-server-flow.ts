@@ -161,6 +161,14 @@ export function acceptInvite(
   return request<AcceptInviteResult>(`/invites/${code}/accept`, reqOpts('POST'), route);
 }
 
+/**
+ * Echtes Austreten aus einer Self-Host-Instanz (DELETE /me/instance-membership).
+ * 403 = Instanz-Owner (kann nicht austreten) · 409 = besitzt noch Communitys.
+ */
+export function leaveInstanceOn(route: { serverId: string }): Promise<void> {
+  return request<void>(`/me/instance-membership`, reqOpts('DELETE'), route);
+}
+
 // ---------------------------------------------------------------------------
 // UI-Helpers — hier statt im Svelte-Component, damit die Component unter dem
 // 250-Z.-Cap bleibt.

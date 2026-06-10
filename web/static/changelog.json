@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.11",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Server entfernen heißt jetzt wirklich austreten",
+      "items": [
+        "Entfernst du einen Self-Host-Server aus deiner Liste, trittst du jetzt tatsächlich aus — für einen erneuten Beitritt brauchst du wieder eine Einladung. Vorher wurde nur die lokale Verknüpfung gelöscht und die Mitgliedschaft blieb bestehen. Betreibst du den Server selbst, bleibst du Mitglied (er verschwindet nur aus deiner Ansicht), und wer noch eigene Communitys auf dem Server besitzt, muss sie zuerst übertragen oder löschen."
+      ]
+    },
+    {
       "id": "2026-06-10.10",
       "date": "2026-06-10",
       "style": "Sachlich",

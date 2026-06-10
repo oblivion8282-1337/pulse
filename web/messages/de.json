@@ -828,12 +828,12 @@
   "guild_rail_remove_action": "Entfernen",
   "guild_rail_remove_icon": "Community-Bild entfernen",
   "guild_rail_remove_server": "Server entfernen",
-  "guild_rail_remove_server_description": "{label} wird aus deiner Liste entfernt. Deine Daten auf dem Server bleiben dort — nur die lokale Verknüpfung wird gelöscht.",
+  "guild_rail_remove_server_description": "Du trittst aus {label} aus und der Server wird aus deiner Liste entfernt. Für einen erneuten Beitritt brauchst du wieder eine Einladung. Betreibst du diesen Server selbst, bleibst du Mitglied — er verschwindet nur aus deiner Ansicht.",
   "guild_rail_remove_server_title": "Server entfernen?",
   "guild_rail_rename_community": "Community umbenennen",
   "guild_rail_server_info": "Server-Info",
   "guild_rail_server_remove_failed": "Entfernen fehlgeschlagen",
-  "guild_rail_server_removed": "{label} entfernt",
+  "guild_rail_server_removed": "Aus {label} ausgetreten",
   "guild_rail_settings": "Einstellungen",
   "guild_rail_this_community": "Diese Community",
   "guild_rail_this_server": "Dieser Server",
@@ -2130,5 +2130,8 @@
   "settings_notifications_on_friend_requests_desc": "Bei Freundschaftsanfragen und angenommenen Anfragen.",
   "settings_notifications_permission_prompt": "Erlaube Benachrichtigungen, damit Pop-ups erscheinen, wenn das Fenster im Hintergrund ist.",
   "settings_notifications_permission_allow": "Benachrichtigungen erlauben",
-  "settings_notifications_permission_blocked": "Benachrichtigungen sind im Browser blockiert. Erlaube sie in den Browser-Einstellungen für diese Seite."
+  "settings_notifications_permission_blocked": "Benachrichtigungen sind im Browser blockiert. Erlaube sie in den Browser-Einstellungen für diese Seite.",
+  "guild_rail_leave_owns_communities": "Du besitzt noch Communitys auf diesem Server. Übertrage oder lösche sie zuerst, dann kannst du austreten.",
+  "guild_rail_leave_owner_view_only": "Als Betreiber bleibst du Mitglied — {label} wurde nur aus deiner Ansicht entfernt.",
+  "guild_rail_leave_unreachable": "{label} entfernt — der Austritt konnte nicht übermittelt werden (Server nicht erreichbar). Deine Mitgliedschaft dort besteht weiter."
 }

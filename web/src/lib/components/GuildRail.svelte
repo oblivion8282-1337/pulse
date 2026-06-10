@@ -28,6 +28,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
+  import { ApiError } from '$lib/api/client';
+  import { leaveInstanceOn } from '$lib/api/add-server-flow';
   import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -236,10 +238,30 @@
     removeServerConfirmOpen = true;
   }
 
-  function confirmServerRemove(): void {
+  async function confirmServerRemove(): Promise<void> {
     if (!removeServerTarget) return;
     const id = removeServerTarget.id;
     const label = removeServerTarget.label;
+    const isCloud = removeServerTarget.isCloud;
+    // Entfernen = echtes Austreten (User-Entscheidung 2026-06-10): erst die
+    // Instanz-Mitgliedschaft serverseitig beenden, dann lokal aufräumen.
+    // 403 = Instanz-Owner (bleibt Mitglied, nur Ansicht entfernt) · 409 =
+    // besitzt noch Communitys (Abbruch) · Netzfehler = lokal trotzdem
+    // entfernen, aber warnen (Mitgliedschaft besteht weiter).
+    let leaveResult: 'left' | 'owner' | 'unreachable' = 'left';
+    if (!isCloud) {
+      try {
+        await leaveInstanceOn({ serverId: id });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 409) {
+          toast.error(m.guild_rail_leave_owns_communities());
+          removeServerConfirmOpen = false;
+          removeServerTarget = null;
+          return;
+        }
+        leaveResult = err instanceof ApiError && err.status === 403 ? 'owner' : 'unreachable';
+      }
+    }
     try {
       // Connection schließen BEVOR der Entry weg ist (Pool dereferenced
       // serversStore.find sonst zu undefined → spätere reconnects crashen).
@@ -251,7 +273,13 @@
         const fallback = serversStore.servers.find((s) => s.isCloud);
         if (fallback) activeServer.set(fallback.id);
       }
-      toast.success(m.guild_rail_server_removed({ label }));
+      if (isCloud || leaveResult === 'left') {
+        toast.success(m.guild_rail_server_removed({ label }));
+      } else if (leaveResult === 'owner') {
+        toast.info(m.guild_rail_leave_owner_view_only({ label }));
+      } else {
+        toast.warning(m.guild_rail_leave_unreachable({ label }));
+      }
     } catch (err) {
       toast.error(m.guild_rail_server_remove_failed(), { description: (err as Error).message });
     } finally {

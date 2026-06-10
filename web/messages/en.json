@@ -820,12 +820,12 @@
   "guild_rail_remove_action": "Remove",
   "guild_rail_remove_icon": "Remove community icon",
   "guild_rail_remove_server": "Remove server",
-  "guild_rail_remove_server_description": "{label} will be removed from your list. Your data on the server stays there — only the local link is deleted.",
+  "guild_rail_remove_server_description": "You leave {label} and the server is removed from your list. To join again you will need a new invite. If you host this server yourself, you stay a member — it only disappears from your view.",
   "guild_rail_remove_server_title": "Remove server?",
   "guild_rail_rename_community": "Rename community",
   "guild_rail_server_info": "Server info",
   "guild_rail_server_remove_failed": "Failed to remove server",
-  "guild_rail_server_removed": "{label} removed",
+  "guild_rail_server_removed": "Left {label}",
   "guild_rail_settings": "Settings",
   "guild_rail_this_community": "This community",
   "guild_rail_this_server": "This server",
@@ -2130,5 +2130,8 @@
   "settings_notifications_on_friend_requests_desc": "Friend requests and accepted requests.",
   "settings_notifications_permission_prompt": "Allow notifications so popups appear when the window is in the background.",
   "settings_notifications_permission_allow": "Allow notifications",
-  "settings_notifications_permission_blocked": "Notifications are blocked in the browser. Allow them in your browser settings for this site."
+  "settings_notifications_permission_blocked": "Notifications are blocked in the browser. Allow them in your browser settings for this site.",
+  "guild_rail_leave_owns_communities": "You still own communities on this server. Transfer or delete them first, then you can leave.",
+  "guild_rail_leave_owner_view_only": "As the host you stay a member — {label} was only removed from your view.",
+  "guild_rail_leave_unreachable": "{label} removed — the leave could not be delivered (server unreachable). Your membership there still exists."
 }

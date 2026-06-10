@@ -22,6 +22,7 @@ from dcc_chat_gateway.routes import (
     guild_plugins,
     guilds,
     health,
+    instance_membership,
     internal,
     invites,
     mention_search,
@@ -49,6 +50,7 @@ from dcc_chat_gateway.routes import (
 
 router = APIRouter()
 router.include_router(health.router)
+router.include_router(instance_membership.router)
 router.include_router(guilds.router)
 router.include_router(bans.router)
 router.include_router(guild_icons.router)
