@@ -13,7 +13,9 @@
    * Master-Passwort wird NIEMALS persistiert oder geloggt.
    */
   import { toast } from 'svelte-sonner';
+  import { goto } from '$app/navigation';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import { Button } from '$lib/components/ui/button/index.js';
   import { backupGate } from '$lib/stores/backup-gate.svelte';
   import { certStore } from '$lib/identity/cert.svelte';
   import { loadKeypair } from '$lib/identity/keypair.svelte';
@@ -26,10 +28,32 @@
 
   let busy = $state(false);
   let errorMsg = $state<string | null>(null);
+  // Hat der User schon ein Backup (anderes Gerät), zeigt der Dialog erst den
+  // Restore-Pfad. „Stattdessen neu einrichten" schaltet auf das Setup-Formular.
+  let forceSetup = $state(false);
+  let showRestore = $derived(!!backupGate.restoreCertId && !forceSetup);
 
   function handleOpenChange(next: boolean): void {
     // Schließen ohne abgeschlossenes Setup = Abbruch des Beitritts.
-    if (!next) backupGate.resolve(false);
+    if (!next) {
+      forceSetup = false;
+      backupGate.resolve(false);
+    }
+  }
+
+  /** Restore: zur getesteten /recover-Seite (stellt Keypair + Cert + Server-
+   *  Vault korrekt wieder her). Der aktuelle Beitritt wird abgebrochen; nach
+   *  der Wiederherstellung tritt der User einfach erneut bei (dann ohne Gate). */
+  function goRestore(): void {
+    if (busy) return;
+    const cid = backupGate.restoreCertId;
+    const label = backupGate.restoreDeviceLabel;
+    if (!cid) return;
+    busy = true;
+    backupGate.resolve(false);
+    void goto(
+      `/recover?cert_id=${encodeURIComponent(cid)}&device_label=${encodeURIComponent(label)}`
+    );
   }
 
   async function handleSetup(password: string): Promise<void> {
@@ -77,15 +101,36 @@
 
 <Dialog.Root open={backupGate.open} onOpenChange={handleOpenChange}>
   <Dialog.Content data-testid="backup-gate-dialog">
-    <Dialog.Header>
-      <Dialog.Title>{m.backup_gate_dialog_title()}</Dialog.Title>
-      <Dialog.Description>{m.backup_gate_dialog_description()}</Dialog.Description>
-    </Dialog.Header>
-    <CloudBackupSetupForm
-      onSubmit={handleSetup}
-      onCancel={() => backupGate.resolve(false)}
-      {busy}
-      error={errorMsg}
-    />
+    {#if showRestore}
+      <Dialog.Header>
+        <Dialog.Title>{m.backup_gate_restore_title()}</Dialog.Title>
+        <Dialog.Description>
+          {m.backup_gate_restore_body({ device: backupGate.restoreDeviceLabel })}
+        </Dialog.Description>
+      </Dialog.Header>
+      <div class="flex flex-col gap-2 pt-2">
+        <Button onclick={goRestore} data-testid="backup-gate-restore-btn">
+          {m.backup_gate_restore_btn()}
+        </Button>
+        <Button
+          variant="ghost"
+          onclick={() => (forceSetup = true)}
+          data-testid="backup-gate-setup-instead-btn"
+        >
+          {m.backup_gate_restore_setup_instead()}
+        </Button>
+      </div>
+    {:else}
+      <Dialog.Header>
+        <Dialog.Title>{m.backup_gate_dialog_title()}</Dialog.Title>
+        <Dialog.Description>{m.backup_gate_dialog_description()}</Dialog.Description>
+      </Dialog.Header>
+      <CloudBackupSetupForm
+        onSubmit={handleSetup}
+        onCancel={() => backupGate.resolve(false)}
+        {busy}
+        error={errorMsg}
+      />
+    {/if}
   </Dialog.Content>
 </Dialog.Root>

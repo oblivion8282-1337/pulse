@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.7",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Neues Gerät: Zugang wiederherstellen statt neues Backup anlegen",
+      "items": [
+        "Wenn du auf einem neuen Gerät einem Self-Host-Server beitrittst und schon ein Backup hast, bietet Pulse jetzt an, deinen Zugang mit deinem Recovery-Schlüssel wiederherzustellen — statt verwirrend einen zweiten Schlüssel zu erzeugen. So bleibt alles unter einem Schlüssel und deine Server-Liste kommt zurück."
+      ]
+    },
+    {
       "id": "2026-06-10.6",
       "date": "2026-06-10",
       "style": "Sachlich",
