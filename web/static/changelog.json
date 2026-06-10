@@ -5,9 +5,9 @@
       "id": "2026-06-10.8",
       "date": "2026-06-10",
       "style": "Sachlich",
-      "title": "Ein Wiederherstellungs-Schlüssel für deinen ganzen Account",
+      "title": "Dein Sync-Schlüssel: einer für alles, klar erklärt",
       "items": [
-        "Dein Account hat jetzt genau einen Wiederherstellungs-Schlüssel. Auf einem neuen Gerät gibst du ihn einmal ein — damit wird das Gerät gesichert und deine Server-Liste kommt zurück. Es kann nicht mehr passieren, dass versehentlich ein zweiter, abweichender Schlüssel entsteht. Bestehende Backups funktionieren weiter und werden beim nächsten Entsperren automatisch umgestellt."
+        "Der bisherige Wiederherstellungs-Schlüssel heißt jetzt Sync-Schlüssel — und dein Account hat genau einen. Er hält die Liste deiner Self-Host-Server Ende-zu-Ende verschlüsselt synchron: Auf einem neuen Gerät gibst du ihn einmal ein und deine Self-Host-Server sind wieder da. Nicht einmal Pulse kann sehen, wo du Mitglied bist. Deine Communitys auf Pulse Cloud brauchen ihn nicht — die hängen an deinem Account. Es kann nicht mehr passieren, dass versehentlich ein zweiter, abweichender Schlüssel entsteht; bestehende Sicherungen funktionieren weiter und werden beim nächsten Entsperren automatisch umgestellt."
       ]
     },
     {
