@@ -471,6 +471,117 @@ async def test_login_totp_rejects_expired_ticket(client):
     assert r.status_code == 401
 
 
+# ---- MFA ticket single-use (replay protection) -------------------------
+
+
+@pytest.mark.asyncio
+async def test_mfa_ticket_carries_single_use_jti():
+    """Every minted ticket has a random jti; decode round-trips it."""
+    from dcc_auth.recovery import decode_mfa_ticket, issue_mfa_ticket
+    from dcc_auth.security import get_signer
+
+    signer = get_signer()
+    uid, jti = decode_mfa_ticket(signer, issue_mfa_ticket(signer, 4242, 300))
+    assert uid == 4242
+    assert jti and len(jti) == 32  # secrets.token_hex(16)
+
+
+@pytest.mark.asyncio
+async def test_claim_mfa_ticket_is_single_use(monkeypatch):
+    """The Redis NX claim wins exactly once per jti; fail-open without Redis."""
+    import redis.asyncio
+
+    from dcc_auth import recovery
+
+    store: dict[str, str] = {}
+
+    class _FakeRedis:
+        async def set(self, key, val, nx=False, ex=None):
+            if nx and key in store:
+                return None
+            store[key] = val
+            return True
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(redis.asyncio.Redis, "from_url", lambda *a, **k: _FakeRedis())
+
+    # First claim wins, the replay loses, a different jti is independent.
+    assert await recovery.claim_mfa_ticket("redis://x", "jti-1", 300) is True
+    assert await recovery.claim_mfa_ticket("redis://x", "jti-1", 300) is False
+    assert await recovery.claim_mfa_ticket("redis://x", "jti-2", 300) is True
+
+    # Fail-open: a legacy ticket (no jti) or unconfigured Redis must not lock out.
+    assert await recovery.claim_mfa_ticket("redis://x", None, 300) is True
+    assert await recovery.claim_mfa_ticket(None, "jti-3", 300) is True
+
+    # Fail-open on a Redis error (down/unreachable) — login must still proceed.
+    def _boom(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(redis.asyncio.Redis, "from_url", _boom)
+    assert await recovery.claim_mfa_ticket("redis://x", "jti-4", 300) is True
+
+
+@pytest.mark.asyncio
+async def test_login_totp_claims_the_ticket_jti(client, monkeypatch):
+    """A successful 2FA login claims a real (non-None) jti for single use."""
+    tokens = await _register(client)
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+    secret = await _enable_2fa(client, bearer)
+
+    seen: dict[str, str | None] = {}
+
+    async def _fake_claim(url, jti, ttl):
+        seen["jti"] = jti
+        return True
+
+    monkeypatch.setattr("dcc_auth.routes_totp.claim_mfa_ticket", _fake_claim)
+
+    step1 = (
+        await client.post(
+            "/login",
+            json={"email_or_username": REG["email"], "password": REG["password"]},
+        )
+    ).json()
+    r = await client.post(
+        "/login/totp",
+        json={"mfa_ticket": step1["mfa_ticket"], "code": pyotp.TOTP(secret).now()},
+    )
+    assert r.status_code == 200, r.text
+    assert seen.get("jti")  # the ticket's jti reached the single-use claim
+
+
+@pytest.mark.asyncio
+async def test_login_totp_rejects_already_claimed_ticket(client, monkeypatch):
+    """When the jti is already used (claim → False), the second step 401s even
+    with a valid code — this is the replay block an intercepted ticket hits."""
+    tokens = await _register(client)
+    bearer = {"Authorization": f"Bearer {tokens['access_token']}"}
+    secret = await _enable_2fa(client, bearer)
+
+    async def _used_claim(url, jti, ttl):
+        return False
+
+    monkeypatch.setattr("dcc_auth.routes_totp.claim_mfa_ticket", _used_claim)
+
+    step1 = (
+        await client.post(
+            "/login",
+            json={"email_or_username": REG["email"], "password": REG["password"]},
+        )
+    ).json()
+    r = await client.post(
+        "/login/totp",
+        json={"mfa_ticket": step1["mfa_ticket"], "code": pyotp.TOTP(secret).now()},
+    )
+    assert r.status_code == 401
+
+
 # ---- Background invariants ---------------------------------------------
 
 

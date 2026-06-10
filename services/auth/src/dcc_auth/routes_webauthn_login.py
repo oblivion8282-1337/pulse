@@ -33,7 +33,7 @@ from dcc_auth.passkeys import (
     issue_challenge_ticket,
     load_user_credentials,
 )
-from dcc_auth.recovery import decode_mfa_ticket
+from dcc_auth.recovery import claim_mfa_ticket, decode_mfa_ticket
 from dcc_auth.routes import _check_rate, _client_ip, _hash_ip, _issue_tokens, _signer_dep
 from dcc_auth.schemas import (
     TokensOut,
@@ -74,7 +74,7 @@ async def webauthn_login_options(
     allow: list[WebAuthnCredential] | None = None
     if payload.mfa_ticket:
         try:
-            user_id = decode_mfa_ticket(signer, payload.mfa_ticket)
+            user_id, _ = decode_mfa_ticket(signer, payload.mfa_ticket)
         except jwt.PyJWTError as exc:
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
@@ -122,13 +122,14 @@ async def webauthn_login_verify(
         ) from exc
 
     passwordless = challenge_user_id is None
+    mfa_jti: str | None = None
     if not passwordless:
         if not payload.mfa_ticket:
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, detail="missing mfa ticket"
             )
         try:
-            mfa_user_id = decode_mfa_ticket(signer, payload.mfa_ticket)
+            mfa_user_id, mfa_jti = decode_mfa_ticket(signer, payload.mfa_ticket)
         except jwt.PyJWTError as exc:
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
@@ -178,6 +179,17 @@ async def webauthn_login_verify(
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="passkey verification failed"
         ) from exc
+
+    # Single-use on the 2FA path: burn the password-step ticket's jti so it can't
+    # be replayed to mint a second token pair within its TTL. Passwordless has no
+    # mfa_ticket (mfa_jti is None → no-op); its replay guard is the single-use
+    # challenge ticket. Claimed only after the assertion verified.
+    if not passwordless and not await claim_mfa_ticket(
+        settings.redis_url, mfa_jti, settings.mfa_ticket_ttl_seconds
+    ):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
+        )
 
     row.sign_count = verified.new_sign_count
     row.last_used_at = datetime.now(UTC)

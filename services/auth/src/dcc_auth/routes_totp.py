@@ -37,6 +37,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import BackupCode, User, WebAuthnCredential
 from dcc_auth.recovery import (
+    claim_mfa_ticket,
     decode_mfa_ticket,
     generate_backup_codes,
     hash_token,
@@ -263,7 +264,7 @@ async def login_totp(
     await _check_rate(request, "login_totp", settings.rate_limit_login_totp)
 
     try:
-        user_id = decode_mfa_ticket(signer, payload.mfa_ticket)
+        user_id, ticket_jti = decode_mfa_ticket(signer, payload.mfa_ticket)
     except jwt.PyJWTError as exc:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
@@ -296,6 +297,17 @@ async def login_totp(
         session, user, code=payload.code, backup_code=payload.backup_code
     ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid code")
+
+    # Single-use: the ticket has now done its job. Claim its jti so an intercepted
+    # ticket can't be replayed (with the next valid TOTP code) to mint a second
+    # token pair within the 5-min TTL. Claimed only after the factor verified, so
+    # a mistyped code never burns the legitimate user's ticket.
+    if not await claim_mfa_ticket(
+        settings.redis_url, ticket_jti, settings.mfa_ticket_ttl_seconds
+    ):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
+        )
 
     user_agent = request.headers.get("user-agent")
     tokens = await _issue_tokens(

@@ -17,6 +17,8 @@ import { goto } from '$app/navigation';
 import { isElectron } from '$lib/platform/runtime';
 import { settings } from '$lib/stores/settings.svelte';
 import { presence } from '$lib/stores/presence.svelte';
+import { dispatchingServerId } from '$lib/ws/gateway-connection';
+import { serversStore } from '$lib/api/servers.svelte';
 
 /** True when the user has set DND — callers should suppress sounds + toasts. */
 export function isDnd(): boolean {
@@ -48,6 +50,32 @@ function buildTargetUrl(input: InPageNotifyInput): string {
   return `/app/guilds/${guildId}/channels/${channelId}`;
 }
 
+/**
+ * Trust indicator for the notification title.
+ *
+ * A self-host server controls the entire `mention_added` / `dm_bump` payload —
+ * author name, channel name and the message snippet that become the
+ * notification title + body. Without an origin marker a malicious operator can
+ * fire an OS-level notification that impersonates Pulse Cloud ("your password
+ * was changed, verify at …") and phish the user, who trusts notifications from
+ * the Pulse app.
+ *
+ * We prefix the title with the originating server's *hostname* — which the
+ * user themselves chose when adding the server, never anything the server
+ * supplies (the `label` can be server-set, the hostname cannot). Cloud
+ * notifications get no prefix (clean), third-party ones are visibly attributed.
+ * `dispatchingServerId()` is valid here because callers fire synchronously
+ * inside WS dispatch, which sets it right before invoking handlers.
+ */
+function originPrefix(): string {
+  const sid = dispatchingServerId();
+  if (!sid) return '';
+  const entry = serversStore.servers.find((s) => s.id === sid);
+  if (!entry || entry.isCloud) return '';
+  const host = entry.hostname.replace(/^https?:\/\//, '');
+  return `[${host}] `;
+}
+
 function shouldFire(kind: NotifyKind): boolean {
   // DND suppresses both toasts and browser notifications.
   if (presence.myStatus === 'dnd') return false;
@@ -74,6 +102,10 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
     document.visibilityState === 'hidden' || !document.hasFocus();
   if (!inBackground) return;
 
+  // Attribute third-party (self-host) notifications so the title can't
+  // impersonate Pulse Cloud — see originPrefix().
+  const title = originPrefix() + input.title;
+
   if (isElectron()) {
     // Electron: hand off to the main process IPC bridge. `notify` may be
     // absent on older preload bundles — optional-chain so it degrades to
@@ -82,7 +114,7 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
     if (!api) return;
     void api
       .show({
-        title: input.title,
+        title,
         body: input.body,
         channel_id: input.channelId ?? '',
         message_id: input.messageId ?? '',
@@ -98,7 +130,7 @@ export function fireInPageNotification(input: InPageNotifyInput): void {
   if (!('Notification' in window)) return;
   if (Notification.permission !== 'granted') return;
   try {
-    const n = new Notification(input.title, {
+    const n = new Notification(title, {
       body: input.body,
       icon: input.iconUrl ?? '/pulse-mark.svg',
       tag: input.messageId,

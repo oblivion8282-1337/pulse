@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 from typing import Any
@@ -20,6 +21,8 @@ from typing import Any
 import jwt
 
 from dcc_auth.security import JwtSigner
+
+log = logging.getLogger(__name__)
 
 # Plaintext byte length passed to ``secrets.token_urlsafe`` — at 32 bytes the
 # encoded string is 43 chars, well above any practical brute-force budget for
@@ -69,7 +72,9 @@ def issue_mfa_ticket(signer: JwtSigner, user_id: int, ttl_seconds: int) -> str:
 
     Reuses the existing RS256 signer so the verification path needs no new
     keys. ``purpose='mfa'`` is checked on the second step — a regular access
-    token MUST NOT be accepted there.
+    token MUST NOT be accepted there. ``jti`` is a random single-use id: the
+    second-step handler claims it in Redis (``claim_mfa_ticket``) so a ticket
+    that has already minted one token pair cannot be replayed within its TTL.
     """
     now = int(time.time())
     payload: dict[str, Any] = {
@@ -83,6 +88,7 @@ def issue_mfa_ticket(signer: JwtSigner, user_id: int, ttl_seconds: int) -> str:
         "iat": now,
         "exp": now + ttl_seconds,
         "purpose": "mfa",
+        "jti": secrets.token_hex(16),
     }
     # Hit the private key directly to skip the iss/aud claims (decode below
     # mirrors that — we deliberately don't go through ``issue_access``).
@@ -94,8 +100,12 @@ def issue_mfa_ticket(signer: JwtSigner, user_id: int, ttl_seconds: int) -> str:
     )
 
 
-def decode_mfa_ticket(signer: JwtSigner, ticket: str) -> int:
-    """Return the ``user_id`` carried by a valid MFA ticket.
+def decode_mfa_ticket(signer: JwtSigner, ticket: str) -> tuple[int, str | None]:
+    """Return ``(user_id, jti)`` carried by a valid MFA ticket.
+
+    ``jti`` is ``None`` only for legacy tickets minted before single-use
+    enforcement existed (in-flight during a deploy) — callers treat a missing
+    ``jti`` as "cannot enforce single use" rather than failing the login.
 
     Raises ``jwt.PyJWTError`` on any failure (expired, bad signature, wrong
     purpose, missing ``sub``).
@@ -110,4 +120,36 @@ def decode_mfa_ticket(signer: JwtSigner, ticket: str) -> int:
     )
     if payload.get("purpose") != "mfa":
         raise jwt.InvalidTokenError("not an mfa ticket")
-    return int(payload["sub"])
+    jti = payload.get("jti")
+    return int(payload["sub"]), (str(jti) if jti else None)
+
+
+async def claim_mfa_ticket(redis_url: str | None, jti: str | None, ttl_seconds: int) -> bool:
+    """Atomically mark an MFA ticket's ``jti`` as used; ``True`` if newly claimed.
+
+    Returns ``False`` only when the ``jti`` was *already* claimed — i.e. this is
+    a replay of a ticket that has already minted a token pair. The caller must
+    reject the request in that case.
+
+    Called only after the second factor has verified, so a mistyped code never
+    burns the ticket. Uses ``SET NX EX`` (atomic) so two parallel replays of the
+    same ticket can never both win.
+
+    Fail-open by design: this service treats Redis as optional (unit tests run
+    SQLite-only, see ``routes_crl``), and a missing ``jti`` (legacy ticket) or an
+    unreachable Redis must not lock 2FA users out. Production always has Redis,
+    so the single-use guard is live where it matters.
+    """
+    if not jti or not redis_url:
+        return True
+    try:
+        from redis.asyncio import Redis
+
+        async with Redis.from_url(redis_url, decode_responses=True) as r:
+            # NX → only the first claimant gets True; EX bounds the marker to the
+            # ticket's own lifetime (no point keeping it past expiry).
+            claimed = await r.set(f"mfa:used:{jti}", "1", nx=True, ex=ttl_seconds)
+            return bool(claimed)
+    except Exception:  # noqa: BLE001 — Redis down must not break login (fail-open)
+        log.warning("mfa ticket single-use claim failed (Redis); allowing", exc_info=True)
+        return True
