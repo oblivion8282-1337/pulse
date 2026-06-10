@@ -22,8 +22,12 @@ class ProfileStatement(BaseModel):
 
 
 class ProfileUpdateRequest(BaseModel):
+    # avatar_hash is intentionally NOT writable here: it must only ever be set
+    # by POST /me/avatar, which derives it from the SHA-256 of the actually
+    # uploaded+processed image. Accepting it from the client would let anyone
+    # point their profile at an arbitrary by-hash blob (impersonation), since
+    # the by-hash avatar store is anonymously readable.
     display_name: Annotated[str | None, Field(default=..., max_length=64)] = None
-    avatar_hash: Annotated[str | None, Field(default=..., max_length=64)] = None
     profile_color: Annotated[str | None, Field(default=..., max_length=32)] = None
 
 

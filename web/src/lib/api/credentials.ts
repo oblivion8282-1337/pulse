@@ -39,7 +39,9 @@ export interface ProfileStatementResponse {
 
 export interface ProfileUpdatePayload {
   display_name?: string | null;
-  avatar_hash?: string | null;
+  // avatar_hash is deliberately not part of the update payload — the avatar is
+  // changed via POST /me/avatar (image upload), and the backend ignores any
+  // avatar_hash sent here. The response below still echoes the current hash.
   profile_color?: string | null;
 }
 
@@ -122,8 +124,9 @@ export async function getProfileStatement(): Promise<ProfileStatementResponse> {
 }
 
 /**
- * Aktualisiert Profil-Felder (display_name, avatar_hash, profile_color).
+ * Aktualisiert Profil-Felder (display_name, profile_color).
  * Sendet nur gesetzte Felder — nutze `model_fields_set`-Semantik.
+ * (avatar_hash läuft separat über POST /me/avatar.)
  */
 export async function updateProfile(data: ProfileUpdatePayload): Promise<ProfileUpdateResponse> {
   return cookieFetch<ProfileUpdateResponse>('/me/profile', {

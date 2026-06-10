@@ -97,7 +97,11 @@ async def test_profile_statement_cache(client):
 
 
 @pytest.mark.asyncio
-async def test_profile_update_avatar_hash(client):
+async def test_profile_update_avatar_hash_is_ignored(client):
+    # avatar_hash must NOT be settable via /me/profile — only POST /me/avatar
+    # may write it (derived from the uploaded image). A client-supplied value is
+    # silently ignored so nobody can point their profile at an arbitrary
+    # by-hash blob (impersonation).
     r_reg = await client.post("/register", json={
         "username": "avatarhash_user", "email": "avh@dcc-test.example.com", "password": "avhpassword1",
     })
@@ -105,8 +109,8 @@ async def test_profile_update_avatar_hash(client):
     headers = {"Authorization": f"Bearer {access}"}
     r = await client.post("/me/profile", json={"avatar_hash": "abc123def456"}, headers=headers)
     assert r.status_code == 200, r.text
-    assert r.json()["avatar_hash"] == "abc123def456"
-    assert "avatar_hash" in r.json()["updated"]
+    assert r.json()["avatar_hash"] is None
+    assert "avatar_hash" not in r.json()["updated"]
 
 
 @pytest.mark.asyncio
@@ -142,13 +146,13 @@ async def test_profile_update_omitted_keys_unchanged(client):
 async def test_profile_update_null_clears_field(client):
     r_reg = await client.post("/register", json={
         "username": "null_user", "email": "null@dcc-test.example.com", "password": "nullpassword1",
+        "display_name": "Has Name",
     })
     access = r_reg.json()["access_token"]
     headers = {"Authorization": f"Bearer {access}"}
-    await client.post("/me/profile", json={"avatar_hash": "abc"}, headers=headers)
-    r = await client.post("/me/profile", json={"avatar_hash": None}, headers=headers)
+    r = await client.post("/me/profile", json={"display_name": None}, headers=headers)
     assert r.status_code == 200
-    assert r.json()["avatar_hash"] is None
+    assert r.json()["display_name"] is None
 
 
 @pytest.mark.asyncio

@@ -41,7 +41,16 @@
     # Health (öffentlich, kein Auth) — für Monitoring/Uptime-Checks      #
     # ------------------------------------------------------------------ #
     handle /health {
-        reverse_proxy 127.0.0.1:8002
+        reverse_proxy 127.0.0.1:8002 {
+            # Overwrite any client-supplied X-Forwarded-For with the real peer.
+            # Caddy is the edge here, so the per-IP rate limiters in auth-svc /
+            # chat-gateway (cert-login, login) must key on {remote_host}, not on
+            # a header the client could forge. Caddy APPENDS to an inbound XFF by
+            # default → without this, `X-Forwarded-For: 1.2.3.4` from the client
+            # would land first and let an attacker rotate buckets / spoof IPs.
+            # Mirror of the Cloud Caddyfile.pulse.snippet.
+            header_up X-Forwarded-For {remote_host}
+        }
     }
 
     # ------------------------------------------------------------------ #
@@ -50,7 +59,9 @@
 
     # auth-svc (8001) — login, MFA, identity-cert, /.well-known/jwks.json
     handle_path /api/auth/* {
-        reverse_proxy 127.0.0.1:8001
+        reverse_proxy 127.0.0.1:8001 {
+            header_up X-Forwarded-For {remote_host}
+        }
     }
     # Public identity well-known endpoints, served by auth-svc at the ROOT path.
     # Exact paths (NOT /.well-known/*) so /.well-known/acme-challenge stays free
@@ -59,13 +70,16 @@
     # of JSON (JSONDecodeError, silent CRL/JWKS failure, broken "Server hinzufügen").
     @wellknown_auth path /.well-known/jwks.json /.well-known/revoked-credentials /.well-known/pulse-version-policy.json /.well-known/pulse-suspended-instances
     handle @wellknown_auth {
-        reverse_proxy 127.0.0.1:8001
+        reverse_proxy 127.0.0.1:8001 {
+            header_up X-Forwarded-For {remote_host}
+        }
     }
     # pulse-server-info is the "Server hinzufügen" pre-check — served by
     # chat-gateway (8002), NOT auth-svc.
     handle /.well-known/pulse-server-info {
         reverse_proxy 127.0.0.1:8002 {
             header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
         }
     }
 
@@ -73,6 +87,9 @@
     handle_path /api/chat/* {
         reverse_proxy 127.0.0.1:8002 {
             header_up Host {host}
+            # cert-login is rate-limited per client IP (client_ip.py) — see the
+            # /health block above for why XFF must be the real peer here.
+            header_up X-Forwarded-For {remote_host}
         }
     }
 
@@ -80,6 +97,7 @@
     handle /ws {
         reverse_proxy 127.0.0.1:8002 {
             header_up Host {host}
+            header_up X-Forwarded-For {remote_host}
         }
     }
 
@@ -93,7 +111,9 @@
         respond 403
     }
     handle_path /api/voice/* {
-        reverse_proxy 127.0.0.1:8003
+        reverse_proxy 127.0.0.1:8003 {
+            header_up X-Forwarded-For {remote_host}
+        }
     }
 
     # media-svc (8004): bewusst KEINE öffentliche Route. Der einzige legitime
@@ -138,6 +158,9 @@
     handle /pulse-attachments/* {
         reverse_proxy 127.0.0.1:9000 {
             header_up Host {host}
+            # MinIO doesn't rate-limit on XFF, but keep every edge proxy block
+            # consistent: never forward a client-supplied X-Forwarded-For.
+            header_up X-Forwarded-For {remote_host}
         }
     }
 
@@ -147,12 +170,16 @@
 
     # Cloud-getriggerter Update-Webhook (JWT, rate-limited in chat-gateway)
     handle /internal/trigger-update {
-        reverse_proxy 127.0.0.1:8002
+        reverse_proxy 127.0.0.1:8002 {
+            header_up X-Forwarded-For {remote_host}
+        }
     }
 
     # Cloud-Health-Probe nach Update (JWT, purpose=health-probe)
     handle /internal/health-probe {
-        reverse_proxy 127.0.0.1:8002
+        reverse_proxy 127.0.0.1:8002 {
+            header_up X-Forwarded-For {remote_host}
+        }
     }
 
     # ------------------------------------------------------------------ #

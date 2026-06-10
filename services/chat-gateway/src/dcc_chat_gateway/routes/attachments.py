@@ -61,9 +61,13 @@ router = APIRouter()
 # intentionally excluded to prevent stored-XSS via a crafted Content-Type on
 # a presigned MinIO GET URL served from the same origin.
 
+# NOTE: image/svg+xml is intentionally NOT allowed — an SVG can carry inline
+# <script> and, when opened directly via its presigned MinIO URL (same origin),
+# executes as a document. That is exactly the stored-XSS vector this allowlist
+# exists to block.
 _ALLOWED_MIME_RE = re.compile(
     r"^(?:"
-    r"image/(jpeg|png|gif|webp|svg\+xml|bmp|tiff|x-icon|avif|heic|heif)"
+    r"image/(jpeg|png|gif|webp|bmp|tiff|x-icon|avif|heic|heif)"
     r"|video/(mp4|webm|ogg|quicktime|x-msvideo|x-matroska|3gpp)"
     r"|audio/(mpeg|ogg|wav|webm|aac|flac|x-flac|mp4|opus)"
     r"|application/pdf"

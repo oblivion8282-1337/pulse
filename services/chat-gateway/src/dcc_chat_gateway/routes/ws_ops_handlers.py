@@ -222,6 +222,13 @@ async def handle_ping(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ctx.websocket.send_json({"op": "pong"})
 
 
+# A ``resync`` rebuilds the whole ready frame (guilds/roles/overwrites DB reads
+# plus parallel Redis/S3 lookups), so it's far heavier than the legit client
+# cadence (one per active-server switch). Throttle per connection so a tight
+# loop can't exhaust the DB connection pool. Freed on disconnect (lives on ctx).
+_RESYNC_THROTTLE_S = 5.0
+
+
 @register_ws_op("resync")
 async def handle_resync(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     """Re-send a fresh ``ready`` snapshot on this socket.
@@ -233,6 +240,11 @@ async def handle_resync(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     current Redis/DB state restores the truth. ``broadcast_online=False`` — the
     socket already exists, so this is not a fresh presence transition.
     """
+    now = time.monotonic()
+    if now - ctx.last_resync < _RESYNC_THROTTLE_S:
+        return  # backstop: ignore rapid repeats (the legit cadence is far slower)
+    ctx.last_resync = now
+
     # Lazy import: ws_ready imports from this module's siblings at module load;
     # keep the dependency at call time to avoid an import-time cycle.
     from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame

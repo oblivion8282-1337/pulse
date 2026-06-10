@@ -92,9 +92,6 @@ async def update_profile(
     if "display_name" in sent:
         current.display_name = payload.display_name
         updated.append("display_name")
-    if "avatar_hash" in sent:
-        current.avatar_hash = payload.avatar_hash
-        updated.append("avatar_hash")
     if "profile_color" in sent:
         current.profile_color = payload.profile_color
         updated.append("profile_color")

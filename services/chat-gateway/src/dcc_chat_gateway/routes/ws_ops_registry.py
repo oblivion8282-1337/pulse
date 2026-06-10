@@ -74,6 +74,10 @@ class WSOpContext:
     # socket sent — server-side throttle backstop for the typing indicator.
     # Lives on the context (per connection) so it's freed on disconnect.
     last_typing: dict[str, float] = field(default_factory=dict)
+    # Monotonic timestamp of the last ``resync`` this socket served — server-side
+    # throttle backstop. ``resync`` rebuilds the full ready frame (several DB
+    # queries + Redis/S3 reads), so an unthrottled loop is a DB-pool DoS vector.
+    last_resync: float = 0.0
     # Optional DB session passed from the plugin op-gate to avoid double
     # session acquisition. Only set for plugin ops that pass the gate.
     # Internal use only; handlers should not rely on this being set.
