@@ -14,6 +14,7 @@
   import { gateway } from '$lib/ws/connection';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
+  import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -154,6 +155,10 @@
     // so it lives exactly as long as the /app session.
     initActivityHeartbeat();
 
+    // Cloud-Admin-Benachrichtigung: pollt offene Self-Host-Anträge (Badge im
+    // UserFooter + Toast bei Zuwachs). Interner Guard pollt nur für Admins.
+    pendingInstanceApps.start();
+
     // Channel-prefetch: now that Ready has populated guilds.byId, kick off
     // a `listChannels` for every guild in the background. Fire-and-forget
     // — the user can navigate the moment the layout paints, and whichever
@@ -205,6 +210,7 @@
 
   onDestroy(() => {
     disposeActivityHeartbeat();
+    pendingInstanceApps.stop();
     gateway.disconnect();
     voice.disconnect();
     if (typeof document !== 'undefined') document.title = 'Pulse';

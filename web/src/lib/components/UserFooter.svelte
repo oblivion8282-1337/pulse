@@ -6,6 +6,7 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
+  import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
@@ -51,6 +52,16 @@
       : serverAdmin.isAdmin(activeServer.current?.id ?? '')
   );
 
+  // Badge für offene Self-Host-Anträge: nur sinnvoll, wenn der aktive Server
+  // die Cloud ist (die Instanz-Verwaltung lebt nur dort) und der User dort
+  // Admin ist. Auf einem Self-Host zeigt „Server-Admin" das lokale Panel, das
+  // keine Instanz-Anträge kennt — dann kein Badge.
+  let showInstanceBadge = $derived(
+    (activeServer.current?.isCloud ?? false) &&
+      (auth.user?.is_admin ?? false) &&
+      pendingInstanceApps.count > 0
+  );
+
   async function onSignOut() {
     const t = loadTokens();
     if (t) {
@@ -90,14 +101,23 @@
 
 {#snippet avatarBlock(sizeClass: string)}
   {#key avatarUrl}
-    <Avatar.Root class="{sizeClass} shrink-0">
-      {#if avatarUrl}
-        <Avatar.Image src={avatarUrl} alt={displayName} />
+    <div class="relative {sizeClass} shrink-0">
+      <Avatar.Root class="size-full">
+        {#if avatarUrl}
+          <Avatar.Image src={avatarUrl} alt={displayName} />
+        {/if}
+        <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
+          {initial}
+        </Avatar.Fallback>
+      </Avatar.Root>
+      {#if showInstanceBadge}
+        <span
+          class="bg-red-500 ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full ring-2"
+          data-testid="admin-pending-dot"
+          aria-label={m.instance_apps_badge_aria()}
+        ></span>
       {/if}
-      <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
-        {initial}
-      </Avatar.Fallback>
-    </Avatar.Root>
+    </div>
   {/key}
 {/snippet}
 
@@ -121,6 +141,14 @@
     <DropdownMenu.Item onclick={() => goto('/app/admin')} data-testid="open-admin">
       <ShieldIcon class="size-4" />
       {m.user_footer_server_admin()}
+      {#if showInstanceBadge}
+        <span
+          class="bg-red-500 ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-white"
+          data-testid="admin-pending-badge"
+        >
+          {pendingInstanceApps.count}
+        </span>
+      {/if}
     </DropdownMenu.Item>
   {/if}
   <DropdownMenu.Separator />

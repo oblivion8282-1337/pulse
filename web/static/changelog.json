@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.2",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Hinweis bei neuen Self-Host-Anträgen",
+      "items": [
+        "Als Administrator siehst du jetzt direkt im Nutzermenü, wenn jemand einen Antrag auf eine eigene Pulse-Instanz gestellt hat: eine Markierung am Admin-Eintrag und ein kurzer Hinweis, sobald ein neuer Antrag eingeht. Du musst nicht mehr selbst regelmäßig ins Admin-Panel schauen."
+      ]
+    },
+    {
       "id": "2026-06-10",
       "date": "2026-06-10",
       "style": "Sachlich",
