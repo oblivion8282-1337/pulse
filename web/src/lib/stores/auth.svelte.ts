@@ -18,6 +18,7 @@ import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
 import { serverVault } from '$lib/identity/server-vault.svelte';
+import { accountKey } from '$lib/identity/account-key.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
@@ -250,6 +251,7 @@ class AuthStore {
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
       await Promise.allSettled([
         vaultWipe,
+        accountKey.wipe(),
         certStore.wipe(),
         keypairStore.wipe(),
         profileStatementStore.wipe(),
@@ -313,9 +315,10 @@ class AuthStore {
     void certStore.wipe();
     void keypairStore.wipe();
     void profileStatementStore.wipe();
-    // E2E-Server-Vault-Key (IDB) wischen — verhindert dass ein nächster User
-    // auf demselben Gerät mit dem alten Key pusht/pullt.
+    // E2E-Server-Vault-Key + Account-Key (IDB) wischen — verhindert dass ein
+    // nächster User auf demselben Gerät mit den alten Keys pusht/pullt.
     void serverVault.wipe();
+    void accountKey.wipe();
     void goto('/login');
   }
 }

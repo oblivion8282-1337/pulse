@@ -9,12 +9,12 @@
   import { toast } from 'svelte-sonner';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import { onboardingState } from '$lib/stores/onboardingState.svelte';
-  import { certStore } from '$lib/identity/cert.svelte';
-  import { loadKeypair } from '$lib/identity/keypair.svelte';
-  import { keyBackupState } from '$lib/identity/key-backup.svelte';
-  import { serverVault } from '$lib/identity/server-vault.svelte';
-  import { ensureBackupCapableKeypair } from '$lib/identity/issue-flow';
-  import { createBackup } from '$lib/api/credentials';
+  import {
+    detectBackupFlowMode,
+    setupOrUnlock,
+    WrongRecoveryKeyError,
+    type BackupFlowMode
+  } from '$lib/identity/backup-flow';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import CloudBackupSetupForm from '$lib/components/settings/CloudBackupSetupForm.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -24,6 +24,7 @@
   let step = $state<Step>('prompt');
   let busy = $state(false);
   let errorMsg = $state<string | null>(null);
+  let flowMode = $state<BackupFlowMode>('create');
 
   const open = $derived(onboardingState.showBackupStep);
 
@@ -39,6 +40,8 @@
   function startSetup() {
     step = 'setup';
     errorMsg = null;
+    // create vs enter bestimmen (Account hat evtl. schon einen Schlüssel).
+    void detectBackupFlowMode().then((mode) => (flowMode = mode));
   }
 
   function handleOpenChange(v: boolean) {
@@ -49,23 +52,9 @@
     errorMsg = null;
     busy = true;
     try {
-      // Backup braucht ein exportierbares Keypair → ggf. einmalig erzeugen + Cert
-      // neu ausstellen (Default ist non-extractable, XSS-Schutz).
-      let keypair = await loadKeypair();
-      if (!keypair || !keypair.privateKey.extractable) {
-        keypair = await ensureBackupCapableKeypair();
-      }
-      const certId = certStore.cert?.claims.cert_id;
-      if (!certId) { errorMsg = m.backup_setup_step_error_no_cert(); return; }
-      const [privJwk, pubJwk] = await Promise.all([
-        crypto.subtle.exportKey('jwk', keypair.privateKey),
-        crypto.subtle.exportKey('jwk', keypair.publicKey),
-      ]);
-      const blob = await keyBackupState.encrypt(privJwk, pubJwk, password);
-      const label = certStore.cert?.claims.device_label ?? 'Onboarding';
-      await createBackup(certId, blob, label.slice(0, 64) || 'Backup');
-      // E2E-Server-Vault mit demselben Master-Passwort aktivieren + Liste pushen.
-      try { await serverVault.unlockForSetup(password); } catch { /* Vault degradiert still */ }
+      // Vereinheitlichter Flow (Account-Key): entsperren/erstellen + dieses
+      // Gerät sichern + Server-Vault aktivieren.
+      await setupOrUnlock(password);
       toast.success(m.backup_setup_step_backup_saved(), {
         description: m.backup_setup_step_backup_saved_desc()
       });
@@ -76,7 +65,12 @@
         });
       }
     } catch (err) {
-      errorMsg = err instanceof Error ? err.message : m.backup_setup_step_error_unknown();
+      errorMsg =
+        err instanceof WrongRecoveryKeyError
+          ? m.backup_flow_wrong_key()
+          : err instanceof Error
+            ? err.message
+            : m.backup_setup_step_error_unknown();
     } finally {
       busy = false;
     }
@@ -129,6 +123,7 @@
         onCancel={cancelSetup}
         {busy}
         error={errorMsg}
+        {flowMode}
       />
     {/if}
   </Dialog.Content>

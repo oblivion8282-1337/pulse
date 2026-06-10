@@ -20,8 +20,14 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import { auth } from '$lib/stores/auth.svelte';
-  import { getBackup, reconstructBlob } from '$lib/api/credentials';
-  import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
+  import { getBackup, createBackup, reconstructBlob } from '$lib/api/credentials';
+  import {
+    keyBackupState,
+    BackupDecryptError,
+    decryptKeypairWithAk,
+    encryptKeypairWithAk
+  } from '$lib/identity/key-backup.svelte';
+  import { accountKey, AccountKeyDecryptError } from '$lib/identity/account-key.svelte';
   import { saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
   import { serverVault } from '$lib/identity/server-vault.svelte';
   import {
@@ -85,13 +91,35 @@
         return;
       }
       const blob = reconstructBlob(resp);
-      const keypair = await keyBackupState.decrypt(blob, password);
+      // v3 = Account-Key-verschlüsselt → erst AK mit dem Passwort entsperren;
+      // Legacy (v1/v2) → direkt mit dem Passwort entschlüsseln.
+      const keypair =
+        blob.v === 3
+          ? await decryptKeypairWithAk(blob, await accountKey.unlock(password))
+          : await keyBackupState.decrypt(blob, password);
       const [privateKey, publicKey] = await Promise.all([
         crypto.subtle.importKey('jwk', keypair.privateKey, { name: 'Ed25519' }, true, ['sign']),
         crypto.subtle.importKey('jwk', keypair.publicKey, { name: 'Ed25519' }, true, ['verify']),
       ]);
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
       await keypairStore.load();
+      // Legacy-Backup nach erfolgreichem Entsperren aufs Account-Key-Modell
+      // migrieren (AK ggf. erzeugen + Blob als v3 re-verschlüsseln). Best-effort.
+      if (blob.v !== 3) {
+        try {
+          let ak: CryptoKey;
+          try {
+            ak = await accountKey.unlock(password);
+          } catch (err) {
+            if (err instanceof AccountKeyDecryptError) throw err; // AK existiert mit ANDEREM Passwort → nicht anfassen
+            ak = await accountKey.create(password);
+          }
+          const v3 = await encryptKeypairWithAk(keypair.privateKey, keypair.publicKey, ak);
+          await createBackup(certId, v3, deviceLabel.slice(0, 64) || 'Backup');
+        } catch {
+          /* Migration best-effort — Legacy-Blob bleibt gültig */
+        }
+      }
       // E2E-Server-Vault wiederherstellen → Self-Host-Server-Liste zurückholen.
       try { await serverVault.unlockForRestore(password); } catch { /* Vault degradiert still */ }
       resetRecoveryDecline();
@@ -100,7 +128,7 @@
       });
       await restart();
     } catch (err) {
-      if (err instanceof BackupDecryptError) {
+      if (err instanceof BackupDecryptError || err instanceof AccountKeyDecryptError) {
         errorMsg = m.recover_error_wrong_password();
       } else {
         errorMsg = err instanceof Error ? err.message : m.recover_error_unknown();

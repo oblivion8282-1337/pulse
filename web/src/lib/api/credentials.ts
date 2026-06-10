@@ -148,31 +148,42 @@ export async function changeUsername(newName: string): Promise<UsernameChangeRes
 // Cloud-Backup (Block 2.A/2.C)
 // ---------------------------------------------------------------------------
 
+/** Platzhalter-Salt für v=3 (Account-Key, kein KDF) — Backend-Schema verlangt
+ *  ein non-null Salt-Feld; 16 Null-Bytes als Konstante. */
+const NO_SALT_B64 = 'AAAAAAAAAAAAAAAAAAAAAA==';
+
 /**
  * Flacht einen KeyBackupBlob auf das Backend-API-Format ab.
  *
- * v=2 (Argon2id): kdf_params = { name, parallelism, memory_kib, iterations }
- * v=1 (PBKDF2):   kdf_params = { name, hash, iterations }
+ * v=3 (AccountKey): kdf_params = { name: 'AccountKey' }, kdf_salt = Platzhalter
+ * v=2 (Argon2id):   kdf_params = { name, parallelism, memory_kib, iterations }
+ * v=1 (PBKDF2):     kdf_params = { name, hash, iterations }
  * Backend erwartet: { kdf_salt, kdf_params, gcm_nonce, encrypted_blob, device_label }
  */
 function flattenBlob(blob: KeyBackupBlob, deviceLabel: string): Record<string, string> {
   let kdf_params: string;
-  if (blob.v === 2) {
+  let kdf_salt: string;
+  if (blob.v === 3) {
+    kdf_params = JSON.stringify({ name: 'AccountKey' });
+    kdf_salt = NO_SALT_B64;
+  } else if (blob.v === 2) {
     kdf_params = JSON.stringify({
       name: blob.kdf.name,
       parallelism: blob.kdf.parallelism,
       memory_kib: blob.kdf.memory_kib,
       iterations: blob.kdf.iterations
     });
+    kdf_salt = blob.kdf.salt;
   } else {
     kdf_params = JSON.stringify({
       name: blob.kdf.name,
       hash: blob.kdf.hash,
       iterations: blob.kdf.iterations
     });
+    kdf_salt = blob.kdf.salt;
   }
   return {
-    kdf_salt: blob.kdf.salt,
+    kdf_salt,
     kdf_params,
     gcm_nonce: blob.cipher.iv,
     encrypted_blob: blob.cipher.ct,
@@ -194,6 +205,10 @@ export function reconstructBlob(resp: BackupFetchResponse): KeyBackupBlob {
   }
 
   const cipher = { name: 'AES-GCM' as const, iv: resp.gcm_nonce, ct: resp.encrypted_blob };
+
+  if (params.name === 'AccountKey') {
+    return { v: 3, kdf: { name: 'AccountKey' }, cipher };
+  }
 
   if (params.name === 'Argon2id') {
     const v2: KeyBackupBlobV2 = {

@@ -20,21 +20,11 @@
 
 import { serverVault } from '$lib/identity/server-vault.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
-import { getBackup, listCerts } from '$lib/api/credentials';
+import { getBackup } from '$lib/api/credentials';
 
 class BackupGate {
   /** Steuert den BackupGateDialog im Root-Layout. */
   open = $state(false);
-
-  /**
-   * Cert-ID + Label eines bereits vorhandenen Backups auf einem ANDEREN Gerät
-   * dieses Users. Sind sie gesetzt, zeigt der Gate-Dialog den Restore-Pfad
-   * („du hast schon ein Backup, stell es wieder her") statt blind ein zweites
-   * zu erzeugen — auch wenn früher mal „Neues Gerät" (recovery_declined)
-   * geklickt wurde. Leer = echtes Erst-Setup.
-   */
-  restoreCertId = $state<string | null>(null);
-  restoreDeviceLabel = $state<string>('');
 
   /** Resolver der laufenden `ensure()`-Promise; null wenn kein Dialog offen. */
   private _resolver: ((ok: boolean) => void) | null = null;
@@ -81,36 +71,15 @@ class BackupGate {
         };
       });
     }
-    // Hat der USER (nicht nur dieses Cert) schon irgendwo ein Backup? Dann den
-    // Restore-Pfad anbieten statt eines zweiten Schlüssels.
-    await this._detectExistingBackup();
     this.open = true;
     return new Promise<boolean>((r) => {
       this._resolver = r;
     });
   }
 
-  /** Sucht ein Backup auf einem anderen Gerät desselben Users (best-effort). */
-  private async _detectExistingBackup(): Promise<void> {
-    this.restoreCertId = null;
-    this.restoreDeviceLabel = '';
-    try {
-      const { devices } = await listCerts();
-      const withBackup = devices.find((d) => d.has_backup);
-      if (withBackup) {
-        this.restoreCertId = withBackup.cert_id;
-        this.restoreDeviceLabel = withBackup.device_label;
-      }
-    } catch {
-      /* offline / Fehler → Setup-Pfad (kein Restore-Angebot) */
-    }
-  }
-
   /** Vom Dialog aufgerufen — schließt ihn und löst die wartende Promise auf. */
   resolve(ok: boolean): void {
     this.open = false;
-    this.restoreCertId = null;
-    this.restoreDeviceLabel = '';
     this._resolver?.(ok);
     this._resolver = null;
   }

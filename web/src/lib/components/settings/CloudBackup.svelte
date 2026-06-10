@@ -11,11 +11,14 @@
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import CloudIcon from '@lucide/svelte/icons/cloud';
   import { certStore } from '$lib/identity/cert.svelte';
-  import { loadKeypair, saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
-  import { keyBackupState, BackupDecryptError } from '$lib/identity/key-backup.svelte';
+  import { saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
+  // prettier-ignore
+  import { keyBackupState, BackupDecryptError, decryptKeypairWithAk } from '$lib/identity/key-backup.svelte';
   import { serverVault } from '$lib/identity/server-vault.svelte';
-  import { ensureBackupCapableKeypair } from '$lib/identity/issue-flow';
-  import { createBackup, getBackup, deleteBackup, reconstructBlob } from '$lib/api/credentials';
+  import { accountKey, AccountKeyDecryptError } from '$lib/identity/account-key.svelte';
+  // prettier-ignore
+  import { detectBackupFlowMode, setupOrUnlock, WrongRecoveryKeyError, type BackupFlowMode } from '$lib/identity/backup-flow';
+  import { getBackup, deleteBackup, reconstructBlob } from '$lib/api/credentials';
   import type { BackupFetchResponse } from '$lib/api/credentials';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
@@ -31,6 +34,7 @@
   let errorMsg = $state<string | null>(null);
   let busy = $state(false);
   let deleteDialogOpen = $state(false);
+  let flowMode = $state<BackupFlowMode>('create');
 
   const certId = $derived(certStore.cert?.claims.cert_id ?? null);
   const backupDateLabel = $derived.by(() => {
@@ -46,7 +50,14 @@
     finally { loadingStatus = false; }
   });
 
-  function setView(v: ViewState) { errorMsg = null; viewState = v; }
+  function setView(v: ViewState) {
+    errorMsg = null;
+    viewState = v;
+    if (v === 'setup') {
+      // create vs enter bestimmen (Account hat evtl. schon einen Schlüssel).
+      void detectBackupFlowMode().then((mode) => (flowMode = mode));
+    }
+  }
 
   function errText(err: unknown, fallback: string): string {
     return err instanceof Error ? err.message : fallback;
@@ -56,40 +67,21 @@
     errorMsg = null;
     busy = true;
     try {
-      // Backup braucht ein exportierbares Keypair. Ist das aktuelle non-extractable
-      // (Default = XSS-Schutz), erzeugt ensureBackupCapableKeypair einmalig ein
-      // exportierbares + stellt das Cert neu aus.
-      let keypair = await loadKeypair();
-      if (!keypair || !keypair.privateKey.extractable) {
-        keypair = await ensureBackupCapableKeypair();
-      }
-      // Cert kann gerade neu ausgestellt worden sein → frische cert_id aus dem Store.
+      // Vereinheitlichter Flow (Account-Key): entsperren/erstellen + dieses
+      // Gerät sichern + Server-Vault aktivieren.
+      await setupOrUnlock(password);
       const activeCertId = certStore.cert?.claims.cert_id;
-      if (!activeCertId) {
-        errorMsg = m.cloud_backup_error_no_keypair();
-        return;
-      }
-
-      const [privateKeyJwk, publicKeyJwk] = await Promise.all([
-        crypto.subtle.exportKey('jwk', keypair.privateKey),
-        crypto.subtle.exportKey('jwk', keypair.publicKey)
-      ]);
-
-      const blob = await keyBackupState.encrypt(privateKeyJwk, publicKeyJwk, password);
-      const deviceLabel = certStore.cert?.claims.device_label ?? 'Unbekanntes Gerät';
-      await createBackup(activeCertId, blob, deviceLabel.slice(0, 64) || 'Backup');
-      existingBackup = await getBackup(activeCertId);
-
-      // E2E-Server-Vault aktivieren/re-keyen (Setup ODER Master-Passwort-Update).
-      // Best-effort: scheitert das, bleibt das Keypair-Backup trotzdem gültig.
-      try { await serverVault.unlockForSetup(password); } catch { /* Vault degradiert still */ }
+      if (activeCertId) existingBackup = await getBackup(activeCertId);
 
       toast.success(m.cloud_backup_toast_saved(), {
         description: m.cloud_backup_toast_saved_desc()
       });
       setView('idle');
     } catch (err) {
-      errorMsg = errText(err, m.cloud_backup_error_unknown_backup());
+      errorMsg =
+        err instanceof WrongRecoveryKeyError
+          ? m.backup_flow_wrong_key()
+          : errText(err, m.cloud_backup_error_unknown_backup());
     } finally {
       busy = false;
     }
@@ -101,7 +93,11 @@
     busy = true;
     try {
       const blob = reconstructBlob(existingBackup);
-      const keypair = await keyBackupState.decrypt(blob, password);
+      // v3 = Account-Key-verschlüsselt → erst AK mit dem Passwort entsperren.
+      const keypair =
+        blob.v === 3
+          ? await decryptKeypairWithAk(blob, await accountKey.unlock(password))
+          : await keyBackupState.decrypt(blob, password);
 
       const [privateKey, publicKey] = await Promise.all([
         crypto.subtle.importKey('jwk', keypair.privateKey, { name: 'Ed25519' }, true, ['sign']),
@@ -119,7 +115,7 @@
       });
       setView('idle');
     } catch (err) {
-      if (err instanceof BackupDecryptError) {
+      if (err instanceof BackupDecryptError || err instanceof AccountKeyDecryptError) {
         errorMsg = m.cloud_backup_error_wrong_password();
       } else {
         errorMsg = errText(err, m.cloud_backup_error_unknown_recover());
@@ -219,6 +215,7 @@
       onCancel={() => setView('idle')}
       {busy}
       error={errorMsg}
+      {flowMode}
     />
 
   {:else if viewState === 'recover'}

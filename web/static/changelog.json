@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.8",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Ein Wiederherstellungs-Schlüssel für deinen ganzen Account",
+      "items": [
+        "Dein Account hat jetzt genau einen Wiederherstellungs-Schlüssel. Auf einem neuen Gerät gibst du ihn einmal ein — damit wird das Gerät gesichert und deine Server-Liste kommt zurück. Es kann nicht mehr passieren, dass versehentlich ein zweiter, abweichender Schlüssel entsteht. Bestehende Backups funktionieren weiter und werden beim nächsten Entsperren automatisch umgestellt."
+      ]
+    },
+    {
       "id": "2026-06-10.7",
       "date": "2026-06-10",
       "style": "Sachlich",

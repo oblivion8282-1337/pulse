@@ -174,6 +174,42 @@ class EncryptedServerVault(Base):
     )
 
 
+class AccountKey(Base):
+    """Der mit dem Wiederherstellungs-Schlüssel „eingewickelte" Account-Key
+    (Envelope-Encryption, migration 0028).
+
+    Ein Account hat genau EINEN zufälligen Account-Key (AK, 32 Bytes,
+    client-seitig erzeugt). Der AK verschlüsselt alles Weitere (Geräte-Key-
+    Backups v3, Server-Vault v2); das Master-Passwort wickelt nur den AK ein.
+    Dadurch ist ein zweiter, abweichender Wiederherstellungs-Schlüssel
+    strukturell unmöglich, und ein Passwort-Wechsel ersetzt nur diese eine
+    Zeile (re-wrap) statt alle Blobs.
+
+    Die Cloud sieht ausschließlich Chiffretext — Zero-Knowledge wie beim
+    Key-Backup/Vault. ``wrapped_key`` = AES-GCM(KDF(Passwort, salt), AK).
+    """
+
+    __tablename__ = "account_keys"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    # AES-256-GCM-Chiffretext der 32 rohen AK-Bytes (inkl. GCM-Tag).
+    wrapped_key: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
+    # 16-Byte-Salt der KDF (Argon2id) für den Wrap-Schlüssel.
+    kdf_salt: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
+    # KDF-Parameter als JSON-String (forward-compat).
+    kdf_params: Mapped[str] = mapped_column(Text, nullable=False)
+    # 12-Byte-AES-GCM-Nonce des Wraps.
+    gcm_nonce: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class UsernameReservation(Base):
     """30-day hold on a just-vacated username (Block 1.D, migration 0016).
 

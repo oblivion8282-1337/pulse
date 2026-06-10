@@ -52,8 +52,20 @@ export interface KeyBackupBlobV1 {
   cipher: KeyBackupCipher;
 }
 
+/** KDF-Marker v=3: kein KDF — direkt mit dem Account-Key verschlüsselt. */
+export interface AccountKeyKdf {
+  name: 'AccountKey';
+}
+
+/** Backup-Blob v=3 (Account-Key, Envelope-Encryption). */
+export interface KeyBackupBlobV3 {
+  v: 3;
+  kdf: AccountKeyKdf;
+  cipher: KeyBackupCipher;
+}
+
 /** Versionierter Backup-Blob (serialisiert als JSON-String). */
-export type KeyBackupBlob = KeyBackupBlobV1 | KeyBackupBlobV2;
+export type KeyBackupBlob = KeyBackupBlobV1 | KeyBackupBlobV2 | KeyBackupBlobV3;
 
 /** Inhalt des entschlüsselten Blobs. */
 export interface DecryptedKeypair {
@@ -164,13 +176,17 @@ export async function deriveKeyArgon2id(
   });
   // .slice() erzeugt Uint8Array<ArrayBuffer> (kein SharedArrayBuffer-Risiko)
   const hash = (hashRaw as Uint8Array).slice() as Uint8Array<ArrayBuffer>;
-  return crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     'raw',
     hash,
     { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt', 'decrypt']
   );
+  // Abgeleiteten Roh-Key nach dem Import nullen (Heap-Hygiene).
+  hash.fill(0);
+  (hashRaw as Uint8Array).fill(0);
+  return key;
 }
 
 /** PBKDF2-SHA-256 → AES-256-GCM-CryptoKey (legacy, v=1). */
@@ -248,11 +264,55 @@ export async function encryptKeypair(
 }
 
 /**
- * Entschlüsselt einen KeyBackupBlob mit dem Master-Passwort.
+ * Verschlüsselt ein Keypair direkt mit dem Account-Key (Blob v=3).
+ * Kein KDF — der AK ist bereits ein AES-256-GCM-Key.
+ */
+export async function encryptKeypairWithAk(
+  privateKeyJwk: JsonWebKey,
+  publicKeyJwk: JsonWebKey,
+  ak: CryptoKey
+): Promise<KeyBackupBlobV3> {
+  const iv = randomBytes(GCM_IV_BYTES);
+  const plaintext = new TextEncoder().encode(
+    JSON.stringify({ privateKey: privateKeyJwk, publicKey: publicKeyJwk })
+  );
+  const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, ak, plaintext);
+  return {
+    v: 3,
+    kdf: { name: 'AccountKey' },
+    cipher: { name: 'AES-GCM', iv: toBase64(iv), ct: toBase64(cipherBuf) }
+  };
+}
+
+/** Entschlüsselt einen v=3-Blob mit dem Account-Key. */
+export async function decryptKeypairWithAk(
+  blob: KeyBackupBlobV3,
+  ak: CryptoKey
+): Promise<DecryptedKeypair> {
+  let plainBuf: ArrayBuffer;
+  try {
+    plainBuf = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: fromBase64(blob.cipher.iv) },
+      ak,
+      fromBase64(blob.cipher.ct)
+    );
+  } catch {
+    throw new BackupDecryptError('Falscher Account-Key oder defektes Backup');
+  }
+  const parsed = JSON.parse(new TextDecoder().decode(plainBuf)) as DecryptedKeypair;
+  if (!parsed.privateKey || !parsed.publicKey) {
+    throw new BackupDecryptError('Entschlüsselter Blob enthält kein vollständiges Keypair');
+  }
+  return parsed;
+}
+
+/**
+ * Entschlüsselt einen passwort-basierten KeyBackupBlob mit dem Master-Passwort.
  *
  * Dispatcht auf KDF-Version:
  *   v=2 → Argon2id
  *   v=1 → PBKDF2-SHA-256 (legacy, backwards-compat)
+ *   v=3 → NICHT hier — braucht den Account-Key (decryptKeypairWithAk)
  *
  * Wirft BackupDecryptError wenn:
  *   - das Passwort falsch ist (AES-GCM-Tag-Verifikation schlägt fehl)
@@ -267,6 +327,9 @@ export async function decryptKeypair(
   blob: KeyBackupBlob,
   masterPassword: string
 ): Promise<DecryptedKeypair> {
+  if (blob.v === 3) {
+    throw new BackupDecryptError('v3-Backup braucht den Account-Key (decryptKeypairWithAk)');
+  }
   const salt = fromBase64(blob.kdf.salt);
   const iv = fromBase64(blob.cipher.iv);
   const ct = fromBase64(blob.cipher.ct);

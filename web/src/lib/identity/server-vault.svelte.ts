@@ -35,16 +35,34 @@ import {
 } from './key-backup.svelte';
 import { encryptJsonWithKey, decryptJsonWithKey } from './vault-crypto';
 import { openIdentityDb, idbGetIdentity, idbPutIdentity, STORE_NAME } from './idb-shared';
+import { accountKey, AccountKeyDecryptError } from './account-key.svelte';
 import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
 import { getServerVault, putServerVault } from '$lib/api/server-vault';
 
 const IDB_KEY = 'pulse.vault-key';
 const PUSH_DEBOUNCE_MS = 1500;
 
+/** Sentinel in `StoredVaultKey.salt`: Vault läuft im Account-Key-Modus
+ *  (Schlüssel = AK, kein KDF-Salt). */
+const AK_MODE = 'account-key';
+/** kdf_params-Marker des Account-Key-Modus im Remote-Vault. */
+const AK_PARAMS = JSON.stringify({ name: 'AccountKey' });
+/** Platzhalter-Salt (Backend-Schema verlangt non-null) im AK-Modus. */
+const NO_SALT_B64 = 'AAAAAAAAAAAAAAAAAAAAAA==';
+
+/** True, wenn der Remote-Vault im Account-Key-Format (v2) vorliegt. */
+function isAkVault(remote: { kdf_params: string }): boolean {
+  try {
+    return (JSON.parse(remote.kdf_params) as { name?: string }).name === 'AccountKey';
+  } catch {
+    return false;
+  }
+}
+
 /** In IndexedDB persistierte Form. `key` ist non-extractable. */
 interface StoredVaultKey {
   key: CryptoKey;
-  salt: string; // base64
+  salt: string; // base64 — oder AK_MODE-Sentinel
 }
 
 /** Pro Self-Host-Server gesyncte Felder (Cloud wird nie gesynct — auto-angelegt). */
@@ -138,10 +156,11 @@ class ServerVault {
       }));
     try {
       const { iv, ct } = await encryptJsonWithKey(entries, cached.key);
+      const akMode = cached.salt === AK_MODE;
       await putServerVault({
         encrypted_blob: toBase64(ct),
-        kdf_salt: cached.salt,
-        kdf_params: JSON.stringify(ARGON2ID_KDF_PARAMS),
+        kdf_salt: akMode ? NO_SALT_B64 : cached.salt,
+        kdf_params: akMode ? AK_PARAMS : JSON.stringify(ARGON2ID_KDF_PARAMS),
         gcm_nonce: toBase64(iv)
       });
     } catch {
@@ -221,16 +240,71 @@ class ServerVault {
   }
 
   /**
+   * Legacy-Rettung vor der AK-Umstellung: liegt der Remote-Tresor noch im
+   * Passwort-Format, mit dem Passwort lesen + lokal mergen (best-effort, wirft
+   * nie) — damit `activateWithAccountKey` die komplette Liste re-verschlüsselt.
+   */
+  async rescueLegacyVault(password: string): Promise<void> {
+    try {
+      const remote = await getServerVault();
+      if (!remote || isAkVault(remote)) return;
+      const key = await deriveKeyArgon2id(password, fromBase64(remote.kdf_salt));
+      await this.tryMergeRemote(remote, key);
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  /**
+   * Vault im **Account-Key-Modus** aktivieren (der einheitliche Pfad des
+   * AK-Modells). Merged einen evtl. vorhandenen Remote-Tresor best-effort
+   * (legacy-formatierte bleiben ungelesen — Rettung übernimmt der Setup-Flow
+   * vorab via `rescueLegacyVault`), re-verschlüsselt dann mit dem AK und pusht.
+   */
+  async activateWithAccountKey(ak: CryptoKey): Promise<void> {
+    const remote = await getServerVault();
+    if (remote) await this.tryMergeRemote(remote, ak);
+    await this.persistCached({ key: ak, salt: AK_MODE });
+    await this.pushNow();
+  }
+
+  /**
    * Sync **wiederherstellen** mit dem Master-Passwort (Recover-Flow, evtl. neues
-   * Gerät). Leitet den Key aus Passwort + dem Salt des Remote-Tresors ab,
-   * entschlüsselt + merged. **Falsches Passwort → wirft `VAULT_DECRYPT_FAILED`,
-   * ohne den Remote-Tresor anzutasten** (kein Datenverlust durch Tippfehler).
+   * Gerät). AK-Format → Account-Key entsperren und damit lesen; Legacy-Format →
+   * Key aus Passwort + Remote-Salt ableiten. **Falsches Passwort → wirft
+   * `VAULT_DECRYPT_FAILED`, ohne den Remote-Tresor anzutasten.**
    */
   async unlockForRestore(password: string): Promise<void> {
     const remote = await getServerVault();
     if (!remote) {
-      // Kein Remote-Tresor → für die Zukunft aus der lokalen Liste anlegen.
-      await this.unlockForSetup(password);
+      // Kein Remote-Tresor. Hat der Account schon einen AK → darüber aktivieren
+      // (einheitlicher Schlüssel); sonst Legacy-Setup aus der lokalen Liste.
+      try {
+        const ak = await accountKey.unlock(password);
+        await this.activateWithAccountKey(ak);
+        return;
+      } catch (err) {
+        if (err instanceof AccountKeyDecryptError) throw new Error('VAULT_DECRYPT_FAILED');
+        await this.unlockForSetup(password);
+        return;
+      }
+    }
+    if (isAkVault(remote)) {
+      let ak: CryptoKey;
+      try {
+        ak = await accountKey.unlock(password);
+      } catch {
+        // Falsches Passwort ODER (inkonsistent) AK fehlt → nicht überschreiben.
+        throw new Error('VAULT_DECRYPT_FAILED');
+      }
+      const list = (await decryptJsonWithKey(
+        fromBase64(remote.encrypted_blob),
+        fromBase64(remote.gcm_nonce),
+        ak
+      )) as VaultServerEntry[];
+      await this.persistCached({ key: ak, salt: AK_MODE });
+      if (Array.isArray(list)) this.mergeIntoStore(list);
+      await this.pushNow();
       return;
     }
     const salt = fromBase64(remote.kdf_salt);
