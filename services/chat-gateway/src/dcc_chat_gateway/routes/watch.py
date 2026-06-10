@@ -39,7 +39,14 @@ async def guild_watch_state(
     stmt = select(Channel.id).where(
         Channel.guild_id == guild_id, Channel.type == CHANNEL_TYPE_VOICE
     )
-    channel_ids = [str(cid) for cid in (await session.execute(stmt)).scalars()]
+    raw_ids = list((await session.execute(stmt)).scalars())
+    # VIEW_CHANNEL-Filter wie guild_stream_state/guild_voice_state — sonst
+    # leakt der State privater Voice-Channels (was läuft, wer hostet) an
+    # Members, die den Channel per Overwrite gar nicht sehen dürfen.
+    from dcc_chat_gateway.permissions import filter_viewable_channels  # noqa: PLC0415
+
+    visible_ids = await filter_viewable_channels(session, current, guild_id, raw_ids)
+    channel_ids = [str(cid) for cid in raw_ids if cid in visible_ids]
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is None:
         return {"watch_states": []}

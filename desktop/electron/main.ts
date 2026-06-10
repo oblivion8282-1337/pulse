@@ -225,12 +225,12 @@ function createWindow(): void {
   mainWindow.webContents.on('will-navigate', (e, url) => {
     if (!_isAllowedOrigin(url)) {
       e.preventDefault();
-      void shell.openExternal(url);
+      _openExternalIfWebUrl(url);
     }
   });
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!_isAllowedOrigin(url)) {
-      void shell.openExternal(url);
+      _openExternalIfWebUrl(url);
       return { action: 'deny' };
     }
     // Allow — no preload (browser-like popup, see did-create-window), but lift
@@ -255,12 +255,12 @@ function createWindow(): void {
     child.webContents.on('will-navigate', (e, navUrl) => {
       if (!_isAllowedOrigin(navUrl)) {
         e.preventDefault();
-        void shell.openExternal(navUrl);
+        _openExternalIfWebUrl(navUrl);
       }
     });
     child.webContents.setWindowOpenHandler(({ url: childUrl }) => {
       if (_isAllowedOrigin(childUrl)) return { action: 'allow' };
-      void shell.openExternal(childUrl);
+      _openExternalIfWebUrl(childUrl);
       return { action: 'deny' };
     });
   });
@@ -307,6 +307,21 @@ function _isAllowedOrigin(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Off-origin-Links nur an den System-Browser geben, wenn sie wirklich
+ * Web-URLs sind. `shell.openExternal` reicht alles an die OS-Shell durch —
+ * ein kompromittierter Renderer könnte sonst per `file://`/`smb://` etc.
+ * lokale Dateien oder beliebige Protokoll-Handler öffnen (ShellExecute unter
+ * Windows). Alles außer http(s) wird still verworfen. */
+function _openExternalIfWebUrl(url: string): void {
+  let proto: string;
+  try {
+    proto = new URL(url).protocol;
+  } catch {
+    return;
+  }
+  if (proto === 'https:' || proto === 'http:') void shell.openExternal(url);
 }
 
 // ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────

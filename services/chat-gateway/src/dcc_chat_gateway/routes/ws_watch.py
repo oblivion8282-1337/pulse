@@ -89,11 +89,17 @@ async def handle_start(
         if channel is None or channel.type != CHANNEL_TYPE_VOICE:
             await _err(websocket, 4004, "channel not accessible")
             return
+        perms = await resolve_permissions(session, user, channel.guild_id, cid_int)
+        # VIEW_CHANNEL gate: a member overwrite-excluded from this voice
+        # channel must not host a party there. Same error as the membership
+        # fail so a hidden channel's existence isn't confirmed.
+        if not has_permission(perms, Permissions.VIEW_CHANNEL):
+            await _err(websocket, 4004, "channel not accessible")
+            return
         # Native URLs (direct https:// media links) additionally require
         # MANAGE_CHANNELS — mitigates DNS-rebinding SSRF by limiting who can
         # direct viewers' browsers at arbitrary hostnames.
         if source.get("type") == "native":
-            perms = await resolve_permissions(session, user, channel.guild_id, cid_int)
             if not has_permission(perms, Permissions.MANAGE_CHANNELS):
                 await _err(websocket, 4003, "missing permission: MANAGE_CHANNELS")
                 return
@@ -139,6 +145,14 @@ async def handle_join(
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
         if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+            await _err(websocket, 4004, "channel not accessible")
+            return
+        # VIEW_CHANNEL gate — without it an overwrite-excluded member could
+        # join the watcher registry and receive party/watcher updates from a
+        # channel they cannot see. Same error as the membership fail so a
+        # hidden channel's existence isn't confirmed.
+        perms = await resolve_permissions(session, user, channel.guild_id, cid_int)
+        if not has_permission(perms, Permissions.VIEW_CHANNEL):
             await _err(websocket, 4004, "channel not accessible")
             return
     cid = str(cid_int)

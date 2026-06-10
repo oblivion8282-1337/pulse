@@ -20,6 +20,8 @@ import pytest
 import pytest_asyncio
 from dcc_chat_gateway import watchkeys
 from dcc_chat_gateway.watch_source import parse_source
+from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+from dcc_shared.permissions import Permissions
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
 from .conftest import receive_skipping, skip_init_frames
@@ -195,6 +197,46 @@ async def test_guild_watch_state_non_member_403(client, _auth_signer):
     g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
     r = await client.get(f"/guilds/{g['id']}/watch-state", headers=_auth(outsider))
     assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_guild_watch_state_hides_view_denied_channel(client, _auth_signer, redis):
+    """Ein Member mit VIEW_CHANNEL-deny-Overwrite darf den Watch-State des
+    privaten Channels nicht sehen — der Owner weiterhin schon."""
+    owner, _ = await _register(_auth_signer)
+    member, member_uid = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
+        )
+    ).json()
+    await client.post(
+        f"/guilds/{g['id']}/members", json={"user_id": str(member_uid)}, headers=_auth(owner)
+    )
+    r = await client.put(
+        f"/channels/{vc['id']}/permissions/{OVERWRITE_TARGET_USER}/{member_uid}",
+        json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+        headers=_auth(owner),
+    )
+    assert r.status_code == 200, r.text
+    state = {
+        "source": {"type": "youtube", "embed_id": "abc12345678"},
+        "host_user_id": "555",
+        "position": 0.0,
+        "is_playing": True,
+        "updated_at": watchkeys.now_ms(),
+        "started_at": watchkeys.now_ms(),
+    }
+    await redis.set(f"watch:channel-{vc['id']}", json.dumps(state), ex=600)
+    try:
+        r = await client.get(f"/guilds/{g['id']}/watch-state", headers=_auth(member))
+        assert r.status_code == 200, r.text
+        assert r.json()["watch_states"] == []
+        r = await client.get(f"/guilds/{g['id']}/watch-state", headers=_auth(owner))
+        assert vc["id"] in {s["channel_id"] for s in r.json()["watch_states"]}
+    finally:
+        await redis.delete(f"watch:channel-{vc['id']}")
 
 
 # =============================================================================
@@ -377,6 +419,49 @@ async def test_watch_start_rejects_non_member(ws_app, _auth_signer):
             outsider_token = _auth_signer.issue_access(outsider_uid, f"u{outsider_uid}")
             with tc.websocket_connect(f"/ws?token={outsider_token}") as ws:
                 skip_init_frames(ws)
+                ws.send_json(
+                    {
+                        "op": "watch_start",
+                        "channel_id": cid,
+                        "source_url": "https://youtu.be/abc12345678",
+                    }
+                )
+                err = ws.receive_json()
+                assert err["op"] == "error"
+                assert err["code"] == 4004
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_watch_join_and_start_reject_view_denied(ws_app, _auth_signer):
+    """Ein Member mit VIEW_CHANNEL-deny-Overwrite darf weder der Watch-Party
+    beitreten (Watcher-Registry + Updates) noch eine hosten — gleicher
+    4004-Fehler wie der Membership-Fail, damit die Existenz des versteckten
+    Channels nicht bestätigt wird."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, gid, cid = _setup_voice_channel(tc, _auth_signer)
+            member_uid = random.randint(1, 1_000_000)
+            member_token = _auth_signer.issue_access(member_uid, f"u{member_uid}")
+            tc.post(
+                f"/guilds/{gid}/members",
+                json={"user_id": str(member_uid)},
+                headers=_auth(owner_token),
+            )
+            r = tc.put(
+                f"/channels/{cid}/permissions/{OVERWRITE_TARGET_USER}/{member_uid}",
+                json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+                headers=_auth(owner_token),
+            )
+            assert r.status_code == 200, r.text
+            with tc.websocket_connect(f"/ws?token={member_token}") as ws:
+                skip_init_frames(ws)
+                ws.send_json({"op": "watch_join", "channel_id": cid})
+                err = ws.receive_json()
+                assert err["op"] == "error"
+                assert err["code"] == 4004
                 ws.send_json(
                     {
                         "op": "watch_start",
@@ -1119,8 +1204,13 @@ async def test_handle_join_registers_and_broadcasts(redis):
     async def _ok(session, c, u):
         return type("Chan", (), {"type": 1, "guild_id": 1})()  # CHANNEL_TYPE_VOICE == 1
 
+    async def _all_perms(session, user, gid, channel_id):
+        return int(Permissions.VIEW_CHANNEL)
+
     orig = ws_watch.channel_membership
+    orig_perms = ws_watch.resolve_permissions
     ws_watch.channel_membership = _ok
+    ws_watch.resolve_permissions = _all_perms
     try:
         await ws_watch.handle_join(
             ws, AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={}),
@@ -1130,6 +1220,7 @@ async def test_handle_join_registers_and_broadcasts(redis):
         )
     finally:
         ws_watch.channel_membership = orig
+        ws_watch.resolve_permissions = orig_perms
     assert cid in watched
     assert str(uid) in await mgr.watchers(cid)
     assert broadcasts == [cid]

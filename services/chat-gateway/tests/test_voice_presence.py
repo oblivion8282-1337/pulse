@@ -209,6 +209,56 @@ async def test_voice_self_state_rejects_non_voice_channel(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_voice_self_state_rejects_connect_denied(ws_app, _auth_signer):
+    """Ein Member mit CONNECT-deny-Overwrite darf sich nicht in die Voice-
+    Presence des Channels schreiben — er könnte dem LiveKit-Room ohnehin
+    nicht beitreten (Token-Issue prüft CONNECT separat); die Redis-Presence
+    würde sonst lügen."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"u{owner_uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_token)).json()
+            vc = tc.post(
+                f"/guilds/{g['id']}/channels",
+                json={"name": "Voice", "type": 1},
+                headers=_auth(owner_token),
+            ).json()
+            member_uid = random.randint(1, 1_000_000)
+            member_token = _auth_signer.issue_access(member_uid, f"u{member_uid}")
+            tc.post(
+                f"/guilds/{g['id']}/members",
+                json={"user_id": str(member_uid)},
+                headers=_auth(owner_token),
+            )
+            from dcc_shared.permission_resolver import OVERWRITE_TARGET_USER
+            from dcc_shared.permissions import Permissions
+
+            r = tc.put(
+                f"/channels/{vc['id']}/permissions/{OVERWRITE_TARGET_USER}/{member_uid}",
+                json={"allow": "0", "deny": str(int(Permissions.CONNECT))},
+                headers=_auth(owner_token),
+            )
+            assert r.status_code == 200, r.text
+            with tc.websocket_connect(f"/ws?token={member_token}") as ws:
+                receive_skipping(ws)  # skip hello + ready
+                ws.send_json(
+                    {
+                        "op": "voice_self_state",
+                        "channel_id": vc["id"],
+                        "mic_muted": False,
+                        "deafened": False,
+                    }
+                )
+                got = ws.receive_json()
+                assert got["op"] == "error"
+                assert got["code"] == 4004
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_guild_voice_state_rest_endpoint(ws_app, _auth_signer, redis):
     def _run():
         with TestClient(ws_app) as tc:

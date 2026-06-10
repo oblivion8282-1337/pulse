@@ -127,10 +127,21 @@ async def handle_voice_self_state(ctx: WSOpContext, msg: dict[str, Any]) -> None
     if cid_int is not None:
         # Validate membership only when a channel id is given. We require
         # the channel to be a voice channel — text channels have no voice
-        # state.
+        # state — and the CONNECT bit: without it the user could write
+        # themselves into the Redis voice presence of a channel they can't
+        # actually join (LiveKit token issue checks CONNECT separately).
+        # CONNECT implies VIEW_CHANNEL via the resolver's revoke-all
+        # invariant, so hidden channels are covered too. Same error as the
+        # membership fail so a hidden channel's existence isn't confirmed.
         async with SessionLocal() as session:
             channel = await channel_membership(session, cid_int, ctx.user.id)
-        if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+            connect_ok = False
+            if channel is not None and channel.type == CHANNEL_TYPE_VOICE:
+                perms = await resolve_permissions(
+                    session, ctx.user, channel.guild_id, cid_int
+                )
+                connect_ok = has_permission(perms, Permissions.CONNECT)
+        if not connect_ok:
             await ctx.websocket.send_json(
                 {"op": "error", "code": 4004, "msg": "channel not accessible"}
             )

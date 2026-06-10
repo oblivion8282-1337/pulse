@@ -19,6 +19,7 @@
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { guildIconSrc } from '$lib/guildIcon';
   import {
     BackupRequiredError,
     SelfHostContactConfirmRequired,
@@ -36,6 +37,16 @@
   let joining = $state(false);
 
   let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
+
+  // icon_url durch guildIconSrc() schleusen (nur https:// oder /-relativ,
+  // Rest -> null/Initialen-Fallback) — konsistent mit GuildRail; Preview-
+  // Daten sind server-geliefert und sollen keine beliebigen URLs rendern.
+  // Page-Origin statt CLOUD_HOSTNAME: diese Preview kommt vom Page-Origin
+  // (Cloud-Pfad via chatApi), und im lokalen Dev bleibt so der Vite-Proxy
+  // statt Prod das Ziel relativer URLs.
+  let previewIconSrc = $derived(
+    preview ? guildIconSrc(preview.guild.icon_url, window.location.origin) : null
+  );
 
   // Self-Host-Karte: Sind wir auf dem Ziel-Server schon Mitglied, können wir
   // die Preview DORT laden und Mitgliedschaft prüfen → Button wird zu
@@ -181,8 +192,8 @@
     <Button variant="outline" size="sm" disabled>{m.invite_embed_join()}</Button>
   {:else}
     <Avatar.Root class="size-10 shrink-0">
-      {#if preview.guild.icon_url}
-        <Avatar.Image src={preview.guild.icon_url} alt={preview.guild.name} />
+      {#if previewIconSrc}
+        <Avatar.Image src={previewIconSrc} alt={preview.guild.name} />
       {/if}
       <Avatar.Fallback class="accent-gradient text-primary-foreground text-sm font-semibold">
         {guildInitial(preview.guild.name)}

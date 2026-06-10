@@ -277,12 +277,16 @@ log "Starting Pulse (${MODE})…"
 docker run "${RUN_ARGS[@]}" >/dev/null
 
 # 5) Auto-Update (watchtower) — nur Pulse-Container, optional abschaltbar.
+# Digest-Pin (identisch infra/prod/docker-compose.yml, synchron halten):
+# Watchtower mountet den Docker-Socket = Root auf dem Host. Ein ungepinntes
+# :latest hieße, jedem zukünftigen Push auf das fremde GHCR-Repo blind
+# Root-Zugriff einzuräumen.
 if [ -z "${PULSE_NO_WATCHTOWER:-}" ] \
    && ! docker ps -a --format '{{.Names}}' | grep -q '^pulse-watchtower$'; then
   log "Setting up auto-updates (watchtower, Pulse container only)…"
   docker run -d --name pulse-watchtower --restart unless-stopped \
     -v /var/run/docker.sock:/var/run/docker.sock \
-    ghcr.io/nicholas-fedor/watchtower:latest \
+    ghcr.io/nicholas-fedor/watchtower:1.17.0@sha256:48122f05d9e1a0ed3f3987a74340554ba3e73c9a96b32016fca74f873fa9f7c6 \
     --label-enable --scope pulse --interval 300 --cleanup >/dev/null 2>&1 || true
 fi
 
