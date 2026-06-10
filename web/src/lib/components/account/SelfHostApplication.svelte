@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { auth } from '$lib/stores/auth.svelte';
+  import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import {
     instancesApi,
     type InstanceApplication,
@@ -48,13 +49,15 @@
     if (!hostname.trim()) { formError = m.self_host_application_hostname_required(); return; }
     submitting = true;
     try {
-      await instancesApi.submitApplication({
+      const created = await instancesApi.submitApplication({
         hostname: hostname.trim(),
         purpose,
         expected_users,
         contact_email: contact_email.trim(),
         notes: notes.trim() || null
       });
+      // Antrag beobachten → Owner-Toast, sobald genehmigt/abgelehnt wird.
+      myInstanceApplications.register(created.id);
       toast.success(m.self_host_application_submitted_toast());
       hostname = '';
       notes = '';

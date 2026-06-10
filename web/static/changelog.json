@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.5",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Self-Host: Benachrichtigung bei Freischaltung + einfachere Einrichtung",
+      "items": [
+        "Wenn dein Self-Host-Antrag genehmigt (oder abgelehnt) wird, bekommst du jetzt eine Benachrichtigung — du musst nicht mehr selbst nachsehen. Außerdem entfällt das manuelle Hantieren mit Client-Secrets: Unter „Meine Instanzen“ richtest du deinen Server direkt über „Server einrichten“ ein, die Zugangsdaten werden automatisch und sicher übertragen."
+      ]
+    },
+    {
       "id": "2026-06-10.4",
       "date": "2026-06-10",
       "style": "Sachlich",

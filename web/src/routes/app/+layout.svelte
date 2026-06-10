@@ -15,6 +15,7 @@
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initActivityHeartbeat, disposeActivityHeartbeat } from '$lib/ws/activity';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
+  import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
@@ -158,6 +159,9 @@
     // Cloud-Admin-Benachrichtigung: pollt offene Self-Host-Anträge (Badge im
     // UserFooter + Toast bei Zuwachs). Interner Guard pollt nur für Admins.
     pendingInstanceApps.start();
+    // Owner-Benachrichtigung: toastet, wenn ein eigener Antrag genehmigt/
+    // abgelehnt wird. Interner Guard pollt nur bei offenem eigenen Antrag.
+    myInstanceApplications.start();
 
     // Channel-prefetch: now that Ready has populated guilds.byId, kick off
     // a `listChannels` for every guild in the background. Fire-and-forget
@@ -211,6 +215,7 @@
   onDestroy(() => {
     disposeActivityHeartbeat();
     pendingInstanceApps.stop();
+    myInstanceApplications.stop();
     gateway.disconnect();
     voice.disconnect();
     if (typeof document !== 'undefined') document.title = 'Pulse';

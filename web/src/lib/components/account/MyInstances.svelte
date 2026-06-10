@@ -1,27 +1,21 @@
 <!--
   Liste der eigenen Self-Host-Instanzen im Einstellungs-Dialog.
-  Endpoint: GET /me/instances + GET /me/instances/{id}/docker-compose-snippet
-  Cookie-Auth via instancesApi.
+  Endpoint: GET /me/instances (Cookie-Auth via instancesApi).
 
-  Hinweis: client_secret wird hier NICHT angezeigt (nur einmalig bei Approval).
+  Der Server wird ausschließlich über „Server einrichten" (Ein-Befehl-Installer,
+  InstanceSetupDialog) aufgesetzt — die Zugangsdaten werden dabei automatisch
+  und sicher übertragen. Kein manueller .env-/Secret-Umgang mehr.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type Instance } from '$lib/api/instances';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
   import InstanceSetupDialog from './InstanceSetupDialog.svelte';
-  import DownloadIcon from '@lucide/svelte/icons/download';
-  import BookOpenIcon from '@lucide/svelte/icons/book-open';
   import ServerIcon from '@lucide/svelte/icons/server';
   import TerminalIcon from '@lucide/svelte/icons/terminal';
 
   let instances = $state<Instance[]>([]);
   let loading = $state(true);
-  let downloading = $state<string | null>(null);
-  let guideOpen = $state(false);
-  let guideInstance = $state<Instance | null>(null);
   let setupOpen = $state(false);
   let setupInstance = $state<Instance | null>(null);
 
@@ -39,24 +33,6 @@
       loading = false;
     }
   });
-
-  async function download(inst: Instance) {
-    downloading = inst.id;
-    try {
-      await instancesApi.downloadComposeSnippet(inst.id);
-    } catch (e) {
-      toast.error(m.my_instances_download_failed(), {
-        description: e instanceof Error ? e.message : String(e)
-      });
-    } finally {
-      downloading = null;
-    }
-  }
-
-  function openGuide(inst: Instance) {
-    guideInstance = inst;
-    guideOpen = true;
-  }
 
   function statusClass(s: string): string {
     return s === 'active'
@@ -117,67 +93,12 @@
               <TerminalIcon class="size-3.5" />
               {m.instance_setup_button()}
             </button>
-            <button
-              type="button"
-              onclick={() => void download(inst)}
-              disabled={downloading === inst.id}
-              class="flex items-center gap-1.5 rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright transition-colors disabled:opacity-60"
-            >
-              <DownloadIcon class="size-3.5" />
-              {downloading === inst.id ? m.my_instances_downloading() : '.env-Snippet'}
-            </button>
-            <button
-              type="button"
-              onclick={() => openGuide(inst)}
-              class="flex items-center gap-1.5 rounded-lg border border-border bg-bg-hover px-3 py-1.5 text-xs text-text-base hover:text-text-bright transition-colors"
-            >
-              <BookOpenIcon class="size-3.5" />
-              {m.my_instances_guide_button()}
-            </button>
           </div>
         </div>
       {/each}
     </div>
   {/if}
 </div>
-
-<!-- Setup-Anleitung Modal -->
-<Dialog.Root bind:open={guideOpen}>
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-lg" data-testid="instance-guide-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.my_instances_guide_title()}</Dialog.Title>
-        <Dialog.Description>
-          {guideInstance?.hostname ?? ''}
-        </Dialog.Description>
-      </Dialog.Header>
-      <div class="flex flex-col gap-3 text-sm">
-        <ol class="text-text-base flex flex-col gap-2 list-decimal list-inside">
-          <li>{m.my_instances_guide_step1_before()} <strong class="text-text-bright">.env-Snippet</strong> {m.my_instances_guide_step1_after()}</li>
-          <li>{m.my_instances_guide_step2_before()} <code class="bg-bg-input rounded px-1 text-xs">infra/prod/</code> {m.my_instances_guide_step2_after()}</li>
-          <li>{m.my_instances_guide_step3_before()} <code class="bg-bg-input rounded px-1 text-xs">docker compose up -d</code> {m.my_instances_guide_step3_after()}</li>
-          <li>{m.my_instances_guide_step4_before()} <strong class="text-text-bright">{guideInstance?.hostname ?? 'deine-domain.tld'}</strong> {m.my_instances_guide_step4_after()}</li>
-          <li>{m.my_instances_guide_step5_before()} <code class="bg-bg-input rounded px-1 text-xs">PULSE_CLOUD_ORIGIN=https://howispulse.com</code>{m.my_instances_guide_step5_after()}</li>
-        </ol>
-        <p class="text-text-muted text-xs">
-          {m.my_instances_guide_worker_ids()}
-          {guideInstance?.worker_id_chat}/{guideInstance?.worker_id_voice}/{guideInstance?.worker_id_media}
-          {m.my_instances_guide_worker_ids_suffix()}
-        </p>
-      </div>
-      <div class="flex justify-end pt-2">
-        <button
-          type="button"
-          onclick={() => (guideOpen = false)}
-          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium"
-        >
-          {m.my_instances_guide_close()}
-        </button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
 
 <!-- Ein-Befehl-Installer -->
 <InstanceSetupDialog bind:open={setupOpen} instance={setupInstance} />
