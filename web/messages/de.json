@@ -880,6 +880,7 @@
   "hq_stream_dialog_title": "HQ-Stream",
   "incognito_banner_body": "Dein Geräte-Schlüssel wird im privaten Modus nach dem Schließen des Tabs gelöscht. Öffne Pulse in einem normalen Browser-Fenster, damit dein Geräte-Zertifikat erhalten bleibt.",
   "incognito_banner_title": "Privater Browser erkannt",
+  "instance_app_setup_badge_aria": "Freigeschalteter Server wartet auf Einrichtung",
   "instance_app_approved_toast_title": "Server freigeschaltet",
   "instance_app_approved_toast_body": "{hostname} ist freigeschaltet — richte ihn unter Einstellungen → Self-Host über „Server einrichten“ ein.",
   "instance_app_rejected_toast_title": "Antrag abgelehnt",

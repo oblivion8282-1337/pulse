@@ -7,6 +7,7 @@
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
+  import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { messages } from '$lib/stores/messages.svelte';
@@ -62,6 +63,15 @@
       pendingInstanceApps.count > 0
   );
 
+  // Owner-Punkt: ein eigener Self-Host-Antrag wurde freigeschaltet und der User
+  // hat „Meine Instanzen" noch nicht angesehen → einrichten. Nur auf der Cloud
+  // relevant (dort lebt die Self-Host-Verwaltung).
+  let showOwnerSetupBadge = $derived(
+    (activeServer.current?.isCloud ?? false) && myInstanceApplications.pendingSetup > 0
+  );
+
+  let showFooterDot = $derived(showInstanceBadge || showOwnerSetupBadge);
+
   async function onSignOut() {
     const t = loadTokens();
     if (t) {
@@ -110,11 +120,11 @@
           {initial}
         </Avatar.Fallback>
       </Avatar.Root>
-      {#if showInstanceBadge}
+      {#if showFooterDot}
         <span
           class="bg-red-500 ring-bg-input absolute -right-0.5 -top-0.5 size-3 rounded-full ring-2"
-          data-testid="admin-pending-dot"
-          aria-label={m.instance_apps_badge_aria()}
+          data-testid="user-footer-dot"
+          aria-label={showInstanceBadge ? m.instance_apps_badge_aria() : m.instance_app_setup_badge_aria()}
         ></span>
       {/if}
     </div>

@@ -21,10 +21,18 @@ import { m } from '$lib/paraglide/messages.js';
 
 const POLL_MS = 90_000;
 const LS_WATCH = 'pulse.instanceAppWatch';
+const LS_ACK = 'pulse.instanceSetupAck';
 
 type WatchMap = Record<string, string>; // appId → zuletzt gesehener Status
 
 class MyInstanceApplications {
+  /**
+   * Anzahl genehmigter Anträge, die der Owner noch nicht „gesehen" hat
+   * (→ roter Punkt am UserFooter, bis er „Meine Instanzen" öffnet). Persistent
+   * über Reload via Watch-Map (approved) minus Ack-Set.
+   */
+  pendingSetup = $state(0);
+
   private _timer: ReturnType<typeof setInterval> | null = null;
   private _running = false;
 
@@ -41,8 +49,42 @@ class MyInstanceApplications {
   start(): void {
     if (this._running || typeof window === 'undefined') return;
     this._running = true;
+    this._recompute();
     void this._poll();
     this._timer = setInterval(() => void this._poll(), POLL_MS);
+  }
+
+  /**
+   * Owner hat seine Instanzen angesehen → roten Punkt löschen. Aufgerufen vom
+   * MyInstances-Mount. Merkt alle aktuell genehmigten Anträge als „gesehen".
+   */
+  acknowledge(): void {
+    if (typeof window === 'undefined') return;
+    const watch = this._load();
+    const ack = this._loadAck();
+    for (const [id, status] of Object.entries(watch)) {
+      if (status === 'approved') ack[id] = true;
+    }
+    window.localStorage.setItem(LS_ACK, JSON.stringify(ack));
+    this._recompute();
+  }
+
+  private _loadAck(): Record<string, boolean> {
+    try {
+      return JSON.parse(window.localStorage.getItem(LS_ACK) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  /** pendingSetup = genehmigte Anträge in der Watch-Map, die noch nicht ge-ack't sind. */
+  private _recompute(): void {
+    if (typeof window === 'undefined') return;
+    const watch = this._load();
+    const ack = this._loadAck();
+    this.pendingSetup = Object.entries(watch).filter(
+      ([id, status]) => status === 'approved' && !ack[id]
+    ).length;
   }
 
   stop(): void {
@@ -105,7 +147,10 @@ class MyInstanceApplications {
         changed = true;
       }
     }
-    if (changed) this._save(watch);
+    if (changed) {
+      this._save(watch);
+      this._recompute();
+    }
   }
 }
 

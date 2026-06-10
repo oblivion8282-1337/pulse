@@ -7,7 +7,7 @@
       "style": "Sachlich",
       "title": "Self-Host: Benachrichtigung bei Freischaltung + einfachere Einrichtung",
       "items": [
-        "Wenn dein Self-Host-Antrag genehmigt (oder abgelehnt) wird, bekommst du jetzt eine Benachrichtigung — du musst nicht mehr selbst nachsehen. Außerdem entfällt das manuelle Hantieren mit Client-Secrets: Unter „Meine Instanzen“ richtest du deinen Server direkt über „Server einrichten“ ein, die Zugangsdaten werden automatisch und sicher übertragen."
+        "Wenn dein Self-Host-Antrag genehmigt (oder abgelehnt) wird, bekommst du jetzt eine Benachrichtigung — als Hinweis und als Markierung an deinem Profil, bis du den Server einrichtest. Du musst nicht mehr selbst nachsehen. Außerdem entfällt das manuelle Hantieren mit Client-Secrets: Unter „Meine Instanzen“ richtest du deinen Server direkt über „Server einrichten“ ein, die Zugangsdaten werden automatisch und sicher übertragen."
       ]
     },
     {

@@ -10,6 +10,7 @@
   import { onMount } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type Instance } from '$lib/api/instances';
+  import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import InstanceSetupDialog from './InstanceSetupDialog.svelte';
   import ServerIcon from '@lucide/svelte/icons/server';
   import TerminalIcon from '@lucide/svelte/icons/terminal';
@@ -25,6 +26,8 @@
   }
 
   onMount(async () => {
+    // Owner hat seine Instanzen geöffnet → roten „einrichten"-Punkt löschen.
+    myInstanceApplications.acknowledge();
     try {
       instances = await instancesApi.listMyInstances();
     } catch {

@@ -872,6 +872,7 @@
   "hq_stream_dialog_title": "HQ Stream",
   "incognito_banner_body": "Your device key will be deleted when the tab is closed in private mode. Open Pulse in a normal browser window to keep your device certificate.",
   "incognito_banner_title": "Private browsing detected",
+  "instance_app_setup_badge_aria": "Enabled server awaiting setup",
   "instance_app_approved_toast_title": "Server enabled",
   "instance_app_approved_toast_body": "{hostname} is enabled — set it up under Settings → Self-Host via “Set up server”.",
   "instance_app_rejected_toast_title": "Application rejected",
