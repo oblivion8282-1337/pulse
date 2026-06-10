@@ -211,6 +211,26 @@ async def handle_ping(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ctx.websocket.send_json({"op": "pong"})
 
 
+@register_ws_op("resync")
+async def handle_resync(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    """Re-send a fresh ``ready`` snapshot on this socket.
+
+    The client requests this when it switches the active server back to an
+    already-open connection: its cached ``ready`` is the snapshot from connect
+    time, so live voice/stream/watch changes since then (e.g. the user joining
+    a voice channel) are missing from the replay. Rebuilding the frame from
+    current Redis/DB state restores the truth. ``broadcast_online=False`` — the
+    socket already exists, so this is not a fresh presence transition.
+    """
+    # Lazy import: ws_ready imports from this module's siblings at module load;
+    # keep the dependency at call time to avoid an import-time cycle.
+    from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
+
+    await build_and_send_ready_frame(
+        ctx.websocket, ctx.user, ctx.manager, ctx.redis, broadcast_online=False
+    )
+
+
 @register_ws_op("activity")
 async def handle_activity(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     """Etappe-3 client heartbeat / mouse-move / key-press.

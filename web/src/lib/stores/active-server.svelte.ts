@@ -92,6 +92,12 @@ class ActiveServer {
       // Frische/noch-nicht-ready Connection → Replay liefert false, der
       // `connect()` unten holt den echten ready.
       conn.replayReadyForActivation();
+      // Der Replay seedet aus dem gecachten ready (Stand vom Connect) — Live-
+      // voice/stream/watch-Updates seither fehlen darin. Direkt einen frischen
+      // ready vom Server nachfordern, damit z.B. der eigene Voice-Channel-
+      // Beitritt nach dem Zurückwechseln wieder sichtbar ist. No-op auf einer
+      // noch-nicht-ready Connection — der connect() unten holt dann den echten.
+      conn.requestResync();
       // Proaktiv konnektieren. Idempotent: schon offen → no-op; sonst landet
       // der echte ready-Frame früh, statt erst bei der ersten User-Action.
       void conn.connect().catch((err: unknown) => {

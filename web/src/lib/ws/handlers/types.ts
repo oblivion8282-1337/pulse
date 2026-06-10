@@ -282,6 +282,11 @@ export type ClientEvent =
   | { op: 'watch_handoff'; channel_id: string; target_user_id?: string }
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
+  // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).
+  // Beim Server-Switch ZU einer schon offenen Connection ist der gecachte
+  // ready stale (Live-voice/stream/watch-Events seit Connect fehlen darin) —
+  // resync holt den aktuellen Stand, statt den stale Cache zu replayen.
+  | { op: 'resync' }
   | { op: 'ping' };
 
 /** Narrow `ServerEvent` to the variant that has the given `op`. Used by

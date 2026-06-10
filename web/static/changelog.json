@@ -2,6 +2,24 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.13",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Profilbilder auf Self-Host-Servern",
+      "items": [
+        "Auf selbst-gehosteten Servern werden jetzt die Profilbilder der Mitglieder angezeigt statt nur der Initialen. Die Bilder werden datenschutzfreundlich nachgeladen — der Server erfährt dabei nicht, welcher Cloud-Account dahintersteht. Bestehende Profilbilder erscheinen, sobald sie einmal neu hochgeladen wurden."
+      ]
+    },
+    {
+      "id": "2026-06-10.12",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Sprachkanal zeigt dich nach Server-Wechsel wieder",
+      "items": [
+        "Bist du in einem Sprachkanal und wechselst zwischendurch zu einem anderen Server und wieder zurück, siehst du dich (und die anderen Teilnehmer) wieder korrekt im Kanal. Vorher konnte die Teilnehmerliste nach dem Zurückwechseln veralten und dich selbst nicht mehr anzeigen, obwohl du noch verbunden warst."
+      ]
+    },
+    {
       "id": "2026-06-10.11",
       "date": "2026-06-10",
       "style": "Sachlich",

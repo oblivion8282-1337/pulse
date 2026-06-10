@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import get_session
 from dcc_chat_gateway.models.moderation import CachedUserProfile
 from dcc_chat_gateway.security import AuthenticatedUser, get_current_user
@@ -26,6 +27,20 @@ from dcc_chat_gateway.security import AuthenticatedUser, get_current_user
 router = APIRouter()
 
 _MAX_IDS = 100
+
+
+def cloud_avatar_url(avatar_hash: str | None) -> str | None:
+    """Resolve a profile-statement ``avatar_hash`` to a Cloud avatar URL.
+
+    Avatars live in the Cloud (a Self-Host has no avatar storage). The Cloud
+    serves them content-addressed at ``/avatars/by-hash/<hash>.webp`` — keyed by
+    hash, not Cloud user-id, so resolving one doesn't leak the user's Cloud
+    identity (pairwise-sub privacy). Returns ``None`` when the user has no
+    avatar set."""
+    if not avatar_hash:
+        return None
+    origin = get_settings().pulse_cloud_origin.rstrip("/")
+    return f"{origin}/api/auth/avatars/by-hash/{avatar_hash}.webp"
 
 
 @router.get("/users")
@@ -74,9 +89,9 @@ async def resolve_users(
             "id": str(p.synthetic_user_id),
             "username": p.username,
             "display_name": p.display_name,
-            # Self-Host avatars aren't resolvable to a URL here (no cloud
-            # user-id mapping) → initials fallback in the UI.
-            "avatar_url": None,
+            # Resolve the Cloud avatar from the content-addressed hash carried
+            # in the profile-statement (None → initials fallback in the UI).
+            "avatar_url": cloud_avatar_url(p.avatar_hash),
         }
         for p in rows
     ]

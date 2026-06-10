@@ -32,7 +32,14 @@ async def _register(signer, uid: int | None = None, username: str | None = None)
     return token, uid
 
 
-async def _seed(session_factory, user_identifier, synthetic_user_id, username, display_name):
+async def _seed(
+    session_factory,
+    user_identifier,
+    synthetic_user_id,
+    username,
+    display_name,
+    avatar_hash=None,
+):
     from dcc_chat_gateway.models.moderation import CachedUserProfile
 
     async with session_factory() as session:
@@ -42,6 +49,7 @@ async def _seed(session_factory, user_identifier, synthetic_user_id, username, d
                 synthetic_user_id=synthetic_user_id,
                 username=username,
                 display_name=display_name,
+                avatar_hash=avatar_hash,
                 last_statement_iat=datetime.now(tz=timezone.utc),
                 stale=False,
             )
@@ -73,6 +81,24 @@ async def test_resolves_known_ids_to_user_summary(client, _auth_signer, session_
         "display_name": "Dev Display",
         "avatar_url": None,
     }
+
+
+@pytest.mark.asyncio
+async def test_avatar_hash_resolves_to_cloud_by_hash_url(
+    client, _auth_signer, session_factory
+):
+    """An ``avatar_hash`` resolves to the Cloud content-addressed avatar URL —
+    keyed by hash, never by the user's Cloud id (pairwise-sub privacy)."""
+    from dcc_chat_gateway.config import get_settings
+
+    token, _ = await _register(_auth_signer)
+    h = "a" * 64
+    await _seed(session_factory, "pw-av", 222, "ava", "Ava", avatar_hash=h)
+
+    r = await client.get("/users", params={"ids": "222"}, headers=_auth(token))
+    assert r.status_code == 200, r.text
+    origin = get_settings().pulse_cloud_origin.rstrip("/")
+    assert r.json()[0]["avatar_url"] == f"{origin}/api/auth/avatars/by-hash/{h}.webp"
 
 
 @pytest.mark.asyncio

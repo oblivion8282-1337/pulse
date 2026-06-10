@@ -98,6 +98,7 @@ CORE_OPS: frozenset[str] = frozenset({
     "activity",
     "typing",
     "ping",
+    "resync",
     "watch_start",
     "watch_stop",
     "watch_control",

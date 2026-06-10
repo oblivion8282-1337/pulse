@@ -59,6 +59,67 @@ async def test_upload_valid_png(client, tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_upload_sets_hash_and_writes_by_hash_copy(client, tmp_path):
+    """Upload sets ``avatar_hash`` and writes a content-addressed copy under
+    by-hash/ — the path Self-Hosts resolve the Cloud avatar from."""
+    token, user_id = await _register_and_token(client)
+    png_data = _make_png()
+    r = await client.post(
+        "/me/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("avatar.png", io.BytesIO(png_data), "image/png")},
+    )
+    assert r.status_code == 200, r.text
+    avatar_hash = r.json()["avatar_hash"]
+    assert avatar_hash is not None and len(avatar_hash) == 64
+
+    by_hash = tmp_path / "by-hash" / f"{avatar_hash}.webp"
+    assert by_hash.exists()
+    # Same bytes as the user-id-keyed file.
+    assert by_hash.read_bytes() == (tmp_path / f"{user_id}.webp").read_bytes()
+
+
+@pytest.mark.asyncio
+async def test_serve_avatar_by_hash(client, tmp_path):
+    token, _ = await _register_and_token(client)
+    png_data = _make_png()
+    up = await client.post(
+        "/me/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("avatar.png", io.BytesIO(png_data), "image/png")},
+    )
+    avatar_hash = up.json()["avatar_hash"]
+
+    # Anonymous (no auth) + immutable cache.
+    r = await client.get(f"/avatars/by-hash/{avatar_hash}.webp")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/webp")
+    assert "immutable" in r.headers.get("cache-control", "")
+
+
+@pytest.mark.asyncio
+async def test_serve_avatar_by_hash_rejects_bad_keys(client):
+    for bad in ["../etc/passwd", "ZZZ.webp", "abc.webp", "a" * 63 + ".webp", "deadbeef.png"]:
+        r = await client.get(f"/avatars/by-hash/{bad}")
+        assert r.status_code in (404, 422), f"expected 404/422 for {bad!r}, got {r.status_code}"
+
+
+@pytest.mark.asyncio
+async def test_delete_clears_avatar_hash(client):
+    token, _ = await _register_and_token(client)
+    png_data = _make_png()
+    await client.post(
+        "/me/avatar",
+        headers={"Authorization": f"Bearer {token}"},
+        files={"file": ("avatar.png", io.BytesIO(png_data), "image/png")},
+    )
+    await client.delete("/me/avatar", headers={"Authorization": f"Bearer {token}"})
+
+    me = (await client.get("/me", headers={"Authorization": f"Bearer {token}"})).json()
+    assert me["avatar_hash"] is None
+
+
+@pytest.mark.asyncio
 async def test_upload_valid_jpeg(client):
     token, _ = await _register_and_token(client)
 

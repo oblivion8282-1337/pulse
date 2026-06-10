@@ -85,6 +85,8 @@ async def build_and_send_ready_frame(
     user: AuthenticatedUser,
     manager,
     redis,
+    *,
+    broadcast_online: bool = True,
 ) -> None:
     """Build the initial WS Ready snapshot, hydrate per-socket caches,
     send it to the client, and broadcast ``presence_update(online=True)``
@@ -512,7 +514,7 @@ async def build_and_send_ready_frame(
     # (Redis publish + fan-out runs concurrently with this coroutine, and
     # the listener would otherwise deliver our own first-connect event to
     # us before we've sent ready).
-    if manager.user_socket_count(user.id) == 1:
+    if broadcast_online and manager.user_socket_count(user.id) == 1:
         try:
             await manager.broadcast_presence_update(str(user.id), online=True)
         except Exception:  # noqa: BLE001

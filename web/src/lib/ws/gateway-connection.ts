@@ -213,6 +213,23 @@ export class GatewayConnection {
     return true;
   }
 
+  /**
+   * Server-Switch-Refresh (Ergänzung zu `replayReadyForActivation`). Der
+   * Replay seedet aus dem gecachten `_lastReadyEvent` — das ist der Stand vom
+   * Connect-Zeitpunkt. Live-Events (voice_state/stream/watch) seit dem Connect
+   * mutieren die Stores, NICHT den Cache; und während diese Connection im
+   * Hintergrund lag (anderer Server aktiv), wurden ihre Live-Events verworfen.
+   * Folge: Wer nach dem Connect einem Voice-Channel beigetreten ist, fehlt im
+   * stale Replay. Darum hier zusätzlich einen frischen ready vom Server
+   * anfordern; der landet via `_handle` im Cache UND seedet die Stores neu.
+   *
+   * No-op, wenn der Socket (noch) nicht offen/ready ist — dann liefert der
+   * normale `connect()`/ready-Pfad ohnehin einen echten ready.
+   */
+  requestResync(): void {
+    if (this._readyDone) this._sendRaw({ op: 'resync' });
+  }
+
   on(listener: WsListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
