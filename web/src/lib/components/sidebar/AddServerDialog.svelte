@@ -36,6 +36,7 @@
     markSelfHostDisclaimerSeen,
     BackupRequiredError,
   } from '$lib/api/add-server-flow';
+  import { backupGate } from '$lib/stores/backup-gate.svelte';
   import { CertLoginError } from '$lib/api/cert-login';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -116,11 +117,24 @@
     error = null;
     const labelHost = resolvedHostname.replace(/^https?:\/\//, '');
     const code = inviteInput.trim();
+    const hostname = resolvedHostname;
+    const instanceId = info.instance_id ?? undefined;
+
+    // Fehlt noch ein Cloud-Backup, öffnet der Beitritt gleich den Backup-Setup-
+    // Dialog. Diesen Dialog VORHER schließen, damit das Backup-Setup allein im
+    // Fokus steht statt verwirrend darüber zu stapeln. Der Flow läuft weiter;
+    // Erfolg/Fehler kommen dann per Toast (kein Inline-Dialog mehr da).
+    const closedForBackup = !(await backupGate.hasBackup());
+    if (closedForBackup) {
+      reset();
+      onClose();
+    }
+
     try {
       const r = await addServerWithCertLogin({
-        hostname: resolvedHostname,
+        hostname,
         label: labelHost,
-        instanceId: info.instance_id ?? undefined,
+        instanceId,
         // Derselbe Guild-Invite-Code dient beiden Zwecken: communityGrantCode
         // gewährt die Instanz-Mitgliedschaft im cert-login/verify, inviteCode
         // tritt danach der Community bei (join_code gibt es seit Stufe 5 nicht
@@ -128,21 +142,24 @@
         communityGrantCode: code || undefined,
         inviteCode: code || undefined,
       });
-      markSelfHostDisclaimerSeen(resolvedHostname, r.entry.id);
+      markSelfHostDisclaimerSeen(hostname, r.entry.id);
       activeServer.set(r.entry.id);
       toast.success(m.add_server_dialog_toast_added({ host: labelHost }));
       if (r.inviteError) toast.error(m.add_server_dialog_toast_invite_error({ reason: r.inviteError }));
       else if (r.invite) toast.success(m.add_server_dialog_toast_joined({ name: r.invite.guild.name }));
-      reset();
-      onClose();
+      if (!closedForBackup) {
+        reset();
+        onClose();
+      }
     } catch (err) {
-      // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler im
-      // Dialog. busy wird im finally zurückgesetzt, der User kann es erneut
-      // versuchen.
+      // Bewusster Abbruch des Backup-Setups → still verwerfen.
       if (err instanceof BackupRequiredError) return;
-      error = err instanceof CertLoginError
+      const msg = err instanceof CertLoginError
         ? mapCertLoginReason(err.reason)
         : (err as Error).message ?? m.add_server_dialog_error_connection_failed();
+      // Dialog schon zu (Backup-Pfad) → Toast; sonst inline im Dialog.
+      if (closedForBackup) toast.error(msg);
+      else error = msg;
     } finally {
       busy = false;
     }

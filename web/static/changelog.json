@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.6",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Self-Host-Beitritt: Backup-Setup erscheint jetzt zuerst",
+      "items": [
+        "Wenn du einem Self-Host-Server beitrittst und noch kein Backup eingerichtet hast, öffnet sich das Backup-Setup jetzt direkt und allein — statt verwirrend über dem Beitritts-Dialog. Nach dem Backup läuft der Beitritt automatisch weiter."
+      ]
+    },
+    {
       "id": "2026-06-10.5",
       "date": "2026-06-10",
       "style": "Sachlich",

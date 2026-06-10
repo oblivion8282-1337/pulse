@@ -35,8 +35,12 @@ class BackupGate {
    * Schnell-Pfad: Liegt ein Server-Tresor-Key lokal in IDB, ist garantiert
    * schon ein Backup eingerichtet (gleicher Master-Passwort-Key) → kein
    * Netzwerk-Roundtrip nötig. Sonst gegen das Backend prüfen.
+   *
+   * Öffentlich, damit Aufrufer (AddServerDialog) VOR dem `ensure()`-Aufruf
+   * entscheiden können, ob sie ihren eigenen Dialog schließen müssen — sonst
+   * läge der Backup-Setup-Dialog verwirrend über dem ihren.
    */
-  private async hasBackup(): Promise<boolean> {
+  async hasBackup(): Promise<boolean> {
     if (await serverVault.isUnlocked()) return true;
     const certId = certStore.cert?.claims.cert_id;
     if (!certId) return false;
