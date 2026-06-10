@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.4",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Klarerer Hinweis in den Self-Host-Einstellungen",
+      "items": [
+        "In „Meine Instanzen“ wird der Einrichtungs-Hinweis jetzt nur noch angezeigt, wenn du tatsächlich eine Instanz hast, und verweist auf „Server einrichten“ statt auf eine manuelle Secret-Verwaltung."
+      ]
+    },
+    {
       "id": "2026-06-10.3",
       "date": "2026-06-10",
       "style": "Sachlich",
