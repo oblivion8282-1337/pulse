@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.10",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Benachrichtigungs-Untermenü war abgeschnitten",
+      "items": [
+        "Im Rechtsklick-Menü eines Servers öffnet das Untermenü „Benachrichtigungen“ (Alle / Nur Erwähnungen / Stumm) jetzt korrekt — vorher wurde es an der Menükante abgeschnitten und war praktisch unsichtbar."
+      ]
+    },
+    {
       "id": "2026-06-10.9",
       "date": "2026-06-10",
       "style": "Sachlich",
