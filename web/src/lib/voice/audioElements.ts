@@ -103,7 +103,7 @@ export class RemoteAudioElements {
     if (this.#ctx && this.#ctx.state !== 'closed') return this.#ctx;
     if (this.#ctx?.state === 'closed') this.#ctx = null;
     const ctx = new AudioContext();
-    if (this.outputDeviceId) void this.#applySink(ctx, this.outputDeviceId);
+    if (this.outputDeviceId) void this.#setSink(ctx, this.outputDeviceId);
     this.#ctx = ctx;
     return ctx;
   }
@@ -129,7 +129,7 @@ export class RemoteAudioElements {
       // screen lock where an AudioContext would be suspended.
       anchor.muted = this.deafened;
       anchor.volume = this.#elementVolume(userId);
-      if (this.outputDeviceId) void this.#applyElementSink(anchor, this.outputDeviceId);
+      if (this.outputDeviceId) void this.#setSink(anchor, this.outputDeviceId);
       document.body.appendChild(anchor);
       const node: AudioNodeBundle = {
         source: null,
@@ -242,11 +242,11 @@ export class RemoteAudioElements {
     this.outputDeviceId = deviceId;
     if (this.#mobile) {
       await Promise.all(
-        [...this.#nodes.values()].map((n) => this.#applyElementSink(n.anchor, deviceId))
+        [...this.#nodes.values()].map((n) => this.#setSink(n.anchor, deviceId))
       );
       return;
     }
-    if (this.#ctx) await this.#applySink(this.#ctx, deviceId);
+    if (this.#ctx) await this.#setSink(this.#ctx, deviceId);
   }
 
   /** Re-trigger playback (resume the AudioContext + replay any anchor audio
@@ -351,25 +351,14 @@ export class RemoteAudioElements {
     }
   }
 
-  async #applySink(target: AudioContext, deviceId: string): Promise<void> {
+  async #setSink(target: AudioContext | HTMLAudioElement, deviceId: string): Promise<void> {
     if (!deviceId) return;
     const cap = target as unknown as SinkCapable;
     if (typeof cap.setSinkId !== 'function') return;
     try {
       await cap.setSinkId(deviceId);
     } catch {
-      /* Chrome ≥110 / Electron supports this; Firefox/Safari don't yet. */
-    }
-  }
-
-  async #applyElementSink(el: HTMLAudioElement, deviceId: string): Promise<void> {
-    if (!deviceId) return;
-    const cap = el as unknown as SinkCapable;
-    if (typeof cap.setSinkId !== 'function') return;
-    try {
-      await cap.setSinkId(deviceId);
-    } catch {
-      /* setSinkId on media elements: not supported everywhere (esp. iOS). */
+      /* setSinkId not supported everywhere (Firefox/Safari/iOS). */
     }
   }
 }

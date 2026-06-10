@@ -12,21 +12,15 @@
   import { deviceDisplayName } from '$lib/voice/devices';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
+  import { onDestroy } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let listeningForPttKey = $state(false);
   let pttKeyListener: ((e: KeyboardEvent) => void) | null = null;
 
-  function onNoiseToggle(e: Event) {
-    const on = (e.currentTarget as HTMLInputElement).checked;
-    settings.setNoiseSuppression(on ? 'rnnoise_gated' : 'off');
-    if (voice.connected) void voice.applyNoiseFilter();
-  }
-
-  function onLimiterToggle(e: Event) {
-    const on = (e.currentTarget as HTMLInputElement).checked;
-    settings.setLimiterEnabled(on);
-    voice.setLimiterEnabled(on);
+  function inputInt(e: Event): number | null {
+    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+    return isNaN(val) ? null : val;
   }
 
   // Live-display the slider value during drag (oninput), but only persist the
@@ -36,12 +30,12 @@
     bitrateDisplay = settings.audio.voiceBitrateKbps;
   });
   function onBitrateInput(e: Event) {
-    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (!isNaN(val)) bitrateDisplay = val;
+    const val = inputInt(e);
+    if (val !== null) bitrateDisplay = val;
   }
   function onBitrateChange(e: Event) {
-    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (!isNaN(val)) settings.setVoiceBitrateKbps(val);
+    const val = inputInt(e);
+    if (val !== null) settings.setVoiceBitrateKbps(val);
   }
 
   // Gate threshold: live-rebuild the gate node on drag (oninput, brief click —
@@ -51,14 +45,14 @@
     gateDbDisplay = settings.audio.noiseGateThresholdDb;
   });
   function onGateInput(e: Event) {
-    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (isNaN(val)) return;
+    const val = inputInt(e);
+    if (val === null) return;
     gateDbDisplay = val;
     voice.setNoiseGateThresholdDb(val);
   }
   function onGateChange(e: Event) {
-    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (!isNaN(val)) settings.setNoiseGateThresholdDb(val);
+    const val = inputInt(e);
+    if (val !== null) settings.setNoiseGateThresholdDb(val);
   }
   let gateDbLabel = $derived(
     gateDbDisplay <= -55
@@ -83,14 +77,11 @@
     window.addEventListener('keydown', pttKeyListener, true);
   }
 
-  $effect(() => {
-    return () => {
-      if (listeningForPttKey && pttKeyListener) {
-        window.removeEventListener('keydown', pttKeyListener, true);
-        listeningForPttKey = false;
-        pttKeyListener = null;
-      }
-    };
+  onDestroy(() => {
+    if (pttKeyListener) {
+      window.removeEventListener('keydown', pttKeyListener, true);
+      pttKeyListener = null;
+    }
   });
 
   let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
@@ -209,7 +200,7 @@
       <input
         type="checkbox"
         checked={settings.audio.limiterEnabled}
-        onchange={onLimiterToggle}
+        onchange={(e) => { const on = (e.currentTarget as HTMLInputElement).checked; settings.setLimiterEnabled(on); voice.setLimiterEnabled(on); }}
         class="accent-primary size-5 md:size-4"
       />
     </label>
@@ -225,7 +216,7 @@
       <input
         type="checkbox"
         checked={settings.audio.noiseSuppression !== 'off'}
-        onchange={onNoiseToggle}
+        onchange={(e) => { const on = (e.currentTarget as HTMLInputElement).checked; settings.setNoiseSuppression(on ? 'rnnoise_gated' : 'off'); if (voice.connected) void voice.applyNoiseFilter(); }}
         class="accent-primary size-5 md:size-4"
       />
     </label>
