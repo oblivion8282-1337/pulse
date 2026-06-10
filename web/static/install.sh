@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
 #
-# Pulse Self-Host — Ein-Befehl-Installer
-# =====================================
+# Pulse Self-Host — One-command installer
+# =======================================
 #   curl -fsSL https://howispulse.com/install | bash -s -- <TOKEN>
 #
-# Das Script erkennt deine Umgebung selbst und richtet sich passend ein —
-# auch wenn auf dem Server schon ein Reverse-Proxy läuft:
+# Das Script erkennt die Umgebung selbst und richtet sich passend ein — auch
+# wenn auf dem Server schon ein Reverse-Proxy läuft (User-Output ist Englisch,
+# Kommentare bleiben Deutsch für die Wartung):
 #
-#   1. Auto-Discovery-Proxy (caddy-docker-proxy / Traefik / nginx-proxy) gefunden
-#      → Pulse hängt sich in dessen Netz + setzt die passenden Labels/Env →
-#        der Proxy nimmt Pulse automatisch auf. Keine Handarbeit.
+#   1. Auto-Discovery-Proxy (caddy-docker-proxy / Traefik / nginx-proxy) → der
+#      Container hängt sich ins Proxy-Netz + setzt Labels/Env → automatisch.
 #   2. Port 80 + 443 frei → Pulse terminiert HTTPS selbst (Let's Encrypt).
-#   3. Statischer dockerisierter Proxy (festes Caddyfile/nginx.conf) → Pulse
-#      hängt sich in dessen Netz (per Container-Name erreichbar) und gibt die
-#      EINE Route aus, die du einfügst.
-#   4. Reverse-Proxy außerhalb von Docker → Loopback-Port + Route-Snippet.
+#   3. Statischer dockerisierter Proxy → Netz-Anbindung + eine Route ausgeben.
+#   4. Reverse-Proxy außerhalb von Docker → Loopback-Port + Route ausgeben.
 #
-# Sicherheit: der Bootstrap-Token wird beim Einlösen verbraucht und das
-# Pairing-Secret serverseitig rotiert. --dry-run zeigt nur den Plan (ohne
-# Token-Verbrauch, ohne Änderung). Inspizieren erwünscht — genau diese Datei
-# wird unter /install ausgeliefert.
+# Sicherheit: Bootstrap-Token wird beim Einlösen verbraucht, das Pairing-Secret
+# serverseitig rotiert. --dry-run zeigt nur den Plan (kein Token-Verbrauch).
 set -euo pipefail
 
 # --- Konfiguration (per Env überschreibbar) --------------------------------
@@ -38,9 +34,8 @@ else
 fi
 HTTP_PORT="${PULSE_HTTP_PORT:-8080}"
 ENV_FILE="${PULSE_DIR}/pulse.env"
-# Optionale harte Overrides (Auto-Detect übergehen):
-#   PULSE_TLS_MODE = auto | behind-proxy
-#   PULSE_NETWORK  = Docker-Netz, in das der Container gehängt wird
+# Optionale harte Overrides:
+#   PULSE_TLS_MODE = auto | behind-proxy ; PULSE_NETWORK = Docker-Netz
 FORCE_TLS_MODE="${PULSE_TLS_MODE:-}"
 FORCE_NETWORK="${PULSE_NETWORK:-}"
 
@@ -59,18 +54,18 @@ TOKEN="${TOKEN:-${PULSE_BOOTSTRAP_TOKEN:-}}"
 # --- Ausgabe-Helfer --------------------------------------------------------
 log()  { printf '\033[1;36m[pulse]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[pulse]\033[0m %s\n' "$*"; }
-err()  { printf '\033[1;31m[pulse] FEHLER:\033[0m %s\n' "$*" >&2; }
+err()  { printf '\033[1;31m[pulse] ERROR:\033[0m %s\n' "$*" >&2; }
 die()  { err "$*"; exit 1; }
 
-[ -n "$TOKEN" ] || die "Kein Bootstrap-Token übergeben.
-  Aufruf: curl -fsSL ${CLOUD_ORIGIN}/install | bash -s -- <TOKEN>
-  Token holst du in der Pulse-App: Einstellungen → Self-Host → Server einrichten."
+[ -n "$TOKEN" ] || die "No bootstrap token provided.
+  Usage: curl -fsSL ${CLOUD_ORIGIN}/install | bash -s -- <TOKEN>
+  Get a token in the Pulse app: Settings → Self-Host → Set up server."
 
 # --- Docker prüfen ------------------------------------------------------- #
 command -v docker >/dev/null 2>&1 \
-  || die "Docker ist nicht installiert. → https://docs.docker.com/engine/install/"
+  || die "Docker is not installed. → https://docs.docker.com/engine/install/"
 docker info >/dev/null 2>&1 \
-  || die "Docker-Daemon nicht erreichbar. Führe das Script als root aus (sudo) oder starte Docker."
+  || die "Cannot reach the Docker daemon. Run this script as root (sudo) or start Docker."
 
 # --- Helfer: Port belegt? ------------------------------------------------ #
 port_busy() {
@@ -92,7 +87,6 @@ first_user_network() {
 # --- Helfer: Traefik-certresolver von vorhandenen Containern erben ------- #
 detect_traefik_certresolver() {
   docker ps -q 2>/dev/null | while read -r id; do
-    docker inspect -f '{{range $k,$v := .Config.Labels}}{{$v}}{{"\n"}}{{end}}' "$id" 2>/dev/null
     docker inspect -f '{{range $k,$v := .Config.Labels}}{{$k}}={{$v}}{{"\n"}}{{end}}' "$id" 2>/dev/null
   done | grep -oE 'certresolver=[A-Za-z0-9_-]+' | head -1 | cut -d= -f2
 }
@@ -136,7 +130,7 @@ decide_mode() {
   case "$PROXY_KIND" in
     caddy-docker-proxy|traefik|nginx-proxy)
       if [ -n "$PROXY_NET" ]; then MODE=discovery
-      else warn "Proxy '${PROXY_CONTAINER}' nur im Default-Bridge — Auto-Wire nicht möglich, nutze Loopback."; MODE=hostproxy; fi ;;
+      else warn "Proxy '${PROXY_CONTAINER}' is only on the default bridge — cannot auto-wire, using loopback."; MODE=hostproxy; fi ;;
     static-caddy|static-nginx)
       if [ -n "$PROXY_NET" ]; then MODE=static-docker; else MODE=hostproxy; fi ;;
     none)
@@ -196,12 +190,12 @@ build_run_args() {
 
 # --- Plan ausgeben ------------------------------------------------------- #
 print_plan() {
-  log "Erkannter Modus: ${MODE}${PROXY_KIND:+  (Proxy: ${PROXY_KIND}${PROXY_CONTAINER:+ → ${PROXY_CONTAINER}}${PROXY_NET:+, Netz ${PROXY_NET}})}"
+  log "Detected mode: ${MODE}${PROXY_KIND:+  (proxy: ${PROXY_KIND}${PROXY_CONTAINER:+ → ${PROXY_CONTAINER}}${PROXY_NET:+, network ${PROXY_NET}})}"
   case "$MODE" in
-    greenfield)    log "→ Pulse belegt 80/443 und holt sich selbst ein Let's-Encrypt-Zertifikat." ;;
-    discovery)     log "→ Pulse hängt in '${PROXY_NET}', der Proxy nimmt es automatisch auf. Kein Handgriff nötig." ;;
-    static-docker) log "→ Pulse hängt in '${PROXY_NET}', erreichbar als '${CONTAINER}:${HTTP_PORT}'. Eine Route nötig (s.u.)." ;;
-    hostproxy)     log "→ Pulse lauscht auf 127.0.0.1:${HTTP_PORT}. Eine Route in deinem Proxy nötig (s.u.)." ;;
+    greenfield)    log "→ Pulse binds 80/443 and obtains its own Let's Encrypt certificate." ;;
+    discovery)     log "→ Pulse joins '${PROXY_NET}'; the proxy picks it up automatically. No manual step." ;;
+    static-docker) log "→ Pulse joins '${PROXY_NET}', reachable as '${CONTAINER}:${HTTP_PORT}'. One route needed (see below)." ;;
+    hostproxy)     log "→ Pulse listens on 127.0.0.1:${HTTP_PORT}. One route in your proxy needed (see below)." ;;
   esac
 }
 
@@ -228,18 +222,18 @@ print_plan
 
 if [ -n "$DRY_RUN" ]; then
   echo
-  log "DRY-RUN — es wird nichts geändert und kein Token verbraucht."
-  log "Geplanter Container-Start:"
+  log "DRY RUN — nothing changed, no token consumed."
+  log "Planned container start:"
   printf '    docker run'; printf ' %q' "${RUN_ARGS[@]}"; echo
   exit 0
 fi
 
 # 2) Token einlösen (verbraucht ihn, rotiert das Secret).
-log "Löse Bootstrap-Token bei ${CLOUD_ORIGIN} ein…"
+log "Redeeming bootstrap token at ${CLOUD_ORIGIN}…"
 RESP="$(curl -fsSL -X POST "${CLOUD_ORIGIN}/api/auth/selfhost/bootstrap" \
         -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json')" \
-  || die "Token-Einlösung fehlgeschlagen — abgelaufen oder schon verbraucht?
-  Generiere in der Pulse-App einen frischen Befehl (Server einrichten → neu generieren)."
+  || die "Token redemption failed — expired or already used?
+  Generate a fresh command in the Pulse app (Set up server → regenerate)."
 
 INSTANCE_ID="$(jget "$RESP" instance_id)"
 OWNER_ID="$(jget "$RESP" owner_user_id)"
@@ -250,8 +244,8 @@ ADMIN_EMAIL="$(jget "$RESP" admin_email)"
 RESP_ORIGIN="$(jget "$RESP" cloud_origin)"
 [ -n "$RESP_ORIGIN" ] && CLOUD_ORIGIN="$RESP_ORIGIN" || true
 [ -n "$INSTANCE_ID" ] && [ -n "$CLIENT_SECRET" ] && [ -n "$SRV_HOST" ] \
-  || die "Unerwartete Antwort von der Cloud — Abbruch."
-log "Instanz: ${SRV_HOST} (ID ${INSTANCE_ID})"
+  || die "Unexpected response from the cloud — aborting."
+log "Instance: ${SRV_HOST} (ID ${INSTANCE_ID})"
 
 # Hostname steht jetzt fest → Run-Args neu bauen (Labels brauchen ihn).
 build_run_args
@@ -273,19 +267,19 @@ PULSE_HTTP_PORT=${HTTP_PORT}
 EOF
 )
 chmod 600 "$ENV_FILE"
-log "Konfiguration geschrieben: ${ENV_FILE} (nur für root lesbar)"
+log "Configuration written: ${ENV_FILE} (readable by root only)"
 
 # 4) Container starten.
-log "Ziehe Image ${IMAGE}…"
+log "Pulling image ${IMAGE}…"
 docker pull "$IMAGE"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-log "Starte Pulse (${MODE})…"
+log "Starting Pulse (${MODE})…"
 docker run "${RUN_ARGS[@]}" >/dev/null
 
 # 5) Auto-Update (watchtower) — nur Pulse-Container, optional abschaltbar.
 if [ -z "${PULSE_NO_WATCHTOWER:-}" ] \
    && ! docker ps -a --format '{{.Names}}' | grep -q '^pulse-watchtower$'; then
-  log "Richte Auto-Update ein (watchtower, nur Pulse-Container)…"
+  log "Setting up auto-updates (watchtower, Pulse container only)…"
   docker run -d --name pulse-watchtower --restart unless-stopped \
     -v /var/run/docker.sock:/var/run/docker.sock \
     ghcr.io/nicholas-fedor/watchtower:latest \
@@ -293,7 +287,7 @@ if [ -z "${PULSE_NO_WATCHTOWER:-}" ] \
 fi
 
 # 6) Health-Check.
-log "Warte auf Startup (Migrationen + TLS, kann ~1 Min dauern)…"
+log "Waiting for startup (migrations + TLS, may take ~1 min)…"
 case "$MODE" in
   hostproxy) HEALTH_URL="http://127.0.0.1:${HTTP_PORT}/api/chat/health" ;;
   *)         HEALTH_URL="https://${SRV_HOST}/api/chat/health" ;;
@@ -306,28 +300,34 @@ done
 
 echo
 if [ -n "$OK" ]; then
-  log "Pulse läuft → https://${SRV_HOST}"
+  log "Pulse is running → https://${SRV_HOST}"
 else
-  warn "Health-Check noch nicht grün — der Container startet evtl. noch. Prüfe:"
+  warn "Health check not green yet — the container may still be starting. Check:"
   warn "  docker logs -f ${CONTAINER}"
-  [ "$MODE" = "greenfield" ] && warn "Bei 'greenfield': zeigt der DNS-A-Record von ${SRV_HOST} schon auf diesen Server?" || true
+  [ "$MODE" = "greenfield" ] && warn "For 'greenfield': does the DNS A record for ${SRV_HOST} already point to this server? (Let's Encrypt needs it)" || true
 fi
 
-# 7) Falls eine Route nötig ist, sie konkret ausgeben.
+# 7) Falls eine Route nötig ist, sie + den Reload-Befehl konkret ausgeben.
 if [ "$MODE" = "static-docker" ] || [ "$MODE" = "hostproxy" ]; then
   if [ "$MODE" = "static-docker" ]; then TARGET="${CONTAINER}:${HTTP_PORT}"; else TARGET="127.0.0.1:${HTTP_PORT}"; fi
+  # Reload-Befehl nach erkanntem Proxy (bei dockerisiertem statischem Proxy
+  # kennen wir den Container-Namen → konkreter Befehl).
+  case "$PROXY_KIND" in
+    static-caddy) RELOAD_CMD="docker exec ${PROXY_CONTAINER} caddy reload --config /etc/caddy/Caddyfile" ;;
+    static-nginx) RELOAD_CMD="docker exec ${PROXY_CONTAINER} nginx -s reload" ;;
+    *)            RELOAD_CMD="# reload your reverse proxy, e.g.:  sudo systemctl reload caddy   (or: nginx -s reload)" ;;
+  esac
   cat <<EOF
 
   ----------------------------------------------------------------
-  Letzter Schritt — EINE Route in deinem vorhandenen Proxy:
+  Last step — ONE route in your existing reverse proxy.
+  (If a route for ${SRV_HOST} already exists, just point it at http://${TARGET}.)
 
-      ${SRV_HOST}  ->  http://${TARGET}
-
-  WebSockets durchreichen! Caddy:
+  Caddy — add to your Caddyfile:
       ${SRV_HOST} {
           reverse_proxy ${TARGET}
       }
-  nginx (im server-Block):
+  nginx — inside the server block (WebSockets must pass through):
       location / {
           proxy_pass http://${TARGET};
           proxy_http_version 1.1;
@@ -335,8 +335,11 @@ if [ "$MODE" = "static-docker" ] || [ "$MODE" = "hostproxy" ]; then
           proxy_set_header Connection "upgrade";
           proxy_set_header Host \$host;
       }
+
+  Then reload the proxy:
+      ${RELOAD_CMD}
   ----------------------------------------------------------------
 EOF
 fi
 
-log "Fertig."
+log "Done."
