@@ -382,6 +382,15 @@ class SidecarManager {
     const child = spawn(target.command, target.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false,
+      // PULSE_SELF_PID = this Electron main-process PID. The Windows HQ sidecar
+      // reads it to drop Pulse's OWN audio from "Desktop" capture (WASAPI
+      // process-loopback in EXCLUDE mode over our process tree), so our playback
+      // of other voice participants isn't recaptured into the stream → echo.
+      // The sidecar is a direct child of this process, so process.pid is the
+      // tree root of all Chromium children incl. the audio-service. Mirror of
+      // the Linux `app-inverse:Pulse` path (PULSE_PROP in main.ts). The Linux
+      // Python sidecar ignores the var.
+      env: { ...process.env, PULSE_SELF_PID: String(process.pid) },
     }) as ChildProcessWithoutNullStreams;
     this.child = child;
 

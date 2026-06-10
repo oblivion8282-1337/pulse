@@ -333,6 +333,13 @@ fn open_audio_client(source: &AudioSource) -> Result<AudioClient> {
             AudioClient::new_application_loopback_client(*pid, *include_tree)
                 .map_err(|e| anyhow!("new_application_loopback_client(pid={pid}): {e}"))
         }
+        AudioSource::DesktopExcludingTree { pid } => {
+            // `include_tree=false` schaltet die wasapi-Crate auf
+            // PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE — wir capturen den
+            // GESAMTEN Desktop-Mix MINUS dem Pulse-Prozess-Tree (kein Voice-Echo).
+            AudioClient::new_application_loopback_client(*pid, false)
+                .map_err(|e| anyhow!("new_application_loopback_client(exclude pid={pid}): {e}"))
+        }
     }
 }
 

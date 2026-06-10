@@ -133,6 +133,7 @@ fn parse_capture(params: &Map<String, Value>) -> Result<CaptureSource> {
 /// Die App-Variante schickt der Renderer mit dem Prozessnamen; wir lösen ihn
 /// hier via `audio_sessions::resolve_application_pid` zur Tree-Root-PID auf
 /// und bauen den WASAPI-Process-Loopback (`AudioSource::Application`).
+/// `"Desktop"` schließt Pulses eigenen Ton aus (s. `desktop_audio_source`).
 fn parse_audio(params: &Map<String, Value>) -> Option<AudioSource> {
     let mode = params
         .get("audio")
@@ -142,7 +143,7 @@ fn parse_audio(params: &Map<String, Value>) -> Option<AudioSource> {
         .unwrap_or("Aus");
     match mode {
         "Aus" => None,
-        "Desktop" => Some(AudioSource::DefaultDesktop),
+        "Desktop" => Some(desktop_audio_source()),
         "Mikrofon" => Some(AudioSource::DefaultMicrophone),
         "Desktop + Mikrofon" => Some(AudioSource::DesktopPlusMicrophone),
         s if s.starts_with(APP_LABEL_PREFIX) => {
@@ -163,6 +164,35 @@ fn parse_audio(params: &Map<String, Value>) -> Option<AudioSource> {
         }
         _ => None,
     }
+}
+
+/// „Desktop"-Audio-Quelle. Ist die Pulse-Main-PID via `PULSE_SELF_PID` bekannt
+/// (von `sidecar.ts` beim Spawn gesetzt), capturen wir den Desktop-Mix UNTER
+/// Ausschluss des Pulse-Prozess-Trees — sonst landet Pulses eigene Wiedergabe
+/// (Voice der anderen Teilnehmer) als Echo im Stream. Ohne die PID (z. B.
+/// Standalone-Test des Sidecars) Fallback auf den simplen Render-Loopback, der
+/// alles inkl. Pulse mitnimmt. Mirror des Linux `app-inverse:Pulse`.
+fn desktop_audio_source() -> AudioSource {
+    match pulse_self_pid() {
+        Some(pid) => AudioSource::DesktopExcludingTree { pid },
+        None => {
+            eprintln!(
+                "[hq-sidecar] PULSE_SELF_PID nicht gesetzt — Desktop-Audio ohne \
+                 Pulse-Ausschluss (eigener Ton kann als Echo im Stream landen)"
+            );
+            AudioSource::DefaultDesktop
+        }
+    }
+}
+
+/// Electron-Main-PID aus `PULSE_SELF_PID`. `None` wenn unset/leer/0/unparsebar.
+fn pulse_self_pid() -> Option<u32> {
+    std::env::var("PULSE_SELF_PID")
+        .ok()?
+        .trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|&p| p != 0)
 }
 
 fn parse_overrides(

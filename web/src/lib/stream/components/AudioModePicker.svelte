@@ -221,7 +221,12 @@
         <p class="text-amber-400/90 text-xs">{m.audio_mode_picker_select_app_before_stream()}</p>
       {/if}
     </div>
-  {:else if usesDesktop}
+    <!-- Windows: WASAPI process-loopback can exclude only ONE process tree, and
+         that single slot is spent on Pulse itself (the echo fix) — user-chosen
+         excludes can't be honored. So the whole exclude box is dropped on
+         Windows (Pulse stays auto-excluded silently in the sidecar); only Linux
+         shows it. -->
+  {:else if usesDesktop && !isWindows()}
     <div class="bg-bg-input mt-1 flex flex-col gap-2 rounded-xl border border-border p-2.5">
       <div class="flex items-center justify-between">
         <span class="text-text-bright text-xs font-medium">{m.audio_mode_picker_exclude_apps()}</span>

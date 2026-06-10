@@ -13,7 +13,14 @@ Kein Python — die Rust-Bin ist standalone (FFmpeg-DLLs neben der exe).
 ## Stack
 
 - **Capture:** `windows-capture` v2 (WGC, ID3D11-Texture-Output).
-- **Audio:** `wasapi` (Desktop-Loopback + Mikrofon).
+- **Audio:** `wasapi` (Desktop-Loopback + Mikrofon). Der **„Desktop"**-Modus nutzt
+  WASAPI-Process-Loopback im **EXCLUDE-Modus** über den Pulse-Prozess-Tree
+  (`new_application_loopback_client(pid, include_tree=false)` →
+  `PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE`), damit Pulses eigener Ton —
+  v. a. die Wiedergabe der anderen Voice-Teilnehmer — nicht als Echo in den Stream
+  läuft. `pid` = Electron-Main-PID via `PULSE_SELF_PID` (gesetzt in
+  `desktop/electron/sidecar.ts`); fehlt sie, Fallback auf den simplen
+  Render-Loopback. Linux-Äquivalent: `-a app-inverse:Pulse` (`gsr-sidecar/profiles.py`).
 - **Encode/Mux:** `ffmpeg-next` 8.1, gelinkt gegen die **vendored** BtbN-LGPL-Shared-
   Distribution unter `ffmpeg-dist/n8.1-lgpl-shared/` (Pfad via `.cargo/config.toml`
   `FFMPEG_DIR`; `build.rs` kopiert die DLLs neben die exe).
