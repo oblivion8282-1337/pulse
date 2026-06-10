@@ -11,7 +11,7 @@
 #   - Shared = wir linken gegen .lib-Stubs, .dll-Dateien werden zur Laufzeit
 #     neben unser .exe gestellt (siehe scripts/copy-ffmpeg-dlls.ps1)
 #
-# Pin: BtbN n8.1-LGPL-shared, SHA-Stand 2026-05-20. Die URL zeigt auf BtbNs
+# Pin: BtbN n8.1-LGPL-shared, SHA-Stand 2026-06-10. Die URL zeigt auf BtbNs
 # rollendes `latest`-Release — BtbN lädt das laufend mit neuen Nightlies neu
 # hoch, d.h. $ExpectedSha muss bei einem BtbN-Re-Release neu gesetzt werden
 # (clean fetch failt sonst mit „SHA256 mismatch"). Die CI cached `ffmpeg-dist/`
@@ -28,7 +28,7 @@ $Zip = Join-Path $Dist 'ffmpeg-n8.1-win64-lgpl-shared.zip'
 $Target = Join-Path $Dist 'n8.1-lgpl-shared'
 
 $Url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip'
-$ExpectedSha = '0584d9f5153f3dc56cece06467bae870d8d97c5fc41f2b3c4e3d09f9ea7d4a4c'
+$ExpectedSha = '215ba4c2ce44925781dffafe834a9edec2aa27e01a8aec67edfd95a7d6036b8f'
 
 if (-not (Test-Path $Dist)) {
     New-Item -ItemType Directory -Path $Dist | Out-Null
