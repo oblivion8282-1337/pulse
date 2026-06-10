@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-10.3",
+      "date": "2026-06-10",
+      "style": "Sachlich",
+      "title": "Eigenen Server mit einem Befehl aufsetzen",
+      "items": [
+        "Wenn du deinen eigenen Pulse-Server betreibst, richtest du ihn jetzt mit einem einzigen Befehl ein: Unter Einstellungen → Self-Host → Server einrichten bekommst du einen fertigen Befehl, den du auf deinem Server ausführst. Das HTTPS-Zertifikat wird automatisch eingerichtet, und du musst keine Konfigurationsdateien mehr von Hand bearbeiten."
+      ]
+    },
+    {
       "id": "2026-06-10.2",
       "date": "2026-06-10",
       "style": "Sachlich",

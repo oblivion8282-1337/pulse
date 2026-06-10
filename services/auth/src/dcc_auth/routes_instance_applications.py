@@ -9,17 +9,24 @@ GET    /me/instances/{id}/docker-compose-snippet  -- .env-Snippet als Textdatei
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import and_, select
+from sqlalchemy import and_, delete, select
 
+from dcc_auth.bootstrap import generate_bootstrap_token, hash_bootstrap_token
 from dcc_auth.browser_sessions import validate_session
+from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
-from dcc_auth.models_instances import InstanceApplication, RegisteredInstance
+from dcc_auth.models_instances import (
+    InstanceApplication,
+    InstanceBootstrapToken,
+    RegisteredInstance,
+)
+from dcc_auth.routes import _check_rate
 from dcc_auth.snowflake import next_id
 
 router = APIRouter(tags=["self-host"])
@@ -316,3 +323,62 @@ async def get_docker_compose_snippet(
             "Content-Disposition": f'attachment; filename="pulse-instance-{inst.id}.env"'
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Ein-Befehl-Installer — Mint eines One-Time-Bootstrap-Tokens
+# ---------------------------------------------------------------------------
+
+
+class BootstrapTokenOut(BaseModel):
+    token: str
+    expires_at: datetime
+    ttl_seconds: int
+
+
+@router.post(
+    "/me/instances/{instance_id}/bootstrap-token",
+    response_model=BootstrapTokenOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def mint_bootstrap_token(
+    instance_id: str,
+    request: Request,
+    db: SessionDep,
+) -> BootstrapTokenOut:
+    """Mintet einen One-Time-Bootstrap-Token für den Ein-Befehl-Installer.
+
+    Nur der Owner der Instanz (404 statt 403 gegen Existence-Leak). Räumt alle
+    vorherigen Tokens dieser Instanz weg — es gilt immer höchstens einer, ein
+    „neu generieren" entwertet den alten sofort.
+    """
+    user = await _require_user(request, db)
+    settings = get_settings()
+    await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
+
+    try:
+        iid = int(instance_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+
+    inst = await db.get(RegisteredInstance, iid)
+    if inst is None or inst.registered_by != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+
+    await db.execute(
+        delete(InstanceBootstrapToken).where(InstanceBootstrapToken.instance_id == iid)
+    )
+
+    token = generate_bootstrap_token()
+    ttl = settings.bootstrap_token_ttl_seconds
+    expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
+    db.add(
+        InstanceBootstrapToken(
+            id=next_id(),
+            instance_id=iid,
+            token_hash=hash_bootstrap_token(token),
+            expires_at=expires_at,
+        )
+    )
+    await db.commit()
+    return BootstrapTokenOut(token=token, expires_at=expires_at, ttl_seconds=ttl)

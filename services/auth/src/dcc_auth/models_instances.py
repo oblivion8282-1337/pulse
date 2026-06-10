@@ -164,6 +164,48 @@ class SuspendedInstance(Base):
     )
 
 
+class InstanceBootstrapToken(Base):
+    """One-time bootstrap token for the one-command Self-Host installer.
+
+    Der Owner mintet in der UI einen kurzlebigen, single-use Token; der
+    Installer löst ihn **einmal** gegen die Cloud ein (``POST /selfhost/bootstrap``)
+    und bekommt dabei die frisch **rotierten** Pairing-Credentials. So liegt nie
+    ein Klartext-Secret in der Cloud, und der Token ist nach einem Gebrauch tot.
+
+    Gespeichert wird nur der SHA-256-**Hash** des Tokens (der Token selbst ist
+    hochentropisch → kein Argon2 nötig, ein schneller Hash reicht). Der Redeem
+    schlägt den Token über den indizierten ``token_hash`` per SQL-Equality nach;
+    ein Timing-Angriff auf einen 256-bit-Hash über diesen Pfad ist nicht
+    praktikabel.
+    """
+
+    __tablename__ = "instance_bootstrap_tokens"
+
+    id: Mapped[int] = snowflake_pk()
+    instance_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("registered_instances.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # SHA-256 hex des Tokens — Klartext wird nie persistiert.
+    token_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    instance: Mapped["RegisteredInstance"] = relationship(
+        "RegisteredInstance", foreign_keys=[instance_id]
+    )
+
+    __table_args__ = (
+        Index("ix_instance_bootstrap_tokens_instance_id", "instance_id"),
+    )
+
+
 class Complaint(Base):
     """Abuse report against an instance or a user.
 

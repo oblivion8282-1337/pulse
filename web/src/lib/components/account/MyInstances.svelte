@@ -11,15 +11,24 @@
   import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type Instance } from '$lib/api/instances';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
+  import InstanceSetupDialog from './InstanceSetupDialog.svelte';
   import DownloadIcon from '@lucide/svelte/icons/download';
   import BookOpenIcon from '@lucide/svelte/icons/book-open';
   import ServerIcon from '@lucide/svelte/icons/server';
+  import TerminalIcon from '@lucide/svelte/icons/terminal';
 
   let instances = $state<Instance[]>([]);
   let loading = $state(true);
   let downloading = $state<string | null>(null);
   let guideOpen = $state(false);
   let guideInstance = $state<Instance | null>(null);
+  let setupOpen = $state(false);
+  let setupInstance = $state<Instance | null>(null);
+
+  function openSetup(inst: Instance) {
+    setupInstance = inst;
+    setupOpen = true;
+  }
 
   onMount(async () => {
     try {
@@ -98,7 +107,16 @@
               {inst.status === 'active' ? m.my_instances_status_active() : m.my_instances_status_suspended()}
             </span>
           </div>
-          <div class="flex gap-2 mt-1">
+          <div class="flex flex-wrap gap-2 mt-1">
+            <button
+              type="button"
+              onclick={() => openSetup(inst)}
+              class="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-colors"
+              data-testid="instance-setup-btn-{inst.id}"
+            >
+              <TerminalIcon class="size-3.5" />
+              {m.instance_setup_button()}
+            </button>
             <button
               type="button"
               onclick={() => void download(inst)}
@@ -160,3 +178,6 @@
     </Dialog.Content>
   </Dialog.Portal>
 </Dialog.Root>
+
+<!-- Ein-Befehl-Installer -->
+<InstanceSetupDialog bind:open={setupOpen} instance={setupInstance} />

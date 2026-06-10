@@ -524,6 +524,7 @@ from dcc_auth.models_credentials import (  # noqa: E402, F401
 from dcc_auth.models_instances import (  # noqa: E402, F401
     Complaint,
     InstanceApplication,
+    InstanceBootstrapToken,
     RegisteredInstance,
     SuspendedInstance,
 )

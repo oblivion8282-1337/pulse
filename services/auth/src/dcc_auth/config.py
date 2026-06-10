@@ -88,6 +88,12 @@ class Settings(BaseSettings):
     rate_limit_totp_setup: str = "10/minute"
     rate_limit_totp_disable: str = "10/minute"
     rate_limit_totp_backup_regenerate: str = "10/minute"
+    # Self-Host One-Command-Installer: Mint ist owner-cookie-gated (locker),
+    # Redeem ist token-gated + öffentlich (eng). TTL = Lebensdauer des
+    # One-Time-Bootstrap-Tokens.
+    rate_limit_bootstrap_mint: str = "20/minute"
+    rate_limit_bootstrap_redeem: str = "10/minute"
+    bootstrap_token_ttl_seconds: int = 1200
     # WebAuthn ceremonies. ``register`` covers the authenticated add-a-passkey
     # flow; ``login`` covers both the 2FA-second-step and the passwordless
     # entry point (the latter is unauthenticated, so keep it as tight as the
@@ -195,6 +201,8 @@ class Settings(BaseSettings):
         "rate_limit_webauthn_login",
         "rate_limit_account_delete",
         "rate_limit_user_search",
+        "rate_limit_bootstrap_mint",
+        "rate_limit_bootstrap_redeem",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

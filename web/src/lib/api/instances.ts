@@ -98,6 +98,13 @@ export interface RotateSecretResult {
   warning: string;
 }
 
+/** Spiegelt BootstrapTokenOut — One-Time-Token für den Ein-Befehl-Installer. */
+export interface BootstrapToken {
+  token: string;
+  expires_at: string;
+  ttl_seconds: number;
+}
+
 // ---------------------------------------------------------------------------
 // User-Endpoints (/me/*)
 // ---------------------------------------------------------------------------
@@ -128,6 +135,13 @@ export const instancesApi = {
   /** Eigene registrierte Instanzen (kein client_secret). */
   listMyInstances(): Promise<Instance[]> {
     return cookieFetch<Instance[]>('/me/instances');
+  },
+
+  /** One-Time-Bootstrap-Token für den Ein-Befehl-Installer minten. */
+  mintBootstrapToken(instanceId: string): Promise<BootstrapToken> {
+    return cookieFetch<BootstrapToken>(`/me/instances/${instanceId}/bootstrap-token`, {
+      method: 'POST'
+    });
   },
 
   /**

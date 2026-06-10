@@ -29,6 +29,7 @@ from dcc_auth.routes_profile import router as profile_router
 from dcc_auth.routes_suspended_instances import router as suspended_instances_router
 from dcc_auth.routes_recovery import router as recovery_router
 from dcc_auth.routes_search import router as search_router
+from dcc_auth.routes_selfhost_bootstrap import router as selfhost_bootstrap_router
 from dcc_auth.routes_server_vault import router as server_vault_router
 from dcc_auth.routes_sessions import router as sessions_router
 from dcc_auth.routes_totp import router as totp_router
@@ -93,6 +94,7 @@ def create_app() -> FastAPI:
     app.include_router(suspended_instances_router)
     app.include_router(profile_router)
     app.include_router(instance_applications_router)
+    app.include_router(selfhost_bootstrap_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
