@@ -8,6 +8,14 @@
 # Auto-Update nicht mehr separat einrichten (das war vorher ein leicht zu
 # übersehender Extra-Schritt).
 #
+# EMPFEHLUNG: Der One-Command-Installer (web/static/install.sh, siehe
+# docs/SELF_HOST.md) ist der bevorzugte Weg — er richtet Auto-Updates über
+# einen Host-systemd-Timer ein, OHNE einen Container mit Docker-Socket. Der
+# watchtower-Service unten mountet den Socket (= root-äquivalent auf dem Host);
+# das ist der bewusste Trade-off der Compose-Variante. Wer das vermeiden will:
+# watchtower-Service streichen und stattdessen einen Host-Cron/Timer nutzen,
+# der `docker pull` + Digest-Diff → recreate macht (wie pulse-update.sh).
+#
 # Standard = Auto-TLS: der eingebettete Caddy holt automatisch ein Let's-Encrypt-
 # Zertifikat für PULSE_HOSTNAME. Voraussetzung: Port 80 + 443 sind öffentlich
 # erreichbar und der DNS-A-Record zeigt auf diese Maschine.

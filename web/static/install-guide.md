@@ -100,13 +100,17 @@ Facts about the token (`plse_boot_…`):
 5. **Starts the container** `pulse` with volume `pulse-data:/data`,
    `--restart unless-stopped`, and always publishes the voice/streaming ports
    (see §4).
-6. **Starts watchtower** (`pulse-watchtower`) for auto-updates every 5 min,
-   scoped to the Pulse container only
-   (`--label-enable --scope pulse --interval 300 --cleanup`).
-   Skipped if `PULSE_NO_WATCHTOWER` is set or the container already exists.
-   The image is the maintained fork `ghcr.io/nicholas-fedor/watchtower`
-   (digest-pinned) — the original `containrrr/watchtower` is unmaintained and
-   crash-loops against modern Docker daemons ("client version too old").
+6. **Sets up auto-updates via a host systemd timer** (not a container). The
+   installer writes `pulse-update.sh` next to the env file and a
+   `pulse-update.service`/`.timer` pair under `/etc/systemd/system/`, then
+   enables the timer (checks every 5 min). The script pulls the configured
+   image and, only if its digest changed, recreates the `pulse` container with
+   the exact same run arguments. **No container holds the Docker socket** —
+   deliberately, so a compromised app image cannot reach host root through an
+   updater. Skipped if `PULSE_NO_AUTOUPDATE` (alias `PULSE_NO_WATCHTOWER`) is
+   set. Without root + systemd the script is still written but not scheduled;
+   the installer prints how to run it manually or via cron. An older
+   `pulse-watchtower` container from a previous install is removed on re-run.
 7. **Health-checks** `…/api/chat/health` for up to 5 minutes (first boot runs
    DB migrations and, in greenfield, the ACME handshake — ~1 min is normal).
 
@@ -120,7 +124,7 @@ Facts about the token (`plse_boot_…`):
 | `PULSE_HTTP_PORT` (default `8080`) | Internal HTTP port in behind-proxy modes |
 | `PULSE_DIR` | Config directory (default `/opt/pulse` or `~/.pulse`) |
 | `PULSE_VOLUME` (default `pulse-data`) | Data volume name |
-| `PULSE_NO_WATCHTOWER=1` | Skip auto-update setup |
+| `PULSE_NO_AUTOUPDATE=1` | Skip auto-update setup (alias: `PULSE_NO_WATCHTOWER=1`) |
 | `PULSE_IMAGE` | Alternative image/tag |
 | `PULSE_BOOTSTRAP_TOKEN` | Token via env instead of as argument (automation) |
 | `PULSE_CLOUD_ORIGIN` | Alternative cloud origin (default `https://howispulse.com`) |
@@ -133,7 +137,9 @@ Facts about the token (`plse_boot_…`):
   `PULSE_INSTANCE_OWNER_ID`, `PULSE_INSTANCE_MODE=self-host`,
   `PULSE_CLOUD_ORIGIN`, `PULSE_CLOUD_CLIENT_ID`, `PULSE_CLOUD_CLIENT_SECRET`,
   `PULSE_ADMIN_EMAIL`, `PULSE_TLS_MODE`, `PULSE_HTTP_PORT`.
-- Auto-updater container `pulse-watchtower` (5-min interval).
+- Auto-update via host systemd timer `pulse-update.timer` (5-min interval),
+  driven by `pulse-update.sh` in the config dir. No updater container, no
+  Docker socket mounted anywhere.
 - All internal secrets (Postgres password, JWT signing keys, LiveKit keys,
   MinIO credentials, coturn secret) are **generated on first boot** and live
   in the volume under `/data/jwt_keys/` etc.
@@ -192,8 +198,9 @@ ONE route: the full hostname → `http://<target>` where target is
 ## 5. Verification
 
 ```bash
-docker ps                                   # pulse + pulse-watchtower running?
+docker ps                                   # pulse running? (no updater container by design)
 docker logs -f pulse                        # s6 service startup, migrations
+systemctl status pulse-update.timer         # auto-update timer active? (root + systemd)
 curl -fsS https://<host>/api/chat/health    # → {"status":"ok"} when up
 curl -fsS https://<host>/.well-known/pulse-server-info   # version + instance info
 ```
@@ -216,7 +223,8 @@ Caddy (which sets the CORS headers); almost always a proxy-route problem.
 | Login works but chat never loads / reconnect loop | WebSocket upgrade not forwarded by the proxy | Add the `Upgrade`/`Connection` headers (nginx, see §4); Caddy handles it automatically |
 | Voice connects but no audio, or fails on mobile networks | UDP 7882–7892 and/or 3478 blocked by firewall | Open the ports (ufw/security group), tcp+udp for 3478 |
 | Editing a bind-mounted Caddyfile: `sed -i` → "Resource busy" | `sed -i` renames the file; bind mounts forbid that | Overwrite contents instead: `sed … Caddyfile > /tmp/cf && cat /tmp/cf > Caddyfile` |
-| `pulse-watchtower` crash-loops with "client version too old" | Original `containrrr/watchtower` image is too old for modern Docker | Use `ghcr.io/nicholas-fedor/watchtower` (the installer already does) |
+| Auto-update never happens | Timer not installed (ran as non-root or no systemd), or Docker unreachable from the timer's environment | `systemctl status pulse-update.timer`; if absent, run `pulse-update.sh` manually or add the cron line the installer printed. Check `journalctl -u pulse-update` for pull errors |
+| New version not picked up though timer runs | Image tag unchanged or pull failing (rate limit / auth) | `journalctl -u pulse-update --no-pager`; run the script by hand to see the pull error |
 | Container halts after repeated crashes | Built-in restart gate: >5 crashes in 60 s stops the container to break corruption loops | `docker logs pulse` to find the failing s6 service; fix cause; `docker start pulse` |
 | Everyone logged out after volume loss/recreate | `/data/jwt_keys/` regenerated → all sessions invalid | Expected. Restore the volume from backup if unintended |
 | Operator's own account is not admin on the instance | `PULSE_INSTANCE_OWNER_ID` mismatch (the cert-login of the owner's Cloud account grants admin) | Verify the env file matches the values from the bootstrap response; reinstall with a fresh token if unsure |
@@ -237,11 +245,15 @@ but the external one fails, the issue is DNS/proxy/firewall — not Pulse.
 
 ## 7. Updates, reinstall, removal
 
-- **Updates:** automatic via watchtower (≤5 min after a new image is
-  published). Manual: `docker pull <image> && docker rm -f pulse` and re-run
-  the same `docker run` (or simply re-run the installer with a fresh token —
-  config and data are preserved; the volume is never deleted).
+- **Updates:** automatic via the host systemd timer `pulse-update.timer`
+  (≤5 min after a new image is published). Manual: run `pulse-update.sh` (in
+  the config dir) — it pulls and, if the digest changed, recreates the
+  container with the stored run arguments. Or simply re-run the installer with
+  a fresh token — config and data are preserved; the volume is never deleted.
 - **Reinstall/secret rotation:** re-running the installer with a new token is
   always safe; it rotates the pairing secret and rewrites `pulse.env`.
-- **Removal:** `docker rm -f pulse pulse-watchtower`, optionally
-  `docker volume rm pulse-data` (destroys all data) and delete the config dir.
+- **Removal:** `docker rm -f pulse`, then
+  `systemctl disable --now pulse-update.timer` and remove
+  `/etc/systemd/system/pulse-update.{service,timer}` (`systemctl daemon-reload`).
+  Optionally `docker volume rm pulse-data` (destroys all data) and delete the
+  config dir (which also holds `pulse-update.sh`).
