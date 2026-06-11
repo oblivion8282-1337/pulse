@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-11.5",
+      "date": "2026-06-11",
+      "style": "Sachlich",
+      "title": "Moderation richtet sich jetzt nach der Rollen-Reihenfolge",
+      "items": [
+        "Kicken und Bannen funktioniert nur noch bei Mitgliedern, die in der Rollenliste unter einem stehen. Gleichgestellte Moderatoren können sich nicht mehr gegenseitig entfernen. Besitzer der Community sind ausgenommen.",
+        "Die Anmeldung auf eigenen Servern prüft die Ausweis-Zertifikate jetzt strenger.",
+        "Der Installations-Befehl für eigene Server übergibt den Einrichtungs-Schlüssel jetzt verdeckt, sodass er auf dem Server nicht mehr in der Prozessliste auftaucht."
+      ]
+    },
+    {
       "id": "2026-06-11.4",
       "date": "2026-06-11",
       "style": "Sachlich",
