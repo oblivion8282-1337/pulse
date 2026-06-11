@@ -13,6 +13,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import FingerprintIcon from '@lucide/svelte/icons/fingerprint';
+  import AppDownloadLinks from '$lib/components/AppDownloadLinks.svelte';
   import AuthBrandPanel from '$lib/components/AuthBrandPanel.svelte';
   import LegalFooter from '$lib/components/LegalFooter.svelte';
   import CursorRadar from '$lib/components/CursorRadar.svelte';
@@ -281,7 +282,7 @@
        relative z-30 → liegt über dem Radar (z-20); der transparente Rand zeigt
        das Radar dahinter durch, die Karte selbst verdeckt es. -->
   <div
-    class="relative z-30 flex flex-1 items-center justify-center p-4 md:flex-none md:basis-[46%]"
+    class="relative z-30 flex flex-1 flex-col items-center justify-center gap-6 p-4 md:flex-none md:basis-[46%]"
   >
     {#if step === 'credentials'}
       <!-- cursor-auto: echter Cursor über der Karte zum Tippen/Klicken
@@ -376,6 +377,13 @@
           <a class="text-primary hover:underline" href="/register">{m.login_register_link()}</a>
         </p>
       </form>
+      <!-- App-Downloads direkt unter der Login-Karte (fester Abstand über
+           das gap des Panes; folgt der Karte auf jeder Bildschirmgröße).
+           cursor-auto wegen seitenweitem cursor:none; nur im Browser
+           sichtbar (Gating in der Komponente). -->
+      <div class="cursor-auto max-md:mb-12">
+        <AppDownloadLinks />
+      </div>
     {:else}
       <div
         class="w-full max-w-md cursor-auto"

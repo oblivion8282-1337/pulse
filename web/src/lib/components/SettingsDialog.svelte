@@ -10,6 +10,8 @@
   import SettingsPrivacy from './settings/SettingsPrivacy.svelte';
   import SettingsProfile from './settings/SettingsProfile.svelte';
   import SettingsSelfHost from './settings/SettingsSelfHost.svelte';
+  import SettingsApps from './settings/SettingsApps.svelte';
+  import DownloadIcon from '@lucide/svelte/icons/download';
   import PaletteIcon from '@lucide/svelte/icons/palette';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MonitorIcon from '@lucide/svelte/icons/monitor';
@@ -23,6 +25,7 @@
   import ChevronLeftIcon from '@lucide/svelte/icons/chevron-left';
   import { untrack } from 'svelte';
   import { sounds } from '$lib/sounds/engine';
+  import { isCapacitorAndroid, isElectron } from '$lib/platform/runtime';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -36,7 +39,8 @@
     | 'keyboard'
     | 'security'
     | 'privacy'
-    | 'self-host';
+    | 'self-host'
+    | 'apps';
   type MobileView = 'list' | 'detail';
 
   let {
@@ -53,9 +57,12 @@
   $effect(() => {
     if (open) {
       untrack(() => {
-        const desktopOnlyIds = tabs.filter((t) => t.desktopOnly).map((t) => t.id);
-        activeTab =
-          viewport.isMobile && desktopOnlyIds.includes(initialTab) ? 'audio-video' : initialTab;
+        // Fallback, wenn der gewünschte Tab hier nicht angeboten wird
+        // (desktopOnly auf Mobil, browserOnly in Electron/Capacitor).
+        const hidden =
+          (viewport.isMobile && tabs.some((t) => t.id === initialTab && t.desktopOnly)) ||
+          (!inBrowser && tabs.some((t) => t.id === initialTab && t.browserOnly));
+        activeTab = hidden ? 'audio-video' : initialTab;
         mobileView = 'list';
         sounds.play('ui.modal_open');
       });
@@ -67,7 +74,17 @@
     mobileView = 'detail';
   }
 
-  const tabs: { id: SettingsTab; label: string; icon: typeof MicIcon; desktopOnly?: true }[] = [
+  // browserOnly: in der Electron-App / im Android-Wrapper ausgeblendet —
+  // dort ist die App schon installiert, Download-Links wären sinnlos.
+  const inBrowser = !isElectron() && !isCapacitorAndroid();
+
+  const tabs: {
+    id: SettingsTab;
+    label: string;
+    icon: typeof MicIcon;
+    desktopOnly?: true;
+    browserOnly?: true;
+  }[] = [
     { id: 'profile', label: m.settings_dialog_tab_profile(), icon: UserIcon },
     { id: 'appearance', label: m.settings_dialog_tab_appearance(), icon: PaletteIcon },
     { id: 'audio-video', label: m.settings_dialog_tab_audio_video(), icon: MicIcon },
@@ -77,10 +94,13 @@
     { id: 'keyboard', label: m.settings_dialog_tab_keyboard(), icon: KeyboardIcon, desktopOnly: true },
     { id: 'privacy', label: m.settings_dialog_tab_privacy(), icon: LockIcon },
     { id: 'security', label: m.settings_dialog_tab_security(), icon: ShieldIcon },
-    { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon }
+    { id: 'self-host', label: m.settings_dialog_tab_self_host(), icon: ServerIcon },
+    { id: 'apps', label: m.settings_dialog_tab_apps(), icon: DownloadIcon, browserOnly: true }
   ];
 
-  let visibleTabs = $derived(tabs.filter((t) => !t.desktopOnly || !viewport.isMobile));
+  let visibleTabs = $derived(
+    tabs.filter((t) => (!t.desktopOnly || !viewport.isMobile) && (!t.browserOnly || inBrowser))
+  );
 
   let activeLabel = $derived(visibleTabs.find((t) => t.id === activeTab)?.label ?? '');
 </script>
@@ -158,6 +178,8 @@
           <SettingsPrivacy />
         {:else if activeTab === 'self-host'}
           <SettingsSelfHost />
+        {:else if activeTab === 'apps'}
+          <SettingsApps />
         {:else}
           <SettingsSecurity />
         {/if}
