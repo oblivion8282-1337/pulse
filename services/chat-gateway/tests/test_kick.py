@@ -192,27 +192,55 @@ async def test_kicked_user_cannot_access_guild(client, _auth_signer):
     assert r.status_code == 403
 
 
-@pytest.mark.asyncio
-async def test_mod_can_kick_peer_mod_no_hierarchy(client, _auth_signer):
-    """No position-hierarchy in v1 — a mod with KICK_MEMBERS can kick
-    a peer mod. Self-host MVP trust model; flip if Discord-style
-    position-based hierarchy lands later."""
-    s = await _setup(client, _auth_signer)
-    mod_role = (
+async def _grant_role(client, s, name: str, permissions: int, *uids) -> dict:
+    """Owner creates a role (position = max+1, so later = higher) and
+    assigns it to ``uids``. Returns the role dict."""
+    role = (
         await client.post(
             f"/guilds/{s['g']['id']}/roles",
-            json={
-                "name": "mod",
-                "permissions": str(1 << 8),  # KICK_MEMBERS
-            },
+            json={"name": name, "permissions": str(permissions)},
             headers=auth(s["t_owner"]),
         )
     ).json()
-    for uid in (s["uid_a"], s["uid_b"]):
+    for uid in uids:
         await client.put(
-            f"/guilds/{s['g']['id']}/members/{uid}/roles/{mod_role['id']}",
+            f"/guilds/{s['g']['id']}/members/{uid}/roles/{role['id']}",
             headers=auth(s["t_owner"]),
         )
+    return role
+
+
+@pytest.mark.asyncio
+async def test_mod_cannot_kick_peer_mod_same_role(client, _auth_signer):
+    """Discord-style hierarchy: equal top role positions block the kick —
+    two mods sharing the same role cannot kick each other."""
+    s = await _setup(client, _auth_signer)
+    await _grant_role(client, s, "mod", 1 << 8, s["uid_a"], s["uid_b"])  # KICK
+    r = await client.delete(
+        f"/guilds/{s['g']['id']}/members/{s['uid_b']}",
+        headers=auth(s["t_a"]),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_mod_cannot_kick_higher_mod(client, _auth_signer):
+    s = await _setup(client, _auth_signer)
+    await _grant_role(client, s, "mod", 1 << 8, s["uid_a"])
+    await _grant_role(client, s, "senior", 0, s["uid_b"])  # higher position
+    r = await client.delete(
+        f"/guilds/{s['g']['id']}/members/{s['uid_b']}",
+        headers=auth(s["t_a"]),
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_higher_mod_can_kick_lower_member(client, _auth_signer):
+    """Strictly higher top role → kick passes. Target with no roles sits
+    at the @everyone baseline (position 0)."""
+    s = await _setup(client, _auth_signer)
+    await _grant_role(client, s, "mod", 1 << 8, s["uid_a"])
     r = await client.delete(
         f"/guilds/{s['g']['id']}/members/{s['uid_b']}",
         headers=auth(s["t_a"]),

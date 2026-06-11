@@ -18,6 +18,7 @@ from dcc_chat_gateway.models import (
 )
 from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
 from dcc_chat_gateway.schemas import (
@@ -570,6 +571,13 @@ async def kick_member(
         raise HTTPException(404, detail="member not found")
     await check_permission(
         session, current, guild_id, Permissions.KICK_MEMBERS
+    )
+    await assert_actor_outranks(
+        session,
+        current,
+        guild,
+        user_id,
+        detail="cannot kick a member with an equal or higher role",
     )
     await _remove_guild_member(session, request, guild_id, user_id, member)
 

@@ -27,6 +27,7 @@ from dcc_chat_gateway.models import (
     PermissionOverwrite,
 )
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.schemas import BanIn, BanOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
@@ -138,6 +139,13 @@ async def ban_user(
     if guild.owner_id == user_id:
         raise HTTPException(403, detail="cannot ban the guild owner")
     await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
+    await assert_actor_outranks(
+        session,
+        current,
+        guild,
+        user_id,
+        detail="cannot ban a user with an equal or higher role",
+    )
 
     # Upsert the ban row. ON CONFLICT support varies by dialect; we
     # instead try INSERT, on uniqueness violation refresh the existing.
