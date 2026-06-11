@@ -2,6 +2,7 @@ import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { serversStore, CLOUD_HOSTNAME } from '$lib/api/servers.svelte';
@@ -203,6 +204,10 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
       }
       const result = await acceptInvite(code, { serverId });
       await guilds.hydrate();
+      // Pro-Server-Gildenliste neu laden, damit Membership-abhängige UI (z.B.
+      // die InviteEmbed-Karte) den Beitritt sofort sieht — der Bridge-Sync
+      // greift hier nicht, weil dieser Pfad den aktiven Server nicht umschaltet.
+      await serverGuilds.refresh(serverId);
       if (result.channel_id) {
         await goto(`/app/guilds/${result.guild.id}/channels/${result.channel_id}`);
       } else {
@@ -229,6 +234,9 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
       serverId = entry.id;
       activeServer.set(serverId);
       await guilds.hydrate();
+      // Wie oben: Pro-Server-Liste seeden, damit die Karte sofort „Beigetreten"
+      // zeigt (deckt auch den Fall ab, dass der Bridge-Sync noch nicht lief).
+      await serverGuilds.refresh(serverId);
       if (invite?.channel_id) {
         await goto(`/app/guilds/${invite.guild.id}/channels/${invite.channel_id}`);
       } else if (invite?.guild?.id) {
