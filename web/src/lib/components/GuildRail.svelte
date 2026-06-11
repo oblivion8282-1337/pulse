@@ -542,12 +542,12 @@
                   side="right"
                   class="flex-col items-stretch gap-0 px-3 py-2.5 min-w-[12rem]"
                 >
-                  {#if isActiveServer}
-                    <GuildVoiceTooltip guildId={g.id} name={g.name} />
-                  {:else}
-                    <span class="text-text-bright text-sm font-semibold">{g.name}</span>
-                    <span class="text-text-muted text-xs">{server.label}</span>
-                  {/if}
+                  <GuildVoiceTooltip
+                    guildId={g.id}
+                    name={g.name}
+                    serverId={server.id}
+                    serverLabel={isActiveServer ? null : server.label}
+                  />
                 </Tooltip.Content>
               </Tooltip.Root>
             {/snippet}

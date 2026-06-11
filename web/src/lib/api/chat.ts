@@ -165,9 +165,19 @@ export const chatApi = {
     return request<void>(`/guilds/${guildId}/bans/${userId}`, { method: 'DELETE' });
   },
 
-  // Channels
-  listChannels(guildId: string): Promise<Channel[]> {
-    return request<Channel[]>(`/guilds/${guildId}/channels`);
+  // Channels. ``route`` pinnt das Request an einen bestimmten Server
+  // (Guild-Rail-Tooltip braucht das für Communitys nicht-aktiver Server).
+  listChannels(guildId: string, route: { serverId?: string } = {}): Promise<Channel[]> {
+    return request<Channel[]>(`/guilds/${guildId}/channels`, {}, route);
+  },
+  /** Voice-Presence-Snapshot einer Community per REST. Für den aktiven
+   *  Server kommt dasselbe live über den WS (`ready` + `voice_state`) —
+   *  dieser Endpoint deckt die nicht-aktiven Server-Sektionen ab. */
+  guildVoiceState(
+    guildId: string,
+    route: { serverId?: string } = {}
+  ): Promise<{ voice_states: { channel_id: string; user_ids: string[] }[] }> {
+    return request(`/guilds/${guildId}/voice-state`, {}, route);
   },
   createChannel(
     guildId: string,
