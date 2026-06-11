@@ -444,7 +444,10 @@
                     {#if server.isCloud}
                       Pulse
                     {:else}
-                      <span class="line-clamp-2 min-w-0 break-all text-center leading-tight">
+                      <!-- break-words: bevorzugt am Leerzeichen umbrechen
+                           („Unicut / Media"), nur zur Not mitten im Wort
+                           (lange Hostnamen ohne Leerzeichen). -->
+                      <span class="line-clamp-2 min-w-0 break-words text-center leading-tight">
                         {serverDisplayName(server)}
                       </span>
                       {#if sState !== 'open'}
