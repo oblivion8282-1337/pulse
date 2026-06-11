@@ -386,19 +386,13 @@ services:
       - ./livekit.yaml:/livekit.yaml:ro
     labels: *pinned-labels
 
-  # ── auto-updater for the GHCR app images (scoped to Pulse only) ────────────
-  watchtower:
-    # Pinned: Watchtower has docker.sock = root-on-host, so the image gets the
-    # same trust as the host kernel. Bump the digest deliberately when upgrading.
-    image: ghcr.io/nicholas-fedor/watchtower:1.17.0@sha256:48122f05d9e1a0ed3f3987a74340554ba3e73c9a96b32016fca74f873fa9f7c6
-    container_name: pulse_watchtower
-    restart: unless-stopped
-    command: ["--label-enable", "--scope", "pulse", "--interval", "300", "--cleanup"]
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${HOME}/.docker/config.json:/config.json:ro
-    networks: [pulse-net]
-    labels: *pinned-labels
+  # ── auto-update ────────────────────────────────────────────────────────────
+  # NO Watchtower here (deliberately): it mounted the Docker socket = root on
+  # the host. Auto-update runs from a USER CRONTAB calling
+  # `infra/prod/pulse-update.sh` (scoped pull+up of the GHCR app images, same
+  # scope Watchtower had). No container holds the socket. Setup: DEPLOY.md.
+  # The `*pinned-labels` (watchtower.enable=false) on infra services are now
+  # inert but kept as intent markers in case an updater container ever returns.
 
 volumes:
   pulse_pg:

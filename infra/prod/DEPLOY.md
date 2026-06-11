@@ -6,8 +6,14 @@ is one Docker Compose project (`name: pulse`) in `~/pulse/infra/prod/`.
 
 App images (`ghcr.io/oblivion8282-1337/pulse-*`) are built by
 `.github/workflows/ci.yml` on every push to `main` and auto-pulled on the server
-by `pulse_watchtower` (scope `pulse`, 5-min interval). postgres / redis /
-mediamtx / livekit are pinned and excluded from Watchtower.
+by a **user crontab** running `infra/prod/pulse-update.sh` every 5 min (scoped
+pull+`up -d` of the app services + migrate one-shots). postgres / redis / minio /
+mediamtx / livekit are pinned in the compose file and deliberately NOT
+auto-updated. **No Watchtower** — it mounted the Docker socket (= root on the
+host); the cron script keeps the updater as a small host script with no socket
+container. Unlike the old Watchtower, the migrate one-shots are included, so
+schema migrations apply automatically on deploy (no more manual
+`up -d migrate-*`).
 
 ## First-time setup (already done — kept for reference / disaster recovery)
 
@@ -79,6 +85,14 @@ cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
 printf '\nhowispulse.com {\n\treverse_proxy pulse_web:80\n}\n' >> ~/caddy/Caddyfile
 docker network connect pulse-net caddy 2>/dev/null || true   # idempotent
 docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+
+# 6. auto-update via user crontab (no Watchtower, no sudo, no socket container).
+#    pulse-update.sh does a scoped `compose pull && up -d` of the app images.
+chmod +x ~/pulse/infra/prod/pulse-update.sh
+( crontab -l 2>/dev/null | grep -v 'pulse-update.sh'   # drop any old entry
+  echo '*/5 * * * * /home/michael/pulse/infra/prod/pulse-update.sh >> /home/michael/pulse/infra/prod/pulse-update.log 2>&1'
+) | crontab -
+crontab -l            # verify
 ```
 
 ## Volume ownership gotcha (fresh deploys)
@@ -101,8 +115,8 @@ The JWT PEM keys have the same uid-10001 constraint — see step 2 above
 ## Updating
 
 - **Code / bug fixes** → just `git push` to `main`. CI builds & pushes the
-  images; `pulse_watchtower` recreates the affected containers within ≤5 min.
-  Nothing to do on the server.
+  images; the cron updater (`pulse-update.sh`) pulls & recreates the affected
+  containers within ≤5 min. Nothing to do on the server.
 - **Compose / config changes** (new service, new env var, MediaMTX/LiveKit
   version bump, nginx routing) → `rsync` the changed `infra/` files to
   `~/pulse/infra/`, then on the server `cd ~/pulse/infra/prod && docker compose
@@ -118,8 +132,9 @@ cd ~/pulse/infra/prod
 docker compose ps                       # status
 docker compose logs -f auth chat-gateway   # tail logs
 docker compose restart <service>
-docker compose pull && docker compose up -d   # force-pull latest (Watchtower does this automatically)
-docker logs pulse_watchtower            # see what Watchtower is doing
+./pulse-update.sh                       # force an update now (what the cron runs)
+crontab -l                              # confirm the 5-min auto-update is scheduled
+tail -f ~/pulse/infra/prod/pulse-update.log   # see what the updater is doing
 ```
 
 ## Backups
