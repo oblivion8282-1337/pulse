@@ -64,6 +64,12 @@ export AUTH_JWKS_URL='http://127.0.0.1:8001/.well-known/jwks.json'
 # Cert-login challenge HMAC
 export CHAT_GATEWAY_CHALLENGE_SECRET='${CERT_CHALLENGE}'
 
+# Cert-JWT audience check (credential_validator): Certs tragen die Audience
+# der CLOUD ("dcc" — siehe infra/prod/.env.example JWT_AUDIENCE), NICHT das
+# lokale JWT_AUDIENCE=pulse-self-host oben. Ohne diese Var bleibt der
+# aud-Check auf Self-Hosts aus (Opt-in-Default).
+export PULSE_JWT_AUDIENCE=dcc
+
 # LiveKit (voice-signaling mints tokens with these; livekit-server validates)
 export LIVEKIT_API_KEY='${LIVEKIT_KEY}'
 export LIVEKIT_API_SECRET='${LIVEKIT_SECRET}'

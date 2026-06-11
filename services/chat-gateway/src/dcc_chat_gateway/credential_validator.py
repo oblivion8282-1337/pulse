@@ -151,13 +151,22 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     claims: dict[str, Any] = {}
     settings = get_settings()
     expected_iss = settings.pulse_oidc_issuer
+    # Certs carry ``aud`` = the *Cloud's* JWT_AUDIENCE. Cloud mode validates
+    # its own certs, so the local ``jwt_audience`` IS the stamped value
+    # (access-token validation already requires the two services to agree).
+    # Self-host's local audience differs (e.g. "pulse-self-host"), so the
+    # check is opt-in there via ``pulse_jwt_audience`` (None ⇒ skipped).
+    expected_aud = settings.pulse_jwt_audience
+    if expected_aud is None and settings.pulse_instance_mode == "cloud":
+        expected_aud = settings.jwt_audience
     if pub_key is not None:
         try:
             claims = jwt.decode(
                 cert_jwt,
                 pub_key,
                 algorithms=["RS256"],  # STRICT — no header negotiation
-                options={"verify_aud": False},  # Certs carry no audience claim
+                audience=expected_aud,
+                options={"verify_aud": expected_aud is not None},
                 issuer=expected_iss,
             )
             sig_ok = True
@@ -198,6 +207,14 @@ async def validate_cert(cert_jwt: str, redis: Any) -> CertClaims | None:
     iat = claims.get("iat", 0)
     exp = claims.get("exp", 0)
     if iat > now or exp <= now:
+        return None
+
+    # --- Step 6b: typ check — only Identity-Certs pass. Every cert ever
+    # issued carries ``typ: "credential"`` (routes_credentials.py since the
+    # first issuance commit). Explicit discriminator against token confusion
+    # on top of the iss split (access tokens use jwt_issuer, certs the
+    # public OIDC issuer).
+    if claims.get("typ") != "credential":
         return None
 
     # --- Step 7: Parse claims into model ---

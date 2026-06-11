@@ -68,6 +68,8 @@ def _make_cert_jwt(
     now = int(time.time())
     payload = {
         "iss": "https://howispulse.com",  # required ab Phase 5.1 iss-Validation
+        "aud": "dcc",  # Cloud JWT_AUDIENCE — stamped into every real cert
+        "typ": "credential",  # discriminator, enforced since the typ-check fix
         "cert_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
         "user_id": "123456789",
         "device_pubkey": base64.urlsafe_b64encode(b"\x00" * 32).rstrip(b"=").decode(),
@@ -119,6 +121,46 @@ async def test_valid_cert_returns_claims():
     assert result.cert_id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
     assert result.user_id == "123456789"
     assert result.acr == "1"
+
+
+@pytest.mark.asyncio
+async def test_wrong_typ_returns_none():
+    """A correctly signed JWT with typ != "credential" (e.g. an access
+    token slipped into the cert slot) must be rejected."""
+    token = _make_cert_jwt(extra_claims={"typ": "access"})
+    redis = _make_redis(jwks=_jwks_json())
+    assert await validate_cert(token, redis) is None
+
+
+@pytest.mark.asyncio
+async def test_missing_typ_returns_none():
+    token = _make_cert_jwt(extra_claims={"typ": None})
+    redis = _make_redis(jwks=_jwks_json())
+    assert await validate_cert(token, redis) is None
+
+
+@pytest.mark.asyncio
+async def test_wrong_audience_returns_none_when_enforced(monkeypatch):
+    """With ``pulse_jwt_audience`` set, a cert carrying a different aud
+    fails signature-stage validation."""
+    from dcc_chat_gateway.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "pulse_jwt_audience", "dcc")
+    token = _make_cert_jwt(extra_claims={"aud": "not-dcc"})
+    redis = _make_redis(jwks=_jwks_json())
+    assert await validate_cert(token, redis) is None
+
+
+@pytest.mark.asyncio
+async def test_matching_audience_passes_when_enforced(monkeypatch):
+    from dcc_chat_gateway.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "pulse_jwt_audience", "dcc")
+    token = _make_cert_jwt()  # factory stamps aud="dcc"
+    redis = _make_redis(jwks=_jwks_json())
+    assert isinstance(await validate_cert(token, redis), CertClaims)
 
 
 @pytest.mark.asyncio

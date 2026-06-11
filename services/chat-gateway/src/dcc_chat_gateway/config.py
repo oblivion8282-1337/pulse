@@ -84,12 +84,14 @@ class Settings(BaseSettings):
     # local proxy.
     pulse_oidc_issuer: str = "https://howispulse.com"
 
-    # JWT audience expected in Access-JWTs.  ``None`` ⇒ audience check
-    # disabled (backwards-compat with existing Cloud tokens that carry no
-    # ``aud`` claim).  Self-hosts set this to ``"self-host:<instance_id>"``
-    # once they receive their Snowflake-ID from the Cloud.
-    # Note: the existing ``jwt_audience`` field (below) governs *chat-
-    # gateway*'s own Access-JWT validation; this field is for *Cert-JWTs*.
+    # JWT audience expected in *Cert-JWTs* (credential_validator). Certs
+    # carry the Cloud's JWT_AUDIENCE ("dcc"). ``None`` ⇒ Cloud mode falls
+    # back to the local ``jwt_audience`` (validates its own certs, values
+    # agree by construction); self-host skips the check unless this is set
+    # (its local ``jwt_audience`` is "pulse-self-host", NOT the cert value —
+    # the all-in-one image sets PULSE_JWT_AUDIENCE=dcc explicitly).
+    # Note: the separate ``jwt_audience`` field governs chat-gateway's own
+    # Access-JWT validation.
     pulse_jwt_audience: str | None = None
 
     # Moderation tools — core feature, cannot be disabled.  Flag reserved
