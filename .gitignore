@@ -104,3 +104,6 @@ Pulse-*-*.zip
 # The mobile/ Capacitor project tracks its source; build/ + .gradle are covered
 # by the global `build/` rule above and mobile/android/.gitignore.
 *.apk
+
+# Lokale Analyse-Artefakte (simplify-scan u.ä.)
+.cache/
