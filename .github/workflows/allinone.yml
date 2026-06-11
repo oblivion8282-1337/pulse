@@ -163,5 +163,9 @@ jobs:
             org.opencontainers.image.version=${{ steps.meta.outputs.pulse_version }}
             org.opencontainers.image.licenses=AGPL-3.0-or-later
           cache-from: type=gha,scope=allinone
-          cache-to: type=gha,mode=max,scope=allinone
+          # ignore-error: der GHA-Cache-Export flaket sporadisch
+          # ("error writing layer blob: not_found") NACH erfolgreichem Push und
+          # machte sonst den ganzen Job rot. Cache ist nur Speedup, nicht
+          # kritisch — Fehler dabei nicht mehr fatal.
+          cache-to: type=gha,mode=max,scope=allinone,ignore-error=true
           provenance: false
