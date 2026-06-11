@@ -2159,5 +2159,10 @@
   "rename_server_dialog_cancel": "Abbrechen",
   "rename_server_dialog_save": "Speichern",
   "add_server_dialog_label_name": "Anzeigename",
-  "add_server_dialog_name_hint": "So heißt der Server in deiner Server-Leiste. Du kannst ihn später per Rechtsklick umbenennen."
+  "add_server_dialog_name_hint": "So heißt der Server in deiner Server-Leiste. Du kannst ihn später per Rechtsklick umbenennen.",
+  "instance_setup_ai_title": "Mit KI-Assistent installieren?",
+  "instance_setup_ai_hint": "Kopiere den fertigen Prompt für Claude, ChatGPT & Co. — er enthält deinen Befehl plus den Link zur vollständigen Installations- und Troubleshooting-Referenz. Damit weiß die KI genau, was der Installer tut und wie sie bei Fehlern (Proxy, DNS, Ports) hilft.",
+  "instance_setup_ai_copy": "KI-Prompt kopieren",
+  "instance_setup_ai_guide_link": "Referenz ansehen",
+  "instance_setup_ai_prompt": "Installiere Pulse (Self-Host) auf meinem Server. Lies zuerst die vollständige Installations- und Troubleshooting-Referenz unter {guideUrl} — sie beschreibt, was der Installer tut, welche Ports und DNS-Einträge nötig sind und wie typische Fehler behoben werden. Führe dann diesen Befehl auf dem Server aus und begleite mich bei Problemen:\n\n{command}\n\nHinweis: Der Token im Befehl ist 20 Minuten gültig und nur einmal verwendbar. Gib niemals den Inhalt der pulse.env oder Secrets aus."
 }

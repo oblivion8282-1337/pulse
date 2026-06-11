@@ -32,6 +32,8 @@ services:
       - "3478:3478/udp"
       # HQ-Streaming RTMPS-Ingest
       - "1936:1936/tcp"
+      # HQ-Stream-Wiedergabe (MediaMTX WebRTC/WHEP-ICE)
+      - "8189:8189/udp"
     # Hinweis: Die Watchtower-Labels (enable + scope=pulse) sind bereits ins
     # Image gebacken — der watchtower-Service unten greift diesen Container
     # automatisch auf, ohne dass hier Labels nötig sind.

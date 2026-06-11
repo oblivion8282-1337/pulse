@@ -73,7 +73,7 @@ in `/data/jwt_keys/` and persisted across container restarts.
 |---|---|---|---|
 | s6-overlay | v3.2.0.2 | github.com/just-containers/s6-overlay | SHA-256 pinned per artifact |
 | Caddy | v2.8.4 | github.com/caddyserver/caddy | SHA-256 pinned per artifact |
-| LiveKit | v1.8.4 | github.com/livekit/livekit | SHA-256 pinned per artifact |
+| LiveKit | v1.11.0 | github.com/livekit/livekit | SHA-256 pinned per artifact |
 | MediaMTX | v1.17.1 | github.com/bluenviron/mediamtx | SHA-256 pinned per artifact |
 | MinIO | RELEASE.2025-09-07T16-13-09Z | dl.min.io | SHA-256 pinned (upstream .sha256sum) |
 | Postgres | 15 (Debian Bookworm) | apt | — (Debian-signed package) |

@@ -23,6 +23,7 @@
   let loading = $state(false);
   let error = $state(false);
   let copied = $state(false);
+  let aiCopied = $state(false);
   let showExplain = $state(false);
   let nowMs = $state(0);
   let ticker: ReturnType<typeof setInterval> | null = null;
@@ -32,6 +33,15 @@
   );
   let command = $derived(
     token ? `curl -fsSL ${installBase}/install | bash -s -- ${token}` : ''
+  );
+  // Fertiger Prompt für KI-Assistenten: Referenz-URL + personalisierter
+  // Befehl in einem. Die Referenz (/install/guide) beschreibt Installer,
+  // Architektur und Troubleshooting — damit kann eine KI bei Fehlern
+  // (Proxy/DNS/Ports) gezielt helfen statt zu raten.
+  let aiPrompt = $derived(
+    command
+      ? m.instance_setup_ai_prompt({ guideUrl: `${installBase}/install/guide`, command })
+      : ''
   );
   let remainingMs = $derived(Math.max(0, expiresAtMs - nowMs));
   let expired = $derived(token !== null && expiresAtMs > 0 && remainingMs <= 0);
@@ -67,6 +77,17 @@
       await navigator.clipboard.writeText(command);
       copied = true;
       setTimeout(() => (copied = false), 1500);
+    } catch {
+      toast.error(m.instance_setup_error());
+    }
+  }
+
+  async function copyAiPrompt() {
+    if (!aiPrompt) return;
+    try {
+      await navigator.clipboard.writeText(aiPrompt);
+      aiCopied = true;
+      setTimeout(() => (aiCopied = false), 1500);
     } catch {
       toast.error(m.instance_setup_error());
     }
@@ -171,6 +192,39 @@
                 <RefreshCwIcon class="size-3" />
                 {m.instance_setup_regenerate()}
               </button>
+            </div>
+          </div>
+        {/if}
+
+        <!-- KI-Assistent: fertiger Prompt mit Befehl + Referenz-URL -->
+        {#if token && !expired}
+          <div class="border-border rounded-xl border p-3">
+            <p class="text-text-bright mb-1 text-xs font-semibold">
+              {m.instance_setup_ai_title()}
+            </p>
+            <p class="text-text-muted mb-2 text-xs">{m.instance_setup_ai_hint()}</p>
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onclick={() => void copyAiPrompt()}
+                class="border-border bg-bg-hover hover:text-text-bright flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs"
+                data-testid="instance-setup-ai-copy"
+              >
+                {#if aiCopied}
+                  <CheckIcon class="size-3.5 text-emerald-400" />
+                {:else}
+                  <CopyIcon class="size-3.5" />
+                {/if}
+                {m.instance_setup_ai_copy()}
+              </button>
+              <a
+                href="{installBase}/install/guide"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="text-text-muted hover:text-text-bright text-xs underline"
+              >
+                {m.instance_setup_ai_guide_link()}
+              </a>
             </div>
           </div>
         {/if}

@@ -149,8 +149,11 @@ decide_mode() {
 build_run_args() {
   RUN_ARGS=( -d --name "$CONTAINER" --restart unless-stopped
              --env-file "$ENV_FILE" -v "${VOLUME}:/data" )
-  # Voice/HQ-Ports immer (Mirror infra/self-host/docker-compose.yml)
-  RUN_ARGS+=( -p 7882-7892:7882-7892/udp -p 3478:3478/tcp -p 3478:3478/udp -p 1936:1936/tcp )
+  # Voice/HQ-Ports immer (Mirror infra/self-host/docker-compose.yml):
+  # LiveKit-WebRTC, TURN, RTMPS-Ingest + MediaMTX-WHEP-ICE (8189/udp —
+  # ohne den kommt die HQ-Stream-Wiedergabe nicht über den ICE-Handshake).
+  RUN_ARGS+=( -p 7882-7892:7882-7892/udp -p 3478:3478/tcp -p 3478:3478/udp
+              -p 1936:1936/tcp -p 8189:8189/udp )
 
   case "$MODE" in
     greenfield)

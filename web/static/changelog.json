@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-11.4",
+      "date": "2026-06-11",
+      "style": "Sachlich",
+      "title": "Server-Installation mit KI-Unterstützung",
+      "items": [
+        "Beim Einrichten eines eigenen Servers gibt es jetzt einen fertigen Prompt für KI-Assistenten (Claude, ChatGPT und andere): ein Klick kopiert den Installationsbefehl zusammen mit einem Link zur vollständigen Anleitung samt Fehlerbehebung — die KI weiß damit genau, was zu tun ist, wenn etwas hakt."
+      ]
+    },
+    {
       "id": "2026-06-11.3",
       "date": "2026-06-11",
       "style": "Sachlich",

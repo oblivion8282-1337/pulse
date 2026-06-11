@@ -2159,5 +2159,10 @@
   "rename_server_dialog_cancel": "Cancel",
   "rename_server_dialog_save": "Save",
   "add_server_dialog_label_name": "Display name",
-  "add_server_dialog_name_hint": "This is how the server appears in your server rail. You can rename it later via right-click."
+  "add_server_dialog_name_hint": "This is how the server appears in your server rail. You can rename it later via right-click.",
+  "instance_setup_ai_title": "Installing with an AI assistant?",
+  "instance_setup_ai_hint": "Copy a ready-made prompt for Claude, ChatGPT & co. — it contains your command plus a link to the full installation and troubleshooting reference, so the AI knows exactly what the installer does and how to fix issues (proxy, DNS, ports).",
+  "instance_setup_ai_copy": "Copy AI prompt",
+  "instance_setup_ai_guide_link": "View reference",
+  "instance_setup_ai_prompt": "Install Pulse (self-host) on my server. First read the full installation and troubleshooting reference at {guideUrl} — it describes what the installer does, which ports and DNS records are required, and how to fix common issues. Then run this command on the server and assist me if anything fails:\n\n{command}\n\nNote: the token in the command is valid for 20 minutes and single-use. Never print the contents of pulse.env or any secrets."
 }
