@@ -39,7 +39,20 @@ The operator generates a personalized command in the Pulse app
 (Settings → Self-Host → My instances → "Set up server"):
 
 ```
-curl -fsSL https://howispulse.com/install | bash -s -- <BOOTSTRAP_TOKEN>
+curl -fsSL https://howispulse.com/install | PULSE_BOOTSTRAP_TOKEN=<BOOTSTRAP_TOKEN> bash
+```
+
+The token is passed as an environment variable on purpose: script arguments
+(`bash -s -- <TOKEN>`, still supported as a fallback) are visible to every
+local user in `ps` while the script runs; environment variables are not.
+
+To review the script before running it (recommended on shared or
+production hosts), download it first:
+
+```
+curl -fsSL https://howispulse.com/install -o pulse-install.sh
+less pulse-install.sh
+PULSE_BOOTSTRAP_TOKEN=<BOOTSTRAP_TOKEN> bash pulse-install.sh
 ```
 
 Facts about the token (`plse_boot_…`):
@@ -50,9 +63,9 @@ Facts about the token (`plse_boot_…`):
   of times is safe and supported.
 - If the script fails *after* "Redeeming bootstrap token…", the token is
   consumed — generate a new one before retrying.
-- `--dry-run` (append after the token, or run without a token won't work —
-  use `bash -s -- <TOKEN> --dry-run`) prints the detection result and the
-  planned `docker run` command **without consuming the token**.
+- `--dry-run` (`… | PULSE_BOOTSTRAP_TOKEN=<TOKEN> bash -s -- --dry-run`)
+  prints the detection result and the planned `docker run` command
+  **without consuming the token** (the token must still be present).
 
 ### What the script does, step by step
 
@@ -142,6 +155,15 @@ Facts about the token (`plse_boot_…`):
 Firewall (ufw/cloud security group) must allow these. The DNS A/AAAA record
 for the chosen hostname must point at the server **before** install in
 greenfield mode (Let's Encrypt validation), and before first use in all modes.
+
+**Note on Docker and host firewalls (ufw/firewalld):** Docker publishes these
+ports via its own iptables chains, which take effect *before* ufw/firewalld
+rules — a `ufw deny` on a Docker-published port does NOT block it. This is
+standard Docker behaviour, not Pulse-specific. The published ports above are
+required for voice and HQ streaming to work and every service behind them
+requires token authentication (LiveKit access tokens, MediaMTX publish-token
+hook, TURN credentials). To restrict them anyway, filter upstream (cloud
+security group) or use Docker's own mechanisms (`DOCKER-USER` chain).
 
 ### Reverse-proxy route (static-docker / hostproxy modes)
 

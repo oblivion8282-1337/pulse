@@ -31,8 +31,11 @@
   let installBase = $derived(
     typeof location !== 'undefined' ? location.origin : 'https://howispulse.com'
   );
+  // Env-Form statt argv (`bash -s -- <token>`): Argumente sind während der
+  // Script-Laufzeit für jeden lokalen User in `ps` sichtbar, Env-Variablen
+  // nur für Owner/Root. Das Script liest beides (install.sh: PULSE_BOOTSTRAP_TOKEN).
   let command = $derived(
-    token ? `curl -fsSL ${installBase}/install | bash -s -- ${token}` : ''
+    token ? `curl -fsSL ${installBase}/install | PULSE_BOOTSTRAP_TOKEN=${token} bash` : ''
   );
   // Fertiger Prompt für KI-Assistenten: Referenz-URL + personalisierter
   // Befehl in einem. Die Referenz (/install/guide) beschreibt Installer,

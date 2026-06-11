@@ -2,7 +2,11 @@
 #
 # Pulse Self-Host — One-command installer
 # =======================================
-#   curl -fsSL https://howispulse.com/install | bash -s -- <TOKEN>
+#   curl -fsSL https://howispulse.com/install | PULSE_BOOTSTRAP_TOKEN=<TOKEN> bash
+#
+# Token bevorzugt per Env-Variable (argv wäre für jeden lokalen User in `ps`
+# sichtbar, solange das Script läuft); `bash -s -- <TOKEN>` bleibt als
+# Fallback unterstützt.
 #
 # Das Script erkennt die Umgebung selbst und richtet sich passend ein — auch
 # wenn auf dem Server schon ein Reverse-Proxy läuft (User-Output ist Englisch,
@@ -58,7 +62,7 @@ err()  { printf '\033[1;31m[pulse] ERROR:\033[0m %s\n' "$*" >&2; }
 die()  { err "$*"; exit 1; }
 
 [ -n "$TOKEN" ] || die "No bootstrap token provided.
-  Usage: curl -fsSL ${CLOUD_ORIGIN}/install | bash -s -- <TOKEN>
+  Usage: curl -fsSL ${CLOUD_ORIGIN}/install | PULSE_BOOTSTRAP_TOKEN=<TOKEN> bash
   Get a token in the Pulse app: Settings → Self-Host → Set up server."
 
 # --- Docker prüfen ------------------------------------------------------- #
