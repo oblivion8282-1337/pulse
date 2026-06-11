@@ -53,6 +53,7 @@
   type Step = 'url' | 'confirm';
   let step = $state<Step>('url');
   let urlInput = $state('');
+  let nameInput = $state('');
   let inviteInput = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
@@ -62,11 +63,24 @@
   function reset(): void {
     step = 'url';
     urlInput = '';
+    nameInput = '';
     inviteInput = '';
     busy = false;
     error = null;
     info = null;
     resolvedHostname = '';
+  }
+
+  /** Vorschlag für den Anzeigenamen aus dem Hostnamen: die Second-Level-
+   *  Domain, kapitalisiert ("pulse.unicutmedia.com" → "Unicutmedia").
+   *  IP-Hosts bleiben als Ganzes (sonst käme "192.168.1.10" als "1" raus).
+   *  Nur ein Startwert — das Feld ist Pflicht und frei editierbar. */
+  function suggestName(hostname: string): string {
+    const host = hostname.replace(/^https?:\/\//, '').split(':')[0];
+    if (/^[\d.]+$/.test(host)) return host;
+    const parts = host.split('.');
+    const core = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+    return core ? core.charAt(0).toUpperCase() + core.slice(1) : host;
   }
 
   function handleOpenChange(next: boolean): void {
@@ -96,6 +110,7 @@
     }
     info = result.info;
     resolvedHostname = result.hostname;
+    nameInput = suggestName(result.hostname);
     step = 'confirm';
   }
 
@@ -113,9 +128,10 @@
 
   async function confirmAdd(): Promise<void> {
     if (!info || busy) return;
+    const label = nameInput.trim();
+    if (!label) return; // Pflichtfeld — Button ist dann eh disabled
     busy = true;
     error = null;
-    const labelHost = resolvedHostname.replace(/^https?:\/\//, '');
     const code = inviteInput.trim();
     const hostname = resolvedHostname;
     const instanceId = info.instance_id ?? undefined;
@@ -133,7 +149,7 @@
     try {
       const r = await addServerWithCertLogin({
         hostname,
-        label: labelHost,
+        label,
         instanceId,
         // Derselbe Guild-Invite-Code dient beiden Zwecken: communityGrantCode
         // gewährt die Instanz-Mitgliedschaft im cert-login/verify, inviteCode
@@ -144,7 +160,7 @@
       });
       markSelfHostDisclaimerSeen(hostname, r.entry.id);
       activeServer.set(r.entry.id);
-      toast.success(m.add_server_dialog_toast_added({ host: labelHost }));
+      toast.success(m.add_server_dialog_toast_added({ host: label }));
       if (r.inviteError) toast.error(m.add_server_dialog_toast_invite_error({ reason: r.inviteError }));
       else if (r.invite) toast.success(m.add_server_dialog_toast_joined({ name: r.invite.guild.name }));
       if (!closedForBackup) {
@@ -216,6 +232,7 @@
         {resolvedHostname}
         {error}
         {busy}
+        bind:nameInput
         bind:inviteInput
         onBack={() => (step = 'url')}
         onConfirm={confirmAdd}

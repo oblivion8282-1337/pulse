@@ -50,6 +50,7 @@
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import AddServerDialog from './sidebar/AddServerDialog.svelte';
+  import RenameServerDialog from './sidebar/RenameServerDialog.svelte';
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
   import ServerIconButton from './sidebar/ServerIconButton.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
@@ -229,6 +230,14 @@
     infoServerOpen = true;
   }
 
+  // Anzeigename für die Rail: das (umbenennbare) Label, bei Hostname-
+  // Fallback ohne https://-Präfix — Schema-Rauschen gehört nicht in die UI.
+  function serverDisplayName(server: ServerEntry): string {
+    return server.label.replace(/^https?:\/\//, '');
+  }
+
+  let renameServerTarget = $state<ServerEntry | null>(null);
+
   function setServerNotif(server: ServerEntry, mode: ServerEntry['notification_mode']): void {
     serversStore.update(server.id, { notification_mode: mode });
   }
@@ -323,18 +332,6 @@
     onJoinClick?.();
   }
 
-  // Kompakter Section-Header pro Server: 2-Letter-Initialen, Klick öffnet
-  // dasselbe ContextMenu wie der frühere ServerIconButton (Notif-Mode,
-  // Server-Info, Server entfernen).
-  function serverInitials(label: string): string {
-    return label
-      .replace(/^https?:\/\//, '')
-      .split(/[.\s-]+/)
-      .map((w) => w[0]?.toUpperCase() ?? '')
-      .slice(0, 2)
-      .join('') || '?';
-  }
-
   // Cloud: is_admin-Flag aus dem Auth-State; Self-Host: serverAdmin-Store aus
   // dem Ready-Frame. Zentralisiert den doppelten Ausdruck (canCreateOnServer +
   // Template-@const).
@@ -342,9 +339,9 @@
     return server.isCloud ? !!auth.user?.is_admin : serverAdmin.isAdmin(server.id);
   }
 
-  // Status-Dot-Farbe für Self-Host-Server-Section-Header.
+  // Status-Dot-Farbe für Self-Host-Server-Section-Header. Wird nur im
+  // Ausnahmezustand gerendert (`open` zeigt keinen Dot), daher kein grüner Fall.
   function serverStateDotColor(state: string): string {
-    if (state === 'open') return 'bg-emerald-500';
     if (state === 'connecting' || state === 'starting' || state === 'updating') return 'bg-amber-500';
     if (state === 'incompatible' || state === 'cors-blocked' || state === 'mfa-required') return 'bg-red-500';
     return 'bg-gray-500';
@@ -431,7 +428,7 @@
                   <button
                     {...ctxProps}
                     {...tipProps}
-                    class="relative flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[10px] font-bold uppercase tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary"
+                    class="relative flex min-h-6 w-full shrink-0 items-center justify-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors hover:bg-bg-hover data-[active=true]:text-primary {server.isCloud ? 'uppercase' : ''}"
                     data-active={isActiveServer}
                     onclick={() => activeServer.set(server.id)}
                     data-testid={`server-${server.id}`}
@@ -439,22 +436,36 @@
                   >
                     <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
                          (immer da, kein Verbindungszustand nötig). Selbst-
-                         gehostete Zusatz-Server behalten Initialen + Dot, weil
-                         der Punkt dort echte Connect-/Fehlerzustände anzeigt. -->
+                         gehostete Zusatz-Server zeigen den Anzeigenamen
+                         (umbenennbar via Kontextmenü; Fallback = Hostname,
+                         über bis zu 2 Zeilen umbrochen). Status-Dot nur im
+                         Ausnahmezustand (gelb/rot/grau) — der grüne
+                         „alles ok"-Dauerzustand wäre nur Rauschen. -->
                     {#if server.isCloud}
                       Pulse
                     {:else}
-                      {serverInitials(server.label)}
-                      <span
-                        class="size-1.5 rounded-full {serverStateDotColor(sState)}"
-                        data-testid="server-state-dot"
-                        aria-label={`Status: ${sState}`}
-                      ></span>
+                      <span class="line-clamp-2 min-w-0 break-all text-center leading-tight">
+                        {serverDisplayName(server)}
+                      </span>
+                      {#if sState !== 'open'}
+                        <span
+                          class="size-1.5 shrink-0 rounded-full {serverStateDotColor(sState)}"
+                          data-testid="server-state-dot"
+                          aria-label={`Status: ${sState}`}
+                        ></span>
+                      {/if}
                     {/if}
                   </button>
                 {/snippet}
               </Tooltip.Trigger>
-              <Tooltip.Content side="right">{server.label}</Tooltip.Content>
+              <Tooltip.Content side="right" class="flex-col items-start gap-0">
+                <span class="font-semibold">{serverDisplayName(server)}</span>
+                {#if !server.isCloud}
+                  <span class="text-text-muted text-xs">
+                    {server.hostname.replace(/^https?:\/\//, '')}
+                  </span>
+                {/if}
+              </Tooltip.Content>
             </Tooltip.Root>
           {/snippet}
         </ContextMenu.Trigger>
@@ -462,6 +473,11 @@
           <ContextMenu.Item onSelect={() => openServerInfo(server)}>
             {m.guild_rail_server_info()}
           </ContextMenu.Item>
+          {#if !server.isCloud}
+            <ContextMenu.Item onSelect={() => (renameServerTarget = server)}>
+              <PencilIcon /> {m.guild_rail_rename_server()}
+            </ContextMenu.Item>
+          {/if}
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger>{m.guild_rail_notifications()}</ContextMenu.SubTrigger>
             <ContextMenu.SubContent>
@@ -702,6 +718,12 @@
 </AlertDialog.Root>
 
 <ServerInfoDialog bind:open={infoServerOpen} server={infoServerTarget} />
+
+<RenameServerDialog
+  open={renameServerTarget !== null}
+  server={renameServerTarget}
+  onClose={() => (renameServerTarget = null)}
+/>
 
 <RenameGuildDialog
   open={renameTarget !== null}

@@ -18,6 +18,7 @@
   let {
     info,
     resolvedHostname,
+    nameInput = $bindable(''),
     inviteInput = $bindable(''),
     error,
     busy,
@@ -26,6 +27,7 @@
   }: {
     info: ServerInfo;
     resolvedHostname: string;
+    nameInput: string;
     inviteInput: string;
     error: string | null;
     busy: boolean;
@@ -34,6 +36,7 @@
   } = $props();
 
   let labelHost = $derived(resolvedHostname.replace(/^https?:\/\//, ''));
+  let nameMissing = $derived(nameInput.trim().length === 0);
 </script>
 
 <Dialog.Header>
@@ -70,6 +73,27 @@
 
   <div class="space-y-1.5">
     <Label
+      for="add-server-name"
+      class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
+    >
+      {m.add_server_dialog_label_name()}
+    </Label>
+    <Input
+      id="add-server-name"
+      type="text"
+      bind:value={nameInput}
+      required
+      maxlength={32}
+      autocomplete="off"
+      data-testid="add-server-name"
+    />
+    <p class="text-text-muted text-xs">
+      {m.add_server_dialog_name_hint()}
+    </p>
+  </div>
+
+  <div class="space-y-1.5">
+    <Label
       for="add-server-invite"
       class="text-muted-foreground text-xs font-semibold uppercase tracking-wide"
     >
@@ -99,7 +123,7 @@
     <Button type="button" variant="ghost" onclick={onBack} disabled={busy}>
       {m.add_server_dialog_btn_back()}
     </Button>
-    <Button onclick={onConfirm} disabled={busy} data-testid="add-server-confirm">
+    <Button onclick={onConfirm} disabled={busy || nameMissing} data-testid="add-server-confirm">
       {busy ? m.add_server_dialog_btn_adding() : m.add_server_dialog_btn_confirm_add()}
     </Button>
   </Dialog.Footer>

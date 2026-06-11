@@ -2151,5 +2151,13 @@
   "settings_apps_intro": "Pulse gibt es auch als Desktop-App für Windows und Linux sowie als Android-App. Alle Apps verbinden sich mit demselben Konto.",
   "settings_apps_windows_desc": "Installer herunterladen und ausführen. Updates installiert die App danach automatisch. Beim ersten Start fragt Windows-SmartScreen nach — „Weitere Informationen“ → „Trotzdem ausführen“.",
   "settings_apps_android_desc": "APK herunterladen und öffnen. Bei der Installation muss „Aus unbekannten Quellen installieren“ erlaubt werden.",
-  "settings_apps_download": "Herunterladen"
+  "settings_apps_download": "Herunterladen",
+  "guild_rail_rename_server": "Umbenennen…",
+  "rename_server_dialog_title": "Server umbenennen",
+  "rename_server_dialog_description": "Anzeigename für {host} in deiner Server-Leiste. Gilt nur für dich — der Hostname bleibt in Tooltip und Server-Info sichtbar.",
+  "rename_server_dialog_name_label": "Anzeigename",
+  "rename_server_dialog_cancel": "Abbrechen",
+  "rename_server_dialog_save": "Speichern",
+  "add_server_dialog_label_name": "Anzeigename",
+  "add_server_dialog_name_hint": "So heißt der Server in deiner Server-Leiste. Du kannst ihn später per Rechtsklick umbenennen."
 }
