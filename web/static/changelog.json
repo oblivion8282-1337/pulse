@@ -16,7 +16,7 @@
       "style": "Sachlich",
       "title": "Eigene Server mit richtigem Namen",
       "items": [
-        "Self-Host-Server zeigen in der Server-Leiste jetzt ihren vollen Namen statt zwei Buchstaben. Per Rechtsklick lässt sich der Name jederzeit ändern, und beim Hinzufügen eines Servers wird er direkt abgefragt.",
+        "Self-Host-Server zeigen in der Server-Leiste jetzt ihren vollen Namen statt zwei Buchstaben. Per Rechtsklick lässt sich der Name jederzeit ändern, und beim Hinzufügen eines Servers wird er direkt abgefragt. Mehrteilige Namen brechen sauber am Leerzeichen um.",
         "Der Status-Punkt neben dem Servernamen erscheint nur noch, wenn etwas nicht stimmt (Verbinden, Fehler, getrennt)."
       ]
     },
