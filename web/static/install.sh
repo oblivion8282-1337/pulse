@@ -307,6 +307,17 @@ EOF
   systemctl enable --now pulse-update.timer >/dev/null 2>&1
 }
 
+# --- Host-Updater: User-Crontab (Fallback ohne root/systemd) ------------- #
+# Ein docker-group-User (non-root) kann keinen System-Timer schreiben, aber
+# seine eigene Crontab — die läuft sudo-frei und unabhängig vom Login. So
+# bleibt Auto-Update auch beim non-root-Install erhalten (der alte Watchtower
+# lief als Container ebenfalls non-root — ohne Fallback wäre das ein Regress).
+install_update_cron() {
+  local entry="*/5 * * * * ${UPDATE_SH} >> ${PULSE_DIR}/pulse-update.log 2>&1"
+  # Bestehenden Eintrag für unser Skript ersetzen (idempotent), Rest behalten.
+  { crontab -l 2>/dev/null | grep -vF "$UPDATE_SH"; echo "$entry"; } | crontab -
+}
+
 # ======================================================================== #
 # Ablauf
 # ======================================================================== #
@@ -385,10 +396,12 @@ if [ -z "${PULSE_NO_AUTOUPDATE:-${PULSE_NO_WATCHTOWER:-}}" ]; then
   if [ "$(id -u)" = "0" ] && command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     install_update_timer
     log "Auto-updates enabled (systemd timer 'pulse-update.timer', checks every 5 min)."
+  elif command -v crontab >/dev/null 2>&1; then
+    install_update_cron
+    log "Auto-updates enabled (user crontab, checks every 5 min). 'crontab -l' to view."
   else
-    warn "Auto-update timer needs root + systemd — not installed."
+    warn "No root+systemd and no crontab — auto-update could not be scheduled."
     warn "Update manually anytime:   ${UPDATE_SH}"
-    warn "…or schedule it yourself:  */5 * * * *  ${UPDATE_SH}"
   fi
 fi
 

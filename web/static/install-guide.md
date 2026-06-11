@@ -108,8 +108,10 @@ Facts about the token (`plse_boot_…`):
    the exact same run arguments. **No container holds the Docker socket** —
    deliberately, so a compromised app image cannot reach host root through an
    updater. Skipped if `PULSE_NO_AUTOUPDATE` (alias `PULSE_NO_WATCHTOWER`) is
-   set. Without root + systemd the script is still written but not scheduled;
-   the installer prints how to run it manually or via cron. An older
+   set. As root with systemd it installs a `pulse-update.timer`; without root
+   it falls back to a **user crontab** (no sudo needed, same 5-min cadence) so
+   non-root installs keep auto-updating too; only if neither systemd nor
+   crontab exists is the script left unscheduled (run it manually). An older
    `pulse-watchtower` container from a previous install is removed on re-run.
 7. **Health-checks** `…/api/chat/health` for up to 5 minutes (first boot runs
    DB migrations and, in greenfield, the ACME handshake — ~1 min is normal).
