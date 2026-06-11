@@ -212,7 +212,10 @@ test.describe.serial('Discord-Clone E2E', () => {
 
   test('Alice posts a YouTube link; an oEmbed preview card renders', async () => {
     // Mock the client-side oEmbed call so the test is hermetic (no real YT hit).
-    await alicePage.route('**/youtube.com/oembed*', async (route) => {
+    // Regex statt Glob: `*` matcht in Playwright-Globs keinen Query-String,
+    // `oembed*` ließ `oembed?url=…` durch → der Fetch ging ans echte YouTube
+    // und der Test hing am drift-anfälligen Live-Titel.
+    await alicePage.route(/youtube\.com\/oembed/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

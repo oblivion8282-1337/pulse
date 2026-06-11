@@ -48,6 +48,13 @@ test.describe.serial('attachments E2E', () => {
 
   test.beforeAll(async ({ browser }) => {
     const ctx = await browser.newContext();
+    // Changelog-Toast stummschalten: er steht unten rechts ÜBER dem Senden-
+    // Button und fängt dessen Klick ab (dieser Spec ist der einzige, der
+    // message-send klickt — die anderen senden per Enter). Leere entries →
+    // ChangelogGate feuert nie.
+    await ctx.route('**/changelog.json', (route) =>
+      route.fulfill({ json: { entries: [] } })
+    );
     page = await ctx.newPage();
   });
 
