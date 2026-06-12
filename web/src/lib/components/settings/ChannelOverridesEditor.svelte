@@ -17,6 +17,7 @@
   import { chatApi } from '$lib/api/chat';
   import { overwritesApi, type Overwrite } from '$lib/api/roles';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+  import { createOverride, excludeEveryone, owKey } from './channelOverrides';
   import { roles as rolesStore } from '$lib/stores/roles.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { Perm, has, toBitfield, type Permission } from '$lib/permissions/bitfield';
@@ -52,10 +53,6 @@
     { perm: Perm.STREAM, label: m.channel_overrides_perm_stream() },
     { perm: Perm.USE_VIDEO, label: m.channel_overrides_perm_use_video() }
   ];
-
-  function owKey(ow: { target_type: 0 | 1; target_id: string }): string {
-    return `${ow.target_type}:${ow.target_id}`;
-  }
 
   let overwrites = $derived<Overwrite[]>(channelPermissions.byChannel[channelId] ?? []);
   let availableRoles = $derived(rolesStore.byGuild[guildId] ?? []);
@@ -183,26 +180,37 @@
 
   async function addOverride(targetType: 0 | 1, targetId: string): Promise<void> {
     if (!targetId) return;
+    // Adding a normal role makes the channel exclusive (Discord's
+    // private-channel semantics): the role gets VIEW_CHANNEL allow and
+    // @everyone gets VIEW_CHANNEL deny — "add a group" means "only this
+    // group (and other added targets) can see the channel", with no
+    // manual @everyone bookkeeping.
+    const everyone = availableRoles.find((r) => r.is_everyone);
+    const exclusiveRole =
+      targetType === 0 && everyone && targetId !== everyone.id
+        ? availableRoles.find((r) => r.id === targetId)
+        : undefined;
     try {
-      const created = await overwritesApi.set(channelId, targetType, targetId, {
-        allow: '0',
-        deny: '0'
-      });
-      // Push the new row into the cache immediately — without this the
-      // overwrite list only repaints after the WS broadcast lands, which
-      // makes the UI feel laggy on slow links.
-      const current = channelPermissions.byChannel[channelId] ?? [];
-      const createdKey = owKey(created);
-      const exists = current.some((ow) => owKey(ow) === createdKey);
-      channelPermissions.apply(
-        channelId,
-        exists
-          ? current.map((ow) => (owKey(ow) === createdKey ? created : ow))
-          : [...current, created]
-      );
+      await createOverride(channelId, targetType, targetId, !!exclusiveRole);
+      if (exclusiveRole && everyone) {
+        const saved = await excludeEveryone(channelId, everyone.id);
+        if (saved) {
+          // Force-sync the row buffer: the seed-once guard would otherwise
+          // keep showing the pre-exclusion state for an already-seeded
+          // @everyone row.
+          buffers = { ...buffers, [owKey(saved)]: { allow: saved.allow, deny: saved.deny } };
+          const nextSeeded = new Set(seededKeys);
+          nextSeeded.add(owKey(saved));
+          seededKeys = nextSeeded;
+        }
+      }
       if (targetType === 0) addRoleId = '';
       else addUserId = '';
-      toast.success(m.channel_overrides_toast_added());
+      if (exclusiveRole) {
+        toast.success(m.channel_overrides_toast_added_exclusive({ role: exclusiveRole.name }));
+      } else {
+        toast.success(m.channel_overrides_toast_added());
+      }
     } catch (err) {
       toast.error(m.channel_overrides_toast_add_failed(), {
         description: (err as Error).message
@@ -254,6 +262,7 @@
         <PlusIcon />
         {m.channel_overrides_btn_add_role()}
       </Button>
+      <p class="text-text-muted basis-full text-xs">{m.channel_overrides_role_add_hint()}</p>
     </div>
 
     <div class="flex flex-wrap items-end gap-2">
