@@ -286,8 +286,18 @@ class VoiceRoom {
     channelName: string,
     opts: { startMuted?: boolean; startDeafened?: boolean } = {}
   ): Promise<void> {
+    // Mic state to restore into #micEnabledBeforeDeafen when this connect
+    // carries a deafen across a channel switch (teardown wipes it).
+    let micBeforeDeafen = false;
     if (this.#room && (this.connected || this.connecting)) {
       if (this.channelId === channelId) return;
+      // Channel switch keeps the user's mute/deafen choice (Discord-style) —
+      // #teardown resets both, so fold them into opts before disconnecting.
+      micBeforeDeafen = this.#micEnabledBeforeDeafen;
+      opts = {
+        startMuted: opts.startMuted ?? !this.micEnabled,
+        startDeafened: opts.startDeafened ?? this.deafened,
+      };
       // Switching channels = user-driven leave of the old one. End any
       // hosted watch party there.
       await this.disconnect({ reason: 'user' });
@@ -384,6 +394,9 @@ class VoiceRoom {
     if (opts.startDeafened) {
       this.deafened = true;
       this.#audioEls.setDeafened(true);
+      // Carry the pre-deafen mic state across a channel switch so un-deafen
+      // in the new channel restores the mic like it would have in the old one.
+      this.#micEnabledBeforeDeafen = micBeforeDeafen;
     }
     // Make sure the gateway has our state even if neither setMicEnabled nor
     // setDeafened ran (PTT mode + not deafened = both false → no setter fired,
