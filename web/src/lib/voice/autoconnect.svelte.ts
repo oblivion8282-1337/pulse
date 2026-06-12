@@ -86,7 +86,7 @@ export const voiceAutoConnect = new VoiceAutoConnectStore();
  *  - nur im sichtbaren Tab (ein vergessener Hintergrund-Tab joint nicht);
  *  - nicht, wenn der User laut Presence schon im Channel ist (anderes Gerät —
  *    eine zweite LiveKit-Session mit gleicher Identity würde die erste kicken);
- *  - IMMER gemutet beitreten (kein Hot-Mic beim App-Start).
+ *  - Join erfolgt ENTMUTET (User-Wunsch; das Hot-Mic-Risiko ist akzeptiert).
  * Fehlschlag (Channel weg, Token verweigert) → still aufgeben; die Wahl bleibt
  * bestehen (könnte transient sein), es gibt keinen Retry in derselben Session.
  */
@@ -99,7 +99,9 @@ export async function autoConnectIfConfigured(): Promise<void> {
   if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
   if (voicePresence.usersIn(t.channelId).includes(t.userId)) return;
   try {
-    await voice.connect(t.channelId, t.channelName, { startMuted: true });
+    // startMuted: false — bewusste User-Entscheidung (2026-06-12): immer
+    // entmutet joinen, das Hot-Mic-Risiko beim App-Start ist akzeptiert.
+    await voice.connect(t.channelId, t.channelName, { startMuted: false });
   } catch {
     /* Channel gelöscht / kein Zugriff / Voice down → kein Auto-Join diesmal */
   }
