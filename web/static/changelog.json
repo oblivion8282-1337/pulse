@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-13.2",
+      "date": "2026-06-13",
+      "style": "Sachlich",
+      "title": "Community-Links öffnen ohne erneute Anmeldung",
+      "items": [
+        "Wer angemeldet ist und einen Community-Link (/c/name) in einem neuen Tab öffnet, kommt jetzt direkt zur Beitreten-Seite, statt sich noch einmal anmelden zu müssen."
+      ]
+    },
+    {
       "id": "2026-06-13.1",
       "date": "2026-06-13",
       "style": "Sachlich",
