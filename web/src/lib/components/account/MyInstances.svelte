@@ -8,21 +8,49 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type Instance } from '$lib/api/instances';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import InstanceSetupDialog from './InstanceSetupDialog.svelte';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import ServerIcon from '@lucide/svelte/icons/server';
   import TerminalIcon from '@lucide/svelte/icons/terminal';
+  import Trash2Icon from '@lucide/svelte/icons/trash-2';
 
   let instances = $state<Instance[]>([]);
   let loading = $state(true);
   let setupOpen = $state(false);
   let setupInstance = $state<Instance | null>(null);
+  let deleteTarget = $state<Instance | null>(null);
+  let deleteConfirmOpen = $state(false);
+  let deleting = $state(false);
 
   function openSetup(inst: Instance) {
     setupInstance = inst;
     setupOpen = true;
+  }
+
+  function openDelete(inst: Instance) {
+    deleteTarget = inst;
+    deleteConfirmOpen = true;
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget || deleting) return;
+    deleting = true;
+    const id = deleteTarget.id;
+    try {
+      await instancesApi.deleteMyInstance(id);
+      instances = instances.filter((i) => i.id !== id);
+      toast.success(m.my_instances_delete_success());
+    } catch {
+      toast.error(m.my_instances_delete_error());
+    } finally {
+      deleting = false;
+      deleteConfirmOpen = false;
+      deleteTarget = null;
+    }
   }
 
   onMount(async () => {
@@ -96,6 +124,15 @@
               <TerminalIcon class="size-3.5" />
               {m.instance_setup_button()}
             </button>
+            <button
+              type="button"
+              onclick={() => openDelete(inst)}
+              class="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-500/10 transition-colors"
+              data-testid="instance-delete-btn-{inst.id}"
+            >
+              <Trash2Icon class="size-3.5" />
+              {m.my_instances_delete_button()}
+            </button>
           </div>
         </div>
       {/each}
@@ -105,3 +142,25 @@
 
 <!-- Ein-Befehl-Installer -->
 <InstanceSetupDialog bind:open={setupOpen} instance={setupInstance} />
+
+<!-- Lösch-Bestätigung -->
+<AlertDialog.Root bind:open={deleteConfirmOpen}>
+  <AlertDialog.Content data-testid="instance-delete-dialog">
+    <AlertDialog.Header>
+      <AlertDialog.Title>{m.my_instances_delete_title()}</AlertDialog.Title>
+      <AlertDialog.Description>
+        {m.my_instances_delete_description({ hostname: deleteTarget?.hostname ?? '' })}
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel>{m.my_instances_delete_cancel()}</AlertDialog.Cancel>
+      <AlertDialog.Action
+        onclick={confirmDelete}
+        disabled={deleting}
+        data-testid="instance-delete-confirm"
+      >
+        {m.my_instances_delete_action()}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

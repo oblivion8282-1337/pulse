@@ -102,8 +102,9 @@ async def redeem_bootstrap_token(
     if instance is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="instance not found")
     if instance.status != "active":
+        # suspended ODER vom Owner gelöscht (routes_instance_delete).
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="instance is suspended"
+            status.HTTP_403_FORBIDDEN, detail="instance is not available"
         )
 
     # Token verbrennen + Secret rotieren (Klartext nur in der Antwort).

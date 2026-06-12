@@ -145,6 +145,15 @@ export const instancesApi = {
   },
 
   /**
+   * Eigene Instanz löschen (Soft-Delete, irreversibel). Der Hostname wird
+   * wieder für Neuanträge frei; ein noch laufender Server landet auf der
+   * Suspend-Liste und stellt den Betrieb ein.
+   */
+  deleteMyInstance(instanceId: string): Promise<void> {
+    return cookieFetch<void>(`/me/instances/${instanceId}`, { method: 'DELETE' });
+  },
+
+  /**
    * Docker-Compose-Snippet als Download-Blob.
    * Gibt die Response direkt zurück — Aufrufer triggert Download via URL.
    */

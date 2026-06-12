@@ -252,7 +252,12 @@ async def list_my_instances(
 
     stmt = (
         select(RegisteredInstance)
-        .where(RegisteredInstance.registered_by == user.id)
+        .where(
+            RegisteredInstance.registered_by == user.id,
+            # Vom Owner gelöschte Instanzen (Soft-Delete, s. routes_instance_delete)
+            # sind für ihn unsichtbar.
+            RegisteredInstance.status != "deleted",
+        )
         .order_by(RegisteredInstance.registered_at.desc())
     )
     rows = (await db.execute(stmt)).scalars().all()
@@ -289,7 +294,7 @@ async def get_docker_compose_snippet(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     inst = await db.get(RegisteredInstance, iid)
-    if inst is None or inst.registered_by != user.id:
+    if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     snippet = (
@@ -362,7 +367,7 @@ async def mint_bootstrap_token(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     inst = await db.get(RegisteredInstance, iid)
-    if inst is None or inst.registered_by != user.id:
+    if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     await db.execute(

@@ -343,10 +343,10 @@ async def list_instances(
     status_filter: Annotated[str, Query(alias="status")] = "all",
 ):
     """List registered instances. Never exposes client_secret."""
-    if status_filter not in ("active", "suspended", "all"):
+    if status_filter not in ("active", "suspended", "deleted", "all"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail="status must be active, suspended or all",
+            detail="status must be active, suspended, deleted or all",
         )
     stmt = (
         select(RegisteredInstance)
@@ -390,6 +390,9 @@ async def suspend_instance(
     instance = await session.get(RegisteredInstance, instance_id, with_for_update=True)
     if instance is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="instance not found")
+    if instance.status == "deleted":
+        # Vom Owner gelöscht (routes_instance_delete) — Kill-Switch besteht schon.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="instance was deleted by its owner")
     if instance.status == "suspended":
         return  # idempotent
 
@@ -425,6 +428,10 @@ async def unsuspend_instance(
     instance = await session.get(RegisteredInstance, instance_id, with_for_update=True)
     if instance is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="instance not found")
+    if instance.status == "deleted":
+        # Owner-Löschung ist endgültig — der Platzhalter-Hostname (deleted-*.invalid)
+        # darf nie wieder aktiv werden.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="instance was deleted by its owner")
     if instance.status == "active":
         return  # idempotent
 
@@ -456,6 +463,8 @@ async def rotate_secret(
     instance = await session.get(RegisteredInstance, instance_id, with_for_update=True)
     if instance is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="instance not found")
+    if instance.status == "deleted":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="instance was deleted by its owner")
 
     new_secret_plain = secrets.token_urlsafe(32)
     instance.client_secret = await asyncio.to_thread(hash_password, new_secret_plain)

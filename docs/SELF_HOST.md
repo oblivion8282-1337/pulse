@@ -452,6 +452,59 @@ docker inspect --format='{{json .State.Health}}' pulse | python3 -m json.tool
 
 ---
 
+## Deinstallation — Server wieder loswerden
+
+Drei Schritte, in dieser Reihenfolge:
+
+### 1. Instanz in der Cloud löschen
+
+Auf [howispulse.com](https://howispulse.com) unter **Einstellungen → Meine
+Instanzen** → **Löschen**. Das entfernt die Instanz endgültig aus deinem Konto,
+gibt den Hostnamen für neue Anträge frei und setzt sie auf die Sperrliste —
+ein noch laufender Container stellt damit den Betrieb ein. Das kann nicht
+rückgängig gemacht werden; für einen Neustart stellst du einfach einen neuen
+Antrag.
+
+### 2. Container, Updater und Daten entfernen
+
+**Installer-Setup** (One-Command-Installer):
+
+```bash
+sudo systemctl disable --now pulse-update.timer
+sudo rm /etc/systemd/system/pulse-update.{service,timer}
+sudo systemctl daemon-reload
+docker rm -f pulse
+sudo rm -rf /opt/pulse
+```
+
+(Beim non-root-Install gibt es keine systemd-Units — stattdessen den
+Cron-Eintrag und das Updater-Verzeichnis entfernen:
+`crontab -l | grep -v 'pulse-update.sh' | crontab -` und `rm -rf ~/.pulse`.)
+
+**Compose-Setup** (manueller Pfad):
+
+```bash
+docker compose down
+```
+
+**Daten löschen** — erst nach einem letzten Backup, falls du die Inhalte noch
+brauchst (siehe [Backups](#backups)):
+
+```bash
+docker volume rm pulse-data
+```
+
+Damit sind alle Server-Daten (Datenbank, Uploads, Zertifikate, Schlüssel)
+unwiderruflich weg.
+
+### 3. Mitglieder informieren
+
+Der Server verschwindet **nicht automatisch** aus den Server-Listen deiner
+Mitglieder — jeder entfernt ihn selbst (Rechtsklick auf das Server-Symbol →
+**Server entfernen**). Sag deinen Leuten am besten vorher Bescheid.
+
+---
+
 ## Datenschutz-Vorlage
 
 `docs/PRIVACY_SELF_HOST_TEMPLATE.md` enthält eine Datenschutzerklärung die Self-

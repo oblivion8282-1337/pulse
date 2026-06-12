@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.5",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Self-Host-Server löschen",
+      "items": [
+        "Eigene Self-Host-Instanzen lassen sich jetzt unter Einstellungen → Meine Instanzen endgültig löschen. Der Hostname wird dabei wieder für neue Anträge frei.",
+        "Die Self-Host-Anleitung beschreibt jetzt auch die vollständige Deinstallation (Cloud-Eintrag, Container, Updater, Daten)."
+      ]
+    },
+    {
       "id": "2026-06-12.4",
       "date": "2026-06-12",
       "style": "Sachlich",
