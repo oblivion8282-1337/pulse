@@ -317,6 +317,84 @@ async def fan_out_mention_push(
         log.exception("fan_out_mention_push failed")
 
 
+async def _fan_out_payload(user_ids: set[int], payload: dict) -> None:
+    """Open a short-lived session and push ``payload`` to each user.
+
+    Self-contained mirror of ``fan_out_mention_push``'s session handling for
+    payloads that aren't mentions (DMs, friend events). Never raises — push
+    is best-effort and must not break the originating REST path.
+    """
+    if not user_ids:
+        return
+    if ensure_vapid(get_settings()) is None:
+        return
+    from dcc_chat_gateway.routes import ws_ops as _routes_ws_ops
+
+    try:
+        async with _routes_ws_ops.SessionLocal() as session:
+            for uid in user_ids:
+                await send_push_to_user(uid, payload, session)
+    except Exception:  # noqa: BLE001
+        log.exception("_fan_out_payload failed")
+
+
+async def fan_out_dm_push(
+    *,
+    recipient_id: int,
+    author_name: str,
+    content: str,
+    channel_id: int,
+    message_id: int,
+) -> None:
+    """Push a closed-browser notification for a new DM to its recipient.
+
+    The in-app path (``dm_bump`` WS frame) covers the tab-open case; this
+    covers the tab-closed case. ``guild_id: None`` makes the SW route the
+    click to ``/app/@me/<channel_id>``. DND is honoured SW-side; the per-type
+    ``onDM`` toggle gates the in-page path (matching mention push).
+    """
+    payload = {
+        "type": "dm",
+        "title": author_name or "Pulse",
+        "body": _make_snippet(content),
+        "channel_id": str(channel_id),
+        "message_id": str(message_id),
+        "guild_id": None,
+        "author_name": author_name or "",
+        "icon": None,
+    }
+    await _fan_out_payload({recipient_id}, payload)
+
+
+async def fan_out_friend_push(
+    *, recipient_id: int, actor_name: str, kind: str
+) -> None:
+    """Push a closed-browser notification for a friend event.
+
+    ``kind`` is ``"friend_request"`` (incoming request) or ``"friend_accept"``
+    (request accepted). No channel/message — ``target_url`` routes the click to
+    the friends page.
+    """
+    if kind == "friend_request":
+        body = f"{actor_name} möchte dich als Freund hinzufügen"
+    elif kind == "friend_accept":
+        body = f"{actor_name} hat deine Freundschaftsanfrage angenommen"
+    else:
+        return
+    payload = {
+        "type": kind,
+        "title": actor_name or "Pulse",
+        "body": body,
+        "channel_id": None,
+        "message_id": None,
+        "guild_id": None,
+        "author_name": actor_name or "",
+        "icon": None,
+        "target_url": "/app/friends",
+    }
+    await _fan_out_payload({recipient_id}, payload)
+
+
 def _make_snippet(content: str, limit: int = 100) -> str:
     """One-line, marker-free preview of the message content.
 
@@ -338,6 +416,8 @@ __all__ = [
     "MENTION_PAYLOAD_SCHEMA",
     "VapidKeys",
     "ensure_vapid",
+    "fan_out_dm_push",
+    "fan_out_friend_push",
     "fan_out_mention_push",
     "reset_vapid_cache_for_tests",
     "send_push_to_user",

@@ -62,6 +62,9 @@ type PushPayload = {
   guild_id?: string | null;
   author_name?: string;
   icon?: string | null;
+  /** Explicit click destination — overrides the channel-derived URL. Used by
+   *  friend events that have no channel and route to /app/friends. */
+  target_url?: string;
 };
 
 /**
@@ -104,7 +107,8 @@ sw.addEventListener('push', (event) => {
   const data = {
     channel_id: payload.channel_id ?? null,
     guild_id: payload.guild_id ?? null,
-    message_id: payload.message_id ?? null
+    message_id: payload.message_id ?? null,
+    target_url: payload.target_url ?? null
   };
   event.waitUntil(
     readDndFromIdb().then((dnd) => {
@@ -137,10 +141,11 @@ sw.addEventListener('notificationclick', (event) => {
   const data = (event.notification.data ?? {}) as {
     channel_id?: string | null;
     guild_id?: string | null;
+    target_url?: string | null;
   };
   const channelId = data.channel_id ?? null;
   const guildId = data.guild_id ?? null;
-  const url = buildTargetUrl(channelId, guildId);
+  const url = data.target_url ?? buildTargetUrl(channelId, guildId);
 
   event.waitUntil(
     (async () => {

@@ -194,6 +194,11 @@ async def create_friend_request(
             op="friend_request_accepted",
             data=accepted_payload_for_target,
         )
+        from dcc_chat_gateway.push import fan_out_friend_push
+
+        await fan_out_friend_push(
+            recipient_id=target, actor_name=current.username, kind="friend_accept"
+        )
         return FriendRequestAutoAcceptOut(
             friendship=FriendOut(**wire_friendship(friendship, me))
         )
@@ -240,6 +245,11 @@ async def create_friend_request(
         target_user_id=target,
         op="friend_request_received",
         data=out.model_dump(mode="json"),
+    )
+    from dcc_chat_gateway.push import fan_out_friend_push
+
+    await fan_out_friend_push(
+        recipient_id=target, actor_name=current.username, kind="friend_request"
     )
     return out
 
@@ -349,6 +359,12 @@ async def accept_friend_request(
     )
     await publish_friend_event(
         request, target_user_id=other, op="friend_request_accepted", data=other_payload
+    )
+    from dcc_chat_gateway.push import fan_out_friend_push
+
+    # Notify the original requester (``other``) that ``current`` accepted.
+    await fan_out_friend_push(
+        recipient_id=other, actor_name=current.username, kind="friend_accept"
     )
     return FriendOut(**wire_friendship(friendship, me))
 

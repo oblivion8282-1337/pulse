@@ -312,6 +312,21 @@ async def post_message(
                     author_id=str(current.id),
                 )
             )
+    # Closed-browser web-push for the DM recipient (the other member). The
+    # WS dm_bump above only reaches tabs that are open. Out-of-band + best-
+    # effort — never blocks or fails the send.
+    if kind == "dm":
+        recipient_id = ch.user_b_id if ch.user_a_id == current.id else ch.user_a_id
+        if recipient_id != current.id:
+            from dcc_chat_gateway.push import fan_out_dm_push
+
+            await fan_out_dm_push(
+                recipient_id=recipient_id,
+                author_name=current.username,
+                content=payload.content,
+                channel_id=channel_id,
+                message_id=msg.id,
+            )
     msg.reactions = []  # type: ignore[attr-defined]
     msg.attachments = atts  # type: ignore[attr-defined]
     msg.mentions = mentions_serial  # type: ignore[attr-defined]
