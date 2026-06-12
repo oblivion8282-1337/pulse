@@ -6,6 +6,9 @@ export type UserSummary = {
   username: string;
   display_name: string | null;
   avatar_url: string | null;
+  /** Hex-Namensfarbe aus den Profileinstellungen; optional, da ältere
+   *  Seed-Aufrufer (und gemockte Test-Payloads) sie nicht mitsenden. */
+  profile_color?: string | null;
 };
 
 class UserCacheStore {
@@ -96,11 +99,14 @@ class UserCacheStore {
     const changed = users.filter((u) => {
       const cached = this.byId[u.id];
       return !cached || cached.username !== u.username ||
-        cached.display_name !== u.display_name || cached.avatar_url !== u.avatar_url;
+        cached.display_name !== u.display_name || cached.avatar_url !== u.avatar_url ||
+        (u.profile_color !== undefined && cached.profile_color !== u.profile_color);
     });
     if (changed.length === 0) return;
     const next = { ...this.byId };
-    for (const u of changed) next[u.id] = u;
+    // Spread-Merge: Seeds ohne profile_color (undefined) lassen eine bereits
+    // gecachte Farbe stehen; explizites null überschreibt (Farbe entfernt).
+    for (const u of changed) next[u.id] = { ...next[u.id], ...u };
     this.byId = next;
   }
 

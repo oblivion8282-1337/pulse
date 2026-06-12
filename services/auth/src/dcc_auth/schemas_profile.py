@@ -28,7 +28,13 @@ class ProfileUpdateRequest(BaseModel):
     # point their profile at an arbitrary by-hash blob (impersonation), since
     # the by-hash avatar store is anonymously readable.
     display_name: Annotated[str | None, Field(default=..., max_length=64)] = None
-    profile_color: Annotated[str | None, Field(default=..., max_length=32)] = None
+    # Nur Hex-Farben (#rgb/#rgba/#rrggbb/#rrggbbaa): der Wert landet im Client
+    # in ``style="color: …"`` — freie Strings könnten dort weitere
+    # CSS-Deklarationen einschleusen (";font-size:…").
+    profile_color: Annotated[
+        str | None,
+        Field(default=..., pattern=r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"),
+    ] = None
 
 
 class UsernameChangeRequest(BaseModel):

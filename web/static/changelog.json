@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.7",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Profilfarbe wird jetzt überall angezeigt",
+      "items": [
+        "Die in den Profileinstellungen gewählte Farbe färbt jetzt den eigenen Namen in Chat-Nachrichten, der Mitgliederliste, der Erwähnungs-Auswahl und der Profilkarte.",
+        "Hat ein Mitglied eine farbige Rolle, hat die Rollenfarbe weiterhin Vorrang."
+      ]
+    },
+    {
       "id": "2026-06-12.6",
       "date": "2026-06-12",
       "style": "Sachlich",

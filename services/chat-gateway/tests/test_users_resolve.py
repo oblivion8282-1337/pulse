@@ -39,6 +39,7 @@ async def _seed(
     username,
     display_name,
     avatar_hash=None,
+    profile_color=None,
 ):
     from dcc_chat_gateway.models.moderation import CachedUserProfile
 
@@ -50,6 +51,7 @@ async def _seed(
                 username=username,
                 display_name=display_name,
                 avatar_hash=avatar_hash,
+                profile_color=profile_color,
                 last_statement_iat=datetime.now(tz=timezone.utc),
                 stale=False,
             )
@@ -80,6 +82,7 @@ async def test_resolves_known_ids_to_user_summary(client, _auth_signer, session_
         "username": "dev",
         "display_name": "Dev Display",
         "avatar_url": None,
+        "profile_color": None,
     }
 
 
@@ -99,6 +102,16 @@ async def test_avatar_hash_resolves_to_cloud_by_hash_url(
     assert r.status_code == 200, r.text
     origin = get_settings().pulse_cloud_origin.rstrip("/")
     assert r.json()[0]["avatar_url"] == f"{origin}/api/auth/avatars/by-hash/{h}.webp"
+
+
+@pytest.mark.asyncio
+async def test_profile_color_returned(client, _auth_signer, session_factory):
+    token, _ = await _register(_auth_signer)
+    await _seed(session_factory, "pw-col", 333, "coco", "Coco", profile_color="#aabbcc")
+
+    r = await client.get("/users", params={"ids": "333"}, headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert r.json()[0]["profile_color"] == "#aabbcc"
 
 
 @pytest.mark.asyncio

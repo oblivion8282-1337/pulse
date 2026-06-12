@@ -68,9 +68,10 @@
   import { roles } from '$lib/stores/roles.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { nameColor } from '$lib/utils/nameColor';
 
   type Item =
-    | { kind: 'user'; id: string; label: string; sub: string; avatar: string | null }
+    | { kind: 'user'; id: string; label: string; sub: string; avatar: string | null; color: string | null }
     | { kind: 'role'; id: string; label: string; color: string | null }
     | { kind: 'everyone' | 'here' };
 
@@ -156,7 +157,8 @@
         id: m.user_id,
         label,
         sub: username && username !== label ? `@${username}` : '',
-        avatar: safeAvatarUrl(u?.avatar_url)
+        avatar: safeAvatarUrl(u?.avatar_url),
+        color: nameColor(m.user_id, guildId)
       });
     }
 
@@ -238,7 +240,7 @@
               {item.label.slice(0, 1).toUpperCase()}
             </Avatar.Fallback>
           </Avatar.Root>
-          <span class="truncate text-text-bright">{item.label}</span>
+          <span class="truncate text-text-bright" style={item.color ? `color: ${item.color}` : ''}>{item.label}</span>
           {#if item.sub}
             <span class="text-text-muted truncate text-xs">{item.sub}</span>
           {/if}

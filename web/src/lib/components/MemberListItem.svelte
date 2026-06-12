@@ -9,6 +9,7 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
+  import { nameColor } from '$lib/utils/nameColor';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -44,8 +45,9 @@
   let colour = $derived.by<string | null>(() => {
     const ids = memberRoles.for(guildId, member.user_id);
     const top = roles.topColorRole(guildId, ids);
-    if (!top) return null;
-    return '#' + top.color.toString(16).padStart(6, '0');
+    if (top) return '#' + top.color.toString(16).padStart(6, '0');
+    // Keine farbige Rolle → Profilfarbe des Users (Profileinstellungen).
+    return nameColor(member.user_id, null);
   });
 
   /** Spin up (or fetch) a DM channel with the target user and navigate

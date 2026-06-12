@@ -9,6 +9,8 @@
    * weitergegeben wird (kein Wait auf den Hintergrund-Refresh-Timer).
    */
   import { auth } from '$lib/stores/auth.svelte';
+  import { userCache } from '$lib/stores/users.svelte';
+  import { sanitizeProfileColor } from '$lib/utils/nameColor';
   import { me } from '$lib/api/auth';
   import { changeUsername, updateProfile, type UsernameChangeResponse } from '$lib/api/credentials';
   import { ApiError } from '$lib/api/client';
@@ -42,14 +44,28 @@
       lastReservation = null;
       username = u.username;
       displayName = u.display_name ?? '';
-      useColor = !!u.profile_color;
-      profileColor = u.profile_color ?? DEFAULT_COLOR;
+      // Sanitize gegen Altdaten von vor der Hex-Pattern-Validierung — der
+      // Wert landet unten direkt in einem style-Attribut.
+      const safeColor = sanitizeProfileColor(u.profile_color);
+      useColor = !!safeColor;
+      profileColor = safeColor ?? DEFAULT_COLOR;
     }
   });
 
   async function refreshUser() {
     const [user] = await Promise.all([me(), forceProfileRefresh()]);
     auth.setUser(user);
+    // userCache mitziehen, damit Name/Farbe in Nachrichten, Mitgliederliste
+    // und Mentions sofort umspringen (gleicher Pfad wie der Avatar-Upload).
+    userCache.seed([
+      {
+        id: user.id,
+        username: user.username,
+        display_name: user.display_name ?? null,
+        avatar_url: user.avatar_url ?? null,
+        profile_color: user.profile_color ?? null,
+      },
+    ]);
   }
 
   // ---- Username ------------------------------------------------------------

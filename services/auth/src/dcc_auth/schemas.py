@@ -97,6 +97,7 @@ class UserSummary(BaseModel):
     username: str
     display_name: str | None = None
     avatar_url: str | None = None
+    profile_color: str | None = None
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:
