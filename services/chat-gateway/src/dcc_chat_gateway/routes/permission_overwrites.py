@@ -23,6 +23,7 @@ from dcc_chat_gateway.permissions import (
     OVERWRITE_TARGET_USER,
     Permissions,
     check_permission,
+    restricted_channel_ids,
 )
 from dcc_chat_gateway.schemas import OverwriteIn, OverwriteOut
 from dcc_chat_gateway.security import CurrentUser
@@ -64,15 +65,21 @@ def _overwrite_dict(ow: PermissionOverwrite) -> dict[str, object]:
 
 
 async def _publish(
-    request: Request, channel_id: int, guild_id: int, overwrites: list[dict]
+    request: Request,
+    session,
+    channel_id: int,
+    guild_id: int,
+    overwrites: list[dict],
 ) -> None:
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
+        restricted = await restricted_channel_ids(session, guild_id, [channel_id])
         await mgr.publish_guild_event(
             ChannelPermissionsUpdatedEvent(
                 channel_id=str(channel_id),
                 guild_id=str(guild_id),
                 overwrites=overwrites,
+                restricted=channel_id in restricted,
             )
         )
 
@@ -178,6 +185,7 @@ async def set_overwrite(
     all_ows = await _fetch_all_overwrites(session, channel_id)
     await _publish(
         request,
+        session,
         channel_id,
         channel.guild_id,
         [_overwrite_dict(ow) for ow in all_ows],
@@ -242,6 +250,7 @@ async def delete_overwrite(
     all_ows = await _fetch_all_overwrites(session, channel_id)
     await _publish(
         request,
+        session,
         channel_id,
         channel.guild_id,
         [_overwrite_dict(ow) for ow in all_ows],

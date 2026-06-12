@@ -50,6 +50,9 @@ export type Channel = {
   position: number;
   topic: string | null;
   created_at: string;
+  /** @everyone is denied VIEW_CHANNEL — only explicit role/user allows can
+   *  see the channel. Drives the lock indicator in the channel list. */
+  restricted?: boolean;
 };
 
 export type ReactionAggregate = {

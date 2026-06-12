@@ -472,6 +472,7 @@
   "channel_list_no_voice_channels": "Noch keine Sprach-Kanäle.",
   "channel_list_permissions": "Berechtigungen",
   "channel_list_rename_channel": "Kanal umbenennen",
+  "channel_list_restricted": "Nur für bestimmte Rollen sichtbar",
   "channel_list_text_channels": "Text-Kanäle",
   "channel_list_unread": "ungelesen",
   "channel_list_unread_mentions": "{count} ungelesene Erwähnung(en)",

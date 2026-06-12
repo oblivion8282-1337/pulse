@@ -3,6 +3,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
   import { Button } from '$lib/components/ui/button/index.js';
   import HashIcon from '@lucide/svelte/icons/hash';
+  import LockIcon from '@lucide/svelte/icons/lock';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -237,20 +238,29 @@
             >
               <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
               <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">{c.name}</span>
-              {#if mentionCount > 0}
-                <span
-                  class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
-                  data-testid="channel-mention-pill"
-                  data-mention-count={mentionCount}
-                  aria-label={m.channel_list_unread_mentions({ count: mentionCount })}
-                >{mentionCount > 99 ? '99+' : mentionCount}</span>
-              {:else if isUnread}
-                <span
-                  class="ml-auto size-2 shrink-0 rounded-full bg-primary"
-                  data-testid="channel-unread-dot"
-                  aria-label={m.channel_list_unread()}
-                ></span>
-              {/if}
+              <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                {#if c.restricted}
+                  <LockIcon
+                    class="text-text-muted size-4 md:size-3.5"
+                    data-testid={`channel-lock-${c.id}`}
+                    aria-label={m.channel_list_restricted()}
+                  />
+                {/if}
+                {#if mentionCount > 0}
+                  <span
+                    class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+                    data-testid="channel-mention-pill"
+                    data-mention-count={mentionCount}
+                    aria-label={m.channel_list_unread_mentions({ count: mentionCount })}
+                  >{mentionCount > 99 ? '99+' : mentionCount}</span>
+                {:else if isUnread}
+                  <span
+                    class="size-2 shrink-0 rounded-full bg-primary"
+                    data-testid="channel-unread-dot"
+                    aria-label={m.channel_list_unread()}
+                  ></span>
+                {/if}
+              </span>
             </button>
           {/snippet}
         </ContextMenu.Trigger>
@@ -300,9 +310,18 @@
             >
               <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
               <span class="truncate">{c.name}</span>
-              {#if inVoiceChannel(c.id)}
-                <span class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title={m.channel_list_connected()}></span>
-              {/if}
+              <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                {#if c.restricted}
+                  <LockIcon
+                    class="text-text-muted size-4 md:size-3.5"
+                    data-testid={`channel-lock-${c.id}`}
+                    aria-label={m.channel_list_restricted()}
+                  />
+                {/if}
+                {#if inVoiceChannel(c.id)}
+                  <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title={m.channel_list_connected()}></span>
+                {/if}
+              </span>
             </button>
           {/snippet}
         </ContextMenu.Trigger>

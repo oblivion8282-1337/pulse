@@ -415,6 +415,35 @@ def filter_viewable_channels_from_snapshot(
     return out
 
 
+async def restricted_channel_ids(
+    session: AsyncSession, guild_id: int, channel_ids: list[int]
+) -> set[int]:
+    """Subset of ``channel_ids`` whose @everyone overwrite denies
+    ``VIEW_CHANNEL`` — i.e. channels only visible via explicit role/user
+    allows. Powers the lock indicator in the channel list; one query,
+    no per-channel resolver run (the *viewer's* access is a separate
+    concern handled by :func:`filter_viewable_channels`).
+    """
+    if not channel_ids:
+        return set()
+    everyone_id = (
+        await session.execute(
+            select(Role.id).where(Role.guild_id == guild_id, Role.is_everyone)
+        )
+    ).scalar_one_or_none()
+    if everyone_id is None:
+        return set()
+    rows = await session.execute(
+        select(PermissionOverwrite.channel_id).where(
+            PermissionOverwrite.channel_id.in_(channel_ids),
+            PermissionOverwrite.target_type == OVERWRITE_TARGET_ROLE,
+            PermissionOverwrite.target_id == everyone_id,
+            PermissionOverwrite.deny_bf.op("&")(int(Permissions.VIEW_CHANNEL)) != 0,
+        )
+    )
+    return set(rows.scalars())
+
+
 __all__ = [
     "OVERWRITE_TARGET_ROLE",
     "OVERWRITE_TARGET_USER",
@@ -427,4 +456,5 @@ __all__ = [
     "members_who_can_view",
     "resolve_guild_permissions_from_snapshot",
     "resolve_permissions",
+    "restricted_channel_ids",
 ]

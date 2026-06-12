@@ -13,6 +13,7 @@ from dcc_chat_gateway.permissions import (
     filter_viewable_channels,
     has_permission,
     resolve_permissions,
+    restricted_channel_ids,
 )
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
@@ -40,6 +41,9 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "type": channel.type,
         "position": channel.position,
         "topic": channel.topic,
+        # Stamped onto the instance by routes that computed it; freshly
+        # created channels have no overwrites yet → False.
+        "restricted": getattr(channel, "restricted", False),
     }
 
 
@@ -105,7 +109,16 @@ async def list_channels(
     visible_ids = await filter_viewable_channels(
         session, current, guild_id, [ch.id for ch in rows]
     )
-    return [ch for ch in rows if ch.id in visible_ids]
+    visible = [ch for ch in rows if ch.id in visible_ids]
+    # Lock indicator: mark channels whose @everyone overwrite denies
+    # VIEW_CHANNEL. One extra batched query; ChannelOut picks the stamped
+    # attribute up via from_attributes.
+    restricted = await restricted_channel_ids(
+        session, guild_id, [ch.id for ch in visible]
+    )
+    for ch in visible:
+        ch.restricted = ch.id in restricted  # type: ignore[attr-defined]
+    return visible
 
 
 @router.get("/guilds/{guild_id}/voice-state")
@@ -150,6 +163,10 @@ async def get_channel(channel_id: int, session: SessionDep, current: CurrentUser
     )
     if not has_permission(perms, Permissions.VIEW_CHANNEL):
         raise HTTPException(404, detail="channel not found")
+    restricted = await restricted_channel_ids(
+        session, channel.guild_id, [channel_id]
+    )
+    channel.restricted = channel_id in restricted  # type: ignore[attr-defined]
     return channel
 
 
@@ -222,6 +239,10 @@ async def patch_channel(
         channel.topic = payload.topic
     await session.commit()
     await session.refresh(channel)
+    restricted = await restricted_channel_ids(
+        session, channel.guild_id, [channel_id]
+    )
+    channel.restricted = channel_id in restricted  # type: ignore[attr-defined]
     await _publish_guild_event(
         request, ChannelUpdatedEvent(channel=_channel_dict(channel))
     )

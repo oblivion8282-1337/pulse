@@ -225,3 +225,71 @@ async def test_deny_view_on_everyone_zeroes_member_perms(
             s, other, int(g["id"]), channel_id=int(c["id"])
         )
     assert value == 0
+
+
+# ---- restricted flag (sidebar lock indicator) -------------------------------
+
+
+@pytest.mark.asyncio
+async def test_restricted_flag_follows_everyone_view_deny(client, _auth_signer):
+    """``restricted`` is True exactly while the @everyone overwrite denies
+    VIEW_CHANNEL — in the list route, the single-channel route, and back to
+    False after the overwrite is removed."""
+    t_owner, _, _, g, c = await _make_guild_channel_with_member(
+        client, _auth_signer
+    )
+    rows = (
+        await client.get(f"/guilds/{g['id']}/channels", headers=auth(t_owner))
+    ).json()
+    assert all(row["restricted"] is False for row in rows)
+
+    everyone_id = await _everyone_id(client, g, t_owner)
+    await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
+        json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+        headers=auth(t_owner),
+    )
+
+    rows = (
+        await client.get(f"/guilds/{g['id']}/channels", headers=auth(t_owner))
+    ).json()
+    assert next(r for r in rows if r["id"] == c["id"])["restricted"] is True
+    single = (
+        await client.get(f"/channels/{c['id']}", headers=auth(t_owner))
+    ).json()
+    assert single["restricted"] is True
+
+    await client.delete(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
+        headers=auth(t_owner),
+    )
+    single = (
+        await client.get(f"/channels/{c['id']}", headers=auth(t_owner))
+    ).json()
+    assert single["restricted"] is False
+
+
+@pytest.mark.asyncio
+async def test_restricted_ignores_non_view_denies_and_user_targets(
+    client, _auth_signer
+):
+    """Denying other bits on @everyone or VIEW on a *user* target must not
+    flip the flag — only the @everyone VIEW_CHANNEL deny counts."""
+    t_owner, _, uid_other, g, c = await _make_guild_channel_with_member(
+        client, _auth_signer
+    )
+    everyone_id = await _everyone_id(client, g, t_owner)
+    await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_ROLE}/{everyone_id}",
+        json={"allow": "0", "deny": str(int(Permissions.SEND_MESSAGES))},
+        headers=auth(t_owner),
+    )
+    await client.put(
+        f"/channels/{c['id']}/permissions/{OVERWRITE_TARGET_USER}/{uid_other}",
+        json={"allow": "0", "deny": str(int(Permissions.VIEW_CHANNEL))},
+        headers=auth(t_owner),
+    )
+    single = (
+        await client.get(f"/channels/{c['id']}", headers=auth(t_owner))
+    ).json()
+    assert single["restricted"] is False

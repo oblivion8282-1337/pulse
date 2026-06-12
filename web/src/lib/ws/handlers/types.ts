@@ -215,6 +215,7 @@ export type ServerEvent =
       guild_id: string;
       channel_id: string;
       overwrites: OverwritePayload[];
+      restricted: boolean;
     }
   | {
       // Per-user mention notification — fanned out only to sockets owned

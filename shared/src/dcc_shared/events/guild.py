@@ -42,6 +42,10 @@ class ChannelPermissionsUpdatedEvent(_EventBase):
     channel_id: str
     guild_id: str
     overwrites: list[dict[str, Any]]
+    # True when the channel's @everyone overwrite now denies VIEW_CHANNEL —
+    # lets clients flip the lock indicator without knowing the @everyone
+    # role id themselves.
+    restricted: bool = False
 
 
 # ---- Guild metadata + lifecycle --------------------------------------------

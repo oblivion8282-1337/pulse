@@ -53,5 +53,14 @@ export function register(ctx: HandlerContext): void {
 
   registerWsHandler('channel_permissions_updated', (evt) => {
     channelPermissions.apply(evt.channel_id, evt.overwrites);
+    // Keep the sidebar lock indicator live: the event carries the
+    // server-computed flag (merge-update preserves all other fields).
+    if (guilds.byId[evt.guild_id]) {
+      guilds.updateChannel({
+        id: evt.channel_id,
+        guild_id: evt.guild_id,
+        restricted: evt.restricted
+      });
+    }
   });
 }

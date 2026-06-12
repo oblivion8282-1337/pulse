@@ -472,6 +472,7 @@
   "channel_list_no_voice_channels": "No voice channels yet.",
   "channel_list_permissions": "Permissions",
   "channel_list_rename_channel": "Rename channel",
+  "channel_list_restricted": "Only visible to specific roles",
   "channel_list_text_channels": "Text Channels",
   "channel_list_unread": "unread",
   "channel_list_unread_mentions": "{count} unread mention(s)",

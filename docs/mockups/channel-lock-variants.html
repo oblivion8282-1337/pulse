@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="de" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Schloss-Indikator für exklusive Kanäle (Varianten)</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --panel: rgba(255, 255, 255, 0.045);
+    --panel-border: rgba(255, 255, 255, 0.08);
+    --hover: rgba(255, 255, 255, 0.05);
+    --brand: #3b82f6;
+    --text: #f0f1f3;
+    --text-dim: #9ca3af;
+    --text-faint: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: linear-gradient(135deg, #0b0b0c, #131315 75%, #161618);
+    color: var(--text);
+    font: 14px/1.5 system-ui, "Segoe UI", sans-serif;
+    min-height: 100vh;
+    padding: 32px 24px 64px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: var(--text-faint); font-size: 13px; margin: 0 0 28px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    max-width: 1280px;
+  }
+  .variant {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .variant > header {
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  .variant h2 { font-size: 14px; margin: 0; }
+  .variant p { font-size: 12px; color: var(--text-faint); margin: 4px 0 0; }
+  .sidebar { padding: 12px 8px 16px; }
+  .cat {
+    color: var(--text-faint);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 10px 4px;
+  }
+  .ch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    color: var(--text-dim);
+    cursor: default;
+    position: relative;
+  }
+  .ch:hover { background: var(--hover); color: var(--text); }
+  .ch.active { background: rgba(37, 99, 235, 0.12); color: var(--text); }
+  .ch .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  svg { flex: none; }
+  .icon { width: 18px; height: 18px; stroke: currentColor; }
+  .icon-wrap { position: relative; width: 18px; height: 18px; flex: none; }
+  .icon-wrap .icon { position: absolute; inset: 0; }
+  /* B: Mini-Schloss-Overlay unten rechts, mit "ausgestanztem" Hintergrund */
+  .mini-lock {
+    position: absolute;
+    right: -4px;
+    bottom: -3px;
+    width: 11px;
+    height: 11px;
+    stroke: currentColor;
+    background: #131315;
+    border-radius: 3px;
+    padding: 0.5px;
+  }
+  .ch:hover .mini-lock, .ch.active .mini-lock { background: #1a1c22; }
+  /* C: Schloss hinter dem Namen */
+  .lock-after { width: 12px; height: 12px; stroke: var(--text-faint); margin-left: -2px; }
+  /* D: rechtsbündig */
+  .lock-right { width: 13px; height: 13px; stroke: var(--text-faint); margin-left: auto; }
+  .hint {
+    max-width: 1280px;
+    margin-top: 28px;
+    color: var(--text-faint);
+    font-size: 12.5px;
+    border-top: 1px solid var(--panel-border);
+    padding-top: 16px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Schloss-Indikator für exklusive Kanäle</h1>
+<p class="sub">Vier Varianten, gleiche Kanalliste. „vip-lounge" und „VIP Voice" sind nur für die VIP-Rolle sichtbar.</p>
+
+<!-- Lucide-kompatible Pfade: hash, volume-2, lock -->
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <g id="i-hash" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/>
+      <line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>
+    </g>
+    <g id="i-vol" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/>
+      <path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/>
+    </g>
+    <g id="i-lock" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+    </g>
+  </defs>
+</svg>
+
+<div class="grid">
+
+  <!-- A: Schloss ersetzt das Typ-Icon -->
+  <section class="variant">
+    <header>
+      <h2>A — Schloss statt Typ-Icon</h2>
+      <p>Das Schloss ersetzt #/Lautsprecher. Auffällig, aber der Kanaltyp ist nicht mehr ablesbar.</p>
+    </header>
+    <div class="sidebar">
+      <div class="cat">Textkanäle</div>
+      <div class="ch active"><svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg><span class="name">allgemein</span></div>
+      <div class="ch"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="name">vip-lounge</span></div>
+      <div class="cat">Sprachkanäle</div>
+      <div class="ch"><svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg><span class="name">Voice Treff</span></div>
+      <div class="ch"><svg class="icon" viewBox="0 0 24 24"><use href="#i-lock"/></svg><span class="name">VIP Voice</span></div>
+    </div>
+  </section>
+
+  <!-- B: Typ-Icon + Mini-Schloss-Overlay -->
+  <section class="variant">
+    <header>
+      <h2>B — Typ-Icon + Mini-Schloss</h2>
+      <p>Kleines Schloss als Overlay am Typ-Icon (Discord-Stil). Typ bleibt sichtbar.</p>
+    </header>
+    <div class="sidebar">
+      <div class="cat">Textkanäle</div>
+      <div class="ch active"><svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg><span class="name">allgemein</span></div>
+      <div class="ch">
+        <span class="icon-wrap">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg>
+          <svg class="mini-lock" viewBox="0 0 24 24"><use href="#i-lock"/></svg>
+        </span>
+        <span class="name">vip-lounge</span>
+      </div>
+      <div class="cat">Sprachkanäle</div>
+      <div class="ch"><svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg><span class="name">Voice Treff</span></div>
+      <div class="ch">
+        <span class="icon-wrap">
+          <svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg>
+          <svg class="mini-lock" viewBox="0 0 24 24"><use href="#i-lock"/></svg>
+        </span>
+        <span class="name">VIP Voice</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- C: Schloss hinter dem Namen -->
+  <section class="variant">
+    <header>
+      <h2>C — Schloss hinter dem Namen</h2>
+      <p>Dezentes, ausgegrautes Schloss direkt nach dem Kanalnamen.</p>
+    </header>
+    <div class="sidebar">
+      <div class="cat">Textkanäle</div>
+      <div class="ch active"><svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg><span class="name">allgemein</span></div>
+      <div class="ch">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg>
+        <span class="name" style="flex:none">vip-lounge</span>
+        <svg class="lock-after" viewBox="0 0 24 24"><use href="#i-lock"/></svg>
+      </div>
+      <div class="cat">Sprachkanäle</div>
+      <div class="ch"><svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg><span class="name">Voice Treff</span></div>
+      <div class="ch">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg>
+        <span class="name" style="flex:none">VIP Voice</span>
+        <svg class="lock-after" viewBox="0 0 24 24"><use href="#i-lock"/></svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- D: Schloss rechtsbündig -->
+  <section class="variant">
+    <header>
+      <h2>D — Schloss rechtsbündig</h2>
+      <p>Klein und ausgegraut am rechten Zeilenrand. Unaufdringlich, konkurriert aber mit Hover-Aktionen.</p>
+    </header>
+    <div class="sidebar">
+      <div class="cat">Textkanäle</div>
+      <div class="ch active"><svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg><span class="name">allgemein</span></div>
+      <div class="ch">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-hash"/></svg>
+        <span class="name">vip-lounge</span>
+        <svg class="lock-right" viewBox="0 0 24 24"><use href="#i-lock"/></svg>
+      </div>
+      <div class="cat">Sprachkanäle</div>
+      <div class="ch"><svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg><span class="name">Voice Treff</span></div>
+      <div class="ch">
+        <svg class="icon" viewBox="0 0 24 24"><use href="#i-vol"/></svg>
+        <span class="name">VIP Voice</span>
+        <svg class="lock-right" viewBox="0 0 24 24"><use href="#i-lock"/></svg>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<p class="hint">
+  Hinweis zur Umsetzung: Der Client weiß heute pro Kanal nicht, ob @everyone ausgeschlossen ist
+  (Overwrites werden erst im Berechtigungen-Editor geladen). Für den Indikator bekäme die
+  Channel-Liste vom Backend ein kleines Flag (z.&nbsp;B. <code>restricted: true</code>, wenn der
+  @everyone-Overwrite VIEW_CHANNEL denied) — eine Mini-Erweiterung an <code>ChannelOut</code>.
+</p>
+
+</body>
+</html>

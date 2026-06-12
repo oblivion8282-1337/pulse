@@ -136,6 +136,10 @@ class ChannelOut(BaseModel):
     position: int
     topic: str | None
     created_at: datetime
+    # Computed, not a column: true when the @everyone overwrite denies
+    # VIEW_CHANNEL (channel only visible via explicit allows). Routes stamp
+    # it onto the ORM instance before returning; defaults False otherwise.
+    restricted: bool = False
 
     @field_serializer("id", "guild_id")
     def _ser_ids(self, v: int) -> str:

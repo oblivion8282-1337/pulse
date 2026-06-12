@@ -152,8 +152,14 @@ test.describe.serial('Channel permissions — exclusive role add', () => {
     await expect(bob.getByTestId(`channel-${vipChannelId}`)).toHaveCount(0);
   });
 
-  test('alice still sees the channel (owner bypass)', async () => {
+  test('alice still sees the channel (owner bypass) — with a lock icon', async () => {
     await alice.goto(`/app/guilds/${guildId}/channels/${vipChannelId}`);
     await expect(alice.getByTestId(`channel-${vipChannelId}`)).toBeVisible({ timeout: 15_000 });
+    // The sidebar marks the exclusive channel with the lock indicator
+    // (restricted flag from GET /guilds/:id/channels).
+    await expect(alice.getByTestId(`channel-lock-${vipChannelId}`)).toBeVisible();
+    // The public default channel has no lock.
+    const lockedChannels = alice.locator('[data-testid^="channel-lock-"]');
+    await expect(lockedChannels).toHaveCount(1);
   });
 });
