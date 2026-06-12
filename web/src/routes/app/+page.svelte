@@ -16,6 +16,7 @@
   import { chatApi } from '$lib/api/chat';
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
+  import { navDrawer } from '$lib/stores/navDrawer.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
@@ -88,7 +89,12 @@
   activeGuildId={null}
   currentUserId={currentServerUserId()}
   homeActive={true}
-  onSelect={(g) => goto(`/app/guilds/${g.id}/channels/_`)}
+  onSelect={(g) => {
+    // Wie auf den anderen Seiten: Community-Tap öffnet zuerst die Kanal-Liste
+    // (mobiler Drawer), nicht direkt den Chat des ersten Textkanals.
+    navDrawer.open = true;
+    goto(`/app/guilds/${g.id}/channels/_`);
+  }}
   onCreateClick={() => { createMode = 'create'; creating = true; }}
   onJoinClick={() => { createMode = 'join'; creating = true; }}
   onHomeClick={() => goto('/app/@me')}
