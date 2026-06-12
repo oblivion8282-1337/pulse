@@ -10,9 +10,13 @@
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
+  import ZapIcon from '@lucide/svelte/icons/zap';
+  import ZapOffIcon from '@lucide/svelte/icons/zap-off';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { voiceAutoConnect } from '$lib/voice/autoconnect.svelte';
+  import { activeServer } from '$lib/stores/active-server.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { voicePresence, type UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
@@ -125,6 +129,22 @@
       };
     }
     return merged;
+  }
+
+  // Auto-Connect-Wahl (gerätelokal, an User + Server gebunden). Es kann nur
+  // EINEN Auto-Connect-Channel pro Gerät geben — Setzen verschiebt den Blitz.
+  function toggleAutoConnect(c: Channel) {
+    if (voiceAutoConnect.isTarget(c.id)) {
+      voiceAutoConnect.clear();
+    } else {
+      if (!myId) return; // ohne aufgelöste User-ID keine Account-Bindung möglich
+      voiceAutoConnect.set({
+        serverId: activeServer.serverId,
+        userId: myId,
+        channelId: c.id,
+        channelName: c.name
+      });
+    }
   }
 
   function openDelete(c: Channel) {
@@ -318,6 +338,15 @@
                     aria-label={m.channel_list_restricted()}
                   />
                 {/if}
+                {#if voiceAutoConnect.isTarget(c.id)}
+                  <span
+                    class="shrink-0"
+                    title={m.channel_list_autoconnect_marker()}
+                    data-testid={`channel-autoconnect-${c.id}`}
+                  >
+                    <ZapIcon class="size-4 text-primary md:size-3.5" aria-label={m.channel_list_autoconnect_marker()} />
+                  </span>
+                {/if}
                 {#if inVoiceChannel(c.id)}
                   <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-green-500" title={m.channel_list_connected()}></span>
                 {/if}
@@ -325,32 +354,44 @@
             </button>
           {/snippet}
         </ContextMenu.Trigger>
-        {#if canCreate || canManagePermissions}
-          <ContextMenu.Content>
-            {#if canCreate}
-              <ContextMenu.Item onSelect={() => openRename(c)}>
-                <PencilIcon />
-                {m.channel_list_rename_channel()}
-              </ContextMenu.Item>
+        <ContextMenu.Content>
+          <!-- Für alle Mitglieder, nicht nur Admins: Auto-Connect-Wahl. -->
+          <ContextMenu.Item
+            onSelect={() => toggleAutoConnect(c)}
+            data-testid={`channel-autoconnect-toggle-${c.id}`}
+          >
+            {#if voiceAutoConnect.isTarget(c.id)}
+              <ZapOffIcon />
+              {m.channel_list_autoconnect_remove()}
+            {:else}
+              <ZapIcon />
+              {m.channel_list_autoconnect_set()}
             {/if}
-            {#if canManagePermissions && guild}
-              <ContextMenu.Item
-                onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
-                data-testid={`channel-permissions-${c.id}`}
-              >
-                <ShieldIcon />
-                {m.channel_list_permissions()}
-              </ContextMenu.Item>
-            {/if}
-            {#if canCreate}
-              <ContextMenu.Separator />
-              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
-                <Trash2Icon />
-                {m.channel_list_delete_channel()}
-              </ContextMenu.Item>
-            {/if}
-          </ContextMenu.Content>
-        {/if}
+          </ContextMenu.Item>
+          {#if canCreate}
+            <ContextMenu.Separator />
+            <ContextMenu.Item onSelect={() => openRename(c)}>
+              <PencilIcon />
+              {m.channel_list_rename_channel()}
+            </ContextMenu.Item>
+          {/if}
+          {#if canManagePermissions && guild}
+            <ContextMenu.Item
+              onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
+              data-testid={`channel-permissions-${c.id}`}
+            >
+              <ShieldIcon />
+              {m.channel_list_permissions()}
+            </ContextMenu.Item>
+          {/if}
+          {#if canCreate}
+            <ContextMenu.Separator />
+            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+              <Trash2Icon />
+              {m.channel_list_delete_channel()}
+            </ContextMenu.Item>
+          {/if}
+        </ContextMenu.Content>
       </ContextMenu.Root>
       {@const members = voicePresence.usersIn(c.id)}
       {#if members.length > 0}

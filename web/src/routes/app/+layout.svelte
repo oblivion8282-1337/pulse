@@ -19,6 +19,7 @@
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
+  import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
@@ -149,8 +150,9 @@
     // Voice-Resume: war der User vor einem Reload (manuelles F5 oder „Neu
     // laden" nach einem Update) in einem Voice-Channel, jetzt — nach Auth +
     // WS-Ready — automatisch zurückverbinden. Fire-and-forget; no-op, wenn
-    // kein Resume-Eintrag vorliegt.
-    void resumeVoiceIfPending();
+    // kein Resume-Eintrag vorliegt. DANACH (sequenziell — Resume gewinnt):
+    // Auto-Connect in den fest gewählten Voice-Channel, falls konfiguriert.
+    void resumeVoiceIfPending().then(() => autoConnectIfConfigured());
 
     // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
     // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.
