@@ -1557,6 +1557,7 @@
   "self_host_disclaimer_ack": "Verstanden",
   "self_host_disclaimer_notice_after": " — ein Self-Host-Server. Dort gelten andere Regeln.",
   "self_host_disclaimer_notice_before": "Du bist auf",
+  "server_deleted_by_operator": "{label} wurde vom Betreiber abgeschaltet und aus deiner Server-Liste entfernt.",
   "server_icon_button_notif_all": "Alle Benachrichtigungen",
   "server_icon_button_notif_mentions": "Nur Erwähnungen",
   "server_icon_button_notif_mute": "Stumm",

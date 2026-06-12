@@ -7,6 +7,7 @@
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
+  import { sweepDeletedServers } from '$lib/api/deleted-instance-sweep';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { readState } from '$lib/stores/readState.svelte';
@@ -150,6 +151,10 @@
     // WS-Ready — automatisch zurückverbinden. Fire-and-forget; no-op, wenn
     // kein Resume-Eintrag vorliegt.
     void resumeVoiceIfPending();
+
+    // Vom Betreiber gelöschte Self-Host-Server aus der lokalen Liste räumen
+    // (öffentliche Suspend-Liste der Cloud, anonymer Abgleich). Fire-and-forget.
+    void sweepDeletedServers();
 
     // Etappe 4: presence activity heartbeat. Throttled (≤1/60s) fire-and-
     // forget op that keeps the user off the idle sweeper. Wired up here

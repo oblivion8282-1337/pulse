@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.6",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Gelöschte Server verschwinden aus der Liste",
+      "items": [
+        "Wenn ein Betreiber seinen Self-Host-Server löscht, verschwindet er jetzt automatisch aus der Server-Leiste — beim Betreiber sofort, bei allen anderen beim nächsten App-Start, mit kurzem Hinweis."
+      ]
+    },
+    {
       "id": "2026-06-12.5",
       "date": "2026-06-12",
       "style": "Sachlich",

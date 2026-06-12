@@ -43,6 +43,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
+  import { removeServerLocally } from '$lib/api/server-removal';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
@@ -272,16 +273,7 @@
       }
     }
     try {
-      // Connection schließen BEVOR der Entry weg ist (Pool dereferenced
-      // serversStore.find sonst zu undefined → spätere reconnects crashen).
-      gatewayPool.close(id);
-      serversStore.remove(id);
-      serverGuilds.forget(id);
-      serverCapabilities.forget(id);
-      if (activeServer.serverId === id) {
-        const fallback = serversStore.servers.find((s) => s.isCloud);
-        if (fallback) activeServer.set(fallback.id);
-      }
+      removeServerLocally(id);
       if (isCloud || leaveResult === 'left') {
         toast.success(m.guild_rail_server_removed({ label }));
       } else if (leaveResult === 'owner') {

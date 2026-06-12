@@ -11,6 +11,8 @@
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
   import { instancesApi, type Instance } from '$lib/api/instances';
+  import { serversStore } from '$lib/api/servers.svelte';
+  import { removeServerLocally } from '$lib/api/server-removal';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import InstanceSetupDialog from './InstanceSetupDialog.svelte';
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
@@ -43,6 +45,11 @@
     try {
       await instancesApi.deleteMyInstance(id);
       instances = instances.filter((i) => i.id !== id);
+      // Auch aus der eigenen Server-Leiste entfernen (Match über die
+      // Instanz-ID) — andere Geräte/User räumt der Start-Sweep auf
+      // (deleted-instance-sweep.ts).
+      const localEntry = serversStore.servers.find((s) => s.instance_id === id);
+      if (localEntry) removeServerLocally(localEntry.id);
       toast.success(m.my_instances_delete_success());
     } catch {
       toast.error(m.my_instances_delete_error());

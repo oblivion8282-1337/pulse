@@ -1549,6 +1549,7 @@
   "self_host_disclaimer_ack": "Got it",
   "self_host_disclaimer_notice_after": " — a self-hosted server. Different rules apply there.",
   "self_host_disclaimer_notice_before": "You are on",
+  "server_deleted_by_operator": "{label} has been shut down by its operator and was removed from your server list.",
   "server_icon_button_notif_all": "All Notifications",
   "server_icon_button_notif_mentions": "Mentions Only",
   "server_icon_button_notif_mute": "Mute",

@@ -169,6 +169,40 @@ async def test_delete_happy_path(client, owner_cookie, owner_instance, session_f
 
 
 @pytest.mark.asyncio
+async def test_delete_appears_in_wellknown_deleted_list(
+    client, owner_cookie, owner_instance, session_factory
+):
+    """Gelöschte Instanz steht in instance_ids UND deleted_instance_ids."""
+    r = await client.delete(
+        f"/me/instances/{owner_instance.id}", headers={"Cookie": owner_cookie}
+    )
+    assert r.status_code == 204
+
+    r = await client.get("/.well-known/pulse-suspended-instances")
+    assert r.status_code == 200
+    # CORS-offen — der Browser-Sweep fetcht auch von Self-Host-Origins.
+    assert r.headers.get("access-control-allow-origin") == "*"
+    body = r.json()
+    assert str(_INSTANCE_ID) in body["instance_ids"]
+    assert str(_INSTANCE_ID) in body["deleted_instance_ids"]
+
+
+@pytest.mark.asyncio
+async def test_admin_suspend_not_in_deleted_list(client, owner_cookie, session_factory):
+    """Nur admin-suspendiert (reversibel) → instance_ids ja, deleted_instance_ids nein."""
+    await _seed_instance(session_factory, client, owner_cookie, status="suspended")
+    async with session_factory() as session:
+        session.add(SuspendedInstance(instance_id=_INSTANCE_ID, reason="admin"))
+        await session.commit()
+
+    r = await client.get("/.well-known/pulse-suspended-instances")
+    assert r.status_code == 200
+    body = r.json()
+    assert str(_INSTANCE_ID) in body["instance_ids"]
+    assert str(_INSTANCE_ID) not in body["deleted_instance_ids"]
+
+
+@pytest.mark.asyncio
 async def test_delete_blocks_snippet_and_bootstrap_token(
     client, owner_cookie, owner_instance, session_factory
 ):

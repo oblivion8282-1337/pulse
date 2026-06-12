@@ -110,26 +110,45 @@ async def _invalidate_cache(redis) -> None:
 _EPOCH = "1970-01-01T00:00:00+00:00"
 
 
-async def _fetch_from_db(session) -> tuple[list[str], str]:
-    """Return (sorted instance_id strings, ISO updated_at) from DB."""
+async def _fetch_from_db(session) -> tuple[list[str], list[str], str]:
+    """Return (sorted instance_ids, sorted deleted_instance_ids, ISO updated_at).
+
+    ``deleted_instance_ids`` ⊆ ``instance_ids``: Einträge, deren Instanz vom
+    Owner gelöscht wurde (status='deleted', routes_instance_delete) statt nur
+    admin-suspendiert. Clients nutzen die Teilmenge, um endgültig gelöschte
+    Server aus der lokalen Server-Liste zu entfernen — Suspends sind
+    reversibel und dürfen lokale Einträge nicht zerstören.
+    """
     rows = (
         await session.execute(
-            select(SuspendedInstance).order_by(SuspendedInstance.suspended_at.desc())
+            select(SuspendedInstance, RegisteredInstance.status)
+            .join(RegisteredInstance, SuspendedInstance.instance_id == RegisteredInstance.id)
+            .order_by(SuspendedInstance.suspended_at.desc())
         )
-    ).scalars().all()
-    ids = sorted(str(r.instance_id) for r in rows)
+    ).all()
+    ids = sorted(str(r.SuspendedInstance.instance_id) for r in rows)
+    deleted_ids = sorted(
+        str(r.SuspendedInstance.instance_id) for r in rows if r.status == "deleted"
+    )
     # Use a stable epoch timestamp when empty so ETag is deterministic across calls.
-    updated_at = max(r.suspended_at for r in rows).isoformat() if rows else _EPOCH
-    return ids, updated_at
+    updated_at = max(r.SuspendedInstance.suspended_at for r in rows).isoformat() if rows else _EPOCH
+    return ids, deleted_ids, updated_at
 
 
-def _compute_etag(ids: list[str], updated_at: str) -> str:
-    payload = ("\n".join(sorted(ids)) + updated_at).encode()
+def _compute_etag(ids: list[str], deleted_ids: list[str], updated_at: str) -> str:
+    # deleted_ids fließen ein: ein Owner-Delete einer schon suspendierten
+    # Instanz ändert weder ids noch suspended_at — der ETag muss trotzdem kippen.
+    payload = ("\n".join(sorted(ids)) + "|" + "\n".join(sorted(deleted_ids)) + updated_at).encode()
     return hashlib.sha256(payload).hexdigest()
 
 
-def _build_body(ids: list[str], updated_at: str) -> dict:
-    return {"version": 1, "instance_ids": ids, "updated_at": updated_at}
+def _build_body(ids: list[str], deleted_ids: list[str], updated_at: str) -> dict:
+    return {
+        "version": 1,
+        "instance_ids": ids,
+        "deleted_instance_ids": deleted_ids,
+        "updated_at": updated_at,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -148,9 +167,16 @@ async def suspended_instances(
 
     Public, no auth. ETag-cached; 304 when unchanged.
     Rate-limited: 60/minute per IP.
+
+    CORS-offen (``*``): der Browser-Sweep gelöschter Server
+    (web ``deleted-instance-sweep.ts``) fetcht die Liste auch von
+    Self-Host-Origins aus — die globale CORSMiddleware whitelistet nur
+    Cloud-Origins und würde das blocken. Öffentliche, credential-freie
+    Read-only-Liste → ``*`` ist hier sicher.
     """
     await _check_rate(request, "suspended_instances_fetch", "60/minute")
 
+    response.headers["Access-Control-Allow-Origin"] = "*"
     redis = await _get_redis(request)
 
     if redis is not None:
@@ -159,7 +185,10 @@ async def suspended_instances(
             etag_str = cached_etag.decode() if isinstance(cached_etag, bytes) else cached_etag
             quoted = _quoted(etag_str)
             if if_none_match and (if_none_match == quoted or if_none_match.strip('"') == etag_str):
-                return Response(status_code=status.HTTP_304_NOT_MODIFIED)
+                return Response(
+                    status_code=status.HTTP_304_NOT_MODIFIED,
+                    headers={"Access-Control-Allow-Origin": "*"},
+                )
             # Try cached body first
             cached_body = await redis.get(_BODY_KEY)
             if cached_body is not None:
@@ -169,20 +198,23 @@ async def suspended_instances(
                 return json.loads(raw)
 
         # Recompute from DB
-        ids, updated_at = await _fetch_from_db(session)
-        etag_str = _compute_etag(ids, updated_at)
-        body = _build_body(ids, updated_at)
+        ids, deleted_ids, updated_at = await _fetch_from_db(session)
+        etag_str = _compute_etag(ids, deleted_ids, updated_at)
+        body = _build_body(ids, deleted_ids, updated_at)
         await redis.set(_ETAG_KEY, etag_str, ex=_CACHE_TTL_SECONDS)
         await redis.set(_BODY_KEY, json.dumps(body), ex=_CACHE_TTL_SECONDS)
     else:
         # No Redis — compute from DB every time
-        ids, updated_at = await _fetch_from_db(session)
-        etag_str = _compute_etag(ids, updated_at)
-        body = _build_body(ids, updated_at)
+        ids, deleted_ids, updated_at = await _fetch_from_db(session)
+        etag_str = _compute_etag(ids, deleted_ids, updated_at)
+        body = _build_body(ids, deleted_ids, updated_at)
 
     quoted = _quoted(etag_str)
     if if_none_match and (if_none_match == quoted or if_none_match.strip('"') == etag_str):
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED)
+        return Response(
+            status_code=status.HTTP_304_NOT_MODIFIED,
+            headers={"Access-Control-Allow-Origin": "*"},
+        )
 
     response.headers["ETag"] = quoted
     response.headers["Cache-Control"] = "public, max-age=60"
