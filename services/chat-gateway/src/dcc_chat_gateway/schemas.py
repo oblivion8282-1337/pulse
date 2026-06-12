@@ -52,6 +52,8 @@ class GuildOut(BaseModel):
     icon_url: str | None
     owner_id: int
     created_at: datetime
+    attachment_max_size_bytes: int
+    attachment_max_count_per_message: int
 
     @field_serializer("id", "owner_id")
     def _ser_ids(self, v: int) -> str:
@@ -70,6 +72,13 @@ class GuildPatchIn(BaseModel):
     # allow the empty string; ``validate_handle`` rejects malformed non-empty values.
     handle: Annotated[str | None, Field(default=None, max_length=32)] = None
     is_public: bool | None = None
+    # Per-guild attachment limits (MANAGE_GUILD). Enforced in attachments.py.
+    attachment_max_size_bytes: Annotated[
+        int | None, Field(default=None, ge=1024, le=1_073_741_824)
+    ] = None
+    attachment_max_count_per_message: Annotated[
+        int | None, Field(default=None, ge=1, le=50)
+    ] = None
 
     @field_validator("handle")
     @classmethod

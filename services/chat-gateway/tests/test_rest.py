@@ -539,6 +539,27 @@ async def test_patch_guild_rename(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_patch_guild_attachment_limits(client, _auth_signer):
+    t_owner, _, g, _ = await _setup_guild_and_channel(client, _auth_signer)
+    r = await client.patch(
+        f"/guilds/{g['id']}",
+        json={"attachment_max_size_bytes": 5_242_880, "attachment_max_count_per_message": 3},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["attachment_max_size_bytes"] == 5_242_880
+    assert body["attachment_max_count_per_message"] == 3
+    # Out-of-range values are rejected by the schema bounds.
+    r2 = await client.patch(
+        f"/guilds/{g['id']}",
+        json={"attachment_max_count_per_message": 999},
+        headers=auth(t_owner),
+    )
+    assert r2.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_patch_guild_non_owner_forbidden(client, _auth_signer):
     _, t_other, g, _ = await _setup_guild_and_channel(client, _auth_signer)
     r = await client.patch(f"/guilds/{g['id']}", json={"name": "hacked"}, headers=auth(t_other))

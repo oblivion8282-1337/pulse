@@ -40,6 +40,10 @@ export type Guild = {
    *  ready frames that pre-date the owner_id field — treat as "unknown". */
   owner_id: string | null;
   created_at: string;
+  /** Per-guild attachment limits (MANAGE_GUILD-editable). Optional for
+   *  back-compat / mocked frames that pre-date the fields. */
+  attachment_max_size_bytes?: number;
+  attachment_max_count_per_message?: number;
 };
 
 export type Channel = {

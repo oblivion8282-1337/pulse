@@ -55,6 +55,8 @@ def _guild_dict(guild: Guild) -> dict[str, object]:
         "name": guild.name,
         "icon_url": guild.icon_url,
         "owner_id": str(guild.owner_id),
+        "attachment_max_size_bytes": guild.attachment_max_size_bytes,
+        "attachment_max_count_per_message": guild.attachment_max_count_per_message,
     }
 
 
@@ -193,6 +195,10 @@ async def patch_guild(
         guild.name = payload.name
     if payload.icon_url is not None:
         guild.icon_url = payload.icon_url
+    if payload.attachment_max_size_bytes is not None:
+        guild.attachment_max_size_bytes = payload.attachment_max_size_bytes
+    if payload.attachment_max_count_per_message is not None:
+        guild.attachment_max_count_per_message = payload.attachment_max_count_per_message
 
     # ---- Public-address fields ------------------------------------------
     # Resolve the handle the guild will have AFTER this patch (None = unchanged).

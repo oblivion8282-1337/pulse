@@ -22,6 +22,7 @@
   import FlagIcon from '@lucide/svelte/icons/flag';
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import GlobeIcon from '@lucide/svelte/icons/globe';
+  import PaperclipIcon from '@lucide/svelte/icons/paperclip';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -36,6 +37,7 @@
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
   import GuildPublicAddressEditor from './GuildPublicAddressEditor.svelte';
+  import GuildLimitsEditor from './GuildLimitsEditor.svelte';
   import ModQueue from '$lib/components/admin/ModQueue.svelte';
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -50,7 +52,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'limits' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
   let tab = $state<Tab>('roles');
   let initialized = $state(false);
 
@@ -262,6 +264,15 @@
           >
             <GlobeIcon class="size-4" /> {m.guild_settings_dialog_tab_publicaddress()}
           </button>
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'limits'}
+            onclick={() => selectTab('limits')}
+            data-testid="settings-tab-limits"
+          >
+            <PaperclipIcon class="size-4" /> {m.guild_settings_dialog_tab_limits()}
+          </button>
         {/if}
         {#if canSeeModQueue}
           <button
@@ -318,6 +329,8 @@
           <GuildPluginsEditor {guildId} />
         {:else if tab === 'publicaddress' && canManageGuild}
           <GuildPublicAddressEditor {guildId} />
+        {:else if tab === 'limits' && canManageGuild}
+          <GuildLimitsEditor {guildId} />
         {:else if tab === 'modqueue' && canSeeModQueue}
           <ModQueue {guildId} />
         {:else if tab === 'auditlog' && canManageGuild}
