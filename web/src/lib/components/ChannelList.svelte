@@ -12,6 +12,7 @@
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import ZapIcon from '@lucide/svelte/icons/zap';
   import ZapOffIcon from '@lucide/svelte/icons/zap-off';
+  import FlagIcon from '@lucide/svelte/icons/flag';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -39,6 +40,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import InviteDialog from './InviteDialog.svelte';
   import RenameChannelDialog from './RenameChannelDialog.svelte';
+  import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
   import SidebarFooter from './SidebarFooter.svelte';
 
@@ -65,6 +67,7 @@
 
   let inviteOpen = $state(false);
   let renameChannel = $state<Channel | null>(null);
+  let reportChannel = $state<Channel | null>(null);
   let deleteTarget = $state<Channel | null>(null);
   let deleteConfirmOpen = $state(false);
   let deleteBusy = $state(false);
@@ -220,6 +223,15 @@
     onClose={() => (renameChannel = null)}
   />
 
+  {#if reportChannel}
+    <ReportMessageDialog
+      kind="channel"
+      channelId={reportChannel.id}
+      open={true}
+      onClose={() => (reportChannel = null)}
+    />
+  {/if}
+
   <AlertDialog.Root bind:open={deleteConfirmOpen}>
     <AlertDialog.Content data-testid="delete-channel-dialog">
       <AlertDialog.Header>
@@ -285,32 +297,38 @@
             </button>
           {/snippet}
         </ContextMenu.Trigger>
-        {#if canCreate || canManagePermissions}
-          <ContextMenu.Content>
-            {#if canCreate}
-              <ContextMenu.Item onSelect={() => openRename(c)}>
-                <PencilIcon />
-                {m.channel_list_rename_channel()}
-              </ContextMenu.Item>
-            {/if}
-            {#if canManagePermissions && guild}
-              <ContextMenu.Item
-                onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
-                data-testid={`channel-permissions-${c.id}`}
-              >
-                <ShieldIcon />
-                {m.channel_list_permissions()}
-              </ContextMenu.Item>
-            {/if}
-            {#if canCreate}
-              <ContextMenu.Separator />
-              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
-                <Trash2Icon />
-                {m.channel_list_delete_channel()}
-              </ContextMenu.Item>
-            {/if}
-          </ContextMenu.Content>
-        {/if}
+        <ContextMenu.Content>
+          {#if canCreate}
+            <ContextMenu.Item onSelect={() => openRename(c)}>
+              <PencilIcon />
+              {m.channel_list_rename_channel()}
+            </ContextMenu.Item>
+          {/if}
+          {#if canManagePermissions && guild}
+            <ContextMenu.Item
+              onSelect={() => goto(`/app/guilds/${guild!.id}/channels/${c.id}/permissions`)}
+              data-testid={`channel-permissions-${c.id}`}
+            >
+              <ShieldIcon />
+              {m.channel_list_permissions()}
+            </ContextMenu.Item>
+          {/if}
+          <!-- Melden steht jedem Mitglied offen, nicht nur Managern. -->
+          <ContextMenu.Item
+            onSelect={() => (reportChannel = c)}
+            data-testid={`channel-report-${c.id}`}
+          >
+            <FlagIcon />
+            {m.channel_list_report()}
+          </ContextMenu.Item>
+          {#if canCreate}
+            <ContextMenu.Separator />
+            <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+              <Trash2Icon />
+              {m.channel_list_delete_channel()}
+            </ContextMenu.Item>
+          {/if}
+        </ContextMenu.Content>
       </ContextMenu.Root>
     {/each}
     {#if textChannels.length === 0}
@@ -385,6 +403,13 @@
               {m.channel_list_permissions()}
             </ContextMenu.Item>
           {/if}
+          <ContextMenu.Item
+            onSelect={() => (reportChannel = c)}
+            data-testid={`channel-report-${c.id}`}
+          >
+            <FlagIcon />
+            {m.channel_list_report()}
+          </ContextMenu.Item>
           {#if canCreate}
             <ContextMenu.Separator />
             <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>

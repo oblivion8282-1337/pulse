@@ -19,7 +19,9 @@
 <script lang="ts">
   import { Popover as PopoverPrimitive } from 'bits-ui';
   import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import FlagIcon from '@lucide/svelte/icons/flag';
   import NicknameDialog from './NicknameDialog.svelte';
+  import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
   import PopoverActions from './PopoverActions.svelte';
   import PopoverFriendActions from './PopoverFriendActions.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -65,6 +67,7 @@
 
   let open = $state(false);
   let nickDialogOpen = $state(false);
+  let reportDialogOpen = $state(false);
 
   function close() {
     open = false;
@@ -139,6 +142,18 @@
           onClose={close}
           {onAction}
         />
+        <button
+          type="button"
+          class="text-text-muted hover:text-text-bright hover:bg-bg-hover mt-2 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors"
+          onclick={() => {
+            reportDialogOpen = true;
+            close();
+          }}
+          data-testid="user-profile-report-btn"
+        >
+          <FlagIcon class="size-3.5" />
+          {m.user_profile_report()}
+        </button>
       {/if}
 
       {#if extra}
@@ -149,6 +164,15 @@
     </PopoverPrimitive.Content>
   </PopoverPrimitive.Portal>
 </PopoverPrimitive.Root>
+
+{#if reportDialogOpen}
+  <ReportMessageDialog
+    kind="user"
+    {userId}
+    open={true}
+    onClose={() => (reportDialogOpen = false)}
+  />
+{/if}
 
 {#if canEditNickname && guildId}
   <NicknameDialog

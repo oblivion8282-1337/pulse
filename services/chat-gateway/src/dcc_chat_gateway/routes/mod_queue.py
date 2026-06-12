@@ -377,6 +377,37 @@ async def resolve_report(
     return _report_to_out(report)
 
 
+@router.post(
+    "/guilds/{guild_id}/mod-queue/{report_id}/triage",
+    response_model=ReportItem,
+)
+async def triage_report(
+    guild_id: int,
+    report_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+) -> ReportItem:
+    """Mark a ``new`` report as ``triaged`` (a moderator is handling it).
+
+    Workflow state only — no audit entry, no enforcement. Already
+    resolved/dismissed → 409; re-triaging a triaged report is an idempotent
+    no-op success. Same any-mod-perm gate + guild scope guard as resolve.
+    """
+    await _has_any_mod_perm(session, current, guild_id)
+    report = await session.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
+    if not await _report_in_guild(session, report, guild_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
+    if report.status in ("resolved", "dismissed"):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
+    if report.status != "triaged":
+        report.status = "triaged"
+        await session.commit()
+        await session.refresh(report)
+    return _report_to_out(report)
+
+
 @router.get("/guilds/{guild_id}/mod-audit-log", response_model=list[AuditLogItem])
 async def list_audit_log(
     guild_id: int,

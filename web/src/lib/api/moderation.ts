@@ -110,6 +110,16 @@ export async function resolveReport(
 }
 
 /**
+ * Markiert einen neuen Report als `triaged` (ein Mod kümmert sich darum).
+ * Idempotent; bereits aufgelöste/verworfene Reports → 409.
+ */
+export async function triageReport(guildId: string, reportId: string): Promise<Report> {
+  return request<Report>(`/guilds/${guildId}/mod-queue/${reportId}/triage`, {
+    method: 'POST'
+  });
+}
+
+/**
  * Holt den Guild-Audit-Log (Mod-Aktionen chronologisch absteigend).
  * Setzt MANAGE_GUILD voraus. Pagination via `before` (ISO-Timestamp).
  */

@@ -309,6 +309,79 @@ async def test_resolve_non_mod_403(client, _auth_signer, session_factory):
 
 
 # ---------------------------------------------------------------------------
+# Triage — mark a report as in-progress
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_triage_report_sets_status(client, _auth_signer, session_factory):
+    t_owner, uid_owner = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+    rid = await _seed_report(session_factory, uid_owner, channel_id=int(ch["id"]))
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/triage", headers=auth(t_owner)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "triaged"
+
+    # Idempotent re-triage
+    r2 = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/triage", headers=auth(t_owner)
+    )
+    assert r2.status_code == 200
+    assert r2.json()["status"] == "triaged"
+
+    # Shows up in the triaged listing, no longer under new
+    listed = (
+        await client.get(
+            f"/guilds/{g['id']}/mod-queue", params={"status": "triaged"},
+            headers=auth(t_owner),
+        )
+    ).json()
+    assert str(rid) in {item["id"] for item in listed}
+
+    # Triaged reports can still be resolved afterwards
+    r3 = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "dismissed"},
+        headers=auth(t_owner),
+    )
+    assert r3.status_code == 200
+    # …and a resolved report can no longer be triaged
+    r4 = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/triage", headers=auth(t_owner)
+    )
+    assert r4.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_triage_requires_mod_perm(client, _auth_signer, session_factory):
+    t_owner, uid_owner = await _token(_auth_signer)
+    t_user, uid_user = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    await _add_member(client, g["id"], uid_user, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+    rid = await _seed_report(session_factory, uid_owner, channel_id=int(ch["id"]))
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/triage", headers=auth(t_user)
+    )
+    assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # Enforcement — resolving with an action_type actually executes the action
 # ---------------------------------------------------------------------------
 

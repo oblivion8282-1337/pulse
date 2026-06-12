@@ -16,14 +16,28 @@
   let {
     messageId,
     userId,
+    channelId,
+    kind = 'message',
     open = $bindable(false),
     onClose
   }: {
-    messageId: string;
-    userId: string;
+    /** At least one target must be set. messageId+userId = message report;
+     *  userId only = user report; channelId only = channel report. */
+    messageId?: string;
+    userId?: string;
+    channelId?: string;
+    kind?: 'message' | 'user' | 'channel';
     open?: boolean;
     onClose: () => void;
   } = $props();
+
+  const titleText = $derived(
+    kind === 'user'
+      ? m.report_user_title()
+      : kind === 'channel'
+        ? m.report_channel_title()
+        : m.report_message_title()
+  );
 
   const REASON_LABELS: Record<ReasonCode, () => string> = {
     spam: () => m.report_message_reason_spam(),
@@ -48,6 +62,7 @@
       await createReport({
         target_message_id: messageId,
         target_user_id: userId,
+        target_channel_id: channelId,
         reason_code: reasonCode,
         body
       });
@@ -72,7 +87,7 @@
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content class="max-w-md" data-testid="report-message-dialog">
     <Dialog.Header>
-      <Dialog.Title>{m.report_message_title()}</Dialog.Title>
+      <Dialog.Title>{titleText}</Dialog.Title>
       <Dialog.Description>
         {m.report_message_description()}
       </Dialog.Description>

@@ -9,6 +9,7 @@
   import {
     listModQueue,
     resolveReport,
+    triageReport,
     type Report,
     type ReportStatus,
     type ActionType
@@ -18,7 +19,7 @@
 
   let { guildId }: { guildId: string } = $props();
 
-  type QueueTab = 'new' | 'resolved' | 'dismissed';
+  type QueueTab = 'new' | 'triaged' | 'resolved' | 'dismissed';
   let activeTab = $state<QueueTab>('new');
   let reports = $state<Report[]>([]);
   let loading = $state(false);
@@ -60,7 +61,7 @@
     loading = true;
     loadError = null;
     try {
-      const status: ReportStatus = tab === 'new' ? 'new' : tab;
+      const status: ReportStatus = tab;
       reports = await listModQueue(guildId, status);
       for (const r of reports) {
         if (r.reporter_user_id) userCache.queue(r.reporter_user_id);
@@ -104,6 +105,18 @@
     }
   }
 
+  async function triage(r: Report) {
+    try {
+      await triageReport(guildId, r.id);
+      toast.success(m.mod_queue_toast_triaged());
+      void load(activeTab);
+    } catch (e) {
+      toast.error(m.mod_queue_toast_error(), {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    }
+  }
+
   function fmtUser(id: string | null): string {
     if (!id) return '—';
     const u = userCache.get(id);
@@ -126,7 +139,7 @@
 
   <!-- Tab-Bar -->
   <div class="flex gap-1 rounded-lg bg-bg-input/40 p-1">
-    {#each ([['new', m.mod_queue_tab_new()], ['resolved', m.mod_queue_tab_resolved()], ['dismissed', m.mod_queue_tab_dismissed()]] as const) as [t, label] (t)}
+    {#each ([['new', m.mod_queue_tab_new()], ['triaged', m.mod_queue_tab_triaged()], ['resolved', m.mod_queue_tab_resolved()], ['dismissed', m.mod_queue_tab_dismissed()]] as const) as [t, label] (t)}
       <button
         type="button"
         onclick={() => (activeTab = t)}
@@ -165,8 +178,18 @@
           {#if r.resolution_note}
             <p class="text-text-muted mb-3 text-xs italic">{m.mod_queue_note({ note: r.resolution_note })}</p>
           {/if}
-          {#if activeTab === 'new'}
+          {#if activeTab === 'new' || activeTab === 'triaged'}
             <div class="flex gap-2">
+              {#if activeTab === 'new'}
+                <button
+                  type="button"
+                  onclick={() => triage(r)}
+                  class="bg-bg-input text-text-muted hover:bg-bg-hover rounded-md px-3 py-1.5 text-xs transition-colors"
+                  data-testid="modqueue-triage-btn"
+                >
+                  {m.mod_queue_btn_triage()}
+                </button>
+              {/if}
               <button
                 type="button"
                 onclick={() => openResolve(r, 'resolved')}
