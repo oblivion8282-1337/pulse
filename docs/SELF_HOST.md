@@ -4,7 +4,7 @@ Pulse läuft als **ein Docker-Container** mit eingebettetem Postgres, Redis, Liv
 MediaMTX, coturn und Caddy. Setup = ein Befehl.
 
 **Anforderungen:** Docker, öffentlicher Hostname (DNS-A-Record), Ports 80 + 443 +
-3478 + 7882–7892/udp offen.
+3478 + 7882–7892/udp offen (für HQ-Streaming zusätzlich 1936/tcp + 8189/udp).
 
 ---
 
@@ -51,6 +51,8 @@ ufw allow 443/tcp   # HTTPS
 ufw allow 3478/tcp  # coturn TURN TCP
 ufw allow 3478/udp  # coturn TURN UDP
 ufw allow 7882:7892/udp  # LiveKit WebRTC ICE
+ufw allow 1936/tcp  # HQ-Streaming RTMPS-Ingest
+ufw allow 8189/udp  # HQ-Stream-Wiedergabe (MediaMTX WHEP-ICE)
 ```
 
 ### 6. Container starten
@@ -62,6 +64,7 @@ docker run -d --name pulse \
   -p 80:80 -p 443:443 \
   -p 3478:3478 -p 3478:3478/udp \
   -p 7882-7892:7882-7892/udp \
+  -p 1936:1936 -p 8189:8189/udp \
   -e PULSE_HOSTNAME=chat.firma.de \
   -e PULSE_INSTANCE_ID=123456789 \
   -e PULSE_INSTANCE_OWNER_ID=987654321 \
@@ -94,7 +97,7 @@ Alle Env-Vars und Defaults: `infra/self-host/.env.example`.
 docker run -d --name pulse --restart unless-stopped \
   -v pulse-data:/data \
   -p 80:80 -p 443:443 -p 3478:3478 -p 3478:3478/udp \
-  -p 7882-7892:7882-7892/udp \
+  -p 7882-7892:7882-7892/udp -p 1936:1936 -p 8189:8189/udp \
   --env-file /pfad/zu/.env \
   ghcr.io/oblivion8282-1337/pulse-allinone:stable
 ```
@@ -128,6 +131,47 @@ docker logs -f pulse
 
 ---
 
+## Manuelle Installation (Docker Compose)
+
+Für alle, die den Stack **selbst verwalten** wollen statt das Installer-Script
+zu nutzen — eigener Proxy, eigene Update-Strategie, eigenes Compose-Setup.
+Voraussetzungen sind dieselben (Cloud-Approval, Schritte 1–5 oben); danach:
+
+```bash
+mkdir pulse && cd pulse
+curl -fsSLO https://howispulse.com/self-host/docker-compose.yml
+curl -fsSL  https://howispulse.com/self-host/env.example -o .env
+# .env ausfüllen — am einfachsten: "Meine Instanzen" → .env-Download als Basis
+docker compose up -d
+```
+
+Zwei Varianten:
+
+- **`docker-compose.yml`** — Standardfall: Auto-TLS, der Container holt das
+  Let's-Encrypt-Cert selbst und belegt 80/443.
+- **`docker-compose.behind-proxy.yml`**
+  (`https://howispulse.com/self-host/docker-compose.behind-proxy.yml`) — du hast
+  schon einen Reverse-Proxy mit eigenem Zertifikat: der Container exponiert nur
+  `127.0.0.1:8080`, dein Proxy übernimmt TLS (Proxy-Snippets
+  [unten](#hinter-einem-bestehenden-reverse-proxy-pulse_tls_modebehind-proxy)).
+  Start: `docker compose -f docker-compose.behind-proxy.yml up -d`
+
+Im Repo liegen beide Dateien unter `infra/self-host/`.
+
+**Updates** liegen auf diesem Pfad in deiner Hand — es läuft bewusst kein
+Auto-Updater-Container mit (Docker-Socket = root-äquivalent, siehe
+[Updates](#was-passiert-bei-updates)):
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+manuell, oder als Host-Cron/systemd-Timer. Beachte die Update-Pflicht
+([unten](#was-passiert-bei-updates)) — wer zu lange auf einer alten Version
+bleibt, riskiert eine inkompatible Protocol-Version gegenüber der Cloud.
+
+---
+
 ## TLS + Public-Reach
 
 ### Standard: Caddy Auto-TLS (Let's Encrypt)
@@ -150,9 +194,10 @@ docker run -d --name pulse --restart unless-stopped \
   -v pulse-data:/data \
   -p 127.0.0.1:8080:8080 \
   -p 3478:3478 -p 3478:3478/udp -p 7882-7892:7882-7892/udp \
+  -p 1936:1936 -p 8189:8189/udp \
   --env-file /pfad/zu/.env \
   -e PULSE_TLS_MODE=behind-proxy \
-  ghcr.io/oblivion8282-1337/pulse-allinone:edge
+  ghcr.io/oblivion8282-1337/pulse-allinone:stable
 ```
 
 Dann **eine** Proxy-Regel auf `http://127.0.0.1:8080`. Der Container kümmert sich
@@ -188,6 +233,15 @@ server {
     }
 }
 ```
+
+**Nginx Proxy Manager** (GUI): neuer **Proxy Host** →
+
+1. Domain Names: `pulse.firma.de` · Scheme `http` · Forward Hostname/IP
+   `127.0.0.1` · Forward Port `8080`
+2. **„Websockets Support" aktivieren** — ohne den Schalter bricht die
+   Chat-Verbindung (`/api/ws`), weil die Upgrade-Header fehlen.
+3. Tab **SSL**: vorhandenes Zertifikat auswählen (oder „Request a new SSL
+   Certificate"), „Force SSL" an.
 
 **Wichtig:** Voice (LiveKit/coturn) läuft über **UDP** (3478, 7882–7892), nicht
 über den HTTP-Proxy — diese Ports musst du weiterhin direkt am Container öffnen
@@ -269,22 +323,28 @@ offiziell dokumentiert.
 
 ## Was passiert bei Updates
 
-Watchtower steckt **nicht** im pulse-allinone-Image (bewusst) — du musst ihn
-als separaten Container daneben starten. Empfohlen:
+Der **One-Command-Installer richtet Auto-Updates über einen Host-systemd-Timer
+ein** — keinen Watchtower-Container. Er legt `pulse-update.sh` neben die
+`pulse.env` und ein `pulse-update.service`/`.timer`-Paar unter
+`/etc/systemd/system/` an. Das Skript zieht alle 5 Minuten das Image und
+erstellt den Container **nur dann** neu, wenn sich der Digest geändert hat.
 
 ```bash
-docker run -d --name pulse-watchtower --restart unless-stopped \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    containrrr/watchtower --scope pulse --interval 300 pulse
+systemctl status pulse-update.timer    # läuft der Updater?
+journalctl -u pulse-update --no-pager  # was hat er zuletzt getan?
+/opt/pulse/pulse-update.sh             # manuell sofort aktualisieren
 ```
 
-`--scope pulse` sorgt dafür, dass Watchtower nur Pulse-Container anfasst,
-nicht alle anderen Container auf deinem Host. Damit pulse-allinone in den
-Scope fällt, beim `docker run` der Pulse-Instanz `--label com.centurylinklabs.watchtower.scope=pulse`
-mitgeben.
+**Warum kein Watchtower?** Watchtower mountet den Docker-Socket — das ist
+root-äquivalent auf dem Host. Der Timer hält den Update-Code stattdessen als
+kleines, lesbares Host-Skript; **kein Container besitzt den Socket**. Abschalten
+mit `PULSE_NO_AUTOUPDATE=1` vor dem Install (Alias: `PULSE_NO_WATCHTOWER=1`).
 
-Watchtower prüft alle 5 Minuten ob ein neues `pulse-allinone:stable`-Image
-verfügbar ist. Bei einem Update:
+**Manueller Pfad (Docker Compose / `docker run`):** kein automatisches Update —
+du updatest selbst (`docker compose pull && docker compose up -d`), manuell oder
+per eigenem Host-Cron/Timer.
+
+Bei einem Update:
 
 1. Container stoppt (alle Services gleichzeitig down).
 2. Neues Image wird gestartet.
@@ -295,20 +355,26 @@ verfügbar ist. Bei einem Update:
 Clients reconnecten automatisch binnen 30 s. Bei Datenbank-Migrations-Fehler
 startet der Container nicht — `docker logs pulse` zeigt den Fehler.
 
-Pre-Update-Backup läuft automatisch (konfigurierbar via `PULSE_BACKUP_RETENTION_PRE`,
-Default 3 Kopien).
+**Hinweis Backup:** Ein **periodischer** `pg_dump` läuft im Container (Default
+täglich, nach `/data/backups`, im Admin-Panel unter „Backups" sichtbar;
+`PULSE_BACKUP_INTERVAL_SECONDS`, `PULSE_BACKUP_RETENTION` Default 7,
+`PULSE_BACKUP_DISABLED=true` schaltet ihn ab). Es gibt **kein** dediziertes
+Pre-Update-Backup — der jüngste periodische Dump kann also bis zu einem Intervall
+alt sein. Vor einem riskanten Update bei Bedarf manuell sichern:
+`docker exec pulse gosu pulse pg_dump -Fc … > backup.dump`.
 
-**Updates sind Pflicht.** Wer Watchtower deaktiviert, riskiert beim nächsten
-Cloud-Deploy eine inkompatible Protocol-Version — der WS-Hello-Check blockt dann
-alle Verbindungen.
+**Updates sind Pflicht.** Wer das Auto-Update deaktiviert (`PULSE_NO_AUTOUPDATE`),
+riskiert beim nächsten Cloud-Deploy eine inkompatible Protocol-Version — der
+WS-Hello-Check blockt dann alle Verbindungen.
 
 ---
 
 ## Backups
 
-Backups werden automatisch in `/data/backups/` abgelegt (pg_dump):
-- **Pre-Update:** vor jedem Container-Restart (Default: 3 letzte Kopien)
-- **Wöchentlich:** sonntags 02:00 UTC (Default: 4 letzte Kopien)
+Backups werden automatisch in `/data/backups/` abgelegt (periodischer pg_dump,
+Default täglich, 7 Kopien Retention; `PULSE_BACKUP_INTERVAL_SECONDS` /
+`PULSE_BACKUP_RETENTION` / `PULSE_BACKUP_DISABLED` in der `.env`). Im
+Admin-Panel unter „Backups" sichtbar.
 
 ```bash
 # Manueller Backup

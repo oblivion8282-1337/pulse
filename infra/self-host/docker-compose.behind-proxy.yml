@@ -1,0 +1,49 @@
+# Pulse Self-Host — Docker Compose hinter einem VORHANDENEN Reverse-Proxy.
+#
+# TLS terminiert DEIN Proxy (nginx, Traefik, Caddy, Nginx Proxy Manager, …) mit
+# deinem vorhandenen Zertifikat. Der Pulse-Container belegt keine 80/443 und
+# macht nur HTTP-Routing auf 127.0.0.1:8080 (PULSE_TLS_MODE=behind-proxy ist
+# unten fest gesetzt — die .env muss dafür nicht angefasst werden).
+#
+#   1. .env.example nach .env kopieren und die 6 Pflicht-Vars eintragen
+#      (am einfachsten: howispulse.com → "Meine Instanzen" → .env-Download).
+#   2. docker compose -f docker-compose.behind-proxy.yml up -d
+#   3. EINE Regel im eigenen Proxy anlegen:
+#        pulse.deine-domain  →  http://127.0.0.1:8080
+#      WebSocket-Upgrade muss durchgereicht werden (bei NPM: "WebSocket Support"
+#      aktivieren). Copy-paste-Snippets für Caddy/nginx/NPM: docs/SELF_HOST.md.
+#
+# WICHTIG: Voice + HQ-Streaming laufen über WebRTC/UDP DIREKT zum Server, am
+# HTTP-Proxy vorbei — die UDP-/Media-Ports unten müssen offen bleiben. Ohne sie
+# funktionieren Chat/Login, aber keine Voice-Calls ("Chat geht, Voice nicht").
+#
+# Updates: docker compose -f docker-compose.behind-proxy.yml pull && … up -d
+# (bewusst kein Auto-Updater-Container; siehe docs/SELF_HOST.md → Updates).
+
+services:
+  pulse:
+    image: ghcr.io/oblivion8282-1337/pulse-allinone:stable
+    container_name: pulse
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Überstimmt die .env: kein ACME, kein 80/443 — nur HTTP auf 8080.
+      PULSE_TLS_MODE: behind-proxy
+    volumes:
+      - pulse-data:/data
+    ports:
+      # Interner HTTP-Port für den externen Proxy (nur loopback gemappt).
+      # Anderer Port gewünscht → PULSE_HTTP_PORT in der .env + Mapping anpassen.
+      - "127.0.0.1:8080:8080"
+      # Voice (LiveKit WebRTC) + HQ-Stream-ICE — NICHT proxy-bar, direkt offen.
+      - "7882-7892:7882-7892/udp"
+      # TURN/STUN (coturn) — NAT-Traversal für Voice
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      # HQ-Streaming RTMPS-Ingest
+      - "1936:1936/tcp"
+      # HQ-Stream-Wiedergabe (MediaMTX WebRTC/WHEP-ICE)
+      - "8189:8189/udp"
+
+volumes:
+  pulse-data:

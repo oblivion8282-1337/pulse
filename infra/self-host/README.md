@@ -33,18 +33,22 @@ the SvelteKit SPA (Node) and downloads four pinned upstream binaries.
 > in any container). The compose flow below is for operators who want to manage
 > the stack themselves.
 
-Die mitgelieferte `docker-compose.yml` startet den Pulse-Server **und** den
-Watchtower-Auto-Updater zusammen — so ist das Auto-Update von Anfang an dabei
-(sonst ein leicht zu übersehender Extra-Schritt, siehe [Auto-update](#auto-update);
-**Achtung Socket-Trade-off**, dort beschrieben):
+Zwei fertige Compose-Varianten (auch ohne Repo-Clone beziehbar — URLs in
+`docs/SELF_HOST.md` → „Manuelle Installation"):
+
+- **`docker-compose.yml`** — Standardfall: Auto-TLS, der eingebettete Caddy
+  holt das Let's-Encrypt-Cert selbst (Port 80 + 443 öffentlich + DNS gesetzt).
+- **`docker-compose.behind-proxy.yml`** — für Hosts, auf denen schon ein
+  Reverse-Proxy läuft: TLS terminiert der vorhandene Proxy, der Container
+  exponiert nur `127.0.0.1:8080` (setzt `PULSE_TLS_MODE=behind-proxy` selbst).
 
 ```bash
 cp .env.example .env      # 6 Pflicht-Vars eintragen (.env-Download via "Meine Instanzen")
-docker compose up -d
+docker compose up -d      # bzw. docker compose -f docker-compose.behind-proxy.yml up -d
 ```
 
-Das deckt den Standardfall (Auto-TLS auf 80/443) ab; die `behind-proxy`-Variante
-ist in der `docker-compose.yml` auskommentiert beschrieben.
+Updates verwaltet der Compose-Pfad bewusst selbst — kein Auto-Updater-Container
+(siehe [Auto-update](#auto-update)).
 
 ## Run (manuell, ohne Compose)
 
@@ -54,6 +58,7 @@ docker run -d --name pulse \
     -p 443:443 -p 80:80 \
     -p 7882-7892:7882-7892/udp \
     -p 3478:3478 -p 3478:3478/udp \
+    -p 1936:1936 -p 8189:8189/udp \
     -e PULSE_HOSTNAME=chat.firma.de \
     -e PULSE_INSTANCE_ID=... \
     -e PULSE_INSTANCE_OWNER_ID=... \
@@ -63,8 +68,8 @@ docker run -d --name pulse \
     ghcr.io/oblivion8282-1337/pulse-allinone:stable
 ```
 
-Beim manuellen `docker run` musst du das Auto-Update separat einrichten
-(siehe [Auto-update](#auto-update)) — Compose nimmt dir das ab.
+Updates richtest du auf dem manuellen Pfad (Compose wie `docker run`) selbst
+ein — siehe [Auto-update](#auto-update).
 
 The six `-e` vars are mandatory; cont-init aborts with a clear error otherwise.
 `PULSE_INSTANCE_ID`, `PULSE_INSTANCE_OWNER_ID`, `PULSE_CLOUD_CLIENT_ID` and the
@@ -113,35 +118,23 @@ infra/self-host/scripts/refresh-checksums.sh --write
 
 ## Auto-update
 
-> **The recommended one-command installer (`web/static/install.sh`) does NOT
-> use Watchtower.** It installs a host **systemd timer** (`pulse-update.timer`
-> → `pulse-update.sh`) that pulls the image and recreates the container if the
-> digest changed. Rationale: Watchtower mounts the Docker socket, which is
-> root-equivalent on the host — anyone who can run code in that container can
-> take over the machine. The timer keeps the updater as a small, auditable
-> host script and **no container holds the socket**. Prefer the installer.
+> **No Watchtower — anywhere.** An updater container with the Docker socket
+> mounted is root-equivalent on the host; we removed that pattern across the
+> project (installer, cloud, compose). **No container holds the socket.**
 
-The compose / manual paths below can't write host systemd units, so they fall
-back to Watchtower. **Be aware of the socket trade-off above** before using it.
-Watchtower is **not baked into the image** (a Watchtower inside its own update
-target can't restart itself cleanly):
+The recommended one-command installer (`web/static/install.sh`) installs a host
+**systemd timer** (`pulse-update.timer` → `pulse-update.sh`) that pulls the
+image and recreates the container only when the digest changed.
+
+The compose / manual paths manage updates themselves:
 
 ```bash
-docker run -d --name pulse-watchtower \
-    --restart unless-stopped \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    ghcr.io/nicholas-fedor/watchtower:latest --label-enable --scope pulse --interval 300 --cleanup
+docker compose pull && docker compose up -d
 ```
 
-The all-in-one container ships with the right labels (`com.centurylinklabs.watchtower.enable=true`
-+ `…scope=pulse`) so Watchtower picks it up. Alternatively, replicate the
-installer's approach: drop a host cron/systemd timer that runs
-`docker pull … && docker inspect`-diff → recreate, and skip the socket entirely.
-
-> **Note:** the original `containrrr/watchtower` image is effectively
-> unmaintained and uses a Docker API client (v1.25) too old for modern daemons
-> (min v1.40) — it crash-loops with a "client version too old" error. Use the
-> actively-maintained `ghcr.io/nicholas-fedor/watchtower` fork instead.
+run manually, or wrapped in a host cron/systemd timer (replicating the
+installer's approach: `docker pull` → digest diff → recreate). End-user docs:
+`docs/SELF_HOST.md` → "Was passiert bei Updates".
 
 ## Architecture
 

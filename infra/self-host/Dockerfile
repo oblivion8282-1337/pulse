@@ -231,15 +231,10 @@ FROM debian:bookworm-slim AS runtime
 ARG PULSE_VERSION
 ARG PYTHON_VERSION
 
-# Die Watchtower-Labels werden nur vom Compose-/Manuell-Pfad (docker-compose.yml)
-# gebraucht. Der empfohlene Installer nutzt einen Host-systemd-Timer statt
-# Watchtower und ignoriert sie — sie schaden dort aber nicht.
 LABEL org.opencontainers.image.source="https://github.com/oblivion8282-1337/pulse" \
       org.opencontainers.image.title="Pulse Self-Host All-in-One" \
       org.opencontainers.image.description="Single-container Pulse Self-Host (all services + Postgres + Redis + LiveKit + MediaMTX + MinIO + coturn + Caddy)" \
-      org.opencontainers.image.version="${PULSE_VERSION}" \
-      com.centurylinklabs.watchtower.enable="true" \
-      com.centurylinklabs.watchtower.scope="pulse"
+      org.opencontainers.image.version="${PULSE_VERSION}"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \

@@ -1,24 +1,22 @@
-# Pulse Self-Host — All-in-One + Auto-Update in einem.
+# Pulse Self-Host — Docker Compose (manueller Pfad, Standardfall: Auto-TLS).
 #
 #   1. .env.example nach .env kopieren und die 6 Pflicht-Vars eintragen
 #      (am einfachsten: howispulse.com → "Meine Instanzen" → .env-Download).
 #   2. docker compose up -d
 #
-# Damit läuft der Pulse-Server UND der Watchtower-Updater zusammen — du musst
-# Auto-Update nicht mehr separat einrichten (das war vorher ein leicht zu
-# übersehender Extra-Schritt).
+# Voraussetzung für Auto-TLS: Port 80 + 443 sind öffentlich erreichbar und der
+# DNS-A-Record von PULSE_HOSTNAME zeigt auf diese Maschine — der eingebettete
+# Caddy holt das Let's-Encrypt-Zertifikat dann selbst.
 #
-# EMPFEHLUNG: Der One-Command-Installer (web/static/install.sh, siehe
-# docs/SELF_HOST.md) ist der bevorzugte Weg — er richtet Auto-Updates über
-# einen Host-systemd-Timer ein, OHNE einen Container mit Docker-Socket. Der
-# watchtower-Service unten mountet den Socket (= root-äquivalent auf dem Host);
-# das ist der bewusste Trade-off der Compose-Variante. Wer das vermeiden will:
-# watchtower-Service streichen und stattdessen einen Host-Cron/Timer nutzen,
-# der `docker pull` + Digest-Diff → recreate macht (wie pulse-update.sh).
+# Läuft auf der Maschine SCHON ein Reverse-Proxy auf 80/443 (nginx/Traefik/
+# Caddy/NPM)? Dann stattdessen docker-compose.behind-proxy.yml nehmen.
 #
-# Standard = Auto-TLS: der eingebettete Caddy holt automatisch ein Let's-Encrypt-
-# Zertifikat für PULSE_HOSTNAME. Voraussetzung: Port 80 + 443 sind öffentlich
-# erreichbar und der DNS-A-Record zeigt auf diese Maschine.
+# Updates — bewusst KEIN Auto-Updater-Container in dieser Datei (ein Updater
+# mit gemountetem Docker-Socket ist root-äquivalent auf dem Host):
+#   docker compose pull && docker compose up -d
+# manuell oder als Host-Cron/Timer. Der One-Command-Installer (docs/SELF_HOST.md)
+# richtet so einen Host-systemd-Timer automatisch ein — wer den manuellen
+# Compose-Pfad wählt, verwaltet Updates selbst.
 
 services:
   pulse:
@@ -42,30 +40,6 @@ services:
       - "1936:1936/tcp"
       # HQ-Stream-Wiedergabe (MediaMTX WebRTC/WHEP-ICE)
       - "8189:8189/udp"
-    # Hinweis: Die Watchtower-Labels (enable + scope=pulse) sind bereits ins
-    # Image gebacken — der watchtower-Service unten greift diesen Container
-    # automatisch auf, ohne dass hier Labels nötig sind.
-    #
-    # --- behind-proxy-Alternative ------------------------------------------
-    # Läuft auf der Maschine SCHON ein Reverse-Proxy (Caddy/nginx/Traefik) auf
-    # 80/443? Dann in der .env PULSE_TLS_MODE=behind-proxy setzen, die beiden
-    # 80/443-Zeilen oben entfernen und stattdessen nur den internen HTTP-Port
-    # exponieren:
-    #     - "127.0.0.1:8080:8080"
-    # und im vorhandenen Proxy EINE Regel anlegen:
-    #     pulse.deine-domain  →  http://127.0.0.1:8080
-
-  watchtower:
-    image: ghcr.io/nicholas-fedor/watchtower:latest
-    container_name: pulse-watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    # --scope pulse → aktualisiert NUR Container mit dem Label
-    # com.centurylinklabs.watchtower.scope=pulse (das All-in-One-Image trägt es).
-    # Andere Container auf derselben Maschine bleiben unangetastet.
-    # --cleanup entfernt das alte Image nach jedem Update.
-    command: --label-enable --scope pulse --interval 300 --cleanup
 
 volumes:
   pulse-data:

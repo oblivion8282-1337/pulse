@@ -33,4 +33,10 @@ COPY infra/prod/web-nginx.conf /etc/nginx/conf.d/default.conf
 # http-Level-Config doppelt greifen); web-nginx.conf includet es explizit.
 COPY infra/prod/security-headers.inc /etc/nginx/security-headers.inc
 COPY --from=builder /app/web/build /usr/share/nginx/html
+# Self-Host-Compose-Dateien für den manuellen Installationspfad — Source of
+# Truth bleibt infra/self-host/, serviert unter /self-host/* (web-nginx.conf).
+COPY infra/self-host/docker-compose.yml \
+     infra/self-host/docker-compose.behind-proxy.yml \
+     /usr/share/nginx/html/self-host/
+COPY infra/self-host/.env.example /usr/share/nginx/html/self-host/env.example
 EXPOSE 80
