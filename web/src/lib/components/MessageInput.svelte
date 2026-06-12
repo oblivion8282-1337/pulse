@@ -194,7 +194,7 @@
 </script>
 
 <form
-  class="px-2 pt-2 pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:px-4 md:pb-5"
+  class="px-2 pt-2 pb-[calc(1.25rem+var(--safe-bottom))] md:px-4 md:pb-5"
   ondragenter={onDragEnter}
   ondragover={onDragOver}
   ondragleave={onDragLeave}

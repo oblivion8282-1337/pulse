@@ -52,7 +52,7 @@
         {#snippet child({ props })}
           <button
             {...props}
-            class="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
+            class="absolute right-4 top-[max(1rem,var(--safe-top))] rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
             aria-label={m.lightbox_close()}
             data-testid="lightbox-close"
           >

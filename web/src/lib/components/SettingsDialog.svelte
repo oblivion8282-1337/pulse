@@ -106,8 +106,13 @@
 </script>
 
 <Dialog.Root bind:open>
+  <!-- max-sm: Vollbild — liegt damit (anders als zentrierte Dialoge) unter der
+       Status-Bar (Android Edge-to-Edge / iOS-PWA-Notch). pt-[var(--safe-top)]
+       schiebt den Inhalt darunter raus, closeClass den absolut positionierten
+       X-Button mit. -->
   <Dialog.Content
-    class="flex w-full max-w-3xl gap-0 overflow-hidden p-0 sm:h-[min(44rem,85dvh)] sm:max-w-3xl max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none"
+    class="flex w-full max-w-3xl gap-0 overflow-hidden p-0 sm:h-[min(44rem,85dvh)] sm:max-w-3xl max-sm:h-dvh max-sm:max-h-dvh max-sm:max-w-none max-sm:rounded-none max-sm:pt-[var(--safe-top)]"
+    closeClass="max-sm:top-[calc(var(--safe-top)+1rem)]"
     data-testid="settings-dialog"
   >
     <!-- Zugänglicher Dialog-Titel — immer im DOM (auf Mobil wird die <nav> mit

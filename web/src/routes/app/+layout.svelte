@@ -255,9 +255,10 @@
     <UpdateBanner />
     <SelfHostDisclaimer />
   {/if}
-  <!-- pt-[env(safe-area-inset-top)]: clears the iOS notch / status bar in the
-       installed PWA (no-op as a browser tab). md restores the regular padding. -->
-  <div class="flex flex-1 gap-0 p-0 pt-[env(safe-area-inset-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
+  <!-- pt-[var(--safe-top)]: clears the iOS notch / status bar in the installed
+       PWA and the Android APK (no-op as a browser tab). md restores the
+       regular padding. -->
+  <div class="flex flex-1 gap-0 p-0 pt-[var(--safe-top)] md:gap-3 md:p-3 md:pt-3 min-h-0">
     {#if !hydrated}
       <div class="text-text-muted flex flex-1 items-center justify-center text-sm">loading…</div>
     {:else}
@@ -270,7 +271,7 @@
        nicht überdecken; Auflegen ist immer erreichbar. Desktop: Controls
        leben im Sidebar-Footer (s. SidebarFooter). -->
   {#if viewport.isMobile && (voice.connected || voice.connecting)}
-    <div class="shrink-0 pb-[env(safe-area-inset-bottom)]">
+    <div class="shrink-0 pb-[var(--safe-bottom)]">
       <VoiceControlBar />
     </div>
   {/if}

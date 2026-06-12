@@ -301,6 +301,14 @@
 
 /* ---------- Light = Default ---------- */
 :root {
+  /* Safe-Area-Insets: in der Android-WebView (Capacitor-APK) liefert env()
+     oft 0 — dort injiziert das SystemBars-Core-Plugin stattdessen
+     --safe-area-inset-* inline auf <html>. Diese Kette deckt beide Welten ab
+     (Browser/iOS-PWA = env(), APK = injizierte Variable). Immer var(--safe-top/
+     --safe-bottom) verwenden, nie env() direkt. */
+  --safe-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --safe-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+
   /* Glas-Palette */
   --bg-grad: linear-gradient(
     135deg in oklab,
