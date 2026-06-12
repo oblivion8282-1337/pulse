@@ -1,14 +1,14 @@
 /**
  * Ed25519-Keypair-Verwaltung für das Identitäts-Cert-Modell (DE 11 A.1).
  *
- * Strategie:
- *   1. WebCrypto-Ed25519 (Chrome 113+, Firefox 130+, Safari 17+) — non-extractable privater Schlüssel.
- *   2. Wenn Ed25519 über WebCrypto nicht verfügbar: TODO(ADD DEP @noble/curves) — benötigt
- *      `pnpm add @noble/curves`. Bis zur Entscheidung wirft der Fallback einen klaren Fehler.
+ * Strategie: ausschließlich WebCrypto-Ed25519 (Chrome 113+, Firefox 130+,
+ * Safari 17+) mit non-extractable privatem Schlüssel. Browser ohne nativen
+ * Ed25519-Support bekommen `ED25519_WEBCRYPTO_UNSUPPORTED` — bewusster
+ * Hard-Cut, KEIN Software-Fallback (FINAL-DECISION in `generateKeypair`, kein
+ * `@noble/curves`).
  *
  * IndexedDB-Key: `pulse.keypair`
  * Format im Store: `{ type: 'webcrypto', publicKey: CryptoKey, privateKey: CryptoKey }`
- *                   oder später `{ type: 'noble', publicKey: Uint8Array, privateKey: Uint8Array }`
  */
 
 import { openIdentityDb, idbGetIdentity, idbPutIdentity, STORE_NAME } from './idb-shared';

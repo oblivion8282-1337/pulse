@@ -21,7 +21,7 @@
  * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
  */
 
-import { gsr, type GsrProfile, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
+import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
 import { isWindows } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -112,10 +112,6 @@ export function appFromAudioMode(mode: string): string {
   return isAppAudioMode(mode) ? mode.slice(APP_AUDIO_PREFIX.length) : '';
 }
 
-export function isHdrCodec(codec: string | undefined): boolean {
-  return !!codec && codec.endsWith('_hdr');
-}
-
 export function audioModeUsesDesktop(mode: string): boolean {
   return mode === 'Desktop' || mode === 'Desktop + Mikrofon';
 }
@@ -149,7 +145,6 @@ export const streamSettings = $state({
   av_offset_ms: 0,
 
   // Catalogs from sidecar (filled by `loadCatalogs()`)
-  available_profiles: [] as GsrProfile[],
   available_audio_apps: [] as string[],
   // Display monitors — only populated on Windows (Linux uses the portal picker).
   available_monitors: [] as GsrMonitor[],
@@ -288,16 +283,15 @@ export async function loadCatalogs(): Promise<void> {
 
     // Monitors are Windows-only — on Linux the portal dialog picks the source,
     // so skip the round-trip entirely there.
-    const [profiles, audioApps, gpuInfo, monitors] = await Promise.all([
-      gsr.listProfiles(),
+    // ``listProfiles`` is intentionally not fetched: the HQ panel is channel-mode
+    // only and forces ``profile_name='Custom'`` + ``use_overrides=true`` below, so
+    // the sidecar's profile catalog has no consumer.
+    const [audioApps, gpuInfo, monitors] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
       isWindows() ? gsr.listMonitors() : Promise.resolve(null),
     ]);
 
-    if (profiles?.ok) {
-      streamSettings.available_profiles = profiles.profiles ?? [];
-    }
     if (audioApps?.ok) {
       streamSettings.available_audio_apps = audioApps.applications ?? [];
     }
