@@ -21,7 +21,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 
@@ -115,6 +115,79 @@ async def _has_any_mod_perm(session, current, guild_id: int) -> None:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="missing permission: MANAGE_MESSAGES or BAN_MEMBERS or MANAGE_GUILD",
+        )
+
+
+# Action types that trigger a real enforcement action on resolve. Everything
+# else (``warn`` / ``role_change`` / ``other``) is recorded as metadata only.
+_ENFORCEABLE = frozenset({"ban", "kick", "message_delete"})
+
+
+async def _dispatch_enforcement(
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+    guild_id: int,
+    report: Report,
+    action_type: str | None,
+    reason: str | None,
+) -> None:
+    """Execute the moderator's chosen enforcement action against the report's
+    target.
+
+    Reuses the canonical route handlers (``ban_user`` / ``kick_member`` /
+    ``delete_message``) so the specific permission gate (BAN_MEMBERS /
+    KICK_MEMBERS / MANAGE_MESSAGES), the role-hierarchy check, the side
+    effects (voice eviction, WS broadcasts) and the per-action audit entry all
+    run exactly as a direct ban/kick/delete would. The handler's own
+    ``HTTPException`` (403/404) propagates, which leaves the report *unresolved*
+    — a moderator who lacks BAN_MEMBERS can't close a report "as banned"
+    without the ban actually happening.
+
+    The target is taken from the REPORT, never from client input, so the
+    resolve payload can't redirect a ban to an arbitrary user.
+    """
+    if action_type not in _ENFORCEABLE:
+        return
+
+    if action_type == "ban":
+        if report.target_user_id is None:
+            raise HTTPException(400, detail="report has no user target to ban")
+        from dcc_chat_gateway.routes.bans import ban_user
+        from dcc_chat_gateway.schemas import BanIn
+
+        # ``resolution_note`` allows up to 2000 chars but BanIn.reason caps at
+        # 512 — truncate so a long note can't trip BanIn validation (→ 500).
+        await ban_user(
+            guild_id=guild_id,
+            user_id=report.target_user_id,
+            payload=BanIn(reason=(reason[:512] if reason else None)),
+            session=session,
+            current=current,
+            request=request,
+        )
+    elif action_type == "kick":
+        if report.target_user_id is None:
+            raise HTTPException(400, detail="report has no user target to kick")
+        from dcc_chat_gateway.routes.guilds import kick_member
+
+        await kick_member(
+            guild_id=guild_id,
+            user_id=report.target_user_id,
+            session=session,
+            current=current,
+            request=request,
+        )
+    elif action_type == "message_delete":
+        if report.target_message_id is None:
+            raise HTTPException(400, detail="report has no message target to delete")
+        from dcc_chat_gateway.routes.messages import delete_message
+
+        await delete_message(
+            message_id=report.target_message_id,
+            session=session,
+            current=current,
+            request=request,
         )
 
 
@@ -238,8 +311,16 @@ async def resolve_report(
     payload: ResolveIn,
     session: SessionDep,
     current: CurrentUser,
+    request: Request,
 ) -> ReportItem:
-    """Close a report and write an immutable audit-log entry."""
+    """Close a report and write an immutable audit-log entry.
+
+    When resolved with an enforceable ``action_type`` (``ban`` / ``kick`` /
+    ``message_delete``) the corresponding action is actually executed against
+    the report's target — gated on the action-specific permission + role
+    hierarchy. A failure there (e.g. the moderator lacks BAN_MEMBERS or is
+    outranked) leaves the report open instead of silently closing it.
+    """
     await _has_any_mod_perm(session, current, guild_id)
 
     report = await session.get(Report, report_id)
@@ -252,6 +333,25 @@ async def resolve_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     if report.status in ("resolved", "dismissed"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
+
+    # Enforce the chosen action BEFORE marking the report resolved. The dispatch
+    # helpers reuse the canonical handlers (own permission/hierarchy gate + their
+    # own commit), so on success ``report`` is expired — re-attach a fresh copy
+    # before mutating it. On a 403/404 the exception propagates and the report
+    # stays open.
+    if payload.resolution == "resolved" and payload.action_type in _ENFORCEABLE:
+        await _dispatch_enforcement(
+            session,
+            current,
+            request,
+            guild_id,
+            report,
+            payload.action_type,
+            payload.resolution_note,
+        )
+        report = await session.get(Report, report_id)
+        if report is None or report.status in ("resolved", "dismissed"):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
 
     report.status = payload.resolution
     report.resolver_user_id = current.id

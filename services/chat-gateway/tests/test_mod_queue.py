@@ -234,9 +234,11 @@ async def test_resolve_report_writes_audit_log(client, _auth_signer, session_fac
     ).json()
     rid = await _seed_report(session_factory, uid_owner, channel_id=int(ch["id"]))
 
+    # ``warn`` is a non-enforceable action_type — recorded as metadata only, no
+    # ban/kick/delete dispatch (enforcement is covered separately below).
     r = await client.post(
         f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
-        json={"resolution": "resolved", "action_type": "message_delete", "resolution_note": "Removed."},
+        json={"resolution": "resolved", "action_type": "warn", "resolution_note": "Removed."},
         headers=auth(t_owner),
     )
     assert r.status_code == 200, r.text
@@ -304,3 +306,172 @@ async def test_resolve_non_mod_403(client, _auth_signer, session_factory):
         headers=auth(t_user),
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Enforcement — resolving with an action_type actually executes the action
+# ---------------------------------------------------------------------------
+
+_BAN_MEMBERS = 1 << 2
+_KICK_MEMBERS = 1 << 1
+
+
+async def _report_status(session_factory, rid: int) -> str:
+    async with session_factory() as s:
+        return (await s.get(Report, rid)).status
+
+
+@pytest.mark.asyncio
+async def test_resolve_ban_actually_bans(client, _auth_signer, session_factory):
+    from dcc_chat_gateway.models import GuildBan, GuildMember
+
+    t_owner, uid_owner = await _token(_auth_signer)
+    _, uid_target = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    gid = int(g["id"])
+    await _add_member(client, g["id"], uid_target, t_owner)
+    rid = await _seed_report(session_factory, uid_owner, user_id=uid_target)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "resolved", "action_type": "ban", "resolution_note": "spammer"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "resolved"
+
+    async with session_factory() as s:
+        assert await s.get(GuildBan, (gid, uid_target)) is not None
+        assert await s.get(GuildMember, (gid, uid_target)) is None  # evicted
+
+    # Both the ban action AND the report resolution are audited.
+    log = (await client.get(f"/guilds/{g['id']}/mod-audit-log", headers=auth(t_owner))).json()
+    action_types = {e["action_type"] for e in log}
+    assert "ban" in action_types
+    assert "report_resolved" in action_types
+
+
+@pytest.mark.asyncio
+async def test_resolve_kick_actually_kicks(client, _auth_signer, session_factory):
+    from dcc_chat_gateway.models import GuildBan, GuildMember
+
+    t_owner, uid_owner = await _token(_auth_signer)
+    _, uid_target = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    gid = int(g["id"])
+    await _add_member(client, g["id"], uid_target, t_owner)
+    rid = await _seed_report(session_factory, uid_owner, user_id=uid_target)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "resolved", "action_type": "kick"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as s:
+        assert await s.get(GuildMember, (gid, uid_target)) is None  # removed
+        assert await s.get(GuildBan, (gid, uid_target)) is None  # but not banned
+
+
+@pytest.mark.asyncio
+async def test_resolve_message_delete_actually_deletes(client, _auth_signer, session_factory):
+    from dcc_chat_gateway.models import Message
+
+    t_owner, uid_owner = await _token(_auth_signer)
+    t_author, uid_author = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    await _add_member(client, g["id"], uid_author, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+    msg = (
+        await client.post(
+            f"/channels/{ch['id']}/messages", json={"content": "bad"}, headers=auth(t_author)
+        )
+    ).json()
+    rid = await _seed_report(session_factory, uid_owner, message_id=int(msg["id"]))
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "resolved", "action_type": "message_delete"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as s:
+        assert (await s.get(Message, int(msg["id"]))).deleted_at is not None
+
+
+@pytest.mark.asyncio
+async def test_resolve_ban_without_permission_403_keeps_report_open(
+    client, _auth_signer, session_factory
+):
+    """A mod with only MANAGE_MESSAGES cannot ban — the action fails 403 and
+    the report must stay open rather than silently closing 'as banned'."""
+    t_owner, _ = await _token(_auth_signer)
+    t_mod, uid_mod = await _token(_auth_signer)
+    _, uid_target = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    await _add_member(client, g["id"], uid_mod, t_owner)
+    await _add_member(client, g["id"], uid_target, t_owner)
+    await _grant_role_with_perms(client, g["id"], uid_mod, _MANAGE_MESSAGES, t_owner)
+    rid = await _seed_report(session_factory, uid_mod, user_id=uid_target)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "resolved", "action_type": "ban"},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403, r.text
+    assert await _report_status(session_factory, rid) == "new"
+
+
+@pytest.mark.asyncio
+async def test_resolve_ban_without_user_target_400(client, _auth_signer, session_factory):
+    """``ban`` on a channel-only report has no user to ban → 400, not silent."""
+    t_owner, uid_owner = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    ch = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "general", "type": 0},
+            headers=auth(t_owner),
+        )
+    ).json()
+    rid = await _seed_report(session_factory, uid_owner, channel_id=int(ch["id"]))
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "resolved", "action_type": "ban"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 400, r.text
+    assert await _report_status(session_factory, rid) == "new"
+
+
+@pytest.mark.asyncio
+async def test_resolve_warn_records_without_enforcement(client, _auth_signer, session_factory):
+    """Non-enforceable action_type (``warn``) closes the report but takes no
+    action against the target."""
+    from dcc_chat_gateway.models import GuildBan, GuildMember
+
+    t_owner, uid_owner = await _token(_auth_signer)
+    _, uid_target = await _token(_auth_signer)
+    g = await _make_guild(client, t_owner)
+    gid = int(g["id"])
+    await _add_member(client, g["id"], uid_target, t_owner)
+    rid = await _seed_report(session_factory, uid_owner, user_id=uid_target)
+
+    r = await client.post(
+        f"/guilds/{g['id']}/mod-queue/{rid}/resolve",
+        json={"resolution": "resolved", "action_type": "warn"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+
+    async with session_factory() as s:
+        assert await s.get(GuildMember, (gid, uid_target)) is not None  # still a member
+        assert await s.get(GuildBan, (gid, uid_target)) is None

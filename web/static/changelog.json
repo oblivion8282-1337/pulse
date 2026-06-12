@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.11",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Moderationsaktionen werden beim Auflösen ausgeführt",
+      "items": [
+        "Wird ein gemeldeter Beitrag mit einer Aktion (Bann, Kick oder Nachricht löschen) abgeschlossen, führt Pulse diese Aktion jetzt tatsächlich aus — vorher wurde sie nur vermerkt.",
+        "Die Aktion greift nur, wenn der Moderator die passende Berechtigung hat; andernfalls bleibt die Meldung offen."
+      ]
+    },
+    {
       "id": "2026-06-12.10",
       "date": "2026-06-12",
       "style": "Sachlich",
