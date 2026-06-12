@@ -23,6 +23,7 @@
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
   import GlobeIcon from '@lucide/svelte/icons/globe';
   import PaperclipIcon from '@lucide/svelte/icons/paperclip';
+  import LinkIcon from '@lucide/svelte/icons/link';
   import { onMount } from 'svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { roles } from '$lib/stores/roles.svelte';
@@ -38,6 +39,7 @@
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
   import GuildPublicAddressEditor from './GuildPublicAddressEditor.svelte';
   import GuildLimitsEditor from './GuildLimitsEditor.svelte';
+  import GuildInvitesEditor from './GuildInvitesEditor.svelte';
   import ModQueue from '$lib/components/admin/ModQueue.svelte';
   import AuditLogViewer from '$lib/components/admin/AuditLogViewer.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -52,7 +54,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'limits' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'limits' | 'invites' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
   let tab = $state<Tab>('roles');
   let initialized = $state(false);
 
@@ -73,6 +75,9 @@
   // server" grouping. Plugin-Toggles and AuditLog are gated identically.
   let canManageGuild = $derived(
     !!guildId && roles.hasGuildPermission(guildId, Perm.MANAGE_GUILD)
+  );
+  let canCreateInvites = $derived(
+    !!guildId && roles.hasGuildPermission(guildId, Perm.CREATE_INVITES)
   );
   // Mod-Queue: sichtbar wenn MANAGE_MESSAGES | BAN_MEMBERS | MANAGE_GUILD.
   let canSeeModQueue = $derived(
@@ -274,6 +279,17 @@
             <PaperclipIcon class="size-4" /> {m.guild_settings_dialog_tab_limits()}
           </button>
         {/if}
+        {#if canCreateInvites}
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'invites'}
+            onclick={() => selectTab('invites')}
+            data-testid="settings-tab-invites"
+          >
+            <LinkIcon class="size-4" /> {m.guild_settings_dialog_tab_invites()}
+          </button>
+        {/if}
         {#if canSeeModQueue}
           <button
             type="button"
@@ -331,6 +347,8 @@
           <GuildPublicAddressEditor {guildId} />
         {:else if tab === 'limits' && canManageGuild}
           <GuildLimitsEditor {guildId} />
+        {:else if tab === 'invites' && canCreateInvites}
+          <GuildInvitesEditor {guildId} />
         {:else if tab === 'modqueue' && canSeeModQueue}
           <ModQueue {guildId} />
         {:else if tab === 'auditlog' && canManageGuild}
