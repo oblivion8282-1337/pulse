@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.9",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Auto-Connect verbessert",
+      "items": [
+        "Der automatische Beitritt in den gewählten Voice-Channel startet jetzt mit aktivem Mikrofon.",
+        "Beim Start öffnet die App direkt die Community des gewählten Channels, statt auf der Startseite zu bleiben."
+      ]
+    },
+    {
       "id": "2026-06-12.8",
       "date": "2026-06-12",
       "style": "Sachlich",

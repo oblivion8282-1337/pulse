@@ -17,6 +17,7 @@
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { navDrawer } from '$lib/stores/navDrawer.svelte';
+  import { voiceAutoConnect } from '$lib/voice/autoconnect.svelte';
   import DMChannelList from '$lib/components/DMChannelList.svelte';
   import type { DMChannel } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
@@ -44,6 +45,16 @@
     if (add === 'create' || add === 'join') {
       createMode = add;
       creating = true;
+      return;
+    }
+    // Auto-Connect-Ziel gewinnt gegen den Default-Redirect in den ersten
+    // Textkanal: der User will seinen gewählten Voice-Channel sofort sehen.
+    // Der eigentliche Voice-Join läuft unabhängig davon im Layout
+    // (autoConnectIfConfigured) — hier geht es nur um die Ansicht.
+    const auto = voiceAutoConnect.validTarget();
+    if (auto?.guildId && guilds.list.some((g) => g.id === auto.guildId)) {
+      navDrawer.open = true;
+      void goto(`/app/guilds/${auto.guildId}/channels/${auto.channelId}`, { replaceState: true });
       return;
     }
     const first = guilds.list[0];
