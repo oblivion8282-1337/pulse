@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-13.1",
+      "date": "2026-06-13",
+      "style": "Sachlich",
+      "title": "Mehrere Funktionen vervollständigt",
+      "items": [
+        "Einladungen: Im Server-Einstellungsdialog gibt es jetzt einen Bereich, um Einladungslinks mit eigener Ablaufzeit und Nutzungsgrenze zu erstellen, bestehende Einladungen zu sehen und zu widerrufen.",
+        "Direktnachrichten und Freundschaftsanfragen erreichen dich jetzt auch als Benachrichtigung, wenn der Browser geschlossen ist (sofern Push aktiviert ist).",
+        "Der Benachrichtigungsmodus pro Server wirkt jetzt: Auf 'Keine' gestellt, meldet sich der Server nicht mehr mit Erwähnungen.",
+        "Moderation: Gemeldete Inhalte lassen sich als 'In Bearbeitung' markieren, und es gibt jetzt 'Kanal melden' und 'User melden' (im Kanal-Kontextmenü bzw. Profil).",
+        "Server-Admins können die maximale Größe und Anzahl von Anhängen pro Nachricht jetzt einstellen (neuer 'Limits'-Bereich in den Server-Einstellungen).",
+        "Öffentliche Community-Adressen (/c/name) zeigen jetzt eine Vorschauseite mit Beitreten-Schaltfläche, statt auf der Startseite zu landen.",
+        "Im Chat einer Watch-Party kann man jetzt mit Emojis auf einzelne Nachrichten reagieren."
+      ]
+    },
+    {
       "id": "2026-06-12.14",
       "date": "2026-06-12",
       "style": "Sachlich",
