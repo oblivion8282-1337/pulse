@@ -35,6 +35,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qs
 
 import structlog
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -84,9 +85,23 @@ class AuthRequest(BaseModel):
 
     @property
     def credential(self) -> str:
-        """The stream-token MediaMTX carried — RTMP/SRT clients put it in
-        ``pass`` (→ ``password``); a ``?token=`` query maps to ``token``."""
-        return (self.password or self.token or "").strip()
+        """The stream-token MediaMTX carried.
+
+        Where it lands depends on the protocol:
+          * RTMP/RTMPS publish → the stream key password (``password``).
+          * Some builds populate the dedicated ``token`` field.
+          * **WHEP/WebRTC reads** (verified against MediaMTX 1.17.1): the
+            ``?token=`` URL query is NOT mapped to ``token`` — it arrives only
+            in the raw ``query`` string (e.g. ``"token=abc123"``). Parse it out.
+        """
+        direct = (self.password or self.token or "").strip()
+        if direct:
+            return direct
+        if self.query:
+            vals = parse_qs(self.query).get("token")
+            if vals:
+                return vals[0].strip()
+        return ""
 
 
 def _get_redis(request: Request) -> Redis:

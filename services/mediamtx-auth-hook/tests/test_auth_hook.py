@@ -231,6 +231,24 @@ async def test_read_with_valid_token_allowed(client, redis):
 
 
 @pytest.mark.asyncio
+async def test_read_token_via_query_field_allowed(client, redis):
+    """MediaMTX 1.17.1 delivers the WHEP ``?token=`` in the raw ``query`` field,
+    NOT the dedicated ``token`` field (verified live against the real server).
+    The hook must parse it out of ``query`` — otherwise every legitimate viewer
+    is rejected with read_unknown_token. Regression pin for that behaviour."""
+    cid = _unique_cid()
+    token = "read-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id="1", scope="read")
+    try:
+        body = _body("read", _ch_path(cid, "1"))  # token + password stay ""
+        body["query"] = f"token={token}"
+        r = await client.post("/", json=body)
+        assert r.status_code == 200
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
 async def test_read_without_token_denied(client):
     cid = _unique_cid()
     r = await client.post("/", json=_body("read", _ch_path(cid, "1")))
