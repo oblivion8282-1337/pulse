@@ -14,20 +14,25 @@
     onClose
   }: {
     open?: boolean;
-    channel: { id: string; name: string } | null;
+    channel: { id: string; name: string; topic?: string | null } | null;
     onClose: () => void;
   } = $props();
 
   let name = $state('');
+  let topic = $state('');
   let busy = $state(false);
 
   $effect(() => {
-    if (open && channel) name = channel.name;
+    if (open && channel) {
+      name = channel.name;
+      topic = channel.topic ?? '';
+    }
   });
 
   function handleOpenChange(next: boolean) {
     if (!next) {
       name = '';
+      topic = '';
       busy = false;
       onClose();
     }
@@ -36,14 +41,20 @@
   async function submit(e: SubmitEvent) {
     e.preventDefault();
     if (!channel) return;
-    const trimmed = name.trim().replace(/\s+/g, '-').toLowerCase();
-    if (!trimmed || trimmed === channel.name) {
+    const trimmedName = name.trim().replace(/\s+/g, '-').toLowerCase();
+    const newTopic = topic.trim();
+    const nameChanged = !!trimmedName && trimmedName !== channel.name;
+    const topicChanged = newTopic !== (channel.topic ?? '');
+    if (!nameChanged && !topicChanged) {
       onClose();
       return;
     }
+    const patch: { name?: string; topic?: string } = {};
+    if (nameChanged) patch.name = trimmedName;
+    if (topicChanged) patch.topic = newTopic;
     busy = true;
     try {
-      const updated = await chatApi.patchChannel(channel.id, { name: trimmed });
+      const updated = await chatApi.patchChannel(channel.id, patch);
       guilds.updateChannel(updated);
       onClose();
     } catch (err) {
@@ -74,6 +85,20 @@
           maxlength={64}
           disabled={busy}
           data-testid="rename-channel-name"
+        />
+      </div>
+      <div class="space-y-1.5">
+        <Label for="rename-channel-topic" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+          {m.rename_channel_dialog_topic_label()}
+        </Label>
+        <Input
+          id="rename-channel-topic"
+          type="text"
+          bind:value={topic}
+          maxlength={1024}
+          disabled={busy}
+          placeholder={m.rename_channel_dialog_topic_placeholder()}
+          data-testid="rename-channel-topic"
         />
       </div>
       <Dialog.Footer>

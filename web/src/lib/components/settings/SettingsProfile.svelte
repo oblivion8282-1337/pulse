@@ -20,8 +20,17 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import * as Avatar from '$lib/components/ui/avatar/index.js';
+  import { safeAvatarUrl } from '$lib/avatar';
+  import AvatarUploadDialog from '$lib/components/AvatarUploadDialog.svelte';
 
   const DEFAULT_COLOR = '#9ca3af';
+
+  let avatarOpen = $state(false);
+  const avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
+  const avatarInitial = $derived(
+    (auth.user?.display_name || auth.user?.username || '?').charAt(0).toUpperCase()
+  );
 
   const initial = $derived({
     username: auth.user?.username ?? '',
@@ -158,6 +167,22 @@
       </p>
     </div>
 
+    <div class="flex items-center gap-4" data-testid="profile-avatar-section">
+      {#key avatarUrl}
+        <Avatar.Root class="size-16 shrink-0">
+          {#if avatarUrl}
+            <Avatar.Image src={avatarUrl} alt={displayName} />
+          {/if}
+          <Avatar.Fallback class="accent-gradient text-primary-foreground text-lg font-semibold">
+            {avatarInitial}
+          </Avatar.Fallback>
+        </Avatar.Root>
+      {/key}
+      <Button variant="outline" onclick={() => (avatarOpen = true)} data-testid="profile-avatar-change-btn">
+        {m.user_footer_change_avatar()}
+      </Button>
+    </div>
+
     <div class="flex flex-col gap-2">
       <Label for="profile-display-name">{m.settings_profile_display_name_label()}</Label>
       <Input
@@ -272,3 +297,5 @@
     </div>
   </section>
 </div>
+
+<AvatarUploadDialog bind:open={avatarOpen} />

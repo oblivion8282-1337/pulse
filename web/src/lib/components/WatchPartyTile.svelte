@@ -175,6 +175,9 @@
     watchWatchers.watchersIn(channelId).filter((id) => id !== myId)
   );
 
+  // Total watchers (incl. me) for the "X watching" badge.
+  const watcherCount = $derived(watchWatchers.watchersIn(channelId).length);
+
   // Lazy-fetch the YouTube video title via oEmbed.
   $effect(() => {
     if (party.source.type === 'youtube') prefetchYoutubeTitle(party.source.embed_id);
@@ -267,6 +270,14 @@
     >
       {m.watch_party_tile_host_label({ name: hostName })}
     </span>
+    {#if watcherCount > 0}
+      <span
+        class="rounded-full bg-black/55 px-2.5 py-1 text-xs text-white backdrop-blur-sm"
+        data-testid="watch-party-watcher-count"
+      >
+        {m.watch_party_tile_watching({ count: watcherCount })}
+      </span>
+    {/if}
   {/snippet}
   {#snippet controlsExtra()}
     {#if isHost}

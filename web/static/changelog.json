@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.14",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Mehrere kleine Verbesserungen",
+      "items": [
+        "Das Profilbild lässt sich jetzt direkt im Profil-Tab der Einstellungen ändern.",
+        "Kanäle können jetzt ein Thema bekommen — beim Umbenennen eines Kanals gibt es ein Themenfeld.",
+        "Eine Watch-Party zeigt jetzt an, wie viele Personen gerade zuschauen.",
+        "Twitch-VODs starten jetzt an der im Link angegebenen Stelle (z. B. ?t=1h2m3s).",
+        "Das Tamagotchi-Widget zeigt beim Laden sofort den korrekten Stand statt kurzzeitig Startwerte."
+      ]
+    },
+    {
       "id": "2026-06-12.13",
       "date": "2026-06-12",
       "style": "Sachlich",
