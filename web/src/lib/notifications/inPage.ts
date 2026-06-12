@@ -76,9 +76,24 @@ function originPrefix(): string {
   return `[${host}] `;
 }
 
-function shouldFire(kind: NotifyKind): boolean {
+function shouldFire(input: InPageNotifyInput): boolean {
+  const kind = input.kind;
   // DND suppresses both toasts and browser notifications.
   if (presence.myStatus === 'dnd') return false;
+
+  // Per-server notification mode gates GUILD mentions. Discord-like: muting a
+  // server silences its guild activity, not personal DMs / friend events (those
+  // keep their own global sub-toggles below). The mode is per-backend-server, so
+  // we look it up via the server currently dispatching this WS frame.
+  // Note: with only a mention/dm in-page path today, "all" and "mentions" behave
+  // identically (there is no regular-message notification); "none" is the
+  // distinction that now takes effect. Forward-compatible if that path is added.
+  if (kind === 'mention' && input.guildId) {
+    const sid = dispatchingServerId();
+    const entry = sid ? serversStore.servers.find((s) => s.id === sid) : undefined;
+    if (entry?.notification_mode === 'none') return false;
+  }
+
   if (kind === 'mention' && !settings.notifications.onMention) return false;
   if (kind === 'dm' && !settings.notifications.onDM) return false;
   if (
@@ -97,7 +112,7 @@ function shouldFire(kind: NotifyKind): boolean {
  */
 export function fireInPageNotification(input: InPageNotifyInput): void {
   if (typeof document === 'undefined') return;
-  if (!shouldFire(input.kind)) return;
+  if (!shouldFire(input)) return;
   const inBackground =
     document.visibilityState === 'hidden' || !document.hasFocus();
   if (!inBackground) return;
