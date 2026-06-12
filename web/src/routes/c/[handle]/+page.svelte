@@ -34,6 +34,12 @@
   let confirmOpen = $state(false);
 
   onMount(async () => {
+    // Auth is only hydrated inside the /app layout; this route lives outside it.
+    // Without hydrating here, an already-signed-in user opening a shared /c/ link
+    // (fresh load / new tab) would see "sign in to join" and be bounced through a
+    // needless re-login. hydrate() is idempotent + best-effort.
+    await auth.hydrate().catch(() => {});
+
     // Best-effort preview — cloud communities resolve unauthenticated. Self-host
     // (host set) needs the user's session on that server, so we skip the preview
     // there and still offer the join (joinGuildByInvite does the cert-login).
