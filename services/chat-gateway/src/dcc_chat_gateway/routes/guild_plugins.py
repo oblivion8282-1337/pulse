@@ -233,6 +233,9 @@ class TamagotchiState(BaseModel):
     hunger: int
     happiness: int
     energy: int
+    alive: bool
+    xp: int
+    level: int
     lastUpdatedAt: str
 
 
@@ -245,6 +248,9 @@ _DEFAULT_TAMAGOTCHI = {
     "hunger": 80,
     "happiness": 80,
     "energy": 80,
+    "alive": True,
+    "xp": 0,
+    "level": 1,
     "lastUpdatedAt": "1970-01-01T00:00:00+00:00",
 }
 
@@ -264,6 +270,11 @@ def _coerce_tamagotchi_state(raw: dict[str, Any]) -> TamagotchiState:
         except (TypeError, ValueError):
             v = 80
         merged[k] = max(0, min(100, v))
+    for k in ("xp", "level"):
+        try:
+            merged[k] = int(merged.get(k, _DEFAULT_TAMAGOTCHI[k]))
+        except (TypeError, ValueError):
+            merged[k] = _DEFAULT_TAMAGOTCHI[k]
     if not isinstance(merged.get("name"), str) or not merged["name"]:
         merged["name"] = _DEFAULT_TAMAGOTCHI["name"]
     if not isinstance(merged.get("lastUpdatedAt"), str):
@@ -273,6 +284,9 @@ def _coerce_tamagotchi_state(raw: dict[str, Any]) -> TamagotchiState:
         hunger=merged["hunger"],
         happiness=merged["happiness"],
         energy=merged["energy"],
+        alive=bool(merged.get("alive", True)),
+        xp=merged["xp"],
+        level=merged["level"],
         lastUpdatedAt=merged["lastUpdatedAt"],
     )
 

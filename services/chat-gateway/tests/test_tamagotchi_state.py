@@ -237,6 +237,11 @@ async def test_get_state_default_when_no_row(
     assert body["hunger"] == 80
     assert body["happiness"] == 80
     assert body["energy"] == 80
+    # alive/xp/level müssen im GET-Modell stecken (sonst zeigt das Widget bis
+    # zum ersten WS-Update Fallback-Werte) — Regression-Pin.
+    assert body["alive"] is True
+    assert body["xp"] == 0
+    assert body["level"] == 1
 
     # Kein Insert beim GET — Row sollte weiterhin nicht existieren.
     async with session_factory() as s:
