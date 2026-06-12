@@ -172,6 +172,16 @@ export type ServerEvent =
   | { op: 'watch_watchers'; channel_id: string; user_ids: string[] }
   | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
   | {
+      op: 'watch_chat_reaction';
+      data: {
+        message_id: string;
+        channel_id: string;
+        user_id: string;
+        emoji: string;
+        added: boolean;
+      };
+    }
+  | {
       op: 'permissions_updated';
       allow_guild_creation: boolean;
       allow_member_invites: boolean;

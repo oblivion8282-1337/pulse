@@ -206,4 +206,8 @@ export function register(ctx: HandlerContext): void {
   registerWsHandler('watch_chat_message', (evt) => {
     watchChat.apply(evt.channel_id, evt.message);
   });
+
+  registerWsHandler('watch_chat_reaction', (evt) => {
+    watchChat.applyReaction(evt.data);
+  });
 }

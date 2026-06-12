@@ -443,5 +443,17 @@ export const chatApi = {
     return request<WatchChatMessage[]>(
       `/channels/${channelId}/watch-party/chat?limit=${limit}`
     );
+  },
+  /** Toggle an emoji reaction on a watch-party chat message (ephemeral, 6h TTL).
+   *  Idempotent per call — a second toggle with the same emoji removes it. */
+  toggleWatchChatReaction(
+    channelId: string,
+    messageId: string,
+    emoji: string
+  ): Promise<{ emoji: string; count: number; me: boolean }> {
+    return request<{ emoji: string; count: number; me: boolean }>(
+      `/channels/${channelId}/watch-party/chat/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      { method: 'PUT' }
+    );
   }
 };

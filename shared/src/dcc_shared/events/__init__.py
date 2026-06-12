@@ -13,6 +13,7 @@ this registry.
     - ``message``, ``message_update``, ``message_delete``
     - ``reaction_add``, ``reaction_remove``
     - ``stream_chat_message``, ``watch_chat_message``
+    - ``watch_chat_reaction``
 
 * ``user:events`` (direct-delivery to one user — wrapper adds
   ``_target_user_id`` for routing, stripped by listener):
@@ -74,6 +75,8 @@ from dcc_shared.events.chat import (
     StreamChatMessagePayload,
     TypingEvent,
     WatchChatMessageEvent,
+    WatchChatReactionData,
+    WatchChatReactionEvent,
 )
 from dcc_shared.events.community import (
     CommunityInviteReceivedEvent,
@@ -133,6 +136,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "reaction_remove": ReactionRemoveEvent,
     "stream_chat_message": StreamChatMessageEvent,
     "watch_chat_message": WatchChatMessageEvent,
+    "watch_chat_reaction": WatchChatReactionEvent,
     # ---- channel-bump / dm-bump (cross-channel notification)
     "channel_bump": ChannelBumpEvent,
     "dm_bump": DmBumpEvent,
@@ -200,6 +204,8 @@ __all__ = [
     "StreamChatMessagePayload",
     "TypingEvent",
     "WatchChatMessageEvent",
+    "WatchChatReactionData",
+    "WatchChatReactionEvent",
     # friends
     "FriendRemovedEvent",
     "FriendRequestAcceptedEvent",

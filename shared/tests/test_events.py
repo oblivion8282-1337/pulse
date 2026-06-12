@@ -95,6 +95,16 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
             "created_at": "2026-05-23T12:00:00Z",
         },
     },
+    "watch_chat_reaction": {
+        "op": "watch_chat_reaction",
+        "data": {
+            "message_id": "1",
+            "channel_id": "10",
+            "user_id": "11",
+            "emoji": "🔥",
+            "added": True,
+        },
+    },
     "channel_bump": {
         "op": "channel_bump",
         "guild_id": "5",

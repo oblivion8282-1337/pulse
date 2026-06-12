@@ -96,6 +96,27 @@ class WatchChatMessageEvent(_EventBase):
     message: StreamChatMessagePayload
 
 
+class WatchChatReactionData(_EventBase):
+    message_id: str
+    channel_id: str
+    user_id: str
+    emoji: str
+    added: bool
+
+
+class WatchChatReactionEvent(_EventBase):
+    """``op="watch_chat_reaction"`` — a single user toggled an emoji
+    reaction on a watch-party chat message. Ephemeral (Redis-backed,
+    no DB). Fanned out on the same per-channel pubsub as the messages.
+
+    Per-user delta (``user_id`` + ``added``) mirrors the normal chat's
+    ``reaction_add``/``reaction_remove``: each client folds it into the
+    message's aggregate and derives ``me`` from its own user id."""
+
+    op: Literal["watch_chat_reaction"] = "watch_chat_reaction"
+    data: WatchChatReactionData
+
+
 # ---- Cross-channel notifications (user:events / guild:events) --------------
 
 

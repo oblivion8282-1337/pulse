@@ -43,6 +43,103 @@ WATCH_CHAT_KEY = "watch:chat:channel-{channel_id}"
 WATCH_CHAT_TTL_S = 6 * 3600
 WATCH_CHAT_MAX = 200
 
+# Ephemeral reaction store for the watch-party chat. One Redis Hash per
+# channel; field = <message_id>, value = JSON ``{"<emoji>": ["<uid>", ...]}``.
+# Same 6h TTL as the chat list, refreshed on every toggle.
+WATCH_CHAT_REACT_KEY = "watch:chat:react:channel-{channel_id}"
+
+# Atomically toggle one user's reaction for (message, emoji) inside the
+# per-channel reactions hash, race-safe against concurrent toggles.
+#   KEYS[1] = reactions hash key
+#   ARGV[1] = message_id (hash field)
+#   ARGV[2] = emoji
+#   ARGV[3] = user_id
+#   ARGV[4] = TTL seconds
+# Returns a 2-element array {added, count}:
+#   added = 1 if the user_id was inserted, 0 if it was removed.
+#   count = the emoji's new reactor count (after the toggle).
+# Empty emoji lists and empty message fields are pruned so the hash never
+# accumulates dead entries.
+_LUA_TOGGLE_REACTION = """
+local raw = redis.call('HGET', KEYS[1], ARGV[1])
+local data = {}
+if raw then data = cjson.decode(raw) end
+local emoji = ARGV[2]
+local uid = ARGV[3]
+local users = data[emoji] or {}
+local found = -1
+for i, u in ipairs(users) do
+    if u == uid then found = i break end
+end
+local added
+if found >= 0 then
+    table.remove(users, found)
+    added = 0
+else
+    table.insert(users, uid)
+    added = 1
+end
+local count = #users
+if count > 0 then
+    data[emoji] = users
+else
+    data[emoji] = nil
+end
+-- Re-encode; if the message has no reactions left, drop the field entirely.
+local remaining = 0
+for _ in pairs(data) do remaining = remaining + 1 end
+if remaining > 0 then
+    redis.call('HSET', KEYS[1], ARGV[1], cjson.encode(data))
+else
+    redis.call('HDEL', KEYS[1], ARGV[1])
+end
+redis.call('EXPIRE', KEYS[1], tonumber(ARGV[4]))
+return {added, count}
+"""
+
+
+async def toggle_chat_reaction(
+    redis: Redis, channel_id: str, message_id: str, emoji: str, user_id: str
+) -> tuple[bool, int]:
+    """Toggle ``user_id``'s reaction for ``(message_id, emoji)`` atomically.
+
+    Returns ``(added, count)`` — ``added`` True if the reaction was inserted
+    (False if it was removed), ``count`` the emoji's new reactor count."""
+    res = await redis.eval(  # type: ignore[arg-type]
+        _LUA_TOGGLE_REACTION,
+        1,
+        WATCH_CHAT_REACT_KEY.format(channel_id=channel_id),
+        message_id,
+        emoji,
+        user_id,
+        str(WATCH_CHAT_TTL_S),
+    )
+    # redis-py returns a list of ints for the Lua array reply.
+    added, count = int(res[0]), int(res[1])
+    return bool(added), count
+
+
+async def read_chat_reactions(redis: Redis, channel_id: str) -> dict[str, dict[str, list[str]]]:
+    """All reactions for the channel as ``{message_id: {emoji: [uid, ...]}}``.
+
+    Missing / unparseable hash fields are skipped."""
+    raw = await redis.hgetall(WATCH_CHAT_REACT_KEY.format(channel_id=channel_id))
+    out: dict[str, dict[str, list[str]]] = {}
+    for field, value in (raw or {}).items():
+        mid = field.decode() if isinstance(field, bytes) else field
+        try:
+            data = json.loads(value.decode() if isinstance(value, bytes) else value)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        out[mid] = {
+            str(emoji): [str(u) for u in users]
+            for emoji, users in data.items()
+            if isinstance(users, list)
+        }
+    return out
+
 
 def now_ms() -> int:
     return int(time.time() * 1000)
