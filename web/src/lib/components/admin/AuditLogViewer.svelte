@@ -23,6 +23,7 @@
     report_resolved: m.audit_log_action_report_resolved,
     report_dismissed: m.audit_log_action_report_dismissed,
     ban: m.audit_log_action_ban,
+    unban: m.audit_log_action_unban,
     kick: m.audit_log_action_kick,
     message_delete: m.audit_log_action_message_delete,
     warn: m.audit_log_action_warn,

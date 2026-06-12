@@ -377,6 +377,7 @@
   "audit_log_action_report_dismissed": "Report dismissed",
   "audit_log_action_report_resolved": "Report resolved",
   "audit_log_action_role_change": "Role changed",
+  "audit_log_action_unban": "Unban",
   "audit_log_action_warn": "Warning",
   "audit_log_empty": "No moderation actions yet.",
   "audit_log_load_error": "Error: {message}",

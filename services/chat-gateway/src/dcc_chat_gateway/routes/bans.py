@@ -18,6 +18,7 @@ from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     Channel,
@@ -180,6 +181,16 @@ async def ban_user(
             )
         await session.delete(member)
 
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="ban",
+        target_kind="user",
+        target_id=user_id,
+        payload={"reason": payload.reason, "was_member": was_member},
+    )
+
     try:
         await session.commit()
     except IntegrityError:
@@ -227,5 +238,13 @@ async def unban_user(
     if row is None:
         raise HTTPException(404, detail="user is not banned")
     await session.delete(row)
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="unban",
+        target_kind="user",
+        target_id=user_id,
+    )
     await session.commit()
     await _publish_ban_event(request, "guild_ban_removed", guild_id, user_id)

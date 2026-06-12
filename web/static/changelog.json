@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.10",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Moderations-Protokoll erfasst mehr Aktionen",
+      "items": [
+        "Moderationsaktionen (Bann, Aufheben eines Banns, Kick, Rollenänderungen und das Löschen fremder Nachrichten) erscheinen jetzt im Moderations-Protokoll."
+      ]
+    },
+    {
       "id": "2026-06-12.9",
       "date": "2026-06-12",
       "style": "Sachlich",

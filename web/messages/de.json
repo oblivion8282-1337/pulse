@@ -377,6 +377,7 @@
   "audit_log_action_report_dismissed": "Report verworfen",
   "audit_log_action_report_resolved": "Report aufgelöst",
   "audit_log_action_role_change": "Rolle geändert",
+  "audit_log_action_unban": "Ban aufgehoben",
   "audit_log_action_warn": "Verwarnung",
   "audit_log_empty": "Noch keine Mod-Aktionen.",
   "audit_log_load_error": "Fehler: {message}",

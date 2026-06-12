@@ -7,6 +7,7 @@ from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
+from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     Channel,
@@ -578,6 +579,16 @@ async def kick_member(
         guild,
         user_id,
         detail="cannot kick a member with an equal or higher role",
+    )
+    # Audit only the moderator-initiated kick — ``leave_guild`` shares the same
+    # removal mechanics but is self-removal and intentionally not audited.
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="kick",
+        target_kind="user",
+        target_id=user_id,
     )
     await _remove_guild_member(session, request, guild_id, user_id, member)
 

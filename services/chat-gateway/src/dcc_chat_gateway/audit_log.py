@@ -7,12 +7,14 @@ there is intentionally **no update or delete path** for audit entries.
 Action-type strings in use (callers extend this list as needed):
   * ``report_resolved``   — report closed as "action taken"
   * ``report_dismissed``  — report closed as "no action"
+  * ``ban`` / ``unban``   — member banned / ban lifted (bans.py)
+  * ``kick``              — member kicked (guilds.py — moderator kick only,
+                            never the shared self-removal ``leave`` path)
+  * ``message_delete``    — moderator-deleted someone else's message (messages.py)
+  * ``role_change``       — role create / permission edit / delete (roles.py)
+  * ``instance_ban`` / ``instance_unban`` — instance-wide ban (admin_members.py)
 
-Future callers (Phase 4) will add:
-  * ``ban``               — member banned
-  * ``kick``              — member kicked
-  * ``message_delete``    — moderator-deleted message
-  * ``role_change``       — role permission edit
+Future callers may add:
   * ``permission_change`` — channel overwrite edit
 """
 

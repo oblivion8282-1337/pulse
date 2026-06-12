@@ -25,6 +25,7 @@ import asyncio
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 
+from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, Role
 from dcc_chat_gateway.permissions import Permissions, check_permission
@@ -129,6 +130,15 @@ async def create_role(
         mentionable=payload.mentionable,
     )
     session.add(role)
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="role_change",
+        target_kind="role",
+        target_id=role.id,
+        payload={"op": "create", "name": role.name, "permissions": str(role.permissions)},
+    )
     await session.commit()
     await session.refresh(role)
     await _publish(request, RoleCreatedEvent(role=_role_dict(role)))
@@ -175,6 +185,15 @@ async def patch_role(
     if payload.mentionable is not None:
         role.mentionable = payload.mentionable
 
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="role_change",
+        target_kind="role",
+        target_id=role.id,
+        payload={"op": "update", "name": role.name, "permissions": str(role.permissions)},
+    )
     await session.commit()
     await session.refresh(role)
     await _publish(request, RoleUpdatedEvent(role=_role_dict(role)))
@@ -210,6 +229,15 @@ async def delete_role(
             403, detail="cannot delete a role granting bits you do not yourself have"
         )
 
+    await write_audit_log(
+        session,
+        guild_id=guild_id,
+        actor_user_id=current.id,
+        action_type="role_change",
+        target_kind="role",
+        target_id=role_id,
+        payload={"op": "delete", "name": role.name},
+    )
     await session.delete(role)
     await session.commit()
     await _publish(

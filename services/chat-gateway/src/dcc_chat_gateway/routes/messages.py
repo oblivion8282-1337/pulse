@@ -19,6 +19,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway import ratelimit
+from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import (
     block_exists_either_way,
@@ -501,6 +502,21 @@ async def delete_message(
             raise HTTPException(403, detail="not allowed to delete this message")
 
     msg.deleted_at = datetime.now(UTC)
+    # Moderator-deleted someone else's message (guild only — DMs 403 above for
+    # non-authors). Self-deletes are not audited.
+    if msg.author_id != current.id and kind != "dm":
+        await write_audit_log(
+            session,
+            guild_id=ch.guild_id,
+            actor_user_id=current.id,
+            action_type="message_delete",
+            target_kind="message",
+            target_id=msg.id,
+            payload={
+                "channel_id": str(msg.channel_id),
+                "author_id": str(msg.author_id),
+            },
+        )
     # Reactions are no longer meaningful once the message is gone.
     await session.execute(
         delete(MessageReaction).where(MessageReaction.message_id == msg.id)
