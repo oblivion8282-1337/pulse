@@ -7,7 +7,7 @@
       "style": "Sachlich",
       "title": "Gelöschte Server verschwinden aus der Liste",
       "items": [
-        "Wenn ein Betreiber seinen Self-Host-Server löscht, verschwindet er jetzt automatisch aus der Server-Leiste — beim Betreiber sofort, bei allen anderen beim nächsten App-Start, mit kurzem Hinweis."
+        "Wenn ein Betreiber seinen Self-Host-Server löscht, verschwindet er jetzt automatisch aus der Server-Leiste — beim Betreiber sofort, bei allen anderen beim nächsten App-Start, mit kurzem Hinweis. Das gilt auch für Server, die über eine Einladung oder öffentliche Adresse hinzugefügt wurden."
       ]
     },
     {

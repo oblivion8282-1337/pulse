@@ -19,11 +19,11 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { CLOUD_HOSTNAME, serversStore } from '$lib/api/servers.svelte';
 import { removeServerLocally } from '$lib/api/server-removal';
+import { preCheckServer } from '$lib/api/server-info';
 
 export async function sweepDeletedServers(): Promise<void> {
-  // Ohne Self-Host-Einträge mit Instanz-ID gibt es nichts abzugleichen —
-  // dann auch kein Request.
-  const candidates = serversStore.servers.filter((s) => !s.isCloud && s.instance_id);
+  // Ohne Self-Host-Einträge gibt es nichts abzugleichen — dann auch kein Request.
+  const candidates = serversStore.servers.filter((s) => !s.isCloud);
   if (candidates.length === 0) return;
 
   let deleted: Set<string>;
@@ -46,7 +46,18 @@ export async function sweepDeletedServers(): Promise<void> {
   if (deleted.size === 0) return;
 
   for (const server of candidates) {
-    if (!deleted.has(server.instance_id!)) continue;
+    let instanceId = server.instance_id;
+    if (!instanceId) {
+      // Backfill: ältere Einträge (Invite-/Public-Join vor dem Fix in
+      // add-server-flow.ts) tragen keine instance_id. Von der CORS-offenen
+      // Server-Info des Hosts nachladen und persistieren — klappt nur,
+      // solange der Server noch antwortet; sonst beim nächsten Start wieder.
+      const pre = await preCheckServer(server.hostname, { timeoutMs: 5000 });
+      if (!pre.ok || !pre.info.instance_id) continue;
+      instanceId = pre.info.instance_id;
+      serversStore.update(server.id, { instance_id: instanceId });
+    }
+    if (!deleted.has(instanceId)) continue;
     removeServerLocally(server.id);
     toast.info(m.server_deleted_by_operator({ label: server.label }));
   }

@@ -124,7 +124,16 @@ export async function addServerWithCertLogin(args: {
   }
 
   sessionTokens.set(entry.id, result.session_token, Date.now() + result.expires_in * 1000);
-  serversStore.update(entry.id, { pairwise_sub: result.pairwise_sub });
+  serversStore.update(entry.id, {
+    pairwise_sub: result.pairwise_sub,
+    // instance_id aus der Verify-Antwort nachziehen: die Invite-/Public-Join-
+    // Pfade übergeben beim add() keine (nur der AddServerDialog kennt sie aus
+    // dem Pre-Check). Ohne sie kann der Sweep gelöschter Instanzen
+    // (deleted-instance-sweep.ts) den Eintrag nicht matchen.
+    ...(entry.instance_id == null && result.instance_id
+      ? { instance_id: result.instance_id }
+      : {}),
+  });
 
   // Optional: Invite-Code akzeptieren — gegen den NEUEN Server (per serverId-Route).
   let invite: AcceptInviteResult | null = null;
