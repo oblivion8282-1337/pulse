@@ -142,7 +142,8 @@
         serverId: activeServer.serverId,
         userId: myId,
         channelId: c.id,
-        channelName: c.name
+        channelName: c.name,
+        guildId: c.guild_id
       });
     }
   }
