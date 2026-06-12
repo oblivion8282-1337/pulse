@@ -94,7 +94,18 @@
         muted: false
       };
       if (source.type === 'twitch_live') options.channel = source.channel;
-      else options.video = source.embed_id;
+      else {
+        options.video = source.embed_id;
+        // VOD start offset (from a `?t=` link). Twitch's `time` option wants
+        // the "XhYmZs" format. Sync layer keeps everyone aligned afterwards.
+        if (source.start_seconds && source.start_seconds > 0) {
+          const total = Math.floor(source.start_seconds);
+          const h = Math.floor(total / 3600);
+          const mn = Math.floor((total % 3600) / 60);
+          const s = total % 60;
+          options.time = `${h}h${mn}m${s}s`;
+        }
+      }
       player = new Twitch.Player(elementId, options);
 
       const safeTime = () => (isLive ? 0 : Number(player?.getCurrentTime() ?? 0));

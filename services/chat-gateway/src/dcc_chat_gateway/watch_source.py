@@ -163,7 +163,11 @@ def parse_source(url: object) -> dict | None:
     if host in ("twitch.tv", "www.twitch.tv", "m.twitch.tv", "go.twitch.tv"):
         m = _TWITCH_VOD_PATH.match(u.path)
         if m:
-            return {"type": "twitch", "embed_id": m.group(1)}
+            out: dict = {"type": "twitch", "embed_id": m.group(1)}
+            start = _start_seconds(qs)
+            if start is not None:
+                out["start_seconds"] = start
+            return out
         # Live channel: exactly one path segment, not a reserved keyword,
         # matches the channel-name pattern. Anything multi-segment (clips,
         # /<name>/v/<id>, /<name>/clip/<slug>, etc.) is intentionally not

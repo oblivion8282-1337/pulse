@@ -15,7 +15,7 @@ export type WatchSourceYouTube = {
   embed_id: string;
   start_seconds?: number;
 };
-export type WatchSourceTwitch = { type: 'twitch'; embed_id: string };
+export type WatchSourceTwitch = { type: 'twitch'; embed_id: string; start_seconds?: number };
 /** Twitch live channel embed. No seek/position — the watch-party tile
  * treats this as a passive shared embed (no heartbeat, no drift sync). */
 export type WatchSourceTwitchLive = { type: 'twitch_live'; channel: string };

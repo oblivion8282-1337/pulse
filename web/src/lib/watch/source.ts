@@ -123,7 +123,12 @@ export function parseSource(input: string): WatchSource | null {
   // Twitch VOD + live channel.
   if (TWITCH_HOSTS.has(host)) {
     const m = u.pathname.match(TWITCH_VOD_PATH);
-    if (m) return { type: 'twitch', embed_id: m[1] };
+    if (m) {
+      const out: WatchSource = { type: 'twitch', embed_id: m[1] };
+      const s = startSeconds(params);
+      if (s !== undefined) out.start_seconds = s;
+      return out;
+    }
     // Live channel: single path segment, not reserved, matches name regex.
     // Multi-segment paths (clips, /v/, /clip/) are intentionally not v1.
     const parts = u.pathname.split('/').filter(Boolean);

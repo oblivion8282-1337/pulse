@@ -86,6 +86,13 @@ def test_parse_twitch_vod():
     assert s == {"type": "twitch", "embed_id": "1234567890"}
 
 
+def test_parse_twitch_vod_start_seconds():
+    s = parse_source("https://www.twitch.tv/videos/1234567890?t=1h2m3s")
+    assert s == {"type": "twitch", "embed_id": "1234567890", "start_seconds": 3723}
+    s2 = parse_source("https://www.twitch.tv/videos/1234567890?t=90")
+    assert s2 == {"type": "twitch", "embed_id": "1234567890", "start_seconds": 90}
+
+
 def test_parse_twitch_live_channel():
     s = parse_source("https://www.twitch.tv/xqc")
     assert s == {"type": "twitch_live", "channel": "xqc"}
