@@ -1,5 +1,11 @@
 <!--
-  Privacy settings pane: DM-policy, friend-request policy, discoverability.
+  Privacy settings pane: friend-request policy, discoverability.
+
+  The DM-policy control was removed: direct messages are governed by the
+  friend-gate (you can only open a DM with a friend), which supersedes the
+  old per-user dm_policy ladder — three of its four values were no-ops under
+  the gate, so the setting only looked like it did something. The backend
+  column stays (inert) to avoid a destructive migration.
 
   Pattern matches SettingsNotifications: optimistic store update, REST
   call fire-and-forget with toast on failure. The store.update() call is
@@ -7,21 +13,10 @@
   re-seeds if anything diverges.
 -->
 <script lang="ts">
-  import { privacy, DM_POLICY, FRIEND_REQ_POLICY } from '$lib/stores/privacy.svelte';
+  import { privacy, FRIEND_REQ_POLICY } from '$lib/stores/privacy.svelte';
   import { friendsApi } from '$lib/api/friends';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
-
-  const DM_OPTIONS = [
-    { value: DM_POLICY.EVERYONE, label: m.settings_privacy_dm_everyone_label(), description: m.settings_privacy_dm_everyone_desc() },
-    {
-      value: DM_POLICY.SERVER_MEMBERS,
-      label: m.settings_privacy_dm_server_members_label(),
-      description: m.settings_privacy_dm_server_members_desc()
-    },
-    { value: DM_POLICY.FRIENDS_ONLY, label: m.settings_privacy_dm_friends_only_label(), description: m.settings_privacy_dm_friends_only_desc() },
-    { value: DM_POLICY.NOBODY, label: m.settings_privacy_dm_nobody_label(), description: m.settings_privacy_dm_nobody_desc() }
-  ];
 
   const FR_OPTIONS = [
     {
@@ -52,10 +47,6 @@
     }
   }
 
-  function setDmPolicy(v: number) {
-    void savePatch({ dm_policy: v });
-  }
-
   function setFrPolicy(v: number) {
     void savePatch({ friend_request_policy: v });
   }
@@ -72,28 +63,6 @@
       {m.settings_privacy_subtitle()}
     </p>
   </div>
-
-  <!-- DM-Policy -->
-  <section class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4">
-    <span class="text-text-bright text-sm font-medium">{m.settings_privacy_dm_section_title()}</span>
-    {#each DM_OPTIONS as opt (opt.value)}
-      <label class="flex cursor-pointer items-start gap-3 text-sm">
-        <input
-          type="radio"
-          name="dm_policy"
-          value={opt.value}
-          class="accent-[var(--brand)] mt-0.5"
-          checked={privacy.current.dm_policy === opt.value}
-          onchange={() => setDmPolicy(opt.value)}
-          data-testid="privacy-dm-{opt.value}"
-        />
-        <span class="flex flex-col gap-0.5">
-          <span class="text-text-bright">{opt.label}</span>
-          <span class="text-text-muted text-xs">{opt.description}</span>
-        </span>
-      </label>
-    {/each}
-  </section>
 
   <!-- Friend-Request-Policy -->
   <section class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4">

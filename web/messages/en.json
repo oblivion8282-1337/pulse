@@ -172,6 +172,7 @@
   "admin_normal_stream_limits_saving": "Saving…",
   "admin_cam_limits_title": "Webcam Limits",
   "admin_cam_limits_description": "Maximum capture resolution and frame rate for participant webcams in voice channels. Best-effort, enforced on the publishing client.",
+  "admin_cam_limits_advisory": "Note: this is a default applied by clients, not a hard server limit — it is not enforced server-side, so a modified client could exceed it.",
   "admin_cam_limits_max_resolution": "Maximum Resolution",
   "admin_cam_limits_max_resolution_desc": "Webcams capture at most this resolution (downscaled if the camera is larger).",
   "admin_cam_limits_max_fps": "Maximum Frame Rate",

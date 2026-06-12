@@ -4,9 +4,13 @@ Numeric values are stored as ``SMALLINT`` in ``user_privacy``. Keeping
 them as plain ints (vs. a DB enum) means a new policy needs only a
 constant here + route-side handling, no migration.
 
-* ``DM_POLICY_*`` controls who can open a DM with this user:
-    - 0 EVERYONE       — anyone with the user id can DM (current default
-                          behaviour, pre-privacy-feature)
+* ``DM_POLICY_*`` was the original who-can-DM ladder. It is **no longer
+   surfaced or enforced**: DMs are governed by the friend-gate in
+   ``routes/dms.py`` (you can only open a DM with a friend), which makes three
+   of the four values no-ops. The settings UI control was removed; the column
+   is kept (inert) to avoid a destructive migration. Values retained for the
+   stored data + API contract:
+    - 0 EVERYONE       — anyone with the user id can DM (pre-privacy default)
     - 1 SERVER_MEMBERS — must share at least one guild
     - 2 FRIENDS_ONLY   — must be on the friends list
     - 3 NOBODY         — DMs from non-friends rejected even after a

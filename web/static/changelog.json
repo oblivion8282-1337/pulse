@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.13",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "Datenschutz-Einstellungen aufgeräumt",
+      "items": [
+        "Die Auswahl, wer dir Direktnachrichten schicken darf, wurde aus den Datenschutz-Einstellungen entfernt: Direktnachrichten sind ohnehin nur zwischen Freunden möglich, die Optionen hatten keine zusätzliche Wirkung.",
+        "Adminbereich: Beim Webcam-Limit steht jetzt dabei, dass es eine Vorgabe für Clients und keine erzwungene Server-Grenze ist."
+      ]
+    },
+    {
       "id": "2026-06-12.12",
       "date": "2026-06-12",
       "style": "Sachlich",

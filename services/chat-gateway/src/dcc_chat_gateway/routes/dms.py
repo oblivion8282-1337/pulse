@@ -171,6 +171,11 @@ async def create_or_get_dm_channel(
     # discovery (you'd find them in /users/search anyway).
     if await block_exists_either_way(session, current.id, target):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="blocked")
+    # The friend-gate is the DM access control. The target's ``dm_policy`` is
+    # intentionally NOT consulted: requiring friendship already enforces the
+    # strictest meaningful policy (friends-only), so the old ladder is redundant
+    # here (see friend_privacy.py). Don't "wire up" dm_policy without first
+    # deciding how it should interact with this gate — it's a product decision.
     if not await friendship_exists(session, current.id, target):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not_friends")
 

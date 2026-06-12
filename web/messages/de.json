@@ -172,6 +172,7 @@
   "admin_normal_stream_limits_saving": "Speichere…",
   "admin_cam_limits_title": "Webcam-Limits",
   "admin_cam_limits_description": "Maximale Aufnahme-Auflösung und Bildrate für Teilnehmer-Webcams in Sprach-Kanälen. Best-Effort, durchgesetzt auf dem sendenden Client.",
+  "admin_cam_limits_advisory": "Hinweis: Dies ist eine Vorgabe für Clients, keine harte Server-Grenze — sie wird serverseitig nicht erzwungen; ein modifizierter Client könnte sie überschreiten.",
   "admin_cam_limits_max_resolution": "Maximale Auflösung",
   "admin_cam_limits_max_resolution_desc": "Webcams nehmen höchstens mit dieser Auflösung auf (wird herunterskaliert, wenn die Kamera größer ist).",
   "admin_cam_limits_max_fps": "Maximale Bildrate",
