@@ -133,9 +133,23 @@ async def test_get_whep_url_returns_active_path(client, redis, auth_signer):
     try:
         r = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
         assert r.status_code == 200
-        assert r.json() == {"whep_url": f"http://stream.test:8889/{path}/whep"}
+        whep_url = r.json()["whep_url"]
+        # URL points at the active nonce'd path and carries a read token.
+        base, _, query = whep_url.partition("?")
+        assert base == f"http://stream.test:8889/{path}/whep"
+        assert query.startswith("token=")
+        read_token = query[len("token=") :]
+
+        # The token resolves to a channel+publisher-bound read record in Redis.
+        raw = await redis.get(TOKEN_KEY.format(token=read_token))
+        assert raw is not None
+        rec = json.loads(raw)
+        assert rec["scope"] == "read"
+        assert rec["channel_id"] == cid
+        assert rec["user_id"] == "42"
     finally:
         await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id="42"))
+        await redis.delete(TOKEN_KEY.format(token=read_token))
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-12.12",
+      "date": "2026-06-12",
+      "style": "Sachlich",
+      "title": "HQ-Streams nur noch für Mitglieder sichtbar",
+      "items": [
+        "Ein HQ-Stream lässt sich jetzt nur noch ansehen, wenn man Mitglied der jeweiligen Community ist und Zugriff auf den Kanal hat. Für Mitglieder ändert sich nichts."
+      ]
+    },
+    {
       "id": "2026-06-12.11",
       "date": "2026-06-12",
       "style": "Sachlich",

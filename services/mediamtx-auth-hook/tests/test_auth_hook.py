@@ -217,11 +217,77 @@ async def test_publish_non_channel_path_denied(client, redis):
 
 
 @pytest.mark.asyncio
-async def test_read_on_channel_allowed_anonymously(client):
+async def test_read_with_valid_token_allowed(client, redis):
+    cid = _unique_cid()
+    token = "read-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id="1", scope="read")
+    try:
+        r = await client.post("/", json=_body("read", _ch_path(cid, "1"), token=token))
+        assert r.status_code == 200
+        r = await client.post("/", json=_body("playback", _ch_path(cid, "1"), token=token))
+        assert r.status_code == 200
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_read_without_token_denied(client):
     cid = _unique_cid()
     r = await client.post("/", json=_body("read", _ch_path(cid, "1")))
-    assert r.status_code == 200
-    r = await client.post("/", json=_body("playback", _ch_path(cid, "1")))
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_read_with_publish_scope_token_denied(client, redis):
+    cid = _unique_cid()
+    token = "pub-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id="1", scope="publish")
+    try:
+        r = await client.post("/", json=_body("read", _ch_path(cid, "1"), token=token))
+        assert r.status_code == 401
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_read_token_for_other_channel_denied(client, redis):
+    cid = _unique_cid()
+    other = _unique_cid()
+    token = "read-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=other, user_id="1", scope="read")
+    try:
+        r = await client.post("/", json=_body("read", _ch_path(cid, "1"), token=token))
+        assert r.status_code == 401
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_read_token_not_consumed_multi_use(client, redis):
+    """A WHEP handshake auths multiple times (OPTIONS + POST) and reconnects —
+    the read token must survive repeated reads, unlike single-use publish."""
+    cid = _unique_cid()
+    token = "read-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id=cid, user_id="1", scope="read")
+    try:
+        for _ in range(3):
+            r = await client.post("/", json=_body("read", _ch_path(cid, "1"), token=token))
+            assert r.status_code == 200
+        assert await redis.get(TOKEN_KEY.format(token=token)) is not None
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_read_anonymous_when_disabled(client, monkeypatch):
+    from dcc_mediamtx_auth_hook import routes as hook_routes
+    from dcc_mediamtx_auth_hook.config import Settings
+
+    monkeypatch.setattr(
+        hook_routes, "get_settings", lambda: Settings(read_token_required=False)
+    )
+    cid = _unique_cid()
+    r = await client.post("/", json=_body("read", _ch_path(cid, "1")))
     assert r.status_code == 200
 
 
@@ -262,13 +328,20 @@ async def test_extra_fields_tolerated(client):
 
 
 @pytest.mark.asyncio
-async def test_null_string_fields_tolerated(client):
+async def test_null_string_fields_tolerated(client, redis):
     # MediaMTX 1.17 emits JSON `null` for fields it doesn't set (e.g. `id` on
     # WHEP OPTIONS preflights). Older clients used to send "" here; both must
     # parse without 422 so the auth chain never breaks across MediaMTX builds.
-    body = _body("read", "channel-1-2-" + "deadbeef" * 4, protocol="webrtc")
-    body["id"] = None
-    body["user"] = None
-    body["query"] = None
-    r = await client.post("/", json=body)
-    assert r.status_code == 200
+    token = "read-" + uuid.uuid4().hex
+    await _put_token(redis, token, channel_id="1", user_id="2", scope="read")
+    try:
+        body = _body(
+            "read", "channel-1-2-" + "deadbeef" * 4, protocol="webrtc", token=token
+        )
+        body["id"] = None
+        body["user"] = None
+        body["query"] = None
+        r = await client.post("/", json=body)
+        assert r.status_code == 200
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))

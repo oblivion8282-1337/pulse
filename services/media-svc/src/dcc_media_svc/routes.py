@@ -245,5 +245,27 @@ async def get_whep_url(
     path = data.get("path") if isinstance(data, dict) else None
     if not isinstance(path, str) or not path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
-    base = get_settings().mediamtx_public_base.rstrip("/")
-    return WhepOut(whep_url=f"{base}/{path}/whep")
+    s = get_settings()
+
+    # Mint a short-lived, channel+publisher-bound read token. The caller already
+    # cleared chat-gateway's membership + VIEW_CHANNEL gate (and the bearer is
+    # verified above), so issuing it here is safe. Embedded as ``?token=`` →
+    # MediaMTX forwards it to the auth-hook, which rejects anonymous reads.
+    # Unlike single-use publish tokens, read tokens are never consumed (WHEP
+    # does an OPTIONS preflight + POST, and clients re-auth on reconnect); the
+    # TTL bounds their lifetime instead.
+    read_token = secrets.token_urlsafe(32)
+    read_record = {
+        "channel_id": channel_id,
+        "user_id": user_id,
+        "scope": "read",
+        "protocol": "webrtc",
+        "created_at": int(time.time()),
+    }
+    await redis.set(
+        TOKEN_KEY.format(token=read_token),
+        json.dumps(read_record, separators=(",", ":")),
+        ex=s.read_token_ttl_s,
+    )
+    base = s.mediamtx_public_base.rstrip("/")
+    return WhepOut(whep_url=f"{base}/{path}/whep?token={read_token}")

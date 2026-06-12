@@ -21,9 +21,12 @@ Policy:
                                              On success we also write ``stream:active:channel-<id>``
                                              → {user_id, started_at} (TTL self-heal) so media-svc's
                                              poller can attribute the stream.
-  * ``read`` / ``playback`` on ``channel-<id>`` → 200 (anonymous read, as today).
-        # TODO(T5b/later): require a Pulse member-token here and check channel
-        # membership via chat-gateway before allowing reads.
+  * ``read`` / ``playback`` on ``channel-<id>`` → 200 iff ``token`` (the
+                                             ``?token=`` query MediaMTX forwards) names a Redis
+                                             ``stream:token:<…>`` record with scope ``read`` whose
+                                             ``channel_id`` + ``user_id`` match the path; else 401.
+                                             Read tokens are NOT consumed (multi-use within TTL).
+                                             Disable via ``read_token_required=false`` (anonymous).
   * everything else / non-channel paths    → 401.
 """
 
@@ -221,9 +224,25 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
     if action in _READ_ACTIONS:
         if cu is None:
             raise _deny("read_non_channel_path", path=req.path)
-        # TODO(later): require a Pulse member-token here and check channel
-        # membership via chat-gateway before allowing reads. For now reads are
-        # anonymous.
+        channel_id, path_user_id, _path_nonce = cu
+        if not get_settings().read_token_required:
+            return  # 200 — anonymous reads (fallback / self-host)
+        # Read tokens are validated but NOT consumed: a WHEP handshake triggers
+        # multiple auth calls (OPTIONS preflight + POST) and clients re-auth on
+        # reconnect, so single-use would break playback. The TTL bounds them.
+        rec = await _peek_token(redis, req.credential)
+        if rec is None:
+            raise _deny("read_unknown_token", path=req.path)
+        if rec.get("scope") != "read":
+            raise _deny("read_wrong_scope", path=req.path, scope=rec.get("scope"))
+        if str(rec.get("channel_id")) != channel_id:
+            raise _deny(
+                "read_channel_mismatch", path=req.path, token_channel=rec.get("channel_id")
+            )
+        if str(rec.get("user_id") or "") != path_user_id:
+            raise _deny(
+                "read_user_mismatch", path=req.path, token_user=rec.get("user_id")
+            )
         return  # 200
 
     raise _deny("unknown_action", action=action, path=req.path)

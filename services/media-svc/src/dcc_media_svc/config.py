@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     # presented on stream start and remains valid for the connection's lifetime.
     token_ttl_s: int = 60 * 60 * 4  # 4h
 
+    # Read-token TTL — minted per WHEP-URL request (after chat-gateway's
+    # membership/VIEW_CHANNEL gate) and embedded as ``?token=`` so the auth-hook
+    # can verify a viewer was authorised. Only needs to outlive connection setup;
+    # the WhepPlayer re-fetches a fresh URL (and token) on every reconnect.
+    read_token_ttl_s: int = 60 * 60  # 1h
+
     # Self-heal TTL on `stream:channel:*` — bounded so a lost poller can't leave
     # a ghost "active" state forever (the poller normally clears it eagerly).
     channel_state_ttl_s: int = 60 * 60 * 6  # 6h

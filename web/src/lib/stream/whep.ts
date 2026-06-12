@@ -16,8 +16,10 @@
  *
  * Reference for the mechanics: `~/Dokumente/GPU_Screen_Recorder/server/player.html`
  * (a working WHEP player against this exact MediaMTX). We don't copy it; we
- * follow the pattern. Note: anonymous read — no token in the URL (member-auth
- * for reading HQ streams is a later step).
+ * follow the pattern. Note: the WHEP URL returned by the gateway already
+ * carries a `?token=` read token (minted after the membership/VIEW_CHANNEL
+ * check) — we pass the URL through verbatim; MediaMTX forwards the token to the
+ * auth-hook, which rejects anonymous reads.
  */
 
 /** Public STUN — MediaMTX with host networking usually doesn't need it, but
