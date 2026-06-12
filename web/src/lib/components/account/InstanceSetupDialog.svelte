@@ -269,6 +269,18 @@
             </ul>
           {/if}
         </div>
+
+        <!-- Manueller Pfad: Docker Compose statt Installer-Script -->
+        <p class="text-text-muted text-xs">
+          {m.instance_setup_manual_hint()}
+          <a
+            href="{installBase}/self-host/guide"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="hover:text-text-bright underline"
+            data-testid="instance-setup-manual-link">{m.instance_setup_manual_link()}</a
+          >
+        </p>
       </div>
 
       <div class="flex justify-end pt-2">

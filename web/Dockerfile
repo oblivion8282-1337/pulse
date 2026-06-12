@@ -39,4 +39,7 @@ COPY infra/self-host/docker-compose.yml \
      infra/self-host/docker-compose.behind-proxy.yml \
      /usr/share/nginx/html/self-host/
 COPY infra/self-host/.env.example /usr/share/nginx/html/self-host/env.example
+# Die Self-Host-Anleitung selbst — verlinkt aus dem InstanceSetupDialog,
+# erreichbar als https://howispulse.com/self-host/guide (text/plain).
+COPY docs/SELF_HOST.md /usr/share/nginx/html/self-host/guide
 EXPOSE 80

@@ -916,6 +916,8 @@
   "instance_setup_explain_2": "Richtet HTTPS automatisch ein (eigenes Let’s-Encrypt-Zertifikat oder hinter deinem Reverse-Proxy).",
   "instance_setup_explain_3": "Meldet die Instanz einmalig bei der Cloud an — der Token wird dabei verbraucht und kann nicht wiederverwendet werden.",
   "instance_setup_explain_inspect": "Script ansehen",
+  "instance_setup_manual_hint": "Du willst den Server lieber selbst verwalten, ohne Installer-Script?",
+  "instance_setup_manual_link": "Anleitung für die manuelle Installation (Docker Compose)",
   "instance_setup_close": "Schließen",
   "invite_back_to_app": "Zurück zur App",
   "invite_cancel": "Abbrechen",
