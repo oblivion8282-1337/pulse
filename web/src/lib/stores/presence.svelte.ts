@@ -17,6 +17,8 @@
  * ``presence_update`` only flips the boolean.
  */
 
+import { currentServerUserId } from '$lib/stores/currentServerUser';
+
 export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline';
 export type OwnPresenceStatus = 'online' | 'idle' | 'dnd' | 'invisible';
 
@@ -72,6 +74,11 @@ class PresenceStore {
   }
 
   isOnline(userId: string): boolean {
+    // Eigener User: aus dem ECHTEN Selbst-Status ableiten, nicht aus der
+    // Legacy-Online-Menge (der eigene Socket ist immer "online"). Unsichtbar
+    // muss sich für einen selbst wie offline lesen — sonst sieht man sich oben
+    // in der "Online"-Gruppe, während alle anderen einen offline sehen.
+    if (userId === currentServerUserId()) return this.myStatus !== 'invisible';
     // Den autoritativen Status-Map ZUERST konsultieren: ``onlineIds`` ist die
     // server-lokale Legacy-Menge, die ``seed()`` bei jedem ready komplett
     // ersetzt — ein Switch auf einen Self-Host (dessen ready ``seed`` mit den
@@ -87,8 +94,14 @@ class PresenceStore {
   }
 
   /** Resolve the status string for ``userId`` — the canonical helper for
-   *  any presence-dot rendering. Returns ``'offline'`` when unknown. */
+   *  any presence-dot rendering. Returns ``'offline'`` when unknown. For the
+   *  caller themselves the real ``myStatus`` is used (invisible → offline-
+   *  looking grey dot), so you never see yourself as online while invisible. */
   displayStatus(userId: string): PresenceStatus {
+    if (userId === currentServerUserId()) {
+      const s = this.myStatus;
+      return s === 'invisible' ? 'offline' : s;
+    }
     return this.statuses[userId] ?? 'offline';
   }
 
