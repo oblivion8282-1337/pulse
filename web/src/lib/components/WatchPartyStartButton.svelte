@@ -3,7 +3,8 @@
   start dialog: several parties can run in one channel at once (like multiple
   streams), so this only ever *adds* a party. Stopping is per-tile (the host
   uses the stop control on the party's own tile). The freshly-created party's
-  tile auto-opens for the host via the `watch_started` ack.
+  tile auto-opens for the host via the `watch_started` ack. Turns red while at
+  least one party is live in the channel — a visual "active" cue.
 
   Dialog instead of a popover because the VoiceControlBar sits in the
   channel-list aside which has overflow-hidden — a popover would clip.
@@ -15,6 +16,7 @@
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
   import { toast } from 'svelte-sonner';
   import { gateway } from '$lib/ws/connection';
+  import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { parseSource } from '$lib/watch/source';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -27,6 +29,10 @@
   let open = $state(false);
   let url = $state('');
 
+  // Red "active" cue when at least one party runs in this channel. The button
+  // still only ever STARTS a party (a click opens the dialog to add another) —
+  // stopping is per-tile — but the colour signals that one is live here.
+  const active = $derived(watchPartyPresence.hasAnyParty(channelId));
   const parsed = $derived(url.trim() ? parseSource(url.trim()) : null);
   const showParseError = $derived(url.trim().length > 0 && parsed === null);
 
@@ -66,7 +72,7 @@
       {#snippet child({ props })}
         <Button
           {...props}
-          variant="ghost"
+          variant={active ? 'destructive' : 'ghost'}
           size="icon-sm"
           class="size-9 md:size-8"
           onclick={() => (open = true)}
