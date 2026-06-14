@@ -4,6 +4,7 @@
   import { toast } from 'svelte-sonner';
   import { goto } from '$app/navigation';
   import { auth } from '$lib/stores/auth.svelte';
+  import { nameStyle } from '$lib/utils/nameColor';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
@@ -201,7 +202,10 @@
           >
             {@render avatarBlock('size-8')}
             <div class="min-w-0 text-left">
-              <p class="text-text-bright truncate text-sm font-semibold">{displayName}</p>
+              <p
+                class="text-text-bright truncate text-sm font-semibold"
+                style={auth.user ? nameStyle(auth.user.id) : ''}
+              >{displayName}</p>
               {#if displayName !== username}
                 <p class="text-text-muted truncate text-xs">{username}</p>
               {/if}

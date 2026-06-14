@@ -5,6 +5,7 @@
   import { page } from '$app/state';
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { userCache } from '$lib/stores/users.svelte';
+  import { nameStyle } from '$lib/utils/nameColor';
   import { readState } from '$lib/stores/readState.svelte';
   import { friendRequests } from '$lib/stores/friendRequests.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -98,7 +99,10 @@
             class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright"
           />
         {/if}
-        <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">
+        <span
+          class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}"
+          style={nameStyle(dm.other_user_id)}
+        >
           {displayName(dm)}
         </span>
         {#if isUnread}

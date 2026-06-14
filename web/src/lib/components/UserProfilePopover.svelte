@@ -26,7 +26,7 @@
   import PopoverFriendActions from './PopoverFriendActions.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { roles } from '$lib/stores/roles.svelte';
-  import { nameColor } from '$lib/utils/nameColor';
+  import { nameStyle } from '$lib/utils/nameColor';
   import { Perm } from '$lib/permissions/bitfield';
   import type { Snippet } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -85,7 +85,7 @@
     return name.slice(0, 1).toUpperCase();
   }
 
-  let displayColor = $derived(nameColor(userId, guildId ?? null));
+  let displayNameStyle = $derived(nameStyle(userId, guildId ?? null));
 </script>
 
 <PopoverPrimitive.Root bind:open>
@@ -114,7 +114,7 @@
         <div class="min-w-0 flex-1">
           <p
             class="text-text-bright truncate text-base font-semibold"
-            style={displayColor ? `color: ${displayColor}` : ''}
+            style={displayNameStyle}
           >{displayName}</p>
           {#if isSelf}
             <p class="text-text-muted text-xs">{m.user_profile_popover_this_is_you()}</p>
