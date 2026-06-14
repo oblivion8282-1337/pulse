@@ -24,7 +24,11 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import {
+    watchPartyPicker,
+    openPartyTile,
+    partySourceLabel
+  } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -453,12 +457,17 @@
             watchPartyHostUserIds={partyHostIds}
             userStates={memberStates}
             onPartyOpen={(uid) => {
-              for (const party of watchPartyPresence.partiesHostedBy(c.id, uid)) {
-                if (detachedWatchParties.has(c.id, party.party_id))
-                  detachedWatchParties.open(c.id, party.party_id);
-                else openedTiles.openParty(c.id, party.party_id);
-              }
-              onSelect(c);
+              watchPartyPicker.choose(
+                watchPartyPresence.partiesHostedBy(c.id, uid).map((party) => ({
+                  id: party.party_id,
+                  label: partySourceLabel(party),
+                  open: () => {
+                    openPartyTile(c.id, party);
+                    onSelect(c);
+                  }
+                })),
+                m.watch_party_picker_title()
+              );
             }}
             onLiveOpen={(uid) => {
               // Open whichever live source(s) this user actually has.

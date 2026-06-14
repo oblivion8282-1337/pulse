@@ -15,7 +15,11 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import {
+    watchPartyPicker,
+    openPartyTile,
+    partySourceLabel
+  } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { voice } from '$lib/voice/livekit.svelte';
   import { goto } from '$app/navigation';
@@ -157,22 +161,13 @@
   });
 
   function openMemberActivity(uid: string): void {
-    // Find any voice channel in this guild where this user is hosting a
-    // party or streaming — first match wins (rare to have multiple).
-    // Open the matching tiles via openedTiles (HQ + screen-share + party
-    // independently, whatever's active), then navigate. VoiceChannelView
-    // will mount the grid because hasAny(cid) is now true.
+    // LIVE badge: find the first voice channel in this guild where this user is
+    // HQ-streaming or screen-sharing, open those tiles, then navigate. Parties
+    // are handled separately by openMemberParty (its own badge).
     for (const c of guildChannels) {
-      const hostedParties = watchPartyPresence.partiesHostedBy(c.id, uid);
-      const matchParty = hostedParties.length > 0;
       const matchHq = streamPresence.streamersIn(c.id).includes(uid);
       const matchScreen = voicePresence.streamingIn(c.id).includes(uid);
-      if (!matchParty && !matchHq && !matchScreen) continue;
-      for (const party of hostedParties) {
-        if (detachedWatchParties.has(c.id, party.party_id))
-          detachedWatchParties.open(c.id, party.party_id);
-        else openedTiles.openParty(c.id, party.party_id);
-      }
+      if (!matchHq && !matchScreen) continue;
       if (matchHq) {
         if (detachedStreams.has(c.id, uid)) detachedStreams.open(c.id, uid);
         else openedTiles.open('hq', c.id, uid);
@@ -186,6 +181,22 @@
       void goto(`/app/guilds/${guildId}/channels/${c.id}`);
       return;
     }
+  }
+
+  function openMemberParty(uid: string): void {
+    // PARTY badge: collect every party this user hosts across the guild's voice
+    // channels. One → open + navigate directly; several → chooser dialog.
+    const entries = guildChannels.flatMap((c) =>
+      watchPartyPresence.partiesHostedBy(c.id, uid).map((party) => ({
+        id: party.party_id,
+        label: `${partySourceLabel(party)} · #${c.name}`,
+        open: () => {
+          openPartyTile(c.id, party);
+          void goto(`/app/guilds/${guildId}/channels/${c.id}`);
+        }
+      }))
+    );
+    watchPartyPicker.choose(entries, m.watch_party_picker_title());
   }
 </script>
 
@@ -230,6 +241,7 @@
             isOffline={!!group.offline}
             {canQuickRole}
             onActivityClick={openMemberActivity}
+            onPartyClick={openMemberParty}
             {onClose}
           />
         {/each}

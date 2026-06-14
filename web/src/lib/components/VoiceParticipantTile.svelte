@@ -12,7 +12,11 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import {
+    watchPartyPicker,
+    openPartyTile,
+    partySourceLabel
+  } from '$lib/watch/openParty.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -111,15 +115,16 @@
   }
 
   function openParty(): void {
-    // Open every party this participant hosts here (usually exactly one).
+    // One party → open directly; several → chooser dialog (openParty helper).
     if (!p.userId) return;
-    for (const party of watchPartyPresence.partiesHostedBy(channelId, p.userId)) {
-      if (detachedWatchParties.has(channelId, party.party_id)) {
-        detachedWatchParties.open(channelId, party.party_id); // focuses popup
-      } else {
-        openedTiles.openParty(channelId, party.party_id);
-      }
-    }
+    watchPartyPicker.choose(
+      watchPartyPresence.partiesHostedBy(channelId, p.userId).map((party) => ({
+        id: party.party_id,
+        label: partySourceLabel(party),
+        open: () => openPartyTile(channelId, party)
+      })),
+      m.watch_party_picker_title()
+    );
   }
 
   function openCam(): void {

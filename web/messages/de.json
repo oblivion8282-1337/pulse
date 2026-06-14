@@ -2155,6 +2155,7 @@
   "watch_chat_panel_rate_limited": "Zu schnell — bitte kurz warten",
   "watch_chat_panel_send_failed": "Nachricht konnte nicht gesendet werden",
   "watch_chat_panel_title": "Watch-Party-Chat",
+  "watch_party_picker_title": "Welche Watch Party öffnen?",
   "watch_party_start_button_already_running": "Watch Party läuft bereits",
   "watch_party_start_button_cancel": "Abbrechen",
   "watch_party_start_button_dialog_description": "YouTube, Twitch (VOD oder Live-Kanal) oder ein direkter mp4/webm-Link.",

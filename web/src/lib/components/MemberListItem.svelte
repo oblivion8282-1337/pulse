@@ -26,6 +26,7 @@
     isOffline,
     canQuickRole,
     onActivityClick,
+    onPartyClick,
     onClose
   }: {
     member: Member;
@@ -35,7 +36,10 @@
     isStreaming: boolean;
     isOffline: boolean;
     canQuickRole: boolean;
+    /** Click on the LIVE (stream / screen-share) badge. */
     onActivityClick: (uid: string) => void;
+    /** Click on the PARTY badge — opens (or lets you pick) the user's party. */
+    onPartyClick: (uid: string) => void;
     onClose?: () => void;
   } = $props();
 
@@ -142,8 +146,8 @@
                   <span
                     role="button"
                     tabindex="0"
-                    onclick={(e) => { e.stopPropagation(); onActivityClick(member.user_id); }}
-                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onActivityClick(member.user_id); } }}
+                    onclick={(e) => { e.stopPropagation(); onPartyClick(member.user_id); }}
+                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onPartyClick(member.user_id); } }}
                     class="rounded bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-primary-foreground hover:bg-primary/90 cursor-pointer"
                     data-testid="member-party-badge"
                     aria-label={m.member_list_item_party_open_label({ name })}
