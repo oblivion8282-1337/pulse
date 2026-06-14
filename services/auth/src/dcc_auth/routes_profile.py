@@ -55,6 +55,7 @@ def _issue_statement(user: User, signer: JwtSigner) -> str:
         "display_name": user.display_name or user.username,
         "avatar_hash": user.avatar_hash,
         "profile_color": user.profile_color,
+        "profile_color_secondary": user.profile_color_secondary,
         # Per-user pairwise seed (mirrors the Identity-Cert). Self-host
         # instances key the cached profile by the pairwise-sub derived from
         # this, so the statement must carry it.
@@ -95,6 +96,9 @@ async def update_profile(
     if "profile_color" in sent:
         current.profile_color = payload.profile_color
         updated.append("profile_color")
+    if "profile_color_secondary" in sent:
+        current.profile_color_secondary = payload.profile_color_secondary
+        updated.append("profile_color_secondary")
     if updated:
         session.add(current)
         await session.commit()
@@ -105,6 +109,7 @@ async def update_profile(
         "display_name": current.display_name,
         "avatar_hash": current.avatar_hash,
         "profile_color": current.profile_color,
+        "profile_color_secondary": current.profile_color_secondary,
     }
 
 

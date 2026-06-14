@@ -44,7 +44,8 @@ async def mention_candidates(
     Response shape::
 
         [{"user_identifier": str, "username": str, "display_name": str,
-          "avatar_hash": str|null, "profile_color": str|null, "stale": bool}, ...]
+          "avatar_hash": str|null, "profile_color": str|null,
+          "profile_color_secondary": str|null, "stale": bool}, ...]
 
     Sorted ascending by ``username``.
 
@@ -106,6 +107,7 @@ async def mention_candidates(
             "display_name": p.display_name,
             "avatar_hash": p.avatar_hash,
             "profile_color": p.profile_color,
+            "profile_color_secondary": p.profile_color_secondary,
             "stale": p.stale,
         }
         for p in rows

@@ -17,7 +17,7 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { roleNameColor, sanitizeProfileColor } from '$lib/utils/nameColor';
+  import { nameStyle } from '$lib/utils/nameColor';
   import { m as pm } from '$lib/paraglide/messages.js';
 
   type ChatItem =
@@ -246,17 +246,11 @@
     return userCache.displayName(m.author_id);
   }
 
-  function authorColor(m: Message): string | null {
+  function authorStyle(m: Message): string {
     // Vorrang wie in der Mitgliederliste: Rollenfarbe der Community zuerst,
-    // sonst die Profilfarbe. Self-Detection wie in ``authorName`` über myId.
-    if (channel?.guild_id) {
-      const fromRole = roleNameColor(channel.guild_id, m.author_id);
-      if (fromRole) return fromRole;
-    }
-    const raw = auth.user && m.author_id === myId
-      ? auth.user.profile_color
-      : userCache.get(m.author_id)?.profile_color;
-    return sanitizeProfileColor(raw);
+    // sonst die Profilfarbe (ein- oder zweifarbig als Verlauf). nameStyle macht
+    // Self-Detection + Gradient-Rendering selbst.
+    return nameStyle(m.author_id, channel?.guild_id ?? null);
   }
 
   function avatarUrl(m: Message): string | null {
@@ -400,7 +394,7 @@
               <MessageItem
                 message={item.message}
                 authorName={authorName(item.message)}
-                authorColor={authorColor(item.message)}
+                authorStyle={authorStyle(item.message)}
                 replyTo={replyMetaFor(item.message)}
                 avatarUrl={avatarUrl}
                 isContinuation={item.isContinuation}

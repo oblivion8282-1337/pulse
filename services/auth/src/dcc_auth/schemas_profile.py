@@ -17,6 +17,7 @@ class ProfileStatement(BaseModel):
     display_name: str | None = None
     avatar_hash: str | None = None
     profile_color: str | None = None
+    profile_color_secondary: str | None = None
     iat: int
     exp: int
 
@@ -32,6 +33,14 @@ class ProfileUpdateRequest(BaseModel):
     # in ``style="color: …"`` — freie Strings könnten dort weitere
     # CSS-Deklarationen einschleusen (";font-size:…").
     profile_color: Annotated[
+        str | None,
+        Field(default=..., pattern=r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"),
+    ] = None
+    # Zweite Gradient-Farbe (Name-Verlauf profile_color → profile_color_secondary).
+    # Exakt parallel zu profile_color: gleiche Hex-Validierung, gleicher
+    # ``default=...``-Sentinel, damit ``model_fields_set`` zwischen "nicht
+    # gesendet" und "auf null gesetzt" unterscheiden kann.
+    profile_color_secondary: Annotated[
         str | None,
         Field(default=..., pattern=r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"),
     ] = None

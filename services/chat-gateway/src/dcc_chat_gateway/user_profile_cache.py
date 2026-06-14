@@ -213,12 +213,14 @@ async def upsert_profile_statement(
     # ── Step 9: upsert ────────────────────────────────────────────────────────
     avatar_hash: str | None = claims.get("avatar_hash")
     profile_color: str | None = claims.get("profile_color")
+    profile_color_secondary: str | None = claims.get("profile_color_secondary")
 
     if existing is not None:
         existing.username = username
         existing.display_name = display_name
         existing.avatar_hash = avatar_hash
         existing.profile_color = profile_color
+        existing.profile_color_secondary = profile_color_secondary
         existing.last_statement_iat = new_iat_dt
         existing.updated_at = datetime.now(tz=timezone.utc)
         existing.stale = False
@@ -232,6 +234,7 @@ async def upsert_profile_statement(
         display_name=display_name,
         avatar_hash=avatar_hash,
         profile_color=profile_color,
+        profile_color_secondary=profile_color_secondary,
         last_statement_iat=new_iat_dt,
         updated_at=datetime.now(tz=timezone.utc),
         stale=False,

@@ -9,6 +9,8 @@ export type UserSummary = {
   /** Hex-Namensfarbe aus den Profileinstellungen; optional, da ältere
    *  Seed-Aufrufer (und gemockte Test-Payloads) sie nicht mitsenden. */
   profile_color?: string | null;
+  /** Optionale zweite Farbe für einen Namens-Verlauf (profile_color → diese). */
+  profile_color_secondary?: string | null;
 };
 
 class UserCacheStore {
@@ -100,7 +102,9 @@ class UserCacheStore {
       const cached = this.byId[u.id];
       return !cached || cached.username !== u.username ||
         cached.display_name !== u.display_name || cached.avatar_url !== u.avatar_url ||
-        (u.profile_color !== undefined && cached.profile_color !== u.profile_color);
+        (u.profile_color !== undefined && cached.profile_color !== u.profile_color) ||
+        (u.profile_color_secondary !== undefined &&
+          cached.profile_color_secondary !== u.profile_color_secondary);
     });
     if (changed.length === 0) return;
     const next = { ...this.byId };

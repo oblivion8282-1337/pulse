@@ -25,6 +25,7 @@
   import AvatarUploadDialog from '$lib/components/AvatarUploadDialog.svelte';
 
   const DEFAULT_COLOR = '#9ca3af';
+  const DEFAULT_SECONDARY = '#22d3ee';
 
   let avatarOpen = $state(false);
   const avatarUrl = $derived(safeAvatarUrl(auth.user?.avatar_url));
@@ -43,6 +44,8 @@
   let displayName = $state('');
   let useColor = $state(false);
   let profileColor = $state(DEFAULT_COLOR);
+  let useGradient = $state(false);
+  let profileColorSecondary = $state(DEFAULT_SECONDARY);
   let lastSeededUserId = $state<string | null>(null);
 
   $effect(() => {
@@ -58,6 +61,9 @@
       const safeColor = sanitizeProfileColor(u.profile_color);
       useColor = !!safeColor;
       profileColor = safeColor ?? DEFAULT_COLOR;
+      const safeSecondary = sanitizeProfileColor(u.profile_color_secondary);
+      useGradient = !!safeColor && !!safeSecondary;
+      profileColorSecondary = safeSecondary ?? DEFAULT_SECONDARY;
     }
   });
 
@@ -73,6 +79,7 @@
         display_name: user.display_name ?? null,
         avatar_url: user.avatar_url ?? null,
         profile_color: user.profile_color ?? null,
+        profile_color_secondary: user.profile_color_secondary ?? null,
       },
     ]);
   }
@@ -123,19 +130,39 @@
   let profileError = $state<string | null>(null);
 
   const displayNameDirty = $derived(displayName.trim() !== initial.displayName);
-  const colorDirty = $derived(
-    useColor ? profileColor !== (initial.profileColor ?? DEFAULT_COLOR) : !!initial.profileColor,
+  // Gewünschter Zielzustand (Farbe aus, einfarbig, oder Verlauf) vs. gespeichert.
+  const desiredColor = $derived(useColor ? profileColor : null);
+  const desiredSecondary = $derived(useColor && useGradient ? profileColorSecondary : null);
+  const colorDirty = $derived(desiredColor !== sanitizeProfileColor(auth.user?.profile_color));
+  const secondaryDirty = $derived(
+    desiredSecondary !== sanitizeProfileColor(auth.user?.profile_color_secondary)
   );
-  const profileDirty = $derived(displayNameDirty || colorDirty);
+  const profileDirty = $derived(displayNameDirty || colorDirty || secondaryDirty);
+
+  // Live-Vorschau aus dem lokalen Buffer (nicht aus auth.user).
+  const previewStyle = $derived(
+    !useColor
+      ? ''
+      : useGradient
+        ? `background-image: linear-gradient(90deg, ${profileColor}, ${profileColorSecondary}); ` +
+          `-webkit-background-clip: text; background-clip: text; ` +
+          `color: transparent; -webkit-text-fill-color: transparent;`
+        : `color: ${profileColor}`
+  );
 
   async function submitProfile() {
     if (!profileDirty || profileBusy) return;
     profileBusy = true;
     profileError = null;
     try {
-      const payload: { display_name?: string | null; profile_color?: string | null } = {};
+      const payload: {
+        display_name?: string | null;
+        profile_color?: string | null;
+        profile_color_secondary?: string | null;
+      } = {};
       if (displayNameDirty) payload.display_name = displayName.trim() || null;
-      if (colorDirty) payload.profile_color = useColor ? profileColor : null;
+      if (colorDirty) payload.profile_color = desiredColor;
+      if (secondaryDirty) payload.profile_color_secondary = desiredSecondary;
       await updateProfile(payload);
       await refreshUser();
       toast.success(m.settings_profile_saved());
@@ -215,11 +242,31 @@
         />
         <span
           class="text-text-bright text-sm font-medium"
-          style={useColor ? `color: ${profileColor}` : ''}
+          style={previewStyle}
         >
           {auth.user?.display_name || auth.user?.username || m.settings_profile_color_preview()}
         </span>
       </div>
+      {#if useColor}
+        <div class="flex items-center gap-3 pl-1">
+          <label class="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              bind:checked={useGradient}
+              class="size-4"
+              data-testid="profile-gradient-toggle"
+            />
+            {m.settings_profile_use_gradient()}
+          </label>
+          <input
+            type="color"
+            bind:value={profileColorSecondary}
+            disabled={!useGradient}
+            class="h-8 w-12 cursor-pointer rounded border border-border bg-transparent disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid="profile-color-secondary-input"
+          />
+        </div>
+      {/if}
     </div>
 
     {#if profileError}

@@ -75,6 +75,7 @@ def _make_statement(
     display_name: str = "Alice",
     avatar_hash: str | None = "abc123",
     profile_color: str | None = "#ff0000",
+    profile_color_secondary: str | None = "#00ff00",
     purpose: str = "profile-statement",
     iat_offset: int = 0,
     exp_offset: int = 3600,
@@ -88,6 +89,7 @@ def _make_statement(
         "display_name": display_name,
         "avatar_hash": avatar_hash,
         "profile_color": profile_color,
+        "profile_color_secondary": profile_color_secondary,
         "purpose": purpose,
         "iat": now + iat_offset,
         "exp": now + exp_offset,
@@ -132,6 +134,7 @@ async def test_valid_statement_upserts_profile(session: AsyncSession):
     assert profile.display_name == "Alice"
     assert profile.avatar_hash == "abc123"
     assert profile.profile_color == "#ff0000"
+    assert profile.profile_color_secondary == "#00ff00"
     assert not profile.stale
 
 

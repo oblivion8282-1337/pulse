@@ -59,6 +59,7 @@ class CachedUserProfile(Base):
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     avatar_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     profile_color: Mapped[str | None] = mapped_column(Text, nullable=True)
+    profile_color_secondary: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_statement_iat: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

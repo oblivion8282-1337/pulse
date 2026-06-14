@@ -30,6 +30,9 @@ export type User = {
    *  Wert gesetzt ist; in dem Fall gewinnt eine Color-Rolle (falls vorhanden)
    *  oder die Default-Text-Farbe. Update läuft über POST /me/profile. */
   profile_color?: string | null;
+  /** Optionale zweite Farbe → der Name wird als Verlauf von profile_color nach
+   *  profile_color_secondary gerendert. null/fehlend = einfarbig. */
+  profile_color_secondary?: string | null;
 };
 
 export type Guild = {

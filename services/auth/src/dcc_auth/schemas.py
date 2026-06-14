@@ -81,6 +81,7 @@ class UserPublic(BaseModel):
     # Default-Werte im Color-Picker / Avatar-Anzeige.
     avatar_hash: str | None = None
     profile_color: str | None = None
+    profile_color_secondary: str | None = None
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:
@@ -98,6 +99,7 @@ class UserSummary(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     profile_color: str | None = None
+    profile_color_secondary: str | None = None
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:

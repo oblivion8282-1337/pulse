@@ -54,7 +54,8 @@ async def resolve_users(
     Response shape (matches the frontend ``UserSummary``)::
 
         [{"id": str, "username": str, "display_name": str|null,
-          "avatar_url": str|null, "profile_color": str|null}, ...]
+          "avatar_url": str|null, "profile_color": str|null,
+          "profile_color_secondary": str|null}, ...]
 
     Unknown ids are omitted (the client tombstones them). Requires a valid
     session token — any instance member — but no per-guild gate, since name
@@ -93,6 +94,7 @@ async def resolve_users(
             # in the profile-statement (None → initials fallback in the UI).
             "avatar_url": cloud_avatar_url(p.avatar_hash),
             "profile_color": p.profile_color,
+            "profile_color_secondary": p.profile_color_secondary,
         }
         for p in rows
     ]

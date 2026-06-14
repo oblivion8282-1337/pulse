@@ -9,7 +9,7 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
-  import { nameColor, idealTextColor } from '$lib/utils/nameColor';
+  import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -144,7 +144,7 @@
                 class="truncate text-sm transition-[color,font-weight] duration-200 ease-out {isSpeaking
                   ? 'text-text-bright font-semibold'
                   : 'text-text-base font-medium'}"
-                style={colour ? `color: ${colour}` : ''}
+                style={nameStyle(member.user_id, guildId)}
               >{name}</span>
               <span class="ml-auto flex shrink-0 items-center gap-1">
                 {#if isPartyHost}

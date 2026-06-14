@@ -6,7 +6,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameColor, idealTextColor } from '$lib/utils/nameColor';
+  import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -246,7 +246,7 @@
             class="text-text-bright max-w-28 truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
               ? 'font-bold'
               : 'font-semibold'}"
-            style={nameColour ? `color: ${nameColour}` : ''}
+            style={p.userId ? nameStyle(p.userId, guildId) : ''}
             title={resolvedName}
           >
             {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}

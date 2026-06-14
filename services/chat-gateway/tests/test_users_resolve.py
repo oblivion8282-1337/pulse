@@ -40,6 +40,7 @@ async def _seed(
     display_name,
     avatar_hash=None,
     profile_color=None,
+    profile_color_secondary=None,
 ):
     from dcc_chat_gateway.models.moderation import CachedUserProfile
 
@@ -52,6 +53,7 @@ async def _seed(
                 display_name=display_name,
                 avatar_hash=avatar_hash,
                 profile_color=profile_color,
+                profile_color_secondary=profile_color_secondary,
                 last_statement_iat=datetime.now(tz=timezone.utc),
                 stale=False,
             )
@@ -83,6 +85,7 @@ async def test_resolves_known_ids_to_user_summary(client, _auth_signer, session_
         "display_name": "Dev Display",
         "avatar_url": None,
         "profile_color": None,
+        "profile_color_secondary": None,
     }
 
 
@@ -107,11 +110,15 @@ async def test_avatar_hash_resolves_to_cloud_by_hash_url(
 @pytest.mark.asyncio
 async def test_profile_color_returned(client, _auth_signer, session_factory):
     token, _ = await _register(_auth_signer)
-    await _seed(session_factory, "pw-col", 333, "coco", "Coco", profile_color="#aabbcc")
+    await _seed(
+        session_factory, "pw-col", 333, "coco", "Coco",
+        profile_color="#aabbcc", profile_color_secondary="#ddeeff",
+    )
 
     r = await client.get("/users", params={"ids": "333"}, headers=_auth(token))
     assert r.status_code == 200, r.text
     assert r.json()[0]["profile_color"] == "#aabbcc"
+    assert r.json()[0]["profile_color_secondary"] == "#ddeeff"
 
 
 @pytest.mark.asyncio

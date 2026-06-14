@@ -1805,6 +1805,7 @@
   "settings_profile_title": "Profile",
   "settings_profile_unknown_error": "An unknown error occurred.",
   "settings_profile_use_color": "Use color",
+  "settings_profile_use_gradient": "Gradient (second colour)",
   "settings_profile_username_change_button": "Change username",
   "settings_profile_username_changed": "Username changed",
   "settings_profile_username_changing": "Changing…",

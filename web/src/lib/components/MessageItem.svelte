@@ -17,7 +17,7 @@
   let {
     message,
     authorName,
-    authorColor = null,
+    authorStyle = '',
     replyTo,
     avatarUrl = () => null,
     isContinuation = false,
@@ -33,8 +33,8 @@
   }: {
     message: Message;
     authorName: string;
-    /** Namensfarbe (Rollen-/Profilfarbe); null → Standard `text-text-bright`. */
-    authorColor?: string | null;
+    /** Fertiges Inline-`style` für den Namen (Farbe oder Verlauf); '' → Standard. */
+    authorStyle?: string;
     replyTo?: { id: string; author: string; snippet: string } | null;
     avatarUrl?: (m: Message) => string | null;
     isContinuation?: boolean;
@@ -229,7 +229,7 @@
       <div class="flex items-baseline gap-2">
         <span
           class="text-text-bright font-semibold"
-          style={authorColor ? `color: ${authorColor}` : ''}
+          style={authorStyle}
           data-testid="message-author">{authorName}</span>
         <span class="text-text-muted text-xs">{time}</span>
       </div>

@@ -52,7 +52,8 @@ async def test_cached_user_profiles_table_exists(engine):
 async def test_cached_user_profiles_columns(engine):
     expected = {
         "user_identifier", "username", "display_name", "avatar_hash",
-        "profile_color", "last_statement_iat", "updated_at", "stale",
+        "profile_color", "profile_color_secondary", "last_statement_iat",
+        "updated_at", "stale",
     }
     async with engine.connect() as conn:
         cols = await conn.run_sync(
@@ -136,6 +137,7 @@ async def test_cached_user_profile_insert(session_factory):
     assert profile.stale is False
     assert profile.avatar_hash is None
     assert profile.profile_color is None
+    assert profile.profile_color_secondary is None
     assert profile.updated_at is not None
 
 

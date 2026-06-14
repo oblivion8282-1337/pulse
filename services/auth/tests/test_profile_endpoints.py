@@ -143,6 +143,54 @@ async def test_profile_update_omitted_keys_unchanged(client):
 
 
 @pytest.mark.asyncio
+async def test_profile_color_secondary_round_trip(client):
+    r_reg = await client.post("/register", json={
+        "username": "grad_user", "email": "grad@dcc-test.example.com",
+        "password": "gradpassword1", "display_name": "Grad",
+    })
+    access = r_reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {access}"}
+    # Set both gradient colours in one request.
+    r = await client.post(
+        "/me/profile",
+        json={"profile_color": "#112233", "profile_color_secondary": "#aabbcc"},
+        headers=headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["profile_color"] == "#112233"
+    assert body["profile_color_secondary"] == "#aabbcc"
+    assert "profile_color_secondary" in body["updated"]
+    # GET /me must echo both colours back.
+    me = await client.get("/me", headers=headers)
+    assert me.status_code == 200
+    me_body = me.json()
+    assert me_body["profile_color"] == "#112233"
+    assert me_body["profile_color_secondary"] == "#aabbcc"
+    # Null clears just the secondary, leaving the primary intact.
+    r2 = await client.post(
+        "/me/profile", json={"profile_color_secondary": None}, headers=headers
+    )
+    assert r2.status_code == 200
+    assert r2.json()["profile_color_secondary"] is None
+    assert r2.json()["profile_color"] == "#112233"
+
+
+@pytest.mark.asyncio
+async def test_profile_color_secondary_invalid_rejected(client):
+    r_reg = await client.post("/register", json={
+        "username": "badcol_user", "email": "badcol@dcc-test.example.com",
+        "password": "badcolpassword1",
+    })
+    access = r_reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {access}"}
+    r = await client.post(
+        "/me/profile", json={"profile_color_secondary": "notacolor"}, headers=headers
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_profile_update_null_clears_field(client):
     r_reg = await client.post("/register", json={
         "username": "null_user", "email": "null@dcc-test.example.com", "password": "nullpassword1",
@@ -303,6 +351,8 @@ async def test_migration_0016_users_profile_color_column(engine):
     async with engine.connect() as conn:
         cols = await conn.run_sync(lambda c: sa_inspect(c).get_columns("users"))
     assert "profile_color" in {c["name"] for c in cols}
+    # Migration 0029 added the secondary gradient colour alongside it.
+    assert "profile_color_secondary" in {c["name"] for c in cols}
 
 
 @pytest.mark.asyncio

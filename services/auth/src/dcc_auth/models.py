@@ -54,6 +54,7 @@ class User(Base):
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     profile_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    profile_color_secondary: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Server-wide admin (one or a handful of users). Bootstrap via SQL.
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False

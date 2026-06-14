@@ -1813,6 +1813,7 @@
   "settings_profile_title": "Profil",
   "settings_profile_unknown_error": "Unbekannter Fehler.",
   "settings_profile_use_color": "Farbe verwenden",
+  "settings_profile_use_gradient": "Verlauf (zweite Farbe)",
   "settings_profile_username_change_button": "Benutzername ändern",
   "settings_profile_username_changed": "Benutzername geändert",
   "settings_profile_username_changing": "Ändert…",

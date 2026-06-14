@@ -58,8 +58,42 @@ export function nameColor(userId: string, guildId?: string | null): string | nul
     const fromRole = roleNameColor(guildId, userId);
     if (fromRole) return fromRole;
   }
-  if (auth.user && (userId === auth.user.id || userId === currentServerUserId())) {
-    return sanitizeProfileColor(auth.user.profile_color);
+  const [c1] = profileColors(userId);
+  return c1;
+}
+
+/** Beide Profilfarben des Users (primär, sekundär) als sanitisierte Hex-Werte
+ *  oder null. Eigener User aus `auth.user` (sofort aktuell), sonst userCache. */
+function profileColors(userId: string): [string | null, string | null] {
+  const u =
+    auth.user && (userId === auth.user.id || userId === currentServerUserId())
+      ? auth.user
+      : userCache.get(userId);
+  return [
+    sanitizeProfileColor(u?.profile_color),
+    sanitizeProfileColor(u?.profile_color_secondary)
+  ];
+}
+
+/** Komplettes Inline-`style` für einen Namen — fertig für `style={…}`:
+ *  - Rollenfarbe (wenn `guildId`) gewinnt und ist immer EINFARBIG.
+ *  - sonst zwei Profilfarben → Text-Verlauf (background-clip: text).
+ *  - sonst eine Profilfarbe → einfarbig.
+ *  - sonst leerer String (Default-Textfarbe).
+ *  Reaktiv: in `$derived`/Templates aufrufen. */
+export function nameStyle(userId: string, guildId?: string | null): string {
+  if (guildId) {
+    const fromRole = roleNameColor(guildId, userId);
+    if (fromRole) return `color: ${fromRole}`;
   }
-  return sanitizeProfileColor(userCache.get(userId)?.profile_color);
+  const [c1, c2] = profileColors(userId);
+  if (c1 && c2) {
+    return (
+      `background-image: linear-gradient(90deg, ${c1}, ${c2}); ` +
+      `-webkit-background-clip: text; background-clip: text; ` +
+      `color: transparent; -webkit-text-fill-color: transparent;`
+    );
+  }
+  if (c1) return `color: ${c1}`;
+  return '';
 }

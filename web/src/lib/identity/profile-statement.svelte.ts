@@ -28,6 +28,7 @@ export interface ProfileStatementClaims {
   display_name?: string;
   avatar_hash?: string;
   profile_color?: string;
+  profile_color_secondary?: string;
   iat: number;
   exp: number;
 }

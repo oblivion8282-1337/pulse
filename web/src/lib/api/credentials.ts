@@ -43,6 +43,7 @@ export interface ProfileUpdatePayload {
   // changed via POST /me/avatar (image upload), and the backend ignores any
   // avatar_hash sent here. The response below still echoes the current hash.
   profile_color?: string | null;
+  profile_color_secondary?: string | null;
 }
 
 export interface ProfileUpdateResponse {
@@ -50,6 +51,7 @@ export interface ProfileUpdateResponse {
   display_name: string | null;
   avatar_hash: string | null;
   profile_color: string | null;
+  profile_color_secondary?: string | null;
 }
 
 export interface UsernameChangeResponse {
