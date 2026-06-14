@@ -5,10 +5,13 @@ policy. Each handler is one async function called from the elif chain; they
 all share the same shape (``websocket``, ``user``, ``msg``, plus per-op
 extras) and own the full response — including error frames — themselves.
 
-``hosted_parties`` is the per-connection set of channel ids this socket has
-claimed by calling ``watch_start``; the dispatcher's finally block uses it
-(via :func:`cleanup_on_disconnect`) to end parties when the host's last
-socket goes away.
+``hosted_parties`` is the per-connection set of ``(channel_id, party_id)`` this
+socket has claimed by calling ``watch_start``; ``watched_parties`` is the set of
+parties whose tile this socket has mounted. The dispatcher's finally block uses
+the latter (via :func:`cleanup_on_disconnect`) to leave parties — promoting a
+new host or ending the party when the host's last socket goes away. Several
+parties can run in one voice channel, so every op carries a ``party_id``
+alongside the ``channel_id`` (``watch_start`` mints a fresh one and acks it).
 
 The session_factory parameter on :func:`handle_start` exists so the
 dispatcher can pass *its* module-level ``SessionLocal`` symbol — which tests
@@ -28,6 +31,7 @@ from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE
 from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.security import AuthenticatedUser
+from dcc_chat_gateway.snowflake import next_id
 from dcc_chat_gateway.watch_source import parse_source
 
 log = logging.getLogger(__name__)
@@ -53,6 +57,11 @@ def _channel_id(value: object) -> int | None:
         return None
 
 
+def _party_id(value: object) -> str | None:
+    s = str(value or "").strip()
+    return s if s.isdigit() else None
+
+
 def _redis(websocket: WebSocket):
     return getattr(websocket.app.state, "redis", None)
 
@@ -71,8 +80,8 @@ async def handle_start(
     msg: dict[str, Any],
     *,
     session_factory: Callable,
-    hosted_parties: set[str],
-    watched_parties: set[str],
+    hosted_parties: set[tuple[str, str]],
+    watched_parties: set[tuple[str, str]],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
     source_url = msg.get("source_url")
@@ -107,11 +116,14 @@ async def handle_start(
     if redis is None:
         await _err(websocket, 4017, "watch service unavailable")
         return
-    if (await watchkeys.read_state(redis, cid)) is not None:
-        await _err(websocket, 4014, "watch party already active")
+    # Per-channel cap: several parties may coexist, but not unboundedly.
+    if await watchkeys.count_parties(redis, cid) >= watchkeys.MAX_PARTIES_PER_CHANNEL:
+        await _err(websocket, 4014, "too many watch parties in this channel")
         return
+    pid = str(next_id())
     ts = watchkeys.now_ms()
     state = {
+        "party_id": pid,
         "source": source,
         "host_user_id": str(user.id),
         "position": float(source.get("start_seconds") or 0),
@@ -119,15 +131,20 @@ async def handle_start(
         "updated_at": ts,
         "started_at": ts,
     }
-    await watchkeys.write_state(redis, cid, state)
-    hosted_parties.add(cid)
+    await watchkeys.write_party(redis, cid, state)
+    hosted_parties.add((cid, pid))
+    # Ack the freshly-minted party id back to the host so its client can open
+    # the tile (the broadcast that write_party fires doesn't say "this one is
+    # yours"). Sent before the watcher registration so the client has the id
+    # before any watcher push references it.
+    await websocket.send_json({"op": "watch_started", "channel_id": cid, "party_id": pid})
     # The host is implicitly a watcher (their tile is mounted) — add them to
     # the registry so a later host departure can promote, and tell viewers.
     mgr = _manager(websocket)
     if mgr is not None:
-        await mgr.watch_join(cid, str(user.id), websocket)
-        watched_parties.add(cid)
-        await mgr.broadcast_watchers(cid)
+        await mgr.watch_join(cid, pid, str(user.id), websocket)
+        watched_parties.add((cid, pid))
+        await mgr.broadcast_watchers(cid, pid)
 
 
 async def handle_join(
@@ -136,11 +153,12 @@ async def handle_join(
     msg: dict[str, Any],
     *,
     session_factory: Callable,
-    watched_parties: set[str],
+    watched_parties: set[tuple[str, str]],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
-    if cid_int is None:
-        await _err(websocket, 4012, "channel_id required")
+    pid = _party_id(msg.get("party_id"))
+    if cid_int is None or pid is None:
+        await _err(websocket, 4012, "channel_id and party_id required")
         return
     async with session_factory() as session:
         channel = await channel_membership(session, cid_int, user.id)
@@ -156,12 +174,18 @@ async def handle_join(
             await _err(websocket, 4004, "channel not accessible")
             return
     cid = str(cid_int)
+    redis = _redis(websocket)
+    # Reject joins for a party that isn't active — keeps bogus party_ids from
+    # leaking registry entries until the socket disconnects.
+    if redis is not None and (await watchkeys.read_party(redis, cid, pid)) is None:
+        await _err(websocket, 4016, "no active watch party")
+        return
     mgr = _manager(websocket)
     if mgr is None:
         return
-    await mgr.watch_join(cid, str(user.id), websocket)
-    watched_parties.add(cid)
-    await mgr.broadcast_watchers(cid)
+    await mgr.watch_join(cid, pid, str(user.id), websocket)
+    watched_parties.add((cid, pid))
+    await mgr.broadcast_watchers(cid, pid)
 
 
 async def handle_leave(
@@ -169,22 +193,23 @@ async def handle_leave(
     user: AuthenticatedUser,
     msg: dict[str, Any],
     *,
-    watched_parties: set[str],
+    watched_parties: set[tuple[str, str]],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
-    if cid_int is None:
+    pid = _party_id(msg.get("party_id"))
+    if cid_int is None or pid is None:
         return
     cid = str(cid_int)
-    watched_parties.discard(cid)
+    watched_parties.discard((cid, pid))
     mgr = _manager(websocket)
     if mgr is None:
         return
-    fully_left = await mgr.watch_leave(cid, str(user.id), websocket)
-    await mgr.broadcast_watchers(cid)
+    fully_left = await mgr.watch_leave(cid, pid, str(user.id), websocket)
+    await mgr.broadcast_watchers(cid, pid)
     if fully_left:
         from dcc_chat_gateway.routes.watch_handoff import end_if_host
 
-        await end_if_host(_redis(websocket), cid, str(user.id))
+        await end_if_host(_redis(websocket), cid, pid, str(user.id))
 
 
 async def handle_stop(
@@ -192,29 +217,30 @@ async def handle_stop(
     user: AuthenticatedUser,
     msg: dict[str, Any],
     *,
-    hosted_parties: set[str],
+    hosted_parties: set[tuple[str, str]],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
-    if cid_int is None:
-        await _err(websocket, 4012, "channel_id required")
+    pid = _party_id(msg.get("party_id"))
+    if cid_int is None or pid is None:
+        await _err(websocket, 4012, "channel_id and party_id required")
         return
     cid = str(cid_int)
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_state(redis, cid)
+    state = await watchkeys.read_party(redis, cid, pid)
     if state is None:
         # Idempotent stop.
-        hosted_parties.discard(cid)
+        hosted_parties.discard((cid, pid))
         return
     if str(state.get("host_user_id")) != str(user.id):
         await _err(websocket, 4015, "only the host can stop")
         return
-    await watchkeys.delete_state(redis, cid)
-    hosted_parties.discard(cid)
+    await watchkeys.delete_party(redis, cid, pid)
+    hosted_parties.discard((cid, pid))
     mgr = _manager(websocket)
     if mgr is not None:
-        mgr.cancel_host_end(cid)
+        mgr.cancel_host_end(cid, pid)
 
 
 async def handle_control(
@@ -223,9 +249,10 @@ async def handle_control(
     msg: dict[str, Any],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
+    pid = _party_id(msg.get("party_id"))
     action = msg.get("action")
     position = msg.get("position")
-    if cid_int is None or action not in ("play", "pause", "seek"):
+    if cid_int is None or pid is None or action not in ("play", "pause", "seek"):
         await _err(websocket, 4012, "invalid watch_control payload")
         return
     if not isinstance(position, (int, float)) or position < 0 or position > _MAX_POSITION_S:
@@ -235,7 +262,7 @@ async def handle_control(
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_state(redis, cid)
+    state = await watchkeys.read_party(redis, cid, pid)
     if state is None:
         await _err(websocket, 4016, "no active watch party")
         return
@@ -245,7 +272,7 @@ async def handle_control(
     state["position"] = float(position)
     state["is_playing"] = action != "pause"
     state["updated_at"] = watchkeys.now_ms()
-    await watchkeys.write_state(redis, cid, state)
+    await watchkeys.write_party(redis, cid, state)
 
 
 async def handle_heartbeat(
@@ -256,11 +283,13 @@ async def handle_heartbeat(
     # Heartbeats are best-effort. Drop silently on malformed input rather than
     # spamming error frames — the host emits one every ~3s during playback.
     cid_int = _channel_id(msg.get("channel_id"))
+    pid = _party_id(msg.get("party_id"))
     position = msg.get("position")
     # Same position bounds as handle_control — an out-of-range heartbeat must
     # not be able to set a position the control op would reject.
     if (
         cid_int is None
+        or pid is None
         or not isinstance(position, (int, float))
         or position < 0
         or position > _MAX_POSITION_S
@@ -270,7 +299,7 @@ async def handle_heartbeat(
     redis = _redis(websocket)
     if redis is None:
         return
-    state = await watchkeys.read_state(redis, cid)
+    state = await watchkeys.read_party(redis, cid, pid)
     if state is None or str(state.get("host_user_id")) != str(user.id):
         return
     ts = watchkeys.now_ms()
@@ -278,14 +307,14 @@ async def handle_heartbeat(
         return
     state["position"] = float(position)
     state["updated_at"] = ts
-    await watchkeys.write_state(redis, cid, state)
+    await watchkeys.write_party(redis, cid, state)
 
 
 async def cleanup_on_disconnect(
     websocket: WebSocket,
     user: AuthenticatedUser,
     manager,
-    watched_parties: set[str],
+    watched_parties: set[tuple[str, str]],
 ) -> None:
     """Socket closing: leave every party this socket watched, promoting a new
     host (or ending the party) wherever this socket's user was the host and is
@@ -296,11 +325,13 @@ async def cleanup_on_disconnect(
     from dcc_chat_gateway.routes.watch_handoff import end_or_grace_if_host
 
     redis = _redis(websocket)
-    for cid in list(watched_parties):
+    for cid, pid in list(watched_parties):
         try:
-            fully_left = await manager.watch_leave(cid, str(user.id), websocket)
-            await manager.broadcast_watchers(cid)
+            fully_left = await manager.watch_leave(cid, pid, str(user.id), websocket)
+            await manager.broadcast_watchers(cid, pid)
             if fully_left:
-                await end_or_grace_if_host(redis, manager, cid, str(user.id))
+                await end_or_grace_if_host(redis, manager, cid, pid, str(user.id))
         except Exception:
-            log.exception("watch-party disconnect cleanup failed for channel %s", cid)
+            log.exception(
+                "watch-party disconnect cleanup failed for channel %s party %s", cid, pid
+            )

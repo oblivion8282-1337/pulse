@@ -5,7 +5,7 @@ Four sections:
   2. ``GET /guilds/{id}/watch-state`` — REST re-sync endpoint.
   3. WebSocket ops — happy + negative paths against ``ws_app`` via TestClient
      (same harness as test_streaming::stream:events).
-  4. Watch-Chat REST endpoints — ``POST`` + ``GET /channels/{id}/watch-party/chat``.
+  4. Watch-Chat REST endpoints — ``POST`` + ``GET /channels/{id}/watch-party/{pid}/chat``.
 """
 
 from __future__ import annotations
@@ -43,6 +43,23 @@ async def redis() -> Redis:
     r = Redis.from_url(_REDIS_URL, decode_responses=False)
     yield r
     await r.aclose()
+
+
+# A fixed party id used by the non-WS tests (those that seed Redis directly).
+# WS ``watch_start`` tests mint their own id and read it from the
+# ``watch_started`` ack instead.
+_PID = "9001"
+
+
+async def _seed_party(r, cid, state):
+    """Write a party state into the per-channel watch Hash (field = party_id)."""
+    await r.hset(f"watch:channel-{cid}", state["party_id"], json.dumps(state))
+    await r.expire(f"watch:channel-{cid}", 600)
+
+
+async def _read_party(r, cid, pid=_PID):
+    raw = await r.hget(f"watch:channel-{cid}", pid)
+    return json.loads(raw) if raw is not None else None
 
 
 # =============================================================================
@@ -167,6 +184,7 @@ async def test_guild_watch_state_reflects_redis(client, _auth_signer, redis):
         )
     ).json()
     state = {
+        "party_id": _PID,
         "source": {"type": "youtube", "embed_id": "abc12345678"},
         "host_user_id": "555",
         "position": 12.5,
@@ -174,7 +192,7 @@ async def test_guild_watch_state_reflects_redis(client, _auth_signer, redis):
         "updated_at": watchkeys.now_ms(),
         "started_at": watchkeys.now_ms(),
     }
-    await redis.set(f"watch:channel-{vc['id']}", json.dumps(state), ex=600)
+    await _seed_party(redis, vc["id"], state)
     try:
         r = await client.get(f"/guilds/{g['id']}/watch-state", headers=_auth(token))
         assert r.status_code == 200, r.text
@@ -228,6 +246,7 @@ async def test_guild_watch_state_hides_view_denied_channel(client, _auth_signer,
     )
     assert r.status_code == 200, r.text
     state = {
+        "party_id": _PID,
         "source": {"type": "youtube", "embed_id": "abc12345678"},
         "host_user_id": "555",
         "position": 0.0,
@@ -235,7 +254,7 @@ async def test_guild_watch_state_hides_view_denied_channel(client, _auth_signer,
         "updated_at": watchkeys.now_ms(),
         "started_at": watchkeys.now_ms(),
     }
-    await redis.set(f"watch:channel-{vc['id']}", json.dumps(state), ex=600)
+    await _seed_party(redis, vc["id"], state)
     try:
         r = await client.get(f"/guilds/{g['id']}/watch-state", headers=_auth(member))
         assert r.status_code == 200, r.text
@@ -347,6 +366,12 @@ async def test_watch_start_writes_state_and_broadcasts(ws_app, _auth_signer):
                             "source_url": "https://youtu.be/abc12345678",
                         }
                     )
+                    # First direct reply is the watch_started ack carrying the
+                    # freshly-minted party id.
+                    ack = ws.receive_json()
+                    assert ack["op"] == "watch_started"
+                    assert ack["channel_id"] == cid
+                    pid = ack["party_id"]
                     got = ws.receive_json()
                     # watch_start now also emits a watch_watchers frame (direct
                     # in-process broadcast) which can arrive before the
@@ -364,7 +389,7 @@ async def test_watch_start_writes_state_and_broadcasts(ws_app, _auth_signer):
                     # and extrapolate position against the shared server clock.
                     assert isinstance(got["server_now"], int)
                     assert got["server_now"] > 0
-                    raw = r.get(f"watch:channel-{cid}")
+                    raw = r.hget(f"watch:channel-{cid}", pid)
                     assert raw is not None
                     data = json.loads(raw)
                     assert data["host_user_id"] == str(uid)
@@ -465,7 +490,7 @@ async def test_watch_join_and_start_reject_view_denied(ws_app, _auth_signer):
             assert r.status_code == 200, r.text
             with tc.websocket_connect(f"/ws?token={member_token}") as ws:
                 skip_init_frames(ws)
-                ws.send_json({"op": "watch_join", "channel_id": cid})
+                ws.send_json({"op": "watch_join", "channel_id": cid, "party_id": _PID})
                 err = ws.receive_json()
                 assert err["op"] == "error"
                 assert err["code"] == 4004
@@ -484,36 +509,99 @@ async def test_watch_join_and_start_reject_view_denied(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_watch_start_rejects_already_active(ws_app, _auth_signer):
-    """Second watch_start on the same channel must fail with 4014."""
+async def test_watch_start_allows_second_party(ws_app, _auth_signer):
+    """Several parties may run in one channel — a second watch_start on the
+    same channel succeeds and gets its own, distinct party id."""
+    import redis as sync_redis
+
     def _run():
         with TestClient(ws_app) as tc:
             token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
-            with tc.websocket_connect(f"/ws?token={token}") as ws:
-                skip_init_frames(ws)
-                ws.send_json(
-                    {
-                        "op": "watch_start",
-                        "channel_id": cid,
-                        "source_url": "https://youtu.be/abc12345678",
-                    }
-                )
-                # First start emits watch_watchers + watch_state — drain to state.
-                got = ws.receive_json()
-                while got["op"] != "watch_state":
+            r = sync_redis.Redis.from_url(_REDIS_URL)
+            try:
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    skip_init_frames(ws)
+                    ws.send_json(
+                        {
+                            "op": "watch_start",
+                            "channel_id": cid,
+                            "source_url": "https://youtu.be/abc12345678",
+                        }
+                    )
+                    # First start: read its ack (party id), drain to its state.
+                    ack1 = ws.receive_json()
+                    assert ack1["op"] == "watch_started"
+                    pid1 = ack1["party_id"]
                     got = ws.receive_json()
-                ws.send_json(
-                    {
-                        "op": "watch_start",
-                        "channel_id": cid,
-                        "source_url": "https://youtu.be/xyz98765432",
-                    }
-                )
-                err = ws.receive_json()
-                while err["op"] == "watch_watchers":
+                    while got["op"] != "watch_state":
+                        got = ws.receive_json()
+                    # Second start on the same channel — different source.
+                    ws.send_json(
+                        {
+                            "op": "watch_start",
+                            "channel_id": cid,
+                            "source_url": "https://youtu.be/xyz98765432",
+                        }
+                    )
+                    ack2 = ws.receive_json()
+                    while ack2["op"] in ("watch_watchers", "watch_state"):
+                        ack2 = ws.receive_json()
+                    assert ack2["op"] == "watch_started"
+                    pid2 = ack2["party_id"]
+                    assert pid2 != pid1  # distinct party id for the second party
+            finally:
+                r.delete(f"watch:channel-{cid}")
+                r.close()
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_watch_start_rejects_when_channel_full(ws_app, _auth_signer):
+    """A channel already holding MAX_PARTIES_PER_CHANNEL parties rejects a
+    fresh watch_start with 4014."""
+    import redis as sync_redis
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
+            r = sync_redis.Redis.from_url(_REDIS_URL)
+            key = f"watch:channel-{cid}"
+            try:
+                # Pre-seed the channel hash to the cap with dummy parties.
+                for i in range(watchkeys.MAX_PARTIES_PER_CHANNEL):
+                    r.hset(
+                        key,
+                        str(i),
+                        json.dumps(
+                            {
+                                "party_id": str(i),
+                                "source": {"type": "youtube", "embed_id": "abc12345678"},
+                                "host_user_id": "1",
+                                "position": 0.0,
+                                "is_playing": True,
+                                "updated_at": watchkeys.now_ms(),
+                                "started_at": watchkeys.now_ms(),
+                            }
+                        ),
+                    )
+                with tc.websocket_connect(f"/ws?token={token}") as ws:
+                    skip_init_frames(ws)
+                    ws.send_json(
+                        {
+                            "op": "watch_start",
+                            "channel_id": cid,
+                            "source_url": "https://youtu.be/abc12345678",
+                        }
+                    )
                     err = ws.receive_json()
-                assert err["op"] == "error"
-                assert err["code"] == 4014
+                    while err["op"] == "watch_watchers":
+                        err = ws.receive_json()
+                    assert err["op"] == "error"
+                    assert err["code"] == 4014
+            finally:
+                r.delete(key)
+                r.close()
 
     await asyncio.to_thread(_run)
 
@@ -541,13 +629,16 @@ async def test_watch_control_only_host(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                host_ws.receive_json()  # watch_state broadcast
+                ack = host_ws.receive_json()  # watch_started ack
+                assert ack["op"] == "watch_started"
+                pid = ack["party_id"]
                 with tc.websocket_connect(f"/ws?token={other_token}") as other_ws:
                     skip_init_frames(other_ws)  # hello + ready (includes watch_states)
                     other_ws.send_json(
                         {
                             "op": "watch_control",
                             "channel_id": cid,
+                            "party_id": pid,
                             "action": "pause",
                             "position": 5,
                         }
@@ -573,10 +664,14 @@ async def test_watch_control_pause_updates_state(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
+                ack = ws.receive_json()  # watch_started ack carries the party id
+                assert ack["op"] == "watch_started"
+                pid = ack["party_id"]
                 ws.send_json(
                     {
                         "op": "watch_control",
                         "channel_id": cid,
+                        "party_id": pid,
                         "action": "pause",
                         "position": 42.5,
                     }
@@ -612,10 +707,14 @@ async def test_watch_stop_only_host(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
-                host_ws.receive_json()  # watch_state broadcast
+                ack = host_ws.receive_json()  # watch_started ack
+                assert ack["op"] == "watch_started"
+                pid = ack["party_id"]
                 with tc.websocket_connect(f"/ws?token={other_token}") as other_ws:
                     skip_init_frames(other_ws)  # hello + ready (watch_states in payload)
-                    other_ws.send_json({"op": "watch_stop", "channel_id": cid})
+                    other_ws.send_json(
+                        {"op": "watch_stop", "channel_id": cid, "party_id": pid}
+                    )
                     err = other_ws.receive_json()
                     assert err["op"] == "error"
                     assert err["code"] == 4015
@@ -641,11 +740,14 @@ async def test_watch_stop_deletes_state(ws_app, _auth_signer):
                             "source_url": "https://youtu.be/abc12345678",
                         }
                     )
+                    ack = ws.receive_json()  # watch_started ack
+                    assert ack["op"] == "watch_started"
+                    pid = ack["party_id"]
                     _wait_for_watch_state(ws, channel_id=cid, is_playing=True)
-                    assert r.get(f"watch:channel-{cid}") is not None
-                    ws.send_json({"op": "watch_stop", "channel_id": cid})
+                    assert r.hget(f"watch:channel-{cid}", pid) is not None
+                    ws.send_json({"op": "watch_stop", "channel_id": cid, "party_id": pid})
                     _wait_for_watch_state(ws, channel_id=cid, state_is=None)
-                    assert r.get(f"watch:channel-{cid}") is None
+                    assert r.hget(f"watch:channel-{cid}", pid) is None
             finally:
                 r.delete(f"watch:channel-{cid}")
                 r.close()
@@ -668,13 +770,20 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
                         "source_url": "https://youtu.be/abc12345678",
                     }
                 )
+                ack = ws.receive_json()  # watch_started ack
+                assert ack["op"] == "watch_started"
+                pid = ack["party_id"]
                 first = _wait_for_watch_state(ws, channel_id=cid, is_playing=True)
                 first_updated = first["state"]["updated_at"]
                 # Spam two heartbeats back-to-back — the start-event just reset
                 # updated_at to "now", so both land inside the debounce window
                 # (`_HEARTBEAT_DEBOUNCE_MS`) and must be dropped.
-                ws.send_json({"op": "watch_heartbeat", "channel_id": cid, "position": 5})
-                ws.send_json({"op": "watch_heartbeat", "channel_id": cid, "position": 6})
+                ws.send_json(
+                    {"op": "watch_heartbeat", "channel_id": cid, "party_id": pid, "position": 5}
+                )
+                ws.send_json(
+                    {"op": "watch_heartbeat", "channel_id": cid, "party_id": pid, "position": 6}
+                )
                 # Send a control op to provoke a broadcast and verify updated_at
                 # hasn't moved past the heartbeat-dropped writes.
                 time.sleep(0.1)
@@ -682,6 +791,7 @@ async def test_watch_heartbeat_debounced(ws_app, _auth_signer):
                     {
                         "op": "watch_control",
                         "channel_id": cid,
+                        "party_id": pid,
                         "action": "seek",
                         "position": 99,
                     }
@@ -713,6 +823,7 @@ async def test_ready_carries_watch_states(ws_app, _auth_signer, redis):
     cid = captured_cid[0]
     token = captured_token[0]
     state = {
+        "party_id": _PID,
         "source": {"type": "youtube", "embed_id": "abc12345678"},
         "host_user_id": "777",
         "position": 0,
@@ -720,7 +831,7 @@ async def test_ready_carries_watch_states(ws_app, _auth_signer, redis):
         "updated_at": watchkeys.now_ms(),
         "started_at": watchkeys.now_ms(),
     }
-    await redis.set(f"watch:channel-{cid}", json.dumps(state), ex=600)
+    await _seed_party(redis, cid, state)
     try:
         def _connect():
             with TestClient(ws_app) as tc:
@@ -751,15 +862,15 @@ async def test_cleanup_on_disconnect_schedules_end_not_promote(redis, monkeypatc
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
     host_ws = _ErrWS(redis, mgr)  # same instance is redis source + registry key
-    await mgr.watch_join(cid, str(uid), host_ws, now_ms=1000)
-    await mgr.watch_join(cid, "999", object(), now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+    await mgr.watch_join(cid, _PID, str(uid), host_ws, now_ms=1000)
+    await mgr.watch_join(cid, _PID, "999", object(), now_ms=2000)
+    await _seed_party(redis, cid, _state(host=str(uid)))
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
-        await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {cid})
-        await mgr._watch_end_timers[cid][1]  # await the scheduled end
-        assert await redis.get(f"watch:channel-{cid}") is None
+        await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {(cid, _PID)})
+        await mgr._watch_end_timers[(cid, _PID)][1]  # await the scheduled end
+        assert await _read_party(redis, cid) is None
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
@@ -775,13 +886,13 @@ async def test_cleanup_on_disconnect_ends_when_solo(redis, monkeypatch):
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
     host_ws = _ErrWS(redis, mgr)
-    await mgr.watch_join(cid, str(uid), host_ws, now_ms=1000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+    await mgr.watch_join(cid, _PID, str(uid), host_ws, now_ms=1000)
+    await _seed_party(redis, cid, _state(host=str(uid)))
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
-    await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {cid})
-    await mgr._watch_end_timers[cid][1]
-    assert await redis.get(f"watch:channel-{cid}") is None
+    await ws_watch.cleanup_on_disconnect(host_ws, user, mgr, {(cid, _PID)})
+    await mgr._watch_end_timers[(cid, _PID)][1]
+    assert await _read_party(redis, cid) is None
 
 
 @pytest.mark.asyncio
@@ -795,16 +906,16 @@ async def test_cleanup_on_disconnect_multitab_keeps_party(redis):
     mgr = _reg_mgr()
     tab1 = _ErrWS(redis, mgr)
     tab2 = _ErrWS(redis, mgr)
-    await mgr.watch_join(cid, str(uid), tab1, now_ms=1000)
-    await mgr.watch_join(cid, str(uid), tab2, now_ms=1000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+    await mgr.watch_join(cid, _PID, str(uid), tab1, now_ms=1000)
+    await mgr.watch_join(cid, _PID, str(uid), tab2, now_ms=1000)
+    await _seed_party(redis, cid, _state(host=str(uid)))
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
         # tab1 disconnects — user still watches via tab2 → no promotion/end.
-        await ws_watch.cleanup_on_disconnect(tab1, user, mgr, {cid})
-        assert cid not in mgr._watch_end_timers  # no grace timer scheduled
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await ws_watch.cleanup_on_disconnect(tab1, user, mgr, {(cid, _PID)})
+        assert (cid, _PID) not in mgr._watch_end_timers  # no grace timer scheduled
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == str(uid)
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -825,18 +936,20 @@ async def test_detach_sibling_socket_keeps_party_when_main_leaves(redis):
     mgr = _reg_mgr()
     main_ws = _ErrWS(redis, mgr)  # main window (anchor)
     popup_ws = _ErrWS(redis, mgr)  # detached popup, same user
-    await mgr.watch_join(cid, str(uid), main_ws, now_ms=1000)
-    await mgr.watch_join(cid, str(uid), popup_ws, now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+    await mgr.watch_join(cid, _PID, str(uid), main_ws, now_ms=1000)
+    await mgr.watch_join(cid, _PID, str(uid), popup_ws, now_ms=2000)
+    await _seed_party(redis, cid, _state(host=str(uid)))
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
         # Main window leaves deliberately while the popup still holds the party.
-        await ws_watch.handle_leave(main_ws, user, {"channel_id": cid}, watched_parties={cid})
-        assert cid not in mgr._watch_end_timers  # no grace timer
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await ws_watch.handle_leave(
+            main_ws, user, {"channel_id": cid, "party_id": _PID}, watched_parties={(cid, _PID)}
+        )
+        assert (cid, _PID) not in mgr._watch_end_timers  # no grace timer
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == str(uid)  # party intact, still hosted by uid
-        assert str(uid) in await mgr.watchers(cid)  # popup socket still a watcher
+        assert str(uid) in await mgr.watchers(cid, _PID)  # popup socket still a watcher
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
@@ -854,14 +967,16 @@ async def test_watch_leave_after_party_end_is_clean_noop(redis):
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
     main_ws = _ErrWS(redis, mgr)
-    await mgr.watch_join(cid, str(uid), main_ws, now_ms=1000)  # phantom anchor
+    await mgr.watch_join(cid, _PID, str(uid), main_ws, now_ms=1000)  # phantom anchor
     # Party already ended → no state key in redis.
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
-    await ws_watch.handle_leave(main_ws, user, {"channel_id": cid}, watched_parties={cid})
+    await ws_watch.handle_leave(
+        main_ws, user, {"channel_id": cid, "party_id": _PID}, watched_parties={(cid, _PID)}
+    )
     assert main_ws.errors == []  # no error frame
-    assert await mgr.watchers(cid) == []  # anchor removed from registry
-    assert await redis.get(f"watch:channel-{cid}") is None  # still ended
+    assert await mgr.watchers(cid, _PID) == []  # anchor removed from registry
+    assert await _read_party(redis, cid) is None  # still ended
 
 
 # =============================================================================
@@ -869,9 +984,10 @@ async def test_watch_leave_after_party_end_is_clean_noop(redis):
 # =============================================================================
 
 
-def _make_party_state(host_uid: int) -> dict:
+def _make_party_state(host_uid: int, party_id: str = _PID) -> dict:
     ts = watchkeys.now_ms()
     return {
+        "party_id": party_id,
         "source": {"type": "youtube", "embed_id": "abc12345678"},
         "host_user_id": str(host_uid),
         "position": 0.0,
@@ -891,10 +1007,10 @@ async def test_post_watch_chat_201_with_active_party(client, _auth_signer, redis
         )
     ).json()
     cid = vc["id"]
-    await redis.set(f"watch:channel-{cid}", json.dumps(_make_party_state(uid)), ex=600)
+    await _seed_party(redis, cid, _make_party_state(uid))
     try:
         r = await client.post(
-            f"/channels/{cid}/watch-party/chat",
+            f"/channels/{cid}/watch-party/{_PID}/chat",
             json={"content": "hello watch party"},
             headers=_auth(token),
         )
@@ -903,13 +1019,13 @@ async def test_post_watch_chat_201_with_active_party(client, _auth_signer, redis
         assert "id" in data
         assert "created_at" in data
         # Message stored in Redis list.
-        raw = await redis.lrange(f"watch:chat:channel-{cid}", 0, -1)
+        raw = await redis.lrange(f"watch:chat:channel-{cid}-{_PID}", 0, -1)
         assert len(raw) == 1
         entry = json.loads(raw[0])
         assert entry["content"] == "hello watch party"
         assert entry["author_id"] == str(uid)
     finally:
-        await redis.delete(f"watch:channel-{cid}", f"watch:chat:channel-{cid}")
+        await redis.delete(f"watch:channel-{cid}", f"watch:chat:channel-{cid}-{_PID}")
 
 
 @pytest.mark.asyncio
@@ -922,7 +1038,7 @@ async def test_post_watch_chat_410_no_active_party(client, _auth_signer):
         )
     ).json()
     r = await client.post(
-        f"/channels/{vc['id']}/watch-party/chat",
+        f"/channels/{vc['id']}/watch-party/{_PID}/chat",
         json={"content": "hello"},
         headers=_auth(token),
     )
@@ -940,10 +1056,10 @@ async def test_post_watch_chat_403_non_member(client, _auth_signer, redis):
         )
     ).json()
     cid = vc["id"]
-    await redis.set(f"watch:channel-{cid}", json.dumps(_make_party_state(owner_uid)), ex=600)
+    await _seed_party(redis, cid, _make_party_state(owner_uid))
     try:
         r = await client.post(
-            f"/channels/{cid}/watch-party/chat",
+            f"/channels/{cid}/watch-party/{_PID}/chat",
             json={"content": "hello"},
             headers=_auth(outsider),
         )
@@ -962,7 +1078,7 @@ async def test_post_watch_chat_400_text_channel(client, _auth_signer):
         )
     ).json()
     r = await client.post(
-        f"/channels/{tc2['id']}/watch-party/chat",
+        f"/channels/{tc2['id']}/watch-party/{_PID}/chat",
         json={"content": "hello"},
         headers=_auth(token),
     )
@@ -980,7 +1096,7 @@ async def test_get_watch_chat_returns_chronological(client, _auth_signer, redis)
     ).json()
     cid = vc["id"]
     # Pre-seed Redis chat list (newest first, like LPUSH).
-    chat_key = f"watch:chat:channel-{cid}"
+    chat_key = f"watch:chat:channel-{cid}-{_PID}"
     entries = [
         json.dumps({"id": str(i), "author_id": str(uid), "content": f"msg{i}", "created_at": "2026-01-01T00:00:00"})
         for i in range(3)
@@ -989,7 +1105,7 @@ async def test_get_watch_chat_returns_chronological(client, _auth_signer, redis)
         await redis.lpush(chat_key, e)
     await redis.expire(chat_key, 600)
     try:
-        r = await client.get(f"/channels/{cid}/watch-party/chat", headers=_auth(token))
+        r = await client.get(f"/channels/{cid}/watch-party/{_PID}/chat", headers=_auth(token))
         assert r.status_code == 200, r.text
         msgs = r.json()
         assert len(msgs) == 3
@@ -1008,7 +1124,7 @@ async def test_get_watch_chat_non_member_403(client, _auth_signer):
             f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
         )
     ).json()
-    r = await client.get(f"/channels/{vc['id']}/watch-party/chat", headers=_auth(outsider))
+    r = await client.get(f"/channels/{vc['id']}/watch-party/{_PID}/chat", headers=_auth(outsider))
     assert r.status_code == 403
 
 
@@ -1027,14 +1143,15 @@ def _reg_mgr():
             self._lock = asyncio.Lock()
             self._init_watch_registry()
 
-        async def broadcast_watchers(self, cid):
+        async def broadcast_watchers(self, cid, pid):
             pass
 
     return _Mgr()
 
 
-def _state(host: str = "111", **over) -> dict:
+def _state(host: str = "111", party_id: str = _PID, **over) -> dict:
     base = {
+        "party_id": party_id,
         "source": {"type": "youtube", "embed_id": "abc12345678"},
         "host_user_id": host,
         "position": 0.0,
@@ -1077,14 +1194,14 @@ async def test_promote_or_end_promotes_oldest_other_watcher(redis):
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
     host_ws = object()
-    await mgr.watch_join(cid, "111", host_ws, now_ms=1000)
-    await mgr.watch_join(cid, "222", object(), now_ms=2000)
-    await mgr.watch_join(cid, "333", object(), now_ms=3000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111", position=5.0)), ex=600)
+    await mgr.watch_join(cid, _PID, "111", host_ws, now_ms=1000)
+    await mgr.watch_join(cid, _PID, "222", object(), now_ms=2000)
+    await mgr.watch_join(cid, _PID, "333", object(), now_ms=3000)
+    await _seed_party(redis, cid, _state(host="111", position=5.0))
     try:
-        await mgr.watch_leave(cid, "111", host_ws)
-        await promote_or_end(redis, mgr, cid, "111")
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await mgr.watch_leave(cid, _PID, "111", host_ws)
+        await promote_or_end(redis, mgr, cid, _PID, "111")
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "222"
         assert new["is_playing"] is True
     finally:
@@ -1097,9 +1214,9 @@ async def test_promote_or_end_deletes_when_no_watchers_left(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
-    await promote_or_end(redis, mgr, cid, "111")
-    assert await redis.get(f"watch:channel-{cid}") is None
+    await _seed_party(redis, cid, _state(host="111"))
+    await promote_or_end(redis, mgr, cid, _PID, "111")
+    assert await _read_party(redis, cid) is None
 
 
 @pytest.mark.asyncio
@@ -1108,12 +1225,12 @@ async def test_promote_or_end_noop_for_non_host_departure(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await mgr.watch_join(cid, "111", object(), now_ms=1000)
-    await mgr.watch_join(cid, "222", object(), now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await mgr.watch_join(cid, _PID, "111", object(), now_ms=1000)
+    await mgr.watch_join(cid, _PID, "222", object(), now_ms=2000)
+    await _seed_party(redis, cid, _state(host="111"))
     try:
-        await promote_or_end(redis, mgr, cid, "222")  # viewer leaves
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await promote_or_end(redis, mgr, cid, _PID, "222")  # viewer leaves
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "111"
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1126,14 +1243,16 @@ async def test_handoff_to_valid_target_swaps_host(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await mgr.watch_join(cid, "111", object(), now_ms=1000)
-    await mgr.watch_join(cid, "222", object(), now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await mgr.watch_join(cid, _PID, "111", object(), now_ms=1000)
+    await mgr.watch_join(cid, _PID, "222", object(), now_ms=2000)
+    await _seed_party(redis, cid, _state(host="111"))
     ws = _ErrWS(redis, mgr)
     user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
     try:
-        await watch_handoff.handle_handoff(ws, user, {"channel_id": cid, "target_user_id": "222"})
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await watch_handoff.handle_handoff(
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "222"}
+        )
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "222"
         assert ws.errors == []
     finally:
@@ -1147,14 +1266,16 @@ async def test_handoff_to_non_watcher_errors_4018(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await mgr.watch_join(cid, "111", object(), now_ms=1000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await mgr.watch_join(cid, _PID, "111", object(), now_ms=1000)
+    await _seed_party(redis, cid, _state(host="111"))
     ws = _ErrWS(redis, mgr)
     user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
     try:
-        await watch_handoff.handle_handoff(ws, user, {"channel_id": cid, "target_user_id": "999"})
+        await watch_handoff.handle_handoff(
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "999"}
+        )
         assert ws.errors and ws.errors[0][0] == 4018
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "111"
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1167,13 +1288,15 @@ async def test_handoff_by_non_host_errors_4015(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await mgr.watch_join(cid, "111", object(), now_ms=1000)
-    await mgr.watch_join(cid, "222", object(), now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await mgr.watch_join(cid, _PID, "111", object(), now_ms=1000)
+    await mgr.watch_join(cid, _PID, "222", object(), now_ms=2000)
+    await _seed_party(redis, cid, _state(host="111"))
     ws = _ErrWS(redis, mgr)
     user = AuthenticatedUser(id=222, username="u222", is_admin=False, payload={})
     try:
-        await watch_handoff.handle_handoff(ws, user, {"channel_id": cid, "target_user_id": "111"})
+        await watch_handoff.handle_handoff(
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "111"}
+        )
         assert ws.errors and ws.errors[0][0] == 4015
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1192,12 +1315,12 @@ async def test_handle_join_registers_and_broadcasts(redis):
     from dcc_chat_gateway.routes import ws_watch
     from dcc_chat_gateway.security import AuthenticatedUser
 
-    broadcasts: list[str] = []
+    broadcasts: list[tuple[str, str]] = []
 
     mgr = _reg_mgr()
 
-    async def _rec(cid):
-        broadcasts.append(cid)
+    async def _rec(cid, pid):
+        broadcasts.append((cid, pid))
 
     mgr.broadcast_watchers = _rec  # type: ignore[method-assign]
 
@@ -1206,7 +1329,10 @@ async def test_handle_join_registers_and_broadcasts(redis):
     uid = random.randint(1, 1_000_000)
 
     ws = _ErrWS(redis, mgr)
-    watched: set[str] = set()
+    watched: set[tuple[str, str]] = set()
+    # handle_join now refuses to register a watcher for a party that isn't
+    # active in Redis — seed it first.
+    await _seed_party(redis, cid, _state(host="111"))
 
     async def _ok(session, c, u):
         return type("Chan", (), {"type": 1, "guild_id": 1})()  # CHANNEL_TYPE_VOICE == 1
@@ -1221,16 +1347,17 @@ async def test_handle_join_registers_and_broadcasts(redis):
     try:
         await ws_watch.handle_join(
             ws, AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={}),
-            {"channel_id": cid},
+            {"channel_id": cid, "party_id": _PID},
             session_factory=lambda: _FakeSession(),
             watched_parties=watched,
         )
     finally:
         ws_watch.channel_membership = orig
         ws_watch.resolve_permissions = orig_perms
-    assert cid in watched
-    assert str(uid) in await mgr.watchers(cid)
-    assert broadcasts == [cid]
+        await redis.delete(f"watch:channel-{cid}")
+    assert (cid, _PID) in watched
+    assert str(uid) in await mgr.watchers(cid, _PID)
+    assert broadcasts == [(cid, _PID)]
 
 
 @pytest.mark.asyncio
@@ -1242,22 +1369,24 @@ async def test_heartbeat_rejects_out_of_range_position(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     # updated_at far in the past so the debounce wouldn't block a valid write.
-    await redis.set(
-        f"watch:channel-{cid}",
-        json.dumps(_state(host="111", position=5.0, updated_at=watchkeys.now_ms() - 60_000)),
-        ex=600,
+    await _seed_party(
+        redis, cid, _state(host="111", position=5.0, updated_at=watchkeys.now_ms() - 60_000)
     )
     ws = _ErrWS(redis, _reg_mgr())
     user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
     try:
         await ws_watch.handle_heartbeat(
-            ws, user, {"channel_id": cid, "position": ws_watch._MAX_POSITION_S + 1}
+            ws,
+            user,
+            {"channel_id": cid, "party_id": _PID, "position": ws_watch._MAX_POSITION_S + 1},
         )
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        new = await _read_party(redis, cid)
         assert new["position"] == 5.0  # unchanged — heartbeat dropped
         # Sanity: a within-bounds heartbeat does move it.
-        await ws_watch.handle_heartbeat(ws, user, {"channel_id": cid, "position": 42.0})
-        moved = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await ws_watch.handle_heartbeat(
+            ws, user, {"channel_id": cid, "party_id": _PID, "position": 42.0}
+        )
+        moved = await _read_party(redis, cid)
         assert moved["position"] == 42.0
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1274,11 +1403,11 @@ async def test_grace_expires_ends_party(redis, monkeypatch):
     monkeypatch.setattr(watchkeys, "WATCH_HOST_GRACE_S", 0)
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await _seed_party(redis, cid, _state(host="111"))
     try:
-        mgr.schedule_host_end(redis, cid, "111")
-        await mgr._watch_end_timers[cid][1]  # await the scheduled task
-        assert await redis.get(f"watch:channel-{cid}") is None
+        mgr.schedule_host_end(redis, cid, _PID, "111")
+        await mgr._watch_end_timers[(cid, _PID)][1]  # await the scheduled task
+        assert await _read_party(redis, cid) is None
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
@@ -1289,14 +1418,14 @@ async def test_host_reconnect_within_grace_cancels_end(redis):
     party intact."""
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await _seed_party(redis, cid, _state(host="111"))
     try:
-        mgr.schedule_host_end(redis, cid, "111")  # default 30s grace
-        assert cid in mgr._watch_end_timers
-        await mgr.watch_join(cid, "111", object())  # host returns
-        assert cid not in mgr._watch_end_timers  # timer cancelled
+        mgr.schedule_host_end(redis, cid, _PID, "111")  # default 30s grace
+        assert (cid, _PID) in mgr._watch_end_timers
+        await mgr.watch_join(cid, _PID, "111", object())  # host returns
+        assert (cid, _PID) not in mgr._watch_end_timers  # timer cancelled
         await asyncio.sleep(0)  # let cancellation settle
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "111"  # party still there
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1312,9 +1441,9 @@ async def test_end_if_host_deletes_for_host(redis):
     from dcc_chat_gateway.routes.watch_handoff import end_if_host
 
     cid = str(random.randint(10**18, 10**19 - 1))
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
-    await end_if_host(redis, cid, "111")
-    assert await redis.get(f"watch:channel-{cid}") is None
+    await _seed_party(redis, cid, _state(host="111"))
+    await end_if_host(redis, cid, _PID, "111")
+    assert await _read_party(redis, cid) is None
 
 
 @pytest.mark.asyncio
@@ -1322,10 +1451,10 @@ async def test_end_if_host_noop_for_viewer(redis):
     from dcc_chat_gateway.routes.watch_handoff import end_if_host
 
     cid = str(random.randint(10**18, 10**19 - 1))
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await _seed_party(redis, cid, _state(host="111"))
     try:
-        await end_if_host(redis, cid, "222")  # viewer leaving
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await end_if_host(redis, cid, _PID, "222")  # viewer leaving
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "111"
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1338,11 +1467,11 @@ async def test_end_or_grace_if_host_schedules_for_host(redis, monkeypatch):
     monkeypatch.setattr(watchkeys, "WATCH_HOST_GRACE_S", 0)
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await _seed_party(redis, cid, _state(host="111"))
     try:
-        await end_or_grace_if_host(redis, mgr, cid, "111")
-        await mgr._watch_end_timers[cid][1]
-        assert await redis.get(f"watch:channel-{cid}") is None
+        await end_or_grace_if_host(redis, mgr, cid, _PID, "111")
+        await mgr._watch_end_timers[(cid, _PID)][1]
+        assert await _read_party(redis, cid) is None
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
@@ -1353,11 +1482,11 @@ async def test_end_or_grace_if_host_noop_for_viewer(redis):
 
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await _seed_party(redis, cid, _state(host="111"))
     try:
-        await end_or_grace_if_host(redis, mgr, cid, "222")  # viewer
-        assert cid not in mgr._watch_end_timers
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await end_or_grace_if_host(redis, mgr, cid, _PID, "222")  # viewer
+        assert (cid, _PID) not in mgr._watch_end_timers
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "111"
     finally:
         await redis.delete(f"watch:channel-{cid}")
@@ -1379,15 +1508,17 @@ async def test_handle_leave_host_ends_immediately(redis):
     cid = str(random.randint(10**18, 10**19 - 1))
     mgr = _reg_mgr()
     host_ws = _ErrWS(redis, mgr)
-    await mgr.watch_join(cid, str(uid), host_ws, now_ms=1000)
-    await mgr.watch_join(cid, "999", object(), now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host=str(uid))), ex=600)
+    await mgr.watch_join(cid, _PID, str(uid), host_ws, now_ms=1000)
+    await mgr.watch_join(cid, _PID, "999", object(), now_ms=2000)
+    await _seed_party(redis, cid, _state(host=str(uid)))
 
     user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
     try:
-        await ws_watch.handle_leave(host_ws, user, {"channel_id": cid}, watched_parties={cid})
-        assert cid not in mgr._watch_end_timers  # no grace timer
-        assert await redis.get(f"watch:channel-{cid}") is None  # ended now
+        await ws_watch.handle_leave(
+            host_ws, user, {"channel_id": cid, "party_id": _PID}, watched_parties={(cid, _PID)}
+        )
+        assert (cid, _PID) not in mgr._watch_end_timers  # no grace timer
+        assert await _read_party(redis, cid) is None  # ended now
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
@@ -1402,14 +1533,16 @@ async def test_handle_leave_viewer_keeps_party(redis):
     mgr = _reg_mgr()
     host_ws = _ErrWS(redis, mgr)
     viewer_ws = _ErrWS(redis, mgr)
-    await mgr.watch_join(cid, "111", host_ws, now_ms=1000)
-    await mgr.watch_join(cid, "222", viewer_ws, now_ms=2000)
-    await redis.set(f"watch:channel-{cid}", json.dumps(_state(host="111")), ex=600)
+    await mgr.watch_join(cid, _PID, "111", host_ws, now_ms=1000)
+    await mgr.watch_join(cid, _PID, "222", viewer_ws, now_ms=2000)
+    await _seed_party(redis, cid, _state(host="111"))
 
     user = AuthenticatedUser(id=222, username="u222", is_admin=False, payload={})
     try:
-        await ws_watch.handle_leave(viewer_ws, user, {"channel_id": cid}, watched_parties={cid})
-        new = json.loads(await redis.get(f"watch:channel-{cid}"))
+        await ws_watch.handle_leave(
+            viewer_ws, user, {"channel_id": cid, "party_id": _PID}, watched_parties={(cid, _PID)}
+        )
+        new = await _read_party(redis, cid)
         assert new["host_user_id"] == "111"
     finally:
         await redis.delete(f"watch:channel-{cid}")

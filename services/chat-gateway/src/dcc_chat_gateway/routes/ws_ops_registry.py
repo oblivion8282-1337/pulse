@@ -63,10 +63,10 @@ class WSOpContext:
     # cid (str) → guild_id (int) for guild text channels, None for DMs.
     # See routes/ws_ops.py for the original semantics — preserved 1:1.
     subscribed: dict[str, int | None] = field(default_factory=dict)
-    # Channel ids of watch parties this socket has started.
-    hosted_parties: set[str] = field(default_factory=set)
-    # Channel ids of watch parties this socket currently watches (tile mounted).
-    watched_parties: set[str] = field(default_factory=set)
+    # (channel_id, party_id) of watch parties this socket has started as host.
+    hosted_parties: set[tuple[str, str]] = field(default_factory=set)
+    # (channel_id, party_id) of watch parties this socket currently watches.
+    watched_parties: set[tuple[str, str]] = field(default_factory=set)
     # Voice channel id (as string) the user is currently in, as reported by
     # voice_self_state. ``None`` when not in a voice channel.
     current_voice_channel: str | None = None

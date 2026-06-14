@@ -1,14 +1,16 @@
-"""Ephemeral live-chat for an active Watch Party (one chat per channel).
+"""Ephemeral live-chat for an active Watch Party (one chat per party).
 
 Storage / fan-out mirrors stream_chat.py:
-  * Redis List ``watch:chat:channel-<cid>``, capped at WATCH_CHAT_MAX entries
-    via LTRIM, EXPIRE 6h. No DEL on party-end — let TTL clean up.
-  * Fan-out reuses ``chat:channel:<cid>`` pub/sub with op ``watch_chat_message``.
+  * Redis List ``watch:chat:channel-<cid>-<pid>``, capped at WATCH_CHAT_MAX
+    entries via LTRIM, EXPIRE 6h. No DEL on party-end — let TTL clean up.
+  * Fan-out reuses ``chat:channel:<cid>`` pub/sub with op ``watch_chat_message``
+    (the ``party_id`` field routes it to the right party's chat client-side).
 
-Routes:
-  * ``POST /channels/{cid}/watch-party/chat`` — member + active party required.
-    Rate-limited in the shared ``message`` bucket.
-  * ``GET  /channels/{cid}/watch-party/chat?limit=100`` — member required,
+Routes (a channel can host several concurrent parties, so the chat is scoped
+to the party, not the channel):
+  * ``POST /channels/{cid}/watch-party/{pid}/chat`` — member + active party
+    required. Rate-limited in the shared ``message`` bucket.
+  * ``GET  /channels/{cid}/watch-party/{pid}/chat?limit=100`` — member required,
     chronological order (oldest first).
 """
 
@@ -98,12 +100,13 @@ async def _require_voice_channel_member(
 
 
 @router.post(
-    "/channels/{channel_id}/watch-party/chat",
+    "/channels/{channel_id}/watch-party/{party_id}/chat",
     response_model=WatchChatPostOut,
     status_code=201,
 )
 async def post_watch_chat(
     channel_id: int,
+    party_id: str,
     payload: WatchChatIn,
     session: SessionDep,
     current: CurrentUser,
@@ -115,7 +118,7 @@ async def post_watch_chat(
     if redis is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="storage unavailable")
 
-    state = await watchkeys.read_state(redis, str(channel_id))
+    state = await watchkeys.read_party(redis, str(channel_id), party_id)
     if state is None:
         raise HTTPException(status.HTTP_410_GONE, detail="no active watch party")
 
@@ -130,7 +133,7 @@ async def post_watch_chat(
         "content": payload.content,
         "created_at": created_at,
     }
-    chat_key = watchkeys.WATCH_CHAT_KEY.format(channel_id=channel_id)
+    chat_key = watchkeys.WATCH_CHAT_KEY.format(channel_id=channel_id, party_id=party_id)
     pipe = redis.pipeline()
     pipe.lpush(chat_key, json.dumps(entry, separators=(",", ":")))
     pipe.ltrim(chat_key, 0, watchkeys.WATCH_CHAT_MAX - 1)
@@ -144,6 +147,7 @@ async def post_watch_chat(
                 str(channel_id),
                 WatchChatMessageEvent(
                     channel_id=str(channel_id),
+                    party_id=party_id,
                     message=StreamChatMessagePayload(**entry),
                 ),
             )
@@ -154,11 +158,12 @@ async def post_watch_chat(
 
 
 @router.get(
-    "/channels/{channel_id}/watch-party/chat",
+    "/channels/{channel_id}/watch-party/{party_id}/chat",
     response_model=list[WatchChatMessage],
 )
 async def get_watch_chat(
     channel_id: int,
+    party_id: str,
     session: SessionDep,
     current: CurrentUser,
     request: Request,
@@ -170,10 +175,10 @@ async def get_watch_chat(
     if redis is None:
         return []
 
-    chat_key = watchkeys.WATCH_CHAT_KEY.format(channel_id=channel_id)
+    chat_key = watchkeys.WATCH_CHAT_KEY.format(channel_id=channel_id, party_id=party_id)
     raws = await redis.lrange(chat_key, 0, limit - 1)
     # Reaktionen einmal laden und pro Nachricht zum Aggregat falten.
-    reactions_by_msg = await watchkeys.read_chat_reactions(redis, str(channel_id))
+    reactions_by_msg = await watchkeys.read_chat_reactions(redis, str(channel_id), party_id)
     me = str(current.id)
     out: list[WatchChatMessage] = []
     for raw in reversed(raws):
@@ -211,11 +216,12 @@ def _aggregate_reactions(
 
 
 @router.put(
-    "/channels/{channel_id}/watch-party/chat/{message_id}/reactions/{emoji}/@me",
+    "/channels/{channel_id}/watch-party/{party_id}/chat/{message_id}/reactions/{emoji}/@me",
     response_model=WatchChatReactionOut,
 )
 async def toggle_watch_chat_reaction(
     channel_id: int,
+    party_id: str,
     message_id: str,
     emoji: str,
     session: SessionDep,
@@ -233,7 +239,7 @@ async def toggle_watch_chat_reaction(
     if redis is None:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="storage unavailable")
 
-    state = await watchkeys.read_state(redis, str(channel_id))
+    state = await watchkeys.read_party(redis, str(channel_id), party_id)
     if state is None:
         raise HTTPException(status.HTTP_410_GONE, detail="no active watch party")
 
@@ -241,7 +247,7 @@ async def toggle_watch_chat_reaction(
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, detail="rate limit exceeded")
 
     added, count = await watchkeys.toggle_chat_reaction(
-        redis, str(channel_id), message_id, emoji_n, str(current.id)
+        redis, str(channel_id), party_id, message_id, emoji_n, str(current.id)
     )
 
     mgr = getattr(request.app.state, "connection_manager", None)
@@ -253,6 +259,7 @@ async def toggle_watch_chat_reaction(
                     data=WatchChatReactionData(
                         message_id=message_id,
                         channel_id=str(channel_id),
+                        party_id=party_id,
                         user_id=str(current.id),
                         emoji=emoji_n,
                         added=added,

@@ -88,6 +88,7 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
     "watch_chat_message": {
         "op": "watch_chat_message",
         "channel_id": "10",
+        "party_id": "20",
         "message": {
             "id": "1",
             "author_id": "11",
@@ -100,6 +101,7 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "data": {
             "message_id": "1",
             "channel_id": "10",
+            "party_id": "20",
             "user_id": "11",
             "emoji": "🔥",
             "added": True,
@@ -326,14 +328,15 @@ def test_stream_state_snapshot_bare() -> None:
 
 
 def test_watch_state_snapshot_bare() -> None:
-    snap = WatchStateSnapshot(channel_id="6", state={"is_playing": True})
+    snap = WatchStateSnapshot(channel_id="6", party_id="20", state={"is_playing": True})
     dumped = snap.model_dump(mode="json")
     assert dumped["channel_id"] == "6"
+    assert dumped["party_id"] == "20"
     assert dumped["state"] == {"is_playing": True}
 
-    # state=None == party stopped (the wire-shape used by delete_state).
-    stop = WatchStateSnapshot(channel_id="6", state=None)
-    assert stop.model_dump(mode="json") == {"channel_id": "6", "state": None}
+    # state=None == party stopped (the wire-shape used by delete_party).
+    stop = WatchStateSnapshot(channel_id="6", party_id="20", state=None)
+    assert stop.model_dump(mode="json") == {"channel_id": "6", "party_id": "20", "state": None}
 
 
 def test_presence_status_changed_alias() -> None:

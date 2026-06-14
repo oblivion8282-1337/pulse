@@ -20,41 +20,53 @@ class _Reg(_WatchRegistryMixin):
 @pytest.mark.asyncio
 async def test_join_then_next_host_orders_by_joined_at():
     reg = _Reg()
-    await reg.watch_join("chan", "userA", object(), now_ms=1000)
-    await reg.watch_join("chan", "userB", object(), now_ms=2000)
-    assert await reg.next_host("chan", exclude_uid="userA") == "userB"
-    assert await reg.next_host("chan", exclude_uid="userB") == "userA"
-    assert await reg.next_host("chan", exclude_uid="userA") == "userB"
+    await reg.watch_join("chan", "p1", "userA", object(), now_ms=1000)
+    await reg.watch_join("chan", "p1", "userB", object(), now_ms=2000)
+    assert await reg.next_host("chan", "p1", exclude_uid="userA") == "userB"
+    assert await reg.next_host("chan", "p1", exclude_uid="userB") == "userA"
+    assert await reg.next_host("chan", "p1", exclude_uid="userA") == "userB"
 
 
 @pytest.mark.asyncio
 async def test_rejoin_does_not_reset_joined_at():
     reg = _Reg()
     ws1, ws2 = object(), object()
-    await reg.watch_join("chan", "userA", ws1, now_ms=1000)
-    await reg.watch_join("chan", "userB", object(), now_ms=2000)
+    await reg.watch_join("chan", "p1", "userA", ws1, now_ms=1000)
+    await reg.watch_join("chan", "p1", "userB", object(), now_ms=2000)
     # userA opens a second tab later — joined_at must stay 1000, so still oldest.
-    await reg.watch_join("chan", "userA", ws2, now_ms=5000)
-    assert await reg.next_host("chan", exclude_uid="userB") == "userA"
+    await reg.watch_join("chan", "p1", "userA", ws2, now_ms=5000)
+    assert await reg.next_host("chan", "p1", exclude_uid="userB") == "userA"
 
 
 @pytest.mark.asyncio
 async def test_multitab_refcount_user_stays_until_last_socket():
     reg = _Reg()
     ws1, ws2 = object(), object()
-    await reg.watch_join("chan", "userA", ws1, now_ms=1000)
-    await reg.watch_join("chan", "userA", ws2, now_ms=1000)
-    assert await reg.watch_leave("chan", "userA", ws1) is False
-    assert await reg.next_host("chan", exclude_uid="zzz") == "userA"
-    assert await reg.watch_leave("chan", "userA", ws2) is True
-    assert await reg.next_host("chan", exclude_uid="zzz") is None
+    await reg.watch_join("chan", "p1", "userA", ws1, now_ms=1000)
+    await reg.watch_join("chan", "p1", "userA", ws2, now_ms=1000)
+    assert await reg.watch_leave("chan", "p1", "userA", ws1) is False
+    assert await reg.next_host("chan", "p1", exclude_uid="zzz") == "userA"
+    assert await reg.watch_leave("chan", "p1", "userA", ws2) is True
+    assert await reg.next_host("chan", "p1", exclude_uid="zzz") is None
+
+
+@pytest.mark.asyncio
+async def test_two_parties_in_one_channel_are_independent():
+    reg = _Reg()
+    await reg.watch_join("chan", "p1", "userA", object(), now_ms=1000)
+    await reg.watch_join("chan", "p2", "userB", object(), now_ms=1000)
+    # Each party tracks only its own watchers.
+    assert await reg.watchers("chan", "p1") == ["userA"]
+    assert await reg.watchers("chan", "p2") == ["userB"]
+    assert await reg.next_host("chan", "p1", exclude_uid="zzz") == "userA"
+    assert await reg.next_host("chan", "p2", exclude_uid="zzz") == "userB"
 
 
 @pytest.mark.asyncio
 async def test_leave_unknown_is_idempotent():
     reg = _Reg()
-    assert await reg.watch_leave("chan", "ghost", object()) is False
-    assert await reg.watchers("chan") == []
+    assert await reg.watch_leave("chan", "p1", "ghost", object()) is False
+    assert await reg.watchers("chan", "p1") == []
 
 
 @pytest.mark.asyncio
@@ -75,11 +87,12 @@ async def test_broadcast_watchers_fans_out_filtered_envelope():
             sent.append((list(targets), envelope))
 
     mgr = _Mgr()
-    await mgr.watch_join("chan", "userA", object(), now_ms=1000)
-    await mgr.broadcast_watchers("chan")
+    await mgr.watch_join("chan", "p1", "userA", object(), now_ms=1000)
+    await mgr.broadcast_watchers("chan", "p1")
     assert len(sent) == 1
     targets, env = sent[0]
     assert targets == ["wsA"]
     assert env["op"] == "watch_watchers"
     assert env["channel_id"] == "chan"
+    assert env["party_id"] == "p1"
     assert env["user_ids"] == ["userA"]

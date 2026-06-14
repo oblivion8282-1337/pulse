@@ -22,10 +22,12 @@ class StreamStateSnapshot(_EventBase):
 
 class WatchStateSnapshot(_EventBase):
     """Published by chat-gateway's own watch-party helpers
-    (``watchkeys.write_state`` / ``delete_state``). ``state=None`` ==
-    "party stopped". State shape is left as a free-form dict — the
-    contents (source descriptor, host_user_id, position…) belong to
-    the watch-party feature, not to the schema registry."""
+    (``watchkeys.write_party`` / ``delete_party``). ``state=None`` ==
+    "party stopped". ``party_id`` identifies which of a channel's possibly
+    several concurrent parties this snapshot is about. State shape is left as
+    a free-form dict — the contents (source descriptor, host_user_id,
+    position…) belong to the watch-party feature, not to the schema registry."""
 
     channel_id: str
+    party_id: str
     state: dict[str, Any] | None

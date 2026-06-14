@@ -89,16 +89,19 @@ class StreamChatMessageEvent(_EventBase):
 class WatchChatMessageEvent(_EventBase):
     """``op="watch_chat_message"`` — chat message in a watch-party
     sidebar chat. Fanned out on the same per-channel pubsub for the
-    voice channel hosting the party."""
+    voice channel hosting the party. ``party_id`` routes it to the right
+    one of the channel's possibly several concurrent parties."""
 
     op: Literal["watch_chat_message"] = "watch_chat_message"
     channel_id: str
+    party_id: str
     message: StreamChatMessagePayload
 
 
 class WatchChatReactionData(_EventBase):
     message_id: str
     channel_id: str
+    party_id: str
     user_id: str
     emoji: str
     added: bool

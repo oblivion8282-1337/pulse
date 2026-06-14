@@ -175,6 +175,7 @@ async def handle_watch_events(
     envelope = {
         "op": "watch_state",
         "channel_id": watch_cid,
+        "party_id": str(payload.get("party_id", "")),
         "state": payload.get("state"),
         # Server-clock timestamp so viewers can calibrate their local clock
         # offset and extrapolate playback position against the server clock

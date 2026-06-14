@@ -29,11 +29,11 @@ async def guild_watch_state(
     current: CurrentUser,
     request: Request,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Channels in the guild that currently have an active watch party.
+    """Active watch parties in the guild's voice channels.
 
-    Returns ``{"watch_states": [{"channel_id": "<id>", "state": {...}}, ...]}``
-    — only channels with an active party are listed. Read straight off Redis
-    (``watch:channel-*``), same shape as the WS ``ready`` payload.
+    Returns ``{"watch_states": [{"channel_id", "party_id", "state": {...}}, ...]}``
+    — one entry per active party (a channel may hold several). Read straight off
+    Redis (the ``watch:channel-*`` hashes), same shape as the WS ``ready`` payload.
     """
     await require_member(session, guild_id, current.id)
     stmt = select(Channel.id).where(
