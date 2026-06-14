@@ -1,13 +1,18 @@
 /**
- * Watch-Party presence store — mirrors `streamPresence.svelte.ts`.
- *
- * One active watch party per voice channel, max. State is owned end-to-end by
- * chat-gateway (`watchkeys.py`), fed into the store from two sources:
- *  - the `ready` payload's `watch_states: [{channel_id, state}, ...]` →
- *    {@link seed} (replaces the map; runs on every (re)connect so it doubles
+ * Watch-Party presence store — mirrors `streamPresence.svelte.ts`, but several
+ * parties can run in one voice channel at once (like multiple HQ streams). Each
+ * party has its own `party_id`; the store is a two-level map
+ * `channelId → partyId → state`. State is owned end-to-end by chat-gateway
+ * (`watchkeys.py`), fed from two sources:
+ *  - the `ready` payload's `watch_states: [{channel_id, party_id, state}, ...]`
+ *    → {@link seed} (replaces the map; runs on every (re)connect so it doubles
  *    as the reconnect re-sync);
- *  - the `{op:"watch_state", channel_id, state}` WS push → {@link apply}
- *    (full state snapshot, or `state: null` when the party ended).
+ *  - the `{op:"watch_state", channel_id, party_id, state}` WS push → {@link apply}
+ *    (full state snapshot, or `state: null` when that party ended).
+ *
+ * Per-user UI surfaces (badges on a participant/member) ask "does this user
+ * host a party here?" via {@link hostIdsIn} / {@link partiesHostedBy} rather
+ * than threading a party_id, since a party always has exactly one host.
  */
 
 export type WatchSourceYouTube = {
@@ -33,6 +38,8 @@ export function isPassiveSource(s: WatchSource): boolean {
 }
 
 export type WatchPartyState = {
+  /** Snowflake identifying this party within its channel. */
+  party_id: string;
   source: WatchSource;
   /** Snowflake of the user controlling playback. */
   host_user_id: string;
@@ -48,41 +55,76 @@ export type WatchPartyState = {
  * used in WS pushes to signal "party ended" — it never appears in `byChannel`. */
 export type WatchChannelEntry = {
   channel_id: string;
+  party_id: string;
   state: WatchPartyState | null;
 };
 
 class WatchPartyPresenceStore {
-  /** Maps channel_id → current watch-party state. Channels without a party are absent. */
-  byChannel = $state<Record<string, WatchPartyState>>({});
+  /** Maps channel_id → party_id → state. Channels/parties without state absent. */
+  byChannel = $state<Record<string, Record<string, WatchPartyState>>>({});
 
   /** Seed from `ready` payload or a REST re-sync. Replaces all state. */
   seed(entries: WatchChannelEntry[]): void {
-    const next: Record<string, WatchPartyState> = {};
+    const next: Record<string, Record<string, WatchPartyState>> = {};
     for (const e of entries) {
-      if (e.state) next[e.channel_id] = e.state;
+      if (!e.state) continue;
+      (next[e.channel_id] ??= {})[e.party_id] = e.state;
     }
     this.byChannel = next;
   }
 
-  /** Apply a single `watch_state` push. `state === null` ends the party. */
-  apply(channelId: string, state: WatchPartyState | null): void {
+  /** Apply a single `watch_state` push. `state === null` ends that party. */
+  apply(channelId: string, partyId: string, state: WatchPartyState | null): void {
+    const parties = this.byChannel[channelId];
     if (state === null) {
-      if (this.byChannel[channelId] === undefined) return;
-      const { [channelId]: _drop, ...rest } = this.byChannel;
-      this.byChannel = rest;
+      if (parties?.[partyId] === undefined) return;
+      const { [partyId]: _drop, ...restParties } = parties;
+      if (Object.keys(restParties).length === 0) {
+        const { [channelId]: _dropChan, ...restChans } = this.byChannel;
+        this.byChannel = restChans;
+      } else {
+        this.byChannel = { ...this.byChannel, [channelId]: restParties };
+      }
       return;
     }
-    this.byChannel = { ...this.byChannel, [channelId]: state };
+    this.byChannel = {
+      ...this.byChannel,
+      [channelId]: { ...(parties ?? {}), [partyId]: state }
+    };
   }
 
-  /** The active watch-party state for a channel, or `undefined`. */
-  partyIn(channelId: string): WatchPartyState | undefined {
-    return this.byChannel[channelId];
+  /** All active parties in a channel (each carries its own `party_id`). */
+  partiesIn(channelId: string): WatchPartyState[] {
+    const parties = this.byChannel[channelId];
+    return parties ? Object.values(parties) : [];
   }
 
-  /** Whether the given user controls the party in this channel. */
-  isHost(channelId: string, userId: string | undefined): boolean {
-    const p = this.byChannel[channelId];
+  /** A specific party's state, or `undefined`. */
+  partyIn(channelId: string, partyId: string): WatchPartyState | undefined {
+    return this.byChannel[channelId]?.[partyId];
+  }
+
+  /** Whether the channel has at least one active party. */
+  hasAnyParty(channelId: string): boolean {
+    const parties = this.byChannel[channelId];
+    return !!parties && Object.keys(parties).length > 0;
+  }
+
+  /** Host user-ids of all active parties in the channel — drives the per-user
+   * PARTY badges (a user is "hosting" if they host any party here). */
+  hostIdsIn(channelId: string): string[] {
+    return this.partiesIn(channelId).map((p) => p.host_user_id);
+  }
+
+  /** Parties in the channel hosted by `userId` (usually one). Used by the
+   * per-user open handlers to map a clicked participant to their party tile(s). */
+  partiesHostedBy(channelId: string, userId: string): WatchPartyState[] {
+    return this.partiesIn(channelId).filter((p) => p.host_user_id === userId);
+  }
+
+  /** Whether the given user controls the given party in this channel. */
+  isHost(channelId: string, partyId: string, userId: string | undefined): boolean {
+    const p = this.partyIn(channelId, partyId);
     return !!p && !!userId && p.host_user_id === userId;
   }
 

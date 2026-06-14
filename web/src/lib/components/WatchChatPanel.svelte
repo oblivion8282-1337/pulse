@@ -1,7 +1,7 @@
 <!--
-  WatchChatPanel — Seitenleisten-Chat für eine aktive Watch Party.
-  Ein Chat pro Channel (kein streamer_id). Backfill via REST, Live-Updates
-  per WS `watch_chat_message`. Wird in VoiceChannelView's rechtem Slot gezeigt.
+  WatchChatPanel — Seitenleisten-Chat für eine aktive Watch Party. Ein Chat pro
+  Party (mehrere Partys pro Channel möglich → channelId + partyId). Backfill via
+  REST, Live-Updates per WS `watch_chat_message`.
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
@@ -20,13 +20,15 @@
 
   let {
     channelId,
+    partyId,
     onClose
   }: {
     channelId: string;
+    partyId: string;
     onClose?: () => void;
   } = $props();
 
-  let messages = $derived(watchChat.for(channelId));
+  let messages = $derived(watchChat.for(channelId, partyId));
   let listEl = $state<HTMLDivElement | null>(null);
   let loading = $state(true);
 
@@ -36,13 +38,14 @@
 
   $effect(() => {
     const cid = channelId;
+    const pid = partyId;
     loading = true;
     let cancelled = false;
     void chatApi
-      .getWatchChat(cid, 100)
+      .getWatchChat(cid, pid, 100)
       .then((msgs) => {
         if (cancelled) return;
-        watchChat.seed(cid, msgs);
+        watchChat.seed(cid, pid, msgs);
       })
       .catch(() => {
         /* 403 wenn kein Mitglied, 410 wenn Party schon vorbei — Empty-State reicht. */
@@ -64,7 +67,7 @@
 
   async function send(content: string, _attachmentIds: string[] = []) {
     try {
-      await chatApi.postWatchChat(channelId, content);
+      await chatApi.postWatchChat(channelId, partyId, content);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('410')) {
@@ -86,7 +89,7 @@
     // eigene Reaktion doppelt an. Gleiche Mechanik wie der normale Chat
     // (channel-page toggleReaction → nur API, WS aktualisiert).
     try {
-      await chatApi.toggleWatchChatReaction(channelId, messageId, emoji);
+      await chatApi.toggleWatchChatReaction(channelId, partyId, messageId, emoji);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg.includes('410')) {

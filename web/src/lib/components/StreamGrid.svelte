@@ -74,11 +74,16 @@
   let selfCamName = $derived(myId ? userCache.displayName(myId) : 'Du');
   let selfCamMirror = $derived(voice.cameraFacing === 'user');
 
-  let watchPartyState = $derived(watchPartyPresence.partyIn(channel.id));
-  let showParty = $derived(
-    !!watchPartyState &&
-      openedTiles.isOpenParty(channel.id) &&
-      !detachedWatchParties.has(channel.id)
+  // Several parties can run in one channel — show every one the viewer has
+  // opened (and that isn't detached into a popup), each as its own tile.
+  let openParties = $derived(
+    watchPartyPresence
+      .partiesIn(channel.id)
+      .filter(
+        (party) =>
+          openedTiles.isOpenParty(channel.id, party.party_id) &&
+          !detachedWatchParties.has(channel.id, party.party_id)
+      )
   );
 
   // Header label: show that *something* is HQ-streaming (rocket icon + label)
@@ -99,9 +104,9 @@
   });
   let hqStreaming = $derived(hqStreamers.length > 0);
 
-  // Stabile Tile-Keys in Render-Reihenfolge (Party · HQ · Screens · Cams).
+  // Stabile Tile-Keys in Render-Reihenfolge (Partys · HQ · Screens · Cams).
   let tileKeys = $derived([
-    ...(showParty ? ['party'] : []),
+    ...openParties.map((p) => `party:${p.party_id}`),
     ...(showSelfCam ? ['selfcam'] : []),
     ...openHqIds.map((u) => `hq:${u}`),
     ...openScreens.map((s) => `screen:${s.identity}`),
@@ -168,17 +173,18 @@
     data-testid="stream-grid"
     data-focus-mode={focusMode}
   >
-    {#if showParty}
-      <div class="min-h-0 min-w-0" style={cellStyle('party')}>
+    {#each openParties as party (party.party_id)}
+      {@const key = `party:${party.party_id}`}
+      <div class="min-h-0 min-w-0" style={cellStyle(key)}>
         <WatchPartyTile
           channelId={channel.id}
-          party={watchPartyState!}
-          compact={focusMode && focusedKey !== 'party'}
-          focused={focusMode && focusedKey === 'party'}
-          onToggleFocus={focusHandler('party')}
+          {party}
+          compact={focusMode && focusedKey !== key}
+          focused={focusMode && focusedKey === key}
+          onToggleFocus={focusHandler(key)}
         />
       </div>
-    {/if}
+    {/each}
     {#if showSelfCam}
       <div class="min-h-0 min-w-0" style={cellStyle('selfcam')}>
         <CameraTile

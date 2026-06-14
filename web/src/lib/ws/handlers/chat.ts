@@ -204,7 +204,7 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('watch_chat_message', (evt) => {
-    watchChat.apply(evt.channel_id, evt.message);
+    watchChat.apply(evt.channel_id, evt.party_id, evt.message);
   });
 
   registerWsHandler('watch_chat_reaction', (evt) => {

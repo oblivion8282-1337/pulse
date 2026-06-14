@@ -71,7 +71,7 @@
   );
   let isLive = $derived(isHqStreaming || isScreenSharing);
   let isPartyHost = $derived(
-    !!p.userId && watchPartyPresence.partyIn(channelId)?.host_user_id === p.userId
+    !!p.userId && watchPartyPresence.hostIdsIn(channelId).includes(p.userId)
   );
   // The LiveKit cam track for this participant, if subscribed + unmuted.
   let hasCam = $derived(voice.cameraTracks.some((c) => c.identity === p.identity));
@@ -111,10 +111,14 @@
   }
 
   function openParty(): void {
-    if (detachedWatchParties.has(channelId)) {
-      detachedWatchParties.open(channelId); // focuses popup
-    } else {
-      openedTiles.openParty(channelId);
+    // Open every party this participant hosts here (usually exactly one).
+    if (!p.userId) return;
+    for (const party of watchPartyPresence.partiesHostedBy(channelId, p.userId)) {
+      if (detachedWatchParties.has(channelId, party.party_id)) {
+        detachedWatchParties.open(channelId, party.party_id); // focuses popup
+      } else {
+        openedTiles.openParty(channelId, party.party_id);
+      }
     }
   }
 

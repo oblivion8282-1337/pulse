@@ -65,9 +65,12 @@
   // Inline-Watch-Chat (Side-Panel rechts im Tile). Header-Toggle.
   let chatOpen = $state(false);
   let myId = $derived(currentServerUserId());
+  // party_id is invariant for a tile instance (the grid keys tiles by it).
+  // $derived (not a plain const) keeps it reactive-clean for the send helpers.
+  const partyId = $derived(party.party_id);
 
   function handleDetach(): void {
-    const opened = detachedWatchParties.open(channelId);
+    const opened = detachedWatchParties.open(channelId, partyId);
     if (!opened) {
       toast.error(m.watch_party_tile_popup_blocked(), {
         description: m.watch_party_tile_popup_blocked_description()
@@ -145,11 +148,11 @@
   //     disconnected, bevor das Tile unmountet — dann greift dieser Guard nicht
   //     und das watch_leave läuft wieder normal (für Viewer korrekt).
   onMount(() => {
-    gateway.sendWatchJoin(channelId);
+    gateway.sendWatchJoin(channelId, partyId);
     return () => {
-      if (detachedWatchParties.shouldSuppressLeave(channelId)) return;
+      if (detachedWatchParties.shouldSuppressLeave(channelId, partyId)) return;
       if (inVoiceChannel(channelId)) return;
-      gateway.sendWatchLeave(channelId);
+      gateway.sendWatchLeave(channelId, partyId);
     };
   });
 
@@ -172,11 +175,11 @@
 
   // Current watchers other than me — fed to the handoff picker.
   const otherWatchers = $derived(
-    watchWatchers.watchersIn(channelId).filter((id) => id !== myId)
+    watchWatchers.watchersIn(channelId, partyId).filter((id) => id !== myId)
   );
 
   // Total watchers (incl. me) for the "X watching" badge.
-  const watcherCount = $derived(watchWatchers.watchersIn(channelId).length);
+  const watcherCount = $derived(watchWatchers.watchersIn(channelId, partyId).length);
 
   // Lazy-fetch the YouTube video title via oEmbed.
   $effect(() => {
@@ -185,7 +188,7 @@
 
   function stop(): void {
     if (!isHost) return;
-    gateway.stopWatchParty(channelId);
+    gateway.stopWatchParty(channelId, partyId);
   }
 
   const sourceLabel = $derived.by(() => {
@@ -221,8 +224,8 @@
     // Unmount abfängt. Der Host behält seine Party (Host-sticky); für ihn ist das
     // X nur Verstecken, kein Beenden. Der Unmount-Guard unterdrückt danach das
     // doppelte watch_leave (er ist ja noch im Voice).
-    if (!isHost) gateway.sendWatchLeave(channelId);
-    openedTiles.closeParty(channelId);
+    if (!isHost) gateway.sendWatchLeave(channelId, partyId);
+    openedTiles.closeParty(channelId, partyId);
   }}
   {compact}
   {focused}
@@ -293,7 +296,7 @@
           <RewindIcon class="size-5 md:size-3.5" />
         </button>
       {/if}
-      <WatchPartyHandoffMenu {channelId} others={otherWatchers} />
+      <WatchPartyHandoffMenu {channelId} {partyId} others={otherWatchers} />
       <button
         type="button"
         onclick={stop}
@@ -307,6 +310,6 @@
     {/if}
   {/snippet}
   {#snippet chatPanel()}
-    <WatchChatPanel {channelId} onClose={() => (chatOpen = false)} />
+    <WatchChatPanel {channelId} {partyId} onClose={() => (chatOpen = false)} />
   {/snippet}
 </TileShell>

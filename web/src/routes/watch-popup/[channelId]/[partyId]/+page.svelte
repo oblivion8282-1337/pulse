@@ -1,5 +1,5 @@
 <!--
-  /watch-popup/[channelId] — Entkoppelte Watch-Party-Ansicht. Eigene
+  /watch-popup/[channelId]/[partyId] — Entkoppelte Watch-Party-Ansicht. Eigene
   Gateway-WS im neuen Fenster: bekommt `ready.watch_states` + die Live-
   `watch_state`-Pushes via Gateway-Subscription, syncronisiert seinen Player
   über dieselben Heartbeats wie ein normaler Viewer.
@@ -20,7 +20,10 @@
   import { m } from '$lib/paraglide/messages.js';
 
   let channelId = $derived(page.params.channelId ?? '');
-  let party = $derived(channelId ? watchPartyPresence.partyIn(channelId) : undefined);
+  let partyId = $derived(page.params.partyId ?? '');
+  let party = $derived(
+    channelId && partyId ? watchPartyPresence.partyIn(channelId, partyId) : undefined
+  );
 
   // Channel-Subscribe: ohne diese Subscribe-Op kriegen wir die per-channel-
   // Pushes (watch_state, watch_chat_message) nicht. Re-subscribe übernimmt
@@ -48,7 +51,7 @@
       .then(() => {
         if (cancelled) return;
         setTimeout(() => {
-          if (!cancelled && !watchPartyPresence.partyIn(channelId)) {
+          if (!cancelled && !watchPartyPresence.partyIn(channelId, partyId)) {
             try {
               window.close();
             } catch {
@@ -79,14 +82,14 @@
   onMount(() => {
     // Main hat „close" geschickt (User hat im Hauptfenster auf „Andocken"
     // geklickt) → wir schließen uns.
-    const offClose = detachedWatchParties.onCloseRequest((cid) => {
-      if (cid === channelId) {
+    const offClose = detachedWatchParties.onCloseRequest((cid, pid) => {
+      if (cid === channelId && pid === partyId) {
         try { window.close(); } catch {}
       }
     });
 
     function onUnload(): void {
-      detachedWatchParties.notifyClosed(channelId);
+      detachedWatchParties.notifyClosed(channelId, partyId);
     }
     window.addEventListener('beforeunload', onUnload);
 

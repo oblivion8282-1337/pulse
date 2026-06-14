@@ -169,7 +169,7 @@ export class PartyController {
     }
     if (this.#stopHeartbeat) return;
     this.#stopHeartbeat = startHeartbeat((pos) => {
-      gateway.sendWatchHeartbeat(this.getChannelId(), pos);
+      gateway.sendWatchHeartbeat(this.getChannelId(), this.getParty().party_id, pos);
       this.#maybeDetectLive();
     }, p);
   }
@@ -202,7 +202,7 @@ export class PartyController {
     if (!p || !this.getIsHost() || this.getIsPassive()) return;
     const target = Math.max(0, p.getCurrentTime() - seconds);
     p.seek(target);
-    gateway.sendWatchControl(this.getChannelId(), 'seek', target);
+    gateway.sendWatchControl(this.getChannelId(), this.getParty().party_id, 'seek', target);
   }
 
   onEvent(e: PlayerEvent): void {
@@ -248,6 +248,7 @@ export class PartyController {
       if (this.#pending) {
         gateway.sendWatchControl(
           this.getChannelId(),
+          this.getParty().party_id,
           this.#pending.action,
           this.#pending.position
         );

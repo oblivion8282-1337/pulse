@@ -65,13 +65,15 @@ export const gateway = {
   sendVoiceSelfState: (cid: string | null, m: boolean, d: boolean) =>
     _active().sendVoiceSelfState(cid, m, d),
   startWatchParty: (cid: string, url: string) => _active().startWatchParty(cid, url),
-  stopWatchParty: (cid: string) => _active().stopWatchParty(cid),
-  sendWatchControl: (cid: string, a: 'play' | 'pause' | 'seek', p: number) =>
-    _active().sendWatchControl(cid, a, p),
-  sendWatchHeartbeat: (cid: string, p: number) => _active().sendWatchHeartbeat(cid, p),
-  sendWatchJoin: (cid: string) => _active().sendWatchJoin(cid),
-  sendWatchLeave: (cid: string) => _active().sendWatchLeave(cid),
-  sendWatchHandoff: (cid: string, target?: string) => _active().sendWatchHandoff(cid, target),
+  stopWatchParty: (cid: string, pid: string) => _active().stopWatchParty(cid, pid),
+  sendWatchControl: (cid: string, pid: string, a: 'play' | 'pause' | 'seek', p: number) =>
+    _active().sendWatchControl(cid, pid, a, p),
+  sendWatchHeartbeat: (cid: string, pid: string, p: number) =>
+    _active().sendWatchHeartbeat(cid, pid, p),
+  sendWatchJoin: (cid: string, pid: string) => _active().sendWatchJoin(cid, pid),
+  sendWatchLeave: (cid: string, pid: string) => _active().sendWatchLeave(cid, pid),
+  sendWatchHandoff: (cid: string, pid: string, target?: string) =>
+    _active().sendWatchHandoff(cid, pid, target),
   sendActivity: () => _active().sendActivity(),
   sendTyping: (cid: string) => _active().sendTyping(cid),
   sendPluginOp: (op: string, payload?: Record<string, unknown>) =>

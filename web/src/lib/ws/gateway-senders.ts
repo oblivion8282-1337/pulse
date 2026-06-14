@@ -17,27 +17,32 @@ export function sendVoiceSelfState(
 export function startWatchParty(send: SendRaw, channelId: string, sourceUrl: string): boolean {
   return send({ op: 'watch_start', channel_id: channelId, source_url: sourceUrl });
 }
-export function stopWatchParty(send: SendRaw, channelId: string): boolean {
-  return send({ op: 'watch_stop', channel_id: channelId });
+export function stopWatchParty(send: SendRaw, channelId: string, partyId: string): boolean {
+  return send({ op: 'watch_stop', channel_id: channelId, party_id: partyId });
 }
 export function sendWatchControl(
-  send: SendRaw, channelId: string, action: 'play' | 'pause' | 'seek', position: number,
+  send: SendRaw, channelId: string, partyId: string,
+  action: 'play' | 'pause' | 'seek', position: number,
 ): boolean {
-  return send({ op: 'watch_control', channel_id: channelId, action, position });
+  return send({ op: 'watch_control', channel_id: channelId, party_id: partyId, action, position });
 }
-export function sendWatchHeartbeat(send: SendRaw, channelId: string, position: number): boolean {
-  return send({ op: 'watch_heartbeat', channel_id: channelId, position });
+export function sendWatchHeartbeat(
+  send: SendRaw, channelId: string, partyId: string, position: number,
+): boolean {
+  return send({ op: 'watch_heartbeat', channel_id: channelId, party_id: partyId, position });
 }
-export function sendWatchJoin(send: SendRaw, channelId: string): boolean {
-  return send({ op: 'watch_join', channel_id: channelId });
+export function sendWatchJoin(send: SendRaw, channelId: string, partyId: string): boolean {
+  return send({ op: 'watch_join', channel_id: channelId, party_id: partyId });
 }
-export function sendWatchLeave(send: SendRaw, channelId: string): boolean {
-  return send({ op: 'watch_leave', channel_id: channelId });
+export function sendWatchLeave(send: SendRaw, channelId: string, partyId: string): boolean {
+  return send({ op: 'watch_leave', channel_id: channelId, party_id: partyId });
 }
 export function sendWatchHandoff(
-  send: SendRaw, channelId: string, targetUserId?: string,
+  send: SendRaw, channelId: string, partyId: string, targetUserId?: string,
 ): boolean {
-  return send({ op: 'watch_handoff', channel_id: channelId, target_user_id: targetUserId });
+  return send({
+    op: 'watch_handoff', channel_id: channelId, party_id: partyId, target_user_id: targetUserId
+  });
 }
 
 export function sendPluginOp(send: SendRaw, op: string, payload?: Record<string, unknown>): boolean {

@@ -12,10 +12,11 @@
 
   interface Props {
     channelId: string;
+    partyId: string;
     /** Watcher user-ids excluding the host. */
     others: string[];
   }
-  let { channelId, others }: Props = $props();
+  let { channelId, partyId, others }: Props = $props();
 
   let open = $state(false);
 
@@ -24,7 +25,7 @@
   });
 
   function handoff(target?: string): void {
-    gateway.sendWatchHandoff(channelId, target);
+    gateway.sendWatchHandoff(channelId, partyId, target);
     open = false;
   }
 </script>

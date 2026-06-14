@@ -19,7 +19,7 @@
     streamingUserIds = [],
     camUserIds = [],
     speakingUserIds = [],
-    watchPartyHostUserId = null,
+    watchPartyHostUserIds = [],
     userStates = {},
     onLiveOpen,
     onPartyOpen,
@@ -41,16 +41,17 @@
      * threshold. Only the channel the local user is connected to has live
      * data; everything else is an empty list and renders no rings. */
     speakingUserIds?: string[];
-    /** The user hosting an active watch party in this channel (or null). */
-    watchPartyHostUserId?: string | null;
+    /** Users hosting an active watch party in this channel (several parties may
+     *  run at once). A user gets a PARTY badge if they're in this list. */
+    watchPartyHostUserIds?: string[];
     /** Per-user self-reported mute/deafen flags. Missing entries == default off. */
     userStates?: Record<string, UserVoiceState>;
     /** Click on a user's LIVE badge (HQ + screen-share union). Caller resolves
      *  which kinds are active and opens the matching tiles. */
     onLiveOpen?: (userId: string) => void;
-    /** Click on a user's PARTY badge (channel-level, but per-user since the
-     *  host is one specific user). */
-    onPartyOpen?: () => void;
+    /** Click on a user's PARTY badge — caller opens the party/parties that
+     *  this user hosts in the channel. */
+    onPartyOpen?: (userId: string) => void;
     /** Click on a user's CAM badge. Caller maps userId → LiveKit identity. */
     onCamOpen?: (userId: string) => void;
   } = $props();
@@ -58,6 +59,7 @@
   const streamingSet = $derived(new Set(streamingUserIds));
   const camSet = $derived(new Set(camUserIds));
   const speakingSet = $derived(new Set(speakingUserIds));
+  const partyHostSet = $derived(new Set(watchPartyHostUserIds));
   const selfId = $derived(currentServerUserId());
 
   $effect(() => {
@@ -141,7 +143,7 @@
                 data-testid={isForceDeafened ? 'voice-presence-force-deafened' : 'voice-presence-deafened'}
               />
             {/if}
-            {#if watchPartyHostUserId === uid}
+            {#if partyHostSet.has(uid)}
               {#if onPartyOpen}
                 <span
                   role="button"
@@ -150,12 +152,12 @@
                   data-testid="user-watch-party-badge"
                   title={m.voice_channel_members_watch_party_open()}
                   aria-label={m.voice_channel_members_watch_party_open_label({ name })}
-                  onclick={(e) => { e.stopPropagation(); onPartyOpen(); }}
+                  onclick={(e) => { e.stopPropagation(); onPartyOpen(uid); }}
                   onkeydown={(e) => {
                     if (e.key !== 'Enter' && e.key !== ' ') return;
                     e.preventDefault();
                     e.stopPropagation();
-                    onPartyOpen();
+                    onPartyOpen(uid);
                   }}
                 >PARTY</span>
               {:else}

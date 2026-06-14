@@ -30,7 +30,7 @@
   // so that a publisher who stopped doesn't keep auto-mounting a tile.
   let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
   let screenSharerIds = $derived(voicePresence.streamingIn(channel.id));
-  let hasWatchParty = $derived(watchPartyPresence.partyIn(channel.id) !== undefined);
+  let livePartyIds = $derived(watchPartyPresence.partiesIn(channel.id).map((p) => p.party_id));
 
   // Grid is visible iff the viewer has opened at least one tile (any kind).
   // Default-empty after channel switch — see resetChannel below.
@@ -51,13 +51,13 @@
     const hqSet = new Set(hqStreamers);
     const screenIdentities = new Set(voice.screenTracks.map((s) => s.identity));
     const camIdentities = new Set(voice.cameraTracks.map((c) => c.identity));
-    const partyLive = hasWatchParty;
+    const partySet = new Set(livePartyIds);
     untrack(() =>
       openedTiles.pruneChannel(cid, {
         hq: hqSet,
         screen: screenIdentities,
         cam: camIdentities,
-        party: partyLive
+        party: partySet
       })
     );
   });

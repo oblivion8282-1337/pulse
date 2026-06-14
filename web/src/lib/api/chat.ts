@@ -430,29 +430,32 @@ export const chatApi = {
     );
   },
 
-  // Watch-Party chat (one chat per channel, ephemeral, 6h TTL).
-  /** Post a message into the active watch-party chat. 410 if no party is running. */
-  postWatchChat(channelId: string, content: string): Promise<{ id: string; created_at: string }> {
+  // Watch-Party chat (one chat per party, ephemeral, 6h TTL).
+  /** Post a message into a party's watch-party chat. 410 if it isn't running. */
+  postWatchChat(
+    channelId: string, partyId: string, content: string
+  ): Promise<{ id: string; created_at: string }> {
     return request<{ id: string; created_at: string }>(
-      `/channels/${channelId}/watch-party/chat`,
+      `/channels/${channelId}/watch-party/${partyId}/chat`,
       { method: 'POST', body: { content } }
     );
   },
-  /** Backfill the watch-party chat (chronological order, oldest first). */
-  getWatchChat(channelId: string, limit = 100): Promise<WatchChatMessage[]> {
+  /** Backfill a party's watch-party chat (chronological order, oldest first). */
+  getWatchChat(channelId: string, partyId: string, limit = 100): Promise<WatchChatMessage[]> {
     return request<WatchChatMessage[]>(
-      `/channels/${channelId}/watch-party/chat?limit=${limit}`
+      `/channels/${channelId}/watch-party/${partyId}/chat?limit=${limit}`
     );
   },
   /** Toggle an emoji reaction on a watch-party chat message (ephemeral, 6h TTL).
    *  Idempotent per call — a second toggle with the same emoji removes it. */
   toggleWatchChatReaction(
     channelId: string,
+    partyId: string,
     messageId: string,
     emoji: string
   ): Promise<{ emoji: string; count: number; me: boolean }> {
     return request<{ emoji: string; count: number; me: boolean }>(
-      `/channels/${channelId}/watch-party/chat/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
+      `/channels/${channelId}/watch-party/${partyId}/chat/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
       { method: 'PUT' }
     );
   }

@@ -39,8 +39,9 @@
     const chans = guilds.channelsByGuild[guildId] ?? [];
     const out: Array<PartyEntry | StreamEntry> = [];
     for (const ch of chans) {
-      const wp = watchPartyPresence.partyIn(ch.id);
-      if (wp) out.push({ kind: 'party', channel: ch, state: wp });
+      for (const wp of watchPartyPresence.partiesIn(ch.id)) {
+        out.push({ kind: 'party', channel: ch, state: wp });
+      }
       const hq = streamPresence.streamersIn(ch.id);
       const ss = voicePresence.streamingIn(ch.id);
       const all = [...new Set([...hq, ...ss])];
@@ -78,9 +79,9 @@
     }
   }
 
-  function openParty(channelId: string): void {
-    if (detachedWatchParties.has(channelId)) detachedWatchParties.open(channelId);
-    else openedTiles.openParty(channelId);
+  function openParty(channelId: string, partyId: string): void {
+    if (detachedWatchParties.has(channelId, partyId)) detachedWatchParties.open(channelId, partyId);
+    else openedTiles.openParty(channelId, partyId);
     void goto(`/app/guilds/${guildId}/channels/${channelId}`);
   }
 
@@ -104,7 +105,7 @@
     class="border-border flex shrink-0 flex-col gap-1.5 border-b px-2.5 py-2"
     data-testid="member-activity-header"
   >
-    {#each entries as e (e.kind === 'party' ? `p-${e.channel.id}` : `s-${e.channel.id}-${e.userId}`)}
+    {#each entries as e (e.kind === 'party' ? `p-${e.channel.id}-${e.state.party_id}` : `s-${e.channel.id}-${e.userId}`)}
       {#if e.kind === 'party'}
         {@const hostName = userCache.displayName(e.state.host_user_id)}
         <div
@@ -124,7 +125,7 @@
           </div>
           <button
             type="button"
-            onclick={() => openParty(e.channel.id)}
+            onclick={() => openParty(e.channel.id, e.state.party_id)}
             class="text-primary hover:text-primary/80 mt-0.5 shrink-0 rounded-full p-1 transition-colors"
             aria-label={m.member_activity_header_open_watch_party_aria()}
             title={m.member_activity_header_open_title()}

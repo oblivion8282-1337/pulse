@@ -164,18 +164,23 @@ export type ServerEvent =
   | {
       op: 'watch_state';
       channel_id: string;
+      party_id: string;
       state: WatchPartyState | null;
       /** Server clock (unix ms) at push time — keeps the client's clock
        * offset calibrated for position extrapolation. */
       server_now?: number;
     }
-  | { op: 'watch_watchers'; channel_id: string; user_ids: string[] }
-  | { op: 'watch_chat_message'; channel_id: string; message: WatchChatMessage }
+  | { op: 'watch_watchers'; channel_id: string; party_id: string; user_ids: string[] }
+  /** Ack to the host of a freshly-created party — carries the minted party_id
+   * so the host's client can open its tile (the broadcast doesn't say "yours"). */
+  | { op: 'watch_started'; channel_id: string; party_id: string }
+  | { op: 'watch_chat_message'; channel_id: string; party_id: string; message: WatchChatMessage }
   | {
       op: 'watch_chat_reaction';
       data: {
         message_id: string;
         channel_id: string;
+        party_id: string;
         user_id: string;
         emoji: string;
         added: boolean;
@@ -280,17 +285,18 @@ export type ClientEvent =
       deafened: boolean;
     }
   | { op: 'watch_start'; channel_id: string; source_url: string }
-  | { op: 'watch_stop'; channel_id: string }
+  | { op: 'watch_stop'; channel_id: string; party_id: string }
   | {
       op: 'watch_control';
       channel_id: string;
+      party_id: string;
       action: 'play' | 'pause' | 'seek';
       position: number;
     }
-  | { op: 'watch_heartbeat'; channel_id: string; position: number }
-  | { op: 'watch_join'; channel_id: string }
-  | { op: 'watch_leave'; channel_id: string }
-  | { op: 'watch_handoff'; channel_id: string; target_user_id?: string }
+  | { op: 'watch_heartbeat'; channel_id: string; party_id: string; position: number }
+  | { op: 'watch_join'; channel_id: string; party_id: string }
+  | { op: 'watch_leave'; channel_id: string; party_id: string }
+  | { op: 'watch_handoff'; channel_id: string; party_id: string; target_user_id?: string }
   | { op: 'activity' }
   | { op: 'typing'; channel_id: string }
   // Fordert einen frischen ready-Frame an (server-autoritativer Snapshot).

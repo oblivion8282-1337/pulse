@@ -430,7 +430,7 @@
             ? voice.participants.filter((p) => p.isSpeaking && p.userId).map((p) => p.userId!)
             : []}
         {@const memberStates = memberStatesFor(c.id)}
-        {@const partyHostId = watchPartyPresence.partyIn(c.id)?.host_user_id ?? null}
+        {@const partyHostIds = watchPartyPresence.hostIdsIn(c.id)}
         <!-- Who has their webcam on — server-tracked (voice:events), so the CAM
              badge shows for everyone incl. ourselves and even when we're not
              connected to this channel. Opening the cam tile still needs a
@@ -450,11 +450,14 @@
             streamingUserIds={streamers}
             camUserIds={camUserIds}
             speakingUserIds={speakers}
-            watchPartyHostUserId={partyHostId}
+            watchPartyHostUserIds={partyHostIds}
             userStates={memberStates}
-            onPartyOpen={() => {
-              if (detachedWatchParties.has(c.id)) detachedWatchParties.open(c.id);
-              else openedTiles.openParty(c.id);
+            onPartyOpen={(uid) => {
+              for (const party of watchPartyPresence.partiesHostedBy(c.id, uid)) {
+                if (detachedWatchParties.has(c.id, party.party_id))
+                  detachedWatchParties.open(c.id, party.party_id);
+                else openedTiles.openParty(c.id, party.party_id);
+              }
               onSelect(c);
             }}
             onLiveOpen={(uid) => {

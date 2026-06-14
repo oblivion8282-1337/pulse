@@ -432,10 +432,11 @@ class VoiceRoom {
       // Resume-Eintrag bewusst stehen.
       clearVoiceResume();
       const cid = this.channelId;
-      if (cid) {
-        const party = watchPartyPresence.partyIn(cid);
-        if (party && party.host_user_id === currentServerUserId()) {
-          gateway.stopWatchParty(cid);
+      const me = currentServerUserId();
+      if (cid && me) {
+        // End every party the local user hosts in this channel.
+        for (const party of watchPartyPresence.partiesHostedBy(cid, me)) {
+          gateway.stopWatchParty(cid, party.party_id);
         }
       }
     }

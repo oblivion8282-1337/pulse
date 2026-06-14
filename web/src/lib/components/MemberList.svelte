@@ -130,8 +130,7 @@
   const partyHostIds = $derived.by(() => {
     const set = new Set<string>();
     for (const c of guildChannels) {
-      const wp = watchPartyPresence.partyIn(c.id);
-      if (wp) set.add(wp.host_user_id);
+      for (const uid of watchPartyPresence.hostIdsIn(c.id)) set.add(uid);
     }
     return set;
   });
@@ -164,14 +163,15 @@
     // independently, whatever's active), then navigate. VoiceChannelView
     // will mount the grid because hasAny(cid) is now true.
     for (const c of guildChannels) {
-      const wp = watchPartyPresence.partyIn(c.id);
-      const matchParty = !!wp && wp.host_user_id === uid;
+      const hostedParties = watchPartyPresence.partiesHostedBy(c.id, uid);
+      const matchParty = hostedParties.length > 0;
       const matchHq = streamPresence.streamersIn(c.id).includes(uid);
       const matchScreen = voicePresence.streamingIn(c.id).includes(uid);
       if (!matchParty && !matchHq && !matchScreen) continue;
-      if (matchParty) {
-        if (detachedWatchParties.has(c.id)) detachedWatchParties.open(c.id);
-        else openedTiles.openParty(c.id);
+      for (const party of hostedParties) {
+        if (detachedWatchParties.has(c.id, party.party_id))
+          detachedWatchParties.open(c.id, party.party_id);
+        else openedTiles.openParty(c.id, party.party_id);
       }
       if (matchHq) {
         if (detachedStreams.has(c.id, uid)) detachedStreams.open(c.id, uid);

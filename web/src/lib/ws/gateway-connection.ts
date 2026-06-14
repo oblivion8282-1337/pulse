@@ -352,8 +352,9 @@ export class GatewayConnection {
         // that ends the party unless the host rejoins. The mounted tile never
         // re-fires onMount across a reconnect, so without this the party dies
         // ~30s after any blip. Mirrors the voice resync below.
-        for (const cid of this.watchJoins) {
-          this._sendRaw({ op: 'watch_join', channel_id: cid });
+        for (const joined of this.watchJoins) {
+          const [cid, pid] = joined.split(' ');
+          this._sendRaw({ op: 'watch_join', channel_id: cid, party_id: pid });
         }
         void import('$lib/voice/livekit.svelte').then(({ voice }) => {
           voice.resyncSelfState();
@@ -559,21 +560,23 @@ export class GatewayConnection {
     senders.sendVoiceSelfState(this._raw, channelId, micMuted, deafened);
   startWatchParty = (channelId: string, sourceUrl: string): boolean =>
     senders.startWatchParty(this._raw, channelId, sourceUrl);
-  stopWatchParty = (channelId: string): boolean => senders.stopWatchParty(this._raw, channelId);
-  sendWatchControl = (channelId: string, action: 'play' | 'pause' | 'seek', position: number): boolean =>
-    senders.sendWatchControl(this._raw, channelId, action, position);
-  sendWatchHeartbeat = (channelId: string, position: number): boolean =>
-    senders.sendWatchHeartbeat(this._raw, channelId, position);
-  sendWatchJoin = (channelId: string): boolean => {
-    this.watchJoins.add(channelId);
-    return senders.sendWatchJoin(this._raw, channelId);
+  stopWatchParty = (channelId: string, partyId: string): boolean =>
+    senders.stopWatchParty(this._raw, channelId, partyId);
+  sendWatchControl = (
+    channelId: string, partyId: string, action: 'play' | 'pause' | 'seek', position: number
+  ): boolean => senders.sendWatchControl(this._raw, channelId, partyId, action, position);
+  sendWatchHeartbeat = (channelId: string, partyId: string, position: number): boolean =>
+    senders.sendWatchHeartbeat(this._raw, channelId, partyId, position);
+  sendWatchJoin = (channelId: string, partyId: string): boolean => {
+    this.watchJoins.add(`${channelId} ${partyId}`);
+    return senders.sendWatchJoin(this._raw, channelId, partyId);
   };
-  sendWatchLeave = (channelId: string): boolean => {
-    this.watchJoins.delete(channelId);
-    return senders.sendWatchLeave(this._raw, channelId);
+  sendWatchLeave = (channelId: string, partyId: string): boolean => {
+    this.watchJoins.delete(`${channelId} ${partyId}`);
+    return senders.sendWatchLeave(this._raw, channelId, partyId);
   };
-  sendWatchHandoff = (channelId: string, targetUserId?: string): boolean =>
-    senders.sendWatchHandoff(this._raw, channelId, targetUserId);
+  sendWatchHandoff = (channelId: string, partyId: string, targetUserId?: string): boolean =>
+    senders.sendWatchHandoff(this._raw, channelId, partyId, targetUserId);
   sendActivity(): boolean { return this._sendRaw({ op: 'activity' }); }
   /** Ephemeral "I'm typing" signal for a text channel / DM. Fire-and-forget;
    *  the caller (composer) debounces so this isn't sent on every keystroke. */
