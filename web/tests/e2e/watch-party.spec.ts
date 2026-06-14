@@ -6,8 +6,9 @@
  *     Twitch live channels added in T+).
  *   - The WS `watch_start` op produces server-side state visible to both
  *     clients via the REST re-sync endpoint.
- *   - Host vs viewer enforcement: only the host can stop, non-host gets
- *     `4015`; second `watch_start` on the same channel gets `4014`.
+ *   - Host vs viewer enforcement: only the host can stop a party, non-host
+ *     gets `4015`; a second `watch_start` opens an independent party (several
+ *     can run in one channel).
  *
  * What we do NOT verify here:
  *   - The WatchPartyStartButton + dialog UI — they live in the VoiceControlBar
@@ -164,10 +165,14 @@ async function wsCall(
   );
 }
 
-/** REST re-sync helper — same shape as ready.watch_states. */
-async function getGuildWatchState(page: Page, guildId: string): Promise<
-  { channel_id: string; state: { host_user_id: string; source: { type: string; embed_id?: string; url?: string } } | null }[]
-> {
+/** REST re-sync helper — same shape as ready.watch_states. A channel may hold
+ * several parties now, so entries carry a party_id; look matches up by it. */
+type WatchStateEntry = {
+  channel_id: string;
+  party_id: string;
+  state: { host_user_id: string; source: { type: string; embed_id?: string; url?: string } } | null;
+};
+async function getGuildWatchState(page: Page, guildId: string): Promise<WatchStateEntry[]> {
   const r = await page.evaluate(async (gid) => {
     const token = localStorage.getItem('dcc.tokens.access');
     const res = await fetch(`/api/chat/guilds/${gid}/watch-state`, {
@@ -176,6 +181,14 @@ async function getGuildWatchState(page: Page, guildId: string): Promise<
     return res.json();
   }, guildId);
   return r.watch_states ?? [];
+}
+
+/** Start a party on `label`'s persistent socket and return its minted party_id
+ * (read from the `watch_started` ack the server sends to the host). */
+async function startParty(page: Page, label: string, cid: string, sourceUrl: string): Promise<string> {
+  await wsSend(page, label, { op: 'watch_start', channel_id: cid, source_url: sourceUrl });
+  const ack = await wsWaitFor(page, label, 'watch_started', cid);
+  return ack.party_id as string;
 }
 
 /**
@@ -267,6 +280,7 @@ test.describe.serial('Watch Party E2E', () => {
   let bobPage: Page;
   let guildId = '';
   let voiceChannelId = '';
+  let partyId = ''; // the party Alice's persistent 'host' socket starts below
   let aliceUserId = '';
   let bobUserId = '';
 
@@ -345,16 +359,18 @@ test.describe.serial('Watch Party E2E', () => {
     // Host must stay connected: disconnect cleanup now ends a solo party the
     // instant the host's last socket closes. wsOpen keeps Alice's socket open.
     await wsOpen(alicePage, 'host');
-    await wsSend(alicePage, 'host', {
-      op: 'watch_start',
-      channel_id: voiceChannelId,
-      source_url: 'https://www.youtube.com/watch?v=abc12345678'
-    });
-    await wsWaitFor(alicePage, 'host', 'watch_state');
+    partyId = await startParty(
+      alicePage,
+      'host',
+      voiceChannelId,
+      'https://www.youtube.com/watch?v=abc12345678'
+    );
+    await wsWaitFor(alicePage, 'host', 'watch_state', partyId);
 
     const matchPartyShape = (states: Awaited<ReturnType<typeof getGuildWatchState>>) => {
-      const e = states.find((s) => s.channel_id === voiceChannelId);
-      expect(e, 'watch-state entry for the voice channel').toBeDefined();
+      const e = states.find((s) => s.party_id === partyId);
+      expect(e, 'watch-state entry for the started party').toBeDefined();
+      expect(e!.channel_id).toBe(voiceChannelId);
       expect(e!.state).not.toBeNull();
       expect(e!.state!.host_user_id).toBe(aliceUserId);
       expect(e!.state!.source).toMatchObject({ type: 'youtube', embed_id: 'abc12345678' });
@@ -363,37 +379,72 @@ test.describe.serial('Watch Party E2E', () => {
     matchPartyShape(await getGuildWatchState(bobPage, guildId));
   });
 
-  test('only host can stop; second start gets 4014', async () => {
+  test('only the host can stop a given party', async () => {
     // The party is held open by Alice's persistent 'host' socket. Bob's
     // single-shot wsCall sockets never join the watcher set, so closing them
-    // does not disturb the party.
-    const bobStop = await wsCall(bobPage, { op: 'watch_stop', channel_id: voiceChannelId });
-    expect(bobStop).toMatchObject({ op: 'error', code: 4015 });
-
-    const bobStart = await wsCall(bobPage, {
-      op: 'watch_start',
+    // does not disturb the party. Bob is not the host of `partyId` → 4015.
+    const bobStop = await wsCall(bobPage, {
+      op: 'watch_stop',
       channel_id: voiceChannelId,
-      source_url: 'https://youtu.be/xyz12345678'
+      party_id: partyId
     });
-    expect(bobStart).toMatchObject({ op: 'error', code: 4014 });
+    expect(bobStop).toMatchObject({ op: 'error', code: 4015 });
+  });
+
+  test('a second watch_start opens an independent party (multiple per channel)', async () => {
+    // Multi-party: a second start in the same channel must succeed with a
+    // DISTINCT party_id (not 4014 "already active"). Drive it from Bob's own
+    // persistent socket so he is its host and can clean it up.
+    await wsOpen(bobPage, 'second');
+    const secondId = await startParty(
+      bobPage,
+      'second',
+      voiceChannelId,
+      'https://youtu.be/xyz12345678'
+    );
+    expect(secondId, 'second party has its own id').not.toBe(partyId);
+
+    // Both parties are now live in the same channel.
+    const states = await getGuildWatchState(alicePage, guildId);
+    const ids = states.filter((s) => s.channel_id === voiceChannelId).map((s) => s.party_id);
+    expect(ids).toContain(partyId);
+    expect(ids).toContain(secondId);
+
+    // Stop the second party (Bob is its host) so later tests see only `partyId`.
+    await wsSend(bobPage, 'second', {
+      op: 'watch_stop',
+      channel_id: voiceChannelId,
+      party_id: secondId
+    });
+    await expect
+      .poll(async () =>
+        (await getGuildWatchState(alicePage, guildId)).some((s) => s.party_id === secondId)
+      )
+      .toBe(false);
+    await wsClose(bobPage, 'second');
   });
 
   test('explicit watch_handoff transfers host to a chosen watcher', async () => {
-    // Bob opens a persistent socket and joins the watcher set.
+    // Bob opens a persistent socket and joins the watcher set of `partyId`.
     await wsOpen(bobPage, 'watch');
-    await wsSend(bobPage, 'watch', { op: 'watch_join', channel_id: voiceChannelId });
+    await wsSend(bobPage, 'watch', {
+      op: 'watch_join',
+      channel_id: voiceChannelId,
+      party_id: partyId
+    });
     await wsWaitFor(bobPage, 'watch', 'watch_watchers', bobUserId);
 
     // Alice (host) hands off to Bob.
     await wsSend(alicePage, 'host', {
       op: 'watch_handoff',
       channel_id: voiceChannelId,
+      party_id: partyId,
       target_user_id: bobUserId
     });
     await expect
       .poll(async () => {
         const s = (await getGuildWatchState(alicePage, guildId)).find(
-          (e) => e.channel_id === voiceChannelId
+          (e) => e.party_id === partyId
         );
         return s?.state?.host_user_id;
       })
@@ -407,9 +458,7 @@ test.describe.serial('Watch Party E2E', () => {
     await wsClose(bobPage, 'watch');
     await expect
       .poll(async () =>
-        (await getGuildWatchState(alicePage, guildId)).find(
-          (e) => e.channel_id === voiceChannelId
-        )
+        (await getGuildWatchState(alicePage, guildId)).find((e) => e.party_id === partyId)
       )
       .toBeFalsy();
   });
@@ -445,11 +494,19 @@ test.describe.serial('Watch Party E2E', () => {
         (window as any).__wpReconn = conn;
         await conn.connect();
         await conn.waitForReady();
+        // Capture the minted party_id from the host's `watch_started` ack.
+        let pid = '';
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        conn.on((evt: any) => {
+          if (evt.op === 'watch_started' && evt.channel_id === cid) pid = evt.party_id;
+        });
         conn.startWatchParty(cid, 'https://www.youtube.com/watch?v=abc12345678');
-        await new Promise((r) => setTimeout(r, 400)); // let watch_start register
-        conn.sendWatchJoin(cid); // host tile "mounts" → registry + watchJoins set
+        await new Promise((r) => setTimeout(r, 400)); // let watch_start register + ack land
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__wpReconnPid = pid;
+        conn.sendWatchJoin(cid, pid); // host tile "mounts" → registry + watchJoins set
         await new Promise((r) => setTimeout(r, 200));
-        const watchJoinsHasCid = conn.watchJoins?.has?.(cid) ?? false;
+        const watchJoinsHasCid = conn.watchJoins?.has?.(`${cid} ${pid}`) ?? false;
         // Transparent reconnect. Await the old socket's `close` event FIRST so
         // the gateway's own close handler runs (nulls this.ws, and — because
         // wantConnected is false — schedules no auto-reconnect) before we
@@ -485,7 +542,9 @@ test.describe.serial('Watch Party E2E', () => {
       async ({ cid }) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const conn: any = (window as any).__wpReconn;
-        conn?.stopWatchParty?.(cid);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pid: string = (window as any).__wpReconnPid;
+        conn?.stopWatchParty?.(cid, pid);
         await new Promise((r) => setTimeout(r, 100));
         conn?.disconnect?.();
       },
@@ -507,33 +566,34 @@ test.describe.serial('Watch Party E2E', () => {
     // Main window: start + join (the host anchor; handle_start already joins
     // this socket, the explicit join mirrors the inline tile's onMount).
     await wsOpen(alicePage, 'wpmain');
-    await wsSend(alicePage, 'wpmain', {
-      op: 'watch_start',
-      channel_id: cid,
-      source_url: 'https://www.youtube.com/watch?v=abc12345678'
-    });
-    await wsWaitFor(alicePage, 'wpmain', 'watch_state');
-    await wsSend(alicePage, 'wpmain', { op: 'watch_join', channel_id: cid });
+    const detachPid = await startParty(
+      alicePage,
+      'wpmain',
+      cid,
+      'https://www.youtube.com/watch?v=abc12345678'
+    );
+    await wsWaitFor(alicePage, 'wpmain', 'watch_state', detachPid);
+    await wsSend(alicePage, 'wpmain', { op: 'watch_join', channel_id: cid, party_id: detachPid });
 
     // Popup window: same user, sibling socket joins and takes over.
     await wsOpen(alicePage, 'wppopup');
-    await wsSend(alicePage, 'wppopup', { op: 'watch_join', channel_id: cid });
+    await wsSend(alicePage, 'wppopup', { op: 'watch_join', channel_id: cid, party_id: detachPid });
     await wsWaitFor(alicePage, 'wppopup', 'watch_watchers', aliceUserId);
 
     // Main window leaves (reattach / main-window close). With the popup holding
     // the watcher anchor, the party survives — host stays Alice, not ended.
-    await wsSend(alicePage, 'wpmain', { op: 'watch_leave', channel_id: cid });
+    await wsSend(alicePage, 'wpmain', { op: 'watch_leave', channel_id: cid, party_id: detachPid });
     await expect
       .poll(async () => {
         const s = (await getGuildWatchState(alicePage, guildId)).find(
-          (e) => e.channel_id === cid
+          (e) => e.party_id === detachPid
         );
         return s?.state?.host_user_id;
       })
       .toBe(aliceUserId);
 
     // Cleanup: stop the party (host can stop from either of her sockets).
-    await wsSend(alicePage, 'wppopup', { op: 'watch_stop', channel_id: cid });
+    await wsSend(alicePage, 'wppopup', { op: 'watch_stop', channel_id: cid, party_id: detachPid });
     await wsClose(alicePage, 'wpmain');
     await wsClose(alicePage, 'wppopup');
   });
@@ -578,16 +638,12 @@ test.describe.serial('Watch Party E2E', () => {
     // (not their own skewed Date.now()). Verify the push actually carries it.
     const cid = await createChannel(alicePage, guildId, 'Voice-Clock', 1);
     await wsOpen(alicePage, 'clk');
-    await wsSend(alicePage, 'clk', {
-      op: 'watch_start',
-      channel_id: cid,
-      source_url: 'https://youtu.be/abc12345678'
-    });
-    const frame = await wsWaitFor(alicePage, 'clk', 'watch_state', cid);
+    const clkPid = await startParty(alicePage, 'clk', cid, 'https://youtu.be/abc12345678');
+    const frame = await wsWaitFor(alicePage, 'clk', 'watch_state', clkPid);
     expect(typeof frame.server_now, 'watch_state carries server_now').toBe('number');
     expect(frame.server_now as number).toBeGreaterThan(0);
 
-    await wsSend(alicePage, 'clk', { op: 'watch_stop', channel_id: cid });
+    await wsSend(alicePage, 'clk', { op: 'watch_stop', channel_id: cid, party_id: clkPid });
     await wsClose(alicePage, 'clk');
   });
 
