@@ -177,9 +177,6 @@
       </button>
     {/if}
 
-    <!-- controlsExtra (z.B. Watch-Party-Transport) bleibt immer inline -->
-    {@render controlsExtra?.()}
-
     {#if wide}
       <!-- Breite Kachel: alle Sekundär-Aktionen inline -->
       {#if hasStats}
@@ -320,5 +317,10 @@
         </DropdownMenu.Root>
       {/if}
     {/if}
+
+    <!-- controlsExtra (Watch-Party-Host-Transport: Zurückspringen/Übergeben/
+         Beenden) ganz rechts außen — so sitzt das Beenden-X am äußersten Rand,
+         rechts vom Ausblenden-X. Nur die WatchPartyTile reicht das durch. -->
+    {@render controlsExtra?.()}
   </div>
 </div>
