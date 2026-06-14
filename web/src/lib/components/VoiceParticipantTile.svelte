@@ -6,7 +6,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameColor } from '$lib/utils/nameColor';
+  import { nameColor, idealTextColor } from '$lib/utils/nameColor';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -87,6 +87,12 @@
         : hasCam
           ? `${BASE_RING} ring-blue-500`
           : ''
+  );
+  // Name-colour avatar ring — only when no activity ring is present (those use
+  // Tailwind ring-utils / box-shadow and would otherwise clash with this inline
+  // box-shadow). Subtle identity cue for everyone else.
+  let avatarNameRing = $derived(
+    !isLive && !isPartyHost && !hasCam && nameColour ? `box-shadow: 0 0 0 2px ${nameColour}` : ''
   );
 
   function badgeKeydown(fn: () => void) {
@@ -185,11 +191,14 @@
               aria-hidden="true"
             ></span>
           {/if}
-          <Avatar.Root class="relative size-20 {ringClass}">
+          <Avatar.Root class="relative size-20 {ringClass}" style={avatarNameRing}>
             {#if avatarSrc}
               <Avatar.Image src={avatarSrc} alt={resolvedName} />
             {/if}
-            <Avatar.Fallback class="accent-gradient text-primary-foreground text-xl font-semibold">
+            <Avatar.Fallback
+              class="accent-gradient text-primary-foreground text-xl font-semibold"
+              style={nameColour ? `background: ${nameColour}; color: ${idealTextColor(nameColour)}` : ''}
+            >
               {initial}
             </Avatar.Fallback>
           </Avatar.Root>

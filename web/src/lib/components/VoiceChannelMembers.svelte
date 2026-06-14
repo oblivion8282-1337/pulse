@@ -5,7 +5,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameColor } from '$lib/utils/nameColor';
+  import { nameColor, idealTextColor } from '$lib/utils/nameColor';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
@@ -112,11 +112,17 @@
                 aria-hidden="true"
               ></span>
             {/if}
-            <Avatar.Root class="relative size-7">
+            <Avatar.Root
+              class="relative size-7"
+              style={colour ? `box-shadow: 0 0 0 2px ${colour}` : ''}
+            >
               {#if avatarSrc}
                 <Avatar.Image src={avatarSrc} alt={name} />
               {/if}
-              <Avatar.Fallback class="bg-primary text-primary-foreground text-[11px]">
+              <Avatar.Fallback
+                class="bg-primary text-primary-foreground text-[11px]"
+                style={colour ? `background: ${colour}; color: ${idealTextColor(colour)}` : ''}
+              >
                 {initial}
               </Avatar.Fallback>
             </Avatar.Root>

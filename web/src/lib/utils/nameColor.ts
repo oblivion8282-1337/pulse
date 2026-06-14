@@ -20,6 +20,28 @@ export function sanitizeProfileColor(c: string | null | undefined): string | nul
   return /^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(c) ? c : null;
 }
 
+/** Schwarz oder Weiß — je nachdem, was auf `hex` als Hintergrund besser lesbar
+ *  ist (für Avatar-Initialen auf der Namensfarbe). Weiß-Default bei Müll. */
+export function idealTextColor(hex: string | null | undefined): string {
+  const c = sanitizeProfileColor(hex);
+  if (!c) return '#fff';
+  let h = c.slice(1);
+  if (h.length === 3 || h.length === 4) {
+    h = h
+      .slice(0, 3)
+      .split('')
+      .map((ch) => ch + ch)
+      .join('');
+  }
+  if (h.length < 6) return '#fff';
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  // Perzeptive Helligkeit (sRGB-Gewichte). > 0.6 ≈ "helle" Farbe → dunkler Text.
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return lum > 0.6 ? '#0a0a0a' : '#fff';
+}
+
 /** Rollenfarbe des Users in einer Guild als `#rrggbb`, oder null. */
 export function roleNameColor(guildId: string, userId: string): string | null {
   const ids = memberRoles.for(guildId, userId);

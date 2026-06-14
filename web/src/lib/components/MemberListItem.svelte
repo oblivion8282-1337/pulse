@@ -9,7 +9,7 @@
   import { directMessages } from '$lib/stores/directMessages.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
-  import { nameColor } from '$lib/utils/nameColor';
+  import { nameColor, idealTextColor } from '$lib/utils/nameColor';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -128,11 +128,17 @@
                     aria-hidden="true"
                   ></span>
                 {/if}
-                <Avatar.Root class="relative size-8">
+                <Avatar.Root
+                  class="relative size-8"
+                  style={colour ? `box-shadow: 0 0 0 2px ${colour}` : ''}
+                >
                   {#if url}
                     <Avatar.Image src={url} alt={name} />
                   {/if}
-                  <Avatar.Fallback class="accent-gradient text-primary-foreground text-xs font-semibold">
+                  <Avatar.Fallback
+                    class="accent-gradient text-primary-foreground text-xs font-semibold"
+                    style={colour ? `background: ${colour}; color: ${idealTextColor(colour)}` : ''}
+                  >
                     {initials}
                   </Avatar.Fallback>
                 </Avatar.Root>
