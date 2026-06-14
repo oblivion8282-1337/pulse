@@ -16,7 +16,11 @@ import {
   runSignOutHooks,
   type SectionStore
 } from '$lib/settings-registry';
-import { APPEARANCE_SECTION, type ThemePreference } from '$lib/settings-registry/sections/appearance';
+import {
+  APPEARANCE_SECTION,
+  type ThemePreference,
+  type AppearanceSettings
+} from '$lib/settings-registry/sections/appearance';
 import {
   AUDIO_SECTION,
   clampBitrate,
@@ -128,7 +132,7 @@ bindPersistence({
 
 class SettingsStore {
   // Section handles — built-in sections register at module-init time below.
-  #appearance: SectionStore<{ theme: ThemePreference }>;
+  #appearance: SectionStore<AppearanceSettings>;
   #audio: SectionStore<AudioSettings>;
   #voice: SectionStore<VoiceSettings>;
   #screenShare: SectionStore<ScreenShareSettings>;
@@ -184,6 +188,9 @@ class SettingsStore {
   }
 
   // --- appearance setters ---
+  setSpeakingRingNameColor(v: boolean): void {
+    this.#appearance.set('speakingRingNameColor', v);
+  }
   setTheme(v: ThemePreference): void {
     this.#appearance.set('theme', v);
     setMode(v);

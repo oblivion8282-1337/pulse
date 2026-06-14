@@ -102,13 +102,17 @@
               <!-- Two staggered rings build the sonar "ping" — mirrors the logo. -->
               <span
                 class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping"
-                style={colour ? `border-color: ${colour}` : ''}
+                style={settings.appearance.speakingRingNameColor && colour
+                  ? `border-color: ${colour}`
+                  : ''}
                 aria-hidden="true"
                 data-testid="voice-presence-speaking-ring"
               ></span>
               <span
                 class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping [animation-delay:0.7s]"
-                style={colour ? `border-color: ${colour}` : ''}
+                style={settings.appearance.speakingRingNameColor && colour
+                  ? `border-color: ${colour}`
+                  : ''}
                 aria-hidden="true"
               ></span>
             {/if}

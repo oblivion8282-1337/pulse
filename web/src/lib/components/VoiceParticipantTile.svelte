@@ -175,13 +175,17 @@
                  animation to the sidebar voice-channel members list. -->
             <span
               class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping"
-              style={nameColour ? `border-color: ${nameColour}` : ''}
+              style={settings.appearance.speakingRingNameColor && nameColour
+                ? `border-color: ${nameColour}`
+                : ''}
               aria-hidden="true"
               data-testid="voice-participant-speaking-ring"
             ></span>
             <span
               class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping [animation-delay:0.7s]"
-              style={nameColour ? `border-color: ${nameColour}` : ''}
+              style={settings.appearance.speakingRingNameColor && nameColour
+                ? `border-color: ${nameColour}`
+                : ''}
               aria-hidden="true"
             ></span>
           {/if}

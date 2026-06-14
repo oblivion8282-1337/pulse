@@ -10,6 +10,7 @@
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
   import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
+  import { settings } from '$lib/stores/settings.svelte';
   import { roles } from '$lib/stores/roles.svelte';
   import { memberRoles } from '$lib/stores/memberRoles.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
@@ -118,13 +119,17 @@
                        the voice-channel members list in the left rail. -->
                   <span
                     class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping"
-                    style={colour ? `border-color: ${colour}` : ''}
+                    style={settings.appearance.speakingRingNameColor && colour
+                      ? `border-color: ${colour}`
+                      : ''}
                     aria-hidden="true"
                     data-testid="member-speaking-ring"
                   ></span>
                   <span
                     class="pointer-events-none absolute inset-0 rounded-full border-2 border-primary animate-speaking-ping [animation-delay:0.7s]"
-                    style={colour ? `border-color: ${colour}` : ''}
+                    style={settings.appearance.speakingRingNameColor && colour
+                      ? `border-color: ${colour}`
+                      : ''}
                     aria-hidden="true"
                   ></span>
                 {/if}

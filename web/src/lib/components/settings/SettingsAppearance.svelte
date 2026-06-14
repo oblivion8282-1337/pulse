@@ -73,4 +73,21 @@
       {/each}
     </div>
   </div>
+
+  <div class="flex flex-col gap-2">
+    <span class="text-text-bright text-sm font-medium"
+      >{m.settings_appearance_name_colors_label()}</span
+    >
+    <label class="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={settings.appearance.speakingRingNameColor}
+        onchange={(e) => settings.setSpeakingRingNameColor(e.currentTarget.checked)}
+        class="size-4"
+        data-testid="appearance-speaking-ring-toggle"
+      />
+      {m.settings_appearance_speaking_ring_label()}
+    </label>
+    <p class="text-text-muted -mt-1 text-xs">{m.settings_appearance_speaking_ring_hint()}</p>
+  </div>
 </div>
