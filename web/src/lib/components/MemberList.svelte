@@ -163,7 +163,11 @@
     if (!guildChannels.some((c) => c.id === voice.channelId)) return new Set<string>();
     const set = new Set<string>();
     for (const p of voice.participants) {
-      if (p.isSpeaking && p.userId) set.add(p.userId);
+      // Privacy: ein unsichtbarer (maskiert-offline) User darf in der Roster-
+      // Liste keinen Sprech-Indikator zeigen — sonst verrät er sich trotz
+      // Offline-Anzeige. (In der Voice-Liste selbst bleibt er sichtbar — da
+      // ist man ohnehin mit ihm im Call.)
+      if (p.isSpeaking && p.userId && presence.isOnline(p.userId)) set.add(p.userId);
     }
     return set;
   });
