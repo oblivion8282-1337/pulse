@@ -6,6 +6,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { nameColor } from '$lib/utils/nameColor';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -33,6 +34,8 @@
   );
   let initial = $derived((resolvedName.trim()[0] ?? '?').toUpperCase());
   let avatarSrc = $derived(p.userId ? safeAvatarUrl(userCache.get(p.userId)?.avatar_url) : null);
+  // Same name colour as the member list: role colour → profile colour.
+  let nameColour = $derived(p.userId ? nameColor(p.userId, guildId) : null);
 
   let volumePct = $derived(
     p.userId ? Math.round(settings.getUserVolume(p.userId) * 100) : 100
@@ -238,6 +241,7 @@
             class="text-text-bright max-w-28 truncate transition-[font-weight] duration-200 ease-out {p.isSpeaking
               ? 'font-bold'
               : 'font-semibold'}"
+            style={nameColour ? `color: ${nameColour}` : ''}
             title={resolvedName}
           >
             {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}

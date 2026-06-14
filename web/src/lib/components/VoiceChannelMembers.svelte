@@ -5,6 +5,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
+  import { nameColor } from '$lib/utils/nameColor';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
@@ -80,6 +81,7 @@
   {@const isForceDeafened = voicePresence.isForceDeafened(channelId, uid)}
   {@const isMicMuted = state?.mic_muted === true || isForceMuted}
   {@const isDeafened = state?.deafened === true || isForceDeafened}
+  {@const colour = nameColor(uid, guildId)}
   <UserProfilePopover
     userId={uid}
     displayName={name}
@@ -121,6 +123,7 @@
             class="truncate transition-[color,font-weight] duration-200 ease-out {isSpeaking
               ? 'font-semibold text-text-bright'
               : ''}"
+            style={colour ? `color: ${colour}` : ''}
           >{name}</span>
           {#if !isSelf && volumePct !== 100}
             <span
