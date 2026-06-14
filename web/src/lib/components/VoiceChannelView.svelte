@@ -8,7 +8,6 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import VolumeXIcon from '@lucide/svelte/icons/volume-x';
   import UsersIcon from '@lucide/svelte/icons/users';
-  import XIcon from '@lucide/svelte/icons/x';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -151,19 +150,6 @@
     <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <div class="ml-auto flex items-center gap-1">
-      {#if streamViewOpen}
-        <button
-          class="bg-bg-input/70 text-text-bright hover:bg-bg-hover hover:text-primary flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition-colors"
-          onclick={() => openedTiles.resetChannel(channel.id)}
-          aria-label={m.voice_channel_view_close_all_streams_aria()}
-          title={m.voice_channel_view_close_all_streams_aria()}
-          data-testid="stream-grid-close-all"
-        >
-          <XIcon class="size-3.5" />
-          <span class="hidden sm:inline">{m.voice_channel_view_close_all()}</span>
-          <span class="sm:hidden">{m.voice_channel_view_close_all_short()}</span>
-        </button>
-      {/if}
       <button
         class="rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
         onclick={toggleMemberList}
