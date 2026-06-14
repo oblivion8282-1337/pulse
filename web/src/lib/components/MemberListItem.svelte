@@ -128,10 +128,7 @@
                     aria-hidden="true"
                   ></span>
                 {/if}
-                <Avatar.Root
-                  class="relative size-8"
-                  style={colour ? `box-shadow: 0 0 0 2px ${colour}` : ''}
-                >
+                <Avatar.Root class="relative size-8">
                   {#if url}
                     <Avatar.Image src={url} alt={name} />
                   {/if}

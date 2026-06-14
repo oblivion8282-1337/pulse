@@ -88,12 +88,6 @@
           ? `${BASE_RING} ring-blue-500`
           : ''
   );
-  // Name-colour avatar ring — only when no activity ring is present (those use
-  // Tailwind ring-utils / box-shadow and would otherwise clash with this inline
-  // box-shadow). Subtle identity cue for everyone else.
-  let avatarNameRing = $derived(
-    !isLive && !isPartyHost && !hasCam && nameColour ? `box-shadow: 0 0 0 2px ${nameColour}` : ''
-  );
 
   function badgeKeydown(fn: () => void) {
     return (e: KeyboardEvent) => {
@@ -191,7 +185,7 @@
               aria-hidden="true"
             ></span>
           {/if}
-          <Avatar.Root class="relative size-20 {ringClass}" style={avatarNameRing}>
+          <Avatar.Root class="relative size-20 {ringClass}">
             {#if avatarSrc}
               <Avatar.Image src={avatarSrc} alt={resolvedName} />
             {/if}

@@ -112,10 +112,7 @@
                 aria-hidden="true"
               ></span>
             {/if}
-            <Avatar.Root
-              class="relative size-7"
-              style={colour ? `box-shadow: 0 0 0 2px ${colour}` : ''}
-            >
+            <Avatar.Root class="relative size-7">
               {#if avatarSrc}
                 <Avatar.Image src={avatarSrc} alt={name} />
               {/if}
