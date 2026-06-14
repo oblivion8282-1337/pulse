@@ -113,7 +113,7 @@
          which would otherwise clamp the menu to the tiny icon-button width and
          clip the text. -->
     <DropdownMenu.Content
-      align="end"
+      align="start"
       side="top"
       class="w-auto min-w-48"
       data-testid="watch-party-menu"
