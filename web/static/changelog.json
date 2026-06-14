@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-14",
+      "date": "2026-06-14",
+      "style": "Sachlich",
+      "title": "Mehrere Watch-Partys und Namensfarben",
+      "items": [
+        "In einem Voice-Channel können jetzt mehrere Watch-Partys gleichzeitig laufen — jede ist einzeln öffenbar, ähnlich wie mehrere Bildschirm-Streams. Hostet jemand mehr als eine, lässt sich im Auswahl-Dialog die gewünschte öffnen.",
+        "Die Steuerung einer Watch-Party wurde aufgeräumt: Der Knopf in der Voice-Leiste öffnet ein kleines Menü zum Stoppen oder zum Starten einer weiteren Party; der Beenden-Knopf sitzt in der Kachel ganz rechts.",
+        "Die in den Profil-Einstellungen gewählte Namensfarbe erscheint jetzt auch in der Voice-Mitgliederliste, bei den Teilnehmer-Kacheln, beim eigenen Namen unten und in der Direktnachrichten-Liste. Auch die Avatar-Initialen und der Ring beim Sprechen übernehmen die Farbe.",
+        "In den Profil-Einstellungen lässt sich zusätzlich eine zweite Farbe wählen — der Name erscheint dann als Farbverlauf.",
+        "Status 'Unsichtbar': Man sieht sich jetzt auch selbst als offline. Außerdem zeigt die Mitgliederliste bei unsichtbaren Nutzern keine laufende Watch-Party oder einen Stream mehr an."
+      ]
+    },
+    {
       "id": "2026-06-13.2",
       "date": "2026-06-13",
       "style": "Sachlich",
