@@ -59,7 +59,9 @@
     <Dialog.Header>
       <Dialog.Title>{watchPartyPicker.title}</Dialog.Title>
     </Dialog.Header>
-    <div class="flex flex-col gap-1.5 py-1">
+    <!-- min-w-0: Dialog.Content is a CSS grid; without this the grid column
+         keeps min-width:auto and a long title pushes past the frame. -->
+    <div class="flex min-w-0 flex-col gap-1.5 py-1">
       {#each entries as e (e.id)}
         <button
           type="button"
