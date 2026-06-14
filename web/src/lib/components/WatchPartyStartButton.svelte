@@ -109,7 +109,15 @@
         </Button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content align="end" side="top" data-testid="watch-party-menu">
+    <!-- w-auto overrides the default w-(--bits-dropdown-menu-anchor-width),
+         which would otherwise clamp the menu to the tiny icon-button width and
+         clip the text. -->
+    <DropdownMenu.Content
+      align="end"
+      side="top"
+      class="w-auto min-w-48"
+      data-testid="watch-party-menu"
+    >
       {#each myParties as p (p.party_id)}
         <DropdownMenu.Item
           onclick={() => stopParty(p)}
