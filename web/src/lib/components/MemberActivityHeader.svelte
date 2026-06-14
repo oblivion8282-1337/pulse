@@ -10,6 +10,7 @@
   import ExternalLinkIcon from '@lucide/svelte/icons/external-link';
   import { goto } from '$app/navigation';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { presence } from '$lib/stores/presence.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import {
@@ -39,12 +40,15 @@
     const chans = guilds.channelsByGuild[guildId] ?? [];
     const out: Array<PartyEntry | StreamEntry> = [];
     for (const ch of chans) {
+      // Skip activity from invisible users (masked to offline) — same privacy
+      // rule as the member-list badges, so the header doesn't surface (or let
+      // you click into) an invisible user's party / stream.
       for (const wp of watchPartyPresence.partiesIn(ch.id)) {
-        out.push({ kind: 'party', channel: ch, state: wp });
+        if (presence.isOnline(wp.host_user_id)) out.push({ kind: 'party', channel: ch, state: wp });
       }
       const hq = streamPresence.streamersIn(ch.id);
       const ss = voicePresence.streamingIn(ch.id);
-      const all = [...new Set([...hq, ...ss])];
+      const all = [...new Set([...hq, ...ss])].filter((uid) => presence.isOnline(uid));
       for (const uid of all) out.push({ kind: 'stream', channel: ch, userId: uid });
     }
     return out;

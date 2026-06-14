@@ -126,19 +126,31 @@
   // Per-guild aggregation across all voice channels: who's hosting a watch
   // party + who's HQ-streaming or screen-sharing. Drives the per-row badges
   // below the activity header.
+  //
+  // Privacy: an *invisible* user is masked to offline (presence.isOnline false)
+  // and groups under "offline" — but their stream/voice/watch presence rides on
+  // separate, un-masked stores. Gate every activity badge on isOnline so an
+  // invisible user doesn't leak that they're streaming / hosting a party.
+  // (A genuinely-offline user can't be live, so this only ever hides invisibles.)
   const guildChannels = $derived(guilds.channelsByGuild[guildId] ?? []);
   const partyHostIds = $derived.by(() => {
     const set = new Set<string>();
     for (const c of guildChannels) {
-      for (const uid of watchPartyPresence.hostIdsIn(c.id)) set.add(uid);
+      for (const uid of watchPartyPresence.hostIdsIn(c.id)) {
+        if (presence.isOnline(uid)) set.add(uid);
+      }
     }
     return set;
   });
   const streamerIds = $derived.by(() => {
     const set = new Set<string>();
     for (const c of guildChannels) {
-      for (const uid of streamPresence.streamersIn(c.id)) set.add(uid);
-      for (const uid of voicePresence.streamingIn(c.id)) set.add(uid);
+      for (const uid of streamPresence.streamersIn(c.id)) {
+        if (presence.isOnline(uid)) set.add(uid);
+      }
+      for (const uid of voicePresence.streamingIn(c.id)) {
+        if (presence.isOnline(uid)) set.add(uid);
+      }
     }
     return set;
   });
