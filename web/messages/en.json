@@ -2152,6 +2152,7 @@
   "watch_party_start_button_dialog_description": "YouTube, Twitch (VOD or live channel), or a direct mp4/webm link.",
   "watch_party_start_button_dialog_title": "Start Watch Party",
   "watch_party_start_button_direct_video": "Direct video",
+  "watch_party_start_button_start_additional": "Start additional Watch Party",
   "watch_party_start_button_start_failed": "Could not start Watch Party",
   "watch_party_start_button_start_label": "Start Watch Party",
   "watch_party_start_button_stop_label": "Stop Watch Party",

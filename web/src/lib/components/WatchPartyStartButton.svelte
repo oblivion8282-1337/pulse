@@ -111,16 +111,24 @@
     </DropdownMenu.Trigger>
     <DropdownMenu.Content align="end" side="top" data-testid="watch-party-menu">
       {#each myParties as p (p.party_id)}
-        <DropdownMenu.Item onclick={() => stopParty(p)} data-testid="watch-party-menu-stop">
-          <StopCircleIcon class="mr-2 size-4 text-red-500" />
+        <DropdownMenu.Item
+          onclick={() => stopParty(p)}
+          class="whitespace-nowrap"
+          data-testid="watch-party-menu-stop"
+        >
+          <StopCircleIcon class="mr-2 size-4 shrink-0 text-red-500" />
           {myParties.length === 1
             ? m.watch_party_start_button_stop_label()
             : `${m.watch_party_start_button_stop_label()} · ${shortSource(p)}`}
         </DropdownMenu.Item>
       {/each}
-      <DropdownMenu.Item onclick={() => (open = true)} data-testid="watch-party-menu-new">
-        <PlusIcon class="mr-2 size-4" />
-        {m.watch_party_start_button_start_label()}
+      <DropdownMenu.Item
+        onclick={() => (open = true)}
+        class="whitespace-nowrap"
+        data-testid="watch-party-menu-new"
+      >
+        <PlusIcon class="mr-2 size-4 shrink-0" />
+        {m.watch_party_start_button_start_additional()}
       </DropdownMenu.Item>
     </DropdownMenu.Content>
   </DropdownMenu.Root>
