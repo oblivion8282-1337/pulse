@@ -24,11 +24,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import {
-    watchPartyPicker,
-    openPartyTile,
-    partySourceLabel
-  } from '$lib/watch/openParty.svelte';
+  import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
@@ -460,7 +456,7 @@
               watchPartyPicker.choose(
                 watchPartyPresence.partiesHostedBy(c.id, uid).map((party) => ({
                   id: party.party_id,
-                  label: partySourceLabel(party),
+                  party,
                   open: () => {
                     openPartyTile(c.id, party);
                     onSelect(c);

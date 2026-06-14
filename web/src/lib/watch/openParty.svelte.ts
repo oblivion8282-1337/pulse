@@ -12,7 +12,6 @@
 import { openedTiles } from '$lib/stream/openedTiles.svelte';
 import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
 import { type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
-import { m } from '$lib/paraglide/messages.js';
 
 /** Open one party's tile — focuses its popup if it's detached, else mounts the
  * inline tile via the openedTiles flag (the `watch_state` push renders it). */
@@ -24,16 +23,16 @@ export function openPartyTile(channelId: string, party: WatchPartyState): void {
   }
 }
 
-/** Short human label for a party's source — used in the chooser dialog. */
-export function partySourceLabel(party: WatchPartyState): string {
-  const s = party.source;
-  if (s.type === 'youtube') return `YouTube · ${s.embed_id}`;
-  if (s.type === 'twitch') return `Twitch · VOD ${s.embed_id}`;
-  if (s.type === 'twitch_live') return `Twitch · ${s.channel}`;
-  return m.watch_party_start_button_direct_video();
-}
-
-export type PartyPickEntry = { id: string; label: string; open: () => void };
+/** One candidate in the chooser. Carries the live party so the dialog can render
+ * a *reactive* label (e.g. the YouTube title once it has been fetched) instead
+ * of a frozen "YouTube · <gibberish id>" string. `suffix` adds context like the
+ * channel name in the guild-wide member list. */
+export type PartyPickEntry = {
+  id: string;
+  party: WatchPartyState;
+  suffix?: string;
+  open: () => void;
+};
 
 class WatchPartyPicker {
   /** Non-null while the chooser dialog is showing. */

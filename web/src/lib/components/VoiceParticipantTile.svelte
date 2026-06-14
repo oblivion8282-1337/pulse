@@ -12,11 +12,7 @@
   import { voice } from '$lib/voice/livekit.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import {
-    watchPartyPicker,
-    openPartyTile,
-    partySourceLabel
-  } from '$lib/watch/openParty.svelte';
+  import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -120,7 +116,7 @@
     watchPartyPicker.choose(
       watchPartyPresence.partiesHostedBy(channelId, p.userId).map((party) => ({
         id: party.party_id,
-        label: partySourceLabel(party),
+        party,
         open: () => openPartyTile(channelId, party)
       })),
       m.watch_party_picker_title()

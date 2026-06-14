@@ -15,11 +15,7 @@
   import { Perm } from '$lib/permissions/bitfield';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import {
-    watchPartyPicker,
-    openPartyTile,
-    partySourceLabel
-  } from '$lib/watch/openParty.svelte';
+  import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { voice } from '$lib/voice/livekit.svelte';
   import { goto } from '$app/navigation';
@@ -189,7 +185,8 @@
     const entries = guildChannels.flatMap((c) =>
       watchPartyPresence.partiesHostedBy(c.id, uid).map((party) => ({
         id: party.party_id,
-        label: `${partySourceLabel(party)} · #${c.name}`,
+        party,
+        suffix: `#${c.name}`,
         open: () => {
           openPartyTile(c.id, party);
           void goto(`/app/guilds/${guildId}/channels/${c.id}`);
