@@ -1,24 +1,166 @@
-//! `start` — begin a stream.
+//! `start` — begin a capture→encode→push stream.
 //!
-//! Day-1 stub: validates nothing and returns a clear "not implemented" error so
-//! the renderer surfaces a real message instead of a silent failure.
-//!
-//! TODO(stage: capture+encode): build an `SCContentFilter` from the `capture`
-//! param, start an `SCStream` (video + system audio), feed `CVPixelBuffer`s into
-//! a `VTCompressionSession` (h264/hevc), encode audio with libopus, mux to FLV
-//! and push over RTMPS — see the crate README pipeline diagram. On success emit
-//! `state: starting` → `state: live` + `fps` events and return the redacted argv
-//! (same shape as `build_argv`). Preflight `CGPreflightScreenCaptureAccess()`
-//! first and emit an `error` event if Screen-Recording permission is missing
-//! (SCK otherwise delivers black frames silently).
+//! Resolves the request (profile + overrides + capture source + push_url) into
+//! [`StartParams`] and hands it to the [`StreamController`], which runs the
+//! ScreenCaptureKit → VideoToolbox → FLV/RTMPS pipeline on a worker thread and
+//! emits `state`/`fps`/`stopped` events. Returns the redacted argv (same shape
+//! as `build_argv`). Preflight of Screen-Recording permission happens implicitly
+//! in the capture content query — a missing grant surfaces as an `error` event.
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value};
 
-pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
-    bail!(
-        "macOS HQ-Streaming ist noch nicht implementiert \
-         (ScreenCaptureKit + VideoToolbox-Pipeline ausstehend — siehe \
-         streaming/mac-hq-sidecar/README.md)."
+use crate::capture;
+use crate::profiles::profile_by_name;
+use crate::stream_controller::{StartParams, StreamController};
+
+pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
+    let profile_name = params
+        .get("profile")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("profile (Name) ist Pflicht"))?;
+    let profile = profile_by_name(profile_name)
+        .ok_or_else(|| anyhow!("Unknown stream profile: {profile_name}"))?;
+
+    let channel = params
+        .get("channel")
+        .and_then(Value::as_object)
+        .context("channel ist Pflicht (Pulse streamt immer in einen Voice-Channel)")?;
+    let push_url = channel
+        .get("push_url")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            anyhow!("channel.push_url ist Pflicht (media-svc reicht die rtmps://-URL durch)")
+        })?;
+
+    let capture_src = params.get("capture").and_then(Value::as_str).unwrap_or("display:1");
+    let display_index = parse_display_index(capture_src);
+
+    let overrides = params.get("overrides").and_then(Value::as_object);
+    let codec = overrides
+        .and_then(|o| o.get("codec"))
+        .and_then(Value::as_str)
+        .unwrap_or(profile.codec)
+        .to_string();
+    let fps = overrides
+        .and_then(|o| o.get("fps"))
+        .and_then(Value::as_u64)
+        .unwrap_or(profile.fps as u64)
+        .clamp(1, 120) as u32;
+    let bitrate_kbps = overrides
+        .and_then(|o| o.get("bitrate_kbps"))
+        .and_then(Value::as_u64)
+        .unwrap_or(profile.bitrate_kbps as u64) as u32;
+    let show_cursor = params.get("show_cursor").and_then(Value::as_bool).unwrap_or(true);
+
+    let (width, height) = resolve_resolution(overrides, display_index)?;
+
+    let argv = build_redacted_argv(&push_url, profile.name, &codec, fps, bitrate_kbps, width, height);
+
+    StreamController::singleton().start(
+        StartParams {
+            display_index,
+            width,
+            height,
+            fps,
+            bitrate_kbps,
+            codec,
+            push_url,
+            show_cursor,
+        },
+        argv.clone(),
+    )?;
+
+    let mut out = Map::new();
+    out.insert(
+        "argv".to_string(),
+        Value::Array(argv.into_iter().map(Value::String).collect()),
     );
+    Ok(out)
+}
+
+/// Extract a 1-based display index from the capture string. Accepts
+/// `"display:<n>"`, `"Monitor: <n>"`, `"portal"` (→ 1), etc.
+fn parse_display_index(capture: &str) -> usize {
+    let digits: String = capture.chars().filter(|c| c.is_ascii_digit()).collect();
+    digits.parse::<usize>().unwrap_or(1).max(1)
+}
+
+/// h264/hevc require even dimensions.
+fn even(n: u32) -> u32 {
+    n & !1
+}
+
+fn resolve_resolution(
+    overrides: Option<&Map<String, Value>>,
+    display_index: usize,
+) -> Result<(u32, u32)> {
+    if let Some(res) = overrides
+        .and_then(|o| o.get("resolution"))
+        .and_then(Value::as_str)
+    {
+        if let Some((w, h)) = res.split_once('x') {
+            if let (Ok(w), Ok(h)) = (w.trim().parse::<u32>(), h.trim().parse::<u32>()) {
+                if w > 0 && h > 0 {
+                    return Ok((even(w), even(h)));
+                }
+            }
+        }
+    }
+    // Default to the chosen display's native size.
+    if let Ok(displays) = capture::list_displays() {
+        let idx = if display_index >= 1 && display_index <= displays.len() {
+            display_index - 1
+        } else {
+            0
+        };
+        if let Some(d) = displays.get(idx) {
+            if d.width > 0 && d.height > 0 {
+                return Ok((even(d.width as u32), even(d.height as u32)));
+            }
+        }
+    }
+    Ok((1920, 1080))
+}
+
+fn build_redacted_argv(
+    push_url: &str,
+    profile_name: &str,
+    codec: &str,
+    fps: u32,
+    bitrate_kbps: u32,
+    width: u32,
+    height: u32,
+) -> Vec<String> {
+    vec![
+        "pulse-mac-hq-sidecar".to_string(),
+        "--profile".to_string(),
+        profile_name.to_string(),
+        "--codec".to_string(),
+        codec.to_string(),
+        "--size".to_string(),
+        format!("{width}x{height}"),
+        "--fps".to_string(),
+        fps.to_string(),
+        "--bitrate".to_string(),
+        format!("{bitrate_kbps}k"),
+        "--out".to_string(),
+        redact(push_url),
+    ]
+}
+
+fn redact(url: &str) -> String {
+    let mut s = url.to_string();
+    for pat in ["pass=", "token=", "streamid=publish:"] {
+        if let Some(idx) = s.find(pat) {
+            let start = idx + pat.len();
+            let end = s[start..]
+                .find(|c: char| c == '&' || c == ' ')
+                .map(|i| start + i)
+                .unwrap_or(s.len());
+            s.replace_range(start..end, "***");
+        }
+    }
+    s
 }

@@ -1,21 +1,26 @@
-//! `stop` — end a running stream. Idempotent.
+//! `stop` — end the running stream. Idempotent.
 //!
-//! Day-1 skeleton has no StreamController yet, so there's never a running stream
-//! to stop → always the no-op response (same shape as the Linux sidecar):
-//! `{"ok": true, "running": false, "note": "kein laufender Stream"}`.
-//!
-//! TODO(stage: capture): signal the StreamController, which stops the worker and
-//! emits a `stopped` event. Note: unlike Windows, do NOT self-exit the process
-//! here (see `main.rs`/`dispatch.rs`).
+//! No running stream → `{"ok": true, "running": false, "note": "kein laufender
+//! Stream"}` (same shape as the Linux sidecar). Otherwise signals the
+//! StreamController, which stops capture, flushes the encoder and closes the
+//! RTMP connection (the worker emits the `stopped` event). The macOS sidecar
+//! does NOT self-exit after stop — it stays warm for the next stream.
 
 use anyhow::Result;
 use serde_json::{Map, Value, json};
 
+use crate::stream_controller::StreamController;
+
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
-    Ok(json_to_map(json!({
-        "running": false,
-        "note": "kein laufender Stream",
-    })))
+    let ctrl = StreamController::singleton();
+    if !ctrl.state().running {
+        return Ok(json_to_map(json!({
+            "running": false,
+            "note": "kein laufender Stream",
+        })));
+    }
+    ctrl.stop()?;
+    Ok(Map::new())
 }
 
 fn json_to_map(v: Value) -> Map<String, Value> {

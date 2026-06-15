@@ -14,25 +14,31 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 
-# ── Added in their respective stages (see README "Roadmap") ──────────────────
-#
-# Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo
-# types. The objc2 family gives safe-ish Rust bindings to the ObjC frameworks
-# without a Swift shim. Pin all of them to the same objc2 release train.
-#   objc2                      = "0.6"
-#   objc2-foundation           = "0.3"
-#   objc2-core-media           = "0.3"   # CMSampleBuffer / CMTime
-#   objc2-core-video           = "0.3"   # CVPixelBuffer / IOSurface
-#   objc2-screen-capture-kit   = "0.3"   # SCStream / SCShareableContent / SCContentFilter
-#   objc2-core-graphics        = "0.3"   # CGDisplay* for list_monitors fallback
-#   dispatch2                  = "0.2"   # the SCStreamOutput delivery queue
-#
+# Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo/
+# CoreGraphics types, via the official objc2 framework bindings (no Swift shim).
+# Same objc2 0.3-framework / 0.6-core release train.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std", "NSArray", "NSString", "NSError", "NSEnumerator",
+] }
+objc2-core-media = { version = "0.3", default-features = false, features = [
+    "std", "CMSampleBuffer", "CMTime", "CMFormatDescription", "CMBlockBuffer", "objc2-core-video",
+] }
+objc2-core-video = { version = "0.3", default-features = false, features = [
+    "std", "CVBase", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVReturn", "CVPixelFormatDescription",
+] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+    "std", "CGDirectDisplay",
+] }
+objc2-screen-capture-kit = "0.3"
+block2 = "0.6"
+dispatch2 = "0.3"
+
 # Encode + mux + RTMPS push — same FFmpeg integration as the Windows sidecar.
-# VideoToolbox is reached through FFmpeg's h264_videotoolbox / hevc_videotoolbox
-# encoders (CVPixelBuffer in, CMSampleBuffer out), so the mux + RTMPS code from
-# win-hq-sidecar (encode/mux_writer.rs, the FLV + tls_verify=0 push) ports nearly
-# verbatim. Links against an LGPL-shared FFmpeg for macOS arm64 (no BtbN build
-# exists for macOS — see README "FFmpeg"). FFMPEG_DIR via .cargo/config.toml.
-#   ffmpeg-next = { version = "8.1", default-features = false, features = [
-#       "codec", "format", "software-resampling", "software-scaling",
-#   ] }
+# VideoToolbox is reached through FFmpeg's h264_videotoolbox encoder; the FLV mux
+# + RTMPS push (tls_verify=0) port nearly verbatim from win-hq-sidecar. Links
+# against Homebrew's FFmpeg 8.0 via pkg-config (PKG_CONFIG_PATH in .cargo/config.toml).
+# An LGPL build + bundled dylibs are required for *distribution* (Homebrew's is GPL).
+ffmpeg-next = { version = "8.0", default-features = false, features = [
+    "codec", "format", "software-resampling", "software-scaling",
+] }

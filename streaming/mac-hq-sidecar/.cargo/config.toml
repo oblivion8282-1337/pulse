@@ -1,0 +1,5 @@
+# Point ffmpeg-sys-next's pkg-config at Homebrew's FFmpeg 8.0 (arm64).
+# For *distribution* an LGPL FFmpeg build + bundled dylibs are required
+# (Homebrew's is GPL); this is the dev/build link setup only.
+[env]
+PKG_CONFIG_PATH = "/opt/homebrew/lib/pkgconfig"
