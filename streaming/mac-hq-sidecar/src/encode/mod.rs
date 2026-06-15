@@ -9,6 +9,7 @@
 //!
 //! Audio (libopus, Opus-in-FLV) is a follow-up — this is the video-only path.
 
+pub mod audio;
 pub mod mux_writer;
 
 use anyhow::{Context, Result, anyhow};
@@ -17,7 +18,11 @@ use ffmpeg::format::Pixel;
 use ffmpeg::software::scaling::{Context as Scaler, Flags as ScaleFlags};
 use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame};
 
+use audio::AudioEncoder;
 use mux_writer::MuxWriter;
+
+/// Opus audio bitrate (kbps) — fixed for now.
+const OPUS_BITRATE_KBPS: u32 = 128;
 
 /// Map a stream profile codec id to the matching VideoToolbox encoder.
 fn videotoolbox_encoder(codec: &str) -> &'static str {
@@ -44,6 +49,7 @@ fn url_format_hint(target: &str) -> Option<&'static str> {
 pub struct VideoEncoder {
     encoder: codec::encoder::Video,
     scaler: Scaler,
+    audio: Option<AudioEncoder>,
     mux: MuxWriter,
     width: u32,
     height: u32,
@@ -63,6 +69,7 @@ impl VideoEncoder {
         fps: u32,
         bitrate_kbps: u32,
         codec_id: &str,
+        enable_audio: bool,
     ) -> Result<Self> {
         ffmpeg::init().context("ffmpeg::init")?;
 
@@ -120,8 +127,21 @@ impl VideoEncoder {
             .context(format!("open {enc_name} encoder"))?;
         stream.set_parameters(&encoder);
 
+        // The audio stream must be added before write_header (it modifies the
+        // container header). AudioEncoder::create returns owned — the &mut output
+        // borrow ends here, freeing output for write_header below.
+        let mut audio = if enable_audio {
+            Some(AudioEncoder::create(&mut output, 48_000, OPUS_BITRATE_KBPS)?)
+        } else {
+            None
+        };
+
         output.write_header().context("write_header")?;
         let stream_time_base = output.stream(stream_idx).unwrap().time_base();
+        if let Some(a) = audio.as_mut() {
+            let atb = output.stream(a.stream_idx()).unwrap().time_base();
+            a.set_stream_time_base(atb);
+        }
 
         // ── BGRA → NV12 scaler ───────────────────────────────────────────────
         let scaler = Scaler::get(
@@ -140,6 +160,7 @@ impl VideoEncoder {
         Ok(Self {
             encoder,
             scaler,
+            audio,
             mux,
             width,
             height,
@@ -148,6 +169,14 @@ impl VideoEncoder {
             stream_time_base,
             frame_index: 0,
         })
+    }
+
+    /// Encode interleaved-stereo-F32 audio samples (no-op if audio disabled).
+    pub fn push_audio(&mut self, samples: &[f32]) -> Result<()> {
+        if let Some(a) = self.audio.as_mut() {
+            a.push(samples, &self.mux)?;
+        }
+        Ok(())
     }
 
     /// Encode one BGRA frame (packed, `src_stride`-strided) and push the
@@ -201,6 +230,9 @@ impl VideoEncoder {
     pub fn finish(&mut self) -> Result<()> {
         self.encoder.send_eof().context("send_eof")?;
         self.drain()?;
+        if let Some(a) = self.audio.as_mut() {
+            a.flush(&self.mux)?;
+        }
         self.mux.finish()
     }
 }

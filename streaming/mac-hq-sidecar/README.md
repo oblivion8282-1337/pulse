@@ -7,18 +7,19 @@ and Windows (`streaming/win-hq-sidecar/`) sidecars. Because the protocol is
 identical, `desktop/electron/sidecar.ts` only needs a platform branch on which
 binary to spawn (already added — `resolveMacBinaryPath()`).
 
-> **Status (2026-06-15): Day-1 skeleton — compiles + protocol verified.** The
-> protocol layer, profile catalog and `build_argv` are ported and faithful;
-> `health`/`gpu_info`/`list_profiles` answer; `list_monitors`/
-> `list_application_audio` are compilable stubs; `start` returns a clear "not
-> yet implemented" error. Built with Rust 1.96 (`cargo build --release` →
-> `target/release/pulse-mac-hq-sidecar`, arm64 Mach-O) and the stdio smoke test
-> round-trips all ops (incl. token redaction in `build_argv`). The
-> ScreenCaptureKit capture and VideoToolbox encode pipelines are **not written
-> yet** — they're specified below, and `start` errors until they land (so the
-> skeleton is intentionally NOT bundled into the distributed client; the HQ
-> button stays hidden). Real capture additionally needs an FFmpeg arm64 build
-> and Screen-Recording TCC permission. Full plan:
+> **Status (2026-06-15): video+audio pipeline working, locally verified.** The
+> full pipeline runs: ScreenCaptureKit capture (display, BGRA + system audio) →
+> VideoToolbox `h264_videotoolbox` + libopus → FLV mux → RTMPS push. `start`/
+> `stop`/`state` drive it via the StreamController with `state`/`fps`/`stopped`
+> events; `health`/`gpu_info`/`list_profiles`/`list_monitors` answer (real
+> display enumeration). Verified at runtime: capture smoke = 60 frames/2s @30fps;
+> stdio `start→live→fps→stop` produces a valid **h264 + opus** file (ffprobe).
+> Built with Rust 1.96 against Homebrew FFmpeg 8.0.
+>
+> **Still open:** live RTMPS verification against MediaMTX (needs a real
+> stream-token), A/V-sync tuning, AV1/HEVC profile gating (Metal-family probe),
+> and **distribution bundling** (LGPL-FFmpeg dylibs + rpath fixups; Homebrew's
+> FFmpeg is GPL). Real capture needs Screen-Recording TCC permission. Full plan:
 > `docs/plans/2026-06-15-macos-client.md`.
 
 ## Build

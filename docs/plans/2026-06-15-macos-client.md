@@ -1,7 +1,9 @@
 # Plan: macOS-Client für Pulse mit ScreenCaptureKit-Sidecar
 
-Status: **Phase 0 umgesetzt + verifiziert; lauffähiger Client (dmg/.app) gebaut + gestartet;
-Phase 1 (Sidecar) als Gerüst kompiliert** (2026-06-15). Offen: realer SCK/VideoToolbox-Stream.
+Status: **Phase 0 verifiziert + lauffähiger Client gebaut; HQ-Sidecar-Pipeline (Video+Audio)
+implementiert und lokal verifiziert** (2026-06-15). SCK→VideoToolbox(h264)+libopus→FLV/RTMPS;
+`start/stop/state` + Events funktionieren, erzeugt gültiges h264+opus (ffprobe). Offen: Live-RTMPS-
+Test gegen MediaMTX (echtes Token), Distribution-Bundling (LGPL-FFmpeg-dylibs), A/V-Sync-Feintuning.
 Verwandt: `WINDOWS_HQ_SIDECAR.md`, `docs/plans/2026-05-31-windows-auto-update.md`,
 `streaming/win-hq-sidecar/README.md`, `streaming/mac-hq-sidecar/README.md`, `streaming/README.md`.
 

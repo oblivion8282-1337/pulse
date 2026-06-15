@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow};
 
-use crate::capture::Capturer;
+use crate::capture::{AudioFrame, Capturer};
 use crate::encode::VideoEncoder;
 use crate::events;
 use crate::proto::{Event, StreamState};
@@ -28,6 +28,7 @@ pub struct StartParams {
     pub codec: String,
     pub push_url: String,
     pub show_cursor: bool,
+    pub enable_audio: bool,
 }
 
 pub struct StreamSnapshot {
@@ -164,6 +165,12 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     });
 
     let (frame_tx, frame_rx) = channel();
+    let (audio_tx, audio_rx) = if params.enable_audio {
+        let (t, r) = channel::<AudioFrame>();
+        (Some(t), Some(r))
+    } else {
+        (None, None)
+    };
     let cap = Capturer::start(
         params.display_index,
         params.width as usize,
@@ -171,6 +178,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         params.fps,
         params.show_cursor,
         frame_tx,
+        audio_tx,
     )?;
     let mut enc = VideoEncoder::start(
         &params.push_url,
@@ -179,6 +187,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         params.fps,
         params.bitrate_kbps,
         &params.codec,
+        params.enable_audio,
     )?;
 
     shared.live.store(true, Ordering::SeqCst);
@@ -199,6 +208,12 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
+            // Drain any pending audio (non-blocking) before the video frame.
+            if let Some(arx) = &audio_rx {
+                while let Ok(af) = arx.try_recv() {
+                    enc.push_audio(&af.samples)?;
+                }
+            }
             match frame_rx.recv_timeout(Duration::from_millis(200)) {
                 Ok(frame) => {
                     enc.push_bgra(&frame.data, frame.bytes_per_row)?;
@@ -216,6 +231,12 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 }
                 Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        // Drain any audio buffered after the last video frame.
+        if let Some(arx) = &audio_rx {
+            while let Ok(af) = arx.try_recv() {
+                enc.push_audio(&af.samples)?;
             }
         }
         Ok(())

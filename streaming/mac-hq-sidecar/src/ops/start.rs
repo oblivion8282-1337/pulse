@@ -54,6 +54,16 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .unwrap_or(profile.bitrate_kbps as u64) as u32;
     let show_cursor = params.get("show_cursor").and_then(Value::as_bool).unwrap_or(true);
 
+    // SCK captures system ("Desktop") audio. Mic-only ("Mikrofon") would need an
+    // AVCaptureSession path (not built yet) → audio only when Desktop is in the mode.
+    let enable_audio = params
+        .get("audio")
+        .and_then(Value::as_object)
+        .and_then(|a| a.get("mode"))
+        .and_then(Value::as_str)
+        .map(|m| m.contains("Desktop"))
+        .unwrap_or(false);
+
     let (width, height) = resolve_resolution(overrides, display_index)?;
 
     let argv = build_redacted_argv(&push_url, profile.name, &codec, fps, bitrate_kbps, width, height);
@@ -68,6 +78,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
             codec,
             push_url,
             show_cursor,
+            enable_audio,
         },
         argv.clone(),
     )?;
