@@ -1,4 +1,4 @@
-# MediaMTX config — Pulse production (MediaMTX 1.17.1).
+# MediaMTX config — Pulse production (MediaMTX 1.19.1).
 #
 # Derived from streaming/server/mediamtx.yml.template. Mounted read-only into
 # the `pulse_mediamtx` container (network_mode: host), so the addresses below
@@ -66,13 +66,14 @@ webrtcAdditionalHosts:
 # Control API. MediaMTX runs network_mode:host, and media-svc reaches this
 # from its container via host.docker.internal (the Docker bridge gateway IP,
 # NOT loopback) — so binding 127.0.0.1 here would refuse that connection and
-# break the stream-state poller. Access is restricted to Docker bridge only via
-# apiAllowAddresses and UFW layer: port 9997 only accepts traffic from the
-# Docker bridge (`ufw allow from 10.0.0.0/8 to any port 9997`), blocking
-# external reach. See CLAUDE.md and DEPLOY.md.
+# break the stream-state poller. MediaMTX 1.19 REMOVED `apiAllowAddresses`
+# (replaced by the auth system / apiTrustedProxies), so access control here now
+# relies solely on UFW: port 9997 only accepts traffic from the Docker bridge
+# (`ufw allow from 10.0.0.0/8 to any port 9997`) and the default INPUT DROP
+# blocks external reach (the API stays excluded from auth via authHTTPExclude).
+# See CLAUDE.md and DEPLOY.md.
 api: yes
 apiAddress: :9997
-apiAllowAddresses: [127.0.0.1, 172.17.0.0/16]
 
 # RTSP not needed — RTMP + SRT cover ingest
 rtsp: no

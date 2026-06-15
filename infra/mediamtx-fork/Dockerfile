@@ -1,10 +1,16 @@
 # Pulse-forked MediaMTX image.
 #
-# Pulls the upstream v1.17.1 source, applies the patches/ in alphabetical
+# Pulls the upstream v1.19.1 source, applies the patches/ in alphabetical
 # order, and statically builds a stripped binary. The result is published
 # as ghcr.io/oblivion8282-1337/pulse-mediamtx:<tag> and used in place of
-# `bluenviron/mediamtx:1.17.1` in both the dev (streaming/server/) and
+# `bluenviron/mediamtx:1.19.1` in both the dev (streaming/server/) and
 # prod (infra/prod/) compose files.
+#
+# Bumped 1.17.1 → 1.19.1 (2026-06-16): MediaMTX 1.17.1 took ~7-8s to establish
+# an incoming VideoToolbox-H264 RTMP track (the macOS HQ-streaming sidecar),
+# which over TLS+network exceeded the 10s readTimeout → the publish was dropped.
+# 1.19.1 establishes it instantly. The AV1 temporal-delimiter patch below still
+# applies cleanly and is still needed (no upstream AV1 fix in 1.18/1.19).
 #
 # Why we maintain this fork: AMD-VAAPI-encoded AV1 streams freeze in WHEP
 # after a few seconds because the AV1 bitstream lacks OBU_TEMPORAL_DELIMITER
@@ -16,8 +22,8 @@
 # Bumping MediaMTX: change `MEDIAMTX_VERSION` below + `patch -p1 --dry-run`
 # every patch against the new tag first.
 
-ARG MEDIAMTX_VERSION=1.17.1
-ARG GO_VERSION=1.25
+ARG MEDIAMTX_VERSION=1.19.1
+ARG GO_VERSION=1.26
 
 # ── Stage 1: build the patched binary ──────────────────────────────────────
 FROM golang:${GO_VERSION}-alpine AS build

@@ -355,14 +355,19 @@ services:
 
   # ── streaming / voice servers (host network — UDP ranges) ──────────────────
   mediamtx:
-    # Pinned to 1.17.1 (Pulse fork): v1.18.0 broke AV1-over-Enhanced-RTMP→WebRTC
-    # for AMD VAAPI (MediaMTX #5728, still open). 1.17.1 fixes that, but has
-    # its own AMD-only freeze where the AV1 bitstream goes out without
-    # OBU_TEMPORAL_DELIMITER OBUs (libwebrtc-side decoder rejects the frames).
-    # The Pulse fork injects them in the RTMP→stream path — see
-    # infra/mediamtx-fork/README.md. Remove the `-pulse` suffix once upstream
-    # picks up the fix.
-    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.17.1-pulse
+    # Pulse fork of MediaMTX — injects OBU_TEMPORAL_DELIMITER for AMD-VAAPI AV1
+    # (libwebrtc rejects the TD-less frames otherwise); see infra/mediamtx-fork/.
+    #
+    # 2026-06-16: bumped 1.17.1 → 1.19.1. We previously pinned 1.17.1 because
+    # v1.18.0 regressed AMD-VAAPI AV1 (MediaMTX #5728) — that issue is now CLOSED
+    # (fixed 2026-05-14, shipped in 1.19.x), so the pin reason is gone. The bump
+    # fixes a separate problem: 1.17.1 took ~7-8s to establish an incoming
+    # VideoToolbox-H264 track (the macOS HQ sidecar), exceeding the 10s
+    # readTimeout over TLS → the publish was dropped; 1.19.1 establishes it
+    # instantly. The AV1 temporal-delimiter patch still applies cleanly and is
+    # kept. Rollback: revert this commit → `:1.17.1-pulse` (image still in GHCR
+    # and cached on the host) + `docker compose up -d pulse_mediamtx`.
+    image: ghcr.io/oblivion8282-1337/pulse-mediamtx:1.19.1-pulse
     container_name: pulse_mediamtx
     restart: unless-stopped
     network_mode: host
