@@ -1,6 +1,7 @@
 # Plan: macOS-Client für Pulse mit ScreenCaptureKit-Sidecar
 
-Status: **Phase 0 umgesetzt + verifiziert; Phase 1 (Sidecar) als Gerüst angelegt** (2026-06-15).
+Status: **Phase 0 umgesetzt + verifiziert; lauffähiger Client (dmg/.app) gebaut + gestartet;
+Phase 1 (Sidecar) als Gerüst kompiliert** (2026-06-15). Offen: realer SCK/VideoToolbox-Stream.
 Verwandt: `WINDOWS_HQ_SIDECAR.md`, `docs/plans/2026-05-31-windows-auto-update.md`,
 `streaming/win-hq-sidecar/README.md`, `streaming/mac-hq-sidecar/README.md`, `streaming/README.md`.
 
@@ -20,12 +21,22 @@ Verwandt: `WINDOWS_HQ_SIDECAR.md`, `docs/plans/2026-05-31-windows-auto-update.md
   Windows-Sidecar nach `win.extraResources` verschoben (leakt nicht in den Mac-Build).
 - `desktop/package.json`: `dist:mac`-Script.
 
-**Phase 1 (Gerüst, NICHT kompiliert — kein Rust-Toolchain + crates.io im Build-Env blockiert):**
+**Lauffähiger Client gebaut (Stufe A, unsigniert):** `pnpm run dist:mac`
+(`CSC_IDENTITY_AUTO_DISCOVERY=false`) erzeugt `desktop/release/Pulse-0.1.5-arm64.dmg`
++ `…-mac.zip` + `release/mac-arm64/Pulse.app`. Getestet: App startet, lädt
+`https://howispulse.com` remote und rendert den Login („Bleib im Takt."). Chat +
+Voice sind damit auf macOS nutzbar; HQ-Button verborgen (kein Sidecar gebündelt).
+Gatekeeper: Erststart per Rechtsklick→Öffnen bzw. `xattr -dr com.apple.quarantine`.
+
+**Phase 1 (Gerüst — kompiliert + Protokoll verifiziert):**
 - `streaming/mac-hq-sidecar/` als Rust-Crate angelegt: Protokoll/Dispatch/Events/Profiles
   + `build_argv` faithful aus `win-hq-sidecar` portiert; `health`/`gpu_info`/`list_profiles`
   antworten; `list_monitors`/`list_application_audio` kompilierbare Stubs; `start` gibt
   klaren „noch nicht implementiert"-Fehler. Capture (ScreenCaptureKit) + Encode
   (VideoToolbox) sind im Crate-README spezifiziert, aber noch nicht geschrieben.
+- Mit Rust 1.96 gebaut (`cargo build --release`, arm64 Mach-O); stdio-Smoke-Test
+  läuft alle Ops durch (inkl. Token-Redaction in `build_argv`). Bewusst NICHT in
+  den Client gebündelt, solange `start` stubt (sonst sichtbar-aber-kaputter Button).
 - Plattform-Unterschied eingebaut: Mac-Sidecar beendet sich NICHT nach `stop`
   (bleibt warm; `sidecar.ts`-Respawn ist win32-only).
 
