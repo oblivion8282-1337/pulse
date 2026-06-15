@@ -101,6 +101,17 @@
 
   let scrollContainer = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
+  // Ob der User aktuell ganz unten an der Liste klebt. Wird LAUFEND beim
+  // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
+  // macht. Neue Nachrichten wachsen den Container nach unten, ohne ein
+  // scroll-Event auszulösen, d.h. dieser Wert bleibt korrekt erhalten.
+  let pinnedToBottom = $state(true);
+
+  function handleScroll() {
+    const el = scrollContainer;
+    if (!el) return;
+    pinnedToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+  }
   let memberListOpen = $state(false);
 
   // Eigene Identität AUF DEM AKTIVEN SERVER (Cloud-id ≠ Self-Host-id). Für jeden
@@ -125,6 +136,8 @@
     void channel?.id;
     untrack(() => {
       lastCount = 0;
+      // Beim Kanalwechsel kleben wir wieder unten, bis der User selbst scrollt.
+      pinnedToBottom = true;
     });
   });
 
@@ -132,14 +145,16 @@
     const count = messages.length;
     if (count !== lastCount) {
       const isInitialLoad = lastCount === 0;
+      // "Klebt der User unten?" wird VOR dem DOM-Wachstum bestimmt (über den
+      // laufenden Scroll-Handler) — nicht erst nach tick(), wenn die neue,
+      // u.U. >80px hohe Nachricht die Messung schon verfälscht hätte.
+      const shouldScroll = isInitialLoad || pinnedToBottom;
       lastCount = count;
+      if (!shouldScroll) return;
       void tick().then(() => {
         const el = scrollContainer;
         if (!el) return;
-        const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
-        if (isInitialLoad || nearBottom) {
-          el.scrollTop = el.scrollHeight;
-        }
+        el.scrollTop = el.scrollHeight;
       });
     }
   });
@@ -376,7 +391,12 @@
   </header>
 
   <div class="relative flex min-h-0 flex-1">
-    <div bind:this={scrollContainer} class="flex-1 overflow-y-auto py-4" data-testid="message-list">
+    <div
+      bind:this={scrollContainer}
+      onscroll={handleScroll}
+      class="flex-1 overflow-y-auto py-4"
+      data-testid="message-list"
+    >
       {#if channel}
         {#if messages.length === 0}
           <p class="text-text-muted px-4 py-8 text-center text-sm">
