@@ -2,7 +2,7 @@
   HqStreamButton — der Button im VoiceControlBar, der den HQ-Stream startet,
   stoppt oder die Settings öffnet.
 
-  Gating: nur sichtbar wenn `isElectron() && (isLinux() || isWindows()) && stream.gsrAvailable`.
+  Gating: nur sichtbar wenn `isElectron() && (isLinux() || isWindows() || isMac()) && stream.gsrAvailable`.
 
   Verhalten (Variante "Rakete = Toggle"):
   - Ich streame nicht → Click öffnet `<HqStreamDialog>` (Settings + Start).
@@ -14,7 +14,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import RocketIcon from '@lucide/svelte/icons/rocket';
-  import { isElectron, isLinux, isWindows } from '$lib/platform/runtime';
+  import { isElectron, isLinux, isWindows, isMac } from '$lib/platform/runtime';
   import { stream } from '../state.svelte';
   import { gsr } from '../gsr';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -41,7 +41,7 @@
     return channelPermissions.hasChannelPermission(channel.guild_id, channel.id, Perm.STREAM);
   });
   let visible = $derived(
-    isElectron() && (isLinux() || isWindows()) && stream.gsrAvailable && canStream,
+    isElectron() && (isLinux() || isWindows() || isMac()) && stream.gsrAvailable && canStream,
   );
   // Lokaler Sidecar pusht gerade → Click = Stop, Button leuchtet.
   let iAmStreaming = $derived(stream.running);

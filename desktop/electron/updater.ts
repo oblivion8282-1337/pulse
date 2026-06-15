@@ -15,6 +15,15 @@
  * werfen. Der Feed ist Windows-spezifisch (NSIS); auf Linux deckt Flatpak/OSTree
  * die Updates ab, daher zusätzlich auf win32 gaten. Pattern wie `notify.ts`:
  * `wireUpdater(() => mainWindow)` in `app.whenReady()`.
+ *
+ * macOS ist hier BEWUSST (noch) nicht freigeschaltet: electron-updater verifiziert
+ * auf macOS die Code-Signatur des heruntergeladenen .zip (anders als Windows, das
+ * nur SHA512 aus latest.yml prüft) — ein unsignierter Build (Stufe A in
+ * `docs/plans/2026-06-15-macos-client.md`) kann sich also nicht selbst updaten.
+ * Sobald der Mac-Build signiert + notarisiert ist (Stufe B), das Gate auf
+ * `process.platform !== 'win32' && process.platform !== 'darwin'` erweitern,
+ * `latest-mac.yml`/`.zip` über win-build-analoge CI nach /updates/mac/ pushen und
+ * die nginx-Route ergänzen.
  */
 
 import { app, BrowserWindow, ipcMain } from 'electron';

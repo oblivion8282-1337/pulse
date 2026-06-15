@@ -95,6 +95,23 @@ export const isWindows = (): boolean => {
   return /\bwindows\b/i.test(navigator.userAgent);
 };
 
+/**
+ * Best-effort "are we on macOS?" check. Same shape as `isLinux()`/`isWindows()`.
+ *
+ * Note: iPadOS 13+ reports a macOS-like UA/platform, so this can be true on an
+ * iPad. That's fine for the HQ-streaming gate (it additionally requires
+ * `isElectron()` + a sidecar health probe, neither of which holds on iPad). If a
+ * future Mac-only gate must exclude iPadOS, combine with `!isMobile()`.
+ */
+export const isMac = (): boolean => {
+  if (typeof navigator === 'undefined') return false;
+  const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } })
+    .userAgentData;
+  const platform = (uaData?.platform ?? navigator.platform ?? '').toLowerCase();
+  if (platform) return platform.includes('mac');
+  return /\bmac(intosh)?\b/i.test(navigator.userAgent);
+};
+
 /** Chromium major-version, parsed from `Chrome/<N>.…` in the UA string. Returns
  *  `null` for non-Chromium browsers. Edge ships with `Chrome/<same-N>` so this
  *  works for both. */

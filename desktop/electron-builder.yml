@@ -41,17 +41,20 @@ files:
   - electron/dist/**/*
   - electron/icon.png
   - package.json
-# Sidecar + FFmpeg-DLLs landen NEBEN der asar unter resources/hq-sidecar/ —
-# eine .exe + DLLs können nicht in die asar. Der Resolver in sidecar.ts findet
-# sie über process.resourcesPath.
-extraResources:
-  - from: ../streaming/win-hq-sidecar/target/release
-    to: hq-sidecar
-    filter:
-      - pulse-win-hq-sidecar.exe
-      - "*.dll"
+# Der HQ-Streaming-Sidecar ist plattform-spezifisch (Windows = Rust-.exe + FFmpeg-
+# DLLs, macOS = Rust-Binary + dylibs) und wird daher per `<platform>.extraResources`
+# gebündelt — NICHT top-level, sonst zöge electron-builder den Windows-Sidecar auch
+# in den Mac-Build (gemergte Listen). Er landet NEBEN der asar unter
+# resources/hq-sidecar/ (Binary + Libs können nicht in die asar); der Resolver in
+# sidecar.ts findet ihn über process.resourcesPath.
 win:
   target: nsis
+  extraResources:
+    - from: ../streaming/win-hq-sidecar/target/release
+      to: hq-sidecar
+      filter:
+        - pulse-win-hq-sidecar.exe
+        - "*.dll"
   # Echtes Multi-Size-.ico (16–256px, aus electron/icon.png generiert) — wird in die
   # .exe eingebettet UND als App-Icon genutzt. WICHTIG: ein PNG hier reicht NICHT fürs
   # exe-Embedding via rcedit; es muss ein .ico sein.
@@ -100,6 +103,43 @@ nsis:
 # neben der Setup-.exe in release/. Der tatsächliche Upload macht NICHT
 # electron-builder (Build läuft mit `--publish never`), sondern der rsync-Step
 # in win-build.yml — diese URL muss exakt der nginx-Route /updates/win/ matchen.
+# ── macOS ─────────────────────────────────────────────────────────────────────
+# Erzeugt eine .app in einem .dmg (Drag-Install) + ein .zip (Auto-Update-Artefakt
+# für Stufe B). Stand 2026-06-15 ist Stufe A aktiv = UNSIGNIERT: Gatekeeper verlangt
+# beim Erststart Rechtsklick→Öffnen (bzw. `xattr -dr com.apple.quarantine`), und
+# electron-updater bleibt auf macOS deaktiviert (s. updater.ts) — es verlangt dort
+# eine gültige Signatur. Voll-Konzept + Stufe B (Signing/Notarization/Auto-Update):
+# docs/plans/2026-06-15-macos-client.md.
+mac:
+  target:
+    - dmg
+    - zip
+  icon: build-resources/icon.icns
+  category: public.app-category.social-networking
+  # Usage-Strings für die TCC-Dialoge — müssen VOR dem ersten ScreenCaptureKit-
+  # Aufruf in der Info.plist stehen, sonst killt macOS die Capture (schwarzes Bild).
+  extendInfo:
+    NSScreenCaptureUsageDescription: Pulse nimmt deinen Bildschirm auf, um ihn im Voice-Channel zu streamen.
+    NSMicrophoneUsageDescription: Pulse nutzt dein Mikrofon für Sprachkanäle.
+  # Stufe B (mit Apple Developer ID) hier ergänzen:
+  #   hardenedRuntime: true
+  #   gatekeeperAssess: false
+  #   entitlements: build-resources/entitlements.mac.plist
+  #   entitlementsInherit: build-resources/entitlements.mac.plist
+  #   notarize: true     # braucht APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+  #   publish: { provider: generic, url: https://howispulse.com/updates/mac/ }
+  # HQ-Streaming-Sidecar: erst einkommentieren, wenn streaming/mac-hq-sidecar/
+  # gebaut ist (cargo build --release). Ohne ihn liefert dist:mac einen
+  # funktionsfähigen Chat+Voice-Client; der HQ-Button bleibt verborgen
+  # (gsrAvailable=false, weil der health-Probe ohne Binary fehlschlägt).
+  # extraResources:
+  #   - from: ../streaming/mac-hq-sidecar/target/release
+  #     to: hq-sidecar
+  #     filter:
+  #       - pulse-mac-hq-sidecar
+  #       - "*.dylib"
+dmg:
+  artifactName: Pulse-${version}-${arch}.dmg
 publish:
   provider: generic
   url: https://howispulse.com/updates/win/

@@ -49,17 +49,22 @@ const SHUTDOWN_SIGTERM_GRACE_MS = 2_000;
 
 // ── Sidecar resolver ────────────────────────────────────────────────────────
 //
-// Two implementations of the same newline-JSON-over-stdio protocol live in the
-// repo:
+// Three implementations of the same newline-JSON-over-stdio protocol live in
+// the repo:
 //
 //   - Linux:   `streaming/gsr-sidecar/control.py` (Python, drives GSR + Wayland
 //              portal + PipeWire — see `streaming/README.md`).
 //   - Windows: `streaming/win-hq-sidecar/` (Rust, drives WGC + WASAPI +
 //              NVENC/AMF/QSV via FFmpeg — see `WINDOWS_HQ_SIDECAR.md`).
+//   - macOS:   `streaming/mac-hq-sidecar/` (Rust, drives ScreenCaptureKit +
+//              VideoToolbox via FFmpeg — see that crate's README and
+//              `docs/plans/2026-06-15-macos-client.md`).
 //
-// macOS has no implementation yet — `resolveSidecarSpawn()` throws there. The
-// renderer hides the streaming UI on non-Linux/Windows so this never fires in
-// practice; if you hit it, you reached a code path that bypassed the UI gate.
+// On macOS the binary may not be built/bundled yet — `resolveMacBinaryPath()`
+// then throws "could not locate", the `health` op fails, `stream.gsrAvailable`
+// stays false and the renderer keeps the streaming UI hidden. So enabling the
+// macOS UI gate is safe even before the sidecar ships: the button only appears
+// once a real binary answers `health` with `gsr.available = true`.
 
 interface SpawnTarget {
   /** Executable to spawn (absolute path or PATH-resolvable name). */
@@ -80,10 +85,13 @@ function resolveSidecarSpawn(): SpawnTarget {
     target = { command: PYTHON_BIN, args: [resolveScriptPath()] };
   } else if (process.platform === 'win32') {
     target = { command: resolveBinaryPath(), args: [] };
+  } else if (process.platform === 'darwin') {
+    target = { command: resolveMacBinaryPath(), args: [] };
   } else {
     throw new Error(
       `Pulse HQ sidecar: no implementation for ${process.platform} ` +
-        '(Linux: streaming/gsr-sidecar/, Windows: streaming/win-hq-sidecar/).',
+        '(Linux: streaming/gsr-sidecar/, Windows: streaming/win-hq-sidecar/, ' +
+        'macOS: streaming/mac-hq-sidecar/).',
     );
   }
   _cachedSpawnTarget = target;
@@ -197,6 +205,73 @@ function resolveBinaryPath(): string {
   );
 }
 
+/**
+ * Locate `pulse-mac-hq-sidecar` (macOS only).
+ *
+ * Order (mirrors the Windows resolver — see `resolveBinaryPath()`):
+ *   1. `$PULSE_HQ_SIDECAR` override (absolute path to the binary, dev-only).
+ *   2. Packaged app: `<process.resourcesPath>/hq-sidecar/pulse-mac-hq-sidecar`
+ *      — electron-builder ships the sidecar + FFmpeg-dylibs as `extraResources`
+ *      there (see `desktop/electron-builder.yml`). In a dev run this path
+ *      doesn't exist and we fall through.
+ *   3. Walk up from this module looking for
+ *      `<X>/streaming/mac-hq-sidecar/target/release/` then `…/target/debug/`
+ *      (release wins if both exist).
+ *   4. `~/Library/Application Support/Pulse/hq-sidecar/pulse-mac-hq-sidecar`
+ *      (a parallel to the Windows %LOCALAPPDATA% install location, for any
+ *      out-of-band bootstrap install).
+ *
+ * The crate doesn't exist yet — until it's built/bundled this throws, which is
+ * the intended behaviour (see the resolver block comment above).
+ */
+function resolveMacBinaryPath(): string {
+  const override = !app.isPackaged ? process.env.PULSE_HQ_SIDECAR : undefined;
+  if (override) {
+    if (!fs.existsSync(override)) {
+      throw new Error(`PULSE_HQ_SIDECAR points at a non-existent file: ${override}`);
+    }
+    return override;
+  }
+
+  const bin = 'pulse-mac-hq-sidecar';
+
+  if (process.resourcesPath) {
+    const packaged = path.join(process.resourcesPath, 'hq-sidecar', bin);
+    if (fs.existsSync(packaged)) return packaged;
+  }
+
+  const candidates = [
+    path.join('streaming', 'mac-hq-sidecar', 'target', 'release', bin),
+    path.join('streaming', 'mac-hq-sidecar', 'target', 'debug', bin),
+  ];
+  let dir = __dirname;
+  for (;;) {
+    for (const rel of candidates) {
+      const candidate = path.join(dir, rel);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+
+  // ~/Library/Application Support/Pulse/hq-sidecar/ — Electron's `appData` path
+  // on macOS. Only relevant for an external bootstrap install; packaged builds
+  // resolve via resourcesPath above.
+  try {
+    const installed = path.join(app.getPath('appData'), 'Pulse', 'hq-sidecar', bin);
+    if (fs.existsSync(installed)) return installed;
+  } catch {
+    /* app.getPath can throw very early in startup; ignore and fall through */
+  }
+
+  throw new Error(
+    `Could not locate ${bin} (walked up from ${__dirname}, also checked ` +
+      '~/Library/Application Support/Pulse/hq-sidecar/). Build it with ' +
+      '`cargo build --release` in streaming/mac-hq-sidecar/ or set PULSE_HQ_SIDECAR.',
+  );
+}
+
 /** Resolve to `true` if `p` settles within `ms`, else `false` (without
  *  rejecting — `p`'s own rejection, if any, is swallowed). */
 async function raceWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
@@ -301,7 +376,10 @@ class SidecarManager {
       // fresh with no race against a still-dying process.
       //
       // Windows-only: the restart bug is in the WGC/D3D11/NVENC pipeline. The
-      // Linux GSR sidecar has no such issue, so its process stays warm.
+      // Linux GSR sidecar has no such issue, so its process stays warm. macOS
+      // (ScreenCaptureKit + VideoToolbox) is not yet evaluated — add 'darwin'
+      // here if a second in-process capture session misbehaves once the
+      // mac-hq-sidecar lands.
       if (op === 'stop' && process.platform === 'win32') {
         await this.shutdown();
       }

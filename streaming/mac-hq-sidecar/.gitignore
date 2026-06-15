@@ -1,0 +1,5 @@
+/target
+/Cargo.lock
+# FFmpeg-LGPL distribution for macOS arm64 is fetched reproducibly (see README
+# "FFmpeg") — not committed.
+/ffmpeg-dist

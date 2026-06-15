@@ -1,0 +1,38 @@
+[package]
+name = "pulse-mac-hq-sidecar"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Pulse macOS HQ-streaming sidecar — stdio JSON-RPC over newline-delimited JSON, mirrors streaming/gsr-sidecar/control.py and streaming/win-hq-sidecar/"
+
+[[bin]]
+name = "pulse-mac-hq-sidecar"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+# ── Added in their respective stages (see README "Roadmap") ──────────────────
+#
+# Capture — ScreenCaptureKit (SCStream) + the surrounding CoreMedia/CoreVideo
+# types. The objc2 family gives safe-ish Rust bindings to the ObjC frameworks
+# without a Swift shim. Pin all of them to the same objc2 release train.
+#   objc2                      = "0.6"
+#   objc2-foundation           = "0.3"
+#   objc2-core-media           = "0.3"   # CMSampleBuffer / CMTime
+#   objc2-core-video           = "0.3"   # CVPixelBuffer / IOSurface
+#   objc2-screen-capture-kit   = "0.3"   # SCStream / SCShareableContent / SCContentFilter
+#   objc2-core-graphics        = "0.3"   # CGDisplay* for list_monitors fallback
+#   dispatch2                  = "0.2"   # the SCStreamOutput delivery queue
+#
+# Encode + mux + RTMPS push — same FFmpeg integration as the Windows sidecar.
+# VideoToolbox is reached through FFmpeg's h264_videotoolbox / hevc_videotoolbox
+# encoders (CVPixelBuffer in, CMSampleBuffer out), so the mux + RTMPS code from
+# win-hq-sidecar (encode/mux_writer.rs, the FLV + tls_verify=0 push) ports nearly
+# verbatim. Links against an LGPL-shared FFmpeg for macOS arm64 (no BtbN build
+# exists for macOS — see README "FFmpeg"). FFMPEG_DIR via .cargo/config.toml.
+#   ffmpeg-next = { version = "8.1", default-features = false, features = [
+#       "codec", "format", "software-resampling", "software-scaling",
+#   ] }

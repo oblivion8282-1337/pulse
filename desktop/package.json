@@ -10,7 +10,8 @@
     "dev": "pnpm run build:electron && PULSE_DEV_URL=${PULSE_DEV_URL:-http://localhost:5173} electron .",
     "prod": "pnpm run build:electron && electron .",
     "start": "electron .",
-    "dist:win": "pnpm run build:electron && electron-builder --win --publish never"
+    "dist:win": "pnpm run build:electron && electron-builder --win --publish never",
+    "dist:mac": "pnpm run build:electron && electron-builder --mac --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"

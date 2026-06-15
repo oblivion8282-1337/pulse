@@ -1,7 +1,7 @@
 <!--
   ScreenShareModeButton — kombinierter Split-Button für Screensharing.
 
-  Wenn HQ verfügbar (Electron + Linux/Windows + gsrAvailable + STREAM-Permission):
+  Wenn HQ verfügbar (Electron + Linux/Windows/macOS + gsrAvailable + STREAM-Permission):
     [Monitor/Rocket-Icon | ▾]  — linke Hälfte = Aktion, rechte = Modus-Auswahl
   Sonst: normaler Screenshare-Button ohne Dropdown.
 
@@ -24,7 +24,7 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
-  import { isElectron, isLinux, isWindows } from '$lib/platform/runtime';
+  import { isElectron, isLinux, isWindows, isMac } from '$lib/platform/runtime';
   import { Perm } from '$lib/permissions/bitfield';
   import ScreenSharePublishStats from './ScreenSharePublishStats.svelte';
   import HqStreamDialog from '$lib/stream/components/HqStreamDialog.svelte';
@@ -45,7 +45,7 @@
   });
 
   let hqAvailable = $derived(
-    isElectron() && (isLinux() || isWindows()) && stream.gsrAvailable && canStream
+    isElectron() && (isLinux() || isWindows() || isMac()) && stream.gsrAvailable && canStream
   );
 
   // Modus aus localStorage lesen; default 'hq' wenn verfügbar, sonst 'normal'
