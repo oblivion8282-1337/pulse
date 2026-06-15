@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-15.2",
+      "date": "2026-06-15",
+      "style": "Sachlich",
+      "title": "Vorbereitungen für die Mac-App",
+      "items": [
+        "Wir haben die Grundlagen für eine native Mac-App gelegt — inklusive HQ-Screen-Streaming über Apples ScreenCaptureKit (mit Ton). Der Download folgt, sobald die letzten Tests abgeschlossen sind."
+      ]
+    },
+    {
       "id": "2026-06-15",
       "date": "2026-06-15",
       "style": "Sachlich",
