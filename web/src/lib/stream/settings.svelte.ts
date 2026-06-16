@@ -437,9 +437,9 @@ export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
       excluded_apps: streamSettings.excluded_apps.slice(),
     },
     show_cursor: streamSettings.show_cursor,
-    // A/V-Trim nur auf Windows mitschicken — der Linux-Sidecar kennt das Feld
-    // nicht (GSR synct selbst), dort wäre es ein toter Wert.
-    ...(isWindows() ? { av_offset_ms: streamSettings.av_offset_ms } : {}),
+    // A/V-Trim auf Windows + macOS mitschicken (beide Sidecars timestampen
+    // selbst). Linux lässt es weg — GSR synct selbst, dort wäre es ein toter Wert.
+    ...(isWindows() || isMac() ? { av_offset_ms: streamSettings.av_offset_ms } : {}),
   };
 
   if (apply) {

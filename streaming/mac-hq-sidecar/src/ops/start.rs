@@ -54,6 +54,12 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .and_then(Value::as_u64)
         .unwrap_or(profile.bitrate_kbps as u64) as u32;
     let show_cursor = params.get("show_cursor").and_then(Value::as_bool).unwrap_or(true);
+    // Manual A/V trim from the UI slider (>0 = audio later); clamped to ±1000ms.
+    let av_offset_ms = params
+        .get("av_offset_ms")
+        .and_then(Value::as_i64)
+        .unwrap_or(0)
+        .clamp(-1000, 1000) as i32;
 
     // Audio: parse `audio.{mode, excluded_apps}` into a capture scope.
     //   "App: <name>"            → only that app's audio (and its windows as video)
@@ -94,6 +100,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
             show_cursor,
             enable_audio,
             audio_scope,
+            av_offset_ms,
         },
         argv.clone(),
     )?;

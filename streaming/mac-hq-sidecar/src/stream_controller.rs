@@ -33,6 +33,9 @@ pub struct StartParams {
     pub enable_audio: bool,
     /// Audio capture scope (desktop-minus-excludes / specific app / none).
     pub audio_scope: crate::capture::AudioScope,
+    /// Manual A/V trim in ms (UI slider). >0 shifts audio later. Applied to the
+    /// audio anchor to correct any residual constant offset.
+    pub av_offset_ms: i32,
 }
 
 pub struct StreamSnapshot {
@@ -198,6 +201,8 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
 
     shared.live.store(true, Ordering::SeqCst);
     let started = Instant::now();
+    // Manual A/V trim: ms → samples (48 @ 48kHz). >0 shifts audio later.
+    let audio_offset_samples = params.av_offset_ms as i64 * 48;
     emit(Event::State {
         state: StreamState::Live,
         running: true,
@@ -230,7 +235,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
             // shared wall-clock epoch (`started`) so audio and video line up.
             if let Some(arx) = &audio_rx {
                 while let Ok(af) = arx.try_recv() {
-                    let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64;
+                    let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64 + audio_offset_samples;
                     enc.push_audio(&af.samples, anchor)?;
                 }
             }
@@ -282,7 +287,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         // Drain any audio buffered after the last video frame.
         if let Some(arx) = &audio_rx {
             while let Ok(af) = arx.try_recv() {
-                let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64;
+                let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64 + audio_offset_samples;
                 enc.push_audio(&af.samples, anchor)?;
             }
         }

@@ -98,7 +98,7 @@
         <Separator />
         <AudioModePicker />
 
-        {#if isWindows()}
+        {#if isWindows() || isMac()}
           <Separator />
           <AvOffsetSlider />
         {/if}
