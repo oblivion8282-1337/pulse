@@ -28,6 +28,7 @@
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { readState } from '$lib/stores/readState.svelte';
   import { chatApi } from '$lib/api/chat';
+  import { reorderChannel } from '$lib/channels/reorder';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
@@ -73,8 +74,15 @@
   let deleteBusy = $state(false);
 
   let myId = $derived(currentServerUserId());
-  let textChannels = $derived(channels.filter((c) => c.type === 0));
-  let voiceChannels = $derived(channels.filter((c) => c.type === 1));
+  // Sorted by position so a drag-reorder (which only changes positions) is
+  // reflected immediately. Equal positions keep insertion order (stable sort),
+  // matching the server's `order_by(position, id)`.
+  let textChannels = $derived(
+    channels.filter((c) => c.type === 0).sort((a, b) => a.position - b.position)
+  );
+  let voiceChannels = $derived(
+    channels.filter((c) => c.type === 1).sort((a, b) => a.position - b.position)
+  );
 
   // Pro-Guild Plugin-Aktivierungen laden, sobald wir wissen, welche Guild
   // aktiv ist. Idempotent — der Store fetched nur einmal pro Guild bis
@@ -85,6 +93,50 @@
   let canManagePermissions = $derived(
     !!guild && roles.hasGuildPermission(guild.id, Perm.MANAGE_PERMISSIONS)
   );
+  // Drag-to-reorder is gated on MANAGE_CHANNELS (same as create/rename/delete).
+  let canManageChannels = $derived(
+    !!guild && roles.hasGuildPermission(guild.id, Perm.MANAGE_CHANNELS)
+  );
+
+  // Channel drag-and-drop. `dragId` is the channel being moved; `dragOverId`
+  // is the row we'd drop onto. Dropping is constrained to the same type group.
+  let dragId = $state<string | null>(null);
+  let dragOverId = $state<string | null>(null);
+
+  function onChannelDragStart(e: DragEvent, c: Channel) {
+    if (!canManageChannels || !e.dataTransfer) return;
+    dragId = c.id;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', c.id);
+  }
+  function onChannelDragOver(e: DragEvent, c: Channel) {
+    if (!dragId || dragId === c.id) return;
+    const src = channels.find((x) => x.id === dragId);
+    if (!src || src.type !== c.type) return; // only within the same group
+    e.preventDefault();
+    dragOverId = c.id;
+  }
+  async function onChannelDrop(e: DragEvent, target: Channel) {
+    e.preventDefault();
+    const sourceId = dragId;
+    dragId = null;
+    dragOverId = null;
+    if (!sourceId || !guild) return;
+    const src = channels.find((x) => x.id === sourceId);
+    if (!src || src.type !== target.type) return;
+    const group = src.type === 1 ? voiceChannels : textChannels;
+    try {
+      await reorderChannel(group, sourceId, target.id, guild.id);
+    } catch (err) {
+      toast.error(m.channel_list_reorder_failed(), {
+        description: (err as Error).message
+      });
+    }
+  }
+  function onChannelDragEnd() {
+    dragId = null;
+    dragOverId = null;
+  }
 
   // Invite button visibility — anyone with CREATE_INVITES (owner gets it
   // implicitly via the resolver's GRANT_ALL_SAFE short-circuit). The
@@ -263,10 +315,17 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class={CHANNEL_BTN_CLASS}
+              class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
+                ? 'border-t-2 border-primary'
+                : ''} {dragId === c.id ? 'opacity-50' : ''}"
               data-active={activeChannelId === c.id}
               data-unread={isUnread}
               onclick={() => onSelect(c)}
+              draggable={canManageChannels}
+              ondragstart={(e) => onChannelDragStart(e, c)}
+              ondragover={(e) => onChannelDragOver(e, c)}
+              ondrop={(e) => onChannelDrop(e, c)}
+              ondragend={onChannelDragEnd}
               data-testid={`channel-${c.id}`}
             >
               <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
@@ -342,9 +401,16 @@
           {#snippet child({ props })}
             <button
               {...props}
-              class={CHANNEL_BTN_CLASS}
+              class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
+                ? 'border-t-2 border-primary'
+                : ''} {dragId === c.id ? 'opacity-50' : ''}"
               data-active={activeChannelId === c.id}
               onclick={() => selectChannel(c)}
+              draggable={canManageChannels}
+              ondragstart={(e) => onChannelDragStart(e, c)}
+              ondragover={(e) => onChannelDragOver(e, c)}
+              ondrop={(e) => onChannelDrop(e, c)}
+              ondragend={onChannelDragEnd}
               data-testid={`channel-${c.id}`}
             >
               <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />

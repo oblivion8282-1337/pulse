@@ -483,6 +483,7 @@
   "channel_list_unread_mentions": "{count} unread mention(s)",
   "channel_list_voice_channels": "Voice Channels",
   "channel_list_voice_connect_failed": "Voice connection failed",
+  "channel_list_reorder_failed": "Could not reorder channels",
   "channel_overrides_btn_add_member": "Member",
   "channel_overrides_btn_add_role": "Role",
   "channel_overrides_btn_save": "Save",

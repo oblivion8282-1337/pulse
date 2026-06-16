@@ -483,6 +483,7 @@
   "channel_list_unread_mentions": "{count} ungelesene Erwähnung(en)",
   "channel_list_voice_channels": "Sprach-Kanäle",
   "channel_list_voice_connect_failed": "Voice-Verbindung fehlgeschlagen",
+  "channel_list_reorder_failed": "Kanäle umsortieren fehlgeschlagen",
   "channel_overrides_btn_add_member": "User",
   "channel_overrides_btn_add_role": "Rolle",
   "channel_overrides_btn_save": "Speichern",

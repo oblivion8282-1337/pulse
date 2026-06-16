@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
@@ -17,7 +19,12 @@ from dcc_chat_gateway.permissions import (
 )
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments
-from dcc_chat_gateway.schemas import ChannelIn, ChannelOut, ChannelPatchIn
+from dcc_chat_gateway.schemas import (
+    ChannelIn,
+    ChannelOut,
+    ChannelPatchIn,
+    ChannelPositionsIn,
+)
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
 from dcc_shared.events import (
@@ -247,3 +254,54 @@ async def patch_channel(
         request, ChannelUpdatedEvent(channel=_channel_dict(channel))
     )
     return channel
+
+
+@router.patch(
+    "/guilds/{guild_id}/channels-positions",
+    response_model=list[ChannelOut],
+)
+async def update_channel_positions(
+    guild_id: int,
+    payload: ChannelPositionsIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+):
+    """Bulk-set channel positions — the drag-and-drop reorder in the sidebar.
+
+    Requires ``MANAGE_CHANNELS``. Text and voice channels share the position
+    space, but the client filters by type and only sends the reordered group,
+    so the two never need to agree on a global order. Duplicate positions are
+    allowed (stable by id), matching the role-reorder endpoint. Broadcasts a
+    ``channel_updated`` per channel so every connected member re-sorts — the
+    frontend already handles that op, so no new event type is introduced.
+    """
+    await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
+
+    channel_ids = [p.id for p in payload.positions]
+    stmt = select(Channel).where(
+        Channel.guild_id == guild_id, Channel.id.in_(channel_ids)
+    )
+    rows = {c.id: c for c in (await session.execute(stmt)).scalars()}
+    if len(rows) != len(channel_ids):
+        raise HTTPException(400, detail="one or more channels not in this guild")
+
+    for entry in payload.positions:
+        rows[entry.id].position = entry.position
+    await session.commit()
+
+    # Stamp the lock indicator (restricted) for both the broadcast dicts and
+    # the response model, same as the other channel routes.
+    restricted = await restricted_channel_ids(session, guild_id, list(rows.keys()))
+    for cid, ch in rows.items():
+        ch.restricted = cid in restricted  # type: ignore[attr-defined]
+
+    await asyncio.gather(
+        *[
+            _publish_guild_event(
+                request, ChannelUpdatedEvent(channel=_channel_dict(ch))
+            )
+            for ch in rows.values()
+        ]
+    )
+    return list(rows.values())
