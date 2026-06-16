@@ -194,6 +194,14 @@ class VoiceRoom {
 
   /** Mic state captured at deafen-on so un-deafen can restore it. */
   #micEnabledBeforeDeafen = false;
+  /** Mic state captured at force-mute-on so a force-unmute can restore it.
+   *  Mirrors #micEnabledBeforeDeafen — without it an admin-unmute hands the
+   *  publish permission back but the local mic track stays torn down, so the
+   *  user appears live while transmitting nothing. */
+  #micEnabledBeforeForceMute = false;
+  /** Tracks the last applied admin force-mute so applyForceMute only fires on
+   *  the actual on→off / off→on transition (the WS event carries full state). */
+  #forceMuted = false;
   /** Release fn for the screen wake-lock held while connected on mobile (so the
    *  phone's auto-lock can't blank the screen and suspend the outgoing mic).
    *  Null when not held. */
@@ -565,6 +573,27 @@ class VoiceRoom {
     // keyboard-shortcut bypass (voice.toggleDeafen → here, ungated before).
     if (this.#selfOverride().deafened) return;
     this.setDeafened(!this.deafened);
+  }
+
+  /** React to an admin force-mute / force-unmute for the local user.
+   *  Driven from the `voice_override` WS handler. Discord-style: on mute we
+   *  remember the prior mic state and stop the local track; on unmute we
+   *  restore it (if it was on, and the user hasn't self-muted / entered PTT /
+   *  deafened meanwhile). Without the restore the server hands the publish
+   *  permission back but the client never re-publishes — the user stays
+   *  silent while the UI shows their mic as on. */
+  applyForceMute(muted: boolean): void {
+    if (muted === this.#forceMuted) return;
+    this.#forceMuted = muted;
+    if (muted) {
+      this.#micEnabledBeforeForceMute = this.micEnabled;
+      if (this.micEnabled) void this.setMicEnabled(false);
+    } else {
+      if (this.#micEnabledBeforeForceMute && !this.pttMode && !this.deafened) {
+        void this.setMicEnabled(true);
+      }
+      this.#micEnabledBeforeForceMute = false;
+    }
   }
 
   /** Call from a synchronous click handler to unblock the browser AudioContext. */
@@ -1272,6 +1301,8 @@ class VoiceRoom {
     this.micEnabled = false;
     this.deafened = false;
     this.#micEnabledBeforeDeafen = false;
+    this.#micEnabledBeforeForceMute = false;
+    this.#forceMuted = false;
     this.isScreenSharing = false;
     this.isCameraOn = false;
     this.localCameraTrack = null;

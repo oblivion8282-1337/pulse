@@ -78,6 +78,11 @@ export function register(ctx: HandlerContext): void {
     if (currentServerUserId() === evt.user_id) {
       void import('$lib/voice/livekit.svelte').then(({ voice }) => {
         if (voice.channelId !== evt.channel_id) return;
+        // Mute is server-enforced via publish-permissions, but the client must
+        // stop/restore its own mic track: a force-unmute hands the permission
+        // back without re-publishing, so without this the user stays silent
+        // while their mic shows as on.
+        voice.applyForceMute(evt.muted);
         if (evt.deafened !== voice.deafened) voice.setDeafened(evt.deafened);
       });
     }

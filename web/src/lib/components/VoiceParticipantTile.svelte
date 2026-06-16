@@ -1,7 +1,6 @@
 <script lang="ts">
   import * as Avatar from '$lib/components/ui/avatar/index.js';
-  import MicOffIcon from '@lucide/svelte/icons/mic-off';
-  import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
+  import VoiceMuteIcon from './VoiceMuteIcon.svelte';
   import type { VoiceParticipant } from '$lib/voice/livekit.svelte';
   import { settings } from '$lib/stores/settings.svelte';
   import { userCache } from '$lib/stores/users.svelte';
@@ -256,17 +255,19 @@
             {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
           </span>
           {#if showMicOff}
-            <MicOffIcon
-              class="size-3 text-red-400"
-              aria-label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
-              data-testid={isForceMuted ? 'voice-participant-force-muted' : 'voice-participant-mic-muted'}
+            <VoiceMuteIcon
+              kind="mic"
+              forced={isForceMuted}
+              label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
+              testid={isForceMuted ? 'voice-participant-force-muted' : 'voice-participant-mic-muted'}
             />
           {/if}
           {#if showDeafened}
-            <HeadphoneOffIcon
-              class="size-3 text-red-400"
-              aria-label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
-              data-testid={isForceDeafened ? 'voice-participant-force-deafened' : 'voice-participant-deafened'}
+            <VoiceMuteIcon
+              kind="headphone"
+              forced={isForceDeafened}
+              label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
+              testid={isForceDeafened ? 'voice-participant-force-deafened' : 'voice-participant-deafened'}
             />
           {/if}
           {#if canAdjustVolume && volumePct !== 100}
@@ -331,15 +332,17 @@
         {resolvedName}{p.isLocal ? m.voice_participant_tile_local_suffix() : ''}
       </span>
       {#if showMicOff}
-        <MicOffIcon
-          class="size-3 text-red-400"
-          aria-label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
+        <VoiceMuteIcon
+          kind="mic"
+          forced={isForceMuted}
+          label={isForceMuted ? m.voice_participant_tile_force_muted() : m.voice_participant_tile_mic_muted()}
         />
       {/if}
       {#if showDeafened}
-        <HeadphoneOffIcon
-          class="size-3 text-red-400"
-          aria-label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
+        <VoiceMuteIcon
+          kind="headphone"
+          forced={isForceDeafened}
+          label={isForceDeafened ? m.voice_participant_tile_force_deafened() : m.voice_participant_tile_deafened()}
         />
       {/if}
     </div>

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.7",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Entmuten stellt das Mikrofon wieder her",
+      "items": [
+        "Wird ein von einem Moderator stummgeschaltetes Mitglied wieder entmutet, ist sein Mikrofon jetzt sofort wieder aktiv. Bisher blieb es trotz Aufhebung stumm, bis die Person ihr Mikro selbst aus- und wieder einschaltete.",
+        "Ein erzwungenes Stumm- oder Taubschalten durch einen Moderator ist nun an einem Schild-Abzeichen am Mikrofon- bzw. Kopfhörer-Symbol erkennbar — so lässt es sich vom selbst gewählten Stummschalten unterscheiden."
+      ]
+    },
+    {
       "id": "2026-06-16.6",
       "date": "2026-06-16",
       "style": "Sachlich",

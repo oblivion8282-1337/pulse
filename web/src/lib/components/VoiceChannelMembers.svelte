@@ -6,8 +6,7 @@
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameColor, nameStyle, idealTextColor } from '$lib/utils/nameColor';
-  import MicOffIcon from '@lucide/svelte/icons/mic-off';
-  import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
+  import VoiceMuteIcon from './VoiceMuteIcon.svelte';
   import type { UserVoiceState } from '$lib/stores/voicePresence.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
@@ -142,17 +141,21 @@
           {/if}
           <span class="ml-auto flex shrink-0 items-center gap-1">
             {#if isMicMuted}
-              <MicOffIcon
-                class="size-3.5 text-red-400"
-                aria-label={isForceMuted ? m.voice_channel_members_force_muted() : m.voice_channel_members_mic_muted()}
-                data-testid={isForceMuted ? 'voice-presence-force-muted' : 'voice-presence-mic-muted'}
+              <VoiceMuteIcon
+                kind="mic"
+                forced={isForceMuted}
+                size="size-3.5"
+                label={isForceMuted ? m.voice_channel_members_force_muted() : m.voice_channel_members_mic_muted()}
+                testid={isForceMuted ? 'voice-presence-force-muted' : 'voice-presence-mic-muted'}
               />
             {/if}
             {#if isDeafened}
-              <HeadphoneOffIcon
-                class="size-3.5 text-red-400"
-                aria-label={isForceDeafened ? m.voice_channel_members_force_deafened() : m.voice_channel_members_deafened()}
-                data-testid={isForceDeafened ? 'voice-presence-force-deafened' : 'voice-presence-deafened'}
+              <VoiceMuteIcon
+                kind="headphone"
+                forced={isForceDeafened}
+                size="size-3.5"
+                label={isForceDeafened ? m.voice_channel_members_force_deafened() : m.voice_channel_members_deafened()}
+                testid={isForceDeafened ? 'voice-presence-force-deafened' : 'voice-presence-deafened'}
               />
             {/if}
             {#if partyHostSet.has(uid)}

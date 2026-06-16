@@ -3,6 +3,7 @@
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import MicIcon from '@lucide/svelte/icons/mic';
   import MicOffIcon from '@lucide/svelte/icons/mic-off';
+  import ShieldIcon from '@lucide/svelte/icons/shield';
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
@@ -119,7 +120,7 @@
               {...props}
               variant={voice.micEnabled && !selfForceMuted ? 'secondary' : 'destructive'}
               size="icon-sm"
-              class={btnCls}
+              class="{btnCls} relative"
               onclick={() => voice.toggleMic()}
               disabled={selfForceMuted}
               data-testid="voice-mic-toggle"
@@ -130,6 +131,12 @@
                   : 'Mikrofon aktivieren'}
             >
               {#if voice.micEnabled && !selfForceMuted}<MicIcon class={iconCls} />{:else}<MicOffIcon class={iconCls} />{/if}
+              {#if selfForceMuted}
+                <ShieldIcon
+                  class="absolute right-0.5 bottom-0.5 size-3 fill-amber-400 stroke-bg-input stroke-[2.5]"
+                  aria-hidden="true"
+                />
+              {/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
@@ -149,7 +156,7 @@
               {...props}
               variant={voice.deafened ? 'destructive' : 'secondary'}
               size="icon-sm"
-              class={btnCls}
+              class="{btnCls} relative"
               onclick={() => voice.toggleDeafen()}
               disabled={selfForceDeafened}
               data-testid="voice-deafen-toggle"
@@ -160,6 +167,12 @@
                   : 'Ton stummschalten'}
             >
               {#if voice.deafened}<HeadphoneOffIcon class={iconCls} />{:else}<HeadphonesIcon class={iconCls} />{/if}
+              {#if selfForceDeafened}
+                <ShieldIcon
+                  class="absolute right-0.5 bottom-0.5 size-3 fill-amber-400 stroke-bg-input stroke-[2.5]"
+                  aria-hidden="true"
+                />
+              {/if}
             </Button>
           {/snippet}
         </Tooltip.Trigger>
