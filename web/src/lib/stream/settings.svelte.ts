@@ -21,7 +21,7 @@
  * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
  */
 
-import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
+import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs, type GsrWindow } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
 import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
@@ -103,6 +103,8 @@ export const APP_AUDIO_PREFIX = 'App: ';
  *  on Linux `capture_source` stays `'portal'` (the Wayland portal dialog picks
  *  the screen). */
 export const MONITOR_CAPTURE_PREFIX = 'Monitor: ';
+/** capture_source token for a single window (macOS): `window:<cg-id>`. */
+export const WINDOW_CAPTURE_PREFIX = 'window:';
 
 export function isAppAudioMode(mode: string): boolean {
   return mode.startsWith(APP_AUDIO_PREFIX);
@@ -151,6 +153,7 @@ export const streamSettings = $state({
   available_audio_apps: [] as string[],
   // Display monitors — only populated on Windows (Linux uses the portal picker).
   available_monitors: [] as GsrMonitor[],
+  available_windows: [] as GsrWindow[],
 
   // GPU info cache (filled by `loadCatalogs()` → consumed by the codec default).
   gpu_info: null as GsrGpuInfo | null,
@@ -290,10 +293,12 @@ export async function loadCatalogs(): Promise<void> {
     // ``listProfiles`` is intentionally not fetched: the HQ panel is channel-mode
     // only and forces ``profile_name='Custom'`` + ``use_overrides=true`` below, so
     // the sidecar's profile catalog has no consumer.
-    const [audioApps, gpuInfo, monitors] = await Promise.all([
+    const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
       isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
+      // Window picking is a macOS extra (SCK); Windows/WGC streams a monitor.
+      isMac() ? gsr.listWindows() : Promise.resolve(null),
     ]);
 
     if (audioApps?.ok) {
@@ -304,6 +309,9 @@ export async function loadCatalogs(): Promise<void> {
     }
     if (monitors?.ok) {
       streamSettings.available_monitors = monitors.monitors ?? [];
+    }
+    if (windows?.ok) {
+      streamSettings.available_windows = windows.windows ?? [];
     }
 
     // The HQ-stream panel is channel-mode only (push into the current voice
@@ -374,6 +382,16 @@ export async function refreshMonitors(): Promise<void> {
       streamSettings.available_monitors = r.monitors ?? [];
       resolveMonitorCaptureSource();
     }
+  } catch {
+    // tolerate — keep the previous list
+  }
+}
+
+/** Refresh the capturable-window list (macOS; called from the source picker). */
+export async function refreshWindows(): Promise<void> {
+  try {
+    const r = await gsr.listWindows();
+    if (r?.ok) streamSettings.available_windows = r.windows ?? [];
   } catch {
     // tolerate — keep the previous list
   }

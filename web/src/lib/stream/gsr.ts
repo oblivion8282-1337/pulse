@@ -91,6 +91,20 @@ export interface GsrListMonitors {
   error?: string;
 }
 
+export interface GsrWindow {
+  /** CoreGraphics window id — round-trips as the `capture: "window:<id>"` token. */
+  id: number;
+  title: string;
+  app: string;
+  width: number;
+  height: number;
+}
+export interface GsrListWindows {
+  ok: boolean;
+  windows?: GsrWindow[];
+  error?: string;
+}
+
 export interface GsrBuildArgv {
   ok: boolean;
   binary?: string;
@@ -175,6 +189,11 @@ export const gsr = {
   async listMonitors(): Promise<GsrListMonitors | null> {
     const b = bridge();
     return b ? ((await b.listMonitors()) as GsrListMonitors) : null;
+  },
+  /** Enumerate capturable windows (macOS source picker). */
+  async listWindows(): Promise<GsrListWindows | null> {
+    const b = bridge();
+    return b ? ((await b.listWindows()) as GsrListWindows) : null;
   },
   async listApplicationAudio(): Promise<GsrListApplicationAudio | null> {
     const b = bridge();

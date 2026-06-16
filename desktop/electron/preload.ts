@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('pulse', {
     gpuInfo: () => gsrCall('gpu_info'),
     listProfiles: () => gsrCall('list_profiles'),
     listMonitors: () => gsrCall('list_monitors'),
+    listWindows: () => gsrCall('list_windows'),
     listApplicationAudio: () => gsrCall('list_application_audio'),
     buildArgv: (args: unknown) => gsrCall('build_argv', args),
     start: (args: unknown) => gsrCall('start', args),
