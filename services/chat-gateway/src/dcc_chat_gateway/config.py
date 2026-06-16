@@ -99,11 +99,6 @@ class Settings(BaseSettings):
     # vs. full mod queue).
     mod_tools_enabled: bool = True
 
-    # How long a cached profile is considered fresh before being marked
-    # ``stale`` (seconds).  After the TTL the profile is still served but
-    # flagged stale; a fresh profile statement replaces it on next login.
-    profile_cache_ttl_seconds: int = 24 * 3600  # 24 h
-
     # Path to the JWKS-pin file (SHA-256 of sorted kid list).  Written on
     # first successful JWKS pull; checked on every subsequent pull.
     # Operator rotates by deleting the file or calling the admin endpoint.

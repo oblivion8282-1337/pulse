@@ -27,9 +27,6 @@ class Settings(BaseSettings):
     # self-host that fronts MediaMTX with its own gate, or an emergency rollback.
     read_token_required: bool = True
 
-    bind_host: str = "127.0.0.1"
-    bind_port: int = 8005
-
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -85,9 +85,6 @@ export const rolesApi = {
    * iterating ``listMemberRoles`` over a long member list. */
   bulkMemberRoles(guildId: string): Promise<Record<string, string[]>> {
     return request<Record<string, string[]>>(`/guilds/${guildId}/member-roles`);
-  },
-  myGuildPermissions(guildId: string): Promise<{ permissions: string }> {
-    return request<{ permissions: string }>(`/guilds/${guildId}/permissions/me`);
   }
 };
 

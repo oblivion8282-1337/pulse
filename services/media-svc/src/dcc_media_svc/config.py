@@ -67,9 +67,6 @@ class Settings(BaseSettings):
     # a ghost "active" state forever (the poller normally clears it eagerly).
     channel_state_ttl_s: int = 60 * 60 * 6  # 6h
 
-    bind_host: str = "127.0.0.1"
-    bind_port: int = 8004
-
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     @property
