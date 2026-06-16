@@ -27,7 +27,7 @@
  * wrapper and returns an unsubscribe function.
  */
 
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 const gsrCall = (op: string, params: unknown = {}): Promise<unknown> =>
   ipcRenderer.invoke('gsr:call', op, params);
@@ -172,5 +172,25 @@ contextBridge.exposeInMainWorld('pulse', {
   // single `powerSaveBlocker('prevent-display-sleep')`.
   power: {
     keepAwake: (on: boolean): Promise<boolean> => ipcRenderer.invoke('power:keepAwake', on),
+  },
+
+  // Clipboard + dropped-file byte access. The sandboxed remote renderer can't
+  // read the bytes of a pasted/dropped OS file (size 0 → upload 422); these
+  // route through native main-process reads (`clipboard.ts`).
+  clipboard: {
+    /** Current clipboard image as PNG bytes, or null if the clipboard holds
+     *  no image (so the caller can fall through to a normal text paste). */
+    readImage: (): Promise<Uint8Array | null> => ipcRenderer.invoke('clipboard:readImage'),
+  },
+  files: {
+    /** Read the bytes of a genuinely dropped File. The OS path is resolved here
+     *  from the File via webUtils (a JS-constructed File yields '' → null), then
+     *  read in main — so the page can only ever read files the user actually
+     *  dragged in, never an arbitrary path. */
+    readDropped: (file: File): Promise<Uint8Array | null> => {
+      const path = webUtils.getPathForFile(file);
+      if (!path) return Promise.resolve(null);
+      return ipcRenderer.invoke('file:readPath', path);
+    },
   },
 });

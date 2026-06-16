@@ -33,6 +33,7 @@ import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './sto
 import { createTray } from './tray';
 import { wireNotify } from './notify';
 import { wirePower } from './power';
+import { wireClipboard } from './clipboard';
 import { wireUpdater } from './updater';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 
@@ -548,6 +549,10 @@ app.whenReady().then(() => {
   // Display-sleep inhibitor — renderer toggles it while a watch-party / HQ
   // stream is actively playing (`window.pulse.power.keepAwake`).
   wirePower();
+  // Native clipboard + dropped-file byte access — lets paste + drag-drop of
+  // images/files work in the sandboxed remote renderer (`window.pulse.clipboard`
+  // / `window.pulse.files`).
+  wireClipboard();
   // Auto-Update (Windows, gepackt) — no-op in dev / auf Linux.
   wireUpdater(() => mainWindow);
   createWindow();

@@ -16,6 +16,7 @@
   import { gateway, cloudGateway } from '$lib/ws/connection';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { isElectron } from '$lib/platform/runtime';
+  import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { safeAvatarUrl } from '$lib/avatar';
   import { nameStyle } from '$lib/utils/nameColor';
   import { m as pm } from '$lib/paraglide/messages.js';
@@ -74,12 +75,14 @@
   let dragActive = $state(false);
   let dragDepth = 0; // dragenter/leave fire per child — count to stay sane
 
-  // Drag&drop attachment upload is disabled in the Electron desktop app: a
-  // sandboxed renderer loading the remote web app can't read the bytes of an
-  // OS-dropped file (size 0 → upload 422 + broken blob preview). The 📎 file
-  // picker grants proper access and stays the supported path there. Browsers
-  // are unaffected — drop works fine.
-  const dropAllowed = $derived(!!channel && !composerDisabled && !isElectron());
+  // Drag&drop attachment upload. In the Electron desktop app the sandboxed
+  // renderer can't read OS-dropped file bytes directly (size 0 → upload 422) —
+  // but a current shell exposes a native bridge that recovers them, so drop is
+  // allowed when that bridge is present (older shells stay on the 📎 picker).
+  // Browsers are always on.
+  const dropAllowed = $derived(
+    !!channel && !composerDisabled && (!isElectron() || canRecoverDroppedFiles())
+  );
 
   function onZoneDragEnter(e: DragEvent) {
     if (!dropAllowed || !e.dataTransfer?.types.includes('Files')) return;
@@ -93,10 +96,15 @@
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth === 0) dragActive = false;
   }
-  function onZoneDrop(e: DragEvent) {
+  async function onZoneDrop(e: DragEvent) {
     if (!dropAllowed || !e.dataTransfer?.types.includes('Files')) return;
     e.preventDefault(); dragDepth = 0; dragActive = false;
-    if (e.dataTransfer.files?.length) composer?.addExternalFiles(e.dataTransfer.files);
+    const list = e.dataTransfer.files;
+    if (!list?.length) return;
+    // In Electron the dropped files arrive with 0 bytes — recover them through
+    // the native bridge before handing them to the composer.
+    const files = isElectron() ? await recoverDroppedFiles(list) : list;
+    if (files.length) composer?.addExternalFiles(files);
   }
 
   let scrollContainer = $state<HTMLDivElement | null>(null);

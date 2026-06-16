@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.8",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Bilder einfügen und per Drag & Drop in der App",
+      "items": [
+        "In der Desktop-App lassen sich Bilder jetzt direkt aus der Zwischenablage in das Nachrichtenfeld einfügen (z. B. ein Screenshot) und Dateien per Drag & Drop in den Chat ziehen. Bisher war beides nur im Browser möglich und in der App deaktiviert.",
+        "Voraussetzung ist die aktuelle Version der Desktop-App; nach dem Update funktioniert es automatisch."
+      ]
+    },
+    {
       "id": "2026-06-16.7",
       "date": "2026-06-16",
       "style": "Sachlich",

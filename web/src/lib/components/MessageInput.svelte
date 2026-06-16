@@ -15,6 +15,12 @@
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
   import { isElectron } from '$lib/platform/runtime';
+  import {
+    canRecoverDroppedFiles,
+    canReadClipboardImage,
+    recoverDroppedFiles,
+    clipboardImageFile
+  } from '$lib/platform/electronFiles';
 
   // `channelId` null → watch-party / stream-chat composer: attachments
   // (paperclip / paste / drop) are wired off, mention popup still works.
@@ -68,11 +74,12 @@
   let isDragging = $state(false);
   let dragDepth = 0; // dragenter/leave fire on every child — count to stay sane
 
-  // Drag&drop file upload is gated off in the Electron desktop app: a sandboxed
-  // renderer loading the remote web app can't read OS-dropped file bytes
-  // (size 0 → upload 422). `handleDrop` still lets a parent own the zone
-  // (ChatView). Browsers are unaffected — drop works there.
-  const dropEnabled = $derived(handleDrop && !isElectron());
+  // Drag&drop file upload. In the Electron desktop app the sandboxed renderer
+  // can't read OS-dropped file bytes directly (size 0 → upload 422) — but a
+  // current shell exposes a native bridge that recovers them, so drop is enabled
+  // when that bridge is present. Older shells (no bridge) stay disabled.
+  // `handleDrop` still lets a parent own the zone (ChatView). Browsers: always on.
+  const dropEnabled = $derived(handleDrop && (!isElectron() || canRecoverDroppedFiles()));
 
   // Mention overlay owns the popup state; we just forward textarea events.
   let mentionOverlay: MentionTriggerOverlay | undefined = $state();
@@ -120,12 +127,20 @@
     if (input.files) addFiles(input.files);
     input.value = ''; // allow re-selecting the same file later
   };
-  const onPaste = (e: ClipboardEvent) => {
+  const onPaste = async (e: ClipboardEvent) => {
+    if (isElectron()) {
+      // The sandboxed renderer sees pasted files as 0 bytes — pull the image
+      // off the native clipboard bridge instead. Text paste falls through to
+      // the browser default (we don't preventDefault, and an image inserts no
+      // text into the textarea anyway). Older shells without the bridge no-op.
+      if (!canReadClipboardImage()) return;
+      const img = await clipboardImageFile();
+      if (img) addFiles([img]);
+      return;
+    }
     const files = e.clipboardData?.files;
-    // Skip file-paste in Electron: the pasted file's bytes are unreadable in
-    // the sandboxed remote renderer (size 0 → 422). Text paste is untouched
-    // (no files → early return → browser default). Browser file-paste works.
-    if (!files?.length || isElectron()) return;
+    // Text paste is untouched (no files → early return → browser default).
+    if (!files?.length) return;
     e.preventDefault(); // don't paste a path string into the textarea
     addFiles(files);
   };
@@ -170,14 +185,18 @@
     dragDepth = Math.max(0, dragDepth - 1);
     if (dragDepth === 0) isDragging = false;
   };
-  function onDrop(e: DragEvent) {
-    // When a parent owns the drop zone (handleDrop=false) — or we're in the
-    // Electron app where drop is disabled (dropEnabled=false) — we don't touch
-    // the event. handleDrop=false lets it bubble to the ChatView section
-    // handler; Electron just no-ops (the 📎 picker is the path there).
+  async function onDrop(e: DragEvent) {
+    // When a parent owns the drop zone (handleDrop=false) — or an older Electron
+    // shell without the file bridge (dropEnabled=false) — we don't touch the
+    // event so it can bubble to the ChatView section handler.
     if (!dropEnabled) return;
     e.preventDefault(); e.stopPropagation(); dragDepth = 0; isDragging = false;
-    if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+    const list = e.dataTransfer?.files;
+    if (!list?.length) return;
+    // In Electron the dropped files arrive with 0 bytes — recover them through
+    // the native bridge before uploading.
+    const files = isElectron() ? await recoverDroppedFiles(list) : list;
+    if (files.length) addFiles(files);
   }
 
   const onMentionSync = () => mentionOverlay?.update();
