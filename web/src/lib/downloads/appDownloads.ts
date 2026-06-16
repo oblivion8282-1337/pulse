@@ -17,5 +17,9 @@ const BASE = 'https://howispulse.com';
 
 export const WINDOWS_INSTALLER_URL = `${BASE}/updates/win/Pulse-Setup-latest.exe`;
 export const ANDROID_APK_URL = `${BASE}/downloads/pulse-latest.apk`;
+// macOS: unsigned Apple-Silicon .dmg, served from /downloads/ like the APK
+// (scp the build to ~/pulse/downloads/Pulse-latest.dmg). First launch needs
+// right-click → Open (Gatekeeper), since it isn't notarized.
+export const MAC_DMG_URL = `${BASE}/downloads/Pulse-latest.dmg`;
 export const LINUX_FLATPAKREF_URL = `${BASE}/flatpak/com.howispulse.Pulse.flatpakref`;
 export const LINUX_INSTALL_COMMAND = `flatpak install --from ${LINUX_FLATPAKREF_URL}`;

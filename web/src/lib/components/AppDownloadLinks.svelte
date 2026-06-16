@@ -16,9 +16,11 @@
   import WindowsIcon from './brand-icons/WindowsIcon.svelte';
   import LinuxIcon from './brand-icons/LinuxIcon.svelte';
   import AndroidIcon from './brand-icons/AndroidIcon.svelte';
-  import { isElectron, isCapacitorAndroid, isLinux, isWindows } from '$lib/platform/runtime';
+  import AppleIcon from './brand-icons/AppleIcon.svelte';
+  import { isElectron, isCapacitorAndroid, isLinux, isWindows, isMac } from '$lib/platform/runtime';
   import {
     WINDOWS_INSTALLER_URL,
+    MAC_DMG_URL,
     ANDROID_APK_URL,
     LINUX_FLATPAKREF_URL,
     LINUX_INSTALL_COMMAND
@@ -31,16 +33,18 @@
     typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent);
 
   // Erkanntes OS zuerst — die übrigen behalten ihre Reihenfolge.
-  type Platform = 'windows' | 'linux' | 'android';
+  type Platform = 'windows' | 'mac' | 'linux' | 'android';
   const order: Platform[] = (() => {
-    const base: Platform[] = ['windows', 'linux', 'android'];
+    const base: Platform[] = ['windows', 'mac', 'linux', 'android'];
     const detected: Platform | null = isAndroidBrowser
       ? 'android'
       : isWindows()
         ? 'windows'
-        : isLinux()
-          ? 'linux'
-          : null;
+        : isMac()
+          ? 'mac'
+          : isLinux()
+            ? 'linux'
+            : null;
     if (!detected) return base;
     return [detected, ...base.filter((p) => p !== detected)];
   })();
@@ -76,6 +80,16 @@
         >
           <WindowsIcon class="size-3.5" />
           {m.downloads_windows()}
+        </a>
+      {:else if platform === 'mac'}
+        <a
+          href={MAC_DMG_URL}
+          class={linkClass}
+          title={m.downloads_mac_hint()}
+          data-testid="download-mac"
+        >
+          <AppleIcon class="size-3.5" />
+          {m.downloads_mac()}
         </a>
       {:else if platform === 'android'}
         <a
