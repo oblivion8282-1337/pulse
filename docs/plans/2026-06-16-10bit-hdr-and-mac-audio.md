@@ -137,3 +137,50 @@ verifizierbar + echte Designfragen.
 
 Jeder Schritt braucht den Live-Test (Ton abspielen, Stream mitschneiden, hören),
 deshalb gemeinsam morgen statt blind über Nacht.
+
+---
+
+## C) Mac GPU-Pipeline — Zero-Copy (Untersuchung)
+
+**Ziel (User):** wie NVENC/AMF alles auf der GPU halten — nichts in die CPU/RAM.
+
+**Ist-Zustand (3 CPU-Schritte + GPU↔RAM-Roundtrip):**
+1. `capture/mod.rs::handle_video` lockt die CVPixelBuffer und `.to_vec()` → **Kopie
+   GPU→RAM** in `Frame.data: Vec<u8>` (nur damit der Frame `Send` ist fürs Channel).
+2. `encode/mod.rs::push_bgra` kopiert zeilenweise in einen ffmpeg-BGRA-Frame → **Kopie**.
+3. **swscale** BGRA→NV12 (CPU-Farbkonvertierung).
+4. `h264_videotoolbox` lädt NV12 wieder **auf die GPU** zum Encoden.
+
+**Gemessen:** ~**50 % eines CPU-Kerns** bei 2560×1440@60 (steigt ~linear mit der
+Pixelzahl → 4K kann einen Kern sättigen und CPU vom gestreamten Spiel klauen).
+
+**Machbarkeit Zero-Copy — bestätigt:**
+- `h264_videotoolbox`/`hevc_videotoolbox` akzeptieren `videotoolbox_vld`
+  (= `AV_PIX_FMT_VIDEOTOOLBOX`, HW-Frames) als **Input** → encoden direkt aus einer
+  CVPixelBuffer.
+- ffmpeg-sys hat `av_hwdevice_ctx_create`, `AV_HWDEVICE_TYPE_VIDEOTOOLBOX`,
+  `av_hwframe_ctx_alloc/init`, `AV_PIX_FMT_VIDEOTOOLBOX`.
+- SCK-Buffer sind IOSurface-backed (GPU-teilbar, thread-sicher nutzbar).
+
+**Plan:**
+1. SCK direkt **NV12** liefern lassen (`setPixelFormat('420v')`) statt BGRA → die
+   CVPixelBuffer ist schon im Encoder-Format (oder BGRA lassen, VT konvertiert in HW).
+2. **Statt `.to_vec()`**: die CVPixelBuffer `CVPixelBufferRetain`en und als
+   `AssumeSend`-Wrapper übers Channel an den Encoder-Thread schicken (IOSurface ist
+   thread-sicher) — keine RAM-Kopie.
+3. Encoder auf **HW-Input** konfigurieren: VideoToolbox-`hwdevice` + `hw_frames_ctx`
+   (`format=VIDEOTOOLBOX`, `sw_format=NV12`), Encoder-`pix_fmt=VIDEOTOOLBOX`.
+4. Pro Frame ein `AVFrame` bauen: `format=VIDEOTOOLBOX`, `data[3]=CVPixelBufferRef`,
+   `buf[0]=av_buffer_create(... , CVPixelBufferRelease)` (Frame **besitzt** die
+   Retain, gibt sie beim Free frei → kein Leak), `hw_frames_ctx` gesetzt → `send_frame`.
+
+Ergebnis: SCK→VideoToolbox bleibt komplett auf der GPU. swscale + beide RAM-Kopien
+fallen weg; CPU geht Richtung ~0.
+
+**Warum nicht blind über Nacht implementiert:** ist `unsafe` FFI mit
+CVPixelBuffer-Lifetime (Retain/Release an den AVBufferRef gekoppelt) + Threading.
+Ein subtiler Retain/Release-Fehler **leakt GPU-Speicher langsam oder crasht unter
+Last** — und genau das (Langzeit-Stabilität, RSS über Minuten, kein Crash unter
+echter Last) kann ich headless nur begrenzt verifizieren. Daher: Machbarkeit +
+Plan stehen, Implementierung als fokussierter, stabilitäts-verifizierter Schritt
+(gut interaktiv, mit RSS-/Crash-Watch über einen längeren Lauf).
