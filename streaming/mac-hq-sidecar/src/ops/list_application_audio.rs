@@ -1,23 +1,25 @@
-//! `list_application_audio` — apps with active audio output, for the
-//! "exclude these apps from Desktop capture" picker.
+//! `list_application_audio` — apps for the audio picker (specific-app capture +
+//! the "exclude these apps from Desktop capture" list).
 //!
-//! Shape (same as the other sidecars): `{ok, applications: [str, ...]}`.
-//!
-//! Day-1 stub: empty list.
-//!
-//! TODO(stage: audio): enumerate `SCShareableContent.current.applications`
-//! (the same content query as `list_monitors`) and return the
-//! `applicationName`s. SCK's audio capture can then exclude chosen bundle IDs
-//! via `SCContentFilter` / `SCStreamConfiguration`, which is how we keep Pulse's
-//! own voice playback out of a Desktop-audio capture (the macOS analogue of the
-//! Windows WASAPI process-loopback EXCLUDE path; PULSE_SELF_PID is passed in by
-//! `sidecar.ts`).
+//! Shape (same as the other sidecars): `{ok, applications: [str, ...]}`. Backed
+//! by `capture::list_audio_applications()` (running apps with an on-screen
+//! window). Errors (e.g. missing Screen-Recording permission) degrade to an
+//! empty list rather than failing the op.
 
 use anyhow::Result;
 use serde_json::{Map, Value};
 
+use crate::capture;
+
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
+    let apps = capture::list_audio_applications().unwrap_or_else(|e| {
+        eprintln!("[mac-hq-sidecar] list_application_audio failed: {e:#}");
+        Vec::new()
+    });
     let mut out = Map::new();
-    out.insert("applications".to_string(), Value::Array(vec![]));
+    out.insert(
+        "applications".to_string(),
+        Value::Array(apps.into_iter().map(Value::String).collect()),
+    );
     Ok(out)
 }

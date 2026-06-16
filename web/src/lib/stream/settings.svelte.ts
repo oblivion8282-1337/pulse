@@ -23,7 +23,7 @@
 
 import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
-import { isWindows } from '$lib/platform/runtime';
+import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -284,15 +284,16 @@ export async function loadCatalogs(): Promise<void> {
     // the user already has a stored selection.
     await loadPersisted();
 
-    // Monitors are Windows-only — on Linux the portal dialog picks the source,
-    // so skip the round-trip entirely there.
+    // Monitors back the in-app picker on Windows + macOS (WGC / ScreenCaptureKit
+    // have no portal dialog). On Linux the Wayland portal picks the source at
+    // stream start, so skip the round-trip there.
     // ``listProfiles`` is intentionally not fetched: the HQ panel is channel-mode
     // only and forces ``profile_name='Custom'`` + ``use_overrides=true`` below, so
     // the sidecar's profile catalog has no consumer.
     const [audioApps, gpuInfo, monitors] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
-      isWindows() ? gsr.listMonitors() : Promise.resolve(null),
+      isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
     ]);
 
     if (audioApps?.ok) {
@@ -308,9 +309,9 @@ export async function loadCatalogs(): Promise<void> {
     // The HQ-stream panel is channel-mode only (push into the current voice
     // channel, explicit codec/res/bitrate/fps). Force the profile; the capture
     // source is platform-dependent — Linux always uses the Wayland portal,
-    // Windows picks a concrete monitor (persisted choice wins if still valid).
-    if (isWindows()) {
-      resolveWindowsCaptureSource();
+    // Windows + macOS pick a concrete monitor (persisted choice wins if valid).
+    if (isWindows() || isMac()) {
+      resolveMonitorCaptureSource();
     } else {
       streamSettings.capture_source = 'portal';
     }
@@ -347,12 +348,12 @@ export async function refreshAudioApps(): Promise<void> {
 }
 
 /**
- * Windows-only: resolve `capture_source` to a concrete `"Monitor: <n>"` from
+ * Windows + macOS: resolve `capture_source` to a concrete `"Monitor: <n>"` from
  * the enumerated monitors. A persisted choice wins if it still matches a live
  * monitor; otherwise default to the primary one. Falls back to `'portal'`
  * (which the sidecar maps to the primary monitor) when enumeration is empty.
  */
-function resolveWindowsCaptureSource(): void {
+function resolveMonitorCaptureSource(): void {
   const mons = streamSettings.available_monitors;
   if (mons.length === 0) {
     streamSettings.capture_source = 'portal';
@@ -364,14 +365,14 @@ function resolveWindowsCaptureSource(): void {
   streamSettings.capture_source = `${MONITOR_CAPTURE_PREFIX}${primary.index}`;
 }
 
-/** Refresh the monitor list (Windows-only; called from the monitor picker).
+/** Refresh the monitor list (Windows + macOS; called from the monitor picker).
  *  Re-resolves the capture source so a now-unplugged monitor doesn't linger. */
 export async function refreshMonitors(): Promise<void> {
   try {
     const r = await gsr.listMonitors();
     if (r?.ok) {
       streamSettings.available_monitors = r.monitors ?? [];
-      resolveWindowsCaptureSource();
+      resolveMonitorCaptureSource();
     }
   } catch {
     // tolerate — keep the previous list

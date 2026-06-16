@@ -159,6 +159,39 @@ pub fn list_displays() -> Result<Vec<DisplayInfo>> {
     Ok(out)
 }
 
+/// Application names for the audio picker (specific-app capture + the
+/// desktop-audio exclude list). SCK has no "is this app producing audio?" query,
+/// so we approximate with the running applications that own at least one
+/// on-screen window — the user-facing apps, deduped + sorted — which is the set
+/// worth offering. (The Windows/Linux lists are "apps with an active audio
+/// session"; macOS can't narrow that far without a private CoreAudio tap.)
+pub fn list_audio_applications() -> Result<Vec<String>> {
+    let content = shareable_content()?;
+    let windows = unsafe { content.windows() };
+
+    let mut names = std::collections::BTreeSet::new();
+    for w in windows.iter() {
+        // Keep only normal, on-screen app windows: `windowLayer == 0` drops the
+        // menu bar / Dock / Spotlight / Control Center system layers, and a
+        // minimum size drops tiny helper windows. This turns "every running
+        // process with a surface" into "the apps the user actually sees".
+        if !unsafe { w.isOnScreen() } || unsafe { w.windowLayer() } != 0 {
+            continue;
+        }
+        let frame = unsafe { w.frame() };
+        if frame.size.width < 120.0 || frame.size.height < 120.0 {
+            continue;
+        }
+        if let Some(app) = unsafe { w.owningApplication() } {
+            let name = unsafe { app.applicationName() }.to_string();
+            if !name.is_empty() {
+                names.insert(name);
+            }
+        }
+    }
+    Ok(names.into_iter().collect())
+}
+
 // ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
 
 struct OutputIvars {
