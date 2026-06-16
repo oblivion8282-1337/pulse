@@ -15,6 +15,7 @@ export function resolveAction(
   context: ActionContext
 ): ActionId | null {
   for (const a of ACTIONS) {
+    if (a.hidden) continue;
     if (a.context !== context) continue;
     if (effectiveBinding(s, a.id) === combo) return a.id;
   }
@@ -29,6 +30,7 @@ export function conflictWith(
 ): ActionId | null {
   const ctx = ACTION_BY_ID[id].context;
   for (const a of ACTIONS) {
+    if (a.hidden) continue;
     if (a.id === id) continue;
     if (a.context !== ctx) continue;
     if (effectiveBinding(s, a.id) === combo) return a.id;

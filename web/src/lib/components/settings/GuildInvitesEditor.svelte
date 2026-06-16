@@ -11,12 +11,37 @@
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import { chatApi } from '$lib/api/chat';
   import { activeServer } from '$lib/stores/active-server.svelte';
+  import { roles } from '$lib/stores/roles.svelte';
+  import { Perm } from '$lib/permissions/bitfield';
   import { Button } from '$lib/components/ui/button/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import type { Invite } from '$lib/api/types';
   import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
+
+  // Direct add-by-id is a higher-privilege action than creating an invite
+  // link (it skips the accept step), so the backend gates it on MANAGE_INVITES.
+  const canAddById = $derived(roles.hasGuildPermission(guildId, Perm.MANAGE_INVITES));
+  let addUserId = $state('');
+  let adding = $state(false);
+
+  async function addById() {
+    const id = addUserId.trim();
+    if (!id || adding) return;
+    adding = true;
+    try {
+      await chatApi.addMemberById(guildId, id);
+      addUserId = '';
+      toast.success(m.guild_invites_addbyid_success());
+    } catch (e) {
+      toast.error(m.guild_invites_addbyid_failed(), {
+        description: e instanceof Error ? e.message : String(e)
+      });
+    } finally {
+      adding = false;
+    }
+  }
 
   // value = seconds, undefined = never
   const EXPIRY_OPTIONS: { value: number | undefined; label: () => string }[] = [
@@ -202,5 +227,36 @@
         </li>
       {/each}
     </ul>
+  {/if}
+
+  {#if canAddById}
+    <div class="border-border flex flex-col gap-3 border-t pt-5" data-testid="guild-addbyid">
+      <div>
+        <h3 class="text-text-bright text-sm font-semibold">{m.guild_invites_addbyid_title()}</h3>
+        <p class="text-text-muted text-sm">{m.guild_invites_addbyid_subtitle()}</p>
+      </div>
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+        <div class="flex flex-1 flex-col gap-1.5">
+          <Label for="addbyid-input">{m.guild_invites_addbyid_title()}</Label>
+          <input
+            id="addbyid-input"
+            type="text"
+            inputmode="numeric"
+            bind:value={addUserId}
+            onkeydown={(e) => e.key === 'Enter' && addById()}
+            placeholder={m.guild_invites_addbyid_placeholder()}
+            class="bg-bg-input border-border text-text-base placeholder:text-text-muted w-full rounded-lg border px-3 py-2 text-sm"
+            data-testid="addbyid-input"
+          />
+        </div>
+        <Button
+          onclick={addById}
+          disabled={adding || addUserId.trim() === ''}
+          data-testid="addbyid-submit"
+        >
+          {adding ? m.guild_invites_addbyid_adding() : m.guild_invites_addbyid_button()}
+        </Button>
+      </div>
+    </div>
   {/if}
 </section>

@@ -142,6 +142,14 @@ export const chatApi = {
   listMembers(guildId: string): Promise<Member[]> {
     return request<Member[]>(`/guilds/${guildId}/members`);
   },
+  /** Direct invite-by-id: adds a user to the guild by their numeric user ID.
+   *  Backend gates on MANAGE_INVITES and rejects banned users. Idempotent. */
+  addMemberById(guildId: string, userId: string): Promise<Member> {
+    return request<Member>(`/guilds/${guildId}/members`, {
+      method: 'POST',
+      body: { user_id: userId }
+    });
+  },
   setSelfNickname(guildId: string, nickname: string): Promise<Member> {
     return this.setMemberNickname(guildId, '@me', nickname);
   },

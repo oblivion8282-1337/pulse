@@ -238,6 +238,7 @@
             <option value={val}>{label}</option>
           {/each}
         </select>
+        <p class="text-text-muted text-xs">{m.mod_queue_action_hint()}</p>
       {/if}
       <textarea
         bind:value={resolutionNote}

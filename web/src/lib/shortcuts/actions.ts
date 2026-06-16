@@ -45,6 +45,10 @@ export type ActionDef = {
   /** Canonical combo string (see `format.ts`). `null` = unbound by default. */
   defaultBinding: string | null;
   context: ActionContext;
+  /** Metadata-only: kept in the registry (type/i18n/future re-enable) but not
+   *  shown in the cheatsheet/settings and not resolved to a binding. Used to
+   *  park a not-yet-built action without leaving a dead key or visible stub. */
+  hidden?: boolean;
 };
 
 export const ACTIONS: readonly ActionDef[] = [
@@ -85,8 +89,11 @@ export const ACTIONS: readonly ActionDef[] = [
     description: m.shortcuts_stream_toggle_hq_description(), defaultBinding: 'f9', context: 'global' },
   { id: 'stream.toggleScreenshare', category: 'stream', label: m.shortcuts_stream_toggle_screenshare_label(),
     description: m.shortcuts_stream_toggle_screenshare_description(), defaultBinding: 'f10', context: 'global' },
+  // Noch nicht gebaut (30s-Roll-Buffer in media-svc fehlt). Versteckt geparkt:
+  // nicht im Spickzettel/Einstellungen, F8 bleibt frei. Re-enable = `hidden` entfernen.
   { id: 'stream.highlightClip', category: 'stream', label: m.shortcuts_stream_highlight_clip_label(),
-    description: m.shortcuts_stream_highlight_clip_description(), defaultBinding: 'f8', context: 'global' }
+    description: m.shortcuts_stream_highlight_clip_description(), defaultBinding: 'f8', context: 'global',
+    hidden: true }
 ];
 
 export const ACTION_BY_ID: Record<ActionId, ActionDef> = Object.fromEntries(

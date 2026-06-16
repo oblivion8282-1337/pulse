@@ -106,11 +106,11 @@
           return;
         }
         voice.toggleScreenShare();
-      }),
-      register('stream.highlightClip', () => {
-        // Placeholder bis der 30s-Roll-Buffer in media-svc existiert (IDEAS.md #58).
-        toast.info(m.shortcut_host_highlight_clip_coming());
       })
+      // 'stream.highlightClip' bewusst NICHT registriert: Feature noch nicht gebaut
+      // (30s-Roll-Buffer fehlt). Die Aktion ist in actions.ts `hidden` geparkt →
+      // unsichtbar in Spickzettel/Einstellungen, F8 bleibt frei. Re-enable: Handler
+      // hier wieder registrieren + `hidden` in actions.ts entfernen.
     ];
     return () => disposers.forEach((d) => d());
   });

@@ -19,7 +19,7 @@
   let { open = $bindable(false) }: { open?: boolean } = $props();
 
   function itemsFor(cat: string): readonly ActionDef[] {
-    return ACTIONS.filter((a) => a.category === cat);
+    return ACTIONS.filter((a) => a.category === cat && !a.hidden);
   }
 </script>
 
