@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.5",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Mitglieder in andere Voice-Channels verschieben",
+      "items": [
+        "Wer das Recht zum Verschieben hat, kann ein Mitglied, das gerade in einem Voice-Channel ist, über das Profil-Menü direkt in einen anderen Voice-Channel derselben Community verschieben. Die Option heißt „In Voice-Channel verschieben“; danach wählst du den Ziel-Channel aus."
+      ]
+    },
+    {
       "id": "2026-06-16.4",
       "date": "2026-06-16",
       "style": "Sachlich",
