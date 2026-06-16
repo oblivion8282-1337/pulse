@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.2",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Mac-App jetzt zum Download",
+      "items": [
+        "Die Pulse-App für Mac (Apple Silicon) steht ab sofort zum Download bereit — den Link findest du auf dem Anmeldebildschirm. Die App ist noch nicht von Apple signiert: Beim allerersten Start deshalb mit Rechtsklick auf das Programm gehen und dann 'Öffnen' wählen (nur einmal nötig)."
+      ]
+    },
+    {
       "id": "2026-06-16",
       "date": "2026-06-16",
       "style": "Sachlich",
