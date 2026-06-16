@@ -58,6 +58,13 @@ finish-args:
   # Audio: voice + GSR desktop/app audio capture
   - --socket=pulseaudio
   - --filesystem=xdg-run/pipewire-0:ro
+  # Read-only access to the user's files so drag-&-drop + paste of an *on-disk*
+  # file into the chat can read the bytes for upload. Without this the sandbox
+  # hands dropped files to the renderer as 0 bytes (the drop overlay appears but
+  # nothing uploads). Read-only: the app can read files to send them, never
+  # modify or delete them. Pasted *images* are inline clipboard bytes and need
+  # no file access — they work without this.
+  - --filesystem=host:ro
   # GPU for NVENC / VAAPI. NVIDIA's /dev/nvidia* sit outside /dev/dri → need --device=all.
   - --device=all
   # Wayland screencast portal — GSR `-w portal` capture + Chromium's getDisplayMedia (browser screen share)

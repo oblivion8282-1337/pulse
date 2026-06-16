@@ -15,12 +15,7 @@
   import { lookupComposer } from '$lib/shortcuts/engine.svelte';
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
   import { isElectron } from '$lib/platform/runtime';
-  import {
-    canRecoverDroppedFiles,
-    canReadClipboardImage,
-    recoverDroppedFiles,
-    clipboardImageFile
-  } from '$lib/platform/electronFiles';
+  import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
 
   // `channelId` null → watch-party / stream-chat composer: attachments
   // (paperclip / paste / drop) are wired off, mention popup still works.
@@ -127,22 +122,30 @@
     if (input.files) addFiles(input.files);
     input.value = ''; // allow re-selecting the same file later
   };
-  const onPaste = async (e: ClipboardEvent) => {
-    if (isElectron()) {
-      // The sandboxed renderer sees pasted files as 0 bytes — pull the image
-      // off the native clipboard bridge instead. Text paste falls through to
-      // the browser default (we don't preventDefault, and an image inserts no
-      // text into the textarea anyway). Older shells without the bridge no-op.
-      if (!canReadClipboardImage()) return;
-      const img = await clipboardImageFile();
-      if (img) addFiles([img]);
-      return;
+  const onPaste = (e: ClipboardEvent) => {
+    const dt = e.clipboardData;
+    if (!dt) return;
+    // A pasted image (e.g. a screenshot) lives in the clipboard as inline bytes,
+    // not as a file on disk — so it's readable even in the sandboxed Electron
+    // renderer (unlike a *dropped* file, which is a path the sandbox can't
+    // reach). Collect every clipboard entry that carries real bytes; skip
+    // 0-byte entries (a copied file *reference* shows up empty in the sandbox)
+    // and plain text (→ no files → browser default paste).
+    const collected: File[] = [];
+    for (const item of Array.from(dt.items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const f = item.getAsFile();
+        if (f && f.size > 0) collected.push(f);
+      }
     }
-    const files = e.clipboardData?.files;
-    // Text paste is untouched (no files → early return → browser default).
-    if (!files?.length) return;
-    e.preventDefault(); // don't paste a path string into the textarea
-    addFiles(files);
+    for (const f of Array.from(dt.files)) {
+      if (f.size > 0 && !collected.some((c) => c.name === f.name && c.size === f.size)) {
+        collected.push(f);
+      }
+    }
+    if (!collected.length) return; // nothing usable → leave default paste alone
+    e.preventDefault(); // don't also drop a path/text into the textarea
+    addFiles(collected);
   };
 
   function fire() {

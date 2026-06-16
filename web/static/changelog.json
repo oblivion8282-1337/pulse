@@ -8,7 +8,7 @@
       "title": "Bilder einfügen und per Drag & Drop in der App",
       "items": [
         "In der Desktop-App lassen sich Bilder jetzt direkt aus der Zwischenablage in das Nachrichtenfeld einfügen (z. B. ein Screenshot) und Dateien per Drag & Drop in den Chat ziehen. Bisher war beides nur im Browser möglich und in der App deaktiviert.",
-        "Voraussetzung ist die aktuelle Version der Desktop-App; nach dem Update funktioniert es automatisch."
+        "Voraussetzung ist die aktuelle Version der Desktop-App. Nach dem Update die App bitte einmal komplett über das Tray-Symbol beenden und neu starten — nur das Fenster zu schließen reicht nicht, weil die App im Hintergrund weiterläuft."
       ]
     },
     {
