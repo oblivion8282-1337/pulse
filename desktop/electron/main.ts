@@ -387,6 +387,9 @@ const ALLOWED_STORE_KEYS = new Set([
   'overrides',
   'use_overrides',
   'custom_servers',
+  // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
+  // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
+  'pulse.servers',
 ]);
 
 function wireStore(): void {
@@ -404,6 +407,20 @@ function wireStore(): void {
     } catch (e) {
       console.error('[store] store:getAll failed:', e);
       return {};
+    }
+  });
+  // Synchronous snapshot read — the store is already fully in memory after
+  // `initStore()` (runs in whenReady, before any renderer code), so this is a
+  // cheap in-memory copy. Needed because the multi-server list must be readable
+  // synchronously at app boot (serversStore.init() runs before first paint and
+  // the whole boot chain depends on it). `ipcMain.on` + `e.returnValue` is the
+  // sync IPC form; fired exactly once per launch.
+  ipcMain.on('store:getAllSync', (e) => {
+    try {
+      e.returnValue = storeGetAll();
+    } catch (err) {
+      console.error('[store] store:getAllSync failed:', err);
+      e.returnValue = {};
     }
   });
   ipcMain.handle('store:set', (_e, key: string, value: unknown) => {

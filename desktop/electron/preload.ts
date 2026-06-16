@@ -48,6 +48,9 @@ contextBridge.exposeInMainWorld('pulse', {
   store: {
     get: (key: string): Promise<unknown> => ipcRenderer.invoke('store:get', key),
     getAll: (): Promise<Record<string, unknown>> => ipcRenderer.invoke('store:getAll'),
+    /** Synchronous snapshot of the whole store. Used once at boot by the
+     *  multi-server store, which must read synchronously before first paint. */
+    getAllSync: (): Record<string, unknown> => ipcRenderer.sendSync('store:getAllSync'),
     set: (key: string, value: unknown): Promise<void> => ipcRenderer.invoke('store:set', key, value),
     /** Atomically write multiple key-value pairs in one IPC round-trip
      *  (finding 158 — enables batch persistence in persistence.ts). */

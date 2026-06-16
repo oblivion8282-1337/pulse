@@ -58,10 +58,13 @@
 - **Missbrauchs-Meldewesen: Frontend + E-Mail fehlen** *(merkt man)* — Einreichen geht technisch,
   aber es gibt keine Admin-Oberfläche und keine E-Mail-Weiterleitung an Instanz-Betreiber.
   `services/auth/.../routes_complaints.py`, `web/src/routes/app/admin/+page.svelte`
-- **Server-Liste der Desktop-App im falschen Speicher** — Eigene Server landen in der Electron-App
+- **[ERLEDIGT 2026-06-16] Server-Liste der Desktop-App im falschen Speicher** — Eigene Server landen in der Electron-App
   im normalen Browser-Speicher statt im abgesicherten App-Speicher. Sicherer Pfad ist gebaut, aber
   nicht angeschlossen.
   `web/src/lib/api/servers.svelte.ts:9-11`
+  → Auf Desktop in den chmod-600-Tresor verschoben (synchroner `getAllSync`-Boot-Read, async Write,
+  einmalige localStorage→Tresor-Migration + Klartext-Löschung). Browser bleibt bei localStorage.
+  Geändert: `store getAllSync`-IPC (`main.ts`/`preload.ts`/`pulse.d.ts`) + `servers.svelte.ts`.
 
 ## 4. Eingebaut, aber ungenutzt / tote Einstellungen
 
@@ -77,8 +80,8 @@
 
 ## 5. Offene Notizen im Code (TODO/FIXME)
 
-- **Desktop-Server-Liste: TODO für sicheren Speicher** — Kommentar beschreibt den nötigen Umstieg von
-  `localStorage` auf `window.pulse.store`; Electron-Seite fertig, Frontend-Seite nicht umgestellt.
+- **[ERLEDIGT 2026-06-16] Desktop-Server-Liste: TODO für sicheren Speicher** — Kommentar beschrieb den nötigen Umstieg von
+  `localStorage` auf `window.pulse.store`; jetzt umgesetzt (siehe Gruppe 3).
   `web/src/lib/api/servers.svelte.ts:9-11`
 
 ---

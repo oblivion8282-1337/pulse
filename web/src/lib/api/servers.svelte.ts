@@ -4,12 +4,22 @@
  * Verwaltet die Liste der bekannten Server-Instanzen. Session-Tokens
  * leben NICHT hier (XSS-Härtung) — siehe session_tokens.svelte.ts.
  *
- * localStorage-Key: pulse.servers (JSON-Array von ServerEntry[])
+ * Speicher-Backend (Key `pulse.servers`, JSON-Array von ServerEntry[]):
+ *  - **Electron-Desktop:** der chmod-600-Tresor (`window.pulse.store`,
+ *    `desktop/electron/store.ts`) — die Liste (Hostnames + pairwise-Pseudonyme)
+ *    liegt damit nicht mehr im Klartext-Profil. Gelesen wird synchron via
+ *    `getAllSync()` (der Tresor ist beim Boot schon komplett im Speicher),
+ *    geschrieben asynchron via `set()` (fire-and-forget). Beim ersten Start
+ *    nach dem Update wird eine evtl. vorhandene localStorage-Liste in den
+ *    Tresor migriert und der Klartext-Eintrag gelöscht (siehe `loadFromStorage`).
+ *  - **Browser:** localStorage (kein Tresor vorhanden) — gleicher Key, gleiche Form.
  *
- * TODO Phase 4.3: Unter Electron auf window.pulse.store umstellen,
- * sobald der Store-IPC das unterstützt (dann kein localStorage-Fallback
- * mehr nötig, da Electron-store 600er chmod macht).
+ * `init()` bleibt synchron, damit der Boot-Code (activeServer, gatewayPool …)
+ * die Liste unverändert sofort vorfindet.
  */
+
+import { isElectron } from '$lib/platform/runtime';
+import type { PulseStoreApi } from '$lib/platform/pulse';
 
 export type ServerEntry = {
   id: string;                 // lokale UUID v4 (kein Cloud-Tracking)
@@ -25,7 +35,18 @@ export type ServerEntry = {
 export const CLOUD_HOSTNAME = 'https://howispulse.com';
 export const CLOUD_LABEL = 'Pulse Cloud';
 
-const LS_KEY = 'pulse.servers';
+/** Key in beiden Backends identisch (Tresor wie localStorage). */
+const STORAGE_KEY = 'pulse.servers';
+
+/** Der abgesicherte Electron-Tresor — oder null im reinen Browser bzw. wenn ein
+ *  älteres preload den synchronen Schnell-Lesezugriff (`getAllSync`) noch nicht
+ *  kennt; dann fällt der Code bewusst auf localStorage zurück. */
+function secureStore(): PulseStoreApi | null {
+  if (typeof window === 'undefined' || !isElectron()) return null;
+  const store = window.pulse?.store;
+  if (!store || typeof store.getAllSync !== 'function') return null;
+  return store;
+}
 
 /** Normalisiert einen Hostname: HTTPS-only, lowercase, kein trailing slash.
  *  http://-URLs werden auf https:// hochgestuft — verhindert, dass Session-Tokens
@@ -63,33 +84,71 @@ function buildCloudEntry(): ServerEntry {
   };
 }
 
-function loadFromStorage(): ServerEntry[] | null {
+/** Normalisiert ein rohes Array: isCloud wird IMMER aus dem Hostname neu
+ *  abgeleitet, damit ein (XSS-)injizierter `isCloud`-Wert die Cloud-Flagge nicht
+ *  fälschen kann. Gibt null zurück, wenn die Form unbrauchbar/leer ist. */
+function normalizeEntries(parsed: unknown): ServerEntry[] | null {
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  return parsed.map((entry: unknown) => {
+    const e = entry as ServerEntry;
+    return {
+      ...e,
+      isCloud: (e.hostname ?? '').toLowerCase() === CLOUD_HOSTNAME.toLowerCase(),
+    };
+  });
+}
+
+function loadFromLocalStorage(): ServerEntry[] | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = window.localStorage.getItem(LS_KEY);
+    const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return null;
-    // Re-derive isCloud from hostname to prevent XSS-injected entries
-    // from overriding the cloud flag with a crafted isCloud value.
-    const normalized = parsed.map((entry: unknown) => {
-      const e = entry as ServerEntry;
-      return {
-        ...e,
-        isCloud: (e.hostname ?? '').toLowerCase() === CLOUD_HOSTNAME.toLowerCase(),
-      };
-    });
-    return normalized;
+    return normalizeEntries(JSON.parse(raw));
   } catch {
     // Korruptes JSON → Auto-Migration übernimmt
     return null;
   }
 }
 
+function loadFromStorage(): ServerEntry[] | null {
+  const store = secureStore();
+  if (store) {
+    // Desktop: zuerst aus dem Tresor lesen.
+    try {
+      const fromVault = normalizeEntries(store.getAllSync()?.[STORAGE_KEY]);
+      if (fromVault) return fromVault;
+    } catch {
+      /* defekter sync-Read → unten ggf. Migration/Fallback */
+    }
+    // Tresor leer → evtl. Alt-Liste aus localStorage in den Tresor umziehen
+    // und den Klartext-Eintrag danach löschen (einmalig nach dem Update).
+    const legacy = loadFromLocalStorage();
+    if (legacy) {
+      saveToStorage(legacy);
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        /* egal — der Tresor ist jetzt die Quelle der Wahrheit */
+      }
+      return legacy;
+    }
+    return null;
+  }
+  // Browser: localStorage.
+  return loadFromLocalStorage();
+}
+
 function saveToStorage(entries: ServerEntry[]): void {
   if (typeof window === 'undefined') return;
+  const store = secureStore();
+  if (store) {
+    // Desktop: nur in den Tresor schreiben (kein Klartext-localStorage mehr).
+    // Fire-and-forget — der In-Memory-State bleibt die Quelle der Wahrheit.
+    void store.set(STORAGE_KEY, entries);
+    return;
+  }
   try {
-    window.localStorage.setItem(LS_KEY, JSON.stringify(entries));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
   } catch {
     // QuotaExceededError o.Ä. — silent, Store-State bleibt in Memory konsistent
   }

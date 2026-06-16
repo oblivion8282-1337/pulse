@@ -22,6 +22,9 @@ export type PulseGsrEvent = Record<string, unknown>;
 export interface PulseStoreApi {
   get(key: string): Promise<unknown>;
   getAll(): Promise<Record<string, unknown>>;
+  /** Synchronous snapshot of the whole store (boot-time fast path for the
+   *  multi-server list). Backed by `store:getAllSync` (sendSync IPC). */
+  getAllSync(): Record<string, unknown>;
   set(key: string, value: unknown): Promise<void>;
   /** Atomically write multiple key-value pairs in one IPC round-trip
    *  (finding 158). Values must be JSON-serialisable. */
