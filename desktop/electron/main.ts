@@ -20,7 +20,7 @@
  * can introduce rendering quirks — not in E1a.)
  */
 
-import { app, BrowserWindow, Menu, ipcMain, session, desktopCapturer, shell } from 'electron';
+import { app, BrowserWindow, Menu, ipcMain, session, desktopCapturer, shell, nativeImage } from 'electron';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -511,6 +511,20 @@ app.on('second-instance', (_event, argv) => {
 // still works.
 
 app.whenReady().then(() => {
+  // Dev-run Dock icon (macOS): an unpackaged `electron .` shows the default
+  // Electron icon in the Dock. The packaged .app gets the Pulse icon from
+  // electron-builder (build-resources/icon.icns); for the dev run set it at
+  // runtime. No-op when packaged (icon comes from the bundle) or off-macOS.
+  if (process.platform === 'darwin' && !app.isPackaged && app.dock) {
+    const iconPath = path.join(__dirname, '..', '..', 'build-resources', 'icon.png');
+    try {
+      const img = nativeImage.createFromPath(iconPath);
+      if (!img.isEmpty()) app.dock.setIcon(img);
+    } catch {
+      // dev-only cosmetic — ignore
+    }
+  }
+
   // DIAG: jeder Renderer-/GPU-Crash mit Grund ins Log (sonst still). Hilft beim
   // Debuggen der abgedockten Popup-Fenster.
   app.on('web-contents-created', (_e, contents) => {
