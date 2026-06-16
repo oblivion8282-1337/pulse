@@ -2220,7 +2220,7 @@
   "downloads_linux": "Linux",
   "downloads_android": "Android",
   "downloads_windows_hint": "Installer für Windows herunterladen. Beim ersten Start fragt Windows-SmartScreen nach — „Weitere Informationen“ → „Trotzdem ausführen“.",
-  "downloads_mac_hint": "Für Apple Silicon herunterladen. Noch nicht notarisiert — beim ersten Start Rechtsklick auf die App → „Öffnen“ → „Öffnen“.",
+  "downloads_mac_hint": "Für Apple Silicon herunterladen. Noch nicht notarisiert — beim ersten Start meldet macOS einen nicht verifizierten Entwickler; über Systemeinstellungen → Datenschutz & Sicherheit auf „Dennoch öffnen“ freigeben (ältere macOS: Rechtsklick auf die App → „Öffnen“).",
   "downloads_android_hint": "APK für Android herunterladen. Bei der Installation muss „Aus unbekannten Quellen installieren“ erlaubt werden.",
   "downloads_linux_title": "Pulse für Linux (Flatpak)",
   "downloads_linux_step_terminal": "Im Terminal installieren:",

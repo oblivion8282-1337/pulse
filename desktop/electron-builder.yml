@@ -20,6 +20,11 @@
 # wird NICHT mitgepackt: die App lädt sie von `https://howispulse.com`.
 appId: com.howispulse.pulse
 productName: Pulse
+# Ad-hoc-Signatur der macOS-.app (Stufe A, kein Developer ID) — siehe
+# build-resources/afterPack.cjs. Ohne diesen Hook liefert electron-builder eine
+# nur linker-signierte, NICHT versiegelte .app, die Gatekeeper auf Apple Silicon
+# als „beschädigt" abweist. Greift nur für darwin; Windows/Linux ignorieren ihn.
+afterPack: build-resources/afterPack.cjs
 directories:
   output: release
   # Branding-Assets für den NSIS-Wizard liegen hier (NICHT `build/` — das ist global

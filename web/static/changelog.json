@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.4",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Mac-App: 'Beschädigt'-Meldung behoben",
+      "items": [
+        "Die Mac-App ließ sich nach dem Download teils nicht öffnen — macOS meldete fälschlich, die Datei sei beschädigt. Ursache war eine unvollständige Signatur; das ist behoben, die App ist jetzt korrekt signiert. Bitte die DMG einmal neu herunterladen.",
+        "Beim ersten Start meldet macOS weiterhin einen nicht verifizierten Entwickler (die App ist noch nicht von Apple notarisiert). Freigeben über Systemeinstellungen → Datenschutz & Sicherheit → 'Dennoch öffnen' (auf älteren macOS-Versionen: Rechtsklick auf die App → 'Öffnen')."
+      ]
+    },
+    {
       "id": "2026-06-16.3",
       "date": "2026-06-16",
       "style": "Sachlich",
