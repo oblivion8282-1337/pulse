@@ -203,6 +203,14 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     let started = Instant::now();
     // Manual A/V trim: ms → samples (48 @ 48kHz). >0 shifts audio later.
     let audio_offset_samples = params.av_offset_ms as i64 * 48;
+    // A/V sync anchors on the capture timestamps (CMSampleBuffer PTS — the same
+    // host clock for video + audio), NOT on processing time. Using emit/drain
+    // wall-clock skewed audio ~300ms late (SCK audio buffering + FIFO latency).
+    // `epoch_s` = first media sample seen; video duplicates project the last
+    // real frame's capture time forward by the wall clock since it arrived.
+    let mut epoch_s = f64::NAN;
+    let mut last_frame_pts_s = 0.0_f64;
+    let mut last_frame_at = Instant::now();
     emit(Event::State {
         state: StreamState::Live,
         running: true,
@@ -231,16 +239,28 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
-            // Drain any pending audio (non-blocking). Anchor each batch to the
-            // shared wall-clock epoch (`started`) so audio and video line up.
+            // Drain pending audio (non-blocking). Anchor the first frame to the
+            // audio sample's own capture pts (shared epoch with video) + the
+            // manual trim — so audio sits where it was captured, not where it
+            // was drained.
             if let Some(arx) = &audio_rx {
                 while let Ok(af) = arx.try_recv() {
-                    let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64 + audio_offset_samples;
+                    if epoch_s.is_nan() {
+                        epoch_s = af.pts_seconds;
+                    }
+                    let anchor = ((af.pts_seconds - epoch_s) * 48_000.0).round() as i64
+                        + audio_offset_samples;
                     enc.push_audio(&af.samples, anchor)?;
                 }
             }
-            // Grab the freshest captured frame(s) without blocking.
+            // Grab the freshest captured frame(s); record its capture pts + the
+            // instant it arrived (for duplicate projection).
             while let Ok(f) = frame_rx.try_recv() {
+                if epoch_s.is_nan() {
+                    epoch_s = f.pts_seconds;
+                }
+                last_frame_pts_s = f.pts_seconds;
+                last_frame_at = Instant::now();
                 last_frame = Some(f);
             }
 
@@ -253,10 +273,12 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 // wait (no black pre-roll on the hw path); SCK delivers the first
                 // frame within a frame or two of start.
                 if let Some(f) = &last_frame {
-                    // Video pts from the same wall-clock epoch as audio (1/fps
-                    // units) → A/V sync; push_pixel_buffer clamps it monotonic.
-                    let pts_v =
-                        (started.elapsed().as_secs_f64() * params.fps as f64).round() as i64;
+                    // Video pts from the frame's capture time (shared epoch with
+                    // audio → A/V sync), projecting the last real frame forward by
+                    // the wall clock since it arrived so static-screen duplicates
+                    // keep advancing. push_pixel_buffer clamps it monotonic.
+                    let cap_s = last_frame_pts_s + last_frame_at.elapsed().as_secs_f64();
+                    let pts_v = ((cap_s - epoch_s) * params.fps as f64).round().max(0.0) as i64;
                     enc.push_pixel_buffer(f.retained_ptr(), pts_v)?;
                     window_frames += 1;
                     if window_start.elapsed() >= Duration::from_secs(1) {
@@ -278,7 +300,14 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
             } else {
                 // Wait until the next emit deadline or the next captured frame.
                 match frame_rx.recv_timeout(next_emit - now) {
-                    Ok(f) => last_frame = Some(f),
+                    Ok(f) => {
+                        if epoch_s.is_nan() {
+                            epoch_s = f.pts_seconds;
+                        }
+                        last_frame_pts_s = f.pts_seconds;
+                        last_frame_at = Instant::now();
+                        last_frame = Some(f);
+                    }
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
@@ -287,7 +316,11 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         // Drain any audio buffered after the last video frame.
         if let Some(arx) = &audio_rx {
             while let Ok(af) = arx.try_recv() {
-                let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64 + audio_offset_samples;
+                if epoch_s.is_nan() {
+                    epoch_s = af.pts_seconds;
+                }
+                let anchor = ((af.pts_seconds - epoch_s) * 48_000.0).round() as i64
+                    + audio_offset_samples;
                 enc.push_audio(&af.samples, anchor)?;
             }
         }
