@@ -24,6 +24,7 @@ pub mod health;
 pub mod list_application_audio;
 pub mod list_monitors;
 pub mod list_profiles;
+pub mod list_windows;
 pub mod start;
 pub mod state;
 pub mod stop;

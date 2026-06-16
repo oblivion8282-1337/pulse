@@ -20,6 +20,7 @@ fn main() -> anyhow::Result<()> {
     let (atx, arx) = channel::<AudioFrame>();
     let cap = Capturer::start(
         1,
+        None,
         w as usize,
         h as usize,
         fps,

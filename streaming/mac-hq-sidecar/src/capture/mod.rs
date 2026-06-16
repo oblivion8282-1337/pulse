@@ -67,6 +67,17 @@ pub struct DisplayInfo {
     pub refresh_hz: i64,
 }
 
+/// One capturable on-screen window, for the app/window source picker.
+#[derive(Debug, Clone)]
+pub struct WindowInfo {
+    /// CoreGraphics window id — round-trips as the `capture: "window:<id>"` token.
+    pub window_id: u32,
+    pub title: String,
+    pub app: String,
+    pub width: i64,
+    pub height: i64,
+}
+
 /// One captured video frame: packed BGRA8888, `bytes_per_row`-strided.
 pub struct Frame {
     pub width: usize,
@@ -190,6 +201,52 @@ pub fn list_audio_applications() -> Result<Vec<String>> {
         }
     }
     Ok(names.into_iter().collect())
+}
+
+/// Capturable windows for the source picker — same "normal, on-screen, sizeable
+/// window" filter as [`list_audio_applications`], but returns each window with
+/// its CG id + title so the user can stream a single window instead of a whole
+/// display.
+pub fn list_capture_windows() -> Result<Vec<WindowInfo>> {
+    let content = shareable_content()?;
+    let windows = unsafe { content.windows() };
+
+    let mut out = Vec::new();
+    for w in windows.iter() {
+        if !unsafe { w.isOnScreen() } || unsafe { w.windowLayer() } != 0 {
+            continue;
+        }
+        let frame = unsafe { w.frame() };
+        if frame.size.width < 120.0 || frame.size.height < 120.0 {
+            continue;
+        }
+        let app = unsafe { w.owningApplication() }
+            .map(|a| unsafe { a.applicationName() }.to_string())
+            .unwrap_or_default();
+        let title = unsafe { w.title() }
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        out.push(WindowInfo {
+            window_id: unsafe { w.windowID() },
+            title,
+            app,
+            width: frame.size.width as i64,
+            height: frame.size.height as i64,
+        });
+    }
+    Ok(out)
+}
+
+/// Find a window by its CG id in the current shareable content.
+fn find_window(
+    content: &SCShareableContent,
+    window_id: u32,
+) -> Option<Retained<SCWindow>> {
+    let windows = unsafe { content.windows() };
+    windows
+        .iter()
+        .find(|w| unsafe { w.windowID() } == window_id)
+        .map(|w| w.retain())
 }
 
 // ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
@@ -365,6 +422,7 @@ impl Capturer {
     /// if out of range). `width`/`height` are the output pixel dimensions.
     pub fn start(
         display_index: usize,
+        window_id: Option<u32>,
         width: usize,
         height: usize,
         fps: u32,
@@ -374,27 +432,38 @@ impl Capturer {
     ) -> Result<Self> {
         let want_audio = audio_tx.is_some();
         let content = shareable_content()?;
-        let displays = unsafe { content.displays() };
-        let count = displays.len();
-        if count == 0 {
-            return Err(anyhow!("keine Displays gefunden"));
-        }
-        let idx = if display_index >= 1 && display_index <= count {
-            display_index - 1
-        } else {
-            0
-        };
-        let display = displays
-            .objectAtIndex(idx);
 
-        // Content filter: whole display, excluding nothing.
-        let empty: Retained<NSArray<SCWindow>> = NSArray::new();
-        let filter = unsafe {
-            SCContentFilter::initWithDisplay_excludingWindows(
-                SCContentFilter::alloc(),
-                &display,
-                &empty,
-            )
+        // Content filter: a single desktop-independent window (stream just one
+        // app window) when `window_id` is set, else the whole display.
+        let filter = if let Some(wid) = window_id {
+            let window = find_window(&content, wid)
+                .ok_or_else(|| anyhow!("Fenster {wid} nicht gefunden (geschlossen?)"))?;
+            unsafe {
+                SCContentFilter::initWithDesktopIndependentWindow(
+                    SCContentFilter::alloc(),
+                    &window,
+                )
+            }
+        } else {
+            let displays = unsafe { content.displays() };
+            let count = displays.len();
+            if count == 0 {
+                return Err(anyhow!("keine Displays gefunden"));
+            }
+            let idx = if display_index >= 1 && display_index <= count {
+                display_index - 1
+            } else {
+                0
+            };
+            let display = displays.objectAtIndex(idx);
+            let empty: Retained<NSArray<SCWindow>> = NSArray::new();
+            unsafe {
+                SCContentFilter::initWithDisplay_excludingWindows(
+                    SCContentFilter::alloc(),
+                    &display,
+                    &empty,
+                )
+            }
         };
 
         // Stream configuration.

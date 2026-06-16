@@ -21,6 +21,8 @@ use crate::proto::{Event, StreamState};
 /// Resolved parameters for one stream (built by `ops::start` from the request).
 pub struct StartParams {
     pub display_index: usize,
+    /// When set, capture this single window instead of the display.
+    pub window_id: Option<u32>,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -173,6 +175,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     };
     let cap = Capturer::start(
         params.display_index,
+        params.window_id,
         params.width as usize,
         params.height as usize,
         params.fps,

@@ -35,6 +35,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         })?;
 
     let capture_src = params.get("capture").and_then(Value::as_str).unwrap_or("display:1");
+    let window_id = parse_window_id(capture_src);
     let display_index = parse_display_index(capture_src);
 
     let overrides = params.get("overrides").and_then(Value::as_object);
@@ -71,6 +72,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
     StreamController::singleton().start(
         StartParams {
             display_index,
+            window_id,
             width,
             height,
             fps,
@@ -96,6 +98,12 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
 fn parse_display_index(capture: &str) -> usize {
     let digits: String = capture.chars().filter(|c| c.is_ascii_digit()).collect();
     digits.parse::<usize>().unwrap_or(1).max(1)
+}
+
+/// A `"window:<cg-window-id>"` capture token selects a single window. Anything
+/// else (display/monitor/portal) returns None → display capture.
+fn parse_window_id(capture: &str) -> Option<u32> {
+    capture.strip_prefix("window:")?.trim().parse::<u32>().ok()
 }
 
 /// h264/hevc require even dimensions.
