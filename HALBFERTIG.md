@@ -24,8 +24,8 @@
 - **Watch-Party-Anwesenheit ohne REST-Fallback** — Wer eine Watch-Party hält, erscheint in
   nicht-aktiven Sektionen evtl. erst nach dem nächsten WS-Push.
   `services/chat-gateway/.../routes/watch.py:25`
-- **`myGuildPermissions()` gebaut, nie aufgerufen** — Toter Code-Ballast.
-  `web/src/lib/api/roles.ts:89`
+- **[ERLEDIGT 2026-06-16] `myGuildPermissions()` gebaut, nie aufgerufen** — Toter Code-Ballast.
+  `web/src/lib/api/roles.ts:89` → Frontend-Methode entfernt (Backend-Endpunkt bleibt).
 
 ## 2. Knopf da, aber dahinter passiert nichts
 
@@ -70,14 +70,17 @@
 
 ## 4. Eingebaut, aber ungenutzt / tote Einstellungen
 
-- **Profil-Cache-Lebenszeit (`profile_cache_ttl_seconds`)** — Per Umgebungsvariable einstellbar,
+- **[ERLEDIGT 2026-06-16] Profil-Cache-Lebenszeit (`profile_cache_ttl_seconds`)** — Per Umgebungsvariable einstellbar,
   wird aber im Betrieb nie gelesen.
-  `services/chat-gateway/.../config.py:105`
-- **Bind-Adresse in media-svc / mediamtx-auth-hook** — `BIND_HOST`/`BIND_PORT` einstellbar, aber die
+  `services/chat-gateway/.../config.py:105` → Feld entfernt.
+- **[ERLEDIGT 2026-06-16] Bind-Adresse in media-svc / mediamtx-auth-hook** — `BIND_HOST`/`BIND_PORT` einstellbar, aber die
   Startskripte hartcodieren die Adresse; die Einstellung hat keinen Effekt.
-  `services/media-svc/.../config.py:70-71`, `services/mediamtx-auth-hook/.../config.py:30-31`
-- **Server-seitige Einstellungs-Synchronisation komplett ungenutzt** — Datenbanktabelle, API-Endpunkte
-  und Frontend-Sync-Code existieren, aber kein einziger Einstellungsbereich nutzt sie.
+  `services/media-svc/.../config.py:70-71`, `services/mediamtx-auth-hook/.../config.py:30-31` → Felder entfernt.
+- **[FEHLALARM 2026-06-16] Server-seitige Einstellungs-Synchronisation** — Scan behauptete „komplett ungenutzt",
+  stimmt aber nicht: `server-sync.ts` (`fetchAllPreferences`/`schedulePushSection`/`flushAllPending`) ist in
+  `registry.svelte.ts` verdrahtet, und `preferences.py` ist die Plugin-Preferences-Ablage (Plugin-System 3b).
+  Das Subsystem ist also load-bearing, NICHT tot — bewusst nicht entfernt. (Nur die zwei Helfer
+  `flushSection`/`deleteServerSection` haben aktuell keinen Aufrufer.)
   `web/src/lib/settings-registry/server-sync.ts`, `services/chat-gateway/.../routes/preferences.py`
 
 ## 5. Offene Notizen im Code (TODO/FIXME)
