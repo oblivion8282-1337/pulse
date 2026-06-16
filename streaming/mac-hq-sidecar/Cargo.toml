@@ -34,6 +34,11 @@ objc2-core-video = { version = "0.3", default-features = false, features = [
 objc2-core-graphics = { version = "0.3", default-features = false, features = [
     "std", "CGDirectDisplay",
 ] }
+# CF base layer (already transitive via core-video/-media) — needed to name
+# `CFRetained` for the zero-copy CVPixelBuffer hand-off into VideoToolbox.
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+    "std", "CFBase",
+] }
 objc2-screen-capture-kit = "0.3"
 block2 = "0.6"
 dispatch2 = "0.3"

@@ -236,25 +236,30 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
 
             let now = Instant::now();
             if now >= next_emit {
-                match &last_frame {
-                    Some(f) => enc.push_bgra(&f.data, f.bytes_per_row)?,
-                    None => enc.push_black()?,
+                // Constant-rate emit: the latest captured frame, re-sent as a
+                // duplicate when the screen is static (SCK stops delivering). The
+                // frame is zero-copy — `retained_ptr()` hands the encoder a
+                // retained CVPixelBuffer. Before the first frame arrives we just
+                // wait (no black pre-roll on the hw path); SCK delivers the first
+                // frame within a frame or two of start.
+                if let Some(f) = &last_frame {
+                    enc.push_pixel_buffer(f.retained_ptr())?;
+                    window_frames += 1;
+                    if window_start.elapsed() >= Duration::from_secs(1) {
+                        let fps = window_frames as f64 / window_start.elapsed().as_secs_f64();
+                        shared.fps_milli.store((fps * 1000.0) as u64, Ordering::SeqCst);
+                        emit(Event::Fps {
+                            fps,
+                            uptime_s: started.elapsed().as_secs_f64(),
+                        });
+                        window_start = Instant::now();
+                        window_frames = 0;
+                    }
                 }
-                window_frames += 1;
                 next_emit += frame_interval;
                 if next_emit <= now {
                     // Fell behind (long encode stall) — resync, don't spiral.
                     next_emit = now + frame_interval;
-                }
-                if window_start.elapsed() >= Duration::from_secs(1) {
-                    let fps = window_frames as f64 / window_start.elapsed().as_secs_f64();
-                    shared.fps_milli.store((fps * 1000.0) as u64, Ordering::SeqCst);
-                    emit(Event::Fps {
-                        fps,
-                        uptime_s: started.elapsed().as_secs_f64(),
-                    });
-                    window_start = Instant::now();
-                    window_frames = 0;
                 }
             } else {
                 // Wait until the next emit deadline or the next captured frame.

@@ -41,7 +41,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         if let Ok(f) = rx.recv_timeout(Duration::from_millis(500)) {
-            enc.push_bgra(&f.data, f.bytes_per_row)?;
+            enc.push_pixel_buffer(f.retained_ptr())?;
             n += 1;
         }
     }

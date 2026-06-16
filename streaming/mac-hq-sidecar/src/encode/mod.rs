@@ -1,24 +1,25 @@
 //! Video encode + FLV mux + RTMPS push.
 //!
-//! Pipeline: SCK BGRA [`crate::capture::Frame`] → swscale to NV12 →
-//! FFmpeg `h264_videotoolbox` (hardware encode via VideoToolbox) → FLV mux →
-//! RTMPS push. The mux + push setup mirrors `win-hq-sidecar/src/encode/encoder.rs`
-//! (FLV container, `tls_verify=0` for the self-signed MediaMTX cert,
-//! `rw_timeout=10s`); the async [`mux_writer::MuxWriter`] decouples socket writes
-//! from the encode cadence.
-//!
-//! Audio (libopus, Opus-in-FLV) is a follow-up — this is the video-only path.
+//! Pipeline (zero-copy): SCK delivers an IOSurface-backed `CVPixelBuffer`
+//! ([`crate::capture::Frame`]) which is wrapped — without any copy or swscale —
+//! in an `AV_PIX_FMT_VIDEOTOOLBOX` frame ([`hw`]) and encoded on-GPU by
+//! `h264_videotoolbox`, then FLV-muxed and pushed over RTMPS. The mux + push
+//! setup mirrors `win-hq-sidecar/src/encode/encoder.rs` (FLV container,
+//! `tls_verify=0` for the self-signed MediaMTX cert, `rw_timeout=10s`); the
+//! async [`mux_writer::MuxWriter`] decouples socket writes from the cadence.
 
 pub mod audio;
+pub mod hw;
 pub mod mux_writer;
+
+use std::ffi::c_void;
 
 use anyhow::{Context, Result, anyhow};
 use ffmpeg_next as ffmpeg;
-use ffmpeg::format::Pixel;
-use ffmpeg::software::scaling::{Context as Scaler, Flags as ScaleFlags};
-use ffmpeg::{Dictionary, Packet, Rational, codec, format, frame};
+use ffmpeg::{Dictionary, Packet, Rational, codec, format};
 
 use audio::AudioEncoder;
+use hw::VtHwContext;
 use mux_writer::MuxWriter;
 
 /// Opus audio bitrate (kbps) — fixed for now.
@@ -52,7 +53,9 @@ fn url_format_hint(target: &str) -> Option<&'static str> {
 
 pub struct VideoEncoder {
     encoder: codec::encoder::Video,
-    scaler: Scaler,
+    /// VideoToolbox hw-frames context — kept alive for the stream; each frame's
+    /// `hw_frames_ctx` references it.
+    hw: VtHwContext,
     audio: Option<AudioEncoder>,
     mux: MuxWriter,
     width: u32,
@@ -106,13 +109,17 @@ impl VideoEncoder {
         let mut stream = output.add_stream(codec).context("add_stream video")?;
         let stream_idx = stream.index();
 
+        // VideoToolbox hw-frames context: the encoder ingests IOSurface-backed
+        // CVPixelBuffers directly (zero-copy, no swscale), so it must be told its
+        // input is VT frames.
+        let hw = VtHwContext::new(width, height)?;
+
         let encoder_time_base = Rational::new(1, fps as i32);
         let mut venc = codec::context::Context::new_with_codec(codec)
             .encoder()
             .video()?;
         venc.set_width(width);
         venc.set_height(height);
-        venc.set_format(Pixel::NV12);
         venc.set_time_base(encoder_time_base);
         venc.set_frame_rate(Some(Rational::new(fps as i32, 1)));
         venc.set_bit_rate((bitrate_kbps as usize).saturating_mul(1000));
@@ -122,8 +129,15 @@ impl VideoEncoder {
         if global_header {
             venc.set_flags(codec::Flags::GLOBAL_HEADER);
         }
+        // Hardware input: pix_fmt = VIDEOTOOLBOX + the hw-frames ctx, set on the
+        // raw AVCodecContext (ffmpeg-next has no safe setter) before open.
+        unsafe {
+            let ctx = venc.as_mut_ptr();
+            (*ctx).pix_fmt = ffmpeg::ffi::AVPixelFormat::AV_PIX_FMT_VIDEOTOOLBOX;
+            (*ctx).hw_frames_ctx = ffmpeg::ffi::av_buffer_ref(hw.frames_ref());
+        }
 
-        // realtime + constant bitrate hints for h264_videotoolbox.
+        // realtime hint for h264_videotoolbox.
         let mut eopts = Dictionary::new();
         eopts.set("realtime", "true");
         let encoder = venc
@@ -147,23 +161,11 @@ impl VideoEncoder {
             a.set_stream_time_base(atb);
         }
 
-        // ── BGRA → NV12 scaler ───────────────────────────────────────────────
-        let scaler = Scaler::get(
-            Pixel::BGRA,
-            width,
-            height,
-            Pixel::NV12,
-            width,
-            height,
-            ScaleFlags::FAST_BILINEAR,
-        )
-        .context("create BGRA→NV12 scaler")?;
-
         let mux = MuxWriter::start(output).context("start mux-writer")?;
 
         Ok(Self {
             encoder,
-            scaler,
+            hw,
             audio,
             mux,
             width,
@@ -183,46 +185,25 @@ impl VideoEncoder {
         Ok(())
     }
 
-    /// Encode one BGRA frame (packed, `src_stride`-strided) and push the
-    /// resulting packets to the muxer.
-    pub fn push_bgra(&mut self, data: &[u8], src_stride: usize) -> Result<()> {
-        // Wrap the BGRA bytes in an ffmpeg frame, copying row-by-row to respect
-        // both the source stride (from CVPixelBuffer) and ffmpeg's alignment.
-        let mut src = frame::Video::new(Pixel::BGRA, self.width, self.height);
-        {
-            let dst_stride = src.stride(0);
-            let h = self.height as usize;
-            let copy = src_stride.min(dst_stride);
-            let dst = src.data_mut(0);
-            for y in 0..h {
-                let s = y * src_stride;
-                let d = y * dst_stride;
-                if s + copy <= data.len() && d + copy <= dst.len() {
-                    dst[d..d + copy].copy_from_slice(&data[s..s + copy]);
-                }
+    /// Encode one captured frame, **zero-copy**. `pb` is a `CVPixelBufferRef`
+    /// carrying ONE retain that this call takes over; the IOSurface stays on the
+    /// GPU all the way into VideoToolbox (no swscale, no RAM copy). The retain is
+    /// released once both this thread and the async encoder are done with it.
+    ///
+    /// # Safety
+    /// `pb` must be a valid `CVPixelBufferRef` with one retain to hand over.
+    pub fn push_pixel_buffer(&mut self, pb: *mut c_void) -> Result<()> {
+        let pts = self.frame_index;
+        self.frame_index += 1;
+        unsafe {
+            let frame = hw::wrap(&self.hw, pb, self.width, self.height, pts)?;
+            let rc = ffmpeg::ffi::avcodec_send_frame(self.encoder.as_mut_ptr(), frame);
+            let mut f = frame;
+            ffmpeg::ffi::av_frame_free(&mut f); // drop our ref; encoder keeps its own
+            if rc < 0 {
+                return Err(anyhow!("avcodec_send_frame(hw): {rc}"));
             }
         }
-
-        let mut nv12 = frame::Video::new(Pixel::NV12, self.width, self.height);
-        self.scaler.run(&src, &mut nv12).context("scale BGRA→NV12")?;
-        nv12.set_pts(Some(self.frame_index));
-        self.frame_index += 1;
-
-        self.encoder.send_frame(&nv12).context("send_frame")?;
-        self.drain()
-    }
-
-    /// Encode one black frame. Used as pre-roll before the first real capture
-    /// frame arrives (cold ScreenCaptureKit start), so video data reaches the
-    /// muxer from t=0 and MediaMTX registers the publish without waiting out its
-    /// 10s readTimeout. NV12 black = Y 16 (limited range), CbCr 128 (neutral).
-    pub fn push_black(&mut self) -> Result<()> {
-        let mut nv12 = frame::Video::new(Pixel::NV12, self.width, self.height);
-        nv12.data_mut(0).fill(16);
-        nv12.data_mut(1).fill(128);
-        nv12.set_pts(Some(self.frame_index));
-        self.frame_index += 1;
-        self.encoder.send_frame(&nv12).context("send_frame(black)")?;
         self.drain()
     }
 

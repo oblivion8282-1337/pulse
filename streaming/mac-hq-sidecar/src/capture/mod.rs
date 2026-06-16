@@ -36,11 +36,8 @@ use objc2_core_media::{CMBlockBuffer, CMSampleBuffer, CMTime};
 unsafe extern "C" {
     fn CFRelease(cf: *const std::ffi::c_void);
 }
-use objc2_core_video::{
-    CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
-    CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
-    CVPixelBufferUnlockBaseAddress,
-};
+use objc2_core_foundation::CFRetained;
+use objc2_core_video::{CVImageBuffer, CVPixelBufferGetHeight, CVPixelBufferGetWidth};
 use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol};
 use objc2_screen_capture_kit::{
     SCContentFilter, SCShareableContent, SCStream, SCStreamConfiguration, SCStreamOutput,
@@ -78,14 +75,31 @@ pub struct WindowInfo {
     pub height: i64,
 }
 
-/// One captured video frame: packed BGRA8888, `bytes_per_row`-strided.
+/// A retained IOSurface-backed `CVPixelBuffer`, safe to move to the encode
+/// thread (IOSurface-backed buffers are shareable across threads).
+pub struct SendPixelBuffer(CFRetained<CVImageBuffer>);
+// SAFETY: see the module note — SCK CVPixelBuffers are thread-safe.
+unsafe impl Send for SendPixelBuffer {}
+
+/// One captured video frame — the GPU pixel buffer itself, **not** copied to
+/// RAM. The encoder wraps it as a VideoToolbox hw-frame (zero-copy).
 pub struct Frame {
     pub width: usize,
     pub height: usize,
-    pub bytes_per_row: usize,
-    pub data: Vec<u8>,
     /// Presentation timestamp in seconds (from the sample buffer's PTS).
     pub pts_seconds: f64,
+    pixel_buffer: SendPixelBuffer,
+}
+
+impl Frame {
+    /// A `*mut CVPixelBuffer` carrying ONE extra retain. Hand it to the encoder;
+    /// its hw-frame free-callback releases the retain. Cloning the `Retained`
+    /// retains; `forget` transfers that +1 to the raw pointer.
+    pub fn retained_ptr(&self) -> *mut std::ffi::c_void {
+        // clone() = CFRetain (+1); into_raw transfers that +1 to the raw pointer
+        // (no release), which the encoder's hw-frame free-callback later drops.
+        CFRetained::into_raw(self.pixel_buffer.0.clone()).as_ptr() as *mut std::ffi::c_void
+    }
 }
 
 /// One captured audio buffer: interleaved Float32 PCM (L,R,L,R,…).
@@ -296,29 +310,24 @@ impl FrameOutput {
     }
 
     fn handle_video(&self, sample_buffer: &CMSampleBuffer) {
-        // SAFETY: a screen sample buffer is backed by a CVPixelBuffer.
+        // SAFETY: a screen sample buffer is backed by a CVPixelBuffer. We retain
+        // it and hand it on **without locking or copying** — the IOSurface stays
+        // on the GPU and the encoder wraps it as a VideoToolbox hw-frame.
         let Some(image_buffer) = (unsafe { sample_buffer.image_buffer() }) else {
             return;
         };
-        let pb = &*image_buffer;
-        let flags = CVPixelBufferLockFlags::empty();
-        unsafe { CVPixelBufferLockBaseAddress(pb, flags) };
-
-        let base = CVPixelBufferGetBaseAddress(pb);
-        if !base.is_null() {
-            let width = CVPixelBufferGetWidth(pb);
-            let height = CVPixelBufferGetHeight(pb);
-            let bytes_per_row = CVPixelBufferGetBytesPerRow(pb);
-            let len = bytes_per_row.saturating_mul(height);
-            // SAFETY: base points at `len` bytes while the buffer is locked.
-            let data = unsafe { std::slice::from_raw_parts(base as *const u8, len) }.to_vec();
-            let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
-            let frame = Frame { width, height, bytes_per_row, data, pts_seconds: pts };
-            if let Ok(tx) = self.ivars().video_tx.lock() {
-                let _ = tx.send(frame);
-            }
+        let width = CVPixelBufferGetWidth(&image_buffer);
+        let height = CVPixelBufferGetHeight(&image_buffer);
+        let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
+        let frame = Frame {
+            width,
+            height,
+            pts_seconds: pts,
+            pixel_buffer: SendPixelBuffer(image_buffer),
+        };
+        if let Ok(tx) = self.ivars().video_tx.lock() {
+            let _ = tx.send(frame);
         }
-        unsafe { CVPixelBufferUnlockBaseAddress(pb, flags) };
     }
 
     fn handle_audio(&self, sample_buffer: &CMSampleBuffer) {
