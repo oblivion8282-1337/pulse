@@ -178,9 +178,12 @@ impl VideoEncoder {
     }
 
     /// Encode interleaved-stereo-F32 audio samples (no-op if audio disabled).
-    pub fn push_audio(&mut self, samples: &[f32]) -> Result<()> {
+    /// `anchor_samples` is the wall-clock position (in 48kHz samples since the
+    /// shared stream epoch) used to anchor the FIRST audio frame's pts, so audio
+    /// lines up with video instead of both independently starting at 0.
+    pub fn push_audio(&mut self, samples: &[f32], anchor_samples: i64) -> Result<()> {
         if let Some(a) = self.audio.as_mut() {
-            a.push(samples, &self.mux)?;
+            a.push(samples, &self.mux, anchor_samples)?;
         }
         Ok(())
     }
@@ -190,11 +193,15 @@ impl VideoEncoder {
     /// GPU all the way into VideoToolbox (no swscale, no RAM copy). The retain is
     /// released once both this thread and the async encoder are done with it.
     ///
+    /// `pts` is the frame's presentation time in the encoder time-base (1/fps),
+    /// derived by the caller from a wall-clock epoch shared with the audio path
+    /// (so A/V stay in sync); clamped monotonic here.
+    ///
     /// # Safety
     /// `pb` must be a valid `CVPixelBufferRef` with one retain to hand over.
-    pub fn push_pixel_buffer(&mut self, pb: *mut c_void) -> Result<()> {
-        let pts = self.frame_index;
-        self.frame_index += 1;
+    pub fn push_pixel_buffer(&mut self, pb: *mut c_void, pts: i64) -> Result<()> {
+        let pts = pts.max(self.frame_index);
+        self.frame_index = pts + 1;
         unsafe {
             let frame = hw::wrap(&self.hw, pb, self.width, self.height, pts)?;
             let rc = ffmpeg::ffi::avcodec_send_frame(self.encoder.as_mut_ptr(), frame);

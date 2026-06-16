@@ -37,12 +37,14 @@ fn main() -> anyhow::Result<()> {
     while start.elapsed() < Duration::from_secs(3) {
         if with_audio {
             while let Ok(af) = arx.try_recv() {
-                enc.push_audio(&af.samples)?;
+                let anchor = (start.elapsed().as_secs_f64() * 48_000.0) as i64;
+                enc.push_audio(&af.samples, anchor)?;
                 a += 1;
             }
         }
         if let Ok(f) = rx.recv_timeout(Duration::from_millis(500)) {
-            enc.push_pixel_buffer(f.retained_ptr())?;
+            let pts = (start.elapsed().as_secs_f64() * fps as f64) as i64;
+            enc.push_pixel_buffer(f.retained_ptr(), pts)?;
             n += 1;
         }
     }

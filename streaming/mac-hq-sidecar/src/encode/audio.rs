@@ -29,6 +29,8 @@ pub struct AudioEncoder {
     stream_time_base: Rational,
     /// Output pts in samples (1/sample_rate units).
     out_pts: i64,
+    /// Whether the first frame's pts has been anchored to the stream epoch.
+    anchored: bool,
 }
 
 impl AudioEncoder {
@@ -79,6 +81,7 @@ impl AudioEncoder {
             encoder_time_base: Rational::new(1, sample_rate as i32),
             stream_time_base: Rational::new(1, sample_rate as i32),
             out_pts: 0,
+            anchored: false,
         })
     }
 
@@ -88,7 +91,14 @@ impl AudioEncoder {
     }
 
     /// Accumulate interleaved stereo samples and emit full 20ms Opus frames.
-    pub fn push(&mut self, samples: &[f32], mux: &MuxWriter) -> Result<()> {
+    /// `anchor_samples` anchors the FIRST frame's pts to the stream's wall-clock
+    /// epoch (shared with video) — so if audio capture starts later than video,
+    /// its timeline is offset to match instead of both starting at 0.
+    pub fn push(&mut self, samples: &[f32], mux: &MuxWriter, anchor_samples: i64) -> Result<()> {
+        if !self.anchored {
+            self.out_pts = anchor_samples.max(0);
+            self.anchored = true;
+        }
         self.fifo.extend(samples.iter().copied());
         let chunk = OPUS_FRAME_SAMPLES * self.channels;
         while self.fifo.len() >= chunk {

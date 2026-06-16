@@ -226,10 +226,12 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
-            // Drain any pending audio (non-blocking).
+            // Drain any pending audio (non-blocking). Anchor each batch to the
+            // shared wall-clock epoch (`started`) so audio and video line up.
             if let Some(arx) = &audio_rx {
                 while let Ok(af) = arx.try_recv() {
-                    enc.push_audio(&af.samples)?;
+                    let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64;
+                    enc.push_audio(&af.samples, anchor)?;
                 }
             }
             // Grab the freshest captured frame(s) without blocking.
@@ -246,7 +248,11 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 // wait (no black pre-roll on the hw path); SCK delivers the first
                 // frame within a frame or two of start.
                 if let Some(f) = &last_frame {
-                    enc.push_pixel_buffer(f.retained_ptr())?;
+                    // Video pts from the same wall-clock epoch as audio (1/fps
+                    // units) → A/V sync; push_pixel_buffer clamps it monotonic.
+                    let pts_v =
+                        (started.elapsed().as_secs_f64() * params.fps as f64).round() as i64;
+                    enc.push_pixel_buffer(f.retained_ptr(), pts_v)?;
                     window_frames += 1;
                     if window_start.elapsed() >= Duration::from_secs(1) {
                         let fps = window_frames as f64 / window_start.elapsed().as_secs_f64();
@@ -276,7 +282,8 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         // Drain any audio buffered after the last video frame.
         if let Some(arx) = &audio_rx {
             while let Ok(af) = arx.try_recv() {
-                enc.push_audio(&af.samples)?;
+                let anchor = (started.elapsed().as_secs_f64() * 48_000.0).round() as i64;
+                enc.push_audio(&af.samples, anchor)?;
             }
         }
         Ok(())
