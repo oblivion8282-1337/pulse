@@ -433,6 +433,32 @@ async def patch_self_member(
     return member
 
 
+@router.get(
+    "/guilds/{guild_id}/members/{user_id}",
+    response_model=MemberOut,
+)
+async def get_member(
+    guild_id: int,
+    user_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+):
+    """Fetch a single guild member. Returns 200 with the member row, or
+    404 if the user isn't a member of this guild. The caller must itself
+    be a member (mirrors ``list_members``).
+
+    voice-signaling relies on this for its target-membership check on the
+    admin mute / move endpoints — without a registered GET handler the
+    path matched only PATCH/DELETE and FastAPI replied 405, which
+    voice-signaling surfaced to the client as ``membership check
+    unavailable``."""
+    await require_member(session, guild_id, current.id)
+    member = await session.get(GuildMember, (guild_id, user_id))
+    if member is None:
+        raise HTTPException(404, detail="member not found")
+    return member
+
+
 @router.patch(
     "/guilds/{guild_id}/members/{user_id}",
     response_model=MemberOut,

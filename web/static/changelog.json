@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.6",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Muten und Verschieben in Voice-Channels behoben",
+      "items": [
+        "Das Stummschalten eines Mitglieds und das Verschieben in einen anderen Voice-Channel schlugen mit der Meldung „membership check unavailable“ fehl. Beide Aktionen funktionieren jetzt wieder."
+      ]
+    },
+    {
       "id": "2026-06-16.5",
       "date": "2026-06-16",
       "style": "Sachlich",
