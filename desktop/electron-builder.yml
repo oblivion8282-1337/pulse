@@ -128,16 +128,14 @@ mac:
   #   entitlementsInherit: build-resources/entitlements.mac.plist
   #   notarize: true     # braucht APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
   #   publish: { provider: generic, url: https://howispulse.com/updates/mac/ }
-  # HQ-Streaming-Sidecar: erst einkommentieren, wenn streaming/mac-hq-sidecar/
-  # gebaut ist (cargo build --release). Ohne ihn liefert dist:mac einen
-  # funktionsfähigen Chat+Voice-Client; der HQ-Button bleibt verborgen
-  # (gsrAvailable=false, weil der health-Probe ohne Binary fehlschlägt).
-  # extraResources:
-  #   - from: ../streaming/mac-hq-sidecar/target/release
-  #     to: hq-sidecar
-  #     filter:
-  #       - pulse-mac-hq-sidecar
-  #       - "*.dylib"
+  # HQ-Streaming-Sidecar: the SELF-CONTAINED bundle dir produced by
+  # `scripts/bundle-dylibs.sh` (binary + @loader_path-rewritten FFmpeg/openssl/
+  # opus dylibs, ad-hoc signed). Built by `dist:mac` before electron-builder
+  # runs; ships to Resources/hq-sidecar/ where resolveMacBinaryPath() finds it.
+  # (Requires `cargo build --release` in streaming/mac-hq-sidecar/ first.)
+  extraResources:
+    - from: ../streaming/mac-hq-sidecar/target/release/hq-sidecar
+      to: hq-sidecar
 dmg:
   artifactName: Pulse-${version}-${arch}.dmg
 publish:

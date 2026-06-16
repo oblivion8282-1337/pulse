@@ -11,7 +11,8 @@
     "prod": "pnpm run build:electron && electron .",
     "start": "electron .",
     "dist:win": "pnpm run build:electron && electron-builder --win --publish never",
-    "dist:mac": "pnpm run build:electron && electron-builder --mac --publish never"
+    "bundle:mac-sidecar": "cd ../streaming/mac-hq-sidecar && cargo build --release && bash scripts/bundle-dylibs.sh target/release/pulse-mac-hq-sidecar target/release/hq-sidecar",
+    "dist:mac": "pnpm run build:electron && pnpm run bundle:mac-sidecar && electron-builder --mac --publish never"
   },
   "dependencies": {
     "electron-updater": "^6.3.9"
