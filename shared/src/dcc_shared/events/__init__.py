@@ -119,6 +119,7 @@ from dcc_shared.events.presence import (
 from dcc_shared.events.stream import StreamStateSnapshot, WatchStateSnapshot
 from dcc_shared.events.voice import (
     VoiceDisconnectEvent,
+    VoiceMoveEvent,
     VoiceOverrideEvent,
     VoiceStateSnapshot,
 )
@@ -178,6 +179,7 @@ EVENT_REGISTRY: dict[str, type[_EventBase]] = {
     "presence_status_changed": PresenceStatusChangedEvent,
     # ---- voice (admin overrides; the voice_state snapshot is bare)
     "voice_disconnect": VoiceDisconnectEvent,
+    "voice_move": VoiceMoveEvent,
     "voice_override": VoiceOverrideEvent,
 }
 
@@ -242,6 +244,7 @@ __all__ = [
     "WatchStateSnapshot",
     # voice
     "VoiceDisconnectEvent",
+    "VoiceMoveEvent",
     "VoiceOverrideEvent",
     "VoiceStateSnapshot",
 ]

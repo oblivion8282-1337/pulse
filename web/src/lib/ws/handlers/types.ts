@@ -153,6 +153,12 @@ export type ServerEvent =
       channel_id: string;
       user_id: string;
     }
+  | {
+      op: 'voice_move';
+      channel_id: string;
+      user_id: string;
+      target_channel_id: string;
+    }
   | { op: 'stream_state'; channel_id: string; user_ids: string[] }
   | { op: 'presence_update'; user_id: string; online: boolean }
   | {

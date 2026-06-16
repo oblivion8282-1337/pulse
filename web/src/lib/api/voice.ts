@@ -47,3 +47,19 @@ export function disconnectFromVoice(
     { method: 'POST', endpoint: 'voice' }
   );
 }
+
+/** Move the participant from ``channelId`` into ``targetChannelId`` (same
+ * guild). Requires ``MOVE_MEMBERS`` in both channels. The move is
+ * cooperative — the target's client reconnects to the destination room on
+ * receiving the ``voice_move`` event; their CONNECT permission for the
+ * destination is enforced at that token-issue. */
+export function moveToVoiceChannel(
+  channelId: string,
+  userId: string,
+  targetChannelId: string
+): Promise<{ moved: boolean }> {
+  return request<{ moved: boolean }>(
+    `/channels/${channelId}/members/${userId}/voice-move`,
+    { method: 'POST', body: { target_channel_id: targetChannelId }, endpoint: 'voice' }
+  );
+}

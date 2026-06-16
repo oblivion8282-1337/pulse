@@ -49,6 +49,23 @@ class VoiceDisconnectEvent(_EventBase):
     user_id: str
 
 
+class VoiceMoveEvent(_EventBase):
+    """Admin relocated ``user_id`` from ``channel_id`` (source) to
+    ``target_channel_id`` (destination) within the same guild.
+
+    There is no server-side "move between rooms" — each voice channel is
+    its own LiveKit room. This event is the *signal*: the target's own
+    client picks it up and reconnects to the destination room with a
+    freshly-minted token (CONNECT permission for the destination is
+    enforced at that token-issue). Cooperative, like the soft-deafen
+    path — a client that ignores it simply stays put."""
+
+    op: Literal["voice_move"] = "voice_move"
+    channel_id: str
+    user_id: str
+    target_channel_id: str
+
+
 class VoiceOverrideEvent(_EventBase):
     """Admin force-mute / force-deafen toggle. The current values are
     the *resulting* state after the toggle, not a diff."""

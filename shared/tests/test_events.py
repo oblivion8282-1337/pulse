@@ -249,6 +249,12 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "channel_id": "6",
         "user_id": "3",
     },
+    "voice_move": {
+        "op": "voice_move",
+        "channel_id": "6",
+        "user_id": "3",
+        "target_channel_id": "7",
+    },
     "voice_override": {
         "op": "voice_override",
         "channel_id": "6",

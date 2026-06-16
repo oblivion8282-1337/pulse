@@ -92,6 +92,33 @@ async def handle_voice_events(
         )
         await manager._fan_out(targets, envelope)
         return
+    if payload.get("op") == "voice_move":
+        if maybe_drop("voice_move", payload, VOICE_EVENTS_CHANNEL):
+            return
+        voice_cid = str(payload.get("channel_id"))
+        envelope = {
+            "op": "voice_move",
+            "channel_id": voice_cid,
+            "user_id": str(payload.get("user_id", "")),
+            "target_channel_id": str(payload.get("target_channel_id", "")),
+        }
+        # Filter on the *source* channel's view-permission — the moved user
+        # is in it, so they pass and act on the signal. Other source-channel
+        # viewers may see it too; their presence reconciles via the next
+        # voice_state snapshot when the user re-joins the destination room.
+        async with manager._lock:
+            raw_targets = list(manager._connections)
+        targets = await manager._filter_by_view_channel(raw_targets, voice_cid)
+        log.info(
+            "voice:events move channel=%s user=%s target=%s targets=%d/%d",
+            envelope["channel_id"],
+            envelope["user_id"],
+            envelope["target_channel_id"],
+            len(targets),
+            len(raw_targets),
+        )
+        await manager._fan_out(targets, envelope)
+        return
     if payload.get("op") == "voice_override":
         if maybe_drop("voice_override", payload, VOICE_EVENTS_CHANNEL):
             return

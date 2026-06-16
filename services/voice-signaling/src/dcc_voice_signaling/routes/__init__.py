@@ -107,6 +107,9 @@ from dcc_voice_signaling.routes.voice_override import (
 from dcc_voice_signaling.routes.voice_disconnect import (
     router as _voice_disconnect_router,
 )
+from dcc_voice_signaling.routes.voice_move import (
+    router as _voice_move_router,
+)
 from dcc_voice_signaling.routes.internal import (
     InternalEvictIn,
     router as _internal_router,
@@ -117,6 +120,7 @@ router = APIRouter()
 router.include_router(_token_router)
 router.include_router(_voice_override_router)
 router.include_router(_voice_disconnect_router)
+router.include_router(_voice_move_router)
 router.include_router(_internal_router)
 
 

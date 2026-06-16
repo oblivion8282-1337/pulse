@@ -10,7 +10,7 @@ import { toast } from 'svelte-sonner';
 import { goto } from '$app/navigation';
 import { chatApi } from '$lib/api/chat';
 import { friendsApi } from '$lib/api/friends';
-import { setVoiceOverride, disconnectFromVoice } from '$lib/api/voice';
+import { setVoiceOverride, disconnectFromVoice, moveToVoiceChannel } from '$lib/api/voice';
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { friends } from '$lib/stores/friends.svelte';
@@ -118,6 +118,24 @@ export async function disconnectVoice(ctx: ActionCtx): Promise<void> {
     ctx.onAction?.();
   } catch (err) {
     toast.error(m.popover_actions_voice_disconnect_failed(), {
+      description: err instanceof Error ? err.message : String(err)
+    });
+  } finally {
+    ctx.setWorking(false);
+  }
+}
+
+export async function moveVoice(ctx: ActionCtx, targetChannelId: string): Promise<void> {
+  if (!ctx.canDisconnectVoice || !ctx.targetVoiceChannelId || ctx.isWorking()) return;
+  if (targetChannelId === ctx.targetVoiceChannelId) return;
+  ctx.setWorking(true);
+  try {
+    await moveToVoiceChannel(ctx.targetVoiceChannelId, ctx.userId, targetChannelId);
+    toast.success(m.popover_actions_voice_moved({ displayName: ctx.displayName }));
+    ctx.close();
+    ctx.onAction?.();
+  } catch (err) {
+    toast.error(m.popover_actions_voice_move_failed(), {
       description: err instanceof Error ? err.message : String(err)
     });
   } finally {

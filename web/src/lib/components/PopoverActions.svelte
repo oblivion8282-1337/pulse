@@ -12,6 +12,8 @@
   import HeadphonesIcon from '@lucide/svelte/icons/headphones';
   import HeadphoneOffIcon from '@lucide/svelte/icons/headphone-off';
   import PhoneOffIcon from '@lucide/svelte/icons/phone-off';
+  import ArrowRightLeftIcon from '@lucide/svelte/icons/arrow-right-left';
+  import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import BanIcon from '@lucide/svelte/icons/ban';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
@@ -55,6 +57,7 @@
   let working = $state(false);
   let kickConfirmArmed = $state(false);
   let banConfirmArmed = $state(false);
+  let moveExpanded = $state(false);
 
   // Reset the armed-confirm when the popover closes so the next open
   // starts on the safe "Aus Community entfernen" / "Sperren" label.
@@ -62,6 +65,7 @@
     if (!popoverOpen) {
       kickConfirmArmed = false;
       banConfirmArmed = false;
+      moveExpanded = false;
     }
   });
 
@@ -106,6 +110,15 @@
   let canDisconnectVoice = $derived(
     canVoiceAction && roles.hasGuildPermission(guildId!, Perm.MOVE_MEMBERS)
   );
+  // Other voice channels in this guild the target can be moved into
+  // (everything except the one they're already in). Drives the
+  // "move to →" submenu; gated by MOVE_MEMBERS (== canDisconnectVoice).
+  let moveTargets = $derived.by(() => {
+    if (!canDisconnectVoice || !guildId || !targetVoiceChannelId) return [];
+    return (guilds.channelsByGuild[guildId] ?? []).filter(
+      (c) => c.type === CHANNEL_TYPE_VOICE && c.id !== targetVoiceChannelId
+    );
+  });
   let isForceMuted = $derived(
     !!targetVoiceChannelId && voicePresence.isForceMuted(targetVoiceChannelId, userId)
   );
@@ -206,6 +219,35 @@
         <PhoneOffIcon class="size-4" />
         <span>{m.popover_actions_disconnect_voice()}</span>
       </button>
+    {/if}
+    {#if moveTargets.length > 0}
+      <button
+        type="button"
+        class={BTN_BASE}
+        onclick={() => (moveExpanded = !moveExpanded)}
+        disabled={working}
+        aria-expanded={moveExpanded}
+        data-testid="popover-voice-move-btn"
+      >
+        <ArrowRightLeftIcon class="size-4" />
+        <span>{m.popover_actions_move_voice()}</span>
+      </button>
+      {#if moveExpanded}
+        <div class="ml-3 flex flex-col gap-1 border-l border-border pl-2">
+          {#each moveTargets as ch (ch.id)}
+            <button
+              type="button"
+              class={BTN_BASE}
+              onclick={() => actions.moveVoice(ctx(), ch.id)}
+              disabled={working}
+              data-testid="popover-voice-move-target"
+            >
+              <Volume2Icon class="size-4 shrink-0" />
+              <span class="truncate">{ch.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
     {/if}
     {#if canKick}
       <button
