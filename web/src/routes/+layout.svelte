@@ -16,6 +16,12 @@
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { initSelfHostReauth } from '$lib/api/self-host-reauth';
   import { isElectron } from '$lib/platform/runtime';
+  import {
+    checkNativeUpdate,
+    nativeUpdateAlreadySeen,
+    markNativeUpdateSeen
+  } from '$lib/platform/nativeUpdate';
+  import { m } from '$lib/paraglide/messages.js';
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initLocale } from '$lib/i18n';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
@@ -110,6 +116,33 @@
   // of truth once ModeWatcher has mounted.
   onMount(() => {
     settings.applyTheme();
+    // Ebene-2-Update-Hinweis (native Hülle): nur in der Electron-App und nur,
+    // wenn die laufende Shell hinter der in /native.json veröffentlichten
+    // Version liegt. Windows ist hier still — der electron-updater zeigt sein
+    // eigenes „Update bereit"-Banner (checkNativeUpdate liefert dort null).
+    // Mac (unsigniert) → DMG-Download-Link, Linux → flatpak-Nudge. Einmal pro
+    // Version (localStorage), unabhängig vom Login-Status.
+    void checkNativeUpdate().then((info) => {
+      if (!info || nativeUpdateAlreadySeen(info.latest)) return;
+      markNativeUpdateSeen(info.latest);
+      if (info.action === 'download') {
+        toast(m.native_update_title(), {
+          description: m.native_update_download_desc(),
+          duration: Infinity,
+          action: {
+            label: m.native_update_download_action(),
+            onClick: () => {
+              if (info.downloadUrl) window.open(info.downloadUrl, '_blank', 'noopener');
+            }
+          }
+        });
+      } else {
+        toast(m.native_update_title(), {
+          description: m.native_update_flatpak_desc(),
+          duration: Infinity
+        });
+      }
+    });
     // Wire up the desktop global push-to-talk shortcut. Currently a no-op stub
     // (global PTT needs a native key-listener — see ptt.ts); the in-window
     // keyboard PTT in VoiceChannelView keeps working regardless.

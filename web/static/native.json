@@ -1,0 +1,6 @@
+{
+  "_comment": "Native-Shell-Versions-Manifest. Führt pro Plattform die zuletzt VERÖFFENTLICHTE Version der nativen App-Hülle (Electron-Shell + Streaming-Sidecar) — NICHT die Web-Inhalte (die laden alle Apps remote, Ebene 1). Die Web-App vergleicht das gegen die im Build eingebackene window.pulse.appVersion und zeigt bei Rückstand einen plattform-passenden Hinweis (web/src/lib/platform/nativeUpdate.svelte.ts). Pflege: zusammen mit dem desktop/package.json-Versionssprung bumpen (ein nativer Release braucht den Bump ohnehin, electron-updater vergleicht semver). win32 = von electron-updater selbst gehandhabt (kein Toast); darwin = manueller DMG-Download bis Signierung (Stufe B); linux = Flatpak/Software-Verwaltung. nginx serviert /native.json no-cache (web-nginx.conf, analog changelog.json).",
+  "win32": { "version": "0.1.5" },
+  "linux": { "version": "0.1.5" },
+  "darwin": { "version": "0.1.5", "downloadUrl": "https://howispulse.com/downloads/Pulse-latest.dmg" }
+}

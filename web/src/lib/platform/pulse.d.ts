@@ -124,6 +124,11 @@ export interface PulsePowerApi {
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
+  /** Host OS as Node's `process.platform` (`win32` | `darwin` | `linux` | …).
+   *  Authoritative platform signal for the native-update check
+   *  (`$lib/platform/nativeUpdate`), which maps it to the `native.json` keys.
+   *  Optional: shells built before this field fall back to UA detection. */
+  os?: string;
   store: PulseStoreApi;
   gsr: PulseGsrApi;
   notify: PulseNotifyApi;

@@ -35,6 +35,12 @@ const gsrCall = (op: string, params: unknown = {}): Promise<unknown> =>
 contextBridge.exposeInMainWorld('pulse', {
   platform: 'electron' as const,
   appVersion: process.env.PULSE_APP_VERSION ?? '0.0.0',
+  // Echtes Betriebssystem (`win32`/`darwin`/`linux`) statt UA-Raterei — die
+  // Renderer-Plattform-Gates (runtime.ts) bleiben UA-basiert, aber der
+  // Native-Update-Check (nativeUpdate.svelte.ts) matcht damit exakt die
+  // native.json-Keys. Fällt im Renderer auf UA-Detection zurück, falls eine
+  // ältere Shell dieses Feld noch nicht liefert.
+  os: process.platform,
 
   // Settings persistence (E1c) — thin wrappers over the `store:*` IPC channels
   // (main-side store in `store.ts`). The renderer side lives in

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16.3",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Hinweis auf neue App-Versionen",
+      "items": [
+        "Die installierte App weist dich jetzt darauf hin, wenn eine neuere Programmversion bereitsteht — auf dem Mac mit Direktlink zum Download, unter Linux mit Hinweis zum Aktualisieren über die Software-Verwaltung. Windows aktualisiert sich wie bisher automatisch.",
+        "Der Hinweis erscheint nur, wenn wirklich eine neue Programmversion vorliegt. Gewöhnliche Verbesserungen an der Oberfläche kommen weiterhin einfach über den 'Neu laden'-Hinweis."
+      ]
+    },
+    {
       "id": "2026-06-16.2",
       "date": "2026-06-16",
       "style": "Sachlich",
