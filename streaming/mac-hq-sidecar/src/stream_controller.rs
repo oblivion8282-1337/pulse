@@ -198,6 +198,18 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         uptime_s: 0.0,
     });
 
+    // Constant-frame-rate output: emit a frame every `frame_interval`,
+    // regardless of how fast ScreenCaptureKit delivers. SCK throttles on a
+    // static screen and is slow to deliver the first frame on a cold start, so
+    // raw passthrough lets the stream's media-time crawl behind the wall clock
+    // — MediaMTX then waits out its 10s readTimeout before registering the
+    // publish (the intermittent "i/o timeout" failure). Steady realtime output
+    // (latest frame, a duplicate when static, black before the first frame)
+    // keeps media-time == wall-clock so MediaMTX registers in ~2s, and it keeps
+    // the video in sync with the always-realtime audio.
+    let frame_interval = Duration::from_secs_f64(1.0 / params.fps.max(1) as f64);
+    let mut next_emit = Instant::now();
+    let mut last_frame = None;
     let mut window_start = Instant::now();
     let mut window_frames = 0u64;
 
@@ -208,29 +220,46 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
-            // Drain any pending audio (non-blocking) before the video frame.
+            // Drain any pending audio (non-blocking).
             if let Some(arx) = &audio_rx {
                 while let Ok(af) = arx.try_recv() {
                     enc.push_audio(&af.samples)?;
                 }
             }
-            match frame_rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(frame) => {
-                    enc.push_bgra(&frame.data, frame.bytes_per_row)?;
-                    window_frames += 1;
-                    if window_start.elapsed() >= Duration::from_secs(1) {
-                        let fps = window_frames as f64 / window_start.elapsed().as_secs_f64();
-                        shared.fps_milli.store((fps * 1000.0) as u64, Ordering::SeqCst);
-                        emit(Event::Fps {
-                            fps,
-                            uptime_s: started.elapsed().as_secs_f64(),
-                        });
-                        window_start = Instant::now();
-                        window_frames = 0;
-                    }
+            // Grab the freshest captured frame(s) without blocking.
+            while let Ok(f) = frame_rx.try_recv() {
+                last_frame = Some(f);
+            }
+
+            let now = Instant::now();
+            if now >= next_emit {
+                match &last_frame {
+                    Some(f) => enc.push_bgra(&f.data, f.bytes_per_row)?,
+                    None => enc.push_black()?,
                 }
-                Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => break,
+                window_frames += 1;
+                next_emit += frame_interval;
+                if next_emit <= now {
+                    // Fell behind (long encode stall) — resync, don't spiral.
+                    next_emit = now + frame_interval;
+                }
+                if window_start.elapsed() >= Duration::from_secs(1) {
+                    let fps = window_frames as f64 / window_start.elapsed().as_secs_f64();
+                    shared.fps_milli.store((fps * 1000.0) as u64, Ordering::SeqCst);
+                    emit(Event::Fps {
+                        fps,
+                        uptime_s: started.elapsed().as_secs_f64(),
+                    });
+                    window_start = Instant::now();
+                    window_frames = 0;
+                }
+            } else {
+                // Wait until the next emit deadline or the next captured frame.
+                match frame_rx.recv_timeout(next_emit - now) {
+                    Ok(f) => last_frame = Some(f),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
             }
         }
         // Drain any audio buffered after the last video frame.

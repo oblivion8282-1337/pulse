@@ -12,12 +12,22 @@
   import {
     streamSettings,
     CODEC_VALUES,
+    gpuHasAv1,
     allowedResolutions,
     clampResolution,
     persistSettings,
   } from '../settings.svelte';
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { m } from '$lib/paraglide/messages.js';
+
+  // Only offer codecs this machine's GPU can actually encode. AV1 needs the
+  // sidecar's reported `video_codecs` to include it (RTX 40xx, newer Intel/AMD,
+  // Apple M3+); H.264 is the universal baseline and always offered.
+  let codecOptions = $derived(
+    CODEC_VALUES.filter(
+      (c) => c.value !== 'av1' || gpuHasAv1(streamSettings.gpu_info?.video_codecs),
+    ),
+  );
 
   // Admin-set global limits (live via the capabilities store). The bitrate
   // field works in kbps; the admin store holds kbps too.
@@ -131,7 +141,7 @@
       onchange={onCodec}
       data-testid="stream-overrides-codec"
     >
-      {#each CODEC_VALUES as c (c.value)}
+      {#each codecOptions as c (c.value)}
         <option value={c.value}>{c.label}</option>
       {/each}
     </select>

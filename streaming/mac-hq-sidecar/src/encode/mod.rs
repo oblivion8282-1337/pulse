@@ -25,11 +25,15 @@ use mux_writer::MuxWriter;
 const OPUS_BITRATE_KBPS: u32 = 128;
 
 /// Map a stream profile codec id to the matching VideoToolbox encoder.
+///
+/// Uses the real hardware-capability probe ([`crate::caps`]): the exact encoder
+/// when this machine can encode the codec (so a gated AV1 profile produces real
+/// `av1_videotoolbox` on M3+), else a defensive fall back to h264 (universally
+/// available). `list_profiles` already filters offered codecs by the same
+/// probe, so in practice the requested codec is always supported here.
 fn videotoolbox_encoder(codec: &str) -> &'static str {
-    match codec {
-        "hevc" | "h265" => "hevc_videotoolbox",
-        // AV1 VideoToolbox encode is Apple-Silicon M3+ only; fall back to h264
-        // until the Metal-family probe gates the AV1 profile.
+    match crate::caps::vt_encoder_name(codec) {
+        Some(name) if crate::caps::supports_codec(codec) => name,
         _ => "h264_videotoolbox",
     }
 }
@@ -205,6 +209,20 @@ impl VideoEncoder {
         self.frame_index += 1;
 
         self.encoder.send_frame(&nv12).context("send_frame")?;
+        self.drain()
+    }
+
+    /// Encode one black frame. Used as pre-roll before the first real capture
+    /// frame arrives (cold ScreenCaptureKit start), so video data reaches the
+    /// muxer from t=0 and MediaMTX registers the publish without waiting out its
+    /// 10s readTimeout. NV12 black = Y 16 (limited range), CbCr 128 (neutral).
+    pub fn push_black(&mut self) -> Result<()> {
+        let mut nv12 = frame::Video::new(Pixel::NV12, self.width, self.height);
+        nv12.data_mut(0).fill(16);
+        nv12.data_mut(1).fill(128);
+        nv12.set_pts(Some(self.frame_index));
+        self.frame_index += 1;
+        self.encoder.send_frame(&nv12).context("send_frame(black)")?;
         self.drain()
     }
 

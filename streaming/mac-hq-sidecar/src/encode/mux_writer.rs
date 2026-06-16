@@ -52,6 +52,16 @@ impl MuxWriter {
                         eprintln!("[mux-writer] write_interleaved failed: {e:#}");
                         return Err(e).context("mux-writer: write_interleaved");
                     }
+                    // Push the bytes onto the wire after every packet (live
+                    // low-latency). AVFMT_FLAG_FLUSH_PACKETS is unreliable for the
+                    // FLV/RTMP path, so flush the AVIO context explicitly.
+                    unsafe {
+                        let ctx = output.as_mut_ptr();
+                        let pb = (*ctx).pb;
+                        if !pb.is_null() {
+                            ffmpeg::ffi::avio_flush(pb);
+                        }
+                    }
                 }
                 // Channel closed = EOF → write the FLV trailer (clean RTMP/TLS close).
                 output.write_trailer().context("mux-writer: write_trailer")?;

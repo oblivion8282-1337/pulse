@@ -117,8 +117,11 @@ export function audioModeUsesDesktop(mode: string): boolean {
 }
 
 /** True iff the GPU's reported `video_codecs` mention AV1 (i.e. AV1 encode is
- *  available). Heuristic: any codec string containing "av1", case-insensitive. */
-function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
+ *  available). Heuristic: any codec string containing "av1", case-insensitive.
+ *  Each sidecar reports the *actual* hardware codec set (Linux GSR, Windows
+ *  adapter probe, macOS VideoToolbox), so this gates the codec choice to what
+ *  the machine can really encode — RTX 40xx/M3+ get AV1, older GPUs / M2 don't. */
+export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
   return (codecs ?? []).some((c) => /av1/i.test(c));
 }
 
@@ -317,6 +320,9 @@ export async function loadCatalogs(): Promise<void> {
     const hasAv1 = gpuHasAv1(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
+    // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
+    // over to an H.264-only machine) back to the baseline.
+    else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
     if (streamSettings.overrides.fps === undefined) defaults.fps = 60;
     if (Object.keys(defaults).length > 0) {
