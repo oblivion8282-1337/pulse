@@ -236,6 +236,13 @@ class Complaint(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="new")
     resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Forward audit trail — set when an admin forwards the complaint to the
+    # instance operator. ``forwarded_to_email`` is the address the notice was
+    # actually delivered to (NULL when no operator contact was on file or SMTP
+    # was unconfigured); ``forward_notice`` keeps the message that was sent.
+    forwarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    forwarded_to_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    forward_notice: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     target_instance: Mapped["RegisteredInstance | None"] = relationship(
         "RegisteredInstance", foreign_keys=[target_instance_id]

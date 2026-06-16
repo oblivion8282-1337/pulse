@@ -119,7 +119,7 @@ test.describe.serial('admin-panel E2E', () => {
     await expect(page.getByTestId('open-admin')).toBeVisible();
   });
 
-  test('navigating opens the panel with five sections', async () => {
+  test('navigating opens the panel with the cloud-admin sections', async () => {
     await page.getByTestId('open-admin').click();
     await page.waitForURL(/\/app\/admin/);
     await expect(page.getByTestId('admin-panel')).toBeVisible();
@@ -128,11 +128,44 @@ test.describe.serial('admin-panel E2E', () => {
       'admin-attachments',
       'admin-registration',
       'admin-smtp',
+      'admin-instances',
+      'admin-complaints',
       'admin-users',
       'admin-audit-log'
     ]) {
       await expect(page.getByTestId(id)).toBeVisible();
     }
+  });
+
+  test('a submitted abuse report appears in the complaints section', async () => {
+    // Public endpoint, no auth — file a complaint straight through the proxy.
+    const resp = await page.request.post('/api/auth/reports', {
+      data: {
+        body: 'E2E complaint: this content needs a moderator review.',
+        target_url: `https://e2e-abuse-${ts}.example.com/post`
+      }
+    });
+    expect(resp.status()).toBe(201);
+
+    await page.reload();
+    // The "new" tab is the default; the freshly-filed report must show up.
+    await expect(page.getByTestId('complaints-new-badge')).toBeVisible({ timeout: 5_000 });
+    // Scope to the section so the prefix can't catch the portal dialogs.
+    const card = page
+      .getByTestId('admin-complaints')
+      .locator('[data-testid^="complaint-"]')
+      .first();
+    await expect(card).toBeVisible();
+
+    // Resolve it and confirm it leaves the "new" list.
+    await card.getByText('Als erledigt markieren').click();
+    const dialog = page.getByTestId('complaint-resolve-dialog');
+    await dialog.getByRole('textbox').fill('Handled in E2E.');
+    await dialog.getByText('Erledigt', { exact: true }).click();
+    await expect(page.getByTestId('admin-complaints').locator('[data-testid^="complaint-"]')).toHaveCount(
+      0,
+      { timeout: 5_000 }
+    );
   });
 
   test('SMTP-Config PATCH flips the status badge to "Aktiv"', async () => {

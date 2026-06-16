@@ -18,9 +18,10 @@
 - **Stream-Anwesenheit erscheint verzögert** *(merkt man)* — Wer streamt, wird in anderen
   Communitys erst beim nächsten Auto-Update sichtbar, nicht sofort beim Öffnen.
   `services/chat-gateway/.../routes/streaming.py:179`
-- **Missbrauchsmeldungen gegen Instanzen: kein Admin-Bereich** *(merkt man)* — Nutzer können
-  Beschwerden einreichen, aber der Cloud-Admin hat keine Oberfläche zum Einsehen/Weiterleiten.
-  `services/auth/.../routes_complaints.py:93ff`
+- **[ERLEDIGT 2026-06-17] Missbrauchsmeldungen gegen Instanzen: kein Admin-Bereich** *(merkt man)* — Nutzer können
+  Beschwerden einreichen, aber der Cloud-Admin hatte keine Oberfläche zum Einsehen/Weiterleiten.
+  `services/auth/.../routes_complaints.py:93ff` → Cloud-Admin-Bereich `AdminComplaints.svelte`
+  (Tabs neu/in Bearbeitung/weitergeleitet/erledigt) gebaut. Siehe Großbaustelle 1 unten.
 - **Watch-Party-Anwesenheit ohne REST-Fallback** — Wer eine Watch-Party hält, erscheint in
   nicht-aktiven Sektionen evtl. erst nach dem nächsten WS-Push.
   `services/chat-gateway/.../routes/watch.py:25`
@@ -48,18 +49,22 @@
   `web/src/lib/api/moderation.ts:17-23`
   → Ehrlich beschriftet: Hinweis im Auflösen-Dialog, dass das Maßnahmen-Menü nur fürs Protokoll ist
   und niemanden automatisch benachrichtigt (`ModQueue.svelte`). Echte Verwarnung = Stufe 2 (Meldewesen).
-- **Beschwerde-Weiterleitung schickt keine E-Mail** *(merkt man)* — "Weiterleiten" setzt nur einen
-  DB-Status; der Self-Host-Betreiber erhält keine E-Mail.
-  `services/auth/.../routes_complaints.py:168-188`
+- **[ERLEDIGT 2026-06-17] Beschwerde-Weiterleitung schickt keine E-Mail** *(merkt man)* — "Weiterleiten" setzte nur
+  einen DB-Status; der Self-Host-Betreiber erhielt keine E-Mail.
+  `services/auth/.../routes_complaints.py:168-188` → `forward_complaint` löst jetzt die
+  Betreiber-Kontaktadresse aus dem Instanz-Antrag auf und versendet eine E-Mail über die
+  bestehende SMTP-Infrastruktur (`compose_complaint_forward_email`); meldet `email_sent`/Grund
+  zurück. Siehe Großbaustelle 1 unten.
 - **JWKS-Sicherheitswarnung nur im Server-Log** *(merkt man)* — Ändert sich ein sicherheitsrelevanter
   Schlüssel unerwartet, gibt es keinen sichtbaren Banner im Admin-Panel.
   `services/chat-gateway/.../app.py:286`
 
 ## 3. Halb gebaute Abläufe / abgeschaltete Features
 
-- **Missbrauchs-Meldewesen: Frontend + E-Mail fehlen** *(merkt man)* — Einreichen geht technisch,
-  aber es gibt keine Admin-Oberfläche und keine E-Mail-Weiterleitung an Instanz-Betreiber.
-  `services/auth/.../routes_complaints.py`, `web/src/routes/app/admin/+page.svelte`
+- **[ERLEDIGT 2026-06-17] Missbrauchs-Meldewesen: Frontend + E-Mail fehlen** *(merkt man)* — Einreichen ging technisch,
+  aber es gab keine Admin-Oberfläche und keine E-Mail-Weiterleitung an Instanz-Betreiber.
+  `services/auth/.../routes_complaints.py`, `web/src/routes/app/admin/+page.svelte` → Komplett gebaut:
+  öffentliches Melde-Formular (`/report`), Cloud-Admin-Bereich, E-Mail-Versand. Siehe Großbaustelle 1 unten.
 - **[ERLEDIGT 2026-06-16] Server-Liste der Desktop-App im falschen Speicher** — Eigene Server landen in der Electron-App
   im normalen Browser-Speicher statt im abgesicherten App-Speicher. Sicherer Pfad ist gebaut, aber
   nicht angeschlossen.
@@ -93,7 +98,18 @@
 
 ## Zusammenhängende Großbaustellen
 
-Zwei Themen ziehen sich durch mehrere Punkte oben — die sind beim Fertigstellen am meisten "wert":
+Zwei Themen zogen sich durch mehrere Punkte oben — die waren beim Fertigstellen am meisten "wert".
+**Beide sind inzwischen erledigt:**
 
-1. **Missbrauchs-Meldewesen (Beschwerden)** — Backend da, aber Admin-Oberfläche UND E-Mail-Versand fehlen.
-2. **Desktop-Server-Liste im sicheren Speicher** — Electron-Seite fertig, Frontend-Anschluss fehlt.
+1. **[ERLEDIGT 2026-06-17] Missbrauchs-Meldewesen (Beschwerden)** — Backend war da, Admin-Oberfläche
+   UND E-Mail-Versand fehlten. Jetzt komplett: Cloud-Admin-Bereich zum Sichten/Bearbeiten der
+   Meldungen (Status-Lebenszyklus neu → in Bearbeitung → weitergeleitet → erledigt), echter
+   E-Mail-Versand an den Instanz-Betreiber beim Weiterleiten (Kontakt aus dem Instanz-Antrag,
+   bestehende SMTP-Infrastruktur), plus ein öffentliches Melde-Formular (`/report`, ohne Login,
+   verlinkt im Rechtliches-Footer). Damit decken die Punkte „Missbrauchsmeldungen gegen Instanzen:
+   kein Admin-Bereich", „Beschwerde-Weiterleitung schickt keine E-Mail" und „Meldewesen:
+   Frontend + E-Mail fehlen" oben mit ab.
+   Code: `services/auth/.../routes_complaints.py` + `email.py` (Backend),
+   `web/src/lib/components/admin/AdminComplaints*.svelte` + `web/src/routes/report/` (Frontend).
+2. **[ERLEDIGT 2026-06-16] Desktop-Server-Liste im sicheren Speicher** — Electron-Seite war fertig,
+   Frontend-Anschluss fehlte; jetzt angeschlossen (Details siehe Gruppe 3).

@@ -1,88 +1,48 @@
 """Complaint (abuse report) endpoints.
 
-POST /reports                      — public, rate-limited 3/h per IP.
-GET  /admin/complaints             — admin only, filterable by status.
-POST /admin/complaints/{id}/forward — admin only, set status='forwarded'.
-POST /admin/complaints/{id}/resolve — admin only, set status='resolved'.
+POST /reports                          — public, rate-limited 3/h per IP.
+GET  /admin/complaints                 — admin only, filterable by status.
+POST /admin/complaints/{id}/acknowledge — admin only, status='acknowledged'.
+POST /admin/complaints/{id}/forward     — admin only, emails the operator + status='forwarded'.
+POST /admin/complaints/{id}/resolve     — admin only, status='resolved'.
+
+Schemas + lookup/enrichment helpers live in ``complaints_support.py``.
 """
 
 from __future__ import annotations
 
 import logging
+import smtplib
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 
+from dcc_auth.complaints_support import (
+    VALID_STATUSES,
+    ComplaintCreate,
+    ComplaintOut,
+    ForwardIn,
+    ForwardResult,
+    ResolveIn,
+    enrich_complaints,
+    resolve_operator,
+)
 from dcc_auth.db import SessionDep
+from dcc_auth.email import (
+    compose_complaint_forward_email,
+    resolve_smtp_config,
+    send_email,
+)
 from dcc_auth.models import User
-from dcc_auth.models_instances import Complaint, RegisteredInstance
+from dcc_auth.models_instances import Complaint
 from dcc_auth.routes import _check_rate, _require_admin
 from dcc_auth.snowflake import next_id
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Snowflake validator: accept int or digit-string.
-SnowflakeId = int | str
-
-_VALID_STATUSES = {"new", "acknowledged", "forwarded", "resolved"}
-
-
-# ---------------------------------------------------------------------------
-# Schemas
-# ---------------------------------------------------------------------------
-
-
-class ComplaintCreate(BaseModel):
-    body: Annotated[str, Field(min_length=10, max_length=5000)]
-    target_url: Annotated[str | None, Field(default=None, max_length=500)] = None
-    target_instance_id: int | None = None
-    target_user_id: int | None = None
-    submitter_email: EmailStr | None = None
-
-
-class ComplaintOut(BaseModel):
-    id: str
-    status: str
-    submitted_at: datetime
-    body: str
-    target_url: str | None = None
-    target_instance_id: str | None = None
-    target_user_id: str | None = None
-    submitter_email: str | None = None
-    resolution_note: str | None = None
-    resolved_at: datetime | None = None
-
-    @classmethod
-    def from_row(cls, row: Complaint) -> "ComplaintOut":
-        return cls(
-            id=str(row.id),
-            status=row.status,
-            submitted_at=row.submitted_at,
-            body=row.body,
-            target_url=row.target_url,
-            target_instance_id=(
-                str(row.target_instance_id) if row.target_instance_id is not None else None
-            ),
-            target_user_id=(
-                str(row.target_user_id) if row.target_user_id is not None else None
-            ),
-            submitter_email=row.submitter_email,
-            resolution_note=row.resolution_note,
-            resolved_at=row.resolved_at,
-        )
-
-
-class ForwardIn(BaseModel):
-    notice_text: str
-
-
-class ResolveIn(BaseModel):
-    resolution_note: str
 
 
 # ---------------------------------------------------------------------------
@@ -140,11 +100,16 @@ async def list_complaints(
     before: Annotated[int | None, Query(ge=0)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[ComplaintOut]:
-    """List complaints filtered by status. Newest-first, snowflake-cursor."""
-    if complaint_status not in _VALID_STATUSES:
+    """List complaints filtered by status. Newest-first, snowflake-cursor.
+
+    Each row is enriched (instance hostname, operator contact, reported user
+    name) so the admin sees who a complaint is about and whether forwarding is
+    even possible.
+    """
+    if complaint_status not in VALID_STATUSES:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"status must be one of {sorted(_VALID_STATUSES)}",
+            detail=f"status must be one of {sorted(VALID_STATUSES)}",
         )
 
     stmt = (
@@ -156,8 +121,29 @@ async def list_complaints(
     if before is not None:
         stmt = stmt.where(Complaint.id < before)
 
-    rows = (await session.execute(stmt)).scalars().all()
-    return [ComplaintOut.from_row(r) for r in rows]
+    rows = list((await session.execute(stmt)).scalars().all())
+    return await enrich_complaints(session, rows)
+
+
+# ---------------------------------------------------------------------------
+# Admin: POST /admin/complaints/{id}/acknowledge
+# ---------------------------------------------------------------------------
+
+
+@router.post("/admin/complaints/{complaint_id}/acknowledge")
+async def acknowledge_complaint(
+    complaint_id: int,
+    session: SessionDep,
+    _actor: Annotated[User, Depends(_require_admin)],
+):
+    """Mark a complaint as acknowledged ("we're looking at this")."""
+    complaint = await session.get(Complaint, complaint_id)
+    if complaint is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="complaint not found")
+
+    complaint.status = "acknowledged"
+    await session.commit()
+    return {"id": str(complaint.id), "status": complaint.status}
 
 
 # ---------------------------------------------------------------------------
@@ -165,35 +151,61 @@ async def list_complaints(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/admin/complaints/{complaint_id}/forward")
+@router.post("/admin/complaints/{complaint_id}/forward", response_model=ForwardResult)
 async def forward_complaint(
     complaint_id: int,
     payload: ForwardIn,
     session: SessionDep,
     _actor: Annotated[User, Depends(_require_admin)],
-):
-    """Mark complaint as forwarded to the instance operator.
+) -> ForwardResult:
+    """Forward a complaint to the instance operator and mark it forwarded.
 
-    # FIXME(Phase-5): Actually send an email to the Self-Host admin at
-    # instance.contact_email. Currently only updates status + logs the
-    # notice_text so the audit trail exists. Requires SMTP + instance
-    # contact-email field (not yet in RegisteredInstance model).
+    Sends an email to the operator's contact address (resolved from the approved
+    instance application) with the Cloud moderation's notice + the complaint
+    details. The status is advanced regardless of email outcome — the admin's
+    decision is recorded — but ``email_sent``/``email_error`` tell the UI whether
+    the notice actually went out. Never logs the notice text or recipient body.
     """
     complaint = await session.get(Complaint, complaint_id)
     if complaint is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="complaint not found")
 
+    hostname, operator_email = await resolve_operator(session, complaint.target_instance_id)
+
+    email_sent = False
+    email_error: str | None = None
+
+    if operator_email is None:
+        email_error = "no_operator_email"
+    elif (await resolve_smtp_config(session)) is None:
+        email_error = "smtp_not_configured"
+    else:
+        subject, body = compose_complaint_forward_email(
+            hostname or "(unbekannt)",
+            complaint.body,
+            complaint.target_url,
+            payload.notice_text,
+        )
+        try:
+            await send_email(operator_email, subject, body, session=session)
+            email_sent = True
+        except (smtplib.SMTPException, OSError) as exc:
+            email_error = type(exc).__name__
+            log.warning("complaint_forward_email_failed: %s", type(exc).__name__)
+
     complaint.status = "forwarded"
-    # Store notice_text in resolution_note as interim until Phase-5 email is built.
-    complaint.resolution_note = payload.notice_text
+    complaint.forwarded_at = datetime.now(UTC)
+    complaint.forwarded_to_email = operator_email if email_sent else None
+    complaint.forward_notice = payload.notice_text
     await session.commit()
 
-    log.info(
-        "complaint %s forwarded; notice_text length=%d",
-        complaint_id,
-        len(payload.notice_text),
+    return ForwardResult(
+        id=str(complaint.id),
+        status=complaint.status,
+        email_sent=email_sent,
+        email_error=email_error,
+        forwarded_to_email=operator_email if email_sent else None,
     )
-    return {"id": str(complaint.id), "status": complaint.status}
 
 
 # ---------------------------------------------------------------------------

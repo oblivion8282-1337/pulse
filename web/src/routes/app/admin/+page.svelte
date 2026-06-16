@@ -23,6 +23,7 @@
   import AdminNormalStreamLimits from '$lib/components/admin/AdminNormalStreamLimits.svelte';
   import AdminPlugins from '$lib/components/admin/AdminPlugins.svelte';
   import AdminInstances from '$lib/components/admin/AdminInstances.svelte';
+  import AdminComplaints from '$lib/components/admin/AdminComplaints.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminMembers from '$lib/components/admin/AdminMembers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
@@ -108,6 +109,7 @@
       <AdminPlugins />
       {#if isCloud}
         <AdminInstances />
+        <AdminComplaints />
         <AdminUsers />
       {:else}
         <!-- Self-Host: instanzweite Member-Verwaltung statt der Cloud-User-Liste. -->

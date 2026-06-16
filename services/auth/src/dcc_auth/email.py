@@ -264,6 +264,43 @@ async def issue_verification_email(session: AsyncSession, user: User) -> None:
     await send_email(user.email, subject, body, session=session)
 
 
+def compose_complaint_forward_email(
+    hostname: str,
+    complaint_body: str,
+    target_url: str | None,
+    notice_text: str,
+) -> tuple[str, str]:
+    """Notice sent to a Self-Host operator when the Cloud forwards a complaint.
+
+    Deliberately does NOT include the reporter's email — the submitter shared it
+    with the Cloud, not with a third-party operator. The operator gets the
+    complaint text, the offending URL (if any), and the Cloud moderation's note.
+    """
+    subject = f"Pulse: Missbrauchsmeldung zu deiner Instanz {hostname}"
+    lines = [
+        "Hallo,",
+        "",
+        "bei der Pulse-Cloud ist eine Missbrauchsmeldung eingegangen, die deine",
+        f"selbst gehostete Instanz ({hostname}) betrifft. Als Betreiber bist du für",
+        "die Inhalte auf deiner Instanz verantwortlich — bitte prüfe den Vorgang und",
+        "ergreife die nötigen Maßnahmen.",
+        "",
+        "--- Hinweis der Pulse-Cloud-Moderation ---",
+        notice_text.strip(),
+    ]
+    if target_url:
+        lines += ["", f"Betroffene URL: {target_url}"]
+    lines += [
+        "",
+        "--- Inhalt der Meldung ---",
+        complaint_body.strip(),
+        "",
+        "Diese Nachricht wurde automatisch von der Pulse-Cloud versendet; Antworten",
+        "an diese Adresse werden nicht überwacht.",
+    ]
+    return subject, "\n".join(lines) + "\n"
+
+
 def compose_test_email(to: str) -> tuple[str, str]:
     """Body for the admin Test-Mail button. Plain + visible "this worked"."""
     subject = "Pulse: SMTP-Test"

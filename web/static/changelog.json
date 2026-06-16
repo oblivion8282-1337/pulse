@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.2",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Missbrauch melden",
+      "items": [
+        "Über den Link „Missbrauch melden“ im Rechtliches-Bereich (unten auf der Anmelde- und Registrierungsseite) lassen sich jetzt rechtswidrige oder missbräuchliche Inhalte direkt melden — auch ohne Anmeldung. Eine E-Mail-Adresse anzugeben ist freiwillig und nur für eventuelle Rückfragen.",
+        "Eingegangene Meldungen werden vom Pulse-Team gesichtet und bearbeitet. Betrifft eine Meldung eine selbst gehostete Pulse-Instanz, kann sie an den jeweiligen Betreiber weitergeleitet werden, damit dieser die Inhalte prüfen kann."
+      ]
+    },
+    {
       "id": "2026-06-17",
       "date": "2026-06-17",
       "style": "Locker",
