@@ -10,7 +10,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Map, Value};
 
-use crate::capture;
+use crate::capture::{self, AudioScope};
 use crate::profiles::profile_by_name;
 use crate::stream_controller::{StartParams, StreamController};
 
@@ -55,15 +55,27 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
         .unwrap_or(profile.bitrate_kbps as u64) as u32;
     let show_cursor = params.get("show_cursor").and_then(Value::as_bool).unwrap_or(true);
 
-    // SCK captures system ("Desktop") audio. Mic-only ("Mikrofon") would need an
-    // AVCaptureSession path (not built yet) → audio only when Desktop is in the mode.
-    let enable_audio = params
-        .get("audio")
-        .and_then(Value::as_object)
+    // Audio: parse `audio.{mode, excluded_apps}` into a capture scope.
+    //   "App: <name>"            → only that app's audio (and its windows as video)
+    //   "Desktop"/"Desktop + …"  → desktop audio, minus Pulse (echo) + excluded_apps
+    //   "Aus" / "Mikrofon"-only  → no audio (mic needs an AVCaptureSession path, TBD)
+    let audio_obj = params.get("audio").and_then(Value::as_object);
+    let audio_mode = audio_obj
         .and_then(|a| a.get("mode"))
         .and_then(Value::as_str)
-        .map(|m| m.contains("Desktop"))
-        .unwrap_or(false);
+        .unwrap_or("Aus");
+    let excluded_apps: Vec<String> = audio_obj
+        .and_then(|a| a.get("excluded_apps"))
+        .and_then(Value::as_array)
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
+        .unwrap_or_default();
+    let (enable_audio, audio_scope) = if let Some(app) = audio_mode.strip_prefix("App: ") {
+        (true, AudioScope::App(app.trim().to_string()))
+    } else if audio_mode.contains("Desktop") {
+        (true, AudioScope::Desktop { exclude: excluded_apps })
+    } else {
+        (false, AudioScope::None)
+    };
 
     let (width, height) = resolve_resolution(overrides, display_index)?;
 
@@ -81,6 +93,7 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
             push_url,
             show_cursor,
             enable_audio,
+            audio_scope,
         },
         argv.clone(),
     )?;

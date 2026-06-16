@@ -31,6 +31,8 @@ pub struct StartParams {
     pub push_url: String,
     pub show_cursor: bool,
     pub enable_audio: bool,
+    /// Audio capture scope (desktop-minus-excludes / specific app / none).
+    pub audio_scope: crate::capture::AudioScope,
 }
 
 pub struct StreamSnapshot {
@@ -176,6 +178,7 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     let cap = Capturer::start(
         params.display_index,
         params.window_id,
+        params.audio_scope.clone(),
         params.width as usize,
         params.height as usize,
         params.fps,

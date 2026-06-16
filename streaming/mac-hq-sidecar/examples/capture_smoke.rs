@@ -5,11 +5,11 @@
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use pulse_mac_hq_sidecar::capture::Capturer;
+use pulse_mac_hq_sidecar::capture::{AudioScope, Capturer};
 
 fn main() -> anyhow::Result<()> {
     let (tx, rx) = channel();
-    let cap = Capturer::start(1, None, 1280, 720, 30, true, tx, None)?;
+    let cap = Capturer::start(1, None, AudioScope::None, 1280, 720, 30, true, tx, None)?;
     let start = Instant::now();
     let mut frames = 0usize;
     let mut last = (0usize, 0usize, 0.0_f64);

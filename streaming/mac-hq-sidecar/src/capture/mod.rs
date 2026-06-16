@@ -40,9 +40,30 @@ use objc2_core_foundation::CFRetained;
 use objc2_core_video::{CVImageBuffer, CVPixelBufferGetHeight, CVPixelBufferGetWidth};
 use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol};
 use objc2_screen_capture_kit::{
-    SCContentFilter, SCShareableContent, SCStream, SCStreamConfiguration, SCStreamOutput,
-    SCStreamOutputType, SCWindow,
+    SCContentFilter, SCDisplay, SCRunningApplication, SCShareableContent, SCStream,
+    SCStreamConfiguration, SCStreamOutput, SCStreamOutputType, SCWindow,
 };
+
+// The sidecar's parent process is the Electron ("Pulse") main process (it
+// spawns us) — used to exclude Pulse's own audio from a Desktop capture so the
+// streamer's voice channel doesn't echo into the stream.
+unsafe extern "C" {
+    fn getppid() -> i32;
+}
+
+/// What to capture for audio (the SCK content filter scopes video AND audio
+/// together, so these also shape the video). Built by `ops::start` from the
+/// request's `audio` block.
+#[derive(Debug, Clone, Default)]
+pub enum AudioScope {
+    /// No audio capture.
+    #[default]
+    None,
+    /// Desktop audio, excluding Pulse (echo) + these app names.
+    Desktop { exclude: Vec<String> },
+    /// Only this application's audio (and, on macOS, its windows as the video).
+    App(String),
+}
 
 /// A `Retained<T>` we promise is safe to move across threads. Sound for SCK/CM
 /// objects, whose retain/release/use are thread-safe.
@@ -263,6 +284,40 @@ fn find_window(
         .map(|w| w.retain())
 }
 
+/// Running applications matching any of `names` (by `applicationName`) or the
+/// given `also_pid` (used to find Pulse's own Electron process via getppid).
+fn resolve_applications(
+    content: &SCShareableContent,
+    names: &[String],
+    also_pid: Option<i32>,
+) -> Vec<Retained<SCRunningApplication>> {
+    let apps = unsafe { content.applications() };
+    let mut out = Vec::new();
+    for a in apps.iter() {
+        let name = unsafe { a.applicationName() }.to_string();
+        let pid = unsafe { a.processID() };
+        if also_pid == Some(pid) || names.iter().any(|n| n == &name) {
+            out.push(a.retain());
+        }
+    }
+    out
+}
+
+/// Resolve the 1-based display index (clamped to the main display).
+fn pick_display(content: &SCShareableContent, display_index: usize) -> Result<Retained<SCDisplay>> {
+    let displays = unsafe { content.displays() };
+    let count = displays.len();
+    if count == 0 {
+        return Err(anyhow!("keine Displays gefunden"));
+    }
+    let idx = if display_index >= 1 && display_index <= count {
+        display_index - 1
+    } else {
+        0
+    };
+    Ok(displays.objectAtIndex(idx))
+}
+
 // ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
 
 struct OutputIvars {
@@ -432,6 +487,7 @@ impl Capturer {
     pub fn start(
         display_index: usize,
         window_id: Option<u32>,
+        audio_scope: AudioScope,
         width: usize,
         height: usize,
         fps: u32,
@@ -441,9 +497,15 @@ impl Capturer {
     ) -> Result<Self> {
         let want_audio = audio_tx.is_some();
         let content = shareable_content()?;
+        let empty_windows: Retained<NSArray<SCWindow>> = NSArray::new();
 
-        // Content filter: a single desktop-independent window (stream just one
-        // app window) when `window_id` is set, else the whole display.
+        // The SCK content filter scopes video AND audio together, so the audio
+        // mode also shapes what's captured visually:
+        //   - explicit window  → just that window (initWithDesktopIndependentWindow)
+        //   - App(x)           → only app x's windows + audio (includingApplications)
+        //   - Desktop{exclude} → whole display minus Pulse (echo) + excluded apps
+        //                        from both video and audio (excludingApplications)
+        //   - None             → whole display, nothing excluded
         let filter = if let Some(wid) = window_id {
             let window = find_window(&content, wid)
                 .ok_or_else(|| anyhow!("Fenster {wid} nicht gefunden (geschlossen?)"))?;
@@ -453,25 +515,49 @@ impl Capturer {
                     &window,
                 )
             }
-        } else {
-            let displays = unsafe { content.displays() };
-            let count = displays.len();
-            if count == 0 {
-                return Err(anyhow!("keine Displays gefunden"));
+        } else if let AudioScope::App(app_name) = &audio_scope {
+            let apps = resolve_applications(&content, std::slice::from_ref(app_name), None);
+            if apps.is_empty() {
+                return Err(anyhow!("App '{app_name}' nicht gefunden (läuft sie?)"));
             }
-            let idx = if display_index >= 1 && display_index <= count {
-                display_index - 1
-            } else {
-                0
-            };
-            let display = displays.objectAtIndex(idx);
-            let empty: Retained<NSArray<SCWindow>> = NSArray::new();
+            let arr = NSArray::from_retained_slice(&apps);
+            let display = pick_display(&content, display_index)?;
             unsafe {
-                SCContentFilter::initWithDisplay_excludingWindows(
+                SCContentFilter::initWithDisplay_includingApplications_exceptingWindows(
                     SCContentFilter::alloc(),
                     &display,
-                    &empty,
+                    &arr,
+                    &empty_windows,
                 )
+            }
+        } else {
+            let display = pick_display(&content, display_index)?;
+            let excludes: &[String] = match &audio_scope {
+                AudioScope::Desktop { exclude } => exclude,
+                _ => &[],
+            };
+            // Always also exclude Pulse itself (the Electron parent process) so
+            // the streamer's voice channel isn't recaptured → no echo.
+            let pulse_pid = if want_audio { Some(unsafe { getppid() }) } else { None };
+            let apps = resolve_applications(&content, excludes, pulse_pid);
+            if apps.is_empty() {
+                unsafe {
+                    SCContentFilter::initWithDisplay_excludingWindows(
+                        SCContentFilter::alloc(),
+                        &display,
+                        &empty_windows,
+                    )
+                }
+            } else {
+                let arr = NSArray::from_retained_slice(&apps);
+                unsafe {
+                    SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
+                        SCContentFilter::alloc(),
+                        &display,
+                        &arr,
+                        &empty_windows,
+                    )
+                }
             }
         };
 
