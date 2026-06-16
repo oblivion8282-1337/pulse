@@ -6,7 +6,6 @@
   import { Toaster } from '$lib/components/ui/sonner/index.js';
   import { toast } from 'svelte-sonner';
   import { settings } from '$lib/stores/settings.svelte';
-  import { initDesktopPtt } from '$lib/platform/ptt';
   import { initStream } from '$lib/stream/state.svelte';
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
@@ -143,13 +142,9 @@
         });
       }
     });
-    // Wire up the desktop global push-to-talk shortcut. Currently a no-op stub
-    // (global PTT needs a native key-listener — see ptt.ts); the in-window
-    // keyboard PTT in VoiceChannelView keeps working regardless.
-    let disposePtt: (() => void) | undefined;
-    void initDesktopPtt().then((d) => {
-      disposePtt = d;
-    });
+    // (Globales Desktop-PTT bewusst nicht vorhanden — es braeuchte einen nativen
+    // Key-Listener für Hold-to-Talk, Aufwand/Nutzen passt nicht. Das In-Fenster-
+    // PTT in VoiceChannelView, Taste aus settings.voice.pttKey, ist der aktive Pfad.)
     // Wire the GSR-sidecar event channel into the reactive stream-state store.
     // No-op outside Electron; safe to call eagerly because the sidecar itself is
     // still lazy-spawned (the first invoke is what brings Python up).
@@ -203,7 +198,6 @@
     }
 
     return () => {
-      disposePtt?.();
       disposeStream?.();
       disposeInvite?.();
       disposeUpdate?.();

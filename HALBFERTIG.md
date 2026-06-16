@@ -29,10 +29,12 @@
 
 ## 2. Knopf da, aber dahinter passiert nichts
 
-- **Globaler Push-to-Talk nur im Vordergrund** *(merkt man)* — Die Taste wirkt nur, solange das
+- **[GESTRICHEN 2026-06-16] Globaler Push-to-Talk nur im Vordergrund** *(merkt man)* — Die Taste wirkt nur, solange das
   App-Fenster offen und aktiv ist. Minimiert/Hintergrund: kein PTT. Einstiegspunkt existiert,
   ist bewusst leer (No-op-Stub). Braucht nativen Key-Listener (z.B. uiohook-napi) im Electron-Main.
   `web/src/lib/platform/ptt.ts:26-28`, `desktop/electron/main.ts:508-512`
+  → Bewusst NICHT gebaut (Aufwand/Nutzen — wird nicht genutzt). No-op-Stub `ptt.ts` entfernt,
+  Aufruf im Layout raus. Das funktionierende In-Fenster-PTT (`settings.voice.pttKey`) bleibt.
 - **[ERLEDIGT 2026-06-16] Highlight-Clip (F8) zeigt nur eine Meldung** *(merkt man)* — Taste im Cheatsheet/Einstellungen
   sichtbar, macht aber nur einen "coming soon"-Toast; der 30-Sekunden-Puffer im Backend existiert nicht.
   `web/src/lib/components/ShortcutHost.svelte:110-113`
