@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17",
+      "date": "2026-06-17",
+      "style": "Locker",
+      "title": "Kleine Frischzellenkur: Mitglieder direkt hinzufügen und mehr",
+      "items": [
+        "Du kannst Mitglieder jetzt direkt über ihre Nutzer-ID in eine Community holen — einfach in den Community-Einstellungen unter „Einladungen“. Voraussetzung: Du darfst Einladungen verwalten.",
+        "Im Mod-Bereich steht jetzt klar dabei, dass die Maßnahmen-Auswahl nur fürs Protokoll ist — die betroffene Person wird dadurch nicht automatisch benachrichtigt.",
+        "In der Desktop-App liegt deine Server-Liste ab sofort im sicheren App-Speicher statt offen im Browser-Speicher — etwas mehr Schutz, gerade an geteilten Rechnern. Deine bestehenden Server wandern beim ersten Start automatisch mit.",
+        "Das halbfertige F8-Kürzel für Highlight-Clips ist erst mal wieder verschwunden, bis es richtig fertig ist — die Taste ist wieder frei."
+      ]
+    },
+    {
       "id": "2026-06-16.8",
       "date": "2026-06-16",
       "style": "Sachlich",
