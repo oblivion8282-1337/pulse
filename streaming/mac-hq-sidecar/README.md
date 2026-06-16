@@ -37,6 +37,39 @@ finds the binary via, in order: `$PULSE_HQ_SIDECAR` (dev override) →
 `<resourcesPath>/hq-sidecar/` (packaged) → walk-up to `target/{release,debug}/`
 → `~/Library/Application Support/Pulse/hq-sidecar/`.
 
+### FFmpeg (NOT Homebrew's)
+
+The crate links a **custom FFmpeg 8.0.1** built by `scripts/build-ffmpeg.sh`,
+not Homebrew's. Homebrew's links Apple **SecureTransport**, which blocks on
+RTMPS bulk writes after the TLS handshake → MediaMTX drops the publish on a 10s
+i/o timeout (the original "macOS HQ stream never starts" bug). Our build uses
+`--enable-openssl --disable-securetransport`. It is also **LGPL** (no x264/x265;
+VideoToolbox covers H.264/HEVC), so the same build is what we redistribute with
+bundled dylibs. `.cargo/config.toml` points `PKG_CONFIG_PATH` at the build's
+`lib/pkgconfig` (default `~/src/ffmpeg-openssl`). Run `scripts/build-ffmpeg.sh`
+once before `cargo build`.
+
+### First-publish reliability (constant frame rate)
+
+The worker loop ([`stream_controller.rs`]) emits a frame every `1/fps`
+**regardless** of ScreenCaptureKit's delivery — the latest captured frame, a
+duplicate when the screen is static (SCK throttles on no-change), or a black
+pre-roll before the first frame on a cold start. Raw passthrough lets the
+stream's media-time crawl behind the wall clock, and MediaMTX then waits out its
+~10s readTimeout before registering the publish (intermittent "i/o timeout").
+Steady realtime output makes it register in ~2s and keeps video in sync with the
+always-realtime audio. The mux thread also `avio_flush`es after every packet.
+
+### Codec capability (`caps.rs`)
+
+`list_profiles` / `health` advertise only codecs this machine can actually
+hardware-encode. h264/hevc are the Apple-Silicon baseline; **av1** appears only
+when the linked FFmpeg ships an `av1_videotoolbox` encoder *and* a trial session
+opens on the silicon (M3+). FFmpeg 8.0.1 has none, so AV1 is hidden today — by
+capability, not by hardcoding. The renderer gates the codec choice the same way
+(`gpuHasAv1(gpu_info.video_codecs)`), matching how Linux (GSR) and Windows report
+their GPU's codec set.
+
 ## Protocol (parity with the other two sidecars)
 
 One JSON object per stdin line = a request; one per stdout line = a response
@@ -45,7 +78,7 @@ contract: `streaming/README.md`.
 
 | Op                       | Day-1 status | Real-impl unlocks                                  |
 |--------------------------|--------------|----------------------------------------------------|
-| `health`                 | real-ish     | static caps; VideoToolbox codec probe later        |
+| `health`                 | real         | hardware codec probe (`caps.rs`)                   |
 | `gpu_info`               | stub         | Metal device query (`MTLCreateSystemDefaultDevice`)|
 | `list_profiles`          | real         | ported from `profiles.py` (identical strings)      |
 | `list_monitors`          | stub (`[]`)  | `SCShareableContent.displays` (or CoreGraphics)    |

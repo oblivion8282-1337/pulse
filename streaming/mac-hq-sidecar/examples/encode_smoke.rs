@@ -5,7 +5,7 @@
 use std::sync::mpsc::channel;
 use std::time::{Duration, Instant};
 
-use pulse_mac_hq_sidecar::capture::{AudioFrame, Capturer};
+use pulse_mac_hq_sidecar::capture::{AudioFrame, AudioScope, Capturer};
 use pulse_mac_hq_sidecar::encode::VideoEncoder;
 
 fn main() -> anyhow::Result<()> {
@@ -20,6 +20,8 @@ fn main() -> anyhow::Result<()> {
     let (atx, arx) = channel::<AudioFrame>();
     let cap = Capturer::start(
         1,
+        None,
+        if with_audio { AudioScope::Desktop { exclude: vec![] } } else { AudioScope::None },
         w as usize,
         h as usize,
         fps,
@@ -40,7 +42,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
         if let Ok(f) = rx.recv_timeout(Duration::from_millis(500)) {
-            enc.push_bgra(&f.data, f.bytes_per_row)?;
+            enc.push_pixel_buffer(f.retained_ptr())?;
             n += 1;
         }
     }

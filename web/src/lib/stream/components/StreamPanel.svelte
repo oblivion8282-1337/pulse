@@ -18,7 +18,7 @@
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
   import RocketIcon from '@lucide/svelte/icons/rocket';
 
-  import { isWindows } from '$lib/platform/runtime';
+  import { isWindows, isMac } from '$lib/platform/runtime';
   import { gsr, type GsrHealth } from '../gsr';
   import { loadCatalogs, streamSettings } from '../settings.svelte';
 
@@ -42,9 +42,9 @@
     // Always stream into the current voice channel; the codec/resolution/
     // bitrate/fps come straight from the editor below ("Custom" profile = use
     // the explicit values). Capture source: Linux uses the Wayland portal;
-    // Windows resolves a concrete monitor in `loadCatalogs()` (a persisted
-    // choice is honoured), so don't clobber it here.
-    if (!isWindows()) streamSettings.capture_source = 'portal';
+    // Windows + macOS resolve a concrete monitor in `loadCatalogs()` (a
+    // persisted choice is honoured), so don't clobber it here.
+    if (!isWindows() && !isMac()) streamSettings.capture_source = 'portal';
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     if (!gsr.available()) return;
@@ -89,7 +89,7 @@
       </p>
     {:else}
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">
-        {#if isWindows()}
+        {#if isWindows() || isMac()}
           <MonitorPicker />
           <Separator />
         {/if}

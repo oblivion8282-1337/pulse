@@ -14,11 +14,15 @@
 use anyhow::Result;
 use serde_json::{Map, Value, json};
 
+use crate::caps;
 use crate::profiles::{APP_LABEL_PREFIX, AUDIO_MODES, PROFILES};
 
 pub fn handle(_params: Map<String, Value>) -> Result<Map<String, Value>> {
+    // Only advertise profiles whose codec THIS machine can hardware-encode, so
+    // the renderer never offers e.g. AV1 on silicon without an AV1 encoder.
     let profiles: Vec<Value> = PROFILES
         .iter()
+        .filter(|p| caps::supports_codec(p.codec))
         .map(|p| {
             json!({
                 "name": p.name,

@@ -21,6 +21,8 @@ use crate::proto::{Event, StreamState};
 /// Resolved parameters for one stream (built by `ops::start` from the request).
 pub struct StartParams {
     pub display_index: usize,
+    /// When set, capture this single window instead of the display.
+    pub window_id: Option<u32>,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
@@ -29,6 +31,8 @@ pub struct StartParams {
     pub push_url: String,
     pub show_cursor: bool,
     pub enable_audio: bool,
+    /// Audio capture scope (desktop-minus-excludes / specific app / none).
+    pub audio_scope: crate::capture::AudioScope,
 }
 
 pub struct StreamSnapshot {
@@ -173,6 +177,8 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
     };
     let cap = Capturer::start(
         params.display_index,
+        params.window_id,
+        params.audio_scope.clone(),
         params.width as usize,
         params.height as usize,
         params.fps,
@@ -198,6 +204,18 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
         uptime_s: 0.0,
     });
 
+    // Constant-frame-rate output: emit a frame every `frame_interval`,
+    // regardless of how fast ScreenCaptureKit delivers. SCK throttles on a
+    // static screen and is slow to deliver the first frame on a cold start, so
+    // raw passthrough lets the stream's media-time crawl behind the wall clock
+    // — MediaMTX then waits out its 10s readTimeout before registering the
+    // publish (the intermittent "i/o timeout" failure). Steady realtime output
+    // (latest frame, a duplicate when static, black before the first frame)
+    // keeps media-time == wall-clock so MediaMTX registers in ~2s, and it keeps
+    // the video in sync with the always-realtime audio.
+    let frame_interval = Duration::from_secs_f64(1.0 / params.fps.max(1) as f64);
+    let mut next_emit = Instant::now();
+    let mut last_frame = None;
     let mut window_start = Instant::now();
     let mut window_frames = 0u64;
 
@@ -208,15 +226,27 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                 Ok(()) | Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
                 Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
-            // Drain any pending audio (non-blocking) before the video frame.
+            // Drain any pending audio (non-blocking).
             if let Some(arx) = &audio_rx {
                 while let Ok(af) = arx.try_recv() {
                     enc.push_audio(&af.samples)?;
                 }
             }
-            match frame_rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(frame) => {
-                    enc.push_bgra(&frame.data, frame.bytes_per_row)?;
+            // Grab the freshest captured frame(s) without blocking.
+            while let Ok(f) = frame_rx.try_recv() {
+                last_frame = Some(f);
+            }
+
+            let now = Instant::now();
+            if now >= next_emit {
+                // Constant-rate emit: the latest captured frame, re-sent as a
+                // duplicate when the screen is static (SCK stops delivering). The
+                // frame is zero-copy — `retained_ptr()` hands the encoder a
+                // retained CVPixelBuffer. Before the first frame arrives we just
+                // wait (no black pre-roll on the hw path); SCK delivers the first
+                // frame within a frame or two of start.
+                if let Some(f) = &last_frame {
+                    enc.push_pixel_buffer(f.retained_ptr())?;
                     window_frames += 1;
                     if window_start.elapsed() >= Duration::from_secs(1) {
                         let fps = window_frames as f64 / window_start.elapsed().as_secs_f64();
@@ -229,8 +259,18 @@ fn run_stream(params: StartParams, stop_rx: std::sync::mpsc::Receiver<()>, share
                         window_frames = 0;
                     }
                 }
-                Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => break,
+                next_emit += frame_interval;
+                if next_emit <= now {
+                    // Fell behind (long encode stall) — resync, don't spiral.
+                    next_emit = now + frame_interval;
+                }
+            } else {
+                // Wait until the next emit deadline or the next captured frame.
+                match frame_rx.recv_timeout(next_emit - now) {
+                    Ok(f) => last_frame = Some(f),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
             }
         }
         // Drain any audio buffered after the last video frame.

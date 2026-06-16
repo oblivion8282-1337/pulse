@@ -21,9 +21,9 @@
  * `gsr.ts::GsrStartArgs` and `streaming/gsr-sidecar/control.py::op_start`).
  */
 
-import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs } from './gsr';
+import { gsr, type GsrGpuInfo, type GsrMonitor, type GsrStartArgs, type GsrWindow } from './gsr';
 import { debounce, loadAll, saveAll } from './persistence';
-import { isWindows } from '$lib/platform/runtime';
+import { isWindows, isMac } from '$lib/platform/runtime';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 
 // ── Types ───────────────────────────────────────────────────────────────────
@@ -103,6 +103,8 @@ export const APP_AUDIO_PREFIX = 'App: ';
  *  on Linux `capture_source` stays `'portal'` (the Wayland portal dialog picks
  *  the screen). */
 export const MONITOR_CAPTURE_PREFIX = 'Monitor: ';
+/** capture_source token for a single window (macOS): `window:<cg-id>`. */
+export const WINDOW_CAPTURE_PREFIX = 'window:';
 
 export function isAppAudioMode(mode: string): boolean {
   return mode.startsWith(APP_AUDIO_PREFIX);
@@ -117,8 +119,11 @@ export function audioModeUsesDesktop(mode: string): boolean {
 }
 
 /** True iff the GPU's reported `video_codecs` mention AV1 (i.e. AV1 encode is
- *  available). Heuristic: any codec string containing "av1", case-insensitive. */
-function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
+ *  available). Heuristic: any codec string containing "av1", case-insensitive.
+ *  Each sidecar reports the *actual* hardware codec set (Linux GSR, Windows
+ *  adapter probe, macOS VideoToolbox), so this gates the codec choice to what
+ *  the machine can really encode — RTX 40xx/M3+ get AV1, older GPUs / M2 don't. */
+export function gpuHasAv1(codecs: ReadonlyArray<string> | undefined): boolean {
   return (codecs ?? []).some((c) => /av1/i.test(c));
 }
 
@@ -148,6 +153,7 @@ export const streamSettings = $state({
   available_audio_apps: [] as string[],
   // Display monitors — only populated on Windows (Linux uses the portal picker).
   available_monitors: [] as GsrMonitor[],
+  available_windows: [] as GsrWindow[],
 
   // GPU info cache (filled by `loadCatalogs()` → consumed by the codec default).
   gpu_info: null as GsrGpuInfo | null,
@@ -281,15 +287,18 @@ export async function loadCatalogs(): Promise<void> {
     // the user already has a stored selection.
     await loadPersisted();
 
-    // Monitors are Windows-only — on Linux the portal dialog picks the source,
-    // so skip the round-trip entirely there.
+    // Monitors back the in-app picker on Windows + macOS (WGC / ScreenCaptureKit
+    // have no portal dialog). On Linux the Wayland portal picks the source at
+    // stream start, so skip the round-trip there.
     // ``listProfiles`` is intentionally not fetched: the HQ panel is channel-mode
     // only and forces ``profile_name='Custom'`` + ``use_overrides=true`` below, so
     // the sidecar's profile catalog has no consumer.
-    const [audioApps, gpuInfo, monitors] = await Promise.all([
+    const [audioApps, gpuInfo, monitors, windows] = await Promise.all([
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
-      isWindows() ? gsr.listMonitors() : Promise.resolve(null),
+      isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
+      // Window picking is a macOS extra (SCK); Windows/WGC streams a monitor.
+      isMac() ? gsr.listWindows() : Promise.resolve(null),
     ]);
 
     if (audioApps?.ok) {
@@ -301,13 +310,16 @@ export async function loadCatalogs(): Promise<void> {
     if (monitors?.ok) {
       streamSettings.available_monitors = monitors.monitors ?? [];
     }
+    if (windows?.ok) {
+      streamSettings.available_windows = windows.windows ?? [];
+    }
 
     // The HQ-stream panel is channel-mode only (push into the current voice
     // channel, explicit codec/res/bitrate/fps). Force the profile; the capture
     // source is platform-dependent — Linux always uses the Wayland portal,
-    // Windows picks a concrete monitor (persisted choice wins if still valid).
-    if (isWindows()) {
-      resolveWindowsCaptureSource();
+    // Windows + macOS pick a concrete monitor (persisted choice wins if valid).
+    if (isWindows() || isMac()) {
+      resolveMonitorCaptureSource();
     } else {
       streamSettings.capture_source = 'portal';
     }
@@ -317,6 +329,9 @@ export async function loadCatalogs(): Promise<void> {
     const hasAv1 = gpuHasAv1(streamSettings.gpu_info?.video_codecs);
     const defaults: OverrideSet = {};
     if (!streamSettings.overrides.codec) defaults.codec = hasAv1 ? 'av1' : 'h264';
+    // Coerce a previously-saved codec this GPU can't encode (e.g. 'av1' carried
+    // over to an H.264-only machine) back to the baseline.
+    else if (streamSettings.overrides.codec === 'av1' && !hasAv1) defaults.codec = 'h264';
     if (streamSettings.overrides.bitrate_kbps === undefined) defaults.bitrate_kbps = 4000;
     if (streamSettings.overrides.fps === undefined) defaults.fps = 60;
     if (Object.keys(defaults).length > 0) {
@@ -341,12 +356,12 @@ export async function refreshAudioApps(): Promise<void> {
 }
 
 /**
- * Windows-only: resolve `capture_source` to a concrete `"Monitor: <n>"` from
+ * Windows + macOS: resolve `capture_source` to a concrete `"Monitor: <n>"` from
  * the enumerated monitors. A persisted choice wins if it still matches a live
  * monitor; otherwise default to the primary one. Falls back to `'portal'`
  * (which the sidecar maps to the primary monitor) when enumeration is empty.
  */
-function resolveWindowsCaptureSource(): void {
+function resolveMonitorCaptureSource(): void {
   const mons = streamSettings.available_monitors;
   if (mons.length === 0) {
     streamSettings.capture_source = 'portal';
@@ -358,15 +373,25 @@ function resolveWindowsCaptureSource(): void {
   streamSettings.capture_source = `${MONITOR_CAPTURE_PREFIX}${primary.index}`;
 }
 
-/** Refresh the monitor list (Windows-only; called from the monitor picker).
+/** Refresh the monitor list (Windows + macOS; called from the monitor picker).
  *  Re-resolves the capture source so a now-unplugged monitor doesn't linger. */
 export async function refreshMonitors(): Promise<void> {
   try {
     const r = await gsr.listMonitors();
     if (r?.ok) {
       streamSettings.available_monitors = r.monitors ?? [];
-      resolveWindowsCaptureSource();
+      resolveMonitorCaptureSource();
     }
+  } catch {
+    // tolerate — keep the previous list
+  }
+}
+
+/** Refresh the capturable-window list (macOS; called from the source picker). */
+export async function refreshWindows(): Promise<void> {
+  try {
+    const r = await gsr.listWindows();
+    if (r?.ok) streamSettings.available_windows = r.windows ?? [];
   } catch {
     // tolerate — keep the previous list
   }

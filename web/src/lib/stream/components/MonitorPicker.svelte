@@ -19,7 +19,9 @@
     streamSettings,
     persistSettings,
     refreshMonitors,
+    refreshWindows,
     MONITOR_CAPTURE_PREFIX,
+    WINDOW_CAPTURE_PREFIX,
   } from '../settings.svelte';
 
   let refreshing = $state(false);
@@ -32,7 +34,7 @@
   async function onRefresh() {
     refreshing = true;
     try {
-      await refreshMonitors();
+      await Promise.all([refreshMonitors(), refreshWindows()]);
     } finally {
       refreshing = false;
     }
@@ -56,7 +58,7 @@
     </Button>
   </div>
 
-  {#if streamSettings.available_monitors.length === 0}
+  {#if streamSettings.available_monitors.length === 0 && streamSettings.available_windows.length === 0}
     <p class="text-text-muted text-xs italic" data-testid="stream-monitor-empty">
       {m.monitor_picker_empty()}
     </p>
@@ -68,13 +70,26 @@
       onchange={onPick}
       data-testid="stream-monitor-select"
     >
-      {#each streamSettings.available_monitors as mon (mon.index)}
-        <option value={`${MONITOR_CAPTURE_PREFIX}${mon.index}`}>
-          {m.monitor_picker_option_label({ index: mon.index, name: mon.name })}{mon.primary ? ` ${m.monitor_picker_option_primary()}` : ''}{mon.width
-            ? ` ${m.monitor_picker_option_resolution({ width: mon.width, height: mon.height })}`
-            : ''}
-        </option>
-      {/each}
+      {#if streamSettings.available_monitors.length > 0}
+        <optgroup label={m.monitor_picker_group_displays()}>
+          {#each streamSettings.available_monitors as mon (mon.index)}
+            <option value={`${MONITOR_CAPTURE_PREFIX}${mon.index}`}>
+              {m.monitor_picker_option_label({ index: mon.index, name: mon.name })}{mon.primary ? ` ${m.monitor_picker_option_primary()}` : ''}{mon.width
+                ? ` ${m.monitor_picker_option_resolution({ width: mon.width, height: mon.height })}`
+                : ''}
+            </option>
+          {/each}
+        </optgroup>
+      {/if}
+      {#if streamSettings.available_windows.length > 0}
+        <optgroup label={m.monitor_picker_group_windows()}>
+          {#each streamSettings.available_windows as w (w.id)}
+            <option value={`${WINDOW_CAPTURE_PREFIX}${w.id}`}>
+              {w.app}{w.title ? ` — ${w.title}` : ''}
+            </option>
+          {/each}
+        </optgroup>
+      {/if}
     </select>
   {/if}
 </div>

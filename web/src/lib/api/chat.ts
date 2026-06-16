@@ -205,6 +205,16 @@ export const chatApi = {
   ): Promise<Channel> {
     return request<Channel>(`/channels/${channelId}`, { method: 'PATCH', body: payload });
   },
+  /** Bulk-set channel positions (drag-and-drop reorder). Needs MANAGE_CHANNELS. */
+  setChannelPositions(
+    guildId: string,
+    positions: { id: string; position: number }[]
+  ): Promise<Channel[]> {
+    return request<Channel[]>(`/guilds/${guildId}/channels-positions`, {
+      method: 'PATCH',
+      body: { positions }
+    });
+  },
 
   // Messages. ``route`` (optional) pinnt das Request an einen bestimmten
   // Server — Guild-Channels lassen es weg (→ aktiver Server), DMs übergeben

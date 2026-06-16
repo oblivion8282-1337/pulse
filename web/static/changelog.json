@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-16",
+      "date": "2026-06-16",
+      "style": "Sachlich",
+      "title": "Kanäle umsortieren und Mac-Streaming",
+      "items": [
+        "Voice- und Textkanäle lassen sich jetzt per Ziehen umsortieren.",
+        "Mac-App: HQ-Streaming startet zuverlässig und nutzt die Grafikkarte effizienter.",
+        "Mac-App: Bildschirm oder einzelnes Fenster als Quelle wählbar, plus Ton-Optionen (eigene Stimme ausschließen, App-Ton, einzelne Apps stummschalten)."
+      ]
+    },
+    {
       "id": "2026-06-15.2",
       "date": "2026-06-15",
       "style": "Sachlich",

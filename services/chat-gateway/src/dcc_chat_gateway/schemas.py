@@ -160,6 +160,17 @@ class ChannelPatchIn(BaseModel):
     topic: Annotated[str | None, Field(default=None, max_length=1024)] = None
 
 
+class ChannelPositionIn(BaseModel):
+    """One entry in a bulk channel-reorder request."""
+
+    id: SnowflakeId
+    position: Annotated[int, Field(ge=0, le=1000)]
+
+
+class ChannelPositionsIn(BaseModel):
+    positions: Annotated[list[ChannelPositionIn], Field(min_length=1, max_length=500)]
+
+
 class MessageIn(BaseModel):
     # ``content`` was min_length=1; with attachments a message can carry an
     # image and zero text. Still empty-string-vs-None-friendly. The route

@@ -36,16 +36,34 @@ use objc2_core_media::{CMBlockBuffer, CMSampleBuffer, CMTime};
 unsafe extern "C" {
     fn CFRelease(cf: *const std::ffi::c_void);
 }
-use objc2_core_video::{
-    CVPixelBufferGetBaseAddress, CVPixelBufferGetBytesPerRow, CVPixelBufferGetHeight,
-    CVPixelBufferGetWidth, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
-    CVPixelBufferUnlockBaseAddress,
-};
+use objc2_core_foundation::CFRetained;
+use objc2_core_video::{CVImageBuffer, CVPixelBufferGetHeight, CVPixelBufferGetWidth};
 use objc2_foundation::{NSArray, NSError, NSObject, NSObjectProtocol};
 use objc2_screen_capture_kit::{
-    SCContentFilter, SCShareableContent, SCStream, SCStreamConfiguration, SCStreamOutput,
-    SCStreamOutputType, SCWindow,
+    SCContentFilter, SCDisplay, SCRunningApplication, SCShareableContent, SCStream,
+    SCStreamConfiguration, SCStreamOutput, SCStreamOutputType, SCWindow,
 };
+
+// The sidecar's parent process is the Electron ("Pulse") main process (it
+// spawns us) — used to exclude Pulse's own audio from a Desktop capture so the
+// streamer's voice channel doesn't echo into the stream.
+unsafe extern "C" {
+    fn getppid() -> i32;
+}
+
+/// What to capture for audio (the SCK content filter scopes video AND audio
+/// together, so these also shape the video). Built by `ops::start` from the
+/// request's `audio` block.
+#[derive(Debug, Clone, Default)]
+pub enum AudioScope {
+    /// No audio capture.
+    #[default]
+    None,
+    /// Desktop audio, excluding Pulse (echo) + these app names.
+    Desktop { exclude: Vec<String> },
+    /// Only this application's audio (and, on macOS, its windows as the video).
+    App(String),
+}
 
 /// A `Retained<T>` we promise is safe to move across threads. Sound for SCK/CM
 /// objects, whose retain/release/use are thread-safe.
@@ -67,14 +85,42 @@ pub struct DisplayInfo {
     pub refresh_hz: i64,
 }
 
-/// One captured video frame: packed BGRA8888, `bytes_per_row`-strided.
+/// One capturable on-screen window, for the app/window source picker.
+#[derive(Debug, Clone)]
+pub struct WindowInfo {
+    /// CoreGraphics window id — round-trips as the `capture: "window:<id>"` token.
+    pub window_id: u32,
+    pub title: String,
+    pub app: String,
+    pub width: i64,
+    pub height: i64,
+}
+
+/// A retained IOSurface-backed `CVPixelBuffer`, safe to move to the encode
+/// thread (IOSurface-backed buffers are shareable across threads).
+pub struct SendPixelBuffer(CFRetained<CVImageBuffer>);
+// SAFETY: see the module note — SCK CVPixelBuffers are thread-safe.
+unsafe impl Send for SendPixelBuffer {}
+
+/// One captured video frame — the GPU pixel buffer itself, **not** copied to
+/// RAM. The encoder wraps it as a VideoToolbox hw-frame (zero-copy).
 pub struct Frame {
     pub width: usize,
     pub height: usize,
-    pub bytes_per_row: usize,
-    pub data: Vec<u8>,
     /// Presentation timestamp in seconds (from the sample buffer's PTS).
     pub pts_seconds: f64,
+    pixel_buffer: SendPixelBuffer,
+}
+
+impl Frame {
+    /// A `*mut CVPixelBuffer` carrying ONE extra retain. Hand it to the encoder;
+    /// its hw-frame free-callback releases the retain. Cloning the `Retained`
+    /// retains; `forget` transfers that +1 to the raw pointer.
+    pub fn retained_ptr(&self) -> *mut std::ffi::c_void {
+        // clone() = CFRetain (+1); into_raw transfers that +1 to the raw pointer
+        // (no release), which the encoder's hw-frame free-callback later drops.
+        CFRetained::into_raw(self.pixel_buffer.0.clone()).as_ptr() as *mut std::ffi::c_void
+    }
 }
 
 /// One captured audio buffer: interleaved Float32 PCM (L,R,L,R,…).
@@ -159,6 +205,119 @@ pub fn list_displays() -> Result<Vec<DisplayInfo>> {
     Ok(out)
 }
 
+/// Application names for the audio picker (specific-app capture + the
+/// desktop-audio exclude list). SCK has no "is this app producing audio?" query,
+/// so we approximate with the running applications that own at least one
+/// on-screen window — the user-facing apps, deduped + sorted — which is the set
+/// worth offering. (The Windows/Linux lists are "apps with an active audio
+/// session"; macOS can't narrow that far without a private CoreAudio tap.)
+pub fn list_audio_applications() -> Result<Vec<String>> {
+    let content = shareable_content()?;
+    let windows = unsafe { content.windows() };
+
+    let mut names = std::collections::BTreeSet::new();
+    for w in windows.iter() {
+        // Keep only normal, on-screen app windows: `windowLayer == 0` drops the
+        // menu bar / Dock / Spotlight / Control Center system layers, and a
+        // minimum size drops tiny helper windows. This turns "every running
+        // process with a surface" into "the apps the user actually sees".
+        if !unsafe { w.isOnScreen() } || unsafe { w.windowLayer() } != 0 {
+            continue;
+        }
+        let frame = unsafe { w.frame() };
+        if frame.size.width < 120.0 || frame.size.height < 120.0 {
+            continue;
+        }
+        if let Some(app) = unsafe { w.owningApplication() } {
+            let name = unsafe { app.applicationName() }.to_string();
+            if !name.is_empty() {
+                names.insert(name);
+            }
+        }
+    }
+    Ok(names.into_iter().collect())
+}
+
+/// Capturable windows for the source picker — same "normal, on-screen, sizeable
+/// window" filter as [`list_audio_applications`], but returns each window with
+/// its CG id + title so the user can stream a single window instead of a whole
+/// display.
+pub fn list_capture_windows() -> Result<Vec<WindowInfo>> {
+    let content = shareable_content()?;
+    let windows = unsafe { content.windows() };
+
+    let mut out = Vec::new();
+    for w in windows.iter() {
+        if !unsafe { w.isOnScreen() } || unsafe { w.windowLayer() } != 0 {
+            continue;
+        }
+        let frame = unsafe { w.frame() };
+        if frame.size.width < 120.0 || frame.size.height < 120.0 {
+            continue;
+        }
+        let app = unsafe { w.owningApplication() }
+            .map(|a| unsafe { a.applicationName() }.to_string())
+            .unwrap_or_default();
+        let title = unsafe { w.title() }
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        out.push(WindowInfo {
+            window_id: unsafe { w.windowID() },
+            title,
+            app,
+            width: frame.size.width as i64,
+            height: frame.size.height as i64,
+        });
+    }
+    Ok(out)
+}
+
+/// Find a window by its CG id in the current shareable content.
+fn find_window(
+    content: &SCShareableContent,
+    window_id: u32,
+) -> Option<Retained<SCWindow>> {
+    let windows = unsafe { content.windows() };
+    windows
+        .iter()
+        .find(|w| unsafe { w.windowID() } == window_id)
+        .map(|w| w.retain())
+}
+
+/// Running applications matching any of `names` (by `applicationName`) or the
+/// given `also_pid` (used to find Pulse's own Electron process via getppid).
+fn resolve_applications(
+    content: &SCShareableContent,
+    names: &[String],
+    also_pid: Option<i32>,
+) -> Vec<Retained<SCRunningApplication>> {
+    let apps = unsafe { content.applications() };
+    let mut out = Vec::new();
+    for a in apps.iter() {
+        let name = unsafe { a.applicationName() }.to_string();
+        let pid = unsafe { a.processID() };
+        if also_pid == Some(pid) || names.iter().any(|n| n == &name) {
+            out.push(a.retain());
+        }
+    }
+    out
+}
+
+/// Resolve the 1-based display index (clamped to the main display).
+fn pick_display(content: &SCShareableContent, display_index: usize) -> Result<Retained<SCDisplay>> {
+    let displays = unsafe { content.displays() };
+    let count = displays.len();
+    if count == 0 {
+        return Err(anyhow!("keine Displays gefunden"));
+    }
+    let idx = if display_index >= 1 && display_index <= count {
+        display_index - 1
+    } else {
+        0
+    };
+    Ok(displays.objectAtIndex(idx))
+}
+
 // ── Frame-output delegate (SCStreamOutput) ───────────────────────────────────
 
 struct OutputIvars {
@@ -206,29 +365,24 @@ impl FrameOutput {
     }
 
     fn handle_video(&self, sample_buffer: &CMSampleBuffer) {
-        // SAFETY: a screen sample buffer is backed by a CVPixelBuffer.
+        // SAFETY: a screen sample buffer is backed by a CVPixelBuffer. We retain
+        // it and hand it on **without locking or copying** — the IOSurface stays
+        // on the GPU and the encoder wraps it as a VideoToolbox hw-frame.
         let Some(image_buffer) = (unsafe { sample_buffer.image_buffer() }) else {
             return;
         };
-        let pb = &*image_buffer;
-        let flags = CVPixelBufferLockFlags::empty();
-        unsafe { CVPixelBufferLockBaseAddress(pb, flags) };
-
-        let base = CVPixelBufferGetBaseAddress(pb);
-        if !base.is_null() {
-            let width = CVPixelBufferGetWidth(pb);
-            let height = CVPixelBufferGetHeight(pb);
-            let bytes_per_row = CVPixelBufferGetBytesPerRow(pb);
-            let len = bytes_per_row.saturating_mul(height);
-            // SAFETY: base points at `len` bytes while the buffer is locked.
-            let data = unsafe { std::slice::from_raw_parts(base as *const u8, len) }.to_vec();
-            let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
-            let frame = Frame { width, height, bytes_per_row, data, pts_seconds: pts };
-            if let Ok(tx) = self.ivars().video_tx.lock() {
-                let _ = tx.send(frame);
-            }
+        let width = CVPixelBufferGetWidth(&image_buffer);
+        let height = CVPixelBufferGetHeight(&image_buffer);
+        let pts = cmtime_seconds(unsafe { sample_buffer.presentation_time_stamp() });
+        let frame = Frame {
+            width,
+            height,
+            pts_seconds: pts,
+            pixel_buffer: SendPixelBuffer(image_buffer),
+        };
+        if let Ok(tx) = self.ivars().video_tx.lock() {
+            let _ = tx.send(frame);
         }
-        unsafe { CVPixelBufferUnlockBaseAddress(pb, flags) };
     }
 
     fn handle_audio(&self, sample_buffer: &CMSampleBuffer) {
@@ -332,6 +486,8 @@ impl Capturer {
     /// if out of range). `width`/`height` are the output pixel dimensions.
     pub fn start(
         display_index: usize,
+        window_id: Option<u32>,
+        audio_scope: AudioScope,
         width: usize,
         height: usize,
         fps: u32,
@@ -341,27 +497,68 @@ impl Capturer {
     ) -> Result<Self> {
         let want_audio = audio_tx.is_some();
         let content = shareable_content()?;
-        let displays = unsafe { content.displays() };
-        let count = displays.len();
-        if count == 0 {
-            return Err(anyhow!("keine Displays gefunden"));
-        }
-        let idx = if display_index >= 1 && display_index <= count {
-            display_index - 1
-        } else {
-            0
-        };
-        let display = displays
-            .objectAtIndex(idx);
+        let empty_windows: Retained<NSArray<SCWindow>> = NSArray::new();
 
-        // Content filter: whole display, excluding nothing.
-        let empty: Retained<NSArray<SCWindow>> = NSArray::new();
-        let filter = unsafe {
-            SCContentFilter::initWithDisplay_excludingWindows(
-                SCContentFilter::alloc(),
-                &display,
-                &empty,
-            )
+        // The SCK content filter scopes video AND audio together, so the audio
+        // mode also shapes what's captured visually:
+        //   - explicit window  → just that window (initWithDesktopIndependentWindow)
+        //   - App(x)           → only app x's windows + audio (includingApplications)
+        //   - Desktop{exclude} → whole display minus Pulse (echo) + excluded apps
+        //                        from both video and audio (excludingApplications)
+        //   - None             → whole display, nothing excluded
+        let filter = if let Some(wid) = window_id {
+            let window = find_window(&content, wid)
+                .ok_or_else(|| anyhow!("Fenster {wid} nicht gefunden (geschlossen?)"))?;
+            unsafe {
+                SCContentFilter::initWithDesktopIndependentWindow(
+                    SCContentFilter::alloc(),
+                    &window,
+                )
+            }
+        } else if let AudioScope::App(app_name) = &audio_scope {
+            let apps = resolve_applications(&content, std::slice::from_ref(app_name), None);
+            if apps.is_empty() {
+                return Err(anyhow!("App '{app_name}' nicht gefunden (läuft sie?)"));
+            }
+            let arr = NSArray::from_retained_slice(&apps);
+            let display = pick_display(&content, display_index)?;
+            unsafe {
+                SCContentFilter::initWithDisplay_includingApplications_exceptingWindows(
+                    SCContentFilter::alloc(),
+                    &display,
+                    &arr,
+                    &empty_windows,
+                )
+            }
+        } else {
+            let display = pick_display(&content, display_index)?;
+            let excludes: &[String] = match &audio_scope {
+                AudioScope::Desktop { exclude } => exclude,
+                _ => &[],
+            };
+            // Always also exclude Pulse itself (the Electron parent process) so
+            // the streamer's voice channel isn't recaptured → no echo.
+            let pulse_pid = if want_audio { Some(unsafe { getppid() }) } else { None };
+            let apps = resolve_applications(&content, excludes, pulse_pid);
+            if apps.is_empty() {
+                unsafe {
+                    SCContentFilter::initWithDisplay_excludingWindows(
+                        SCContentFilter::alloc(),
+                        &display,
+                        &empty_windows,
+                    )
+                }
+            } else {
+                let arr = NSArray::from_retained_slice(&apps);
+                unsafe {
+                    SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
+                        SCContentFilter::alloc(),
+                        &display,
+                        &arr,
+                        &empty_windows,
+                    )
+                }
+            }
         };
 
         // Stream configuration.
