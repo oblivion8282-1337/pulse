@@ -11,11 +11,23 @@
 #   - Shared = wir linken gegen .lib-Stubs, .dll-Dateien werden zur Laufzeit
 #     neben unser .exe gestellt (siehe scripts/copy-ffmpeg-dlls.ps1)
 #
-# Pin: BtbN n8.1-LGPL-shared, SHA-Stand 2026-06-10. Die URL zeigt auf BtbNs
-# rollendes `latest`-Release — BtbN lädt das laufend mit neuen Nightlies neu
-# hoch, d.h. $ExpectedSha muss bei einem BtbN-Re-Release neu gesetzt werden
-# (clean fetch failt sonst mit „SHA256 mismatch"). Die CI cached `ffmpeg-dist/`
-# darum keyed auf diese Datei — solange der Cache hält, kein Re-Download.
+# Quelle: SELBST GEHOSTETE Kopie der BtbN n8.1-LGPL-shared-Win64-Distribution
+# auf unserem VPS (https://howispulse.com/downloads/vendor/…). Bewusst NICHT
+# mehr BtbNs `latest`-Release: das ist ein rollendes Tag, BtbN lädt die
+# Artefakte laufend mit neuen Nightlies neu hoch → der gepinnte $ExpectedSha
+# wird bei jedem Re-Release stale und ein clean fetch failt mit „SHA256
+# mismatch" (genau das hat den win-build-Workflow ab 2026-06-10 reihenweise
+# kaputtgemacht, sobald der CI-Cache weg war). Eine eigene Kopie ist
+# unveränderlich, wird nicht gepruned und kann nicht ohne uns wechseln — der
+# Pin hält damit „für immer". Ein bewusster FFmpeg-Bump = neue datierte Datei
+# hochladen + $Url/$ExpectedSha gemeinsam setzen (nie ein stiller Wechsel).
+# LGPL-Redistribution ist erlaubt; die DLLs liegen separat neben der .exe.
+#
+# Datei einmalig auf den VPS legen (Beispiel, vom Repo-Root):
+#   curl -sSL <BtbN-latest-url> -o ffm.zip
+#   scp ffm.zip michael@159.195.150.54:pulse/downloads/vendor/ffmpeg-n8.1-lgpl-shared-<DATUM>.zip
+#   ssh … 'sha256sum pulse/downloads/vendor/ffmpeg-n8.1-lgpl-shared-<DATUM>.zip'  # → $ExpectedSha
+#
 # Hardware-Encoder enthalten: h264/hevc/av1 für nvenc + amf + qsv. Audio:
 # libopus. Mux: flv + mpegts. TLS: schannel (RTMPS ohne externe OpenSSL-DLL).
 
@@ -27,8 +39,10 @@ $Dist = Join-Path $SidecarRoot 'ffmpeg-dist'
 $Zip = Join-Path $Dist 'ffmpeg-n8.1-win64-lgpl-shared.zip'
 $Target = Join-Path $Dist 'n8.1-lgpl-shared'
 
-$Url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip'
-$ExpectedSha = '215ba4c2ce44925781dffafe834a9edec2aa27e01a8aec67edfd95a7d6036b8f'
+# Selbst gehostet (siehe Kopf-Kommentar). Stammt aus BtbNs n8.1-LGPL-shared-
+# `latest`-Build vom 2026-06-16; danach eingefroren auf unserem VPS.
+$Url = 'https://howispulse.com/downloads/vendor/ffmpeg-n8.1-lgpl-shared-2026-06-16.zip'
+$ExpectedSha = 'b8b241337a3a20ab6cbea66da73cd45377b480d6c4207e44926a3873365f31d7'
 
 if (-not (Test-Path $Dist)) {
     New-Item -ItemType Directory -Path $Dist | Out-Null

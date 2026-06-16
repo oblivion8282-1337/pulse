@@ -40,10 +40,13 @@ jobs:
           workspaces: streaming/win-hq-sidecar
 
       # ffmpeg-dist/ ist nicht im Git (~307 MB) — das Script lädt die
-      # SHA-gepinnte BtbN-LGPL-Distribution nach ffmpeg-dist/n8.1-lgpl-shared/,
-      # wohin .cargo/config.toml FFMPEG_DIR zeigt. Cache keyed auf das Script
-      # (enthält die SHA) → BtbN-Re-Releases brechen den Workflow nicht, solange
-      # der Cache hält; ein SHA-Bump im Script invalidiert ihn automatisch.
+      # SHA-gepinnte FFmpeg-LGPL-Distribution nach ffmpeg-dist/n8.1-lgpl-shared/,
+      # wohin .cargo/config.toml FFMPEG_DIR zeigt. Quelle ist eine SELBST
+      # gehostete, eingefrorene Kopie auf unserem VPS (nicht mehr BtbNs
+      # rollendes `latest`-Tag, das bei jedem Re-Release den SHA-Pin brach und
+      # den Workflow ab 2026-06-10 reihenweise failen liess). Cache nur noch
+      # Performance, nicht Korrektheit; keyed auf das Script (enthält URL+SHA),
+      # ein bewusster Bump invalidiert ihn automatisch.
       - name: FFmpeg-Cache
         uses: actions/cache@v4
         with:
