@@ -233,7 +233,7 @@ async def provisioned(client, alice, alice_instance, _isolate_settings, monkeypa
 async def test_relay_auth_happy(client, provisioned):
     r = await client.post(
         "/selfhost/relay/auth",
-        headers={"x-internal-secret": "s3cr3t"},
+        headers={"x-pulse-internal-secret": "s3cr3t"},
         json={"subdomain": provisioned["relay_subdomain"],
               "token": provisioned["relay_tunnel_token"]},
     )
@@ -245,7 +245,7 @@ async def test_relay_auth_happy(client, provisioned):
 async def test_relay_auth_wrong_token(client, provisioned):
     r = await client.post(
         "/selfhost/relay/auth",
-        headers={"x-internal-secret": "s3cr3t"},
+        headers={"x-pulse-internal-secret": "s3cr3t"},
         json={"subdomain": provisioned["relay_subdomain"], "token": "plse_relay_wrong"},
     )
     assert r.status_code == 401
@@ -255,7 +255,7 @@ async def test_relay_auth_wrong_token(client, provisioned):
 async def test_relay_auth_unknown_subdomain(client, provisioned):
     r = await client.post(
         "/selfhost/relay/auth",
-        headers={"x-internal-secret": "s3cr3t"},
+        headers={"x-pulse-internal-secret": "s3cr3t"},
         json={"subdomain": "ghost-comet-0000.relay.test",
               "token": provisioned["relay_tunnel_token"]},
     )
@@ -282,7 +282,7 @@ async def test_relay_auth_suspended_instance(
         await s.commit()
     r = await client.post(
         "/selfhost/relay/auth",
-        headers={"x-internal-secret": "s3cr3t"},
+        headers={"x-pulse-internal-secret": "s3cr3t"},
         json={"subdomain": provisioned["relay_subdomain"],
               "token": provisioned["relay_tunnel_token"]},
     )
