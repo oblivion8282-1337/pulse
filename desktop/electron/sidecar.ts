@@ -444,19 +444,12 @@ class SidecarManager {
     if (this.child) return this.child;
 
     const target = resolveSidecarSpawn();
-    if (target.command.includes(' ')) {
-      // spawn() doesn't shell-split. A space in the command itself = caller passed
-      // a path with embedded spaces (`C:\Program Files\…\foo.exe`); Node hands that
-      // to CreateProcess as a single argv[0] which fails. The resolved binary path
-      // is always absolute on Windows (`%LOCALAPPDATA%\Pulse\…`) and the dev
-      // walk-up path can land under `Documents\…`, so guard against the user
-      // putting Pulse under a path with spaces (or a custom PULSE_PYTHON).
-      throw new Error(
-        `Pulse sidecar command must not contain spaces (got: ${target.command}). ` +
-          'spawn() does not shell-split.',
-      );
-    }
-
+    // No space-guard on `target.command`: spawn() runs with `shell: false`, so
+    // libuv hands `command` to CreateProcess as the application path and quotes
+    // it itself — spaces are fine (Windows `C:\Program Files\Pulse\…` and
+    // `%LOCALAPPDATA%` under a username with a space). Only `shell: true` would
+    // need manual quoting. A genuinely unlaunchable command surfaces as ENOENT
+    // via `child.on('error')` below, not a pre-emptive throw.
     const child = spawn(target.command, target.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false,
