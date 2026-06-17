@@ -70,13 +70,40 @@ export class SupervisedProcess {
 
   /**
    * Spawnt den Prozess und wartet, bis healthCheck() true zurückgibt.
-   * Wirft, wenn der Prozess stirbt bevor er healthy wird, oder bei Timeout (30 s).
+   * Wirft sofort, wenn der Prozess während des Startups exitiert (kein 30-s-Hang).
+   * Wirft bei Timeout (30 s).
    */
   async start(): Promise<void> {
     this.stopping = false;
     this.restartCount = 0;
     await this._spawn();
-    await waitFor(this.spec.healthCheck, 30_000, 250);
+
+    // Early-exit promise: rejects immediately if the child exits during startup.
+    // Uses a one-shot listener that is NOT part of the normal restart path.
+    let earlyExitReject: ((err: Error) => void) | null = null;
+    const earlyExit = new Promise<never>((_resolve, reject) => {
+      earlyExitReject = reject;
+    });
+
+    const earlyExitHandler = (code: number | null, signal: NodeJS.Signals | null) => {
+      const reason = signal ?? `code ${code}`;
+      earlyExitReject?.(
+        new Error(`${this.spec.name} exited during startup before becoming healthy (${reason})`),
+      );
+    };
+
+    this.child?.once('exit', earlyExitHandler);
+
+    try {
+      await Promise.race([
+        waitFor(this.spec.healthCheck, 30_000, 250),
+        earlyExit,
+      ]);
+    } finally {
+      // Always clean up the listener — prevents leak and double-reject.
+      this.child?.removeListener('exit', earlyExitHandler);
+      earlyExitReject = null;
+    }
   }
 
   /**

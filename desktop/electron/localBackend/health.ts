@@ -84,7 +84,7 @@ export async function waitFor(
   const deadline = Date.now() + totalMs;
   while (Date.now() < deadline) {
     if (await check()) return;
-    await sleep(Math.min(intervalMs, deadline - Date.now()));
+    await sleep(Math.max(0, Math.min(intervalMs, deadline - Date.now())));
   }
   throw new Error(`waitFor: timed out after ${totalMs}ms`);
 }
