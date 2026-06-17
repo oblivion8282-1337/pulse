@@ -12,6 +12,7 @@ members = [
     "services/voice-signaling",
     "services/media-svc",
     "services/mediamtx-auth-hook",
+    "services/relay-frps-plugin",
     "streaming",
 ]
 
