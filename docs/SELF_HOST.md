@@ -57,29 +57,26 @@ für Voice und HQ-Streaming nötig.
 
 ## Manuelle Installation
 
-### 1. Deine Werte bereitlegen
+### 1. Fertige `.env` holen
 
-Aus der Freigabe brauchst du sechs Werte. Lade in der App unter **Meine
-Instanzen** das fertige `.env`-Snippet herunter — es enthält schon
-`PULSE_INSTANCE_ID`, `PULSE_INSTANCE_OWNER_ID` und `PULSE_CLOUD_CLIENT_ID`.
-Ergänzen musst du:
+In der App: **Einstellungen → Self-Host → Server einrichten** → Abschnitt
+**Manuelle Installation** → **`.env` herunterladen**. Die Datei ist komplett
+ausgefüllt — Hostname, Instanz-ID, Owner-ID, Client-ID, ein frisch erzeugtes
+`PULSE_CLOUD_CLIENT_SECRET` und deine Admin-Mail. Du musst nichts von Hand
+eintragen.
 
-- `PULSE_HOSTNAME` — dein Hostname (z. B. `chat.firma.de`)
-- `PULSE_ADMIN_EMAIL` — deine Admin-Adresse (Let's-Encrypt-Benachrichtigungen)
-- `PULSE_CLOUD_CLIENT_SECRET` — das Secret, das dir bei der Freigabe **einmalig**
-  angezeigt wurde (nicht erneut abrufbar, nur zurücksetzbar)
-
-Alle weiteren internen Geheimnisse (Datenbank-Passwort, JWT-Schlüssel,
-LiveKit-/coturn-/MinIO-Credentials) erzeugt der Container beim ersten Start
-selbst und legt sie im `/data`-Volume ab.
+> Jeder Download erzeugt ein **neues** Secret und entwertet das vorherige —
+> lade die Datei einmal herunter und bewahre sie sicher auf. Alle weiteren
+> internen Geheimnisse (DB-Passwort, JWT-/LiveKit-/MinIO-Keys) erzeugt der
+> Container beim ersten Start selbst im `/data`-Volume.
 
 ### 2. Dateien holen und starten
 
 ```bash
 mkdir pulse && cd pulse
 curl -fsSLO https://howispulse.com/self-host/docker-compose.yml
-curl -fsSL  https://howispulse.com/self-host/env.example -o .env
-# .env mit deinen Werten füllen (s. o.)
+# die in Schritt 1 heruntergeladene Datei hierher legen und in ".env" umbenennen:
+mv ~/Downloads/pulse-instance-*.env .env
 docker compose up -d
 ```
 
