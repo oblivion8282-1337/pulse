@@ -57,7 +57,7 @@ export interface StartInput {
   repoRoot?: string;
   /** Zusätzliche Env-Vars, die in jede Service-Env gemergt werden (überschreiben den Basis-Render). */
   extraEnv?: Record<string, string>;
-  /** Relay-Tunnel-Konfiguration. Wenn gesetzt, wird rathole nach chat-gateway gestartet. */
+  /** Relay-Tunnel-Konfiguration. Wenn gesetzt, wird frpc nach chat-gateway gestartet. */
   relay?: TunnelRelay;
 }
 
