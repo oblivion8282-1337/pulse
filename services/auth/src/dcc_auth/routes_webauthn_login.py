@@ -151,7 +151,11 @@ async def webauthn_login_verify(
     # Resolve which account this assertion proves, then require the matched
     # credential to actually belong to it.
     if passwordless:
-        target_user_id = _user_handle_id(payload.credential) or row.user_id
+        target_user_id = _user_handle_id(payload.credential)
+        if target_user_id is None:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, detail="missing userHandle in discoverable assertion"
+            )
     else:
         target_user_id = challenge_user_id
     if row.user_id != target_user_id:

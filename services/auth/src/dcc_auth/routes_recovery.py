@@ -275,7 +275,7 @@ async def email_verification_confirm(
         )
 
     user = await session.get(User, row.user_id)
-    if user is None or user.disabled:
+    if user is None or user.disabled or user.is_suspended:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired token"
         )

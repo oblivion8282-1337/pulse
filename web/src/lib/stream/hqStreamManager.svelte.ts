@@ -142,6 +142,7 @@ export class ManagedHqStream {
   }
 
   #onStream(stream: MediaStream): void {
+    if (this.#disposed) return;
     this.stream = stream;
     // Audio bevorzugt über den Web-Audio-Graphen (boost) — läuft unabhängig vom
     // Video-Element weiter. Greift der nicht, Fallback auf ein verstecktes,

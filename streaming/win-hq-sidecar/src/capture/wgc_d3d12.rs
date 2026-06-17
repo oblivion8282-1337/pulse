@@ -341,6 +341,10 @@ impl Bridge {
             let handle: HANDLE =
                 unsafe { res.CreateSharedHandle(None, GENERIC_ALL.0, PCWSTR::null()) }
                     .context("CreateSharedHandle")?;
+            // NB: NICHT hier schließen — der Wert wandert per `Setup` zum
+            // Pacing-Loop, der ihn erst dort via `OpenSharedHandle` öffnet.
+            // Sofortiges CloseHandle wäre ein Use-after-Close. Geschlossen wird
+            // nach dem Öffnen in pipeline_d3d12.rs::open_shared_bgra.
             out.push(handle.0 as isize);
         }
         Ok(out)

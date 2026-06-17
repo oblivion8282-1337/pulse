@@ -188,7 +188,9 @@ async def handle_watch_leave(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 
 @register_ws_op("watch_handoff")
 async def handle_watch_handoff(ctx: WSOpContext, msg: dict[str, Any]) -> None:
-    await watch_handoff.handle_handoff(ctx.websocket, ctx.user, msg)
+    await watch_handoff.handle_handoff(
+        ctx.websocket, ctx.user, msg, session_factory=SessionLocal
+    )
 
 
 @register_ws_op("watch_stop")

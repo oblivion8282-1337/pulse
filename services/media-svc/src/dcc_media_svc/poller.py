@@ -185,6 +185,14 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
             for cid in stale:
                 pipe.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
             await pipe.execute()
+        # Also remove any stream:active:channel-<cid>-<uid> keys that linger
+        # after the publisher disconnected — otherwise get_whep_url returns 200
+        # with a stale path for a dead stream until the 6h TTL expires.
+        for cid in stale:
+            pattern = f"stream:active:channel-{cid}-*"
+            active_keys = [k async for k in redis.scan_iter(match=pattern, count=100)]
+            if active_keys:
+                await redis.delete(*active_keys)
         await asyncio.gather(*[_publish_event(redis, cid, []) for cid in stale])
         for cid in stale:
             log.info("stream_state_change", channel_id=cid, user_ids=[])

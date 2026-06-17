@@ -25,11 +25,12 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
   const lastId = messages.lastPersistedId(cid);
   if (!lastId) return;
   try {
-    // Fetch the latest page rather than a bare `?after` slice: it backfills
-    // new messages (`mergeGap`) AND lets `reconcile` re-sync reactions /
-    // edits that landed on messages we already hold — a `?after` page
-    // never sees changes on existing rows.
-    const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT });
+    // Fetch only messages newer than our last known id so that
+    // `page.length >= GAP_FILL_LIMIT` is a genuine overflow indicator.
+    // Without `after`, exactly 100 new messages would trigger a false
+    // overflow because oldestFetched > lastId could still be true even
+    // though no gap exists.
+    const page = await chatApi.listMessages(cid, { limit: GAP_FILL_LIMIT, after: lastId });
     if (!page.length) return;
     // `listMessages` returns newest-first → its last entry is the oldest.
     const oldestFetched = page[page.length - 1].id;

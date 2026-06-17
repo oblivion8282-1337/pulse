@@ -211,7 +211,7 @@ async def confirm_email_change(
         raise bad
 
     user = await session.get(User, row.user_id)
-    if user is None or user.disabled:
+    if user is None or user.disabled or user.is_suspended:
         raise bad
 
     clash = (

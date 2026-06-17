@@ -309,6 +309,7 @@ class SidecarManager {
   private nextId = 1;
   private readonly pending = new Map<number, PendingRequest>();
   private eventCb: EventCallback | null = null;
+  private _shuttingDown: Promise<void> | null = null;
 
   /** Register the event callback (set once by main.ts → relays to the renderer).
    *  Does NOT spawn the sidecar; spawning stays lazy on first `call()`. */
@@ -392,9 +393,18 @@ class SidecarManager {
    *  short grace. (Closing stdin first avoids the sidecar's signal handler
    *  hitting a reentrant `sys.stdin.close()` while it's blocked reading stdin.) */
   async shutdown(): Promise<void> {
+    if (this._shuttingDown) return this._shuttingDown;
+
     const child = this.child;
     if (!child) return;
 
+    this._shuttingDown = this._doShutdown(child).finally(() => {
+      this._shuttingDown = null;
+    });
+    return this._shuttingDown;
+  }
+
+  private async _doShutdown(child: ChildProcessWithoutNullStreams): Promise<void> {
     // Reject anything still in flight so callers don't hang.
     for (const [id, p] of this.pending) {
       clearTimeout(p.timer);

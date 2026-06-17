@@ -185,10 +185,13 @@ impl StreamController {
             }
         }
         // Worker hat im Erfolgsfall schon einen `stopped`-Event emittiert;
-        // hier ist nur Aufräumen.
+        // hier ist nur Aufräumen. Nicht "error" überschreiben — worker_finished
+        // kann diesen State während des join-Windows setzen.
         let mut inner = self.inner.lock().unwrap();
         inner.snapshot.running = false;
-        inner.snapshot.state = "stopped";
+        if inner.snapshot.state != "error" {
+            inner.snapshot.state = "stopped";
+        }
         inner.started_at = None;
         Ok(())
     }

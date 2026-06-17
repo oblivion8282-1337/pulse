@@ -60,8 +60,9 @@ class MessageStore {
     this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
     // Update the ID set with the new message and remove any pruned messages.
     ids.add(msg.id);
-    if (next.length < list.length) {
-      // Messages were pruned, rebuild the set.
+    if (ids.size > next.length) {
+      // Messages were pruned (ids already has the new id, but next was sliced
+      // back to CAP), rebuild the set to evict the stale ids.
       ids.clear();
       next.forEach((m) => ids.add(m.id));
     }
