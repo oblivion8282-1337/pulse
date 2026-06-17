@@ -1,5 +1,8 @@
 import type { RemoteAudioTrack } from 'livekit-client';
 import { isMobile } from '$lib/platform/runtime';
+import type { SpatialMode } from '$lib/stores/settings.svelte';
+import { loadResonance } from './spatial/resonanceLoader';
+import { SpatialScene, resolveQuality } from './spatial/spatialScene';
 
 type SinkCapable = { setSinkId?: (id: string) => Promise<void> };
 
@@ -98,6 +101,15 @@ export class RemoteAudioElements {
    *  On the mobile `<audio>` path the effective element volume is clamped to
    *  0..1, so a master >100 % can't boost there (only attenuate). */
   #masterVolume = 1;
+  /** Persisted spatial-audio mode. `off` (and always on mobile) = flat mix —
+   *  tails go straight to `ctx.destination`. Otherwise each tail is routed
+   *  into the participant's Resonance source via `#spatial`. */
+  #spatialMode: SpatialMode = 'off';
+  /** Active binaural scene, or null when spatial audio is off / not yet loaded.
+   *  Built lazily on first non-off mode (the vendored bundle is fetched then). */
+  #spatial: SpatialScene | null = null;
+  /** Guards against overlapping async (re)builds racing each other. */
+  #spatialBuildToken = 0;
 
   #ensureContext(): AudioContext {
     if (this.#ctx && this.#ctx.state !== 'closed') return this.#ctx;
@@ -155,13 +167,17 @@ export class RemoteAudioElements {
     const ctx = this.#ensureContext();
     const source = ctx.createMediaStreamSource(stream);
     const gain = ctx.createGain();
-    gain.connect(ctx.destination);
 
     const node: AudioNodeBundle = { source, compressor: null, gain, limiter: null, anchor, userId };
     source.connect(gain);
+    this.#spatial?.ensureSource(userId);
+    gain.connect(this.#outputTarget(node, ctx));
     this.#syncNode(node);
     this.#nodes.set(sid, node);
     this.#indexUser(userId, sid);
+    // First track while a non-off mode is pending: build the scene now that a
+    // context exists (lazily fetches the engine, then reroutes every track).
+    if (this.#spatialMode !== 'off' && !this.#spatial) void this.setSpatialMode(this.#spatialMode);
 
     if (ctx.state === 'suspended') {
       void ctx.resume().then(() => { if (ctx.state !== 'running') onBlocked(); }).catch(() => onBlocked());
@@ -182,7 +198,10 @@ export class RemoteAudioElements {
     const sids = this.#userSids.get(node.userId);
     if (sids) {
       sids.delete(sid);
-      if (sids.size === 0) this.#userSids.delete(node.userId);
+      if (sids.size === 0) {
+        this.#userSids.delete(node.userId);
+        this.#spatial?.removeSource(node.userId);
+      }
     }
   }
 
@@ -266,6 +285,8 @@ export class RemoteAudioElements {
   /** Final teardown: clears all nodes then closes and releases the AudioContext. */
   destroy(): void {
     this.clear();
+    this.#spatial?.destroy();
+    this.#spatial = null;
     this.#ctx?.close().catch(() => undefined);
     this.#ctx = null;
   }
@@ -282,6 +303,22 @@ export class RemoteAudioElements {
   #elementVolume(userId: string): number {
     const mult = (this.#userVolumes.get(userId) ?? 1) * this.#masterVolume;
     return Math.max(0, Math.min(1, mult));
+  }
+
+  /** Create a DynamicsCompressorNode with the given parameter set. Shared by the
+   *  >100 % boost compressor and the playback peak limiter — both are
+   *  DynamicsCompressorNodes differing only in their parameter values. */
+  #makeCompressor(
+    ctx: AudioContext,
+    cfg: { threshold: number; knee: number; ratio: number; attack: number; release: number }
+  ): DynamicsCompressorNode {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = cfg.threshold;
+    comp.knee.value = cfg.knee;
+    comp.ratio.value = cfg.ratio;
+    comp.attack.value = cfg.attack;
+    comp.release.value = cfg.release;
+    return comp;
   }
 
   #computeGain(userId: string): number {
@@ -313,13 +350,7 @@ export class RemoteAudioElements {
     const needsCompressor = (this.#userVolumes.get(node.userId) ?? 1) > 1;
     if (needsCompressor && !node.compressor) {
       try { node.source.disconnect(node.gain); } catch { /* already detached */ }
-      const comp = ctx.createDynamicsCompressor();
-      const c = RemoteAudioElements.COMPRESSOR;
-      comp.threshold.value = c.threshold;
-      comp.knee.value = c.knee;
-      comp.ratio.value = c.ratio;
-      comp.attack.value = c.attack;
-      comp.release.value = c.release;
+      const comp = this.#makeCompressor(ctx, RemoteAudioElements.COMPRESSOR);
       node.source.connect(comp);
       comp.connect(node.gain);
       node.compressor = comp;
@@ -338,24 +369,77 @@ export class RemoteAudioElements {
    *  doesn't glitch the graph. Desktop-only. */
   #applyLimiterTail(node: AudioNodeBundle, ctx: AudioContext): void {
     if (!node.gain) return;
+    const dest = this.#outputTarget(node, ctx);
     if (this.#limiterEnabled && !node.limiter) {
-      try { node.gain.disconnect(ctx.destination); } catch { /* not connected */ }
-      const lim = ctx.createDynamicsCompressor();
-      const l = RemoteAudioElements.LIMITER;
-      lim.threshold.value = l.threshold;
-      lim.knee.value = l.knee;
-      lim.ratio.value = l.ratio;
-      lim.attack.value = l.attack;
-      lim.release.value = l.release;
+      try { node.gain.disconnect(dest); } catch { /* not connected */ }
+      const lim = this.#makeCompressor(ctx, RemoteAudioElements.LIMITER);
       node.gain.connect(lim);
-      lim.connect(ctx.destination);
+      lim.connect(dest);
       node.limiter = lim;
     } else if (!this.#limiterEnabled && node.limiter) {
       try { node.gain.disconnect(node.limiter); } catch { /* */ }
       try { node.limiter.disconnect(); } catch { /* */ }
       node.limiter = null;
-      node.gain.connect(ctx.destination);
+      node.gain.connect(dest);
     }
+  }
+
+  /** Where a node's chain tail should terminate: the participant's Resonance
+   *  source input when spatial audio is active, else `ctx.destination`. */
+  #outputTarget(node: AudioNodeBundle, ctx: AudioContext): AudioNode {
+    return this.#spatial?.sourceInput(node.userId) ?? ctx.destination;
+  }
+
+  /** Reconnect a node's current tail (limiter if present, else gain) to the
+   *  output target — used after the spatial mode changes without the limiter
+   *  state changing. `gain → comp/source` wiring is untouched. */
+  #rewireOutput(node: AudioNodeBundle, ctx: AudioContext): void {
+    const tail = node.limiter ?? node.gain;
+    if (!tail) return;
+    try { tail.disconnect(); } catch { /* already gone */ }
+    tail.connect(this.#outputTarget(node, ctx));
+  }
+
+  /** Set the spatial-audio mode. Builds/destroys the binaural scene (lazily
+   *  fetching the vendored engine on first use) and reroutes every track.
+   *  No-op on mobile (no Web Audio graph to spatialise). */
+  async setSpatialMode(mode: SpatialMode): Promise<void> {
+    this.#spatialMode = mode;
+    if (this.#mobile) return;
+    const token = ++this.#spatialBuildToken;
+
+    if (mode === 'off') {
+      this.#teardownSpatial();
+      return;
+    }
+    const ctx = this.#ctx;
+    if (!ctx) return; // no active playback yet — applied when tracks attach
+
+    try {
+      const Ctor = await loadResonance();
+      if (token !== this.#spatialBuildToken) return; // superseded by a newer call
+      this.#spatial?.destroy();
+      this.#spatial = new SpatialScene(Ctor, ctx, resolveQuality(mode));
+      for (const node of this.#nodes.values()) {
+        this.#spatial.ensureSource(node.userId);
+        this.#rewireOutput(node, ctx);
+      }
+    } catch {
+      this.#teardownSpatial(); // load failed → stay on the flat mix
+    }
+  }
+
+  /** Position a participant around the listener (0° = front, +90° = right). */
+  setSpatialPosition(userId: string, azimuthDeg: number, distance: number): void {
+    this.#spatial?.setPosition(userId, azimuthDeg, distance);
+  }
+
+  #teardownSpatial(): void {
+    if (!this.#spatial) return;
+    this.#spatial.destroy();
+    this.#spatial = null;
+    const ctx = this.#ctx;
+    if (ctx) for (const node of this.#nodes.values()) this.#rewireOutput(node, ctx);
   }
 
   async #setSink(target: AudioContext | HTMLAudioElement, deviceId: string): Promise<void> {
