@@ -52,6 +52,8 @@ export interface StartInput {
   ports?: Partial<ExtendedPorts>;
   /** Absoluter Pfad zum Repository-Root. Default: aus diesem Modul berechnet. */
   repoRoot?: string;
+  /** Zusätzliche Env-Vars, die in jede Service-Env gemergt werden (überschreiben den Basis-Render). */
+  extraEnv?: Record<string, string>;
 }
 
 export type ComponentStatus = 'stopped' | 'starting' | 'running' | 'failed';
@@ -214,6 +216,8 @@ export class LocalBackendManager {
         MEDIAMTX_API_URL: `http://127.0.0.1:9997/v3/paths/list`,
         // mediamtx-auth-hook Port für media-svc
         MEDIAMTX_AUTH_HOOK_URL: `http://127.0.0.1:${ports.mediaAuthHook}`,
+        // Caller-Overrides (z.B. für Smoke-Tests oder spezielle Deployments)
+        ...input.extraEnv,
       };
 
       // 4. Postgres initialisieren (idempotent)
