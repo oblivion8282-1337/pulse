@@ -7,7 +7,8 @@
       "style": "Sachlich",
       "title": "Manuelle Installation für eigene Server vervollständigt",
       "items": [
-        "Im Einrichten-Dialog gibt es jetzt einen klar sichtbaren Bereich „Manuelle Installation“ mit einem Knopf, der eine fertige Konfigurationsdatei (.env) herunterlädt — inklusive aller Zugangsdaten.",
+        "Im Einrichten-Dialog gibt es jetzt einen klar sichtbaren Bereich „Manuelle Installation“ — direkt unter dem Schnell-Installer — mit einem Knopf, der eine fertige Konfigurationsdatei (.env) herunterlädt, inklusive aller Zugangsdaten.",
+        "Der Link zur ausführlichen Schritt-für-Schritt-Anleitung ist deutlicher sichtbar.",
         "Die Anleitung wird wieder mit korrekten Umlauten angezeigt."
       ]
     },
