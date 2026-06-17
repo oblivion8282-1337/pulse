@@ -187,7 +187,8 @@ describe('Tunnel-Integration: chat-gateway durch rathole erreichbar', { skip: !b
     // rathole-Client-Prozess killen (der Manager findet ihn über den Config-Pfad)
     const clientConfigPath = join(tmpDir, 'pulse-host', 'data', 'rathole-client.toml');
     try {
-      execFileSync('pkill', ['-f', 'rathole-client.toml'], { stdio: 'ignore' });
+      // Voller Config-Pfad → trifft nur diesen Client (parallel-run-sicher)
+      execFileSync('pkill', ['-f', clientConfigPath], { stdio: 'ignore' });
     } catch {
       // pkill gibt exit 1 wenn kein Prozess gefunden — ignorieren
     }
