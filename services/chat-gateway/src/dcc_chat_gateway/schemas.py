@@ -149,15 +149,28 @@ class ChannelOut(BaseModel):
     # VIEW_CHANNEL (channel only visible via explicit allows). Routes stamp
     # it onto the ORM instance before returning; defaults False otherwise.
     restricted: bool = False
+    # Per-channel name styling (mirrors profile_color*). NULL = no styling.
+    name_color: str | None = None
+    name_color_secondary: str | None = None
+    name_gradient_angle: int | None = None
 
     @field_serializer("id", "guild_id")
     def _ser_ids(self, v: int) -> str:
         return _id_str(v)
 
 
+_HEX_COLOR = r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+
+
 class ChannelPatchIn(BaseModel):
     name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
     topic: Annotated[str | None, Field(default=None, max_length=1024)] = None
+    # Per-channel name styling. Hex-only (value lands in client `style="…"`):
+    # default=... sentinel so model_fields_set distinguishes "not sent" from
+    # "set to null" (clearing the color). Same pattern as profile_color.
+    name_color: Annotated[str | None, Field(default=..., pattern=_HEX_COLOR)] = None
+    name_color_secondary: Annotated[str | None, Field(default=..., pattern=_HEX_COLOR)] = None
+    name_gradient_angle: Annotated[int | None, Field(default=..., ge=0, le=360)] = None
 
 
 class ChannelPositionIn(BaseModel):

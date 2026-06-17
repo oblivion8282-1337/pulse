@@ -51,6 +51,9 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         # Stamped onto the instance by routes that computed it; freshly
         # created channels have no overwrites yet → False.
         "restricted": getattr(channel, "restricted", False),
+        "name_color": channel.name_color,
+        "name_color_secondary": channel.name_color_secondary,
+        "name_gradient_angle": channel.name_gradient_angle,
     }
 
 
@@ -244,6 +247,15 @@ async def patch_channel(
         channel.name = payload.name
     if payload.topic is not None:
         channel.topic = payload.topic
+    # Styling uses the default=... sentinel: an omitted field is left untouched,
+    # an explicit null clears it.
+    fields_set = payload.model_fields_set
+    if "name_color" in fields_set:
+        channel.name_color = payload.name_color
+    if "name_color_secondary" in fields_set:
+        channel.name_color_secondary = payload.name_color_secondary
+    if "name_gradient_angle" in fields_set:
+        channel.name_gradient_angle = payload.name_gradient_angle
     await session.commit()
     await session.refresh(channel)
     restricted = await restricted_channel_ids(
