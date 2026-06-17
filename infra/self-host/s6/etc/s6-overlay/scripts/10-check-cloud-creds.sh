@@ -40,7 +40,7 @@ Set these in your \`docker run\` (or compose file). Example:
 instance_id, owner_id, client_id and client_secret all come from approval on
 howispulse.com — copy the ready-to-use .env from "Meine Instanzen" (Download)
 and fill in the client_secret you saved at approval time.
-(see docs/SELF_HOST.md → "Setup für Self-Hoster", step 4).
+(see docs/SELF_HOST.md → "Manuelle Installation → Deine Werte bereitlegen").
 EOF
     exit 1
 fi
