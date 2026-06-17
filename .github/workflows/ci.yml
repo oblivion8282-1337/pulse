@@ -168,6 +168,11 @@ jobs:
             args: |
               SVC_DIR=mediamtx-auth-hook
               SVC_PKG=dcc_mediamtx_auth_hook
+          - name: relay-frps-plugin
+            file: Dockerfile.service
+            args: |
+              SVC_DIR=relay-frps-plugin
+              SVC_PKG=dcc_relay_frps_plugin
     steps:
       - uses: actions/checkout@v4
       # Pre-pull the buildkit image with retry BEFORE setup-buildx bootstraps
