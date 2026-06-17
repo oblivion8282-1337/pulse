@@ -3,6 +3,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import StreamGrid from './StreamGrid.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
+  import SpatialPositioner from './SpatialPositioner.svelte';
   import MemberList from './MemberList.svelte';
   import { gateway } from '$lib/ws/connection';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
@@ -68,6 +69,10 @@
   function toggleMemberList(): void {
     memberListOpen = !memberListOpen;
   }
+
+  // Spatial circle view: only offered on desktop while spatial audio is on.
+  let spatialViewOn = $state(false);
+  let spatialAvailable = $derived(settings.audio.spatialMode !== 'off' && !viewport.isMobile);
 
   // Subscription auf chat:channel:<cid>, damit `stream_chat_message`-Events
   // (per-Channel via `_subs` gefiltert) hier ankommen.
@@ -153,6 +158,33 @@
     <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
     <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {statusLabel}</span>
     <div class="ml-auto flex items-center gap-1">
+      {#if isThisChannel && voice.connected && spatialAvailable && !streamViewOpen && voice.participants.length > 0}
+        <div
+          class="bg-bg-input flex gap-0.5 rounded-full p-0.5 max-md:hidden"
+          role="group"
+          aria-label={m.voice_channel_view_spatial_toggle_aria()}
+          data-testid="spatial-view-toggle"
+        >
+          <button
+            class="rounded-full px-2.5 py-1 text-xs transition-colors"
+            class:bg-primary={!spatialViewOn}
+            class:text-white={!spatialViewOn}
+            class:text-text-muted={spatialViewOn}
+            onclick={() => (spatialViewOn = false)}
+          >
+            {m.voice_channel_view_spatial_tiles()}
+          </button>
+          <button
+            class="rounded-full px-2.5 py-1 text-xs transition-colors"
+            class:bg-primary={spatialViewOn}
+            class:text-white={spatialViewOn}
+            class:text-text-muted={!spatialViewOn}
+            onclick={() => (spatialViewOn = true)}
+          >
+            {m.voice_channel_view_spatial_spatial()}
+          </button>
+        </div>
+      {/if}
       <button
         class="rounded-full p-2.5 transition-colors md:p-2 hover:bg-bg-hover hover:text-primary max-md:hidden"
         onclick={toggleMemberList}
@@ -186,6 +218,8 @@
         </div>
       {:else if streamViewOpen}
         <StreamGrid {channel} />
+      {:else if spatialViewOn && spatialAvailable}
+        <SpatialPositioner channelId={channel.id} />
       {:else}
         <div class="flex flex-1 flex-col items-center justify-center gap-4 p-3 md:gap-6 md:p-8">
           <div class="flex flex-wrap items-center justify-center gap-4 md:gap-6" data-testid="voice-participants">
