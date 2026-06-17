@@ -35,9 +35,12 @@ import { runMigrations } from './migrations.ts';
 import { SupervisedProcess } from './process.ts';
 import { tcpProbe } from './health.ts';
 import { controlPlaneComponents } from './components.ts';
+import { tunnelComponent } from './tunnel.ts';
 
+import type { TunnelRelay } from './tunnel.ts';
 import type { FixtureIdentity, Ports } from './renderConfig.ts';
 import type { ExtendedPorts } from './components.ts';
+import type { SupervisedProcessSpec } from './process.ts';
 
 // ---------------------------------------------------------------------------
 // Typen
@@ -54,6 +57,8 @@ export interface StartInput {
   repoRoot?: string;
   /** Zusätzliche Env-Vars, die in jede Service-Env gemergt werden (überschreiben den Basis-Render). */
   extraEnv?: Record<string, string>;
+  /** Relay-Tunnel-Konfiguration. Wenn gesetzt, wird rathole nach chat-gateway gestartet. */
+  relay?: TunnelRelay;
 }
 
 export type ComponentStatus = 'stopped' | 'starting' | 'running' | 'failed';
@@ -177,7 +182,10 @@ export class LocalBackendManager {
         chat: ports.chat,
         media: ports.media,
       };
-      const baseEnv = renderEnv({ dirs, secrets, ports: basePorts, identity: input.identity });
+      const effectiveIdentity: FixtureIdentity = input.relay
+        ? { ...input.identity, relaySubdomain: input.relay.subdomain }
+        : input.identity;
+      const baseEnv = renderEnv({ dirs, secrets, ports: basePorts, identity: effectiveIdentity });
 
       // Zusätzliche Env-Overrides für lokalen Stack
       const fullEnv: Record<string, string> = {
@@ -220,23 +228,17 @@ export class LocalBackendManager {
       const specs = controlPlaneComponents(fullEnv, dirs, ports, secrets, repoRoot);
 
       for (const spec of specs) {
-        console.log(`[manager] Starte ${spec.name}...`);
-        this._compStatus[spec.name] = 'starting';
-        const proc = new SupervisedProcess(spec);
-
-        // start() spawnt + wartet auf healthCheck (intern bis 30 s)
-        // Für minio + auth erhöhen wir den Timeout über waitFor in der Spec
-        await proc.start();
-
-        this._startedProcs.push({ name: spec.name, proc });
-        this._compStatus[spec.name] = 'running';
-        console.log(`[manager] ${spec.name} läuft.`);
-
+        await this._startSpec(spec);
         // Nach MinIO-Start: Bucket sicherstellen
         if (spec.name === 'minio') {
           console.log('[manager] MinIO-Bucket sicherstellen...');
           await ensureMinioBucket(fullEnv, repoRoot);
         }
+      }
+
+      // 14. Tunnel starten (optional, nach chat-gateway)
+      if (input.relay) {
+        await this._startSpec(tunnelComponent({ dirs, relay: input.relay, chatPort: ports.chat }));
       }
 
       this._state = 'running';
@@ -288,6 +290,16 @@ export class LocalBackendManager {
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  private async _startSpec(spec: SupervisedProcessSpec): Promise<void> {
+    console.log(`[manager] Starte ${spec.name}...`);
+    this._compStatus[spec.name] = 'starting';
+    const proc = new SupervisedProcess(spec);
+    await proc.start();
+    this._startedProcs.push({ name: spec.name, proc });
+    this._compStatus[spec.name] = 'running';
+    console.log(`[manager] ${spec.name} läuft.`);
+  }
 
   private async _rollback(): Promise<void> {
     const toStop = [...this._startedProcs].reverse().filter(e => e.name !== 'postgres');
