@@ -60,3 +60,39 @@ export function resolveBinary(
 
   throw new BinaryNotFoundError(name);
 }
+
+// ---------------------------------------------------------------------------
+// uv-Resolver
+// ---------------------------------------------------------------------------
+
+const UV_CANDIDATES: string[] = [
+  process.env.HOME ? `${process.env.HOME}/.local/bin/uv` : '',
+  '/usr/local/bin/uv',
+  '/opt/homebrew/bin/uv',
+  '/usr/bin/uv',
+].filter(Boolean);
+
+/**
+ * Sucht das uv-Binary: PULSE_UV_BIN → feste Kandidaten → PATH (which).
+ * Wirft wenn nicht gefunden.
+ */
+export function resolveUv(env: Record<string, string | undefined> = process.env): string {
+  if (env.PULSE_UV_BIN) return env.PULSE_UV_BIN;
+  for (const cand of UV_CANDIDATES) {
+    if (existsSync(cand)) return cand;
+  }
+  try {
+    const which = process.platform === 'win32' ? 'where' : 'which';
+    const result = execFileSync(which, ['uv'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env,
+    });
+    const resolved = result.trim().split('\n')[0].trim();
+    if (resolved) return resolved;
+  } catch { /* nicht auf PATH */ }
+  throw new Error(
+    '[paths] uv nicht gefunden. ' +
+    'Installiere uv (https://docs.astral.sh/uv/) oder setze PULSE_UV_BIN.',
+  );
+}
