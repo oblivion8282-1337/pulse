@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.12",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen und Stabilität",
+      "items": [
+        "Erwähnungen (@Name) werden in Nachrichten wieder farblich hervorgehoben.",
+        "Die Fenster-Auswahl beim Bildschirm-Streaming funktioniert wieder (macOS).",
+        "Versehentliche Erwähnungs-Benachrichtigungen beim Neutippen wurden behoben.",
+        "Eine vom Admin gesetzte Stummschaltung bleibt jetzt auch nach dem Aufheben von \"Ton aus\" bestehen.",
+        "Mehrere Stabilitäts- und Aufräum-Verbesserungen bei Voice und Streaming.",
+        "Sicherheitskorrekturen in der Rechte- und Server-Verwaltung."
+      ]
+    },
+    {
       "id": "2026-06-17.11",
       "date": "2026-06-17",
       "style": "Sachlich",
