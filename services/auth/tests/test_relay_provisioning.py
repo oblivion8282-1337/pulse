@@ -287,3 +287,41 @@ async def test_relay_auth_suspended_instance(
               "token": provisioned["relay_tunnel_token"]},
     )
     assert r.status_code == 403
+
+
+# --------------------------------------------------------------------------- #
+# Caddy On-Demand-TLS-Check                                                     #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_tls_check_active_subdomain_200(client, provisioned):
+    r = await client.get(
+        "/selfhost/relay/tls-check",
+        params={"domain": provisioned["relay_subdomain"]},
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.asyncio
+async def test_tls_check_unknown_subdomain_404(client, provisioned):
+    r = await client.get(
+        "/selfhost/relay/tls-check",
+        params={"domain": "ghost-comet-0000.relay.test"},
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_tls_check_suspended_subdomain_404(
+    client, provisioned, alice_instance, session_factory
+):
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, alice_instance.id)
+        inst.status = "suspended"
+        await s.commit()
+    r = await client.get(
+        "/selfhost/relay/tls-check",
+        params={"domain": provisioned["relay_subdomain"]},
+    )
+    assert r.status_code == 404
