@@ -26,4 +26,4 @@ export type BinaryName =
   | 'minio'
   | 'uvicorn'
   | 'alembic'
-  | 'rathole';
+  | 'frpc';
