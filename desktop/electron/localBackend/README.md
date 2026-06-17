@@ -1,7 +1,7 @@
 # localBackend — Self-Host-Orchestrator
 
 Orchestriert den vollständigen lokalen Self-Host-Stack (Postgres, Redis, MinIO, auth-svc, media-svc,
-mediamtx-auth-hook, chat-gateway) sowie optional einen rathole-Client-Tunnel zum Cloud-Relay.
+mediamtx-auth-hook, chat-gateway) sowie optional einen frpc-Client-Tunnel zum Cloud-Relay.
 
 ## Voraussetzungen (Binaries)
 
@@ -11,9 +11,11 @@ mediamtx-auth-hook, chat-gateway) sowie optional einen rathole-Client-Tunnel zum
 | `redis-server` | Redis | `brew install redis` |
 | `minio` | MinIO Object Storage | `brew install minio` |
 | `uv` | Python-Toolchain | <https://docs.astral.sh/uv/> |
-| `rathole` | Reverse-Tunnel-Client | `brew install rathole` (oder Binary von <https://github.com/rapiz1/rathole/releases>) |
+| `frpc` | Reverse-Tunnel-Client (zum Cloud-Relay) | `brew install frpc` |
 
-`rathole` 0.5.0 ist getestet. Der Tunnel-Test benötigt `rathole` auf dem PATH.
+`frpc` 0.69 ist getestet. Der frpc-Client wird via `relay`-Konfig in `LocalBackendManager.start()`
+nach dem chat-gateway gestartet (siehe `tunnel.ts`); der serverseitige Auth-Hook lebt in
+`services/relay-frps-plugin`.
 
 ## Integrationstests
 
@@ -27,20 +29,14 @@ node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
   test/localBackend/manager.int.test.ts
 ```
 
-### Tunnel-Test (rathole-Roundtrip)
+### Tunnel-End-to-End-Test (frp-Auth-Hook)
 
-Testet, dass ein HTTP-Request `chat-gateway /health` durch einen lokalen rathole-Tunnel (Server +
-Client) erreichbar ist, und dass der `SupervisedProcess`-Reconnect funktioniert.
+Der Tunnel-E2E-Test (frps + Server-Plugin + frpc → Request durch den Tunnel, plus Deny-Token,
+Deny-Impersonation und Reconnect) lebt jetzt im Relay-Plugin-Paket:
 
 ```bash
-cd desktop && \
-PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH" \
-node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
-  --test --test-timeout=120000 \
-  test/localBackend/tunnel.int.test.ts
+cd services/relay-frps-plugin && uv run pytest tests/test_integration.py -v
 ```
 
-Der Test überspringt sich automatisch, wenn `rathole`, `initdb`, `redis-server`, `minio` oder `uv`
-nicht gefunden werden.
-
-> **Hinweis:** Der Tunnel-End-to-End-Test (frp-Auth-Hook) befindet sich jetzt in `services/relay-frps-plugin/tests/test_integration.py`.
+Der Test überspringt sich automatisch, wenn `frps`/`frpc` nicht auf dem PATH sind
+(`brew install frpc frps`).
