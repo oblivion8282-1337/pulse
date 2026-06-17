@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { renderRatholeClientConfig, tunnelComponent } from '../../electron/localBackend/tunnel.ts';
+import { renderRatholeClientConfig, tunnelComponent, RATHOLE_TUNNEL_NAME } from '../../electron/localBackend/tunnel.ts';
 import { renderEnv } from '../../electron/localBackend/renderConfig.ts';
 import { makeDataDirs, FIXTURE_SECRETS, FIXTURE_PORTS } from './fixtures.ts';
 
@@ -42,7 +42,8 @@ test('tunnelComponent baut Spec und schreibt TOML', () => {
     assert.ok(existsSync(tomlPath), 'rathole-client.toml muss existieren');
     const content = readFileSync(tomlPath, 'utf8');
     assert.match(content, /\[client\]/);
-    assert.match(content, /\[client\.services\./);
+    // Service-Name = RATHOLE_TUNNEL_NAME — muss zum Server-Config-Abschnitt passen (Client↔Server-Kontrakt)
+    assert.match(content, new RegExp(`\\[client\\.services\\.${RATHOLE_TUNNEL_NAME}\\]`));
     assert.match(content, /local_addr = "127\.0\.0\.1:55544"/);
     // Token wird NICHT ins Log geschrieben — nur indirekt via TOML; kein Assert auf Logs nötig
   } finally {
