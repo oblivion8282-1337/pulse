@@ -21,6 +21,10 @@ export type TileKind = 'hq' | 'screen' | 'cam' | 'party';
 
 class OpenedTiles {
   #set = $state<Set<string>>(new Set());
+  // Zuletzt betretener Stream-Channel — unterscheidet „echter Channel-Wechsel"
+  // (Opens des alten Channels schließen) von „nur weg- und zurücknavigiert"
+  // (Opens behalten → HQ-Stream lief im Hintergrund weiter, Bild sofort zurück).
+  #activeChannel: string | null = null;
 
   #key(kind: TileKind, channelId: string, id: string): string {
     return `${kind}::${channelId}::${id}`;
@@ -56,6 +60,21 @@ class OpenedTiles {
     this.close('party', channelId, partyId);
   }
 
+  /** Alle offenen Einträge eines Kinds als {channelId, id} — Treiber für den
+   *  HQ-Stream-Keep-Alive-Abgleich (welche Streams am Leben bleiben sollen). */
+  entriesOfKind(kind: TileKind): { channelId: string; id: string }[] {
+    const prefix = `${kind}::`;
+    const out: { channelId: string; id: string }[] = [];
+    for (const k of this.#set) {
+      if (!k.startsWith(prefix)) continue;
+      const rest = k.slice(prefix.length);
+      const sep = rest.indexOf('::');
+      if (sep < 0) continue;
+      out.push({ channelId: rest.slice(0, sep), id: rest.slice(sep + 2) });
+    }
+    return out;
+  }
+
   /** Whether any tile is open for this channel (any kind, any id). */
   hasAny(channelId: string): boolean {
     const marker = `::${channelId}::`;
@@ -63,6 +82,21 @@ class OpenedTiles {
       if (k.includes(marker)) return true;
     }
     return false;
+  }
+
+  /**
+   * Channel-Bildschirm betreten. Wechselt der Channel WIRKLICH (anderer als der
+   * zuletzt aktive), werden die Opens des ALTEN Channels verworfen — der HQ-
+   * Stream-Keep-Alive-Abgleicher beendet dann dessen Verbindungen. Betritt man
+   * denselben Channel erneut (z.B. Rückkehr aus einer DM), passiert NICHTS, die
+   * Opens bleiben → die im Hintergrund weiterlaufende Verbindung wird sofort
+   * wieder angezeigt (kein Reconnect).
+   */
+  enterChannel(channelId: string): void {
+    if (this.#activeChannel !== null && this.#activeChannel !== channelId) {
+      this.resetChannel(this.#activeChannel);
+    }
+    this.#activeChannel = channelId;
   }
 
   /** Drop all opens for a channel — used on channel switch. */
