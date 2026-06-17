@@ -242,7 +242,7 @@
           role="radio"
           aria-checked={settings.audio.spatialMode === mode}
           disabled={spatialDisabled}
-          onclick={() => settings.setSpatialMode(mode)}
+          onclick={() => { settings.setSpatialMode(mode); voice.setSpatialMode(mode); }}
           class="flex-1 rounded px-2 py-1.5 text-sm transition-colors"
           class:bg-primary={settings.audio.spatialMode === mode}
           class:text-white={settings.audio.spatialMode === mode}

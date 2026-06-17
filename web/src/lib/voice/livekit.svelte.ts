@@ -26,7 +26,7 @@ import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { RemoteAudioElements } from './audioElements';
 import { setVoiceMediaSession, clearVoiceMediaSession } from './mediaSession';
-import { settings } from '$lib/stores/settings.svelte';
+import { settings, type SpatialMode } from '$lib/stores/settings.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { clampNsResolution } from '$lib/settings-registry/sections/screenShare';
 import { AudioDevices } from './audioDevices.svelte';
@@ -349,6 +349,7 @@ class VoiceRoom {
     this.#audioEls.setUserVolumes(settings.voice.userVolumes);
     this.#audioEls.setMasterVolume(settings.voice.outputVolume);
     this.#audioEls.setLimiterEnabled(settings.audio.limiterEnabled);
+    void this.#audioEls.setSpatialMode(settings.audio.spatialMode);
     this.#wireEvents(room);
 
     try {
@@ -899,6 +900,17 @@ class VoiceRoom {
    *  Persisting happens in `settings.setOutputVolume` — call both. */
   setOutputVolume(v: number): void {
     this.#audioEls.setMasterVolume(v);
+  }
+
+  /** Live-switch the spatial-audio mode on all subscribed tracks (desktop only).
+   *  Persisting happens in `settings.setSpatialMode` — call both. */
+  setSpatialMode(mode: SpatialMode): void {
+    void this.#audioEls.setSpatialMode(mode);
+  }
+
+  /** Live-position a participant around the listener (0° front, +90° right). */
+  setSpatialPosition(userId: string, azimuthDeg: number, distance: number): void {
+    this.#audioEls.setSpatialPosition(userId, azimuthDeg, distance);
   }
 
   /**
