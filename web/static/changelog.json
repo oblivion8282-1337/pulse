@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.7",
+      "date": "2026-06-17",
+      "style": "Locker",
+      "title": "Namens-Verlauf zeigt sich jetzt überall ganz",
+      "items": [
+        "Wenn du auf eine Person klickst, leuchtet ihr Name jetzt im vollen Farbverlauf — vorher war im Profil-Fenster nur die erste Farbe zu sehen.",
+        "Gleiches gilt für deinen eigenen Namen unten links."
+      ]
+    },
+    {
       "id": "2026-06-17.6",
       "date": "2026-06-17",
       "style": "Freundlich",
