@@ -17,13 +17,13 @@
  * a WS push racing the REST call dedupes via `mergeGap` (id + nonce).
  */
 import { messages } from '$lib/stores/messages.svelte';
+import { chatApi } from '$lib/api/chat';
 
 const GAP_FILL_LIMIT = 100;
 
 export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): Promise<void> {
   const lastId = messages.lastPersistedId(cid);
   if (!lastId) return;
-  const { chatApi } = await import('$lib/api/chat');
   try {
     // Fetch the latest page rather than a bare `?after` slice: it backfills
     // new messages (`mergeGap`) AND lets `reconcile` re-sync reactions /

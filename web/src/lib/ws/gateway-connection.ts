@@ -7,7 +7,7 @@
  * Phase 4.5+ Scope.
  */
 
-import { currentAccessToken } from '$lib/api/client';
+import { currentAccessToken, request } from '$lib/api/client';
 import { isAccessExpired, loadTokens } from '$lib/api/storage';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
@@ -280,7 +280,6 @@ export class GatewayConnection {
     if (this.isCloud) {
       if (this.forceRefreshNext || isAccessExpired(currentAccessToken() ?? '')) {
         this.forceRefreshNext = false;
-        const { request } = await import('$lib/api/client');
         try {
           await request<{ id: string }>('/me', { endpoint: 'auth' });
         } catch {

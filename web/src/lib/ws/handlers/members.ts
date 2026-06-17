@@ -13,6 +13,7 @@ import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { chatApi } from '$lib/api/chat';
+import { rolesApi } from '$lib/api/roles';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
@@ -56,15 +57,13 @@ export function register(ctx: HandlerContext): void {
         .then(() => {
           // Pull the role list + recompute resolved perms — without this
           // the UI gates stay locked until the next WS reconnect.
-          import('$lib/api/roles').then(({ rolesApi }) => {
-            rolesApi
-              .list(evt.guild_id)
-              .then((rows) => {
-                for (const r of rows) roles.upsertRole(r);
-                roles.recomputeGuild(evt.guild_id);
-              })
-              .catch(() => undefined);
-          });
+          rolesApi
+            .list(evt.guild_id)
+            .then((rows) => {
+              for (const r of rows) roles.upsertRole(r);
+              roles.recomputeGuild(evt.guild_id);
+            })
+            .catch(() => undefined);
         })
         .catch(() => undefined);
     }

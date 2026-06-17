@@ -22,10 +22,11 @@ import { accountKey } from '$lib/identity/account-key.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
-import { stopProfileRefresh } from '$lib/identity/profile-refresh.svelte';
-import { stopCertRotation } from '$lib/identity/cert-rotation.svelte';
+import { stopProfileRefresh, startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
+import { stopCertRotation, startCertRotation } from '$lib/identity/cert-rotation.svelte';
 import { activeServer } from './active-server.svelte';
 import { clearLegacyStreamCredentials } from '$lib/stream/persistence';
+import { renewSession } from '$lib/api/cookie-client';
 
 const ACCESS_KEY = 'dcc.tokens.access';
 
@@ -99,7 +100,8 @@ class AuthStore {
         // place, the next mutation will push it back up.
         void hydrateServerSections();
         // Fix 2: Cert + Timer nach Tab-Reload/SSO-Hydrate nachholen.
-        // Dynamische Imports vermeiden Circular-Dep (identity-Module importieren auth).
+        // issue-flow wird lazy geladen (eigener Chunk, nur hier gebraucht);
+        // die Timer-Helfer (start*) sind oben statisch importiert.
         // RecoveryAvailableError → Redirect zu /recover (z.B. wenn der User auf
         // einem neuen Gerät den Tab reopened ohne vorher den Setup-Flow zu
         // sehen). Sonstige Fehler werden gracefully geschluckt.
@@ -114,7 +116,6 @@ class AuthStore {
             // die Konsole. Best-effort: schlägt der Renew fehl, bleibt der
             // 401-Retry in cookieFetch die Auffanglinie.
             try {
-              const { renewSession } = await import('$lib/api/cookie-client');
               await renewSession();
             } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
             try {
@@ -132,10 +133,6 @@ class AuthStore {
               // Rotation-Callbacks wiederholen den Versuch beim nächsten Interval.
               // Kein rethrow — wir wollen immer zu startProfileRefresh/startCertRotation.
             }
-            const [{ startProfileRefresh }, { startCertRotation }] = await Promise.all([
-              import('$lib/identity/profile-refresh.svelte'),
-              import('$lib/identity/cert-rotation.svelte'),
-            ]);
             startProfileRefresh();
             startCertRotation();
           })
