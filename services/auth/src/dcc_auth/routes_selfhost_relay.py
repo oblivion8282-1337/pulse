@@ -52,10 +52,10 @@ def _check_internal_secret(provided: str | None) -> None:
 async def relay_auth(
     body: RelayAuthIn,
     db: SessionDep,
-    x_internal_secret: Annotated[str | None, Header()] = None,
+    x_pulse_internal_secret: Annotated[str | None, Header()] = None,
 ) -> RelayAuthOut:
     """Validiert eine Tunnel-Anmeldung des Relay-Dienstes."""
-    _check_internal_secret(x_internal_secret)
+    _check_internal_secret(x_pulse_internal_secret)
 
     inst = (
         await db.execute(
