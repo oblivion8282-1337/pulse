@@ -60,6 +60,23 @@ async def handler(body: dict[str, Any], request: Request) -> dict[str, Any]:
             return _allow()
         return _reject("unauthorized relay login")
 
+    if op == "NewProxy":
+        user_obj = content.get("user") or {}
+        user = str(user_obj.get("user") or "")
+        token = str((user_obj.get("metas") or {}).get("token") or "")
+        slug = str(content.get("subdomain") or "")
+        if not user or not slug or not token:
+            return _reject("missing user/subdomain/token")
+        # Impersonation-Schutz: der angeforderte Routing-Slug muss exakt die
+        # autorisierte volle Subdomain rekonstruieren.
+        expected_full = f"{slug}.{get_settings().relay_base_domain}"
+        if expected_full != user:
+            log.warning("relay_newproxy_subdomain_mismatch", slug=slug)
+            return _reject("subdomain does not match authorised tunnel")
+        if await _validate(http, user, token):
+            return _allow()
+        return _reject("unauthorized relay proxy")
+
     # Unknown / not-yet-handled ops: allow-and-keep so frps' other ops are not
     # blocked by this plugin (only Login + NewProxy are registered in frps.toml).
     return _allow()
