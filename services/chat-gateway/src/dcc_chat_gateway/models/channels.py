@@ -42,6 +42,11 @@ class Channel(Base):
     type: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=CHANNEL_TYPE_TEXT)
     position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     topic: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Per-channel name styling (mirrors users.profile_color*). NULL = no color
+    # (plain default look). Two colors → gradient; one → solid; angle default 90°.
+    name_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    name_color_secondary: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    name_gradient_angle: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
