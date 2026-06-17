@@ -60,8 +60,11 @@ playwright/.cache/
 # uv lock backup
 uv.lock.backup
 
-# Local worktrees + team state (Claude Code)
-.claude/
+# Claude Code: geteilte Projekt-Settings + Hooks committen, lokales ignorieren.
+.claude/*
+!.claude/settings.json
+!.claude/hooks/
+.claude/settings.local.json
 
 # Uploaded files (avatars, guild icons, …) — never check in user content.
 services/*/uploads/
