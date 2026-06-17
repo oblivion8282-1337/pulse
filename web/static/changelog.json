@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.13",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Räumlicher Klang in Sprachkanälen",
+      "items": [
+        "Neuer räumlicher Klang für Sprachkanäle: Teilnehmer lassen sich rund um dich anordnen, sodass mehrere gleichzeitig Sprechende leichter auseinanderzuhalten sind.",
+        "Ein- und ausschalten sowie die Qualität wählst du per Rechtsklick auf den Sprachkanal oder in den Audio-Einstellungen.",
+        "Bei aktivem räumlichen Klang erscheint im Sprachkanal links eine Kreis-Ansicht, in der du die Teilnehmer per Ziehen positionierst.",
+        "Verfügbar am Desktop; Kopfhörer werden empfohlen."
+      ]
+    },
+    {
       "id": "2026-06-17.12",
       "date": "2026-06-17",
       "style": "Sachlich",
