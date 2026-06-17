@@ -28,3 +28,24 @@ howispulse.com {
 		header_up X-Forwarded-For {remote_host}
 	}
 }
+
+# --- Steuerungs-Relay (②a) ---
+# GANZ OBEN in die Live-Caddyfile (globaler Options-Block, nur einmal):
+#
+#   {
+#       on_demand_tls {
+#           ask http://auth:8000/selfhost/relay/tls-check
+#       }
+#   }
+#
+# Dann dieser Site-Block (Caddy holt das Cert pro Subdomain on-demand, NUR wenn
+# /selfhost/relay/tls-check 200 liefert — sonst kein Cert):
+
+*.relay.howispulse.com {
+	tls {
+		on_demand
+	}
+	reverse_proxy frps:8080 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
