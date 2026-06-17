@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     # One-Time-Bootstrap-Tokens.
     rate_limit_bootstrap_mint: str = "20/minute"
     rate_limit_bootstrap_redeem: str = "10/minute"
+    rate_limit_relay_tls_check: str = "60/minute"
     bootstrap_token_ttl_seconds: int = 1200
     # WebAuthn ceremonies. ``register`` covers the authenticated add-a-passkey
     # flow; ``login`` covers both the 2FA-second-step and the passwordless
@@ -209,6 +210,7 @@ class Settings(BaseSettings):
         "rate_limit_user_search",
         "rate_limit_bootstrap_mint",
         "rate_limit_bootstrap_redeem",
+        "rate_limit_relay_tls_check",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

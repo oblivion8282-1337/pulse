@@ -11,7 +11,7 @@ from __future__ import annotations
 import hmac
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -19,6 +19,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models_instances import RegisteredInstance
 from dcc_auth.relay import hash_relay_token
+from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
 
 router = APIRouter(tags=["self-host"], dependencies=[Depends(_require_cloud)])
@@ -73,3 +74,28 @@ async def relay_auth(
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="instance is not available")
 
     return RelayAuthOut(instance_id=str(inst.id), subdomain=body.subdomain)
+
+
+@router.get("/selfhost/relay/tls-check")
+async def relay_tls_check(
+    request: Request,
+    db: SessionDep,
+    domain: str = Query(...),
+) -> Response:
+    """Caddy On-Demand-TLS ``ask``: 200 nur für aktive Relay-Subdomains.
+
+    Verhindert Cert-Ausstellung für beliebige ``*.relay``-Hostnamen (Missbrauch
+    + Let's-Encrypt-Ratelimit-Schonung). Öffentlich + read-only: kein Secret,
+    kein Token — nur Existenz+Status. Mit ``_check_rate`` gegen Probing gedrosselt.
+    """
+    await _check_rate(request, "relay_tls_check", get_settings().rate_limit_relay_tls_check)
+    inst = (
+        await db.execute(
+            select(RegisteredInstance.status).where(
+                RegisteredInstance.relay_subdomain == domain
+            )
+        )
+    ).scalar_one_or_none()
+    if inst != "active":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="unknown relay domain")
+    return Response()
