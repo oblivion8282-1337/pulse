@@ -25,4 +25,5 @@ export type BinaryName =
   | 'redis-server'
   | 'minio'
   | 'uvicorn'
-  | 'alembic';
+  | 'alembic'
+  | 'rathole';
