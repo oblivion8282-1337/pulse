@@ -323,7 +323,12 @@ async def resolve_report(
     """
     await _has_any_mod_perm(session, current, guild_id)
 
-    report = await session.get(Report, report_id)
+    # Lock the report row so two moderators resolving the same report serialize:
+    # the loser blocks here until the winner commits, then re-reads the resolved
+    # status and hits the 409 guard instead of writing a duplicate resolution.
+    report = await session.scalar(
+        select(Report).where(Report.id == report_id).with_for_update()
+    )
     if report is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     # Scope guard — the report must belong to THIS guild, not just any guild the

@@ -103,16 +103,15 @@ async def move_to_voice_channel(
                     "GET", f"/channels/{target_channel_id}", bearer=bearer
                 ),
             )
-            source_guild = (
-                source_resp.json().get("guild_id")
-                if source_resp.status_code == 200
-                else None
-            )
-            target_guild = (
-                target_resp.json().get("guild_id")
-                if target_resp.status_code == 200
-                else None
-            )
+            # Fail closed: a non-200 on either channel must not silently skip
+            # the cross-guild + membership checks (None guilds short-circuit the
+            # guards below, opening a cross-guild move during a rolling restart).
+            if source_resp.status_code != 200 or target_resp.status_code != 200:
+                raise HTTPException(
+                    status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
+                )
+            source_guild = source_resp.json().get("guild_id")
+            target_guild = target_resp.json().get("guild_id")
             if source_guild and target_guild and source_guild != target_guild:
                 raise HTTPException(
                     status.HTTP_400_BAD_REQUEST,

@@ -13,6 +13,7 @@ from dcc_chat_gateway.models import (
     Channel,
     Guild,
     GuildMember,
+    Message,
     MessageAttachment,
     PermissionOverwrite,
     Role,
@@ -249,9 +250,10 @@ async def delete_guild(
     MANAGE_GUILD permission grants rename/icon edits, not nuke).
     Global admins bypass.
 
-    Channels / messages / members / invites cascade via ON DELETE CASCADE in
-    the DB schema. Broadcasts ``op:guild_deleted`` so clients can navigate
-    away and prune their local stores.
+    Channels / members / invites cascade via ON DELETE CASCADE in the DB
+    schema; messages have no FK on ``channel_id`` (Migration 0005) and are
+    deleted explicitly below. Broadcasts ``op:guild_deleted`` so clients can
+    navigate away and prune their local stores.
     """
     guild = await session.get(Guild, guild_id)
     if guild is None:
@@ -270,6 +272,11 @@ async def delete_guild(
         att_ids = list((await session.execute(att_ids_stmt)).scalars())
         if att_ids:
             await hard_delete_attachments(session, attachment_ids=att_ids)
+        # messages.channel_id has NO FK (Migration 0005 dropped it so the
+        # column can reference channels OR direct_message_channels), so the
+        # guild cascade never reaches message rows — delete them explicitly,
+        # mirroring routes/channels.py::delete_channel.
+        await session.execute(sa_delete(Message).where(Message.channel_id.in_(channel_ids)))
     await session.delete(guild)
     await session.commit()
     await _publish_guild_event(
