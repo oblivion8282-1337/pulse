@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.8",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Live-Streams bleiben beim Wegnavigieren aktiv",
+      "items": [
+        "Beim Wechsel in eine DM oder einen anderen Channel wird ein laufender Live-Stream nicht mehr getrennt; der Ton läuft weiter.",
+        "Bei Rückkehr in den Channel erscheint das Bild sofort, ohne erneuten Verbindungsaufbau."
+      ]
+    },
+    {
       "id": "2026-06-17.7",
       "date": "2026-06-17",
       "style": "Locker",
