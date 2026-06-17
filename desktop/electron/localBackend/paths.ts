@@ -51,7 +51,7 @@ export function resolveBinary(
   // PATH-Suche als letzter Fallback
   try {
     const which = process.platform === 'win32' ? 'where' : 'which';
-    const result = execFileSync(which, [exe], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    const result = execFileSync(which, [exe], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], env });
     const resolved = result.trim().split('\n')[0].trim();
     if (resolved) return resolved;
   } catch {
