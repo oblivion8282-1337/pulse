@@ -29,7 +29,7 @@ cd "$(dirname "$0")"   # ~/pulse/infra/prod (where docker-compose.yml + .env liv
 # every service WITHOUT `labels: *pinned-labels` belongs here.
 APP_SERVICES=(
   migrate-auth migrate-chat
-  auth chat-gateway voice-signaling media-svc mediamtx-auth-hook web
+  auth chat-gateway voice-signaling media-svc mediamtx-auth-hook relay-frps-plugin web
 )
 
 # The distinct image refs behind those services (migrate-* reuse the auth/chat
@@ -40,6 +40,7 @@ APP_IMAGES=(
   ghcr.io/oblivion8282-1337/pulse-voice-signaling:latest
   ghcr.io/oblivion8282-1337/pulse-media-svc:latest
   ghcr.io/oblivion8282-1337/pulse-mediamtx-auth-hook:latest
+  ghcr.io/oblivion8282-1337/pulse-relay-frps-plugin:latest
   ghcr.io/oblivion8282-1337/pulse-web:latest
 )
 
