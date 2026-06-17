@@ -7,6 +7,12 @@
   import { guilds } from '$lib/stores/guilds.svelte';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import NameColorEditor from '$lib/components/settings/NameColorEditor.svelte';
+  import {
+    sanitizeProfileColor,
+    sanitizeGradientAngle,
+    DEFAULT_GRADIENT_ANGLE
+  } from '$lib/utils/nameColor';
 
   let {
     open = false,
@@ -14,18 +20,42 @@
     onClose
   }: {
     open?: boolean;
-    channel: { id: string; name: string; topic?: string | null } | null;
+    channel:
+      | {
+          id: string;
+          name: string;
+          topic?: string | null;
+          name_color?: string | null;
+          name_color_secondary?: string | null;
+          name_gradient_angle?: number | null;
+        }
+      | null;
     onClose: () => void;
   } = $props();
+
+  const DEFAULT_COLOR = '#3b82f6';
+  const DEFAULT_SECONDARY = '#a78bfa';
 
   let name = $state('');
   let topic = $state('');
   let busy = $state(false);
+  let useColor = $state(false);
+  let color1 = $state(DEFAULT_COLOR);
+  let useGradient = $state(false);
+  let color2 = $state(DEFAULT_SECONDARY);
+  let angle = $state(DEFAULT_GRADIENT_ANGLE);
 
   $effect(() => {
     if (open && channel) {
       name = channel.name;
       topic = channel.topic ?? '';
+      const safe1 = sanitizeProfileColor(channel.name_color);
+      useColor = !!safe1;
+      color1 = safe1 ?? DEFAULT_COLOR;
+      const safe2 = sanitizeProfileColor(channel.name_color_secondary);
+      useGradient = !!safe1 && !!safe2;
+      color2 = safe2 ?? DEFAULT_SECONDARY;
+      angle = sanitizeGradientAngle(channel.name_gradient_angle);
     }
   });
 
@@ -45,13 +75,29 @@
     const newTopic = topic.trim();
     const nameChanged = !!trimmedName && trimmedName !== channel.name;
     const topicChanged = newTopic !== (channel.topic ?? '');
-    if (!nameChanged && !topicChanged) {
+    const desiredColor = useColor ? color1 : null;
+    const desiredSecondary = useColor && useGradient ? color2 : null;
+    const desiredAngle = useColor && useGradient ? angle : (channel.name_gradient_angle ?? null);
+    const colorChanged = desiredColor !== sanitizeProfileColor(channel.name_color);
+    const secondaryChanged =
+      desiredSecondary !== sanitizeProfileColor(channel.name_color_secondary);
+    const angleChanged = desiredAngle !== (channel.name_gradient_angle ?? null);
+    if (!nameChanged && !topicChanged && !colorChanged && !secondaryChanged && !angleChanged) {
       onClose();
       return;
     }
-    const patch: { name?: string; topic?: string } = {};
+    const patch: {
+      name?: string;
+      topic?: string;
+      name_color?: string | null;
+      name_color_secondary?: string | null;
+      name_gradient_angle?: number | null;
+    } = {};
     if (nameChanged) patch.name = trimmedName;
     if (topicChanged) patch.topic = newTopic;
+    if (colorChanged) patch.name_color = desiredColor;
+    if (secondaryChanged) patch.name_color_secondary = desiredSecondary;
+    if (angleChanged) patch.name_gradient_angle = desiredAngle;
     busy = true;
     try {
       const updated = await chatApi.patchChannel(channel.id, patch);
@@ -101,6 +147,14 @@
           data-testid="rename-channel-topic"
         />
       </div>
+      <NameColorEditor
+        bind:useColor
+        bind:color1
+        bind:useGradient
+        bind:color2
+        bind:angle
+        previewName={name || channel?.name || ''}
+      />
       <Dialog.Footer>
         <Button type="button" variant="ghost" onclick={() => handleOpenChange(false)} disabled={busy}>{m.rename_channel_dialog_cancel()}</Button>
         <Button type="submit" disabled={busy} data-testid="rename-channel-submit">
