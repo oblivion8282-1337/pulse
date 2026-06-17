@@ -82,6 +82,7 @@ class UserPublic(BaseModel):
     avatar_hash: str | None = None
     profile_color: str | None = None
     profile_color_secondary: str | None = None
+    profile_gradient_angle: int | None = None
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:
@@ -100,6 +101,7 @@ class UserSummary(BaseModel):
     avatar_url: str | None = None
     profile_color: str | None = None
     profile_color_secondary: str | None = None
+    profile_gradient_angle: int | None = None
 
     @field_serializer("id")
     def _id_to_str(self, value: int) -> str:

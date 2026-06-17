@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.5",
+      "date": "2026-06-17",
+      "style": "Locker",
+      "title": "Frische Optik für deine Namensfarbe",
+      "items": [
+        "Stell deinen Namens-Verlauf direkt an einer Leiste ein — du siehst die beiden Farben sofort.",
+        "Such dir die Richtung des Verlaufs aus.",
+        "Den Schalter „Sprech-Ring in Namensfarbe“ findest du jetzt im Profil direkt bei der Farbe."
+      ]
+    },
+    {
       "id": "2026-06-17.4",
       "date": "2026-06-17",
       "style": "Locker",

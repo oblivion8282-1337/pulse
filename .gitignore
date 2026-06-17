@@ -110,3 +110,4 @@ Pulse-*-*.zip
 
 # Lokale Analyse-Artefakte (simplify-scan u.ä.)
 .cache/
+.superpowers/

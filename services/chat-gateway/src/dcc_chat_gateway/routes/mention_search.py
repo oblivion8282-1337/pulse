@@ -45,7 +45,8 @@ async def mention_candidates(
 
         [{"user_identifier": str, "username": str, "display_name": str,
           "avatar_hash": str|null, "profile_color": str|null,
-          "profile_color_secondary": str|null, "stale": bool}, ...]
+          "profile_color_secondary": str|null,
+          "profile_gradient_angle": int|null, "stale": bool}, ...]
 
     Sorted ascending by ``username``.
 
@@ -108,6 +109,7 @@ async def mention_candidates(
             "avatar_hash": p.avatar_hash,
             "profile_color": p.profile_color,
             "profile_color_secondary": p.profile_color_secondary,
+            "profile_gradient_angle": p.profile_gradient_angle,
             "stale": p.stale,
         }
         for p in rows

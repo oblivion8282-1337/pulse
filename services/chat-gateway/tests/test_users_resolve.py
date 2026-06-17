@@ -41,6 +41,7 @@ async def _seed(
     avatar_hash=None,
     profile_color=None,
     profile_color_secondary=None,
+    profile_gradient_angle=None,
 ):
     from dcc_chat_gateway.models.moderation import CachedUserProfile
 
@@ -54,6 +55,7 @@ async def _seed(
                 avatar_hash=avatar_hash,
                 profile_color=profile_color,
                 profile_color_secondary=profile_color_secondary,
+                profile_gradient_angle=profile_gradient_angle,
                 last_statement_iat=datetime.now(tz=timezone.utc),
                 stale=False,
             )
@@ -86,6 +88,7 @@ async def test_resolves_known_ids_to_user_summary(client, _auth_signer, session_
         "avatar_url": None,
         "profile_color": None,
         "profile_color_secondary": None,
+        "profile_gradient_angle": None,
     }
 
 
@@ -113,12 +116,14 @@ async def test_profile_color_returned(client, _auth_signer, session_factory):
     await _seed(
         session_factory, "pw-col", 333, "coco", "Coco",
         profile_color="#aabbcc", profile_color_secondary="#ddeeff",
+        profile_gradient_angle=135,
     )
 
     r = await client.get("/users", params={"ids": "333"}, headers=_auth(token))
     assert r.status_code == 200, r.text
     assert r.json()[0]["profile_color"] == "#aabbcc"
     assert r.json()[0]["profile_color_secondary"] == "#ddeeff"
+    assert r.json()[0]["profile_gradient_angle"] == 135
 
 
 @pytest.mark.asyncio

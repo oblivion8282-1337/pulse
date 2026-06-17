@@ -18,6 +18,7 @@ class ProfileStatement(BaseModel):
     avatar_hash: str | None = None
     profile_color: str | None = None
     profile_color_secondary: str | None = None
+    profile_gradient_angle: int | None = None
     iat: int
     exp: int
 
@@ -44,6 +45,10 @@ class ProfileUpdateRequest(BaseModel):
         str | None,
         Field(default=..., pattern=r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"),
     ] = None
+    # Verlaufs-Richtung in Grad (0–360, CSS-linear-gradient-Winkel). Integer →
+    # kein CSS-Injection-Risiko wie bei den Farb-Strings. ``default=...``-Sentinel
+    # wieder, damit "nicht gesendet" ≠ "auf null gesetzt".
+    profile_gradient_angle: Annotated[int | None, Field(default=..., ge=0, le=360)] = None
 
 
 class UsernameChangeRequest(BaseModel):

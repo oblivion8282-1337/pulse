@@ -52,8 +52,8 @@ async def test_cached_user_profiles_table_exists(engine):
 async def test_cached_user_profiles_columns(engine):
     expected = {
         "user_identifier", "username", "display_name", "avatar_hash",
-        "profile_color", "profile_color_secondary", "last_statement_iat",
-        "updated_at", "stale",
+        "profile_color", "profile_color_secondary", "profile_gradient_angle",
+        "last_statement_iat", "updated_at", "stale",
     }
     async with engine.connect() as conn:
         cols = await conn.run_sync(

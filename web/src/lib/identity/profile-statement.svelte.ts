@@ -29,6 +29,7 @@ export interface ProfileStatementClaims {
   avatar_hash?: string;
   profile_color?: string;
   profile_color_secondary?: string;
+  profile_gradient_angle?: number;
   iat: number;
   exp: number;
 }

@@ -55,6 +55,9 @@ class User(Base):
     avatar_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     profile_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     profile_color_secondary: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Richtung des Namens-Verlaufs in Grad (0–360, CSS-linear-gradient-Winkel).
+    # NULL = Default 90° (links→rechts) — Altdaten bleiben horizontal.
+    profile_gradient_angle: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     # Server-wide admin (one or a handful of users). Bootstrap via SQL.
     is_admin: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
