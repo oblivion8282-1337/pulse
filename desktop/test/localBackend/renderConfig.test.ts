@@ -1,32 +1,11 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderEnv } from '../../electron/localBackend/renderConfig.ts';
-import type { DataDirs } from '../../electron/localBackend/types.ts';
-import type { Secrets } from '../../electron/localBackend/secrets.ts';
+import { makeDataDirs, FIXTURE_SECRETS, FIXTURE_PORTS } from './fixtures.ts';
 
-const dirs: DataDirs = {
-  root: '/data',
-  pg: '/data/pg',
-  redis: '/data/redis',
-  minio: '/data/minio',
-  uploadsAvatars: '/data/uploads/avatars',
-  uploadsGuildIcons: '/data/uploads/guild-icons',
-  secrets: '/data/secrets',
-  backups: '/data/backups',
-};
-
-const secrets: Secrets = {
-  postgresPassword: 'PW',
-  internalServiceToken: 'TOK',
-  certChallengeSecret: 'CERT',
-  minioUser: 'minio-user',
-  minioPassword: 'minio-pass',
-  jwtPrivateKeyPath: '/data/secrets/jwt_private.pem',
-  jwtPublicKeyPath: '/data/secrets/jwt_public.pem',
-  sessionSigningKeyPath: '/data/secrets/session-token-signing.pem',
-};
-
-const ports = { postgres: 5432, redis: 6379, minio: 9000, auth: 8001, chat: 8002, media: 8004 };
+const dirs = makeDataDirs('/data');
+const secrets = FIXTURE_SECRETS;
+const ports = FIXTURE_PORTS;
 const identity = { hostname: 'host.local', instanceId: '123', ownerId: '999' };
 
 describe('renderEnv', () => {

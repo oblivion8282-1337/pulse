@@ -30,6 +30,7 @@ export interface FixtureIdentity {
   hostname: string;
   instanceId: string;
   ownerId: string;
+  relaySubdomain?: string;
 }
 
 export interface RenderEnvInput {
@@ -48,6 +49,7 @@ const CLOUD_ORIGIN = 'https://howispulse.com';
 export function renderEnv(input: RenderEnvInput): Record<string, string> {
   const { dirs, secrets, ports, identity } = input;
   const { hostname, instanceId, ownerId } = identity;
+  const publicOrigin = identity.relaySubdomain ?? hostname;
   const { postgres, redis, minio, auth, chat, media } = ports;
 
   return {
@@ -65,7 +67,7 @@ export function renderEnv(input: RenderEnvInput): Record<string, string> {
     // JWT (RS256 auth-svc issuer)
     JWT_PRIVATE_KEY_FILE: secrets.jwtPrivateKeyPath,
     JWT_PUBLIC_KEY_FILE: secrets.jwtPublicKeyPath,
-    JWT_ISSUER: `https://${hostname}`,
+    JWT_ISSUER: `https://${publicOrigin}`,
     JWT_AUDIENCE: 'pulse-self-host',
     JWT_ACCESS_TTL_SECONDS: '900',
     JWT_REFRESH_TTL_SECONDS: '2592000',
@@ -86,18 +88,19 @@ export function renderEnv(input: RenderEnvInput): Record<string, string> {
     PULSE_JWT_AUDIENCE: 'dcc',
 
     // CORS
-    CORS_ALLOW_ORIGINS: `${CLOUD_ORIGIN},https://${hostname}`,
+    CORS_ALLOW_ORIGINS: `${CLOUD_ORIGIN},https://${publicOrigin}`,
 
-    // WebAuthn
-    WEBAUTHN_RP_ID: hostname,
-    WEBAUTHN_ORIGIN: `https://${hostname}`,
+    // WebAuthn — publicOrigin muss eine bare Domain ohne Port sein (RP-ID-Invariante).
+    WEBAUTHN_RP_ID: publicOrigin,
+    WEBAUTHN_ORIGIN: `https://${publicOrigin}`,
 
     // Snowflake Worker IDs (Single-Container — fest)
     SNOWFLAKE_WORKER_ID_AUTH: '1',
     SNOWFLAKE_WORKER_ID_CHAT: '2',
     SNOWFLAKE_WORKER_ID_VOICE: '3',
 
-    // Self-Host-Identität
+    // Self-Host-Identität — PULSE_HOSTNAME bleibt der physische interne Hostname,
+    // nicht publicOrigin; Backend-Services nutzen ihn nur intern.
     PULSE_HOSTNAME: hostname,
     PULSE_INSTANCE_MODE: 'self-host',
     PULSE_INSTANCE_ID: instanceId,
@@ -111,9 +114,9 @@ export function renderEnv(input: RenderEnvInput): Record<string, string> {
     // MinIO / S3
     MINIO_ROOT_USER: secrets.minioUser,
     MINIO_ROOT_PASSWORD: secrets.minioPassword,
-    MINIO_SERVER_URL: `https://${hostname}`,
+    MINIO_SERVER_URL: `https://${publicOrigin}`,
     S3_INTERNAL_ENDPOINT: `http://127.0.0.1:${minio}`,
-    S3_PUBLIC_ENDPOINT: `https://${hostname}`,
+    S3_PUBLIC_ENDPOINT: `https://${publicOrigin}`,
     S3_REGION: 'us-east-1',
     S3_BUCKET: 'pulse-attachments',
     S3_ACCESS_KEY: secrets.minioUser,
