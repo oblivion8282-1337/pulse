@@ -23,6 +23,7 @@
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
   import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
+  import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
 
@@ -285,3 +286,7 @@
 
 <!-- Globaler Watch-Party-Auswahl-Dialog (wenn ein User mehrere Partys hostet) -->
 <WatchPartyPickerDialog />
+
+<!-- Hält HQ-Stream-Verbindungen über Navigation hinweg am Leben (Ton läuft
+     weiter, Bild sofort bei Rückkehr). Rendert nichts. -->
+<HqStreamKeepAlive />

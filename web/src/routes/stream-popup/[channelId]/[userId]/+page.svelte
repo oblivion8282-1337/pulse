@@ -15,6 +15,7 @@
   import { page } from '$app/state';
   import { gateway } from '$lib/ws/connection';
   import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { hqStreams } from '$lib/stream/hqStreamManager.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
   import PictureInPicture2Icon from '@lucide/svelte/icons/picture-in-picture-2';
@@ -35,6 +36,16 @@
     if (!cid) return;
     gateway.subscribe(cid);
     return () => gateway.unsubscribe(cid);
+  });
+
+  // Im Popup gibt es keinen Keep-Alive-Abgleicher (der lebt im App-Layout) —
+  // deshalb die WHEP-Verbindung hier selbst sauber abbauen (pc.close + DELETE),
+  // wenn das Popup-Fenster geschlossen wird.
+  $effect(() => {
+    const cid = channelId;
+    const uid = userId;
+    if (!cid || !uid) return;
+    return () => hqStreams.close(cid, uid);
   });
 
   onMount(() => {

@@ -18,13 +18,9 @@
   in `TileShell` — diese Component hält nur noch WHEP-Verbindung + Audio-Graph.
 -->
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import { m } from '$lib/paraglide/messages.js';
-  import { chatApi } from '$lib/api/chat';
-  import { connectWhep, WhepError, type WhepSession } from '../whep';
-  import { WhepStatsReader, formatDiagnostic, type StreamStats } from '../whep-stats';
-  import { VolumeBoost } from '../volumeBoost';
-  import { getStreamVolume, setStreamVolume } from '../streamVolume';
+  import { formatDiagnostic } from '../whep-stats';
+  import { hqStreams, type ManagedHqStream } from '../hqStreamManager.svelte';
   import { acquireWakeLock } from '$lib/platform/wakeLock';
   import StreamChatOverlay from './StreamChatOverlay.svelte';
   import StreamChatInlineInput from './StreamChatInlineInput.svelte';
@@ -63,17 +59,44 @@
   } = $props();
 
   let videoEl = $state<HTMLVideoElement | null>(null);
-  // Restore the viewer's last level for *this* streamer (per-userId, persisted
-  // in localStorage) instead of snapping back to 100 % on every remount.
-  // userId is stable for this instance — the parent keys each tile by uid
-  // ({#each ... (uid)}), so a different streamer is a fresh mount. Capturing
-  // the initial prop value here is intentional.
-  // svelte-ignore state_referenced_locally
-  const initialVolume = getStreamVolume(userId);
-  let volume = $state(initialVolume);
-  // Remembers last non-zero volume so the mute toggle can restore it.
-  let prevVolume = $state(initialVolume > 0 ? initialVolume : 100);
   let chatOpen = $state(false);
+
+  // Die WHEP-Verbindung + der Ton gehören dem dauerhaften Manager (überlebt die
+  // Navigation, siehe hqStreamManager). ensure() ist idempotent — der Keep-
+  // Alive-Abgleicher im Layout besitzt die Lebensdauer + den Abbau. Diese
+  // Komponente hängt nur ihr Video-Bild an den (evtl. schon laufenden) Stream.
+  let mgr = $state<ManagedHqStream | null>(null);
+  $effect(() => {
+    mgr = hqStreams.ensure(channelId, userId);
+  });
+
+  // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
+  // verbindet. Beim Unmount NUR das Video lösen; die Verbindung läuft weiter.
+  $effect(() => {
+    const m = mgr;
+    const el = videoEl;
+    if (!m || !el) return;
+    void m.stream; // tracken → Re-Attach bei (Wieder-)Verbindung
+    m.attachVideo(el);
+    return () => m.detachVideo(el);
+  });
+
+  // Anzeige-Zustand spiegelt den Manager.
+  const phase = $derived(mgr?.phase ?? 'connecting');
+  const detail = $derived(mgr?.detail ?? '');
+  const stats = $derived(mgr?.stats ?? null);
+  const audioBlocked = $derived(mgr?.audioBlocked ?? false);
+  const volume = $derived(mgr?.volume ?? 100);
+
+  function handleVolume(e: Event) {
+    mgr?.setVolume(Number((e.currentTarget as HTMLInputElement).value));
+  }
+  function toggleMute() {
+    mgr?.toggleMute();
+  }
+  function enableAudio() {
+    void mgr?.enableAudio();
+  }
 
   function handleDetach(): void {
     const opened = detachedStreams.open(channelId, userId);
@@ -84,40 +107,9 @@
     }
   }
 
-  let boost: VolumeBoost | null = null;
-  function applyVolume() {
-    const v = volume / 100;
-    // Boost-Graph aktiv → Element ist muted, gain regelt. Fallback → unmuted,
-    // el.volume regelt (auf [0, 1] geclampt — >100% gibt's da nicht).
-    if (videoEl && !videoEl.muted) videoEl.volume = Math.min(1.0, v);
-    boost?.setVolume(v);
-  }
-
-  function commitVolume(newVol: number) {
-    volume = newVol;
-    applyVolume();
-    setStreamVolume(userId, volume);
-  }
-
-  function handleVolume(e: Event) {
-    const newVol = Number((e.currentTarget as HTMLInputElement).value);
-    if (newVol > 0) prevVolume = newVol;
-    commitVolume(newVol);
-  }
-
-  function toggleMute() {
-    const newVol = volume > 0 ? 0 : prevVolume > 0 ? prevVolume : 100;
-    if (volume > 0) prevVolume = volume;
-    commitVolume(newVol);
-  }
-
-  let phase = $state<'connecting' | 'playing' | 'retrying' | 'error'>('connecting');
-  let detail = $state<string>('');
-  let audioBlocked = $state(false);
-  let stats = $state<StreamStats | null>(null);
-
-  // Keep the monitor awake while the live stream is actually playing — releases
-  // on retry/error/hidden tab/unmount so an idle dead tile lets the screen sleep.
+  // Monitor wach halten, solange das Bild hier wirklich läuft — an die
+  // SICHTBARE Kachel gebunden (nicht an den Manager): nur wer zuschaut, braucht
+  // den Bildschirm wach; im Hintergrund (nur Ton) darf er schlafen.
   $effect(() => {
     if (phase !== 'playing') return;
     const release = acquireWakeLock();
@@ -142,188 +134,7 @@
     }
   }
 
-  // Retry backoff: publisher may not be online yet (404) or transient net loss.
-  const RETRY_MS = [1000, 2000, 3000, 5000, 5000];
-  // ICE must reach `connected` within this window after the WHEP answer is
-  // applied. connectWhep() resolves at setRemoteDescription — *before* media
-  // actually flows — so without this watchdog a stalled ICE path (lost UDP to
-  // MediaMTX, no relay fallback) would sit in `connecting` until Chromium's own
-  // ~10-30 s timeout flips it to `failed`. That stall is the "Reconnect dauert
-  // sehr lange"; recycling here cuts a dead attempt down to ~7 s + backoff.
-  const CONNECT_TIMEOUT_MS = 7000;
-  let attempt = 0;
-  let session: WhepSession | null = null;
-  // Active connectionstatechange listener for the current session — held so
-  // teardown can remove it. Without removal each retry would attach a fresh
-  // closure to the previous (closed) RTCPeerConnection.
-  let connListener: ((this: RTCPeerConnection, ev: Event) => void) | null = null;
-  let retryTimer: ReturnType<typeof setTimeout> | undefined;
-  // Watchdog for the connecting→connected transition (see CONNECT_TIMEOUT_MS).
-  let connectTimer: ReturnType<typeof setTimeout> | undefined;
-  let statsTimer: ReturnType<typeof setInterval> | undefined;
-  const statsReader = new WhepStatsReader();
-  let disposed = false;
-  // Track which channel the current run is for, so a late async result from a
-  // previous channel doesn't clobber a newer connection.
-  let runChannelId = '';
-
-  function clearTimers() {
-    clearTimeout(retryTimer);
-    retryTimer = undefined;
-    clearTimeout(connectTimer);
-    connectTimer = undefined;
-    clearInterval(statsTimer);
-    statsTimer = undefined;
-  }
-
-  async function teardown() {
-    clearTimers();
-    const s = session;
-    session = null;
-    if (s && connListener) {
-      s.pc.removeEventListener('connectionstatechange', connListener);
-    }
-    connListener = null;
-    if (s) await s.close();
-    if (videoEl) videoEl.srcObject = null;
-  }
-
-  function scheduleRetry() {
-    if (disposed) return;
-    const wait = RETRY_MS[Math.min(attempt, RETRY_MS.length - 1)];
-    attempt += 1;
-    phase = 'retrying';
-    retryTimer = setTimeout(() => {
-      retryTimer = undefined;
-      void start();
-    }, wait);
-  }
-
-  async function start() {
-    if (disposed) return;
-    const cid = channelId;
-    runChannelId = cid;
-    await teardown();
-    if (disposed || runChannelId !== cid) return;
-    if (attempt === 0) phase = 'connecting';
-    try {
-      const { whep_url } = await chatApi.getWhepUrl(cid, userId);
-      if (disposed || runChannelId !== cid) return;
-      const s = await connectWhep(whep_url, (stream) => {
-        if (!videoEl) return;
-        videoEl.srcObject = stream;
-        // Audio kommt aus dem Web-Audio-Graph (createMediaStreamSource), sonst
-        // doppelt. createMediaElementSource funktioniert mit srcObject=MediaStream
-        // nicht zuverlässig (Chromium). Klappt das nicht (kein Audio-Track,
-        // kein AudioContext), unmuten und Slider operiert auf el.volume (≤100%).
-        if (boost?.attach(stream)) {
-          videoEl.muted = true;
-          audioBlocked = boost.suspended;
-        } else {
-          videoEl.muted = false;
-        }
-        applyVolume();
-      });
-      if (disposed || runChannelId !== cid) {
-        await s.close();
-        return;
-      }
-      session = s;
-      // connectWhep() resolved at setRemoteDescription — ICE is NOT up yet. Stay
-      // in the current ('connecting'/'retrying') phase and only flip to
-      // 'playing' once the PC truly reaches `connected`; otherwise the overlay
-      // would clear over a black, media-less video.
-      const onConnected = () => {
-        clearTimeout(connectTimer);
-        connectTimer = undefined;
-        attempt = 0;
-        phase = 'playing';
-        detail = '';
-      };
-      const recycle = () => {
-        void teardown().then(() => {
-          if (!disposed && runChannelId === cid) scheduleRetry();
-        });
-      };
-      connListener = () => {
-        if (disposed || session !== s) return;
-        const st = s.pc.connectionState;
-        // `disconnected` is transient — Chromium recovers it back to `connected`
-        // most of the time. Only retry on the definitive states; otherwise we
-        // tear down every micro-glitch on the UDP path and loop.
-        if (st === 'connected') onConnected();
-        else if (st === 'failed' || st === 'closed') recycle();
-      };
-      s.pc.addEventListener('connectionstatechange', connListener);
-      // The PC may already be connected before we attached the listener (fast
-      // LAN path); otherwise arm the watchdog so a stalled ICE negotiation is
-      // recycled long before Chromium's own ~10-30 s `failed` timeout fires.
-      if (s.pc.connectionState === 'connected') {
-        onConnected();
-      } else {
-        connectTimer = setTimeout(() => {
-          connectTimer = undefined;
-          if (disposed || session !== s) return;
-          if (s.pc.connectionState !== 'connected') recycle();
-        }, CONNECT_TIMEOUT_MS);
-      }
-      // Video ist muted, also autoplay-tauglich; der Audio-Block hängt jetzt
-      // am AudioContext (kann suspended sein bevor der User klickt).
-      statsReader.reset();
-      void videoEl?.play().catch(() => {
-        /* muted media should autoplay */
-      });
-      audioBlocked = !!boost?.suspended;
-      statsTimer = setInterval(async () => {
-        const cur = session;
-        if (cur) stats = await statsReader.read(cur.pc);
-      }, 1000);
-    } catch (e) {
-      if (disposed || runChannelId !== cid) return;
-      const status = e instanceof WhepError ? e.status : 0;
-      detail = e instanceof Error ? e.message : String(e);
-      // 404 = stream offline (publisher not up yet) → keep retrying quietly.
-      if (status === 404 || status === 0 || status >= 500) {
-        scheduleRetry();
-      } else {
-        phase = 'error';
-      }
-    }
-  }
-
-  async function enableAudio() {
-    try {
-      await videoEl?.play();
-      await boost?.resume();
-      audioBlocked = !!boost?.suspended;
-    } catch {
-      /* still blocked */
-    }
-  }
-
-  // (Re)connect whenever the target channel changes. `start()` tears the
-  // previous run down itself and `runChannelId` guards against a stale async
-  // result from the old channel taking over.
-  $effect(() => {
-    const cid = channelId;
-    if (!cid) return;
-    attempt = 0;
-    void start();
-  });
-
-  onMount(() => {
-    boost = new VolumeBoost();
-    boost.onStateChange = (suspended) => {
-      audioBlocked = suspended;
-    };
-  });
-
-  onDestroy(() => {
-    disposed = true;
-    void teardown();
-    boost?.dispose();
-    clearTimeout(copyResetTimer);
-  });
+  $effect(() => () => clearTimeout(copyResetTimer));
 </script>
 
 <!-- Stats-Pille: Codec/FPS/Bitrate + Freeze/Stutter-Warnung. Positionierung
