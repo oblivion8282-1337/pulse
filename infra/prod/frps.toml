@@ -1,0 +1,9 @@
+bindPort = 7000
+vhostHTTPPort = 8080
+subdomainHost = "relay.howispulse.com"
+
+[[httpPlugins]]
+name = "pulse-relay-auth"
+addr = "relay-frps-plugin:8000"
+path = "/handler"
+ops = ["Login", "NewProxy"]

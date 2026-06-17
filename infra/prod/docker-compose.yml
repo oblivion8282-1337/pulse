@@ -310,6 +310,38 @@ services:
       retries: 5
       start_period: 10s
 
+  relay-frps-plugin:
+    <<: *app-common
+    image: ghcr.io/oblivion8282-1337/pulse-relay-frps-plugin:latest
+    container_name: pulse_relay_frps_plugin
+    environment:
+      AUTH_SVC_URL: http://auth:8000
+      RELAY_BASE_DOMAIN: relay.howispulse.com
+      # INTERNAL_SERVICE_SECRET wird aus .env (env_file via *app-common) übernommen
+    depends_on:
+      auth:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  frps:
+    image: snowdreamtech/frps:0.69.1
+    container_name: pulse_frps
+    restart: unless-stopped
+    networks: [pulse-net]
+    ports:
+      - "7000:7000"
+    volumes:
+      - ./frps.toml:/etc/frp/frps.toml:ro
+    depends_on:
+      relay-frps-plugin:
+        condition: service_started
+    labels: *pinned-labels
+
   # ── web (SvelteKit SPA + nginx reverse-proxy) ──────────────────────────────
   web:
     <<: *app-common
