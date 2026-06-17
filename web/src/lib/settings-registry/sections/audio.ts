@@ -6,6 +6,16 @@ import type { SectionConfig } from '../types';
 
 export type NoiseSuppressionMode = 'off' | 'rnnoise_gated';
 
+/**
+ * Spatial (3D) audio for voice playback. `off` = today's flat mix; `standard`
+ * = low-CPU binaural (good for laptops); `high` = full binaural + room
+ * reverb; `auto` = pick `high`/`standard` from device class at runtime.
+ * Desktop-only — the mobile playback path has no Web Audio graph to hook into.
+ */
+export type SpatialMode = 'off' | 'standard' | 'high' | 'auto';
+
+export const SPATIAL_MODES: readonly SpatialMode[] = ['off', 'standard', 'high', 'auto'];
+
 export type AudioSettings = {
   inputDeviceId: string;
   inputDeviceLabel: string;
@@ -19,6 +29,7 @@ export type AudioSettings = {
   stereo: boolean;
   inputMakeupGain: number;
   limiterEnabled: boolean;
+  spatialMode: SpatialMode;
 };
 
 export const VOICE_BITRATE_MIN = 16;
@@ -45,8 +56,13 @@ export const DEFAULTS_AUDIO: AudioSettings = {
   voiceBitrateKbps: 128,
   stereo: false,
   inputMakeupGain: INPUT_MAKEUP_DEFAULT,
-  limiterEnabled: false
+  limiterEnabled: false,
+  spatialMode: 'off'
 };
+
+export function parseSpatialMode(v: unknown): SpatialMode {
+  return SPATIAL_MODES.includes(v as SpatialMode) ? (v as SpatialMode) : DEFAULTS_AUDIO.spatialMode;
+}
 
 export function clampBitrate(v: unknown): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULTS_AUDIO.voiceBitrateKbps;
@@ -95,7 +111,8 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
       voiceBitrateKbps: clampBitrate(a.voiceBitrateKbps),
       stereo: bool(a.stereo, d.stereo),
       inputMakeupGain: clampInputMakeup(a.inputMakeupGain),
-      limiterEnabled: bool(a.limiterEnabled, d.limiterEnabled)
+      limiterEnabled: bool(a.limiterEnabled, d.limiterEnabled),
+      spatialMode: parseSpatialMode(a.spatialMode)
     };
   }
 };
