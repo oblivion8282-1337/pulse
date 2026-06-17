@@ -1,5 +1,6 @@
-// rathole client config (TOML). Der Relay-Server kennt denselben Service-Namen
-// + Token und exponiert ihn unter der Subdomain (TLS terminiert am Relay).
+// frpc client config (TOML, frp >=0.58). Der frps-Server routet
+// <slug>.<subdomainHost> in diesen Tunnel; das Server-Plugin autorisiert die
+// Anmeldung per Auth-Hook. Token reist nur als metadata — nie loggen.
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,22 +10,35 @@ import { tcpProbe } from './health.ts';
 import type { DataDirs } from './types.ts';
 import type { SupervisedProcessSpec } from './process.ts';
 
-export const RATHOLE_TUNNEL_NAME = 'pulse-chat';
+export const FRPC_PROXY_SUFFIX = '-chat';
+const DEFAULT_BASE_DOMAIN = 'relay.howispulse.com';
 
-export function renderRatholeClientConfig(input: {
-  relayServerAddr: string;
+/** Erstes DNS-Label der vollen Subdomain (der frp-Routing-Slug). */
+function slugOf(fullSubdomain: string): string {
+  return fullSubdomain.split('.', 1)[0];
+}
+
+export function renderFrpcConfig(input: {
+  relayServerAddr: string;   // host:port
   authToken: string;
   localChatPort: number;
-  tunnelName: string;
+  fullSubdomain: string;
+  baseDomain: string;
 }): string {
+  const [host, port] = input.relayServerAddr.split(':');
+  const slug = slugOf(input.fullSubdomain);
   return [
-    '[client]',
-    `remote_addr = "${input.relayServerAddr}"`,
-    `default_token = "${input.authToken}"`,
+    `serverAddr = "${host}"`,
+    `serverPort = ${Number(port)}`,
+    `user = "${input.fullSubdomain}"`,
+    `metadatas.token = "${input.authToken}"`,
     '',
-    `[client.services.${input.tunnelName}]`,
-    'type = "tcp"',
-    `local_addr = "127.0.0.1:${input.localChatPort}"`,
+    '[[proxies]]',
+    `name = "${input.fullSubdomain}${FRPC_PROXY_SUFFIX}"`,
+    'type = "http"',
+    `localPort = ${input.localChatPort}`,
+    `subdomain = "${slug}"`,
+    `metadatas.token = "${input.authToken}"`,
     '',
   ].join('\n');
 }
@@ -32,38 +46,36 @@ export function renderRatholeClientConfig(input: {
 export interface TunnelRelay {
   serverAddr: string;
   authToken: string;
-  subdomain: string;
+  subdomain: string;   // volle Subdomain (<slug>.<baseDomain>)
 }
 
-/**
- * Baut die SupervisedProcessSpec für den rathole-Client-Tunnel.
- * Schreibt die Client-TOML nach `dirs.root/rathole-client.toml` (kein Token-Logging).
- */
 export function tunnelComponent(input: {
   dirs: DataDirs;
   relay: TunnelRelay;
   chatPort: number;
+  baseDomain?: string;
 }): SupervisedProcessSpec {
   const { dirs, relay, chatPort } = input;
-  const configPath = join(dirs.root, 'rathole-client.toml');
+  const baseDomain = input.baseDomain ?? DEFAULT_BASE_DOMAIN;
+  const configPath = join(dirs.root, 'frpc.toml');
 
-  const toml = renderRatholeClientConfig({
+  const toml = renderFrpcConfig({
     relayServerAddr: relay.serverAddr,
     authToken: relay.authToken,
     localChatPort: chatPort,
-    tunnelName: RATHOLE_TUNNEL_NAME,
+    fullSubdomain: relay.subdomain,
+    baseDomain,
   });
   // NEVER log the rendered TOML (contains authToken)
   writeFileSync(configPath, toml, { encoding: 'utf8', mode: 0o600 });
 
   return {
     name: 'tunnel',
-    command: resolveBinary('rathole'),
-    args: ['--client', configPath],
+    command: resolveBinary('frpc'),
+    args: ['-c', configPath],
     env: {},
-    // Probt den lokalen chat-gateway-Port (vor dem Tunnel-Start bereits up) — bestätigt also
-    // NICHT, dass der Tunnel den Relay erreicht hat. TODO(②a-Folge): sobald der Cloud-Relay
-    // existiert, relay-seitige Erreichbarkeit prüfen.
+    // Probt den lokalen chat-gateway-Port (vor dem Tunnel-Start up) — bestätigt
+    // NICHT die Relay-Erreichbarkeit; das prüft der Integrationstest (Task 5).
     healthCheck: () => tcpProbe(chatPort),
     restartMax: 5,
   };
