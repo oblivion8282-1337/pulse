@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.6",
+      "date": "2026-06-17",
+      "style": "Freundlich",
+      "title": "Bring Farbe in deine Kanäle",
+      "items": [
+        "Wichtige Kanäle lassen sich jetzt hervorheben: Gib einem Text- oder Sprachkanal eine Farbe oder einen Farbverlauf — der Name leuchtet dann in der Kanalliste, oben im Chat und in der Schnellsuche (Strg+K).",
+        "Du musst nicht lange tüfteln: Ein paar fertige Farb-Vorlagen sind zum Anklicken dabei.",
+        "Einstellbar im Bearbeiten-Menü eines Kanals, wenn du Kanäle verwalten darfst."
+      ]
+    },
+    {
       "id": "2026-06-17.5",
       "date": "2026-06-17",
       "style": "Locker",
