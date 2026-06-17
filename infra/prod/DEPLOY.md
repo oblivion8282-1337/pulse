@@ -125,6 +125,40 @@ The JWT PEM keys have the same uid-10001 constraint — see step 2 above
   (the auth/chat images with `alembic upgrade head`) run before the services on
   every `up`.
 
+## Steuerungs-Relay (②a) aktivieren
+
+Manuelle Checkliste — einmalig ausführen, wenn das Relay erstmals in Prod geht.
+Voraussetzung: Tasks 1–3 (auth-Endpoint, frps-Container, CI-Env) sind bereits auf `main` deployed.
+
+1. **DNS:** `*.relay.howispulse.com` A-Record auf die Server-IP setzen (beim DNS-Provider). Propagation abwarten bevor Caddy on-demand-TLS ausgelöst wird.
+
+2. **UFW:** `sudo ufw allow 7000/tcp` — frpc-Clients verbinden sich auf Port 7000 (frps-Bind-Port).
+
+3. **`.env`:** auf dem Server `~/pulse/infra/prod/.env` öffnen und eintragen:
+   ```
+   PULSE_RELAY_SERVER_ADDR=howispulse.com:7000
+   PULSE_RELAY_BASE_DOMAIN=relay.howispulse.com
+   ```
+   `INTERNAL_SERVICE_SECRET` ist bereits gesetzt (wird vom Relay-Plugin mitgenutzt).
+
+4. **Deploy:** Compose-Struktur hat sich geändert (neuer `frps`-Service) → manuell übertragen und hochfahren:
+   ```sh
+   rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
+   cd ~/pulse/infra/prod && docker compose up -d
+   ```
+   Der Cron-Updater zieht nur App-`:latest`-Images — Struktur-Änderungen (neuer Service, neue Env-Vars) brauchen diesen manuellen Schritt.
+
+5. **Caddy:** globalen `on_demand_tls`-Block + `*.relay`-Site-Block einfügen (Vorlage: `Caddyfile.pulse.snippet`). Der globale Options-Block muss **ganz oben** in der Live-Caddyfile stehen und darf **nur einmal** vorkommen — keinen zweiten `{ … }`-Block anlegen.
+   ```sh
+   cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
+   $EDITOR ~/caddy/Caddyfile   # globalen Block oben einfügen, *.relay-Block ans Ende
+   docker network connect pulse-net caddy 2>/dev/null || true   # idempotent
+   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+   ```
+   Caddy muss im `pulse-net` sein, damit er `frps` per Container-Name auflösen kann.
+
+6. **Smoke-Test:** Ein Heim-Host (frpc konfiguriert) verbindet sich mit `howispulse.com:7000`. Ein entferntes Mitglied öffnet `https://<slug>.relay.howispulse.com` — Caddy holt das Cert on-demand (nur wenn `/selfhost/relay/tls-check` 200 antwortet) und der Tunnel ist aktiv.
+
 ## Operating
 
 ```sh
