@@ -396,8 +396,9 @@ class StreamController:
                     self._last_fps = fps
                     if self._on_fps:
                         self._on_fps(fps)
-                    if self._state == "starting":
-                        self._set_state("live")
+                    with self._lock:
+                        if self._state == "starting":
+                            self._set_state("live")
                 elif self._on_log:
                     # GSR prints the full push URL (incl. `?pass=<token>` /
                     # `streamid=…:<token>`) on connect. Redact before forwarding.

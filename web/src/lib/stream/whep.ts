@@ -104,14 +104,25 @@ export async function connectWhep(
   pc.addTransceiver('video', { direction: 'recvonly' });
   pc.addTransceiver('audio', { direction: 'recvonly' });
   let trackReceived = false;
+  let syntheticStream: MediaStream | null = null;
   pc.ontrack = (e) => {
+    if (e.streams[0]) {
+      // Standard path: track already bound to a stream — use it on first event.
+      if (!trackReceived) {
+        trackReceived = true;
+        onTrack(e.streams[0]);
+      }
+      return;
+    }
+    // Fallback path: no stream association (non-standard peer). Accumulate all
+    // tracks into one synthetic stream; fire the callback only on the first track.
+    if (!syntheticStream) {
+      syntheticStream = new MediaStream();
+    }
+    syntheticStream.addTrack(e.track);
     if (!trackReceived) {
       trackReceived = true;
-      // Use the stream associated with the track when available (standard path).
-      // Fall back to constructing a synthetic MediaStream so the callback always
-      // fires even when the remote peer sends tracks with no stream association
-      // (e.g. a non-standard MediaMTX build or future WHEP variant).
-      onTrack(e.streams[0] ?? new MediaStream([e.track]));
+      onTrack(syntheticStream);
     }
   };
 

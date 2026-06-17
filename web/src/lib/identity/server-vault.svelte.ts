@@ -90,6 +90,9 @@ class ServerVault {
   private _pushTimer: ReturnType<typeof setTimeout> | null = null;
   /** Unterdrückt Push während ein Remote-Merge läuft (verhindert Push-Schleife). */
   private _applyingRemote = false;
+  /** Gesetzt von wipe() — verhindert, dass ein laufendes pushNow() nach dem
+   *  Sign-out noch schreibt. Wird in persistCached() zurückgesetzt. */
+  private _wiped = false;
 
   /** Lädt den persistierten Key aus IDB in den Memory-Cache (idempotent). */
   private async loadCached(): Promise<StoredVaultKey | null> {
@@ -106,6 +109,7 @@ class ServerVault {
   }
 
   private async persistCached(value: StoredVaultKey): Promise<void> {
+    this._wiped = false;
     this.cached = value;
     try {
       const db = await openIdentityDb();
@@ -146,6 +150,7 @@ class ServerVault {
   async pushNow(): Promise<void> {
     const cached = await this.loadCached();
     if (!cached) return; // Sync nicht aktiviert → no-op
+    if (this._wiped) return; // wipe() wurde während des Awaits aufgerufen → abbrechen
     const entries: VaultServerEntry[] = serversStore.servers
       .filter((s) => !s.isCloud)
       .map((s) => ({
@@ -285,7 +290,7 @@ class ServerVault {
         return;
       } catch (err) {
         if (err instanceof AccountKeyDecryptError) throw new Error('VAULT_DECRYPT_FAILED');
-        await this.unlockForSetup(password);
+        // NO_ACCOUNT_KEY: no remote vault and no account key → nothing to restore.
         return;
       }
     }
@@ -349,6 +354,7 @@ class ServerVault {
 
   /** signOut: Memory + IDB-Key löschen. */
   async wipe(): Promise<void> {
+    this._wiped = true;
     this.cached = null;
     if (this._pushTimer) {
       clearTimeout(this._pushTimer);

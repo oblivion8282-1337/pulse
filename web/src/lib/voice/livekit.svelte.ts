@@ -223,6 +223,8 @@ class VoiceRoom {
   /** Effective send-processor state. Drives applyNoiseFilter's swap decisions —
    *  re-evaluated against (noiseSuppression, inputMakeupGain≠1) on every call. */
   #sendProcessorMode: 'off' | SendProcessorMode = 'off';
+  /** Concurrency guard for applyNoiseFilter — mirrors #connectGen pattern. */
+  #filterGen = 0;
   /** Live-tune handle for the post-RNNoise hard gate (null when filter is off
    *  or the gain-only processor is the active one). */
   #noiseGateSetter: ((openDb: number) => void) | null = null;
@@ -566,7 +568,7 @@ class VoiceRoom {
       this.#micEnabledBeforeDeafen = this.micEnabled;
       if (this.micEnabled) void this.setMicEnabled(false);
     } else {
-      if (this.#micEnabledBeforeDeafen && !this.pttMode) {
+      if (this.#micEnabledBeforeDeafen && !this.pttMode && !this.#selfOverride().muted) {
         void this.setMicEnabled(true);
       }
       this.#micEnabledBeforeDeafen = false;
@@ -911,6 +913,7 @@ class VoiceRoom {
   async applyNoiseFilter(): Promise<void> {
     const room = this.#room;
     if (!room) return;
+    const gen = ++this.#filterGen;
     const ns = settings.audio.noiseSuppression;
     const gain = settings.audio.inputMakeupGain;
     const target: 'off' | SendProcessorMode =
@@ -926,12 +929,14 @@ class VoiceRoom {
     try {
       if (target === 'off') {
         await audioTrack.stopProcessor();
+        if (gen !== this.#filterGen) return;
         this.#noiseGateSetter = null;
         this.#makeupSetter = null;
         this.#resetSendLevel();
       } else {
         const handle = createSendProcessor(target, settings.audio.noiseGateThresholdDb, gain);
         await audioTrack.setProcessor(handle.processor);
+        if (gen !== this.#filterGen) return;
         this.#noiseGateSetter = handle.setGateThreshold;
         this.#makeupSetter = handle.setMakeupGain;
         handle.setLevelTap(this.#onSendLevel);
@@ -940,6 +945,7 @@ class VoiceRoom {
       // Processor swap replaces the published mediaStreamTrack — rebind raw meter.
       this.#attachLocalAnalyser();
     } catch (e) {
+      if (gen !== this.#filterGen) return;
       this.#clearProcessorHandles();
       this.#resetSendLevel();
       toast.error(m.livekit_audio_path_update_failed(), {
@@ -1282,7 +1288,7 @@ class VoiceRoom {
     this.#resetSendLevel();
     this.#sendSpeakingDetector.reset();
     this.#remoteSpeaking.clear();
-    this.#audioEls.clear();
+    this.#audioEls.destroy();
     clearVoiceMediaSession();
     this.#releaseWakeLock?.();
     this.#releaseWakeLock = null;

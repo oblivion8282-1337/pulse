@@ -254,7 +254,11 @@ class Sidecar:
         if not self._binary.available:
             return {"ok": False, "error": "gpu-screen-recorder binary not available"}
         # Re-probe falls beim ersten Aufruf (z.B. ohne laufenden compositor) gescheitert.
-        info = self._ensure_info() or gsr_binary.probe_info(self._binary)
+        info = self._ensure_info()
+        if info is None:
+            info = gsr_binary.probe_info(self._binary)
+            if info is not None:
+                self._info = info
         if info is None:
             return {"ok": False, "error": "gpu-screen-recorder --info failed"}
         return {

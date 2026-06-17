@@ -263,6 +263,13 @@ export class RemoteAudioElements {
     for (const sid of [...this.#nodes.keys()]) this.detach(sid);
   }
 
+  /** Final teardown: clears all nodes then closes and releases the AudioContext. */
+  destroy(): void {
+    this.clear();
+    this.#ctx?.close().catch(() => undefined);
+    this.#ctx = null;
+  }
+
   /** Maintain the secondary userId→sids index for O(1) setUserVolume lookup. */
   #indexUser(userId: string, sid: string): void {
     let sids = this.#userSids.get(userId);

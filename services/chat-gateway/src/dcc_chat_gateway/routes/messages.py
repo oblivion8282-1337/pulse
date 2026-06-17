@@ -11,14 +11,15 @@ Mention parsing + persistence + per-user fan-out live in
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update as sa_update
 
-from dcc_chat_gateway import ratelimit
+from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import (
@@ -72,6 +73,18 @@ from dcc_shared.events import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _purge_s3_keys(keys: list[str]) -> None:
+    """Delete a list of MinIO/S3 keys. Failures are logged but not raised —
+    matches the best-effort semantics of hard_delete_attachments."""
+    async def _drop(key: str) -> None:
+        try:
+            await s3.delete_object(key)
+        except Exception:  # noqa: BLE001
+            log.exception("s3 delete failed after commit", key=key)
+
+    await asyncio.gather(*[_drop(k) for k in keys])
 
 
 @router.get(
@@ -420,8 +433,33 @@ async def edit_message(
             channel_id=msg.channel_id,
             uploader_id=current.id,
         )
+    # Collect storage keys BEFORE mutating the DB so that if commit fails the
+    # rows survive (deleted_at stays NULL) and the reaper or the user can retry.
+    # S3 objects are purged AFTER a successful commit below (s3_keys_to_purge).
+    s3_keys_to_purge: list[str] = []
     if to_remove:
-        await hard_delete_attachments(session, attachment_ids=list(to_remove))
+        remove_rows = (
+            (
+                await session.execute(
+                    select(MessageAttachment).where(
+                        MessageAttachment.id.in_(list(to_remove)),
+                        MessageAttachment.deleted_at.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in remove_rows:
+            s3_keys_to_purge.append(row.storage_key)
+            if row.thumb_storage_key:
+                s3_keys_to_purge.append(row.thumb_storage_key)
+        # DB-only soft-delete — S3 purge happens after commit.
+        await session.execute(
+            sa_update(MessageAttachment)
+            .where(MessageAttachment.id.in_([row.id for row in remove_rows]))
+            .values(deleted_at=datetime.now(UTC))
+        )
 
     msg.content = payload.content.strip()
     msg.edited_at = datetime.now(UTC)
@@ -447,6 +485,11 @@ async def edit_message(
         session, message_id=msg.id, mentions=valid_mentions, replace=True
     )
     await session.commit()
+    # Purge S3 objects only after a successful commit — if commit had failed
+    # the DB rows would have been rolled back (deleted_at stays NULL) so the
+    # files would still be referenced.  See s3_keys_to_purge populated above.
+    if s3_keys_to_purge:
+        await _purge_s3_keys(s3_keys_to_purge)
     await session.refresh(msg)
 
     reactions = (await _reactions_for(session, [msg.id], current.id)).get(msg.id, [])

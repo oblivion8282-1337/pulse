@@ -1236,8 +1236,38 @@ async def test_promote_or_end_noop_for_non_host_departure(redis):
         await redis.delete(f"watch:channel-{cid}")
 
 
+class _FakeSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.fixture
+def _handoff_member_ok():
+    """Patch handle_handoff's membership + VIEW_CHANNEL gate to pass, so the
+    handoff-logic tests exercise the host/target branches. The membership gate
+    itself is covered by ``test_handoff_non_member_errors_4004``."""
+    from dcc_chat_gateway.routes import watch_handoff
+
+    async def _ok(session, c, u):
+        return type("Chan", (), {"type": 1, "guild_id": 1})()  # CHANNEL_TYPE_VOICE
+
+    async def _all_perms(session, user, gid, channel_id):
+        return int(Permissions.VIEW_CHANNEL)
+
+    orig_m = watch_handoff.channel_membership
+    orig_p = watch_handoff.resolve_permissions
+    watch_handoff.channel_membership = _ok
+    watch_handoff.resolve_permissions = _all_perms
+    yield
+    watch_handoff.channel_membership = orig_m
+    watch_handoff.resolve_permissions = orig_p
+
+
 @pytest.mark.asyncio
-async def test_handoff_to_valid_target_swaps_host(redis):
+async def test_handoff_to_valid_target_swaps_host(redis, _handoff_member_ok):
     from dcc_chat_gateway.routes import watch_handoff
     from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -1250,7 +1280,8 @@ async def test_handoff_to_valid_target_swaps_host(redis):
     user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
     try:
         await watch_handoff.handle_handoff(
-            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "222"}
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "222"},
+            session_factory=lambda: _FakeSession(),
         )
         new = await _read_party(redis, cid)
         assert new["host_user_id"] == "222"
@@ -1260,7 +1291,7 @@ async def test_handoff_to_valid_target_swaps_host(redis):
 
 
 @pytest.mark.asyncio
-async def test_handoff_to_non_watcher_errors_4018(redis):
+async def test_handoff_to_non_watcher_errors_4018(redis, _handoff_member_ok):
     from dcc_chat_gateway.routes import watch_handoff
     from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -1272,7 +1303,8 @@ async def test_handoff_to_non_watcher_errors_4018(redis):
     user = AuthenticatedUser(id=111, username="u111", is_admin=False, payload={})
     try:
         await watch_handoff.handle_handoff(
-            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "999"}
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "999"},
+            session_factory=lambda: _FakeSession(),
         )
         assert ws.errors and ws.errors[0][0] == 4018
         new = await _read_party(redis, cid)
@@ -1282,7 +1314,7 @@ async def test_handoff_to_non_watcher_errors_4018(redis):
 
 
 @pytest.mark.asyncio
-async def test_handoff_by_non_host_errors_4015(redis):
+async def test_handoff_by_non_host_errors_4015(redis, _handoff_member_ok):
     from dcc_chat_gateway.routes import watch_handoff
     from dcc_chat_gateway.security import AuthenticatedUser
 
@@ -1295,19 +1327,42 @@ async def test_handoff_by_non_host_errors_4015(redis):
     user = AuthenticatedUser(id=222, username="u222", is_admin=False, payload={})
     try:
         await watch_handoff.handle_handoff(
-            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "111"}
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "111"},
+            session_factory=lambda: _FakeSession(),
         )
         assert ws.errors and ws.errors[0][0] == 4015
     finally:
         await redis.delete(f"watch:channel-{cid}")
 
 
-class _FakeSession:
-    async def __aenter__(self):
-        return self
+@pytest.mark.asyncio
+async def test_handoff_non_member_errors_4004(redis):
+    """A non-member must hit the membership gate (4004) before any party state
+    is read — so party existence is not leaked via 4015/4016."""
+    from dcc_chat_gateway.routes import watch_handoff
+    from dcc_chat_gateway.security import AuthenticatedUser
 
-    async def __aexit__(self, *a):
-        return False
+    cid = str(random.randint(10**18, 10**19 - 1))
+    mgr = _reg_mgr()
+    await mgr.watch_join(cid, _PID, "111", object(), now_ms=1000)
+    await _seed_party(redis, cid, _state(host="111"))
+    ws = _ErrWS(redis, mgr)
+    user = AuthenticatedUser(id=222, username="u222", is_admin=False, payload={})
+
+    async def _not_member(session, c, u):
+        return None
+
+    orig_m = watch_handoff.channel_membership
+    watch_handoff.channel_membership = _not_member
+    try:
+        await watch_handoff.handle_handoff(
+            ws, user, {"channel_id": cid, "party_id": _PID, "target_user_id": "111"},
+            session_factory=lambda: _FakeSession(),
+        )
+        assert ws.errors and ws.errors[0][0] == 4004
+    finally:
+        watch_handoff.channel_membership = orig_m
+        await redis.delete(f"watch:channel-{cid}")
 
 
 @pytest.mark.asyncio

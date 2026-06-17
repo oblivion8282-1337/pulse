@@ -209,6 +209,7 @@ async def reconcile_loop(
     of the loop — a transient LiveKit/Redis error is logged and retried."""
     log.info("voice_reconcile_loop_start", interval=interval_seconds)
     while True:
+        failed = False
         try:
             summary = await reconcile_once(redis, lk_api, ttl_seconds=ttl_seconds)
             log.debug("voice_reconcile_ok", **summary)
@@ -216,4 +217,5 @@ async def reconcile_loop(
             raise
         except Exception:  # noqa: BLE001 — keep the loop alive across blips
             log.warning("voice_reconcile_failed", exc_info=True)
-        await asyncio.sleep(interval_seconds)
+            failed = True
+        await asyncio.sleep(5 if failed else interval_seconds)

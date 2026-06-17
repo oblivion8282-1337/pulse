@@ -8,11 +8,15 @@ after acquiring it, so two near-simultaneous departures can't double-promote.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import WebSocket
 
 from dcc_chat_gateway import watchkeys
+from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE
+from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
+from dcc_chat_gateway.routes._deps import channel_membership
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +100,13 @@ async def promote_or_end(
     )
 
 
-async def handle_handoff(websocket: WebSocket, user, msg: dict[str, Any]) -> None:
+async def handle_handoff(
+    websocket: WebSocket,
+    user,
+    msg: dict[str, Any],
+    *,
+    session_factory: Callable,
+) -> None:
     """Explicit host-initiated handoff. With ``target_user_id`` → transfer to
     that specific watcher (must be watching). Without → promote the next
     oldest watcher; the handing-off host stays a viewer in the registry."""
@@ -105,6 +115,18 @@ async def handle_handoff(websocket: WebSocket, user, msg: dict[str, Any]) -> Non
     if cid is None or pid is None:
         await _err(websocket, 4012, "channel_id and party_id required")
         return
+    # Membership + VIEW_CHANNEL check — mirrors handle_start / handle_join so
+    # party existence is not leaked via distinct error codes to non-members.
+    cid_int = int(cid)
+    async with session_factory() as session:
+        channel = await channel_membership(session, cid_int, user.id)
+        if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+            await _err(websocket, 4004, "channel not accessible")
+            return
+        perms = await resolve_permissions(session, user, channel.guild_id, cid_int)
+        if not has_permission(perms, Permissions.VIEW_CHANNEL):
+            await _err(websocket, 4004, "channel not accessible")
+            return
     redis = _redis(websocket)
     mgr = _manager(websocket)
     if redis is None or mgr is None:
@@ -122,7 +144,14 @@ async def handle_handoff(websocket: WebSocket, user, msg: dict[str, Any]) -> Non
         if target not in await mgr.watchers(cid, pid):
             await _err(websocket, 4018, "target not watching")
             return
-        new_state = watchkeys.promoted_state(state, target)
+        # Re-read after the two awaits above — a concurrent update (e.g. the
+        # host's other socket leaving) may have changed or cleared the host.
+        # Mirrors the re-read guard in promote_or_end (lines 85-87).
+        fresh = await watchkeys.read_party(redis, cid, pid)
+        if fresh is None or str(fresh.get("host_user_id")) != str(user.id):
+            await _err(websocket, 4015, "only the host can hand off")
+            return
+        new_state = watchkeys.promoted_state(fresh, target)
         await watchkeys.write_party(redis, cid, new_state)
         mgr.cancel_host_end(cid, pid)  # defensive: host changed → drop pending grace
         return

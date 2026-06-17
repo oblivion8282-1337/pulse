@@ -62,20 +62,9 @@ class SnowflakeGenerator:
         return int(time.time() * 1000)
 
     def _wait_next_ms(self, last: int) -> int:
-        # Busy-spin until the clock advances past `last`.  The two callers
-        # both hold `self._lock` on the asyncio event-loop thread, so we
-        # must NOT call time.sleep() here — even a sub-millisecond sleep
-        # would hand control back to the OS scheduler and block every other
-        # coroutine for that window.  The spin is safe because:
-        #   • sequence-overflow case: wait is at most ~1 ms.
-        #   • clock-backwards case: this is an NTP adjustment; rare, bounded
-        #     by how far the clock was stepped (typically < 1 s in prod).
-        # For the clock-backwards case a small `time.sleep(0)` (OS yield)
-        # per iteration is fine — it does NOT yield the asyncio event loop
-        # because we are already inside a `threading.Lock` context and
-        # asyncio cannot context-switch across a synchronous call frame.
-        # However, keeping the loop unconditional is the simplest correct
-        # form.
+        # Busy-spin until the clock advances past `last`.  Only called for the
+        # sequence-overflow case (ts == last_ts), where the wait is at most ~1 ms
+        # and is therefore safe to spin on the event-loop thread.
         ts = self._now_ms()
         while ts <= last:
             ts = self._now_ms()
@@ -85,8 +74,14 @@ class SnowflakeGenerator:
         with self._lock:
             ts = self._now_ms()
             if ts < self._last_ts:
-                # Clock went backwards. Wait until strictly after last_ts to avoid duplicates.
-                ts = self._wait_next_ms(self._last_ts)
+                # Clock went backwards (NTP step or similar). Spinning here
+                # could block the event loop for seconds. Raise immediately —
+                # the caller gets a 500 for this request, which is far better
+                # than stalling every other coroutine.
+                raise RuntimeError(
+                    f"clock moved backwards: now={ts} ms < last={self._last_ts} ms; "
+                    "refusing to generate ID to avoid duplicates"
+                )
             if ts == self._last_ts:
                 self._seq = (self._seq + 1) & MAX_SEQ
                 if self._seq == 0:

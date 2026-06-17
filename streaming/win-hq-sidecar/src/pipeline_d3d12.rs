@@ -25,7 +25,7 @@ use std::ffi::c_void;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Graphics::Direct3D12::{ID3D12Device, ID3D12Resource};
 
 use crate::audio::AudioCapture;
@@ -305,7 +305,14 @@ pub fn run(params: StartParams, stop_rx: Receiver<()>) -> Result<()> {
 fn open_shared_bgra(device: &ID3D12Device, handle_val: isize) -> Result<ID3D12Resource> {
     let handle = HANDLE(handle_val as *mut c_void);
     let mut res: Option<ID3D12Resource> = None;
-    unsafe { device.OpenSharedHandle(handle, &mut res) }
-        .map_err(|e| anyhow!("OpenSharedHandle(BGRA-Ring-Slot): {e}"))?;
+    let open_result = unsafe { device.OpenSharedHandle(handle, &mut res) };
+    // D3D12 hält nach OpenSharedHandle eine eigene Referenz auf die Resource —
+    // der ursprüngliche NT-Handle (aus CreateSharedHandle in wgc_d3d12.rs) wird
+    // jetzt nicht mehr gebraucht und muss geschlossen werden, sonst leakt pro
+    // Ring-Slot ein Handle. Auf allen Pfaden schließen (auch bei Open-Fehler).
+    unsafe {
+        let _ = CloseHandle(handle);
+    }
+    open_result.map_err(|e| anyhow!("OpenSharedHandle(BGRA-Ring-Slot): {e}"))?;
     res.ok_or_else(|| anyhow!("D3D12-BGRA-Resource NULL"))
 }

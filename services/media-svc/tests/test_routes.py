@@ -125,7 +125,7 @@ async def test_get_stream_state_reflects_redis(client, redis, auth_signer):
 async def test_get_whep_url_returns_active_path(client, redis, auth_signer):
     access = auth_signer.issue_access(7, "bob")
     cid = _unique_cid()
-    path = f"channel-{cid}-42-deadbeef"
+    path = f"channel-{cid}-42-{'deadbeef' * 4}"
     await redis.set(
         ACTIVE_KEY.format(channel_id=cid, user_id="42"),
         json.dumps({"user_id": "42", "started_at": "2026-05-14T00:00:00+00:00", "path": path}),
