@@ -122,3 +122,36 @@ export function nameStyle(userId: string, guildId?: string | null): string {
   if (c1) return `color: ${c1}`;
   return '';
 }
+
+/** Inline `style` for a channel name from its stored styling fields:
+ *  two colors → gradient; one → solid; none → '' (default text color).
+ *  Same sanitizers/helper as usernames, so editor preview == real render. */
+export function channelNameStyle(channel: {
+  name_color?: string | null;
+  name_color_secondary?: string | null;
+  name_gradient_angle?: number | null;
+}): string {
+  const c1 = sanitizeProfileColor(channel.name_color);
+  const c2 = sanitizeProfileColor(channel.name_color_secondary);
+  if (c1 && c2) return gradientTextStyle(c1, c2, sanitizeGradientAngle(channel.name_gradient_angle));
+  if (c1) return `color: ${c1}`;
+  return '';
+}
+
+/** Click-to-apply palette for the name-color editor (profile + channels):
+ *  a few solid accents and a few gradients. angle omitted → default 90°. */
+export const NAME_STYLE_PRESETS: {
+  label: string;
+  color1: string;
+  color2?: string;
+  angle?: number;
+}[] = [
+  { label: 'Amber', color1: '#f59e0b' },
+  { label: 'Rose', color1: '#ec4899' },
+  { label: 'Emerald', color1: '#10b981' },
+  { label: 'Sky', color1: '#38bdf8' },
+  { label: 'Sunset', color1: '#f59e0b', color2: '#ef4444', angle: 90 },
+  { label: 'Ocean', color1: '#22d3ee', color2: '#3b82f6', angle: 90 },
+  { label: 'Candy', color1: '#a78bfa', color2: '#ec4899', angle: 90 },
+  { label: 'Lime', color1: '#a3e635', color2: '#10b981', angle: 90 }
+];
