@@ -26,6 +26,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     Index,
+    Integer,
     Text,
     func,
     text,
@@ -60,6 +61,8 @@ class CachedUserProfile(Base):
     avatar_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     profile_color: Mapped[str | None] = mapped_column(Text, nullable=True)
     profile_color_secondary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Name-gradient direction in degrees (mirrors auth-svc profile_gradient_angle).
+    profile_gradient_angle: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_statement_iat: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

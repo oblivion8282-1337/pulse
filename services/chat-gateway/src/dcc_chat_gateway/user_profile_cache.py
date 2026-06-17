@@ -214,6 +214,7 @@ async def upsert_profile_statement(
     avatar_hash: str | None = claims.get("avatar_hash")
     profile_color: str | None = claims.get("profile_color")
     profile_color_secondary: str | None = claims.get("profile_color_secondary")
+    profile_gradient_angle: int | None = claims.get("profile_gradient_angle")
 
     if existing is not None:
         existing.username = username
@@ -221,6 +222,7 @@ async def upsert_profile_statement(
         existing.avatar_hash = avatar_hash
         existing.profile_color = profile_color
         existing.profile_color_secondary = profile_color_secondary
+        existing.profile_gradient_angle = profile_gradient_angle
         existing.last_statement_iat = new_iat_dt
         existing.updated_at = datetime.now(tz=timezone.utc)
         existing.stale = False
@@ -235,6 +237,7 @@ async def upsert_profile_statement(
         avatar_hash=avatar_hash,
         profile_color=profile_color,
         profile_color_secondary=profile_color_secondary,
+        profile_gradient_angle=profile_gradient_angle,
         last_statement_iat=new_iat_dt,
         updated_at=datetime.now(tz=timezone.utc),
         stale=False,

@@ -150,30 +150,52 @@ async def test_profile_color_secondary_round_trip(client):
     })
     access = r_reg.json()["access_token"]
     headers = {"Authorization": f"Bearer {access}"}
-    # Set both gradient colours in one request.
+    # Set both gradient colours + direction in one request.
     r = await client.post(
         "/me/profile",
-        json={"profile_color": "#112233", "profile_color_secondary": "#aabbcc"},
+        json={
+            "profile_color": "#112233",
+            "profile_color_secondary": "#aabbcc",
+            "profile_gradient_angle": 135,
+        },
         headers=headers,
     )
     assert r.status_code == 200
     body = r.json()
     assert body["profile_color"] == "#112233"
     assert body["profile_color_secondary"] == "#aabbcc"
+    assert body["profile_gradient_angle"] == 135
     assert "profile_color_secondary" in body["updated"]
-    # GET /me must echo both colours back.
+    assert "profile_gradient_angle" in body["updated"]
+    # GET /me must echo all three back.
     me = await client.get("/me", headers=headers)
     assert me.status_code == 200
     me_body = me.json()
     assert me_body["profile_color"] == "#112233"
     assert me_body["profile_color_secondary"] == "#aabbcc"
-    # Null clears just the secondary, leaving the primary intact.
+    assert me_body["profile_gradient_angle"] == 135
+    # Null clears just the secondary, leaving the primary + angle intact.
     r2 = await client.post(
         "/me/profile", json={"profile_color_secondary": None}, headers=headers
     )
     assert r2.status_code == 200
     assert r2.json()["profile_color_secondary"] is None
     assert r2.json()["profile_color"] == "#112233"
+    assert r2.json()["profile_gradient_angle"] == 135
+
+
+@pytest.mark.asyncio
+async def test_profile_gradient_angle_out_of_range_rejected(client):
+    r_reg = await client.post("/register", json={
+        "username": "badangle_user", "email": "badangle@dcc-test.example.com",
+        "password": "badanglepassword1",
+    })
+    access = r_reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {access}"}
+    r = await client.post(
+        "/me/profile", json={"profile_gradient_angle": 999}, headers=headers
+    )
+    assert r.status_code == 422
 
 
 @pytest.mark.asyncio
