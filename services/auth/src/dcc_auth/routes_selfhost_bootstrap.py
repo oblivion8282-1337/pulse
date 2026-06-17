@@ -31,6 +31,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.models_instances import InstanceBootstrapToken, RegisteredInstance
+from dcc_auth.relay import allocate_relay_subdomain, generate_relay_token, hash_relay_token
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
 from dcc_auth.security import hash_password
@@ -49,13 +50,14 @@ class BootstrapCredsOut(BaseModel):
     client_secret: str
     cloud_origin: str
     admin_email: str | None = None
+    relay_subdomain: str | None = None
+    relay_server_addr: str | None = None
+    relay_tunnel_token: str | None = None
 
 
 def _extract_bearer(authorization: str | None) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, detail="missing bootstrap token"
-        )
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bootstrap token")
     token = authorization[7:].strip()
     if not token.startswith(TOKEN_PREFIX):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid bootstrap token")
@@ -89,11 +91,7 @@ async def redeem_bootstrap_token(
     expires_at = row.expires_at if row is not None else None
     if expires_at is not None and expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
-    if (
-        row is None
-        or row.consumed_at is not None
-        or expires_at <= now
-    ):
+    if row is None or row.consumed_at is not None or expires_at <= now:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="bootstrap token invalid or expired"
         )
@@ -103,14 +101,26 @@ async def redeem_bootstrap_token(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="instance not found")
     if instance.status != "active":
         # suspended ODER vom Owner gelöscht (routes_instance_delete).
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, detail="instance is not available"
-        )
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="instance is not available")
 
     # Token verbrennen + Secret rotieren (Klartext nur in der Antwort).
     row.consumed_at = now
     new_secret = secrets.token_urlsafe(32)
     instance.client_secret = await asyncio.to_thread(hash_password, new_secret)
+
+    # ②a Relay-Provisionierung: nur wenn ein Relay-Server konfiguriert ist.
+    # Subdomain wird einmalig vergeben (stabil), der Tunnel-Token bei jedem
+    # Redeem rotiert (Klartext nur in der Antwort; DB hält nur den Hash).
+    relay_subdomain: str | None = None
+    relay_token_plain: str | None = None
+    if settings.pulse_relay_server_addr:
+        if instance.relay_subdomain is None:
+            instance.relay_subdomain = await allocate_relay_subdomain(
+                db, settings.pulse_relay_base_domain
+            )
+        relay_subdomain = instance.relay_subdomain
+        relay_token_plain = generate_relay_token()
+        instance.relay_tunnel_token_hash = hash_relay_token(relay_token_plain)
 
     owner = await db.get(User, instance.registered_by)
     admin_email = owner.email if owner is not None else None
@@ -125,4 +135,7 @@ async def redeem_bootstrap_token(
         client_secret=new_secret,
         cloud_origin=settings.pulse_oidc_issuer,
         admin_email=admin_email,
+        relay_subdomain=relay_subdomain,
+        relay_server_addr=settings.pulse_relay_server_addr or None,
+        relay_tunnel_token=relay_token_plain,
     )
