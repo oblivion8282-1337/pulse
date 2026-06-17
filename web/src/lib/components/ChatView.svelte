@@ -18,7 +18,7 @@
   import { isElectron } from '$lib/platform/runtime';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
   import { safeAvatarUrl } from '$lib/avatar';
-  import { nameStyle } from '$lib/utils/nameColor';
+  import { nameStyle, channelNameStyle } from '$lib/utils/nameColor';
   import { m as pm } from '$lib/paraglide/messages.js';
 
   type ChatItem =
@@ -379,7 +379,7 @@
       {:else}
         <HashIcon class="text-primary size-5 shrink-0" />
       {/if}
-      <span class="text-text-bright truncate text-lg font-semibold tracking-tight" data-testid="active-channel-name">{channel.name}</span>
+      <span class="text-text-bright truncate text-lg font-semibold tracking-tight" style={headerKind === 'dm' ? '' : channelNameStyle(channel)} data-testid="active-channel-name">{channel.name}</span>
       {#if channel.topic}
         <span class="text-text-muted ml-2 hidden truncate text-sm md:block">· {channel.topic}</span>
       {/if}

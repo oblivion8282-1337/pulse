@@ -16,10 +16,19 @@
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import UsersIcon from '@lucide/svelte/icons/users';
   import ServerIcon from '@lucide/svelte/icons/server';
+  import { channelNameStyle } from '$lib/utils/nameColor';
 
   type Result =
     | { kind: 'guild'; key: string; label: string; href: string }
-    | { kind: 'channel'; key: string; label: string; sublabel: string; channelType: number; href: string }
+    | {
+        kind: 'channel';
+        key: string;
+        label: string;
+        sublabel: string;
+        channelType: number;
+        nameStyle: string;
+        href: string;
+      }
     | { kind: 'dm'; key: string; label: string; href: string };
 
   let query = $state('');
@@ -58,6 +67,7 @@
             label: c.name,
             sublabel: g.name,
             channelType: c.type,
+            nameStyle: channelNameStyle(c),
             href: `/app/guilds/${g.id}/channels/${c.id}`
           });
         }
@@ -146,7 +156,7 @@
             {:else}
               <UsersIcon class="text-text-muted size-4 shrink-0" />
             {/if}
-            <span class="truncate">{r.label}</span>
+            <span class="truncate" style={r.kind === 'channel' ? r.nameStyle : ''}>{r.label}</span>
             {#if r.kind === 'channel'}
               <span class="text-text-muted ml-auto shrink-0 text-xs">{r.sublabel}</span>
             {/if}

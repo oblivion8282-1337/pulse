@@ -33,6 +33,7 @@
   import { capabilities } from '$lib/stores/capabilities.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { roles } from '$lib/stores/roles.svelte';
+  import { channelNameStyle } from '$lib/utils/nameColor';
   import { Perm } from '$lib/permissions/bitfield';
   import { messages } from '$lib/stores/messages.svelte';
   import { gateway } from '$lib/ws/connection';
@@ -329,7 +330,7 @@
               data-testid={`channel-${c.id}`}
             >
               <HashIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary group-data-[unread=true]:text-text-bright" />
-              <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}">{c.name}</span>
+              <span class="truncate {isUnread ? 'font-semibold text-text-bright' : ''}" style={channelNameStyle(c)}>{c.name}</span>
               <span class="ml-auto flex shrink-0 items-center gap-1.5">
                 {#if c.restricted}
                   <LockIcon
@@ -414,7 +415,7 @@
               data-testid={`channel-${c.id}`}
             >
               <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
-              <span class="truncate">{c.name}</span>
+              <span class="truncate" style={channelNameStyle(c)}>{c.name}</span>
               <span class="ml-auto flex shrink-0 items-center gap-1.5">
                 {#if c.restricted}
                   <LockIcon
