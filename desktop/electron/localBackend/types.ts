@@ -2,6 +2,8 @@ export interface SpawnSpec {
   command: string;
   args: string[];
   env: Record<string, string>;
+  /** Optionales Arbeitsverzeichnis für den Kindprozess. */
+  cwd?: string;
 }
 
 export interface DataDirs {
