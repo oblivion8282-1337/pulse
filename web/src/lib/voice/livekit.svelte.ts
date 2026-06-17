@@ -52,6 +52,8 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
+import { gsr } from '$lib/stream/gsr';
+import { stream as hqStream } from '$lib/stream/state.svelte';
 
 export type { ScreenShareTrack, CameraTrack };
 
@@ -434,6 +436,13 @@ class VoiceRoom {
     const room = this.#room;
     if (!room) return;
     sounds.play('voice.self_leave', this.#soundCtx);
+    // Verlassen wir den Voice-Channel, muss ein laufender HQ-Stream mit weg —
+    // er ist an genau diesen Channel gebunden. Sonst pusht der Sidecar weiter
+    // und der Stream taucht beim Wieder-Verbinden als „live" wieder auf.
+    // No-op im Browser (keine Sidecar-Bridge) und wenn nichts läuft.
+    if (hqStream.running) {
+      void gsr.stop().catch(() => undefined);
+    }
     if (opts.reason === 'user') {
       // Explizites Verlassen (Auflegen / Channel-Wechsel) → kein Auto-Rejoin
       // beim nächsten Reload. Transport-Trennungen (Reload/WS-Blip) lassen den

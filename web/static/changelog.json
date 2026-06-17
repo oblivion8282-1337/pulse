@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.3",
+      "date": "2026-06-17",
+      "style": "Locker",
+      "title": "Auflegen beendet jetzt auch deinen HQ-Stream",
+      "items": [
+        "Wenn du einen Voice-Channel verlässt — auflegen, Channel wechseln oder rausgeflogen — stoppt ein laufender HQ-Stream jetzt von selbst.",
+        "Vorher lief er heimlich weiter und war beim nächsten Verbinden noch als „live“ zu sehen. Das ist jetzt erledigt."
+      ]
+    },
+    {
       "id": "2026-06-17.2",
       "date": "2026-06-17",
       "style": "Sachlich",
