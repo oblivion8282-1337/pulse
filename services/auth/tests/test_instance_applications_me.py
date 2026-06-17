@@ -113,7 +113,7 @@ async def test_get_instances_requires_cookie(client):
 
 @pytest.mark.asyncio
 async def test_get_snippet_requires_cookie(client):
-    r = await client.get("/me/instances/12345/docker-compose-snippet")
+    r = await client.post("/me/instances/12345/env-file")
     assert r.status_code == 401
 
 
@@ -350,14 +350,14 @@ async def test_get_instances_only_own(client, alice_cookie, bob_cookie, alice_in
 
 
 # ---------------------------------------------------------------------------
-# GET /me/instances/{id}/docker-compose-snippet
+# POST /me/instances/{id}/env-file
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
 async def test_snippet_happy_path(client, alice_cookie, alice_instance):
-    r = await client.get(
-        f"/me/instances/{alice_instance.id}/docker-compose-snippet",
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
         headers={"Cookie": alice_cookie},
     )
     assert r.status_code == 200
@@ -369,22 +369,46 @@ async def test_snippet_happy_path(client, alice_cookie, alice_instance):
     assert f"PULSE_CLOUD_CLIENT_ID={alice_instance.client_id}" in body
     assert f"PULSE_INSTANCE_OWNER_ID={alice_instance.registered_by}" in body
     assert f"PULSE_HOSTNAME={alice_instance.hostname}" in body
-    assert "PULSE_ADMIN_EMAIL=" in body
     # Der alte (kaputte) INSTANCE_CLIENT-Name darf NICHT mehr vorkommen.
     assert "PULSE_INSTANCE_CLIENT_ID" not in body
     # Worker-IDs ignoriert der Single-Container → nicht mehr im Snippet.
     assert "WORKER_ID_CHAT" not in body
-    # Kein Klartext-Secret — nur der Platzhalter.
-    assert f"PULSE_CLOUD_CLIENT_SECRET=<...>" in body
-    # Placeholder-Hinweis vorhanden
-    assert "Approval" in body or "Secret" in body
+    # Frisches Secret ist gesetzt — KEIN Platzhalter mehr.
+    assert "PULSE_CLOUD_CLIENT_SECRET=<...>" not in body
+    secret_line = next(
+        ln for ln in body.splitlines() if ln.startswith("PULSE_CLOUD_CLIENT_SECRET=")
+    )
+    secret = secret_line.split("=", 1)[1]
+    assert len(secret) >= 20
+    # Admin-Mail ist befüllt (keine offenen Platzhalter mehr).
+    assert "PULSE_ADMIN_EMAIL=" in body
+    assert "<...>" not in body
+
+
+@pytest.mark.asyncio
+async def test_env_file_rotates_secret(client, alice_cookie, alice_instance):
+    """Jeder Aufruf liefert ein anderes Secret (Rotation)."""
+
+    def _secret(text: str) -> str:
+        line = next(
+            ln for ln in text.splitlines() if ln.startswith("PULSE_CLOUD_CLIENT_SECRET=")
+        )
+        return line.split("=", 1)[1]
+
+    r1 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file", headers={"Cookie": alice_cookie}
+    )
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file", headers={"Cookie": alice_cookie}
+    )
+    assert _secret(r1.text) != _secret(r2.text)
 
 
 @pytest.mark.asyncio
 async def test_snippet_404_for_other_user(client, bob_cookie, alice_instance):
     """Bob bekommt 404 für Alices Instanz (kein 403 wegen Existence-Leak)."""
-    r = await client.get(
-        f"/me/instances/{alice_instance.id}/docker-compose-snippet",
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/env-file",
         headers={"Cookie": bob_cookie},
     )
     assert r.status_code == 404
@@ -392,8 +416,8 @@ async def test_snippet_404_for_other_user(client, bob_cookie, alice_instance):
 
 @pytest.mark.asyncio
 async def test_snippet_404_nonexistent(client, alice_cookie):
-    r = await client.get(
-        "/me/instances/9999999999999/docker-compose-snippet",
+    r = await client.post(
+        "/me/instances/9999999999999/env-file",
         headers={"Cookie": alice_cookie},
     )
     assert r.status_code == 404
@@ -402,8 +426,8 @@ async def test_snippet_404_nonexistent(client, alice_cookie):
 @pytest.mark.asyncio
 async def test_snippet_invalid_id_404(client, alice_cookie):
     """Ungültige (nicht-numerische) ID → 404."""
-    r = await client.get(
-        "/me/instances/not-a-number/docker-compose-snippet",
+    r = await client.post(
+        "/me/instances/not-a-number/env-file",
         headers={"Cookie": alice_cookie},
     )
     assert r.status_code == 404

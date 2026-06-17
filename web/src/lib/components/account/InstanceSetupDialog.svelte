@@ -14,6 +14,7 @@
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
   import RefreshCwIcon from '@lucide/svelte/icons/refresh-cw';
+  import DownloadIcon from '@lucide/svelte/icons/download';
 
   let { open = $bindable(false), instance }: { open?: boolean; instance: Instance | null } =
     $props();
@@ -25,6 +26,7 @@
   let copied = $state(false);
   let aiCopied = $state(false);
   let showExplain = $state(false);
+  let envDownloading = $state(false);
   let nowMs = $state(0);
   let ticker: ReturnType<typeof setInterval> | null = null;
 
@@ -85,6 +87,19 @@
     }
   }
 
+  async function downloadEnv() {
+    if (!instance || envDownloading) return;
+    envDownloading = true;
+    try {
+      await instancesApi.downloadEnvFile(instance.id);
+      toast.success(m.instance_setup_manual_downloaded());
+    } catch {
+      toast.error(m.instance_setup_error());
+    } finally {
+      envDownloading = false;
+    }
+  }
+
   async function copyAiPrompt() {
     if (!aiPrompt) return;
     try {
@@ -140,6 +155,10 @@
 
       <div class="flex flex-col gap-4 text-sm">
         <p class="text-text-base">{m.instance_setup_intro()}</p>
+
+        <p class="text-text-bright text-xs font-semibold tracking-wide uppercase">
+          {m.instance_setup_quick_title()}
+        </p>
 
         {#if loading && !token}
           <p class="text-text-muted">{m.instance_setup_loading()}</p>
@@ -271,16 +290,35 @@
         </div>
 
         <!-- Manueller Pfad: Docker Compose statt Installer-Script -->
-        <p class="text-text-muted text-xs">
-          {m.instance_setup_manual_hint()}
-          <a
-            href="{installBase}/self-host/guide"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="hover:text-text-bright underline"
-            data-testid="instance-setup-manual-link">{m.instance_setup_manual_link()}</a
+        <div class="border-border bg-bg-input/40 flex flex-col gap-2.5 rounded-xl border p-3">
+          <p class="text-text-bright text-xs font-semibold tracking-wide uppercase">
+            {m.instance_setup_manual_title()}
+          </p>
+          <p class="text-text-muted text-xs">{m.instance_setup_manual_desc()}</p>
+
+          <button
+            type="button"
+            onclick={() => void downloadEnv()}
+            disabled={envDownloading}
+            class="bg-bg-hover border-border hover:text-text-bright flex w-fit items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium disabled:opacity-50"
+            data-testid="instance-setup-env-download"
           >
-        </p>
+            <DownloadIcon class="size-4" />
+            {envDownloading ? m.instance_setup_manual_downloading() : m.instance_setup_manual_download()}
+          </button>
+          <p class="text-amber-300 text-xs">{m.instance_setup_manual_download_warning()}</p>
+
+          <p class="text-text-muted text-xs">
+            {m.instance_setup_manual_steps()}
+            <a
+              href="{installBase}/self-host/guide"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-text-bright underline"
+              data-testid="instance-setup-manual-link">{m.instance_setup_manual_link()}</a
+            >
+          </p>
+        </div>
       </div>
 
       <div class="flex justify-end pt-2">

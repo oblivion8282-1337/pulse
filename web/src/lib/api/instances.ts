@@ -154,15 +154,16 @@ export const instancesApi = {
   },
 
   /**
-   * Docker-Compose-Snippet als Download-Blob.
-   * Gibt die Response direkt zurück — Aufrufer triggert Download via URL.
+   * Fertige `.env` (inkl. frisch erzeugtem client_secret) als Download-Blob.
+   * POST, weil jeder Aufruf das Secret serverseitig rotiert — ein erneuter
+   * Download entwertet das vorherige Secret. Secret wird NIE geloggt.
    */
-  async downloadComposeSnippet(instanceId: string): Promise<void> {
-    const url0 = `${AUTH_BASE}/me/instances/${instanceId}/docker-compose-snippet`;
-    let resp = await fetch(url0, { credentials: 'include' });
+  async downloadEnvFile(instanceId: string): Promise<void> {
+    const endpoint = `${AUTH_BASE}/me/instances/${instanceId}/env-file`;
+    let resp = await fetch(endpoint, { method: 'POST', credentials: 'include' });
     // Abgelaufener Cookie → renewen + einmal retry (s. cookieFetch).
     if (resp.status === 401 && (await renewSession())) {
-      resp = await fetch(url0, { credentials: 'include' });
+      resp = await fetch(endpoint, { method: 'POST', credentials: 'include' });
     }
     if (!resp.ok) {
       const text = await resp.text();
