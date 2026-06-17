@@ -35,10 +35,13 @@
   // Default-empty after channel switch — see resetChannel below.
   let streamViewOpen = $derived(openedTiles.hasAny(channel.id));
 
-  // Reset on channel switch: drop all open-flags so a re-entry starts clean.
+  // Channel betreten: nur bei einem ECHTEN Channel-Wechsel werden die Opens des
+  // alten Channels verworfen (dessen HQ-Streams enden dann). Rückkehr in
+  // DENSELBEN Channel (z.B. aus einer DM) lässt die Opens stehen → der im
+  // Hintergrund weiterlaufende Stream ist sofort wieder da, kein Reconnect.
   $effect(() => {
     const cid = channel.id;
-    untrack(() => openedTiles.resetChannel(cid));
+    untrack(() => openedTiles.enterChannel(cid));
   });
 
   // Prune opens whose publisher stopped — a pause+restart should force a new

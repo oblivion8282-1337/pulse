@@ -3,12 +3,14 @@
 POST   /me/instance-applications        -- Antrag einreichen
 GET    /me/instance-applications        -- eigene Anträge abrufen
 GET    /me/instances                    -- eigene registrierte Instanzen
-GET    /me/instances/{id}/docker-compose-snippet  -- .env-Snippet als Textdatei
+POST   /me/instances/{id}/env-file            -- fertige .env (inkl. frischem Secret)
 """
 
 from __future__ import annotations
 
+import asyncio
 import re
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
@@ -27,6 +29,7 @@ from dcc_auth.models_instances import (
     RegisteredInstance,
 )
 from dcc_auth.routes import _check_rate
+from dcc_auth.security import hash_password
 from dcc_auth.snowflake import next_id
 
 router = APIRouter(tags=["self-host"])
@@ -264,61 +267,71 @@ async def list_my_instances(
     return [_instance_to_out(r) for r in rows]
 
 
-@router.get(
-    "/me/instances/{instance_id}/docker-compose-snippet",
+@router.post(
+    "/me/instances/{instance_id}/env-file",
     response_class=Response,
 )
-async def get_docker_compose_snippet(
+async def generate_env_file(
     instance_id: str,
     request: Request,
     db: SessionDep,
 ) -> Response:
-    """Gibt ein .env-Snippet für die Self-Host-Instanz zurück.
+    """Erzeugt die komplette, sofort lauffähige ``.env`` für den allinone-Container.
 
-    Nur der Eigentümer kann das abrufen. 404 statt 403 um Existence-Leak
-    zu vermeiden.
+    Nur der Eigentümer (404 statt 403 gegen Existence-Leak). Anders als ein
+    bloßes Template enthält diese ``.env`` ALLE Werte gesetzt — inklusive eines
+    **frisch generierten** ``PULSE_CLOUD_CLIENT_SECRET``:
 
-    Die Var-Namen MÜSSEN exakt die sein, die der allinone-Container liest
-    (``10-check-cloud-creds.sh`` / ``07-render-env.sh``): ``PULSE_CLOUD_CLIENT_*``
-    (nicht ``PULSE_INSTANCE_CLIENT_*``), und der Container verlangt zusätzlich
-    ``PULSE_INSTANCE_OWNER_ID``, ``PULSE_HOSTNAME`` und ``PULSE_ADMIN_EMAIL`` —
-    sonst failt der Startup-Check. ``client_secret`` fehlt absichtlich (nur bei
-    Approval einmalig sichtbar). Worker-IDs tauchen NICHT auf: der Single-
-    Container nutzt feste interne IDs (1/2/3) und ignoriert sie.
+    * Jeder Aufruf rotiert das Secret. Der Klartext geht **ausschließlich** hier
+      in der Antwort raus; in der DB liegt nur der Argon2-Hash. Ein erneuter
+      Download entwertet damit das vorherige Secret (UI warnt davor) — genau wie
+      der Bootstrap-Redeem (``routes_selfhost_bootstrap``).
+    * Die Var-Namen MÜSSEN exakt die sein, die der Container liest
+      (``10-check-cloud-creds.sh`` / ``07-render-env.sh``): ``PULSE_CLOUD_CLIENT_*``
+      (nicht ``PULSE_INSTANCE_CLIENT_*``) plus ``PULSE_INSTANCE_OWNER_ID``,
+      ``PULSE_HOSTNAME`` und ``PULSE_ADMIN_EMAIL``. Worker-IDs tauchen NICHT auf
+      (der Single-Container nutzt feste interne IDs).
+    * Secret wird NIE geloggt.
     """
     user = await _require_user(request, db)
+    settings = get_settings()
+    await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
     try:
         iid = int(instance_id)
     except ValueError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
-    inst = await db.get(RegisteredInstance, iid)
+    inst = await db.get(RegisteredInstance, iid, with_for_update=True)
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
+    # Secret rotieren — Klartext nur hier, DB hält nur den Hash.
+    new_secret = secrets.token_urlsafe(32)
+    inst.client_secret = await asyncio.to_thread(hash_password, new_secret)
+    await db.commit()
+
+    admin_email = user.email or f"admin@{inst.hostname}"
     snippet = (
         f"# Pulse Self-Host — Instance {inst.id}\n"
         f"# Hostname: {inst.hostname}\n"
         f"#\n"
-        f"# Fertige .env für den allinone-Container. Drei Werte musst du noch\n"
-        f"# selbst eintragen (mit <...> markiert):\n"
-        f"#   PULSE_CLOUD_CLIENT_SECRET — bei der Freischaltung EINMALIG gezeigt.\n"
-        f"#   PULSE_ADMIN_EMAIL         — deine Mail (Let's-Encrypt / ACME).\n"
-        f"# Danach: docker run --env-file dieser-datei ... pulse-allinone:stable\n"
+        f"# Fertige .env für den allinone-Container — alle Werte sind gesetzt.\n"
+        f"# Das client_secret unten ist FRISCH erzeugt; ein erneuter Download\n"
+        f"# erzeugt ein neues und entwertet dieses. Bewahr die Datei sicher auf.\n"
+        f"# Start: docker compose up -d   (docker-compose.yml + diese .env)\n"
         f"\n"
         f"PULSE_HOSTNAME={inst.hostname}\n"
         f"PULSE_INSTANCE_ID={inst.id}\n"
         f"PULSE_INSTANCE_OWNER_ID={inst.registered_by}\n"
         f"PULSE_INSTANCE_MODE=self-host\n"
-        f"PULSE_CLOUD_ORIGIN=https://howispulse.com\n"
+        f"PULSE_CLOUD_ORIGIN={settings.pulse_oidc_issuer}\n"
         f"\n"
-        f"# Cloud-Pairing-Credentials (client_id fix, secret von dir):\n"
+        f"# Cloud-Pairing-Credentials (frisch erzeugt):\n"
         f"PULSE_CLOUD_CLIENT_ID={inst.client_id}\n"
-        f"PULSE_CLOUD_CLIENT_SECRET=<...>  "
-        f"# Trag hier dein bei Approval erhaltenes Secret ein!\n"
+        f"PULSE_CLOUD_CLIENT_SECRET={new_secret}\n"
         f"\n"
-        f"PULSE_ADMIN_EMAIL=<...>  # z.B. admin@{inst.hostname}\n"
+        f"PULSE_ADMIN_EMAIL={admin_email}\n"
     )
 
     return Response(

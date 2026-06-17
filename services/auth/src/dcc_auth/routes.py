@@ -387,6 +387,17 @@ async def login(
     settings = get_settings()
     await _check_rate(request, "login", settings.rate_limit_login)
 
+    # Mandatory-SSO: a self-host instance has no local login — identity comes
+    # from howispulse.com (cert-login). Mirror the /register gate so credentials
+    # can't be exchanged for a token here either. The escape hatch
+    # ALLOW_LOCAL_ACCOUNTS re-opens both for sealed-island deployments; the Cloud
+    # (instance_mode == "cloud") is the identity source and is never gated.
+    if settings.pulse_instance_mode != "cloud" and not settings.allow_local_accounts:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="local login disabled — sign in with your howispulse.com account",
+        )
+
     needle = payload.email_or_username.strip()
     stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
     user = (await session.execute(stmt)).scalar_one_or_none()

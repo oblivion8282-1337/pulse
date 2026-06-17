@@ -56,6 +56,10 @@ class RegisteredInstance(Base):
     worker_id_media: Mapped[int] = mapped_column(SmallInteger, nullable=False, unique=True)
     # active | suspended
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
+    # ②a Relay-Provisionierung: stabile Subdomain (Slug) + Tunnel-Token-Hash.
+    # Der Token-Klartext wird NIE persistiert (nur via Bootstrap-Response geliefert).
+    relay_subdomain: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    relay_tunnel_token_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     registered_by: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id"), nullable=False
     )

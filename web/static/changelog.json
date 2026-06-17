@@ -2,6 +2,46 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.11",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "HQ-Streaming bei systemweiter Installation",
+      "items": [
+        "HQ-Streaming funktioniert jetzt auch, wenn Pulse für alle Benutzer installiert wurde. Vorher tauchte das Streaming-Icon in diesem Fall nicht auf."
+      ]
+    },
+    {
+      "id": "2026-06-17.10",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Manuelle Installation für eigene Server vervollständigt",
+      "items": [
+        "Im Einrichten-Dialog gibt es jetzt einen klar sichtbaren Bereich „Manuelle Installation“ — direkt unter dem Schnell-Installer — mit einem Knopf, der eine fertige Konfigurationsdatei (.env) herunterlädt, inklusive aller Zugangsdaten.",
+        "Der Link zur ausführlichen Schritt-für-Schritt-Anleitung ist deutlicher sichtbar.",
+        "Die Anleitung wird wieder mit korrekten Umlauten angezeigt."
+      ]
+    },
+    {
+      "id": "2026-06-17.9",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Mehr Sicherheit für selbst gehostete Server",
+      "items": [
+        "Die Adresse eines selbst gehosteten Servers zeigt jetzt eine leere Seite — dort ist kein Anmelden oder Registrieren mehr möglich.",
+        "Die Anmeldung läuft ausschließlich zentral über howispulse.com."
+      ]
+    },
+    {
+      "id": "2026-06-17.8",
+      "date": "2026-06-17",
+      "style": "Sachlich",
+      "title": "Live-Streams bleiben beim Wegnavigieren aktiv",
+      "items": [
+        "Beim Wechsel in eine DM oder einen anderen Channel wird ein laufender Live-Stream nicht mehr getrennt; der Ton läuft weiter.",
+        "Bei Rückkehr in den Channel erscheint das Bild sofort, ohne erneuten Verbindungsaufbau."
+      ]
+    },
+    {
       "id": "2026-06-17.7",
       "date": "2026-06-17",
       "style": "Locker",
