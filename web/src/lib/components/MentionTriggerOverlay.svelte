@@ -37,6 +37,10 @@
    *  from the host on `oninput`/`onkeyup`/`onclick`. */
   export function update(): void {
     if (!textareaEl) return;
+    // Composition reset: once the textarea is empty, drop tracked replacements
+    // so a later manually-typed `@Name` is not silently rewritten into a real
+    // mention by a stale entry from an abandoned autocomplete.
+    if (value === '') _replacements = [];
     const caret = textareaEl.selectionStart ?? value.length;
     const trig = detectMentionTrigger(value, caret);
     if (trig) {

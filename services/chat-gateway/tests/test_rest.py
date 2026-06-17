@@ -581,12 +581,16 @@ async def test_patch_guild_not_found(client, _auth_signer):
 
 
 @pytest.mark.asyncio
-async def test_delete_guild_as_owner(client, _auth_signer):
+async def test_delete_guild_as_owner(client, _auth_signer, session_factory):
     """Owner can delete the guild. Channel cascade (ON DELETE CASCADE) is
     asserted only indirectly via getGuild; SQLite in tests doesn't enforce
-    FKs by default — Postgres in prod does."""
+    FKs by default — Postgres in prod does. Messages have NO channel_id FK
+    (Migration 0005) so they must be deleted explicitly — assert that here."""
+    from sqlalchemy import select
+
+    from dcc_chat_gateway.models import Message
+
     t_owner, _, g, c = await _setup_guild_and_channel(client, _auth_signer)
-    # Post a message just so we hit the same code path as the real flow.
     await client.post(
         f"/channels/{c['id']}/messages", json={"content": "bye"}, headers=auth(t_owner)
     )
@@ -598,6 +602,12 @@ async def test_delete_guild_as_owner(client, _auth_signer):
     assert all(gg["id"] != g["id"] for gg in r2.json())
     r3 = await client.get(f"/guilds/{g['id']}", headers=auth(t_owner))
     assert r3.status_code in (403, 404)
+    # Message rows for the guild's channel are gone, not orphaned.
+    async with session_factory() as s:
+        remaining = (
+            await s.execute(select(Message).where(Message.channel_id == int(c["id"])))
+        ).scalars().all()
+    assert remaining == []
 
 
 @pytest.mark.asyncio

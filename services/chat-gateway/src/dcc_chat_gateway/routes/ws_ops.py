@@ -124,26 +124,37 @@ async def run_session_op_loop(
                     websocket.app.state, "plugin_allowlist", frozenset()
                 )
                 gate_session = SessionLocal()
-                decision = await check_plugin_op_gate(
-                    session=gate_session,
-                    op=op,
-                    payload=msg,
-                    user_id=user.id,
-                    allowlist=allowlist,
-                )
-                if not decision.allowed:
-                    await websocket.send_json(
-                        {
-                            "op": "error",
-                            "code": decision.error_code,
-                            "msg": decision.error_msg,
-                        }
+                # Guard the gate check + denial-send: if check_plugin_op_gate
+                # raises a DB error, or send_json raises WebSocketDisconnect on
+                # the denial path, the session must still be closed — otherwise
+                # it leaks a pool connection on every such occurrence.
+                try:
+                    decision = await check_plugin_op_gate(
+                        session=gate_session,
+                        op=op,
+                        payload=msg,
+                        user_id=user.id,
+                        allowlist=allowlist,
                     )
+                    if not decision.allowed:
+                        await websocket.send_json(
+                            {
+                                "op": "error",
+                                "code": decision.error_code,
+                                "msg": decision.error_msg,
+                            }
+                        )
+                        gate_passed = False
+                except BaseException:
                     await gate_session.close()
                     gate_session = None
-                    gate_passed = False
-                # Thread the session to the handler to avoid double pool acquisition.
-                if gate_passed:
+                    raise
+                if not gate_passed:
+                    await gate_session.close()
+                    gate_session = None
+                else:
+                    # Thread the session to the handler to avoid double pool
+                    # acquisition; closed in the handler's finally block below.
                     ctx._db_session = gate_session
             if not gate_passed:
                 continue

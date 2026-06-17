@@ -121,9 +121,17 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
             guild_id_for_bump = gid
             if kind == "dm":
                 dm_obj = await session.get(DirectMessageChannel, cid_int)
-                if dm_obj is not None:
+                if dm_obj is None:
+                    # DM channel deleted under us (e.g. concurrent account
+                    # purge). Treat as inaccessible — falling through to ok=True
+                    # would skip the friend/block gate (dm_pair stays None) and
+                    # persist an orphaned message row.
+                    ok = False
+                else:
                     dm_pair = (dm_obj.user_a_id, dm_obj.user_b_id)
-            ok = True
+                    ok = True
+            else:
+                ok = True
         else:
             resolved = await resolve_channel_for_user(session, cid_int, user.id)
             if resolved is None:

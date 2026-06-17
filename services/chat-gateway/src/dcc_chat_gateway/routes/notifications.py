@@ -37,13 +37,18 @@ router = APIRouter(prefix="/notifications")
 # Endpoints whose host does not end with one of these suffixes are rejected
 # to prevent SSRF: a registered push endpoint is later contacted by the server
 # when a notification is triggered (pywebpush makes an outbound POST).
+# Every entry MUST start with a dot so the ``host.endswith(s)`` check below
+# is bounded at a label boundary. Without the leading dot,
+# ``"evilfcm.googleapis.com".endswith("fcm.googleapis.com")`` is True and an
+# attacker can point server-side push requests at an arbitrary host (SSRF).
+# The exact-hostname case is handled separately via ``host == s.lstrip(".")``.
 _PUSH_SERVICE_SUFFIXES: tuple[str, ...] = (
     ".push.services.mozilla.com",
-    "fcm.googleapis.com",
+    ".fcm.googleapis.com",
     ".notify.windows.com",
-    "web.push.apple.com",
+    ".web.push.apple.com",
     ".push.apple.com",
-    "updates.push.services.mozilla.com",
+    ".updates.push.services.mozilla.com",
 )
 
 

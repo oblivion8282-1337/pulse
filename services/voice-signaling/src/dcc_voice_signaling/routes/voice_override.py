@@ -90,24 +90,29 @@ async def set_voice_override(
             channel_resp = await voice_routes._chat_gateway_request(
                 "GET", f"/channels/{channel_id}", bearer=bearer
             )
-            if channel_resp.status_code == 200:
-                channel_data = channel_resp.json()
-                guild_id = channel_data.get("guild_id")
-                if guild_id:
-                    # Verify the target user is a member of this guild.
-                    member_resp = await voice_routes._chat_gateway_request(
-                        "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+            # Fail closed: a non-200 (transient 502, rolling restart) must not
+            # silently skip the cross-guild + target-membership checks below.
+            if channel_resp.status_code != 200:
+                raise HTTPException(
+                    status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
+                )
+            channel_data = channel_resp.json()
+            guild_id = channel_data.get("guild_id")
+            if guild_id:
+                # Verify the target user is a member of this guild.
+                member_resp = await voice_routes._chat_gateway_request(
+                    "GET", f"/guilds/{guild_id}/members/{user_id}", bearer=bearer
+                )
+                if member_resp.status_code == 404:
+                    raise HTTPException(
+                        status.HTTP_404_NOT_FOUND,
+                        detail="user is not a member of this guild",
                     )
-                    if member_resp.status_code == 404:
-                        raise HTTPException(
-                            status.HTTP_404_NOT_FOUND,
-                            detail="user is not a member of this guild",
-                        )
-                    if member_resp.status_code >= 400:
-                        raise HTTPException(
-                            status.HTTP_502_BAD_GATEWAY,
-                            detail="membership check unavailable",
-                        )
+                if member_resp.status_code >= 400:
+                    raise HTTPException(
+                        status.HTTP_502_BAD_GATEWAY,
+                        detail="membership check unavailable",
+                    )
         except HTTPException:
             raise
         except Exception as exc:

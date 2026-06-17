@@ -243,6 +243,30 @@ async def test_subscribe_rejects_non_https(client, _auth_signer):
     assert r.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_subscribe_rejects_lookalike_push_domain(client, _auth_signer):
+    """SSRF guard: a host that merely *ends with* an allowed push domain but
+    crosses no label boundary (``evilfcm.googleapis.com``) must be rejected."""
+    token, _ = await _register(_auth_signer)
+    body = _sub_body("https://evilfcm.googleapis.com/abc/xyz")
+    r = await client.post(
+        "/notifications/subscribe", json=body, headers=_auth(token)
+    )
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_subscribe_accepts_exact_push_domain(client, _auth_signer):
+    """The bare allowed host (no subdomain) must still pass after the
+    leading-dot normalization."""
+    token, _ = await _register(_auth_signer)
+    body = _sub_body("https://fcm.googleapis.com/abc/xyz")
+    r = await client.post(
+        "/notifications/subscribe", json=body, headers=_auth(token)
+    )
+    assert r.status_code in (200, 201, 204), r.text
+
+
 # ---------------------------------------------------------------------------
 # Mention → push fan-out (mocked sender)
 

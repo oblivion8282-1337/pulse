@@ -297,11 +297,19 @@ class ServerVault {
         // Falsches Passwort ODER (inkonsistent) AK fehlt → nicht überschreiben.
         throw new Error('VAULT_DECRYPT_FAILED');
       }
-      const list = (await decryptJsonWithKey(
-        fromBase64(remote.encrypted_blob),
-        fromBase64(remote.gcm_nonce),
-        ak
-      )) as VaultServerEntry[];
+      let list: VaultServerEntry[];
+      try {
+        list = (await decryptJsonWithKey(
+          fromBase64(remote.encrypted_blob),
+          fromBase64(remote.gcm_nonce),
+          ak
+        )) as VaultServerEntry[];
+      } catch {
+        // Korrupter Blob / fremder AK: nicht mit halbem Zustand zurücklassen
+        // (AK schon in IDB, aber kein Vault-Key) — sauber als Fehler melden,
+        // damit der Aufrufer ihn anzeigen kann statt still tot zu aktivieren.
+        throw new Error('VAULT_DECRYPT_FAILED');
+      }
       await this.persistCached({ key: ak, salt: AK_MODE });
       if (Array.isArray(list)) this.mergeIntoStore(list);
       await this.pushNow();
