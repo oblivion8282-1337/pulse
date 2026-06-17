@@ -209,7 +209,13 @@ export const chatApi = {
   },
   patchChannel(
     channelId: string,
-    payload: { name?: string; topic?: string }
+    payload: {
+      name?: string;
+      topic?: string;
+      name_color?: string | null;
+      name_color_secondary?: string | null;
+      name_gradient_angle?: number | null;
+    }
   ): Promise<Channel> {
     return request<Channel>(`/channels/${channelId}`, { method: 'PATCH', body: payload });
   },
