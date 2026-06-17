@@ -11,6 +11,8 @@ export type UserSummary = {
   profile_color?: string | null;
   /** Optionale zweite Farbe für einen Namens-Verlauf (profile_color → diese). */
   profile_color_secondary?: string | null;
+  /** Richtung des Verlaufs in Grad (0–360); fehlend/null = Default 90° (links→rechts). */
+  profile_gradient_angle?: number | null;
 };
 
 class UserCacheStore {
@@ -104,7 +106,9 @@ class UserCacheStore {
         cached.display_name !== u.display_name || cached.avatar_url !== u.avatar_url ||
         (u.profile_color !== undefined && cached.profile_color !== u.profile_color) ||
         (u.profile_color_secondary !== undefined &&
-          cached.profile_color_secondary !== u.profile_color_secondary);
+          cached.profile_color_secondary !== u.profile_color_secondary) ||
+        (u.profile_gradient_angle !== undefined &&
+          cached.profile_gradient_angle !== u.profile_gradient_angle);
     });
     if (changed.length === 0) return;
     const next = { ...this.byId };

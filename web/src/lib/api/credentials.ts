@@ -44,6 +44,7 @@ export interface ProfileUpdatePayload {
   // avatar_hash sent here. The response below still echoes the current hash.
   profile_color?: string | null;
   profile_color_secondary?: string | null;
+  profile_gradient_angle?: number | null;
 }
 
 export interface ProfileUpdateResponse {
@@ -52,6 +53,7 @@ export interface ProfileUpdateResponse {
   avatar_hash: string | null;
   profile_color: string | null;
   profile_color_secondary?: string | null;
+  profile_gradient_angle?: number | null;
 }
 
 export interface UsernameChangeResponse {

@@ -10,7 +10,13 @@
    */
   import { auth } from '$lib/stores/auth.svelte';
   import { userCache } from '$lib/stores/users.svelte';
-  import { sanitizeProfileColor } from '$lib/utils/nameColor';
+  import { settings } from '$lib/stores/settings.svelte';
+  import {
+    sanitizeProfileColor,
+    sanitizeGradientAngle,
+    DEFAULT_GRADIENT_ANGLE,
+  } from '$lib/utils/nameColor';
+  import NameColorEditor from '$lib/components/settings/NameColorEditor.svelte';
   import { me } from '$lib/api/auth';
   import { changeUsername, updateProfile, type UsernameChangeResponse } from '$lib/api/credentials';
   import { ApiError } from '$lib/api/client';
@@ -46,6 +52,7 @@
   let profileColor = $state(DEFAULT_COLOR);
   let useGradient = $state(false);
   let profileColorSecondary = $state(DEFAULT_SECONDARY);
+  let gradientAngle = $state(DEFAULT_GRADIENT_ANGLE);
   let lastSeededUserId = $state<string | null>(null);
 
   $effect(() => {
@@ -64,6 +71,7 @@
       const safeSecondary = sanitizeProfileColor(u.profile_color_secondary);
       useGradient = !!safeColor && !!safeSecondary;
       profileColorSecondary = safeSecondary ?? DEFAULT_SECONDARY;
+      gradientAngle = sanitizeGradientAngle(u.profile_gradient_angle);
     }
   });
 
@@ -80,6 +88,7 @@
         avatar_url: user.avatar_url ?? null,
         profile_color: user.profile_color ?? null,
         profile_color_secondary: user.profile_color_secondary ?? null,
+        profile_gradient_angle: user.profile_gradient_angle ?? null,
       },
     ]);
   }
@@ -133,22 +142,16 @@
   // Gewünschter Zielzustand (Farbe aus, einfarbig, oder Verlauf) vs. gespeichert.
   const desiredColor = $derived(useColor ? profileColor : null);
   const desiredSecondary = $derived(useColor && useGradient ? profileColorSecondary : null);
+  // Richtung nur persistieren, wenn ein Verlauf aktiv ist; sonst den
+  // gespeicherten Wert in Ruhe lassen (Winkel ohne zwei Farben ist wirkungslos).
+  const storedAngle = $derived(auth.user?.profile_gradient_angle ?? null);
+  const desiredAngle = $derived(useColor && useGradient ? gradientAngle : storedAngle);
   const colorDirty = $derived(desiredColor !== sanitizeProfileColor(auth.user?.profile_color));
   const secondaryDirty = $derived(
     desiredSecondary !== sanitizeProfileColor(auth.user?.profile_color_secondary)
   );
-  const profileDirty = $derived(displayNameDirty || colorDirty || secondaryDirty);
-
-  // Live-Vorschau aus dem lokalen Buffer (nicht aus auth.user).
-  const previewStyle = $derived(
-    !useColor
-      ? ''
-      : useGradient
-        ? `background-image: linear-gradient(90deg, ${profileColor}, ${profileColorSecondary}); ` +
-          `-webkit-background-clip: text; background-clip: text; ` +
-          `color: transparent; -webkit-text-fill-color: transparent;`
-        : `color: ${profileColor}`
-  );
+  const angleDirty = $derived(desiredAngle !== storedAngle);
+  const profileDirty = $derived(displayNameDirty || colorDirty || secondaryDirty || angleDirty);
 
   async function submitProfile() {
     if (!profileDirty || profileBusy) return;
@@ -159,10 +162,12 @@
         display_name?: string | null;
         profile_color?: string | null;
         profile_color_secondary?: string | null;
+        profile_gradient_angle?: number | null;
       } = {};
       if (displayNameDirty) payload.display_name = displayName.trim() || null;
       if (colorDirty) payload.profile_color = desiredColor;
       if (secondaryDirty) payload.profile_color_secondary = desiredSecondary;
+      if (angleDirty) payload.profile_gradient_angle = desiredAngle;
       await updateProfile(payload);
       await refreshUser();
       toast.success(m.settings_profile_saved());
@@ -221,53 +226,30 @@
       />
     </div>
 
-    <div class="flex flex-col gap-2">
-      <span class="text-text-base text-sm font-medium">{m.settings_profile_color_label()}</span>
-      <div class="flex items-center gap-3">
-        <label class="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            bind:checked={useColor}
-            class="size-4"
-            data-testid="profile-color-toggle"
-          />
-          {m.settings_profile_use_color()}
-        </label>
-        <input
-          type="color"
-          bind:value={profileColor}
-          disabled={!useColor}
-          class="h-8 w-12 cursor-pointer rounded border border-border bg-transparent disabled:cursor-not-allowed disabled:opacity-50"
-          data-testid="profile-color-input"
-        />
-        <span
-          class="text-text-bright text-sm font-medium"
-          style={previewStyle}
-        >
-          {auth.user?.display_name || auth.user?.username || m.settings_profile_color_preview()}
-        </span>
-      </div>
-      {#if useColor}
-        <div class="flex items-center gap-3 pl-1">
-          <label class="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              bind:checked={useGradient}
-              class="size-4"
-              data-testid="profile-gradient-toggle"
-            />
-            {m.settings_profile_use_gradient()}
-          </label>
-          <input
-            type="color"
-            bind:value={profileColorSecondary}
-            disabled={!useGradient}
-            class="h-8 w-12 cursor-pointer rounded border border-border bg-transparent disabled:cursor-not-allowed disabled:opacity-50"
-            data-testid="profile-color-secondary-input"
-          />
-        </div>
-      {/if}
-    </div>
+    <NameColorEditor
+      bind:useColor
+      bind:color1={profileColor}
+      bind:useGradient
+      bind:color2={profileColorSecondary}
+      bind:angle={gradientAngle}
+      previewName={auth.user?.display_name || auth.user?.username || m.settings_profile_color_preview()}
+    />
+
+    <!-- Sprech-Ring in Namensfarbe (aus dem Erscheinungsbild hierher gezogen,
+         da es direkt zur eigenen Namensfarbe gehört). Geräte-lokal. -->
+    <label class="flex items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={settings.appearance.speakingRingNameColor}
+        onchange={(e) => settings.setSpeakingRingNameColor(e.currentTarget.checked)}
+        class="mt-0.5 size-4 shrink-0"
+        data-testid="profile-speaking-ring-toggle"
+      />
+      <span class="flex flex-col gap-0.5">
+        <span>{m.settings_profile_speaking_ring_label()}</span>
+        <span class="text-text-muted text-xs">{m.settings_profile_speaking_ring_hint()}</span>
+      </span>
+    </label>
 
     {#if profileError}
       <p class="text-destructive text-sm" data-testid="profile-error">{profileError}</p>

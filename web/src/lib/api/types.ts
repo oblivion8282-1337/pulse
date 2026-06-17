@@ -33,6 +33,9 @@ export type User = {
   /** Optionale zweite Farbe → der Name wird als Verlauf von profile_color nach
    *  profile_color_secondary gerendert. null/fehlend = einfarbig. */
   profile_color_secondary?: string | null;
+  /** Richtung des Namens-Verlaufs in Grad (0–360, CSS-Winkel). null/fehlend =
+   *  Default 90° (links→rechts). Nur relevant, wenn beide Farben gesetzt sind. */
+  profile_gradient_angle?: number | null;
 };
 
 export type Guild = {

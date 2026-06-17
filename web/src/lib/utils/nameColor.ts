@@ -65,14 +65,43 @@ export function nameColor(userId: string, guildId?: string | null): string | nul
 /** Beide Profilfarben des Users (primär, sekundär) als sanitisierte Hex-Werte
  *  oder null. Eigener User aus `auth.user` (sofort aktuell), sonst userCache. */
 function profileColors(userId: string): [string | null, string | null] {
-  const u =
-    auth.user && (userId === auth.user.id || userId === currentServerUserId())
-      ? auth.user
-      : userCache.get(userId);
+  const u = profileSource(userId);
   return [
     sanitizeProfileColor(u?.profile_color),
     sanitizeProfileColor(u?.profile_color_secondary)
   ];
+}
+
+/** Profil-Quelle für einen User: eigener aus `auth.user` (sofort aktuell nach
+ *  Settings-Save), sonst aus dem userCache. */
+function profileSource(userId: string) {
+  return auth.user && (userId === auth.user.id || userId === currentServerUserId())
+    ? auth.user
+    : userCache.get(userId);
+}
+
+/** Verlaufs-Richtung des Users als gültiger CSS-Winkel (ganze Grad 0–360).
+ *  Default 90° (links→rechts) bei fehlendem/ungültigem Wert. */
+export const DEFAULT_GRADIENT_ANGLE = 90;
+export function gradientAngle(userId: string): number {
+  return sanitizeGradientAngle(profileSource(userId)?.profile_gradient_angle);
+}
+
+/** Auf eine ganze Zahl 0–360 klemmen; Müll → Default. Der Wert landet in
+ *  `linear-gradient(<n>deg, …)` — nur eine Zahl ist CSS-injection-sicher. */
+export function sanitizeGradientAngle(a: number | null | undefined): number {
+  if (typeof a !== 'number' || !Number.isFinite(a)) return DEFAULT_GRADIENT_ANGLE;
+  return Math.min(360, Math.max(0, Math.round(a)));
+}
+
+/** Inline-`style`, das Text als Farb-Verlauf rendert (background-clip: text).
+ *  Zentral, damit Render-Pfad und Settings-Vorschau identisch aussehen. */
+export function gradientTextStyle(c1: string, c2: string, angle: number): string {
+  return (
+    `background-image: linear-gradient(${sanitizeGradientAngle(angle)}deg, ${c1}, ${c2}); ` +
+    `-webkit-background-clip: text; background-clip: text; ` +
+    `color: transparent; -webkit-text-fill-color: transparent;`
+  );
 }
 
 /** Komplettes Inline-`style` für einen Namen — fertig für `style={…}`:
@@ -88,11 +117,7 @@ export function nameStyle(userId: string, guildId?: string | null): string {
   }
   const [c1, c2] = profileColors(userId);
   if (c1 && c2) {
-    return (
-      `background-image: linear-gradient(90deg, ${c1}, ${c2}); ` +
-      `-webkit-background-clip: text; background-clip: text; ` +
-      `color: transparent; -webkit-text-fill-color: transparent;`
-    );
+    return gradientTextStyle(c1, c2, gradientAngle(userId));
   }
   if (c1) return `color: ${c1}`;
   return '';
