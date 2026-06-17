@@ -161,11 +161,12 @@ export class SupervisedProcess {
   // ── Internals ────────────────────────────────────────────────────────────
 
   private async _spawn(): Promise<void> {
-    const { name, command, args, env } = this.spec;
+    const { name, command, args, env, cwd } = this.spec;
 
     const child = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...env },
+      ...(cwd ? { cwd } : {}),
       detached: false,
     });
     this.child = child;
