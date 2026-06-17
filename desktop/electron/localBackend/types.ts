@@ -1,3 +1,9 @@
+export interface SpawnSpec {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
 export interface DataDirs {
   root: string;
   pg: string;
