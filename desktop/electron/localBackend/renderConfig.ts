@@ -3,7 +3,13 @@
  * Portiert 1:1 von infra/self-host/s6/etc/s6-overlay/scripts/07-render-env.sh.
  *
  * Erzeugt die Env-Map, die jeder uvicorn-Service erbt.
- * Omitted (gehören zum "Medien"-Slice): LIVEKIT_*, MEDIAMTX_* Env-Vars.
+ *
+ * BEWUSST AUSGELASSENE ENV-VARS (gehören zu anderen Slices):
+ * - PULSE_ADMIN_EMAIL: nur für Let's Encrypt/Caddy (Reachability-Slice) + Cloud-Notifications
+ * - PULSE_CLOUD_CLIENT_ID/PULSE_CLOUD_CLIENT_SECRET: Cloud-Pairing (Slices 3–4), noch kein Consumer
+ * - LIVEKIT_*: Media-Slice (Voice/WebRTC)
+ * - MEDIAMTX_*: Media-Slice (HQ-Streaming)
+ * - PULSE_LOG_LEVEL override: derzeit hardcoded auf 'info'; Override-Slot kann bei Bedarf hinzugefügt werden
  *
  * Regel: Niemals Secret-Werte loggen.
  */
