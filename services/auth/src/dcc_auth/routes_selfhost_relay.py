@@ -84,6 +84,8 @@ async def relay_tls_check(
 ) -> Response:
     """Caddy On-Demand-TLS ``ask``: 200 nur für aktive Relay-Subdomains.
 
+    Caddy hängt den SNI-Hostnamen als ``?domain=<host>`` an (das ist der Vertrag
+    des ``on_demand_tls { ask … }``-Blocks) → der Query-Param heißt ``domain``.
     Verhindert Cert-Ausstellung für beliebige ``*.relay``-Hostnamen (Missbrauch
     + Let's-Encrypt-Ratelimit-Schonung). Öffentlich + read-only: kein Secret,
     kein Token — nur Existenz+Status. Mit ``_check_rate`` gegen Probing gedrosselt.
