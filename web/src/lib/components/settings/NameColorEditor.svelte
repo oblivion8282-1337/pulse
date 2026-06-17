@@ -8,7 +8,7 @@
    * man beide Farben sieht; die gewählte Richtung wirkt nur auf den echten
    * Namens-Verlauf — sichtbar in der Live-Vorschau darunter.
    */
-  import { gradientTextStyle } from '$lib/utils/nameColor';
+  import { gradientTextStyle, NAME_STYLE_PRESETS } from '$lib/utils/nameColor';
   import { m } from '$lib/paraglide/messages.js';
   import ArrowRightIcon from '@lucide/svelte/icons/arrow-right';
   import ArrowDownRightIcon from '@lucide/svelte/icons/arrow-down-right';
@@ -47,6 +47,18 @@
         ? gradientTextStyle(color1, color2, angle)
         : `color: ${color1}`
   );
+
+  function applyPreset(p: (typeof NAME_STYLE_PRESETS)[number]) {
+    useColor = true;
+    color1 = p.color1;
+    if (p.color2) {
+      useGradient = true;
+      color2 = p.color2;
+      angle = p.angle ?? 90;
+    } else {
+      useGradient = false;
+    }
+  }
 </script>
 
 <div class="flex flex-col gap-3">
@@ -87,6 +99,21 @@
           data-testid="profile-color-secondary-input"
         />
       {/if}
+    </div>
+
+    <div class="flex flex-wrap gap-1.5" data-testid="name-style-presets">
+      {#each NAME_STYLE_PRESETS as p (p.label)}
+        <button
+          type="button"
+          onclick={() => applyPreset(p)}
+          title={p.label}
+          aria-label={p.label}
+          class="border-border size-6 rounded-md border transition-transform hover:scale-110"
+          style={p.color2
+            ? `background-image: linear-gradient(${p.angle ?? 90}deg, ${p.color1}, ${p.color2});`
+            : `background-color: ${p.color1};`}
+        ></button>
+      {/each}
     </div>
 
     <label class="flex items-center gap-2 text-sm">
