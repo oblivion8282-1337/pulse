@@ -20,7 +20,7 @@ mediamtx-auth-hook, chat-gateway) sowie optional einen rathole-Client-Tunnel zum
 ### Stack-Test (ohne Tunnel)
 
 ```bash
-cd /Users/michael/Documents/pulse/desktop && \
+cd desktop && \
 PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH" \
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
   --test --test-timeout=120000 \
@@ -33,7 +33,7 @@ Testet, dass ein HTTP-Request `chat-gateway /health` durch einen lokalen rathole
 Client) erreichbar ist, und dass der `SupervisedProcess`-Reconnect funktioniert.
 
 ```bash
-cd /Users/michael/Documents/pulse/desktop && \
+cd desktop && \
 PATH="/opt/homebrew/opt/postgresql@15/bin:$PATH" \
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
   --test --test-timeout=120000 \
