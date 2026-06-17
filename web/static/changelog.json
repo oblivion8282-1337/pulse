@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-17.4",
+      "date": "2026-06-17",
+      "style": "Locker",
+      "title": "Hausputz hinter den Kulissen",
+      "items": [
+        "Wir haben hinter den Kulissen ein bisschen aufgeräumt, damit die App sauberer zusammengebaut wird. Sehen wirst du davon nichts — aber gesagt haben wir's."
+      ]
+    },
+    {
       "id": "2026-06-17.3",
       "date": "2026-06-17",
       "style": "Locker",
