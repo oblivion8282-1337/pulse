@@ -14,10 +14,8 @@
  */
 
 import { join } from 'node:path';
-import { existsSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 
-import { resolveBinary } from './paths.ts';
+import { resolveBinary, resolveUv } from './paths.ts';
 import { tcpProbe, httpHealth } from './health.ts';
 import type { SupervisedProcessSpec } from './process.ts';
 import type { DataDirs } from './types.ts';
@@ -25,37 +23,6 @@ import type { Ports } from './renderConfig.ts';
 import type { Secrets } from './secrets.ts';
 
 export type { SupervisedProcessSpec };
-
-// ---------------------------------------------------------------------------
-// uv-Resolver (analog zu migrations.ts)
-// ---------------------------------------------------------------------------
-
-const UV_CANDIDATES: string[] = [
-  process.env.HOME ? `${process.env.HOME}/.local/bin/uv` : '',
-  '/usr/local/bin/uv',
-  '/opt/homebrew/bin/uv',
-  '/usr/bin/uv',
-].filter(Boolean);
-
-function resolveUv(): string {
-  if (process.env.PULSE_UV_BIN) return process.env.PULSE_UV_BIN;
-  for (const cand of UV_CANDIDATES) {
-    if (existsSync(cand)) return cand;
-  }
-  try {
-    const which = process.platform === 'win32' ? 'where' : 'which';
-    const result = execFileSync(which, ['uv'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const resolved = result.trim().split('\n')[0].trim();
-    if (resolved) return resolved;
-  } catch { /* nicht auf PATH */ }
-  throw new Error(
-    '[components] uv nicht gefunden. ' +
-    'Installiere uv (https://docs.astral.sh/uv/) oder setze PULSE_UV_BIN.',
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Hilfsfunktion: uvicorn-Spawn-Argumente
@@ -123,7 +90,7 @@ export function controlPlaneComponents(
   const minio: SupervisedProcessSpec = {
     name: 'minio',
     command: minioBin,
-    args: ['server', dirs.minio, '--address', `127.0.0.1:${ports.minio}`],
+    args: ['server', dirs.minio, '--address', `127.0.0.1:${ports.minio}`, '--console-address', ':0'],
     env: {
       MINIO_ROOT_USER: secrets.minioUser,
       MINIO_ROOT_PASSWORD: secrets.minioPassword,
