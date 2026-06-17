@@ -61,6 +61,9 @@ export function tunnelComponent(input: {
     command: resolveBinary('rathole'),
     args: ['--client', configPath],
     env: {},
+    // Probt den lokalen chat-gateway-Port (vor dem Tunnel-Start bereits up) — bestätigt also
+    // NICHT, dass der Tunnel den Relay erreicht hat. TODO(②a-Folge): sobald der Cloud-Relay
+    // existiert, relay-seitige Erreichbarkeit prüfen.
     healthCheck: () => tcpProbe(chatPort),
     restartMax: 5,
   };
