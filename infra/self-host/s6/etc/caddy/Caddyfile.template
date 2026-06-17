@@ -183,12 +183,14 @@
     }
 
     # ------------------------------------------------------------------ #
-    # SPA Fallback — alles andere → Web-Static                           #
+    # Kein Web-UI auf einem Self-Host. Identität + Client leben in der     #
+    # Cloud (howispulse.com); Nutzer verbinden sich von dort per           #
+    # cert-login zu den /api-, /ws-, /whep- und /livekit-Routen oben.      #
+    # Ein Browser, der die Server-Domain direkt aufruft, bekommt bewusst   #
+    # eine leere Seite — Login/Registrierung sind hier nicht möglich.      #
     # ------------------------------------------------------------------ #
     handle {
-        root * /var/www/pulse
-        try_files {path} /index.html
-        file_server
-        encode gzip
+        header Content-Type "text/html; charset=utf-8"
+        respond "<!doctype html><html><head></head><body></body></html>" 200
     }
 }
