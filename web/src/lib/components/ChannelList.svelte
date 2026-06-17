@@ -12,6 +12,7 @@
   import UserPlusIcon from '@lucide/svelte/icons/user-plus';
   import ZapIcon from '@lucide/svelte/icons/zap';
   import ZapOffIcon from '@lucide/svelte/icons/zap-off';
+  import OrbitIcon from '@lucide/svelte/icons/orbit';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
@@ -44,6 +45,9 @@
   import RenameChannelDialog from './RenameChannelDialog.svelte';
   import ReportMessageDialog from './chat/ReportMessageDialog.svelte';
   import VoiceChannelMembers from './VoiceChannelMembers.svelte';
+  import SpatialPositioner from './SpatialPositioner.svelte';
+  import { settings, type SpatialMode } from '$lib/stores/settings.svelte';
+  import { viewport } from '$lib/stores/viewport.svelte';
   import SidebarFooter from './SidebarFooter.svelte';
 
   const CHANNEL_BTN_CLASS =
@@ -454,6 +458,28 @@
               {m.channel_list_autoconnect_set()}
             {/if}
           </ContextMenu.Item>
+          {#if !viewport.isMobile}
+            <ContextMenu.Sub>
+              <ContextMenu.SubTrigger data-testid={`channel-spatial-${c.id}`}>
+                <OrbitIcon />
+                {m.settings_audio_video_spatial_label()}
+              </ContextMenu.SubTrigger>
+              <ContextMenu.SubContent>
+                <ContextMenu.RadioGroup
+                  value={settings.audio.spatialMode}
+                  onValueChange={(v) => {
+                    settings.setSpatialMode(v as SpatialMode);
+                    voice.setSpatialMode(v as SpatialMode);
+                  }}
+                >
+                  <ContextMenu.RadioItem value="off">{m.settings_audio_video_spatial_mode_off()}</ContextMenu.RadioItem>
+                  <ContextMenu.RadioItem value="standard">{m.settings_audio_video_spatial_mode_standard()}</ContextMenu.RadioItem>
+                  <ContextMenu.RadioItem value="high">{m.settings_audio_video_spatial_mode_high()}</ContextMenu.RadioItem>
+                  <ContextMenu.RadioItem value="auto">{m.settings_audio_video_spatial_mode_auto()}</ContextMenu.RadioItem>
+                </ContextMenu.RadioGroup>
+              </ContextMenu.SubContent>
+            </ContextMenu.Sub>
+          {/if}
           {#if canCreate}
             <ContextMenu.Separator />
             <ContextMenu.Item onSelect={() => openRename(c)}>
@@ -509,6 +535,13 @@
             : uid === myId
               ? 'self' // own preview tile uses the 'self' sentinel id (StreamGrid)
               : voice.cameraTracks.find((ct) => userIdFromIdentity(ct.identity) === uid)?.identity}
+        {#if settings.audio.spatialMode !== 'off' && voice.connected && voice.channelId === c.id && !viewport.isMobile}
+          <!-- Spatial on + connected here: the circle replaces the name list so
+               you can arrange everyone around yourself right where they're listed. -->
+          <div data-testid="voice-presence-spatial" data-channel-id={c.id}>
+            <SpatialPositioner channelId={c.id} size={200} />
+          </div>
+        {:else}
         <div class="ml-4 flex flex-col" data-testid="voice-presence-list" data-channel-id={c.id}>
           <VoiceChannelMembers
             userIds={members}
@@ -556,6 +589,7 @@
             }}
           />
         </div>
+        {/if}
       {/if}
     {/each}
     {#if voiceChannels.length === 0}
