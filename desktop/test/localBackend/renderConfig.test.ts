@@ -114,4 +114,23 @@ describe('renderEnv', () => {
     const env = renderEnv({ dirs, secrets, ports, identity });
     assert.equal(env.VAPID_KEY_FILE, '/data/secrets/vapid.json');
   });
+
+  test('nutzt relaySubdomain als public origin (Origin-Switch)', () => {
+    const env = renderEnv({
+      dirs,
+      secrets,
+      ports,
+      identity: { ...identity, relaySubdomain: 'brave-otter-4f2a.relay.howispulse.com' },
+    });
+    // Nach-außen-Origins zeigen auf die Relay-Subdomain …
+    assert.equal(env.JWT_ISSUER, 'https://brave-otter-4f2a.relay.howispulse.com');
+    assert.equal(env.WEBAUTHN_RP_ID, 'brave-otter-4f2a.relay.howispulse.com');
+    assert.equal(env.WEBAUTHN_ORIGIN, 'https://brave-otter-4f2a.relay.howispulse.com');
+    assert.match(env.CORS_ALLOW_ORIGINS, /brave-otter-4f2a\.relay\.howispulse\.com/);
+    assert.equal(env.MINIO_SERVER_URL, 'https://brave-otter-4f2a.relay.howispulse.com');
+    assert.equal(env.S3_PUBLIC_ENDPOINT, 'https://brave-otter-4f2a.relay.howispulse.com');
+    // … interne URLs bleiben localhost.
+    assert.match(env.DATABASE_URL, /@127\.0\.0\.1:/);
+    assert.equal(env.PULSE_HOSTNAME, 'host.local');
+  });
 });
