@@ -202,8 +202,11 @@
           >
             {@render avatarBlock('size-8')}
             <div class="min-w-0 text-left">
+              <!-- w-fit: Verlaufs-Box (background-clip:text) auf Textbreite
+                   begrenzen, sonst zieht ein längerer Username den Block breiter
+                   als den Namen und nur die Primärfarbe landet auf dem Namen. -->
               <p
-                class="text-text-bright truncate text-sm font-semibold"
+                class="text-text-bright w-fit max-w-full truncate text-sm font-semibold"
                 style={auth.user ? nameStyle(auth.user.id) : ''}
               >{displayName}</p>
               {#if displayName !== username}
