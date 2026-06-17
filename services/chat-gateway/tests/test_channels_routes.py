@@ -95,3 +95,83 @@ async def test_channel_positions_rejects_foreign_channel(client, _auth_signer):
         headers=auth(t_owner),
     )
     assert r.status_code == 400, r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_sets_name_gradient(client, _auth_signer):
+    """Owner sets a two-color gradient + angle; it round-trips in the response."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={
+            "name_color": "#ff8800",
+            "name_color_secondary": "#3b82f6",
+            "name_gradient_angle": 135,
+        },
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["name_color"] == "#ff8800"
+    assert body["name_color_secondary"] == "#3b82f6"
+    assert body["name_gradient_angle"] == 135
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_clear_color_independent_of_name(client, _auth_signer):
+    """Sending name_color=null clears it without requiring a name change; an
+    omitted field is left untouched."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    await client.patch(
+        f"/channels/{c['id']}",
+        json={"name_color": "#abcdef"},
+        headers=auth(t_owner),
+    )
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name_color": None},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["name_color"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_rejects_bad_hex(client, _auth_signer):
+    """A non-hex color string is rejected (no CSS injection)."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name_color": "red; font-size:99px"},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_rejects_out_of_range_angle(client, _auth_signer):
+    """Gradient angle outside 0–360 is rejected."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name_gradient_angle": 999},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_color_requires_manage_channels(client, _auth_signer):
+    """A plain member without MANAGE_CHANNELS cannot restyle a channel."""
+    t_owner, t_other, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    r = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name_color": "#abcdef"},
+        headers=auth(t_other),
+    )
+    assert r.status_code == 403, r.text
