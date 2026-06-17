@@ -36,7 +36,7 @@ const REPO_ROOT = join(fileURLToPath(import.meta.url), '..', '..', '..', '..');
 
 function hasInitdb(): boolean {
   try { resolveBinary('initdb'); return true; }
-  catch (e) { return !(e instanceof BinaryNotFoundError) || false; }
+  catch (e) { if (e instanceof BinaryNotFoundError) return false; throw e; }
 }
 
 function hasUv(): boolean {
@@ -66,7 +66,7 @@ async function waitForTcp(port: number, timeoutMs: number): Promise<void> {
 
 const skipReason = !hasInitdb() ? 'initdb nicht gefunden' : !hasUv() ? 'uv nicht gefunden' : false;
 
-describe('runMigrations', { skip: skipReason !== false ? String(skipReason) : false }, () => {
+describe('runMigrations', { skip: skipReason !== false && String(skipReason) }, () => {
   test(
     'auth.users und chat.guilds existieren nach Migrationen',
     { timeout: TIMEOUT_MS },

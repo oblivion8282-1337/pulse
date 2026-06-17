@@ -25,9 +25,9 @@
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
-import { dataDir } from './paths.ts';
+import { dataDir, resolveUv } from './paths.ts';
 import { ensureSecrets } from './secrets.ts';
 import { renderEnv } from './renderConfig.ts';
 import { initPostgres, startPostgresSpec, stopPostgres } from './postgres.ts';
@@ -76,34 +76,6 @@ const DEFAULT_PORTS: ExtendedPorts = {
   media: 55545,
   mediaAuthHook: 55546,
 };
-
-// ---------------------------------------------------------------------------
-// uv-Resolver (für Bucket-Init)
-// ---------------------------------------------------------------------------
-
-const UV_CANDIDATES: string[] = [
-  process.env.HOME ? `${process.env.HOME}/.local/bin/uv` : '',
-  '/usr/local/bin/uv',
-  '/opt/homebrew/bin/uv',
-  '/usr/bin/uv',
-].filter(Boolean);
-
-function resolveUv(): string {
-  if (process.env.PULSE_UV_BIN) return process.env.PULSE_UV_BIN;
-  for (const cand of UV_CANDIDATES) {
-    if (existsSync(cand)) return cand;
-  }
-  try {
-    const which = process.platform === 'win32' ? 'where' : 'which';
-    const result = execFileSync(which, ['uv'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    });
-    const resolved = result.trim().split('\n')[0].trim();
-    if (resolved) return resolved;
-  } catch { /* nicht auf PATH */ }
-  throw new Error('[manager] uv nicht gefunden.');
-}
 
 // ---------------------------------------------------------------------------
 // Repository-Root-Auflösung
