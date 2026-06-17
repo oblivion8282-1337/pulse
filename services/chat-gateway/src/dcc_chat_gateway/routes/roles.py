@@ -29,6 +29,7 @@ from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import Guild, Role
 from dcc_chat_gateway.permissions import Permissions, check_permission
+from dcc_chat_gateway.role_hierarchy import highest_role_position
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import (
     RoleIn,
@@ -277,6 +278,21 @@ async def update_role_positions(
 
     if len(rows) != len(role_ids):
         raise HTTPException(400, detail="one or more roles not in this guild")
+
+    # Anti-escalation: an editor may only reorder roles that sit strictly
+    # below their own highest role, and may not lift any role to/above that
+    # ceiling. Without this, a MANAGE_ROLES holder could push their own role
+    # above an admin's (or an admin's below their own) and then kick/ban its
+    # holders via the position-based hierarchy check in role_hierarchy.py.
+    # Owners and instance admins are exempt.
+    guild = await session.get(Guild, guild_id)
+    if not (current.is_admin or (guild is not None and guild.owner_id == current.id)):
+        actor_top = await highest_role_position(session, guild_id, current.id)
+        for entry in payload.positions:
+            if rows[entry.id].position >= actor_top or entry.position >= actor_top:
+                raise HTTPException(
+                    403, detail="cannot reorder roles at or above your highest role"
+                )
 
     for entry in payload.positions:
         role = rows[entry.id]

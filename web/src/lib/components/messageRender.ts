@@ -221,6 +221,12 @@ export function renderMessage(content: string, mentions?: Mention[]): string {
   return DOMPurify.sanitize(withFlag, {
     ALLOWED_TAGS,
     ALLOWED_ATTR,
+    // DOMPurify's built-in URI regexp drops the `mention:` scheme *before*
+    // the afterSanitizeAttributes hook runs, so the hook would always see a
+    // null href and never build a mention pill. Extend the default allow-list
+    // with `mention:` (everything else matches DOMPurify's default).
+    ALLOWED_URI_REGEXP:
+      /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|mention):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
     FORCE_BODY: true
   });
 }
