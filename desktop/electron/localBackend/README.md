@@ -42,3 +42,5 @@ node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
 
 Der Test überspringt sich automatisch, wenn `rathole`, `initdb`, `redis-server`, `minio` oder `uv`
 nicht gefunden werden.
+
+> **Hinweis:** Der Tunnel-End-to-End-Test (frp-Auth-Hook) befindet sich jetzt in `services/relay-frps-plugin/tests/test_integration.py`.
