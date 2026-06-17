@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     # (same default here and there); on self-host the cert is Cloud-signed, so
     # the Cloud's value is what the self-host gateway validates against.
     pulse_oidc_issuer: str = "https://howispulse.com"
+    # ②a Steuerungs-Relay. Leeres pulse_relay_server_addr ⇒ Relay deaktiviert
+    # (Bootstrap liefert dann keine Relay-Felder; Verhalten wie ohne Relay).
+    pulse_relay_base_domain: str = "relay.howispulse.com"
+    pulse_relay_server_addr: str = ""
 
     # Instance role. Only the Cloud (``cloud``) may approve/suspend Self-Host
     # instances; every other deployment defaults to ``self-host`` and is locked
