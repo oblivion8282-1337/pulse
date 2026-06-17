@@ -112,8 +112,12 @@
           </Avatar.Fallback>
         </Avatar.Root>
         <div class="min-w-0 flex-1">
+          <!-- w-fit: Box auf Textbreite schrumpfen, sonst füllt der Verlauf
+               (background-clip:text) die volle Spaltenbreite und nur die linke
+               (Primär-)Farbe landet auf dem kurzen Namen. max-w-full hält die
+               Ellipsis-Kürzung bei langen Namen. -->
           <p
-            class="text-text-bright truncate text-base font-semibold"
+            class="text-text-bright w-fit max-w-full truncate text-base font-semibold"
             style={displayNameStyle}
           >{displayName}</p>
           {#if isSelf}
