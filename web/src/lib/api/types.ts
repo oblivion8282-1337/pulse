@@ -63,6 +63,11 @@ export type Channel = {
   /** @everyone is denied VIEW_CHANNEL — only explicit role/user allows can
    *  see the channel. Drives the lock indicator in the channel list. */
   restricted?: boolean;
+  /** Per-channel name styling (mirrors User.profile_color*). null/absent =
+   *  plain default look. Two colors → gradient; one → solid; angle default 90°. */
+  name_color?: string | null;
+  name_color_secondary?: string | null;
+  name_gradient_angle?: number | null;
 };
 
 export type ReactionAggregate = {
