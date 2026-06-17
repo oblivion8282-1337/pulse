@@ -207,6 +207,27 @@ describe('SupervisedProcess', () => {
     await proc.stop();
   });
 
+  test('start() rejects quickly when child exits immediately (< 3s)', async () => {
+    const start = Date.now();
+    const proc = new SupervisedProcess({
+      name: 'test-early-exit',
+      command: process.execPath,
+      args: ['-e', 'process.exit(1)'],
+      env: {},
+      healthCheck: async () => false, // never healthy
+      restartMax: 0,
+      gracePeriodMs: 500,
+    });
+
+    await assert.rejects(
+      () => proc.start(),
+      /exited during startup before becoming healthy/i,
+    );
+
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 3000, `start() took ${elapsed}ms — should have failed in < 3s`);
+  });
+
   test('onExit callback is called when process exits via stop()', async () => {
     const port = await getFreePort();
     let exitCode: number | null | undefined = undefined;
