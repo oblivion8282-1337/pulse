@@ -89,12 +89,11 @@ function writeTempPwfile(password: string): string {
 
 /**
  * Idempotentes initdb + Bootstrap:
- *   1. initdb -D <pg> wenn PG_VERSION fehlt
+ *   1. initdb -D <pg> wenn PG_VERSION fehlt (setzt Passwort via --pwfile)
  *   2. pg_ctl start auf temp Unix-Socket
  *   3. CREATE DATABASE dcc OWNER pulse (wenn nötig)
- *   4. ALTER ROLE pulse WITH PASSWORD '…'
- *   5. CREATE SCHEMA IF NOT EXISTS auth/chat AUTHORIZATION pulse
- *   6. pg_ctl stop
+ *   4. CREATE SCHEMA IF NOT EXISTS auth/chat AUTHORIZATION pulse
+ *   5. pg_ctl stop
  */
 export function initPostgres(dirs: DataDirs, secrets: Secrets): void {
   mkdirSync(dirs.pg, { recursive: true });
@@ -141,7 +140,7 @@ export function initPostgres(dirs: DataDirs, secrets: Secrets): void {
     // Schritt 2b: Zusätzlicher Ready-Poll (pg_ctl -w sollte bereits blockieren, aber zur Sicherheit)
     waitForBootstrapSocket(pgIsready, bootstrapSocket);
 
-    const pgEnv = { PGPASSWORD: secrets.postgresPassword };
+    const pgEnv = { PGPASSWORD: secrets.postgresPassword, LANG: 'C', LC_ALL: 'C' };
 
     // Schritt 3: CREATE DATABASE dcc (idempotent)
     const dbCheck = spawnSync(psql, [
@@ -156,13 +155,8 @@ export function initPostgres(dirs: DataDirs, secrets: Secrets): void {
       ], { env: pgEnv, label: 'CREATE DATABASE' });
     }
 
-    // Schritt 4: Passwort setzen (idempotent) — via PGPASSWORD, nie geloggt
-    run(psql, [
-      '-h', bootstrapSocket, '-U', 'pulse', '-d', 'postgres',
-      '-c', `ALTER ROLE pulse WITH PASSWORD '${secrets.postgresPassword}';`,
-    ], { env: pgEnv, label: 'ALTER ROLE' });
-
-    // Schritt 5: Schemas anlegen (idempotent)
+    // Schritt 4: Schemas anlegen (idempotent)
+    // Passwort wurde bereits durch initdb --pwfile gesetzt; kein ALTER ROLE nötig.
     run(psql, [
       '-h', bootstrapSocket, '-U', 'pulse', '-d', 'dcc',
       '-c',
@@ -170,9 +164,12 @@ export function initPostgres(dirs: DataDirs, secrets: Secrets): void {
     ], { env: pgEnv, label: 'CREATE SCHEMA auth/chat' });
 
   } finally {
-    // Schritt 6: Bootstrap stoppen (auch bei Fehler versuchen)
+    // Schritt 5: Bootstrap stoppen (auch bei Fehler versuchen)
     try {
-      run(pgCtl, ['-D', dirs.pg, '-m', 'fast', '-w', 'stop'], { label: 'pg_ctl bootstrap stop' });
+      run(pgCtl, ['-D', dirs.pg, '-m', 'fast', '-w', 'stop'], {
+        label: 'pg_ctl bootstrap stop',
+        env: { LANG: 'C', LC_ALL: 'C' },
+      });
     } catch (e) {
       // Wenn bereits gestoppt oder fehlgeschlagen — best-effort
       console.error('[postgres] Bootstrap-Stop fehlgeschlagen (ignoriert):', e);
@@ -211,6 +208,7 @@ export function stopPostgres(dirs: DataDirs): void {
   const pgCtl = resolveBinary('pg_ctl');
   run(pgCtl, ['-D', dirs.pg, '-m', 'fast', '-w', 'stop'], {
     label: 'pg_ctl stop',
+    env: { LANG: 'C', LC_ALL: 'C' },
     ignoreIfOutput: ['is not running', 'no server running'],
   });
 }
