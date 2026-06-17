@@ -205,3 +205,85 @@ async def test_redeem_no_relay_when_disabled(client, alice, alice_instance):
     assert data["relay_subdomain"] is None
     assert data["relay_server_addr"] is None
     assert data["relay_tunnel_token"] is None
+
+
+# --------------------------------------------------------------------------- #
+# Interner Relay-Validierungs-Endpoint                                          #
+# --------------------------------------------------------------------------- #
+
+
+@pytest_asyncio.fixture
+async def provisioned(client, alice, alice_instance, _isolate_settings, monkeypatch):
+    """Eine Instanz mit vergebenem Relay (Subdomain + frischer Token-Klartext)."""
+    import dcc_auth.routes_selfhost_bootstrap as _rb
+    import dcc_auth.routes_selfhost_relay as _rr
+
+    monkeypatch.setattr(_rb, "get_settings", lambda: _isolate_settings)
+    monkeypatch.setattr(_rr, "get_settings", lambda: _isolate_settings)
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_server_addr", "relay.test:2333")
+    monkeypatch.setattr(_isolate_settings, "pulse_relay_base_domain", "relay.test")
+    monkeypatch.setattr(_isolate_settings, "internal_service_secret", "s3cr3t")
+    token = await _mint_token(client, alice["cookie"], alice_instance.id)
+    data = (await client.post("/selfhost/bootstrap",
+            headers={"Authorization": f"Bearer {token}"})).json()
+    return data  # enthält relay_subdomain + relay_tunnel_token
+
+
+@pytest.mark.asyncio
+async def test_relay_auth_happy(client, provisioned):
+    r = await client.post(
+        "/selfhost/relay/auth",
+        headers={"x-internal-secret": "s3cr3t"},
+        json={"subdomain": provisioned["relay_subdomain"],
+              "token": provisioned["relay_tunnel_token"]},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["subdomain"] == provisioned["relay_subdomain"]
+
+
+@pytest.mark.asyncio
+async def test_relay_auth_wrong_token(client, provisioned):
+    r = await client.post(
+        "/selfhost/relay/auth",
+        headers={"x-internal-secret": "s3cr3t"},
+        json={"subdomain": provisioned["relay_subdomain"], "token": "plse_relay_wrong"},
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_relay_auth_unknown_subdomain(client, provisioned):
+    r = await client.post(
+        "/selfhost/relay/auth",
+        headers={"x-internal-secret": "s3cr3t"},
+        json={"subdomain": "ghost-comet-0000.relay.test",
+              "token": provisioned["relay_tunnel_token"]},
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_relay_auth_missing_internal_secret(client, provisioned):
+    r = await client.post(
+        "/selfhost/relay/auth",
+        json={"subdomain": provisioned["relay_subdomain"],
+              "token": provisioned["relay_tunnel_token"]},
+    )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_relay_auth_suspended_instance(
+    client, provisioned, alice_instance, session_factory
+):
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, alice_instance.id)
+        inst.status = "suspended"
+        await s.commit()
+    r = await client.post(
+        "/selfhost/relay/auth",
+        headers={"x-internal-secret": "s3cr3t"},
+        json={"subdomain": provisioned["relay_subdomain"],
+              "token": provisioned["relay_tunnel_token"]},
+    )
+    assert r.status_code == 403
