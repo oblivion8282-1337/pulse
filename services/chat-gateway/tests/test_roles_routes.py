@@ -201,6 +201,53 @@ async def test_roles_positions_happy_path(client, _auth_signer):
     assert by_id[b["id"]]["position"] == 5
 
 
+@pytest.mark.asyncio
+async def test_reorder_positions_anti_escalation_blocks_role_above_actor(
+    client, _auth_signer
+):
+    """A mod with MANAGE_ROLES cannot reorder a role that sits at/above
+    their own highest role — otherwise they could push an admin's role
+    below theirs and then kick/ban its holders via the position-based
+    hierarchy check. The reorder must 403 and leave positions untouched."""
+    t_owner, t_mod, uid_mod, g = await _make_guild_with_member(client, _auth_signer)
+    mod_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Mod", "permissions": str(int(Permissions.MANAGE_ROLES))},
+        headers=auth(t_owner),
+    )).json()  # position 1
+    higher_role = (await client.post(
+        f"/guilds/{g['id']}/roles",
+        json={"name": "Higher", "permissions": "0"},
+        headers=auth(t_owner),
+    )).json()  # position 2 — above the mod's ceiling
+    await client.put(
+        f"/guilds/{g['id']}/members/{uid_mod}/roles/{mod_role['id']}",
+        headers=auth(t_owner),
+    )
+
+    # Mod (actor_top == 1) tries to drop the higher role beneath theirs.
+    r = await client.patch(
+        f"/guilds/{g['id']}/roles-positions",
+        json={"positions": [{"id": higher_role["id"], "position": 0}]},
+        headers=auth(t_mod),
+    )
+    assert r.status_code == 403
+
+    # Self-promotion above the ceiling is rejected too.
+    r2 = await client.patch(
+        f"/guilds/{g['id']}/roles-positions",
+        json={"positions": [{"id": mod_role["id"], "position": 50}]},
+        headers=auth(t_mod),
+    )
+    assert r2.status_code == 403
+
+    # Positions are unchanged after the rejected reorders.
+    roles = (await client.get(f"/guilds/{g['id']}/roles", headers=auth(t_owner))).json()
+    by_id = {row["id"]: row for row in roles}
+    assert by_id[higher_role["id"]]["position"] == 2
+    assert by_id[mod_role["id"]]["position"] == 1
+
+
 # ---- @everyone protections --------------------------------------------------
 
 

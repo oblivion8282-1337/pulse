@@ -339,6 +339,7 @@ const ALLOWED_GSR_OPS = new Set([
   'gpu_info',
   'list_profiles',
   'list_monitors',
+  'list_windows',
   'list_application_audio',
   'build_argv',
   'start',
