@@ -22,7 +22,7 @@ describe('dataDir', () => {
 describe('resolveBinary', () => {
   test('wirft BinaryNotFoundError wenn Binary nirgends gefunden wird', () => {
     assert.throws(
-      () => resolveBinary('postgres', { PULSE_HOST_BIN: '/nonexistent-dir-xyz-abc' }),
+      () => resolveBinary('postgres', { PATH: '' }),
       BinaryNotFoundError,
     );
   });
