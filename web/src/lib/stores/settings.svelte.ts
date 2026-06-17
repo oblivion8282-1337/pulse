@@ -26,8 +26,10 @@ import {
   clampBitrate,
   clampGateDb,
   clampInputMakeup,
+  parseSpatialMode,
   type AudioSettings,
   type NoiseSuppressionMode,
+  type SpatialMode,
   VOICE_BITRATE_MIN,
   VOICE_BITRATE_MAX,
   VOICE_BITRATE_STEREO_MIN,
@@ -78,6 +80,7 @@ import type { ActionId } from '$lib/shortcuts/actions';
 
 export type {
   NoiseSuppressionMode,
+  SpatialMode,
   ThemePreference,
   ScreenShareCodec,
   ScreenShareResolution
@@ -226,6 +229,9 @@ class SettingsStore {
   }
   setLimiterEnabled(v: boolean): void {
     this.#audio.set('limiterEnabled', v);
+  }
+  setSpatialMode(v: SpatialMode): void {
+    this.#audio.set('spatialMode', parseSpatialMode(v));
   }
 
   // --- voice / PTT setters ---

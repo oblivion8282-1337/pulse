@@ -5,10 +5,13 @@
     VOICE_BITRATE_MAX,
     VOICE_BITRATE_STEREO_MIN,
     NOISE_GATE_DB_MIN,
-    NOISE_GATE_DB_MAX
+    NOISE_GATE_DB_MAX,
+    type SpatialMode
   } from '$lib/stores/settings.svelte';
+  import { SPATIAL_MODES } from '$lib/settings-registry/sections/audio';
   import InfoIcon from '@lucide/svelte/icons/info';
   import { voice } from '$lib/voice/livekit.svelte';
+  import { isMobile } from '$lib/platform/runtime';
   import { deviceDisplayName } from '$lib/voice/devices';
   import MicGainControl from './MicGainControl.svelte';
   import OutputVolumeControl from './OutputVolumeControl.svelte';
@@ -83,6 +86,21 @@
       pttKeyListener = null;
     }
   });
+
+  let spatialDisabled = $derived(isMobile());
+  const spatialModeLabels: Record<SpatialMode, () => string> = {
+    off: m.settings_audio_video_spatial_mode_off,
+    standard: m.settings_audio_video_spatial_mode_standard,
+    high: m.settings_audio_video_spatial_mode_high,
+    auto: m.settings_audio_video_spatial_mode_auto
+  };
+  const spatialHints: Record<SpatialMode, () => string> = {
+    off: m.settings_audio_video_spatial_hint_off,
+    standard: m.settings_audio_video_spatial_hint_standard,
+    high: m.settings_audio_video_spatial_hint_high,
+    auto: m.settings_audio_video_spatial_hint_auto
+  };
+  let spatialHint = $derived(spatialHints[settings.audio.spatialMode]());
 
   let micLevelPct = $derived(Math.round(voice.localMicLevel * 100));
   let micPeakPct = $derived(Math.round(voice.localMicPeak * 100));
@@ -204,6 +222,41 @@
         class="accent-primary size-5 md:size-4"
       />
     </label>
+  </div>
+
+  <!-- Räumlicher Klang (Spatial Audio) -->
+  <div class="flex flex-col gap-2" data-testid="settings-spatial-audio">
+    <div>
+      <span class="text-text-bright text-sm font-medium">{m.settings_audio_video_spatial_label()}</span>
+      <p class="text-text-muted text-xs">{m.settings_audio_video_spatial_description()}</p>
+    </div>
+    <div
+      class="bg-bg-input flex gap-1 rounded-md p-1"
+      class:opacity-50={spatialDisabled}
+      role="radiogroup"
+      aria-label={m.settings_audio_video_spatial_label()}
+    >
+      {#each SPATIAL_MODES as mode (mode)}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={settings.audio.spatialMode === mode}
+          disabled={spatialDisabled}
+          onclick={() => settings.setSpatialMode(mode)}
+          class="flex-1 rounded px-2 py-1.5 text-sm transition-colors"
+          class:bg-primary={settings.audio.spatialMode === mode}
+          class:text-white={settings.audio.spatialMode === mode}
+          class:text-text-base={settings.audio.spatialMode !== mode}
+          class:hover:bg-bg-hover={settings.audio.spatialMode !== mode && !spatialDisabled}
+          data-testid="settings-spatial-{mode}"
+        >
+          {spatialModeLabels[mode]()}
+        </button>
+      {/each}
+    </div>
+    <p class="text-text-muted text-xs">
+      {spatialDisabled ? m.settings_audio_video_spatial_desktop_only() : spatialHint}
+    </p>
   </div>
 
   <!-- Rauschunterdrückung -->
