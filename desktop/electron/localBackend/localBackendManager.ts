@@ -36,6 +36,7 @@ import { SupervisedProcess } from './process.ts';
 import { tcpProbe } from './health.ts';
 import { controlPlaneComponents } from './components.ts';
 import { tunnelComponent } from './tunnel.ts';
+import { mediaComponents } from './media.ts';
 
 import type { TunnelRelay } from './tunnel.ts';
 import type { FixtureIdentity, Ports } from './renderConfig.ts';
@@ -59,6 +60,8 @@ export interface StartInput {
   extraEnv?: Record<string, string>;
   /** Relay-Tunnel-Konfiguration. Wenn gesetzt, wird frpc nach chat-gateway gestartet. */
   relay?: TunnelRelay;
+  /** Wenn true, werden LiveKit + MediaMTX nach dem Tunnel gestartet. */
+  media?: boolean;
 }
 
 export type ComponentStatus = 'stopped' | 'starting' | 'running' | 'failed';
@@ -80,6 +83,7 @@ const DEFAULT_PORTS: ExtendedPorts = {
   chat: 55544,
   media: 55545,
   mediaAuthHook: 55546,
+  voice: 55547,
 };
 
 // ---------------------------------------------------------------------------
@@ -239,6 +243,19 @@ export class LocalBackendManager {
       // 14. Tunnel starten (optional, nach chat-gateway)
       if (input.relay) {
         await this._startSpec(tunnelComponent({ dirs, relay: input.relay, chatPort: ports.chat }));
+      }
+
+      // 15. Medien-Stack starten (optional, nach Tunnel)
+      if (input.media) {
+        const domain = input.relay?.subdomain ?? '127.0.0.1';
+        for (const spec of mediaComponents({
+          dirs, secrets, env: fullEnv,
+          voicePort: ports.voice,
+          authHookPort: ports.mediaAuthHook,
+          domain,
+        })) {
+          await this._startSpec(spec);
+        }
       }
 
       this._state = 'running';

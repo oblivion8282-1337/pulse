@@ -125,6 +125,14 @@ export function renderEnv(input: RenderEnvInput): Record<string, string> {
     // Logging
     PULSE_LOG_LEVEL: 'info',
 
+    // LiveKit (Voice) + MediaMTX (HQ-Streaming) — ②b-①
+    LIVEKIT_API_KEY: secrets.livekitApiKey,
+    LIVEKIT_API_SECRET: secrets.livekitApiSecret,
+    LIVEKIT_URL: `wss://${publicOrigin}/livekit`,
+    LIVEKIT_API_URL: 'http://127.0.0.1:7880',
+    MEDIAMTX_INGEST_HOST: publicOrigin,
+    MEDIAMTX_PUBLIC_BASE: `https://${publicOrigin}/whep`,
+
     // VAPID (Web-Push)
     VAPID_KEY_FILE: join(dirs.secrets, 'vapid.json'),
   };
