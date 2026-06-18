@@ -1,9 +1,11 @@
 <!--
   Self-Hoster-Tab in den Einstellungen.
-  Zwei Sektionen: Antrag einreichen (SelfHostApplication) +
+  Drei Sektionen: LocalHosting (Electron-only, erste Position) +
+  Antrag einreichen (SelfHostApplication) +
   eigene Instanzen verwalten (MyInstances).
 -->
 <script lang="ts">
+  import LocalHosting from '$lib/components/account/LocalHosting.svelte';
   import SelfHostApplication from '$lib/components/account/SelfHostApplication.svelte';
   import MyInstances from '$lib/components/account/MyInstances.svelte';
   import { m } from '$lib/paraglide/messages.js';
@@ -17,6 +19,7 @@
     </p>
   </div>
 
+  <LocalHosting />
   <SelfHostApplication />
   <MyInstances />
 </div>
