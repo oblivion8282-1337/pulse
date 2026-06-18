@@ -40,6 +40,10 @@ import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { LocalBackendManager } from './localBackend/localBackendManager';
+import {
+  redeemBootstrap, loadCreds, saveCreds, clearCreds,
+  credsToIdentity, credsToRelay, probeUrl, sanitize,
+} from './localBackend/pairing';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
 
@@ -348,53 +352,64 @@ function _openExternalIfWebUrl(url: string): void {
   if (proto === 'https:' || proto === 'http:') void shell.openExternal(url);
 }
 
-// ── Host-Lifecycle bridge (③a) ──────────────────────────────────────────────
+// ── Host-Lifecycle bridge (③a/③c) ──────────────────────────────────────────
 // Verdrahtet HostLifecycle (hostLifecycle.ts) + LocalBackendManager + Reachability
 // + PortMapper mit dem Renderer über host:* IPC-Kanäle.
-// TODO(③c): Identitäts-/Relay-/probeUrl-Befüllung aus opts — hier nur Pass-Through,
-//            der Build kompiliert, Cloud-Pairing kommt in ③c.
+// ③c: Identität/Relay/probeUrl kommen aus dem Cloud-Pairing (pairing.ts).
 
 function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   const manager = new LocalBackendManager();
-  // TODO(③c): lastIdentity + relayCfg aus Cloud-Bootstrap füllen (opts-Felder).
-  let lastIdentity: { userData: string } | null = null;
-  let relayCfg: { subdomain: string } | null = null;
+  const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
+  let creds = loadCreds(hostStore);
+
   const deps: HostDeps = {
     startBackend: async ({ media }) => {
-      // Bis ③c die Cloud-Identität füllt, ist Hosten noch nicht eingerichtet —
-      // sauberer Abbruch (HostLifecycle macht daraus die ruhige 'something-paused'-
-      // Phase) statt eines Null-Deref-Crashs im Main-Prozess.
-      if (!lastIdentity) throw new Error('host not paired yet (③c pending)');
+      if (!creds) throw new Error('host not paired yet');
       await manager.start({
-        userData: lastIdentity.userData,
-        // TODO(③c): identity aus Cloud-Pairing; as never damit TS kompiliert.
-        identity: {} as never,
+        userData: app.getPath('userData'),
+        identity: credsToIdentity(creds),
+        relay: credsToRelay(creds),
         media,
-        // TODO(③c): relay aus relayCfg befüllen.
       });
     },
     stopBackend: () => manager.stop(),
     checkReachability: async () => {
-      // TODO(③c): probeUrl aus Cloud-Config befüllen.
-      const r = await checkReachability({ probeUrl: '' });
+      const r = await checkReachability({ probeUrl: creds ? probeUrl(creds) : '' });
       return { verdict: r.verdict, publicIp: r.publicIp };
     },
     mapPorts: async (stunIp) => {
       const r = await mapMediaPorts({ stunIp });
       return { verdict: r.verdict, openPorts: r.openPorts, failedPorts: r.failedPorts };
     },
-    relayUrl: () => (relayCfg ? `https://${relayCfg.subdomain}` : null),
+    relayUrl: () => (creds?.relaySubdomain ? `https://${creds.relaySubdomain}` : null),
   };
   const hl = new HostLifecycle(deps);
   hl.onPhase((e) => getWin()?.webContents.send('host:phase', e));
 
-  ipcMain.handle('host:start', async (_e, opts) => {
-    // TODO(③c): opts → lastIdentity / relayCfg / probeUrl aus Cloud-Pairing ableiten.
-    void opts;
-    return hl.start();
-  });
+  ipcMain.handle('host:start', () => hl.start());
   ipcMain.handle('host:stop', () => hl.stop());
   ipcMain.handle('host:status', () => hl.getStatus());
+  ipcMain.handle('host:pair', async (_e, token: unknown) => {
+    if (typeof token !== 'string' || !token) return { paired: false, error: 'invalid token' };
+    try {
+      const cloudOrigin = creds?.cloudOrigin ?? 'https://howispulse.com';
+      const fresh = await redeemBootstrap(token, cloudOrigin);
+      saveCreds(hostStore, fresh);
+      creds = fresh;
+      return { paired: true, status: sanitize(fresh) };
+    } catch (e) {
+      // NIE die Fehlermeldung mit Token/Secret anreichern
+      return { paired: false, error: e instanceof Error ? e.message : 'pairing failed' };
+    }
+  });
+  ipcMain.handle('host:getPairing', () => sanitize(creds));
+  ipcMain.handle('host:unpair', () => {
+    clearCreds(hostStore);
+    creds = null;
+  });
+
+  // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.
+  app.on('before-quit', () => { void manager.stop(); });
 }
 
 // ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────
@@ -463,6 +478,9 @@ const ALLOWED_STORE_KEYS = new Set([
   // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
   // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
   'pulse.servers',
+  // Cloud-Pairing-Credentials (③c) — enthält keinen Klartext-Secret (nur
+  // verschlüsselte/abgeleitete Felder), aber Zugriff trotzdem auf diesen Key begrenzen.
+  'pulse.host.creds',
 ]);
 
 function wireStore(): void {
