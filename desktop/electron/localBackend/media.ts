@@ -1,7 +1,16 @@
-// Renderer für die nativen Medien-Dienste (LiveKit + MediaMTX) im Self-Host-Stack.
+// Renderer + Prozess-Specs für die nativen Medien-Dienste (LiveKit + MediaMTX).
 // Configs binden 0.0.0.0 (Medien müssen von außen erreichbar sein); feste Ports
 // für 1:1-Port-Forwarding. LiveKit ermittelt seine öffentliche IP per STUN
 // (use_external_ip) und bringt einen eingebauten UDP-TURN mit (kein coturn).
+
+import { writeFileSync, chmodSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolveBinary } from './paths.ts';
+import { tcpProbe } from './health.ts';
+import { ensureMediamtxCert } from './secrets.ts';
+import type { SupervisedProcessSpec } from './process.ts';
+import type { DataDirs } from './types.ts';
+import type { Secrets } from './secrets.ts';
 
 export const MEDIA_STUN_URL = 'stun:stun.l.google.com:19302';
 
@@ -66,4 +75,74 @@ export function renderMediamtxConfig(input: {
     '  all_others:',
     '',
   ].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// mediaComponents — schreibt Configs auf Disk und baut SupervisedProcessSpecs
+// ---------------------------------------------------------------------------
+
+/** Schreibt content nach filePath (utf8, mode 0o600 auf non-Windows). */
+function writeSecretFile(filePath: string, content: string): void {
+  writeFileSync(filePath, content, { encoding: 'utf8' });
+  if (process.platform !== 'win32') chmodSync(filePath, 0o600);
+}
+
+interface MediaComponentsInput {
+  dirs: DataDirs;
+  secrets: Secrets;
+  env: Record<string, string>;
+  voicePort: number;
+  authHookPort: number;
+  domain: string;
+}
+
+/**
+ * Schreibt livekit.yaml + mediamtx.yml nach dirs.root (mode 0o600),
+ * stellt den MediaMTX-RTMPS-Cert sicher und gibt [livekitSpec, mediamtxSpec] zurück.
+ *
+ * Configs werden NICHT geloggt (Secret-Hygiene: LiveKit-API-Secret + RTMPS-Key).
+ */
+export function mediaComponents(input: MediaComponentsInput): SupervisedProcessSpec[] {
+  const { dirs, secrets, env, voicePort, authHookPort, domain } = input;
+
+  // Resolve binaries early — both are independent lookups.
+  const livekitBin = resolveBinary('livekit-server');
+  const mediamtxBin = resolveBinary('mediamtx');
+
+  const { certPath, keyPath } = ensureMediamtxCert(dirs.secrets, domain);
+
+  const livekitCfg = join(dirs.root, 'livekit.yaml');
+  writeSecretFile(livekitCfg, renderLivekitConfig({
+    apiKey: secrets.livekitApiKey,
+    apiSecret: secrets.livekitApiSecret,
+    voicePort,
+    domain,
+  }));
+
+  const mediamtxCfg = join(dirs.root, 'mediamtx.yml');
+  writeSecretFile(mediamtxCfg, renderMediamtxConfig({
+    certPath, keyPath,
+    authHookPort,
+    additionalHost: domain,
+    stunUrl: MEDIA_STUN_URL,
+  }));
+
+  return [
+    {
+      name: 'livekit',
+      command: livekitBin,
+      args: ['--config', livekitCfg],
+      env,
+      healthCheck: () => tcpProbe(7880),
+      restartMax: 5,
+    },
+    {
+      name: 'mediamtx',
+      command: mediamtxBin,
+      args: [mediamtxCfg],
+      env,
+      healthCheck: () => tcpProbe(9997),
+      restartMax: 5,
+    },
+  ];
 }
