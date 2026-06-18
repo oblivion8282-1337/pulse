@@ -17,6 +17,14 @@ mediamtx-auth-hook, chat-gateway) sowie optional einen frpc-Client-Tunnel zum Cl
 nach dem chat-gateway gestartet (siehe `tunnel.ts`); der serverseitige Auth-Hook lebt in
 `services/relay-frps-plugin`.
 
+## Auto-Port-Mapping
+
+`portMapper.ts` implementiert die NAT-PMP-Orchestrierung (Best-Effort, kein Hard-Fail): ermittelt
+die WAN-IP via `external-address`-Request, erkennt CGNAT (private/CGNAT-Subnetz oder WAN-IP ≠
+STUN-IP) und mappt anschliessend alle `MEDIA_MAP_UDP`- und `MEDIA_MAP_TCP`-Ports 1:1.
+Verdikt: `mapped` | `partial` | `cgnat` | `unsupported`. Integrationstests gegen einen lokalen
+Fake-NAT-PMP-Server liegen in `test/localBackend/portMapper.int.test.ts`.
+
 ## Integrationstests
 
 ### Stack-Test (ohne Tunnel)
