@@ -10,6 +10,9 @@ class HostStore {
   detail = $state<HostPhaseEvent['detail']>(undefined);
   pairing = $state<PairingStatus | null>(null);
   instances = $state<{ id: string; hostname: string }[]>([]);
+  /** true, wenn der letzte Pairing-Versuch (Mint/Redeem) fehlschlug — die UI
+   *  zeigt dann eine ruhige Fehlerzeile. Wird bei jedem neuen start() geräumt. */
+  pairError = $state(false);
   private _wired = false;
 
   get available(): boolean {
@@ -50,13 +53,19 @@ class HostStore {
   async start(instanceId?: string): Promise<void> {
     if (!this.available) return;
     const host = window.pulse!.host!;
+    this.pairError = false;
     if (!this.paired) {
       const id = instanceId ?? this.instances[0]?.id;
       if (!id) return;
-      const { token } = await instancesApi.mintBootstrapToken(id);
-      const res = await host.pair(token);
-      if (!res.paired) return;
-      this.pairing = res.status ?? await host.getPairing();
+      try {
+        const { token } = await instancesApi.mintBootstrapToken(id);
+        const res = await host.pair(token);
+        if (!res.paired) { this.pairError = true; return; }
+        this.pairing = res.status ?? await host.getPairing();
+      } catch {
+        this.pairError = true;
+        return;
+      }
     }
     await host.start({});
   }
