@@ -22,6 +22,7 @@ export type AdminUser = {
   is_admin: boolean;
   disabled: boolean;
   created_at: string;
+  self_host_enabled: boolean;
 };
 
 export type AuthSettings = {
@@ -205,7 +206,7 @@ export const adminApi = {
   },
   patchUser(
     id: string,
-    payload: { is_admin?: boolean; disabled?: boolean }
+    payload: { is_admin?: boolean; disabled?: boolean; self_host_enabled?: boolean }
   ): Promise<AdminUser> {
     return request<AdminUser>(`/admin/users/${id}`, {
       method: 'PATCH',

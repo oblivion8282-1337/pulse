@@ -19,6 +19,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import ShieldIcon from '@lucide/svelte/icons/shield';
   import BanIcon from '@lucide/svelte/icons/ban';
+  import ServerIcon from '@lucide/svelte/icons/server';
   import MoreHorizontalIcon from '@lucide/svelte/icons/more-horizontal';
 
   let users = $state<AdminUser[]>([]);
@@ -59,12 +60,18 @@
     }
   }
 
-  async function toggle(u: AdminUser, field: 'is_admin' | 'disabled', next: boolean) {
+  async function toggle(u: AdminUser, field: 'is_admin' | 'disabled' | 'self_host_enabled', next: boolean) {
     pendingId = u.id;
     try {
       const updated = await adminApi.patchUser(u.id, { [field]: next });
       users = users.map((x) => (x.id === u.id ? updated : x));
-      toast.success(field === 'is_admin' ? m.admin_users_admin_status_updated() : m.admin_users_ban_updated());
+      const msg =
+        field === 'is_admin'
+          ? m.admin_users_admin_status_updated()
+          : field === 'self_host_enabled'
+            ? m.admin_users_self_host_updated()
+            : m.admin_users_ban_updated();
+      toast.success(msg);
     } catch (e) {
       // Errors from the safety nets (last admin, self-disable) bubble through
       // here with the server's German-friendly detail — surface it raw.
@@ -129,6 +136,14 @@
                 {m.admin_users_badge_disabled()}
               </span>
             {/if}
+            {#if u.self_host_enabled}
+              <span
+                class="rounded-md bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-400"
+                data-testid="badge-selfhost"
+              >
+                {m.admin_users_badge_self_host()}
+              </span>
+            {/if}
           </div>
 
           <PopoverPrimitive.Root>
@@ -168,6 +183,15 @@
                 >
                   <BanIcon class="size-4" />
                   {u.disabled ? m.admin_users_unban() : m.admin_users_ban()}
+                </button>
+                <button
+                  type="button"
+                  class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+                  onclick={() => toggle(u, 'self_host_enabled', !u.self_host_enabled)}
+                  data-testid="toggle-selfhost-btn"
+                >
+                  <ServerIcon class="size-4" />
+                  {u.self_host_enabled ? m.admin_users_self_host_revoke() : m.admin_users_self_host_grant()}
                 </button>
               </PopoverPrimitive.Content>
             </PopoverPrimitive.Portal>

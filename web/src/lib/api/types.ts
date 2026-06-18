@@ -36,6 +36,8 @@ export type User = {
   /** Richtung des Namens-Verlaufs in Grad (0–360, CSS-Winkel). null/fehlend =
    *  Default 90° (links→rechts). Nur relevant, wenn beide Farben gesetzt sind. */
   profile_gradient_angle?: number | null;
+  /** Whether the user is entitled to run a self-hosted Pulse instance. */
+  self_host_enabled?: boolean;
 };
 
 export type Guild = {
