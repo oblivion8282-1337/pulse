@@ -16,6 +16,17 @@ class MessageStore {
 
   private static readonly CAP = 500;
 
+  /** Trim a sorted channel list to the CAP (keeping the newest), dropping the
+   *  pruned messages' confirmed nonces so the dedup set can't grow without
+   *  bound over a long-lived session. Returns the (possibly unchanged) list. */
+  private pruneToCap(list: Message[]): Message[] {
+    if (list.length <= MessageStore.CAP) return list;
+    for (const m of list.slice(0, list.length - MessageStore.CAP)) {
+      if (m.nonce) this.confirmedNonces.delete(m.nonce);
+    }
+    return list.slice(-MessageStore.CAP);
+  }
+
   setInitial(channelId: string, msgs: Message[]): void {
     // Backend returns descending; flip for chat-bottom display.
     let sorted = [...msgs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -56,7 +67,7 @@ class MessageStore {
     } else {
       next = [...list, msg].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     }
-    if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
+    next = this.pruneToCap(next);
     this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
     // Update the ID set with the new message and remove any pruned messages.
     ids.add(msg.id);
@@ -202,7 +213,7 @@ class MessageStore {
     next = [...next, ...append].sort((a, b) =>
       a.id < b.id ? -1 : a.id > b.id ? 1 : 0
     );
-    if (next.length > MessageStore.CAP) next = next.slice(-MessageStore.CAP);
+    next = this.pruneToCap(next);
     this.byChannel = { ...this.byChannel, [channelId]: next };
     // Rebuild the ID set after merge.
     this.messageIds = { ...this.messageIds, [channelId]: new Set(next.map((m) => m.id)) };

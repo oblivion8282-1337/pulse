@@ -25,9 +25,9 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { URL } from 'node:url';
-// Bundled by esbuild at build time (resolveJsonModule); `../package.json` is
-// `desktop/package.json` relative to this source file.
-import pkg from '../package.json';
+// Injected by esbuild's `--define` at build time (see `esbuild.mjs`) so only
+// the version string is baked in, not the whole `package.json` object.
+declare const __APP_VERSION__: string;
 import { getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray } from './tray';
@@ -103,7 +103,7 @@ if (process.defaultApp) {
   app.setAsDefaultProtocolClient('pulse');
 }
 
-const APP_VERSION: string = pkg.version ?? '0.0.0';
+const APP_VERSION: string = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '0.0.0';
 // Expose to the preload script (it runs in a separate process and can't import
 // the package.json itself once bundled).
 process.env.PULSE_APP_VERSION = APP_VERSION;

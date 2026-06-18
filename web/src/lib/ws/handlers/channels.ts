@@ -27,6 +27,7 @@ export function register(ctx: HandlerContext): void {
       guilds.removeChannel(evt.channel_id);
       ctx.unsubscribe(evt.channel_id);
       messages.clearChannel(evt.channel_id);
+      channelPermissions.forget(evt.channel_id);
       ctx.fireChannelDeleted(evt.guild_id, evt.channel_id);
     }
   });

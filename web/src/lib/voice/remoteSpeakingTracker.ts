@@ -31,6 +31,17 @@ export class RemoteSpeakingTracker {
     this.#onChange = onChange;
   }
 
+  /** Close and drop the shared AudioContext if one is open. attach() lazily
+   *  recreates it on the next subscribed track. */
+  #closeContext(): void {
+    if (this.#ctx && this.#ctx.state !== 'closed') {
+      void this.#ctx.close().catch(() => {
+        /* ignore */
+      });
+    }
+    this.#ctx = null;
+  }
+
   attach(identity: string, track: MediaStreamTrack): void {
     this.detach(identity);
     try {
@@ -98,10 +109,14 @@ export class RemoteSpeakingTracker {
     const wasSpeaking = e.speaking;
     this.#entries.delete(identity);
     if (wasSpeaking) this.#onChange(identity, false);
-    // Cancel the shared RAF loop if no more entries
-    if (this.#entries.size === 0 && this.#raf !== null) {
-      cancelAnimationFrame(this.#raf);
-      this.#raf = null;
+    // No more tracked speakers: stop the shared RAF loop and release the
+    // AudioContext so it doesn't sit open holding audio resources.
+    if (this.#entries.size === 0) {
+      if (this.#raf !== null) {
+        cancelAnimationFrame(this.#raf);
+        this.#raf = null;
+      }
+      this.#closeContext();
     }
   }
 
@@ -111,11 +126,6 @@ export class RemoteSpeakingTracker {
 
   clear(): void {
     for (const id of [...this.#entries.keys()]) this.detach(id);
-    if (this.#ctx && this.#ctx.state !== 'closed') {
-      void this.#ctx.close().catch(() => {
-        /* ignore */
-      });
-    }
-    this.#ctx = null;
+    this.#closeContext();
   }
 }

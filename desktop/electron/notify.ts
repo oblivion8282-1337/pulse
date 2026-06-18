@@ -140,6 +140,11 @@ export function wireNotify(getWindow: () => BrowserWindow | null): void {
         win.webContents.send('notify:click', click);
       }
     });
+    // Dismissed (by the user or the OS) without a click — drop it from the
+    // live map right away instead of waiting to be evicted by the cap.
+    notif.on('close', () => {
+      liveNotifications.delete(id);
+    });
     // Evict oldest if we have hit the cap, then track this new notification.
     if (liveNotifications.size >= MAX_LIVE_NOTIFICATIONS) evictOldestNotification();
     liveNotifications.set(id, notif);
