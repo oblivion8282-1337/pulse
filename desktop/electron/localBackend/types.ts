@@ -26,4 +26,6 @@ export type BinaryName =
   | 'minio'
   | 'uvicorn'
   | 'alembic'
-  | 'frpc';
+  | 'frpc'
+  | 'livekit-server'
+  | 'mediamtx';
