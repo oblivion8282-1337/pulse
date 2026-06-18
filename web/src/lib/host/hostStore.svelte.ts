@@ -1,15 +1,31 @@
-// Reaktiver Wrapper über window.pulse.host (③a). Browser/SSR-sicher: ohne
+// Reaktiver Wrapper über window.pulse.host (③a/③c). Browser/SSR-sicher: ohne
 // Electron-Bridge bleibt es inert (phase 'idle', start/stop No-ops).
 import { isElectron } from '$lib/platform/runtime';
-import type { HostPhase, HostPhaseEvent } from '$lib/platform/pulse';
+import type { HostPhase, HostPhaseEvent, PairingStatus } from '$lib/platform/pulse';
+import { instancesApi } from '$lib/api/instances';
+import { serversStore } from '$lib/api/servers.svelte';
 
 class HostStore {
   phase = $state<HostPhase>('idle');
   detail = $state<HostPhaseEvent['detail']>(undefined);
+  pairing = $state<PairingStatus | null>(null);
+  instances = $state<{ id: string; hostname: string }[]>([]);
   private _wired = false;
 
   get available(): boolean {
     return isElectron() && typeof window !== 'undefined' && !!window.pulse?.host;
+  }
+
+  get paired(): boolean {
+    return !!this.pairing?.paired;
+  }
+
+  get canHost(): boolean {
+    return this.paired || this.instances.length >= 1;
+  }
+
+  get needsChoice(): boolean {
+    return !this.paired && this.instances.length > 1;
   }
 
   init(): void {
@@ -21,16 +37,41 @@ class HostStore {
       this.detail = e.detail;
     });
     void host.getStatus().then((e) => { this.phase = e.phase; this.detail = e.detail; });
+    void host.getPairing().then((p) => { this.pairing = p; }).catch(() => {});
+    void instancesApi.listMyInstances()
+      .then((list) => {
+        this.instances = list
+          .filter((i) => i.status === 'active')
+          .map((i) => ({ id: i.id, hostname: i.hostname }));
+      })
+      .catch(() => {});
   }
 
-  async start(): Promise<void> {
+  async start(instanceId?: string): Promise<void> {
     if (!this.available) return;
-    await window.pulse!.host!.start({});  // opts-Befüllung = ③c (Cloud-Pairing)
+    const host = window.pulse!.host!;
+    if (!this.paired) {
+      const id = instanceId ?? this.instances[0]?.id;
+      if (!id) return;
+      const { token } = await instancesApi.mintBootstrapToken(id);
+      const res = await host.pair(token);
+      if (!res.paired) return;
+      this.pairing = res.status ?? await host.getPairing();
+    }
+    await host.start({});
   }
 
   async stop(): Promise<void> {
     if (!this.available) return;
     await window.pulse!.host!.stop();
+  }
+
+  async anchorLive(): Promise<void> {
+    const p = this.pairing;
+    if (!p?.relaySubdomain) return;
+    const alreadyAdded = serversStore.servers.some((s) => s.instance_id === p.instanceId);
+    if (alreadyAdded) return;
+    serversStore.add('https://' + p.relaySubdomain, p.hostname, p.instanceId);
   }
 }
 
