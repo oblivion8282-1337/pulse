@@ -10,6 +10,7 @@ import { guilds } from '$lib/stores/guilds.svelte';
 import { messages } from '$lib/stores/messages.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
+import { readState } from '$lib/stores/readState.svelte';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
@@ -28,6 +29,7 @@ export function register(ctx: HandlerContext): void {
       ctx.unsubscribe(evt.channel_id);
       messages.clearChannel(evt.channel_id);
       channelPermissions.forget(evt.channel_id);
+      readState.forgetChannel(evt.channel_id);
       ctx.fireChannelDeleted(evt.guild_id, evt.channel_id);
     }
   });

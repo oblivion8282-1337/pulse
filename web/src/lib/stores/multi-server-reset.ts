@@ -38,6 +38,7 @@ import { messages } from './messages.svelte';
 import { presence } from './presence.svelte';
 import { readState } from './readState.svelte';
 import { roles } from './roles.svelte';
+import { streamChat } from './streamChat.svelte';
 import { streamPresence } from './streamPresence.svelte';
 import { voicePresence } from './voicePresence.svelte';
 import { watchPartyPresence } from './watchPartyPresence.svelte';
@@ -75,6 +76,7 @@ export function resetServerScopedStores(): void {
   memberRoles.clear();
   voicePresence.clear();
   streamPresence.clear();
+  streamChat.clearAll();
   watchPartyPresence.clear();
   watchWatchers.clear();
   // Plugin-pro-Guild-Toggle-Cache liegt außerhalb der Store-Klassen.

@@ -87,6 +87,23 @@ class ReadState {
     this.mentionCountByChannel = {};
   }
 
+  /** Drop all read-state for a deleted channel so its keys don't linger in
+   *  memory or in the persisted localStorage blobs. */
+  forgetChannel(channelId: string): void {
+    if (channelId in this.lastReadByChannel) {
+      const next = { ...this.lastReadByChannel };
+      delete next[channelId];
+      this.lastReadByChannel = next;
+      this.persist();
+    }
+    if (channelId in this.latestByChannel) {
+      const next = { ...this.latestByChannel };
+      delete next[channelId];
+      this.latestByChannel = next;
+    }
+    this.clearMentions(channelId);
+  }
+
   /** Record that we've observed a message in this channel (from any source —
    *  WS message frame, channel_bump envelope, or an initial-load fetch). */
   recordSeen(channelId: string, messageId: string): void {
