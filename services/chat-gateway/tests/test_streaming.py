@@ -199,7 +199,11 @@ async def test_stream_token_member_proxies_media_svc(client, _auth_signer, mock_
 
 
 @pytest.mark.asyncio
-async def test_stream_token_protocol_forwarded(client, _auth_signer, mock_media_svc):
+async def test_stream_token_srt_rejected_at_gateway(client, _auth_signer, mock_media_svc):
+    """Regression (bug-hunt batch 2, #12): ``srt`` is rejected at the
+    chat-gateway layer (422) and never forwarded to media-svc, which also
+    rejects it. Previously the gateway accepted ``srt`` and forwarded it,
+    producing a confusing 422 sourced from media-svc instead."""
     token, _ = await _register(_auth_signer)
     g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
     vc = (
@@ -207,23 +211,11 @@ async def test_stream_token_protocol_forwarded(client, _auth_signer, mock_media_
             f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
         )
     ).json()
-    mock_media_svc.responses.append(
-        _resp(
-            200,
-            {
-                "token": "t",
-                "mediamtx_path": f"channel-{vc['id']}-1",
-                "push_protocol": "srt",
-                "push_url": f"srt://localhost:8890?streamid=publish:channel-{vc['id']}-1:pulse:t",
-                "expires_in_s": 14400,
-            },
-        )
-    )
     r = await client.post(
         f"/channels/{vc['id']}/stream-token", json={"protocol": "srt"}, headers=_auth(token)
     )
-    assert r.status_code == 200, r.text
-    assert mock_media_svc.calls[0][3] == {"protocol": "srt"}
+    assert r.status_code == 422, r.text
+    assert mock_media_svc.calls == []  # never reached media-svc
 
 
 @pytest.mark.asyncio

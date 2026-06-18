@@ -168,6 +168,42 @@ async def test_revoke_all_for_user(client, session_factory):
         assert r.status_code == 401, f"session {sid} should be revoked"
 
 
+# ---- sliding-window persistence (bug 7 regression) --------------------
+
+
+@pytest.mark.asyncio
+async def test_read_only_request_persists_session_extension(client, session_factory):
+    """A read-only cookie-auth request must commit the sliding-window bump.
+
+    Regression for bug 7: validate_session() extends expires_at, but read-only
+    routes never call db.commit(), so the extension was silently rolled back on
+    session-context exit. The bump must now be persisted inside validate_session.
+    """
+    login_r = await _register_and_login(client)
+    sid_str = login_r.cookies["pulse_session"]
+    sid = uuid.UUID(sid_str)
+
+    # Push expires_at close to now so any extension is clearly observable.
+    async with session_factory() as db:
+        row = await db.get(UserSession, str(sid))
+        assert row is not None
+        near = datetime.now(UTC) + timedelta(seconds=5)
+        row.expires_at = near
+        await db.commit()
+        before = near
+
+    # A purely read-only cookie request.
+    r = await client.get("/me", headers={"Cookie": f"pulse_session={sid_str}"})
+    assert r.status_code == 200, r.text
+
+    # The extension must be durable in a fresh DB session.
+    async with session_factory() as db:
+        row = await db.get(UserSession, str(sid))
+        assert row is not None
+        after = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
+        assert after > before, "read-only request did not persist the window extension"
+
+
 # ---- logout tests -----------------------------------------------------
 
 

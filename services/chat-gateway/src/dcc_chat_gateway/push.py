@@ -76,6 +76,14 @@ async def send_push_to_user(
     # pywebpush is sync; offload each send to a thread so a slow push
     # service can't stall the event loop. Concurrency-bound by the default
     # thread pool — typical user has 1-3 subscriptions.
+    #
+    # ``return_exceptions=True`` keeps a CancelledError (BaseException, raised
+    # if the calling task is cancelled while the gather is pending) from
+    # propagating out and skipping the dead-endpoint cleanup below — stale
+    # 404/410 subscriptions would otherwise accumulate forever.  The
+    # individual ``_send_one`` calls never raise (they always return a
+    # status string); any exception entry here is a cancelled future, which
+    # we treat as a transient skip.
     results = await asyncio.gather(
         *(
             asyncio.to_thread(
@@ -89,7 +97,7 @@ async def send_push_to_user(
             )
             for r in rows
         ),
-        return_exceptions=False,
+        return_exceptions=True,
     )
 
     ok_ids: list[int] = []
@@ -272,7 +280,11 @@ async def fan_out_mention_push(
                 return
 
             # Send all subscriptions concurrently in thread-pool workers;
-            # pywebpush is sync-only so we must offload.
+            # pywebpush is sync-only so we must offload.  ``return_exceptions=True``
+            # so a CancelledError can't skip the dead-endpoint cleanup below
+            # (see send_push_to_user for the rationale); ``_send_one`` itself
+            # never raises, so any exception entry is a cancelled future and
+            # falls through to the transient "warn" path.
             results = await asyncio.gather(
                 *(
                     asyncio.to_thread(
@@ -286,7 +298,7 @@ async def fan_out_mention_push(
                     )
                     for r in rows
                 ),
-                return_exceptions=False,
+                return_exceptions=True,
             )
 
             ok_ids: list[int] = []

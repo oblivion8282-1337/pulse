@@ -67,15 +67,23 @@ async def handle_guild_events(
     # downstream code that wants the value out of the dict.
     if maybe_drop(payload["op"], payload, GUILD_EVENTS_CHANNEL):
         return
-    manager._apply_guild_membership_update(payload)
-    manager._maybe_invalidate(payload)
     async with manager._lock:
         targets = list(manager._connections)
     # Per-guild events (bans, member adds/removes/updates, channel_bump)
     # are scoped to actual guild members rather than blasted to every
     # connected socket. Other ops keep the wide broadcast pattern they
     # were built on.
+    #
+    # The guild-member filter MUST run BEFORE _apply_guild_membership_update:
+    # on ``guild_member_removed`` the update drops the kicked user's guild
+    # from their ``_ws_guilds`` set, so filtering afterwards would exclude
+    # the kicked user from their own removal event (they'd keep seeing the
+    # guild until reconnect). Computing targets first keeps them in scope so
+    # the client can run its drop-guild cleanup; the prune + cache
+    # invalidation then run below, before fan-out.
     targets = manager._filter_targets_by_guild(payload, targets)
+    manager._apply_guild_membership_update(payload)
+    manager._maybe_invalidate(payload)
     op = payload.get("op")
     # ``presence_update`` is broadcast to *every* connected socket so
     # clients learn about online/offline transitions in any guild they

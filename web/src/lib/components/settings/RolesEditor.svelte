@@ -72,6 +72,15 @@
     dragOverId = id;
   }
 
+  /** Reset drag state when a drag ends without a valid drop (released
+   * outside any row, Escape mid-drag). The browser fires `dragend` on the
+   * source element in those cases but no `drop`, so onDrop never clears the
+   * source-row opacity / hover ring. */
+  function onDragEnd(): void {
+    dragId = null;
+    dragOverId = null;
+  }
+
   /** Push the new order to the server. Top-of-list = highest position
    * so the visual order matches Discord's "highest role = top" mental
    * model. Both onDrop and move() funnel through here. */
@@ -286,6 +295,7 @@
           ondragstart={(e) => !r.is_everyone && onDragStart(e, r.id)}
           ondragover={(e) => !r.is_everyone && onDragOver(e, r.id)}
           ondragleave={() => (dragOverId = null)}
+          ondragend={onDragEnd}
           ondrop={(e) => !r.is_everyone && onDrop(e, r.id)}
           class="flex items-center gap-1 rounded-lg pr-1 transition-shadow"
           class:ring-2={dragOverId === r.id}

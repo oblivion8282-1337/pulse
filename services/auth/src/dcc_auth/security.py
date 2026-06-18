@@ -20,6 +20,11 @@ from dcc_auth.config import get_settings
 #   t=3 iterations, m=64 MiB, p=4 parallelism.
 _hasher = PasswordHasher(time_cost=3, memory_cost=64 * 1024, parallelism=4)
 
+# Pre-computed Argon2id hash of a throwaway password, used to equalize login
+# timing for non-existent users. Verifying against it costs the same as a real
+# verify, so the response time does not reveal whether an account exists.
+_DUMMY_HASH = _hasher.hash("pulse-login-timing-equalizer")
+
 
 def hash_password(plaintext: str) -> str:
     return _hasher.hash(plaintext)
@@ -30,6 +35,19 @@ def verify_password(plaintext: str, hashed: str) -> bool:
         return _hasher.verify(hashed, plaintext)
     except (VerifyMismatchError, InvalidHashError):
         return False
+
+
+def verify_dummy_password(plaintext: str) -> None:
+    """Verify against a throwaway hash to equalize login timing.
+
+    Called on the non-existent-user path so an attacker cannot distinguish
+    "account does not exist" (fast) from "account exists" (slow Argon2 verify)
+    by response time. The result is intentionally discarded.
+    """
+    try:
+        _hasher.verify(_DUMMY_HASH, plaintext)
+    except (VerifyMismatchError, InvalidHashError):
+        pass
 
 
 def needs_rehash(hashed: str) -> bool:

@@ -41,7 +41,11 @@ router = APIRouter()
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    protocol: Annotated[str, Field(default="rtmp", pattern=r"^(rtmp|srt)$")] = "rtmp"
+    # Only ``rtmp`` is accepted — media-svc rejects everything else (SRT is
+    # disabled there because the token would travel in cleartext in the SRT
+    # streamid field). Mirror its pattern so a caller passing ``srt`` gets a
+    # clean 422 at this layer instead of a confusing forwarded one.
+    protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
 
 
 class StreamTokenOut(BaseModel):

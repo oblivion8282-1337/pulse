@@ -85,6 +85,50 @@ async def test_rate_limit_after_3_per_hour(client, app):
 
 
 @pytest.mark.asyncio
+async def test_rate_limit_no_boundary_burst(monkeypatch):
+    """Sliding window: no 2x burst across the 1-hour boundary (bug 8 regression).
+
+    With the old fixed-window counter a caller could spend 3 slots just before
+    the window reset and 3 more just after (6 in seconds). A true sliding
+    window must reject the 4th request whenever 3 fall within the trailing
+    3600s, regardless of where the window 'started'.
+    """
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from dcc_auth import routes_credentials as rc
+
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(rc, "monotonic", lambda: clock["t"])
+
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(rate_buckets={})))
+
+    async def issue_at(t: float) -> bool:
+        clock["t"] = t
+        try:
+            await rc._check_rate_user(request, user_id=42)
+            return True
+        except HTTPException as exc:
+            assert exc.status_code == 429
+            return False
+
+    # 3 requests near the end of the first hour: all allowed.
+    assert await issue_at(3597.0)
+    assert await issue_at(3598.0)
+    assert await issue_at(3599.0)
+
+    # Just past 3600s from t=1000 (i.e. t≈4601). The old fixed window would
+    # reset here and allow 3 more. The sliding window still sees 3 in the last
+    # hour, so the 4th must be rejected.
+    assert not await issue_at(4601.0)
+
+    # Only once the earliest (t=3597) slot ages out (>3600s ago) does a new
+    # request succeed. At t=7198, the window covers (3598, 7198] -> 2 in window.
+    assert await issue_at(7198.0)
+
+
+@pytest.mark.asyncio
 async def test_list_shows_own_certs(client, app):
     cookie, _ = await _reg_and_login(client)
     r_issue = await _issue(client, cookie)

@@ -152,6 +152,32 @@ async def test_admin_route_on_missing_member_is_404(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_admin_route_non_member_empty_body_is_rejected(client, _auth_signer):
+    """Regression (IDOR): a non-member hitting .../members/{uid} with an empty
+    body `{}` must NOT receive the target member's row. The membership check
+    runs before the target fetch, so an outsider gets 403 — never a 200 that
+    would leak the nickname/join-time or act as a cross-guild membership
+    oracle (200-vs-404)."""
+    t_owner, _ = await _register_user(_auth_signer)
+    t_target, uid_target = await _register_user(_auth_signer)
+    t_outsider, _ = await _register_user(_auth_signer)
+    g = (
+        await client.post("/guilds", json={"name": "idor"}, headers=auth(t_owner))
+    ).json()
+    await client.post(
+        f"/guilds/{g['id']}/members",
+        json={"user_id": str(uid_target)},
+        headers=auth(t_owner),
+    )
+    r = await client.patch(
+        f"/guilds/{g['id']}/members/{uid_target}",
+        json={},
+        headers=auth(t_outsider),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
 async def test_empty_payload_is_noop(client, _auth_signer):
     """``nickname: null`` (or omitted) means 'don't touch' — the route
     returns the current row without writing or publishing an event."""

@@ -340,12 +340,20 @@ async def serialize_attachments(
 async def hard_delete_attachments(
     session: AsyncSession, *, message_ids: Iterable[int] | None = None,
     attachment_ids: Iterable[int] | None = None,
+    defer_s3: list[str] | None = None,
 ) -> int:
     """Hard-delete attachment rows + their MinIO objects.
 
     Exactly one of ``message_ids`` / ``attachment_ids`` should be passed.
     MinIO failures are logged but don't roll back the DB delete — better
     a slightly-orphaned object than a half-stuck message.
+
+    When ``defer_s3`` is a list, the MinIO objects are NOT deleted here;
+    instead their storage keys are appended to that list so the caller can
+    purge them AFTER a successful ``session.commit()`` (see ``edit_message``
+    for the rationale — deleting S3 before commit means a commit failure
+    loses the bytes while the rows still reference them, invisible to the
+    reaper). The ``deleted_at`` tombstone is still written here either way.
     """
     stmt = select(MessageAttachment).where(MessageAttachment.deleted_at.is_(None))
     if message_ids is not None:
@@ -377,7 +385,11 @@ async def hard_delete_attachments(
         keys.append(r.storage_key)
         if r.thumb_storage_key:
             keys.append(r.thumb_storage_key)
-    await asyncio.gather(*[_drop(k) for k in keys])
+    if defer_s3 is not None:
+        # Hand the keys back to the caller; they purge S3 after commit.
+        defer_s3.extend(keys)
+    else:
+        await asyncio.gather(*[_drop(k) for k in keys])
 
     now = datetime.now(UTC)
     await session.execute(
@@ -386,6 +398,25 @@ async def hard_delete_attachments(
         .values(deleted_at=now)
     )
     return len(rows)
+
+
+async def purge_s3_keys(keys: list[str]) -> None:
+    """Delete a list of MinIO/S3 keys best-effort (failures logged, not raised).
+
+    Intended to run AFTER a successful ``session.commit()`` — pair it with
+    ``hard_delete_attachments(..., defer_s3=keys)`` so the bytes are only
+    dropped once the ``deleted_at`` tombstone is durably persisted.
+    """
+    if not keys:
+        return
+
+    async def _drop(key: str) -> None:
+        try:
+            await s3.delete_object(key)
+        except Exception:  # noqa: BLE001
+            log.exception("s3 delete failed after commit", key=key)
+
+    await asyncio.gather(*[_drop(k) for k in keys])
 
 
 # ─── Reaper ────────────────────────────────────────────────────────────────
@@ -467,5 +498,6 @@ __all__ = [
     "bind_attachments",
     "serialize_attachments",
     "hard_delete_attachments",
+    "purge_s3_keys",
     "reaper_loop",
 ]

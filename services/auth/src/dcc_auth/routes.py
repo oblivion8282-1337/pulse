@@ -50,6 +50,7 @@ from dcc_auth.security import (
     get_signer,
     hash_password,
     needs_rehash,
+    verify_dummy_password,
     verify_password,
 )
 from dcc_auth.snowflake import next_id
@@ -408,11 +409,13 @@ async def login(
     stmt = select(User).where(or_(User.email == needle.lower(), User.username == needle))
     user = (await session.execute(stmt)).scalar_one_or_none()
     # Run argon2 verification off the event loop (same reasoning as register).
-    pw_ok = (
-        await asyncio.to_thread(verify_password, payload.password, user.password_hash)
-        if user is not None
-        else False
-    )
+    # For a non-existent user, run a dummy verify of equal cost so the response
+    # time does not reveal whether the account exists (timing-oracle defense).
+    if user is not None:
+        pw_ok = await asyncio.to_thread(verify_password, payload.password, user.password_hash)
+    else:
+        await asyncio.to_thread(verify_dummy_password, payload.password)
+        pw_ok = False
     if user is None or not pw_ok or user.disabled or user.is_suspended:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid credentials")
 
