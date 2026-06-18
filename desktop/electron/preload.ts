@@ -196,4 +196,17 @@ contextBridge.exposeInMainWorld('pulse', {
       return ipcRenderer.invoke('file:readPath', path);
     },
   },
+
+  // Host-Lifecycle bridge (③a) — steuert den lokalen Self-Host-Stack.
+  // window.pulse.host.* ist der IPC-Kanal zwischen Renderer und HostLifecycle (main.ts).
+  host: {
+    start: (opts: unknown): Promise<void> => ipcRenderer.invoke('host:start', opts),
+    stop: (): Promise<void> => ipcRenderer.invoke('host:stop'),
+    getStatus: (): Promise<unknown> => ipcRenderer.invoke('host:status'),
+    onPhase: (cb: (e: unknown) => void): (() => void) => {
+      const handler = (_e: unknown, ev: unknown): void => cb(ev);
+      ipcRenderer.on('host:phase', handler);
+      return () => ipcRenderer.removeListener('host:phase', handler);
+    },
+  },
 });

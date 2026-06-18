@@ -140,6 +140,47 @@ export interface PulseFilesApi {
   readDropped(file: File): Promise<Uint8Array | null>;
 }
 
+// ── Host-Lifecycle types (③a) ────────────────────────────────────────────────
+
+/** Zustand des lokalen Self-Host-Stacks (Phasen-Modell). */
+export type HostPhase =
+  | 'idle'
+  | 'checking-network'
+  | 'opening-door'
+  | 'preparing'
+  | 'going-live'
+  | 'live'
+  | 'needs-your-help'
+  | 'not-possible-here'
+  | 'something-paused';
+
+/** Phasen-Ereignis, das HostLifecycle via host:phase an den Renderer pusht. */
+export interface HostPhaseEvent {
+  phase: HostPhase;
+  detail?: { relayUrl?: string; ports?: number[] };
+}
+
+/** Optionen für window.pulse.host.start().
+ *  Minimal für ③a; ③c erweitert um Identitäts-/Relay-/probeUrl-Felder. */
+export interface HostStartOpts {
+  /** Electron userData-Pfad (app.getPath('userData')). Wird intern an LocalBackendManager gereicht. */
+  userData?: string;
+  // TODO(③c): identity, relaySubdomain, probeUrl aus Cloud-Pairing hinzufügen.
+  [key: string]: unknown;
+}
+
+/** Host-Lifecycle-Bridge (③a). Steuert den lokalen Self-Host-Stack vom Renderer aus. */
+export interface PulseHostApi {
+  /** Stack starten — triggert die Phasen-Sequenz (checking-network → … → live / Fehler-Phase). */
+  start(opts: HostStartOpts): Promise<void>;
+  /** Stack sauber stoppen → Phase 'idle'. */
+  stop(): Promise<void>;
+  /** Letztes Phasen-Ereignis abrufen (Snapshot, kein Subscribe). */
+  getStatus(): Promise<HostPhaseEvent>;
+  /** Phasen-Events abonnieren. Gibt eine Unsubscribe-Funktion zurück. */
+  onPhase(cb: (e: HostPhaseEvent) => void): () => void;
+}
+
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
@@ -156,6 +197,8 @@ export interface PulseApi {
   power?: PulsePowerApi;
   clipboard?: PulseClipboardApi;
   files?: PulseFilesApi;
+  /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */
+  host?: PulseHostApi;
 }
 
 declare global {

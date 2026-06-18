@@ -36,6 +36,11 @@ import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
 import { wireUpdater } from './updater';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
+import { HostLifecycle } from './hostLifecycle';
+import type { HostDeps } from './hostLifecycle';
+import { LocalBackendManager } from './localBackend/localBackendManager';
+import { checkReachability } from './localBackend/reachability';
+import { mapMediaPorts } from './localBackend/portMapper';
 
 // Linux audio: name our PulseAudio/PipeWire streams "Pulse" instead of the
 // Chromium default. The GSR HQ-stream excludes our own audio from desktop
@@ -325,6 +330,51 @@ function _openExternalIfWebUrl(url: string): void {
   if (proto === 'https:' || proto === 'http:') void shell.openExternal(url);
 }
 
+// ── Host-Lifecycle bridge (③a) ──────────────────────────────────────────────
+// Verdrahtet HostLifecycle (hostLifecycle.ts) + LocalBackendManager + Reachability
+// + PortMapper mit dem Renderer über host:* IPC-Kanäle.
+// TODO(③c): Identitäts-/Relay-/probeUrl-Befüllung aus opts — hier nur Pass-Through,
+//            der Build kompiliert, Cloud-Pairing kommt in ③c.
+
+function wireHost(getWin: () => Electron.BrowserWindow | null): void {
+  const manager = new LocalBackendManager();
+  // TODO(③c): lastIdentity + relayCfg aus Cloud-Bootstrap füllen (opts-Felder).
+  let lastIdentity: { userData: string } | null = null;
+  let relayCfg: { subdomain: string } | null = null;
+  const deps: HostDeps = {
+    startBackend: async ({ media }) => {
+      await manager.start({
+        userData: lastIdentity!.userData,
+        // TODO(③c): identity aus Cloud-Pairing; as never damit TS kompiliert.
+        identity: {} as never,
+        media,
+        // TODO(③c): relay aus relayCfg befüllen.
+      });
+    },
+    stopBackend: () => manager.stop(),
+    checkReachability: async () => {
+      // TODO(③c): probeUrl aus Cloud-Config befüllen.
+      const r = await checkReachability({ probeUrl: '' });
+      return { verdict: r.verdict, publicIp: r.publicIp };
+    },
+    mapPorts: async (stunIp) => {
+      const r = await mapMediaPorts({ stunIp });
+      return { verdict: r.verdict, openPorts: r.openPorts, failedPorts: r.failedPorts };
+    },
+    relayUrl: () => (relayCfg ? `https://${relayCfg.subdomain}` : null),
+  };
+  const hl = new HostLifecycle(deps);
+  hl.onPhase((e) => getWin()?.webContents.send('host:phase', e));
+
+  ipcMain.handle('host:start', async (_e, opts) => {
+    // TODO(③c): opts → lastIdentity / relayCfg / probeUrl aus Cloud-Pairing ableiten.
+    void opts;
+    return hl.start();
+  });
+  ipcMain.handle('host:stop', () => hl.stop());
+  ipcMain.handle('host:status', () => hl.getStatus());
+}
+
 // ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────
 // `sidecar.ts` owns the Python child process + the newline-JSON protocol; here
 // we only wire it to IPC. The sidecar is still spawned lazily on the first
@@ -560,6 +610,7 @@ app.whenReady().then(() => {
   initStore();
   wireStore();
   wireInvitePull();
+  wireHost(() => mainWindow);
   wireSidecar();
   wireScreenShare();
   wireNotify(() => mainWindow);
