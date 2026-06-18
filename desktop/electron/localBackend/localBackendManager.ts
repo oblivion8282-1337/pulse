@@ -34,7 +34,7 @@ import { initPostgres, startPostgresSpec, stopPostgres } from './postgres.ts';
 import { runMigrations } from './migrations.ts';
 import { SupervisedProcess } from './process.ts';
 import { tcpProbe } from './health.ts';
-import { controlPlaneComponents } from './components.ts';
+import { controlPlaneComponents, voiceSignalingComponent } from './components.ts';
 import { tunnelComponent } from './tunnel.ts';
 import { mediaComponents } from './media.ts';
 
@@ -60,7 +60,7 @@ export interface StartInput {
   extraEnv?: Record<string, string>;
   /** Relay-Tunnel-Konfiguration. Wenn gesetzt, wird frpc nach chat-gateway gestartet. */
   relay?: TunnelRelay;
-  /** Wenn true, werden LiveKit + MediaMTX nach dem Tunnel gestartet. */
+  /** Wenn true, wird der Medien-Stack gestartet: voice-signaling → LiveKit → MediaMTX. */
   media?: boolean;
 }
 
@@ -85,6 +85,10 @@ const DEFAULT_PORTS: ExtendedPorts = {
   mediaAuthHook: 55546,
   voice: 55547,
 };
+// Feste Sidecar-Ports (MediaMTX/LiveKit laufen ausserhalb des Managers).
+const LIVEKIT_PORT = 7880;
+const WHEP_PORT = 8889;
+const HLS_PORT = 8888;
 
 // ---------------------------------------------------------------------------
 // Repository-Root-Auflösung
@@ -240,13 +244,10 @@ export class LocalBackendManager {
         }
       }
 
-      // 14. Tunnel starten (optional, nach chat-gateway)
-      if (input.relay) {
-        await this._startSpec(tunnelComponent({ dirs, relay: input.relay, chatPort: ports.chat }));
-      }
-
-      // 15. Medien-Stack starten (optional, nach Tunnel)
+      // 14. Medien-Stack (optional, vor dem Tunnel — alle Proxy-Ziele up):
+      //     voice-signaling (LiveKit-Webhook-Ziel) → LiveKit → MediaMTX.
       if (input.media) {
+        await this._startSpec(voiceSignalingComponent(fullEnv, repoRoot, ports.voice));
         const domain = input.relay?.subdomain ?? '127.0.0.1';
         for (const spec of mediaComponents({
           dirs, secrets, env: fullEnv,
@@ -256,6 +257,22 @@ export class LocalBackendManager {
         })) {
           await this._startSpec(spec);
         }
+      }
+
+      // 15. Tunnel starten (optional, zuletzt — alle lokalen Dienste laufen).
+      if (input.relay) {
+        await this._startSpec(tunnelComponent({
+          dirs,
+          relay: input.relay,
+          ports: {
+            auth: ports.auth,
+            chat: ports.chat,
+            voice: ports.voice,
+            livekit: LIVEKIT_PORT,
+            whep: WHEP_PORT,
+            hls: HLS_PORT,
+          },
+        }));
       }
 
       this._state = 'running';
