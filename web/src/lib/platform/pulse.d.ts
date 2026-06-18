@@ -173,25 +173,44 @@ export interface HostPhaseEvent {
   detail?: { relayUrl?: string; ports?: number[] };
 }
 
-/** Optionen für window.pulse.host.start().
- *  Minimal für ③a; ③c erweitert um Identitäts-/Relay-/probeUrl-Felder. */
+/** Optionen für window.pulse.host.start(). */
 export interface HostStartOpts {
   /** Electron userData-Pfad (app.getPath('userData')). Wird intern an LocalBackendManager gereicht. */
   userData?: string;
-  // TODO(③c): identity, relaySubdomain, probeUrl aus Cloud-Pairing hinzufügen.
   [key: string]: unknown;
 }
 
-/** Host-Lifecycle-Bridge (③a). Steuert den lokalen Self-Host-Stack vom Renderer aus. */
+/** Sanitisierter Pairing-Status (keine Secrets). */
+export interface PairingStatus {
+  paired: boolean;
+  hostname?: string;
+  instanceId?: string;
+  relaySubdomain?: string | null;
+}
+
+/** Ergebnis von host.pair(). */
+export interface PairResult {
+  paired: boolean;
+  error?: string;
+  status?: PairingStatus;
+}
+
+/** Host-Lifecycle-Bridge (③a/③c). Steuert den lokalen Self-Host-Stack vom Renderer aus. */
 export interface PulseHostApi {
   /** Stack starten — triggert die Phasen-Sequenz (checking-network → … → live / Fehler-Phase). */
-  start(opts: HostStartOpts): Promise<void>;
+  start(opts?: HostStartOpts): Promise<void>;
   /** Stack sauber stoppen → Phase 'idle'. */
   stop(): Promise<void>;
   /** Letztes Phasen-Ereignis abrufen (Snapshot, kein Subscribe). */
   getStatus(): Promise<HostPhaseEvent>;
   /** Phasen-Events abonnieren. Gibt eine Unsubscribe-Funktion zurück. */
   onPhase(cb: (e: HostPhaseEvent) => void): () => void;
+  /** Cloud-Bootstrap-Token einlösen und Pairing-Credentials speichern. */
+  pair(bootstrapToken: string): Promise<PairResult>;
+  /** Gespeicherten Pairing-Status abrufen (keine Secrets). */
+  getPairing(): Promise<PairingStatus>;
+  /** Pairing-Credentials löschen. */
+  unpair(): Promise<void>;
 }
 
 export interface PulseApi {
