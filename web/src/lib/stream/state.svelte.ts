@@ -44,6 +44,8 @@ export async function initStream(): Promise<() => void> {
 
   stream.available = gsr.available();
   if (!stream.available) {
+    // Reset the guard so a later call can retry if the bridge appears.
+    initialised = false;
     return () => {};
   }
 
@@ -62,6 +64,8 @@ export async function initStream(): Promise<() => void> {
     stream.available = false;
     stream.gsrAvailable = false;
     stream.error = String(e);
+    // Reset the guard so a later call can retry if the sidecar recovers.
+    initialised = false;
     return () => {};
   }
 

@@ -33,7 +33,7 @@
     try {
       const rows = await adminApi.listUsers({ limit: 50 });
       users = rows;
-      hasMore = rows.length === 50;
+      hasMore = rows.length >= 50;
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
@@ -49,7 +49,7 @@
     try {
       const more = await adminApi.listUsers({ before: cursor, limit: 50 });
       users = [...users, ...more];
-      hasMore = more.length === 50;
+      hasMore = more.length >= 50;
     } catch (e) {
       toast.error(m.admin_users_load_more_failed(), {
         description: e instanceof Error ? e.message : String(e)

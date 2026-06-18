@@ -11,7 +11,6 @@ Mention parsing + persistence + per-user fan-out live in
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Annotated
@@ -19,7 +18,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select, update as sa_update
 
-from dcc_chat_gateway import ratelimit, s3
+from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.audit_log import write_audit_log
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import (
@@ -57,6 +56,7 @@ from dcc_chat_gateway.routes.attachments import (
     _limits_for_channel,
     bind_attachments,
     hard_delete_attachments,
+    purge_s3_keys as _purge_s3_keys,
     serialize_attachments,
 )
 from dcc_chat_gateway.schemas import MessageEditIn, MessageIn, MessageOut
@@ -73,18 +73,6 @@ from dcc_shared.events import (
 log = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-async def _purge_s3_keys(keys: list[str]) -> None:
-    """Delete a list of MinIO/S3 keys. Failures are logged but not raised —
-    matches the best-effort semantics of hard_delete_attachments."""
-    async def _drop(key: str) -> None:
-        try:
-            await s3.delete_object(key)
-        except Exception:  # noqa: BLE001
-            log.exception("s3 delete failed after commit", key=key)
-
-    await asyncio.gather(*[_drop(k) for k in keys])
 
 
 @router.get(
@@ -590,8 +578,15 @@ async def delete_message(
     # Attachments → hard-delete from MinIO + tombstone row. The message
     # itself stays soft-deleted (audit trail) but the bytes go away to
     # free storage.
-    await hard_delete_attachments(session, message_ids=[msg.id])
+    # Collect S3 keys + tombstone the rows here, but purge MinIO only AFTER a
+    # successful commit — if the commit rolls back, deleted_at stays NULL and
+    # the bytes are still referenced (see edit_message for the same pattern).
+    s3_keys_to_purge: list[str] = []
+    await hard_delete_attachments(
+        session, message_ids=[msg.id], defer_s3=s3_keys_to_purge
+    )
     await session.commit()
+    await _purge_s3_keys(s3_keys_to_purge)
 
     await _broadcast(
         request,

@@ -77,7 +77,12 @@ async def validate_session(
 
     Also slides ``last_seen_at`` and extends ``expires_at`` by the full
     TTL window (activity-based auto-refresh as specified in DE 11).
-    The caller is responsible for committing the enclosing transaction.
+
+    The window bump is committed here so the sliding window is persisted even
+    on read-only endpoints, which otherwise never call ``db.commit()`` and so
+    silently discarded the extension on session-context exit. Write routes
+    commit again later (harmless). This is the first DB op on the request, so
+    committing here cannot prematurely persist unrelated mutations.
     """
     # SQLite stores as TEXT; Postgres stores as UUID. Pass str for compat.
     row = await db.get(UserSession, str(session_id))
@@ -88,9 +93,12 @@ async def validate_session(
     exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
     if exp <= now:
         return None
-    # Slide the window
+    # Slide the window and persist it (read-only callers don't commit).
+    # SessionLocal uses expire_on_commit=False, so ``row`` keeps the bumped
+    # values in memory and remains usable for sync attribute reads afterwards.
     row.last_seen_at = now
     row.expires_at = now + timedelta(seconds=ttl)
+    await db.commit()
     return row
 
 

@@ -174,14 +174,18 @@ async def _handle_privileged(
                 }
             )
             return
-        new_state = await apply_atomic_update(
-            session,
-            guild_id=guild_id,
-            plugin_name=PLUGIN_NAME,
-            default_state=dict(DEFAULT_STATE),
-            mutate=mutate,
-            actor_user_id=user_id,
-        )
+        try:
+            new_state = await apply_atomic_update(
+                session,
+                guild_id=guild_id,
+                plugin_name=PLUGIN_NAME,
+                default_state=dict(DEFAULT_STATE),
+                mutate=mutate,
+                actor_user_id=user_id,
+            )
+        except RowVanishedError:
+            log.warning("tamagotchi:%s: guild row vanished — skipping broadcast", mutate_for)
+            return
     await _publish(ctx, guild_id, new_state, user_id)
 
 

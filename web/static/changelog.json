@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-18.5",
+      "date": "2026-06-18",
+      "style": "Freundlich",
+      "title": "Noch ein Stück runder",
+      "intro": "Wir haben weitere Fehler behoben:",
+      "items": [
+        "Wirst du aus einer Community entfernt, verschwindet sie jetzt sofort aus deiner Seitenleiste – ohne Neuladen.",
+        "Erwähnungen landen zuverlässig bei der richtigen Person, auch wenn mehrere Leute denselben Namen tragen.",
+        "Beim Verbinden gibt es keinen doppelten Benachrichtigungston mehr.",
+        "Nach dem Abmelden tauchen deine selbst gehosteten Server nicht mehr versehentlich wieder auf.",
+        "Ein fehlgeschlagener Stream-Start blockiert spätere Versuche nicht mehr.",
+        "Dazu Verbesserungen bei Sicherheit und Datenschutz im Hintergrund."
+      ]
+    },
+    {
       "id": "2026-06-18.4",
       "date": "2026-06-18",
       "style": "Freundlich",

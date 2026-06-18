@@ -199,10 +199,12 @@ class ServerVault {
   private async pullWithKey(key: CryptoKey): Promise<boolean> {
     const remote = await getServerVault();
     if (!remote) return false;
+    if (this._wiped) return false; // wipe() (signOut) lief während des Fetch → nicht mergen
     const ct = fromBase64(remote.encrypted_blob);
     const iv = fromBase64(remote.gcm_nonce);
     const list = (await decryptJsonWithKey(ct, iv, key)) as VaultServerEntry[];
     if (!Array.isArray(list)) return false;
+    if (this._wiped) return false; // Re-Check nach decrypt-Await (vor mergeIntoStore)
     return this.mergeIntoStore(list);
   }
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import collections
 import logging
 import time
 import uuid
@@ -38,24 +39,33 @@ _ISSUE_RATE_LIMIT = "3/hour"
 
 
 async def _check_rate_user(request: Request, user_id: int) -> None:
-    """Rate-limit: 3/hour per user_id (process-local token-bucket)."""
+    """Rate-limit: 3/hour per user_id (process-local sliding window).
+
+    Uses a per-user deque of request timestamps (same pattern as the main
+    ``_check_rate`` helper) instead of a fixed-window counter, so a caller
+    cannot double their quota by bursting across the window boundary.
+    """
     n, seconds = 3, 3600
     bucket = request.app.state.rate_buckets.setdefault("cred_issue", {})
     user_key = str(user_id)
     now = monotonic()
-    expired = [k for k, w in bucket.items() if now - w["start"] >= seconds]
-    for k in expired:
+    cutoff = now - seconds
+
+    # Sweep users whose newest timestamp fell outside the window.
+    stale = [k for k, ts in bucket.items() if not ts or ts[-1] <= cutoff]
+    for k in stale:
         del bucket[k]
-    window = bucket.get(user_key)
-    if window is None or now - window["start"] >= seconds:
-        bucket[user_key] = {"start": now, "count": 1}
-        return
-    if window["count"] >= n:
+
+    timestamps = bucket.setdefault(user_key, collections.deque())
+    while timestamps and timestamps[0] <= cutoff:
+        timestamps.popleft()
+
+    if len(timestamps) >= n:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"rate limit exceeded ({_ISSUE_RATE_LIMIT})",
         )
-    window["count"] += 1
+    timestamps.append(now)
 
 
 def _decode_pubkey(b64: str) -> bytes:
@@ -218,9 +228,9 @@ async def issue_credential(
             raise HTTPException(
                 status.HTTP_409_CONFLICT, detail="concurrent_issue_conflict"
             )
-        # user AND session_row are expired after rollback (validate_session put
-        # session_row in the dirty set) — refresh both before sync JWT signing,
-        # else reading session_row.amr/.acr raises MissingGreenlet.
+        # rollback() expires all identity-map instances, so user and session_row
+        # need a refresh before sync JWT signing, else reading
+        # session_row.amr/.acr raises MissingGreenlet.
         await db.refresh(user)
         await db.refresh(session_row)
         return CredentialIssueResponse(cert=_sign_credential_jwt(user, winner, session_row))

@@ -330,6 +330,64 @@ async def test_edit_message_removes_attachment(
 
 
 @pytest.mark.asyncio
+async def test_hard_delete_defers_s3_until_after_commit(
+    client, _auth_signer, mock_s3, session_factory
+):
+    """Regression (data-loss): hard_delete_attachments(..., defer_s3=keys) must
+    only TOMBSTONE the rows and hand the storage keys back — it must NOT touch
+    S3. The bytes are purged later, by the caller, after a successful commit.
+    If commit fails (rolls back), deleted_at stays NULL and the bytes are still
+    referenced (so the reaper/user can retry) instead of being orphaned.
+    """
+    (t1, _), _ = await register_two(_auth_signer)
+    _, cid = await _make_guild_channel(client, t1)
+    r = await _upload(client, t1, cid, has_thumb=True, thumb_size=256,
+                      thumb_width=32, thumb_height=32)
+    aid = int(r.json()["id"])
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages",
+            json={"content": "x", "attachment_ids": [str(aid)]},
+            headers=auth(t1),
+        )
+    ).json()
+    mid = int(msg["id"])
+
+    # 1) Deferred delete in a session whose commit we then roll back: no S3
+    #    deletion happens, and the tombstone is undone by the rollback.
+    keys: list[str] = []
+    async with session_factory() as s:
+        n = await att_mod.hard_delete_attachments(
+            s, message_ids=[mid], defer_s3=keys
+        )
+        assert n == 1
+        # Storage key + thumb key collected, S3 untouched so far.
+        assert len(keys) == 2
+        assert mock_s3.deleted == []
+        await s.rollback()  # simulate a commit failure
+
+    # Row survives with deleted_at still NULL → still reachable/retryable.
+    async with session_factory() as s:
+        row = await s.get(MessageAttachment, aid)
+        assert row is not None
+        assert row.deleted_at is None
+    # S3 was never touched on the failed path.
+    assert mock_s3.deleted == []
+
+    # 2) Happy path: tombstone + commit succeed, THEN purge S3.
+    keys = []
+    async with session_factory() as s:
+        await att_mod.hard_delete_attachments(s, message_ids=[mid], defer_s3=keys)
+        await s.commit()
+    assert mock_s3.deleted == []  # still nothing until we purge
+    await att_mod.purge_s3_keys(keys)
+    assert set(mock_s3.deleted) == set(keys)
+    async with session_factory() as s:
+        row = await s.get(MessageAttachment, aid)
+        assert row.deleted_at is not None
+
+
+@pytest.mark.asyncio
 async def test_download_url_refresh(client, _auth_signer, mock_s3):
     (t1, _), _ = await register_two(_auth_signer)
     _, cid = await _make_guild_channel(client, t1)

@@ -235,14 +235,16 @@ class _PermFilterMixin:
         receive (and can't sniff in DevTools) per-guild membership
         churn for guilds they aren't in.
 
-        For the kicked/banned user themselves: ``_apply_guild_membership_update``
-        runs *before* this filter on ``guild_member_removed``, dropping
-        the guild from their ``_ws_guilds`` set first. So the kicked
-        user does receive the event (their socket still appears as
-        member at the moment we check) — that's intentional so the
-        client can run its drop-guild cleanup. ``guild_ban_added`` runs
-        after the ``guild_member_removed`` though, so the banned user
-        won't see it; acceptable since their UI is already gone."""
+        For the kicked/banned user themselves: this filter runs *before*
+        ``_apply_guild_membership_update`` on ``guild_member_removed`` (see
+        the call order in ``pubsub_channel_guild.handle_guild_events``), so
+        the kicked user's guild is still in their ``_ws_guilds`` set when we
+        check — they DO receive the event and the client can run its
+        drop-guild cleanup. ``guild_ban_added`` is published as a *separate*
+        guild:events envelope; by the time it is handled the preceding
+        ``guild_member_removed`` has already pruned the guild, so the banned
+        user won't see the ban event; acceptable since their UI is already
+        gone."""
         op = payload.get("op")
         if op not in self._GUILD_MEMBER_SCOPED_OPS:
             return targets

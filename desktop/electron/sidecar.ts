@@ -334,10 +334,17 @@ class SidecarManager {
   async call(op: string, params?: unknown): Promise<SidecarMessage> {
     const child = this.ensureSpawned();
     const id = this.nextId++;
+    // Spread caller-supplied params FIRST, then set the validated `op` and the
+    // request `id` LAST — object-literal evaluation is left-to-right with later
+    // keys winning, so this prevents a renderer-supplied `params.op`/`params.id`
+    // from overwriting the op the main-process already validated against the
+    // allowlist (or hijacking response routing). Without this ordering,
+    // `gsr:call('health', { op: 'state' })` would pass the 'health' allowlist
+    // check yet make the sidecar execute the un-allowlisted 'state' op.
     const req: Record<string, unknown> = {
+      ...(params && typeof params === 'object' ? (params as Record<string, unknown>) : {}),
       op,
       id,
-      ...(params && typeof params === 'object' ? (params as Record<string, unknown>) : {}),
     };
 
     const timeoutMs = OP_TIMEOUT_MS[op] ?? DEFAULT_TIMEOUT_MS;

@@ -22,7 +22,7 @@ from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
-from dcc_chat_gateway.routes.attachments import hard_delete_attachments
+from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.schemas import (
     GuildIn,
     GuildOut,
@@ -264,6 +264,7 @@ async def delete_guild(
     # removes the rows — the cascade can't clean up object-store objects.
     channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
     channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
+    s3_keys_to_purge: list[str] = []
     if channel_ids:
         att_ids_stmt = select(MessageAttachment.id).where(
             MessageAttachment.channel_id.in_(channel_ids),
@@ -271,7 +272,9 @@ async def delete_guild(
         )
         att_ids = list((await session.execute(att_ids_stmt)).scalars())
         if att_ids:
-            await hard_delete_attachments(session, attachment_ids=att_ids)
+            await hard_delete_attachments(
+                session, attachment_ids=att_ids, defer_s3=s3_keys_to_purge
+            )
         # messages.channel_id has NO FK (Migration 0005 dropped it so the
         # column can reference channels OR direct_message_channels), so the
         # guild cascade never reaches message rows — delete them explicitly,
@@ -279,6 +282,9 @@ async def delete_guild(
         await session.execute(sa_delete(Message).where(Message.channel_id.in_(channel_ids)))
     await session.delete(guild)
     await session.commit()
+    # Purge MinIO objects only after the commit succeeds — a rollback must not
+    # leave the bytes deleted while rows still reference them.
+    await purge_s3_keys(s3_keys_to_purge)
     await _publish_guild_event(
         request, GuildDeletedEvent(guild_id=str(guild_id))
     )
@@ -484,6 +490,11 @@ async def patch_member(
     ``user_id == current.id`` so the two paths don't share a gate."""
     if user_id == current.id:
         raise HTTPException(400, detail="use PATCH .../members/@me for self-edits")
+    # The caller must itself be a member of this guild before they can read or
+    # write another member's row — otherwise an empty body ({}) would leak the
+    # target's nickname/join time and act as a cross-guild membership oracle
+    # (mirrors get_member / the sibling routes).
+    await require_member(session, guild_id, current.id)
     member = await session.get(GuildMember, (guild_id, user_id))
     if member is None:
         raise HTTPException(404, detail="member not found")

@@ -82,27 +82,43 @@
   /**
    * Convert the human-readable display text (with `@Username`) back to wire
    * markup (with `<@id>`). Call this on the trimmed textarea value just
-   * before sending — the order of replacements mirrors insertion order so
-   * two mentions of same-name users resolve correctly.
+   * before sending.
+   *
+   * Each replacement is matched to a concrete occurrence in `text` by
+   * scanning left-to-right and consuming occurrences sequentially per display
+   * string. This keys replacements to text **position**, not insertion order —
+   * so two same-name mentions inserted out of left-to-right order (cursor moved
+   * back) still resolve to the user actually chosen at each spot. Matches are
+   * then applied right-to-left so earlier slice indices stay valid.
    *
    * Also handles the trim edge-case: if the message ends with a mention and
    * the trailing space was removed by `.trim()`, the trimmless form is tried.
    */
   export function toMarkup(text: string): string {
-    let result = text;
+    // Per display string, track where the next search should resume so that
+    // repeated identical displays consume successive occurrences left-to-right.
+    const searchFrom = new Map<string, number>();
+    const matches: { idx: number; len: number; markup: string }[] = [];
     for (const { display, markup } of _replacements) {
-      const idx = result.indexOf(display);
-      if (idx >= 0) {
-        result = result.slice(0, idx) + markup + result.slice(idx + display.length);
-      } else {
+      let needle = display;
+      let repl = markup;
+      let from = searchFrom.get(needle) ?? 0;
+      let idx = text.indexOf(needle, from);
+      if (idx < 0) {
         // Trailing-space was stripped by .trim() — try without it.
-        const d = display.trimEnd();
-        const m = markup.trimEnd();
-        const i2 = result.indexOf(d);
-        if (i2 >= 0) {
-          result = result.slice(0, i2) + m + result.slice(i2 + d.length);
-        }
+        needle = display.trimEnd();
+        repl = markup.trimEnd();
+        from = searchFrom.get(needle) ?? 0;
+        idx = text.indexOf(needle, from);
       }
+      if (idx < 0) continue;
+      searchFrom.set(needle, idx + needle.length);
+      matches.push({ idx, len: needle.length, markup: repl });
+    }
+    matches.sort((a, b) => b.idx - a.idx);
+    let result = text;
+    for (const { idx, len, markup } of matches) {
+      result = result.slice(0, idx) + markup + result.slice(idx + len);
     }
     return result;
   }

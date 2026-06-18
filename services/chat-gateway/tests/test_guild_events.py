@@ -275,6 +275,46 @@ async def test_channel_bump_broadcast_via_ws_send(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_kicked_user_receives_guild_member_removed(ws_app, _auth_signer):
+    """Regression (bug-hunt batch 2, #3): the kicked user must receive the
+    ``guild_member_removed`` event on their own socket so the client can drop
+    the guild from the sidebar without waiting for a reconnect.
+
+    Before the fix, ``_apply_guild_membership_update`` ran *before* the
+    guild-member filter, pruning the kicked user's guild from ``_ws_guilds``
+    first — so the filter excluded their own socket and they never got the
+    event (guild stuck in the UI until reconnect)."""
+
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_uid = random.randint(1, 1_000_000)
+            member_uid = random.randint(1, 1_000_000)
+            owner_token = _auth_signer.issue_access(owner_uid, f"o{owner_uid}")
+            member_token = _auth_signer.issue_access(member_uid, f"m{member_uid}")
+            g = tc.post("/guilds", json={"name": "g"}, headers=_auth(owner_token)).json()
+            r = tc.post(
+                f"/guilds/{g['id']}/members",
+                json={"user_id": str(member_uid)},
+                headers=_auth(owner_token),
+            )
+            assert r.status_code == 201, r.text
+            # The kicked user is the one connected — they must hear about it.
+            with tc.websocket_connect(f"/ws?token={member_token}") as ws:
+                receive_skipping(ws)  # skip hello + ready
+                kr = tc.delete(
+                    f"/guilds/{g['id']}/members/{member_uid}",
+                    headers=_auth(owner_token),
+                )
+                assert kr.status_code == 204, kr.text
+                evt = _drain_until(ws, "guild_member_removed")
+                assert evt["op"] == "guild_member_removed"
+                assert evt["guild_id"] == g["id"]
+                assert evt["user_id"] == str(member_uid)
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_guild_deleted_broadcast(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:
