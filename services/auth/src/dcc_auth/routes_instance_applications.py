@@ -70,6 +70,15 @@ async def _require_user(request: Request, db) -> User:
     return user
 
 
+def _require_self_host_enabled(user: User) -> None:
+    """Cloud-Gate (④): blockt jeden Pfad, der dem Host echte Pairing-Credentials
+    gibt, wenn der User nicht freigeschaltet ist. MUSS auf JEDEM credential-
+    ausgebenden Endpoint sitzen (Bootstrap-Token-Mint UND env-file-Download),
+    sonst ist das Gate umgehbar — beide liefern austauschbare Cloud-Credentials."""
+    if not user.self_host_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="self-hosting not enabled")
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
@@ -294,6 +303,7 @@ async def generate_env_file(
     * Secret wird NIE geloggt.
     """
     user = await _require_user(request, db)
+    _require_self_host_enabled(user)
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
@@ -371,8 +381,7 @@ async def mint_bootstrap_token(
     „neu generieren" entwertet den alten sofort.
     """
     user = await _require_user(request, db)
-    if not user.self_host_enabled:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="self-hosting not enabled")
+    _require_self_host_enabled(user)
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 

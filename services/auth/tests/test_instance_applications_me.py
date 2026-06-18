@@ -7,6 +7,9 @@ import secrets
 import pytest
 import pytest_asyncio
 
+from sqlalchemy import update
+
+from dcc_auth.models import User
 from dcc_auth.models_instances import RegisteredInstance
 
 # ---------------------------------------------------------------------------
@@ -52,14 +55,32 @@ async def _reg_and_login(client, reg: dict, login: dict) -> str:
     return f"pulse_session={sid}"
 
 
-@pytest_asyncio.fixture
-async def alice_cookie(client) -> str:
-    return await _reg_and_login(client, _REG_A, _LOGIN_A)
+async def _enable_self_host(session_factory, client, cookie: str) -> None:
+    """④-Gate: die Credential-Endpunkte (env-file, bootstrap-token) verlangen
+    self_host_enabled. Diese Datei testet die Instanz-Workflows, nicht das Gate,
+    also schalten die Fixtures es frei (das Gate selbst deckt test_self_host_gate ab)."""
+    r = await client.get("/me", headers={"Cookie": cookie})
+    assert r.status_code == 200, r.text
+    uid = int(r.json()["id"])
+    async with session_factory() as session:
+        await session.execute(
+            update(User).where(User.id == uid).values(self_host_enabled=True)
+        )
+        await session.commit()
 
 
 @pytest_asyncio.fixture
-async def bob_cookie(client) -> str:
-    return await _reg_and_login(client, _REG_B, _LOGIN_B)
+async def alice_cookie(session_factory, client) -> str:
+    cookie = await _reg_and_login(client, _REG_A, _LOGIN_A)
+    await _enable_self_host(session_factory, client, cookie)
+    return cookie
+
+
+@pytest_asyncio.fixture
+async def bob_cookie(session_factory, client) -> str:
+    cookie = await _reg_and_login(client, _REG_B, _LOGIN_B)
+    await _enable_self_host(session_factory, client, cookie)
+    return cookie
 
 
 @pytest_asyncio.fixture

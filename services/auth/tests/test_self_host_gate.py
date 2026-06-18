@@ -117,6 +117,38 @@ async def test_mint_succeeds_when_enabled(client, carol, carol_instance, session
 
 
 # --------------------------------------------------------------------------- #
+# env-file gate (zweiter Credential-Pfad — muss dasselbe Gate tragen)           #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_env_file_requires_self_host_enabled(client, carol, carol_instance):
+    """env-file gibt dem Host echte Cloud-Credentials → ohne Flag 403 (sonst
+    wäre das Gate über diesen Pfad umgehbar)."""
+    r = await client.post(
+        f"/me/instances/{carol_instance.id}/env-file",
+        headers={"Cookie": carol["cookie"]},
+    )
+    assert r.status_code == 403, r.text
+    assert "self-hosting not enabled" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_env_file_succeeds_when_enabled(client, carol, carol_instance, session_factory):
+    async with session_factory() as s:
+        user = await s.get(User, int(carol["id"]))
+        user.self_host_enabled = True
+        await s.commit()
+
+    r = await client.post(
+        f"/me/instances/{carol_instance.id}/env-file",
+        headers={"Cookie": carol["cookie"]},
+    )
+    assert r.status_code == 200, r.text
+    assert "PULSE_CLOUD_CLIENT_SECRET=" in r.text
+
+
+# --------------------------------------------------------------------------- #
 # Admin PATCH toggle                                                            #
 # --------------------------------------------------------------------------- #
 
