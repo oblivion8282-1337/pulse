@@ -19,6 +19,20 @@ nach dem chat-gateway gestartet (siehe `tunnel.ts`); der serverseitige Auth-Hook
 
 ## Integrationstests
 
+### Medien-Dienste (LiveKit + MediaMTX)
+
+Voraussetzung: `brew install livekit mediamtx` (sowie `openssl`, das auf macOS standardmassig verfügbar ist).
+
+```bash
+cd /Users/michael/Documents/pulse/desktop && \
+node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
+  --test --test-timeout=60000 \
+  test/localBackend/media.int.test.ts
+```
+
+Der Test überspringt sich automatisch, wenn `livekit-server`, `mediamtx` oder `openssl` nicht auf dem PATH sind.
+Die Ports 7880 (LiveKit) und 9997 (MediaMTX) sind fest; wenn dort bereits ein Prozess läuft, schlägt der Test laut fehl.
+
 ### Stack-Test (ohne Tunnel)
 
 ```bash
