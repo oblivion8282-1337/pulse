@@ -908,9 +908,9 @@ class VoiceRoom {
     void this.#audioEls.setSpatialMode(mode);
   }
 
-  /** Live-position a participant around the listener (0° front, +90° right). */
-  setSpatialPosition(userId: string, azimuthDeg: number, distance: number): void {
-    this.#audioEls.setSpatialPosition(userId, azimuthDeg, distance);
+  /** Set the spatial frontal-fan layout (total arc in °, shared distance in m). */
+  setSpatialLayout(spreadDeg: number, distanceM: number): void {
+    this.#audioEls.setSpatialLayout(spreadDeg, distanceM);
   }
 
   /**

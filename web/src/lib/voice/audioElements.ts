@@ -1,6 +1,7 @@
 import type { RemoteAudioTrack } from 'livekit-client';
 import { isMobile } from '$lib/platform/runtime';
 import type { SpatialMode } from '$lib/stores/settings.svelte';
+import type { SpatialLayout } from './spatial/layout';
 import { loadResonance } from './spatial/resonanceLoader';
 import { SpatialScene, resolveQuality } from './spatial/spatialScene';
 
@@ -110,6 +111,9 @@ export class RemoteAudioElements {
   #spatial: SpatialScene | null = null;
   /** Guards against overlapping async (re)builds racing each other. */
   #spatialBuildToken = 0;
+  /** Frontal-fan layout (total arc + shared distance) applied to the scene.
+   *  Pushed from the UI; re-applied whenever the scene is (re)built. */
+  #spatialLayout: SpatialLayout = { spreadDeg: 40, distanceM: 1 };
 
   #ensureContext(): AudioContext {
     if (this.#ctx && this.#ctx.state !== 'closed') return this.#ctx;
@@ -419,7 +423,7 @@ export class RemoteAudioElements {
       const Ctor = await loadResonance();
       if (token !== this.#spatialBuildToken) return; // superseded by a newer call
       this.#spatial?.destroy();
-      this.#spatial = new SpatialScene(Ctor, ctx, resolveQuality(mode));
+      this.#spatial = new SpatialScene(Ctor, ctx, resolveQuality(mode), this.#spatialLayout);
       for (const node of this.#nodes.values()) {
         this.#spatial.ensureSource(node.userId);
         this.#rewireOutput(node, ctx);
@@ -429,9 +433,10 @@ export class RemoteAudioElements {
     }
   }
 
-  /** Position a participant around the listener (0° = front, +90° = right). */
-  setSpatialPosition(userId: string, azimuthDeg: number, distance: number): void {
-    this.#spatial?.setPosition(userId, azimuthDeg, distance);
+  /** Set the frontal-fan layout (total arc + shared distance) for all speakers. */
+  setSpatialLayout(spreadDeg: number, distanceM: number): void {
+    this.#spatialLayout = { spreadDeg, distanceM };
+    this.#spatial?.setLayout(spreadDeg, distanceM);
   }
 
   #teardownSpatial(): void {

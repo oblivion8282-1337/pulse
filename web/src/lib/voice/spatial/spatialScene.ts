@@ -14,6 +14,7 @@
  * auto-spread evenly across the frontal arc so even the default sounds spatial.
  */
 import type { SpatialMode } from '$lib/stores/settings.svelte';
+import { azimuthFor, type SpatialLayout } from './layout';
 import type {
   ResonanceCtor,
   ResonanceRoomMaterials,
@@ -63,9 +64,6 @@ const QUALITY: Record<SpatialQuality, QualityConfig> = {
 
 const SOURCE_MIN_DISTANCE = 1;
 const SOURCE_MAX_DISTANCE = 40;
-const DEFAULT_DISTANCE = 2.5;
-/** Frontal arc the auto-spread fans speakers across (−ARC/2 … +ARC/2), degrees. */
-const AUTO_SPREAD_ARC = 200;
 
 /** Pick a concrete quality for a mode, sensing the device for `auto`. */
 export function resolveQuality(mode: Exclude<SpatialMode, 'off'>): SpatialQuality {
@@ -74,22 +72,22 @@ export function resolveQuality(mode: Exclude<SpatialMode, 'off'>): SpatialQualit
   return cores >= 8 ? 'high' : 'standard';
 }
 
-interface ManagedSource {
-  src: ResonanceSource;
-  /** True once the UI set an explicit position — excludes it from auto-spread. */
-  manual: boolean;
-}
-
 export class SpatialScene {
   #scene: ResonanceScene;
   #ctx: AudioContext;
   #width: number;
-  #sources = new Map<string, ManagedSource>();
+  #sources = new Map<string, ResonanceSource>();
+  #spreadDeg = 40;
+  #distanceM = 1;
 
-  constructor(Ctor: ResonanceCtor, ctx: AudioContext, quality: SpatialQuality) {
+  constructor(Ctor: ResonanceCtor, ctx: AudioContext, quality: SpatialQuality, layout?: SpatialLayout) {
     const cfg = QUALITY[quality];
     this.#ctx = ctx;
     this.#width = cfg.sourceWidth;
+    if (layout) {
+      this.#spreadDeg = layout.spreadDeg;
+      this.#distanceM = layout.distanceM;
+    }
     this.#scene = new Ctor(ctx, { ambisonicOrder: cfg.ambisonicOrder });
     this.#scene.output.connect(ctx.destination);
     this.#scene.setRoomProperties(cfg.dimensions, cfg.materials);
@@ -98,46 +96,44 @@ export class SpatialScene {
 
   /** Input node for `userId`'s source, creating it on first use. */
   ensureSource(userId: string): AudioNode {
-    let managed = this.#sources.get(userId);
-    if (!managed) {
-      const src = this.#scene.createSource();
+    let src = this.#sources.get(userId);
+    if (!src) {
+      src = this.#scene.createSource();
       src.setRolloff('logarithmic');
       src.setMinDistance(SOURCE_MIN_DISTANCE);
       src.setMaxDistance(SOURCE_MAX_DISTANCE);
       src.setSourceWidth(this.#width);
-      managed = { src, manual: false };
-      this.#sources.set(userId, managed);
-      this.#autoSpread();
+      this.#sources.set(userId, src);
+      this.#applyLayout();
     }
-    return managed.src.input;
+    return src.input;
   }
 
   sourceInput(userId: string): AudioNode | null {
-    return this.#sources.get(userId)?.src.input ?? null;
+    return this.#sources.get(userId)?.input ?? null;
   }
 
   removeSource(userId: string): void {
-    const managed = this.#sources.get(userId);
-    if (!managed) return;
+    const src = this.#sources.get(userId);
+    if (!src) return;
     try {
-      managed.src.input.disconnect();
+      src.input.disconnect();
     } catch {
       /* already gone */
     }
     this.#sources.delete(userId);
-    this.#autoSpread();
+    this.#applyLayout();
   }
 
-  /** Place `userId` at an azimuth (0° = front, +90° = right) and distance (m). */
-  setPosition(userId: string, azimuthDeg: number, distance: number): void {
-    const managed = this.#sources.get(userId);
-    if (!managed) return;
-    managed.manual = true;
-    this.#applyPosition(managed.src, azimuthDeg, distance);
+  /** Update the frontal fan (total arc + shared distance) and re-place everyone. */
+  setLayout(spreadDeg: number, distanceM: number): void {
+    this.#spreadDeg = spreadDeg;
+    this.#distanceM = distanceM;
+    this.#applyLayout();
   }
 
   destroy(): void {
-    for (const { src } of this.#sources.values()) {
+    for (const src of this.#sources.values()) {
       try {
         src.input.disconnect();
       } catch {
@@ -152,18 +148,16 @@ export class SpatialScene {
     }
   }
 
-  #applyPosition(src: ResonanceSource, azimuthDeg: number, distance: number): void {
-    const rad = (azimuthDeg * Math.PI) / 180;
-    src.setPosition(distance * Math.sin(rad), 0, -distance * Math.cos(rad));
-  }
-
-  /** Evenly fan all not-yet-manually-placed sources across the frontal arc. */
-  #autoSpread(): void {
-    const auto = [...this.#sources.values()].filter((m) => !m.manual);
-    const n = auto.length;
-    auto.forEach((m, i) => {
-      const azimuth = n === 1 ? 0 : -AUTO_SPREAD_ARC / 2 + (AUTO_SPREAD_ARC * i) / (n - 1);
-      this.#applyPosition(m.src, azimuth, DEFAULT_DISTANCE);
+  /** Fan all sources evenly across the frontal arc at the shared distance.
+   *  Sorted by userId so the audio order matches the on-screen order. */
+  #applyLayout(): void {
+    const ids = [...this.#sources.keys()].sort();
+    const n = ids.length;
+    ids.forEach((uid, i) => {
+      const src = this.#sources.get(uid);
+      if (!src) return;
+      const rad = (azimuthFor(i, n, this.#spreadDeg) * Math.PI) / 180;
+      src.setPosition(this.#distanceM * Math.sin(rad), 0, -this.#distanceM * Math.cos(rad));
     });
   }
 }
