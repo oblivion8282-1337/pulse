@@ -5,6 +5,7 @@
  * Regel: jede Datei wird nur geschrieben, wenn sie noch nicht existiert.
  * Niemals Secret-Werte loggen.
  */
+import { execFileSync } from 'node:child_process';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync, chmodSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,6 +19,8 @@ export interface Secrets {
   jwtPrivateKeyPath: string;
   jwtPublicKeyPath: string;
   sessionSigningKeyPath: string;
+  livekitApiKey: string;
+  livekitApiSecret: string;
 }
 
 /** Schreibt `value` nach `filePath` (nur wenn fehlend) und setzt chmod 600. */
@@ -111,6 +114,8 @@ export async function ensureSecrets(secretsDir: string): Promise<Secrets> {
   ensureRsaKeypair(secretsDir);
   ensureEd25519Keypair(secretsDir);
 
+  const livekitApiSecret = readOrCreate(join(secretsDir, 'livekit.secret'), genHex);
+
   return {
     postgresPassword,
     internalServiceToken,
@@ -120,5 +125,32 @@ export async function ensureSecrets(secretsDir: string): Promise<Secrets> {
     jwtPrivateKeyPath: join(secretsDir, 'jwt_private.pem'),
     jwtPublicKeyPath: join(secretsDir, 'jwt_public.pem'),
     sessionSigningKeyPath: join(secretsDir, 'session-token-signing.pem'),
+    livekitApiKey: 'pulse-selfhost',
+    livekitApiSecret,
   };
+}
+
+/**
+ * Self-signed RSA-2048-Cert für MediaMTX-RTMPS (CN/SAN = hostname).
+ * Idempotent: nur erzeugen, wenn mediamtx.crt fehlt. Niemals den Key loggen.
+ */
+export function ensureMediamtxCert(
+  secretsDir: string,
+  hostname: string,
+): { certPath: string; keyPath: string } {
+  mkdirSync(secretsDir, { recursive: true });
+  const certPath = join(secretsDir, 'mediamtx.crt');
+  const keyPath = join(secretsDir, 'mediamtx.key');
+  if (!existsSync(certPath)) {
+    execFileSync('openssl', [
+      'req', '-x509', '-nodes', '-newkey', 'rsa:2048',
+      '-keyout', keyPath, '-out', certPath, '-days', '3650',
+      '-subj', `/CN=${hostname}`, '-addext', `subjectAltName=DNS:${hostname}`,
+    ], { stdio: ['ignore', 'ignore', 'ignore'] });
+    if (process.platform !== 'win32') {
+      chmodSync(keyPath, 0o600);
+      chmodSync(certPath, 0o644);
+    }
+  }
+  return { certPath, keyPath };
 }

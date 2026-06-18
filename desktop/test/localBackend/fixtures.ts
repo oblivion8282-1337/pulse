@@ -25,6 +25,8 @@ export const FIXTURE_SECRETS: Secrets = {
   jwtPrivateKeyPath: '/data/secrets/jwt_private.pem',
   jwtPublicKeyPath: '/data/secrets/jwt_public.pem',
   sessionSigningKeyPath: '/data/secrets/session-token-signing.pem',
+  livekitApiKey: 'pulse-selfhost',
+  livekitApiSecret: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 };
 
 export const FIXTURE_PORTS: Ports = {
