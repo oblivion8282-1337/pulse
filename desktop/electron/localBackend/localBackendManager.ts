@@ -34,7 +34,7 @@ import { initPostgres, startPostgresSpec, stopPostgres } from './postgres.ts';
 import { runMigrations } from './migrations.ts';
 import { SupervisedProcess } from './process.ts';
 import { tcpProbe } from './health.ts';
-import { controlPlaneComponents } from './components.ts';
+import { controlPlaneComponents, voiceSignalingComponent } from './components.ts';
 import { tunnelComponent } from './tunnel.ts';
 
 import type { TunnelRelay } from './tunnel.ts';
@@ -59,6 +59,8 @@ export interface StartInput {
   extraEnv?: Record<string, string>;
   /** Relay-Tunnel-Konfiguration. Wenn gesetzt, wird frpc nach chat-gateway gestartet. */
   relay?: TunnelRelay;
+  /** Wenn true, wird der Medien-Stack gestartet (voice-signaling hier; LiveKit/MediaMTX in ②b-①). */
+  media?: boolean;
 }
 
 export type ComponentStatus = 'stopped' | 'starting' | 'running' | 'failed';
@@ -80,11 +82,8 @@ const DEFAULT_PORTS: ExtendedPorts = {
   chat: 55544,
   media: 55545,
   mediaAuthHook: 55546,
+  voice: 55547,
 };
-
-// voice-signaling ist noch nicht im Stack verdrahtet (ExtendedPorts.voice optional);
-// Default-Port für den Relay-Tunnel, bis es verkabelt ist.
-const DEFAULT_VOICE_PORT = 55547;
 // Feste Sidecar-Ports (MediaMTX/LiveKit laufen ausserhalb des Managers).
 const LIVEKIT_PORT = 7880;
 const WHEP_PORT = 8889;
@@ -244,7 +243,15 @@ export class LocalBackendManager {
         }
       }
 
-      // 14. Tunnel starten (optional, nach chat-gateway)
+      // 14. Medien-Stack (optional): voice-signaling (LiveKit-Webhook-Ziel).
+      // LiveKit/MediaMTX kommen aus ②b-① unter demselben media-Flag dazu.
+      if (input.media) {
+        await this._startSpec(
+          voiceSignalingComponent(fullEnv, repoRoot, ports.voice),
+        );
+      }
+
+      // 15. Tunnel starten (optional, nach chat-gateway)
       if (input.relay) {
         await this._startSpec(tunnelComponent({
           dirs,
@@ -252,7 +259,7 @@ export class LocalBackendManager {
           ports: {
             auth: ports.auth,
             chat: ports.chat,
-            voice: ports.voice ?? DEFAULT_VOICE_PORT,
+            voice: ports.voice,
             livekit: LIVEKIT_PORT,
             whep: WHEP_PORT,
             hls: HLS_PORT,
