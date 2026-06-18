@@ -154,6 +154,9 @@ class VoiceRoom {
    *  teardown — LiveKit's own lifecycle covers only its managed tracks. */
   #bypassVideoTrack: MediaStreamTrack | null = null;
   #bypassAudioTrack: MediaStreamTrack | null = null;
+  /** `ended` handler on the bypass video track — held so `#unpublishBypass`
+   *  can detach it instead of leaving it bound to a stopped track. */
+  #bypassEndedHandler: (() => void) | null = null;
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
@@ -841,9 +844,11 @@ class VoiceRoom {
     this.#bypassAudioTrack = audioTrack;
     // Browser-side "Stop sharing" bar — Chrome ends the track without telling
     // LiveKit. Translate that into our normal stop path.
-    videoTrack.addEventListener('ended', () => {
+    const onEnded = () => {
       if (this.#bypassVideoTrack === videoTrack) void this.setScreenShare(false);
-    });
+    };
+    this.#bypassEndedHandler = onEnded;
+    videoTrack.addEventListener('ended', onEnded);
   }
 
   /** Counterpart to `#publishBypassStream` — unpublish from LiveKit and stop
@@ -852,6 +857,8 @@ class VoiceRoom {
   async #unpublishBypass(lp: LocalParticipant): Promise<void> {
     const v = this.#bypassVideoTrack;
     const a = this.#bypassAudioTrack;
+    if (v && this.#bypassEndedHandler) v.removeEventListener('ended', this.#bypassEndedHandler);
+    this.#bypassEndedHandler = null;
     this.#bypassVideoTrack = null;
     this.#bypassAudioTrack = null;
     if (v) {

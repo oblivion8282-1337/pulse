@@ -66,6 +66,19 @@
   let pending = $state<PendingAttachment[]>([]);
   const aborts = new Map<string, () => void>();
 
+  // Leaving the channel (switch or unmount) abandons any in-flight uploads of
+  // the previous channel: abort them and revoke their preview object-URLs so a
+  // half-finished upload neither lands in a channel we left nor leaks memory.
+  $effect(() => {
+    void channelId; // track so the cleanup runs whenever the channel changes
+    return () => {
+      aborts.forEach((abort) => abort());
+      aborts.clear();
+      pending.forEach(cleanupRow);
+      pending = [];
+    };
+  });
+
   let isDragging = $state(false);
   let dragDepth = 0; // dragenter/leave fire on every child — count to stay sane
 

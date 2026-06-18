@@ -181,7 +181,14 @@
   $effect(() => {
     const at = audioTrack;
     const el = audioEl;
-    if (!at || !el) return;
+    if (!at) {
+      // Publisher dropped its audio track but keeps sharing video: tear down
+      // the Web-Audio boost graph so its AudioContext doesn't sit open.
+      boost?.dispose();
+      boost = null;
+      return;
+    }
+    if (!el) return;
     at.attach(el);
     if (!boost) {
       boost = new VolumeBoost();
