@@ -22,7 +22,7 @@
     }
   });
 
-  let chosenId = $state('');
+  let chosenId = $state(hostStore.instances[0]?.id ?? '');
   let anchorFired = $state(false);
 
   $effect(() => {
@@ -92,6 +92,12 @@
             {m.local_host_start()}
           </Button>
         </div>
+      {/if}
+
+      {#if hostStore.pairError}
+        <p class="text-text-muted text-sm" data-testid="local-host-pair-error">
+          {m.local_host_pair_failed()}
+        </p>
       {/if}
 
     {:else if running}
