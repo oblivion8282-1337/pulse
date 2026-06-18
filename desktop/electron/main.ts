@@ -343,8 +343,12 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   let relayCfg: { subdomain: string } | null = null;
   const deps: HostDeps = {
     startBackend: async ({ media }) => {
+      // Bis ③c die Cloud-Identität füllt, ist Hosten noch nicht eingerichtet —
+      // sauberer Abbruch (HostLifecycle macht daraus die ruhige 'something-paused'-
+      // Phase) statt eines Null-Deref-Crashs im Main-Prozess.
+      if (!lastIdentity) throw new Error('host not paired yet (③c pending)');
       await manager.start({
-        userData: lastIdentity!.userData,
+        userData: lastIdentity.userData,
         // TODO(③c): identity aus Cloud-Pairing; as never damit TS kompiliert.
         identity: {} as never,
         media,
