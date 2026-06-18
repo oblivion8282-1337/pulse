@@ -1,4 +1,6 @@
 import { createSocket } from 'node:dgram';
+import { randomBytes } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import { discoverGateway } from './gateway.ts';
 import {
   NATPMP_PORT,
@@ -6,7 +8,19 @@ import {
   parseExternalAddressResponse,
   encodeMapRequest,
   parseMapResponse,
+  encodePcpMapRequest,
+  parsePcpMapResponse,
 } from './natpmp.ts';
+
+/** Erste nicht-interne IPv4 des Hosts (PCP braucht die Client-IP). */
+function localIpv4(): string {
+  for (const addrs of Object.values(networkInterfaces())) {
+    for (const a of addrs ?? []) {
+      if (a.family === 'IPv4' && !a.internal) return a.address;
+    }
+  }
+  return '0.0.0.0';
+}
 
 export const MEDIA_MAP_UDP = [7882, 7883, 7884, 7885, 7886, 7887, 7888, 7889, 7890, 7891, 7892, 8189, 3478];
 export const MEDIA_MAP_TCP = [7881, 1936];
@@ -99,10 +113,37 @@ export async function mapMediaPorts(input: MapMediaPortsInput): Promise<MapMedia
 
   const openPorts: number[] = [];
   const failedPorts: number[] = [];
+  const clientIp = localIpv4();
+  // null = noch nicht erkannt, true = Router spricht PCP, false = nur NAT-PMP.
+  // Detektiert beim ersten Port → höchstens EIN PCP-Timeout (nicht 15×).
+  let usePcp: boolean | null = null;
+
+  /** PCP-MAP-Versuch: true=gemappt, false=abgelehnt, null=keine PCP-Antwort. */
+  const tryPcp = async (proto: 'udp' | 'tcp', port: number): Promise<boolean | null> => {
+    const pkt = encodePcpMapRequest({
+      clientIp, proto, internalPort: port, externalPort: port, lifetime, nonce: randomBytes(12),
+    });
+    const buf = await udpRequest(gateway, pmPort, pkt, timeoutMs);
+    if (!buf) return null;
+    const resp = parsePcpMapResponse(buf);
+    if (!resp) return null;
+    return resp.resultCode === 0 && resp.externalPort === port;
+  };
 
   const mapPort = async (proto: 'udp' | 'tcp', port: number) => {
-    const pkt = encodeMapRequest(proto, port, port, lifetime);
-    const buf = await udpRequest(gateway, pmPort, pkt, timeoutMs);
+    // PCP zuerst (sofern nicht schon als nicht-unterstützt erkannt).
+    if (usePcp !== false) {
+      const pcp = await tryPcp(proto, port);
+      if (pcp !== null) {
+        usePcp = true;
+        (pcp ? openPorts : failedPorts).push(port);
+        return;
+      }
+      if (usePcp === null) usePcp = false;  // Erst-Erkennung: kein PCP → NAT-PMP-Fallback
+      else { failedPorts.push(port); return; }  // PCP lief, dieser Port still → fehlgeschlagen
+    }
+    // NAT-PMP-Fallback.
+    const buf = await udpRequest(gateway, pmPort, encodeMapRequest(proto, port, port, lifetime), timeoutMs);
     if (!buf) { failedPorts.push(port); return; }
     const resp = parseMapResponse(buf);
     if (resp && resp.resultCode === 0 && resp.externalPort === port) {
