@@ -22,13 +22,32 @@
     }
   });
 
-  onMount(() => { hostStore.init(); });
+  let chosenId = $state('');
+  let anchorFired = $state(false);
+
+  $effect(() => {
+    if (hostStore.phase === 'live' && !anchorFired) {
+      anchorFired = true;
+      void hostStore.anchorLive().then(() => {
+        toast.success(m.local_host_server_added());
+      });
+    }
+    if (hostStore.phase !== 'live') anchorFired = false;
+  });
+
+  onMount(() => {
+    hostStore.init();
+  });
 
   async function copyLink() {
     if (hostStore.detail?.relayUrl) {
       await navigator.clipboard.writeText(hostStore.detail.relayUrl);
       toast.success(m.local_host_link_copied());
     }
+  }
+
+  async function startWithChoice() {
+    await hostStore.start(chosenId || undefined);
   }
 </script>
 
@@ -40,12 +59,40 @@
     </div>
 
     {#if hostStore.phase === 'idle'}
-      <p class="text-text-muted text-sm">{m.local_host_idle_body()}</p>
-      <div>
-        <Button onclick={() => hostStore.start()} data-testid="local-host-start">
-          {m.local_host_start()}
-        </Button>
-      </div>
+      {#if hostStore.instances.length === 0 && !hostStore.paired}
+        <div class="flex flex-col gap-2" data-testid="local-host-no-instance">
+          <p class="text-text-bright text-sm font-medium">{m.local_host_no_instance_title()}</p>
+          <p class="text-text-muted text-sm">{m.local_host_no_instance_body()}</p>
+        </div>
+
+      {:else if hostStore.needsChoice}
+        <div class="flex flex-col gap-3">
+          <label class="flex flex-col gap-1">
+            <span class="text-text-muted text-xs">{m.local_host_choose_instance()}</span>
+            <select
+              bind:value={chosenId}
+              class="bg-bg-input text-text-bright rounded-md px-3 py-2 text-sm"
+            >
+              {#each hostStore.instances as inst (inst.id)}
+                <option value={inst.id}>{inst.hostname}</option>
+              {/each}
+            </select>
+          </label>
+          <div>
+            <Button onclick={startWithChoice} data-testid="local-host-choose">
+              {m.local_host_start()}
+            </Button>
+          </div>
+        </div>
+
+      {:else}
+        <p class="text-text-muted text-sm">{m.local_host_idle_body()}</p>
+        <div>
+          <Button onclick={() => hostStore.start()} data-testid="local-host-start">
+            {m.local_host_start()}
+          </Button>
+        </div>
+      {/if}
 
     {:else if running}
       <div class="flex items-center gap-3" data-testid="local-host-progress">
