@@ -24,7 +24,7 @@ nach dem chat-gateway gestartet (siehe `tunnel.ts`); der serverseitige Auth-Hook
 Voraussetzung: `brew install livekit mediamtx` (sowie `openssl`, das auf macOS standardmassig verfügbar ist).
 
 ```bash
-cd /Users/michael/Documents/pulse/desktop && \
+cd desktop && \
 node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON \
   --test --test-timeout=60000 \
   test/localBackend/media.int.test.ts
