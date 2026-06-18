@@ -55,6 +55,13 @@ class StreamChatStore {
     this.byStream = { ...this.byStream, [k]: next };
   }
 
+  /** Server-Switch / Sign-Out → gesamter Stream-Chat-State raus (wird beim
+   *  nächsten Panel-Mount neu geseedet). Verhindert, dass Message-Objekte
+   *  über die Sitzungsdauer akkumulieren. */
+  clearAll(): void {
+    this.byStream = {};
+  }
+
   /** Stream ist offline / Channel-Switch → kompletter Chat raus. */
   clear(channelId: string, streamerId: string): void {
     const k = key(channelId, streamerId);
