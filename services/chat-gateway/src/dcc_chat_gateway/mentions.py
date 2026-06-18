@@ -93,14 +93,17 @@ async def filter_to_valid(
     guild_id: int | None,
     author_permissions: int,
     candidates: set[tuple[int, int]],
+    dm_participant_ids: set[int] | None = None,
 ) -> set[tuple[int, int]]:
     """Drop mentions that wouldn't ping anybody.
 
     Rules:
       * User-mentions only count if the target is a current member of
-        ``guild_id``. (For DMs, ``guild_id`` is ``None`` — we trust the
-        marker as-is; the DM has only two members and either can ping
-        the other.)
+        ``guild_id``. For DMs (``guild_id is None``) the only legitimate
+        mention targets are the two channel participants — pass them in
+        via ``dm_participant_ids`` and any other ``<@uid>`` marker is
+        dropped (otherwise a crafted DM message could fan ``mention_added``
+        events + push notifications out to arbitrary users system-wide).
       * Role-mentions count if the role is in this guild AND either
         ``mentionable=true`` or the author holds ``MENTION_EVERYONE``
         (Discord's escape-hatch for moderators to ping a locked role).
@@ -132,10 +135,12 @@ async def filter_to_valid(
             ).all()
             valid_users = {r[0] for r in rows}
         else:
-            # DM channel: no guild membership to check against. Accept the
-            # marker — the channel is by definition a two-person room, and
-            # the recipient resolves who actually got pinged on their end.
-            valid_users = set(user_targets)
+            # DM channel: no guild membership to check against. The only
+            # users who can be pinged here are the two channel participants.
+            # Restrict to them so a crafted ``<@uid>`` for an unrelated user
+            # can't fan a mention out to arbitrary recipients. An empty/None
+            # participant set drops all user-mentions.
+            valid_users = set(user_targets) & (dm_participant_ids or set())
 
     if guild_id is not None and role_targets:
         rows = (

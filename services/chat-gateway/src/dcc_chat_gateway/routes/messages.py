@@ -237,12 +237,16 @@ async def post_message(
     # MENTION_EVERYONE) are silently skipped. ``everyone`` already
     # 403's upstream if the author lacks the bit.
     guild_id_for_mentions = ch.guild_id if kind == "guild" else None
+    dm_participant_ids = (
+        {ch.user_a_id, ch.user_b_id} if kind == "dm" else None
+    )
     raw_mentions = parse_markers(payload.content)
     valid_mentions = await filter_to_valid(
         session,
         guild_id=guild_id_for_mentions,
         author_permissions=perms,
         candidates=raw_mentions,
+        dm_participant_ids=dm_participant_ids,
     )
     await persist_for_message(
         session, message_id=msg.id, mentions=valid_mentions, replace=False
@@ -468,6 +472,9 @@ async def edit_message(
     # first so we can fire ``mention_added`` only for *newly* added user
     # pings (an edit that just fixes a typo must not re-notify everyone).
     guild_id_for_mentions = ch.guild_id if kind == "guild" else None
+    dm_participant_ids = (
+        {ch.user_a_id, ch.user_b_id} if kind == "dm" else None
+    )
     pre_existing = await mentions_for(session, [msg.id])
     # Full pre-edit marker set ``(type, id)`` — drives the "only notify for
     # *newly* added pings" diff below (a typo-fix edit must not re-ping).
@@ -480,6 +487,7 @@ async def edit_message(
         guild_id=guild_id_for_mentions,
         author_permissions=perms,
         candidates=raw_mentions,
+        dm_participant_ids=dm_participant_ids,
     )
     await persist_for_message(
         session, message_id=msg.id, mentions=valid_mentions, replace=True

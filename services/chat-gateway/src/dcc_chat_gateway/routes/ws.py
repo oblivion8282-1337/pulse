@@ -154,7 +154,8 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
 
     app = websocket.app
     manager = app.state.connection_manager
-    if not await manager.register(websocket, user):
+    accepted, is_first_socket = await manager.register(websocket, user)
+    if not accepted:
         # Connection cap reached — close before the client has done any work.
         await websocket.close(code=4009, reason="too many connections")
         return
@@ -165,7 +166,9 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     # we only need to cover the case where we never reach it.
     entered_loop = False
     try:
-        await build_and_send_ready_frame(websocket, user, manager, redis)
+        await build_and_send_ready_frame(
+            websocket, user, manager, redis, is_first_socket=is_first_socket
+        )
         entered_loop = True
         await run_session_op_loop(websocket, user, manager, redis, exp)
     finally:

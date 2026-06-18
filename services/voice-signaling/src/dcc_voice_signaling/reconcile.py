@@ -195,11 +195,39 @@ async def reconcile_once(redis: Redis, lk_api, *, ttl_seconds: int) -> dict[str,
         ghosts.append((room_name, cid))
 
     if ghosts:
+        ghosts = await _drop_live_rooms(lk_api, ghosts)
+
+    if ghosts:
         await asyncio.gather(
             *(_clear_ghost_room(redis, room_name, cid) for room_name, cid in ghosts)
         )
 
     return {"rooms": len(active), "stale_cleared": len(ghosts)}
+
+
+async def _drop_live_rooms(
+    lk_api, ghosts: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Re-confirm against LiveKit that each ghost room is *really* gone.
+
+    Closes a TOCTOU race: a new room can be created (and its presence key
+    written by a ``participant_joined`` webhook) in the window between the
+    ``list_rooms`` snapshot and the ghost SCAN. Such a room is absent from
+    ``active`` and would be wrongly cleared. A second, name-scoped ``list_rooms``
+    here — issued *after* the webhook has had time to register the room with
+    LiveKit — drops any ghost LiveKit now reports as live, so we never wipe a
+    freshly-joined participant. On error we fall back to the unfiltered list
+    (the periodic pass self-corrects), never raising out of reconcile."""
+    from livekit import api as lk
+
+    names = [room_name for room_name, _ in ghosts]
+    try:
+        resp = await lk_api.room.list_rooms(lk.ListRoomsRequest(names=names))
+        live = {r.name for r in resp.rooms}
+    except Exception:  # noqa: BLE001 — keep reconcile resilient to LiveKit blips
+        log.warning("voice_reconcile_ghost_recheck_failed", exc_info=True)
+        return ghosts
+    return [(room_name, cid) for room_name, cid in ghosts if room_name not in live]
 
 
 async def reconcile_loop(

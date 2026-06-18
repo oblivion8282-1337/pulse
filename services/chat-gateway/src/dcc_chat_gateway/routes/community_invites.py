@@ -166,16 +166,27 @@ async def _send_invite_dm(
         dm.last_message_id = msg.id
         session.add(dm)
         await session.commit()
-        await session.refresh(msg)
     except Exception:
         log.exception(
             "failed to create invite DM for community_invite %s", inv.id
         )
         return
+    # Commit succeeded → the DM is persisted. Refresh + live-notify happen
+    # OUTSIDE the try so a refresh hiccup here can't swallow the broadcast
+    # (the message would otherwise be saved but never delivered live).
+    try:
+        await session.refresh(msg)
+    except Exception:
+        log.exception("invite DM refresh failed for message %s", msg.id)
     # Broadcast on the DM channel topic (live for whoever is viewing it) + the
     # DmBumpEvent (so a non-viewing client flags the thread as having activity)
-    # — the same two-step fan-out ``post_message`` does for a DM.
-    await _broadcast(request, dm.id, serialize_message(msg))
+    # — the same two-step fan-out ``post_message`` does for a DM. Guarded so a
+    # serialize/broadcast hiccup is logged (not silently swallowed) and still
+    # honours the "never raises" contract for the already-committed message.
+    try:
+        await _broadcast(request, dm.id, serialize_message(msg))
+    except Exception:
+        log.exception("invite DM broadcast failed for dm %s", dm.id)
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         try:

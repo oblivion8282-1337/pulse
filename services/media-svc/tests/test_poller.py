@@ -151,6 +151,35 @@ async def test_one_streamer_leaves_others_stay(redis, pubsub):
 
 
 @pytest.mark.asyncio
+async def test_stale_cleanup_spares_fresh_publish_active_key(redis, pubsub):
+    """TOCTOU guard: when MediaMTX no longer reports a channel, the stale-cleanup
+    deletes its ``stream:active`` records — EXCEPT one written by a brand-new
+    publish that raced in after this pass's MediaMTX snapshot (started_at in the
+    future relative to the snapshot). That fresh key must survive so WHEP keeps
+    serving the live stream."""
+    import datetime as _dt
+
+    cid = _unique_cid()
+    # Seed channel presence so the channel is "known" and goes stale.
+    await redis.set(CHANNEL_STATE_KEY.format(channel_id=cid), json.dumps({"user_ids": ["7"], "since": "x"}))
+    old_key = f"stream:active:channel-{cid}-7"
+    fresh_key = f"stream:active:channel-{cid}-9"
+    # Old record: started_at well in the past → deleted.
+    await redis.set(old_key, json.dumps({"user_id": "7", "started_at": "2020-01-01T00:00:00+00:00", "path": "p"}))
+    # Fresh record: started_at in the future → its publish raced in after the
+    # snapshot; must be spared.
+    future = (_dt.datetime.now(_dt.UTC) + _dt.timedelta(seconds=60)).isoformat()
+    await redis.set(fresh_key, json.dumps({"user_id": "9", "started_at": future, "path": "p2"}))
+    gone = _FakeMediaMtxClient(_paths(("all_others", False)))
+    try:
+        await reconcile_once(redis, gone)
+        assert await redis.exists(old_key) == 0
+        assert await redis.exists(fresh_key) == 1
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid), old_key, fresh_key)
+
+
+@pytest.mark.asyncio
 async def test_non_channel_paths_ignored(redis, pubsub):
     # Paths missing any segment (uid, nonce) or with non-numeric channel are
     # all ignored — must be `channel-<digits>-<digits>-<32 hex>`.

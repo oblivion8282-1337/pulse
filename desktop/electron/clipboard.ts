@@ -18,7 +18,7 @@
  */
 
 import { ipcMain, clipboard } from 'electron';
-import { readFile, stat } from 'node:fs/promises';
+import { open, stat } from 'node:fs/promises';
 
 // Hard ceiling so a single read can't blow up memory. The server enforces the
 // real per-file attachment limit; this is just a sanity backstop.
@@ -43,13 +43,23 @@ export function wireClipboard(): void {
   // webUtils.getPathForFile in the preload (real drop only) — see module doc.
   ipcMain.handle('file:readPath', async (_e, path: unknown): Promise<Uint8Array | null> => {
     if (typeof path !== 'string' || !path) return null;
+    let handle;
     try {
       const info = await stat(path);
+      // Only regular files. Don't trust stat().size to bound the read: special
+      // files (e.g. /proc/*) report size 0 yet yield arbitrary bytes, so cap the
+      // actual read at MAX_READ_BYTES and reject anything that exceeds it.
       if (!info.isFile() || info.size > MAX_READ_BYTES) return null;
-      const buf = await readFile(path);
-      return new Uint8Array(buf);
+      handle = await open(path, 'r');
+      // Read up to one byte past the cap so we can detect an over-limit file.
+      const cap = Buffer.allocUnsafe(MAX_READ_BYTES + 1);
+      const { bytesRead } = await handle.read(cap, 0, cap.length, 0);
+      if (bytesRead > MAX_READ_BYTES) return null;
+      return new Uint8Array(cap.subarray(0, bytesRead));
     } catch {
       return null;
+    } finally {
+      await handle?.close().catch(() => {});
     }
   });
 }

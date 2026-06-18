@@ -183,6 +183,10 @@
   // state_unsafe_mutation and blanks the message list.
   let _lastItemsMessageCount = 0;
   let _lastItemsLastMessageId = '';
+  // Calendar day the cached "Heute"/"Gestern" labels were computed for. If it
+  // rolls over (tab kept open past midnight), append-mode would leave stale
+  // labels on the existing dividers → force a full rebuild instead.
+  let _lastItemsDayKey = 0;
 
   let items = $derived.by(() => {
     const len = messages.length;
@@ -190,10 +194,12 @@
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(today.getTime() - 86400000);
+    const dayKey = today.getTime();
 
     // If only new messages were appended (tail unchanged), append only the new items.
     if (
       _cachedItems !== null &&
+      dayKey === _lastItemsDayKey &&
       len > _lastItemsMessageCount &&
       _lastItemsLastMessageId === (messages[_lastItemsMessageCount - 1]?.id ?? '')
     ) {
@@ -227,6 +233,7 @@
 
     _lastItemsMessageCount = len;
     _lastItemsLastMessageId = lastId;
+    _lastItemsDayKey = dayKey;
     return _cachedItems;
   });
 
