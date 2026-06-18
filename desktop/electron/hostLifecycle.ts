@@ -23,3 +23,69 @@ export function classifyHostOutcome(
   if (map === 'mapped') return { outcome: 'go' };
   return { outcome: 'needs-your-help' };
 }
+
+export interface ReachResult { verdict: ReachVerdict; publicIp: string | null }
+export interface MapResult { verdict: MapVerdict; openPorts: number[]; failedPorts: number[] }
+
+export interface HostDeps {
+  startBackend(opts: { media: boolean }): Promise<void>;
+  stopBackend(): Promise<void>;
+  checkReachability(): Promise<ReachResult>;
+  mapPorts(stunIp: string | null): Promise<MapResult>;
+  relayUrl(): string | null;
+}
+
+export class HostLifecycle {
+  private _last: HostPhaseEvent = { phase: 'idle' };
+  private _cbs: Array<(e: HostPhaseEvent) => void> = [];
+  private readonly deps: HostDeps;
+  constructor(deps: HostDeps) { this.deps = deps; }
+
+  onPhase(cb: (e: HostPhaseEvent) => void): void { this._cbs.push(cb); }
+  getStatus(): HostPhaseEvent { return this._last; }
+
+  private _emit(phase: HostPhase, detail?: HostPhaseEvent['detail']): void {
+    this._last = { phase, detail };
+    for (const cb of this._cbs) { try { cb(this._last); } catch { /* ignore */ } }
+  }
+
+  async start(): Promise<void> {
+    try {
+      this._emit('checking-network');
+      const reach = await this.deps.checkReachability();
+
+      let map: MapResult | null = null;
+      if (reach.verdict === 'needs-forwarding') {
+        this._emit('opening-door');
+        map = await this.deps.mapPorts(reach.publicIp);
+      }
+      const { outcome } = classifyHostOutcome(reach.verdict, map?.verdict ?? null);
+
+      switch (outcome) {
+        case 'not-possible-here':
+          this._emit('not-possible-here');
+          return;
+        case 'something-paused':
+          this._emit('something-paused');
+          return;
+        case 'needs-your-help':
+          this._emit('needs-your-help', { ports: map?.failedPorts ?? [] });
+          return;
+        case 'go':
+          this._emit('preparing');
+          await this.deps.startBackend({ media: true });
+          this._emit('going-live');
+          this._emit('live', { relayUrl: this.deps.relayUrl() ?? undefined });
+          return;
+      }
+    } catch (err) {
+      console.error('[host] Startfehler:', (err as Error).message);
+      this._emit('something-paused');
+    }
+  }
+
+  async stop(): Promise<void> {
+    try { await this.deps.stopBackend(); } catch { /* best-effort */ }
+    this._emit('idle');
+  }
+}
