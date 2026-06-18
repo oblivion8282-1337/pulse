@@ -162,3 +162,24 @@ export function controlPlaneComponents(
 
   return [redis, minio, auth, mediaSvc, mediamtxAuthHook, chatGateway];
 }
+
+// ---------------------------------------------------------------------------
+// voiceSignalingComponent
+// ---------------------------------------------------------------------------
+
+export function voiceSignalingComponent(
+  env: Record<string, string>,
+  repoRoot: string,
+  voicePort: number,
+): SupervisedProcessSpec {
+  const uv = resolveUv();
+  return {
+    name: 'voice-signaling',
+    command: uv,
+    args: [...uvicornArgs('dcc-voice-signaling', 'dcc_voice_signaling.app:app'), '--port', String(voicePort)],
+    cwd: join(repoRoot, 'services', 'voice-signaling'),
+    env,
+    healthCheck: () => httpHealth(`http://127.0.0.1:${voicePort}/health`),
+    restartMax: 3,
+  };
+}
