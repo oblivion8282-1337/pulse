@@ -108,7 +108,7 @@
       </Alert.Root>
 
     {:else if hostStore.phase === 'something-paused'}
-      <Alert.Root variant="destructive" data-testid="local-host-paused">
+      <Alert.Root data-testid="local-host-paused">
         <Alert.Title>{m.local_host_paused_title()}</Alert.Title>
         <Alert.Description>{m.local_host_paused_body()}</Alert.Description>
       </Alert.Root>
