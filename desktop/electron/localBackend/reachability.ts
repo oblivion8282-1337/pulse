@@ -48,8 +48,17 @@ export async function checkReachability(input: {
     return { port, sock };
   });
   try {
-    await Promise.all(sockets.map(({ port, sock }) =>
-      new Promise<void>((resolve) => { sock.bind(port, '0.0.0.0', () => resolve()); })));
+    try {
+      // bind kann scheitern (z.B. EADDRINUSE, wenn der Medien-Stack die Ports schon
+      // hält) — den Fehler abfangen statt zu hängen → Verdikt 'unknown'.
+      await Promise.all(sockets.map(({ port, sock }) =>
+        new Promise<void>((resolve, reject) => {
+          sock.once('error', reject);
+          sock.bind(port, '0.0.0.0', () => resolve());
+        })));
+    } catch {
+      return { verdict: 'unknown', publicIp, probe: null };
+    }
 
     let tcp: Record<number, boolean> = {};
     try {
