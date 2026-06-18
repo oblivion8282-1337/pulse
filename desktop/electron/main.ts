@@ -479,13 +479,36 @@ const ALLOWED_STORE_KEYS = new Set([
   // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
   // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
   'pulse.servers',
-  // Cloud-Pairing-Credentials (③c) — enthält keinen Klartext-Secret (nur
-  // verschlüsselte/abgeleitete Felder), aber Zugriff trotzdem auf diesen Key begrenzen.
+  // Cloud-Pairing-Credentials (③c) — der Main-Prozess schreibt sie via
+  // pairing.ts::saveCreds (direkter storeSet-Aufruf). Der Schlüssel steht hier,
+  // damit dieser Pfad nicht von der store:set-Allowlist abgewiesen wird.
   'pulse.host.creds',
 ]);
 
+/** Schlüssel, die der Renderer NIE lesen darf (③c-Sicherheitsinvariante).
+ *  `pulse.host.creds` enthält `client_secret` + `relay_tunnel_token` im Klartext.
+ *  Diese leben ausschließlich im Main-Prozess; der Renderer bekommt nur den
+ *  sanitisierten Status über `host:getPairing`. Die store:read-Kanäle
+ *  (get/getAll/getAllSync) MÜSSEN diesen Schlüssel ausblenden — sonst läge er
+ *  über `window.pulse.store.get(...)` und passiv via `getAllSync()` (serversStore
+ *  beim Boot) offen. */
+const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds']);
+
+/** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle. */
+function stripBlockedKeys(all: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(all)) {
+    if (!RENDERER_BLOCKED_STORE_KEYS.has(k)) out[k] = v;
+  }
+  return out;
+}
+
 function wireStore(): void {
   ipcMain.handle('store:get', (_e, key: string) => {
+    if (RENDERER_BLOCKED_STORE_KEYS.has(key)) {
+      console.warn('[store] store:get rejected blocked key:', key);
+      return undefined;
+    }
     try {
       return storeGet(key);
     } catch (e) {
@@ -495,7 +518,7 @@ function wireStore(): void {
   });
   ipcMain.handle('store:getAll', () => {
     try {
-      return storeGetAll();
+      return stripBlockedKeys(storeGetAll());
     } catch (e) {
       console.error('[store] store:getAll failed:', e);
       return {};
@@ -509,7 +532,7 @@ function wireStore(): void {
   // sync IPC form; fired exactly once per launch.
   ipcMain.on('store:getAllSync', (e) => {
     try {
-      e.returnValue = storeGetAll();
+      e.returnValue = stripBlockedKeys(storeGetAll());
     } catch (err) {
       console.error('[store] store:getAllSync failed:', err);
       e.returnValue = {};
