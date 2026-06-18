@@ -38,6 +38,8 @@ function uvicornArgs(pkg: string, module: string): string[] {
 
 export interface ExtendedPorts extends Ports {
   mediaAuthHook: number;
+  /** Voice-Signaling-Port (Task 2); optional bis zur Verdrahtung. */
+  voice?: number;
 }
 
 // ---------------------------------------------------------------------------
