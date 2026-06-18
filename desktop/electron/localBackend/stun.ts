@@ -22,7 +22,10 @@ export function parseStunResponse(packet: Buffer): string | null {
     const type = packet.readUInt16BE(off);
     const len = packet.readUInt16BE(off + 2);
     const val = off + 4;
-    if (type === 0x0020 && len >= 8 && packet.readUInt8(val + 1) === 0x01) {
+    // val + 8 <= length schützt die Value-Reads (family @ val+1, Adresse @ val+4..val+7)
+    // gegen ein malformed Paket, das len>=8 deklariert aber die Bytes nicht enthält.
+    if (type === 0x0020 && len >= 8 && val + 8 <= packet.length
+        && packet.readUInt8(val + 1) === 0x01) {
       // XOR-MAPPED-ADDRESS, IPv4: jedes Adress-Byte mit dem Magic-Cookie XOR-en
       const cookieBytes = [0x21, 0x12, 0xa4, 0x42];
       const octets = cookieBytes.map((c, i) => packet.readUInt8(val + 4 + i) ^ c);
