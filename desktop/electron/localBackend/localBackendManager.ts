@@ -250,7 +250,7 @@ export class LocalBackendManager {
         }
       }
 
-// 14. Medien-Stack (optional, vor dem Tunnel — alle Proxy-Ziele up).
+      // 14. Medien-Stack (optional, vor dem Tunnel — alle Proxy-Ziele up).
       if (input.media) await this._startMediaStack(input, dirs, secrets, fullEnv, repoRoot, ports);
 
       // 15. Tunnel starten (optional, nach chat-gateway)
