@@ -67,6 +67,12 @@
     void switchTo(cid);
   });
 
+  // Keep the open DM at the head of the message-cache LRU so it is never
+  // evicted while the user is viewing it.
+  $effect(() => {
+    if (dmChannelId) messages.touch(dmChannelId);
+  });
+
   // WS reconnect: messages.clearChannel() may empty the loaded set. Re-fetch
   // if we're still parked on this DM.
   $effect(() => {

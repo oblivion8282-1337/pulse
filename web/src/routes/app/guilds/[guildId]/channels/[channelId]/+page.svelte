@@ -141,6 +141,13 @@
     void channelPermissions.ensure(cid).catch(() => undefined);
   });
 
+  // Keep the open channel at the head of the message-cache LRU so it is never
+  // evicted while the user is looking at it (even when no new messages load).
+  $effect(() => {
+    const cid = channelId;
+    if (cid && cid !== '_') messages.touch(cid);
+  });
+
   // WS reconnect path: connection.ts calls messages.clearChannel(cid) for every
   // subscribed channel on `open`, which empties byChannel + loadedChannels.
   // switchTo only fires on URL change — so without this effect the user would

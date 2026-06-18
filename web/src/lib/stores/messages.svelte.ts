@@ -9,12 +9,44 @@ class MessageStore {
   private confirmedNonces = new Set<string>();
   // Track message IDs in the current channel for O(1) dedup during upsert.
   private messageIds = $state<Record<string, Set<string>>>({});
+  // LRU order of cached channels (least-recently-used first). Plain bookkeeping
+  // — not rendered, so no $state. Keeps the in-memory cache from growing for
+  // every channel ever visited in a session: beyond MAX_CACHED_CHANNELS the
+  // least-recently-active channel is evicted (re-fetched cleanly on return via
+  // the existing !loadedChannels path).
+  private accessOrder: string[] = [];
 
   for(channelId: string): Message[] {
     return this.byChannel[channelId] ?? [];
   }
 
   private static readonly CAP = 500;
+  /** Max number of channels kept in the message cache at once. */
+  private static readonly MAX_CACHED_CHANNELS = 15;
+
+  /** Move a channel to the most-recently-used end of the LRU order. */
+  private bumpAccess(channelId: string): void {
+    const i = this.accessOrder.indexOf(channelId);
+    if (i !== -1) this.accessOrder.splice(i, 1);
+    this.accessOrder.push(channelId);
+  }
+
+  /** Evict least-recently-used channels until the cache is within the cap.
+   *  The just-bumped (active) channel sits at the tail and is never reached. */
+  private enforceChannelCap(): void {
+    for (const cid of [...this.accessOrder]) {
+      if (Object.keys(this.byChannel).length <= MessageStore.MAX_CACHED_CHANNELS) break;
+      if (cid in this.byChannel) this.clearChannel(cid);
+    }
+  }
+
+  /** Mark a channel as the most-recently-active (called when the user opens
+   *  it, even if no new messages loaded) and enforce the cache cap. */
+  touch(channelId: string): void {
+    if (!channelId) return;
+    this.bumpAccess(channelId);
+    this.enforceChannelCap();
+  }
 
   /** Trim a sorted channel list to the CAP (keeping the newest), dropping the
    *  pruned messages' confirmed nonces so the dedup set can't grow without
@@ -35,6 +67,7 @@ class MessageStore {
     this.loadedChannels = { ...this.loadedChannels, [channelId]: true };
     // Populate the ID set for O(1) dedup during upsert.
     this.messageIds = { ...this.messageIds, [channelId]: new Set(sorted.map((m) => m.id)) };
+    this.touch(channelId);
   }
 
   upsert(msg: Message): void {
@@ -274,6 +307,8 @@ class MessageStore {
   }
 
   clearChannel(channelId: string): void {
+    const i = this.accessOrder.indexOf(channelId);
+    if (i !== -1) this.accessOrder.splice(i, 1);
     const { [channelId]: _, ...rest } = this.byChannel;
     this.byChannel = rest;
     const { [channelId]: __, ...restLoaded } = this.loadedChannels;
@@ -294,6 +329,7 @@ class MessageStore {
     this.loadedChannels = {};
     this.messageIds = {};
     this.confirmedNonces.clear();
+    this.accessOrder = [];
   }
 }
 
