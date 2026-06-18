@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-18.2",
+      "date": "2026-06-18",
+      "style": "Sachlich",
+      "title": "Weniger Speicherverbrauch und kleinere Korrekturen",
+      "items": [
+        "Pulse geht jetzt sparsamer mit dem Arbeitsspeicher um; Sprach- und Screen-Share-Audio, Chatverlauf und Benachrichtigungen werden zuverlässiger freigegeben.",
+        "Wechselst du während eines laufenden Datei-Uploads den Kanal, wird der Upload jetzt korrekt abgebrochen statt im falschen Kanal fortgesetzt.",
+        "Die Desktop-App startet etwas schlanker."
+      ]
+    },
+    {
       "id": "2026-06-18",
       "date": "2026-06-18",
       "style": "Sachlich",
