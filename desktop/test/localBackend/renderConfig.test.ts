@@ -115,6 +115,14 @@ describe('renderEnv', () => {
     assert.equal(env.VAPID_KEY_FILE, '/data/secrets/vapid.json');
   });
 
+  test('rendert LIVEKIT_/MEDIAMTX_-Vars', () => {
+    const env = renderEnv({ dirs, secrets, ports, identity });
+    assert.equal(env.LIVEKIT_API_KEY, secrets.livekitApiKey);
+    assert.equal(env.LIVEKIT_API_URL, 'http://127.0.0.1:7880');
+    assert.equal(env.LIVEKIT_URL, 'wss://host.local/livekit');
+    assert.equal(env.MEDIAMTX_PUBLIC_BASE, 'https://host.local/whep');
+  });
+
   test('nutzt relaySubdomain als public origin (Origin-Switch)', () => {
     const env = renderEnv({
       dirs,
