@@ -92,6 +92,14 @@ const LIVEKIT_PORT = 7880;
 const WHEP_PORT = 8889;
 const HLS_PORT = 8888;
 
+// voice-signaling ist noch nicht im Stack verdrahtet (ExtendedPorts.voice optional);
+// Default-Port für den Relay-Tunnel, bis es verkabelt ist.
+const DEFAULT_VOICE_PORT = 55547;
+// Feste Sidecar-Ports (MediaMTX/LiveKit laufen ausserhalb des Managers).
+const LIVEKIT_PORT = 7880;
+const WHEP_PORT = 8889;
+const HLS_PORT = 8888;
+
 // ---------------------------------------------------------------------------
 // Repository-Root-Auflösung
 // ---------------------------------------------------------------------------
@@ -257,7 +265,7 @@ export class LocalBackendManager {
           ports: {
             auth: ports.auth,
             chat: ports.chat,
-            voice: ports.voice,
+            voice: ports.voice ?? DEFAULT_VOICE_PORT,
             livekit: LIVEKIT_PORT,
             whep: WHEP_PORT,
             hls: HLS_PORT,
