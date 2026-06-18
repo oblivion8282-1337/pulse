@@ -7,6 +7,7 @@
   import StatusDot from '$lib/components/ui/StatusDot.svelte';
   import { m } from '$lib/paraglide/messages.js';
   import { toast } from 'svelte-sonner';
+  import { auth } from '$lib/stores/auth.svelte';
 
   const running = $derived(
     ['checking-network', 'opening-door', 'preparing', 'going-live'].includes(hostStore.phase)
@@ -59,7 +60,12 @@
     </div>
 
     {#if hostStore.phase === 'idle'}
-      {#if hostStore.instances.length === 0 && !hostStore.paired}
+      {#if auth.user && auth.user.self_host_enabled === false}
+        <div class="flex flex-col gap-2" data-testid="local-host-locked">
+          <p class="text-text-bright text-sm font-medium">{m.local_host_locked_title()}</p>
+          <p class="text-text-muted text-sm">{m.local_host_locked_body()}</p>
+        </div>
+      {:else if hostStore.instances.length === 0 && !hostStore.paired}
         <div class="flex flex-col gap-2" data-testid="local-host-no-instance">
           <p class="text-text-bright text-sm font-medium">{m.local_host_no_instance_title()}</p>
           <p class="text-text-muted text-sm">{m.local_host_no_instance_body()}</p>

@@ -1079,6 +1079,8 @@
   "local_host_help_step3": "Speichere die Einstellung und kehre hierher zurück.",
   "local_host_help_title": "Kurze Hilfe nötig",
   "local_host_link_copied": "Link kopiert",
+  "local_host_locked_body": "Selbst-Hosting wird für dein Konto freigeschaltet, sobald es bereitsteht. Melde dich, wenn du loslegen möchtest.",
+  "local_host_locked_title": "Hosting ist noch nicht freigeschaltet",
   "local_host_live_body": "Teile diese Adresse mit anderen — sie können deinen Server sofort erreichen.",
   "local_host_live_title": "Dein Server ist live",
   "local_host_only_desktop": "Das lokale Hosting ist nur in der Desktop-App verfügbar.",
