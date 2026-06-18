@@ -53,8 +53,16 @@ async def _reg_and_login(client, reg: dict, login: dict) -> str:
 
 
 @pytest_asyncio.fixture
-async def owner_cookie(client) -> str:
-    return await _reg_and_login(client, _REG_OWNER, _LOGIN_OWNER)
+async def owner_cookie(client, session_factory) -> str:
+    cookie = await _reg_and_login(client, _REG_OWNER, _LOGIN_OWNER)
+    r = await client.get("/me", headers={"Cookie": cookie})
+    uid = int(r.json()["id"])
+    async with session_factory() as s:
+        from dcc_auth.models import User
+        user = await s.get(User, uid)
+        user.self_host_enabled = True
+        await s.commit()
+    return cookie
 
 
 @pytest_asyncio.fixture

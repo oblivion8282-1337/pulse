@@ -371,6 +371,8 @@ async def mint_bootstrap_token(
     „neu generieren" entwertet den alten sofort.
     """
     user = await _require_user(request, db)
+    if not user.self_host_enabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="self-hosting not enabled")
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 

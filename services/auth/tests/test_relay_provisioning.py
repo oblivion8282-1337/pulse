@@ -45,8 +45,13 @@ async def _reg_and_login(client, reg: dict) -> tuple[str, str]:
 
 
 @pytest_asyncio.fixture
-async def alice(client):
+async def alice(client, session_factory):
     cookie, uid = await _reg_and_login(client, _REG_A)
+    async with session_factory() as s:
+        from dcc_auth.models import User
+        user = await s.get(User, int(uid))
+        user.self_host_enabled = True
+        await s.commit()
     return {"cookie": cookie, "id": uid}
 
 
