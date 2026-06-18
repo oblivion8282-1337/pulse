@@ -26,6 +26,41 @@ function fakeServer(): Promise<{ port: number; close: () => void }> {
   });
 }
 
+// Fake-PCP-Server: external-address (NAT-PMP, 2 Byte) → WAN-IP; PCP-MAP (60 Byte) → success.
+function fakePcpServer(): Promise<{ port: number; close: () => void }> {
+  return new Promise((resolve) => {
+    const s = createSocket('udp4');
+    s.on('message', (msg, rinfo) => {
+      if (msg.length === 2 && msg.readUInt8(1) === 0) {
+        const r = Buffer.alloc(12);
+        r.writeUInt8(0, 0); r.writeUInt8(128, 1); r.writeUInt16BE(0, 2); r.writeUInt32BE(1, 4);
+        r.writeUInt8(203, 8); r.writeUInt8(0, 9); r.writeUInt8(113, 10); r.writeUInt8(7, 11);
+        s.send(r, rinfo.port, rinfo.address);
+      } else if (msg.length === 60 && msg.readUInt8(0) === 2) {
+        const intern = msg.readUInt16BE(40);     // PCP internal port
+        const r = Buffer.alloc(60);
+        r.writeUInt8(2, 0); r.writeUInt8(0x81, 1); r.writeUInt8(0, 3); r.writeUInt32BE(3600, 4);
+        r.writeUInt16BE(intern, 28); r.writeUInt16BE(intern, 30); // assigned external port
+        r.writeUInt16BE(0xffff, 32 + 10);
+        r.writeUInt8(203, 44); r.writeUInt8(0, 45); r.writeUInt8(113, 46); r.writeUInt8(7, 47);
+        s.send(r, rinfo.port, rinfo.address);
+      }
+    });
+    s.bind(0, '127.0.0.1', () => resolve({ port: (s.address() as { port: number }).port, close: () => s.close() }));
+  });
+}
+
+test('mapMediaPorts: Fake-PCP → mapped (PCP-Pfad)', async () => {
+  const srv = await fakePcpServer();
+  try {
+    const out = await mapMediaPorts({
+      stunIp: '203.0.113.7', gateway: '127.0.0.1', natpmpPort: srv.port, timeoutMs: 1500,
+    });
+    assert.equal(out.verdict, 'mapped');
+    assert.equal(out.failedPorts.length, 0);
+  } finally { srv.close(); }
+});
+
 test('mapMediaPorts: Fake-NAT-PMP → mapped', async () => {
   const srv = await fakeServer();
   try {
