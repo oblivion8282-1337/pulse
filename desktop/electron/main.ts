@@ -460,10 +460,11 @@ const ALLOWED_STORE_KEYS = new Set([
   // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
   // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
   'pulse.servers',
-  // Cloud-Pairing-Credentials (③c) — der Main-Prozess schreibt sie via
-  // pairing.ts::saveCreds (direkter storeSet-Aufruf). Der Schlüssel steht hier,
-  // damit dieser Pfad nicht von der store:set-Allowlist abgewiesen wird.
-  'pulse.host.creds',
+  // HINWEIS: `pulse.host.creds` (③c-Pairing-Credentials) steht BEWUSST NICHT
+  // hier. Der Main-Prozess schreibt sie via pairing.ts::saveCreds über einen
+  // DIREKTEN storeSet-Aufruf (store.ts kennt keine Allowlist — die gilt nur für
+  // die store:set-IPC-Kanäle). Würde der Key hier stehen, könnte der Renderer
+  // die Creds über store:set überschreiben — unnötiges Schreib-Surface.
 ]);
 
 /** Schlüssel, die der Renderer NIE lesen darf (③c-Sicherheitsinvariante).
@@ -472,7 +473,7 @@ const ALLOWED_STORE_KEYS = new Set([
  *  sanitisierten Status über `host:getPairing`. Die store:read-Kanäle
  *  (get/getAll/getAllSync) MÜSSEN diesen Schlüssel ausblenden — sonst läge er
  *  über `window.pulse.store.get(...)` und passiv via `getAllSync()` (serversStore
- *  beim Boot) offen. */
+ *  beim Boot) offen. (Schreibseitig ist der Key gar nicht erst in der Allowlist.) */
 const RENDERER_BLOCKED_STORE_KEYS = new Set(['pulse.host.creds']);
 
 /** Kopie ohne die renderer-gesperrten Schlüssel — für die store:getAll(Sync)-Kanäle. */
