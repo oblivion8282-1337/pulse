@@ -7,14 +7,19 @@
  * legt einen Test-Hook `window.__emitHostPhase(e)` frei, uber den der Test
  * Phasen treiben kann.
  *
- * Drei Tests:
+ * Vier Tests:
  *   1. 0 Instanzen → idle zeigt local-host-no-instance, KEIN start-Knopf.
  *   2. 1 Instanz → start → pair → live → Server-Verankerung.
  *   3. (Legacy) Phasen-Walk checking-network → live → not-possible-here.
+ *   4. self_host_enabled === false → local-host-locked sichtbar, kein start-Knopf.
  *
  * Gemockte Routen:
  *   GET  /api/auth/me/instances            → je nach Test [] oder [eine aktive]
  *   POST /api/auth/me/instances/:id/bootstrap-token → { token, expires_at, ttl_seconds }
+ *
+ * Entitlement-Override (Tests 1–3): Da frisch registrierte User `self_host_enabled === false`
+ * haben, setzen Tests 1–3 nach `registerAndLoad` das Flag auf `true` uber den auth-Store
+ * (Vite-Dev-Import). Test 4 lasst den Default false und pruft die Sperr-Karte.
  */
 
 import { test, expect, type Page } from '@playwright/test';
@@ -112,6 +117,19 @@ async function registerAndLoad(page: Page): Promise<void> {
     .catch(() => undefined);
 }
 
+/**
+ * Setzt auth.user.self_host_enabled = true uber den Vite-Dev-Import.
+ * auth.user ist ein $state-Objekt — Property-Mutation ist reaktiv.
+ * Muss nach registerAndLoad() aufgerufen werden, wenn auth.user gesetzt ist.
+ */
+async function grantSelfHostEntitlement(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    // @ts-expect-error - Vite-served path resolved at browser runtime
+    const { auth } = await import(/* @vite-ignore */ '/src/lib/stores/auth.svelte.ts');
+    if (auth.user) auth.user.self_host_enabled = true;
+  });
+}
+
 /** Offnet den Settings-Dialog und klickt den Self-Host-Tab. */
 async function openSelfHostSettings(page: Page): Promise<void> {
   await page.evaluate(async () => {
@@ -142,6 +160,8 @@ test('local-hosting: 0 Instanzen → local-host-no-instance sichtbar, kein Start
   });
 
   await registerAndLoad(page);
+  // Frisch registrierte User haben self_host_enabled === false → Entitlement setzen.
+  await grantSelfHostEntitlement(page);
   await openSelfHostSettings(page);
 
   // idle mit 0 Instanzen → no-instance-Meldung
@@ -182,6 +202,8 @@ test('local-hosting: 1 Instanz — start → pair → live → Server-Verankerun
   });
 
   await registerAndLoad(page);
+  // Frisch registrierte User haben self_host_enabled === false → Entitlement setzen.
+  await grantSelfHostEntitlement(page);
   await openSelfHostSettings(page);
 
   // idle mit 1 Instanz → Start-Knopf sichtbar
@@ -242,6 +264,8 @@ test('local-hosting: Phasen-UI durchlaufen (checking-network → live → not-po
   });
 
   await registerAndLoad(page);
+  // Frisch registrierte User haben self_host_enabled === false → Entitlement setzen.
+  await grantSelfHostEntitlement(page);
   await openSelfHostSettings(page);
 
   // idle: Start-Knopf sichtbar
@@ -267,4 +291,34 @@ test('local-hosting: Phasen-UI durchlaufen (checking-network → live → not-po
     (window as unknown as { __emitHostPhase: (e: unknown) => void }).__emitHostPhase(e);
   }, { phase: 'not-possible-here' });
   await expect(page.getByTestId('local-host-cgnat')).toBeVisible({ timeout: 3_000 });
+});
+
+// ---------------------------------------------------------------------------
+// Test 4: self_host_enabled === false → Sperr-Karte sichtbar, kein Start-Knopf
+// ---------------------------------------------------------------------------
+
+test('local-hosting: self_host_enabled false → local-host-locked sichtbar, kein Start-Knopf', async ({ page }) => {
+  await addPulseMock(page);
+
+  // 1 Instanz bereitstellen, damit der Start-Knopf sichtbar ware, falls entsperrt.
+  await page.route('**/api/auth/me/instances', (route) => {
+    if (route.request().method() === 'GET') {
+      void route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([ACTIVE_INSTANCE]),
+      });
+    } else {
+      void route.continue();
+    }
+  });
+
+  await registerAndLoad(page);
+  // Entitlement bewusst NICHT setzen — frisch registrierte User haben self_host_enabled === false.
+  await openSelfHostSettings(page);
+
+  // Sperr-Karte muss sichtbar sein.
+  await expect(page.getByTestId('local-host-locked')).toBeVisible({ timeout: 5_000 });
+  // Start-Knopf darf NICHT sichtbar sein.
+  await expect(page.getByTestId('local-host-start')).not.toBeVisible();
 });

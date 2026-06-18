@@ -1071,6 +1071,8 @@
   "local_host_help_step3": "Save the setting and come back here.",
   "local_host_help_title": "A little help needed",
   "local_host_link_copied": "Link copied",
+  "local_host_locked_body": "Self-hosting will be unlocked for your account as soon as it is ready. Get in touch if you would like to get started.",
+  "local_host_locked_title": "Hosting is not yet unlocked",
   "local_host_live_body": "Share this address with others — they can reach your server right away.",
   "local_host_live_title": "Your server is live",
   "local_host_only_desktop": "Local hosting is only available in the desktop app.",
