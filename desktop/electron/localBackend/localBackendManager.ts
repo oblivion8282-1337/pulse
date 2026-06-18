@@ -39,6 +39,8 @@ import { tunnelComponent } from './tunnel.ts';
 import { mediaComponents } from './media.ts';
 
 import type { TunnelRelay } from './tunnel.ts';
+import type { DataDirs } from './types.ts';
+import type { Secrets } from './secrets.ts';
 import type { FixtureIdentity, Ports } from './renderConfig.ts';
 import type { ExtendedPorts } from './components.ts';
 import type { SupervisedProcessSpec } from './process.ts';
@@ -244,20 +246,8 @@ export class LocalBackendManager {
         }
       }
 
-      // 14. Medien-Stack (optional, vor dem Tunnel — alle Proxy-Ziele up):
-      //     voice-signaling (LiveKit-Webhook-Ziel) → LiveKit → MediaMTX.
-      if (input.media) {
-        await this._startSpec(voiceSignalingComponent(fullEnv, repoRoot, ports.voice));
-        const domain = input.relay?.subdomain ?? '127.0.0.1';
-        for (const spec of mediaComponents({
-          dirs, secrets, env: fullEnv,
-          voicePort: ports.voice,
-          authHookPort: ports.mediaAuthHook,
-          domain,
-        })) {
-          await this._startSpec(spec);
-        }
-      }
+      // 14. Medien-Stack (optional, vor dem Tunnel — alle Proxy-Ziele up).
+      if (input.media) await this._startMediaStack(input, dirs, secrets, fullEnv, repoRoot, ports);
 
       // 15. Tunnel starten (optional, zuletzt — alle lokalen Dienste laufen).
       if (input.relay) {
@@ -333,6 +323,21 @@ export class LocalBackendManager {
     this._startedProcs.push({ name: spec.name, proc });
     this._compStatus[spec.name] = 'running';
     console.log(`[manager] ${spec.name} läuft.`);
+  }
+
+  /** Medien-Stack: voice-signaling (LiveKit-Webhook-Ziel) → LiveKit → MediaMTX. */
+  private async _startMediaStack(
+    input: StartInput, dirs: DataDirs, secrets: Secrets,
+    fullEnv: Record<string, string>, repoRoot: string, ports: ExtendedPorts,
+  ): Promise<void> {
+    await this._startSpec(voiceSignalingComponent(fullEnv, repoRoot, ports.voice));
+    const domain = input.relay?.subdomain ?? '127.0.0.1';
+    for (const spec of mediaComponents({
+      dirs, secrets, env: fullEnv, voicePort: ports.voice,
+      authHookPort: ports.mediaAuthHook, domain,
+    })) {
+      await this._startSpec(spec);
+    }
   }
 
   private async _rollback(): Promise<void> {
