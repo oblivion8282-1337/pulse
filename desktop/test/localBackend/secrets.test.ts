@@ -1,9 +1,9 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, statSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, statSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ensureSecrets } from '../../electron/localBackend/secrets.ts';
+import { ensureSecrets, ensureMediamtxCert } from '../../electron/localBackend/secrets.ts';
 
 describe('ensureSecrets', () => {
   test('generiert einmalig und ist danach idempotent', async () => {
@@ -56,4 +56,25 @@ describe('ensureSecrets', () => {
       rmSync(dir, { recursive: true });
     }
   });
+});
+
+test('ensureSecrets liefert LiveKit-Key + Secret (idempotent)', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sec-lk-'));
+  try {
+    const a = await ensureSecrets(dir);
+    assert.equal(a.livekitApiKey, 'pulse-selfhost');
+    assert.match(a.livekitApiSecret, /^[0-9a-f]{64}$/);
+    const b = await ensureSecrets(dir);
+    assert.equal(b.livekitApiSecret, a.livekitApiSecret); // stabil
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('ensureMediamtxCert erzeugt Cert+Key idempotent', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sec-cert-'));
+  try {
+    const { certPath, keyPath } = ensureMediamtxCert(dir, 'host.relay.test');
+    assert.ok(existsSync(certPath) && existsSync(keyPath));
+    const again = ensureMediamtxCert(dir, 'host.relay.test');
+    assert.equal(again.certPath, certPath);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
