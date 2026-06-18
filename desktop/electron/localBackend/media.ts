@@ -141,6 +141,9 @@ export function mediaComponents(input: MediaComponentsInput): SupervisedProcessS
       command: mediamtxBin,
       args: [mediamtxCfg],
       env,
+      // MediaMTX schreibt sein WebRTC-Default-Cert (auto.crt/auto.key) ins
+      // Arbeitsverzeichnis → in den Daten-Ordner lenken, nicht ins cwd des Prozesses.
+      cwd: dirs.root,
       healthCheck: () => tcpProbe(9997),
       restartMax: 5,
     },
