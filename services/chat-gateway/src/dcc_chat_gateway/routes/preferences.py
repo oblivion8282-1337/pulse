@@ -50,6 +50,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import UserPreference
@@ -190,17 +191,36 @@ async def put_my_preference(
             version=1,
         )
         session.add(row)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Concurrent first-insert installed the row first; fall back to
+            # the update path against the now-existing row (mirrors the
+            # friends.py race handling).
+            await session.rollback()
+            row = await session.get(UserPreference, (current.id, section))
+            if row is None:
+                raise HTTPException(500, detail="preference_race_lost")
+            _apply_update(row, payload, expected)
+            await session.commit()
     else:
-        if expected is not None and expected != row.version:
-            raise HTTPException(
-                status.HTTP_412_PRECONDITION_FAILED,
-                detail="version_mismatch",
-            )
-        row.value = payload.value
-        row.version = row.version + 1
-    await session.commit()
+        _apply_update(row, payload, expected)
+        await session.commit()
     await session.refresh(row)
     return PreferenceOut(value=row.value, version=row.version)
+
+
+def _apply_update(
+    row: UserPreference, payload: PreferenceIn, expected: int | None
+) -> None:
+    """Bump an existing preference row, enforcing the optional If-Match."""
+    if expected is not None and expected != row.version:
+        raise HTTPException(
+            status.HTTP_412_PRECONDITION_FAILED,
+            detail="version_mismatch",
+        )
+    row.value = payload.value
+    row.version = row.version + 1
 
 
 @router.delete(
@@ -283,6 +303,42 @@ async def get_backup_onboarding_preference(
     )
 
 
+async def _resolve_backup_onboarding(
+    session: SessionDep,
+    row: UserPreference,
+    payload: BackupOnboardingPatch,
+    now_iso: str,
+) -> BackupOnboardingOut:
+    """Apply the once-only onboarding decision against an existing row.
+
+    Same decision → idempotent 200 (no write). Different decision → 409.
+    Missing decision on the row → fill it in.
+    """
+    existing_decision = (row.value or {}).get("decision")
+    if existing_decision is not None and existing_decision != payload.decision:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="already_decided",
+        )
+    if existing_decision == payload.decision:
+        # Idempotent: selbe Decision → 200 ohne DB-Write.
+        return BackupOnboardingOut(
+            decided=True,
+            decision=payload.decision,
+            decided_at=(row.value or {}).get("decided_at"),
+        )
+    # Row existiert, decision fehlt → update.
+    row.value = {"decision": payload.decision, "decided_at": now_iso}
+    row.version = row.version + 1
+    await session.commit()
+    await session.refresh(row)
+    return BackupOnboardingOut(
+        decided=True,
+        decision=(row.value or {}).get("decision"),
+        decided_at=(row.value or {}).get("decided_at"),
+    )
+
+
 @router.patch(
     "/me/preferences/backup-onboarding",
     response_model=BackupOnboardingOut,
@@ -312,28 +368,21 @@ async def patch_backup_onboarding_preference(
             version=1,
         )
         session.add(row)
-        await session.commit()
-        await session.refresh(row)
+        try:
+            await session.commit()
+            await session.refresh(row)
+        except IntegrityError:
+            # Concurrent first-insert won the race; re-fetch and resolve via
+            # the existing-row path (mirrors the friends.py race handling).
+            await session.rollback()
+            row = await session.get(
+                UserPreference, (current.id, _BACKUP_ONBOARDING_SECTION)
+            )
+            if row is None:
+                raise HTTPException(500, detail="preference_race_lost")
+            return await _resolve_backup_onboarding(session, row, payload, now_iso)
     else:
-        existing_decision = (row.value or {}).get("decision")
-        if existing_decision is not None and existing_decision != payload.decision:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail="already_decided",
-            )
-        if existing_decision == payload.decision:
-            # Idempotent: selbe Decision → 200 ohne DB-Write.
-            return BackupOnboardingOut(
-                decided=True,
-                decision=payload.decision,
-                decided_at=(row.value or {}).get("decided_at"),
-            )
-        # Sollte nicht passieren (existing_decision == payload.decision oben),
-        # aber zur Sicherheit: Row existiert, decision fehlt → update.
-        row.value = {"decision": payload.decision, "decided_at": now_iso}
-        row.version = row.version + 1
-        await session.commit()
-        await session.refresh(row)
+        return await _resolve_backup_onboarding(session, row, payload, now_iso)
 
     return BackupOnboardingOut(
         decided=True,

@@ -483,6 +483,17 @@ async def cert_login_verify(
     if not verify_challenge_signature(nonce_raw, signature, cert_claims.device_pubkey):
         raise HTTPException(status_code=401, detail="signature_invalid")
 
+    # 5. Resolve identifier (pairwise-sub in self-host, raw user_id in cloud).
+    settings = get_settings()
+    # Guard: a self-host with the default PULSE_INSTANCE_ID=0 must not mint
+    # pairwise-subs. Every unconfigured instance would compute identical subs
+    # (user_id + ':' + 0) — collapsing per-instance privacy isolation (DE 11 A.13).
+    # Checked BEFORE the challenge is claimed below: a misconfigured instance
+    # returning 503 must not also burn the user's one-time challenge token
+    # (which would force a fresh challenge round-trip on every doomed retry).
+    if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_id == 0:
+        raise HTTPException(status_code=503, detail="instance_id_unconfigured")
+
     # 4b. One-time use: atomically claim this challenge token. A replay of the
     #     exact same (cert, challenge_token, signature) body within the 60s
     #     window — e.g. from an intercepted /verify request — is rejected here
@@ -490,13 +501,6 @@ async def cert_login_verify(
     #     so an invalid attempt cannot burn a legitimate user's challenge.
     await _claim_challenge_once(body.challenge_token, redis)
 
-    # 5. Resolve identifier (pairwise-sub in self-host, raw user_id in cloud).
-    settings = get_settings()
-    # Guard: a self-host with the default PULSE_INSTANCE_ID=0 must not mint
-    # pairwise-subs. Every unconfigured instance would compute identical subs
-    # (user_id + ':' + 0) — collapsing per-instance privacy isolation (DE 11 A.13).
-    if settings.pulse_instance_mode == "self-host" and settings.pulse_instance_id == 0:
-        raise HTTPException(status_code=503, detail="instance_id_unconfigured")
     identifier = resolve_user_identifier(
         cert_claims,
         instance_mode=settings.pulse_instance_mode,

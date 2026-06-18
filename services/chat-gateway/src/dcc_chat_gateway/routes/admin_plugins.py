@@ -48,7 +48,7 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import GuildPlugin
+from dcc_chat_gateway.models import GuildPlugin, GuildPluginState
 from dcc_chat_gateway.routes.admin_plugins_publish import (
     ALLOWLIST_CHANGED_CHANNEL,
     publish_allowlist_changed,
@@ -266,12 +266,15 @@ async def remove_plugin_from_allowlist(
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail="hello_plugin_not_removable"
         )
-    # Manueller Cascade über die zwei Tabellen — es gibt keinen DB-FK
-    # zwischen instance_plugin_allowlist und guild_plugins (die haben
-    # nur das ``plugin_name``-Feld als logische Brücke). Erst die
+    # Manueller Cascade über die drei Tabellen — es gibt keinen DB-FK
+    # zwischen instance_plugin_allowlist und guild_plugins/guild_plugin_state
+    # (die haben nur das ``plugin_name``-Feld als logische Brücke). Erst die
     # betroffenen Guild-IDs einsammeln (für den WS-Push gleich darunter),
-    # dann die Toggle-Rows weg, dann die Allowlist-Row — failt der zweite
-    # Schritt, hinterlassen wir keinen orphan Toggle-Set.
+    # dann die Toggle-Rows + die per-Guild-State-Blobs weg, dann die
+    # Allowlist-Row — failt ein späterer Schritt, hinterlassen wir keinen
+    # orphan Toggle-Set. Ohne das State-Delete blieben die guild_plugin_state-
+    # Blobs für immer liegen (kein FK auf die Allowlist) und ein späteres
+    # Re-Add des Plugins würde stillschweigend alten State erben.
     affected_guilds_rows = await session.execute(
         select(GuildPlugin.guild_id).where(
             GuildPlugin.plugin_name == name,
@@ -281,6 +284,9 @@ async def remove_plugin_from_allowlist(
     affected_guild_ids = [int(g) for g in affected_guilds_rows.scalars().all()]
     await session.execute(
         delete(GuildPlugin).where(GuildPlugin.plugin_name == name)
+    )
+    await session.execute(
+        delete(GuildPluginState).where(GuildPluginState.plugin_name == name)
     )
     removed = await remove_from_allowlist(session, name)
     if not removed:
@@ -302,6 +308,13 @@ async def remove_plugin_from_allowlist(
 
     for key in [k for k in _cache if k[1] == name]:
         _cache.pop(key, None)
+
+    # 3b. State-Store-Existenz-Cache leeren — die guild_plugin_state-Rows sind
+    #     oben gelöscht; ohne das würde ein Re-Add des Plugins den _ensure_row-
+    #     INSERT überspringen und gegen eine Phantom-Row arbeiten.
+    from dcc_chat_gateway.plugins.state_store import forget_cached_rows
+
+    forget_cached_rows(name)
 
     # 4. Pro Guild, die das Plugin aktiv hatte, ein
     #    ``guild_plugins_changed``-Event pushen (enabled=False), damit

@@ -1345,6 +1345,10 @@ class VoiceRoom {
     // Win11 bypass path: stop raw MediaStreamTracks ourselves — the LiveKit
     // room is gone so unpublishTrack would no-op, but the OS-level "you are
     // sharing" indicator only goes away when the tracks actually .stop().
+    if (this.#bypassVideoTrack && this.#bypassEndedHandler) {
+      this.#bypassVideoTrack.removeEventListener('ended', this.#bypassEndedHandler);
+    }
+    this.#bypassEndedHandler = null;
     if (this.#bypassVideoTrack && this.#bypassVideoTrack.readyState !== 'ended') {
       this.#bypassVideoTrack.stop();
     }

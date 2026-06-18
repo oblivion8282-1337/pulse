@@ -236,10 +236,19 @@ class ConnectionManager(
         ws: WebSocket,
         user: AuthenticatedUser,
         guild_ids: Iterable[int] = (),
-    ) -> bool:
-        """Add ``ws`` to the connection set. Returns False when the user
-        already has ``MAX_CONNECTIONS_PER_USER`` open sockets — the caller
-        must close the websocket in that case.
+    ) -> tuple[bool, bool]:
+        """Add ``ws`` to the connection set. Returns ``(accepted, is_first)``.
+
+        ``accepted`` is False when the user already has
+        ``MAX_CONNECTIONS_PER_USER`` open sockets — the caller must close the
+        websocket in that case. ``is_first`` is True when this socket is the
+        user's only live connection right after registration (i.e. the user
+        just transitioned from offline to online).
+
+        ``is_first`` is decided atomically under ``_lock`` together with the
+        registration itself. Reading ``user_socket_count`` separately later
+        races: two concurrent first connects would both observe count == 2 and
+        neither would broadcast the online transition.
 
         Storing the full ``AuthenticatedUser`` (rather than just the id)
         keeps the ``is_admin`` flag available for permission resolution
@@ -255,12 +264,13 @@ class ConnectionManager(
         async with self._lock:
             user_set = self._user_conns[user.id]
             if len(user_set) >= self.MAX_CONNECTIONS_PER_USER:
-                return False
+                return False, False
+            is_first = len(user_set) == 0
             user_set.add(ws)
             self._ws_user[ws] = user
             self._connections.add(ws)
             self._ws_guilds[ws] = {int(g) for g in guild_ids}
-            return True
+            return True, is_first
 
     async def set_guild_membership(
         self, ws: WebSocket, guild_ids: Iterable[int]

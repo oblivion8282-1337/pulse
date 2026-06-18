@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dcc_chat_gateway.models import ChatSettings, Guild, GuildInvite, InstanceMember
@@ -43,13 +44,27 @@ async def add_member(
     session: AsyncSession, user_identifier: str, joined_via: str | None
 ) -> None:
     """Idempotently record a member. No-op (keeps the original ``joined_via``)
-    if the user already joined — the first provenance wins."""
+    if the user already joined — the first provenance wins.
+
+    The SELECT-then-INSERT is not atomic: two concurrent first-time joins for
+    the same identifier both pass :func:`is_member` and race to INSERT. The
+    INSERT runs inside a SAVEPOINT so the loser's primary-key collision rolls
+    back only that statement (not the caller's whole transaction) and is
+    treated as a no-op — the row the winner installed stands (first provenance
+    wins, consistent with the early-return above)."""
     if await is_member(session, user_identifier):
         return
-    session.add(
-        InstanceMember(user_identifier=user_identifier, joined_via=joined_via)
-    )
-    await session.flush()
+    try:
+        async with session.begin_nested():
+            session.add(
+                InstanceMember(
+                    user_identifier=user_identifier, joined_via=joined_via
+                )
+            )
+            await session.flush()
+    except IntegrityError:
+        # A concurrent first-time join installed the row first — no-op.
+        pass
 
 
 async def community_invite_grants_access(

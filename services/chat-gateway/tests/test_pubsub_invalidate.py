@@ -54,7 +54,7 @@ async def _register(manager, ws, user_id: int) -> AuthenticatedUser:
         is_admin=False,
         payload={},
     )
-    ok = await manager.register(ws, user)  # type: ignore[arg-type]
+    ok, _ = await manager.register(ws, user)  # type: ignore[arg-type]
     assert ok, "register should succeed below the connection cap"
     return user
 
@@ -128,6 +128,38 @@ async def test_remove_socket_clears_perms_cache(app, session_factory):
     assert ws not in manager._ws_perms, (
         "removed ws was resurrected in _ws_perms — defaultdict bug regressed"
     )
+
+
+@pytest.mark.asyncio
+async def test_register_reports_first_socket_atomically(app):
+    """``register`` must report ``is_first`` for exactly the first live socket
+    of a user, decided under its lock alongside the insertion.
+
+    Regression for the presence race: when two first connects for the same
+    user landed concurrently, both re-read ``user_socket_count`` afterwards,
+    saw 2, and neither broadcast ``presence_update(online=True)``. With the
+    decision folded into ``register`` only the true first socket gets the
+    flag, so the online transition is always emitted exactly once.
+    """
+    manager = app.state.connection_manager
+    user = AuthenticatedUser(id=987654, username="u987654", is_admin=False, payload={})
+
+    ws1 = _FakeWS("first")
+    ws2 = _FakeWS("second")
+
+    accepted1, is_first1 = await manager.register(ws1, user)  # type: ignore[arg-type]
+    accepted2, is_first2 = await manager.register(ws2, user)  # type: ignore[arg-type]
+
+    assert accepted1 and accepted2
+    assert is_first1 is True, "first socket must be flagged as the online transition"
+    assert is_first2 is False, "second socket must NOT re-trigger the online broadcast"
+
+    # After the first socket drops, the next registration is 'first' again.
+    await manager.remove_socket(ws1)  # type: ignore[arg-type]
+    await manager.remove_socket(ws2)  # type: ignore[arg-type]
+    ws3 = _FakeWS("reconnect")
+    accepted3, is_first3 = await manager.register(ws3, user)  # type: ignore[arg-type]
+    assert accepted3 and is_first3 is True
 
 
 @pytest.mark.asyncio
@@ -245,7 +277,7 @@ async def test_filter_parallel_resolves_targets(app, session_factory, monkeypatc
         uid = owner_id + 100 + i
         ws = _FakeWS(f"t{i}")
         user = AuthenticatedUser(id=uid, username=f"u{uid}", is_admin=False, payload={})
-        ok = await manager.register(ws, user)  # type: ignore[arg-type]
+        ok, _ = await manager.register(ws, user)  # type: ignore[arg-type]
         assert ok
         async with session_factory() as s:
             s.add(GuildMember(guild_id=gid, user_id=uid))

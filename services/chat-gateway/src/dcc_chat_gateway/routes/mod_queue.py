@@ -341,9 +341,12 @@ async def resolve_report(
 
     # Enforce the chosen action BEFORE marking the report resolved. The dispatch
     # helpers reuse the canonical handlers (own permission/hierarchy gate + their
-    # own commit), so on success ``report`` is expired — re-attach a fresh copy
-    # before mutating it. On a 403/404 the exception propagates and the report
-    # stays open.
+    # own commit), so on success ``report`` is expired AND the FOR UPDATE row lock
+    # taken above is released by that nested commit. Re-fetch the row WITH FOR
+    # UPDATE so the status re-check + write below run under a fresh lock — a second
+    # moderator that was blocked at the initial SELECT can otherwise slip in
+    # between the commit and the re-read and produce a duplicate resolution. On a
+    # 403/404 the exception propagates and the report stays open.
     if payload.resolution == "resolved" and payload.action_type in _ENFORCEABLE:
         await _dispatch_enforcement(
             session,
@@ -354,7 +357,9 @@ async def resolve_report(
             payload.action_type,
             payload.resolution_note,
         )
-        report = await session.get(Report, report_id)
+        report = await session.scalar(
+            select(Report).where(Report.id == report_id).with_for_update()
+        )
         if report is None or report.status in ("resolved", "dismissed"):
             raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
 

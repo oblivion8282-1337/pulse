@@ -2,6 +2,21 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-18.4",
+      "date": "2026-06-18",
+      "style": "Freundlich",
+      "title": "Aufgeräumt und stabiler",
+      "intro": "Wir haben eine Reihe von Fehlern behoben:",
+      "items": [
+        "Dein Online-Status stimmt jetzt auch, wenn du auf mehreren Geräten angemeldet bist.",
+        "Erwähnungen in Direktnachrichten erreichen nur noch die richtigen Personen.",
+        "Die Datumstrennung im Chat springt nach Mitternacht korrekt auf Heute/Gestern.",
+        "Einstellungen lassen sich wieder zuverlässig speichern.",
+        "Im Admin-Bereich tauchen keine doppelten Nutzer mehr auf.",
+        "Dazu viele kleine Verbesserungen bei Stabilität und Speicher."
+      ]
+    },
+    {
       "id": "2026-06-18.3",
       "date": "2026-06-18",
       "style": "Sachlich",

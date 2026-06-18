@@ -120,6 +120,26 @@ def _parse_state(raw: bytes | str | None) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _active_created_after(raw: bytes | str | None, cutoff: datetime) -> bool:
+    """True if a ``stream:active`` record's ``started_at`` is at/after ``cutoff``.
+
+    Used by the stale-cleanup to spare a record written by a fresh publish that
+    raced in *after* this reconcile pass took its MediaMTX snapshot. A record
+    with a missing/unparseable ``started_at`` is treated as old (returns False)
+    so genuinely-stale keys still self-heal."""
+    state = _parse_state(raw)
+    started_at = (state or {}).get("started_at")
+    if not isinstance(started_at, str):
+        return False
+    try:
+        started = datetime.fromisoformat(started_at)
+    except ValueError:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return started >= cutoff
+
+
 async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     """One reconciliation pass. Raises only on a MediaMTX-API failure (the loop
     swallows that).
@@ -132,6 +152,11 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     of how many channels are active.
     """
     settings = get_settings()
+    # Snapshot the pass-start time *before* querying MediaMTX. Any
+    # ``stream:active`` record written by the auth-hook after this instant
+    # belongs to a brand-new publish that MediaMTX hadn't reported yet (RTMP
+    # handshake, pre-keyframe) — the stale-cleanup below must NOT delete it.
+    pass_start = datetime.now(UTC)
     publishers = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
     known = await _list_known_channels(redis)
 
@@ -188,11 +213,24 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
         # Also remove any stream:active:channel-<cid>-<uid> keys that linger
         # after the publisher disconnected — otherwise get_whep_url returns 200
         # with a stale path for a dead stream until the 6h TTL expires.
+        # TOCTOU guard: a new publisher can authenticate (auth-hook writes a
+        # fresh stream:active) in the window between our MediaMTX snapshot and
+        # this scan, before MediaMTX reports the path as ready. Skip deleting any
+        # record whose started_at is at/after this pass's start — that record
+        # belongs to a live, brand-new session, not a dead one.
         for cid in stale:
             pattern = f"stream:active:channel-{cid}-*"
             active_keys = [k async for k in redis.scan_iter(match=pattern, count=100)]
-            if active_keys:
-                await redis.delete(*active_keys)
+            if not active_keys:
+                continue
+            values = await redis.mget(*active_keys)
+            to_delete = [
+                k
+                for k, raw in zip(active_keys, values, strict=False)
+                if not _active_created_after(raw, pass_start)
+            ]
+            if to_delete:
+                await redis.delete(*to_delete)
         await asyncio.gather(*[_publish_event(redis, cid, []) for cid in stale])
         for cid in stale:
             log.info("stream_state_change", channel_id=cid, user_ids=[])

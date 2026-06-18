@@ -71,13 +71,19 @@ async def promote_or_end(
     promote the oldest remaining watcher; if none remain, end the party."""
     if redis is None:
         return
-    async with manager._lock:
-        state = await watchkeys.read_party(redis, channel_id, party_id)
-        if state is None:
-            return
-        if str(state.get("host_user_id")) != str(departing_uid):
-            return  # departing user was a viewer — nothing to promote
-    # next_host takes its own lock; compute outside the block above.
+    # Do NOT hold manager._lock across this Redis round-trip — that lock also
+    # serialises subscribe / unsubscribe / remove_socket / watch_join /
+    # watch_leave, so holding it across the network hop causes head-of-line
+    # blocking if Redis is slow. The read needs no in-memory lock: it guards
+    # nothing in the manager's dicts here, and the authoritative consistency
+    # check is the re-read guard below (lines after next_host) plus the atomic
+    # Redis writes.
+    state = await watchkeys.read_party(redis, channel_id, party_id)
+    if state is None:
+        return
+    if str(state.get("host_user_id")) != str(departing_uid):
+        return  # departing user was a viewer — nothing to promote
+    # next_host takes its own lock; keep it outside any held lock too.
     next_uid = await manager.next_host(channel_id, party_id, exclude_uid=str(departing_uid))
     if next_uid is None:
         await watchkeys.delete_party(redis, channel_id, party_id)

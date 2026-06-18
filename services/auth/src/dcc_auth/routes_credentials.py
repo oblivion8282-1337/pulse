@@ -218,8 +218,11 @@ async def issue_credential(
             raise HTTPException(
                 status.HTTP_409_CONFLICT, detail="concurrent_issue_conflict"
             )
-        # user object may be expired after rollback — refresh it for JWT signing.
+        # user AND session_row are expired after rollback (validate_session put
+        # session_row in the dirty set) — refresh both before sync JWT signing,
+        # else reading session_row.amr/.acr raises MissingGreenlet.
         await db.refresh(user)
+        await db.refresh(session_row)
         return CredentialIssueResponse(cert=_sign_credential_jwt(user, winner, session_row))
     cert_jwt = _sign_credential_jwt(user, cred, session_row)
     await db.commit()

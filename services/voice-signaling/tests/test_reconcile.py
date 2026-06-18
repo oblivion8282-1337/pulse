@@ -154,6 +154,46 @@ async def test_reconcile_clears_stale_channel(redis):
         await redis.delete(room_key(room), streaming_key(room), camera_key(room))
 
 
+class _RaceRoomService(_FakeRoomService):
+    """First ``list_rooms`` (the pass snapshot) is empty; a later name-scoped
+    ``list_rooms`` reports ``late_room`` — simulating a room that LiveKit
+    created (and a ``participant_joined`` webhook populated) in the window
+    between the snapshot and the ghost-clear re-check."""
+
+    def __init__(self, late_room: str):
+        super().__init__({})
+        self._late_room = late_room
+        self._calls = 0
+
+    async def list_rooms(self, req):  # noqa: ANN001
+        self._calls += 1
+        names = list(getattr(req, "names", []) or [])
+        if self._calls == 1:
+            return type("Resp", (), {"rooms": []})()
+        rooms = [_FakeRoom(self._late_room)] if self._late_room in names else []
+        return type("Resp", (), {"rooms": rooms})()
+
+
+@pytest.mark.asyncio
+async def test_reconcile_spares_room_created_during_pass(redis):
+    """TOCTOU guard: a room whose presence key appeared *after* the snapshot
+    (racing webhook) must NOT be ghost-cleared — the name-scoped re-check sees
+    LiveKit now has it, so its freshly-joined member survives."""
+    cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))
+    room = f"channel-{cid}"
+    # Webhook already wrote the new participant's presence key.
+    await redis.sadd(room_key(room), "42")
+    lk = _FakeLiveKitAPI({})
+    lk.room = _RaceRoomService(room)
+    try:
+        summary = await reconcile_once(redis, lk, ttl_seconds=3600)
+        assert summary["stale_cleared"] == 0
+        # The racing participant's presence survived.
+        assert _members(await redis.smembers(room_key(room))) == {"42"}
+    finally:
+        await redis.delete(room_key(room), streaming_key(room), camera_key(room))
+
+
 @pytest.mark.asyncio
 async def test_reconcile_publishes_snapshot(redis):
     cid = str(abs(hash(uuid.uuid4())) & ((1 << 31) - 1))

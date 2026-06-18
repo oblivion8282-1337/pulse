@@ -60,6 +60,12 @@ log = structlog.get_logger(__name__)
 
 limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
+# Hard cap on distinct IP entries tracked per rate-limit bucket. Bounds the
+# in-process limiter's memory under unique-IP churn against long-window
+# endpoints (see _check_rate). Eviction is least-recently-seen, so legitimate
+# active IPs are never dropped under realistic traffic.
+_RATE_BUCKET_MAX_IPS = 10_000
+
 
 def _signer_dep() -> JwtSigner:
     """Re-exported FastAPI dependency for the JWT signer. Several sibling
@@ -734,6 +740,22 @@ async def _check_rate(request: Request, key: str, rule: str) -> None:
     stale_ips = [k for k, ts in bucket.items() if not ts or ts[-1] <= cutoff]
     for k in stale_ips:
         del bucket[k]
+
+    # The stale-sweep above only prunes IPs whose last request fell outside the
+    # window. For long-window endpoints (e.g. 3/hour) a stream of unique IPs
+    # (NAT/VPN churn) each keeps one in-window timestamp and is never swept, so
+    # the bucket can still grow without bound. Cap the number of tracked IPs per
+    # endpoint and evict the least-recently-seen entries when exceeded — this
+    # bounds memory regardless of window length without affecting active IPs.
+    if len(bucket) >= _RATE_BUCKET_MAX_IPS and ip not in bucket:
+        overflow = len(bucket) - _RATE_BUCKET_MAX_IPS + 1
+
+        def last_seen(entry_ip: str) -> float:
+            ts = bucket[entry_ip]
+            return ts[-1] if ts else 0.0
+
+        for stale_ip in sorted(bucket, key=last_seen)[:overflow]:
+            del bucket[stale_ip]
 
     timestamps = bucket.setdefault(ip, collections.deque())
     # Remove timestamps outside the sliding window.

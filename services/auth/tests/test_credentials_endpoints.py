@@ -327,3 +327,78 @@ async def test_concurrent_issue_creates_only_one(client, app, session_factory):
             ).scalars().first()
             assert winner is not None, "re-SELECT after IntegrityError must find the winner row"
             assert str(winner.cert_id) == seed_cert_id
+
+
+@pytest.mark.asyncio
+async def test_issue_race_rollback_does_not_crash_on_expired_session(client, app, session_factory):
+    """Regression: the IntegrityError handler must refresh session_row too.
+
+    ``validate_session`` mutates ``session_row.last_seen_at``/``expires_at`` on
+    every request, putting the row in the session's dirty set. ``db.rollback()``
+    in the race handler then expires ALL dirty objects (incl. unmodified
+    ``amr``/``acr``). Because ``Base`` uses ``AsyncAttrs``, the *sync*
+    ``_sign_credential_jwt`` reading ``session_row.amr`` from an expired,
+    rollback-detached state raised ``MissingGreenlet`` (HTTP 500). The fix
+    refreshes ``session_row`` alongside ``user``. This test reproduces the exact
+    expiry + sync-read surface and asserts it does not raise.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select as sa_select
+
+    from dcc_auth.browser_sessions import validate_session
+    from dcc_auth.models import IssuedCredential as IC
+    from dcc_auth.models import User as UserModel
+    from dcc_auth.routes_credentials import _sign_credential_jwt
+
+    cookie, access = await _reg_and_login(client)
+    user_id = int(pyjwt.decode(access, options={"verify_signature": False})["sub"])
+    sid_raw = cookie.split("=", 1)[1]
+
+    # Seed a winning credential row so the duplicate INSERT trips the index.
+    shared_pubkey = base64.b64encode(b"\xee" * 32).decode()
+    with patch("dcc_auth.routes_credentials._check_rate_user", new_callable=AsyncMock):
+        r_seed = await _issue(client, cookie, pubkey=shared_pubkey, label="Seed")
+    assert r_seed.status_code == 200, r_seed.text
+    pubkey_bytes = base64.b64decode(shared_pubkey)
+
+    async with session_factory() as db:
+        # validate_session mutates session_row -> dirty set (exactly as the route).
+        session_row = await validate_session(db, uuid.UUID(sid_raw))
+        assert session_row is not None
+        user = await db.get(UserModel, user_id)
+        assert user is not None
+
+        # Provoke the IntegrityError -> rollback handler path from the route.
+        now = datetime.now(UTC)
+        dup = IC(
+            cert_id=str(uuid.uuid4()),
+            user_id=user_id,
+            device_pubkey=pubkey_bytes,
+            device_label="Dup",
+            issued_at=now,
+            expires_at=now + timedelta(days=365),
+        )
+        db.add(dup)
+        try:
+            await db.flush()
+        except Exception:  # IntegrityError on the partial unique index
+            await db.rollback()
+            # The fix: both objects must be re-hydrated before sync JWT signing.
+            await db.refresh(user)
+            await db.refresh(session_row)
+            winner = (
+                await db.execute(
+                    sa_select(IC).where(
+                        IC.device_pubkey == pubkey_bytes,
+                        IC.revoked_at.is_(None),
+                    )
+                )
+            ).scalars().first()
+            assert winner is not None
+            # Must NOT raise MissingGreenlet — session_row.amr/.acr are loaded.
+            cert = _sign_credential_jwt(user, winner, session_row)
+            assert cert.count(".") == 2
+        else:
+            await db.rollback()
+            pytest.skip("partial unique index did not fire on this engine")

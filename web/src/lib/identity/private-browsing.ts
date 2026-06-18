@@ -1,9 +1,10 @@
 /**
  * Inkognito/Private-Browsing-Detection.
  *
- * Methode: `navigator.storage.persist()` — im normalen Modus gibt
- * persist() `true` zurück, in Inkognito-Modus oder Browsern ohne
- * Persistent-Storage-Unterstützung gibt es `false` zurück.
+ * Methode: `navigator.storage.persisted()` — im normalen Modus mit
+ * gewährtem Persistent-Storage gibt persisted() `true` zurück, in
+ * Inkognito-Modus oder Browsern ohne Persistent-Storage `false`.
+ * (Read-only — NICHT `persist()`, das aktiv einen Grant anfordert.)
  *
  * Wichtig: Das ist eine Heuristik. Firefox gibt auch im normalen
  * Modus `false` zurück wenn kein Permission-Grant vorliegt. Wir
@@ -24,10 +25,12 @@
 export async function isPrivateBrowsing(): Promise<boolean> {
   if (typeof navigator === 'undefined') return false;
 
-  // Methode 1: navigator.storage.persist() (Chrome/Firefox/Edge)
-  if ('storage' in navigator && 'persist' in navigator.storage) {
+  // Methode 1: navigator.storage.persisted() (Chrome/Firefox/Edge)
+  // Read-only Abfrage — persist() (ohne -ed) würde aktiv einen
+  // Persistent-Storage-Grant ANFORDERN (Permission-Prompt / State-Mutation).
+  if ('storage' in navigator && 'persisted' in navigator.storage) {
     try {
-      const persistent = await navigator.storage.persist();
+      const persistent = await navigator.storage.persisted();
       if (!persistent) return true;
     } catch {
       // API existiert aber wirft — vorsichtshalber als privat behandeln

@@ -301,6 +301,48 @@ async def test_verify_happy_path_cloud_mode(client, _route_settings):
 
 
 @pytest.mark.asyncio
+async def test_verify_unconfigured_instance_does_not_burn_challenge(
+    client, _route_settings
+):
+    """A self-host with the default PULSE_INSTANCE_ID=0 returns 503 on /verify
+    — but must NOT consume the one-time challenge token while doing so.
+
+    Regression: the instance_id guard ran AFTER ``_claim_challenge_once``, so
+    every doomed retry burned a fresh challenge (forcing a new /challenge
+    round-trip) yet never succeeded. The guard now runs BEFORE the claim, so
+    replaying the exact same body still returns 503 (not 410 already-used).
+    """
+    priv = Ed25519PrivateKey.generate()
+    pub_b64 = _b64url(priv.public_key().public_bytes_raw())
+    claims = _make_claims(user_id="555", device_pubkey=pub_b64)
+
+    _route_settings.pulse_instance_mode = "self-host"
+    _route_settings.pulse_instance_id = 0  # misconfigured
+
+    with _patch_validate(claims):
+        ch = await client.post("/cert-login/challenge", json={"cert": "stub"})
+        assert ch.status_code == 200
+        ch_body = ch.json()
+        sig = _sign_nonce(priv, ch_body["nonce"])
+        body = {
+            "cert": "stub",
+            "challenge_token": ch_body["challenge_token"],
+            "signature": sig,
+        }
+
+        first = await client.post("/cert-login/verify", json=body)
+        assert first.status_code == 503, first.text
+        assert first.json()["detail"] == "instance_id_unconfigured"
+
+        # Replaying the identical body must still hit the 503 guard — the
+        # challenge was NOT burned by the first (failed) attempt. A 410
+        # here would mean the token was consumed, the regressed behavior.
+        second = await client.post("/cert-login/verify", json=body)
+        assert second.status_code == 503, second.text
+        assert second.json()["detail"] == "instance_id_unconfigured"
+
+
+@pytest.mark.asyncio
 async def test_verify_wrong_signature(client):
     """Signature minted with the wrong device key → 401 signature_invalid."""
     _priv_cert, pub_b64 = _make_keypair_full()

@@ -25,6 +25,7 @@
   let loading = $state(true);
   let error = $state<string | null>(null);
   let hasMore = $state(false);
+  let loadingMore = $state(false);
   let pendingId = $state<string | null>(null);
 
   async function loadInitial() {
@@ -41,8 +42,10 @@
   }
 
   async function loadMore() {
+    if (loadingMore) return;
     const cursor = users[users.length - 1]?.id;
     if (!cursor) return;
+    loadingMore = true;
     try {
       const more = await adminApi.listUsers({ before: cursor, limit: 50 });
       users = [...users, ...more];
@@ -51,6 +54,8 @@
       toast.error(m.admin_users_load_more_failed(), {
         description: e instanceof Error ? e.message : String(e)
       });
+    } finally {
+      loadingMore = false;
     }
   }
 
@@ -173,7 +178,7 @@
 
     {#if hasMore}
       <div class="mt-3 flex justify-center">
-        <Button variant="secondary" onclick={loadMore} data-testid="admin-users-more">
+        <Button variant="secondary" onclick={loadMore} disabled={loadingMore} data-testid="admin-users-more">
           {m.admin_users_load_more()}
         </Button>
       </div>

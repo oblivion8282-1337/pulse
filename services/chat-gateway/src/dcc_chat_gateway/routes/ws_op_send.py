@@ -236,6 +236,7 @@ async def handle_send(ctx: WSOpContext, msg: dict[str, Any]) -> None:
             guild_id=guild_id_for_bump,
             author_permissions=author_perms,
             candidates=parse_markers(content),
+            dm_participant_ids=set(dm_pair) if dm_pair is not None else None,
         )
         await persist_for_message(
             session,

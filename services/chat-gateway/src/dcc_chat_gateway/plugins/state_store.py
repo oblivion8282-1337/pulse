@@ -57,10 +57,25 @@ class RowVanishedError(Exception):
 
 # Per-(guild_id, plugin_name) cache: once a row has been confirmed to exist we
 # skip the _ensure_row INSERT on subsequent calls (steady-state optimisation).
-# The set is process-local and is intentionally never cleared — if a row is
-# deleted the next apply_atomic_update will raise RowVanishedError and that
-# entry will be removed from the set so the next caller re-runs _ensure_row.
+# The set is process-local and is intentionally never cleared during normal
+# operation — if a row is deleted the next apply_atomic_update will raise
+# RowVanishedError and that entry will be removed from the set so the next
+# caller re-runs _ensure_row. Plugin removal clears its entries eagerly via
+# ``forget_cached_rows`` (the backing rows are deleted in the same step).
 _row_exists: set[tuple[int, str]] = set()
+
+
+def forget_cached_rows(plugin_name: str) -> None:
+    """Drop every ``_row_exists`` entry for ``plugin_name``.
+
+    Called when a plugin's ``guild_plugin_state`` rows are deleted (e.g. on
+    plugin removal via ``DELETE /admin/plugins/{name}``). Without this the
+    process-local cache would still claim the rows exist, so a later re-add of
+    the same plugin would skip ``_ensure_row`` and operate against a phantom
+    row. Clearing the entries keeps the cache honest after the delete."""
+    _row_exists.difference_update(
+        {key for key in _row_exists if key[1] == plugin_name}
+    )
 
 
 async def get_state(

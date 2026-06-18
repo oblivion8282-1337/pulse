@@ -174,7 +174,13 @@ class DetachedWatchParties {
     } catch {
       /* ignore */
     }
-    if (!this.#set.has(k)) return;
+    // Drop the tracked window so the sweep poll can stop once the last detached
+    // party reattaches — `#ensurePollStopped` gates on `#windows.size`.
+    this.#windows.delete(k);
+    if (!this.#set.has(k)) {
+      this.#ensurePollStopped();
+      return;
+    }
     const next = new Set(this.#set);
     next.delete(k);
     this.#set = next;
