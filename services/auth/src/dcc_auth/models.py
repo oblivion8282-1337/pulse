@@ -94,6 +94,12 @@ class User(Base):
     is_suspended: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
+    # Cloud-Gate: user may spin up self-hosted instances.  Default false —
+    # an admin must explicitly grant this before the user can mint bootstrap
+    # tokens or run the one-command installer.
+    self_host_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     # Account-recovery / 2FA columns (migration 0006).
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

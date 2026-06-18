@@ -168,6 +168,10 @@ async def patch_user(
                 .values(expires_at=now, revoked_at=now)
             )
 
+    if payload.self_host_enabled is not None and payload.self_host_enabled != user.self_host_enabled:
+        changes["self_host_enabled"] = {"from": user.self_host_enabled, "to": payload.self_host_enabled}
+        user.self_host_enabled = payload.self_host_enabled
+
     if changes:
         _audit(
             session,

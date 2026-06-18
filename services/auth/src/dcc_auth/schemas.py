@@ -67,6 +67,7 @@ class UserPublic(BaseModel):
     avatar_url: str | None = None
     is_admin: bool = False
     disabled: bool = False
+    self_host_enabled: bool = False
     # Account-recovery / 2FA state — the frontend needs both to drive the
     # "verify your email" banner and the "2FA enabled" badge on /me.
     email_verified_at: datetime | None = None
@@ -129,6 +130,7 @@ class UserAdminOut(BaseModel):
     avatar_url: str | None = None
     is_admin: bool
     disabled: bool
+    self_host_enabled: bool = False
     created_at: datetime
 
     @field_serializer("id")
@@ -141,6 +143,7 @@ class UserAdminPatch(BaseModel):
 
     is_admin: bool | None = None
     disabled: bool | None = None
+    self_host_enabled: bool | None = None
 
 
 class AuthSettingsOut(BaseModel):
