@@ -397,9 +397,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
       saveCreds(hostStore, fresh);
       creds = fresh;
       return { paired: true, status: sanitize(fresh) };
-    } catch (e) {
-      // NIE die Fehlermeldung mit Token/Secret anreichern
-      return { paired: false, error: e instanceof Error ? e.message : 'pairing failed' };
+    } catch {
+      // Generische Meldung — NIE eine aus dem Netz-/Fetch-Layer stammende
+      // Fehlermeldung an den Renderer geben (könnte Token/Secret enthalten).
+      return { paired: false, error: 'pairing failed' };
     }
   });
   ipcMain.handle('host:getPairing', () => sanitize(creds));
