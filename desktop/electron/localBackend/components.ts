@@ -38,6 +38,8 @@ function uvicornArgs(pkg: string, module: string): string[] {
 
 export interface ExtendedPorts extends Ports {
   mediaAuthHook: number;
+  /** LiveKit-Webhook-Ziel (voice-signaling). Nur als Konfig-Wert; voice-signaling startet erst in ②b-③. */
+  voice: number;
 }
 
 // ---------------------------------------------------------------------------
