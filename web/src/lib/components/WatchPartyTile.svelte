@@ -24,7 +24,7 @@
   import WatchChatPanel from './WatchChatPanel.svelte';
   import WatchPartyHandoffMenu from './WatchPartyHandoffMenu.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
-  import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { watchBackground } from '$lib/watch/watchBackground.svelte';
   import { toast } from 'svelte-sonner';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { userCache } from '$lib/stores/users.svelte';
@@ -225,7 +225,7 @@
     // X nur Verstecken, kein Beenden. Der Unmount-Guard unterdrückt danach das
     // doppelte watch_leave (er ist ja noch im Voice).
     if (!isHost) gateway.sendWatchLeave(channelId, partyId);
-    openedTiles.closeParty(channelId, partyId);
+    watchBackground.closeParty(channelId, partyId);
   }}
   {compact}
   {focused}

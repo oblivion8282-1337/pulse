@@ -7,7 +7,7 @@ import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
 import { watchChat } from '$lib/stores/watchChat.svelte';
 import { watchWatchers } from '$lib/stores/watchWatchers.svelte';
 import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
-import { openedTiles } from '$lib/stream/openedTiles.svelte';
+import { watchBackground } from '$lib/watch/watchBackground.svelte';
 import { clockSync } from '$lib/watch/clockSync';
 import { gateway } from '$lib/ws/connection';
 import { registerWsHandler } from '../handler-registry';
@@ -19,6 +19,9 @@ export function register(): void {
     if (typeof evt.server_now === 'number') clockSync.record(evt.server_now);
     watchPartyPresence.apply(evt.channel_id, evt.party_id, evt.state);
     if (evt.state === null) {
+      // Party ended server-side → drop it from the background open set so the
+      // persistent player unmounts.
+      watchBackground.closeParty(evt.channel_id, evt.party_id);
       watchChat.clear(evt.channel_id, evt.party_id);
       watchWatchers.clearParty(evt.channel_id, evt.party_id);
       // If this party was detached into a popup, the main window held its
@@ -43,6 +46,6 @@ export function register(): void {
   // known once the server mints it, so this is where the host opens the tile
   // (the StartButton can't, it has no id yet). Idempotent.
   registerWsHandler('watch_started', (evt) => {
-    openedTiles.open('party', evt.channel_id, evt.party_id);
+    watchBackground.openParty(evt.channel_id, evt.party_id);
   });
 }
