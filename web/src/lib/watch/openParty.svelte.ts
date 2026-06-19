@@ -9,17 +9,17 @@
  * badges stay plain spans — no per-badge floating menu that nested popovers /
  * context menus / overflow-hidden rails would clip.
  */
-import { openedTiles } from '$lib/stream/openedTiles.svelte';
+import { watchBackground } from '$lib/watch/watchBackground.svelte';
 import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
 import { type WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
 
-/** Open one party's tile — focuses its popup if it's detached, else mounts the
- * inline tile via the openedTiles flag (the `watch_state` push renders it). */
+/** Open one party's tile — focuses its popup if it's detached, else opens it in
+ * the persistent background host (the `watch_state` push renders the player). */
 export function openPartyTile(channelId: string, party: WatchPartyState): void {
   if (detachedWatchParties.has(channelId, party.party_id)) {
     detachedWatchParties.open(channelId, party.party_id);
   } else {
-    openedTiles.openParty(channelId, party.party_id);
+    watchBackground.openParty(channelId, party.party_id);
   }
 }
 

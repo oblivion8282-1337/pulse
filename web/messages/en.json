@@ -2193,6 +2193,7 @@
   "watch_chat_panel_send_failed": "Message could not be sent",
   "watch_chat_panel_title": "Watch Party Chat",
   "watch_party_picker_title": "Which watch party?",
+  "watch_pip_return": "Back to the voice channel",
   "watch_party_start_button_already_running": "Watch Party already running",
   "watch_party_start_button_cancel": "Cancel",
   "watch_party_start_button_dialog_description": "YouTube, Twitch (VOD or live channel), or a direct mp4/webm link.",

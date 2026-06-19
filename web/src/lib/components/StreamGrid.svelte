@@ -18,7 +18,6 @@
   import ScreenShareTile from './ScreenShareTile.svelte';
   import CameraTile from './CameraTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
-  import WatchPartyTile from './WatchPartyTile.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
@@ -28,6 +27,8 @@
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
+  import { watchBackground } from '$lib/watch/watchBackground.svelte';
+  import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
@@ -81,10 +82,34 @@
       .partiesIn(channel.id)
       .filter(
         (party) =>
-          openedTiles.isOpenParty(channel.id, party.party_id) &&
+          watchBackground.isOpenParty(channel.id, party.party_id) &&
           !detachedWatchParties.has(channel.id, party.party_id)
       )
   );
+
+  // The watch-party PLAYER lives persistently in WatchBackgroundHost so it keeps
+  // playing across navigation. While this voice channel is viewed, StreamGrid
+  // renders an empty measured anchor per open party; the host overlays its fixed
+  // player onto the anchor's rect (docked). On unmount (you navigated away): if
+  // you're no longer in this voice channel, close the party — matches main's
+  // "leave the view → local playback ends". Still in voice → keep it open; the
+  // host shows it as a corner window.
+  function partyAnchor(node: HTMLElement, ids: { channelId: string; partyId: string }) {
+    let cur = ids;
+    let cleanup = watchBackground.registerAnchor(cur.channelId, cur.partyId, node);
+    return {
+      update(next: { channelId: string; partyId: string }) {
+        if (next.channelId === cur.channelId && next.partyId === cur.partyId) return;
+        cleanup();
+        cur = next;
+        cleanup = watchBackground.registerAnchor(cur.channelId, cur.partyId, node);
+      },
+      destroy() {
+        cleanup();
+        if (!inVoiceChannel(cur.channelId)) watchBackground.closeParty(cur.channelId, cur.partyId);
+      }
+    };
+  }
 
   // Header label: show that *something* is HQ-streaming (rocket icon + label)
   // when any HQ stream is live in the channel, regardless of whether the
@@ -176,13 +201,11 @@
     {#each openParties as party (party.party_id)}
       {@const key = `party:${party.party_id}`}
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <WatchPartyTile
-          channelId={channel.id}
-          {party}
-          compact={focusMode && focusedKey !== key}
-          focused={focusMode && focusedKey === key}
-          onToggleFocus={focusHandler(key)}
-        />
+        <div
+          class="h-full w-full"
+          use:partyAnchor={{ channelId: channel.id, partyId: party.party_id }}
+          data-testid="watch-anchor"
+        ></div>
       </div>
     {/each}
     {#if showSelfCam}

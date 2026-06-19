@@ -18,8 +18,8 @@
     type WatchPartyState
   } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { openPartyTile } from '$lib/watch/openParty.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
-  import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
@@ -83,10 +83,9 @@
     }
   }
 
-  function openParty(channelId: string, partyId: string): void {
-    if (detachedWatchParties.has(channelId, partyId)) detachedWatchParties.open(channelId, partyId);
-    else openedTiles.openParty(channelId, partyId);
-    void goto(`/app/guilds/${guildId}/channels/${channelId}`);
+  function openParty(channel: Channel, party: WatchPartyState): void {
+    openPartyTile(channel.id, party);
+    void goto(`/app/guilds/${guildId}/channels/${channel.id}`);
   }
 
   function openStream(channelId: string, uid: string): void {
@@ -129,7 +128,7 @@
           </div>
           <button
             type="button"
-            onclick={() => openParty(e.channel.id, e.state.party_id)}
+            onclick={() => openParty(e.channel, e.state)}
             class="text-primary hover:text-primary/80 mt-0.5 shrink-0 rounded-full p-1 transition-colors"
             aria-label={m.member_activity_header_open_watch_party_aria()}
             title={m.member_activity_header_open_title()}
