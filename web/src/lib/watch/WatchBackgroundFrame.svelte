@@ -29,15 +29,19 @@
   const CORNER_W = 360;
   const CORNER_H = 248;
   const MARGIN = 16;
+  // Top offset clears the channel header (h-14 = 56px) so the corner window sits
+  // in free space below it — and, crucially, well away from the message
+  // composer at the bottom, which it used to overlap.
+  const TOP_MARGIN = 72;
   const STACK = 28; // offset per stacked corner window
 
   let frameStyle = $derived.by(() => {
     if (rect) {
       return `top:${rect.top}px;left:${rect.left}px;width:${rect.width}px;height:${rect.height}px;`;
     }
-    const bottom = MARGIN + index * STACK;
+    const top = TOP_MARGIN + index * STACK;
     const right = MARGIN + index * STACK;
-    return `bottom:${bottom}px;right:${right}px;width:${CORNER_W}px;height:${CORNER_H}px;`;
+    return `top:${top}px;right:${right}px;width:${CORNER_W}px;height:${CORNER_H}px;`;
   });
 </script>
 
