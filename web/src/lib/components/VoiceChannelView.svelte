@@ -18,6 +18,7 @@
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { watchBackground } from '$lib/watch/watchBackground.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
   import { untrack, onMount } from 'svelte';
@@ -31,9 +32,17 @@
   let screenSharerIds = $derived(voicePresence.streamingIn(channel.id));
   let livePartyIds = $derived(watchPartyPresence.partiesIn(channel.id).map((p) => p.party_id));
 
-  // Grid is visible iff the viewer has opened at least one tile (any kind).
+  // Grid is visible iff the viewer has opened at least one tile (any kind) OR
+  // has an open watch party in this channel. The watch party tracks its own
+  // open-set (`watchBackground`, voice-tied) rather than `openedTiles`, so it
+  // must be checked here too — otherwise starting only a party leaves the grid
+  // unmounted, no docked anchor is registered, and the persistent player falls
+  // back to the small corner window instead of filling the view.
   // Default-empty after channel switch — see resetChannel below.
-  let streamViewOpen = $derived(openedTiles.hasAny(channel.id));
+  let hasOpenParty = $derived(
+    livePartyIds.some((pid) => watchBackground.isOpenParty(channel.id, pid))
+  );
+  let streamViewOpen = $derived(openedTiles.hasAny(channel.id) || hasOpenParty);
 
   // Channel betreten: nur bei einem ECHTEN Channel-Wechsel werden die Opens des
   // alten Channels verworfen (dessen HQ-Streams enden dann). Rückkehr in
