@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-21.4",
+      "date": "2026-06-21",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen",
+      "items": [
+        "Die Anmeldung mit Zwei-Faktor wurde weiter abgesichert.",
+        "Beim schnellen Wechsel zwischen Sprachkanälen bleibt der Mikrofon-Zustand korrekt.",
+        "Erwähnungs-Vorschläge (@) zeigen nur noch Mitglieder des aktuellen Servers.",
+        "Geblockte Nutzer können alte Direktnachrichten nicht mehr nachträglich ändern.",
+        "Eine übergebene Watch-Party bleibt zuverlässig steuerbar.",
+        "Weitere Sicherheits- und Stabilitätsverbesserungen."
+      ]
+    },
+    {
       "id": "2026-06-21.3",
       "date": "2026-06-21",
       "style": "Sachlich",
