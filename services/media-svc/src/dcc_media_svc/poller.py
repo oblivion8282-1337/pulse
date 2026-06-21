@@ -152,6 +152,16 @@ def _active_created_after(raw: bytes | str | None, cutoff: datetime) -> bool:
     return started >= cutoff
 
 
+# Consecutive fully-empty MediaMTX snapshots required before we trust "all
+# streams stopped" and tear down the remaining Redis state. A single empty
+# snapshot can be a transient MediaMTX blip; but a solo/last streamer stopping
+# shows up as a genuinely empty list, so we MUST eventually act on it — just not
+# on the first sample. (At a 3s poll interval, grace=2 clears a stopped solo
+# stream within ~one extra poll while still filtering single-poll blips.)
+_EMPTY_SNAPSHOT_GRACE_POLLS = 2
+_empty_snapshot_streak = 0
+
+
 async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     """One reconciliation pass. Raises only on a MediaMTX-API failure (the loop
     swallows that).
@@ -172,22 +182,38 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     publishers, any_items_seen = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
     known = await _list_known_channels(redis)
 
-    # Guard: if MediaMTX returned zero paths AND we still have known channels in
-    # Redis, the snapshot is almost certainly incomplete (e.g. MediaMTX mid-
-    # restart).  Treating it as authoritative would delete all stream:channel:*
-    # and stream:active:* keys for live streams.  Skip this pass instead.
-    # We only skip when ``known`` is non-empty: if Redis already has no channels
-    # the skip is a no-op anyway, and we don't want to permanently block the
-    # legitimate "last streamer stopped" transition — that arrives as a non-empty
-    # snapshot where MediaMTX has removed the path, not as a completely empty one.
+    # Guard: a fully-empty MediaMTX snapshot (zero paths) while Redis still knows
+    # active channels is ambiguous — it could be a transient MediaMTX blip (mid-
+    # restart) OR the genuine "last/only streamer just stopped" case (which DOES
+    # arrive as an empty list when that publisher held the sole path). Treating
+    # the first empty sample as authoritative would wrongly tear down live
+    # streams; treating it as always-transient (the previous behaviour) left a
+    # stopped solo stream marked "live" forever. So we debounce: skip the first
+    # empty sample(s), but once empty persists across the grace window, trust it
+    # and let the stale-cleanup below run.
+    global _empty_snapshot_streak
     if not publishers and not any_items_seen and known:
-        log.warning(
-            "mediamtx_empty_snapshot_skipped",
+        _empty_snapshot_streak += 1
+        if _empty_snapshot_streak < _EMPTY_SNAPSHOT_GRACE_POLLS:
+            log.warning(
+                "mediamtx_empty_snapshot_skipped",
+                known_channels=len(known),
+                streak=_empty_snapshot_streak,
+                grace=_EMPTY_SNAPSHOT_GRACE_POLLS,
+                reason="zero paths but Redis knows active channels; treating the "
+                "first empty sample as a possible MediaMTX blip",
+            )
+            return
+        log.info(
+            "mediamtx_empty_snapshot_confirmed",
             known_channels=len(known),
-            reason="snapshot contained zero paths but Redis knows active channels; "
-            "assuming MediaMTX is mid-restart",
+            streak=_empty_snapshot_streak,
+            reason="empty across the grace window — treating as genuine all-stopped",
         )
-        return
+        _empty_snapshot_streak = 0
+        # fall through → stale-cleanup tears the now-dead channels down
+    else:
+        _empty_snapshot_streak = 0
 
     # --- Batch-read all channel states we need to inspect ----------------
     all_cids = list(publishers.keys())
