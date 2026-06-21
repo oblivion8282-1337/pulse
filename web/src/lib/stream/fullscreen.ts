@@ -58,8 +58,3 @@ function tryWebkitFullscreen(video: HTMLVideoElement | null): void {
     // Nothing we can do — iOS may refuse if the video has no src yet.
   }
 }
-
-/** Returns true when the document is currently in standard fullscreen mode. */
-export function isDocFullscreen(): boolean {
-  return !!document.fullscreenElement;
-}

@@ -42,7 +42,6 @@ import queue
 import signal
 import sys
 import threading
-from collections.abc import Iterable
 from typing import Any
 
 import gsr_binary
@@ -396,12 +395,6 @@ def _handle_request(sc: Sidecar, request: dict[str, Any]) -> dict[str, Any]:
     return response
 
 
-def _iter_stdin_lines() -> Iterable[str]:
-    """Liest Zeilen-für-Zeile von stdin. EOF → StopIteration."""
-    for line in sys.stdin:
-        yield line
-
-
 def run() -> int:
     """Main-Loop. Liefert Exit-Code."""
     # Writer-Thread starten
@@ -428,7 +421,7 @@ def run() -> int:
             pass  # main-thread-only — auf manchen Plattformen ok zu ignorieren
 
     try:
-        for raw in _iter_stdin_lines():
+        for raw in sys.stdin:
             line = raw.strip()
             if not line:
                 continue
