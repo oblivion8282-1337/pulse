@@ -394,11 +394,20 @@ class StreamController:
                 if m:
                     fps = int(m.group(1))
                     self._last_fps = fps
-                    if self._on_fps:
-                        self._on_fps(fps)
+                    # State-Entscheidung unter dem Lock: ist der Prozess schon
+                    # terminal (stopped/error, vom _wait_loop gesetzt), darf ein
+                    # gepuffertes FPS-Tick KEIN on_fps mehr feuern — sonst landet
+                    # nach `ev:stopped` noch ein `ev:fps` in der Queue (Reihenfolge
+                    # stopped→fps). Nur die Entscheidung steht unter dem Lock; der
+                    # Callback selbst läuft danach lock-frei (schreibt nur in eine
+                    # queue.Queue, aber wir halten externe Callbacks konsequent
+                    # außerhalb des Lock-Blocks).
                     with self._lock:
                         if self._state == "starting":
                             self._set_state("live")
+                        emit_fps = self._state in ("starting", "live")
+                    if emit_fps and self._on_fps:
+                        self._on_fps(fps)
                 elif self._on_log:
                     # GSR prints the full push URL (incl. `?pass=<token>` /
                     # `streamid=…:<token>`) on connect. Redact before forwarding.

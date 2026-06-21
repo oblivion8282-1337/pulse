@@ -43,6 +43,7 @@ from dcc_chat_gateway.models import (
     CHANNEL_TYPE_TEXT,
     Message,
     MessageAttachment,
+    MessageMention,
     MessageReaction,
 )
 from dcc_chat_gateway.permissions import (
@@ -574,6 +575,10 @@ async def delete_message(
     # Reactions are no longer meaningful once the message is gone.
     await session.execute(
         delete(MessageReaction).where(MessageReaction.message_id == msg.id)
+    )
+    # Mentions: no FK cascade on soft-delete → clean up explicitly.
+    await session.execute(
+        delete(MessageMention).where(MessageMention.message_id == msg.id)
     )
     # Attachments → hard-delete from MinIO + tombstone row. The message
     # itself stays soft-deleted (audit trail) but the bytes go away to

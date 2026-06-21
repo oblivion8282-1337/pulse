@@ -247,25 +247,42 @@ async def get_whep_url(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     s = get_settings()
 
-    # Mint a short-lived, channel+publisher-bound read token. The caller already
-    # cleared chat-gateway's membership + VIEW_CHANNEL gate (and the bearer is
-    # verified above), so issuing it here is safe. Embedded as ``?token=`` →
-    # MediaMTX forwards it to the auth-hook, which rejects anonymous reads.
-    # Unlike single-use publish tokens, read tokens are never consumed (WHEP
-    # does an OPTIONS preflight + POST, and clients re-auth on reconnect); the
-    # TTL bounds their lifetime instead.
-    read_token = secrets.token_urlsafe(32)
-    read_record = {
-        "channel_id": channel_id,
-        "user_id": user_id,
-        "scope": "read",
-        "protocol": "webrtc",
-        "created_at": int(time.time()),
-    }
-    await redis.set(
-        TOKEN_KEY.format(token=read_token),
-        json.dumps(read_record, separators=(",", ":")),
-        ex=s.read_token_ttl_s,
-    )
+    # Deterministic read-token per (viewer, channel, publisher): reuse an
+    # existing valid token instead of minting a fresh key on every WHEP request.
+    # A viewer in a reconnect loop would otherwise accumulate O(reconnects) live
+    # Redis keys (each 1 h TTL) with no benefit — the token carries the same
+    # scope regardless.  We cache the token string itself under a lookup key
+    # keyed to the triplet; the cache entry carries the same TTL as the token so
+    # the two expire together.  On cache miss we mint once and write both keys in
+    # a single pipeline.
+    #
+    # Security: read tokens are not single-use secrets — the auth-hook accepts
+    # them for the lifetime of the TTL and does not consume them (WHEP does an
+    # OPTIONS preflight + POST + periodic reconnects, all requiring the same
+    # token).  Reusing an existing token is therefore functionally identical to
+    # minting a new one; both are channel+publisher-bound (not viewer-bound) by
+    # design, so sharing them across reconnects from the same viewer is safe.
+    viewer_id = str(user.id)
+    cache_key = f"stream:read-cache:{viewer_id}:{channel_id}:{user_id}"
+    cached = await redis.get(cache_key)
+    if cached is not None:
+        read_token = cached.decode() if isinstance(cached, bytes) else cached
+    else:
+        read_token = secrets.token_urlsafe(32)
+        read_record = {
+            "channel_id": channel_id,
+            "user_id": user_id,
+            "scope": "read",
+            "protocol": "webrtc",
+            "created_at": int(time.time()),
+        }
+        async with redis.pipeline(transaction=False) as pipe:
+            pipe.set(
+                TOKEN_KEY.format(token=read_token),
+                json.dumps(read_record, separators=(",", ":")),
+                ex=s.read_token_ttl_s,
+            )
+            pipe.set(cache_key, read_token, ex=s.read_token_ttl_s)
+            await pipe.execute()
     base = s.mediamtx_public_base.rstrip("/")
     return WhepOut(whep_url=f"{base}/{path}/whep?token={read_token}")

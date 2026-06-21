@@ -26,7 +26,7 @@
       moduleApiPromise = Promise.resolve(w.YT);
       return moduleApiPromise;
     }
-    moduleApiPromise = new Promise((resolve) => {
+    moduleApiPromise = new Promise((resolve, reject) => {
       const prev = w.onYouTubeIframeAPIReady;
       w.onYouTubeIframeAPIReady = () => {
         try {
@@ -41,6 +41,10 @@
         const s = document.createElement('script');
         s.src = 'https://www.youtube.com/iframe_api';
         s.async = true;
+        s.onerror = () => {
+          moduleApiPromise = undefined;
+          reject(new Error('YouTube IFrame API failed to load'));
+        };
         document.head.appendChild(s);
       }
     });
@@ -89,74 +93,80 @@
     let firstPlayingSeen = false;
     let pendingPause = false;
 
-    void loadApi().then((YT) => {
-      if (disposed || !mount) return;
-      player = new YT.Player(mount, {
-        videoId: source.embed_id,
-        playerVars: {
-          autoplay: startPlaying ? 1 : 0,
-          controls: 1,
-          modestbranding: 1,
-          rel: 0,
-          start: source.start_seconds ?? 0,
-          playsinline: 1
-        },
-        events: {
-          onReady: () => {
-            const handle: PlayerHandle = {
-              play: () => {
-                // Cancel any pause deferred before the first PLAYING event.
-                pendingPause = false;
-                player?.playVideo();
-              },
-              pause: () => {
-                // Before the first PLAYING event, don't pause directly (the
-                // race above) — defer and replay it in onStateChange.
-                if (firstPlayingSeen) player?.pauseVideo();
-                else pendingPause = true;
-              },
-              seek: (t: number) => player?.seekTo(t, true),
-              getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
-              getDuration: () => Number(player?.getDuration() ?? 0),
-              setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
-              setVolume: (p: number) => player?.setVolume(Math.max(0, Math.min(100, p))),
-              destroy: () => {
-                try {
-                  player?.destroy();
-                } catch {
-                  // already destroyed
+    void loadApi()
+      .then((YT) => {
+        if (disposed || !mount) return;
+        player = new YT.Player(mount, {
+          videoId: source.embed_id,
+          playerVars: {
+            autoplay: startPlaying ? 1 : 0,
+            controls: 1,
+            modestbranding: 1,
+            rel: 0,
+            start: source.start_seconds ?? 0,
+            playsinline: 1
+          },
+          events: {
+            onReady: () => {
+              const handle: PlayerHandle = {
+                play: () => {
+                  // Cancel any pause deferred before the first PLAYING event.
+                  pendingPause = false;
+                  player?.playVideo();
+                },
+                pause: () => {
+                  // Before the first PLAYING event, don't pause directly (the
+                  // race above) — defer and replay it in onStateChange.
+                  if (firstPlayingSeen) player?.pauseVideo();
+                  else pendingPause = true;
+                },
+                seek: (t: number) => player?.seekTo(t, true),
+                getCurrentTime: () => Number(player?.getCurrentTime() ?? 0),
+                getDuration: () => Number(player?.getDuration() ?? 0),
+                setPlaybackRate: (r: number) => player?.setPlaybackRate(r),
+                setVolume: (p: number) => player?.setVolume(Math.max(0, Math.min(100, p))),
+                destroy: () => {
+                  try {
+                    player?.destroy();
+                  } catch {
+                    // already destroyed
+                  }
                 }
+              };
+              onReady?.(handle);
+              onEvent?.({ type: 'ready' });
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onStateChange: (e: any) => {
+              const t = Number(player?.getCurrentTime() ?? 0);
+              if (e.data === YT.PlayerState.PLAYING) {
+                firstPlayingSeen = true;
+                if (pendingPause) {
+                  // Replay the deferred pre-PLAYING pause now that it's safe.
+                  // The brief PLAYING was only the race workaround firing — do
+                  // NOT surface it as 'play', or a host would broadcast a
+                  // phantom play and viewers would resync to it.
+                  pendingPause = false;
+                  player?.pauseVideo();
+                  return;
+                }
+                onEvent?.({ type: 'play', position: t });
+              } else if (e.data === YT.PlayerState.PAUSED) {
+                onEvent?.({ type: 'pause', position: t });
               }
-            };
-            onReady?.(handle);
-            onEvent?.({ type: 'ready' });
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onStateChange: (e: any) => {
-            const t = Number(player?.getCurrentTime() ?? 0);
-            if (e.data === YT.PlayerState.PLAYING) {
-              firstPlayingSeen = true;
-              if (pendingPause) {
-                // Replay the deferred pre-PLAYING pause now that it's safe.
-                // The brief PLAYING was only the race workaround firing — do
-                // NOT surface it as 'play', or a host would broadcast a
-                // phantom play and viewers would resync to it.
-                pendingPause = false;
-                player?.pauseVideo();
-                return;
-              }
-              onEvent?.({ type: 'play', position: t });
-            } else if (e.data === YT.PlayerState.PAUSED) {
-              onEvent?.({ type: 'pause', position: t });
+            },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onError: (e: any) => {
+              onEvent?.({ type: 'error', reason: `YouTube error ${e?.data}` });
             }
-          },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          onError: (e: any) => {
-            onEvent?.({ type: 'error', reason: `YouTube error ${e?.data}` });
           }
-        }
+        });
+      })
+      .catch(() => {
+        // loadApi() rejected (script failed to load); moduleApiPromise was
+        // already reset to undefined so the next mount will retry.
+        onEvent?.({ type: 'error', reason: 'YouTube IFrame API failed to load' });
       });
-    });
 
     return () => {
       disposed = true;

@@ -332,6 +332,14 @@ class SidecarManager {
    *  whole class of restart bugs; the sidecar is stateless between streams and
    *  the idle EOF-exit is near-instant. */
   async call(op: string, params?: unknown): Promise<SidecarMessage> {
+    // A shutdown is in flight (the child is dying but `this.child` is still set
+    // for up to ~4.5s). Writing to that doomed stdin would only sit in the
+    // DEFAULT_TIMEOUT fuse, so fail fast. Once the shutdown finishes,
+    // `_shuttingDown` is cleared and the next `call()` respawns cleanly — so the
+    // normal stop→respawn path is unaffected.
+    if (this._shuttingDown) {
+      throw new Error('gsr sidecar is shutting down');
+    }
     const child = this.ensureSpawned();
     const id = this.nextId++;
     // Spread caller-supplied params FIRST, then set the validated `op` and the
@@ -495,12 +503,18 @@ class SidecarManager {
     });
 
     child.on('error', (err) => {
+      // A delayed handler from an already-replaced child (e.g. a Windows child
+      // exiting late after a SIGKILL timeout while `this.child` already points at
+      // a respawned one) must not touch global state — that would clobber the new
+      // child's readline and fail its pending requests.
+      if (this.child !== child) return;
       console.error('[gsr-sidecar] spawn error:', err);
       this.failAllPending(new Error(`gsr sidecar process error: ${err.message}`));
       this.cleanupChild();
     });
 
     child.on('exit', (code, signal) => {
+      if (this.child !== child) return; // stale child — ignore (see 'error' above)
       const reason =
         signal !== null ? `signal ${signal}` : code !== null ? `code ${code}` : 'unknown';
       console.error(`[gsr-sidecar] exited (${reason})`);

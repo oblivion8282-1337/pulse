@@ -238,6 +238,7 @@ class MessageStore {
       if (tmpIdx !== undefined) {
         next[tmpIdx] = m;
         mutated = true;
+        if (m.nonce && !m.id.startsWith('tmp-')) this.confirmedNonces.add(m.nonce);
       } else {
         append.push(m);
       }
@@ -309,14 +310,13 @@ class MessageStore {
   clearChannel(channelId: string): void {
     const i = this.accessOrder.indexOf(channelId);
     if (i !== -1) this.accessOrder.splice(i, 1);
-    const { [channelId]: _, ...rest } = this.byChannel;
+    const { [channelId]: list, ...rest } = this.byChannel;
     this.byChannel = rest;
-    const { [channelId]: __, ...restLoaded } = this.loadedChannels;
+    const { [channelId]: _loaded, ...restLoaded } = this.loadedChannels;
     this.loadedChannels = restLoaded;
-    const { [channelId]: ___, ...restIds } = this.messageIds;
+    const { [channelId]: _ids, ...restIds } = this.messageIds;
     this.messageIds = restIds;
     // Clear stale nonces from this channel.
-    const list = _; // The old value we just removed
     if (list) {
       for (const m of list) {
         if (m.nonce) this.confirmedNonces.delete(m.nonce);

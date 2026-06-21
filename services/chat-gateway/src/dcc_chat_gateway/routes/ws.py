@@ -99,7 +99,12 @@ def _channel_id(value: object) -> int | None:
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
-    # Authenticate before accepting subprotocols.
+    # Accept first so the reject paths below can send real WebSocket close
+    # frames with their numeric codes (4001/4003/4046). Starlette translates a
+    # close()-before-accept() into an HTTP 403, which drops the close code and
+    # leaves the client unable to tell the reject reasons apart.
+    await websocket.accept()
+
     try:
         payload = await decode_token(token)
         user_id = int(payload["sub"])
@@ -127,7 +132,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         await websocket.close(code=4003, reason="email not verified")
         return
 
-    # Reject already-expired tokens before accepting — avoids sending `ready`
+    # Reject already-expired tokens before `ready` — avoids sending `ready`
     # followed immediately by a 4001 close (inconsistent client state).
     exp = payload.get("exp")
     if isinstance(exp, (int, float)) and float(exp) < time.time():
@@ -140,8 +145,6 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     if not getattr(websocket.app.state, "jwks_ready", True):
         await websocket.close(code=4046, reason="jwks not ready")
         return
-
-    await websocket.accept()
 
     # Hello-frame: sent immediately after accept, before ready.
     # Phase-4 frontend checks server_version against its MIN_SERVER_VERSION

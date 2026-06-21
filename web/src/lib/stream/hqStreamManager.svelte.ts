@@ -243,7 +243,13 @@ export class ManagedHqStream {
       this.#statsReader.reset();
       this.#statsTimer = setInterval(async () => {
         const cur = this.#session;
-        if (cur) this.stats = await this.#statsReader.read(cur.pc);
+        if (!cur) return;
+        const next = await this.#statsReader.read(cur.pc);
+        // Während des read()-Awaits kann ein Reconnect (teardown→start) den
+        // Session-PeerConnection ausgetauscht oder den Manager entsorgt haben —
+        // dann gehören die Stats zum alten PC, nicht überschreiben.
+        if (this.#disposed || this.#session !== cur) return;
+        this.stats = next;
       }, 1000);
     } catch (e) {
       if (this.#disposed) return;

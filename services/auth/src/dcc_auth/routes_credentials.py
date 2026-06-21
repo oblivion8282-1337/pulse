@@ -217,16 +217,22 @@ async def issue_credential(
         await db.rollback()
         # Re-build the lookup without reusing the pre-rollback stmt object to
         # avoid any session-level cache or stale-object effects.
+        # Match the idempotency check above exactly (same ``now``): an expired but
+        # not-yet-revoked row can satisfy the unique index yet must NOT be served —
+        # signing it would hand back an already-dead cert.
         winner_stmt = select(IssuedCredential).where(
             IssuedCredential.user_id == user.id,
             IssuedCredential.device_pubkey == pubkey_bytes,
             IssuedCredential.revoked_at.is_(None),
+            IssuedCredential.expires_at > now,
         )
         winner = (await db.execute(winner_stmt)).scalars().first()
         if winner is None:
-            # Should not happen: the constraint fired but no active row found.
+            # The constraint fired but no *active* row exists — i.e. an expired,
+            # un-revoked row holds the (user_id, device_pubkey) slot. Can't mint a
+            # fresh cert without colliding, and can't serve the dead one.
             raise HTTPException(
-                status.HTTP_409_CONFLICT, detail="concurrent_issue_conflict"
+                status.HTTP_409_CONFLICT, detail="expired_credential_conflict"
             )
         # rollback() expires all identity-map instances, so user and session_row
         # need a refresh before sync JWT signing, else reading

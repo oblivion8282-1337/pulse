@@ -90,9 +90,18 @@ class ServerVault {
   private _pushTimer: ReturnType<typeof setTimeout> | null = null;
   /** Unterdrückt Push während ein Remote-Merge läuft (verhindert Push-Schleife). */
   private _applyingRemote = false;
-  /** Gesetzt von wipe() — verhindert, dass ein laufendes pushNow() nach dem
-   *  Sign-out noch schreibt. Wird in persistCached() zurückgesetzt. */
+  /** Gesetzt von wipe() — verhindert, dass eine nach dem Sign-out noch
+   *  auflaufende async-Op (verspätetes Argon2id, pushNow, pullWithKey) trotzdem
+   *  schreibt/merged. Wird NUR durch einen bewussten Neu-Unlock-Einstieg
+   *  (`beginUnlock()`) zurückgesetzt — nie durch eine schon laufende Op. */
   private _wiped = false;
+
+  /** Markiert den Beginn eines echten Unlock-/Setup-Zyklus: hebt den
+   *  wipe()-Riegel auf, bevor das (langsame) Argon2id startet, damit ein
+   *  bewusster Neu-Login nach einem Sign-out wieder sauber persistieren kann. */
+  private beginUnlock(): void {
+    this._wiped = false;
+  }
 
   /** Lädt den persistierten Key aus IDB in den Memory-Cache (idempotent). */
   private async loadCached(): Promise<StoredVaultKey | null> {
@@ -109,7 +118,10 @@ class ServerVault {
   }
 
   private async persistCached(value: StoredVaultKey): Promise<void> {
-    this._wiped = false;
+    // Hat wipe() (signOut) zwischenzeitlich gegriffen — z.B. weil das Argon2id
+    // dieses Unlock-Flows erst nach dem Sign-out fertig wurde — NICHTS mehr in
+    // IDB schreiben, sonst läge für die nächste Session ein gültiger Key bereit.
+    if (this._wiped) return;
     this.cached = value;
     try {
       const db = await openIdentityDb();
@@ -234,6 +246,7 @@ class ServerVault {
    * nur auf anderen Geräten lagen), bevor mit frischem Salt re-verschlüsselt wird.
    */
   async unlockForSetup(password: string): Promise<void> {
+    this.beginUnlock();
     const remote = await getServerVault();
     if (remote) {
       const old = await this.loadCached();
@@ -269,6 +282,7 @@ class ServerVault {
    * vorab via `rescueLegacyVault`), re-verschlüsselt dann mit dem AK und pusht.
    */
   async activateWithAccountKey(ak: CryptoKey): Promise<void> {
+    this.beginUnlock();
     const remote = await getServerVault();
     if (remote) await this.tryMergeRemote(remote, ak);
     await this.persistCached({ key: ak, salt: AK_MODE });
@@ -282,6 +296,7 @@ class ServerVault {
    * `VAULT_DECRYPT_FAILED`, ohne den Remote-Tresor anzutasten.**
    */
   async unlockForRestore(password: string): Promise<void> {
+    this.beginUnlock();
     const remote = await getServerVault();
     if (!remote) {
       // Kein Remote-Tresor. Hat der Account schon einen AK → darüber aktivieren

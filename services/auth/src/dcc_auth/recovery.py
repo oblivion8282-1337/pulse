@@ -124,21 +124,23 @@ def decode_mfa_ticket(signer: JwtSigner, ticket: str) -> tuple[int, str | None]:
     return int(payload["sub"]), (str(jti) if jti else None)
 
 
-async def claim_mfa_ticket(redis_url: str | None, jti: str | None, ttl_seconds: int) -> bool:
-    """Atomically mark an MFA ticket's ``jti`` as used; ``True`` if newly claimed.
+async def claim_ticket_jti(
+    redis_url: str | None, key_prefix: str, jti: str | None, ttl_seconds: int
+) -> bool:
+    """Atomically mark a single-use ticket ``jti`` as used; ``True`` if newly claimed.
 
-    Returns ``False`` only when the ``jti`` was *already* claimed — i.e. this is
-    a replay of a ticket that has already minted a token pair. The caller must
-    reject the request in that case.
+    Returns ``False`` only when the ``jti`` was *already* claimed under
+    ``{key_prefix}{jti}`` — i.e. this is a replay of a ticket that already did its
+    job. The caller must reject the request in that case.
 
-    Called only after the second factor has verified, so a mistyped code never
-    burns the ticket. Uses ``SET NX EX`` (atomic) so two parallel replays of the
-    same ticket can never both win.
+    Called only after the ceremony has otherwise verified, so a failed attempt
+    never burns the ticket. Uses ``SET NX EX`` (atomic) so two parallel replays of
+    the same ticket can never both win.
 
     Fail-open by design: this service treats Redis as optional (unit tests run
     SQLite-only, see ``routes_crl``), and a missing ``jti`` (legacy ticket) or an
-    unreachable Redis must not lock 2FA users out. Production always has Redis,
-    so the single-use guard is live where it matters.
+    unreachable Redis must not lock users out. Production always has Redis, so the
+    single-use guard is live where it matters.
     """
     if not jti or not redis_url:
         return True
@@ -148,8 +150,17 @@ async def claim_mfa_ticket(redis_url: str | None, jti: str | None, ttl_seconds: 
         async with Redis.from_url(redis_url, decode_responses=True) as r:
             # NX → only the first claimant gets True; EX bounds the marker to the
             # ticket's own lifetime (no point keeping it past expiry).
-            claimed = await r.set(f"mfa:used:{jti}", "1", nx=True, ex=ttl_seconds)
+            claimed = await r.set(f"{key_prefix}{jti}", "1", nx=True, ex=ttl_seconds)
             return bool(claimed)
     except Exception:  # noqa: BLE001 — Redis down must not break login (fail-open)
-        log.warning("mfa ticket single-use claim failed (Redis); allowing", exc_info=True)
+        log.warning("ticket single-use claim failed (Redis); allowing", exc_info=True)
         return True
+
+
+async def claim_mfa_ticket(redis_url: str | None, jti: str | None, ttl_seconds: int) -> bool:
+    """Atomically mark an MFA ticket's ``jti`` as used; ``True`` if newly claimed.
+
+    Thin wrapper over ``claim_ticket_jti`` pinned to the ``mfa:used:`` key space —
+    kept as a named entry point for the 2FA login paths.
+    """
+    return await claim_ticket_jti(redis_url, "mfa:used:", jti, ttl_seconds)
