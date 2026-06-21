@@ -29,6 +29,7 @@ from redis.asyncio import Redis
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.streamkeys import (
+    ACTIVE_KEY,
     CHANNEL_STATE_KEY,
     STREAM_EVENTS_CHANNEL,
     parse_channel_user_path,
@@ -208,6 +209,11 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
             prev_uids = sorted(str(u) for u in (prev or {}).get("user_ids", []) if u)
             if prev is not None and prev_uids == new_uids:
                 pipe.expire(CHANNEL_STATE_KEY.format(channel_id=cid), settings.channel_state_ttl_s)
+                for uid in uids:
+                    pipe.expire(
+                        ACTIVE_KEY.format(channel_id=cid, user_id=uid),
+                        settings.channel_state_ttl_s,
+                    )
                 continue
             # Carry `since` forward only if at least one user from the previous
             # set is still present; if the entire set turned over, reset to now
@@ -222,6 +228,11 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
                 json.dumps(new_state, separators=(",", ":")),
                 ex=settings.channel_state_ttl_s,
             )
+            for uid in uids:
+                pipe.expire(
+                    ACTIVE_KEY.format(channel_id=cid, user_id=uid),
+                    settings.channel_state_ttl_s,
+                )
             changed.append((cid, new_uids))
         await pipe.execute()
 

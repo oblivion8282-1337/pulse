@@ -353,11 +353,13 @@ async def edit_message(
     msg = await session.get(Message, message_id)
     if msg is None or msg.deleted_at is not None:
         raise HTTPException(404, detail="message not found")
-    if msg.author_id != current.id:
-        raise HTTPException(403, detail="only the author can edit")
     # Caller must still have access to the channel (guild kick → can't edit
     # old messages; DM author trivially passes since DM membership is fixed).
+    # Membership check comes before the author check to avoid leaking message
+    # existence to non-members (existence oracle).
     kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
+    if msg.author_id != current.id:
+        raise HTTPException(403, detail="only the author can edit")
 
     # SEND_MESSAGES + MENTION_EVERYONE gates: editing publishes content the
     # same way posting does — a read-only channel must reject edits too, and

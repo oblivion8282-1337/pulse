@@ -13,11 +13,20 @@ import type { BrowserWindow } from 'electron';
 const INVITE_CODE_RE = /^[A-Za-z0-9_-]{6,64}$/;
 
 /** Rough FQDN check — at least one dot, only label-safe chars, no port injection.
- *  Blocks bare IPv4 (192.168.1.1 etc.) so a malicious link can't trick the renderer
- *  into hitting a private/loopback address. Self-Host muss FQDN haben (LE-Cert
- *  Pflicht für TLS) — IP-Direkt-Connect ist nie ein legitimer Pulse-Use-Case. */
+ *  Blocks bare IPv4 in all numeric notations (decimal 192.168.1.1, hex 0x7f.0.0.1,
+ *  octal 0177.0.0.1) so a malicious link can't trick the renderer into hitting a
+ *  private/loopback address. Self-Host muss FQDN haben (LE-Cert Pflicht für TLS)
+ *  — IP-Direkt-Connect ist nie ein legitimer Pulse-Use-Case. */
 function isValidFqdn(hostname: string): boolean {
+  // Block decimal IPv4 (e.g. 192.168.1.1).
   if (/^(\d{1,3}\.){3}\d{1,3}$/.test(hostname)) return false;
+  // Block hex-encoded IPv4 (e.g. 0x7f.0.0.1 → 127.0.0.1).
+  if (/(?:^|\.)0x[0-9a-f]+/i.test(hostname)) return false;
+  // Block octal-encoded IPv4 segments (e.g. 0177.0.0.1 → 127.0.0.1).
+  // Matches only purely-numeric labels with a leading zero (octal IP notation).
+  // Labels that mix digits with letters (e.g. "01host") are not valid IP segments
+  // and are excluded by the boundary \b(?!\.) / end-of-segment anchor below.
+  if (/(?:^|\.)0\d+(?:\.|$)/.test(hostname)) return false;
   return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(
     hostname
   );

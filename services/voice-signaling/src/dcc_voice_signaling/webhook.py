@@ -255,14 +255,33 @@ async def _apply_room_finished(redis: Redis, room_name: str) -> None:
     )
 
 
-async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) -> None:
+async def _sadd_subkey_coupled(
+    redis: Redis, sub_key: str, room_name: str, user_id: str
+) -> None:
+    """SADD into a streaming/camera sub-key and bound its TTL to the presence
+    key's *current* expiry.
+
+    The sub-key must never outlive the presence key (voice:room:channel-<id>),
+    otherwise _publish_state could broadcast streaming_/camera_user_ids that are
+    absent from user_ids (invariant: streaming/camera ⊆ presence). A separate
+    independent TTL (the old bug) could do exactly that when a share starts hours
+    after the join. Coupling to the presence key's remaining TTL on every call
+    keeps the sub-key's expiry ≤ the presence expiry, while still leaving a
+    safety-net TTL (the test/self-heal both rely on the sub-key being volatile).
+    Falls back to the full TTL only if the presence key has no expiry (-1) or is
+    already gone (-2) — a bounded net, not an unbounded leak.
+    """
     settings = get_settings()
-    sk = streaming_key(room_name)
+    room_ttl = await redis.ttl(room_key(room_name))
+    ttl = room_ttl if room_ttl and room_ttl > 0 else settings.voice_state_ttl_seconds
     pipe = redis.pipeline(transaction=False)
-    pipe.sadd(sk, user_id)
-    # NX: same ghost-prevention logic as _apply_join.
-    pipe.expire(sk, settings.voice_state_ttl_seconds, nx=True)
+    pipe.sadd(sub_key, user_id)
+    pipe.expire(sub_key, ttl)
     await pipe.execute()
+
+
+async def _apply_screen_share_start(redis: Redis, room_name: str, user_id: str) -> None:
+    await _sadd_subkey_coupled(redis, streaming_key(room_name), room_name, user_id)
 
 
 async def _apply_screen_share_stop(redis: Redis, room_name: str, user_id: str) -> None:
@@ -272,13 +291,7 @@ async def _apply_screen_share_stop(redis: Redis, room_name: str, user_id: str) -
 
 
 async def _apply_camera_start(redis: Redis, room_name: str, user_id: str) -> None:
-    settings = get_settings()
-    ck = camera_key(room_name)
-    pipe = redis.pipeline(transaction=False)
-    pipe.sadd(ck, user_id)
-    # NX: same ghost-prevention logic as _apply_join.
-    pipe.expire(ck, settings.voice_state_ttl_seconds, nx=True)
-    await pipe.execute()
+    await _sadd_subkey_coupled(redis, camera_key(room_name), room_name, user_id)
 
 
 async def _apply_camera_stop(redis: Redis, room_name: str, user_id: str) -> None:

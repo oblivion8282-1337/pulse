@@ -43,7 +43,6 @@ state changes (null = party ended).
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 
@@ -71,19 +70,6 @@ _MAX_OVERSIZE_FRAMES = 5
 # nonce column is VARCHAR(64); trim defensively so a long client nonce can't
 # trigger a Postgres StringDataRightTruncation.
 _MAX_NONCE_LEN = 64
-
-
-async def _close_when_token_expires(websocket: WebSocket, exp: float) -> None:
-    """Close the socket with 4001 once the access token's `exp` passes, so a
-    WS connection never outlives the credential that authorised it. Cancelled
-    by the endpoint on disconnect."""
-    delay = exp - time.time()
-    if delay > 0:
-        await asyncio.sleep(delay)
-    try:
-        await websocket.close(code=4001, reason="token expired")
-    except Exception:  # noqa: BLE001 — already closed
-        pass
 
 
 def _channel_id(value: object) -> int | None:

@@ -257,7 +257,7 @@ def build_audio_arg(audio_mode_label: str, excluded_apps: list[str]) -> str | No
     if base == "default_output":
         return inverse_chunk
     if base == "default_input":
-        return base
+        return f"{inverse_chunk}|default_input"
     if base == "default_output|default_input":
         return f"{inverse_chunk}|default_input"
     return base

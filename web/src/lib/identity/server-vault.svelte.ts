@@ -281,10 +281,17 @@ class ServerVault {
    * (legacy-formatierte bleiben ungelesen — Rettung übernimmt der Setup-Flow
    * vorab via `rescueLegacyVault`), re-verschlüsselt dann mit dem AK und pusht.
    */
-  async activateWithAccountKey(ak: CryptoKey): Promise<void> {
-    this.beginUnlock();
+  async activateWithAccountKey(ak: CryptoKey, { isEntry = true } = {}): Promise<void> {
+    // beginUnlock() NUR im Entry-Pfad (direkter Aufruf aus backup-flow.ts).
+    // Als Subroutine von unlockForRestore (isEntry=false) darf der wipe()-Riegel
+    // NICHT zurückgesetzt werden — sonst überschreibt ein eigener beginUnlock()
+    // einen zwischen den awaits gesetzten _wiped=true und persistCached() würde
+    // den Key trotz Logout in IDB schreiben (Account-Switch-Leak).
+    if (isEntry) this.beginUnlock();
     const remote = await getServerVault();
+    if (this._wiped) return; // wipe() (signOut) lief während des Fetch → abbrechen
     if (remote) await this.tryMergeRemote(remote, ak);
+    if (this._wiped) return; // Re-Check nach Merge-Await, vor dem IDB-Write
     await this.persistCached({ key: ak, salt: AK_MODE });
     await this.pushNow();
   }
@@ -303,7 +310,9 @@ class ServerVault {
       // (einheitlicher Schlüssel); sonst Legacy-Setup aus der lokalen Liste.
       try {
         const ak = await accountKey.unlock(password);
-        await this.activateWithAccountKey(ak);
+        // Subroutine-Aufruf: beginUnlock() lief bereits in unlockForRestore;
+        // ein erneuter Reset würde einen zwischenzeitlichen wipe() überschreiben.
+        await this.activateWithAccountKey(ak, { isEntry: false });
         return;
       } catch (err) {
         if (err instanceof AccountKeyDecryptError) throw new Error('VAULT_DECRYPT_FAILED');

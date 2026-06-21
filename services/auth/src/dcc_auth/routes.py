@@ -483,18 +483,71 @@ async def renew_session(
     signed in. ``_get_current_user`` accepts the Bearer token (or a still-valid
     cookie); on success we mint a fresh browser session and attach the cookie, so
     the client can transparently recover without a full re-login.
+
+    The renewed session inherits the strongest provable auth context (acr/amr)
+    of the user's existing sessions — minting a fresh ``acr="0"`` session here
+    would silently downgrade an MFA user (acr="1") whose short-lived cookie
+    expired, locking them out of the ``mfa_step_up_required`` gate
+    (``/credentials/issue``) until a full re-login. We never *force* a downgrade:
+    if no MFA evidence is found, the previous ``acr="0"`` default stands.
     """
+    amr, acr = await _strongest_session_context(request, session, current.id)
     sid = await create_session(
         session,
         user_id=current.id,
-        amr=["pwd"],
-        acr="0",
+        amr=amr,
+        acr=acr,
         user_agent=user_agent,
         ip=_client_ip(request),
     )
     await session.commit()
     set_session_cookie(response, sid)
     return None
+
+
+async def _strongest_session_context(
+    request: Request,
+    session: SessionDep,
+    user_id: int,
+) -> tuple[list[str], str]:
+    """Return the (amr, acr) to carry into a renewed browser session.
+
+    The access token carries no acr/amr claim (see ``JwtSigner.issue_access``),
+    so the only auth-strength evidence lives in ``user_sessions`` rows. We pick
+    the row with the highest acr: first preferring the session referenced by the
+    (possibly expired) ``pulse_session`` cookie, then any other still-existing
+    session of this user. Falls back to the plain-password default when no row
+    is found — so we never *force* a downgrade, only raise to provable strength.
+    """
+    best_acr = "0"
+    best_amr: list[str] = ["pwd"]
+
+    def _consider(row: UserSession | None) -> None:
+        nonlocal best_acr, best_amr
+        if row is not None and (row.acr or "0") > best_acr:
+            best_acr = row.acr or "0"
+            best_amr = list(row.amr) if row.amr else ["pwd"]
+
+    # Prefer the session the cookie points at — even an expired one still
+    # records the auth strength of the login that created it.
+    raw = request.cookies.get("pulse_session")
+    if raw:
+        try:
+            _consider(await session.get(UserSession, str(uuid.UUID(raw))))
+        except ValueError:
+            pass
+
+    # Also scan the user's other sessions for the strongest acr — covers the
+    # app-restart case where the cookie is already gone.
+    rows = (
+        await session.execute(
+            select(UserSession).where(UserSession.user_id == user_id)
+        )
+    ).scalars().all()
+    for row in rows:
+        _consider(row)
+
+    return best_amr, best_acr
 
 
 @router.post("/refresh", response_model=TokensOut)
