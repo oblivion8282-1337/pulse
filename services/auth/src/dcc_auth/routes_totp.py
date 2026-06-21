@@ -293,9 +293,10 @@ async def login_totp(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         )
 
-    if not await _consume_second_factor(
+    factor = await _consume_second_factor(
         session, user, code=payload.code, backup_code=payload.backup_code
-    ):
+    )
+    if factor is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid code")
 
     # Single-use: the ticket has now done its job. Claim its jti so an intercepted
@@ -318,7 +319,10 @@ async def login_totp(
     # Backup-/Profile-Endpoints (runIssueFlow → /credentials/issue) liefern 401.
     # acr="1": ein zweiter Faktor wurde geprüft → erfüllt den
     # mfa_step_up_required-Gate (routes_credentials.py::issue_credential).
-    amr = ["pwd", "backup" if payload.backup_code else "otp"]
+    # amr reflects the factor that *actually* verified, not what the payload
+    # carried: a client may send both a TOTP code and a backup code, in which
+    # case the TOTP branch wins above and no backup code is consumed.
+    amr = ["pwd", "backup" if factor == "backup" else "otp"]
     sid = await create_session(
         session,
         user_id=user.id,
@@ -341,19 +345,25 @@ async def _consume_second_factor(
     *,
     code: str | None,
     backup_code: str | None,
-) -> bool:
+) -> str | None:
     """Validate exactly one of (TOTP code | backup code); mark backup used.
 
-    Returns True if the second factor checks out, False otherwise. Side
-    effect: a successful backup-code path stamps ``used_at`` so the same
+    Returns the branch that actually succeeded — ``"totp"`` or ``"backup"`` —
+    or ``None`` on failure. (The truthy string / falsy ``None`` keeps the
+    existing ``if not await _consume_second_factor(...)`` callers working.)
+    Returning *which* branch matters when a client sends both a valid TOTP code
+    and a backup code: the TOTP branch wins (checked first, no backup consumed),
+    so the caller must stamp ``amr`` from this return value, not the payload.
+
+    Side effect: a successful backup-code path stamps ``used_at`` so the same
     code can't be replayed. The caller must commit.
     """
     if code:
         if not user.totp_secret:
-            return False
+            return None
         totp = pyotp.TOTP(user.totp_secret)
         if not totp.verify(code, valid_window=1):
-            return False
+            return None
         # Replay-prevention: reject if the timecode of *this* code (or an
         # earlier one) was already accepted. ``valid_window=1`` means the
         # accepted code could map to slot t-1, t or t+1, so we must store the
@@ -365,31 +375,33 @@ async def _consume_second_factor(
             # verify() said yes but we couldn't pin the slot — be conservative.
             accepted = int(time.time()) // 30
         if user.totp_last_counter is not None and accepted <= user.totp_last_counter:
-            return False
+            return None
         user.totp_last_counter = accepted
-        return True
+        return "totp"
     if backup_code:
         normalized = backup_code.upper()
         digest = hash_token(normalized)
         row = (
             await session.execute(
-                select(BackupCode).where(
+                select(BackupCode)
+                .where(
                     BackupCode.user_id == user.id,
                     BackupCode.code_hash == digest,
                     BackupCode.used_at.is_(None),
                 )
+                .with_for_update()
             )
         ).scalar_one_or_none()
         if row is None:
-            return False
+            return None
         # The WHERE clause above already filters on code_hash == digest, but keep
         # the explicit constant-time verify as defence-in-depth on this auth path
         # (cheap, and avoids relying on DB-comparison timing properties).
         if not verify_token(normalized, row.code_hash):
-            return False
+            return None
         row.used_at = datetime.now(UTC)
-        return True
-    return False
+        return "backup"
+    return None
 
 
 def _accepted_timecode(totp: pyotp.TOTP, code: str) -> int | None:

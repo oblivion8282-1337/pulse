@@ -164,6 +164,15 @@ async def patch_role(
     editor_perms = await check_permission(
         session, current, guild_id, Permissions.MANAGE_ROLES
     )
+    # Hierarchy guard: the editor must hold every bit the target role
+    # carries — otherwise a MANAGE_ROLES-only holder could gut or rename
+    # an admin role. Owners + ADMINISTRATOR-holders resolve to
+    # GRANT_ALL_SAFE so `role.permissions & ~GRANT_ALL_SAFE == 0` → they
+    # always pass. Mirrors delete_role.
+    if role.permissions & ~editor_perms:
+        raise HTTPException(
+            403, detail="cannot edit a role granting bits you do not yourself have"
+        )
 
     if payload.name is not None:
         if role.is_everyone:

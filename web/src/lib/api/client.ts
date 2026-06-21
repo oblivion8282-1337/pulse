@@ -146,7 +146,7 @@ let _refreshInflight: Promise<Tokens | null> | null = null;
 let _refreshLocked = false;
 
 async function refreshIfNeeded(force = false): Promise<Tokens | null> {
-  if (_refreshLocked) return null;
+  if (_refreshLocked && !force) return null;
   const tokens = loadTokens();
   if (!tokens) return null;
   if (!force && !isAccessExpired(tokens.access_token)) return tokens;
@@ -306,7 +306,10 @@ export async function request<T>(
   if (body !== undefined) init.body = JSON.stringify(body);
   // CORS für Cross-Origin (Cloud-Origin → Self-Host-Origin):
   // explizit `cors`-Mode + Cookies mitschicken falls Self-Host das nutzt.
-  if (isSelfHost) { init.mode = 'cors'; init.credentials = 'omit'; }
+  if (isSelfHost) {
+    init.mode = 'cors';
+    init.credentials = 'omit';
+  }
 
   let resp = await fetch(url, init);
 
@@ -401,7 +404,10 @@ export async function requestForm<T>(
       headers: { Authorization: `Bearer ${token}` },
       body: form,
     };
-    if (isSelfHost) { init.mode = 'cors'; init.credentials = 'omit'; }
+    if (isSelfHost) {
+      init.mode = 'cors';
+      init.credentials = 'omit';
+    }
     return init;
   };
 

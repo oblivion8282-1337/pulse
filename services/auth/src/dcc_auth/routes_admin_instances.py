@@ -285,6 +285,12 @@ async def approve_application(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
                     detail="worker-id allocation conflict, try again",
                 )
+            # Retry: a worker-id UNIQUE collision means the allocated IDs are
+            # stale. After rollback the ORM attributes of app_row are expired,
+            # so we must NOT fall through to the success ApprovalOut (that would
+            # touch expired attrs → MissingGreenlet/500). Re-enter the loop to
+            # re-lock the row and re-allocate.
+            continue
 
         return ApprovalOut(
             instance_id=str(instance_id),

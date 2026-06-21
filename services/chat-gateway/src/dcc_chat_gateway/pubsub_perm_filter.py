@@ -17,7 +17,7 @@ import asyncio
 import logging
 
 from dcc_shared.permission_resolver import has_permission
-from dcc_shared.permissions import Permissions
+from dcc_shared.permissions import GRANT_ALL_SAFE, Permissions
 from fastapi import WebSocket
 
 log = logging.getLogger(__name__)
@@ -53,6 +53,12 @@ class _PermFilterMixin:
         user = self._ws_user.get(ws)
         if user is None:
             return 0
+        if user.is_admin:
+            # Global admins always have GRANT_ALL_SAFE — warm the cache so
+            # repeated calls (e.g. in the gather below) hit the hot path.
+            if ws in self._ws_user:
+                self._ws_perms.setdefault(ws, {})[channel_id] = GRANT_ALL_SAFE
+            return GRANT_ALL_SAFE
         cache = self._ws_perms.get(ws)
         if cache is not None:
             cached = cache.get(channel_id)
