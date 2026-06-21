@@ -2,6 +2,20 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-21.2",
+      "date": "2026-06-21",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen",
+      "items": [
+        "Das Mikrofon bleibt jetzt stumm, wenn du auf \"Ton aus\" schaltest.",
+        "Der Hinweis \"Nachricht nicht gesendet\" erscheint nicht mehr, wenn die Nachricht tatsächlich angekommen ist.",
+        "Ein beendeter Stream wird nicht mehr fälschlich als \"läuft noch\" angezeigt.",
+        "Die YouTube-Wiedergabe erholt sich nach einem Netzwerkfehler ohne Neuladen der Seite.",
+        "Anmeldung mit Passkeys weiter abgesichert.",
+        "Weitere kleinere Stabilitätsverbesserungen."
+      ]
+    },
+    {
       "id": "2026-06-21",
       "date": "2026-06-21",
       "style": "Sachlich",
