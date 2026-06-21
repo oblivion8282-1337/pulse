@@ -208,15 +208,27 @@ class _FriendCacheMixin:
                 # include them (DB-based block checks happen elsewhere).
                 out.add(uid)
                 continue
-            blocked_either = False
+            # Conservative gate for the register()→hydrate window: a socket
+            # whose block caches are not yet hydrated (None) has an UNKNOWN
+            # block status. Treating None as "not blocked" would let a
+            # blocker's presence reach a freshly-connected receiver in that
+            # window. Sync context here (no await), so a DB fallback isn't
+            # clean — instead require *every* socket of the user to have a
+            # hydrated cache that confirms "not blocked" before we include
+            # the user. An un-hydrated socket → exclude (no presence leak).
+            # Presence is re-synced on the ready frame anyway, so a brief
+            # delay during hydration is acceptable; a leak is not.
+            include = bool(socks)
             for ws in socks:
                 bi = self._ws_blocks_in.get(ws)
                 bo = self._ws_blocks_out.get(ws)
-                if (bi is not None and sender_user_id in bi) or (
-                    bo is not None and sender_user_id in bo
-                ):
-                    blocked_either = True
+                if bi is None or bo is None:
+                    # Block status unknown for this socket → don't risk a leak.
+                    include = False
                     break
-            if not blocked_either:
+                if sender_user_id in bi or sender_user_id in bo:
+                    include = False
+                    break
+            if include:
                 out.add(uid)
         return out

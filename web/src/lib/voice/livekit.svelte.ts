@@ -530,12 +530,13 @@ class VoiceRoom {
   }
 
   toggleMic(): void {
+    // Deafened → the mic is held off (setDeafened muted it). Toggling here would
+    // compute target=true and re-enable the mic while the user believes they're
+    // silent. Refuse — un-deafen is the only path that brings the mic back.
+    if (this.deafened) return;
     // Force-muted by an admin → the mic toggle is inert (button is disabled;
     // this also blocks the keyboard-shortcut path). Mirrors toggleDeafen.
     if (this.#selfOverride().muted) return;
-    // Explicit user toggle while deafened cancels the auto-restore on
-    // un-deafen — they've taken ownership of the mic state.
-    if (this.deafened) this.#micEnabledBeforeDeafen = false;
     const target = !this.micEnabled;
     sounds.play(target ? 'voice.self_unmute' : 'voice.self_mute', this.#soundCtx);
     void this.setMicEnabled(target);

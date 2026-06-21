@@ -325,11 +325,8 @@ async def filter_viewable_channels(
     if not base.member:
         return set()
 
-    # Pre-sort once here (outside the per-channel loop below) so
-    # calculate_channel_permissions doesn't re-sort the same list O(N channels)
-    # times. Reduces O(N × R log R) to O(R log R + N).
-    base.roles.sort(key=lambda r: (not r.is_everyone, r.position))
-
+    # No pre-sort needed: calculate_channel_permissions sorts internally via
+    # sorted() (a fresh copy each call), so sorting here has no effect.
     ow_by_channel: dict[int, dict[tuple[int, int], Override]] = {}
     for ow in (
         await session.execute(
@@ -393,10 +390,8 @@ def filter_viewable_channels_from_snapshot(
         )
         for r in member_roles
     ]
-    # Pre-sort once (outside the per-channel loop) so calculate_channel_permissions
-    # doesn't re-sort the same list O(N channels) times — matches the DB variant.
-    snapshots.sort(key=lambda r: (not r.is_everyone, r.position))
-
+    # No pre-sort needed: calculate_channel_permissions sorts internally via
+    # sorted() (a fresh copy each call), so sorting here has no effect.
     ctx = _Ctx(
         user=user.id,
         admin=user.is_admin,

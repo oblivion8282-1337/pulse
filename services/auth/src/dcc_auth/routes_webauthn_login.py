@@ -33,7 +33,7 @@ from dcc_auth.passkeys import (
     issue_challenge_ticket,
     load_user_credentials,
 )
-from dcc_auth.recovery import claim_mfa_ticket, decode_mfa_ticket
+from dcc_auth.recovery import claim_mfa_ticket, claim_ticket_jti, decode_mfa_ticket
 from dcc_auth.routes import _check_rate, _client_ip, _hash_ip, _issue_tokens, _signer_dep
 from dcc_auth.schemas import (
     TokensOut,
@@ -113,7 +113,7 @@ async def webauthn_login_verify(
     settings = get_settings()
     await _check_rate(request, "webauthn_login", settings.rate_limit_webauthn_login)
     try:
-        challenge, challenge_user_id = decode_challenge_ticket(
+        challenge, challenge_user_id, challenge_jti = decode_challenge_ticket(
             signer, payload.challenge_ticket, expected_purpose=PURPOSE_AUTHENTICATE
         )
     except jwt.PyJWTError as exc:
@@ -184,10 +184,23 @@ async def webauthn_login_verify(
             status.HTTP_401_UNAUTHORIZED, detail="passkey verification failed"
         ) from exc
 
-    # Single-use on the 2FA path: burn the password-step ticket's jti so it can't
-    # be replayed to mint a second token pair within its TTL. Passwordless has no
-    # mfa_ticket (mfa_jti is None → no-op); its replay guard is the single-use
-    # challenge ticket. Claimed only after the assertion verified.
+    # Single-use challenge ticket: burn its jti so a captured verify request can't
+    # be replayed to mint a second token pair within the challenge TTL. This is the
+    # replay guard for BOTH paths — and the only one for passwordless, where there
+    # is no mfa_ticket. Claimed only after the assertion verified, so a failed
+    # attempt never burns a legitimate ticket. Same error shape as a bad ticket.
+    if not await claim_ticket_jti(
+        settings.redis_url,
+        "webauthn:challenge:used:",
+        challenge_jti,
+        settings.webauthn_challenge_ttl_seconds,
+    ):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid or expired challenge"
+        )
+
+    # On the 2FA path additionally burn the password-step mfa_ticket's jti, so a
+    # captured mfa_ticket can't be replayed across /login/totp and this endpoint.
     if not passwordless and not await claim_mfa_ticket(
         settings.redis_url, mfa_jti, settings.mfa_ticket_ttl_seconds
     ):

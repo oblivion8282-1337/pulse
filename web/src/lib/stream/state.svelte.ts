@@ -92,6 +92,9 @@ function applyEvent(ev: GsrEvent): void {
       }
       break;
     case 'fps':
+      // Ignore stale fps ticks that arrive after a terminal stop — otherwise a
+      // late fps event would flip the UI from 'stopped' back to 'live'.
+      if (stream.state === 'stopped') break;
       stream.fps = ev.fps;
       stream.uptimeS = ev.uptime_s;
       // FPS implies "live" even if the explicit state event hasn't landed.

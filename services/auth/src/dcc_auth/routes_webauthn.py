@@ -110,7 +110,7 @@ async def webauthn_register_verify(
     settings = get_settings()
     await _check_rate(request, "webauthn_register", settings.rate_limit_webauthn_register)
     try:
-        challenge, ticket_user_id = decode_challenge_ticket(
+        challenge, ticket_user_id, _ = decode_challenge_ticket(
             signer, payload.challenge_ticket, expected_purpose=PURPOSE_REGISTER
         )
     except jwt.PyJWTError as exc:
@@ -163,6 +163,13 @@ async def webauthn_register_verify(
         .where(BackupCode.user_id == current.id)
     )
     if not has_codes:
+        # Idempotent mint (mirrors totp_verify_setup): delete-before-insert in the
+        # same flushed transaction so a concurrent first-factor setup (TOTP +
+        # passkey at once) can't leave two backup-code sets behind. The has_codes
+        # guard above keeps the "only the account's first factor mints codes"
+        # semantics — a second passkey never reaches this branch, so existing
+        # codes are never rotated out from under the user.
+        await session.execute(delete(BackupCode).where(BackupCode.user_id == current.id))
         backup_codes = generate_backup_codes(10)
         for code in backup_codes:
             session.add(BackupCode(user_id=current.id, code_hash=hash_token(code)))

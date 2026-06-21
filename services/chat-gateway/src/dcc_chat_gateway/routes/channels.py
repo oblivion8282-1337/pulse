@@ -187,7 +187,7 @@ async def delete_channel(
     current: CurrentUser,
     request: Request,
 ):
-    """Delete a channel. Only the guild owner may do this.
+    """Delete a channel. Requires MANAGE_CHANNELS permission.
 
     Messages are deleted explicitly here (the messages.channel_id FK was
     dropped in migration 0005 to make Message polymorphic over Channel /
@@ -240,7 +240,7 @@ async def patch_channel(
     current: CurrentUser,
     request: Request,
 ):
-    """Rename/update a channel. Only the guild owner may do this.
+    """Rename/update a channel. Requires MANAGE_CHANNELS permission.
 
     Broadcasts op:channel_updated on guild:events to every connected client.
     """

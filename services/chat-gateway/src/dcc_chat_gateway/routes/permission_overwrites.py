@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import Channel, PermissionOverwrite
+from dcc_chat_gateway.models import Channel, GuildMember, PermissionOverwrite, Role
 from dcc_chat_gateway.permissions import (
     OVERWRITE_TARGET_ROLE,
     OVERWRITE_TARGET_USER,
@@ -154,6 +154,17 @@ async def set_overwrite(
         session, current, channel.guild_id, Permissions.MANAGE_PERMISSIONS,
         channel_id=channel_id,
     )
+
+    # Validate that the target belongs to this guild — rejects phantom IDs
+    # before they can land in the DB or be broadcast to other clients.
+    if target_type == OVERWRITE_TARGET_ROLE:
+        role = await session.get(Role, target_id)
+        if role is None or role.guild_id != channel.guild_id:
+            raise HTTPException(400, detail="role not found in this guild")
+    else:  # OVERWRITE_TARGET_USER
+        member = await session.get(GuildMember, (channel.guild_id, target_id))
+        if member is None:
+            raise HTTPException(400, detail="user is not a member of this guild")
 
     existing = await session.get(
         PermissionOverwrite, (channel_id, target_type, target_id)

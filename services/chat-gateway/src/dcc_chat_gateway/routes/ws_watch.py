@@ -200,6 +200,12 @@ async def handle_leave(
     if cid_int is None or pid is None:
         return
     cid = str(cid_int)
+    # If this socket never mounted the party, there is nothing to remove from
+    # the registry — skip the watch_leave / broadcast_watchers fan-out (the
+    # latter is O(connections) with per-recipient permission checks and is
+    # otherwise triggerable by leave-spam for a party the socket never joined).
+    if (cid, pid) not in watched_parties:
+        return
     watched_parties.discard((cid, pid))
     mgr = _manager(websocket)
     if mgr is None:

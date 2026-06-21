@@ -15,6 +15,7 @@ makes a captured one near-useless.
 from __future__ import annotations
 
 import json
+import secrets
 import time
 from typing import Any
 
@@ -85,6 +86,10 @@ def issue_challenge_ticket(
         "exp": now + ttl_seconds,
         "purpose": purpose,
         "challenge": bytes_to_base64url(challenge),
+        # Random single-use id: the verify handler claims it in Redis so a captured
+        # challenge ticket can't be replayed within its TTL to mint a second token
+        # pair (acute for passwordless login + sign_count=0 authenticators).
+        "jti": secrets.token_hex(16),
     }
     if user_id is not None:
         payload["sub"] = str(user_id)
@@ -100,8 +105,12 @@ def issue_challenge_ticket(
 
 def decode_challenge_ticket(
     signer: JwtSigner, ticket: str, *, expected_purpose: str
-) -> tuple[bytes, int | None]:
-    """Return ``(challenge_bytes, user_id|None)`` from a valid challenge ticket.
+) -> tuple[bytes, int | None, str | None]:
+    """Return ``(challenge_bytes, user_id|None, jti|None)`` from a valid ticket.
+
+    The ``jti`` lets the verify handler claim the ticket as single-use (replay
+    guard); it is ``None`` only for legacy tickets minted before single-use
+    enforcement existed (in-flight during a deploy).
 
     Raises ``jwt.PyJWTError`` on expiry, bad signature, or a purpose mismatch.
     """
@@ -117,7 +126,12 @@ def decode_challenge_ticket(
         raise jwt.InvalidTokenError("wrong challenge-ticket purpose")
     challenge = base64url_to_bytes(payload["challenge"])
     sub = payload.get("sub")
-    return challenge, (int(sub) if sub is not None else None)
+    jti = payload.get("jti")
+    return (
+        challenge,
+        (int(sub) if sub is not None else None),
+        (str(jti) if jti else None),
+    )
 
 
 # ---- ceremony option building ------------------------------------------

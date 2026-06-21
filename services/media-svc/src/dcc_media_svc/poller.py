@@ -58,13 +58,22 @@ def _path_has_publisher(path_obj: dict[str, Any]) -> bool:
     return False
 
 
-async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict[str, set[str]]:
-    """``{channel_id: {user_id, ...}}`` for every ``channel-<cid>-<uid>`` path
-    that has a publisher. Raises on transport/HTTP error — the caller handles it.
+async def _fetch_channel_publishers(
+    client: httpx.AsyncClient, url: str
+) -> tuple[dict[str, set[str]], bool]:
+    """``({channel_id: {user_id, ...}}, any_items_seen)`` for every
+    ``channel-<cid>-<uid>`` path that has a publisher.
+    Raises on transport/HTTP error — the caller handles it.
+
+    ``any_items_seen`` is True if at least one path object was returned across
+    all pages.  A False value alongside an empty result means MediaMTX reported
+    zero paths total (e.g. during a rolling restart), which callers should treat
+    as an unreliable snapshot rather than evidence that all streams ended.
 
     MediaMTX paginates ``/v3/paths/list``; we walk every page so a backlog of
     >1000 paths never silently drops streamers from the presence snapshot."""
     out: dict[str, set[str]] = {}
+    any_items_seen = False
     page = 0
     items_per_page = 1000
     _MAX_PAGES = 10_000  # guard against an infinite-loop if MediaMTX always returns a full page
@@ -73,6 +82,8 @@ async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict
         resp.raise_for_status()
         data = resp.json()
         items = (data.get("items") or []) if isinstance(data, dict) else []
+        if items:
+            any_items_seen = True
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -87,7 +98,7 @@ async def _fetch_channel_publishers(client: httpx.AsyncClient, url: str) -> dict
         page += 1
     else:
         log.warning("mediamtx_pagination_limit_reached", max_pages=_MAX_PAGES)
-    return out
+    return out, any_items_seen
 
 
 async def _list_known_channels(redis: Redis) -> set[str]:
@@ -157,8 +168,25 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     # belongs to a brand-new publish that MediaMTX hadn't reported yet (RTMP
     # handshake, pre-keyframe) — the stale-cleanup below must NOT delete it.
     pass_start = datetime.now(UTC)
-    publishers = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
+    publishers, any_items_seen = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
     known = await _list_known_channels(redis)
+
+    # Guard: if MediaMTX returned zero paths AND we still have known channels in
+    # Redis, the snapshot is almost certainly incomplete (e.g. MediaMTX mid-
+    # restart).  Treating it as authoritative would delete all stream:channel:*
+    # and stream:active:* keys for live streams.  Skip this pass instead.
+    # We only skip when ``known`` is non-empty: if Redis already has no channels
+    # the skip is a no-op anyway, and we don't want to permanently block the
+    # legitimate "last streamer stopped" transition — that arrives as a non-empty
+    # snapshot where MediaMTX has removed the path, not as a completely empty one.
+    if not publishers and not any_items_seen and known:
+        log.warning(
+            "mediamtx_empty_snapshot_skipped",
+            known_channels=len(known),
+            reason="snapshot contained zero paths but Redis knows active channels; "
+            "assuming MediaMTX is mid-restart",
+        )
+        return
 
     # --- Batch-read all channel states we need to inspect ----------------
     all_cids = list(publishers.keys())
