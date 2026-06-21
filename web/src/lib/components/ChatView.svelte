@@ -146,6 +146,11 @@
       lastCount = 0;
       // Beim Kanalwechsel kleben wir wieder unten, bis der User selbst scrollt.
       pinnedToBottom = true;
+      // Laufenden Drag abbrechen — sonst bleibt das Drop-Overlay sichtbar, wenn
+      // der User während eines Drags den Kanal wechselt (dragleave/drop feuert
+      // dann nicht mehr).
+      dragActive = false;
+      dragDepth = 0;
     });
   });
 
