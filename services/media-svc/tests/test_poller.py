@@ -129,6 +129,62 @@ async def test_vanished_stream_self_heals(redis, pubsub):
 
 
 @pytest.mark.asyncio
+async def test_solo_stream_stop_empty_snapshot_cleans_after_grace(redis, pubsub):
+    """A solo/last streamer stopping shows up as a *truly empty* MediaMTX list
+    (``{"items": []}``), not a path-with-no-publisher. The first empty sample is
+    debounced (could be a MediaMTX blip), but once empty persists the channel
+    must be torn down — otherwise it stays "live" forever (regression guard)."""
+    import dcc_media_svc.poller as _poller
+
+    _poller._empty_snapshot_streak = 0
+    cid = _unique_cid()
+    live = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-{'cafebabe' * 4}", True)))
+    empty = _FakeMediaMtxClient(_paths())  # {"items": []}
+    try:
+        await reconcile_once(redis, live)
+        await _drain_one(pubsub)
+        # First empty sample: debounced → channel still present.
+        await reconcile_once(redis, empty)
+        assert await redis.exists(CHANNEL_STATE_KEY.format(channel_id=cid)) == 1
+        # Second consecutive empty: grace exhausted → cleaned up + event.
+        await reconcile_once(redis, empty)
+        assert await redis.exists(CHANNEL_STATE_KEY.format(channel_id=cid)) == 0
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev == {"channel_id": cid, "user_ids": []}
+    finally:
+        _poller._empty_snapshot_streak = 0
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+
+
+@pytest.mark.asyncio
+async def test_single_transient_empty_snapshot_is_skipped(redis, pubsub):
+    """A single empty snapshot (e.g. MediaMTX mid-restart) must NOT tear down a
+    live stream — the round-2 protection. Recovery (non-empty next poll) keeps
+    the stream and resets the streak."""
+    import dcc_media_svc.poller as _poller
+
+    _poller._empty_snapshot_streak = 0
+    cid = _unique_cid()
+    live = _FakeMediaMtxClient(_paths((f"channel-{cid}-1-{'cafebabe' * 4}", True)))
+    empty = _FakeMediaMtxClient(_paths())
+    try:
+        await reconcile_once(redis, live)
+        await _drain_one(pubsub)
+        # One transient empty → skipped, channel survives.
+        await reconcile_once(redis, empty)
+        assert await redis.exists(CHANNEL_STATE_KEY.format(channel_id=cid)) == 1
+        # MediaMTX recovers → streak resets, channel stays.
+        await reconcile_once(redis, live)
+        assert await redis.exists(CHANNEL_STATE_KEY.format(channel_id=cid)) == 1
+        # A later single empty is again debounced (streak was reset).
+        await reconcile_once(redis, empty)
+        assert await redis.exists(CHANNEL_STATE_KEY.format(channel_id=cid)) == 1
+    finally:
+        _poller._empty_snapshot_streak = 0
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+
+
+@pytest.mark.asyncio
 async def test_one_streamer_leaves_others_stay(redis, pubsub):
     cid = _unique_cid()
     both = _FakeMediaMtxClient(
