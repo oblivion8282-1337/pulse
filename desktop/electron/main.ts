@@ -133,7 +133,24 @@ if (process.platform === 'linux') {
 // malicious .desktop file or wrapper script from shifting the trusted origin.
 // In dev/unpackaged builds we accept it but require an https:// URL so
 // `file://` and `http://` payloads cannot be used to bypass the origin guard.
-const DEV_URL = process.env.PULSE_DEV_URL ?? null;
+// Security: PULSE_DEV_URL is only valid in unpackaged builds (like PULSE_URL)
+// and must use http: or https: to prevent file:// bypass of the origin guard.
+let DEV_URL: string | null = null;
+const _rawDevUrl = process.env.PULSE_DEV_URL;
+if (_rawDevUrl && !app.isPackaged) {
+  try {
+    const u = new URL(_rawDevUrl);
+    if (u.protocol === 'http:' || u.protocol === 'https:') {
+      DEV_URL = _rawDevUrl;
+    } else {
+      console.warn('[startup] PULSE_DEV_URL ignored — must be http:// or https://, got:', u.protocol);
+    }
+  } catch {
+    console.warn('[startup] PULSE_DEV_URL ignored — not a valid URL:', _rawDevUrl);
+  }
+} else if (_rawDevUrl && app.isPackaged) {
+  console.warn('[startup] PULSE_DEV_URL ignored in packaged build (developer-only override).');
+}
 const _rawPulseUrl = process.env.PULSE_URL;
 let PROD_URL = 'https://howispulse.com';
 if (!DEV_URL && _rawPulseUrl && !app.isPackaged) {

@@ -1,5 +1,6 @@
 import { chatApi } from '$lib/api/chat';
 import type { DMChannel } from '$lib/api/types';
+import { blocks } from './blocks.svelte';
 
 /**
  * Holds the caller's 1:1 DM channels. Mirrors `guilds.svelte.ts` in shape:
@@ -72,7 +73,13 @@ class DirectMessageStore {
           last_message_id: message_id,
           // We don't know the real created_at here — use "now" as a
           // best-effort. The next hydrate (or ready) will overwrite it.
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
+          // Derive can_send from the local blocks store when available.
+          // If the other user is blocked, the composer must be disabled
+          // immediately — before the next ready/hydrate fills the real flag.
+          // Only set false when we're certain (blocks.loaded); leave
+          // undefined otherwise so the hydrate result takes precedence.
+          ...(blocks.loaded && blocks.has(otherUserId) ? { can_send: false } : {}),
         };
     this.byId = { ...this.byId, [channel_id]: next };
     return true;

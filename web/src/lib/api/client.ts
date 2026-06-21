@@ -414,13 +414,28 @@ export async function requestForm<T>(
   let resp = await fetch(url, make(bearer));
   if (resp.status === 401) {
     if (isSelfHost) {
-      if (_selfHostReauth) _selfHostReauth(server!.id);
-      throw new SessionExpiredError(server!.id);
+      if (_selfHostReauthAsync) {
+        const ok = await _selfHostReauthAsync(server!.id);
+        if (ok) {
+          const freshBearer = await bearerFor(server);
+          if (freshBearer) {
+            resp = await fetch(url, make(freshBearer));
+          } else {
+            throw new SessionExpiredError(server!.id);
+          }
+        } else {
+          throw new SessionExpiredError(server!.id);
+        }
+      } else {
+        if (_selfHostReauth) _selfHostReauth(server!.id);
+        throw new SessionExpiredError(server!.id);
+      }
+    } else {
+      const refreshed = await refreshIfNeeded(true);
+      if (!refreshed) throw new ApiError(401, null, 'refresh failed');
+      bearer = refreshed.access_token;
+      resp = await fetch(url, make(bearer));
     }
-    const refreshed = await refreshIfNeeded(true);
-    if (!refreshed) throw new ApiError(401, null, 'refresh failed');
-    bearer = refreshed.access_token;
-    resp = await fetch(url, make(bearer));
   }
   return parseResponse<T>(resp);
 }

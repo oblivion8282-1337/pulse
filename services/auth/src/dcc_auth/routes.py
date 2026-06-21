@@ -513,41 +513,41 @@ async def _strongest_session_context(
     """Return the (amr, acr) to carry into a renewed browser session.
 
     The access token carries no acr/amr claim (see ``JwtSigner.issue_access``),
-    so the only auth-strength evidence lives in ``user_sessions`` rows. We pick
-    the row with the highest acr: first preferring the session referenced by the
-    (possibly expired) ``pulse_session`` cookie, then any other still-existing
-    session of this user. Falls back to the plain-password default when no row
-    is found — so we never *force* a downgrade, only raise to provable strength.
+    so the only auth-strength evidence lives in ``user_sessions`` rows. We only
+    trust the session the *current request itself proves*: the row referenced by
+    this browser's ``pulse_session`` cookie. That row may be DB-expired — it is
+    still this user's own session in this very browser, so its acr/amr is a
+    legitimate record of the original auth strength here, and inheriting it lets
+    an MFA user (acr="1") whose short-lived cookie expired keep their step-up.
+
+    We deliberately do NOT scan the user's other sessions: a row created on a
+    different device (or an expired one) is not proven by this request. A
+    bearer-only request (e.g. a stolen XSS access token) carries no cookie, so
+    it gets the plain-password default — it can never *inherit* acr="1" from a
+    foreign/expired session and slip past the ``/credentials/issue`` MFA gate.
+    Falls back to the default when no usable, owner-matching cookie row is found
+    — so we never *force* a downgrade, only raise to provable strength.
     """
-    best_acr = "0"
-    best_amr: list[str] = ["pwd"]
+    default: tuple[list[str], str] = (["pwd"], "0")
 
-    def _consider(row: UserSession | None) -> None:
-        nonlocal best_acr, best_amr
-        if row is not None and (row.acr or "0") > best_acr:
-            best_acr = row.acr or "0"
-            best_amr = list(row.amr) if row.amr else ["pwd"]
-
-    # Prefer the session the cookie points at — even an expired one still
-    # records the auth strength of the login that created it.
     raw = request.cookies.get("pulse_session")
-    if raw:
-        try:
-            _consider(await session.get(UserSession, str(uuid.UUID(raw))))
-        except ValueError:
-            pass
+    if not raw:
+        return default
+    try:
+        sid = uuid.UUID(raw)
+    except ValueError:
+        return default
 
-    # Also scan the user's other sessions for the strongest acr — covers the
-    # app-restart case where the cookie is already gone.
-    rows = (
-        await session.execute(
-            select(UserSession).where(UserSession.user_id == user_id)
-        )
-    ).scalars().all()
-    for row in rows:
-        _consider(row)
+    # Load exactly the cookie-referenced row (DB-expired is fine — it's this
+    # browser's own session). Reject a cross-user cookie: the proven row must
+    # belong to the authenticated user.
+    row = await session.get(UserSession, str(sid))
+    if row is None or row.user_id != user_id:
+        return default
 
-    return best_amr, best_acr
+    acr = row.acr or "0"
+    amr = list(row.amr) if row.amr else ["pwd"]
+    return amr, acr
 
 
 @router.post("/refresh", response_model=TokensOut)
@@ -589,7 +589,9 @@ async def refresh(
         await session.commit()
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token not active")
     # SQLite returns naive datetimes; coerce to UTC for the comparison.
-    expires_at = rt.expires_at if rt.expires_at.tzinfo is not None else rt.expires_at.replace(tzinfo=UTC)
+    expires_at = (
+        rt.expires_at if rt.expires_at.tzinfo is not None else rt.expires_at.replace(tzinfo=UTC)
+    )
     if expires_at <= now:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="refresh token expired")
 

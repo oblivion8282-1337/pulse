@@ -214,13 +214,15 @@ export class PartyController {
       return;
     }
     if (this.getIsPassive()) return;
+    // Update #viewerPaused unconditionally so the viewer's intent is never lost,
+    // even inside the quiet window that follows a hard sync.
+    if (e.type === 'pause') this.#viewerPaused = true;
+    else if (e.type === 'play') this.#viewerPaused = false;
+    // The quiet window only suppresses triggering another #syncHard (avoids a
+    // feedback loop right after applyHard already snapped the player).
     const now = Date.now();
     if ((e.type === 'play' || e.type === 'pause') && now < this.#syncingUntil) return;
-    if (e.type === 'pause') this.#viewerPaused = true;
-    else if (e.type === 'play') {
-      this.#viewerPaused = false;
-      if (this.#player) this.#syncHard(this.#player, this.getParty());
-    }
+    if (e.type === 'play' && this.#player) this.#syncHard(this.#player, this.getParty());
   }
 
   dispose(): void {

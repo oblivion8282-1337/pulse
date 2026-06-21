@@ -405,6 +405,9 @@ class VoiceRoom {
     } else {
       this.micEnabled = false;
     }
+    // Re-check again after setMicEnabled() — same risk of a concurrent connect
+    // that replaced this.#room during the await.
+    if (gen !== this.#connectGen) return;
     // Restore deafen BEFORE publishing so peers see the right state immediately.
     // setDeafened auch mutet den Mic — daher nach dem (übersprungenen) Mic-On.
     if (opts.startDeafened) {
