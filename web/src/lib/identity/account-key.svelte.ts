@@ -63,6 +63,12 @@ async function importAk(raw: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
 
 class AccountKeyStore {
   private cached: CryptoKey | null = null;
+  /** Gesetzt von wipe() (signOut, auch via Multi-Tab) — verhindert, dass ein
+   *  nach dem Sign-out noch auflaufendes in-flight unlock()/create() den
+   *  Master-Key via persist() doch noch in IDB zurückschreibt (sonst läse der
+   *  nächste, fremde Hydrate den Wurzelschlüssel zurück = Account-Switch-Leak).
+   *  Wird NUR durch einen bewussten Entsperr-/Erstell-Einstieg zurückgesetzt. */
+  private _wiped = false;
 
   /** Entsperrter AK aus Memory/IDB — null wenn dieses Gerät ihn nicht hat. */
   async getCached(): Promise<CryptoKey | null> {
@@ -89,6 +95,7 @@ class AccountKeyStore {
    * @throws Error('NO_ACCOUNT_KEY') wenn der Account noch keinen AK hat.
    */
   async unlock(password: string): Promise<CryptoKey> {
+    this._wiped = false; // bewusster Entsperr-Einstieg: hebt einen früheren wipe()-Riegel auf
     const remote = await apiGet();
     if (!remote) throw new Error('NO_ACCOUNT_KEY');
     const kek = await deriveKeyArgon2id(password, fromBase64(remote.kdf_salt));
@@ -114,6 +121,7 @@ class AccountKeyStore {
    * Backend 409 (Schutz vor versehentlichem Überschreiben).
    */
   async create(password: string): Promise<CryptoKey> {
+    this._wiped = false; // bewusster Erstell-Einstieg: hebt einen früheren wipe()-Riegel auf
     const raw = randomBytes(32);
     const salt = randomBytes(KDF_SALT_BYTES);
     const iv = randomBytes(GCM_IV_BYTES);
@@ -131,9 +139,15 @@ class AccountKeyStore {
   }
 
   private async persist(key: CryptoKey): Promise<void> {
+    // Hat wipe() (signOut) zwischenzeitlich gegriffen — z.B. weil apiGet +
+    // Argon2id dieses Unlock-/Create-Flows erst nach dem Sign-out fertig wurden
+    // — NICHTS mehr in IDB schreiben, sonst läge der Master-Key für die nächste
+    // (fremde) Session bereit (Account-Switch-Leak des Wurzelschlüssels).
+    if (this._wiped) return;
     this.cached = key;
     try {
       const db = await openIdentityDb();
+      if (this._wiped) return; // Re-Check nach open-Await: wipe() darf nicht überschrieben werden
       await idbPutIdentity(db, IDB_KEY, key);
     } catch {
       /* best-effort — Memory-Cache bleibt für die Session */
@@ -142,6 +156,7 @@ class AccountKeyStore {
 
   /** signOut: Memory + IDB löschen. */
   async wipe(): Promise<void> {
+    this._wiped = true;
     this.cached = null;
     try {
       const db = await openIdentityDb();

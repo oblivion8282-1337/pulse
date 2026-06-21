@@ -486,6 +486,15 @@ class UserSession(Base):
     expires_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
+    # Explicit revocation watermark (Logout-Everywhere / password-change /
+    # admin-suspend). Distinct from natural TTL expiry: a revoked row is killed
+    # by a security event and must NOT have its acr/amr inherited by
+    # ``/session/renew`` (a naturally-TTL-expired row still may, for the
+    # MFA-desktop cookie-recovery path). ``validate_session`` rejects revoked
+    # rows outright.
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Auth-method references: ["pwd"], ["pwd","otp"], ["webauthn"], etc.
     amr: Mapped[list] = mapped_column(
         _JsonbOrJson,

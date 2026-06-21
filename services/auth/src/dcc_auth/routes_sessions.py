@@ -13,14 +13,15 @@ Kept in its own file so ``routes.py`` stays under the size cap.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 
 from dcc_auth.db import SessionDep
-from dcc_auth.models import RefreshToken, User
+from dcc_auth.models import RefreshToken, User, UserSession
 from dcc_auth.routes import _get_current_user, _hash_ip
 from dcc_auth.schemas import SessionOut, SessionsRevokeAllOut
 
@@ -97,10 +98,8 @@ async def revoke_session(
     already revoked — collapsing the three into one response avoids
     leaking the existence of other users' tokens.
     """
-    import uuid as _uuid
-
     try:
-        jti = _uuid.UUID(session_id)
+        jti = uuid.UUID(session_id)
     except ValueError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="session not found") from exc
 
@@ -146,6 +145,28 @@ async def revoke_all_sessions(
             continue
         rt.revoked_at = now
         revoked += 1
+
+    # Also revoke the *browser-session* cookies (user_sessions), not just the
+    # refresh tokens — otherwise a stolen pulse_session cookie survives
+    # "sign out everywhere else". Preserve the caller's own current cookie so
+    # this request's device stays signed in. validate_session rejects any row
+    # with revoked_at set, so the other cookies die immediately.
+    current_sid = request.cookies.get("pulse_session")
+    keep_sid: str | None = None
+    if current_sid:
+        try:
+            keep_sid = str(uuid.UUID(current_sid))
+        except ValueError:
+            keep_sid = None
+    cond = [
+        UserSession.user_id == current.id,
+        UserSession.revoked_at.is_(None),
+    ]
+    if keep_sid is not None:
+        cond.append(UserSession.session_id != keep_sid)
+    await session.execute(
+        sa_update(UserSession).where(*cond).values(expires_at=now, revoked_at=now)
+    )
 
     await session.commit()
     return SessionsRevokeAllOut(revoked_count=revoked)

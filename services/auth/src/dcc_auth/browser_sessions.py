@@ -89,6 +89,10 @@ async def validate_session(
     if row is None:
         return None
     now = datetime.now(tz=UTC)
+    # Explicitly revoked (Logout-Everywhere / password-change / suspend) → dead,
+    # regardless of the expiry clock.
+    if row.revoked_at is not None:
+        return None
     # Coerce naive datetimes from SQLite tests
     exp = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=UTC)
     if exp <= now:
@@ -103,24 +107,37 @@ async def validate_session(
 
 
 async def revoke_session(db: AsyncSession, session_id: uuid.UUID) -> bool:
-    """Soft-delete by setting expires_at = now.  Returns True if row existed."""
+    """Soft-delete one session.  Returns True if row existed.
+
+    Sets both ``expires_at`` (kills the sliding window) and ``revoked_at`` (marks
+    it as an explicit security revocation, so ``/session/renew`` won't inherit
+    its acr/amr — see ``routes._strongest_session_context``).
+    """
     row = await db.get(UserSession, str(session_id))
     if row is None:
         return False
-    row.expires_at = datetime.now(tz=UTC)
+    now = datetime.now(tz=UTC)
+    row.expires_at = now
+    row.revoked_at = now
     return True
 
 
 async def revoke_all_for_user(db: AsyncSession, user_id: int) -> int:
-    """Expire all active sessions for a user (Logout-Everywhere).
+    """Revoke all of a user's sessions (Logout-Everywhere).
 
-    Returns the number of rows touched.
+    Stamps both ``expires_at`` and ``revoked_at`` on every not-yet-revoked row,
+    and raises the user-level ``revoke_until`` watermark so the
+    ``/credentials/issue`` MFA-race gate (routes_credentials) actually fires.
+    Returns the number of session rows touched.
     """
     now = datetime.now(tz=UTC)
     result = await db.execute(
         sa_update(UserSession)
-        .where(UserSession.user_id == user_id, UserSession.expires_at > now)
-        .values(expires_at=now)
+        .where(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+        .values(expires_at=now, revoked_at=now)
+    )
+    await db.execute(
+        sa_update(User).where(User.id == user_id).values(revoke_until=now)
     )
     return result.rowcount or 0
 

@@ -314,8 +314,23 @@ class AuthStore {
     void profileStatementStore.wipe();
     // E2E-Server-Vault-Key + Account-Key (IDB) wischen — verhindert dass ein
     // nächster User auf demselben Gerät mit den alten Keys pusht/pullt.
+    // wipe() setzt synchron `cached=null` (vor jedem await), sodass das folgende
+    // keepOnlyCloud(true) keinen Push mit dem Schlüssel des Vorgängers auslöst.
     void serverVault.wipe();
     void accountKey.wipe();
+    // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
+    // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).
+    // silent=true: kein Tresor-Push, der den Server-Tresor leeren würde.
+    serversStore.keepOnlyCloud(true);
+    const cloudId = serversStore.cloudId();
+    if (cloudId) activeServer.set(cloudId);
+    // Geräte-Besitzer-Tag entfernen, damit der nächste Login als frischer
+    // Owner-Wechsel/Setup behandelt wird (wie _enforceDeviceOwner ihn setzt).
+    try {
+      window.localStorage.removeItem('pulse.identity_owner');
+    } catch {
+      /* ignore */
+    }
     void goto('/login');
   }
 }
