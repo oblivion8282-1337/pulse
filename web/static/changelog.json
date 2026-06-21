@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-21.3",
+      "date": "2026-06-21",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen",
+      "items": [
+        "Zwei-Faktor-Anmeldung auf dem Desktop funktioniert nach Ablauf der Sitzung wieder zuverlässig.",
+        "Streams, die länger als 6 Stunden laufen, bleiben für neue Zuschauer abrufbar.",
+        "Rollen-Berechtigungen sind besser gegen unbefugte Änderungen geschützt.",
+        "Mikrofon-Modus beim Streamen wendet ausgeschlossene Apps jetzt korrekt an.",
+        "Weitere Sicherheits- und Stabilitätsverbesserungen."
+      ]
+    },
+    {
       "id": "2026-06-21.2",
       "date": "2026-06-21",
       "style": "Sachlich",
