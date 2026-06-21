@@ -196,7 +196,9 @@ async def handle_watch_handoff(ctx: WSOpContext, msg: dict[str, Any]) -> None:
 @register_ws_op("watch_stop")
 async def handle_watch_stop(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_watch.handle_stop(
-        ctx.websocket, ctx.user, msg, hosted_parties=ctx.hosted_parties
+        ctx.websocket, ctx.user, msg,
+        hosted_parties=ctx.hosted_parties,
+        watched_parties=ctx.watched_parties,
     )
 
 

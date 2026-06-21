@@ -268,7 +268,11 @@ async def get_whep_url(
     if cached is not None:
         read_token = cached.decode() if isinstance(cached, bytes) else cached
     else:
-        read_token = secrets.token_urlsafe(32)
+        # Mint a candidate token and race to claim the cache slot atomarisch via
+        # SET NX.  Only the winner writes the stream:token key — losers read the
+        # winner's token from the cache and return it, so no orphaned token keys
+        # accumulate from concurrent WHEP requests by the same viewer.
+        candidate = secrets.token_urlsafe(32)
         read_record = {
             "channel_id": channel_id,
             "user_id": user_id,
@@ -276,13 +280,22 @@ async def get_whep_url(
             "protocol": "webrtc",
             "created_at": int(time.time()),
         }
-        async with redis.pipeline(transaction=False) as pipe:
-            pipe.set(
-                TOKEN_KEY.format(token=read_token),
+        won = await redis.set(cache_key, candidate, ex=s.read_token_ttl_s, nx=True)
+        if won:
+            # This request is the winner — register the token so the auth-hook
+            # can validate it.  The candidate is already in the cache; no other
+            # concurrent request will mint a second stream:token key.
+            await redis.set(
+                TOKEN_KEY.format(token=candidate),
                 json.dumps(read_record, separators=(",", ":")),
                 ex=s.read_token_ttl_s,
             )
-            pipe.set(cache_key, read_token, ex=s.read_token_ttl_s)
-            await pipe.execute()
+            read_token = candidate
+        else:
+            # Another concurrent request beat us to the cache slot.  Read the
+            # winner's token — our candidate is discarded without ever being
+            # written to stream:token:*, leaving no orphaned key.
+            winner = await redis.get(cache_key)
+            read_token = (winner.decode() if isinstance(winner, bytes) else winner) or candidate
     base = s.mediamtx_public_base.rstrip("/")
     return WhepOut(whep_url=f"{base}/{path}/whep?token={read_token}")

@@ -125,6 +125,7 @@ class ServerVault {
     this.cached = value;
     try {
       const db = await openIdentityDb();
+      if (this._wiped) return; // Re-Check nach open-Await: wipe() darf nicht überschrieben werden
       await idbPutIdentity(db, IDB_KEY, value);
     } catch {
       /* best-effort — Memory-Cache bleibt für die Session gültig */
@@ -248,8 +249,10 @@ class ServerVault {
   async unlockForSetup(password: string): Promise<void> {
     this.beginUnlock();
     const remote = await getServerVault();
+    if (this._wiped) return; // wipe() (signOut) lief während des Fetch → abbrechen
     if (remote) {
       const old = await this.loadCached();
+      if (this._wiped) return; // wipe() lief während des Awaits → nicht in localStorage mergen
       if (old) await this.tryMergeRemote(remote, old.key);
     }
     // Frisches Salt → Key aus (neuem) Passwort ableiten, lokale Liste hochschieben.
@@ -342,6 +345,7 @@ class ServerVault {
         throw new Error('VAULT_DECRYPT_FAILED');
       }
       await this.persistCached({ key: ak, salt: AK_MODE });
+      if (this._wiped) return; // wipe() lief während eines Awaits → nicht in localStorage mergen
       if (Array.isArray(list)) this.mergeIntoStore(list);
       await this.pushNow();
       return;
@@ -360,6 +364,7 @@ class ServerVault {
       throw new Error('VAULT_DECRYPT_FAILED');
     }
     await this.persistCached({ key, salt: toBase64(salt) });
+    if (this._wiped) return; // wipe() lief während eines Awaits → nicht in localStorage mergen
     if (Array.isArray(list)) this.mergeIntoStore(list);
     await this.pushNow();
   }

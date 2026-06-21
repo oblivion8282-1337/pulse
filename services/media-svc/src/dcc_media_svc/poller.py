@@ -233,6 +233,12 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
                     ACTIVE_KEY.format(channel_id=cid, user_id=uid),
                     settings.channel_state_ttl_s,
                 )
+            # Clean up stream:active keys for users who left this channel while
+            # at least one other user is still streaming (partial-departure case).
+            # The full-channel-gone path is handled below in the stale-channel
+            # self-heal; here we only touch users that are no longer in new_uids.
+            for uid in prev_uid_set - set(new_uids):
+                pipe.delete(ACTIVE_KEY.format(channel_id=cid, user_id=uid))
             changed.append((cid, new_uids))
         await pipe.execute()
 

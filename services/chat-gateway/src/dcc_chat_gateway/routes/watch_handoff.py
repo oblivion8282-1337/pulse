@@ -95,6 +95,21 @@ async def promote_or_end(
     fresh = await watchkeys.read_party(redis, channel_id, party_id)
     if fresh is None or str(fresh.get("host_user_id")) != str(departing_uid):
         return
+    # Re-validate that the chosen successor is still a watcher: next_host ran
+    # before this re-read, so next_uid may have disconnected in the meantime.
+    # Promoting a gone user would strand a "ghost host" in Redis (no socket, no
+    # grace timer) until the 6h TTL. Re-pick the next available watcher; if the
+    # candidate keeps vanishing or none remain, end the party (never write a
+    # host without an active watcher).
+    watchers_now = set(await manager.watchers(channel_id, party_id))
+    while next_uid not in watchers_now:
+        next_uid = await manager.next_host(
+            channel_id, party_id, exclude_uid=str(departing_uid)
+        )
+        if next_uid is None:
+            await watchkeys.delete_party(redis, channel_id, party_id)
+            return
+        watchers_now = set(await manager.watchers(channel_id, party_id))
     new_state = watchkeys.promoted_state(fresh, next_uid)
     await watchkeys.write_party(redis, channel_id, new_state)
     log.info(
@@ -156,6 +171,13 @@ async def handle_handoff(
         fresh = await watchkeys.read_party(redis, cid, pid)
         if fresh is None or str(fresh.get("host_user_id")) != str(user.id):
             await _err(websocket, 4015, "only the host can hand off")
+            return
+        # Re-validate target presence after the re-read: the target may have
+        # disconnected between the first watchers() check and now. Writing them
+        # as host here would strand a party in Redis with no open socket and no
+        # grace timer (a "ghost host" that lingers until the 6h TTL).
+        if target not in await mgr.watchers(cid, pid):
+            await _err(websocket, 4018, "target not watching")
             return
         new_state = watchkeys.promoted_state(fresh, target)
         await watchkeys.write_party(redis, cid, new_state)

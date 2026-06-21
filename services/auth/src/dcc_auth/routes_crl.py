@@ -140,7 +140,7 @@ async def revoked_credentials(
         if cached_etag is not None:
             etag_str = cached_etag.decode() if isinstance(cached_etag, bytes) else cached_etag
             if if_none_match and if_none_match.strip('"') == etag_str:
-                return Response(status_code=status.HTTP_304_NOT_MODIFIED)
+                return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": _quoted(etag_str)})
 
         cert_ids = await _prune_and_fetch_from_redis(redis)
         etag_str = _compute_etag(cert_ids)
@@ -153,7 +153,7 @@ async def revoked_credentials(
 
     quoted = _quoted(etag_str)
     if if_none_match and if_none_match.strip('"') == etag_str:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED)
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": quoted})
 
     response.headers["ETag"] = quoted
     response.headers["Cache-Control"] = "public, max-age=60"

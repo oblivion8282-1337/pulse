@@ -41,15 +41,40 @@ async def _make_guild(client, signer) -> tuple[str, int, int]:
     return token, uid, guild_id
 
 
-async def _seed_profile(session_factory, user_identifier: str, username: str, display_name: str):
-    """Directly insert a CachedUserProfile row (bypasses JWT validation)."""
+def _synthetic_id(user_identifier: str) -> int:
+    """Deterministic self-host synthetic user id. Mirrors the prod bridge that
+    mention search joins on: ``GuildMember.user_id == CachedUserProfile.synthetic_user_id``."""
+    import hashlib
+
+    return int.from_bytes(hashlib.sha256(user_identifier.encode()).digest()[:7], "big")
+
+
+async def _seed_profile(
+    session_factory,
+    guild_id: int,
+    user_identifier: str,
+    username: str,
+    display_name: str,
+    *,
+    member: bool = True,
+):
+    """Insert a CachedUserProfile row and (when ``member``) the matching
+    guild_members row so the profile is in scope for /mention-candidates.
+
+    Self-host mention search joins ``CachedUserProfile.synthetic_user_id ==
+    GuildMember.user_id``, so a profile only surfaces if its synthetic id is a
+    member of the queried guild. ``member=False`` seeds an out-of-guild profile
+    (used to assert it is NOT leaked across guilds)."""
+    from dcc_chat_gateway.models.guilds import GuildMember
     from dcc_chat_gateway.models.moderation import CachedUserProfile
 
+    syn = _synthetic_id(user_identifier)
     async with session_factory() as session:
         existing = await session.get(CachedUserProfile, user_identifier)
         if existing is not None:
             existing.username = username
             existing.display_name = display_name
+            existing.synthetic_user_id = syn
             existing.last_statement_iat = datetime.now(tz=timezone.utc)
             session.add(existing)
         else:
@@ -58,10 +83,13 @@ async def _seed_profile(session_factory, user_identifier: str, username: str, di
                     user_identifier=user_identifier,
                     username=username,
                     display_name=display_name,
+                    synthetic_user_id=syn,
                     last_statement_iat=datetime.now(tz=timezone.utc),
                     stale=False,
                 )
             )
+        if member and await session.get(GuildMember, (guild_id, syn)) is None:
+            session.add(GuildMember(guild_id=guild_id, user_id=syn))
         await session.commit()
 
 
@@ -93,9 +121,12 @@ async def test_missing_q_gets_422(client, _auth_signer):
 async def test_prefix_match_returns_sorted_results(client, _auth_signer, session_factory):
     token, uid, guild_id = await _make_guild(client, _auth_signer)
 
-    await _seed_profile(session_factory, "id-alice", "alice", "Alice Smith")
-    await _seed_profile(session_factory, "id-albert", "albert", "Albert Brown")
-    await _seed_profile(session_factory, "id-bob", "bob", "Bob Jones")
+    await _seed_profile(session_factory, guild_id, "id-alice", "alice", "Alice Smith")
+    await _seed_profile(session_factory, guild_id, "id-albert", "albert", "Albert Brown")
+    await _seed_profile(session_factory, guild_id, "id-bob", "bob", "Bob Jones")
+    # Prefix-matching profile that is NOT a member of this guild — must be
+    # scoped out (regression guard for the cross-guild username leak).
+    await _seed_profile(session_factory, guild_id, "id-alvin", "alvin", "Alvin Outsider", member=False)
 
     r = await client.get(
         f"/guilds/{guild_id}/mention-candidates",
@@ -108,6 +139,8 @@ async def test_prefix_match_returns_sorted_results(client, _auth_signer, session
     assert "bob" not in names
     assert "alice" in names
     assert "albert" in names
+    # The non-member must not leak even though "alvin" matches the prefix.
+    assert "alvin" not in names
     # Sorted ascending by username
     assert names == sorted(names)
 
@@ -115,7 +148,7 @@ async def test_prefix_match_returns_sorted_results(client, _auth_signer, session
 @pytest.mark.asyncio
 async def test_no_match_returns_empty_list(client, _auth_signer, session_factory):
     token, uid, guild_id = await _make_guild(client, _auth_signer)
-    await _seed_profile(session_factory, "id-charlie", "charlie", "Charlie")
+    await _seed_profile(session_factory, guild_id, "id-charlie", "charlie", "Charlie")
 
     r = await client.get(
         f"/guilds/{guild_id}/mention-candidates",
@@ -129,7 +162,7 @@ async def test_no_match_returns_empty_list(client, _auth_signer, session_factory
 @pytest.mark.asyncio
 async def test_updated_username_reflected_in_next_search(client, _auth_signer, session_factory):
     token, uid, guild_id = await _make_guild(client, _auth_signer)
-    await _seed_profile(session_factory, "id-diana", "diana", "Diana")
+    await _seed_profile(session_factory, guild_id, "id-diana", "diana", "Diana")
 
     r = await client.get(
         f"/guilds/{guild_id}/mention-candidates",
@@ -139,7 +172,7 @@ async def test_updated_username_reflected_in_next_search(client, _auth_signer, s
     assert any(e["username"] == "diana" for e in r.json())
 
     # Update the display_name and re-check
-    await _seed_profile(session_factory, "id-diana", "diana", "Diana Updated")
+    await _seed_profile(session_factory, guild_id, "id-diana", "diana", "Diana Updated")
     r2 = await client.get(
         f"/guilds/{guild_id}/mention-candidates",
         params={"q": "di"},
@@ -158,6 +191,7 @@ async def test_result_limit_enforced(client, _auth_signer, session_factory):
     for i in range(25):
         await _seed_profile(
             session_factory,
+            guild_id,
             f"id-zz{i:03d}",
             f"zz{i:03d}user",
             f"ZZ User {i}",

@@ -62,42 +62,40 @@ async def mention_candidates(
             detail="not a member of this guild",
         )
 
-    # Prefix search against the cached_user_profiles table.
-    # ``LIKE 'prefix%'`` is index-friendly on the ``ix_cached_user_profiles_username``
-    # B-tree index.
+    # Prefix search against the cached_user_profiles table, restricted to
+    # members of the requested guild via a JOIN to guild_members.
+    # ``LIKE 'prefix%'`` is index-friendly on ``ix_cached_user_profiles_username``.
     #
-    # In cloud mode, filter results to only users who are members of the guild
-    # (via a JOIN to guild_members). In self-host mode (with pairwise-subs),
-    # we cannot correlate CachedUserProfile.user_identifier back to numeric
-    # user_ids without a mapping table, so results include all cached users.
-    # Self-host admins have full instance visibility anyway.
+    # Cloud mode:   user_identifier is the numeric user_id as a string → cast
+    #               to int to join against GuildMember.user_id.
+    # Self-host:    user_identifier is a pairwise-sub (opaque string), but
+    #               CachedUserProfile.synthetic_user_id carries the same numeric
+    #               id that GuildMember.user_id holds (derived via
+    #               synthesize_self_host_user_id on upsert).  Join on that.
     #
-    # Escape SQL LIKE wildcards in the user-supplied prefix so that
-    # ``q=%`` / ``q=_`` can't match every row or every single-char username.
+    # Escape LIKE wildcards in the user-supplied prefix.
     q_escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     settings = chat_config.get_settings()
 
     stmt = select(CachedUserProfile).where(
         CachedUserProfile.username.like(f"{q_escaped}%", escape="\\")
     )
-
-    # In cloud mode, add a guild-membership filter.
     if settings.pulse_instance_mode == "cloud":
-        stmt = (
-            stmt.join(
-                GuildMember,
-                and_(
-                    GuildMember.guild_id == guild_id,
-                    # In cloud mode, user_identifier is the numeric user_id as a
-                    # string — cast it to int to join against GuildMember.user_id.
-                    GuildMember.user_id == cast(CachedUserProfile.user_identifier, Integer),
-                ),
-            )
-            .order_by(CachedUserProfile.username)
-            .limit(_MAX_RESULTS)
+        join_cond = and_(
+            GuildMember.guild_id == guild_id,
+            GuildMember.user_id == cast(CachedUserProfile.user_identifier, Integer),
         )
     else:
-        stmt = stmt.order_by(CachedUserProfile.username).limit(_MAX_RESULTS)
+        join_cond = and_(
+            GuildMember.guild_id == guild_id,
+            GuildMember.user_id == CachedUserProfile.synthetic_user_id,
+        )
+
+    stmt = (
+        stmt.join(GuildMember, join_cond)
+        .order_by(CachedUserProfile.username)
+        .limit(_MAX_RESULTS)
+    )
 
     rows = (await session.execute(stmt)).scalars().all()
 

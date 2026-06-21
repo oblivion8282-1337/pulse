@@ -358,6 +358,12 @@ async def edit_message(
     # Membership check comes before the author check to avoid leaking message
     # existence to non-members (existence oracle).
     kind, ch = await resolve_channel_or_raise(session, msg.channel_id, current.id)
+    if kind == "dm":
+        other = ch.user_b_id if ch.user_a_id == current.id else ch.user_a_id
+        if await block_exists_either_way(session, current.id, other):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="blocked")
+        if not await friendship_exists(session, current.id, other):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not_friends")
     if msg.author_id != current.id:
         raise HTTPException(403, detail="only the author can edit")
 

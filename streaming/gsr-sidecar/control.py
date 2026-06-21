@@ -195,10 +195,9 @@ class Sidecar:
         )
 
     def _ensure_info(self) -> gsr_binary.GsrInfo | None:
-        if self._info is None and self._binary.available and not self._info_probed:
+        if self._binary.available and not self._info_probed:
             self._info = gsr_binary.probe_info(self._binary)
-            if self._info is not None:
-                self._info_probed = True
+            self._info_probed = True
         return self._info
 
     # ── Callbacks aus dem Controller → Events ─────────────────────

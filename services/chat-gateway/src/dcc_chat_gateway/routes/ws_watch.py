@@ -224,6 +224,7 @@ async def handle_stop(
     msg: dict[str, Any],
     *,
     hosted_parties: set[tuple[str, str]],
+    watched_parties: set[tuple[str, str]],
 ) -> None:
     cid_int = _channel_id(msg.get("channel_id"))
     pid = _party_id(msg.get("party_id"))
@@ -238,12 +239,14 @@ async def handle_stop(
     if state is None:
         # Idempotent stop.
         hosted_parties.discard((cid, pid))
+        watched_parties.discard((cid, pid))
         return
     if str(state.get("host_user_id")) != str(user.id):
         await _err(websocket, 4015, "only the host can stop")
         return
     await watchkeys.delete_party(redis, cid, pid)
     hosted_parties.discard((cid, pid))
+    watched_parties.discard((cid, pid))
     mgr = _manager(websocket)
     if mgr is not None:
         mgr.cancel_host_end(cid, pid)
