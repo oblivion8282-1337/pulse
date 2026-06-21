@@ -26,7 +26,7 @@
   import VideoIcon from '@lucide/svelte/icons/video';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
   import { m } from '$lib/paraglide/messages.js';
-  import { toggleFullscreen, isDocFullscreen } from '../fullscreen';
+  import { toggleFullscreen } from '../fullscreen';
   import { statsVisible } from '../statsVisible.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import TileDock from './TileDock.svelte';
@@ -179,7 +179,7 @@
 
   onMount(() => {
     function onFsChange() {
-      isFullscreen = isDocFullscreen();
+      isFullscreen = !!document.fullscreenElement;
       if (isFullscreen) {
         // Vollbild = große Kachel → sofort wide, sonst blitzt für einen Frame
         // das ⋯-Menü auf, bevor der ResizeObserver nachzieht.
