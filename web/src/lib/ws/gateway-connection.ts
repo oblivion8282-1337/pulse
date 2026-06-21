@@ -400,7 +400,12 @@ export class GatewayConnection {
       ws.addEventListener('close', (event) => {
         this.ws = null;
         this._stopHeartbeat();
-        this._mapCloseCode(event.code);
+        // Only map the close code (and potentially overwrite the state) when
+        // the disconnect was NOT intentional. disconnect() already sets state
+        // to 'idle' synchronously before ws.close(); letting _mapCloseCode run
+        // afterwards would overwrite that with 'closed' (or another code-
+        // derived value), leaving the state wrong after a clean disconnect.
+        if (this.wantConnected) this._mapCloseCode(event.code);
         // Reject the _dial promise if the socket never opened, then fall
         // through to schedule a reconnect regardless (wantConnected check
         // below). These two paths are intentionally not mutually exclusive:
