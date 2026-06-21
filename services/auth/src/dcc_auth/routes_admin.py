@@ -31,6 +31,7 @@ from dcc_auth.models import (
     RefreshToken,
     RegistrationInvite,
     User,
+    UserSession,
 )
 from dcc_auth.routes import _require_admin
 from dcc_auth.schemas import (
@@ -146,13 +147,25 @@ async def patch_user(
         changes["disabled"] = {"from": user.disabled, "to": payload.disabled}
         user.disabled = payload.disabled
         if payload.disabled:
+            now = datetime.now(UTC)
             await session.execute(
                 update(RefreshToken)
                 .where(
                     RefreshToken.user_id == user_id,
                     RefreshToken.revoked_at.is_(None),
                 )
-                .values(revoked_at=datetime.now(UTC))
+                .values(revoked_at=now)
+            )
+            # Revoke browser-session cookies too, so re-enabling the account
+            # later can't resurrect a still-within-window pulse_session cookie
+            # (validate_session rejects rows with revoked_at set).
+            await session.execute(
+                update(UserSession)
+                .where(
+                    UserSession.user_id == user_id,
+                    UserSession.revoked_at.is_(None),
+                )
+                .values(expires_at=now, revoked_at=now)
             )
 
     if changes:

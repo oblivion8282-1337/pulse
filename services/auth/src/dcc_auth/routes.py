@@ -525,8 +525,13 @@ async def _strongest_session_context(
     bearer-only request (e.g. a stolen XSS access token) carries no cookie, so
     it gets the plain-password default — it can never *inherit* acr="1" from a
     foreign/expired session and slip past the ``/credentials/issue`` MFA gate.
-    Falls back to the default when no usable, owner-matching cookie row is found
-    — so we never *force* a downgrade, only raise to provable strength.
+
+    A row killed by an explicit security event (Logout-Everywhere /
+    password-change / suspend — ``revoked_at`` set) is also refused: that is a
+    deliberate teardown of the step-up, semantically different from a natural
+    TTL expiry (``revoked_at`` is None). Only naturally-expired-or-live own
+    cookies inherit acr. Falls back to the default otherwise — so we never
+    *force* a downgrade, only raise to provable, non-revoked strength.
     """
     default: tuple[list[str], str] = (["pwd"], "0")
 
@@ -539,10 +544,11 @@ async def _strongest_session_context(
         return default
 
     # Load exactly the cookie-referenced row (DB-expired is fine — it's this
-    # browser's own session). Reject a cross-user cookie: the proven row must
-    # belong to the authenticated user.
+    # browser's own session). Reject a cross-user cookie and an explicitly
+    # revoked one: the proven row must belong to the authenticated user and not
+    # have been torn down by a security event.
     row = await session.get(UserSession, str(sid))
-    if row is None or row.user_id != user_id:
+    if row is None or row.user_id != user_id or row.revoked_at is not None:
         return default
 
     acr = row.acr or "0"
@@ -653,7 +659,12 @@ async def logout(
             sid = uuid.UUID(raw_cookie)
             row = await session.get(UserSession, str(sid))
             if row is not None:
-                row.expires_at = datetime.now(tz=UTC)
+                now = datetime.now(tz=UTC)
+                # Mark as revoked, not just expired, so /session/renew won't
+                # inherit this session's acr/amr afterwards (a logged-out cookie
+                # + a still-valid bearer must not resurrect the MFA step-up).
+                row.expires_at = now
+                row.revoked_at = now
                 committed = True
         except ValueError:
             pass

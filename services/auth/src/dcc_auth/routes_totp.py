@@ -270,7 +270,13 @@ async def login_totp(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"
         ) from exc
 
-    user = await session.get(User, user_id)
+    # Lock the user row for the read-check-write on ``totp_last_counter`` inside
+    # _consume_second_factor — without it, two concurrent /login/totp requests
+    # (victim + real-time-phishing proxy, each with its own mfa_ticket) both read
+    # the same last-counter and both accept the same TOTP code (last-writer-wins,
+    # no DB conflict), defeating the only TOTP-replay guard. Mirrors the backup
+    # code branch's existing with_for_update.
+    user = await session.get(User, user_id, with_for_update=True)
     if user is None or user.disabled or user.is_suspended:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, detail="invalid or expired ticket"

@@ -232,7 +232,9 @@ class ServerVault {
         fromBase64(remote.gcm_nonce),
         key
       )) as VaultServerEntry[];
-      if (Array.isArray(list)) this.mergeIntoStore(list);
+      // Re-Check nach dem decrypt-Await: hat wipe() (signOut) zwischenzeitlich
+      // gegriffen, NICHT mehr in den (geräte-lokalen) serversStore mergen.
+      if (Array.isArray(list) && !this._wiped) this.mergeIntoStore(list);
     } catch {
       /* nicht lesbar (z.B. mit anderem Passwort verschlüsselt) — best-effort */
     }
