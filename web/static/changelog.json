@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-22.4",
+      "date": "2026-06-22",
+      "style": "Sachlich",
+      "title": "Fehlerbehebungen",
+      "items": [
+        "Das \"Was ist neu?\"-Fenster lässt sich nicht mehr aus dem Bild schieben.",
+        "Beim Beenden eines HQ-Streams verschwindet die \"Live\"-Anzeige bei Zuschauern jetzt sofort statt mit Verzögerung.",
+        "Der Ton beim Stream-Start kommt nur noch im Voice-Channel, in dem du gerade bist — nicht mehr aus anderen Communities."
+      ]
+    },
+    {
       "id": "2026-06-22.3",
       "date": "2026-06-22",
       "style": "Sachlich",
