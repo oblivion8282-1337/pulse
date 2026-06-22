@@ -51,10 +51,13 @@ async def _require_user(request: Request, db) -> User:
 
 
 class AccountKeyUpsertRequest(BaseModel):
-    wrapped_key: str = Field(..., min_length=1, description="base64 AES-GCM ciphertext of raw AK")
-    kdf_salt: str = Field(..., min_length=1, description="base64 16-byte KDF salt")
-    kdf_params: str = Field(..., min_length=1, description="KDF params JSON string")
-    gcm_nonce: str = Field(..., min_length=1, description="base64 12-byte AES-GCM nonce")
+    # max_length-Grenzen gegen Storage-Abuse (analog routes_backups.py /
+    # routes_server_vault.py): ein authentifizierter User könnte sonst beliebig
+    # große Blobs in die DB pushen (RAM beim Decode + Disk).
+    wrapped_key: str = Field(..., min_length=1, max_length=65_536, description="base64 AES-GCM ciphertext of raw AK")
+    kdf_salt: str = Field(..., min_length=1, max_length=128, description="base64 16-byte KDF salt")
+    kdf_params: str = Field(..., min_length=1, max_length=512, description="KDF params JSON string")
+    gcm_nonce: str = Field(..., min_length=1, max_length=128, description="base64 12-byte AES-GCM nonce")
     # Ersetzen nur explizit (Passwort-Wechsel) — schützt vor versehentlichem
     # Überschreiben durch ein zweites Gerät im "Erstellen"-Pfad.
     overwrite: bool = False
