@@ -22,7 +22,7 @@ import logging
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Request, status
+from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -145,6 +145,34 @@ async def issue_stream_token(
         # rejected there) rather than masking it as a 500.
         raise HTTPException(resp.status_code, detail="media service rejected the request")
     return StreamTokenOut.model_validate(resp.json())
+
+
+@router.delete("/channels/{channel_id}/stream", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_stream(
+    channel_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+    authorization: Annotated[str | None, Header()] = None,
+    request: Request = None,
+) -> Response:
+    """Explicit stop of the caller's own HQ stream — clears the "live" presence
+    immediately instead of waiting for the MediaMTX poll to notice. Membership
+    in the channel is enough: media-svc derives the streamer from the forwarded
+    bearer, so a caller can only ever stop their *own* stream (no STREAM perm
+    needed — they already had it to start). Best-effort from the client; the
+    media-svc poller stays the backstop if this call never lands."""
+    await _require_voice_channel_member(session, channel_id, current.id)
+    bearer = _bearer_from_header(authorization)
+    http = getattr(request.app.state, "media_svc_http", None)
+    try:
+        resp = await _media_svc_request(
+            "DELETE", f"/channels/{channel_id}/stream", bearer=bearer, http=http
+        )
+    except httpx.HTTPError as exc:
+        raise _media_svc_unavailable(exc) from exc
+    if resp.status_code >= 400:
+        raise HTTPException(resp.status_code, detail="media service rejected the request")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)

@@ -138,6 +138,10 @@
   async function onStop() {
     busy = true;
     try {
+      // The backend is told the stream stopped centrally, when the sidecar
+      // emits its `stopped` event (see stream/state.svelte.ts) — that covers
+      // every stop path (this dialog button, the rocket toggle, the hotkey,
+      // a voice-channel switch), so there's nothing to notify here.
       await gsr.stop();
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);

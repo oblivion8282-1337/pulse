@@ -31,6 +31,7 @@ from dcc_media_svc.config import get_settings
 from dcc_media_svc.streamkeys import (
     ACTIVE_KEY,
     CHANNEL_STATE_KEY,
+    STOPPING_KEY,
     STREAM_EVENTS_CHANNEL,
     parse_channel_user_path,
 )
@@ -180,6 +181,23 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     # handshake, pre-keyframe) — the stale-cleanup below must NOT delete it.
     pass_start = datetime.now(UTC)
     publishers, any_items_seen = await _fetch_channel_publishers(client, settings.mediamtx_api_url)
+
+    # Honor explicit-stop suppression (see routes.stop_stream): a user who just
+    # clicked "stop" carries a short-lived ``stream:stopping`` tombstone. MediaMTX
+    # may still list their path for a few seconds (its disconnect detection lags),
+    # but we must NOT re-mark them live — the stop route already published their
+    # departure. Drop suppressed (cid,uid) pairs; a channel left empty falls
+    # through to the stale-cleanup below (which publishes the empty set).
+    if publishers:
+        pairs = [(cid, uid) for cid, uids in publishers.items() for uid in sorted(uids)]
+        flags = await redis.mget(
+            *[STOPPING_KEY.format(channel_id=cid, user_id=uid) for cid, uid in pairs]
+        )
+        for (cid, uid), flag in zip(pairs, flags):
+            if flag is not None:
+                publishers[cid].discard(uid)
+        publishers = {cid: uids for cid, uids in publishers.items() if uids}
+
     known = await _list_known_channels(redis)
 
     # Guard: a fully-empty MediaMTX snapshot (zero paths) while Redis still knows

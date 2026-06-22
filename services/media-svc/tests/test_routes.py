@@ -6,7 +6,7 @@ import json
 import uuid
 
 import pytest
-from dcc_media_svc.streamkeys import ACTIVE_KEY, CHANNEL_STATE_KEY, TOKEN_KEY
+from dcc_media_svc.streamkeys import ACTIVE_KEY, CHANNEL_STATE_KEY, STOPPING_KEY, TOKEN_KEY
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -175,3 +175,62 @@ async def test_get_whep_url_requires_user_id(client, auth_signer):
     cid = _unique_cid()
     r = await client.get(f"/channels/{cid}/whep", headers=_auth(access))
     assert r.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_requires_auth(client):
+    r = await client.delete("/channels/123/stream")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_clears_presence_and_sets_tombstone(client, auth_signer, redis):
+    """Explicit stop drops the user's active record + channel state immediately
+    and arms the stopping-tombstone so the poller won't re-add them."""
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    ck = CHANNEL_STATE_KEY.format(channel_id=cid)
+    ak = ACTIVE_KEY.format(channel_id=cid, user_id="4242")
+    sk = STOPPING_KEY.format(channel_id=cid, user_id="4242")
+    await redis.set(ck, json.dumps({"user_ids": ["4242"], "since": "2026-01-01T00:00:00+00:00"}))
+    await redis.set(ak, json.dumps({"user_id": "4242", "path": f"channel-{cid}-4242-x"}))
+    try:
+        r = await client.delete(f"/channels/{cid}/stream", headers=_auth(access))
+        assert r.status_code == 204, r.text
+        assert await redis.get(ck) is None  # solo streamer → channel torn down
+        assert await redis.get(ak) is None  # active record gone
+        assert await redis.get(sk) is not None  # tombstone armed
+        assert await redis.ttl(sk) > 0
+    finally:
+        await redis.delete(ck, ak, sk)
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_keeps_other_streamers(client, auth_signer, redis):
+    """Stopping one user leaves co-streamers in the channel state."""
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    ck = CHANNEL_STATE_KEY.format(channel_id=cid)
+    await redis.set(ck, json.dumps({"user_ids": ["4242", "999"], "since": "2026-01-01T00:00:00+00:00"}))
+    try:
+        r = await client.delete(f"/channels/{cid}/stream", headers=_auth(access))
+        assert r.status_code == 204, r.text
+        state = json.loads((await redis.get(ck)).decode())
+        assert state["user_ids"] == ["999"]
+    finally:
+        await redis.delete(ck, STOPPING_KEY.format(channel_id=cid, user_id="4242"))
+
+
+@pytest.mark.asyncio
+async def test_issue_token_clears_stopping_tombstone(client, auth_signer, redis):
+    """A fresh token (restart) cancels a pending stop-suppression for that user."""
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    sk = STOPPING_KEY.format(channel_id=cid, user_id="4242")
+    await redis.set(sk, "1", ex=30)
+    r = await client.post(f"/channels/{cid}/stream-token", json={}, headers=_auth(access))
+    assert r.status_code == 200, r.text
+    try:
+        assert await redis.get(sk) is None
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=r.json()["token"]), sk)

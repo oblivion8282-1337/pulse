@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     # a ghost "active" state forever (the poller normally clears it eagerly).
     channel_state_ttl_s: int = 60 * 60 * 6  # 6h
 
+    # Explicit-stop suppression window (`stream:stopping:*`). When the streamer
+    # clicks "stop", we update presence instantly AND set this short-lived
+    # tombstone so the poller won't re-mark them live from a MediaMTX path that
+    # lingers until MediaMTX's own publisher-disconnect detection (readTimeout,
+    # ~10s default) catches up. Must exceed that, with margin; cleared early when
+    # a fresh stream-token is issued (a restart must not stay suppressed).
+    stop_suppression_s: int = 30
+
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     @property
