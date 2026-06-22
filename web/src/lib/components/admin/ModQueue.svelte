@@ -106,6 +106,12 @@
   }
 
   async function triage(r: Report) {
+    // Gleiche In-Flight-Sperre wie confirmResolve: ohne sie feuert ein
+    // Doppelklick triageReport zweimal — der zweite Call kollidiert mit dem
+    // schon getriagten Report (409) und zeigt dem Moderator einen Fehler-Toast
+    // für eine Aktion, die tatsächlich geklappt hat.
+    if (resolving) return;
+    resolving = true;
     try {
       await triageReport(guildId, r.id);
       toast.success(m.mod_queue_toast_triaged());
@@ -114,6 +120,8 @@
       toast.error(m.mod_queue_toast_error(), {
         description: e instanceof Error ? e.message : String(e)
       });
+    } finally {
+      resolving = false;
     }
   }
 
@@ -184,7 +192,8 @@
                 <button
                   type="button"
                   onclick={() => triage(r)}
-                  class="bg-bg-input text-text-muted hover:bg-bg-hover rounded-md px-3 py-1.5 text-xs transition-colors"
+                  disabled={resolving}
+                  class="bg-bg-input text-text-muted hover:bg-bg-hover rounded-md px-3 py-1.5 text-xs transition-colors disabled:opacity-50"
                   data-testid="modqueue-triage-btn"
                 >
                   {m.mod_queue_btn_triage()}
