@@ -37,6 +37,12 @@ CHANNEL_USER_PATH_RE = re.compile(r"^channel-(\d+)-(\d+)-([0-9a-f]{32})$")
 TOKEN_KEY = "stream:token:{token}"
 ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
 CHANNEL_STATE_KEY = "stream:channel:{channel_id}"
+# stream:stopping:channel-<cid>-<uid> → "1" (short TTL = stop_suppression_s)
+#   Set by the explicit-stop route; the poller treats a (cid,uid) carrying it as
+#   "not publishing" even while MediaMTX still lists the path (its disconnect
+#   detection lags the user's stop click). media-svc-only — the auth-hook never
+#   reads it. Cleared when a fresh stream-token is issued (restart un-suppresses).
+STOPPING_KEY = "stream:stopping:channel-{channel_id}-{user_id}"
 
 # Pub/Sub channel — media-svc publishes per-channel stream-state changes here;
 # chat-gateway subscribes and re-broadcasts. Event payload (the *full* current

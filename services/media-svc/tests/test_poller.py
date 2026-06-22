@@ -9,7 +9,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from dcc_media_svc.poller import reconcile_once
-from dcc_media_svc.streamkeys import CHANNEL_STATE_KEY, STREAM_EVENTS_CHANNEL
+from dcc_media_svc.streamkeys import CHANNEL_STATE_KEY, STOPPING_KEY, STREAM_EVENTS_CHANNEL
 
 
 def _unique_cid() -> str:
@@ -251,3 +251,52 @@ async def test_non_channel_paths_ignored(redis, pubsub):
     )
     await reconcile_once(redis, client)
     assert await _drain_one(pubsub, attempts=10) is None
+
+
+@pytest.mark.asyncio
+async def test_poller_skips_suppressed_user(redis, pubsub):
+    """A user with a ``stream:stopping`` tombstone is not re-marked live even if
+    MediaMTX still lists their path (publisher-disconnect lag after an explicit
+    stop). The lingering channel is torn down and an empty event published."""
+    cid = _unique_cid()
+    await redis.set(
+        CHANNEL_STATE_KEY.format(channel_id=cid),
+        json.dumps({"user_ids": ["55"], "since": "2026-01-01T00:00:00+00:00"}),
+    )
+    await redis.set(STOPPING_KEY.format(channel_id=cid, user_id="55"), "1", ex=30)
+    client = _FakeMediaMtxClient(_paths((f"channel-{cid}-55-{'deadbeef' * 4}", True)))
+    try:
+        await reconcile_once(redis, client)
+        assert await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid)) is None
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev == {"channel_id": cid, "user_ids": []}
+    finally:
+        await redis.delete(
+            CHANNEL_STATE_KEY.format(channel_id=cid),
+            STOPPING_KEY.format(channel_id=cid, user_id="55"),
+        )
+
+
+@pytest.mark.asyncio
+async def test_poller_suppressed_user_removed_others_kept(redis, pubsub):
+    """Suppressing one streamer leaves the channel's other live streamers intact."""
+    cid = _unique_cid()
+    await redis.set(STOPPING_KEY.format(channel_id=cid, user_id="10"), "1", ex=30)
+    client = _FakeMediaMtxClient(
+        _paths(
+            (f"channel-{cid}-10-{'aabbccdd' * 4}", True),
+            (f"channel-{cid}-20-{'11223344' * 4}", True),
+        )
+    )
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["user_ids"] == ["20"]
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev["channel_id"] == cid
+        assert ev["user_ids"] == ["20"]
+    finally:
+        await redis.delete(
+            CHANNEL_STATE_KEY.format(channel_id=cid),
+            STOPPING_KEY.format(channel_id=cid, user_id="10"),
+        )

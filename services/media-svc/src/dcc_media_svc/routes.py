@@ -23,11 +23,12 @@ from __future__ import annotations
 import json
 import secrets
 import time
+from datetime import UTC, datetime
 from time import monotonic
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
@@ -36,9 +37,23 @@ from dcc_media_svc.security import CurrentUser
 from dcc_media_svc.streamkeys import (
     ACTIVE_KEY,
     CHANNEL_STATE_KEY,
+    STOPPING_KEY,
+    STREAM_EVENTS_CHANNEL,
     TOKEN_KEY,
     path_for_channel_user,
 )
+
+
+async def _publish_stream_event(redis: Redis, channel_id: str, user_ids: list[str]) -> None:
+    """Publish the channel's *full* current streamer set on ``stream:events``
+    (same shape the poller emits) so chat-gateway re-broadcasts it at once."""
+    from dcc_shared.events import StreamStateSnapshot
+
+    snap = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids)
+    await redis.publish(
+        STREAM_EVENTS_CHANNEL, json.dumps(snap.model_dump(mode="json"), separators=(",", ":"))
+    )
+
 
 log = structlog.get_logger(__name__)
 
@@ -184,6 +199,10 @@ async def issue_stream_token(
         json.dumps(record, separators=(",", ":")),
         ex=settings.token_ttl_s,
     )
+    # A new publish intent cancels any pending explicit-stop suppression for this
+    # (channel, user) — otherwise a quick stop→restart would stay invisible until
+    # the tombstone's TTL lapsed (the poller would keep skipping the user).
+    await redis.delete(STOPPING_KEY.format(channel_id=channel_id, user_id=user_id))
     log.info("stream_token_issued", channel_id=channel_id, user_id=user.id, protocol=payload.protocol)
     return StreamTokenOut(
         token=token,
@@ -299,3 +318,64 @@ async def get_whep_url(
             read_token = (winner.decode() if isinstance(winner, bytes) else winner) or candidate
     base = s.mediamtx_public_base.rstrip("/")
     return WhepOut(whep_url=f"{base}/{path}/whep?token={read_token}")
+
+
+@router.delete("/channels/{channel_id}/stream", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_stream(
+    channel_id: ChannelId,
+    user: CurrentUser,
+    request: Request,
+) -> Response:
+    """Explicit stop of the *caller's own* HQ stream in ``channel_id``.
+
+    The media plane (WebRTC) stalls the instant the GSR sidecar stops pushing,
+    but presence is otherwise derived by polling MediaMTX every few seconds —
+    and MediaMTX keeps the path "ready" until its own publisher-disconnect
+    detection fires (~readTimeout). So without this, the "live" badge lingers
+    ~10-16s after the user clicked stop. This clears it immediately:
+
+      1. set a short ``stream:stopping`` tombstone so the poller won't re-add the
+         user from a MediaMTX path that hasn't dropped yet (see poller),
+      2. drop the user's ``stream:active`` record,
+      3. recompute the channel's streamer set without them and publish the
+         updated ``stream:events`` now.
+
+    The user is identified by the verified bearer, so a caller can only stop
+    their own stream. The poller stays the backstop for crash/network-drop
+    (no clean stop) cases."""
+    settings = get_settings()
+    redis = _get_redis(request)
+    uid = str(user.id)
+
+    await redis.set(
+        STOPPING_KEY.format(channel_id=channel_id, user_id=uid),
+        "1",
+        ex=settings.stop_suppression_s,
+    )
+    await redis.delete(ACTIVE_KEY.format(channel_id=channel_id, user_id=uid))
+
+    raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
+    remaining: list[str] = []
+    since: str | None = None
+    if raw is not None:
+        try:
+            data = json.loads(raw.decode() if isinstance(raw, bytes) else raw)
+        except (ValueError, TypeError, AttributeError):
+            data = None
+        if isinstance(data, dict):
+            remaining = sorted(str(u) for u in (data.get("user_ids") or []) if u and str(u) != uid)
+            since = data.get("since")
+
+    if remaining:
+        new_state = {"user_ids": remaining, "since": since or datetime.now(UTC).isoformat()}
+        await redis.set(
+            CHANNEL_STATE_KEY.format(channel_id=channel_id),
+            json.dumps(new_state, separators=(",", ":")),
+            ex=settings.channel_state_ttl_s,
+        )
+    else:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=channel_id))
+
+    await _publish_stream_event(redis, channel_id, remaining)
+    log.info("stream_stopped", channel_id=channel_id, user_id=user.id, remaining=len(remaining))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

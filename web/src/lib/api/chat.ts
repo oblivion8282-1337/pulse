@@ -424,6 +424,15 @@ export const chatApi = {
       body: { protocol }
     });
   },
+  /**
+   * Explicitly stop our own HQ stream in `channelId` — clears the "live"
+   * presence badge for viewers immediately instead of waiting for the MediaMTX
+   * poll (~10-16s lag). Best-effort: the sidecar is already stopped locally and
+   * the media-svc poller is the backstop, so callers fire-and-forget.
+   */
+  stopStream(channelId: string): Promise<void> {
+    return request<void>(`/channels/${channelId}/stream`, { method: 'DELETE' });
+  },
   /** WHEP playback URL for `userId`'s HQ stream in `channelId`. */
   getWhepUrl(channelId: string, userId: string): Promise<{ whep_url: string }> {
     return request<{ whep_url: string }>(

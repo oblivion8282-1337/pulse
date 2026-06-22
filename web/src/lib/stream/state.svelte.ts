@@ -33,6 +33,28 @@ export const stream = $state({
 
 let initialised = false;
 let unlisten: (() => void) | null = null;
+/** Tracks the running→stopped edge so we notify the backend exactly once when
+ *  our own stream ends, regardless of which path stopped it. */
+let wasRunning = false;
+
+/**
+ * Tell the backend our HQ stream stopped so viewers' "live" badge clears at
+ * once instead of waiting for the ~3s MediaMTX poll (+ its disconnect lag).
+ * Central chokepoint: every stop path (rocket toggle, dialog button, hotkey,
+ * voice-channel switch) funnels through the sidecar's `stopped` event, so this
+ * is the one place that covers them all. Best-effort — the media-svc poller
+ * stays the backstop if the call never lands (crash / offline / no channel).
+ * Lazy imports avoid an import cycle with the voice store.
+ */
+function notifyBackendStopped(): void {
+  void (async () => {
+    const { voice } = await import('$lib/voice/livekit.svelte');
+    const channelId = voice.channelId;
+    if (!channelId) return; // already left the voice channel → poller cleans up
+    const { chatApi } = await import('$lib/api/chat');
+    chatApi.stopStream(channelId).catch(() => {});
+  })();
+}
 
 /**
  * Wire the sidecar event stream into the `stream` reactive object. Returns a
@@ -82,6 +104,17 @@ export async function initStream(): Promise<() => void> {
 
 /** Project a single sidecar event into the reactive state. */
 function applyEvent(ev: GsrEvent): void {
+  applyEventInner(ev);
+  // Fire on the running→stopped edge only (once per stream session).
+  if (wasRunning && !stream.running) {
+    wasRunning = false;
+    notifyBackendStopped();
+  } else if (stream.running) {
+    wasRunning = true;
+  }
+}
+
+function applyEventInner(ev: GsrEvent): void {
   switch (ev.ev) {
     case 'state':
       stream.state = ev.state;

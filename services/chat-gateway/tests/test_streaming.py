@@ -443,3 +443,41 @@ async def test_stream_state_pushed_to_connected_client(ws_app, _auth_signer):
                 assert got["user_ids"] == ["999"]
 
     await asyncio.to_thread(_run)
+
+
+# --- DELETE /channels/{id}/stream (explicit stop) ---------------------------
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_member_proxies_media_svc(client, _auth_signer, mock_media_svc):
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        httpx.Response(204, request=httpx.Request("DELETE", "http://media-svc/x"))
+    )
+    r = await client.delete(f"/channels/{vc['id']}/stream", headers=_auth(token))
+    assert r.status_code == 204, r.text
+    method, path, bearer, json_body = mock_media_svc.calls[0]
+    assert method == "DELETE"
+    assert path == f"/channels/{vc['id']}/stream"
+    assert bearer == token  # caller's bearer forwarded → media-svc stops *their* stream
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_non_member_403(client, _auth_signer, mock_media_svc):
+    owner, _ = await _register(_auth_signer)
+    outsider, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(owner))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(owner)
+        )
+    ).json()
+    r = await client.delete(f"/channels/{vc['id']}/stream", headers=_auth(outsider))
+    assert r.status_code == 403
+    assert mock_media_svc.calls == []  # never reached media-svc
