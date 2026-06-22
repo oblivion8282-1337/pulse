@@ -27,9 +27,11 @@
 
   let { guildId }: { guildId: string } = $props();
 
-  // Slug-Regex spiegelt Backend-Kontrakt: ^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$
-  // (Mindestlänge 1 — einzelne Zeichen erlaubt; Bindestrich nur in der Mitte)
-  const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])?$/;
+  // Slug-Regex spiegelt Backend-Kontrakt (community_handle.py): 3–32 Zeichen,
+  // alnum-Rand + bis zu 30 alnum/Bindestrich in der Mitte + alnum-Rand.
+  // (Die mittlere Gruppe ist PFLICHT — kein `?` — sonst ließe der Client 1–2-
+  // Zeichen-Handles durch, die das Backend mit 422 ablehnt.)
+  const HANDLE_RE = /^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$/;
 
   let handle = $state('');
   let isPublic = $state(false);
