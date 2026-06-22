@@ -228,13 +228,17 @@ async def approve_application(
     actor: Annotated[User, Depends(_require_admin)],
 ):
     """Approve an application, create the RegisteredInstance, allocate worker IDs."""
-    # Generate credentials once — hash is independent of worker IDs / DB row.
-    client_id = secrets.token_urlsafe(16)
+    # Secret is generated once — it's independent of worker IDs / DB row.
+    # client_id is re-generated inside the loop: it has a unique constraint and
+    # must be fresh on every attempt so a (vanishingly rare) collision doesn't
+    # pin the loop to the same failing value.
     client_secret_plain = secrets.token_urlsafe(32)
     client_secret_hash = await asyncio.to_thread(hash_password, client_secret_plain)
 
     # Retry loop for worker-ID UNIQUE conflicts (max 5 attempts)
     for attempt in range(5):
+        client_id = secrets.token_urlsafe(16)
+
         # SELECT FOR UPDATE — serialises parallel approvals
         app_row = await session.get(
             InstanceApplication,
@@ -255,20 +259,25 @@ async def approve_application(
                 detail="application was rejected; cannot approve a rejected application",
             )
 
+        # Snapshot scalar attrs before the commit — after a rollback the ORM
+        # expires all attributes and accessing them would raise MissingGreenlet.
+        app_hostname = app_row.hostname
+        app_applicant_user_id = app_row.applicant_user_id
+
         # Allocate worker IDs
         wid_chat, wid_voice, wid_media = await _allocate_worker_ids(session)
 
         instance_id = next_id()
         instance = RegisteredInstance(
             id=instance_id,
-            hostname=app_row.hostname,
+            hostname=app_hostname,
             client_id=client_id,
             client_secret=client_secret_hash,
             worker_id_chat=wid_chat,
             worker_id_voice=wid_voice,
             worker_id_media=wid_media,
             status="active",
-            registered_by=app_row.applicant_user_id,
+            registered_by=app_applicant_user_id,
         )
         session.add(instance)
 
@@ -280,6 +289,21 @@ async def approve_application(
             await session.commit()
         except IntegrityError:
             await session.rollback()
+            # A non-worker-ID unique violation (hostname or client_id) will not
+            # be fixed by retrying.  Detect the hostname case explicitly so the
+            # caller gets a 409 instead of a 503 after five futile retries.
+            hostname_taken = (
+                await session.execute(
+                    select(RegisteredInstance.id).where(
+                        RegisteredInstance.hostname == app_hostname
+                    )
+                )
+            ).scalar_one_or_none()
+            if hostname_taken is not None:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail="hostname already registered under a different instance",
+                )
             if attempt == 4:
                 raise HTTPException(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -294,13 +318,13 @@ async def approve_application(
 
         return ApprovalOut(
             instance_id=str(instance_id),
-            hostname=app_row.hostname,
+            hostname=app_hostname,
             client_id=client_id,
             client_secret=client_secret_plain,
             worker_id_chat=wid_chat,
             worker_id_voice=wid_voice,
             worker_id_media=wid_media,
-            owner_user_id=str(app_row.applicant_user_id),
+            owner_user_id=str(app_applicant_user_id),
         )
 
     # unreachable: loop only exits via return/raise
