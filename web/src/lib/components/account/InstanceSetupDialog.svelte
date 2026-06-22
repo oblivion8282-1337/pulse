@@ -30,6 +30,7 @@
   let envDownloading = $state(false);
   let nowMs = $state(0);
   let ticker: ReturnType<typeof setInterval> | null = null;
+  let mintGen = 0;
 
   let installBase = $derived(
     typeof location !== 'undefined' ? location.origin : 'https://howispulse.com'
@@ -64,16 +65,23 @@
     if (!instance || loading) return;
     loading = true;
     error = false;
+    // Generations-Guard: ein mint(), das während des Awaits durch reset()
+    // (Dialog geschlossen / andere Instanz) überholt wurde, darf seinen Token
+    // NICHT mehr schreiben — sonst zeigt der wieder-geöffnete Dialog den
+    // Bootstrap-Token der vorigen Instanz (falsche Credential).
+    const gen = ++mintGen;
     try {
       const res = await instancesApi.mintBootstrapToken(instance.id);
+      if (gen !== mintGen) return;
       token = res.token;
       expiresAtMs = new Date(res.expires_at).getTime();
       nowMs = Date.now();
     } catch {
+      if (gen !== mintGen) return;
       error = true;
       token = null;
     } finally {
-      loading = false;
+      if (gen === mintGen) loading = false;
     }
   }
 
@@ -122,9 +130,11 @@
     }
   }
   function reset() {
+    mintGen++; // jeden noch laufenden mint() invalidieren
     token = null;
     expiresAtMs = 0;
     error = false;
+    loading = false;
     showExplain = false;
     stopTicker();
   }
