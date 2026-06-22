@@ -164,6 +164,14 @@ def _load_one(directory: Path, manager: PluginManager) -> PluginManifest | None:
     except ValidationError as exc:
         log.error("plugin %s: invalid manifest: %s", directory.name, exc)
         return None
+    except ValueError as exc:
+        # tomllib.TOMLDecodeError (TOML-Syntaxfehler) + die "missing [plugin]
+        # table"-ValueError aus from_dict sind ValueError(-Subklassen) und
+        # waren bisher ungefangen → EIN kaputtes plugin.toml crashte den
+        # gesamten Loader-Lauf und übersprang ALLE Plugins. Pro-Plugin
+        # tolerieren (loggen + skip), wie bei den anderen Manifest-Fehlern.
+        log.error("plugin %s: malformed plugin.toml: %s", directory.name, exc)
+        return None
     if manifest.name != directory.name:
         log.error(
             "plugin %s: manifest name %r does not match directory name",
@@ -248,6 +256,11 @@ def _parse_manifests_in_dir(path: Path) -> list[tuple[Path, PluginManifest]]:
             continue
         except ValidationError as exc:
             log.error("plugin %s: invalid manifest: %s", child.name, exc)
+            continue
+        except ValueError as exc:
+            # Wie in _load_one: kaputtes TOML / fehlende [plugin]-Tabelle pro
+            # Plugin tolerieren statt den ganzen Discovery-Lauf crashen lassen.
+            log.error("plugin %s: malformed plugin.toml: %s", child.name, exc)
             continue
         if manifest.name != child.name:
             log.error(
