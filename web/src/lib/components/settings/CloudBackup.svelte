@@ -70,8 +70,18 @@
       // Vereinheitlichter Flow (Account-Key): entsperren/erstellen + dieses
       // Gerät sichern + Server-Vault aktivieren.
       await setupOrUnlock(password);
+      // Read-back NUR für die UI (existingBackup) — best-effort. Der Backup ist
+      // nach setupOrUnlock bereits serverseitig angelegt; ein transienter Fehler
+      // beim Zurücklesen darf den Erfolg NICHT als Fehlschlag darstellen (sonst
+      // glaubt der User, er sei nicht gesichert, und legt evtl. ein Duplikat an).
       const activeCertId = certStore.cert?.claims.cert_id;
-      if (activeCertId) existingBackup = await getBackup(activeCertId);
+      if (activeCertId) {
+        try {
+          existingBackup = await getBackup(activeCertId);
+        } catch {
+          /* UI degradiert still; der Backup liegt serverseitig vor */
+        }
+      }
 
       toast.success(m.cloud_backup_toast_saved(), {
         description: m.cloud_backup_toast_saved_desc()
