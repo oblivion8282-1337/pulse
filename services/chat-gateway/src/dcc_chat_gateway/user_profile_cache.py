@@ -263,7 +263,13 @@ async def mark_stale_if_expired(
 
     The caller must flush/commit after this function when ``True`` is returned.
     """
-    age = datetime.now(tz=timezone.utc) - profile.last_statement_iat
+    # SQLite returns naive datetimes; Postgres returns aware. Normalise before
+    # subtracting from an aware now() (gleiche Falle wie im Replay-Pfad oben) —
+    # sonst wirft `aware - naive` auf einem SQLite-gelesenen Profil TypeError.
+    stored_iat = profile.last_statement_iat
+    if stored_iat.tzinfo is None:
+        stored_iat = stored_iat.replace(tzinfo=timezone.utc)
+    age = datetime.now(tz=timezone.utc) - stored_iat
     if age.total_seconds() > ttl_seconds:
         if not profile.stale:
             profile.stale = True
