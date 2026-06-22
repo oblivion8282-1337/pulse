@@ -7,15 +7,17 @@
  *  - `latestByChannel` — the latest message id we've observed for each channel
  *    in this session, in memory only.
  *
- * A channel is unread when `latest > lastRead`. Snowflake IDs are lexicographic-
- * sortable strings (same length, time-prefixed), so plain string comparison
- * works without parsing to BigInt.
+ * A channel is unread when `latest > lastRead`. Snowflake-IDs werden über
+ * `compareSnowflakeId` verglichen (längen- dann lexikografisch) — ein reiner
+ * String-Vergleich bricht an der Stellen-Grenze (17→18 Ziffern, ~Okt 2026).
  *
  * Limitation (v1): unread state seeds from activity DURING the session. If a
  * message was posted while the client was offline and never sync-loaded, the
  * channel will not show as unread on next launch. Proper offline catch-up
  * would need a server-side read-state sync — out of scope for now.
  */
+
+import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 const STORAGE_PREFIX = 'pulse.readState.';
 const MENTIONS_PREFIX = 'pulse.mentions.';
@@ -108,7 +110,7 @@ class ReadState {
    *  WS message frame, channel_bump envelope, or an initial-load fetch). */
   recordSeen(channelId: string, messageId: string): void {
     const prev = this.latestByChannel[channelId];
-    if (!prev || messageId > prev) {
+    if (!prev || compareSnowflakeId(messageId, prev) > 0) {
       this.latestByChannel = { ...this.latestByChannel, [channelId]: messageId };
     }
   }
@@ -126,7 +128,7 @@ class ReadState {
       return;
     }
     const prev = this.lastReadByChannel[channelId];
-    if (!prev || target > prev) {
+    if (!prev || compareSnowflakeId(target, prev) > 0) {
       this.lastReadByChannel = { ...this.lastReadByChannel, [channelId]: target };
       this.persist();
     }
@@ -137,7 +139,7 @@ class ReadState {
     const latest = this.latestByChannel[channelId];
     if (!latest) return false;
     const lastRead = this.lastReadByChannel[channelId];
-    return !lastRead || latest > lastRead;
+    return !lastRead || compareSnowflakeId(latest, lastRead) > 0;
   }
 
   /** Bump the per-channel @-mention counter by one. */
