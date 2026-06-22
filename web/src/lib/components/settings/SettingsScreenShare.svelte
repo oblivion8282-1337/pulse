@@ -39,7 +39,10 @@
   });
 
   function onBitrateInput(e: Event) {
-    const val = parseInt((e.currentTarget as HTMLInputElement).value, 10);
+    // parseFloat, nicht parseInt: der Slider hat step="0.5" — parseInt würde
+    // jede Halbstufe (z.B. 2.5) auf den Integer abschneiden, und da value an
+    // bitrateMbps gebunden ist, wären alle .5-Positionen unerreichbar.
+    const val = parseFloat((e.currentTarget as HTMLInputElement).value);
     if (!isNaN(val)) settings.setScreenShareBitrateMbps(Math.min(bMax, Math.max(bMin, val)));
   }
 
