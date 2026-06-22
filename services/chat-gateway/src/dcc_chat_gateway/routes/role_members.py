@@ -13,18 +13,41 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import MemberRole, Role
+from dcc_chat_gateway.models import Guild, MemberRole, Role
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
     resolve_permissions,
 )
+from dcc_chat_gateway.role_hierarchy import highest_role_position
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.schemas import RoleOut
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import MemberRolesUpdatedEvent
 
 router = APIRouter()
+
+
+async def _assert_role_within_actor_tier(
+    session: SessionDep, guild_id: int, role: Role, current: CurrentUser
+) -> None:
+    """Positions-Hierarchie-Guard (symmetrisch zu ``roles.py``): ein
+    MANAGE_ROLES-Halter darf nur Rollen STRIKT UNTERHALB seiner eigenen höchsten
+    Rolle (un)zuweisen. Sonst hievt sich ein Mod via Selbst-Zuweisung einer
+    gleich-berechtigten, aber höher positionierten Rolle in eine höhere Tier und
+    kann danach höhere Mitglieder kicken/bannen bzw. deren Rollen verwalten (der
+    Bit-Check allein verhindert nur Bit-, nicht Positions-Eskalation). Owner +
+    Instanz-Admins sind exempt."""
+    if current.is_admin:
+        return
+    guild = await session.get(Guild, guild_id)
+    if guild is not None and guild.owner_id == current.id:
+        return
+    actor_top = await highest_role_position(session, guild_id, current.id)
+    if role.position >= actor_top:
+        raise HTTPException(
+            403, detail="cannot manage a role at or above your highest role"
+        )
 
 
 async def _publish_member_roles_updated(
@@ -70,6 +93,7 @@ async def assign_member_role(
         raise HTTPException(
             403, detail="cannot grant permissions you do not yourself have"
         )
+    await _assert_role_within_actor_tier(session, guild_id, role, current)
 
     # Explicit membership check: the target user must be a guild member.
     # Without this, the INSERT would raise an FK IntegrityError (asyncpg
@@ -122,6 +146,7 @@ async def unassign_member_role(
         raise HTTPException(
             403, detail="cannot manage assignment of bits you do not yourself have"
         )
+    await _assert_role_within_actor_tier(session, guild_id, role, current)
 
     # Explicit membership check: the target user must be a guild member.
     # Without this, a spurious MemberRolesUpdatedEvent would be published for
