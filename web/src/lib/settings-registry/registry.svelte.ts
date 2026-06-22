@@ -187,8 +187,7 @@ export function registerSettingsSection<T>(
 }
 
 function cloneDefaults<T>(d: T): T {
-  if (d === null || typeof d !== 'object') return d;
-  return JSON.parse(JSON.stringify(d)) as T;
+  return structuredClone(d);
 }
 
 function mergeShallow<T>(defaults: T, partial: Partial<T> | undefined): T {
@@ -207,10 +206,9 @@ function makeSectionStore<T>(
   const mode = modeOf(config as AnyConfig);
 
   function snapshot(): T {
-    // JSON-roundtrip strips the `$state` proxy so the persisted blob is
-    // a plain object — JSON.stringify on a runed proxy works but `===`
-    // identity in tests gets confusing if we leak the proxy.
-    return JSON.parse(JSON.stringify(_value)) as T;
+    // structuredClone strips the `$state` proxy so the persisted blob is a
+    // plain object — leaking the proxy makes `===` identity in tests confusing.
+    return structuredClone(_value);
   }
 
   /** Persist after every mutation. ``schedulePersist`` writes the local
