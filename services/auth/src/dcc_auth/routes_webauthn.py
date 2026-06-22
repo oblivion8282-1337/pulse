@@ -31,7 +31,7 @@ from dcc_auth.passkeys import (
     issue_challenge_ticket,
     load_user_credentials,
 )
-from dcc_auth.recovery import generate_backup_codes, hash_token
+from dcc_auth.recovery import claim_ticket_jti, generate_backup_codes, hash_token
 from dcc_auth.routes import _check_rate, _get_current_user, _signer_dep
 from dcc_auth.schemas import (
     MessageOut,
@@ -110,7 +110,7 @@ async def webauthn_register_verify(
     settings = get_settings()
     await _check_rate(request, "webauthn_register", settings.rate_limit_webauthn_register)
     try:
-        challenge, ticket_user_id, _ = decode_challenge_ticket(
+        challenge, ticket_user_id, challenge_jti = decode_challenge_ticket(
             signer, payload.challenge_ticket, expected_purpose=PURPOSE_REGISTER
         )
     except jwt.PyJWTError as exc:
@@ -134,6 +134,21 @@ async def webauthn_register_verify(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="passkey verification failed"
         ) from exc
+
+    # Single-use challenge ticket: burn its jti (wie der Login-Pfad), damit ein
+    # abgefangener verify-Request nicht innerhalb der Challenge-TTL erneut
+    # eingespielt werden kann, um eine weitere Passkey-Enrollment zu erschleichen.
+    # Erst NACH erfolgreicher Attestation geclaimt → ein fehlgeschlagener Versuch
+    # verbrennt das Ticket nicht. Fail-open bei fehlendem Redis/jti.
+    if not await claim_ticket_jti(
+        settings.redis_url,
+        "webauthn:challenge:used:",
+        challenge_jti,
+        settings.webauthn_challenge_ttl_seconds,
+    ):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, detail="invalid or expired challenge"
+        )
 
     cred_id = bytes_to_base64url(verified.credential_id)
     dup = await session.scalar(
