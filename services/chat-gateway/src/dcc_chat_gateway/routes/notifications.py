@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import WebPushSubscription
@@ -189,7 +190,14 @@ async def subscribe(
                 user_agent=payload.user_agent,
             )
         )
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Concurrent erst-Insert desselben (user_id, endpoint) — z.B. der Service
+        # Worker feuert subscribe doppelt (Page-Load + Background-Sync). Der zweite
+        # Commit verletzt uq_web_push_subscriptions_user_endpoint. Idempotent
+        # behandeln: die Subscription existiert bereits → 204 statt 500.
+        await session.rollback()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
