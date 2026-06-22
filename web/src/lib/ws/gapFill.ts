@@ -18,6 +18,7 @@
  */
 import { messages } from '$lib/stores/messages.svelte';
 import { chatApi } from '$lib/api/chat';
+import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 const GAP_FILL_LIMIT = 100;
 
@@ -34,7 +35,10 @@ export async function gapFillChannel(cid: string, refetchOnOverflow: boolean): P
     if (!page.length) return;
     // `listMessages` returns newest-first → its last entry is the oldest.
     const oldestFetched = page[page.length - 1].id;
-    if (page.length >= GAP_FILL_LIMIT && oldestFetched > lastId) {
+    // `compareSnowflakeId` is length-aware — raw string `>` would mis-order ids
+    // across a decimal-digit boundary (e.g. "1000" > "999" is false), which would
+    // suppress overflow detection and leave exactly the silent hole this guards against.
+    if (page.length >= GAP_FILL_LIMIT && compareSnowflakeId(oldestFetched, lastId) > 0) {
       // Even the oldest row on the page is newer than anything we hold —
       // the gap exceeds one page; older missed messages would be lost.
       if (refetchOnOverflow) {
