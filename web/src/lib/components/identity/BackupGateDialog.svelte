@@ -32,12 +32,24 @@
   // Beim Öffnen den Modus bestimmen (create vs enter). $effect statt onMount,
   // weil der Dialog dauerhaft gemountet ist und nur open toggelt.
   $effect(() => {
-    if (backupGate.open && flowMode === null) {
-      void detectBackupFlowMode().then((mode) => (flowMode = mode));
-    }
     if (!backupGate.open) {
       flowMode = null;
       errorMsg = null;
+      busy = false;
+      return;
+    }
+    if (flowMode === null) {
+      // Cancel-Flag: schließt der User den Dialog, bevor die Erkennung
+      // zurückkommt, darf das verspätete Resultat NICHT mehr flowMode setzen —
+      // sonst überspringt der !==null-Guard beim Wiederöffnen die Neu-Erkennung
+      // und zeigt das falsche Formular (create vs enter).
+      let live = true;
+      void detectBackupFlowMode().then((mode) => {
+        if (live) flowMode = mode;
+      });
+      return () => {
+        live = false;
+      };
     }
   });
 
