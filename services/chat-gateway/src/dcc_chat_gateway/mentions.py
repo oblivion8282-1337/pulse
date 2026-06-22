@@ -269,9 +269,16 @@ async def _expand_mention_targets(
     targets: set[int] = {tid for (t, tid) in mentions if t == MENTION_TYPE_USER}
     role_ids = {tid for (t, tid) in mentions if t == MENTION_TYPE_ROLE}
     has_everyone = (MENTION_TYPE_EVERYONE, MENTION_EVERYONE_TARGET_ID) in mentions
-    # Role + everyone expansion is guild-only — DMs have neither.
-    if guild_id is not None and (role_ids or has_everyone):
+    # In Guild-Kanälen muss JEDER Empfänger VIEW_CHANNEL halten — auch direkte
+    # ``<@uid>``-Mentions. ``filter_to_valid`` prüft nur die Guild-Mitgliedschaft;
+    # ein Mitglied kann aber per Channel-Overwrite vom Kanal ausgeschlossen sein.
+    # Ohne diese Filterung leakt der direkt zugestellte ``mention_added``-Event
+    # (+ Web-Push) Existenz/Aktivität eines für den Empfänger unsichtbaren Kanals.
+    # DMs (``guild_id is None``) bleiben ungefiltert — dort hat ``filter_to_valid``
+    # user-Mentions bereits auf die zwei Channel-Teilnehmer begrenzt.
+    if guild_id is not None and (targets or role_ids or has_everyone):
         viewers = await members_who_can_view(session, guild_id, channel_id)
+        targets &= viewers
         if has_everyone:
             targets |= viewers
         if role_ids:
