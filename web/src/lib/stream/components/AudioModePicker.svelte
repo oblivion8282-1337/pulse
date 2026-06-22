@@ -115,7 +115,15 @@
   }
 
   function onAdd() {
-    if (!pickedToAdd) return;
+    // Wird die App-Liste neu geladen, während eine Auswahl im <select> ansteht,
+    // verschwindet die gewählte App ggf. aus den Optionen — der Browser zeigt
+    // dann den Platzhalter, aber bind:value (change-event-getrieben) lässt
+    // pickedToAdd stehen. Ohne diesen Guard schließt "Hinzufügen" eine stale,
+    // nicht mehr sichtbar gewählte App aus. Nur ausschließen, wenn weiterhin gültig.
+    if (!pickedToAdd || !availableForAdd.includes(pickedToAdd)) {
+      pickedToAdd = '';
+      return;
+    }
     addExcludedApp(pickedToAdd);
     pickedToAdd = '';
   }
