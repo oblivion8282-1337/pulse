@@ -41,8 +41,11 @@
   }
   function onDragMove(e: PointerEvent): void {
     if (!dragging) return;
-    x = Math.max(0, Math.min(window.innerWidth - 80, dox + (e.clientX - dsx)));
-    y = Math.max(0, Math.min(window.innerHeight - 40, doy + (e.clientY - dsy)));
+    // Gegen das gesamte Fenster clampen (nicht eine feste 80px-Kante): sonst
+    // ließe sich das ~380px breite Fenster so weit nach rechts ziehen, dass die
+    // rechten ~300px (inkl. „X"-Knopf) aus dem Viewport verschwinden.
+    x = Math.max(0, Math.min(window.innerWidth - w, dox + (e.clientX - dsx)));
+    y = Math.max(0, Math.min(window.innerHeight - HEADER, doy + (e.clientY - dsy)));
   }
 
   // --- Resize (both bottom corners) ---
@@ -61,7 +64,9 @@
       w = Math.max(MIN_W, row + (e.clientX - rsx));
     } else {
       const nw = Math.max(MIN_W, row - (e.clientX - rsx));
-      x = rox + (row - nw); // keep the right edge fixed
+      // Rechte Kante fix halten, aber die linke nicht aus dem Viewport schieben
+      // (sonst geht x negativ, wenn man die SW-Ecke nahe dem linken Rand zieht).
+      x = Math.max(0, rox + (row - nw));
       w = nw;
     }
   }
