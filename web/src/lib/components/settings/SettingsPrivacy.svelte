@@ -37,10 +37,20 @@
   ];
 
   async function savePatch(patch: Parameters<typeof privacy.update>[0]) {
+    // Vorherige Werte der gepatchten Felder sichern, um bei Fehlschlag
+    // zurückzurollen: ein optimistisches "aus Suche ausblenden", das der Server
+    // NICHT übernommen hat, würde dem User sonst Verborgenheit vorgaukeln, obwohl
+    // er bis zum nächsten reconnect-Re-Seed weiter auffindbar bleibt (Privacy-
+    // Fail-Open). Erfolgsfall unverändert.
+    const revert: Parameters<typeof privacy.update>[0] = {};
+    if ('friend_request_policy' in patch) revert.friend_request_policy = privacy.current.friend_request_policy;
+    if ('show_in_search' in patch) revert.show_in_search = privacy.current.show_in_search;
+    if ('dm_policy' in patch) revert.dm_policy = privacy.current.dm_policy;
     privacy.update(patch);
     try {
       await friendsApi.updatePrivacy(patch);
     } catch (e) {
+      privacy.update(revert);
       toast.error(m.settings_privacy_save_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
