@@ -18,6 +18,7 @@
   import { settings } from '$lib/stores/settings.svelte';
   import RotateCcwIcon from '@lucide/svelte/icons/rotate-ccw';
   import { m } from '$lib/paraglide/messages.js';
+  import { onDestroy } from 'svelte';
 
   let listeningId = $state<ActionId | null>(null);
   let cleanupCapture: (() => void) | null = null;
@@ -88,6 +89,13 @@
   function itemsFor(cat: string): readonly ActionDef[] {
     return ACTIONS.filter((a) => a.category === cat && !a.hidden);
   }
+
+  // Capture-Listener aufräumen, falls die Komponente mitten im Rebind
+  // unmountet (Tab-Wechsel / Dialog schließen) — sonst bleibt der
+  // capture-phase keydown-Handler auf window und schluckt jede Taste
+  // (preventDefault/stopPropagation) bis zum Reload. Gleiches Muster wie
+  // SettingsAudioVideo::onDestroy.
+  onDestroy(endCapture);
 </script>
 
 <div class="space-y-6">
