@@ -10,18 +10,23 @@
  * already drives the controls bar) and a "you stopped" ping is just
  * noise.
  *
- * We deliberately do NOT filter by currently-open channel the way a
- * UI notification might — the server already broadcasts ``stream_state``
- * only to sockets that pass ``_filter_by_view_channel`` for the
- * channel, so each sound fired here is unambiguously "in a channel I'm
- * allowed to see". One stream start → one sound per subscribed client,
- * no extra store lookup required.
+ * Scope: the cue only fires when we are **connected to the voice channel**
+ * the stream belongs to (``voiceState.channelId === channelId``). The server
+ * broadcasts ``stream_state`` to every socket that can VIEW_CHANNEL the path —
+ * across *all* the user's communities — which is correct for the visual
+ * presence badge, but as an audio cue it was far too broad (you'd hear a chime
+ * for a stream in a community you aren't even looking at). Mirrors Discord:
+ * you only hear it for the call you're in. Presence itself stays global; only
+ * this sound is gated.
  */
 import { sounds } from '$lib/sounds/engine';
 import { currentServerUserId } from '$lib/stores/currentServerUser';
 import { guilds } from '$lib/stores/guilds.svelte';
+import { voiceState } from '$lib/voice/state.svelte';
 
 export function fireStreamDiff(channelId: string, oldIds: string[], newIds: string[]): void {
+  // Only chime for the voice channel we're actually connected to.
+  if (voiceState.channelId !== channelId) return;
   const me = currentServerUserId();
   const oldSet = new Set(oldIds);
   const newSet = new Set(newIds);
