@@ -46,6 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from dcc_chat_gateway import ratelimit
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
+from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -87,9 +88,9 @@ class StreamChatPostOut(BaseModel):
 
 
 async def _require_voice_channel_member(
-    session: SessionDep, channel_id: int, user_id: int
+    session: SessionDep, channel_id: int, current: CurrentUser
 ) -> Channel:
-    channel = await channel_membership(session, channel_id, user_id)
+    channel = await channel_membership(session, channel_id, current.id)
     if channel is None:
         if await session.get(Channel, channel_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
@@ -99,6 +100,13 @@ async def _require_voice_channel_member(
             status.HTTP_400_BAD_REQUEST,
             detail="stream chat is only available in voice channels",
         )
+    # VIEW_CHANNEL-Gate (wie watch_chat.py): channel_membership prüft nur die
+    # Guild-Mitgliedschaft. Ein per Overwrite vom (privaten) Voice-Channel
+    # ausgeschlossenes Mitglied darf den Stream-Chat weder lesen noch posten —
+    # sonst umgeht der REST-Pfad den WS-_filter_by_view_channel.
+    perms = await resolve_permissions(session, current, channel.guild_id, channel_id)
+    if not has_permission(perms, Permissions.VIEW_CHANNEL):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member of this channel")
     return channel
 
 
@@ -115,7 +123,7 @@ async def post_stream_chat(
     current: CurrentUser,
     request: Request,
 ) -> StreamChatPostOut:
-    await _require_voice_channel_member(session, channel_id, current.id)
+    await _require_voice_channel_member(session, channel_id, current)
 
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
@@ -186,7 +194,7 @@ async def get_stream_chat(
     request: Request,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> list[StreamChatMessage]:
-    await _require_voice_channel_member(session, channel_id, current.id)
+    await _require_voice_channel_member(session, channel_id, current)
 
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
