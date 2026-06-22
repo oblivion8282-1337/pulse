@@ -132,14 +132,18 @@ async def ban_user(
       * broadcasts ``guild_member_removed`` (if a member was evicted)
         followed by ``guild_ban_added``.
     """
-    if user_id == current.id:
-        raise HTTPException(400, detail="cannot ban yourself")
     guild = await session.get(Guild, guild_id)
     if guild is None:
         raise HTTPException(404, detail="guild not found")
+    # Permission-Gate VOR den self/owner-Branches: sonst leakt die owner-Prüfung
+    # ("cannot ban the guild owner") einem Aufrufer OHNE BAN_MEMBERS, dass ein
+    # geratenes user_id der Owner ist (Bestätigungs-Orakel). Erst autorisieren,
+    # dann auf privilegierte Resource-Daten verzweigen.
+    await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
+    if user_id == current.id:
+        raise HTTPException(400, detail="cannot ban yourself")
     if guild.owner_id == user_id:
         raise HTTPException(403, detail="cannot ban the guild owner")
-    await check_permission(session, current, guild_id, Permissions.BAN_MEMBERS)
     await assert_actor_outranks(
         session,
         current,
