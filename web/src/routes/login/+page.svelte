@@ -67,8 +67,10 @@
 
   function safeRedirect(raw: string | null): string {
     if (!raw) return '/app';
-    // Must start with "/" but not "//" — prevents open-redirect via //evil.com
-    if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+    // Nur echte In-App-Pfade: genau ein "/" gefolgt von einem Zeichen, das
+    // weder "/" noch "\" ist. Blockt //evil.com UND die Backslash-Variante
+    // /\evil.com (Browser normalisieren "\" zu "/" → //evil.com = open-redirect).
+    if (/^\/[^/\\]/.test(raw)) return raw;
     return '/app';
   }
 
