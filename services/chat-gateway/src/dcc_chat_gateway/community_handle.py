@@ -22,7 +22,10 @@ import re
 
 # 3–32 chars total: an alnum edge, then up to 30 of alnum/hyphen, then an alnum
 # edge. The ``{1,30}`` middle + two anchors gives the 3..32 length window.
-_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])$")
+# ``\Z`` (not ``$``) anchors the end: Python's ``$`` also matches just before a
+# trailing newline, so ``$`` would accept ``"foo\n"`` — a distinct DB-unique
+# handle that resolves to the same address, defeating the anti-squatting guard.
+_HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,30}[a-z0-9])\Z")
 
 # Words a handle may never take — keeps the ``/c/<handle>`` namespace free of
 # routing/keyword collisions. Lowercase (handles are already lowercased).
