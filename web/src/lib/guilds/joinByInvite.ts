@@ -203,10 +203,15 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
         serversStore.update(serverId, { pairwise_sub: auth.pairwise_sub });
       }
       const result = await acceptInvite(code, { serverId });
+      // Aktiven Server auf den Self-Host umschalten BEVOR wir dorthin
+      // navigieren (wie der public-handle-Pfad) — sonst routen WS/API-Calls,
+      // die auf activeServer.current zurückfallen, weiter zum vorigen Server
+      // (z.B. Cloud) und die Self-Host-Gilde rendert/sendet gegen den falschen.
+      activeServer.set(serverId);
       await guilds.hydrate();
-      // Pro-Server-Gildenliste neu laden, damit Membership-abhängige UI (z.B.
-      // die InviteEmbed-Karte) den Beitritt sofort sieht — der Bridge-Sync
-      // greift hier nicht, weil dieser Pfad den aktiven Server nicht umschaltet.
+      // Pro-Server-Gildenliste zusätzlich explizit neu laden, damit
+      // Membership-abhängige UI (z.B. die InviteEmbed-Karte) den Beitritt
+      // sofort sieht, falls der activeServer-Bridge-Sync noch nicht griff.
       await serverGuilds.refresh(serverId);
       if (result.channel_id) {
         await goto(`/app/guilds/${result.guild.id}/channels/${result.channel_id}`);
