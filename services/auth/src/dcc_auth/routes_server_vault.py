@@ -62,10 +62,13 @@ async def _require_user(request: Request, db) -> User:
 class VaultUpsertRequest(BaseModel):
     """Body for PUT /server-vault."""
 
-    encrypted_blob: str = Field(..., min_length=1, description="base64 AES-GCM ciphertext")
-    kdf_salt: str = Field(..., min_length=1, description="base64 16-byte KDF salt")
-    kdf_params: str = Field(..., min_length=1, description="KDF params JSON string")
-    gcm_nonce: str = Field(..., min_length=1, description="base64 12-byte AES-GCM nonce")
+    # max_length bounds gegen Storage-Abuse (analog routes_backups.py): ein
+    # authentifizierter User könnte sonst beliebig große Blobs in die DB pushen.
+    # 64 KiB base64 (~48 KiB Klartext) reicht für eine große Self-Host-Server-Liste.
+    encrypted_blob: str = Field(..., min_length=1, max_length=65_536, description="base64 AES-GCM ciphertext")
+    kdf_salt: str = Field(..., min_length=1, max_length=128, description="base64 16-byte KDF salt")
+    kdf_params: str = Field(..., min_length=1, max_length=512, description="KDF params JSON string")
+    gcm_nonce: str = Field(..., min_length=1, max_length=128, description="base64 12-byte AES-GCM nonce")
 
 
 class VaultMetaResponse(BaseModel):
