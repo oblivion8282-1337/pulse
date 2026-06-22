@@ -94,6 +94,15 @@ export function register(): void {
     // the local drop here so our friend list stays consistent
     // without waiting for the next reconnect.
     friends.remove(evt.data.user_id);
+    // Block also DELETEs pending requests both ways server-side, but no
+    // friend_request_cancelled is fanned to the blocker — purge them
+    // locally so the "Pending"-Tab doesn't keep a dead row (stale
+    // Accept/Cancel buttons that 404) until the next reload.
+    for (const r of [...friendRequests.incomingList, ...friendRequests.outgoingList]) {
+      if (r.sender_id === evt.data.user_id || r.receiver_id === evt.data.user_id) {
+        friendRequests.removeById(r.id);
+      }
+    }
     void directMessages.hydrate().catch(() => undefined);
   });
 
