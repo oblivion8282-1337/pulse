@@ -174,6 +174,12 @@ class ServerVault {
       }));
     try {
       const { iv, ct } = await encryptJsonWithKey(entries, cached.key);
+      // Re-Key (unlockForSetup mit neuem Passwort) oder wipe() lief während des
+      // encrypt-Awaits → dieser Push trägt den ALTEN Key. Würde er nach dem
+      // neuen Push landen (HTTP/2 ohne Reihenfolge-Garantie), läge der Remote-
+      // Tresor mit altem Key, IDB aber mit neuem → Cross-Device-Restore tot.
+      // Verwerfen: der re-keyende Flow pusht dieselbe Liste mit dem neuen Key.
+      if (this._wiped || this.cached !== cached) return;
       const akMode = cached.salt === AK_MODE;
       await putServerVault({
         encrypted_blob: toBase64(ct),
