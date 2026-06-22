@@ -243,6 +243,12 @@ class AuthStore {
       } catch {
         /* ignore */
       }
+      // Self-Host-Antrags-Beobachter zurücksetzen (Memory pendingSetup + die
+      // flachen Watch-/Ack-Keys), sonst zeigt der neue User den „genehmigt"-
+      // Punkt des Vorgängers — und _poll räumt eine approved Watch-Map nie.
+      void import('$lib/stores/myInstanceApplications.svelte').then((mod) =>
+        mod.myInstanceApplications.reset(),
+      );
       // Identitäts-Material des Vorgängers (IndexedDB) + Legacy-Stream-Keys
       // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
@@ -306,6 +312,12 @@ class AuthStore {
     for (const s of serversStore.servers) {
       if (!s.isCloud) sessionTokens.clear(s.id);
     }
+    // Self-Host-Antrags-Beobachter (gerätelokaler Watch-/Ack-State + roter
+    // Punkt) leeren — sonst erbt der nächste User am selben Gerät den
+    // „genehmigt"-Punkt des Vorgängers (dyn. Import gegen Circular-Import).
+    void import('$lib/stores/myInstanceApplications.svelte').then((mod) =>
+      mod.myInstanceApplications.reset(),
+    );
     // Identity-Cleanup: Timer stoppen, Stores wischen
     stopProfileRefresh();
     stopCertRotation();

@@ -95,6 +95,25 @@ class MyInstanceApplications {
     this._running = false;
   }
 
+  /**
+   * Account-Wechsel am selben Gerät / Logout: Watch-/Ack-State des Vorgängers
+   * verwerfen. Sonst erbt der neue User dessen „genehmigt"-Punkt — und `_poll`
+   * räumt eine bereits-`approved` Watch-Map NIE (es macht nur bei `pending`
+   * einen Request), also bliebe der rote Punkt dauerhaft hängen. Die Keys sind
+   * gerätelokal + flach (nicht user-gescopet), darum hier hart leeren.
+   */
+  reset(): void {
+    this.stop();
+    this.pendingSetup = 0;
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(LS_WATCH);
+      window.localStorage.removeItem(LS_ACK);
+    } catch {
+      /* ignore */
+    }
+  }
+
   private _load(): WatchMap {
     try {
       return JSON.parse(window.localStorage.getItem(LS_WATCH) || '{}') as WatchMap;
