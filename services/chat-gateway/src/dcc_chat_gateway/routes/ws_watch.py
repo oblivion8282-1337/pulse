@@ -249,6 +249,12 @@ async def handle_stop(
     watched_parties.discard((cid, pid))
     mgr = _manager(websocket)
     if mgr is not None:
+        # Der Host war via handle_start als Watcher registriert. Da wir oben
+        # (cid,pid) aus watched_parties verwerfen, räumt cleanup_on_disconnect
+        # den Host-Socket NICHT mehr aus dem _watchers-Registry — ohne dieses
+        # watch_leave bleiben der (geschlossene) Host-Socket und der
+        # _watchers-Eintrag der Party dauerhaft im Speicher hängen.
+        await mgr.watch_leave(cid, pid, str(user.id), websocket)
         mgr.cancel_host_end(cid, pid)
 
 
