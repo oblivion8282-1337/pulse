@@ -130,14 +130,14 @@ class _FriendCacheMixin:
         ``routes/friends.py`` + ``routes/blocks.py`` publish.
 
         The route publishes one envelope per affected side (e.g. both halves
-        of an accept). We deduce the *other* user from the payload's ``d``
-        field — the route puts ``user_id`` (the counterparty) into ``d``
+        of an accept). We deduce the *other* user from the payload's ``data``
+        field — the route puts ``user_id`` (the counterparty) into ``data``
         for every event that needs it.
 
         Recognised ops:
-          friend_request_accepted → friendship installed; ``d.friendship.user_id``
+          friend_request_accepted → friendship installed; ``data.friendship.user_id``
                                     is the counterparty.
-          friend_removed          → friendship gone; ``d.user_id``.
+          friend_removed          → friendship gone; ``data.user_id``.
           user_blocked            → only the blocker receives this; updates
                                     blocker's outgoing + the blocked's
                                     incoming if that user is online.
@@ -148,7 +148,10 @@ class _FriendCacheMixin:
         client-side store, no cache mutation here.
         """
         op = payload.get("op")
-        d = payload.get("d") or {}
+        # Wire-Envelope ist {"op", "data"} (siehe publish_friend_event) — NICHT
+        # "d". Mit "d" lieferte .get() immer None → die Cache-Branches feuerten
+        # nie → Online-Freunde-/Block-Cache blieb bis zum Reconnect veraltet.
+        d = payload.get("data") or {}
         if op == "friend_request_accepted":
             fship = d.get("friendship") or {}
             try:
