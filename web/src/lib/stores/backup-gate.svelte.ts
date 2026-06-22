@@ -28,6 +28,10 @@ class BackupGate {
 
   /** Resolver der laufenden `ensure()`-Promise; null wenn kein Dialog offen. */
   private _resolver: ((ok: boolean) => void) | null = null;
+  /** Die laufende Gate-Promise — von ALLEN parallelen `ensure()`-Aufrufern
+   *  geteilt, damit kein Aufrufer hängt. Atomar zusammen mit `_resolver` in
+   *  `resolve()` geleert. */
+  private _gatePromise: Promise<boolean> | null = null;
 
   /**
    * True, wenn ein Cloud-Backup existiert.
@@ -59,22 +63,17 @@ class BackupGate {
    */
   async ensure(): Promise<boolean> {
     if (await this.hasBackup()) return true;
-    // Hängt schon ein Dialog (paralleler ensure-Aufruf, z.B. Deep-Link + Klick
-    // gleichzeitig): an dieselbe Auflösung anhängen, statt `_resolver` zu
-    // überschreiben (sonst hinge der erste Aufrufer ewig).
-    if (this._resolver) {
-      return new Promise<boolean>((r) => {
-        const prev = this._resolver!;
-        this._resolver = (ok) => {
-          prev(ok);
-          r(ok);
-        };
-      });
-    }
+    // Läuft schon ein Gate (paralleler ensure-Aufruf, z.B. Deep-Link + Klick
+    // gleichzeitig): DIESELBE Promise zurückgeben statt `_resolver` zu chainen.
+    // Die frühere Chain-Logik hatte ein Race: feuerte `resolve()` zwischen dem
+    // `await hasBackup()` und diesem Check, sah der zweite Aufrufer `_resolver
+    // === null`, öffnete den Dialog erneut und hing ewig.
+    if (this._gatePromise) return this._gatePromise;
     this.open = true;
-    return new Promise<boolean>((r) => {
+    this._gatePromise = new Promise<boolean>((r) => {
       this._resolver = r;
     });
+    return this._gatePromise;
   }
 
   /** Vom Dialog aufgerufen — schließt ihn und löst die wartende Promise auf. */
@@ -82,6 +81,7 @@ class BackupGate {
     this.open = false;
     this._resolver?.(ok);
     this._resolver = null;
+    this._gatePromise = null;
   }
 }
 
