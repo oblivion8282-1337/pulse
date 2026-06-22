@@ -13,6 +13,7 @@
  */
 
 import { isElectron } from '$lib/platform/runtime';
+import { base64UrlDecode, base64UrlEncode } from '$lib/utils/base64url';
 import {
   fetchVapidPublicKey,
   postPushSubscription,
@@ -65,23 +66,6 @@ export async function requestNotificationPermission(): Promise<PushPermissionSta
 }
 
 /**
- * Convert a URL-safe base64 VAPID public key into the raw `Uint8Array`
- * `PushManager.subscribe()` expects. RFC 8292 keys are 65 bytes; we tolerate
- * padding-less input by re-adding `=` so `atob` accepts it.
- */
-function urlBase64ToArrayBuffer(b64: string): ArrayBuffer {
-  const padding = '='.repeat((4 - (b64.length % 4)) % 4);
-  const normalized = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const raw = atob(normalized);
-  // Allocate a *plain* ArrayBuffer (not the SharedArrayBuffer-tolerant union
-  // `Uint8Array.buffer` reports) so the PushManager.subscribe type accepts it.
-  const buf = new ArrayBuffer(raw.length);
-  const view = new Uint8Array(buf);
-  for (let i = 0; i < raw.length; i++) view[i] = raw.charCodeAt(i);
-  return buf;
-}
-
-/**
  * Raw subscription → `{endpoint, keys: {p256dh, auth}}` shape the backend
  * expects. The keys come out of `getKey()` as ArrayBuffers; we base64-url
  * encode them so they round-trip through JSON.
@@ -98,17 +82,10 @@ function serializeSubscription(s: PushSubscription): {
   return {
     endpoint: s.endpoint,
     keys: {
-      p256dh: bufferToBase64Url(p256dhBuf),
-      auth: bufferToBase64Url(authBuf)
+      p256dh: base64UrlEncode(p256dhBuf),
+      auth: base64UrlEncode(authBuf)
     }
   };
-}
-
-function bufferToBase64Url(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 async function getRegistration(): Promise<ServiceWorkerRegistration | null> {
@@ -145,7 +122,7 @@ export async function subscribeUser(): Promise<void> {
   if (!vapid) throw new Error('push_disabled');
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: urlBase64ToArrayBuffer(vapid)
+    applicationServerKey: base64UrlDecode(vapid)
   });
   const payload = serializeSubscription(sub);
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : undefined;

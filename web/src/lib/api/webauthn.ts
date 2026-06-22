@@ -1,16 +1,17 @@
 /**
  * WebAuthn / passkey ceremonies — browser side.
  *
- * No JS dependency: the base64url <-> ArrayBuffer conversion the native
- * `navigator.credentials` API needs is hand-rolled below. The server speaks
- * the standard `@simplewebauthn`-compatible JSON shape, so `py_webauthn` on
- * the backend parses our serialized credential directly.
+ * No JS dependency: the base64url <-> bytes conversion the native
+ * `navigator.credentials` API needs comes from `$lib/utils/base64url`. The
+ * server speaks the standard `@simplewebauthn`-compatible JSON shape, so
+ * `py_webauthn` on the backend parses our serialized credential directly.
  *
  * Two ceremonies, each an options -> verify round-trip:
  *  - registration (authenticated): enrol a new passkey on the account.
  *  - login: either the 2FA second step (with `mfaTicket`) or a full
  *    passwordless sign-in (without one).
  */
+import { base64UrlDecode, base64UrlEncode } from '$lib/utils/base64url';
 import { request, resetRefreshLock } from './client';
 import { saveTokens } from './storage';
 import type { Tokens } from './types';
@@ -46,23 +47,6 @@ export async function platformAuthenticatorAvailable(): Promise<boolean> {
   }
 }
 
-// ---- base64url <-> ArrayBuffer ---------------------------------------------
-
-function b64urlToBuf(value: string): ArrayBuffer {
-  const pad = '='.repeat((4 - (value.length % 4)) % 4);
-  const bin = atob((value + pad).replace(/-/g, '+').replace(/_/g, '/'));
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out.buffer;
-}
-
-function bufToB64url(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
 // ---- options decode / credential encode ------------------------------------
 
 /** Map the server's JSON options into the BufferSource-typed shape that
@@ -70,11 +54,11 @@ function bufToB64url(buf: ArrayBuffer): string {
 function decodeCreationOptions(o: Record<string, any>): PublicKeyCredentialCreationOptions {
   return {
     ...o,
-    challenge: b64urlToBuf(o.challenge),
-    user: { ...o.user, id: b64urlToBuf(o.user.id) },
+    challenge: base64UrlDecode(o.challenge).buffer,
+    user: { ...o.user, id: base64UrlDecode(o.user.id).buffer },
     excludeCredentials: (o.excludeCredentials ?? []).map((c: Record<string, any>) => ({
       ...c,
-      id: b64urlToBuf(c.id),
+      id: base64UrlDecode(c.id).buffer,
     })),
   } as PublicKeyCredentialCreationOptions;
 }
@@ -82,10 +66,10 @@ function decodeCreationOptions(o: Record<string, any>): PublicKeyCredentialCreat
 function decodeRequestOptions(o: Record<string, any>): PublicKeyCredentialRequestOptions {
   return {
     ...o,
-    challenge: b64urlToBuf(o.challenge),
+    challenge: base64UrlDecode(o.challenge).buffer,
     allowCredentials: (o.allowCredentials ?? []).map((c: Record<string, any>) => ({
       ...c,
-      id: b64urlToBuf(c.id),
+      id: base64UrlDecode(c.id).buffer,
     })),
   } as PublicKeyCredentialRequestOptions;
 }
@@ -95,13 +79,13 @@ function encodeRegistration(cred: PublicKeyCredential): Record<string, unknown> 
   const r = cred.response as AuthenticatorAttestationResponse;
   return {
     id: cred.id,
-    rawId: bufToB64url(cred.rawId),
+    rawId: base64UrlEncode(cred.rawId),
     type: cred.type,
     authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
     clientExtensionResults: cred.getClientExtensionResults(),
     response: {
-      clientDataJSON: bufToB64url(r.clientDataJSON),
-      attestationObject: bufToB64url(r.attestationObject),
+      clientDataJSON: base64UrlEncode(r.clientDataJSON),
+      attestationObject: base64UrlEncode(r.attestationObject),
       transports: r.getTransports?.() ?? []
     }
   };
@@ -112,15 +96,15 @@ function encodeAssertion(cred: PublicKeyCredential): Record<string, unknown> {
   const r = cred.response as AuthenticatorAssertionResponse;
   return {
     id: cred.id,
-    rawId: bufToB64url(cred.rawId),
+    rawId: base64UrlEncode(cred.rawId),
     type: cred.type,
     authenticatorAttachment: cred.authenticatorAttachment ?? undefined,
     clientExtensionResults: cred.getClientExtensionResults(),
     response: {
-      clientDataJSON: bufToB64url(r.clientDataJSON),
-      authenticatorData: bufToB64url(r.authenticatorData),
-      signature: bufToB64url(r.signature),
-      userHandle: r.userHandle ? bufToB64url(r.userHandle) : null
+      clientDataJSON: base64UrlEncode(r.clientDataJSON),
+      authenticatorData: base64UrlEncode(r.authenticatorData),
+      signature: base64UrlEncode(r.signature),
+      userHandle: r.userHandle ? base64UrlEncode(r.userHandle) : null
     }
   };
 }

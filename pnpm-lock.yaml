@@ -53,9 +53,6 @@ importers:
       marked:
         specifier: ^18.0.3
         version: 18.0.3
-      valibot:
-        specifier: ^1.0.0
-        version: 1.4.0(typescript@5.9.3)
     devDependencies:
       '@fontsource-variable/inter':
         specifier: ^5.2.8
@@ -2280,14 +2277,6 @@ packages:
   uuid@14.0.0:
     resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
-
-  valibot@1.4.0:
-    resolution: {integrity: sha512-iC/x7fVcSyOwlm/VSt7RlHnzNGLGvR9GnxdifUeWoCJo0q4ZZvrVkIHC6faTlkxG47I2Y4UrFquPuVHCrOnrLg==}
-    peerDependencies:
-      typescript: '>=5'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
 
   verror@1.10.1:
     resolution: {integrity: sha512-veufcmxri4e3XSrT0xwfUR7kguIkaxBeosDg00yDWhk49wdwkSUrvvsm7nc75e1PUyvIeZj6nS8VQRYz2/S4Xg==}
@@ -4594,10 +4583,6 @@ snapshots:
   util-deprecate@1.0.2: {}
 
   uuid@14.0.0: {}
-
-  valibot@1.4.0(typescript@5.9.3):
-    optionalDependencies:
-      typescript: 5.9.3
 
   verror@1.10.1:
     dependencies:

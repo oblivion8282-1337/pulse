@@ -30,7 +30,7 @@ Genaue Versionen in `uv.lock` / `pnpm-lock.yaml` / `package.json`. Runtimes: **P
 - **py_webauthn** (Passkeys, CBOR/COSE/Attestation) + `pyotp`/`qrcode[pil]` (TOTP) — kein Eigenbau.
 - **pytest** + pytest-asyncio: `--import-mode=importlib`, `asyncio_mode=auto`.
 
-**Frontend** (`web/`, SvelteKit-SPA, `ssr=false`, `adapter-static`) — Svelte 5 Runes, Tailwind 4 (shadcn-Tokens im `.dark{}`-Block), valibot (Response-Validation), shadcn-svelte / bits-ui (`web/src/lib/components/ui/`, Vendor — Größen-Policy ausgenommen). Nicht-offensichtlich:
+**Frontend** (`web/`, SvelteKit-SPA, `ssr=false`, `adapter-static`) — Svelte 5 Runes, Tailwind 4 (shadcn-Tokens im `.dark{}`-Block), shadcn-svelte / bits-ui (`web/src/lib/components/ui/`, Vendor — Größen-Policy ausgenommen). Nicht-offensichtlich:
 - Build → `web/build/` → `pulse_web`-nginx-Image. **Die Electron-App lädt die *deployte* Web-App remote**, nicht `web/build/`.
 - Vite-Dev-Proxy: `/api/auth`→:8001 · `/api/chat`+`/api/ws`→:8002 · `/api/voice`→:8003.
 - **livekit-client**: `lib/voice/livekit.svelte.ts` abonniert rohe `Room`/`Participant`-Events (kein `@livekit/components-core`-Wrapper, obwohl installiert).
