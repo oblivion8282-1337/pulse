@@ -185,9 +185,16 @@ async def _consume_reset_token(session, plaintext: str) -> PasswordResetToken | 
     from dcc_auth.recovery import hash_token
 
     digest = hash_token(plaintext)
+    # with_for_update: macht das Single-Use-Consume atomar. Ohne den Row-Lock
+    # könnten zwei gleichzeitige /password/reset-Requests mit demselben Token
+    # beide used_at=NULL lesen (READ COMMITTED), beide passieren den Guard und
+    # konsumieren das Token doppelt. Spiegelt das FOR-UPDATE-Muster aus
+    # routes_totp.py / routes_account_key.py.
     row = (
         await session.execute(
-            select(PasswordResetToken).where(PasswordResetToken.token_hash == digest)
+            select(PasswordResetToken)
+            .where(PasswordResetToken.token_hash == digest)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if row is None:
@@ -250,11 +257,13 @@ async def email_verification_confirm(
     from dcc_auth.recovery import hash_token
 
     digest = hash_token(payload.token)
+    # with_for_update: atomares Single-Use-Consume (gleiche Race wie beim
+    # Passwort-Reset-Token, hier harmloser, aber konsistent gehärtet).
     row = (
         await session.execute(
-            select(EmailVerificationToken).where(
-                EmailVerificationToken.token_hash == digest
-            )
+            select(EmailVerificationToken)
+            .where(EmailVerificationToken.token_hash == digest)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if row is None:
