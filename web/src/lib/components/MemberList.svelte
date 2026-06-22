@@ -81,7 +81,17 @@
       });
   }
 
-  type MemberGroup = { hoist: string | null; position: number; members: Member[]; offline?: boolean };
+  // hoistId (stabile, eindeutige Rollen-Snowflake) ist der {#each}-Key; hoist
+  // (Name) ist nur fürs Label. Zwei gleichnamige Hoist-Rollen (in Discord-artigen
+  // Systemen erlaubt) erzeugen sonst doppelte {#each}-Keys → Svelte-5-Fehler /
+  // Fehl-Render; ein Rename würde die DOM-Gruppe unnötig zerstören+neu bauen.
+  type MemberGroup = {
+    hoistId: string | null;
+    hoist: string | null;
+    position: number;
+    members: Member[];
+    offline?: boolean;
+  };
 
   function sortName(m: Member): string {
     return m.nickname ?? userCache.displayName(m.user_id);
@@ -105,7 +115,12 @@
       const top = roles.topHoistRole(guildId, ids);
       const key = top?.id ?? '__none__';
       if (!byHoist.has(key)) {
-        byHoist.set(key, { hoist: top?.name ?? null, position: top?.position ?? -1, members: [] });
+        byHoist.set(key, {
+          hoistId: top?.id ?? null,
+          hoist: top?.name ?? null,
+          position: top?.position ?? -1,
+          members: [],
+        });
       }
       byHoist.get(key)!.members.push(m);
     }
@@ -120,7 +135,10 @@
     const offlineKeyed = offline.map((m) => [m, sortName(m)] as const);
     offlineKeyed.sort(([, a], [, b]) => a.localeCompare(b));
     const sortedOffline = offlineKeyed.map(([m]) => m);
-    return [...onlineGroups, { hoist: null, position: -999, members: sortedOffline, offline: true }];
+    return [
+      ...onlineGroups,
+      { hoistId: null, hoist: null, position: -999, members: sortedOffline, offline: true },
+    ];
   });
 
   // Per-guild aggregation across all voice channels: who's hosting a watch
@@ -240,7 +258,7 @@
     {:else if error}
       <p class="px-3 py-4 text-xs text-red-400">{error}</p>
     {:else}
-      {#each groupedMembers as group (group.offline ? '__offline__' : (group.hoist ?? '__none__'))}
+      {#each groupedMembers as group (group.offline ? '__offline__' : (group.hoistId ?? '__none__'))}
         <div class="text-text-muted mt-3 px-3 pb-1 text-xs font-semibold uppercase tracking-wide first:mt-0">
           {m.member_list_group_label({ label: group.offline ? m.member_list_offline() : (group.hoist ?? m.member_list_online()), count: group.members.length })}
         </div>
