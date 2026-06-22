@@ -103,7 +103,10 @@ class ForwardResult(BaseModel):
 
 
 class ResolveIn(BaseModel):
-    resolution_note: str
+    # max_length wie body/notice_text (5000) — sonst kann ein Admin via
+    # /admin/complaints/{id}/resolve einen unbegrenzten resolution_note schreiben
+    # (Storage-Abuse / DB-Bloat). Großzügig genug für jede echte Notiz.
+    resolution_note: Annotated[str, Field(max_length=5000)]
 
 
 # ---------------------------------------------------------------------------
