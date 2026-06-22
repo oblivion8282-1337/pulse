@@ -187,7 +187,10 @@
       return;
     }
     if (e.key === 'Escape' && replyTo) { e.preventDefault(); onCancelReply?.(); return; }
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); fire(); }
+    // !e.isComposing: während einer IME-Komposition (CJK) bestätigt Enter den
+    // Kandidaten — NICHT senden, sonst ginge der noch nicht committete Text
+    // verloren (compositionend feuert erst nach diesem keydown).
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); fire(); }
   }
 
   function onDragEnter(e: DragEvent) {
