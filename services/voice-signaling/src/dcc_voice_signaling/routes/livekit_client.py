@@ -55,9 +55,11 @@ async def _livekit_remove_participant(
         settings = voice_routes.get_settings()
         if not settings.livekit_api_key or not settings.livekit_api_secret:
             return
-        host = settings.livekit_url.replace("wss://", "https://").replace(
-            "ws://", "http://"
-        )
+        # Server-seitige Calls bevorzugen die interne livekit_api_url (wie der
+        # Singleton in app.py): die öffentliche livekit_url geht über den
+        # Reverse-Proxy → 502 genau während eines Deploys (CLAUDE.md-Gotcha).
+        api_url = settings.livekit_api_url or settings.livekit_url
+        host = api_url.replace("wss://", "https://").replace("ws://", "http://")
         api_client = lk.LiveKitAPI(
             host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
         )
@@ -113,9 +115,11 @@ async def _livekit_update_participant(
             return
         # LiveKitAPI wants the HTTP variant; ws:// → http:// is enough for
         # the room-service endpoints we use.
-        host = settings.livekit_url.replace("wss://", "https://").replace(
-            "ws://", "http://"
-        )
+        # Server-seitige Calls bevorzugen die interne livekit_api_url (wie der
+        # Singleton in app.py): die öffentliche livekit_url geht über den
+        # Reverse-Proxy → 502 genau während eines Deploys (CLAUDE.md-Gotcha).
+        api_url = settings.livekit_api_url or settings.livekit_url
+        host = api_url.replace("wss://", "https://").replace("ws://", "http://")
         api_client = lk.LiveKitAPI(
             host, api_key=settings.livekit_api_key, api_secret=settings.livekit_api_secret
         )
