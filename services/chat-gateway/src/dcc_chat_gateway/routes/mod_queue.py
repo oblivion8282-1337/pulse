@@ -338,6 +338,8 @@ async def resolve_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     if report.status in ("resolved", "dismissed"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
+    if report.target_user_id is not None and report.target_user_id == current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="cannot resolve a report targeting yourself")
 
     # Enforce the chosen action BEFORE marking the report resolved. The dispatch
     # helpers reuse the canonical handlers (own permission/hierarchy gate + their
@@ -411,6 +413,8 @@ async def triage_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     if report.status in ("resolved", "dismissed"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
+    if report.target_user_id is not None and report.target_user_id == current.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="cannot triage a report targeting yourself")
     if report.status != "triaged":
         report.status = "triaged"
         await session.commit()
