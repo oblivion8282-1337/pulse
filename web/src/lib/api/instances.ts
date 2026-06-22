@@ -182,7 +182,12 @@ export const instancesApi = {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // a.click() stößt den Download nur an (asynchron). Würde der Object-URL hier
+    // SYNCHRON revoked, kann der Browser den Blob noch nicht geholt haben → leere/
+    // fehlgeschlagene .env-Datei (die das client_secret trägt → Operator müsste
+    // rotate-secret erneut aufrufen und ein neues Geheimnis exponieren). Daher
+    // verzögert freigeben — genug Zeit für den Download-Fetch, dennoch bounded.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }
 };
 
