@@ -58,10 +58,14 @@ log = logging.getLogger(__name__)
 _MENTION_USER_RE = re.compile(r"<@(\d{1,20})>")
 _MENTION_ROLE_RE = re.compile(r"<@&(\d{1,20})>")
 
-# ``@everyone`` / ``@here`` as standalone tokens (word boundary).
+# ``@everyone`` / ``@here`` as standalone tokens. ``(?<!\w)`` verlangt, dass
+# das ``@`` NICHT von einem Wortzeichen direkt vorausgegangen wird — sonst
+# matcht ``support@everyone.example.com`` (Mail-Adresse) und löst entweder
+# einen ungewollten Massen-Ping (Autor mit MENTION_EVERYONE) oder einen
+# falschen 403 (Autor ohne) aus. ``\b`` allein gatet nur das Ende.
 # Same shape as the one previously inlined in routes/messages.py — the
 # route still owns the permission-reject (we just expose the regex).
-MENTION_EVERYONE_RE = re.compile(r"@(everyone|here)\b")
+MENTION_EVERYONE_RE = re.compile(r"(?<!\w)@(everyone|here)\b")
 
 
 def parse_markers(content: str) -> set[tuple[int, int]]:
