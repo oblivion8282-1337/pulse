@@ -72,9 +72,14 @@ async def search_users(
     # ``LOWER(NULL) LIKE pattern`` evaluates to NULL which the WHERE drops,
     # so no COALESCE is needed. Username matches sort first (CASE-rank 0),
     # then display-name-only matches (rank 1), each block by username.
-    pattern = needle.lower() + "%"
-    username_match = func.lower(User.username).like(pattern)
-    display_match = func.lower(User.display_name).like(pattern)
+    # LIKE-Sonderzeichen escapen: Usernamen dürfen '_' enthalten (USERNAME_PATTERN)
+    # und Display-Namen sind frei → ohne Escape würde '_' als Einzelzeichen- und
+    # '%' als Mehrzeichen-Wildcard matchen (zu breite/falsche Treffer; ein '%%'-
+    # Query würde fast die ganze Tabelle prefix-matchen). Backslash zuerst.
+    escaped = needle.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = escaped + "%"
+    username_match = func.lower(User.username).like(pattern, escape="\\")
+    display_match = func.lower(User.display_name).like(pattern, escape="\\")
     stmt = (
         select(User)
         .where(
