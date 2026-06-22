@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from dcc_chat_gateway import ratelimit, watchkeys
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel
+from dcc_chat_gateway.permissions import Permissions, has_permission, resolve_permissions
 from dcc_chat_gateway.routes._deps import channel_membership
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
@@ -84,9 +85,9 @@ def _normalize_emoji(raw: str) -> str:
 
 
 async def _require_voice_channel_member(
-    session: SessionDep, channel_id: int, user_id: int
+    session: SessionDep, channel_id: int, current: CurrentUser
 ) -> Channel:
-    channel = await channel_membership(session, channel_id, user_id)
+    channel = await channel_membership(session, channel_id, current.id)
     if channel is None:
         if await session.get(Channel, channel_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="channel not found")
@@ -96,6 +97,14 @@ async def _require_voice_channel_member(
             status.HTTP_400_BAD_REQUEST,
             detail="watch chat is only available in voice channels",
         )
+    # VIEW_CHANNEL-Gate: ein per Overwrite vom (privaten) Voice-Channel
+    # ausgeschlossenes Mitglied darf die Watch-Party-Chat-Historie weder lesen
+    # noch beschreiben — sonst umgeht der REST-Pfad den WS-_filter_by_view_channel
+    # (ws_watch.py + streaming.py gaten ebenso). 403 "not a member" leakt keine
+    # Channel-Existenz.
+    perms = await resolve_permissions(session, current, channel.guild_id, channel_id)
+    if not has_permission(perms, Permissions.VIEW_CHANNEL):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="not a member")
     return channel
 
 
@@ -112,7 +121,7 @@ async def post_watch_chat(
     current: CurrentUser,
     request: Request,
 ) -> WatchChatPostOut:
-    await _require_voice_channel_member(session, channel_id, current.id)
+    await _require_voice_channel_member(session, channel_id, current)
 
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
@@ -169,7 +178,7 @@ async def get_watch_chat(
     request: Request,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = DEFAULT_LIMIT,
 ) -> list[WatchChatMessage]:
-    await _require_voice_channel_member(session, channel_id, current.id)
+    await _require_voice_channel_member(session, channel_id, current)
 
     redis = getattr(request.app.state, "redis", None)
     if redis is None:
@@ -232,7 +241,7 @@ async def toggle_watch_chat_reaction(
 
     Ephemeral — stored in Redis (6h TTL), no DB. Idempotent per call: a
     second PUT with the same emoji removes the reaction again."""
-    await _require_voice_channel_member(session, channel_id, current.id)
+    await _require_voice_channel_member(session, channel_id, current)
     emoji_n = _normalize_emoji(emoji)
 
     redis = getattr(request.app.state, "redis", None)
