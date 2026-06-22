@@ -31,18 +31,20 @@
   let confirmDevice = $state<CredentialDevice | null>(null);
   let dialogOpen = $state(false);
 
+  // confirmDevice ist die Quelle der Wahrheit. (Die alte 3-Zweig-Variante hatte
+  // ZWEI Zweige mit IDENTISCHER Bedingung `confirmDevice !== null && !dialogOpen` —
+  // der erste setzte confirmDevice=null, bevor der zweite den Dialog öffnen konnte
+  // → der Bestätigungs-Dialog ging beim Klick NIE auf.)
+  // Effekt 1: Auswahl steuert den Dialog (öffnet bei Auswahl, schließt beim
+  // programmatischen Zurücksetzen nach erfolgreichem Revoke).
   $effect(() => {
-    // Synchronisiert dialogOpen mit confirmDevice.
-    // Wenn bits-ui den Dialog schließt (Escape/Backdrop), müssen wir confirmDevice zurücksetzen.
-    if (!dialogOpen && confirmDevice !== null) {
-      confirmDevice = null;
-    }
-    if (confirmDevice !== null && !dialogOpen) {
-      dialogOpen = true;
-    }
-    if (confirmDevice === null && dialogOpen) {
-      dialogOpen = false;
-    }
+    dialogOpen = confirmDevice !== null;
+  });
+  // Effekt 2: schließt bits-ui den Dialog (Escape/Backdrop/Abbrechen), Auswahl
+  // zurücksetzen. Kein Loop: Effekt 1 liest nur confirmDevice, Effekt 2 nur
+  // dialogOpen — das Schließen triggert Effekt 1 nicht erneut.
+  $effect(() => {
+    if (!dialogOpen) confirmDevice = null;
   });
 
   const currentCertId = $derived(certStore.cert?.claims.cert_id ?? null);
