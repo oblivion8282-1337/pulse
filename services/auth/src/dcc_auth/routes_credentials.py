@@ -75,11 +75,20 @@ def _decode_pubkey(b64: str) -> bytes:
     # ein Vielfaches von 4 aufgefüllt werden, sonst wirft binascii.Error.
     try:
         padding = (4 - len(b64) % 4) % 4
-        return base64.urlsafe_b64decode(b64 + "=" * padding)
+        raw = base64.urlsafe_b64decode(b64 + "=" * padding)
     except Exception as exc:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="device_pubkey: invalid base64"
         ) from exc
+    # Ein rohes Ed25519-Public-Key ist IMMER exakt 32 Byte (Frontend exportiert
+    # 'raw'). Ohne diese Prüfung würde ein beliebig großer Base64-Blob als
+    # device_pubkey gespeichert (Storage-Müll + ein Cert, das die Ed25519-PoP-
+    # Verifikation beim Cert-Login nie bestehen kann).
+    if len(raw) != 32:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="device_pubkey: must be a 32-byte Ed25519 key"
+        )
+    return raw
 
 
 def _credential_to_device(cred: IssuedCredential) -> CredentialDevice:
