@@ -26,6 +26,10 @@
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // In-Flight-Anfragen pro userId: ohne Guard schickt ein Doppelklick zwei
+  // POSTs — der zweite kollidiert mit dem ersten (Backend: 409
+  // request_already_pending) und zeigt fälschlich einen Fehler-Toast.
+  let pending = $state<Set<string>>(new Set());
 
   $effect(() => {
     const q = query.trim();
@@ -72,6 +76,8 @@
   }
 
   async function add(userId: string) {
+    if (pending.has(userId)) return;
+    pending = new Set([...pending, userId]);
     try {
       const res = await friendsApi.sendFriendRequest(userId);
       if ('auto_accepted' in res && res.auto_accepted) {
@@ -86,6 +92,10 @@
       toast.error(m.add_friend_request_failed(), {
         description: e instanceof Error ? e.message : undefined
       });
+    } finally {
+      const next = new Set(pending);
+      next.delete(userId);
+      pending = next;
     }
   }
 </script>
@@ -141,6 +151,7 @@
           size="sm"
           variant="default"
           onclick={() => add(h.id)}
+          disabled={pending.has(h.id)}
           data-testid="search-hit-add"
         >
           <UserPlusIcon class="mr-1 size-4" /> {m.add_friend_add_button()}
