@@ -21,6 +21,7 @@
   let suspendOpen = $state(false);
   let suspendReason = $state('');
   let suspending = $state(false);
+  let rotating = $state(false);
 
   // Rotate flow
   let rotateTarget = $state<AdminInstance | null>(null);
@@ -63,7 +64,12 @@
   }
 
   async function doRotate() {
-    if (!rotateTarget) return;
+    // rotating-Guard (wie suspending bei doSuspend): ohne ihn feuert ein
+    // Doppelklick auf "Bestätigen" zwei rotateSecret-Calls — der zweite
+    // rotiert das gerade angezeigte Secret sofort wieder weg (Admin hält ein
+    // bereits invalidiertes Secket / Fehler).
+    if (!rotateTarget || rotating) return;
+    rotating = true;
     busy[rotateTarget.id] = true;
     rotateConfirmOpen = false;
     try {
@@ -76,6 +82,7 @@
       });
     } finally {
       busy[rotateTarget.id] = false;
+      rotating = false;
       rotateTarget = null;
     }
   }
@@ -190,8 +197,8 @@
           class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
           {m.admin_instances_active_btn_cancel()}
         </button>
-        <button type="button" onclick={doRotate}
-          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium">
+        <button type="button" onclick={doRotate} disabled={rotating}
+          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium disabled:opacity-50">
           {m.admin_instances_active_btn_rotate_confirm()}
         </button>
       </div>
