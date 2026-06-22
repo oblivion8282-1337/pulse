@@ -104,6 +104,7 @@ class Settings(BaseSettings):
     # (messages purged too). Keep the bucket *very* tight — a stolen access
     # token shouldn't be able to nuke an account before the user notices.
     rate_limit_account_delete: str = "3/hour"
+    rate_limit_username_change: str = "10/minute"
     # User-search (``GET /users/search``). 30/min/user is generous enough
     # for autocomplete-style "type-then-fetch" UIs but blocks bulk
     # username enumeration. The endpoint is also gated by
@@ -200,6 +201,7 @@ class Settings(BaseSettings):
         "rate_limit_webauthn_register",
         "rate_limit_webauthn_login",
         "rate_limit_account_delete",
+        "rate_limit_username_change",
         "rate_limit_user_search",
         "rate_limit_bootstrap_mint",
         "rate_limit_bootstrap_redeem",

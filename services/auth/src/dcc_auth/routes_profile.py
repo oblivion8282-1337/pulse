@@ -7,13 +7,14 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User, UsernameReservation
-from dcc_auth.routes import _get_current_user, _signer_dep
+from dcc_auth.routes import _check_rate, _get_current_user, _signer_dep
 from dcc_auth.schemas_profile import (
     ProfileUpdateRequest,
     UsernameChangeRequest,
@@ -120,10 +121,16 @@ async def update_profile(
 
 @router.post("/me/username", response_model=UsernameChangeResponse)
 async def change_username(
+    request: Request,
     payload: UsernameChangeRequest,
     session: SessionDep,
     current: User = Depends(_get_current_user),
 ) -> UsernameChangeResponse:
+    # Rate-limit wie die anderen sensiblen Mutationen (password/email/delete):
+    # ohne Limit ist /me/username ein Username-Enumeration-Oracle (409 vs 200)
+    # + erlaubt UsernameReservation-Write-Amplification durch Dauerwechsel.
+    settings = get_settings()
+    await _check_rate(request, "username_change", settings.rate_limit_username_change)
     new_name = payload.new_username
     if new_name == current.username:
         raise HTTPException(
