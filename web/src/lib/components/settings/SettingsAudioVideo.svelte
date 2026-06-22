@@ -66,16 +66,27 @@
   );
 
   function startPttCapture() {
+    // Doppel-Klick ohne zwischenzeitlichen Tastendruck: den alten Listener
+    // ZUERST entfernen, sonst überschreibt Zeile darunter pttKeyListener und
+    // der alte Closure bleibt im Capture-Phase registriert — schluckt dann
+    // jeden weiteren keydown (preventDefault/stopPropagation) bis Reload.
+    if (pttKeyListener) {
+      window.removeEventListener('keydown', pttKeyListener, true);
+      pttKeyListener = null;
+    }
     listeningForPttKey = true;
-    pttKeyListener = (e: KeyboardEvent) => {
+    const handler = (e: KeyboardEvent) => {
       e.preventDefault();
       e.stopPropagation();
       settings.setPttKey(e.key);
       listeningForPttKey = false;
-      window.removeEventListener('keydown', pttKeyListener!, true);
+      // handler direkt entfernen (nicht über die mutable Variable, die schon
+      // auf einen neueren Closure zeigen könnte).
+      window.removeEventListener('keydown', handler, true);
       pttKeyListener = null;
     };
-    window.addEventListener('keydown', pttKeyListener, true);
+    pttKeyListener = handler;
+    window.addEventListener('keydown', handler, true);
   }
 
   onDestroy(() => {
