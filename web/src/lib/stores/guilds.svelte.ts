@@ -1,5 +1,6 @@
 import { chatApi } from '$lib/api/chat';
 import type { Channel, Guild } from '$lib/api/types';
+import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 class GuildStore {
   byId = $state<Record<string, Guild>>({});
@@ -12,10 +13,12 @@ class GuildStore {
   // Reverse index: channelId → guildId for O(1) lookups.
   private channelToGuild = $state<Map<string, string>>(new Map());
 
-  // Snowflake IDs have the same length, so lexicographic order == numeric order.
-  // Avoids Number() precision loss for IDs > 2^53.
+  // Snowflake-IDs als String vergleichen (Number() verlöre Präzision > 2^53).
+  // compareSnowflakeId ist längen-bewusst → korrekt auch über die Dezimal-
+  // Stellen-Grenze (17→18 Stellen ~Okt 2026), wo reines lexikografisches `<`
+  // fehlordnen würde.
   list = $derived(
-    Object.values(this.byId).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    Object.values(this.byId).sort((a, b) => compareSnowflakeId(a.id, b.id))
   );
 
   async hydrate(): Promise<void> {

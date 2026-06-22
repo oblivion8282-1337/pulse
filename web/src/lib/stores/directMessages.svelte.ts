@@ -1,6 +1,7 @@
 import { chatApi } from '$lib/api/chat';
 import type { DMChannel } from '$lib/api/types';
 import { blocks } from './blocks.svelte';
+import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 /**
  * Holds the caller's 1:1 DM channels. Mirrors `guilds.svelte.ts` in shape:
@@ -21,10 +22,9 @@ class DirectMessageStore {
     Object.values(this.byId).sort((a, b) => {
       const aKey = a.last_message_id ?? a.id;
       const bKey = b.last_message_id ?? b.id;
-      // Snowflake IDs all share the same length within a 100yr window, so
-      // string compare == numeric compare without 2^53 precision loss.
-      if (aKey === bKey) return 0;
-      return aKey < bKey ? 1 : -1;
+      // Absteigend (neueste zuerst). compareSnowflakeId ist längen-bewusst →
+      // korrekt auch über die Dezimal-Stellen-Grenze (Number() verlöre > 2^53).
+      return compareSnowflakeId(bKey, aKey);
     })
   );
 

@@ -1,5 +1,6 @@
 import type { Message, ReactionAggregate } from '$lib/api/types';
 import { currentServerUserId } from './currentServerUser';
+import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 class MessageStore {
   // Newest at the end. We dedupe on `id` and merge `nonce` echoes.
@@ -61,7 +62,7 @@ class MessageStore {
 
   setInitial(channelId: string, msgs: Message[]): void {
     // Backend returns descending; flip for chat-bottom display.
-    let sorted = [...msgs].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    let sorted = [...msgs].sort((a, b) => compareSnowflakeId(a.id, b.id));
     if (sorted.length > MessageStore.CAP) sorted = sorted.slice(-MessageStore.CAP);
     this.byChannel = { ...this.byChannel, [channelId]: sorted };
     this.loadedChannels = { ...this.loadedChannels, [channelId]: true };
@@ -95,10 +96,10 @@ class MessageStore {
     // Dedupe by id using O(1) set lookup.
     if (ids.has(msg.id)) return;
     // Append in id-order to keep the list monotonic.
-    if (list.length === 0 || list[list.length - 1].id < msg.id) {
+    if (list.length === 0 || compareSnowflakeId(list[list.length - 1].id, msg.id) < 0) {
       next = [...list, msg];
     } else {
-      next = [...list, msg].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      next = [...list, msg].sort((a, b) => compareSnowflakeId(a.id, b.id));
     }
     next = this.pruneToCap(next);
     this.byChannel = { ...this.byChannel, [msg.channel_id]: next };
@@ -244,9 +245,7 @@ class MessageStore {
       }
     }
     if (!mutated && !append.length) return;
-    next = [...next, ...append].sort((a, b) =>
-      a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-    );
+    next = [...next, ...append].sort((a, b) => compareSnowflakeId(a.id, b.id));
     next = this.pruneToCap(next);
     this.byChannel = { ...this.byChannel, [channelId]: next };
     // Rebuild the ID set after merge.
