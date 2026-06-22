@@ -35,6 +35,7 @@ from dcc_shared.events import GuildPluginsChangedEvent
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import GuildPlugin
@@ -203,10 +204,27 @@ async def toggle_guild_plugin(
             enabled_by_user_id=current.id,
         )
         session.add(row)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Concurrent first-insert (zwei Admins/Tabs togglen dasselbe Plugin
+            # gleichzeitig) gewann das Race auf den PK (guild_id, plugin_name) →
+            # auf den Update-Pfad gegen die nun existierende Row zurückfallen
+            # (mirrors preferences.py/friends.py). Ohne das: 500 statt Toggle.
+            await session.rollback()
+            row = await session.get(GuildPlugin, (guild_id, name))
+            if row is None:
+                raise HTTPException(
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="guild_plugin_race_lost",
+                )
+            row.enabled = payload.enabled
+            row.enabled_by_user_id = current.id
+            await session.commit()
     else:
         row.enabled = payload.enabled
         row.enabled_by_user_id = current.id
-    await session.commit()
+        await session.commit()
     invalidate_guild_plugin_cache(guild_id, name)
     # WS-Push an alle Guild-Member, damit ihr Frontend-Cache live
     # invalidiert wird (sonst sähen sie das Plugin erst beim nächsten
