@@ -119,8 +119,14 @@
         await rolesApi.unassign(guildId, userId, role.id);
       }
     } catch (err) {
-      // Roll back the optimistic toggle.
-      memberRoleIds = { ...memberRoleIds, [userId]: existing };
+      // Nur DIESEN Toggle gegen die AKTUELLE Menge zurückrollen — NICHT auf den
+      // (vor diesem Toggle gemachten) `existing`-Snapshot zurücksetzen: ein
+      // paralleler Toggle einer ANDEREN Rolle desselben Users (busy ist pro
+      // (userId,roleId)) würde sonst verworfen. Server-403 (z.B. Hierarchie-
+      // Verstoß) macht diesen Pfad realistisch.
+      const rollback = new Set(memberRoleIds[userId] ?? existing);
+      on ? rollback.delete(role.id) : rollback.add(role.id);
+      memberRoleIds = { ...memberRoleIds, [userId]: rollback };
       toast.error(m.member_role_assignment_toggle_failed(), { description: (err as Error).message });
     } finally {
       const nextBusy = new Set(busy);
