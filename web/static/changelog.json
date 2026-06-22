@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-22.3",
+      "date": "2026-06-22",
+      "style": "Sachlich",
+      "title": "Stabilität, Sicherheit und kleine Politur",
+      "items": [
+        "Viele Berechtigungs- und Sicherheitslücken rund um private Kanäle, Rollen und 2FA geschlossen.",
+        "Der Chat hält die Scroll-Position beim Lesen älterer Nachrichten.",
+        "Doppelklicks lösen Aktionen (Freundschaftsanfrage, Bildschirmfreigabe, Moderation) nicht mehr doppelt aus.",
+        "Japanische und chinesische Eingabe, Tastenkürzel und Benachrichtigungen arbeiten zuverlässiger."
+      ]
+    },
+    {
       "id": "2026-06-22.2",
       "date": "2026-06-22",
       "style": "Sachlich",
