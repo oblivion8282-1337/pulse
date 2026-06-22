@@ -125,9 +125,14 @@ class StreamController:
 
     @property
     def uptime_seconds(self) -> int:
-        if self._start_time is None:
+        # Snapshot once: _wait_loop may set _start_time = None concurrently, so
+        # reading it twice (check then subtract) could hit ``monotonic() - None``.
+        # No lock here — uptime_seconds is read from the on_state/on_fps callbacks
+        # which run *under* self._lock (non-reentrant), so taking it would deadlock.
+        start = self._start_time
+        if start is None:
             return 0
-        return int(time.monotonic() - self._start_time)
+        return int(time.monotonic() - start)
 
     @property
     def last_fps(self) -> int | None:
