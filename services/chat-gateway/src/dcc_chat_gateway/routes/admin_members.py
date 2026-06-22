@@ -84,6 +84,12 @@ async def ban_member(
     actor: AdminUser,
 ) -> InstanceMemberOut:
     """Set ``banned_at``/``ban_reason``. Idempotent (re-ban refreshes the reason)."""
+    # Selbst-Bann blocken (wie bans.py): der cert-login-Owner ist vom Ban-Gate
+    # ohnehin ausgenommen (cert_login.py „never lock themselves out"), ein
+    # Self-Ban würde also nur einen verwirrenden „gebannt"-Status im Admin-Panel
+    # + einen Audit-Eintrag gegen die eigene Identität erzeugen, ohne Wirkung.
+    if actor.user_identifier and actor.user_identifier == user_identifier:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="cannot ban yourself")
     row = await _get_or_404(session, user_identifier)
     row.banned_at = datetime.now(timezone.utc)
     row.ban_reason = payload.reason
