@@ -15,6 +15,7 @@
 
 import { loadCert } from '$lib/identity/cert.svelte';
 import { loadKeypair, signChallenge } from '$lib/identity/keypair.svelte';
+import { base64UrlDecode, base64UrlEncode } from '$lib/utils/base64url';
 import { CHAT_BASE } from './client';
 
 export type CertLoginResult = {
@@ -45,26 +46,6 @@ export class CertLoginError extends Error {
     super(message ?? reason);
     this.name = 'CertLoginError';
   }
-}
-
-// ---------------------------------------------------------------------------
-// base64url helpers (RFC 4648 §5, no padding) — die key-backup-Helfer sind
-// standard-base64 + privat, daher hier inline.
-// ---------------------------------------------------------------------------
-
-function b64urlDecode(s: string): Uint8Array {
-  const padded = s + '='.repeat((4 - (s.length % 4)) % 4);
-  const std = padded.replace(/-/g, '+').replace(/_/g, '/');
-  const bin = atob(std);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-function b64urlEncode(bytes: Uint8Array): string {
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 // ---------------------------------------------------------------------------
@@ -177,9 +158,9 @@ export async function certLogin(
   };
 
   // 3. Nonce signieren (raw bytes — Server erwartet base64url(sig over raw nonce))
-  const nonceBytes = b64urlDecode(challenge.nonce);
+  const nonceBytes = base64UrlDecode(challenge.nonce);
   const sigBytes = await signChallenge(keypair, nonceBytes);
-  const signature = b64urlEncode(sigBytes);
+  const signature = base64UrlEncode(sigBytes);
 
   // 4. Verify
   const verifyBody: Record<string, unknown> = {

@@ -19,6 +19,7 @@
  */
 
 import { isElectron } from '$lib/platform/runtime';
+import { normalizeHostname } from '$lib/utils/hostname';
 import type { PulseStoreApi } from '$lib/platform/pulse';
 
 export type ServerEntry = {
@@ -48,32 +49,9 @@ function secureStore(): PulseStoreApi | null {
   return store;
 }
 
-/** Normalisiert einen Hostname: HTTPS-only, lowercase, kein trailing slash.
- *  http://-URLs werden auf https:// hochgestuft — verhindert, dass Session-Tokens
- *  im Klartext übertragen werden (z.B. via Deep-Link mit http://-Host-Parameter).
- */
-function normalizeHostname(raw: string): string {
-  const trimmed = raw.trim().toLowerCase().replace(/\/$/, '');
-  if (trimmed.startsWith('http://')) {
-    return `https://${trimmed.slice('http://'.length)}`;
-  }
-  if (!trimmed.startsWith('https://')) {
-    return `https://${trimmed}`;
-  }
-  return trimmed;
-}
-
-function generateId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  // Fallback für ältere Envs (sollte in modernen Browsern nie greifen)
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
-
 function buildCloudEntry(): ServerEntry {
   return {
-    id: generateId(),
+    id: crypto.randomUUID(),
     hostname: CLOUD_HOSTNAME,
     instance_id: null,
     label: CLOUD_LABEL,
@@ -203,7 +181,7 @@ class ServersStore {
     const normalized = normalizeHostname(hostname);
     const isCloud = normalized === CLOUD_HOSTNAME;
     const entry: ServerEntry = {
-      id: generateId(),
+      id: crypto.randomUUID(),
       hostname: normalized,
       instance_id: instance_id ?? null,
       label: label ?? (isCloud ? CLOUD_LABEL : normalized),

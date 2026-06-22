@@ -10,6 +10,8 @@
  *   { server_version, pulse_oidc_issuer, instance_id, capabilities[] }
  */
 
+import { compareVersions } from '$lib/utils/semver';
+import { normalizeHostname } from '$lib/utils/hostname';
 import { MIN_SERVER_VERSION } from './constants';
 
 export type ServerInfo = {
@@ -27,34 +29,6 @@ export type PreCheckErr = {
   details?: string;
 };
 export type PreCheckResult = PreCheckOk | PreCheckErr;
-
-/** Semver-Compare (a vs b) — duplicated from gateway-connection.ts but
- *  scoped to module-private; das doppelt-implementieren ist OK weil 8
- *  Zeilen Helper und nicht reuseable cross-feature ohne neuen Public-Wrap. */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
-  const pb = b.split('.').map((x) => parseInt(x, 10) || 0);
-  const n = Math.max(pa.length, pb.length);
-  for (let i = 0; i < n; i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
-}
-
-/** Normalisiert Hostname (lowercase, strip trailing slash, HTTPS-Prefix).
- *  HTTP wird upgegraded auf HTTPS — kein Klartext-Self-Host akzeptiert.
- *  (TLS ist Pflicht für Cert-Modell-Sicherheit + WS-Origin-Check.) */
-function normalizeHostname(raw: string): string {
-  const trimmed = raw.trim().toLowerCase().replace(/\/+$/, '');
-  if (trimmed.startsWith('http://')) {
-    return `https://${trimmed.slice('http://'.length)}`;
-  }
-  if (!trimmed.startsWith('https://')) {
-    return `https://${trimmed}`;
-  }
-  return trimmed;
-}
 
 /**
  * Validiert URL-Form + ruft `.well-known/pulse-server-info` ab.

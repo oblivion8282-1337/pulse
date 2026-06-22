@@ -26,6 +26,7 @@ import { bootstrapHandlersOnce } from './gateway-handlers-bootstrap';
 import { gapFillAll, gapFillChannel } from './gapFill';
 import { backgroundEligible } from './dispatch-rules';
 import * as senders from './gateway-senders';
+import { compareVersions } from '$lib/utils/semver';
 import type { ServerEvent, ClientEvent } from './handlers/types';
 
 const BUFFER_BEFORE_READY: ReadonlySet<ServerEvent['op']> = new Set([
@@ -87,15 +88,6 @@ export type ReadyStamps = { _isActive?: boolean; _isCloud?: boolean; _serverId?:
 function stripReadyStamps(evt: ServerEvent): ServerEvent {
   const { _isActive: _i1, _isCloud: _i2, _serverId: _i3, ...rest } = evt as ServerEvent & ReadyStamps;
   return rest as ServerEvent;
-}
-
-/** Semver-Compare. Returns negative/0/positive (a vs b). */
-function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map((x) => parseInt(x, 10) || 0);
-  const pb = b.split('.').map((x) => parseInt(x, 10) || 0);
-  const n = Math.max(pa.length, pb.length);
-  for (let i = 0; i < n; i++) { const d = (pa[i] ?? 0) - (pb[i] ?? 0); if (d !== 0) return d; }
-  return 0;
 }
 
 export class GatewayConnection {
