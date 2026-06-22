@@ -59,12 +59,24 @@ async def _require_user(request: Request, db) -> User:
 class BackupUpsertRequest(BaseModel):
     """Body for POST /credentials/{cert_id}/backup."""
 
-    encrypted_blob: str = Field(..., min_length=1, description="base64-encoded AES-GCM ciphertext")
-    kdf_salt: str = Field(..., min_length=1, description="base64-encoded 16-byte KDF salt")
-    kdf_params: str = Field(
-        ..., min_length=1, description="KDF params JSON string, e.g. '{\"name\":\"PBKDF2\",...}'"
+    # max_length bounds gegen Storage-Abuse: ein authentifizierter User könnte
+    # sonst beliebig große Blobs hochladen (Disk-DoS). Ein echter Keypair-Backup
+    # ist <1 KB; 64 KB base64 ist extrem großzügig und blockt Multi-MB-Missbrauch.
+    encrypted_blob: str = Field(
+        ..., min_length=1, max_length=65_536, description="base64-encoded AES-GCM ciphertext"
     )
-    gcm_nonce: str = Field(..., min_length=1, description="base64-encoded 12-byte AES-GCM nonce")
+    kdf_salt: str = Field(
+        ..., min_length=1, max_length=128, description="base64-encoded 16-byte KDF salt"
+    )
+    kdf_params: str = Field(
+        ...,
+        min_length=1,
+        max_length=512,
+        description="KDF params JSON string, e.g. '{\"name\":\"PBKDF2\",...}'",
+    )
+    gcm_nonce: str = Field(
+        ..., min_length=1, max_length=128, description="base64-encoded 12-byte AES-GCM nonce"
+    )
     device_label: str = Field(..., min_length=1, max_length=64)
 
 
