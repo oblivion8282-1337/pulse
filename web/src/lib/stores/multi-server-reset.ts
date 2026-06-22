@@ -40,7 +40,9 @@ import { readState } from './readState.svelte';
 import { roles } from './roles.svelte';
 import { streamChat } from './streamChat.svelte';
 import { streamPresence } from './streamPresence.svelte';
+import { typing } from './typing.svelte';
 import { voicePresence } from './voicePresence.svelte';
+import { watchChat } from './watchChat.svelte';
 import { watchPartyPresence } from './watchPartyPresence.svelte';
 import { watchWatchers } from './watchWatchers.svelte';
 import { resetGuildPluginsCache } from '$lib/plugins';
@@ -77,8 +79,10 @@ export function resetServerScopedStores(): void {
   voicePresence.clear();
   streamPresence.clear();
   streamChat.clearAll();
+  watchChat.clearAll();
   watchPartyPresence.clear();
   watchWatchers.clear();
+  typing.clearAll();
   // Plugin-pro-Guild-Toggle-Cache liegt außerhalb der Store-Klassen.
   resetGuildPluginsCache();
   // Guild-member autocomplete cache — stale after server-switch / sign-out.

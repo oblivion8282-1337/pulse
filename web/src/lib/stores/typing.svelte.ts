@@ -45,6 +45,15 @@ class TypingTracker {
     this.#clear(channelId, userId);
   }
 
+  /** Alles verwerfen (Server-Wechsel / Sign-Out). Server-scoped: ohne Reset
+   *  zeigt der neue Server kurzzeitig „X schreibt …" mit den Channel-/User-IDs
+   *  des vorigen, und die TTL-Timer (setTimeout) leben bis zum Ablauf weiter. */
+  clearAll(): void {
+    for (const t of this.#timers.values()) clearTimeout(t);
+    this.#timers.clear();
+    this.#byChannel = {};
+  }
+
   #clear(channelId: string, userId: string): void {
     this.#timers.delete(`${channelId}:${userId}`);
     const set = this.#byChannel[channelId];

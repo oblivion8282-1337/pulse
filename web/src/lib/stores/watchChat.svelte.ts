@@ -93,6 +93,14 @@ class WatchChatStore {
     this.byParty = rest;
   }
 
+  /** Alles verwerfen (Server-Wechsel / Sign-Out). Pendant zu
+   *  ``streamChat.clearAll()``: ohne das bliebe die Nachrichten-Historie einer
+   *  Watch-Party im Speicher, wenn der User den Server wechselt, bevor das
+   *  party-end-Event (auf der verlassenen Connection) den Eintrag räumt. */
+  clearAll(): void {
+    this.byParty = {};
+  }
+
   for(channelId: string, partyId: string): WatchChatMessage[] {
     return this.byParty[key(channelId, partyId)] ?? [];
   }
