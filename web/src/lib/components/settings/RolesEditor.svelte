@@ -306,7 +306,7 @@
           <button
             type="button"
             class="hover:bg-bg-hover flex-1 rounded-lg px-3 py-2 text-left text-sm transition-colors"
-            class:bg-bg-hover={selectedId === r.id}
+            class:bg-bg-hover={selectedRole?.id === r.id}
             onclick={() => trySelect(r.id)}
           >
             <span class="font-medium" style={r.color ? `color: #${r.color.toString(16).padStart(6, '0')}` : ''}>
