@@ -32,6 +32,7 @@
   let rejectOpen = $state(false);
   let rejectReason = $state('');
   let rejecting = $state(false);
+  let approving = $state(false);
   let rejectError = $state<string | null>(null);
 
   function errMsg(e: unknown): string {
@@ -53,7 +54,12 @@
   }
 
   async function doApprove() {
-    if (!approveTarget) return;
+    // approving-Guard (wie rejecting bei doReject): die Genehmigung ist
+    // IRREVERSIBEL (Worker-IDs werden nie wiederverwendet). Ohne Guard feuert
+    // ein Doppelklick auf "Bestätigen" zwei approveApplication-Calls — der zweite
+    // bringt im besten Fall einen verwirrenden 409 auf eine erfolgreiche Aktion.
+    if (!approveTarget || approving) return;
+    approving = true;
     const id = approveTarget.id;
     busy[id] = true;
     approveConfirmOpen = false;
@@ -68,6 +74,7 @@
         description: errMsg(e)
       });
     } finally {
+      approving = false;
       busy[id] = false;
       approveTarget = null;
     }
@@ -162,8 +169,8 @@
           class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
           {m.admin_instances_pending_cancel()}
         </button>
-        <button type="button" onclick={doApprove}
-          class="rounded-xl bg-emerald-600 px-4 py-2 text-sm text-white font-medium hover:bg-emerald-500">
+        <button type="button" onclick={doApprove} disabled={approving}
+          class="rounded-xl bg-emerald-600 px-4 py-2 text-sm text-white font-medium hover:bg-emerald-500 disabled:opacity-60">
           {m.admin_instances_pending_confirm_approve()}
         </button>
       </div>
