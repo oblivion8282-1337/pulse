@@ -301,6 +301,21 @@ async def _report_in_guild(session: SessionDep, report: Report, guild_id: int) -
     return False
 
 
+async def _targets_self(session: SessionDep, report: Report, current_id: int) -> bool:
+    """True if the report is *about* the current moderator — directly via
+    ``target_user_id`` or indirectly via a message they authored. Moderators must
+    not resolve/triage reports against themselves (conflict of interest)."""
+    if report.target_user_id is not None and report.target_user_id == current_id:
+        return True
+    if report.target_message_id is not None:
+        author_id = await session.scalar(
+            select(Message.author_id).where(Message.id == report.target_message_id)
+        )
+        if author_id == current_id:
+            return True
+    return False
+
+
 @router.post(
     "/guilds/{guild_id}/mod-queue/{report_id}/resolve",
     response_model=ReportItem,
@@ -338,7 +353,7 @@ async def resolve_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     if report.status in ("resolved", "dismissed"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
-    if report.target_user_id is not None and report.target_user_id == current.id:
+    if await _targets_self(session, report, current.id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="cannot resolve a report targeting yourself")
 
     # Enforce the chosen action BEFORE marking the report resolved. The dispatch
@@ -413,7 +428,7 @@ async def triage_report(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="report not found")
     if report.status in ("resolved", "dismissed"):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="report already resolved")
-    if report.target_user_id is not None and report.target_user_id == current.id:
+    if await _targets_self(session, report, current.id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="cannot triage a report targeting yourself")
     if report.status != "triaged":
         report.status = "triaged"
