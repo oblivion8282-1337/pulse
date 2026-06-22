@@ -24,9 +24,16 @@
   }
 </script>
 
+<!-- ``onpointerdown`` mit ``stopPropagation`` verhindert, dass sonners
+     Swipe-/Drag-Geste (Handler liegt auf dem umschließenden ``<li>``) greift —
+     sonst ließe sich diese persistente Karte mit der Maus aus dem Bild ziehen.
+     Geschlossen wird bewusst NUR über das X (eigener Click, hiervon unberührt). -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- pointerdown unterdrückt nur eine Eltern-Geste; die Karte ist kein Control. -->
 <div
   class="bg-bg-panel text-text-bright max-h-[70vh] w-full overflow-y-auto rounded-xl border border-border p-4 shadow-lg backdrop-blur-xl"
   data-testid="changelog-toast"
+  onpointerdown={(e) => e.stopPropagation()}
 >
   <div class="flex items-start justify-between gap-3">
     <p class="text-sm font-semibold">Was ist neu?</p>
