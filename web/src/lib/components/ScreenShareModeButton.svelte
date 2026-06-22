@@ -63,12 +63,21 @@
   // Aktiv-Status je Modus
   let isActive = $derived(mode === 'hq' ? stream.running : voice.isScreenSharing);
 
+  // setScreenShare setzt isScreenSharing erst NACH dem await (getDisplayMedia);
+  // ohne In-Flight-Guard startet ein Doppelklick zwei getDisplayMedia-Sessions,
+  // die zweite überschreibt #bypassVideoTrack → erste Capture bleibt verwaist.
+  let sharing = $state(false);
+
   async function doAction() {
     if (mode === 'normal') {
+      if (sharing) return;
+      sharing = true;
       try {
         await voice.setScreenShare(!voice.isScreenSharing);
       } catch {
         toast.info(m.screen_share_mode_button_share_cancelled());
+      } finally {
+        sharing = false;
       }
       return;
     }
@@ -81,10 +90,14 @@
   }
 
   async function handleNormalShare() {
+    if (sharing) return;
+    sharing = true;
     try {
       await voice.setScreenShare(!voice.isScreenSharing);
     } catch {
       toast.info(m.screen_share_mode_button_share_cancelled());
+    } finally {
+      sharing = false;
     }
   }
 
@@ -110,6 +123,7 @@
               size="icon-sm"
               class="relative size-8 rounded-r-none border-r border-border/40"
               onclick={doAction}
+              disabled={sharing}
               aria-label={tooltipLabel}
             >
               {#if mode === 'normal'}
@@ -192,6 +206,7 @@
               size="icon-sm"
               class="size-8"
               onclick={handleNormalShare}
+              disabled={sharing}
               data-testid="voice-screenshare-toggle"
               aria-label={voice.isScreenSharing ? m.screen_share_mode_button_stop_sharing_long() : m.screen_share_mode_button_share_screen()}
             >
