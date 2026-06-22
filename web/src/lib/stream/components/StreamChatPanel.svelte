@@ -31,6 +31,14 @@
   let streamerName = $derived(userCache.displayName(streamerId));
   let listEl = $state<HTMLDivElement | null>(null);
   let loading = $state(true);
+  // Auto-Scroll nur, wenn der User schon unten klebt — sonst reißt jede neue
+  // Nachricht ihn aus dem Hochscrollen zurück (Twitch-Chat-Standardverhalten).
+  let stickToBottom = $state(true);
+
+  function onListScroll() {
+    if (!listEl) return;
+    stickToBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 80;
+  }
 
   // userCache-Fetch für Streamer + alle Autoren.
   $effect(() => {
@@ -62,9 +70,10 @@
     };
   });
 
-  // Auto-scroll an den Boden bei neuen Messages.
+  // Auto-scroll an den Boden bei neuen Messages — nur wenn der User schon
+  // unten klebt (stickToBottom), sonst bleibt sein Hochscroll-Stand erhalten.
   $effect(() => {
-    if (messages.length === 0) return;
+    if (messages.length === 0 || !stickToBottom) return;
     void tick().then(() => {
       const el = listEl;
       if (el) el.scrollTop = el.scrollHeight;
@@ -133,6 +142,7 @@
 
   <div
     bind:this={listEl}
+    onscroll={onListScroll}
     class="flex-1 overflow-y-auto px-3 py-2"
     data-testid="stream-chat-messages"
   >
