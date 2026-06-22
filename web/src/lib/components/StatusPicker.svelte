@@ -31,13 +31,18 @@
   async function setStatus(next: OwnPresenceStatus) {
     if (busy || next === presence.myStatus) return;
     busy = true;
-    // Optimistic update.
+    // Optimistische UI-Aktualisierung — bei Fehlschlag zurückrollen, sonst zeigt
+    // die UI dauerhaft den falschen Status (kein WS-Echo bei Fehler) bis zum
+    // nächsten ready-Frame. writeDndToIdb erst NACH Erfolg, sonst unterdrückt der
+    // Service Worker Notifications obwohl der Server den User weiter online führt.
+    const prev = presence.myStatus;
     presence.setOwnStatus(next);
-    // Persist DND for SW.
-    writeDndToIdb(next === 'dnd');
     try {
       await friendsApi.setPresenceStatus(next);
+      writeDndToIdb(next === 'dnd');
     } catch (e) {
+      presence.setOwnStatus(prev);
+      writeDndToIdb(prev === 'dnd');
       toast.error(m.status_picker_set_error(), {
         description: e instanceof Error ? e.message : undefined
       });
