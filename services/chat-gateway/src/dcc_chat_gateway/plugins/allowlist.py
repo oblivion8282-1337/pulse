@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Iterable
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -133,13 +132,6 @@ async def ensure_hello_in_allowlist(session: AsyncSession) -> None:
         )
 
 
-def filter_to_allowed(
-    plugin_names: Iterable[str], allowed: set[str]
-) -> list[str]:
-    """Hilfsfunktion: bewahre Reihenfolge, behalte nur erlaubte Namen."""
-    return [n for n in plugin_names if n in allowed]
-
-
 # ---------------------------------------------------------------------------
 # Hot-Reload-Helper für den ``app.state.plugin_allowlist``-Snapshot.
 #
@@ -197,7 +189,6 @@ __all__ = [
     "HELLO_PLUGIN_NAME",
     "add_to_allowlist",
     "ensure_hello_in_allowlist",
-    "filter_to_allowed",
     "list_allowed_names",
     "remove_from_allowlist",
     "update_plugin_allowlist_snapshot",

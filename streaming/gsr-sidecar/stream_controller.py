@@ -17,6 +17,7 @@ nur die Prozess-Verwaltung ist anders:
 ``control.py`` als nicht-invasive Test-Operation aufrufbar.
 """
 from __future__ import annotations
+
 import ctypes
 import os
 import re
@@ -25,7 +26,6 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import IO
 
 from profiles import ServerProfile, StreamProfile, build_audio_arg
@@ -56,22 +56,6 @@ _RESOLUTION_MAP = {
     "720p":  "1280x720",
     "480p":  "854x480",
 }
-
-
-@dataclass
-class StreamConfig:
-    """Alle Parameter eines start-Calls. Snapshot des letzten Starts."""
-    profile: StreamProfile
-    server: ServerProfile
-    capture_source: str
-    audio_mode: str
-    stream_key: str | None
-    excluded_apps: list[str]
-    codec_override: str | None
-    bitrate_override: int | None
-    fps_override: int | None
-    resolution_override: str | None
-    show_cursor: bool = True
 
 
 class StreamController:
@@ -110,7 +94,6 @@ class StreamController:
         self._start_time: float | None = None
         self._last_fps: int | None = None
         self._last_argv: list[str] | None = None
-        self._last_config: StreamConfig | None = None
         self._last_exit_code: int | None = None
         self._lock = threading.Lock()
 
@@ -146,10 +129,6 @@ class StreamController:
     def last_exit_code(self) -> int | None:
         """Exit-Code des letzten GSR-Subprocess (None falls noch nicht gelaufen)."""
         return self._last_exit_code
-
-    def set_gsr_binary(self, path: str | None) -> None:
-        """Erlaubt dem Sidecar das Binary nach health-Probe zu setzen."""
-        self._gsr_binary = path
 
     def _set_state(self, new: str) -> None:
         if new != self._state:
@@ -276,17 +255,6 @@ class StreamController:
             )
             argv = [self._gsr_binary, *args]
             self._last_argv = argv
-            self._last_config = StreamConfig(
-                profile=profile, server=server,
-                capture_source=capture_source, audio_mode=audio_mode,
-                stream_key=stream_key,
-                excluded_apps=list(excluded_apps or []),
-                codec_override=codec_override,
-                bitrate_override=bitrate_override,
-                fps_override=fps_override,
-                resolution_override=resolution_override,
-                show_cursor=show_cursor,
-            )
             self._last_fps = None
             self._set_state("starting")
             self._start_time = time.monotonic()
@@ -458,7 +426,3 @@ class StreamController:
     def _emit_error(self, message: str) -> None:
         if self._on_error:
             self._on_error(message)
-
-    @property
-    def last_config(self) -> StreamConfig | None:
-        return self._last_config

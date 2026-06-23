@@ -102,13 +102,3 @@ PROVIDERS: dict[str, ProviderPreset] = {
         "from_hint": "",
     },
 }
-
-
-def get_preset(provider: str) -> ProviderPreset | None:
-    """Return the preset for ``provider``, or ``None`` for an unknown key."""
-    return PROVIDERS.get(provider)
-
-
-def known_providers() -> list[str]:
-    """Stable list of provider keys for schema-side enum validation."""
-    return list(PROVIDERS.keys())

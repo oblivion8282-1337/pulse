@@ -20,6 +20,7 @@ import { clearTokens, isAccessExpired, loadTokens, saveTokens } from './storage'
 import { serversStore, CLOUD_HOSTNAME } from './servers.svelte';
 import { activeServer } from '$lib/stores/active-server.svelte';
 import { sessionTokens } from './session_tokens.svelte';
+import { safeParse, extractDetail } from './parse';
 import type { ServerEntry } from './servers.svelte';
 import type { Tokens } from './types';
 
@@ -354,22 +355,6 @@ async function parseResponse<T>(resp: Response): Promise<T> {
   const data = text ? safeParse(text) : null;
   if (!resp.ok) throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
   return data as T;
-}
-
-function safeParse(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function extractDetail(data: unknown): string | null {
-  if (data && typeof data === 'object' && 'detail' in (data as Record<string, unknown>)) {
-    const d = (data as { detail: unknown }).detail;
-    if (typeof d === 'string') return d;
-  }
-  return null;
 }
 
 export function currentAccessToken(): string | null {

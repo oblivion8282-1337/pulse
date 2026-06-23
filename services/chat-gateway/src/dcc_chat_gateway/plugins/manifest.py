@@ -82,24 +82,6 @@ class PluginEntrypoints(BaseModel):
     frontend: str | None = None
 
 
-class _PluginBody(BaseModel):
-    """Inner ``[plugin]`` table — everything except the nested sub-tables.
-
-    Kept private; consumers see :class:`PluginManifest` which flattens the
-    interesting fields up + exposes the sub-tables as full models.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-    name: PluginName
-    version: str
-    api: str
-    author: str | None = None
-    description: str | None = None
-    scope: PluginScope = Field(default_factory=PluginScope)
-    uses: PluginUses = Field(default_factory=PluginUses)
-    entrypoints: PluginEntrypoints = Field(default_factory=PluginEntrypoints)
-
-
 class PluginManifest(BaseModel):
     """Parsed ``plugin.toml`` — the top-level shape exposed to the loader.
 
@@ -118,7 +100,7 @@ class PluginManifest(BaseModel):
     entrypoints: PluginEntrypoints = Field(default_factory=PluginEntrypoints)
 
     @classmethod
-    def from_dict(cls, raw: dict[str, object]) -> "PluginManifest":
+    def from_dict(cls, raw: dict[str, object]) -> PluginManifest:
         """Build a :class:`PluginManifest` from the raw TOML dict.
 
         The on-disk file has a single ``[plugin]`` table at the top — we

@@ -11,13 +11,7 @@
 //   - HTTP-Responses mit Status ≥ 400
 //   - Hauptframe-Navigationen
 // @playwright/test ist nur im web/-Workspace installiert. Wir lösen den
-// Pfad relativ zu diesem Script auf, damit der Aufruf aus jedem cwd geht.
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(resolve(__dirname, '../../web/') + '/');
-const { chromium } = require('@playwright/test');
+import { chromium } from './pw.mjs';
 
 import { appendFileSync } from 'node:fs';
 

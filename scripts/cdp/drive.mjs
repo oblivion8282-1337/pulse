@@ -11,13 +11,7 @@
 //                                    bis URL nicht mehr /login enthält
 //
 //   node ../scripts/cdp/drive.mjs <port> <action> [args...]
-// @playwright/test ist im web/-Workspace — Pfad relativ zu diesem Script.
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(resolve(__dirname, '../../web/') + '/');
-const { chromium } = require('@playwright/test');
+import { chromium } from './pw.mjs';
 
 const [,, port, action, ...args] = process.argv;
 if (!port || !action) {
