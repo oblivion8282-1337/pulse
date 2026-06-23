@@ -95,8 +95,13 @@
   // Computed live — flips off as the user reads the DM (markRead bumps
   // lastRead) / actions the request, and is hidden entirely while the user is
   // already on the home view (`!homeActive` in the markup below).
-  let hasUnreadDM = $derived(directMessages.list.some((dm) => readState.isUnread(dm.id)));
-  let hasHomeActivity = $derived(hasUnreadDM || friendRequests.incomingList.length > 0);
+  // Zahl im roten Kreis am Puls-Symbol: ungelesene DM-Nachrichten + offene
+  // Freundschaftsanfragen — alles, was im Home-Bereich auf Aufmerksamkeit
+  // wartet. Flippt auf 0 (Kreis weg), sobald gelesen / aktioniert.
+  let homeBadgeCount = $derived(
+    readState.sumUnread(directMessages.list.map((dm) => dm.id)) +
+      friendRequests.incomingList.length
+  );
 
   let renameTarget = $state<Guild | null>(null);
   let deleteTarget = $state<Guild | null>(null);
@@ -380,12 +385,12 @@
                 <img src="/pulse-mark.svg" alt="" width="36" height="36" class="size-11 rounded-lg md:size-9" />
               </a>
             {/if}
-            {#if hasHomeActivity && !homeActive}
+            {#if homeBadgeCount > 0 && !homeActive}
               <span
-                class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
+                class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-bg-panel"
                 aria-label={m.guild_rail_home_activity_dot()}
                 data-testid="home-unread-dot"
-              ></span>
+              >{homeBadgeCount > 99 ? '99+' : homeBadgeCount}</span>
             {/if}
           </div>
         {/snippet}
@@ -507,7 +512,7 @@
         {@const active = isActiveServer && activeGuildId === g.id}
         {@const guildChannels = isActiveServer ? (guildsStore.channelsByGuild[g.id] ?? []) : []}
         {@const guildChannelIds = isActiveServer && !active ? guildChannels.map((c) => c.id) : []}
-        {@const guildMentioned = isActiveServer && !active && readState.hasGuildMentions(guildChannelIds)}
+        {@const guildUnread = readState.sumUnread(guildChannelIds)}
         {@const iconSrc = guildIconSrc(g.icon_url, server.hostname)}
         <ContextMenu.Root>
           <ContextMenu.Trigger>
@@ -539,12 +544,12 @@
                           {initials(g.name)}
                         {/if}
                       </button>
-                      {#if guildMentioned}
+                      {#if guildUnread > 0}
                         <span
-                          class="absolute -right-0.5 -bottom-0.5 size-3 rounded-full bg-red-500 ring-2 ring-bg-panel"
+                          class="absolute -right-1 -bottom-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-bg-panel"
                           aria-label={m.guild_rail_unread_mentions()}
                           data-testid="guild-mention-dot"
-                        ></span>
+                        >{guildUnread > 99 ? '99+' : guildUnread}</span>
                       {/if}
                     </div>
                   {/snippet}

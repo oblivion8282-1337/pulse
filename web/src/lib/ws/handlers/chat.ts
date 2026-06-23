@@ -80,8 +80,11 @@ export function register(ctx: HandlerContext): void {
       // again here. markRead is idempotent.
       if (ctx.subs.has(evt.channel_id)) {
         readState.markRead(evt.channel_id, evt.message_id);
-      } else if (!isRecentMention(evt.message_id)) {
-        if (!isDnd()) sounds.play('notification.message', { guildId: evt.guild_id });
+      } else {
+        readState.incUnread(evt.channel_id);
+        if (!isRecentMention(evt.message_id) && !isDnd()) {
+          sounds.play('notification.message', { guildId: evt.guild_id });
+        }
       }
     }
   });
@@ -109,6 +112,7 @@ export function register(ctx: HandlerContext): void {
         // Already viewing this DM — mark read, no toast.
         readState.markRead(evt.channel_id, evt.message_id);
       } else {
+        readState.incUnread(evt.channel_id);
         // Not currently in this DM. Toast the user. We intentionally
         // surface only the sender's name, not the message content,
         // so the UX stays identical when DMs go E2EE in Phase 2.

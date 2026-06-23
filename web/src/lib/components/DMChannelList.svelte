@@ -79,6 +79,7 @@
     {/if}
     {#each directMessages.list as dm (dm.id)}
       {@const isUnread = activeDMId !== dm.id && readState.isUnread(dm.id)}
+      {@const unreadCount = activeDMId !== dm.id ? readState.getUnreadCount(dm.id) : 0}
       {@const u = userCache.get(dm.other_user_id)}
       {@const avatar = safeAvatarUrl(u?.avatar_url ?? null)}
       <button
@@ -105,9 +106,16 @@
         >
           {displayName(dm)}
         </span>
-        {#if isUnread}
+        {#if unreadCount > 0}
           <span
-            class="ml-auto size-2 shrink-0 rounded-full bg-primary"
+            class="ml-auto inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+            data-testid="dm-unread-pill"
+            data-unread-count={unreadCount}
+            aria-label="ungelesen"
+          >{unreadCount > 99 ? '99+' : unreadCount}</span>
+        {:else if isUnread}
+          <span
+            class="ml-auto size-2 shrink-0 rounded-full bg-red-500"
             data-testid="dm-unread-dot"
             aria-label="ungelesen"
           ></span>

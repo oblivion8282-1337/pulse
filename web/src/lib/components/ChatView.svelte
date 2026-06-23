@@ -108,6 +108,7 @@
   }
 
   let scrollContainer = $state<HTMLDivElement | null>(null);
+  let contentEl = $state<HTMLDivElement | null>(null);
   let lastCount = $state(0);
   // Ob der User aktuell ganz unten an der Liste klebt. Wird LAUFEND beim
   // Scrollen aktualisiert — also BEVOR eine neue Nachricht die Liste höher
@@ -170,6 +171,21 @@
         el.scrollTop = el.scrollHeight;
       });
     }
+  });
+
+  // Async-Inhalt (Avatare, Bilder, Link-Vorschauen, Embeds) lädt NACH dem
+  // ersten Scroll und wächst den Container — der „scroll to bottom" von oben
+  // landete sonst „in der Mitte". Solange der User unten klebt, bei jeder
+  // Höhenänderung des Inhalts erneut ans Ende ziehen.
+  $effect(() => {
+    const content = contentEl;
+    if (!content || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => {
+      const el = scrollContainer;
+      if (el && pinnedToBottom) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(content);
+    return () => ro.disconnect();
   });
 
   function formatDividerLabel(date: Date, today: Date, yesterday: Date): string {
@@ -417,6 +433,7 @@
       class="flex-1 overflow-y-auto py-4"
       data-testid="message-list"
     >
+      <div bind:this={contentEl}>
       {#if channel}
         {#if messages.length === 0}
           <p class="text-text-muted px-4 py-8 text-center text-sm">
@@ -451,6 +468,7 @@
           {/each}
         {/if}
       {/if}
+      </div>
     </div>
 
     <!-- Inline auf md+ -->
