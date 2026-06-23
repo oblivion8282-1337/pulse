@@ -14,6 +14,7 @@
  */
 
 import { AUTH_BASE, ApiError, getCloudBearer } from './client';
+import { safeParse, extractDetail } from './parse';
 
 /**
  * Etabliert den `pulse_session`-Cookie neu aus einem gültigen Login.
@@ -68,25 +69,10 @@ export async function cookieFetch<T>(
   if (resp.status === 204) return undefined as T;
   const text = await resp.text();
   const data = text ? safeParse(text) : null;
-  if (!resp.ok) {
-    const detail = extractDetail(data);
-    throw new ApiError(resp.status, data, detail ?? resp.statusText);
-  }
+  if (!resp.ok) throw new ApiError(resp.status, data, extractDetail(data) ?? resp.statusText);
   return data as T;
 }
 
-export function safeParse(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-export function extractDetail(data: unknown): string | null {
-  if (data && typeof data === 'object' && 'detail' in (data as Record<string, unknown>)) {
-    const d = (data as { detail: unknown }).detail;
-    if (typeof d === 'string') return d;
-  }
-  return null;
-}
+// Re-exported (imported above from ./parse) so existing importers
+// (complaints.ts, instances.ts) keep working unchanged.
+export { safeParse, extractDetail };

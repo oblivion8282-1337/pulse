@@ -2,13 +2,7 @@
 // auf dem CDP-Port und schreibt nach <output>.
 //
 //   node ../scripts/cdp/shot.mjs <port> <output> [--full]
-// @playwright/test ist im web/-Workspace — Pfad relativ zu diesem Script.
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const require = createRequire(resolve(__dirname, '../../web/') + '/');
-const { chromium } = require('@playwright/test');
+import { chromium } from './pw.mjs';
 
 const [,, port, output, ...rest] = process.argv;
 if (!port || !output) {

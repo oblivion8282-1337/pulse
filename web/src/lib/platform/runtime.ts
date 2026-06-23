@@ -23,11 +23,6 @@
 export const isElectron = (): boolean =>
   typeof window !== 'undefined' && window.pulse?.platform === 'electron';
 
-/** True in the desktop shell. Currently synonymous with `isElectron()`; kept as
- *  a separate name in case other shells ever appear (and so call sites read as
- *  intent, not implementation). */
-export const isDesktop = (): boolean => isElectron();
-
 /**
  * True inside the Capacitor Android wrapper app (the APK that loads
  * howispulse.com remotely). Capacitor injects a native bridge whose
