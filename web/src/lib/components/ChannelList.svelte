@@ -313,7 +313,7 @@
     <div class="text-text-muted px-2.5 pb-1 pt-3 text-sm font-bold md:text-xs">{m.channel_list_text_channels()}</div>
     {#each textChannels as c (c.id)}
       {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
-      {@const mentionCount = activeChannelId !== c.id ? readState.getMentionCount(c.id) : 0}
+      {@const unreadCount = activeChannelId !== c.id ? readState.getUnreadCount(c.id) : 0}
       <ContextMenu.Root>
         <ContextMenu.Trigger>
           {#snippet child({ props })}
@@ -342,16 +342,16 @@
                     aria-label={m.channel_list_restricted()}
                   />
                 {/if}
-                {#if mentionCount > 0}
+                {#if unreadCount > 0}
                   <span
                     class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
                     data-testid="channel-mention-pill"
-                    data-mention-count={mentionCount}
-                    aria-label={m.channel_list_unread_mentions({ count: mentionCount })}
-                  >{mentionCount > 99 ? '99+' : mentionCount}</span>
+                    data-unread-count={unreadCount}
+                    aria-label={m.channel_list_unread_mentions({ count: unreadCount })}
+                  >{unreadCount > 99 ? '99+' : unreadCount}</span>
                 {:else if isUnread}
                   <span
-                    class="size-2 shrink-0 rounded-full bg-primary"
+                    class="size-2 shrink-0 rounded-full bg-red-500"
                     data-testid="channel-unread-dot"
                     aria-label={m.channel_list_unread()}
                   ></span>

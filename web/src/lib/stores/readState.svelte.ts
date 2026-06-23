@@ -21,6 +21,7 @@ import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 const STORAGE_PREFIX = 'pulse.readState.';
 const MENTIONS_PREFIX = 'pulse.mentions.';
+const UNREAD_PREFIX = 'pulse.unread.';
 
 class ReadState {
   lastReadByChannel = $state<Record<string, string>>({});
@@ -30,15 +31,23 @@ class ReadState {
    *  include the current user) lands for a channel the user isn't
    *  actively viewing. Cleared by `markRead` and `clearMentions`. */
   mentionCountByChannel = $state<Record<string, number>>({});
+  /** Per-channel unread MESSAGE counter — bumped by the WS handler for every
+   *  message (channel_bump / dm_bump) that lands for a channel the user isn't
+   *  actively viewing. Superset of `mentionCountByChannel` (a mention also
+   *  bumps this). Drives the red count pill everywhere. Cleared by `markRead`. */
+  unreadCountByChannel = $state<Record<string, number>>({});
 
   private storageKey = '';
   private mentionsKey = '';
+  private unreadKey = '';
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private persistMentionsTimer: ReturnType<typeof setTimeout> | null = null;
+  private persistUnreadTimer: ReturnType<typeof setTimeout> | null = null;
 
   hydrateForUser(userId: string): void {
     this.storageKey = `${STORAGE_PREFIX}${userId}`;
     this.mentionsKey = `${MENTIONS_PREFIX}${userId}`;
+    this.unreadKey = `${UNREAD_PREFIX}${userId}`;
     if (typeof window === 'undefined') return;
     try {
       const raw = window.localStorage.getItem(this.storageKey);
@@ -62,14 +71,27 @@ class ReadState {
     } catch {
       // Corrupt → fresh counters; non-fatal.
     }
+    try {
+      const raw = window.localStorage.getItem(this.unreadKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          this.unreadCountByChannel = parsed as Record<string, number>;
+        }
+      }
+    } catch {
+      // Corrupt → fresh counters; non-fatal.
+    }
   }
 
   clear(): void {
     this.storageKey = '';
     this.mentionsKey = '';
+    this.unreadKey = '';
     this.lastReadByChannel = {};
     this.latestByChannel = {};
     this.mentionCountByChannel = {};
+    this.unreadCountByChannel = {};
   }
 
   /**
@@ -87,6 +109,7 @@ class ReadState {
     this.lastReadByChannel = {};
     this.latestByChannel = {};
     this.mentionCountByChannel = {};
+    this.unreadCountByChannel = {};
   }
 
   /** Drop all read-state for a deleted channel so its keys don't linger in
@@ -104,6 +127,7 @@ class ReadState {
       this.latestByChannel = next;
     }
     this.clearMentions(channelId);
+    this.clearUnread(channelId);
   }
 
   /** Record that we've observed a message in this channel (from any source —
@@ -122,9 +146,10 @@ class ReadState {
   markRead(channelId: string, messageId?: string): void {
     const target = messageId ?? this.latestByChannel[channelId];
     if (!target) {
-      // No new message id but we still want the mention badge to clear
-      // on focus (e.g. when the user clicks an empty channel).
+      // No new message id but we still want the badges to clear on focus
+      // (e.g. when the user clicks an empty channel).
       this.clearMentions(channelId);
+      this.clearUnread(channelId);
       return;
     }
     const prev = this.lastReadByChannel[channelId];
@@ -133,6 +158,7 @@ class ReadState {
       this.persist();
     }
     this.clearMentions(channelId);
+    this.clearUnread(channelId);
   }
 
   isUnread(channelId: string): boolean {
@@ -162,19 +188,36 @@ class ReadState {
     this.persistMentions();
   }
 
-  /** Synchronous lookup; 0 when no mentions are pending. */
-  getMentionCount(channelId: string): number {
-    return this.mentionCountByChannel[channelId] ?? 0;
+  /** Bump the per-channel unread-message counter by one. */
+  incUnread(channelId: string): void {
+    const prev = this.unreadCountByChannel[channelId] ?? 0;
+    this.unreadCountByChannel = {
+      ...this.unreadCountByChannel,
+      [channelId]: prev + 1
+    };
+    this.persistUnread();
   }
 
-  /** Does any channel in this guild have a pending mention? Drives the
-   *  guild-rail red dot — O(n) over the channel list per call, which is
-   *  fine for typical guild sizes. */
-  hasGuildMentions(channelIds: readonly string[]): boolean {
-    for (const cid of channelIds) {
-      if ((this.mentionCountByChannel[cid] ?? 0) > 0) return true;
-    }
-    return false;
+  /** Zero the unread-message counter for a channel — called from `markRead`. */
+  clearUnread(channelId: string): void {
+    if (!this.unreadCountByChannel[channelId]) return;
+    const next = { ...this.unreadCountByChannel };
+    delete next[channelId];
+    this.unreadCountByChannel = next;
+    this.persistUnread();
+  }
+
+  /** Synchronous lookup; 0 when nothing unread. */
+  getUnreadCount(channelId: string): number {
+    return this.unreadCountByChannel[channelId] ?? 0;
+  }
+
+  /** Sum of unread-message counts across the given channels. Drives the
+   *  guild-rail / home count pills. O(n) per call — fine for these sizes. */
+  sumUnread(channelIds: readonly string[]): number {
+    let total = 0;
+    for (const cid of channelIds) total += this.unreadCountByChannel[cid] ?? 0;
+    return total;
   }
 
   private persist(): void {
@@ -202,6 +245,19 @@ class ReadState {
         // Same forgiveness as `persist` — counter survives in memory.
       }
       this.persistMentionsTimer = null;
+    }, 200);
+  }
+
+  private persistUnread(): void {
+    if (!this.unreadKey || typeof window === 'undefined') return;
+    if (this.persistUnreadTimer) clearTimeout(this.persistUnreadTimer);
+    this.persistUnreadTimer = setTimeout(() => {
+      try {
+        window.localStorage.setItem(this.unreadKey, JSON.stringify(this.unreadCountByChannel));
+      } catch {
+        // Same forgiveness as the others — counter survives in memory.
+      }
+      this.persistUnreadTimer = null;
     }, 200);
   }
 }
