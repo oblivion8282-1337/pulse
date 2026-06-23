@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-23.3",
+      "date": "2026-06-23",
+      "style": "Sachlich",
+      "title": "Einstellungen bleiben nach Neuladen erhalten",
+      "items": [
+        "Einstellungen, die du kurz vor einem Neuladen der App änderst — etwa die Lautstärke eines einzelnen Nutzers oder die Rauschunterdrückung — wurden manchmal nicht gespeichert und sprangen auf den Standard zurück. Das ist behoben."
+      ]
+    },
+    {
       "id": "2026-06-23.2",
       "date": "2026-06-23",
       "style": "Sachlich",
