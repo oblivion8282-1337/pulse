@@ -22,11 +22,14 @@ import {
 } from './server-sync';
 
 const STORAGE_KEY = 'dcc.settings';
-/** Persist debounce window. 150 ms collapses slider-drag storms (volume,
- *  mic gain, bitrate) into a single localStorage write without any visible
- *  UX delay; sign-out and route-change paths call `flushPersist()` directly
- *  so no data is lost on teardown. */
-const PERSIST_DEBOUNCE_MS: number = 150;
+/** Persist debounce window. Kept at 0 = synchronous: every setter writes
+ *  localStorage immediately, so a value can never be lost to a pending timer
+ *  on teardown. A non-zero window relied on unload-time flushing, but no
+ *  unload event (pagehide/beforeunload/visibilitychange) fires reliably on an
+ *  Electron reload or app quit — so a debounced write was silently dropped
+ *  there. Slider-drag writes are a few KB of synchronous JSON; cheap enough
+ *  that batching isn't worth the lost-data risk. */
+const PERSIST_DEBOUNCE_MS: number = 0;
 
 type AnyConfig = SectionConfig<unknown>;
 
@@ -206,9 +209,12 @@ function makeSectionStore<T>(
   const mode = modeOf(config as AnyConfig);
 
   function snapshot(): T {
-    // structuredClone strips the `$state` proxy so the persisted blob is a
+    // JSON round-trip strips the `$state` proxy so the persisted blob is a
     // plain object — leaking the proxy makes `===` identity in tests confusing.
-    return structuredClone(_value);
+    // NOT structuredClone: it throws "could not be cloned" on a Svelte $state
+    // proxy. The data is JSON-serialised into localStorage anyway, so a JSON
+    // round-trip is the exact, proven equivalent.
+    return JSON.parse(JSON.stringify(_value)) as T;
   }
 
   /** Persist after every mutation. ``schedulePersist`` writes the local
