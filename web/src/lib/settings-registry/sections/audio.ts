@@ -22,7 +22,6 @@ export type AudioSettings = {
   outputDeviceId: string;
   outputDeviceLabel: string;
   echoCancellation: boolean;
-  autoGainControl: boolean;
   noiseSuppression: NoiseSuppressionMode;
   noiseGateThresholdDb: number;
   voiceBitrateKbps: number;
@@ -41,7 +40,10 @@ export const NOISE_GATE_DB_MAX = -20;
 export const NOISE_GATE_DB_DEFAULT = -45;
 
 export const INPUT_MAKEUP_MIN = 0.1;
-export const INPUT_MAKEUP_MAX = 4;
+// Up to 8× (+18 dB): the send chain's RNNoise stage attenuates noticeably, so
+// the makeup mostly just recovers that loss — a higher ceiling gives real net
+// gain on top. Clipping past that is on the user (the send-clip lamp warns).
+export const INPUT_MAKEUP_MAX = 8;
 export const INPUT_MAKEUP_DEFAULT = 1;
 
 export const DEFAULTS_AUDIO: AudioSettings = {
@@ -50,7 +52,6 @@ export const DEFAULTS_AUDIO: AudioSettings = {
   outputDeviceId: '',
   outputDeviceLabel: '',
   echoCancellation: true,
-  autoGainControl: false,
   noiseSuppression: 'rnnoise_gated',
   noiseGateThresholdDb: NOISE_GATE_DB_DEFAULT,
   voiceBitrateKbps: 128,
@@ -97,7 +98,6 @@ export const AUDIO_SECTION: SectionConfig<AudioSettings> = {
       outputDeviceId: str(a.outputDeviceId, d.outputDeviceId),
       outputDeviceLabel: str(a.outputDeviceLabel, d.outputDeviceLabel),
       echoCancellation: bool(a.echoCancellation, d.echoCancellation),
-      autoGainControl: bool(a.autoGainControl, d.autoGainControl),
       // Migration: pre-binary configs may carry 'browser'/'rnnoise'/'deepfilternet'
       // (DFN3 was removed 2026-05-16). Any non-'off' legacy value indicates the
       // user wanted *some* filter on — map to the unified gated mode.

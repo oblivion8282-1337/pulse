@@ -887,6 +887,12 @@ class VoiceRoom {
     }
   }
 
+  /** Populate the device pickers without being in a channel (settings panel /
+   *  mic test). Needs a prior getUserMedia grant for labels to show. */
+  async refreshDevices(): Promise<void> {
+    await this.#devices.refresh(this.#room);
+  }
+
   async setInputDevice(deviceId: string): Promise<void> {
     await this.#devices.setInput(this.#room, deviceId);
   }
@@ -1027,7 +1033,7 @@ class VoiceRoom {
     const a = settings.audio;
     const customProcessor = a.noiseSuppression !== 'off';
     const opts: AudioCaptureOptions = {
-      autoGainControl: customProcessor ? false : a.autoGainControl,
+      autoGainControl: false,
       echoCancellation: a.echoCancellation,
       // RNNoise+Gate handles noise — no browser-side NS layered on top.
       noiseSuppression: false,
