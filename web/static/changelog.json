@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-24.5",
+      "date": "2026-06-24",
+      "style": "Sachlich",
+      "title": "Mikrofon nach Neuladen korrekt wiederhergestellt",
+      "items": [
+        "Warst du im Sprach-Chat auf lautlos (Mikrofon und Wiedergabe aus) und die App wurde neu geladen, blieb dein Mikrofon nach dem Wieder-Einschalten der Wiedergabe fälschlich aus. Jetzt schaltet sich dein Mikrofon wieder ein, wenn es vor dem Lautlos-Stellen an war."
+      ]
+    },
+    {
       "id": "2026-06-24.4",
       "date": "2026-06-24",
       "style": "Sachlich",
