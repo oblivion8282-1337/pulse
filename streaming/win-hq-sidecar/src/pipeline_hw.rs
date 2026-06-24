@@ -157,19 +157,30 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
         Some(s) => s.dst_frames_ref(),
         None => hw.frames_ref(),
     };
-    let mut encoder = FfmpegHwEncoder::create(
-        &HwEncoderConfig {
-            codec,
-            vendor: vendor.to_string(),
-            fps,
-            bitrate_kbps: bitrate,
-            dst_w,
-            dst_h,
-        },
-        hw_frames_ref,
-        audio_cfg,
-        &params.push_url,
-    )?;
+    let make = |codec| {
+        FfmpegHwEncoder::create(
+            &HwEncoderConfig {
+                codec,
+                vendor: vendor.to_string(),
+                fps,
+                bitrate_kbps: bitrate,
+                dst_w,
+                dst_h,
+            },
+            hw_frames_ref,
+            audio_cfg.clone(),
+            &params.push_url,
+        )
+    };
+    // AV1-NVENC gibt es erst ab Ada (RTX 40); ältere NVIDIA/Treiber liefern beim
+    // Öffnen "function not implemented". Dann auf H.264 zurückfallen statt failen.
+    let mut encoder = match (codec, make(codec)) {
+        (VideoCodec::Av1, Err(e)) => {
+            eprintln!("[pipeline-hw] av1 HW encoder nicht verfügbar ({e:#}) → Fallback H.264");
+            make(VideoCodec::H264)?
+        }
+        (_, r) => r?,
+    };
 
     ctrl.set_state("live");
     super::stream_controller::emit_state("live", true, 0.0);

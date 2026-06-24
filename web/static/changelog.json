@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-24",
+      "date": "2026-06-24",
+      "style": "Sachlich",
+      "title": "Stabilität bei Streaming und gespeicherten Servern",
+      "items": [
+        "Hochwertiges Bildschirm-Streaming startet jetzt auch auf älteren Grafikkarten zuverlässig, statt mit einem Fehler abzubrechen.",
+        "In der Desktop-App bleibt deine Liste gespeicherter Server jetzt zuverlässig erhalten."
+      ]
+    },
+    {
       "id": "2026-06-23.3",
       "date": "2026-06-23",
       "style": "Sachlich",
