@@ -392,7 +392,10 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:pair', async (_e, token: unknown) => {
     if (typeof token !== 'string' || !token) return { paired: false, error: 'invalid token' };
     try {
-      const cloudOrigin = creds?.cloudOrigin ?? 'https://howispulse.com';
+      // Dev: gegen die lokale Dev-Cloud (Vite-Proxy → auth-svc) pairen statt
+      // howispulse.com — sonst redeemt ein lokal gemintetes Bootstrap-Token gegen
+      // die Prod-Cloud, die es nicht kennt. PULSE_DEV_URL ist nur im Dev gesetzt.
+      const cloudOrigin = creds?.cloudOrigin ?? DEV_URL ?? 'https://howispulse.com';
       const fresh = await redeemBootstrap(token, cloudOrigin);
       saveCreds(hostStore, fresh);
       creds = fresh;
