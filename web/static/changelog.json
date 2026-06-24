@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.1",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "App-Hosting jetzt per Antrag freischalten",
+      "items": [
+        "In den Self-Host-Einstellungen findest du einen „Freischaltung beantragen“-Button, mit dem du deinen Account für App-Hosting freischalten lassen kannst.",
+        "Während dein Antrag geprüft wird, siehst du den Status direkt in den Einstellungen — und nach der Freischaltung die „Server starten“-Schaltfläche sofort.",
+        "Wird dein Antrag abgelehnt, zeigen wir dir die Begründung und du kannst mit den gewünschten Anpassungen erneut beantragen.",
+        "Im Admin-Panel gibt es einen neuen Bereich „App-Hosting-Anträge“ zum Genehmigen und Ablehnen."
+      ]
+    },
+    {
       "id": "2026-06-27.5",
       "date": "2026-06-27",
       "style": "Sachlich",
