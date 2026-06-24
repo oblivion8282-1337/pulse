@@ -304,11 +304,12 @@ class VoiceRoom {
   async connect(
     channelId: string,
     channelName: string,
-    opts: { startMuted?: boolean; startDeafened?: boolean } = {}
+    opts: { startMuted?: boolean; startDeafened?: boolean; micBeforeDeafen?: boolean } = {}
   ): Promise<void> {
-    // Mic state to restore into #micEnabledBeforeDeafen when this connect
-    // carries a deafen across a channel switch (teardown wipes it).
-    let micBeforeDeafen = false;
+    // Mic state to restore into #micEnabledBeforeDeafen when this connect carries
+    // a deafen across a channel switch (teardown wipes it) or a reload-resume
+    // (opts.micBeforeDeafen — otherwise un-deafen would always stay muted).
+    let micBeforeDeafen = opts.micBeforeDeafen ?? false;
     if (this.#room && (this.connected || this.connecting)) {
       if (this.channelId === channelId) return;
       // Channel switch keeps the user's mute/deafen choice (Discord-style) —
@@ -1432,6 +1433,7 @@ class VoiceRoom {
       channelName: this.channelName ?? '',
       muted: !this.micEnabled,
       deafened: this.deafened,
+      micBeforeDeafen: this.#micEnabledBeforeDeafen,
     });
   }
 
@@ -1488,6 +1490,7 @@ export async function resumeVoiceIfPending(): Promise<void> {
     await voice.connect(r.channelId, r.channelName, {
       startMuted: r.muted,
       startDeafened: r.deafened,
+      micBeforeDeafen: r.micBeforeDeafen,
     });
   } catch {
     // Channel weg / Token verweigert → stale Resume entfernen (keine Schleife).

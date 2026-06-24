@@ -28,6 +28,10 @@ export type VoiceResume = {
   channelName: string;
   muted: boolean;
   deafened: boolean;
+  /** Whether the mic was on *before* deafening — so un-deafen after a reload
+   *  restores the right mic state instead of always staying muted. Only
+   *  meaningful while `deafened`. */
+  micBeforeDeafen: boolean;
 };
 
 export function saveVoiceResume(data: VoiceResume): void {
@@ -52,6 +56,7 @@ export function loadVoiceResume(): VoiceResume | null {
       channelName: typeof v.channelName === 'string' ? v.channelName : '',
       muted: !!v.muted,
       deafened: !!v.deafened,
+      micBeforeDeafen: !!v.micBeforeDeafen,
     };
   } catch {
     return null;
