@@ -1,9 +1,6 @@
 <script lang="ts">
   import { settings } from '$lib/stores/settings.svelte';
-  import { sounds } from '$lib/sounds/engine';
-  import { SOUNDS, soundsInCategory, type SoundId } from '$lib/sounds/registry';
   import type { SoundCategoryKey } from '$lib/sounds/persistence';
-  import PlayIcon from '@lucide/svelte/icons/play';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import BellIcon from '@lucide/svelte/icons/bell';
   import MicIcon from '@lucide/svelte/icons/mic';
@@ -57,10 +54,6 @@
   function onCategoryVolume(cat: SoundCategoryKey, e: Event) {
     const v = Number((e.currentTarget as HTMLInputElement).value) / 100;
     settings.setSoundCategoryVolume(cat, v);
-  }
-
-  function soundsFor(cat: SoundCategoryKey): SoundId[] {
-    return soundsInCategory(cat);
   }
 </script>
 
@@ -159,31 +152,6 @@
           data-testid="sounds-category-{cat.key}-volume"
         />
       </label>
-
-      <div class="flex flex-col gap-1">
-        {#each soundsFor(cat.key) as id (id)}
-          {@const missing = sounds.isMissing(id)}
-          <div
-            class="flex items-center justify-between gap-2 rounded-lg bg-bg-input/40 px-2 py-1.5 text-sm"
-            data-testid="sounds-item-{id}"
-          >
-            <span class="text-text-base truncate {dimmed ? 'opacity-60' : ''}">
-              {SOUNDS[id].label}
-            </span>
-            <button
-              type="button"
-              onclick={() => sounds.test(id)}
-              disabled={missing || !settings.sounds.masterEnabled}
-              title={missing ? m.settings_sounds_file_missing() : m.settings_sounds_preview()}
-              class="hover:bg-bg-hover shrink-0 rounded-md p-2.5 text-text-muted hover:text-text-bright transition-colors disabled:cursor-not-allowed disabled:opacity-30 md:p-1"
-              data-testid="sounds-test-{id}"
-              aria-label={m.settings_sounds_preview_aria({ label: SOUNDS[id].label })}
-            >
-              <PlayIcon class="size-3.5" />
-            </button>
-          </div>
-        {/each}
-      </div>
     </section>
   {/each}
 </div>
