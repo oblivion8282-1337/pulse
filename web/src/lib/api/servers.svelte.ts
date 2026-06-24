@@ -122,7 +122,10 @@ function saveToStorage(entries: ServerEntry[]): void {
   if (store) {
     // Desktop: nur in den Tresor schreiben (kein Klartext-localStorage mehr).
     // Fire-and-forget — der In-Memory-State bleibt die Quelle der Wahrheit.
-    void store.set(STORAGE_KEY, entries);
+    // $state.snapshot entkoppelt den reaktiven Proxy: ein roher $state-Array
+    // ist über die Electron-IPC nicht structured-clone-bar ("An object could
+    // not be cloned") — der Browser-Pfad unten umgeht das via JSON.stringify.
+    void store.set(STORAGE_KEY, $state.snapshot(entries));
     return;
   }
   try {
