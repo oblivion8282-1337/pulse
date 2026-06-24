@@ -145,6 +145,11 @@ class VoiceRoom {
   localSendPeak = $state(0);
   /** True while the post-gain send signal is clipping (~ -1 dBFS peak). */
   localSendClip = $state(false);
+  /** "Hear yourself" while in a channel — plays the published mic track back
+   *  through the chosen output. Feedback risk on speakers (headphones advised). */
+  selfMonitor = $state(false);
+  #monitorEl: HTMLAudioElement | null = null;
+  #monitorOutputId = '';
 
   #screenShare = new ScreenShareTracks();
   #cameras = new CameraTracks();
@@ -485,6 +490,7 @@ class VoiceRoom {
       } else {
         this.#localMic.detach();
         this.#resetSendLevel();
+        this.#syncMonitor(); // mic off → no track to monitor
       }
     } catch (e) {
       this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
@@ -895,6 +901,9 @@ class VoiceRoom {
 
   async setInputDevice(deviceId: string): Promise<void> {
     await this.#devices.setInput(this.#room, deviceId);
+    // switchActiveDevice swapped the underlying mic track — rebind the raw meter
+    // and the self-monitor loopback so neither points at the stopped old track.
+    if (this.#room) this.#attachLocalAnalyser();
   }
 
   async setOutputDevice(deviceId: string): Promise<void> {
@@ -1120,6 +1129,7 @@ class VoiceRoom {
           this.#clearProcessorHandles();
           this.#localMic.detach();
           this.#resetSendLevel();
+          this.#syncMonitor(); // track gone → drop the monitor loopback
         }
         this.#scheduleRefresh();
       })
@@ -1234,6 +1244,39 @@ class VoiceRoom {
     // `_mediaStreamTrack` is protected in livekit-client; accessed via cast.
     const raw = (audioTrack as { _mediaStreamTrack?: MediaStreamTrack } | undefined)?._mediaStreamTrack;
     this.#localMic.attach(raw ?? audioTrack?.mediaStreamTrack ?? null);
+    this.#syncMonitor();
+  }
+
+  /** Toggle "hear yourself" while in a channel + remember the output sink. */
+  async setSelfMonitor(on: boolean, outputId: string): Promise<void> {
+    this.selfMonitor = on;
+    this.#monitorOutputId = outputId;
+    this.#syncMonitor();
+  }
+
+  /** (Re)wire the monitor `<audio>` to the current published mic track, or tear
+   *  it down when monitoring is off / muted / disconnected. Called whenever the
+   *  mic track changes (publish, mute, device swap) so the loopback follows it.
+   *  Uses the published (post-processor) track — what listeners actually hear. */
+  #syncMonitor(): void {
+    const pub = this.#room?.localParticipant.getTrackPublication(Track.Source.Microphone);
+    const track = this.selfMonitor ? (pub?.audioTrack?.mediaStreamTrack ?? null) : null;
+    if (!track) {
+      if (this.#monitorEl) {
+        this.#monitorEl.pause();
+        this.#monitorEl.srcObject = null;
+        this.#monitorEl = null;
+      }
+      return;
+    }
+    if (!this.#monitorEl) {
+      this.#monitorEl = new Audio();
+      this.#monitorEl.autoplay = true;
+    }
+    this.#monitorEl.srcObject = new MediaStream([track]);
+    const el = this.#monitorEl as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
+    if (el.setSinkId && this.#monitorOutputId) void el.setSinkId(this.#monitorOutputId).catch(() => { /* unsupported */ });
+    void this.#monitorEl.play().catch(() => { /* autoplay edge */ });
   }
 
   /** RAF-callback from the processor's internal post-gain AnalyserNode tap.
@@ -1313,6 +1356,8 @@ class VoiceRoom {
   #teardown(): void {
     if (this.#teardownDone) return;
     this.#teardownDone = true;
+    this.selfMonitor = false;
+    this.#syncMonitor(); // stop + drop the monitor element
     this.#localMic.detach();
     this.#resetSendLevel();
     this.#sendSpeakingDetector.reset();

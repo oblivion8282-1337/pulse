@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-24.4",
+      "date": "2026-06-24",
+      "style": "Sachlich",
+      "title": "Eigenen Ton auch im Sprach-Kanal hören",
+      "items": [
+        "Den Schalter \"Eigenen Ton hören\" gibt es jetzt auch, während du in einem Sprach-Kanal bist. Du hörst dabei genau das, was die anderen von dir empfangen. Am besten mit Kopfhörern nutzen, damit es nicht rückkoppelt."
+      ]
+    },
+    {
       "id": "2026-06-24.3",
       "date": "2026-06-24",
       "style": "Sachlich",
