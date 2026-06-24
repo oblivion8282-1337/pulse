@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-24.2",
+      "date": "2026-06-24",
+      "style": "Sachlich",
+      "title": "Video in einer Watch-Party wechseln",
+      "items": [
+        "In einer Watch-Party kann der Gastgeber jetzt jederzeit ein anderes Video einlegen, ohne die Party zu beenden. Zuschauer, Chat und Sitzung bleiben erhalten — alle sehen sofort das neue Video."
+      ]
+    },
+    {
       "id": "2026-06-24",
       "date": "2026-06-24",
       "style": "Sachlich",

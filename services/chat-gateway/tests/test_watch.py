@@ -687,6 +687,85 @@ async def test_watch_control_pause_updates_state(ws_app, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_watch_source_change_swaps_source(ws_app, _auth_signer):
+    """Host switches the video live → same party_id, new source, position
+    resets to the new ?t= start, playback resumes."""
+    def _run():
+        with TestClient(ws_app) as tc:
+            token, _, _, cid = _setup_voice_channel(tc, _auth_signer)
+            with tc.websocket_connect(f"/ws?token={token}") as ws:
+                receive_skipping(ws)  # skip hello + ready
+                ws.send_json(
+                    {
+                        "op": "watch_start",
+                        "channel_id": cid,
+                        "source_url": "https://youtu.be/abc12345678",
+                    }
+                )
+                ack = ws.receive_json()  # watch_started ack carries the party id
+                assert ack["op"] == "watch_started"
+                pid = ack["party_id"]
+                ws.send_json(
+                    {
+                        "op": "watch_source_change",
+                        "channel_id": cid,
+                        "party_id": pid,
+                        "source_url": "https://youtu.be/xyz98765432?t=30",
+                    }
+                )
+                # position=30 uniquely identifies the post-switch broadcast
+                # (the start broadcast was position 0).
+                got = _wait_for_watch_state(ws, channel_id=cid, position=30.0)
+                assert got["state"]["party_id"] == pid  # same party
+                assert got["state"]["source"]["embed_id"] == "xyz98765432"
+                assert got["state"]["is_playing"] is True
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+async def test_watch_source_change_only_host(ws_app, _auth_signer):
+    """A non-host member cannot switch someone else's party source."""
+    def _run():
+        with TestClient(ws_app) as tc:
+            owner_token, _, gid, cid = _setup_voice_channel(tc, _auth_signer)
+            other_uid = random.randint(1, 1_000_000)
+            other_token = _auth_signer.issue_access(other_uid, f"u{other_uid}")
+            tc.post(
+                f"/guilds/{gid}/members",
+                json={"user_id": str(other_uid)},
+                headers=_auth(owner_token),
+            )
+            with tc.websocket_connect(f"/ws?token={owner_token}") as host_ws:
+                skip_init_frames(host_ws)  # hello + ready
+                host_ws.send_json(
+                    {
+                        "op": "watch_start",
+                        "channel_id": cid,
+                        "source_url": "https://youtu.be/abc12345678",
+                    }
+                )
+                ack = host_ws.receive_json()  # watch_started ack
+                assert ack["op"] == "watch_started"
+                pid = ack["party_id"]
+                with tc.websocket_connect(f"/ws?token={other_token}") as other_ws:
+                    skip_init_frames(other_ws)  # hello + ready
+                    other_ws.send_json(
+                        {
+                            "op": "watch_source_change",
+                            "channel_id": cid,
+                            "party_id": pid,
+                            "source_url": "https://youtu.be/xyz98765432",
+                        }
+                    )
+                    err = other_ws.receive_json()
+                    assert err["op"] == "error"
+                    assert err["code"] == 4015
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
 async def test_watch_stop_only_host(ws_app, _auth_signer):
     def _run():
         with TestClient(ws_app) as tc:
