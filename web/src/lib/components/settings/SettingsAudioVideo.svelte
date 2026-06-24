@@ -38,7 +38,13 @@
   }
   async function onOutputChange(deviceId: string) {
     await voice.setOutputDevice(deviceId);
-    if (!voice.connected) await micTest.setOutput(deviceId);
+    if (voice.connected) await voice.setSelfMonitor(voice.selfMonitor, deviceId);
+    else await micTest.setOutput(deviceId);
+  }
+
+  function onMonitorChange(on: boolean) {
+    if (voice.connected) void voice.setSelfMonitor(on, settings.audio.outputDeviceId);
+    else void micTest.setMonitor(on, settings.audio.outputDeviceId);
   }
 
   function onNoiseSuppressionChange(on: boolean) {
@@ -231,20 +237,18 @@
     <!-- Eingabe-Verstärkung: Sendepegel im direkten Vergleich zum Eingangspegel. -->
     <MicGainControl />
 
-    <!-- Eigenen Ton hören (Loopback zum Ausgabegerät) — nur außerhalb eines
-         Voice-Kanals sinnvoll; im Kanal hört man sich nicht selbst zurück. -->
-    {#if !voice.connected}
-      <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-mic-monitor">
-        <span class="text-text-base text-sm">{m.settings_audio_video_monitor_label()}</span>
-        <input
-          type="checkbox"
-          role="switch"
-          checked={micTest.monitor}
-          onchange={(e) => void micTest.setMonitor((e.currentTarget as HTMLInputElement).checked, settings.audio.outputDeviceId)}
-          class="accent-primary size-5 md:size-4"
-        />
-      </label>
-    {/if}
+    <!-- Eigenen Ton hören (Loopback zum Ausgabegerät). Im Kanal = publizierter
+         Mic-Track (voice.selfMonitor), außerhalb = Test-Stream (micTest). -->
+    <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-mic-monitor">
+      <span class="text-text-base text-sm">{m.settings_audio_video_monitor_label()}</span>
+      <input
+        type="checkbox"
+        role="switch"
+        checked={voice.connected ? voice.selfMonitor : micTest.monitor}
+        onchange={(e) => onMonitorChange((e.currentTarget as HTMLInputElement).checked)}
+        class="accent-primary size-5 md:size-4"
+      />
+    </label>
 
     <!-- Sprachqualität (Bitrate) -->
     <div class="flex flex-col gap-2">
