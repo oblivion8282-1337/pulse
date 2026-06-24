@@ -58,12 +58,7 @@
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-sounds-panel">
-  <div class="flex flex-col gap-1">
-    <h2 class="text-text-bright text-lg font-semibold">Sounds</h2>
-    <p class="text-text-muted text-sm">
-      {m.settings_sounds_description()}
-    </p>
-  </div>
+  <h2 class="text-text-bright text-lg font-semibold">Sounds</h2>
 
   <section
     class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4"

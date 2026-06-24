@@ -163,13 +163,6 @@
         </p>
       {/if}
     </section>
-  {:else}
-    <section class="flex flex-col gap-1 rounded-2xl border border-border bg-bg-input/40 p-4">
-      <span class="text-text-bright text-sm font-medium">{m.settings_notifications_desktop_title()}</span>
-      <span class="text-text-muted text-xs">
-        {m.settings_notifications_desktop_desc()}
-      </span>
-    </section>
   {/if}
 
   <section class="flex flex-col gap-3 rounded-2xl border border-border bg-bg-input/40 p-4">

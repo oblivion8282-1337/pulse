@@ -5,9 +5,9 @@
   import { allowedNsResolutions, clampNsResolution } from '$lib/settings-registry/sections/screenShare';
   import { m } from '$lib/paraglide/messages.js';
 
-  const codecs: { value: ScreenShareCodec; label: string; hint: string }[] = [
-    { value: 'h264', label: 'H.264', hint: m.settings_screenshare_codec_h264_hint() },
-    { value: 'av1', label: 'AV1', hint: m.settings_screenshare_codec_av1_hint() }
+  const codecs: { value: ScreenShareCodec; label: string }[] = [
+    { value: 'h264', label: 'H.264' },
+    { value: 'av1', label: 'AV1' }
   ];
 
   const allResolutions: { value: ScreenShareResolution; label: string }[] = [
@@ -53,14 +53,6 @@
 </script>
 
 <div class="flex flex-col gap-5" data-testid="settings-screen-share-panel">
-  <p class="text-text-muted text-xs">
-    {m.settings_screenshare_hint_applies()}
-  </p>
-
-  <p class="text-text-muted bg-bg-soft rounded-lg px-3 py-2 text-xs">
-    <span class="text-text-bright font-medium">{m.settings_screenshare_tip_label()}</span> {m.settings_screenshare_tip_body()}
-  </p>
-
   <div class="flex flex-col gap-2">
     <span class="text-text-bright text-sm font-medium">{m.settings_screenshare_section_codec()}</span>
     <div class="flex flex-col gap-1.5">
@@ -74,10 +66,7 @@
             onchange={() => settings.setScreenShareCodec(c.value)}
             class="accent-primary mt-0.5"
           />
-          <div>
-            <span class="text-text-bright text-sm">{c.label}</span>
-            <p class="text-text-muted text-xs">{c.hint}</p>
-          </div>
+          <span class="text-text-bright text-sm">{c.label}</span>
         </label>
       {/each}
     </div>
@@ -117,9 +106,6 @@
       class="bg-bg-soft border-border-soft text-text-bright focus:border-primary w-full rounded-md border px-2 py-2 text-sm focus:outline-none md:w-24 md:py-1"
       data-testid="screenshare-fps-input"
     />
-    <p class="text-text-muted text-xs">
-      {m.settings_screenshare_fps_hint({ fMin, fMax })}
-    </p>
   </div>
 
   <div class="flex flex-col gap-2">
@@ -137,9 +123,6 @@
       class="accent-primary h-3 w-full md:h-auto"
       data-testid="screenshare-bitrate-slider"
     />
-    <p class="text-text-muted text-xs">
-      {m.settings_screenshare_bitrate_hint({ bMin, bMax })}
-    </p>
   </div>
 
   <div class="flex flex-col gap-2">
