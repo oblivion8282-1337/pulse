@@ -21,27 +21,26 @@
     volPctDisplay = Math.round(settings.voice.outputVolume * 100);
   });
 
-  function onInput(e: Event) {
+  function sliderPct(e: Event): number | null {
     const pct = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (isNaN(pct)) return;
+    return isNaN(pct) ? null : pct;
+  }
+  function onInput(e: Event) {
+    const pct = sliderPct(e);
+    if (pct === null) return;
     volPctDisplay = pct;
     voice.setOutputVolume(pct / 100);
   }
   function onChange(e: Event) {
-    const pct = parseInt((e.currentTarget as HTMLInputElement).value, 10);
-    if (isNaN(pct)) return;
+    const pct = sliderPct(e);
+    if (pct === null) return;
     settings.setOutputVolume(pct / 100);
-  }
-  function reset() {
-    volPctDisplay = 100;
-    settings.setOutputVolume(1);
-    voice.setOutputVolume(1);
   }
 </script>
 
 <div class="flex flex-col gap-2">
   <div class="flex items-center justify-between">
-    <span class="text-text-bright text-sm font-medium">{m.output_volume_control_label()}</span>
+    <span class="text-text-base text-sm">{m.output_volume_control_label()}</span>
     <span class="text-text-muted text-sm font-mono">{volPctDisplay}%</span>
   </div>
   <input
@@ -55,20 +54,4 @@
     class="accent-primary h-3 w-full md:h-auto"
     data-testid="settings-output-volume"
   />
-  <div class="text-text-muted flex items-center gap-2 text-xs">
-    <span class="font-mono">{SLIDER_MIN}%</span>
-    <span class="flex-1 text-center opacity-60">100%</span>
-    <span class="font-mono">{sliderMax}%</span>
-    <button
-      type="button"
-      onclick={reset}
-      class="hover:text-text-base hover:bg-bg-hover rounded px-2 py-1.5 text-xs underline-offset-2 hover:underline"
-      disabled={volPctDisplay === 100}
-      class:opacity-30={volPctDisplay === 100}
-      aria-label={m.output_volume_control_reset_aria()}
-    >
-      reset
-    </button>
-  </div>
-  <p class="text-text-muted text-xs leading-relaxed">{m.output_volume_control_description()}</p>
 </div>

@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-24.3",
+      "date": "2026-06-24",
+      "style": "Sachlich",
+      "title": "Mikrofon einrichten und testen",
+      "items": [
+        "Du kannst dein Mikrofon jetzt direkt in den Einstellungen testen, auch ohne in einem Sprach-Kanal zu sein: eigenen Ton zur Probe hören und die Pegelanzeige live sehen.",
+        "Die Sprach- & Video-Einstellungen sind übersichtlicher gegliedert (Eingabe, Ausgabe, Push-to-Talk) mit klareren Beschriftungen.",
+        "Die Eingabe-Verstärkung lässt sich weiter aufdrehen, falls dein Mikrofon zu leise ist."
+      ]
+    },
+    {
       "id": "2026-06-24.2",
       "date": "2026-06-24",
       "style": "Sachlich",

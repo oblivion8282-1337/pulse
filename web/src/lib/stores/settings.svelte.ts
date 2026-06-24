@@ -209,9 +209,6 @@ class SettingsStore {
   setEchoCancellation(v: boolean): void {
     this.#audio.set('echoCancellation', v);
   }
-  setAutoGainControl(v: boolean): void {
-    this.#audio.set('autoGainControl', v);
-  }
   setNoiseSuppression(v: NoiseSuppressionMode): void {
     this.#audio.set('noiseSuppression', v);
   }
