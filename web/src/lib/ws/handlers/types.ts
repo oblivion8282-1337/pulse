@@ -300,6 +300,7 @@ export type ClientEvent =
       position: number;
     }
   | { op: 'watch_heartbeat'; channel_id: string; party_id: string; position: number }
+  | { op: 'watch_source_change'; channel_id: string; party_id: string; source_url: string }
   | { op: 'watch_join'; channel_id: string; party_id: string }
   | { op: 'watch_leave'; channel_id: string; party_id: string }
   | { op: 'watch_handoff'; channel_id: string; party_id: string; target_user_id?: string }

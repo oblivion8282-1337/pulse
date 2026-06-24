@@ -561,6 +561,8 @@ export class GatewayConnection {
   sendWatchControl = (
     channelId: string, partyId: string, action: 'play' | 'pause' | 'seek', position: number
   ): boolean => senders.sendWatchControl(this._raw, channelId, partyId, action, position);
+  changeWatchSource = (channelId: string, partyId: string, sourceUrl: string): boolean =>
+    senders.changeWatchSource(this._raw, channelId, partyId, sourceUrl);
   sendWatchHeartbeat = (channelId: string, partyId: string, position: number): boolean =>
     senders.sendWatchHeartbeat(this._raw, channelId, partyId, position);
   sendWatchJoin = (channelId: string, partyId: string): boolean => {

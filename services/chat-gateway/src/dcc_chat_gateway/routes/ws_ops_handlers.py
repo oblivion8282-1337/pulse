@@ -207,6 +207,13 @@ async def handle_watch_control(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_watch.handle_control(ctx.websocket, ctx.user, msg)
 
 
+@register_ws_op("watch_source_change")
+async def handle_watch_source_change(ctx: WSOpContext, msg: dict[str, Any]) -> None:
+    await ws_watch.handle_source_change(
+        ctx.websocket, ctx.user, msg, session_factory=SessionLocal
+    )
+
+
 @register_ws_op("watch_heartbeat")
 async def handle_watch_heartbeat(ctx: WSOpContext, msg: dict[str, Any]) -> None:
     await ws_watch.handle_heartbeat(ctx.websocket, ctx.user, msg)

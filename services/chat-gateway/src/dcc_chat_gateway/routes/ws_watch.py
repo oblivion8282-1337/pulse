@@ -290,6 +290,61 @@ async def handle_control(
     await watchkeys.write_party(redis, cid, state)
 
 
+async def handle_source_change(
+    websocket: WebSocket,
+    user: AuthenticatedUser,
+    msg: dict[str, Any],
+    *,
+    session_factory: Callable,
+) -> None:
+    """Host swaps the party's video without restarting it — the party_id,
+    watcher list, chat and handoff state all survive. Position resets to the
+    new source's start point (``?t=`` or 0), playback resumes. Mirrors
+    :func:`handle_start`'s source validation + the host check from
+    :func:`handle_control`."""
+    cid_int = _channel_id(msg.get("channel_id"))
+    pid = _party_id(msg.get("party_id"))
+    source_url = msg.get("source_url")
+    if cid_int is None or pid is None or not isinstance(source_url, str):
+        await _err(websocket, 4012, "invalid watch_source_change payload")
+        return
+    source = parse_source(source_url)
+    if source is None:
+        await _err(websocket, 4013, "unsupported source")
+        return
+    cid = str(cid_int)
+    redis = _redis(websocket)
+    if redis is None:
+        await _err(websocket, 4017, "watch service unavailable")
+        return
+    state = await watchkeys.read_party(redis, cid, pid)
+    if state is None:
+        await _err(websocket, 4016, "no active watch party")
+        return
+    if str(state.get("host_user_id")) != str(user.id):
+        await _err(websocket, 4015, "only the host can control")
+        return
+    # Native URLs (direct media links) need MANAGE_CHANNELS — re-checked here
+    # so a host can't sidestep the SSRF gate by starting with a YouTube URL and
+    # then switching the live party to an arbitrary native host. Same gate as
+    # handle_start.
+    if source.get("type") == "native":
+        async with session_factory() as session:
+            channel = await channel_membership(session, cid_int, user.id)
+            if channel is None or channel.type != CHANNEL_TYPE_VOICE:
+                await _err(websocket, 4004, "channel not accessible")
+                return
+            perms = await resolve_permissions(session, user, channel.guild_id, cid_int)
+            if not has_permission(perms, Permissions.MANAGE_CHANNELS):
+                await _err(websocket, 4003, "missing permission: MANAGE_CHANNELS")
+                return
+    state["source"] = source
+    state["position"] = float(source.get("start_seconds") or 0)
+    state["is_playing"] = True
+    state["updated_at"] = watchkeys.now_ms()
+    await watchkeys.write_party(redis, cid, state)
+
+
 async def handle_heartbeat(
     websocket: WebSocket,
     user: AuthenticatedUser,

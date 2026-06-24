@@ -20,9 +20,11 @@
   import { m } from '$lib/paraglide/messages.js';
   import XIcon from '@lucide/svelte/icons/x';
   import RewindIcon from '@lucide/svelte/icons/rewind';
+  import ReplaceIcon from '@lucide/svelte/icons/replace';
   import TileShell from '$lib/stream/components/TileShell.svelte';
   import WatchChatPanel from './WatchChatPanel.svelte';
   import WatchPartyHandoffMenu from './WatchPartyHandoffMenu.svelte';
+  import WatchSourceDialog from './WatchSourceDialog.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { watchBackground } from '$lib/watch/watchBackground.svelte';
   import { toast } from 'svelte-sonner';
@@ -191,6 +193,32 @@
     gateway.stopWatchParty(channelId, partyId);
   }
 
+  // "Video wechseln": Host tauscht die Quelle ohne die Party neu zu starten —
+  // party_id, Watcher, Chat und Handoff-State bleiben. Der Backend-Push
+  // (watch_state) trägt die neue source an alle.
+  let changeOpen = $state(false);
+  function changeSource(url: string): boolean {
+    return gateway.changeWatchSource(channelId, partyId, url);
+  }
+
+  // Identität der Quelle — treibt sowohl das Player-Remount ({#key} unten) als
+  // auch den Viewer-Toast. Die Player lesen ihre embed_id/url nur einmalig beim
+  // Mount (asynchron, daher nicht reaktiv getrackt), also muss ein
+  // Quellenwechsel den Player komplett neu mounten, statt nur die Prop zu
+  // aktualisieren — sonst bleibt das alte Video stehen.
+  const sourceKey = $derived(JSON.stringify(party.source));
+
+  // Viewer-Hinweis, wenn der Host live das Video wechselt — sonst wirkt der
+  // kurze Player-Reload wie ein Bug. Nicht für den Host selbst, nicht beim
+  // ersten Mount.
+  let prevSourceKey: string | undefined;
+  $effect(() => {
+    if (prevSourceKey !== undefined && prevSourceKey !== sourceKey && !isHost) {
+      toast.info(m.watch_party_tile_source_changed());
+    }
+    prevSourceKey = sourceKey;
+  });
+
   const sourceLabel = $derived.by(() => {
     const s = party.source;
     if (s.type === 'youtube') {
@@ -233,28 +261,32 @@
 >
   {#snippet media()}
     <div class="relative min-h-0 w-full flex-1 bg-black">
-      {#if party.source.type === 'youtube'}
-        <YouTubePlayer
-          source={party.source}
-          autoplay={autoplay}
-          onReady={handleReady}
-          onEvent={handleEvent}
-        />
-      {:else if party.source.type === 'twitch' || party.source.type === 'twitch_live'}
-        <TwitchPlayer
-          source={party.source}
-          autoplay={autoplay}
-          onReady={handleReady}
-          onEvent={handleEvent}
-        />
-      {:else}
-        <NativeVideoPlayer
-          source={party.source}
-          autoplay={autoplay}
-          onReady={handleReady}
-          onEvent={handleEvent}
-        />
-      {/if}
+      <!-- Quellenwechsel = neuer Player: sourceKey erzwingt ein Remount, weil
+           die Player ihre Quelle nur beim Mount lesen (siehe sourceKey oben). -->
+      {#key sourceKey}
+        {#if party.source.type === 'youtube'}
+          <YouTubePlayer
+            source={party.source}
+            autoplay={autoplay}
+            onReady={handleReady}
+            onEvent={handleEvent}
+          />
+        {:else if party.source.type === 'twitch' || party.source.type === 'twitch_live'}
+          <TwitchPlayer
+            source={party.source}
+            autoplay={autoplay}
+            onReady={handleReady}
+            onEvent={handleEvent}
+          />
+        {:else}
+          <NativeVideoPlayer
+            source={party.source}
+            autoplay={autoplay}
+            onReady={handleReady}
+            onEvent={handleEvent}
+          />
+        {/if}
+      {/key}
     </div>
   {/snippet}
   {#snippet nameExtra()}
@@ -296,6 +328,16 @@
           <RewindIcon class="size-5 md:size-3.5" />
         </button>
       {/if}
+      <button
+        type="button"
+        onclick={() => (changeOpen = true)}
+        class="flex items-center justify-center rounded-full bg-black/55 p-3 text-white backdrop-blur-sm hover:bg-white/20 md:p-1.5"
+        aria-label={m.watch_party_tile_change_source_aria()}
+        title={m.watch_party_tile_change_source_aria()}
+        data-testid="watch-party-change-source"
+      >
+        <ReplaceIcon class="size-5 md:size-3.5" />
+      </button>
       <WatchPartyHandoffMenu {channelId} {partyId} others={otherWatchers} />
       <button
         type="button"
@@ -313,3 +355,12 @@
     <WatchChatPanel {channelId} {partyId} onClose={() => (chatOpen = false)} />
   {/snippet}
 </TileShell>
+
+{#if isHost}
+  <WatchSourceDialog
+    bind:open={changeOpen}
+    title={m.watch_party_change_dialog_title()}
+    confirmLabel={m.watch_party_change_confirm()}
+    onConfirm={changeSource}
+  />
+{/if}

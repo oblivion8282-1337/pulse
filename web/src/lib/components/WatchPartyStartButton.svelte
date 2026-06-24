@@ -8,12 +8,11 @@
      bar back. The freshly-created party's tile auto-opens for the host via the
      `watch_started` ack.
 
-  Dialog instead of a popover because the VoiceControlBar sits in the
-  channel-list aside which has overflow-hidden — a popover would clip.
+  The URL-entry dialog itself lives in the shared WatchSourceDialog (also used
+  by the per-tile "switch video" button).
 -->
 <script lang="ts">
   import { Button } from '$lib/components/ui/button/index.js';
-  import * as Dialog from '$lib/components/ui/dialog/index.js';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
   import * as Tooltip from '$lib/components/ui/tooltip/index.js';
   import PlayCircleIcon from '@lucide/svelte/icons/play-circle';
@@ -26,7 +25,7 @@
     watchPartyPresence,
     type WatchPartyState
   } from '$lib/stores/watchPartyPresence.svelte';
-  import { parseSource } from '$lib/watch/source';
+  import WatchSourceDialog from './WatchSourceDialog.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   interface Props {
@@ -36,7 +35,6 @@
   let { channelId }: Props = $props();
 
   let open = $state(false);
-  let url = $state('');
 
   // Red "active" cue when at least one party runs in this channel. While active
   // the button opens a small menu: stop each party YOU host, plus "start a new
@@ -45,8 +43,6 @@
   const myParties = $derived(
     watchPartyPresence.partiesHostedBy(channelId, currentServerUserId() ?? '')
   );
-  const parsed = $derived(url.trim() ? parseSource(url.trim()) : null);
-  const showParseError = $derived(url.trim().length > 0 && parsed === null);
 
   /** Short source descriptor — only shown when you host more than one party, to
    * tell the stop items apart. */
@@ -62,33 +58,22 @@
     gateway.stopWatchParty(channelId, p.party_id);
   }
 
-  function start(): void {
-    if (!parsed) return;
-    const ok = gateway.startWatchParty(channelId, url.trim());
+  // The host's tile opens itself when the `watch_started` ack arrives with the
+  // freshly-minted party_id (we don't know it here yet).
+  function start(url: string): boolean {
+    const ok = gateway.startWatchParty(channelId, url);
     if (!ok) {
       toast.error(m.watch_party_start_button_start_failed(), {
         description: m.watch_party_start_button_ws_not_connected()
       });
-      return;
     }
-    // The host's tile opens itself when the `watch_started` ack arrives with
-    // the freshly-minted party_id (we don't know it yet here).
-    url = '';
-    open = false;
-  }
-
-  function handleKey(e: KeyboardEvent): void {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      start();
-    }
+    return ok;
   }
 
   // Reset state when the channel switches.
   $effect(() => {
     void channelId;
     open = false;
-    url = '';
   });
 </script>
 
@@ -165,54 +150,9 @@
   </Tooltip.Provider>
 {/if}
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="max-w-md" data-testid="watch-party-dialog">
-    <Dialog.Header>
-      <Dialog.Title>{m.watch_party_start_button_dialog_title()}</Dialog.Title>
-      <Dialog.Description>
-        {m.watch_party_start_button_dialog_description()}
-      </Dialog.Description>
-    </Dialog.Header>
-    <div class="flex flex-col gap-2 py-2">
-      <input
-        bind:value={url}
-        onkeydown={handleKey}
-        type="url"
-        placeholder="https://youtu.be/..."
-        class="border-border bg-bg-elev focus:border-primary text-text-bright w-full rounded-md border px-2 py-1.5 text-sm outline-none"
-        data-testid="watch-party-url-input"
-      />
-      <div class="text-xs">
-        {#if showParseError}
-          <span class="text-red-400" data-testid="watch-party-parse-error">
-            {m.watch_party_start_button_url_unsupported()}
-          </span>
-        {:else if parsed}
-          <span class="text-text-muted" data-testid="watch-party-parse-ok">
-            {parsed.type === 'youtube'
-              ? 'YouTube'
-              : parsed.type === 'twitch'
-                ? 'Twitch VOD'
-                : parsed.type === 'twitch_live'
-                  ? m.watch_party_start_button_twitch_live({ channel: parsed.channel })
-                  : m.watch_party_start_button_direct_video()}
-          </span>
-        {:else}
-          <span class="text-text-muted">
-            {m.watch_party_start_button_url_hint()}
-          </span>
-        {/if}
-      </div>
-    </div>
-    <Dialog.Footer>
-      <Button variant="ghost" onclick={() => (open = false)}>{m.watch_party_start_button_cancel()}</Button>
-      <Button
-        onclick={start}
-        disabled={!parsed}
-        data-testid="watch-party-start-confirm"
-      >
-        Start
-      </Button>
-    </Dialog.Footer>
-  </Dialog.Content>
-</Dialog.Root>
+<WatchSourceDialog
+  bind:open
+  title={m.watch_party_start_button_dialog_title()}
+  confirmLabel="Start"
+  onConfirm={start}
+/>

@@ -26,6 +26,13 @@ export function sendWatchControl(
 ): boolean {
   return send({ op: 'watch_control', channel_id: channelId, party_id: partyId, action, position });
 }
+export function changeWatchSource(
+  send: SendRaw, channelId: string, partyId: string, sourceUrl: string,
+): boolean {
+  return send({
+    op: 'watch_source_change', channel_id: channelId, party_id: partyId, source_url: sourceUrl
+  });
+}
 export function sendWatchHeartbeat(
   send: SendRaw, channelId: string, partyId: string, position: number,
 ): boolean {

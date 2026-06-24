@@ -68,6 +68,8 @@ export const gateway = {
   stopWatchParty: (cid: string, pid: string) => _active().stopWatchParty(cid, pid),
   sendWatchControl: (cid: string, pid: string, a: 'play' | 'pause' | 'seek', p: number) =>
     _active().sendWatchControl(cid, pid, a, p),
+  changeWatchSource: (cid: string, pid: string, url: string) =>
+    _active().changeWatchSource(cid, pid, url),
   sendWatchHeartbeat: (cid: string, pid: string, p: number) =>
     _active().sendWatchHeartbeat(cid, pid, p),
   sendWatchJoin: (cid: string, pid: string) => _active().sendWatchJoin(cid, pid),
