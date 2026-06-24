@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-24.8",
+      "date": "2026-06-24",
+      "style": "Sachlich",
+      "title": "Einstellungen entschlackt",
+      "items": [
+        "Erklärtexte in den Bereichen Bildschirm teilen, Benachrichtigungen, Sounds und Profil entfernt. Die Bedienelemente bleiben unverändert."
+      ]
+    },
+    {
       "id": "2026-06-24.7",
       "date": "2026-06-24",
       "style": "Sachlich",

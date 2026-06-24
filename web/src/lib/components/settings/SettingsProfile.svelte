@@ -182,9 +182,6 @@
 <div class="space-y-6 pr-2" data-testid="settings-profile">
   <header>
     <h2 class="text-text-bright text-lg font-semibold">{m.settings_profile_title()}</h2>
-    <p class="text-text-muted text-sm">
-      {m.settings_profile_subtitle()}
-    </p>
   </header>
 
   <!-- Display-Name + Profile-Color -->
@@ -192,12 +189,7 @@
     class="border-border bg-bg-input/40 flex flex-col gap-4 rounded-2xl border p-4"
     data-testid="profile-display-section"
   >
-    <div class="flex flex-col gap-1">
-      <h3 class="text-text-bright text-sm font-semibold">{m.settings_profile_public_profile_heading()}</h3>
-      <p class="text-text-muted text-xs">
-        {m.settings_profile_public_profile_description()}
-      </p>
-    </div>
+    <h3 class="text-text-bright text-sm font-semibold">{m.settings_profile_public_profile_heading()}</h3>
 
     <div class="flex items-center gap-4" data-testid="profile-avatar-section">
       {#key avatarUrl}
