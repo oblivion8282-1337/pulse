@@ -40,17 +40,25 @@ function sanitise(list: unknown): Binding[] {
 }
 
 export function wireGlobalShortcuts(getWindow: () => BrowserWindow | null): void {
+  // `register` returns `false` on a conflict (accelerator already owned by
+  // another app) on Windows/Linux WITHOUT throwing, so we check the return value
+  // — not just catch — and log what failed (visible when the app is launched
+  // from a console / in the main-process log). The in-window listener still
+  // handles those actions while Pulse is focused.
   ipcMain.handle('shortcuts:setGlobal', (_e, list: unknown) => {
     globalShortcut.unregisterAll();
+    const failed: string[] = [];
     for (const b of sanitise(list)) {
+      let ok = false;
       try {
-        globalShortcut.register(b.accelerator, () => {
+        ok = globalShortcut.register(b.accelerator, () => {
           getWindow()?.webContents.send('shortcuts:trigger', b.id);
         });
       } catch {
-        // Accelerator already owned by another app, or malformed — skip it.
-        // The in-window listener still handles this action when Pulse is focused.
+        // register threw (rare; conflicts normally return false instead) — leave ok=false
       }
+      if (!ok) failed.push(b.accelerator);
     }
+    if (failed.length > 0) console.warn('[shortcuts] konnte nicht registrieren:', failed.join(', '));
   });
 }
