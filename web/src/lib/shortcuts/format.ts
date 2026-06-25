@@ -71,6 +71,44 @@ const KEY_LABELS: Record<string, string> = {
   delete: 'Del'
 };
 
+const ACCEL_KEY: Record<string, string> = {
+  arrowup: 'Up',
+  arrowdown: 'Down',
+  arrowleft: 'Left',
+  arrowright: 'Right',
+  ' ': 'Space',
+  escape: 'Esc',
+  enter: 'Enter',
+  tab: 'Tab',
+  backspace: 'Backspace',
+  delete: 'Delete'
+};
+
+/** Convert a canonical combo to an Electron `globalShortcut` accelerator, or
+ *  `null` if the key can't be represented (caller skips registering it). Used
+ *  by the desktop bridge to mirror background-capable toggles to OS-global
+ *  shortcuts (`lib/shortcuts/desktop.ts`). */
+export function comboToAccelerator(combo: string): string | null {
+  const p = parseCombo(combo);
+  if (!p) return null;
+  const parts: string[] = [];
+  if (p.mods.ctrl) parts.push('CommandOrControl');
+  if (p.mods.alt) parts.push('Alt');
+  if (p.mods.shift) parts.push('Shift');
+  const k = p.key;
+  let key: string | null = ACCEL_KEY[k] ?? null;
+  if (!key) {
+    if (/^f([1-9]|1[0-9]|2[0-4])$/.test(k) || /^[a-z0-9]$/.test(k)) {
+      key = k.toUpperCase(); // F1–F24, letters / digits
+    } else if (/^[,./;'`[\]\\=+\-]$/.test(k)) {
+      key = k; // safe punctuation
+    }
+  }
+  if (!key) return null;
+  parts.push(key);
+  return parts.join('+');
+}
+
 function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Mac|iPhone|iPad/.test(navigator.platform);

@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-25.2",
+      "date": "2026-06-25",
+      "style": "Locker",
+      "title": "Shortcuts wirken jetzt auch im Hintergrund",
+      "items": [
+        "Du musst die Pulse-Desktop-App nicht mehr im Vordergrund haben: Stummschalten, Taubstellen, Verlassen und Streamen reagieren auch, wenn du gerade in einem anderen Fenster bist."
+      ]
+    },
+    {
       "id": "2026-06-25",
       "date": "2026-06-25",
       "style": "Sachlich",

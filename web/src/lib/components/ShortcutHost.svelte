@@ -12,7 +12,10 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { toast } from 'svelte-sonner';
-  import { mountWindowListener, register } from '$lib/shortcuts/engine.svelte';
+  import { mountWindowListener, register, dispatch } from '$lib/shortcuts/engine.svelte';
+  import { isValidActionId } from '$lib/shortcuts/actions';
+  import { globalAccelerators } from '$lib/shortcuts/desktop';
+  import { settings } from '$lib/stores/settings.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { uiOverlays } from '$lib/stores/uiOverlays.svelte';
@@ -54,9 +57,25 @@
     void goto(`/app/guilds/${all[nextIdx].id}/channels/_`);
   }
 
+  // Desktop (Electron): mirror the background-capable toggles to OS-global
+  // shortcuts so they fire while Pulse is unfocused. Pushed reactively — a
+  // rebind in settings re-registers. The in-window listener still covers the
+  // focused case (and is the fallback if an accelerator is already taken).
+  $effect(() => {
+    if (!isElectron() || !window.pulse?.shortcuts) return;
+    void window.pulse.shortcuts.setGlobal(globalAccelerators(settings.shortcuts));
+  });
+
   onMount(() => {
     const disposers: Array<() => void> = [
       mountWindowListener(),
+      ...(isElectron() && window.pulse?.shortcuts
+        ? [
+            window.pulse.shortcuts.onTrigger((id) => {
+              if (isValidActionId(id)) dispatch(id);
+            })
+          ]
+        : []),
       register('nav.cheatsheet', () => {
         cheatsheetOpen = !cheatsheetOpen;
       }),
