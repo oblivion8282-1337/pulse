@@ -109,6 +109,19 @@
     voiceChannels.reduce((n, ch) => n + ch.userIds.length, 0)
   );
 
+  // Channel-Liste sicherstellen: der `ready`-Frame seedet `voicePresence` für
+  // ALLE Communitys, aber `channelsByGuild` füllt sich nur lazy (Prefetch nach
+  // Login — fire-and-forget, Fehler verschluckt — oder beim ersten Öffnen).
+  // Ohne Channels gibt es nichts, dem die Presence zugeordnet werden kann →
+  // der Tooltip blieb leer für Communitys, die man noch nie geöffnet hat.
+  // `ensureChannels` dedupet, ist also auch bei jedem Hover billig.
+  $effect(() => {
+    if (isRemote) return;
+    if (!guildsStore.channelsByGuild[guildId]) {
+      void guildsStore.ensureChannels(guildId).catch(() => undefined);
+    }
+  });
+
   // Namen für noch nicht gecachte User nachladen (batched + debounced).
   // Remote-User werden oben direkt gegen ihren Server aufgelöst.
   $effect(() => {

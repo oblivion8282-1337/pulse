@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-25",
+      "date": "2026-06-25",
+      "style": "Sachlich",
+      "title": "Voice-Vorschau in der Server-Leiste",
+      "items": [
+        "Wenn du über ein Server-Symbol links fährst, siehst du jetzt zuverlässig, wer gerade im Voice ist — auch bei Communitys, die du in dieser Sitzung noch nicht geöffnet hast."
+      ]
+    },
+    {
       "id": "2026-06-24.8",
       "date": "2026-06-24",
       "style": "Sachlich",
