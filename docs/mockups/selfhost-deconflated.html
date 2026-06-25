@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulse · Self-Hoster — entflochtener Flow (Mockup)</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#ffffff; --line:#e7e9ee; --line2:#eef0f4;
+    --text:#1c2430; --muted:#7a8596; --muted2:#9aa3b2;
+    --accent:#3f6bff; --accent-ink:#fff;
+    --green:#1f9d57; --green-bg:#e7f6ee; --amber:#9a6b00; --amber-bg:#fdf3df;
+    --soft:#f6f7f9; --soft-line:#e7e9ee; --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:radial-gradient(1200px 700px at 50% -10%,#1b2433,#0c0e12);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;color:var(--text);
+    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:28px}
+  .switch{position:fixed;top:14px;left:50%;transform:translateX(-50%);display:flex;gap:6px;
+    background:#171b22;border:1px solid #2a313c;border-radius:999px;padding:5px;z-index:9}
+  .switch button{all:unset;cursor:pointer;color:#aeb6c2;font-size:12.5px;font-weight:600;
+    padding:7px 14px;border-radius:999px}
+  .switch button.on{background:var(--accent);color:#fff}
+  .modal{width:980px;max-width:100%;height:640px;background:var(--panel);border-radius:18px;
+    box-shadow:0 30px 80px rgba(0,0,0,.5);display:grid;grid-template-columns:232px 1fr;overflow:hidden}
+  /* left nav */
+  .nav{border-right:1px solid var(--line);padding:18px 12px;background:#fcfcfd}
+  .nav .h{font-size:11px;letter-spacing:.08em;color:var(--muted2);font-weight:700;padding:6px 10px 10px}
+  .nav a{display:flex;gap:9px;align-items:center;padding:8px 10px;border-radius:9px;color:#46505f;
+    font-size:13.5px;text-decoration:none;margin-bottom:1px}
+  .nav a .i{width:15px;text-align:center;opacity:.6}
+  .nav a.active{background:#eef2ff;color:var(--accent);font-weight:600}
+  .nav a.active .i{opacity:1}
+  /* content */
+  .body{padding:26px 30px;overflow:auto}
+  .x{position:absolute;right:18px;top:16px;color:var(--muted2);font-size:18px}
+  h1{font-size:19px;margin:0 0 3px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 20px}
+  .ident{display:flex;align-items:center;gap:12px;background:var(--soft);border:1px solid var(--soft-line);
+    border-radius:var(--radius);padding:13px 15px;margin-bottom:24px}
+  .ident .dot{width:30px;height:30px;border-radius:8px;background:#e4ebff;display:flex;align-items:center;
+    justify-content:center;font-size:15px}
+  .ident b{font-size:13.5px}
+  .ident .meta{color:var(--muted);font-size:12px;margin-top:2px}
+  .pill{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--green);background:var(--green-bg);
+    padding:4px 9px;border-radius:999px}
+  .supid{font-size:11px;color:var(--muted2);cursor:pointer;text-decoration:underline dotted;
+    text-underline-offset:2px;white-space:nowrap}
+  .identnote{color:var(--muted2);font-size:11.5px;margin:0 2px 22px;display:flex;gap:6px;align-items:center}
+  .qh{font-size:13px;font-weight:700;color:#39424f;margin:0 0 11px}
+  /* fork cards */
+  .fork{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:16px 16px 15px;position:relative;
+    display:flex;flex-direction:column;min-height:182px}
+  .card .ic{width:34px;height:34px;border-radius:9px;background:#eef2ff;display:flex;align-items:center;
+    justify-content:center;font-size:17px;margin-bottom:11px}
+  .card h3{margin:0 0 5px;font-size:14.5px}
+  .card p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.5}
+  .card .grow{flex:1}
+  .btn{all:unset;cursor:pointer;text-align:center;font-size:13px;font-weight:600;border-radius:10px;
+    padding:9px 0;margin-top:13px}
+  .btn.primary{background:var(--accent);color:var(--accent-ink)}
+  .btn.ghost{border:1px solid var(--line);color:#46505f}
+  .tag{position:absolute;right:13px;top:13px;font-size:10.5px;font-weight:700;color:var(--muted2);
+    background:#f2f4f7;border-radius:999px;padding:3px 8px}
+  /* disabled / exclusive */
+  .card.disabled{background:#fafbfc;border-style:dashed}
+  .card.disabled .ic{background:#f0f1f4}
+  .card.disabled h3,.card.disabled p{opacity:.55}
+  .lockmsg{margin-top:13px;font-size:11.5px;color:var(--amber);background:var(--amber-bg);
+    border-radius:9px;padding:8px 10px;line-height:1.45}
+  /* live card */
+  .card.live{border-color:#bfe3cd;background:linear-gradient(180deg,#f3fbf6,#fff)}
+  .card.live .ic{background:var(--green-bg)}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;
+    margin-right:6px;box-shadow:0 0 0 3px rgba(31,157,87,.18)}
+  .kv{font-size:12px;color:#3a4350;margin-top:8px;line-height:1.7}
+  .kv code{background:#eef1f5;border-radius:5px;padding:1px 6px;font-size:11.5px}
+  .reach{font-size:11.5px;color:var(--muted);margin-top:9px;line-height:1.5}
+  .exnote{margin-top:18px;color:var(--muted2);font-size:11.5px;display:flex;gap:7px;line-height:1.5}
+  .exnote .i{flex:none}
+  /* locked */
+  .locked{border:1px solid var(--line);border-radius:var(--radius);padding:22px;text-align:center;
+    background:var(--soft)}
+  .locked .ic{width:42px;height:42px;border-radius:11px;background:#fff;border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:20px;margin:0 auto 12px}
+  .locked h3{margin:0 0 6px;font-size:15px}
+  .locked p{margin:0 auto;max-width:420px;color:var(--muted);font-size:12.5px;line-height:1.55}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+
+<div class="switch">
+  <button data-s="choose" class="on">Genehmigt · Ziel wählen</button>
+  <button data-s="local">Läuft auf diesem Gerät</button>
+  <button data-s="locked">Nicht freigeschaltet</button>
+</div>
+
+<div class="modal">
+  <!-- left nav (wie im echten Settings-Panel) -->
+  <nav class="nav">
+    <div class="h">EINSTELLUNGEN</div>
+    <a><span class="i">◔</span> Profil</a>
+    <a><span class="i">◑</span> Erscheinungsbild</a>
+    <a><span class="i">◓</span> Sprache &amp; Video</a>
+    <a><span class="i">▭</span> Bildschirm teilen</a>
+    <a><span class="i">◔</span> Benachrichtigungen</a>
+    <a><span class="i">♪</span> Sounds</a>
+    <a><span class="i">⌨</span> Tastatur</a>
+    <a><span class="i">◇</span> Privatsphäre</a>
+    <a><span class="i">⛉</span> Sicherheit</a>
+    <a class="active"><span class="i">▤</span> Self-Hoster</a>
+  </nav>
+
+  <!-- content -->
+  <section class="body">
+    <span class="x">×</span>
+    <h1>Self-Hoster</h1>
+    <p class="sub">Deine eigene Pulse-Welt — zentrale Identität, ein Server.</p>
+
+    <!-- GETEILTE IDENTITÄTS-EBENE (immer sichtbar, sobald genehmigt) -->
+    <div id="ident" class="ident">
+      <div class="dot">▤</div>
+      <div>
+        <b>Dein Pulse-Server</b>
+        <div class="meta">Freigeschaltet · läuft noch nicht — wähle unten, wo er laufen soll.</div>
+      </div>
+      <span class="pill">bereit</span>
+      <span class="supid" title="Nur falls der Support danach fragt">ID kopieren</span>
+    </div>
+
+    <!-- ZUSTAND A: ZIEL WÄHLEN (die Entflechtung) -->
+    <div id="state-choose">
+      <p class="qh">Wo soll dieser Server laufen?</p>
+      <div class="fork">
+        <div class="card">
+          <span class="tag">Modell 1 · App</span>
+          <div class="ic">💻</div>
+          <h3>Auf diesem Gerät</h3>
+          <p class="grow">Die App fährt den Server auf diesem Rechner hoch. Läuft, solange dieser Rechner an ist. Erreichbar über einen Relay-Tunnel — <b>kein eigener Server, keine Domain nötig</b>.</p>
+          <button class="btn primary">Hier starten</button>
+        </div>
+        <div class="card">
+          <span class="tag">Modell 2 · Server</span>
+          <div class="ic">🖥️</div>
+          <h3>Auf eigenem Server</h3>
+          <p class="grow">Für einen <b>dauerhaft erreichbaren</b> Server (VPS / Heimserver, eigene Domain). Lade die fertige Konfiguration <code>.env</code> + Anleitung und richte ihn dort ein.</p>
+          <button class="btn ghost">Konfiguration &amp; Anleitung laden</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZUSTAND B: LÄUFT LOKAL -->
+    <div id="state-local" class="hidden">
+      <p class="qh">Wo soll dieser Server laufen?</p>
+      <div class="fork">
+        <div class="card live">
+          <span class="tag" style="color:var(--green)">aktiv</span>
+          <div class="ic">💻</div>
+          <h3><span class="live-dot"></span>Läuft auf diesem Gerät</h3>
+          <div class="kv">
+            Erreichbar: <code>pulsator.relay.howispulse.com</code><br>
+            Laufzeit: 4 Min · 8 Dienste gesund
+          </div>
+          <p class="reach">Erreichbarkeit: <b>nur online, solange dieser Rechner läuft</b> — das ist bei einem Geräte-Server normal, kein Fehler.</p>
+          <button class="btn ghost" style="border-color:#cdd6e0">Server stoppen</button>
+        </div>
+        <div class="card disabled">
+          <span class="tag">Modell 2 · Server</span>
+          <div class="ic">🖥️</div>
+          <h3>Auf eigenem Server</h3>
+          <p class="grow">Für einen dauerhaft erreichbaren Server mit eigener Domain.</p>
+          <div class="lockmsg">Gesperrt: Diese Instanz läuft gerade auf <b>diesem Gerät</b>. Zum Server-Setup zuerst hier stoppen.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZUSTAND C: NICHT FREIGESCHALTET -->
+    <div id="state-locked" class="hidden">
+      <div class="locked">
+        <div class="ic">🔒</div>
+        <h3>Selbst-Hosting noch nicht freigeschaltet</h3>
+        <p>Du kannst eine eigene Pulse-Welt betreiben, sobald dein Konto dafür freigeschaltet ist. So bekommst du Zugang: schreib uns kurz über <b>Einstellungen → Hilfe</b>, dann schalten wir dich frei. Danach erscheint hier die Wahl, <em>wo</em> dein Server laufen soll.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+  const map = {choose:'state-choose', local:'state-local', locked:'state-locked'};
+  const states = Object.values(map);
+  document.querySelectorAll('.switch button').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('.switch button').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      states.forEach(id=>document.getElementById(id).classList.add('hidden'));
+      document.getElementById(map[b.dataset.s]).classList.remove('hidden');
+      // Identitäts-Strip nur bei genehmigten Zuständen zeigen
+      const showIdent = b.dataset.s!=='locked';
+      document.getElementById('ident').style.display = showIdent?'flex':'none';
+    };
+  });
+</script>
+</body>
+</html>
