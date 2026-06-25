@@ -140,6 +140,19 @@ export interface PulseFilesApi {
   readDropped(file: File): Promise<Uint8Array | null>;
 }
 
+/** OS-global keyboard shortcuts (background toggles). The renderer hands main
+ *  the background-capable bindings (voice/stream toggles), already converted to
+ *  Electron accelerators, and dispatches `onTrigger` ids through its own handler
+ *  registry — so they fire while Pulse is unfocused. Main-side in `shortcuts.ts`.
+ *  Optional — only present under a current Electron shell. */
+export interface PulseShortcutsApi {
+  /** Replace the registered global accelerators. Push on boot + on every rebind. */
+  setGlobal(list: Array<{ id: string; accelerator: string }>): Promise<void>;
+  /** Fires with the action id when a registered global shortcut is pressed.
+   *  Returns an unsubscribe function. */
+  onTrigger(cb: (id: string) => void): () => void;
+}
+
 export interface PulseApi {
   platform: 'electron';
   appVersion: string;
@@ -154,6 +167,7 @@ export interface PulseApi {
   invite?: PulseInviteApi;
   updates?: PulseUpdatesApi;
   power?: PulsePowerApi;
+  shortcuts?: PulseShortcutsApi;
   clipboard?: PulseClipboardApi;
   files?: PulseFilesApi;
 }

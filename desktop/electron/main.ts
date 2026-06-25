@@ -35,6 +35,7 @@ import { wireNotify } from './notify';
 import { wirePower } from './power';
 import { wireClipboard } from './clipboard';
 import { wireUpdater } from './updater';
+import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 
 // Linux audio: name our PulseAudio/PipeWire streams "Pulse" instead of the
@@ -590,6 +591,9 @@ app.whenReady().then(() => {
   wireClipboard();
   // Auto-Update (Windows, gepackt) — no-op in dev / auf Linux.
   wireUpdater(() => mainWindow);
+  // OS-global toggles (mute/deafen/disconnect/stream) so they fire while Pulse
+  // is unfocused. The renderer pushes the current bindings on boot + on rebind.
+  wireGlobalShortcuts(() => mainWindow);
   createWindow();
   createTray(
     () => mainWindow,

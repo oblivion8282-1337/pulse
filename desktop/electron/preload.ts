@@ -170,6 +170,21 @@ contextBridge.exposeInMainWorld('pulse', {
     check: (): Promise<void> => ipcRenderer.invoke('updates:check'),
   },
 
+  // OS-global keyboard shortcuts (background toggles). The renderer pushes the
+  // current bindings (already converted to Electron accelerators) and dispatches
+  // `onTrigger` ids through its own handler registry. Main-side in `shortcuts.ts`.
+  shortcuts: {
+    setGlobal: (list: Array<{ id: string; accelerator: string }>): Promise<void> =>
+      ipcRenderer.invoke('shortcuts:setGlobal', list),
+    onTrigger: (cb: (id: string) => void): (() => void) => {
+      const handler = (_e: unknown, id: unknown): void => {
+        if (typeof id === 'string') cb(id);
+      };
+      ipcRenderer.on('shortcuts:trigger', handler);
+      return () => ipcRenderer.removeListener('shortcuts:trigger', handler);
+    },
+  },
+
   // Display-sleep inhibitor. The renderer refcounts leases (see
   // `$lib/platform/wakeLock`) and flips this on the 0↔1 boundary; main holds a
   // single `powerSaveBlocker('prevent-display-sleep')`.

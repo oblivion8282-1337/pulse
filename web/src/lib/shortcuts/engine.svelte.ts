@@ -24,6 +24,12 @@ export function register(id: ActionId, handler: () => void): () => void {
   };
 }
 
+/** Run the registered handler for an action, if any. Used by the window
+ *  listener below and by the desktop global-shortcut bridge (ShortcutHost). */
+export function dispatch(id: ActionId): void {
+  handlers.get(id)?.();
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -50,11 +56,10 @@ export function mountWindowListener(): () => void {
     // Single-key bindings (e.g. F8) must not steal keys from inputs/textareas.
     // Modifier-combos (Ctrl+K, Alt+Up) are safe and fire regardless.
     if (!hasModifier(combo) && isTypingTarget(e.target)) return;
-    const h = handlers.get(id);
-    if (!h) return;
+    if (!handlers.has(id)) return;
     e.preventDefault();
     e.stopPropagation();
-    h();
+    dispatch(id);
   };
   window.addEventListener('keydown', onKey);
   return () => window.removeEventListener('keydown', onKey);
