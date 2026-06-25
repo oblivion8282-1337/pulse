@@ -126,7 +126,7 @@ const ACCEL_KEY: Record<string, string> = {
 /** Convert a canonical combo to an Electron `globalShortcut` accelerator, or
  *  `null` if the key can't be represented (caller skips registering it). Used
  *  by the desktop bridge to mirror background-capable toggles to OS-global
- *  shortcuts (`lib/shortcuts/desktop.ts`).
+*  shortcuts (`lib/shortcuts/desktop.ts`).
  *
  *  Electron's accelerator parser only knows about ASCII letters/digits, F1–F24,
  *  a small punctuation set, and a fixed list of named keys (insert, home, end,
@@ -164,7 +164,6 @@ export function comboToAccelerator(combo: string): string | null {
 export function canMirrorToGlobal(combo: string): boolean {
   return comboToAccelerator(combo) !== null;
 }
-
 function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
   return /Mac|iPhone|iPad/.test(navigator.platform);
