@@ -92,7 +92,9 @@ export interface GsrListMonitors {
 }
 
 export interface GsrWindow {
-  /** CoreGraphics window id — round-trips as the `capture: "window:<id>"` token. */
+  /** Opaque per-window id — macOS CoreGraphics window id, Windows HWND. Both
+   *  round-trip as the `capture: "window:<id>"` token (resolved by the
+   *  platform sidecar). */
   id: number;
   title: string;
   app: string;
