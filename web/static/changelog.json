@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-26",
+      "date": "2026-06-26",
+      "style": "Sachlich",
+      "title": "Watch-Party: Abdocken unterbricht das Video nicht mehr",
+      "items": [
+        "Wenn du als Host das Watch-Party-Fenster abdockst, läuft das Video an der aktuellen Stelle weiter, statt für alle von vorne zu beginnen."
+      ]
+    },
+    {
       "id": "2026-06-25.2",
       "date": "2026-06-25",
       "style": "Locker",
