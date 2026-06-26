@@ -93,6 +93,21 @@ export class PartyController {
 
   onReady(handle: PlayerHandle): void {
     this.#player = handle;
+    // A freshly mounted HOST player loads at the source's start_seconds (the
+    // YT `start` var / video currentTime), NOT at the party's live position.
+    // The host is the authority and is never drift-corrected, so without
+    // seeding it here its first heartbeat broadcasts that start offset and
+    // snaps every viewer back to the beginning. That is the "stream restarts
+    // when the host detaches the window" bug: the popup is a fresh window with
+    // a fresh player that takes over as host, and a handoff to a just-mounted
+    // tile hits the same path. Viewers already self-seed via syncViewer's
+    // no-prev hard sync; do the equivalent for the host. For a brand-new party
+    // expected ≈ start_seconds, so this is a no-op.
+    if (this.getIsHost() && !this.getIsPassive()) {
+      const cur = this.getParty();
+      this.#prevParty = cur;
+      this.#syncHard(handle, cur);
+    }
   }
 
   /** Drive from a $effect so it re-runs when `party` changes. Aligns the
