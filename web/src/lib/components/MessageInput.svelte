@@ -229,6 +229,21 @@
     queueMicrotask(() => { ta.focus(); ta.setSelectionRange(start + emoji.length, start + emoji.length); });
     pickerOpen = false;
   }
+
+  // Auto-Grow (Discord-Stil): das Eingabefeld wächst mit dem Inhalt mit, statt
+  // ihn auf eine Zeile abzuschneiden. `text` als Abhängigkeit deckt JEDEN
+  // Änderungspfad ab — Tippen, Einfügen, Emoji, Composer-Aktionen und das
+  // Leeren nach dem Senden (dann schrumpft es wieder). Die Höhe wird auf
+  // `scrollHeight` gesetzt; das CSS `max-h-40` deckelt sie und lässt darüber
+  // scrollen. `height='auto'` zuerst, damit es beim Löschen auch wieder kleiner
+  // wird (sonst bliebe der einmal erreichte Maximalwert stehen).
+  $effect(() => {
+    void text;
+    const ta = textarea;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${ta.scrollHeight}px`;
+  });
 </script>
 
 <form
@@ -261,7 +276,7 @@
   <AttachmentPreviewStrip {pending} onRemove={removeAttachment} />
 
   <div
-    class="bg-bg-input relative flex items-center gap-1.5 border border-border px-3 py-3.5 backdrop-blur-sm md:items-end md:gap-2 md:px-4 md:py-3
+    class="bg-bg-input relative flex items-center gap-1.5 border border-border px-3 py-3.5 shadow-[var(--panel-shadow)] backdrop-blur-sm md:items-end md:gap-2 md:px-4 md:py-3 dark:shadow-none
            {replyTo || pending.length > 0 ? 'rounded-b-2xl rounded-t-none' : 'rounded-2xl'}"
   >
     {#if isDragging}
@@ -303,7 +318,7 @@
       onblur={() => mentionOverlay?.close()}
       placeholder={effectivePlaceholder}
       {disabled}
-      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[2rem] flex-1 resize-none border-0 bg-transparent text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-[1.5rem]"
+      class="text-text-bright placeholder:text-text-muted max-h-40 min-h-[2rem] flex-1 resize-none overflow-y-auto border-0 bg-transparent text-[15px] outline-none disabled:cursor-not-allowed disabled:opacity-60 md:min-h-[1.5rem]"
       data-testid="message-input"
     ></textarea>
     <MentionTriggerOverlay
