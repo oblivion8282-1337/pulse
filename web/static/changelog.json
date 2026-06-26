@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-26.4",
+      "date": "2026-06-26",
+      "style": "Sachlich",
+      "title": "Nachrichten-Eingabefeld wächst mit",
+      "items": [
+        "Beim Schreiben einer Nachricht (Textkanal, Direktnachricht, Stream- und Watch-Party-Chat) wächst das Eingabefeld jetzt mit dem Inhalt mit, statt den Text auf eine Zeile abzuschneiden; ab einer gewissen Höhe wird im Feld gescrollt.",
+        "Im hellen Erscheinungsbild ist das Eingabefeld als abgegrenzter Bereich besser erkennbar."
+      ]
+    },
+    {
       "id": "2026-06-26.3",
       "date": "2026-06-26",
       "style": "Sachlich",
