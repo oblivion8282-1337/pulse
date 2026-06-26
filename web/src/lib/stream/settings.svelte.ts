@@ -103,7 +103,8 @@ export const APP_AUDIO_PREFIX = 'App: ';
  *  on Linux `capture_source` stays `'portal'` (the Wayland portal dialog picks
  *  the screen). */
 export const MONITOR_CAPTURE_PREFIX = 'Monitor: ';
-/** capture_source token for a single window (macOS): `window:<cg-id>`. */
+/** capture_source token for a single window (Windows + macOS): `window:<id>`
+ *  — id is the HWND on Windows, the CoreGraphics window id on macOS. */
 export const WINDOW_CAPTURE_PREFIX = 'window:';
 
 export function isAppAudioMode(mode: string): boolean {
@@ -297,8 +298,10 @@ export async function loadCatalogs(): Promise<void> {
       gsr.listApplicationAudio(),
       gsr.gpuInfo(),
       isWindows() || isMac() ? gsr.listMonitors() : Promise.resolve(null),
-      // Window picking is a macOS extra (SCK); Windows/WGC streams a monitor.
-      isMac() ? gsr.listWindows() : Promise.resolve(null),
+      // Window picking on Windows (WGC) + macOS (SCK): both enumerate windows so
+      // the user can stream a single app instead of the whole monitor. Linux
+      // delegates that choice to the Wayland portal dialog at stream start.
+      isWindows() || isMac() ? gsr.listWindows() : Promise.resolve(null),
     ]);
 
     if (audioApps?.ok) {
@@ -356,12 +359,17 @@ export async function refreshAudioApps(): Promise<void> {
 }
 
 /**
- * Windows + macOS: resolve `capture_source` to a concrete `"Monitor: <n>"` from
- * the enumerated monitors. A persisted choice wins if it still matches a live
- * monitor; otherwise default to the primary one. Falls back to `'portal'`
- * (which the sidecar maps to the primary monitor) when enumeration is empty.
+ * Windows + macOS: resolve `capture_source` to a concrete capture target from
+ * the enumerated sources. A persisted choice wins if it still matches a live
+ * window (`window:<id>`) or monitor (`Monitor: <n>`); otherwise default to the
+ * primary monitor. Falls back to `'portal'` (which the sidecar maps to the
+ * primary monitor) when no monitor is enumerated.
  */
 function resolveMonitorCaptureSource(): void {
+  // A still-valid window pick wins — don't snap a chosen app back to a monitor.
+  const wins = streamSettings.available_windows;
+  if (wins.some((w) => `${WINDOW_CAPTURE_PREFIX}${w.id}` === streamSettings.capture_source)) return;
+
   const mons = streamSettings.available_monitors;
   if (mons.length === 0) {
     streamSettings.capture_source = 'portal';
@@ -387,11 +395,16 @@ export async function refreshMonitors(): Promise<void> {
   }
 }
 
-/** Refresh the capturable-window list (macOS; called from the source picker). */
+/** Refresh the capturable-window list (Windows + macOS; called from the source
+ *  picker). Re-resolves the capture source so a now-closed window doesn't
+ *  linger as the selection. */
 export async function refreshWindows(): Promise<void> {
   try {
     const r = await gsr.listWindows();
-    if (r?.ok) streamSettings.available_windows = r.windows ?? [];
+    if (r?.ok) {
+      streamSettings.available_windows = r.windows ?? [];
+      resolveMonitorCaptureSource();
+    }
   } catch {
     // tolerate — keep the previous list
   }

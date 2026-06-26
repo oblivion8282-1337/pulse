@@ -5,7 +5,7 @@
 //! ```jsonc
 //! {"op":"start", "profile":"H.264 Standard",
 //!  "channel":{"id":"123","token":"…","push_url":"rtmps://…"},
-//!  "capture":"portal"|"monitor"|"window"|"App: <name>",
+//!  "capture":"portal"|"monitor"|"Monitor: <n>"|"window:<hwnd>"|"Window: <title>",
 //!  "audio":{"mode":"Aus|Desktop|Mikrofon|Desktop + Mikrofon","excluded_apps":[]},
 //!  "overrides":{"codec":"h264","bitrate_kbps":4000,"fps":60,"resolution":"1080p"}?,
 //!  "show_cursor":true?,
@@ -106,12 +106,23 @@ pub fn handle(params: Map<String, Value>) -> Result<Map<String, Value>> {
 ///   greift auch als Fallback wenn `list_monitors` leer war)
 /// - `"monitor"` → `PrimaryMonitor`
 /// - `"Monitor: <n>"` → `MonitorByIndex(n)` (1-basiert, matcht `list_monitors`)
+/// - `"window:<hwnd>"` → `WindowByHwnd(hwnd)` (HWND-Zahl aus `list_windows`)
 /// - alles was mit `"Window: <title>"` anfängt → `WindowByTitle(title)`
+///   (Legacy/Komfort-Pfad: Titel-Substring statt HWND)
 fn parse_capture(params: &Map<String, Value>) -> Result<CaptureSource> {
     let raw = params
         .get("capture")
         .and_then(Value::as_str)
         .unwrap_or("portal");
+    // `window:<hwnd>` (kleines w, Doppelpunkt) = der reguläre Picker-Token.
+    // `Window: <title>` (großes W, Leerzeichen) bleibt als Titel-Fallback.
+    if let Some(id) = raw.strip_prefix("window:") {
+        let hwnd: i64 = id
+            .trim()
+            .parse()
+            .map_err(|_| anyhow!("ungültige Fenster-ID in capture: {raw:?}"))?;
+        return Ok(CaptureSource::WindowByHwnd(hwnd));
+    }
     if let Some(title) = raw.strip_prefix("Window: ") {
         return Ok(CaptureSource::WindowByTitle(title.to_string()));
     }

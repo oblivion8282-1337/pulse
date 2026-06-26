@@ -20,6 +20,9 @@ pub enum CaptureSource {
     MonitorByIndex(usize),
     /// Erstes Fenster dessen Title das Substring matcht (case-sensitiv).
     WindowByTitle(String),
+    /// Fenster per HWND (als Zahl aus dem `list_windows`-Picker). Eindeutiger
+    /// als der Titel-Match, wenn mehrere Fenster denselben Titel teilen.
+    WindowByHwnd(i64),
 }
 
 /// Aufgelöstes Capture-Target — entweder Monitor oder Window.
@@ -49,6 +52,16 @@ impl CaptureSource {
                 // für Pulse-UI wo der User "Brave" oder "VS Code" eingeben kann.
                 let win = Window::from_contains_name(needle)
                     .map_err(|e| anyhow!("Window::from_contains_name({needle:?}): {e}"))?;
+                Ok(ResolvedTarget::Window(win))
+            }
+            CaptureSource::WindowByHwnd(hwnd) => {
+                // HWND-Bits zurück in den Pointer. `is_valid()` fängt ein
+                // inzwischen geschlossenes Fenster ab (User wählte, schloss es,
+                // startete dann) statt erst tief in der Capture zu crashen.
+                let win = Window::from_raw_hwnd(*hwnd as usize as *mut std::ffi::c_void);
+                if !win.is_valid() {
+                    return Err(anyhow!("Fenster (HWND {hwnd}) existiert nicht mehr"));
+                }
                 Ok(ResolvedTarget::Window(win))
             }
         }

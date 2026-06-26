@@ -68,6 +68,7 @@ JSON-Request und schreibt pro Antwort/Event eine JSON-Zeile auf stdout:
 | `gpu_info` | — | `vendor, card_path, display_server, video_codecs` (re-probe falls noch nicht da) |
 | `list_profiles` | — | `profiles, servers (immer `[]`), audio_modes, app_label_prefix` |
 | `list_monitors` | — | `monitors: [{index (1-basiert), name, primary, width, height, refresh_hz}, ...]` — **nur Windows-Sidecar** (Linux nutzt den Portal-Picker) |
+| `list_windows` | — | `windows: [{id (HWND-Zahl), title, app, width, height}, ...]` — **nur Windows-Sidecar**: Quelle für den In-App-Fenster-Picker (Linux nutzt den Portal-Dialog) |
 | `list_application_audio` | — | `applications: [name, ...]` (Apps mit Audio-Output) |
 | `build_argv` | siehe `start` | `binary, argv` — **baut die Argumentliste ohne GSR zu starten** (Test/Debug) |
 | `start` | `profile, channel: {id, token, push_url?, mediamtx_endpoint?, push_protocol?}, capture, audio: {mode, excluded_apps}, overrides? {codec, bitrate_kbps, fps, resolution}` | `argv` (die gleiche Liste) — danach kommen Events |
@@ -84,7 +85,9 @@ Voice-Channel:
 
 `capture`: Linux `"portal"`/`"monitor"`/`"window"` (Portal-Dialog wählt die
 Quelle). Windows-Sidecar zusätzlich `"Monitor: <index>"` (Index aus
-`list_monitors`) und `"Window: <title>"`; `"portal"` → Primärmonitor.
+`list_monitors`), `"window:<hwnd>"` (HWND-Zahl aus `list_windows` — der
+reguläre Fenster-Picker-Token) und `"Window: <title>"` (Titel-Substring als
+Komfort-Fallback); `"portal"` → Primärmonitor.
 
 ### Events (`{"ev": "..."}`)
 

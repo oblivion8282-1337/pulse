@@ -1,14 +1,16 @@
 <!--
-  MonitorPicker — Windows-only Bildschirm-Auswahl für den HQ-Stream.
+  MonitorPicker — Quellen-Auswahl (Bildschirm ODER Fenster) für den HQ-Stream
+  auf Windows + macOS.
 
   Unter Linux nie gerendert: dort übernimmt der Wayland-Portal-Dialog die
-  Quellen-Auswahl beim Stream-Start. Windows/WGC hat keinen Portal-Picker —
-  ohne diese Auswahl bekäme man immer den Primärmonitor.
+  Quellen-Auswahl beim Stream-Start. Windows/WGC + macOS/SCK haben keinen
+  Portal-Picker — ohne diese Auswahl bekäme man immer den Primärmonitor.
 
-  Der Wert landet als `capture_source = "Monitor: <index>"` in den
-  streamSettings; der Windows-Sidecar (`ops/start.rs::parse_capture`) löst das
-  via `Monitor::from_index` auf. `index` ist 1-basiert und matcht die
-  `list_monitors`-Enumeration.
+  Der Wert landet in `capture_source` (`ops/start.rs::parse_capture` löst auf):
+   - Monitor → `"Monitor: <index>"` (1-basiert, matcht `list_monitors`,
+     via `Monitor::from_index`).
+   - Fenster → `"window:<id>"` (id aus `list_windows`; HWND auf Windows,
+     CoreGraphics-id auf macOS).
 -->
 <script lang="ts">
   import { m } from '$lib/paraglide/messages.js';

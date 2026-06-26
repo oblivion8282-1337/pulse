@@ -13,6 +13,7 @@
 //! | gpu_info                 | stub       | Stage 2 (DXGI adapter enum) |
 //! | list_profiles            | real       | Day 1 — port from profiles.py |
 //! | list_monitors            | real       | Windows-only display picker |
+//! | list_windows             | real       | Windows-only window picker |
 //! | list_application_audio   | stub       | Stage 3 (`wasapi` process enum) |
 //! | build_argv               | stub       | Stage 4 (after encode pipeline shape settles) |
 //! | start                    | stub       | Stages 5-8 (capture + audio + encode + RTMPS) |
@@ -25,6 +26,7 @@ pub mod health;
 pub mod list_application_audio;
 pub mod list_monitors;
 pub mod list_profiles;
+pub mod list_windows;
 pub mod start;
 pub mod state;
 pub mod stop;
