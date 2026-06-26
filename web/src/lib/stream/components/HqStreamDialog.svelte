@@ -18,7 +18,7 @@
 
 <Dialog.Root bind:open>
   <Dialog.Content
-    class="max-h-[85vh] max-w-2xl overflow-y-auto"
+    class="max-h-[88vh] w-full max-w-2xl overflow-x-hidden overflow-y-auto sm:max-w-2xl"
     data-testid="hq-stream-dialog"
   >
     <Dialog.Header class="sr-only">
