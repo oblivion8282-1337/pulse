@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-27.5",
+      "date": "2026-06-27",
+      "style": "Sachlich",
+      "title": "Auflegen schließt offene Stream-Tiles",
+      "items": [
+        "Wenn du in einem Sprach-Kanal auflegst, während ein HQ-Stream, eine Webcam oder ein Bildschirm-Share als schwebendes Eck-Fenster sichtbar ist, schließt sich das Fenster jetzt — vorher lief es als Geist weiter, obwohl die Verbindung weg war.",
+        "Andockte Tiles direkt im Sprach-Kanal verschwinden wie bisher beim Auflegen."
+      ]
+    },
+    {
       "id": "2026-06-27.4",
       "date": "2026-06-27",
       "style": "Sachlich",
