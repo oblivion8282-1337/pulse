@@ -433,9 +433,17 @@ async def build_and_send_ready_frame(
         else:
             own_presence_status = STATUS_ONLINE
     peer_statuses_raw = await get_presence_statuses_bulk(redis, list(all_peer_ids))
-    # Mask invisible → offline for all peers (own status is delivered real).
+    # ``get_presence_statuses_bulk`` defaults missing Redis keys to "online"
+    # — fine for users with a socket open, wrong for offline peers who'd
+    # stick as "online" in the friend-list filter until their next connect.
+    # Intersect with the manager's live socket set so only actually-online
+    # peers enter the map; absent keys fall through to 'offline' in the
+    # frontend's ``displayStatus``.
+    online_peer_ids = set(manager.online_user_ids())
     user_presence_statuses: dict[str, str] = {
-        str(uid): _mask(st) for uid, st in peer_statuses_raw.items()
+        str(uid): _mask(st)
+        for uid, st in peer_statuses_raw.items()
+        if str(uid) in online_peer_ids
     }
 
     # Hydrate the per-socket friend/block caches in the same loop so the
