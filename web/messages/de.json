@@ -1758,6 +1758,8 @@
   "settings_keyboard_ptt_hint_after_key": "). PTT braucht Press+Release-Erkennung und passt deshalb nicht ins gleiche Schema.",
   "settings_keyboard_ptt_hint_before_key": "Im Tab „Sprache &amp; Video“ konfigurierbar (aktuell",
   "settings_keyboard_ptt_label": "Push-to-Talk (Halten):",
+  "settings_keyboard_unmirrorable": "„{combo}“ lässt sich nicht als Hintergrund-Shortcut binden — wähle eine andere Taste.",
+  "settings_keyboard_unmirrorable_hint": "Manche Tasten (wie ß, ä, €, § oder das At-Zeichen) lassen sich nicht als Hintergrund-Shortcut registrieren — sie funktionieren nur, wenn Pulse im Vordergrund ist.",
   "settings_keyboard_reset_all": "Alle zurücksetzen",
   "settings_keyboard_reset_all_confirm": "Alle Tastatur-Shortcuts auf die Standardwerte zurücksetzen?",
   "settings_keyboard_reset_one": "Auf Standard zurücksetzen",

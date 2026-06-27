@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-27.2",
+      "date": "2026-06-27",
+      "style": "Sachlich",
+      "title": "Mehr Tasten als Hintergrund-Shortcut",
+      "items": [
+        "Als Hintergrund-Shortcut kannst du jetzt auch Einfügen, Pos1, Ende, Bild auf/ab, die Numpad-Tasten, Druck, Feststell, Num, Rollen, Pause und die Menü-Taste verwenden.",
+        "Tasten wie ß, ä, @, € und andere Sonderzeichen lassen sich nicht als Hintergrund-Shortcut binden — sie funktionieren nur, wenn Pulse im Vordergrund ist. Beim Versuch erscheint jetzt ein Hinweis mit Begründung."
+      ]
+    },
+    {
       "id": "2026-06-27.1",
       "date": "2026-06-27",
       "style": "Sachlich",
