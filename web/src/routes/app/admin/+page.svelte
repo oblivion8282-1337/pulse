@@ -23,12 +23,16 @@
   import AdminNormalStreamLimits from '$lib/components/admin/AdminNormalStreamLimits.svelte';
   import AdminPlugins from '$lib/components/admin/AdminPlugins.svelte';
   import AdminInstances from '$lib/components/admin/AdminInstances.svelte';
+  import AdminAppHostApplications from '$lib/components/admin/AdminAppHostApplications.svelte';
+  import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
+  import { adminAppHostApplicationsApi } from '$lib/api/appHostApplications';
   import AdminComplaints from '$lib/components/admin/AdminComplaints.svelte';
   import AdminUsers from '$lib/components/admin/AdminUsers.svelte';
   import AdminMembers from '$lib/components/admin/AdminMembers.svelte';
   import AdminAuditLog from '$lib/components/admin/AdminAuditLog.svelte';
   import AdminJoinControl from '$lib/components/admin/AdminJoinControl.svelte';
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
+  import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import { m } from '$lib/paraglide/messages.js';
 
   // Self-Host-Instanzen verwalten (Anträge genehmigen/sperren) ist eine reine
@@ -60,6 +64,29 @@
       return;
     }
     ready = true;
+  });
+
+  // App-Hosting-Badge: refresh nach jeder Approve/Reject-Aktion (Callback aus
+  // AdminAppHostApplications), damit das Cloud-Admin-Badge live stimmt. Polling
+  // läuft separat im Store (pendingAppHostApplications.start).
+  async function refreshAppHostBadge() {
+    if (!isAdminHere) return;
+    try {
+      const apps = await adminAppHostApplicationsApi.listApplications('pending');
+      pendingAppHostApplications.count = apps.length;
+    } catch {
+      /* still — Badge bleibt einfach stehen */
+    }
+  }
+
+  $effect(() => {
+    if (ready && isAdminHere) {
+      pendingAppHostApplications.start();
+      void refreshAppHostBadge();
+    }
+    return () => {
+      if (!ready) pendingAppHostApplications.stop();
+    };
   });
 </script>
 
@@ -109,6 +136,30 @@
       <AdminPlugins />
       {#if isCloud}
         <AdminInstances />
+        <section
+          class="rounded-2xl border border-border bg-bg-input p-5"
+          data-testid="admin-app-host-applications"
+        >
+          <div class="mb-4 flex items-start gap-3">
+            <AppWindowIcon class="text-text-muted mt-0.5 size-5 shrink-0" />
+            <div class="min-w-0">
+              <h2 class="text-text-bright text-base font-semibold flex items-center gap-2">
+                {m.admin_app_host_heading()}
+                {#if pendingAppHostApplications.count > 0}
+                  <span
+                    class="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold text-black"
+                    title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
+                    data-testid="app-host-pending-badge"
+                  >
+                    {pendingAppHostApplications.count}
+                  </span>
+                {/if}
+              </h2>
+              <p class="text-text-muted text-xs mt-0.5">{m.admin_app_host_description()}</p>
+            </div>
+          </div>
+          <AdminAppHostApplications onchange={() => { void refreshAppHostBadge(); }} />
+        </section>
         <AdminComplaints />
         <AdminUsers />
       {:else}

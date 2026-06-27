@@ -8,6 +8,17 @@
   import { m } from '$lib/paraglide/messages.js';
   import { toast } from 'svelte-sonner';
   import { auth } from '$lib/stores/auth.svelte';
+  import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
+  import AppHostApplicationDialog from './AppHostApplicationDialog.svelte';
+
+  // Neuesten Antrag ableiten, damit wir pending/rejected-Zustände anzeigen
+  // können, ohne den User auf das Admin-Panel vertrösten zu müssen.
+  const myPendingApp = $derived(
+    myAppHostApplications.applications.find((a) => a.status === 'pending') ?? null
+  );
+  const myLastRejected = $derived(
+    myAppHostApplications.applications.find((a) => a.status === 'rejected') ?? null
+  );
 
   const running = $derived(
     ['checking-network', 'opening-door', 'preparing', 'going-live'].includes(hostStore.phase)
@@ -38,6 +49,10 @@
 
   onMount(() => {
     hostStore.init();
+    // Eigene App-Hosting-Anträge laden, damit pending/rejected-Cases live
+    // sichtbar sind (sonst nur Locked-Card ohne Antrags-Status).
+    void myAppHostApplications.reload();
+    myAppHostApplications.start();
   });
 
   async function copyLink() {
@@ -54,16 +69,23 @@
 
 {#if isElectron()}
   <section class="flex flex-col gap-5" data-testid="local-hosting-section">
-    <div class="flex flex-col gap-1">
-      <h3 class="text-text-bright text-sm font-semibold">{m.local_host_title()}</h3>
-      <p class="text-text-muted text-xs">{m.local_host_subtitle()}</p>
-    </div>
-
     {#if hostStore.phase === 'idle'}
-      {#if auth.user && auth.user.self_host_enabled === false}
-        <div class="flex flex-col gap-2" data-testid="local-host-locked">
-          <p class="text-text-bright text-sm font-medium">{m.local_host_locked_title()}</p>
-          <p class="text-text-muted text-sm">{m.local_host_locked_body()}</p>
+      {#if auth.user?.self_host_enabled === false}
+        <div class="flex flex-col gap-3" data-testid="local-host-locked">
+          {#if myPendingApp}
+            <p class="text-text-bright text-sm font-medium">{m.local_host_locked_pending_title()}</p>
+            <p class="text-text-muted text-sm">{m.local_host_locked_pending_body()}</p>
+          {:else if myLastRejected}
+            <p class="text-text-bright text-sm font-medium">{m.local_host_locked_rejected_title()}</p>
+            <p class="text-text-muted text-sm">
+              {m.local_host_locked_rejected_body({ reason: myLastRejected.rejection_reason ?? '' })}
+            </p>
+            <div><AppHostApplicationDialog /></div>
+          {:else}
+            <p class="text-text-bright text-sm font-medium">{m.local_host_locked_title()}</p>
+            <p class="text-text-muted text-sm">{m.local_host_locked_body()}</p>
+            <div><AppHostApplicationDialog /></div>
+          {/if}
         </div>
       {:else if hostStore.instances.length === 0 && !hostStore.paired}
         <div class="flex flex-col gap-2" data-testid="local-host-no-instance">
