@@ -24,6 +24,8 @@
   import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
+  import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
+  import LiveKitBackgroundHost from '$lib/stream/components/LiveKitBackgroundHost.svelte';
   import WatchBackgroundHost from '$lib/watch/WatchBackgroundHost.svelte';
   import UpdateBanner from '$lib/components/server/UpdateBanner.svelte';
   import SelfHostDisclaimer from '$lib/components/server/SelfHostDisclaimer.svelte';
@@ -288,9 +290,20 @@
 <!-- Globaler Watch-Party-Auswahl-Dialog (wenn ein User mehrere Partys hostet) -->
 <WatchPartyPickerDialog />
 
-<!-- Hält HQ-Stream-Verbindungen über Navigation hinweg am Leben (Ton läuft
-     weiter, Bild sofort bei Rückkehr). Rendert nichts. -->
+<!-- Keeps HQ stream connections alive across navigation (audio keeps
+     playing, video is back instantly on return). Renders nothing. -->
 <HqStreamKeepAlive />
+
+<!-- Renders the WhepPlayer per open HQ stream on top of its StreamGrid
+     anchor (docked) or as a floating corner window (navigation away).
+     The inline tile was removed from StreamGrid; this is the only mount
+     point. -->
+<HqStreamBackgroundHost />
+
+<!-- Renders CameraTile + ScreenShareTile per open LiveKit video on top
+     of its StreamGrid anchor (docked) or as a corner window (navigation
+     away). Same mechanism as HqStreamBackgroundHost. -->
+<LiveKitBackgroundHost />
 
 <!-- Hält den Watch-Party-Player über Navigation hinweg am Leben: angedockt im
      Voice-Grid, beim Weg-Navigieren als festes Eck-Fenster (Ton+Bild laufen

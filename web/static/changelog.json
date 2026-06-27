@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-27.3",
+      "date": "2026-06-27",
+      "style": "Sachlich",
+      "title": "Streams bleiben beim Navigieren sichtbar",
+      "items": [
+        "Wenn du in einem Voice-Channel einen HQ-Stream, eine Webcam oder einen Bildschirm-Share offen hast und in einen Textkanal oder in Direktnachrichten wechselst, bleiben die Tiles als kleines schwebendes Fenster in der Ecke sichtbar — vorher sind sie verschwunden.",
+        "Zurück im Voice-Channel docken die Tiles wieder an ihrer ursprünglichen Stelle an."
+      ]
+    },
+    {
       "id": "2026-06-27.2",
       "date": "2026-06-27",
       "style": "Sachlich",

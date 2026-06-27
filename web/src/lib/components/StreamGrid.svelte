@@ -1,37 +1,34 @@
 <!--
-  StreamGrid — die Video-Tile-Spalte eines Voice-Channels mit aktiven Streams.
+  StreamGrid — the video-tile column of a voice channel with active streams.
 
-  Mountet pro Tile-Kind nur was der Viewer explizit über die Sidebar- oder
-  Voice-Tile-Badges geöffnet hat (`openedTiles`). Schliessen läuft pro Tile
-  über ein Close-X; das "Alle schließen"-Sammel-X sitzt im VoiceChannelView-
-  Header. Detached Tiles erscheinen NICHT als Placeholder.
+  Renders one anchor div per open tile (via `openedTiles`); the actual players
+  live in the app layout (`WatchBackgroundHost`, `HqStreamBackgroundHost`,
+  `LiveKitBackgroundHost`) and either dock onto the anchor or fall back to a
+  floating corner window when the anchor is gone — that's how HQ streams,
+  webcams, and screen share keep playing when you navigate away.
 
-  Layout: Raster (gleich große Kacheln) ODER Fokus-Modus — eine Kachel groß,
-  der Rest als Filmstrip-Zeile darunter. Umschalten über den Fokus-Button im
-  jeweiligen Tile-HUD. Alle Kacheln liegen in EINEM Grid-Container, damit ein
-  Fokus-Wechsel nur Grid-Platzierung + `compact` umschaltet — die Tile-
-  Komponenten bleiben gemountet (kein WHEP-/LiveKit-Neuaufbau).
+  Layout: grid (equal tiles) OR focus mode — one tile large, the rest as a
+  filmstrip row underneath. Detached tiles don't appear as placeholders.
 -->
 <script lang="ts">
   import RocketIcon from '@lucide/svelte/icons/rocket';
-  import WhepPlayer from '$lib/stream/components/WhepPlayer.svelte';
-  import ScreenShareTile from './ScreenShareTile.svelte';
-  import CameraTile from './CameraTile.svelte';
   import VoiceParticipantTile from './VoiceParticipantTile.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { userIdFromIdentity } from '$lib/voice/identity';
-  import { userCache } from '$lib/stores/users.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { detachedStreams } from '$lib/stream/detach.svelte';
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { watchBackground } from '$lib/watch/watchBackground.svelte';
+  import { hqStreamBackground } from '$lib/stream/hqStreamBackground.svelte';
+  import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
+  import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { untrack } from 'svelte';
   import type { Channel } from '$lib/api/types';
+  import { userCache } from '$lib/stores/users.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
   let { channel }: { channel: Channel } = $props();
@@ -57,11 +54,10 @@
     voice.cameraTracks.filter((c) => openedTiles.isOpen('cam', channel.id, c.identity))
   );
 
-  // Eigene Kamera-Selbstvorschau: läuft über dieselbe openedTiles-Mechanik wie
-  // fremde Cams (Sentinel-Identity 'self'), damit das eigene CAM-Badge in der
-  // Teilnehmerliste sie öffnen/wieder einblenden kann. Erscheint automatisch
-  // beim Einschalten (Auto-Open bei jedem An), per X ausblendbar ohne die
-  // Kamera zu stoppen.
+  // Self-cam preview: same openedTiles mechanics as foreign cams (sentinel
+  // identity 'self') so the own-CAM badge in the participant list can
+  // open / re-show it. Appears automatically when toggled on; the X
+  // hides it without stopping the camera.
   const SELF_CAM_ID = 'self';
   $effect(() => {
     const on = voice.isCameraOn;
@@ -72,8 +68,6 @@
   let showSelfCam = $derived(
     !!voice.localCameraTrack && openedTiles.isOpen('cam', channel.id, SELF_CAM_ID)
   );
-  let selfCamName = $derived(myId ? userCache.displayName(myId) : 'Du');
-  let selfCamMirror = $derived(voice.cameraFacing === 'user');
 
   // Several parties can run in one channel — show every one the viewer has
   // opened (and that isn't detached into a popup), each as its own tile.
@@ -87,33 +81,58 @@
       )
   );
 
-  // The watch-party PLAYER lives persistently in WatchBackgroundHost so it keeps
-  // playing across navigation. While this voice channel is viewed, StreamGrid
-  // renders an empty measured anchor per open party; the host overlays its fixed
-  // player onto the anchor's rect (docked). On unmount (you navigated away): if
-  // you're no longer in this voice channel, close the party — matches main's
-  // "leave the view → local playback ends". Still in voice → keep it open; the
-  // host shows it as a corner window.
-  function partyAnchor(node: HTMLElement, ids: { channelId: string; partyId: string }) {
-    let cur = ids;
-    let cleanup = watchBackground.registerAnchor(cur.channelId, cur.partyId, node);
-    return {
-      update(next: { channelId: string; partyId: string }) {
-        if (next.channelId === cur.channelId && next.partyId === cur.partyId) return;
-        cleanup();
-        cur = next;
-        cleanup = watchBackground.registerAnchor(cur.channelId, cur.partyId, node);
-      },
-      destroy() {
-        cleanup();
-        if (!inVoiceChannel(cur.channelId)) watchBackground.closeParty(cur.channelId, cur.partyId);
-      }
+  // ---- Anchor actions ---------------------------------------------------
+  // StreamGrid renders an empty anchor div per open tile; the background
+  // host in the app layout renders the player on top (docked) or as a
+  // corner window when the anchor is gone. On anchor-unmount: if you're
+  // no longer in that voice channel, close the tile — otherwise leave it
+  // open and the floating host takes over. Three separate `use:` actions
+  // (one per registry) share the same body via `makeAnchor`.
+  function makeAnchor<I extends { channelId: string }, K>(
+    register: (channelId: string, key: K, el: HTMLElement) => () => void,
+    keyOf: (ids: I) => K,
+    sameKey: (a: I, b: I) => boolean,
+    onUnmount: (ids: I) => void
+  ) {
+    return function anchor(node: HTMLElement, ids: I) {
+      let cur = ids;
+      let cleanup = register(cur.channelId, keyOf(cur), node);
+      return {
+        update(next: I) {
+          if (sameKey(cur, next)) return;
+          cleanup();
+          cur = next;
+          cleanup = register(cur.channelId, keyOf(cur), node);
+        },
+        destroy() {
+          cleanup();
+          if (!inVoiceChannel(cur.channelId)) onUnmount(cur);
+        }
+      };
     };
   }
+  const partyAnchor = makeAnchor(
+    watchBackground.registerAnchor,
+    (i: { channelId: string; partyId: string }) => i.partyId,
+    (a, b) => a.partyId === b.partyId,
+    (i) => watchBackground.closeParty(i.channelId, i.partyId)
+  );
+  const hqAnchor = makeAnchor(
+    hqStreamBackground.registerAnchor,
+    (i: { channelId: string; userId: string }) => i.userId,
+    (a, b) => a.userId === b.userId,
+    (i) => openedTiles.close('hq', i.channelId, i.userId)
+  );
+  const lkAnchor = makeAnchor(
+    liveKitBackground.registerAnchor,
+    (i: { channelId: string; identity: string; kind: 'cam' | 'screen' }) => i.identity,
+    (a, b) => a.identity === b.identity,
+    (i) => openedTiles.close(i.kind, i.channelId, i.identity)
+  );
 
   // Header label: show that *something* is HQ-streaming (rocket icon + label)
   // when any HQ stream is live in the channel, regardless of whether the
-  // viewer has opened the tile yet — keeps the "X streamt (HQ)" hint visible.
+  // viewer has opened the tile yet — keeps the "X is HQ streaming" hint visible.
   let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
   let iAmHqStreaming = $derived(!!myId && hqStreamers.includes(myId));
   let hqStreamersOther = $derived(hqStreamers.filter((uid) => uid !== myId));
@@ -121,15 +140,17 @@
     const others = hqStreamersOther.length;
     if (iAmHqStreaming) {
       if (others === 0) return m.stream_grid_hq_you_only();
-      if (others === 1) return m.stream_grid_hq_you_and_one({ name: userCache.displayName(hqStreamersOther[0]) });
+      if (others === 1)
+        return m.stream_grid_hq_you_and_one({ name: userCache.displayName(hqStreamersOther[0]) });
       return m.stream_grid_hq_you_and_others({ count: others });
     }
-    if (others === 1) return m.stream_grid_hq_one_other({ name: userCache.displayName(hqStreamersOther[0]) });
+    if (others === 1)
+      return m.stream_grid_hq_one_other({ name: userCache.displayName(hqStreamersOther[0]) });
     return m.stream_grid_hq_many_others({ count: others });
   });
   let hqStreaming = $derived(hqStreamers.length > 0);
 
-  // Stabile Tile-Keys in Render-Reihenfolge (Partys · HQ · Screens · Cams).
+  // Stable tile keys in render order (parties · self-cam · HQ · screens · cams).
   let tileKeys = $derived([
     ...openParties.map((p) => `party:${p.party_id}`),
     ...(showSelfCam ? ['selfcam'] : []),
@@ -139,44 +160,40 @@
   ]);
   let videoTileCount = $derived(tileKeys.length);
 
-  // --- Fokus-Modus -----------------------------------------------------
-  // `focusedKey` ist der Wunsch; `focusMode` prüft zusätzlich, dass es ≥2
-  // Kacheln gibt und die fokussierte noch existiert (sonst Raster).
-  let focusedKey = $state<string | null>(null);
+  // --- Focus mode -------------------------------------------------------
+  // `focusedKey` lives in the `streamFocus` store (shared source for
+  // StreamGrid AND the background hosts, so the focus button works on a
+  // docked tile too). `focusMode` additionally checks that ≥2 tiles exist
+  // and the focused one is still present (otherwise fall back to grid).
+  let focusedKey = $derived(streamFocus.channelId === channel.id ? streamFocus.key : null);
   let focusMode = $derived(
     focusedKey !== null && videoTileCount > 1 && tileKeys.includes(focusedKey)
   );
 
-  // Fokus bei Channel-Wechsel zurücksetzen.
+  // Reset focus when the channel is "really" left (disconnect / switch to a
+  // different voice channel). On a pure navigate-away to a text channel /
+  // DM the focus is preserved — you return to the tile with the same focus.
   $effect(() => {
     channel.id;
-    untrack(() => {
-      focusedKey = null;
-    });
+    return () => {
+      if (!inVoiceChannel(channel.id)) streamFocus.resetForChannel(channel.id);
+    };
   });
 
-  /** Handler für den Fokus-Umschalter eines Tiles. Bei nur einer Kachel:
-   *  undefined → kein Button. */
-  function focusHandler(key: string): (() => void) | undefined {
-    if (videoTileCount <= 1) return undefined;
-    return () => {
-      focusedKey = focusMode && focusedKey === key ? null : key;
-    };
-  }
-  /** Inline-Grid-Platzierung: die fokussierte Kachel spannt die obere Zeile. */
+  /** Inline grid placement: the focused tile spans the top row. */
   function cellStyle(key: string): string {
     return focusMode && focusedKey === key ? 'grid-column: 1 / -1; grid-row: 1;' : '';
   }
 
-  // Inline grid-template — Tailwind-Klassen-Interpolation könnte stale
-  // `grid-cols-*` zurücklassen, daher direkt als Style-Binding.
+  // Inline grid-template — Tailwind class interpolation could leave a stale
+  // `grid-cols-*`, so we set it as a style binding instead.
   let gridStyle = $derived.by(() => {
     if (focusMode) {
       const n = Math.max(1, videoTileCount - 1);
       const strip = viewport.isMobile ? '4.75rem' : '6.5rem';
       return `grid-template-columns: repeat(${n}, minmax(0, 1fr)); grid-template-rows: minmax(0, 1fr) ${strip};`;
     }
-    // Mobil: immer 1 Spalte; mehrere Tiles teilen sich die Höhe (auto-rows-fr).
+    // Mobile: always 1 column; multiple tiles share the height (auto-rows-fr).
     if (viewport.isMobile) return 'grid-template-columns: minmax(0, 1fr);';
     const cols =
       videoTileCount <= 1 ? 1 : videoTileCount <= 4 ? 2 : videoTileCount <= 9 ? 3 : 4;
@@ -210,60 +227,41 @@
     {/each}
     {#if showSelfCam}
       <div class="min-h-0 min-w-0" style={cellStyle('selfcam')}>
-        <CameraTile
-          channelId={channel.id}
-          track={voice.localCameraTrack!}
-          name={selfCamName}
-          identity={SELF_CAM_ID}
-          mirror={selfCamMirror}
-          compact={focusMode && focusedKey !== 'selfcam'}
-          focused={focusMode && focusedKey === 'selfcam'}
-          onToggleFocus={focusHandler('selfcam')}
-          onHide={() => openedTiles.close('cam', channel.id, SELF_CAM_ID)}
-        />
+        <div
+          class="h-full w-full"
+          use:lkAnchor={{ channelId: channel.id, identity: SELF_CAM_ID, kind: 'cam' }}
+          data-testid="selfcam-anchor"
+        ></div>
       </div>
     {/if}
     {#each openHqIds as uid (uid)}
       {@const key = `hq:${uid}`}
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <WhepPlayer
-          channelId={channel.id}
-          userId={uid}
-          name={userCache.displayName(uid)}
-          compact={focusMode && focusedKey !== key}
-          focused={focusMode && focusedKey === key}
-          onToggleFocus={focusHandler(key)}
-        />
+        <div
+          class="h-full w-full"
+          use:hqAnchor={{ channelId: channel.id, userId: uid }}
+          data-testid="hq-anchor"
+        ></div>
       </div>
     {/each}
     {#each openScreens as st (st.identity)}
       {@const key = `screen:${st.identity}`}
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <ScreenShareTile
-          channelId={channel.id}
-          streamerId={userIdFromIdentity(st.identity)}
-          track={st.track}
-          audioTrack={st.audioTrack}
-          name={st.name}
-          identity={st.identity}
-          compact={focusMode && focusedKey !== key}
-          focused={focusMode && focusedKey === key}
-          onToggleFocus={focusHandler(key)}
-        />
+        <div
+          class="h-full w-full"
+          use:lkAnchor={{ channelId: channel.id, identity: st.identity, kind: 'screen' }}
+          data-testid="screen-anchor"
+        ></div>
       </div>
     {/each}
     {#each openCameras as ct (ct.identity)}
       {@const key = `cam:${ct.identity}`}
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
-        <CameraTile
-          channelId={channel.id}
-          track={ct.track}
-          name={ct.name}
-          identity={ct.identity}
-          compact={focusMode && focusedKey !== key}
-          focused={focusMode && focusedKey === key}
-          onToggleFocus={focusHandler(key)}
-        />
+        <div
+          class="h-full w-full"
+          use:lkAnchor={{ channelId: channel.id, identity: ct.identity, kind: 'cam' }}
+          data-testid="cam-anchor"
+        ></div>
       </div>
     {/each}
   </div>
