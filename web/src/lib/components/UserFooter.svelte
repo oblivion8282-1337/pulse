@@ -8,6 +8,7 @@
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
   import { pendingInstanceApps } from '$lib/stores/pendingInstanceApps.svelte';
+  import { pendingAppHostApplications } from '$lib/stores/pendingAppHostApplications.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
   import { userCache } from '$lib/stores/users.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
@@ -64,6 +65,15 @@
       pendingInstanceApps.count > 0
   );
 
+  // App-Hosting-Anträge: gleicher Scope wie Instanz-Anträge — Cloud-only,
+  // Admin-only. Count wird durch den Store getrieben (Polling) + durch
+  // manuelle Refreshes nach Approve/Reject (AdminPanel).
+  let showAppHostBadge = $derived(
+    (activeServer.current?.isCloud ?? false) &&
+      (auth.user?.is_admin ?? false) &&
+      pendingAppHostApplications.count > 0
+  );
+
   // Owner-Punkt: ein eigener Self-Host-Antrag wurde freigeschaltet und der User
   // hat „Meine Instanzen" noch nicht angesehen → einrichten. Nur auf der Cloud
   // relevant (dort lebt die Self-Host-Verwaltung).
@@ -71,7 +81,7 @@
     (activeServer.current?.isCloud ?? false) && myInstanceApplications.pendingSetup > 0
   );
 
-  let showFooterDot = $derived(showInstanceBadge || showOwnerSetupBadge);
+  let showFooterDot = $derived(showInstanceBadge || showAppHostBadge || showOwnerSetupBadge);
 
   async function onSignOut() {
     const t = loadTokens();
@@ -158,6 +168,15 @@
           data-testid="admin-pending-badge"
         >
           {pendingInstanceApps.count}
+        </span>
+      {/if}
+      {#if showAppHostBadge}
+        <span
+          class="bg-amber-500 ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-black"
+          data-testid="admin-app-host-pending-badge"
+          title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
+        >
+          {pendingAppHostApplications.count}
         </span>
       {/if}
     </DropdownMenu.Item>

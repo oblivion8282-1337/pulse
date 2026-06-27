@@ -548,3 +548,8 @@ from dcc_auth.models_instances import (  # noqa: E402, F401
     RegisteredInstance,
     SuspendedInstance,
 )
+
+# App-Hosting-Anträge (migration 0035) — ausgelagert nach models_app_host.py
+from dcc_auth.models_app_host import (  # noqa: E402, F401
+    AppHostApplication,
+)
