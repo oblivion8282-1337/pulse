@@ -88,46 +88,46 @@
   // no longer in that voice channel, close the tile — otherwise leave it
   // open and the floating host takes over. Three separate `use:` actions
   // (one per registry) share the same body via `makeAnchor`.
-  function makeAnchor<I extends { channelId: string }, K>(
+  function makeAnchor<K>(
     register: (channelId: string, key: K, el: HTMLElement) => () => void,
-    keyOf: (ids: I) => K,
-    sameKey: (a: I, b: I) => boolean,
-    onUnmount: (ids: I) => void
+    onUnmount: (channelId: string, key: K) => void
   ) {
-    return function anchor(node: HTMLElement, ids: I) {
-      let cur = ids;
-      let cleanup = register(cur.channelId, keyOf(cur), node);
+    return function anchor(
+      node: HTMLElement,
+      ids: { channelId: string; key: K }
+    ) {
+      let channelId = ids.channelId;
+      let key = ids.key;
+      let cleanup = register(channelId, key, node);
       return {
-        update(next: I) {
-          if (sameKey(cur, next)) return;
+        update(next: { channelId: string; key: K }) {
+          if (next.channelId === channelId && next.key === key) return;
           cleanup();
-          cur = next;
-          cleanup = register(cur.channelId, keyOf(cur), node);
+          channelId = next.channelId;
+          key = next.key;
+          cleanup = register(channelId, key, node);
         },
         destroy() {
           cleanup();
-          if (!inVoiceChannel(cur.channelId)) onUnmount(cur);
+          if (!inVoiceChannel(channelId)) onUnmount(channelId, key);
         }
       };
     };
   }
-  const partyAnchor = makeAnchor(
-    watchBackground.registerAnchor,
-    (i: { channelId: string; partyId: string }) => i.partyId,
-    (a, b) => a.partyId === b.partyId,
-    (i) => watchBackground.closeParty(i.channelId, i.partyId)
+  // Arrow-Wrapper um `this` an die Singleton-Instanz zu binden — sonst
+  // verliert die Methodenreferenz ihr Binding und `this.#anchorEls` wirft.
+  const partyAnchor = makeAnchor<string>(
+    (cid, pid, el) => watchBackground.registerAnchor(cid, pid, el),
+    (cid, pid) => watchBackground.closeParty(cid, pid)
   );
-  const hqAnchor = makeAnchor(
-    hqStreamBackground.registerAnchor,
-    (i: { channelId: string; userId: string }) => i.userId,
-    (a, b) => a.userId === b.userId,
-    (i) => openedTiles.close('hq', i.channelId, i.userId)
+  const hqAnchor = makeAnchor<string>(
+    (cid, uid, el) => hqStreamBackground.registerAnchor(cid, uid, el),
+    (cid, uid) => openedTiles.close('hq', cid, uid)
   );
-  const lkAnchor = makeAnchor(
-    liveKitBackground.registerAnchor,
-    (i: { channelId: string; identity: string; kind: 'cam' | 'screen' }) => i.identity,
-    (a, b) => a.identity === b.identity,
-    (i) => openedTiles.close(i.kind, i.channelId, i.identity)
+  const lkAnchor = makeAnchor<{ identity: string; kind: 'cam' | 'screen' }>(
+    (cid, key, el) =>
+      liveKitBackground.registerAnchor(cid, key.identity, el),
+    (cid, key) => openedTiles.close(key.kind, cid, key.identity)
   );
 
   // Header label: show that *something* is HQ-streaming (rocket icon + label)
@@ -220,7 +220,7 @@
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
         <div
           class="h-full w-full"
-          use:partyAnchor={{ channelId: channel.id, partyId: party.party_id }}
+          use:partyAnchor={{ channelId: channel.id, key: party.party_id }}
           data-testid="watch-anchor"
         ></div>
       </div>
@@ -229,7 +229,7 @@
       <div class="min-h-0 min-w-0" style={cellStyle('selfcam')}>
         <div
           class="h-full w-full"
-          use:lkAnchor={{ channelId: channel.id, identity: SELF_CAM_ID, kind: 'cam' }}
+          use:lkAnchor={{ channelId: channel.id, key: { identity: SELF_CAM_ID, kind: 'cam' } }}
           data-testid="selfcam-anchor"
         ></div>
       </div>
@@ -239,7 +239,7 @@
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
         <div
           class="h-full w-full"
-          use:hqAnchor={{ channelId: channel.id, userId: uid }}
+          use:hqAnchor={{ channelId: channel.id, key: uid }}
           data-testid="hq-anchor"
         ></div>
       </div>
@@ -249,7 +249,7 @@
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
         <div
           class="h-full w-full"
-          use:lkAnchor={{ channelId: channel.id, identity: st.identity, kind: 'screen' }}
+          use:lkAnchor={{ channelId: channel.id, key: { identity: st.identity, kind: 'screen' } }}
           data-testid="screen-anchor"
         ></div>
       </div>
@@ -259,7 +259,7 @@
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
         <div
           class="h-full w-full"
-          use:lkAnchor={{ channelId: channel.id, identity: ct.identity, kind: 'cam' }}
+          use:lkAnchor={{ channelId: channel.id, key: { identity: ct.identity, kind: 'cam' } }}
           data-testid="cam-anchor"
         ></div>
       </div>

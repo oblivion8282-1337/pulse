@@ -15,7 +15,9 @@
      Anzeigen markiert → erscheint genau EINMAL pro Update, kein Re-Show beim
      nächsten Reload.
   Changelog ist nice-to-have: jeder Fehler (fetch/parse/localStorage) wird
-  geschluckt, der App-Start darf nie daran hängen.
+  geschluckt, der App-Start darf nie daran hängen. Parse-Fehler landen
+  aber in der Konsole — sonst sieht man den kaputten Toast erst, wenn ein
+  User „Was ist neu?" vermisst.
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
@@ -62,7 +64,11 @@
         const raw = (data as { entries?: unknown })?.entries;
         if (!Array.isArray(raw)) return;
         all = raw.filter(isChangelogEntry);
-      } catch {
+      } catch (e) {
+        // bewusst stillschweigend schlucken (App-Start darf nicht hängen),
+        // aber laut sein — sonst fliegt der kaputte Toast wochenlang
+        // unentdeckt durch.
+        console.warn('[changelog] /changelog.json laden/parsieren fehlgeschlagen:', e);
         return;
       }
       if (all.length === 0) return;
