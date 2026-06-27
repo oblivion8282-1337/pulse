@@ -17,6 +17,7 @@
   import { hqStreamBackground } from '$lib/stream/hqStreamBackground.svelte';
   import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { voiceState } from '$lib/voice/state.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import WatchBackgroundFrame from '$lib/watch/WatchBackgroundFrame.svelte';
   import WhepPlayer from './WhepPlayer.svelte';
@@ -37,6 +38,28 @@
           streamPresence.streamersIn(e.channelId).includes(e.id)
       )
   );
+
+  // Close HQ tiles that lose their reason to stay when the connected voice
+  // channel changes / drops — same rationale as WatchBackgroundHost: the
+  // anchor's destroy in StreamGrid only fires on a real unmount, so a
+  // corner-mode tile that survived a "navigate-away-then-hang-up" sequence
+  // would otherwise sit as a ghost popup. Viewed tiles (anchor present) stay
+  // open.
+  let prevVoice: string | null = null;
+  $effect(() => {
+    const cur = voiceState.connected ? voiceState.channelId : null;
+    const prev = prevVoice;
+    prevVoice = cur;
+    if (!prev || prev === cur) return;
+    for (const e of openedTiles.entriesOfKind('hq')) {
+      if (
+        e.channelId === prev &&
+        hqStreamBackground.anchorRect(e.channelId, e.id) === null
+      ) {
+        openedTiles.close('hq', e.channelId, e.id);
+      }
+    }
+  });
 
   function returnTo(channelId: string): void {
     const guildId = guilds.guildIdForChannel(channelId);

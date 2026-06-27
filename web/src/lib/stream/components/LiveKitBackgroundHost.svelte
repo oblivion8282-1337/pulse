@@ -24,6 +24,7 @@
   import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
   import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { guilds } from '$lib/stores/guilds.svelte';
+  import { voiceState } from '$lib/voice/state.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import WatchBackgroundFrame from '$lib/watch/WatchBackgroundFrame.svelte';
   import CameraTile from '$lib/components/CameraTile.svelte';
@@ -83,6 +84,30 @@
   // groups so a cam + a screen at the same corner don't sit on top of each
   // other. Cams render first, so screens offset by the cam count.
   let camCount = $derived(openedTiles.entriesOfKind('cam').length);
+
+  // Close cam + screen tiles that lose their reason to stay when the connected
+  // voice channel changes / drops — same rationale as WatchBackgroundHost and
+  // HqStreamBackgroundHost: anchor destroy in StreamGrid only fires on real
+  // unmount, so a corner-mode tile that survived a "navigate-away-then-hang-up"
+  // sequence would otherwise sit as a ghost popup. Viewed tiles (anchor present)
+  // stay open.
+  let prevVoice: string | null = null;
+  $effect(() => {
+    const cur = voiceState.connected ? voiceState.channelId : null;
+    const prev = prevVoice;
+    prevVoice = cur;
+    if (!prev || prev === cur) return;
+    for (const kind of ['cam', 'screen'] as const) {
+      for (const e of openedTiles.entriesOfKind(kind)) {
+        if (
+          e.channelId === prev &&
+          liveKitBackground.anchorRect(e.channelId, e.id) === null
+        ) {
+          openedTiles.close(kind, e.channelId, e.id);
+        }
+      }
+    }
+  });
 </script>
 
 {#each openedTiles.entriesOfKind('cam') as e, i (e.channelId + '::cam::' + e.id)}
