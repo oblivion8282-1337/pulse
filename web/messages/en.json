@@ -1749,6 +1749,8 @@
   "settings_keyboard_press_key": "Press a key …",
   "settings_keyboard_ptt_hint_after_key": "). PTT requires press+release detection and therefore doesn’t fit the same scheme.",
   "settings_keyboard_ptt_hint_before_key": "Configurable in the “Voice &amp; Video” tab (currently",
+  "settings_keyboard_unmirrorable": "“{combo}” can’t be bound as a background shortcut — choose a different key.",
+  "settings_keyboard_unmirrorable_hint": "Some keys (like ß, ä, €, §, or the at-sign) can’t be registered as a background shortcut — they only work while Pulse is in the foreground.",
   "settings_keyboard_ptt_label": "Push-to-Talk (Hold):",
   "settings_keyboard_reset_all": "Reset all",
   "settings_keyboard_reset_all_confirm": "Reset all keyboard shortcuts to their defaults?",

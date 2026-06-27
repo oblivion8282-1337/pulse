@@ -68,7 +68,18 @@ const KEY_LABELS: Record<string, string> = {
   enter: 'Enter',
   tab: 'Tab',
   backspace: '⌫',
-  delete: 'Del'
+  delete: 'Del',
+  insert: 'Einfg',
+  home: 'Pos1',
+  end: 'Ende',
+  pageup: 'Bild↑',
+  pagedown: 'Bild↓',
+  printscreen: 'Druck',
+  capslock: 'Feststell',
+  numlock: 'Num',
+  scrolllock: 'Rollen',
+  pause: 'Pause',
+  contextmenu: 'Menü'
 };
 
 const ACCEL_KEY: Record<string, string> = {
@@ -81,13 +92,49 @@ const ACCEL_KEY: Record<string, string> = {
   enter: 'Enter',
   tab: 'Tab',
   backspace: 'Backspace',
-  delete: 'Delete'
+  delete: 'Delete',
+  insert: 'Insert',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  pagedown: 'PageDown',
+  printscreen: 'PrintScreen',
+  capslock: 'CapsLock',
+  numlock: 'NumLock',
+  scrolllock: 'ScrollLock',
+  pause: 'Pause',
+  contextmenu: 'ContextMenu',
+  backquote: 'Backquote',
+  numpad0: 'Numpad0',
+  numpad1: 'Numpad1',
+  numpad2: 'Numpad2',
+  numpad3: 'Numpad3',
+  numpad4: 'Numpad4',
+  numpad5: 'Numpad5',
+  numpad6: 'Numpad6',
+  numpad7: 'Numpad7',
+  numpad8: 'Numpad8',
+  numpad9: 'Numpad9',
+  numpadadd: 'NumpadAdd',
+  numpadsubtract: 'NumpadSubtract',
+  numpadmultiply: 'NumpadMultiply',
+  numpaddivide: 'NumpadDivide',
+  numpaddecimal: 'NumpadDecimal',
+  numpadenter: 'NumpadEnter'
 };
 
 /** Convert a canonical combo to an Electron `globalShortcut` accelerator, or
  *  `null` if the key can't be represented (caller skips registering it). Used
  *  by the desktop bridge to mirror background-capable toggles to OS-global
- *  shortcuts (`lib/shortcuts/desktop.ts`). */
+ *  shortcuts (`lib/shortcuts/desktop.ts`).
+ *
+ *  Electron's accelerator parser only knows about ASCII letters/digits, F1–F24,
+ *  a small punctuation set, and a fixed list of named keys (insert, home, end,
+ *  pageup/down, numpad*, printscreen, capslock, numlock, scrolllock, pause,
+ *  contextmenu, backquote, etc.). Unicode letters and most Shift-symbols (ß,
+ *  ä, @, §, €, …) can NEVER be made global — they fall through here as `null`
+ *  and are silently skipped. The in-window listener still handles them while
+ *  Pulse is focused. */
 export function comboToAccelerator(combo: string): string | null {
   const p = parseCombo(combo);
   if (!p) return null;
@@ -107,6 +154,15 @@ export function comboToAccelerator(combo: string): string | null {
   if (!key) return null;
   parts.push(key);
   return parts.join('+');
+}
+
+/** True iff `combo` can be mirrored to an OS-global shortcut on the Electron
+ *  desktop build. `false` for keys Electron's accelerator parser doesn't know
+ *  (Unicode letters like ß/ä/é, most Shift-symbols like §/@/€/!). The rebind
+ *  UI uses this to refuse combos that would silently lose their global half —
+ *  see `SettingsKeyboard.svelte::startCapture`. */
+export function canMirrorToGlobal(combo: string): boolean {
+  return comboToAccelerator(combo) !== null;
 }
 
 function isMacPlatform(): boolean {
