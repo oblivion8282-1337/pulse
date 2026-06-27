@@ -21,7 +21,9 @@ import pytest
 import pytest_asyncio
 from redis.asyncio import Redis
 from starlette.testclient import TestClient
-from .conftest import receive_skipping
+from .conftest import install_friendship_sync, receive_skipping
+
+import dcc_chat_gateway.config as chat_cfg
 
 _REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6380/0")
 
@@ -526,6 +528,119 @@ async def test_voice_state_not_filtered_by_invisible(ws_app, _auth_signer, redis
                     assert str(speaker_uid) in got["user_ids"]
         finally:
             r.delete(inv_key)
+            r.close()
+
+    await asyncio.to_thread(_run)
+
+
+# ---------------------------------------------------------------------------
+# F. Ready frame peer-status filter: only online peers with explicit status
+# ---------------------------------------------------------------------------
+
+
+# Cloud-only: friend presence is a Social-layer concept (self-host has no
+# ``friends`` rows), so the regression guard only runs in cloud mode.
+pytestmark_peer_filter = pytest.mark.usefixtures("cloud_mode")
+
+
+@pytest.mark.asyncio
+@pytestmark_peer_filter
+async def test_ready_excludes_offline_friends_from_presence_statuses(
+    ws_app, _auth_signer, redis_client
+):
+    """A friend who has neither an open socket nor a Redis status key must
+    NOT appear in ``user_presence_statuses`` — the frontend treats absent
+    keys as offline (via the ``?? 'offline'`` fallback in ``displayStatus``).
+
+    Regression guard for the 2026-06-27 bug where every friend was reported
+    as online because ``get_presence_statuses_bulk`` defaulted missing
+    Redis keys to ``STATUS_ONLINE``.
+    """
+    from dcc_chat_gateway.presence_keys import PRESENCE_STATUS_KEY
+
+    def _run():
+        viewer_uid = random.randint(1_000_000, 9_999_999)
+        friend_uid = random.randint(1_000_000, 9_999_999)
+        # Sanity: the two must be distinct rows in ``friendships``.
+        while friend_uid == viewer_uid:
+            friend_uid = random.randint(1_000_000, 9_999_999)
+        viewer_tok = _auth_signer.issue_access(viewer_uid, f"u{viewer_uid}")
+
+        db = chat_cfg.get_settings().database_url
+        install_friendship_sync(db, viewer_uid, friend_uid)
+
+        # Friend has NO open socket (never connected) and NO Redis status.
+        # Pre-condition sanity: the key is absent.
+        import redis as sync_redis
+
+        r = sync_redis.Redis.from_url(_REDIS_URL)
+        friend_key = PRESENCE_STATUS_KEY.format(user_id=friend_uid)
+        try:
+            r.delete(friend_key)
+            with TestClient(ws_app) as tc:
+                with tc.websocket_connect(f"/ws?token={viewer_tok}") as ws:
+                    ws.receive_json()  # hello
+                    payload = ws.receive_json()  # ready
+                    assert payload["op"] == "ready"
+                    # Viewer sees the friend in ``friends`` (proves the
+                    # friendship row was loaded)…
+                    assert any(
+                        str(f["user_id"]) == str(friend_uid) for f in payload["friends"]
+                    )
+                    # …but NOT in the presence-status map. The frontend's
+                    # ``?? 'offline'`` fallback then drives the Online filter.
+                    assert str(friend_uid) not in payload["user_presence_statuses"]
+        finally:
+            r.delete(friend_key)
+            r.close()
+
+    await asyncio.to_thread(_run)
+
+
+@pytest.mark.asyncio
+@pytestmark_peer_filter
+async def test_ready_includes_online_friend_with_explicit_status(
+    ws_app, _auth_signer, redis_client
+):
+    """A friend with both an open socket AND an explicit Redis status (dnd)
+    must appear in ``user_presence_statuses`` with that exact status."""
+    from dcc_chat_gateway.presence_keys import PRESENCE_STATUS_KEY
+    from dcc_chat_gateway.presence_status import STATUS_DND
+
+    def _run():
+        viewer_uid = random.randint(1_000_000, 9_999_999)
+        friend_uid = random.randint(1_000_000, 9_999_999)
+        while friend_uid == viewer_uid:
+            friend_uid = random.randint(1_000_000, 9_999_999)
+        viewer_tok = _auth_signer.issue_access(viewer_uid, f"u{viewer_uid}")
+        friend_tok = _auth_signer.issue_access(friend_uid, f"u{friend_uid}")
+
+        db = chat_cfg.get_settings().database_url
+        install_friendship_sync(db, viewer_uid, friend_uid)
+
+        import redis as sync_redis
+
+        r = sync_redis.Redis.from_url(_REDIS_URL)
+        friend_key = PRESENCE_STATUS_KEY.format(user_id=friend_uid)
+        try:
+            r.set(friend_key, STATUS_DND)
+            with TestClient(ws_app) as tc:
+                # Friend connects first → has an open socket in the manager.
+                with tc.websocket_connect(f"/ws?token={friend_tok}") as friend_ws:
+                    friend_ws.receive_json()  # hello
+                    friend_ws.receive_json()  # friend_ready
+                    # Now viewer connects and reads the ready frame.
+                    with tc.websocket_connect(f"/ws?token={viewer_tok}") as ws:
+                        ws.receive_json()  # hello
+                        payload = ws.receive_json()  # ready
+                        assert payload["op"] == "ready"
+                        # The online friend with dnd status is present.
+                        assert (
+                            payload["user_presence_statuses"].get(str(friend_uid))
+                            == "dnd"
+                        )
+        finally:
+            r.delete(friend_key)
             r.close()
 
     await asyncio.to_thread(_run)
