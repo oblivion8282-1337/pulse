@@ -529,8 +529,6 @@ class UserSession(Base):
 # Re-export für Alembic-Discovery + bestehende Imports.
 # ---------------------------------------------------------------------------
 from dcc_auth.models_credentials import (  # noqa: E402, F401
-    AccountKey,
-    EncryptedKeyBackup,
     IssuedCredential,
     UsernameReservation,
 )

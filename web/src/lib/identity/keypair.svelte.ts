@@ -44,9 +44,9 @@ export interface WebCryptoKeypair {
   type: 'webcrypto';
   publicKey: CryptoKey;
   /**
-   * Standardmäßig `extractable: false` — verhindert JS-Export via exportKey (XSS-Schutz).
-   * Nur `extractable: true` wenn `generateKeypair({ forBackup: true })` aufgerufen wurde
-   * (Onboarding-Backup-Flow). Der Backup-Dialog prüft das Attribut zur Laufzeit.
+   * Immer `extractable: false` — verhindert JS-Export via exportKey (XSS-Schutz).
+   * Kein anderer Konsument im Repo; das frühere Backup-Feature, das exportable
+   * Keypairs brauchte, ist entfernt.
    */
   privateKey: CryptoKey;
 }
@@ -61,18 +61,13 @@ export type StoredKeypair = WebCryptoKeypair;
 /**
  * Generiert ein neues Ed25519-Keypair.
  *
- * Privater Schlüssel ist `extractable: false` — verhindert JS-seitigen Export via
- * `crypto.subtle.exportKey` (XSS-Schutz). Der Backup-Flow (`CloudBackup.svelte`,
- * `BackupSetupStep.svelte`) prüft `privateKey.extractable` und zeigt bei `false`
- * eine "Bitte neu anmelden"-Meldung (der User hat das Backup zum Zeitpunkt der
- * Keypair-Generierung noch nicht eingerichtet). Nur bei explizitem Aufruf mit
- * `forBackup: true` wird `extractable: true` gesetzt, damit der erste Backup-Dialog
- * beim Onboarding sofort exportieren kann.
+ * Privater Schlüssel ist immer `extractable: false` — verhindert JS-seitigen
+ * Export via `crypto.subtle.exportKey` (XSS-Schutz).
  *
  * Wirft `Error('ED25519_WEBCRYPTO_UNSUPPORTED')` wenn WebCrypto Ed25519
  * nicht verfügbar ist.
  */
-export async function generateKeypair(opts?: { forBackup?: boolean }): Promise<WebCryptoKeypair> {
+export async function generateKeypair(): Promise<WebCryptoKeypair> {
   if (!(await supportsWebCryptoEd25519())) {
     // FINAL-DECISION (User, Block 1.F-Verify): kein Fallback auf @noble/curves.
     // Browsers ohne nativen Ed25519-Support (Safari < 17, Firefox < 130, alte
@@ -81,14 +76,9 @@ export async function generateKeypair(opts?: { forBackup?: boolean }): Promise<W
     throw new Error('ED25519_WEBCRYPTO_UNSUPPORTED');
   }
 
-  // extractable: false by default (XSS cannot steal the private key via exportKey).
-  // Only extractable when forBackup=true so the onboarding backup dialog can export
-  // immediately. The CloudBackup/BackupSetupStep components already handle the
-  // non-extractable case by showing a "please re-login" prompt.
-  const extractable = opts?.forBackup === true;
   const keyPair = await window.crypto.subtle.generateKey(
     { name: 'Ed25519' },
-    extractable,
+    false, // extractable: false — XSS kann den privaten Schlüssel nicht exportieren
     ['sign', 'verify']
   );
 
@@ -200,8 +190,7 @@ class KeypairStore {
   }
 
   async wipe(): Promise<void> {
-    // In-Memory-Referenz SYNCHRON vor dem await leeren (gleiche Anti-Leak-
-    // Reihenfolge wie accountKey.wipe(), siehe auth.svelte.ts):
+    // In-Memory-Referenz SYNCHRON vor dem await leeren (Anti-Leak-Reihenfolge):
     // signOut() ruft wipe() fire-and-forget; bliebe this.keypair bis zum IDB-
     // Delete gesetzt, läse ein Consumer in diesem Fenster noch das Keypair des
     // Vorgängers. Auch robuster: bei IDB-Fehler ist der Speicher trotzdem geleert.

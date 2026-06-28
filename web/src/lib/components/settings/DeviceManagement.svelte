@@ -5,9 +5,6 @@
    *
    * "Aktuelles Gerät" wird über den lokalen Cert-Store erkannt
    * (certStore.cert?.claims.cert_id === device.cert_id).
-   *
-   * Backup-Status (Block 1.I / Block 2): wird als "Noch nicht implementiert"
-   * angezeigt — Platzhalter für die Backup-Verschlüsselung.
    */
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
@@ -15,8 +12,6 @@
   import SmartphoneIcon from '@lucide/svelte/icons/smartphone';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import ShieldAlertIcon from '@lucide/svelte/icons/shield-alert';
-  import CloudCheckIcon from '@lucide/svelte/icons/cloud-check';
-  import CloudOffIcon from '@lucide/svelte/icons/cloud-off';
   import { listCerts, revokeCert } from '$lib/api/credentials';
   import type { CredentialDevice } from '$lib/api/credentials';
   import { certStore } from '$lib/identity/cert.svelte';
@@ -170,31 +165,6 @@
 
               <span class="text-text-muted text-xs">
                 {m.device_management_issued_expires({ issued: formatDate(device.issued_at), expires: formatRelative(device.expires_at) })}
-              </span>
-
-              <!-- Backup-Status -->
-              <span
-                class="mt-0.5 inline-flex items-center gap-1 text-xs"
-                class:text-emerald-500={device.has_backup}
-                class:text-amber-500={!device.has_backup}
-                data-testid="device-backup-status"
-                title={device.has_backup
-                  ? m.device_management_backup_title_yes()
-                  : m.device_management_backup_title_no()}
-              >
-                {#if device.has_backup}
-                  <CloudCheckIcon
-                    class="size-3 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span aria-label={m.device_management_backup_title_yes()}>{m.device_management_backup_yes()}</span>
-                {:else}
-                  <CloudOffIcon
-                    class="size-3 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <span aria-label={m.device_management_backup_title_no()}>{m.device_management_backup_no()}</span>
-                {/if}
               </span>
 
               {#if expiringSoon}

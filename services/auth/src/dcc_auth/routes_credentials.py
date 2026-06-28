@@ -14,7 +14,6 @@ from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from dcc_auth.browser_sessions import validate_session
 from dcc_auth.config import get_settings
@@ -97,7 +96,6 @@ def _credential_to_device(cred: IssuedCredential) -> CredentialDevice:
         device_label=cred.device_label,
         issued_at=cred.issued_at,
         expires_at=cred.expires_at,
-        has_backup=cred.backup is not None,
     )
 
 
@@ -105,7 +103,6 @@ async def _active_creds_for_user(db: AsyncSession, user_id: int) -> list[IssuedC
     now = datetime.now(UTC)
     stmt = (
         select(IssuedCredential)
-        .options(selectinload(IssuedCredential.backup))
         .where(
             IssuedCredential.user_id == user_id,
             IssuedCredential.revoked_at.is_(None),

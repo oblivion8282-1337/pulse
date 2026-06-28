@@ -10,14 +10,12 @@ import { serverUser } from './serverUser.svelte';
 import { settings } from './settings.svelte';
 import { hydrateServerSections } from '$lib/settings-registry';
 import { privacy } from './privacy.svelte';
-import { onboardingState } from '$lib/stores/onboardingState.svelte';
 import { resetServerScopedStores, resetSocialStores } from './multi-server-reset';
 import { goto } from '$app/navigation';
 import type { User } from '$lib/api/types';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
-import { accountKey } from '$lib/identity/account-key.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { keypairStore } from '$lib/identity/keypair.svelte';
 import { profileStatementStore } from '$lib/identity/profile-statement.svelte';
@@ -98,11 +96,10 @@ class AuthStore {
         // Fix 2: Cert + Timer nach Tab-Reload/SSO-Hydrate nachholen.
         // issue-flow wird lazy geladen (eigener Chunk, nur hier gebraucht);
         // die Timer-Helfer (start*) sind oben statisch importiert.
-        // RecoveryAvailableError → Redirect zu /recover (z.B. wenn der User auf
-        // einem neuen Gerät den Tab reopened ohne vorher den Setup-Flow zu
-        // sehen). Sonstige Fehler werden gracefully geschluckt.
+        // Fehler im Issue-Flow werden gracefully geschluckt — Timer starten
+        // trotzdem, die Rotation-Callbacks retry'en beim nächsten Interval.
         import('$lib/identity/issue-flow')
-          .then(async ({ runIssueFlow, RecoveryAvailableError }) => {
+          .then(async ({ runIssueFlow }) => {
             // Proaktiv den 30-Min-`pulse_session`-Cookie neu etablieren, BEVOR
             // der erste Cookie-Auth-Call (runIssueFlow → /credentials/issue)
             // läuft. Nach App-Neustart/Tab-Reload ist nur das JWT in
@@ -116,15 +113,7 @@ class AuthStore {
             } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
             try {
               await runIssueFlow();
-            } catch (err) {
-              if (err instanceof RecoveryAvailableError) {
-                const params = new URLSearchParams({
-                  cert_id: err.certId,
-                  device_label: err.deviceLabel,
-                });
-                await goto(`/recover?${params.toString()}`, { replaceState: true });
-                return; // Recovery-Redirect — Timer erst nach erneutem Login starten
-              }
+            } catch {
               // Andere Fehler (Netzwerk etc.): Timer trotzdem starten. Die
               // Rotation-Callbacks wiederholen den Versuch beim nächsten Interval.
               // Kein rethrow — wir wollen immer zu startProfileRefresh/startCertRotation.
@@ -218,19 +207,14 @@ class AuthStore {
       // Gerät nicht in dessen Channel auto-rejoined.
       clearVoiceResume();
       // User-gebundene UX-Marker des Vorgängers räumen (wie signOut), damit der
-      // neue User Onboarding/Changelog/Self-Host-Disclaimer frisch bekommt und
-      // keine „schon gesehen"-Flags erbt. Disclaimer-Flags sind self-host-
-      // gebunden — nach dem keepOnlyCloud existiert kein Self-Host mehr, also
-      // alle wegfegen.
-      onboardingState.reset();
+      // neue User Changelog/Self-Host-Disclaimer frisch bekommt und keine
+      // „schon gesehen"-Flags erbt. Disclaimer-Flags sind self-host-gebunden —
+      // nach dem keepOnlyCloud existiert kein Self-Host mehr, also alle wegfegen.
       try {
         for (const k of Object.keys(window.localStorage)) {
           if (k.startsWith('pulse.disclaimer_')) window.localStorage.removeItem(k);
         }
         window.localStorage.removeItem('pulse.changelog.lastSeen');
-        // onboardingState.reset() leert nur den Memory-State; den persistierten
-        // Cache des Vorgängers hier mitnehmen (sonst erst beim nächsten init geheilt).
-        window.localStorage.removeItem('pulse.backup_onboarding_decided');
       } catch {
         /* ignore */
       }
@@ -244,7 +228,6 @@ class AuthStore {
       // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
       await Promise.allSettled([
-        accountKey.wipe(),
         certStore.wipe(),
         keypairStore.wipe(),
         profileStatementStore.wipe(),
@@ -285,17 +268,12 @@ class AuthStore {
     privacy.clear();
     serverAdmin.clear();
     serverUser.clear();
-    onboardingState.reset();
     settings.resetUserScoped();
     // Sidebar-Variante-B-Snapshot: pro-Server-Community-Liste wegwerfen.
     void import('$lib/stores/serverGuilds.svelte').then((m) => m.serverGuilds.clear());
     void import('$lib/stores/serverCapabilities.svelte').then((m) =>
       m.serverCapabilities.clear(),
     );
-    // Decline-Flag zurücksetzen: ein "Als neues Gerät weiter" gilt nur für
-    // die laufende Session — beim nächsten Login soll der User wieder den
-    // Recover-Dialog bekommen können.
-    void import('$lib/identity/issue-flow').then((m) => m.resetRecoveryDecline());
     // Phase 4.2: alle WS-Connections + Self-Host-Session-Tokens beenden.
     // Cloud-Tokens werden weiter oben via clearTokens() entfernt.
     gatewayPool.closeAll();
@@ -314,11 +292,6 @@ class AuthStore {
     void certStore.wipe();
     void keypairStore.wipe();
     void profileStatementStore.wipe();
-    // Account-Key (IDB) wischen — verhindert dass ein nächster User auf demselben
-    // Gerät mit den alten Keys arbeitet. wipe() setzt synchron `cached=null`
-    // (vor jedem await), sodass das folgende keepOnlyCloud(true) keine alten
-    // Werte zurück in die Server-Liste schreibt.
-    void accountKey.wipe();
     // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
     // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).
     // silent=true: kein Tresor-Push, der den Server-Tresor leeren würde.

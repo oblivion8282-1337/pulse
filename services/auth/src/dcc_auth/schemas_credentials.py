@@ -28,7 +28,6 @@ class CredentialDevice(BaseModel):
     device_label: str
     issued_at: datetime
     expires_at: datetime
-    has_backup: bool = False
 
 
 class CredentialListResponse(BaseModel):

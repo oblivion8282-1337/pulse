@@ -66,12 +66,6 @@ class IssuedCredential(Base):
     user: Mapped["User"] = relationship(
         "User", back_populates="issued_credentials"
     )
-    backup: Mapped["EncryptedKeyBackup | None"] = relationship(
-        "EncryptedKeyBackup",
-        back_populates="credential",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
 
     __table_args__ = (
         # Partial index: one active cert per (user_id, device_pubkey).
@@ -87,90 +81,6 @@ class IssuedCredential(Base):
         ),
         Index("ix_issued_credentials_user_active", "user_id"),
         Index("ix_issued_credentials_expires_at", "expires_at"),
-    )
-
-
-class EncryptedKeyBackup(Base):
-    """Zero-Knowledge Cloud-Backup of a device's Ed25519 private key
-    (DE 11 A.6, migration 0015).
-
-    The Cloud stores ONLY ciphertext; the plaintext (private key) and
-    Master-Passwort never leave the user's browser.  The ``previous_blob``
-    column supports Master-Passwort-Change-Flow: the old ciphertext is kept
-    for 30 days so offline devices can still decrypt with the old password
-    until they come online and migrate (Review #4 point 6).
-    """
-
-    __tablename__ = "encrypted_key_backups"
-
-    cert_id: Mapped[UUID] = mapped_column(
-        PG_UUID(as_uuid=True).with_variant(_sqlite.TEXT(), "sqlite"),
-        ForeignKey("issued_credentials.cert_id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
-    # Cleartext label for the recovery UI ("Mein Laptop") — no sensitive data.
-    device_label: Mapped[str] = mapped_column(Text, nullable=False)
-    # AES-256-GCM ciphertext of the raw Ed25519 private-key bytes.
-    encrypted_blob: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # Previous ciphertext kept for 30 days during MP-Change-Flow.
-    previous_blob: Mapped[bytes | None] = mapped_column(LargeBinary(), nullable=True)
-    # 16-byte KDF salt used to derive AES key from Master-Passwort.
-    kdf_salt: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # KDF params string, e.g. '{"name":"PBKDF2","hash":"SHA-256","iterations":600000}'.
-    # Stored as TEXT for forward-compatibility (KDF can change without schema change).
-    kdf_params: Mapped[str] = mapped_column(Text, nullable=False)
-    # 12-byte AES-GCM nonce (unique per encryption).
-    gcm_nonce: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    # Timestamp of the last MP-Change-Flow; cron clears previous_blob after
-    # ``previous_replaced_at + 30d``.
-    previous_replaced_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-
-    credential: Mapped["IssuedCredential"] = relationship(
-        "IssuedCredential", back_populates="backup"
-    )
-
-
-class AccountKey(Base):
-    """Der mit dem Wiederherstellungs-Schlüssel „eingewickelte" Account-Key
-    (Envelope-Encryption, migration 0028).
-
-    Ein Account hat genau EINEN zufälligen Account-Key (AK, 32 Bytes,
-    client-seitig erzeugt). Der AK verschlüsselt alles Weitere (Geräte-Key-
-    Backups v3, Server-Vault v2); das Master-Passwort wickelt nur den AK ein.
-    Dadurch ist ein zweiter, abweichender Wiederherstellungs-Schlüssel
-    strukturell unmöglich, und ein Passwort-Wechsel ersetzt nur diese eine
-    Zeile (re-wrap) statt alle Blobs.
-
-    Die Cloud sieht ausschließlich Chiffretext — Zero-Knowledge wie beim
-    Key-Backup/Vault. ``wrapped_key`` = AES-GCM(KDF(Passwort, salt), AK).
-    """
-
-    __tablename__ = "account_keys"
-
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    # AES-256-GCM-Chiffretext der 32 rohen AK-Bytes (inkl. GCM-Tag).
-    wrapped_key: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # 16-Byte-Salt der KDF (Argon2id) für den Wrap-Schlüssel.
-    kdf_salt: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # KDF-Parameter als JSON-String (forward-compat).
-    kdf_params: Mapped[str] = mapped_column(Text, nullable=False)
-    # 12-Byte-AES-GCM-Nonce des Wraps.
-    gcm_nonce: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
