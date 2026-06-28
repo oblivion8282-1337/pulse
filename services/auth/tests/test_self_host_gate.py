@@ -83,41 +83,7 @@ async def carol_instance(session_factory, carol) -> RegisteredInstance:
 
 
 # --------------------------------------------------------------------------- #
-# Mint gate                                                                     #
-# --------------------------------------------------------------------------- #
-
-
-@pytest.mark.asyncio
-async def test_mint_requires_self_host_enabled(client, carol, carol_instance):
-    """User without self_host_enabled=True should get 403 on mint."""
-    r = await client.post(
-        f"/me/instances/{carol_instance.id}/bootstrap-token",
-        headers={"Cookie": carol["cookie"]},
-    )
-    assert r.status_code == 403, r.text
-    assert "self-hosting not enabled" in r.json()["detail"]
-
-
-@pytest.mark.asyncio
-async def test_mint_succeeds_when_enabled(client, carol, carol_instance, session_factory):
-    """After granting self_host_enabled=True the mint should return 201."""
-    async with session_factory() as s:
-        user = await s.get(User, int(carol["id"]))
-        user.self_host_enabled = True
-        await s.commit()
-
-    r = await client.post(
-        f"/me/instances/{carol_instance.id}/bootstrap-token",
-        headers={"Cookie": carol["cookie"]},
-    )
-    assert r.status_code == 201, r.text
-    data = r.json()
-    assert data["token"].startswith("plse_boot_")
-    assert data["ttl_seconds"] > 0
-
-
-# --------------------------------------------------------------------------- #
-# env-file gate (zweiter Credential-Pfad — muss dasselbe Gate tragen)           #
+# env-file gate (zweiter Credential-Pfad — behält das self_host_enabled-Gate)  #
 # --------------------------------------------------------------------------- #
 
 

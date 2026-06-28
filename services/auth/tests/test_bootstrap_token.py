@@ -68,6 +68,22 @@ async def bob(client, session_factory):
 
 
 @pytest_asyncio.fixture
+async def no_flag_user(client, session_factory):
+    """Owner OHNE self_host_enabled — testet, dass der Gate weg ist."""
+    cookie, uid = await _reg_and_login(client, {
+        "username": "boot_noflag",
+        "email": "boot_noflag@dcc-test.example.com",
+        "password": "correct horse battery staple",
+        "display_name": "NoFlag",
+    })
+    async with session_factory() as s:
+        from dcc_auth.models import User
+        user = await s.get(User, int(uid))
+        assert user.self_host_enabled is False  # Default
+    return {"cookie": cookie, "id": uid}
+
+
+@pytest_asyncio.fixture
 async def alice_instance(session_factory, alice) -> RegisteredInstance:
     async with session_factory() as session:
         inst = RegisteredInstance(
@@ -121,7 +137,11 @@ async def test_mint_non_owner_404(client, bob, alice_instance):
 
 
 @pytest.mark.asyncio
-async def test_mint_invalidates_previous(client, alice, alice_instance, session_factory):
+async def test_mint_invalidates_previous_pre_redeem(
+    client, alice, alice_instance, session_factory
+):
+    """Solange noch kein Token eingelöst wurde, darf der Owner beliebig oft
+    einen neuen Token minten — der alte wird jedes Mal invalidiert."""
     r1 = await client.post(
         f"/me/instances/{alice_instance.id}/bootstrap-token",
         headers={"Cookie": alice["cookie"]},
@@ -147,6 +167,80 @@ async def test_mint_invalidates_previous(client, alice, alice_instance, session_
         "/selfhost/bootstrap", headers={"Authorization": f"Bearer {old_token}"}
     )
     assert rr.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_mint_works_without_self_host_enabled(
+    client, no_flag_user, alice_instance, session_factory
+):
+    """Owner braucht KEIN users.self_host_enabled=true mehr — die
+    Admin-Approval der Self-Host-Instanz ist die einzige Voraussetzung."""
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, alice_instance.id, with_for_update=True)
+        inst.registered_by = int(no_flag_user["id"])
+        await s.commit()
+
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": no_flag_user["cookie"]},
+    )
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
+async def test_mint_blocked_after_successful_redeem(
+    client, alice, alice_instance, session_factory
+):
+    """Sobald ein Token eingelöst wurde (Redeem), ist die Instanz
+    'setup-komplett' — weitere Mints sind geblockt, User muss neuen Antrag
+    stellen."""
+    token = await _mint(client, alice, alice_instance.id)
+
+    # Redeem → consumed_at wird gesetzt.
+    rr = await client.post(
+        "/selfhost/bootstrap", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert rr.status_code == 200, rr.text
+
+    # Folge-Mint ist geblockt.
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice["cookie"]},
+    )
+    assert r2.status_code == 403
+    assert "bereits eingelöst" in r2.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_mint_allowed_when_previous_expired_without_redeem(
+    client, alice, alice_instance, session_factory
+):
+    """Weich-Variante: TTL-Ablauf ohne Redeem (User hat das Setup-Script
+    ver-kritzelt oder vergessen) erlaubt einen weiteren Mint-Versuch."""
+    r1 = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice["cookie"]},
+    )
+    assert r1.status_code == 201
+
+    # Token in der DB ablaufen lassen — kein Redeem dazwischen.
+    async with session_factory() as s:
+        row = (
+            await s.execute(
+                select(InstanceBootstrapToken).where(
+                    InstanceBootstrapToken.instance_id == alice_instance.id
+                )
+            )
+        ).scalar_one()
+        row.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await s.commit()
+
+    # Folge-Mint ist erlaubt (kein consumed Token vorhanden).
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice["cookie"]},
+    )
+    assert r2.status_code == 201, r2.text
 
 
 # --------------------------------------------------------------------------- #

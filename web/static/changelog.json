@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.3",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Self-Host-Setup jetzt mit einem Antrag",
+      "items": [
+        "Für einen eigenen Pulse-Server stellst du wie gewohnt einen Antrag. Nach der Genehmigung findest du den Install-Befehl im Schnell-Installer.",
+        "Nach erfolgreichem Setup ist der Install-Befehl nicht mehr abrufbar — bewusst, damit kein Dritter mit deinen Daten weiteren Code nachladen kann.",
+        "Für jeden weiteren Server brauchst du einen neuen Antrag."
+      ]
+    },
+    {
       "id": "2026-06-28.2",
       "date": "2026-06-28",
       "style": "Sachlich",

@@ -185,6 +185,9 @@ async def test_redeem_assigns_relay_when_enabled(
 async def test_redeem_subdomain_stable_token_rotates(
     client, alice, alice_instance, _isolate_settings, monkeypatch
 ):
+    """Subdomain wird beim ersten (und einzigen) Redeem vergeben, Tunnel-Token
+    ist Klartext in der Antwort. Mehrfache Redeems sind seit
+    One-Shot-pro-Antrag nicht mehr möglich (siehe test_bootstrap_token.py)."""
     import dcc_auth.routes_selfhost_bootstrap as _rb
     monkeypatch.setattr(_rb, "get_settings", lambda: _isolate_settings)
     monkeypatch.setattr(_isolate_settings, "pulse_relay_server_addr", "relay.test:2333")
@@ -193,12 +196,15 @@ async def test_redeem_subdomain_stable_token_rotates(
     t1 = await _mint_token(client, alice["cookie"], alice_instance.id)
     d1 = (await client.post("/selfhost/bootstrap",
           headers={"Authorization": f"Bearer {t1}"})).json()
-    t2 = await _mint_token(client, alice["cookie"], alice_instance.id)
-    d2 = (await client.post("/selfhost/bootstrap",
-          headers={"Authorization": f"Bearer {t2}"})).json()
 
-    assert d1["relay_subdomain"] == d2["relay_subdomain"]          # stabil
-    assert d1["relay_tunnel_token"] != d2["relay_tunnel_token"]    # rotiert
+    assert d1["relay_subdomain"]                              # vergeben
+    assert d1["relay_tunnel_token"]                           # im Klartext zurück
+    # Folge-Mint ist nach erfolgreichem Setup geblockt (One-Shot).
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice["cookie"]},
+    )
+    assert r.status_code == 403
 
 
 @pytest.mark.asyncio

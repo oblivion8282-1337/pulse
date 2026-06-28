@@ -377,11 +377,13 @@ async def mint_bootstrap_token(
     """Mintet einen One-Time-Bootstrap-Token für den Ein-Befehl-Installer.
 
     Nur der Owner der Instanz (404 statt 403 gegen Existence-Leak). Räumt alle
-    vorherigen Tokens dieser Instanz weg — es gilt immer höchstens einer, ein
-    „neu generieren" entwertet den alten sofort.
+    vorherigen, nicht-eingelösten Tokens dieser Instanz weg — ein „neu
+    generieren" entwertet den alten sofort. Nach erfolgreichem Redeem sind
+    weitere Mints geblockt: User muss für jeden weiteren Server einen neuen
+    Antrag stellen. Token-Verlust vor Redeem (TTL abgelaufen) erlaubt weiteres
+    Mint.
     """
     user = await _require_user(request, db)
-    _require_self_host_enabled(user)
     settings = get_settings()
     await _check_rate(request, "bootstrap_mint", settings.rate_limit_bootstrap_mint)
 
@@ -394,8 +396,30 @@ async def mint_bootstrap_token(
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
+    # One-shot nach erfolgreichem Setup: ein bereits eingelöstes Token
+    # blockiert weitere Mints. Audit-Spur bleibt in der Token-Tabelle
+    # (Redeem setzt nur consumed_at, löscht nicht).
+    already_consumed = (
+        await db.execute(
+            select(InstanceBootstrapToken.id)
+            .where(
+                InstanceBootstrapToken.instance_id == iid,
+                InstanceBootstrapToken.consumed_at.is_not(None),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if already_consumed is not None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Bootstrap bereits eingelöst — für weitere Server neuen Antrag stellen",
+        )
+
     await db.execute(
-        delete(InstanceBootstrapToken).where(InstanceBootstrapToken.instance_id == iid)
+        delete(InstanceBootstrapToken).where(
+            InstanceBootstrapToken.instance_id == iid,
+            InstanceBootstrapToken.consumed_at.is_(None),
+        )
     )
 
     token = generate_bootstrap_token()
