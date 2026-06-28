@@ -46,6 +46,18 @@ from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.session_tokens import validate_session_token
 
 
+def _safe_int_eq(value, expected: int) -> bool:
+    """Return ``int(value) == expected``; False on conversion error.
+
+    Inlined hier statt aus ``routes.cert_login`` importiert — das hätte einen
+    Circular-Import (security ← cert_login → admin → security) erzeugt.
+    """
+    try:
+        return int(value) == expected
+    except (TypeError, ValueError):
+        return False
+
+
 @dataclass
 class _JwksEntry:
     keys_by_kid: dict[str, Any]
@@ -293,7 +305,8 @@ async def get_current_user(
         uid = int(payload["sub"])
     except (KeyError, ValueError) as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="invalid sub") from exc
-    is_self_host = bool(payload.get("self_host", False))
+    settings = get_settings()
+    is_self_host = settings.pulse_instance_mode == "self-host"
     # Cross-mode identifier: Cloud → ``str(id)``; Self-Host → the pairwise-sub
     # carried in ``payload["pairwise_sub"]`` (set by
     # ``_decode_self_host_session_token``). Falls back to ``str(uid)`` so any
@@ -302,10 +315,20 @@ async def get_current_user(
     identifier = (
         str(payload.get("pairwise_sub") or uid) if is_self_host else str(uid)
     )
+    # Admin-Flag: cert-claim (Cloud) ODER owner-self-host-match. Ohne
+    # diesen OR-Pfad war der registrierende Self-Host-Owner (dessen
+    # auth-svc.is_admin=false ist) auf der WS- und HTTP-Seite kein Admin,
+    # obwohl cert_login den Session-Token korrekt mit admin=True mintet.
+    is_owner_admin = (
+        is_self_host
+        and bool(settings.pulse_instance_owner_id)
+        and _safe_int_eq(uid, settings.pulse_instance_owner_id)
+    )
+    is_admin = bool(payload.get("admin", False)) or is_owner_admin
     return AuthenticatedUser(
         id=uid,
         username=payload.get("username", ""),
-        is_admin=bool(payload.get("admin", False)),
+        is_admin=is_admin,
         payload=payload,
         user_identifier=identifier,
         is_self_host=is_self_host,
