@@ -289,18 +289,20 @@ async def generate_env_file(
 
     Nur der Eigentümer (404 statt 403 gegen Existence-Leak). Anders als ein
     bloßes Template enthält diese ``.env`` ALLE Werte gesetzt — inklusive eines
-    **frisch generierten** ``PULSE_CLOUD_CLIENT_SECRET``:
+    **frisch generierten** ``PULSE_CLOUD_CLIENT_SECRET``.
 
-    * Jeder Aufruf rotiert das Secret. Der Klartext geht **ausschließlich** hier
-      in der Antwort raus; in der DB liegt nur der Argon2-Hash. Ein erneuter
-      Download entwertet damit das vorherige Secret (UI warnt davor) — genau wie
-      der Bootstrap-Redeem (``routes_selfhost_bootstrap``).
-    * Die Var-Namen MÜSSEN exakt die sein, die der Container liest
-      (``10-check-cloud-creds.sh`` / ``07-render-env.sh``): ``PULSE_CLOUD_CLIENT_*``
-      (nicht ``PULSE_INSTANCE_CLIENT_*``) plus ``PULSE_INSTANCE_OWNER_ID``,
-      ``PULSE_HOSTNAME`` und ``PULSE_ADMIN_EMAIL``. Worker-IDs tauchen NICHT auf
-      (der Single-Container nutzt feste interne IDs).
-    * Secret wird NIE geloggt.
+    **One-shot nach erstem Download:** der erste Aufruf rotiert das Secret und
+    setzt ``env_file_downloaded_at``; jeder weitere → 403. Verhindert, dass
+    dieser Pfad die One-Shot-Semantik von ``mint_bootstrap_token`` aushebelt
+    (Side-Channel auf frische Credentials).
+
+    Der Klartext des Secrets geht **ausschließlich** hier in der Antwort raus;
+    in der DB liegt nur der Argon2-Hash. Secret wird NIE geloggt. Die
+    Var-Namen MÜSSEN exakt die sein, die der Container liest
+    (``10-check-cloud-creds.sh`` / ``07-render-env.sh``): ``PULSE_CLOUD_CLIENT_*``
+    (nicht ``PULSE_INSTANCE_CLIENT_*``) plus ``PULSE_INSTANCE_OWNER_ID``,
+    ``PULSE_HOSTNAME`` und ``PULSE_ADMIN_EMAIL``. Worker-IDs tauchen NICHT auf
+    (der Single-Container nutzt feste interne IDs).
     """
     user = await _require_user(request, db)
     _require_self_host_enabled(user)
@@ -316,9 +318,17 @@ async def generate_env_file(
     if inst is None or inst.registered_by != user.id or inst.status == "deleted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
-    # Secret rotieren — Klartext nur hier, DB hält nur den Hash.
+    # One-shot-Markierung (siehe Docstring) — Credential-Rotation als
+    # Side-Channel auf den Bootstrap-Token-One-Shot sperren.
+    if inst.env_file_downloaded_at is not None:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Env-File bereits heruntergeladen — für eine neue Instanz neuen Antrag stellen",
+        )
+
     new_secret = secrets.token_urlsafe(32)
     inst.client_secret = await asyncio.to_thread(hash_password, new_secret)
+    inst.env_file_downloaded_at = datetime.now(UTC)  # atomar mit Secret-Rotation
     await db.commit()
 
     admin_email = user.email or f"admin@{inst.hostname}"

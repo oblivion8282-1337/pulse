@@ -66,6 +66,9 @@ class RegisteredInstance(Base):
     registered_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    env_file_downloaded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )  # One-Shot-Markierung (siehe Migration 0036 + generate_env_file)
 
     # Relationships
     registrar: Mapped["User"] = relationship("User", foreign_keys=[registered_by])

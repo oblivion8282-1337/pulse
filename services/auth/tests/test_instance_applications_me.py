@@ -407,22 +407,22 @@ async def test_snippet_happy_path(client, alice_cookie, alice_instance):
 
 
 @pytest.mark.asyncio
-async def test_env_file_rotates_secret(client, alice_cookie, alice_instance):
-    """Jeder Aufruf liefert ein anderes Secret (Rotation)."""
-
-    def _secret(text: str) -> str:
-        line = next(
-            ln for ln in text.splitlines() if ln.startswith("PULSE_CLOUD_CLIENT_SECRET=")
-        )
-        return line.split("=", 1)[1]
-
+async def test_env_file_blocked_after_first_download(
+    client, alice_cookie, alice_instance
+):
+    """One-shot: zweiter Download → 403 mit Hinweis auf neuen Antrag."""
     r1 = await client.post(
-        f"/me/instances/{alice_instance.id}/env-file", headers={"Cookie": alice_cookie}
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
     )
+    assert r1.status_code == 200
+
     r2 = await client.post(
-        f"/me/instances/{alice_instance.id}/env-file", headers={"Cookie": alice_cookie}
+        f"/me/instances/{alice_instance.id}/env-file",
+        headers={"Cookie": alice_cookie},
     )
-    assert _secret(r1.text) != _secret(r2.text)
+    assert r2.status_code == 403, r2.text
+    assert "bereits heruntergeladen" in r2.json()["detail"]
 
 
 @pytest.mark.asyncio
