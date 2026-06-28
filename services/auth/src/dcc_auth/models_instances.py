@@ -90,6 +90,39 @@ class RegisteredInstance(Base):
     )
 
 
+class UserInstanceMembership(Base):
+    """Welcher User ist Mitglied auf welcher Self-Host-Instanz.
+
+    Ersetzt den Zero-Knowledge-Server-Vault (Migration 0026 → 0037): statt
+    clientseitig verschlüsselter Server-Liste hält die Cloud jetzt einfach
+    eine Tabelle der Memberships. Privacy der **Inhalte** bleibt unverändert
+    (= Cert-Modell: Self-Hosts sind isolierte DB-Welten); nur die sekundäre
+    Tracking-Dimension der persönlichen Server-Liste wird preisgegeben.
+
+    Wird beim Bootstrap-Token-Redeem angelegt. ``role`` ist auf
+    zukünftige eingeladene Nicht-Owner-User vorbereitet (Phase 4-6).
+    """
+
+    __tablename__ = "user_instance_memberships"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    instance_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("registered_instances.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="owner"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    instance: Mapped["RegisteredInstance"] = relationship("RegisteredInstance")
+
+
 class InstanceApplication(Base):
     """Application from a Self-Host operator requesting instance registration.
 

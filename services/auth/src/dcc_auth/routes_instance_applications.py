@@ -27,6 +27,7 @@ from dcc_auth.models_instances import (
     InstanceApplication,
     InstanceBootstrapToken,
     RegisteredInstance,
+    UserInstanceMembership,
 )
 from dcc_auth.routes import _check_rate
 from dcc_auth.security import hash_password
@@ -262,12 +263,19 @@ async def list_my_instances(
     """Eigene registrierte Instanzen abrufen. client_secret wird NIE zurückgegeben."""
     user = await _require_user(request, db)
 
+    # Liest aus ``user_instance_memberships`` (= Account-basierte Server-Liste).
+    # Vor dem Vault-Drop (Migration 0026 → 0037) war das ein Filter über
+    # ``registered_by`` — die neue Tabelle ist die Quelle der Wahrheit und
+    # erlaubt später auch eingeladene Nicht-Owner-User (Phase 4-6).
+    # Soft-delete (routes_instance_delete) ausblenden.
     stmt = (
         select(RegisteredInstance)
+        .join(
+            UserInstanceMembership,
+            UserInstanceMembership.instance_id == RegisteredInstance.id,
+        )
         .where(
-            RegisteredInstance.registered_by == user.id,
-            # Vom Owner gelöschte Instanzen (Soft-Delete, s. routes_instance_delete)
-            # sind für ihn unsichtbar.
+            UserInstanceMembership.user_id == user.id,
             RegisteredInstance.status != "deleted",
         )
         .order_by(RegisteredInstance.registered_at.desc())

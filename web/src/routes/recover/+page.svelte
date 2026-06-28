@@ -29,7 +29,6 @@
   } from '$lib/identity/key-backup.svelte';
   import { accountKey, AccountKeyDecryptError } from '$lib/identity/account-key.svelte';
   import { saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
-  import { serverVault } from '$lib/identity/server-vault.svelte';
   import {
     runIssueFlow,
     declineRecovery,
@@ -120,8 +119,6 @@
           /* Migration best-effort — Legacy-Blob bleibt gültig */
         }
       }
-      // E2E-Server-Vault wiederherstellen → Self-Host-Server-Liste zurückholen.
-      try { await serverVault.unlockForRestore(password); } catch { /* Vault degradiert still */ }
       resetRecoveryDecline();
       toast.success(m.recover_toast_success_title(), {
         description: m.recover_toast_success_description(),

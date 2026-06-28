@@ -27,7 +27,6 @@ import {
   type DecryptedKeypair
 } from './key-backup.svelte';
 import { accountKey, AccountKeyDecryptError } from './account-key.svelte';
-import { serverVault } from './server-vault.svelte';
 import { createBackup, getBackup, listCerts, reconstructBlob } from '$lib/api/credentials';
 
 export type BackupFlowMode = 'create' | 'enter';
@@ -139,12 +138,4 @@ export async function setupOrUnlock(password: string): Promise<void> {
   const blob = await encryptKeypairWithAk(privJwk, pubJwk, ak);
   const label = certStore.cert?.claims.device_label ?? 'Backup';
   await createBackup(certId, blob, label.slice(0, 64) || 'Backup');
-
-  // --- 3. Server-Vault aktivieren (best-effort) ----------------------------
-  try {
-    await serverVault.rescueLegacyVault(password);
-    await serverVault.activateWithAccountKey(ak);
-  } catch {
-    /* Vault degradiert still — Keypair-Backup ist trotzdem gültig */
-  }
 }

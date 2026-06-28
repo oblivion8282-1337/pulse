@@ -1,24 +1,17 @@
 /**
  * Backup-Pflicht-Gate beim Self-Host-Beitritt.
  *
- * Self-Host-Server liegen NUR in der gerätelokalen `pulse.servers`-Liste und
- * werden ausschließlich über den E2E-Server-Tresor (verschlüsselt mit dem
- * Cloud-Backup-Master-Passwort) auf andere Geräte synchronisiert. Ohne ein
- * eingerichtetes Cloud-Backup gehen sie deshalb bei einem Gerätewechsel — und
- * beim Account-Switch-Cleanup, der die Liste beim Login eines anderen Users
- * leert — unwiederbringlich verloren.
- *
- * Dieser Gate stellt vor JEDEM Self-Host-Beitritt sicher, dass ein Backup
- * existiert. Fehlt es, öffnet sich ein Dialog (im Root-Layout), der das Setup
- * inline anbietet; erst danach läuft der Beitritt weiter. Cloud-Beitritte
- * brauchen das nicht und durchlaufen den Gate nie (der einzige Aufrufer ist
- * `addServerWithCertLogin`, der Cloud-Ziele nie erreicht).
+ * Prüft vor jedem Self-Host-Beitritt, ob ein Cloud-Backup existiert.
+ * Früher (= vor Vault-Drop) war das Pflicht, weil der Zero-Knowledge-Server-
+ * Tresor die Server-Liste nur lokal hielt und ohne Backup auf anderen Geräten
+ * verloren ging. Jetzt ist die Server-Liste serverseitig (Account-basiert),
+ * dieser Gate bleibt nur für User übrig, die zusätzlich ein optionales
+ * Cloud-Backup für ihre Identitäts-Daten einrichten wollen.
  *
  * WICHTIG (Import-Zyklus): Dieses Modul importiert NICHT zurück auf
- * `add-server-flow.ts`. Es zieht nur server-vault, cert und credentials.
+ * `add-server-flow.ts`. Es zieht nur cert und credentials.
  */
 
-import { serverVault } from '$lib/identity/server-vault.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { getBackup } from '$lib/api/credentials';
 
@@ -36,16 +29,11 @@ class BackupGate {
   /**
    * True, wenn ein Cloud-Backup existiert.
    *
-   * Schnell-Pfad: Liegt ein Server-Tresor-Key lokal in IDB, ist garantiert
-   * schon ein Backup eingerichtet (gleicher Master-Passwort-Key) → kein
-   * Netzwerk-Roundtrip nötig. Sonst gegen das Backend prüfen.
-   *
    * Öffentlich, damit Aufrufer (AddServerDialog) VOR dem `ensure()`-Aufruf
    * entscheiden können, ob sie ihren eigenen Dialog schließen müssen — sonst
    * läge der Backup-Setup-Dialog verwirrend über dem ihren.
    */
   async hasBackup(): Promise<boolean> {
-    if (await serverVault.isUnlocked()) return true;
     const certId = certStore.cert?.claims.cert_id;
     if (!certId) return false;
     try {

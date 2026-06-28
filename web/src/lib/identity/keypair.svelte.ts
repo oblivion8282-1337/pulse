@@ -201,7 +201,7 @@ class KeypairStore {
 
   async wipe(): Promise<void> {
     // In-Memory-Referenz SYNCHRON vor dem await leeren (gleiche Anti-Leak-
-    // Reihenfolge wie serverVault.wipe()/accountKey.wipe(), siehe auth.svelte.ts):
+    // Reihenfolge wie accountKey.wipe(), siehe auth.svelte.ts):
     // signOut() ruft wipe() fire-and-forget; bliebe this.keypair bis zum IDB-
     // Delete gesetzt, läse ein Consumer in diesem Fenster noch das Keypair des
     // Vorgängers. Auch robuster: bei IDB-Fehler ist der Speicher trotzdem geleert.

@@ -17,7 +17,6 @@ import type { User } from '$lib/api/types';
 import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { serversStore } from '$lib/api/servers.svelte';
-import { serverVault } from '$lib/identity/server-vault.svelte';
 import { accountKey } from '$lib/identity/account-key.svelte';
 import { certStore } from '$lib/identity/cert.svelte';
 import { keypairStore } from '$lib/identity/keypair.svelte';
@@ -91,9 +90,6 @@ class AuthStore {
         await this._enforceDeviceOwner(this.user.id);
         readState.hydrateForUser(this.user.id);
         // E2E-Server-Vault: liegt ein Key in IDB (Gerät hat Backup eingerichtet),
-        // die synchronisierte Self-Host-Server-Liste mergen. Best-effort, kein
-        // Passwort nötig — der Key persistiert non-extractable in IndexedDB.
-        void serverVault.pullIfUnlocked();
         // Schritt 3b: pull server-backed settings sections so plugins
         // that opted into cross-device sync see the latest state.
         // Best-effort; a network blip just leaves the local slice in
@@ -171,9 +167,7 @@ class AuthStore {
     // Schritt-3b cross-device hydrate, ausgelöst direkt nach dem Token-Save.
     void hydrateServerSections();
     // E2E-Server-Vault: bei Login ohne Tab-Reload den Pull anstoßen, falls ein
-    // Tresor-Key in IDB liegt. Best-effort.
-    void serverVault.pullIfUnlocked();
-  }
+    }
 
   /**
    * Geräte-Besitzer-Wächter (Account-Switch-Schutz). Hinterlegt pro Gerät, wem
@@ -198,9 +192,6 @@ class AuthStore {
       /* localStorage unzugänglich → Wächter degradiert still */
     }
     if (prev && prev !== userId) {
-      // Tresor-Key ZUERST wischen (synchron `cached=null`), damit das folgende
-      // Liste-Leeren keinen Push mit dem Schlüssel des Vorgängers auslöst.
-      const vaultWipe = serverVault.wipe();
       // Self-Host-Connections + Session-Tokens des Vorgängers schließen.
       for (const s of serversStore.servers) {
         if (s.isCloud) continue;
@@ -253,7 +244,6 @@ class AuthStore {
       // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
       await Promise.allSettled([
-        vaultWipe,
         accountKey.wipe(),
         certStore.wipe(),
         keypairStore.wipe(),
@@ -324,11 +314,10 @@ class AuthStore {
     void certStore.wipe();
     void keypairStore.wipe();
     void profileStatementStore.wipe();
-    // E2E-Server-Vault-Key + Account-Key (IDB) wischen — verhindert dass ein
-    // nächster User auf demselben Gerät mit den alten Keys pusht/pullt.
-    // wipe() setzt synchron `cached=null` (vor jedem await), sodass das folgende
-    // keepOnlyCloud(true) keinen Push mit dem Schlüssel des Vorgängers auslöst.
-    void serverVault.wipe();
+    // Account-Key (IDB) wischen — verhindert dass ein nächster User auf demselben
+    // Gerät mit den alten Keys arbeitet. wipe() setzt synchron `cached=null`
+    // (vor jedem await), sodass das folgende keepOnlyCloud(true) keine alten
+    // Werte zurück in die Server-Liste schreibt.
     void accountKey.wipe();
     // Self-Hosts (Hostnames + pairwise_subs) aus der gerätelokalen Liste
     // entfernen — konsistent zum Account-Switch-Pfad (_enforceDeviceOwner).

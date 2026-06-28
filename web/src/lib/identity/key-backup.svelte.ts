@@ -368,7 +368,7 @@ export async function decryptKeypair(
 
 // ---------------------------------------------------------------------------
 // Vault-Krypto-Parameter (Single-Source) — die generischen encryptJsonWithKey/
-// decryptJsonWithKey-Helfer leben in vault-crypto.ts und nutzen diese Werte.
+// Vault-Drop (siehe Migrations-Historie): diese Helfer sind obsolet.
 // Argon2id-Params identisch zum Keypair-Backup (v=2).
 // ---------------------------------------------------------------------------
 

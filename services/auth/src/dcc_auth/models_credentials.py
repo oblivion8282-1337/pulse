@@ -138,42 +138,6 @@ class EncryptedKeyBackup(Base):
     )
 
 
-class EncryptedServerVault(Base):
-    """Zero-Knowledge sync of a user's *self-host server list* (E2E-Vault).
-
-    Mirrors :class:`EncryptedKeyBackup` but is keyed by ``user_id`` (one vault
-    per user, not per cert): the server list is a single account-wide blob, not
-    device-bound.  The Cloud stores ONLY ciphertext — it never learns which
-    self-host instances the user has joined.  All crypto happens in the browser
-    (Argon2id → AES-256-GCM), keyed by the same Master-Passwort as the Cloud
-    key-backup (unified-password design).
-
-    ``kdf_salt`` is stable for the lifetime of the vault so every device derives
-    the *same* AES key from the Master-Passwort; only ``gcm_nonce`` rotates per
-    write.  A PUT replaces the existing row (single slot per user).
-    """
-
-    __tablename__ = "encrypted_server_vaults"
-
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
-    # AES-256-GCM ciphertext of the JSON-serialised server list.
-    encrypted_blob: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # 16-byte KDF salt — stable per vault so all devices derive the same key.
-    kdf_salt: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    # KDF params JSON string, e.g. '{"name":"Argon2id","memory_kib":65536,...}'.
-    kdf_params: Mapped[str] = mapped_column(Text, nullable=False)
-    # 12-byte AES-GCM nonce (unique per write).
-    gcm_nonce: Mapped[bytes] = mapped_column(LargeBinary(), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
 class AccountKey(Base):
     """Der mit dem Wiederherstellungs-Schlüssel „eingewickelte" Account-Key
     (Envelope-Encryption, migration 0028).

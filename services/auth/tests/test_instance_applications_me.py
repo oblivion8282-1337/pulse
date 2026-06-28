@@ -10,7 +10,7 @@ import pytest_asyncio
 from sqlalchemy import update
 
 from dcc_auth.models import User
-from dcc_auth.models_instances import RegisteredInstance
+from dcc_auth.models_instances import RegisteredInstance, UserInstanceMembership
 
 # ---------------------------------------------------------------------------
 # Shared test credentials
@@ -85,7 +85,7 @@ async def bob_cookie(session_factory, client) -> str:
 
 @pytest_asyncio.fixture
 async def alice_instance(session_factory, alice_cookie, client) -> RegisteredInstance:
-    """Seed a RegisteredInstance for Alice (registered_by = Alice's id)."""
+    """Seed a RegisteredInstance for Alice plus her Owner-Membership."""
     # Wir brauchen Alice's User-ID. Wir holen sie aus dem /me-Endpoint.
     r = await client.get("/me", headers={"Cookie": alice_cookie})
     assert r.status_code == 200, r.text
@@ -106,6 +106,16 @@ async def alice_instance(session_factory, alice_cookie, client) -> RegisteredIns
         session.add(inst)
         await session.commit()
         await session.refresh(inst)
+        # Membership anlegen, damit GET /me/instances die Instanz via JOIN findet
+        # (Migration 0037, Account-basierte Server-Liste statt Vault).
+        session.add(
+            UserInstanceMembership(
+                user_id=int(alice_id),
+                instance_id=inst.id,
+                role="owner",
+            )
+        )
+        await session.commit()
     return inst
 
 

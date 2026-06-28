@@ -30,7 +30,11 @@ from dcc_auth.bootstrap import TOKEN_PREFIX, hash_bootstrap_token
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
-from dcc_auth.models_instances import InstanceBootstrapToken, RegisteredInstance
+from dcc_auth.models_instances import (
+    InstanceBootstrapToken,
+    RegisteredInstance,
+    UserInstanceMembership,
+)
 from dcc_auth.relay import allocate_relay_subdomain, generate_relay_token, hash_relay_token
 from dcc_auth.routes import _check_rate
 from dcc_auth.routes_admin_instances import _require_cloud
@@ -124,6 +128,17 @@ async def redeem_bootstrap_token(
 
     owner = await db.get(User, instance.registered_by)
     admin_email = owner.email if owner is not None else None
+
+    # Owner-Membership in der Cloud tracken (= Account-basierte Server-Liste,
+    # ersetzt den Zero-Knowledge-Vault). Bei wiederholtem Redeem ist der
+    # vorhandene Eintrag bereits vorhanden — ein INSERT-CONFLICT ist harmlos.
+    db.add(
+        UserInstanceMembership(
+            user_id=instance.registered_by,
+            instance_id=instance.id,
+            role="owner",
+        )
+    )
 
     await db.commit()
 
