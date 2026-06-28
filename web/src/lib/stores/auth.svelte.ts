@@ -111,6 +111,14 @@ class AuthStore {
             try {
               await renewSession();
             } catch { /* best-effort — Fallback bleibt der 401-Retry */ }
+            // Account-basierte Self-Host-Liste auch beim Session-Restore (Tab-
+            // Reload / neuer Browser mit gültiger Session) nachziehen — nicht nur
+            // bei frischem Login (`setUser`). Sonst fehlt der Self-Host auf jedem
+            // Gerät, das den Login wiederherstellt statt sich neu anzumelden — und
+            // selbst beim Erst-Login bricht der `setUser`-Aufruf oft ab, weil die
+            // Login-Seite direkt nach /app navigiert (fire-and-forget). Läuft NACH
+            // renewSession, damit der Cookie-Auth-Call (/me/instances) frisch ist.
+            void serversStore.hydrateFromBackend();
             try {
               await runIssueFlow();
             } catch {
