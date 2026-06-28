@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.7",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Genehmigte Server direkt einrichtbar",
+      "items": [
+        "Sobald dein Antrag für einen selbstgehosteten Server genehmigt ist, erscheint er sofort unter 'Meine Instanzen' mit der Einrichtung.",
+        "Der Hinweis 'einrichten' taucht jetzt auf jedem Gerät auf, auf dem du angemeldet bist — nicht nur dort, wo du den Antrag gestellt hast."
+      ]
+    },
+    {
       "id": "2026-06-28.6",
       "date": "2026-06-28",
       "style": "Sachlich",

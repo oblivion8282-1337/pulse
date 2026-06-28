@@ -30,6 +30,7 @@ from dcc_auth.models_instances import (
     InstanceApplication,
     RegisteredInstance,
     SuspendedInstance,
+    UserInstanceMembership,
 )
 from dcc_auth.models import User
 from dcc_auth.routes import _require_admin
@@ -280,6 +281,19 @@ async def approve_application(
             registered_by=app_applicant_user_id,
         )
         session.add(instance)
+
+        # Owner-Membership SOFORT anlegen — nicht erst beim Bootstrap-Redeem.
+        # Sonst ist die frisch genehmigte Instanz in ``GET /me/instances``
+        # (liest aus user_instance_memberships) unsichtbar → der Owner sieht
+        # keinen „Server einrichten"-Button und kommt nie zum Redeem (Henne-Ei).
+        # Der Redeem legt die Zeile idempotent erneut an, falls nötig.
+        session.add(
+            UserInstanceMembership(
+                user_id=app_applicant_user_id,
+                instance_id=instance_id,
+                role="owner",
+            )
+        )
 
         app_row.status = "approved"
         _stamp_review(app_row, actor)

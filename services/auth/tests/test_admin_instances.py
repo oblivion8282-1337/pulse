@@ -10,7 +10,12 @@ import pytest
 from sqlalchemy import select
 
 from dcc_auth.models import User
-from dcc_auth.models_instances import InstanceApplication, RegisteredInstance, SuspendedInstance
+from dcc_auth.models_instances import (
+    InstanceApplication,
+    RegisteredInstance,
+    SuspendedInstance,
+    UserInstanceMembership,
+)
 from dcc_auth.security import verify_password
 
 
@@ -235,6 +240,15 @@ async def test_approve_happy(client, admin_token, session_factory, applicant_use
         assert inst.hostname == "self2.example.com"
         # Secret must be hashed, not stored plaintext
         assert verify_password(data["client_secret"], inst.client_secret)
+
+        # Approval must create the owner membership immediately, so the
+        # instance shows up in GET /me/instances (which reads memberships)
+        # before the owner ever redeems a bootstrap token.
+        membership = await s.get(
+            UserInstanceMembership, (applicant_user_id, inst.id)
+        )
+        assert membership is not None
+        assert membership.role == "owner"
 
 
 # --------------------------------------------------------------------------- #

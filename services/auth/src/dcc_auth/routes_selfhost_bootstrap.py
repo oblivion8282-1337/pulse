@@ -130,15 +130,21 @@ async def redeem_bootstrap_token(
     admin_email = owner.email if owner is not None else None
 
     # Owner-Membership in der Cloud tracken (= Account-basierte Server-Liste,
-    # ersetzt den Zero-Knowledge-Vault). Bei wiederholtem Redeem ist der
-    # vorhandene Eintrag bereits vorhanden — ein INSERT-CONFLICT ist harmlos.
-    db.add(
-        UserInstanceMembership(
-            user_id=instance.registered_by,
-            instance_id=instance.id,
-            role="owner",
-        )
+    # ersetzt den Zero-Knowledge-Vault). Die Genehmigung legt sie bereits an;
+    # bei wiederholtem Redeem (oder einem vor diesem Fix genehmigten Antrag)
+    # existiert sie ggf. schon → nur einfügen, wenn noch keine da ist (ein
+    # blindes INSERT würde am Composite-PK mit IntegrityError crashen).
+    existing_membership = await db.get(
+        UserInstanceMembership, (instance.registered_by, instance.id)
     )
+    if existing_membership is None:
+        db.add(
+            UserInstanceMembership(
+                user_id=instance.registered_by,
+                instance_id=instance.id,
+                role="owner",
+            )
+        )
 
     await db.commit()
 
