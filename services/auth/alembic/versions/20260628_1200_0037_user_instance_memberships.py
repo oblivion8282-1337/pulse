@@ -29,13 +29,13 @@ def upgrade() -> None:
         sa.Column(
             "user_id",
             sa.BigInteger,
-            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            sa.ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
             "instance_id",
             sa.BigInteger,
-            sa.ForeignKey("registered_instances.id", ondelete="CASCADE"),
+            sa.ForeignKey(f"{SCHEMA}.registered_instances.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column(
