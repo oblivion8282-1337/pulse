@@ -6,22 +6,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import { auth } from '$lib/stores/auth.svelte';
   import { myInstanceApplications } from '$lib/stores/myInstanceApplications.svelte';
-  import {
-    instancesApi,
-    type InstanceApplication,
-    type ApplicationPurpose
-  } from '$lib/api/instances';
+  import { instancesApi, type InstanceApplication } from '$lib/api/instances';
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
 
-  // Form state
+  // Form state — nur noch der Hostname; die Kontakt-E-Mail kommt server-seitig
+  // aus dem eingeloggten User.
   let hostname = $state('');
-  let purpose = $state<ApplicationPurpose>('privat');
-  let expected_users = $state(10);
-  let contact_email = $state(auth.user?.email ?? '');
-  let notes = $state('');
   let submitting = $state(false);
   let formError = $state<string | null>(null);
 
@@ -53,18 +45,11 @@
     if (!hostname.trim()) { formError = m.self_host_application_hostname_required(); return; }
     submitting = true;
     try {
-      const created = await instancesApi.submitApplication({
-        hostname: hostname.trim(),
-        purpose,
-        expected_users,
-        contact_email: contact_email.trim(),
-        notes: notes.trim() || null
-      });
+      const created = await instancesApi.submitApplication({ hostname: hostname.trim() });
       // Antrag beobachten → Owner-Toast, sobald genehmigt/abgelehnt wird.
       myInstanceApplications.register(created.id);
       toast.success(m.self_host_application_submitted_toast());
       hostname = '';
-      notes = '';
       await reload();
     } catch (e) {
       formError = e instanceof Error ? e.message : String(e);
@@ -113,57 +98,6 @@
         placeholder="pulse.example.org"
         class="bg-bg-input border-border text-text-bright placeholder:text-text-muted rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
       />
-    </div>
-
-    <div class="grid grid-cols-2 gap-3">
-      <div class="flex flex-col gap-1">
-        <label class="text-text-bright text-xs font-medium" for="sha-purpose">{m.self_host_application_purpose_label()}</label>
-        <select
-          id="sha-purpose"
-          bind:value={purpose}
-          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-        >
-          <option value="privat">{m.self_host_application_purpose_privat()}</option>
-          <option value="verein">{m.self_host_application_purpose_verein()}</option>
-          <option value="firma">{m.self_host_application_purpose_firma()}</option>
-          <option value="sonst">{m.self_host_application_purpose_sonst()}</option>
-        </select>
-      </div>
-      <div class="flex flex-col gap-1">
-        <label class="text-text-bright text-xs font-medium" for="sha-users">{m.self_host_application_expected_users_label()}</label>
-        <input
-          id="sha-users"
-          type="number"
-          min="1"
-          max="10000"
-          bind:value={expected_users}
-          class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-        />
-      </div>
-    </div>
-
-    <div class="flex flex-col gap-1">
-      <label class="text-text-bright text-xs font-medium" for="sha-email">{m.self_host_application_email_label()}</label>
-      <input
-        id="sha-email"
-        type="email"
-        bind:value={contact_email}
-        class="bg-bg-input border-border text-text-bright rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-      />
-    </div>
-
-    <div class="flex flex-col gap-1">
-      <label class="text-text-bright text-xs font-medium" for="sha-notes">
-        {m.self_host_application_notes_label()} <span class="text-text-muted font-normal">{m.self_host_application_optional()}</span>
-      </label>
-      <textarea
-        id="sha-notes"
-        bind:value={notes}
-        rows="2"
-        maxlength="2000"
-        placeholder={m.self_host_application_notes_placeholder()}
-        class="bg-bg-input border-border text-text-bright placeholder:text-text-muted resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-      ></textarea>
     </div>
 
     {#if formError}

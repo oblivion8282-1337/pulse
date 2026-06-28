@@ -114,12 +114,8 @@
           <div class="min-w-0">
             <p class="text-text-bright text-sm font-medium">{app.hostname}</p>
             <p class="text-text-muted text-xs mt-0.5">
-              {app.applicant_username} · {app.purpose} · {m.admin_instances_pending_user_count({ count: app.expected_users })}
+              {app.applicant_username} · {app.contact_email}
             </p>
-            <p class="text-text-muted text-xs">{app.contact_email}</p>
-            {#if app.notes}
-              <p class="text-text-base text-xs mt-1 italic">{app.notes}</p>
-            {/if}
           </div>
           <p class="text-text-muted text-xs shrink-0">
             {new Date(app.created_at).toLocaleDateString('de-DE')}

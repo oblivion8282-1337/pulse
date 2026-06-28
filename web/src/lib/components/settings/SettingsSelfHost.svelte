@@ -28,7 +28,9 @@
     </span>
     <div class="flex flex-col gap-0.5">
       <h3 class="text-text-bright text-sm font-semibold">{title}</h3>
-      <p class="text-text-muted text-xs">{subtitle}</p>
+      {#if subtitle}
+        <p class="text-text-muted text-xs">{subtitle}</p>
+      {/if}
     </div>
   </div>
 {/snippet}
@@ -56,7 +58,7 @@
 
   <!-- Eigener Server (Stufe 3): dauerhafter VPS, braucht Cloud-Freischaltung. -->
   <section class={SECTION_CLASS} data-testid="self-host-server-section">
-    {@render cardHeader(ServerIcon, m.self_host_server_title(), m.self_host_server_subtitle())}
+    {@render cardHeader(ServerIcon, m.self_host_server_title(), '')}
     {@render serverBody()}
   </section>
 </div>
