@@ -414,8 +414,6 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
 
   // Lebenszyklus: beim echten Beenden den Stack sauber stoppen.
   app.on('before-quit', () => { void manager.stop(); });
-  ipcMain.handle('host:stop', () => hl.stop());
-  ipcMain.handle('host:status', () => hl.getStatus());
 }
 
 // ── GSR sidecar bridge (E1b) ────────────────────────────────────────────────
