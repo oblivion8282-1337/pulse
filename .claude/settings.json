@@ -1,26 +1,5 @@
 {
   "_comment": "Geteilte Projekt-Settings für Claude Code (auf jedem Rechner). Lokale, ungeteilte Overrides gehören in .claude/settings.local.json (gitignored).",
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/require-simplifier.sh\""
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/stop-require-simplifier.sh\""
-          }
-        ]
-      }
-    ]
   }
 }

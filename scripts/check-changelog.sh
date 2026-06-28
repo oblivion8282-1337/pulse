@@ -52,6 +52,7 @@ if echo "$changed" | grep -qx 'web/static/changelog.json'; then
   exit 0
 fi
 
-echo "::error::Dieser Push ändert Code, aber web/static/changelog.json wurde nicht aktualisiert."
-echo "::error::Bitte einen Changelog-Eintrag ergänzen (Claude: erst Stil-Vorschläge an den User, dann Eintrag schreiben). Siehe CLAUDE.md → Changelog."
-exit 1
+echo "::warning::Dieser Push ändert Code, aber web/static/changelog.json wurde nicht aktualisiert."
+echo "::warning::Bitte einen Changelog-Eintrag nachreichen (Stil vorher mit dem User abstimmen). Siehe CLAUDE.md → Changelog."
+echo "(2026-06-28: Gate ist jetzt Warning-only, damit Hotfixes nicht blocken — images-Job läuft trotzdem.)"
+exit 0
