@@ -278,6 +278,13 @@ def _sign_credential_jwt(user: User, cred: IssuedCredential, session_row: UserSe
         "pairwise_seed": base64.urlsafe_b64encode(user.pairwise_salt).rstrip(b"=").decode(),
         "amr": session_row.amr,
         "acr": session_row.acr,
+        # Self-Host-WS-Auth (``chat-gateway/routes/ws.py:104`` und
+        # ``security.py:308``) liest ``payload.get("admin", False)`` — ohne
+        # diesen Claim war der lokale ``is_admin`` IMMER False, auch wenn
+        # ``cert_login.is_owner_admin`` korrekt auf True stand. Cloud-Admins
+        # kriegen den Flag ebenfalls durchgereicht (semantisch dasselbe wie
+        # das ``is_admin`` in der ``users``-Tabelle).
+        "admin": bool(user.is_admin),
         "iat": int(time.time()),
         "exp": int(expires_at.timestamp()),
     }
