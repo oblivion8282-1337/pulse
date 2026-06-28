@@ -34,9 +34,7 @@
     addServerWithCertLogin,
     mapCertLoginReason,
     markSelfHostDisclaimerSeen,
-    BackupRequiredError,
   } from '$lib/api/add-server-flow';
-  import { backupGate } from '$lib/stores/backup-gate.svelte';
   import { CertLoginError } from '$lib/api/cert-login';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
@@ -135,9 +133,6 @@
     const code = inviteInput.trim();
     const hostname = resolvedHostname;
     const instanceId = info.instance_id ?? undefined;
-
-    // Backup-Gate entfernt (Server-Liste ist jetzt serverseitig). Der Dialog
-    // bleibt nur für den eigentlichen Cert-Login offen.
 
     try {
       const r = await addServerWithCertLogin({

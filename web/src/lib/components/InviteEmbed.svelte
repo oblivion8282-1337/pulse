@@ -21,7 +21,6 @@
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { guildIconSrc } from '$lib/guildIcon';
   import {
-    BackupRequiredError,
     SelfHostContactConfirmRequired,
     getInvitePreviewOn
   } from '$lib/api/add-server-flow';
@@ -105,9 +104,9 @@
 
   // Harte Reentrancy-Sperre (NICHT reaktiv): garantiert, dass nie zwei
   // ``doJoin``-Flows gleichzeitig laufen. ``joining`` steuert nur die Button-
-  // Optik und wird im BackupRequiredError-/Cancel-Fall früh zurückgesetzt
+  // Optik und wird im Cancel-Fall früh zurückgesetzt
   // (Button wieder klickbar zum Retry) — ohne diese Sperre könnte ein Klick im
-  // Schließ-Animationsfenster des Backup-Gate-Dialogs einen zweiten
+  // Schließ-Animationsfenster des Self-Host-Confirm-Dialogs einen zweiten
   // Cert-Login-Flow anstoßen.
   let busy = false;
 
@@ -118,8 +117,6 @@
     try {
       await joinGuildByInvite(input, confirmed);
     } catch (e) {
-      // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler-Toast.
-      if (e instanceof BackupRequiredError) return;
       // Neuer, unbekannter Self-Host → Erstkontakt-Dialog zeigen, dann mit
       // confirmed=true erneut beitreten (sonst bleibt der Beitritt still hängen).
       if (e instanceof SelfHostContactConfirmRequired) {

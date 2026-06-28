@@ -1,8 +1,8 @@
 /**
  * Vereinheitlichter Backup-Flow — "ein Account = ein Wiederherstellungs-Schlüssel".
  *
- * Alle drei Setup-Einstiege (Onboarding-Dialog, Self-Host-Backup-Gate,
- * Einstellungen → Cloud-Backup) laufen über GENAU diese zwei Funktionen:
+ * Beide Setup-Einstiege (Onboarding-Dialog, Einstellungen → Cloud-Backup)
+ * laufen über GENAU diese zwei Funktionen:
  *
  *  - `detectBackupFlowMode()` — 'create' (Account hat noch keinen Schlüssel →
  *    erstellen) oder 'enter' (Account hat schon einen → nur eingeben; ein

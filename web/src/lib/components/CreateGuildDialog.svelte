@@ -6,7 +6,7 @@
   import * as Alert from '$lib/components/ui/alert/index.js';
   import OctagonXIcon from '@lucide/svelte/icons/octagon-x';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
-  import { SelfHostContactConfirmRequired, BackupRequiredError } from '$lib/api/add-server-flow';
+  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
   import { m } from '$lib/paraglide/messages.js';
 
   type Mode = 'choose' | 'create' | 'join';
@@ -103,8 +103,6 @@
       succeeded = true;
       // success → the parent navigates to the new guild and this dialog unmounts.
     } catch (err) {
-      // Bewusster Abbruch des Backup-Setups → still verwerfen, kein Fehler.
-      if (err instanceof BackupRequiredError) return;
       if (err instanceof SelfHostContactConfirmRequired) {
         confirmHost = err.hostname;
         pendingJoinInput = input;

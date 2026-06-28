@@ -20,7 +20,6 @@ import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
 import type { AcceptInviteResult, InvitePreview } from './types';
-import { backupGate } from '$lib/stores/backup-gate.svelte';
 
 export type AddServerSuccess = {
   entry: ServerEntry;
@@ -41,23 +40,6 @@ export class SelfHostContactConfirmRequired extends Error {
   constructor(public readonly hostname: string) {
     super('self-host-contact-confirm-required');
     this.name = 'SelfHostContactConfirmRequired';
-  }
-}
-
-/**
- * Sentinel-Fehler: wird geworfen, wenn der Beitritt zu einem Self-Host-Server
- * abgebrochen wird, weil noch kein Cloud-Backup eingerichtet ist (der
- * BackupGate-Dialog wurde vom User geschlossen, statt das Setup abzuschließen).
- *
- * Self-Host-Server liegen nur gerätelokal + im backup-verschlüsselten Tresor —
- * ohne Backup gingen sie bei Gerätewechsel/Account-Switch verloren. Der Caller
- * fängt diesen Fehler und bricht **still** ab (kein Fehler-Toast — der Abbruch
- * war eine bewusste User-Entscheidung).
- */
-export class BackupRequiredError extends Error {
-  constructor() {
-    super('backup-required');
-    this.name = 'BackupRequiredError';
   }
 }
 
@@ -104,13 +86,6 @@ export async function addServerWithCertLogin(args: {
    */
   publicJoinHandle?: string;
 }): Promise<AddServerSuccess> {
-  // Backup-Gate entfernt: die Server-Liste ist jetzt serverseitig (Migration 0037,
-  // Account-basierte Memberships auf user_instance_memberships). Es gibt keine
-  // gerätelokale Server-Liste mehr, die der User vor dem Beitritt hätte sichern
-  // müssen — sie lebt auf der Cloud. Der Cloud-Backup-Flow bleibt nur für die
-  // optionale Account-Key-Recovery (in Prod via COMPOSE_PROFILES=backup OFF
-  // standardmäßig deaktiviert).
-
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 
   let result;

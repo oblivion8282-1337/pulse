@@ -174,8 +174,8 @@ class CertStore {
     // In-Memory-Referenz SYNCHRON vor dem await leeren (gleiche Anti-Leak-
     // Reihenfolge wie keypairStore.wipe(): signOut() ruft
     // wipe() fire-and-forget; bliebe this.cert bis zum IDB-Delete gesetzt, läse
-    // ein reaktiver Consumer (backup-gate, DeviceManagement) in diesem Fenster
-    // noch das Cert des Vorgängers. Auch robuster bei IDB-Fehler.
+    // ein reaktiver Consumer (z.B. DeviceManagement) in diesem Fenster noch das
+    // Cert des Vorgängers. Auch robuster bei IDB-Fehler.
     this.cert = null;
     await wipeCert();
   }

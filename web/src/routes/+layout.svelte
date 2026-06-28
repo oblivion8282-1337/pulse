@@ -23,10 +23,9 @@
   import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { initLocale } from '$lib/i18n';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
-  import { SelfHostContactConfirmRequired, BackupRequiredError } from '$lib/api/add-server-flow';
+  import { SelfHostContactConfirmRequired } from '$lib/api/add-server-flow';
   import SelfHostContactConfirmDialog from '$lib/components/server/SelfHostContactConfirmDialog.svelte';
-  import BackupGateDialog from '$lib/components/identity/BackupGateDialog.svelte';
-
+  
   // Sprache so früh wie möglich festlegen (synchron, vor dem ersten Render),
   // damit alle Texte direkt in der richtigen Sprache erscheinen — „de sonst en"
   // nach Systemsprache, manuelle Wahl (localStorage) hat Vorrang.
@@ -63,8 +62,6 @@
     try {
       await joinGuildByInvite(link, confirmed);
     } catch (e) {
-      // Bewusster Abbruch des Backup-Setups → still verwerfen.
-      if (e instanceof BackupRequiredError) return;
       if (e instanceof SelfHostContactConfirmRequired) {
         inviteConfirmHost = e.hostname;
         pendingInviteLink = link;
@@ -221,7 +218,5 @@
   onConfirm={onConfirmInviteContact}
   onCancel={onCancelInviteContact}
 />
-
-<BackupGateDialog />
 
 <Toaster position="bottom-right" richColors />
