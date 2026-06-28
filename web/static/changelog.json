@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.6",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Self-Host-Beitritt ohne Backup-Dialog",
+      "items": [
+        "Wenn du einem selbstgehosteten Pulse-Server beitrittst, fragt Pulse nicht mehr nach einem Sync-Schlüssel oder Backup-Setup.",
+        "Das Cloud-Backup für deinen Account-Key bleibt unverändert in den Einstellungen verfügbar, falls du es später einrichten möchtest."
+      ]
+    },
+    {
       "id": "2026-06-28.5",
       "date": "2026-06-28",
       "style": "Sachlich",
