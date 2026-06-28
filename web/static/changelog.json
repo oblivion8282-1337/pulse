@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-29",
+      "date": "2026-06-29",
+      "style": "Sachlich",
+      "title": "Selbstgehostete Server auf jedem Gerät",
+      "items": [
+        "Deine selbstgehosteten Server erscheinen jetzt zuverlässig in der Seitenleiste, sobald du dich anmeldest — auch in einem anderen Browser oder auf einem anderen Gerät.",
+        "Vorher konnte es passieren, dass ein Server nur in dem Browser auftauchte, in dem du ihn hinzugefügt hattest."
+      ]
+    },
+    {
       "id": "2026-06-28.8",
       "date": "2026-06-28",
       "style": "Sachlich",
