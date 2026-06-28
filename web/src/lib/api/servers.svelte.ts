@@ -20,6 +20,7 @@
 
 import { isElectron } from '$lib/platform/runtime';
 import { normalizeHostname } from '$lib/utils/hostname';
+import { instancesApi } from '$lib/api/instances';
 import type { PulseStoreApi } from '$lib/platform/pulse';
 
 export type ServerEntry = {
@@ -258,6 +259,52 @@ class ServersStore {
   findByHostname(hostname: string): ServerEntry | undefined {
     const normalized = normalizeHostname(hostname);
     return this.servers.find((s) => s.hostname === normalized);
+  }
+
+  /** Add-account-based Self-Host re-hydration: merged fehlende
+   *  Backend-Memberships in die gerätelokale Liste. Additiv + idempotent —
+   *  `keepOnlyCloud(true)` nach Logout löscht nur Self-Hosts; ohne diesen
+   *  Re-Hydrate-Pfad wären sie nach Logout+Login weg, obwohl die Membership
+   *  in `auth.user_instance_memberships` weiter existiert.
+   *  Fire-and-forget: Fehler werden geschluckt, der nächste Login retry't. */
+  async hydrateFromBackend(): Promise<void> {
+    try {
+      const instances = await instancesApi.listMyInstances();
+      if (!instances || instances.length === 0) return;
+
+      let mutated = false;
+      for (const inst of instances) {
+        const normalized = normalizeHostname(inst.hostname);
+        // Per Snowflake ODER per Hostname matchen — Vorgänger-Einträge ohne
+        // instance_id (z.B. legacy localStorage) leben nur am Hostname.
+        const exists = this.servers.some(
+          (s) => s.instance_id === inst.id || s.hostname === normalized,
+        );
+        if (exists) continue;
+
+        this.servers = [
+          ...this.servers,
+          {
+            id: crypto.randomUUID(),
+            hostname: normalized,
+            instance_id: inst.id,
+            label: inst.hostname,
+            pairwise_sub: null, // wird beim ersten Connect via Cert-Login gesetzt
+            isCloud: false,
+            notification_mode: 'mentions',
+            added_at: Date.now(),
+          },
+        ];
+        mutated = true;
+      }
+
+      if (mutated) {
+        saveToStorage(this.servers);
+        this._notifyChange();
+      }
+    } catch {
+      // silent — nächster Login retry't
+    }
   }
 }
 

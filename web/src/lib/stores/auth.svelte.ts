@@ -155,8 +155,10 @@ class AuthStore {
     await this._enforceDeviceOwner(user.id);
     // Schritt-3b cross-device hydrate, ausgelöst direkt nach dem Token-Save.
     void hydrateServerSections();
-    // E2E-Server-Vault: bei Login ohne Tab-Reload den Pull anstoßen, falls ein
-    }
+    // Account-basierte Self-Host-Liste aus dem Backend mergen
+    // (gegen `signOut → keepOnlyCloud(true)`-Verlust). Details im Helper.
+    void serversStore.hydrateFromBackend();
+  }
 
   /**
    * Geräte-Besitzer-Wächter (Account-Switch-Schutz). Hinterlegt pro Gerät, wem
