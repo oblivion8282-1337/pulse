@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.2",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Desktop-App startet wieder",
+      "intro": "Die Electron-App zeigte nach dem Update nur zwei harmlose Chromium-Meldungen und schloss sich dann ohne Fenster. Ursache war ein doppelt registrierter IPC-Handler in der Self-Host-Verdrahtung.",
+      "items": [
+        "App startet wieder normal; Self-Host-Funktionen sind unverändert."
+      ]
+    },
+    {
       "id": "2026-06-28.1",
       "date": "2026-06-28",
       "style": "Sachlich",
