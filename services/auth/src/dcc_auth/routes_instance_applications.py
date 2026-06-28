@@ -87,9 +87,13 @@ def _require_self_host_enabled(user: User) -> None:
 
 class InstanceApplicationCreate(BaseModel):
     hostname: str = Field(min_length=4, max_length=253)
-    purpose: Literal["privat", "verein", "firma", "sonst"]
-    expected_users: int = Field(ge=1, le=10000)
-    contact_email: EmailStr
+    # Das Formular erfasst nur noch den Hostname. Die restlichen Felder sind
+    # optional (für Alt-Clients / API-Nutzer noch akzeptiert): ``contact_email``
+    # wird sonst aus dem eingeloggten User abgeleitet (haben wir ohnehin),
+    # purpose/expected_users bekommen unauffällige Defaults.
+    purpose: Literal["privat", "verein", "firma", "sonst"] = "sonst"
+    expected_users: int = Field(default=1, ge=1, le=10000)
+    contact_email: EmailStr | None = None
     notes: str | None = Field(default=None, max_length=2000)
 
 
@@ -214,7 +218,9 @@ async def submit_instance_application(
         hostname=hostname,
         purpose=payload.purpose,
         expected_users=payload.expected_users,
-        contact_email=str(payload.contact_email),
+        # Antragsteller ist der eingeloggte User → seine E-Mail ist die Quelle.
+        # Ein explizit mitgeschicktes ``contact_email`` (Alt-Client) gewinnt.
+        contact_email=str(payload.contact_email) if payload.contact_email else user.email,
         notes=payload.notes,
         status="pending",
     )

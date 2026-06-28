@@ -173,6 +173,22 @@ async def test_post_application_happy_path(client, alice_cookie):
     assert "client_secret" not in data
 
 
+@pytest.mark.asyncio
+async def test_post_application_hostname_only_derives_email(client, alice_cookie):
+    """Das schlanke Formular schickt nur den Hostname — contact_email leitet das
+    Backend aus dem eingeloggten User ab, purpose/expected_users bekommen Defaults."""
+    r = await client.post(
+        "/me/instance-applications",
+        json={"hostname": "minimal.example.com"},
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 201, r.text
+    data = r.json()
+    assert data["hostname"] == "minimal.example.com"
+    assert data["contact_email"] == "inst_alice@dcc-test.example.com"
+    assert data["status"] == "pending"
+
+
 # ---------------------------------------------------------------------------
 # Hostname-Validation
 # ---------------------------------------------------------------------------

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-29.3",
+      "date": "2026-06-29",
+      "style": "Sachlich",
+      "title": "Antrag für eigenen Server vereinfacht",
+      "items": [
+        "Wenn du einen eigenen Server beantragst, brauchst du nur noch den Hostnamen anzugeben — Verwendungszweck, erwartete Nutzerzahl und Anmerkungen entfallen.",
+        "Deine Kontakt-E-Mail muss nicht mehr eingetippt werden; sie wird aus deinem Konto übernommen."
+      ]
+    },
+    {
       "id": "2026-06-29.2",
       "date": "2026-06-29",
       "style": "Sachlich",

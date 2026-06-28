@@ -22,7 +22,6 @@ import { cookieFetch, renewSession, safeParse, extractDetail } from './cookie-cl
 
 export type ApplicationStatus = 'pending' | 'approved' | 'rejected';
 export type InstanceStatus = 'active' | 'suspended';
-export type ApplicationPurpose = 'privat' | 'verein' | 'firma' | 'sonst';
 
 /** Spiegelt InstanceApplicationOut (User-Route). */
 export interface InstanceApplication {
@@ -110,14 +109,9 @@ export interface BootstrapToken {
 // ---------------------------------------------------------------------------
 
 export const instancesApi = {
-  /** Antrag auf Self-Host-Instanz einreichen. */
-  submitApplication(payload: {
-    hostname: string;
-    purpose: ApplicationPurpose;
-    expected_users: number;
-    contact_email: string;
-    notes?: string | null;
-  }): Promise<InstanceApplication> {
+  /** Antrag auf Self-Host-Instanz einreichen. Es wird nur der Hostname erfasst —
+   *  die Kontakt-E-Mail leitet das Backend aus dem eingeloggten User ab. */
+  submitApplication(payload: { hostname: string }): Promise<InstanceApplication> {
     return cookieFetch<InstanceApplication>('/me/instance-applications', {
       method: 'POST',
       body: payload
