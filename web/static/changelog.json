@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.4",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Env-File pro Server nur einmal abrufbar",
+      "items": [
+        "Wenn du für deinen Pulse-Server die fertige Konfigurationsdatei ziehst, bekommst du sie ab jetzt nur einmal pro Server-Instanz. Weitere Downloads sind gesperrt.",
+        "Für jeden weiteren Server brauchst du wie gewohnt einen neuen Antrag."
+      ]
+    },
+    {
       "id": "2026-06-28.3",
       "date": "2026-06-28",
       "style": "Sachlich",
