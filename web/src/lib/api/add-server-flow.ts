@@ -104,12 +104,12 @@ export async function addServerWithCertLogin(args: {
    */
   publicJoinHandle?: string;
 }): Promise<AddServerSuccess> {
-  // Backup-Pflicht: Self-Host-Server überleben Gerätewechsel/Account-Switch nur
-  // über den backup-verschlüsselten Server-Tresor. Ohne Cloud-Backup öffnet der
-  // Gate einen Setup-Dialog; bricht der User ihn ab, wird der Beitritt
-  // verworfen (BackupRequiredError → Caller bricht still ab). Cloud-Ziele
-  // erreichen diese Funktion nie, brauchen das also nicht.
-  if (!(await backupGate.ensure())) throw new BackupRequiredError();
+  // Backup-Gate entfernt: die Server-Liste ist jetzt serverseitig (Migration 0037,
+  // Account-basierte Memberships auf user_instance_memberships). Es gibt keine
+  // gerätelokale Server-Liste mehr, die der User vor dem Beitritt hätte sichern
+  // müssen — sie lebt auf der Cloud. Der Cloud-Backup-Flow bleibt nur für die
+  // optionale Account-Key-Recovery (in Prod via COMPOSE_PROFILES=backup OFF
+  // standardmäßig deaktiviert).
 
   const entry = serversStore.add(args.hostname, args.label, args.instanceId);
 

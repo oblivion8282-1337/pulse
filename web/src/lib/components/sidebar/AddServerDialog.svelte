@@ -136,15 +136,8 @@
     const hostname = resolvedHostname;
     const instanceId = info.instance_id ?? undefined;
 
-    // Fehlt noch ein Cloud-Backup, öffnet der Beitritt gleich den Backup-Setup-
-    // Dialog. Diesen Dialog VORHER schließen, damit das Backup-Setup allein im
-    // Fokus steht statt verwirrend darüber zu stapeln. Der Flow läuft weiter;
-    // Erfolg/Fehler kommen dann per Toast (kein Inline-Dialog mehr da).
-    const closedForBackup = !(await backupGate.hasBackup());
-    if (closedForBackup) {
-      reset();
-      onClose();
-    }
+    // Backup-Gate entfernt (Server-Liste ist jetzt serverseitig). Der Dialog
+    // bleibt nur für den eigentlichen Cert-Login offen.
 
     try {
       const r = await addServerWithCertLogin({
@@ -163,19 +156,13 @@
       toast.success(m.add_server_dialog_toast_added({ host: label }));
       if (r.inviteError) toast.error(m.add_server_dialog_toast_invite_error({ reason: r.inviteError }));
       else if (r.invite) toast.success(m.add_server_dialog_toast_joined({ name: r.invite.guild.name }));
-      if (!closedForBackup) {
-        reset();
-        onClose();
-      }
+      reset();
+      onClose();
     } catch (err) {
-      // Bewusster Abbruch des Backup-Setups → still verwerfen.
-      if (err instanceof BackupRequiredError) return;
       const msg = err instanceof CertLoginError
         ? mapCertLoginReason(err.reason)
         : (err as Error).message ?? m.add_server_dialog_error_connection_failed();
-      // Dialog schon zu (Backup-Pfad) → Toast; sonst inline im Dialog.
-      if (closedForBackup) toast.error(msg);
-      else error = msg;
+      error = msg;
     } finally {
       busy = false;
     }
