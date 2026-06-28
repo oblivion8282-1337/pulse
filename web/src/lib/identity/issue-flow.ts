@@ -31,54 +31,56 @@ import { issueCert, getProfileStatement } from '$lib/api/credentials';
 // Gerätebeschriftung
 // ---------------------------------------------------------------------------
 
+/** Electron-OS-Fallback, wenn kein Hostname verfügbar ist (eigene Variante:
+ *  `Win`-Match, kein Android/iOS, macOS als Default). */
+function electronOsFallback(ua: string): string {
+  if (ua.includes('Linux')) return 'Linux';
+  if (ua.includes('Win')) return 'Windows';
+  return 'macOS';
+}
+
+/** Browser-Name aus dem User-Agent (ohne Version — siehe buildDeviceLabel). */
+function detectBrowser(ua: string): string {
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  if (/Chrome\//.test(ua)) return 'Chrome';
+  if (/Version\/\d+.*Safari/.test(ua)) return 'Safari';
+  return 'Browser';
+}
+
+/** Betriebssystem aus dem Browser-User-Agent. */
+function detectOs(ua: string): string {
+  if (ua.includes('Linux')) return 'Linux';
+  if (ua.includes('Windows')) return 'Windows';
+  if (ua.includes('Mac')) return 'macOS';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
+  return 'Unknown OS';
+}
+
 /**
- * Baut einen lesbaren Geräte-Label aus dem User-Agent.
- * Kürzt auf 64 Zeichen (Backend-Limit).
+ * Baut das menschenlesbare Geräte-Label fürs Cert (max. 64 Zeichen).
  *
- * Beispiel: "Chrome 130 · Linux" oder "Electron / Linux"
+ * BEWUSST OHNE Browser-/Electron-Versionsnummer: die ändert sich bei jedem
+ * Auto-Update (Chrome 147→148→149…) und ließ denselben Browser immer wieder als
+ * „neues Gerät" erscheinen. Stabil über Updates → das Backend erkennt ein
+ * erneutes Login desselben Geräts am gleichen Label und ersetzt den alten Pass,
+ * statt zu stapeln.
+ *
+ * Desktop: nutzt den ECHTEN Rechnernamen (Hostname, nur via Electron-Bridge
+ * verfügbar) → zwei Desktops sind sauber getrennt. Browser können den Hostnamen
+ * aus Privacy-Gründen nicht lesen → dort bleibt es bei „Browser · OS".
  */
 function buildDeviceLabel(): string {
   if (typeof navigator === 'undefined') return 'Unknown Device';
   const ua = navigator.userAgent;
 
-  // Electron-Erkennung
+  // Electron: echter Rechnername, sonst OS als Fallback.
   if (ua.includes('Electron')) {
-    const electronMatch = ua.match(/Electron\/(\d+)/);
-    const ver = electronMatch ? ` ${electronMatch[1]}` : '';
-    const os = ua.includes('Linux') ? 'Linux' : ua.includes('Win') ? 'Windows' : 'macOS';
-    return `Pulse Desktop${ver} · ${os}`.slice(0, 64);
+    const host = typeof window !== 'undefined' ? window.pulse?.deviceName?.trim() : '';
+    return `Pulse Desktop · ${host || electronOsFallback(ua)}`.slice(0, 64);
   }
 
-  // Browser-Erkennung (vereinfacht — nur zur Lesbarkeit)
-  let browser = 'Browser';
-  let version = '';
-  const chromeMatch = ua.match(/Chrome\/(\d+)/);
-  const firefoxMatch = ua.match(/Firefox\/(\d+)/);
-  const safariMatch = ua.match(/Version\/(\d+).*Safari/);
-  if (firefoxMatch) {
-    browser = 'Firefox';
-    version = firefoxMatch[1];
-  } else if (chromeMatch) {
-    browser = 'Chrome';
-    version = chromeMatch[1];
-  } else if (safariMatch) {
-    browser = 'Safari';
-    version = safariMatch[1];
-  }
-
-  const os = ua.includes('Linux')
-    ? 'Linux'
-    : ua.includes('Windows')
-      ? 'Windows'
-      : ua.includes('Mac')
-        ? 'macOS'
-        : ua.includes('Android')
-          ? 'Android'
-          : ua.includes('iPhone') || ua.includes('iPad')
-            ? 'iOS'
-            : 'Unknown OS';
-
-  return `${browser}${version ? ' ' + version : ''} · ${os}`.slice(0, 64);
+  return `${detectBrowser(ua)} · ${detectOs(ua)}`.slice(0, 64);
 }
 
 // ---------------------------------------------------------------------------

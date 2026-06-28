@@ -61,7 +61,9 @@ async def test_issue_idempotency_same_pubkey(client):
 
 
 @pytest.mark.asyncio
-async def test_device_limit_409(client, app):
+async def test_device_limit_rolls_oldest(client, app):
+    """At the cap, a new DISTINCT device retires the oldest instead of 409ing —
+    the limit is a rolling window, issuance never hard-blocks."""
     cookie, _ = await _reg_and_login(client)
     for i in range(20):
         app.state.rate_buckets = {}
@@ -70,8 +72,36 @@ async def test_device_limit_409(client, app):
         assert r.status_code == 200, f"device {i}: {r.text}"
     app.state.rate_buckets = {}
     r = await _issue(client, cookie, pubkey=base64.b64encode(b"\xff" * 32).decode(), label="Too Many")
-    assert r.status_code == 409
-    assert "device_limit_reached" in r.text
+    assert r.status_code == 200, r.text
+    # Still capped at 20 active; the oldest ("Device 0") was retired, newcomer in.
+    lst = await client.get("/credentials/list", headers={"Cookie": cookie})
+    labels = [d["device_label"] for d in lst.json()["devices"]]
+    assert len(labels) == 20
+    assert "Device 0" not in labels
+    assert "Too Many" in labels
+
+
+@pytest.mark.asyncio
+async def test_issue_same_label_supersedes_old_device(client, app):
+    """Re-login of the same device (same label, fresh keypair) replaces the old
+    pass instead of stacking — stale certs from wiped browsers self-clean."""
+    cookie, _ = await _reg_and_login(client)
+    r1 = await _issue(
+        client, cookie, pubkey=base64.b64encode(bytes([1]) * 32).decode(), label="Chrome · Linux"
+    )
+    assert r1.status_code == 200, r1.text
+    app.state.rate_buckets = {}
+    r2 = await _issue(
+        client, cookie, pubkey=base64.b64encode(bytes([2]) * 32).decode(), label="Chrome · Linux"
+    )
+    assert r2.status_code == 200, r2.text
+    # Exactly one active "Chrome · Linux" pass remains — the new one.
+    lst = await client.get("/credentials/list", headers={"Cookie": cookie})
+    labels = [d["device_label"] for d in lst.json()["devices"]]
+    assert labels.count("Chrome · Linux") == 1
+    c1 = pyjwt.decode(r1.json()["cert"], options={"verify_signature": False})
+    c2 = pyjwt.decode(r2.json()["cert"], options={"verify_signature": False})
+    assert c1["cert_id"] != c2["cert_id"]
 
 
 @pytest.mark.asyncio
