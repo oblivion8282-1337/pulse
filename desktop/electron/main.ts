@@ -542,6 +542,18 @@ function wireStore(): void {
       e.returnValue = {};
     }
   });
+
+  // Echter Rechnername fürs Geräte-Label (z.B. "Pulse Desktop · michaels-thinkpad").
+  // Nur die Desktop-App kann den Hostnamen lesen — im Browser gibt es dafür keine
+  // API. Sync (sendSync) wie store:getAllSync, einmal beim Build des Labels.
+  ipcMain.on('app:deviceNameSync', (e) => {
+    try {
+      e.returnValue = os.hostname();
+    } catch (err) {
+      console.error('[app] app:deviceNameSync failed:', err);
+      e.returnValue = '';
+    }
+  });
   ipcMain.handle('store:set', (_e, key: string, value: unknown) => {
     if (!ALLOWED_STORE_KEYS.has(key)) {
       console.warn('[store] store:set rejected unknown key:', key);

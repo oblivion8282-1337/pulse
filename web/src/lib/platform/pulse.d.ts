@@ -275,6 +275,10 @@ export interface PulseApi {
    *  (`$lib/platform/nativeUpdate`), which maps it to the `native.json` keys.
    *  Optional: shells built before this field fall back to UA detection. */
   os?: string;
+  /** Echter Rechnername (Hostname) fürs Geräte-Label, z.B. "michaels-thinkpad".
+   *  Nur die Desktop-App kann ihn lesen (im Browser gibt es keine API dafür).
+   *  Optional: ältere Shells liefern ihn nicht → Fallback aufs OS. */
+  deviceName?: string;
   store: PulseStoreApi;
   gsr: PulseGsrApi;
   notify: PulseNotifyApi;

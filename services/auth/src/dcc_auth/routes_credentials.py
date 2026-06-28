@@ -199,9 +199,36 @@ async def issue_credential(
     # Echte Ausstellung — Rate-Limit gilt.
     await _check_rate_user(request, user.id)
 
+    # Alt-Pässe einsammeln, die dem neuen weichen. Der Redis-CRL-Push passiert
+    # erst NACH dem erfolgreichen Commit (siehe unten): im IntegrityError-Pfad
+    # rollt die DB die Widerrufe zurück, dann dürfen wir sie auch nicht melden.
+    revoked_for_crl: list[tuple[str, datetime]] = []
+
+    def _retire(cred_row: IssuedCredential) -> None:
+        cred_row.revoked_at = now
+        exp = cred_row.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=UTC)
+        revoked_for_crl.append((str(cred_row.cert_id), exp))
+
     active = await _active_creds_for_user(db, user.id)
-    if len(active) >= _MAX_ACTIVE_CERTS:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="device_limit_reached")
+
+    # (1) Gleiches Gerät ersetzen: ein aktiver Pass mit demselben Label ist fast
+    # immer eine Leiche desselben Browsers (lokaler Schlüssel weg → neuer Pass),
+    # die sonst ewig mitzählt. Zurückziehen → ein aktiver Pass je echtem Gerät.
+    remaining = []
+    for c in active:
+        if c.device_label == payload.device_label:
+            _retire(c)
+        else:
+            remaining.append(c)
+
+    # (2) Rollendes Limit statt harter Wand: sind es echt zu viele VERSCHIEDENE
+    # Geräte, weicht der älteste, bis Platz ist. Kein 409/„device_limit_reached"
+    # mehr — die Ausstellung blockt nie, alte Pässe räumen sich selbst.
+    remaining.sort(key=lambda c: c.issued_at)  # ältester zuerst
+    while len(remaining) >= _MAX_ACTIVE_CERTS:
+        _retire(remaining.pop(0))
 
     cert_id = uuid.uuid4()
     expires_at = now + timedelta(days=_CERT_VALIDITY_DAYS)
@@ -248,6 +275,9 @@ async def issue_credential(
         return CredentialIssueResponse(cert=_sign_credential_jwt(user, winner, session_row))
     cert_jwt = _sign_credential_jwt(user, cred, session_row)
     await db.commit()
+    # Zurückgezogene Alt-Pässe in die CRL — erst jetzt, nach erfolgreichem Commit.
+    for old_cert_id, old_expires in revoked_for_crl:
+        await _push_to_redis_crl(old_cert_id, old_expires)
     return CredentialIssueResponse(cert=cert_jwt)
 
 

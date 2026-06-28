@@ -42,6 +42,17 @@ contextBridge.exposeInMainWorld('pulse', {
   // ältere Shell dieses Feld noch nicht liefert.
   os: process.platform,
 
+  // Echter Rechnername (Hostname) fürs Geräte-Label. Sync beim Start geholt
+  // (sandbox: true → kein direktes `os`-Modul im Preload, daher über main).
+  // Leerer String / undefined → der Renderer fällt aufs OS zurück.
+  deviceName: (() => {
+    try {
+      return (ipcRenderer.sendSync('app:deviceNameSync') as string) || undefined;
+    } catch {
+      return undefined;
+    }
+  })(),
+
   // Settings persistence (E1c) — thin wrappers over the `store:*` IPC channels
   // (main-side store in `store.ts`). The renderer side lives in
   // `web/src/lib/stream/persistence.ts`.

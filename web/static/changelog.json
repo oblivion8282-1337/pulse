@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.8",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Geräte- und Antragsliste aufgeräumt",
+      "items": [
+        "Deine angemeldeten Geräte (Einstellungen → Sicherheit) werden jetzt stabil benannt — keine doppelten Einträge mehr bei jedem Browser-Update.",
+        "In der Desktop-App erscheint dein echter Rechnername statt nur des Betriebssystems.",
+        "Du wirst nicht mehr ausgesperrt, wenn viele alte Geräte-Anmeldungen aufgelaufen sind — die ältesten werden automatisch entfernt.",
+        "Genehmigte Self-Host-Anträge stehen nicht mehr dauerhaft in 'Meine Anträge' — der fertige Server lebt unter 'Meine Instanzen' weiter."
+      ]
+    },
+    {
       "id": "2026-06-28.7",
       "date": "2026-06-28",
       "style": "Sachlich",

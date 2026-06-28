@@ -1,14 +1,14 @@
 <!--
   Admin: Liste offener Self-Host-Anträge + Approve/Reject-Aktionen.
-  Approve öffnet Confirm-Dialog; bei Erfolg wird das client_secret EINMALIG
-  im SecretDialog angezeigt — kein auto-dismiss, User muss explizit klicken.
+  Approve öffnet einen Confirm-Dialog; bei Erfolg nur ein Toast (kein Secret —
+  der Eigentümer richtet den Server selbst über „Server einrichten" ein).
 -->
 <script lang="ts">
   import { onMount } from 'svelte';
   import { toast } from 'svelte-sonner';
   import * as Dialog from '$lib/components/ui/dialog/index.js';
   import { m } from '$lib/paraglide/messages.js';
-  import { adminInstancesApi, type AdminApplication, type Approval } from '$lib/api/instances';
+  import { adminInstancesApi, type AdminApplication } from '$lib/api/instances';
 
   // Eltern (AdminInstances) hält den Pending-Badge-Count — nach jeder
   // Approve/Reject-Aktion Bescheid geben, damit das Badge live stimmt.
@@ -19,13 +19,11 @@
   let loadError = $state<string | null>(null);
   let busy = $state<Record<string, boolean>>({});
 
-  // Approve flow — nach Erfolg nur noch eine Bestätigung (kein Secret mehr:
-  // der Eigentümer richtet den Server über „Server einrichten" ein, das die
+  // Approve flow — nach Erfolg nur ein Toast (kein Dialog, kein Secret: der
+  // Eigentümer richtet den Server über „Server einrichten" ein, das die
   // Zugangsdaten per Bootstrap-Token automatisch + rotiert überträgt).
   let approveTarget = $state<AdminApplication | null>(null);
   let approveConfirmOpen = $state(false);
-  let approvedResult = $state<Approval | null>(null);
-  let approvedOpen = $state(false);
 
   // Reject flow
   let rejectTarget = $state<AdminApplication | null>(null);
@@ -61,14 +59,14 @@
     if (!approveTarget || approving) return;
     approving = true;
     const id = approveTarget.id;
+    const username = approveTarget.applicant_username;
     busy[id] = true;
     approveConfirmOpen = false;
     try {
-      const result = await adminInstancesApi.approveApplication(id);
+      await adminInstancesApi.approveApplication(id);
       apps = apps.filter((a) => a.id !== id);
       onchange?.();
-      approvedResult = result;
-      approvedOpen = true;
+      toast.success(m.admin_instances_pending_approved({ username }));
     } catch (e) {
       toast.error(m.admin_instances_pending_approve_failed(), {
         description: errMsg(e)
@@ -161,9 +159,6 @@
           {approveTarget?.hostname} — {approveTarget?.applicant_username}
         </Dialog.Description>
       </Dialog.Header>
-      <p class="text-text-muted text-sm">
-        {m.admin_instances_pending_confirm_body()}
-      </p>
       <div class="flex justify-end gap-2 pt-2">
         <button type="button" onclick={() => (approveConfirmOpen = false)}
           class="rounded-xl border border-border px-4 py-2 text-sm text-text-base hover:bg-bg-hover">
@@ -178,30 +173,6 @@
   </Dialog.Portal>
 </Dialog.Root>
 
-<!-- Genehmigt — reine Bestätigung, kein Secret (Installer überträgt alles). -->
-<Dialog.Root
-  open={approvedOpen}
-  onOpenChange={(v) => { if (!v) { approvedOpen = false; approvedResult = null; } }}
->
-  <Dialog.Portal>
-    <Dialog.Overlay />
-    <Dialog.Content class="max-w-md" data-testid="approved-dialog">
-      <Dialog.Header>
-        <Dialog.Title>{m.admin_instances_pending_approved_title()}</Dialog.Title>
-        <Dialog.Description>{approvedResult?.hostname}</Dialog.Description>
-      </Dialog.Header>
-      <p class="text-text-muted text-sm">
-        {m.admin_instances_pending_approved_body()}
-      </p>
-      <div class="flex justify-end pt-2">
-        <button type="button" onclick={() => { approvedOpen = false; approvedResult = null; }}
-          class="bg-primary hover:bg-primary/90 text-white rounded-xl px-4 py-2 text-sm font-medium">
-          {m.admin_instances_pending_secret_close()}
-        </button>
-      </div>
-    </Dialog.Content>
-  </Dialog.Portal>
-</Dialog.Root>
 
 <!-- Reject Dialog -->
 <Dialog.Root bind:open={rejectOpen}>
