@@ -6,9 +6,10 @@
       "date": "2026-06-28",
       "style": "Sachlich",
       "title": "Desktop-App startet wieder",
-      "intro": "Die Electron-App zeigte nach dem Update nur zwei harmlose Chromium-Meldungen und schloss sich dann ohne Fenster. Ursache war ein doppelt registrierter IPC-Handler in der Self-Host-Verdrahtung.",
+      "intro": "Die Electron-App zeigte nach dem Update nur zwei harmlose Chromium-Meldungen und schloss sich dann ohne Fenster. Ursache war ein doppelt registrierter IPC-Handler in der Self-Host-Verdrahtung; zusätzlich hat eine alte Build-Stufe im Flatpak-Workflow den neuen Code nicht übernommen.",
       "items": [
-        "App startet wieder normal; Self-Host-Funktionen sind unverändert."
+        "App startet wieder normal; Self-Host-Funktionen sind unverändert.",
+        "Flatpak-Updates spielen Electron-Code-Änderungen jetzt zuverlässig aus."
       ]
     },
     {
