@@ -48,13 +48,10 @@
       await auth.setUser(await me());
 
       // Identity-Flow: Cert + Profile-Statement ausstellen + Refresh-Timer
-      // starten. Bei frischer Registration kann **per Definition** kein
-      // Recovery-Backup existieren (User wurde gerade erst angelegt) — wir
-      // brauchen den RecoveryAvailableError-Catch hier nicht und können
-      // fire-and-forget machen wie der Login es ursprünglich tat. Sonst
-      // blockiert das ``await`` die Navigation und der Onboarding-Dialog
-      // pop't synchron in Playwright-Tests vor der ersten User-Aktion auf
-      // (StatusPicker/Settings-Button werden vom Dialog-Overlay verdeckt).
+      // starten. Fire-and-forget, weil das ``await`` die Navigation blockieren
+      // und in Playwright-Tests zu Race-Conditions mit dem Settings-Button
+      // führen würde. Bei frischer Registration existiert noch kein IDB-Keypair
+      // → runIssueFlow generiert sofort ein neues + issued das Cert.
       void runIssueFlow()
         .then(() => {
           if (auth.isAuthenticated) {

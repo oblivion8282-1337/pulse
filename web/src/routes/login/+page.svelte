@@ -20,7 +20,7 @@
   import { m } from '$lib/paraglide/messages.js';
   import { cursorTrack } from '$lib/actions/cursor-track';
   import LoginMfaForm from '$lib/components/auth/LoginMfaForm.svelte';
-  import { runIssueFlow, RecoveryAvailableError } from '$lib/identity/issue-flow';
+  import { runIssueFlow } from '$lib/identity/issue-flow';
   import { startProfileRefresh } from '$lib/identity/profile-refresh.svelte';
   import { startCertRotation } from '$lib/identity/cert-rotation.svelte';
   import { isElectron } from '$lib/platform/runtime';
@@ -99,10 +99,9 @@
     // Vorgängers (Account-Wechsel am selben Gerät ohne Sign-out).
     await auth.setUser(await me());
 
-    // Identity-Flow: Cert ausstellen + Profile-Statement holen. Blockierend
-    // weil bei RecoveryAvailableError ein Redirect zu /recover gemacht
-    // werden muss, statt direkt nach /app zu gehen. Andere Fehler werden
-    // weiterhin geschluckt (Cert-Features degradieren gracefully).
+    // Identity-Flow: Cert ausstellen + Profile-Statement holen. Fehler werden
+    // geschluckt (Cert-Features degradieren gracefully, Timer starten NICHT
+    // wenn der Issue-Flow selbst scheitert — Cert-Rotation retry't später).
     try {
       await runIssueFlow();
       if (auth.isAuthenticated) {
@@ -110,14 +109,6 @@
         void startCertRotation();
       }
     } catch (err) {
-      if (err instanceof RecoveryAvailableError) {
-        const params = new URLSearchParams({
-          cert_id: err.certId,
-          device_label: err.deviceLabel,
-        });
-        await goto(`/recover?${params.toString()}`, { replaceState: true });
-        return;
-      }
       console.warn('[identity] issue-flow fehlgeschlagen:', err);
     }
 

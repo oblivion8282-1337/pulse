@@ -6,8 +6,8 @@
  *  - `auth.signOut()` als Konsolidierung der bisher inline gepflegten
  *    Liste (vorher 15+ einzelne `.clear()`-Calls).
  *
- * Globale UI-State (`settings`, `viewport`, `navDrawer`, `onboardingState`,
- * `uiOverlays`, `privacy`, `capabilities`) bleibt erhalten — die hängt nicht
+ * Globale UI-State (`settings`, `viewport`, `navDrawer`, `uiOverlays`,
+ * `privacy`, `capabilities`) bleibt erhalten — die hängt nicht
  * am gerade aktiven Server. `userCache` ist ebenfalls global gehalten und wird
  * nur bei Sign-Out (nicht Switch) geleert — sonst flackern Avatare beim Hin-
  * und Herwechseln.

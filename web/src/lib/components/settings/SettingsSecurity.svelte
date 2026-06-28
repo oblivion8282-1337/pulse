@@ -24,7 +24,6 @@
   import SessionsSection from './SessionsSection.svelte';
   import DangerZoneSection from './DangerZoneSection.svelte';
   import DeviceManagement from './DeviceManagement.svelte';
-  import CloudBackup from './CloudBackup.svelte';
   import PublicComputerSafety from './PublicComputerSafety.svelte';
 
   let enableOpen = $state(false);
@@ -103,11 +102,6 @@
   <PasskeysSection />
 
   <DeviceManagement />
-
-  <section>
-    <h3 class="sr-only">{m.settings_security_cloud_backup_heading()}</h3>
-    <CloudBackup />
-  </section>
 
   <SessionsSection />
 

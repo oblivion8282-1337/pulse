@@ -28,24 +28,12 @@ the plugin name (``^[a-z][a-z0-9_:-]{0,63}$``, plus colon for
 namespaced sections like ``"tamagotchi:state"``). The route returns
 400 on violations rather than silently inserting whatever string the
 caller sent — that way malformed reads/writes fail loud.
-
-Backup-Onboarding-Preference (Cross-Device-Sync)
--------------------------------------------------
-
-* ``GET  /me/preferences/backup-onboarding`` — Gibt zurück ob der User
-  schon entschieden hat (``decided`` / ``decision`` / ``decided_at``).
-  Neuer User → ``{decided: false, decision: null, decided_at: null}``.
-* ``PATCH /me/preferences/backup-onboarding`` — Persistiert die
-  Entscheidung (``"skipped"`` / ``"configured"``). Zweiter Aufruf mit
-  anderer decision → 409 (idempotent; nur einmal entscheiden).
-  Intern: ``user_preferences`` section ``"backup_onboarding"``.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Response, status
 from pydantic import BaseModel, Field
@@ -246,149 +234,6 @@ async def delete_my_preference(
     )
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---------------------------------------------------------------------------
-# Backup-Onboarding-Preference (Cross-Device-Sync)
-# ---------------------------------------------------------------------------
-
-_BACKUP_ONBOARDING_SECTION = "backup_onboarding"
-
-
-class BackupOnboardingOut(BaseModel):
-    """Response für GET /me/preferences/backup-onboarding.
-
-    ``decided`` ist ``false`` wenn der User noch nie entschieden hat
-    (frischer Account oder alle Geräte). ``decision`` + ``decided_at``
-    sind dann ``None``.
-    """
-
-    decided: bool
-    decision: Literal["skipped", "configured"] | None = None
-    decided_at: str | None = None
-
-
-class BackupOnboardingPatch(BaseModel):
-    """PATCH-Body: Entscheidung persistieren."""
-
-    decision: Literal["skipped", "configured"]
-
-
-@router.get(
-    "/me/preferences/backup-onboarding",
-    response_model=BackupOnboardingOut,
-)
-async def get_backup_onboarding_preference(
-    session: SessionDep,
-    current: CurrentUser,
-) -> BackupOnboardingOut:
-    """Gibt zurück ob der User die Backup-Onboarding-Entscheidung bereits
-    getroffen hat. Neuer User / noch nicht entschieden → ``decided=false``.
-
-    Der Client nutzt das als Cross-Device-Sync: nach dem Login wird erst
-    das Backend gefragt, bevor der lokale localStorage-Fallback greift.
-    """
-    row = await session.get(UserPreference, (current.id, _BACKUP_ONBOARDING_SECTION))
-    if row is None:
-        return BackupOnboardingOut(decided=False)
-    payload = row.value or {}
-    decision = payload.get("decision")
-    if decision not in ("skipped", "configured"):
-        # Korrupter/alter Eintrag → als undecided behandeln.
-        return BackupOnboardingOut(decided=False)
-    return BackupOnboardingOut(
-        decided=True,
-        decision=decision,
-        decided_at=payload.get("decided_at"),
-    )
-
-
-async def _resolve_backup_onboarding(
-    session: SessionDep,
-    row: UserPreference,
-    payload: BackupOnboardingPatch,
-    now_iso: str,
-) -> BackupOnboardingOut:
-    """Apply the once-only onboarding decision against an existing row.
-
-    Same decision → idempotent 200 (no write). Different decision → 409.
-    Missing decision on the row → fill it in.
-    """
-    existing_decision = (row.value or {}).get("decision")
-    if existing_decision is not None and existing_decision != payload.decision:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="already_decided",
-        )
-    if existing_decision == payload.decision:
-        # Idempotent: selbe Decision → 200 ohne DB-Write.
-        return BackupOnboardingOut(
-            decided=True,
-            decision=payload.decision,
-            decided_at=(row.value or {}).get("decided_at"),
-        )
-    # Row existiert, decision fehlt → update.
-    row.value = {"decision": payload.decision, "decided_at": now_iso}
-    row.version = row.version + 1
-    await session.commit()
-    await session.refresh(row)
-    return BackupOnboardingOut(
-        decided=True,
-        decision=(row.value or {}).get("decision"),
-        decided_at=(row.value or {}).get("decided_at"),
-    )
-
-
-@router.patch(
-    "/me/preferences/backup-onboarding",
-    response_model=BackupOnboardingOut,
-)
-async def patch_backup_onboarding_preference(
-    payload: BackupOnboardingPatch,
-    session: SessionDep,
-    current: CurrentUser,
-) -> BackupOnboardingOut:
-    """Persistiert die Onboarding-Entscheidung (einmalig, idempotent).
-
-    Zweiter Aufruf mit einer **anderen** decision → 409.
-    Zweiter Aufruf mit **derselben** decision → 200 (idempotent).
-
-    Speicherformat: ``user_preferences`` section ``"backup_onboarding"``,
-    payload ``{"decision": "skipped"|"configured", "decided_at": <ISO8601>}``.
-    """
-    row = await session.get(UserPreference, (current.id, _BACKUP_ONBOARDING_SECTION))
-
-    now_iso = datetime.now(tz=timezone.utc).isoformat()
-
-    if row is None:
-        row = UserPreference(
-            user_id=current.id,
-            section_name=_BACKUP_ONBOARDING_SECTION,
-            value={"decision": payload.decision, "decided_at": now_iso},
-            version=1,
-        )
-        session.add(row)
-        try:
-            await session.commit()
-            await session.refresh(row)
-        except IntegrityError:
-            # Concurrent first-insert won the race; re-fetch and resolve via
-            # the existing-row path (mirrors the friends.py race handling).
-            await session.rollback()
-            row = await session.get(
-                UserPreference, (current.id, _BACKUP_ONBOARDING_SECTION)
-            )
-            if row is None:
-                raise HTTPException(500, detail="preference_race_lost")
-            return await _resolve_backup_onboarding(session, row, payload, now_iso)
-    else:
-        return await _resolve_backup_onboarding(session, row, payload, now_iso)
-
-    return BackupOnboardingOut(
-        decided=True,
-        decision=(row.value or {}).get("decision"),
-        decided_at=(row.value or {}).get("decided_at"),
-    )
 
 
 __all__ = ["router"]

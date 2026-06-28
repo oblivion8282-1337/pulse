@@ -21,7 +21,6 @@
   import { voice, resumeVoiceIfPending } from '$lib/voice/livekit.svelte';
   import { autoConnectIfConfigured } from '$lib/voice/autoconnect.svelte';
   import VoiceControlBar from '$lib/components/VoiceControlBar.svelte';
-  import BackupSetupStep from '$lib/components/onboarding/BackupSetupStep.svelte';
   import WatchPartyPickerDialog from '$lib/components/WatchPartyPickerDialog.svelte';
   import HqStreamKeepAlive from '$lib/stream/components/HqStreamKeepAlive.svelte';
   import HqStreamBackgroundHost from '$lib/stream/components/HqStreamBackgroundHost.svelte';
@@ -283,9 +282,6 @@
     </div>
   {/if}
 </div>
-
-<!-- Onboarding: Backup-Setup-Dialog (einmalig nach erstem Login) -->
-<BackupSetupStep />
 
 <!-- Globaler Watch-Party-Auswahl-Dialog (wenn ein User mehrere Partys hostet) -->
 <WatchPartyPickerDialog />

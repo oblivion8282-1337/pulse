@@ -187,46 +187,26 @@ async def test_issued_credentials_indexes(engine):
 
 
 # ---------------------------------------------------------------------------
-# 0015 — encrypted_key_backups table
+# User-Cloud-Backup wurde 2026-06-28 entfernt (siehe drop-Migration
+# ``9999_drop_user_cloud_backup``). Die Tabellen ``encrypted_key_backups`` und
+# ``account_keys`` werden am Ende der Kette gedroppt; die früheren
+# "existiert"-Tests sind obsolet. Stattdessen prüfen wir, dass sie nach dem
+# Drop wirklich weg sind.
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_encrypted_key_backups_table_exists(engine):
-    """migration 0015: encrypted_key_backups table must be created."""
+async def test_user_cloud_backup_tables_dropped(engine):
+    """drop-Migration: encrypted_key_backups + account_keys müssen weg sein."""
     async with engine.connect() as conn:
         tables = await conn.run_sync(
             lambda sync_conn: sa_inspect(sync_conn).get_table_names()
         )
-    assert "encrypted_key_backups" in tables, "encrypted_key_backups table not found"
-
-
-@pytest.mark.asyncio
-async def test_encrypted_key_backups_columns(engine):
-    """migration 0015: encrypted_key_backups must have all required columns."""
-    expected = {
-        "cert_id", "user_id", "device_label", "encrypted_blob",
-        "previous_blob", "kdf_salt", "kdf_params", "gcm_nonce",
-        "created_at", "previous_replaced_at",
-    }
-    async with engine.connect() as conn:
-        cols = await conn.run_sync(
-            lambda sync_conn: sa_inspect(sync_conn).get_columns("encrypted_key_backups")
-        )
-    names = {c["name"] for c in cols}
-    missing = expected - names
-    assert not missing, f"encrypted_key_backups missing columns: {missing}"
-
-
-@pytest.mark.asyncio
-async def test_encrypted_key_backups_previous_blob_nullable(engine):
-    """migration 0015: previous_blob must be nullable (MP-Change-Flow only)."""
-    async with engine.connect() as conn:
-        cols = await conn.run_sync(
-            lambda sync_conn: sa_inspect(sync_conn).get_columns("encrypted_key_backups")
-        )
-    col_map = {c["name"] for c in cols}
-    # Verify the column itself exists — nullability verified via ORM insert test.
-    assert "previous_blob" in col_map
+    assert "encrypted_key_backups" not in tables, (
+        "encrypted_key_backups should be dropped after 9999_drop_user_cloud_backup"
+    )
+    assert "account_keys" not in tables, (
+        "account_keys should be dropped after 9999_drop_user_cloud_backup"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -235,11 +215,11 @@ async def test_encrypted_key_backups_previous_blob_nullable(engine):
 
 @pytest.mark.asyncio
 async def test_credential_cascade_delete(session_factory):
-    """Deleting a User must cascade-delete their IssuedCredentials and Backups."""
+    """Deleting a User must cascade-delete their IssuedCredentials."""
     import uuid
     from datetime import datetime, timezone, timedelta
 
-    from dcc_auth.models import EncryptedKeyBackup, IssuedCredential, User
+    from dcc_auth.models import IssuedCredential, User
 
     uid = 999
     cert_uuid = str(uuid.uuid4())
@@ -264,23 +244,11 @@ async def test_credential_cascade_delete(session_factory):
             expires_at=now + timedelta(days=365),
         )
         session.add(cred)
-        await session.flush()
-
-        backup = EncryptedKeyBackup(
-            cert_id=cert_uuid,
-            user_id=uid,
-            device_label="Test Device",
-            encrypted_blob=b"\xab" * 48,
-            kdf_salt=b"\x01" * 16,
-            kdf_params="t=3,m=65536,p=4",
-            gcm_nonce=b"\x02" * 12,
-        )
-        session.add(backup)
         await session.commit()
 
-    # Now delete the user — credentials + backup must cascade.
+    # Now delete the user — credentials must cascade.
     from sqlalchemy import select
-    from dcc_auth.models import IssuedCredential as IC, EncryptedKeyBackup as EKB
+    from dcc_auth.models import IssuedCredential as IC
 
     async with session_factory() as session:
         u = await session.get(User, uid)
@@ -290,12 +258,8 @@ async def test_credential_cascade_delete(session_factory):
         cred_remaining = (await session.execute(
             select(IC).where(IC.user_id == uid)
         )).scalars().all()
-        backup_remaining = (await session.execute(
-            select(EKB).where(EKB.user_id == uid)
-        )).scalars().all()
 
     assert cred_remaining == [], "IssuedCredential rows should have been cascade-deleted"
-    assert backup_remaining == [], "EncryptedKeyBackup rows should have been cascade-deleted"
 
 
 # ---------------------------------------------------------------------------
