@@ -14,7 +14,6 @@
   import { saveKeypair, keypairStore } from '$lib/identity/keypair.svelte';
   // prettier-ignore
   import { keyBackupState, BackupDecryptError, decryptKeypairWithAk } from '$lib/identity/key-backup.svelte';
-  import { serverVault } from '$lib/identity/server-vault.svelte';
   import { accountKey, AccountKeyDecryptError } from '$lib/identity/account-key.svelte';
   // prettier-ignore
   import { detectBackupFlowMode, setupOrUnlock, WrongRecoveryKeyError, type BackupFlowMode } from '$lib/identity/backup-flow';
@@ -115,10 +114,6 @@
       ]);
       await saveKeypair({ type: 'webcrypto', privateKey, publicKey });
       await keypairStore.load();
-
-      // E2E-Server-Vault mit demselben Master-Passwort wiederherstellen → Self-
-      // Host-Server-Liste kommt zurück. Best-effort.
-      try { await serverVault.unlockForRestore(password); } catch { /* Vault degradiert still */ }
 
       toast.success(m.cloud_backup_toast_recovered(), {
         description: m.cloud_backup_toast_recovered_desc()

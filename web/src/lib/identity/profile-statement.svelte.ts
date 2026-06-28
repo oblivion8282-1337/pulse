@@ -164,7 +164,7 @@ class ProfileStatementStore {
 
   async wipe(): Promise<void> {
     // In-Memory-Referenz SYNCHRON vor dem await leeren (gleiche Anti-Leak-
-    // Reihenfolge wie certStore/keypairStore/serverVault.wipe()): signOut()
+    // Reihenfolge wie certStore/keypairStore.wipe()): signOut()
     // ruft wipe() fire-and-forget; bliebe this.statement bis zum IDB-Delete
     // gesetzt, läse ein reaktiver Consumer noch das Profil des Vorgängers —
     // und ein schnelles Re-Login könnte sein frisch geschriebenes Statement

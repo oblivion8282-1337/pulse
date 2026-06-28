@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-28.5",
+      "date": "2026-06-28",
+      "style": "Sachlich",
+      "title": "Server-Liste jetzt automatisch auf jedem Gerät",
+      "items": [
+        "Wenn du dich auf einem neuen Gerät oder in einem anderen Browser bei Pulse anmeldest, siehst du deine selbstgehosteten Pulse-Server jetzt direkt in der Seitenleiste.",
+        "Du musst dafür kein zusätzliches Sync-Passwort mehr einrichten oder wiederherstellen — die Liste wird einfach aus deinem Konto geladen.",
+        "Inhalte auf deinen Servern bleiben privat: Pulse sieht als Cloud-Anbieter weiterhin nicht, was dort geschrieben, geteilt oder gestreamt wird."
+      ]
+    },
+    {
       "id": "2026-06-28.4",
       "date": "2026-06-28",
       "style": "Sachlich",
