@@ -16,6 +16,7 @@ import {
 } from '$lib/api/add-server-flow';
 import { certLogin } from '$lib/api/cert-login';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
+import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
 
 // ---------------------------------------------------------------------------
 // Parse helpers
@@ -203,6 +204,7 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
         serversStore.update(serverId, { pairwise_sub: auth.pairwise_sub });
       }
       const result = await acceptInvite(code, { serverId });
+      joinedInvites.markJoined(code, result.guild.id);
       // Aktiven Server auf den Self-Host umschalten BEVOR wir dorthin
       // navigieren (wie der public-handle-Pfad) — sonst routen WS/API-Calls,
       // die auf activeServer.current zurückfallen, weiter zum vorigen Server
@@ -237,6 +239,7 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
         communityGrantCode: code,
       });
       serverId = entry.id;
+      if (invite?.guild?.id) joinedInvites.markJoined(code, invite.guild.id);
       activeServer.set(serverId);
       await guilds.hydrate();
       // Wie oben: Pro-Server-Liste seeden, damit die Karte sofort „Beigetreten"
@@ -254,6 +257,7 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
   }
 
   const result = await chatApi.acceptInvite(code);
+  joinedInvites.markJoined(code, result.guild.id);
   await guilds.hydrate();
   // Pull roles for the newly-joined guild so UI gates resolve correctly
   // before the next WS reconnect rebuilds ``ready``. recomputeGuild

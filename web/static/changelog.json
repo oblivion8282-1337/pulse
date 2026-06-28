@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-29.2",
+      "date": "2026-06-29",
+      "style": "Sachlich",
+      "title": "Einladungs-Button zeigt „Beigetreten\"",
+      "items": [
+        "Wenn du über eine Einladung in einer Nachricht einer Community beigetreten bist, zeigt der Button danach „Beigetreten\" und ist nicht mehr anklickbar.",
+        "Vorher blieb der Beitreten-Button aktiv, obwohl du schon Mitglied warst."
+      ]
+    },
+    {
       "id": "2026-06-29",
       "date": "2026-06-29",
       "style": "Sachlich",

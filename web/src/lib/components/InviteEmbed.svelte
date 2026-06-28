@@ -17,6 +17,7 @@
   import * as Avatar from '$lib/components/ui/avatar/index.js';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
+  import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { guildIconSrc } from '$lib/guildIcon';
@@ -35,7 +36,12 @@
   let loading = $state(true);
   let joining = $state(false);
 
-  let alreadyMember = $derived(!!preview && !!guilds.byId[preview.guild.id]);
+  // „Beigetreten" wenn entweder der Beitritt über genau diesen Code erinnert ist
+  // (zuverlässig, überlebt verbrauchte/abgelaufene Previews + Reload) ODER wir
+  // die Community-Mitgliedschaft live sehen.
+  let alreadyMember = $derived(
+    !!joinedInvites.guildIdFor(code) || (!!preview && !!guilds.byId[preview.guild.id])
+  );
 
   // icon_url durch guildIconSrc() schleusen (nur https:// oder /-relativ,
   // Rest -> null/Initialen-Fallback) — konsistent mit GuildRail; Preview-
@@ -74,9 +80,10 @@
   });
 
   let alreadyMemberSelfHost = $derived(
-    !!selfHostServer &&
-      !!selfHostPreview &&
-      serverGuilds.get(selfHostServer.id).some((g) => g.id === selfHostPreview!.guild.id)
+    !!joinedInvites.guildIdFor(code) ||
+      (!!selfHostServer &&
+        !!selfHostPreview &&
+        serverGuilds.get(selfHostServer.id).some((g) => g.id === selfHostPreview!.guild.id))
   );
 
   onMount(async () => {
