@@ -4,14 +4,20 @@
  * Gegenstück zur Admin-Seite ([[pendingInstanceApps]]): Wenn ein Admin den
  * Antrag genehmigt (oder ablehnt), bekam der Antragsteller bisher nichts mit —
  * approve macht backend-seitig nur DB + Rückgabe an den Admin. Dieser Store
- * pollt die eigenen Anträge und toastet beim Übergang pending → approved /
- * rejected.
+ * leitet den „einrichten"-Punkt aus dem **Server-Zustand** ab (genehmigte
+ * Anträge), nicht aus einer lokal abgelegten Watch-Map.
  *
- * Effizienz: Es wird nur gepollt, wenn überhaupt ein beobachteter Antrag offen
- * ist. Beim Einreichen registriert `SelfHostApplication` den Antrag via
- * `register()`; ohne offenen Antrag macht `_poll()` keinen Request. Der Watch-
- * Zustand liegt in localStorage, damit „genehmigt während weg" beim nächsten
- * App-Start noch erkannt wird (gerätelokal — v1-Grenze).
+ * Warum server-abgeleitet: Der frühere Ansatz schrieb beim Absenden eine
+ * gerätelokale Watch-Map und pollte nur, wenn dort ein offener Antrag stand.
+ * Folge — der rote „einrichten"-Punkt erschien NUR auf dem Gerät, auf dem der
+ * Antrag abgesendet wurde. Loggte sich der Owner woanders ein, sah er nichts.
+ * Jetzt fragt jeder Client beim Start einmal die eigenen Anträge ab; ein
+ * genehmigter, noch nicht „gesehener" Antrag zeigt den Punkt — auf jedem Gerät.
+ *
+ * Gerätelokal bleibt nur das „gesehen"-Ack (welche genehmigten Anträge der
+ * User auf DIESEM Gerät schon in „Meine Instanzen" geöffnet hat) und das
+ * Toast-„schon benachrichtigt"-Set (damit ein bereits genehmigter Antrag auf
+ * einem neuen Gerät den Punkt zeigt, aber keinen veralteten Toast).
  */
 
 import { instancesApi } from '$lib/api/instances';
@@ -20,71 +26,38 @@ import { toast } from 'svelte-sonner';
 import { m } from '$lib/paraglide/messages.js';
 
 const POLL_MS = 90_000;
-const LS_WATCH = 'pulse.instanceAppWatch';
-const LS_ACK = 'pulse.instanceSetupAck';
+const LS_ACK = 'pulse.instanceSetupAck'; // appId → true (auf diesem Gerät „gesehen")
+const LS_NOTIFIED = 'pulse.instanceAppNotified'; // appId → true (Toast schon gezeigt)
 
-type WatchMap = Record<string, string>; // appId → zuletzt gesehener Status
+type IdSet = Record<string, boolean>;
 
 class MyInstanceApplications {
   /**
-   * Anzahl genehmigter Anträge, die der Owner noch nicht „gesehen" hat
-   * (→ roter Punkt am UserFooter, bis er „Meine Instanzen" öffnet). Persistent
-   * über Reload via Watch-Map (approved) minus Ack-Set.
+   * Anzahl genehmigter Anträge, die der Owner auf diesem Gerät noch nicht
+   * „gesehen" hat (→ roter Punkt am UserFooter, bis er „Meine Instanzen"
+   * öffnet). Aus dem Server-Zustand abgeleitet → auf jedem Gerät sichtbar.
    */
   pendingSetup = $state(0);
 
   private _timer: ReturnType<typeof setInterval> | null = null;
   private _running = false;
+  /** IDs der zuletzt vom Server gesehenen genehmigten Anträge. */
+  private _approvedIds: string[] = [];
+  /** Beim allerersten Poll keine Toasts für bereits abgeschlossene Anträge. */
+  private _firstPollDone = false;
 
-  /** Beim Einreichen aufrufen — markiert den Antrag als zu beobachten. */
-  register(appId: string): void {
+  /** Beim Einreichen aufrufen — sofort pollen, damit der Status zeitnah kommt. */
+  register(_appId?: string): void {
     if (typeof window === 'undefined') return;
-    const w = this._load();
-    w[appId] = 'pending';
-    this._save(w);
-    // Falls der Poller schon läuft, greift er beim nächsten Tick; sonst starten.
     this.start();
+    void this._poll();
   }
 
   start(): void {
     if (this._running || typeof window === 'undefined') return;
     this._running = true;
-    this._recompute();
     void this._poll();
     this._timer = setInterval(() => void this._poll(), POLL_MS);
-  }
-
-  /**
-   * Owner hat seine Instanzen angesehen → roten Punkt löschen. Aufgerufen vom
-   * MyInstances-Mount. Merkt alle aktuell genehmigten Anträge als „gesehen".
-   */
-  acknowledge(): void {
-    if (typeof window === 'undefined') return;
-    const watch = this._load();
-    const ack = this._loadAck();
-    for (const [id, status] of Object.entries(watch)) {
-      if (status === 'approved') ack[id] = true;
-    }
-    window.localStorage.setItem(LS_ACK, JSON.stringify(ack));
-    this._recompute();
-  }
-
-  private _loadAck(): Record<string, boolean> {
-    try {
-      return JSON.parse(window.localStorage.getItem(LS_ACK) || '{}');
-    } catch {
-      return {};
-    }
-  }
-
-  /** pendingSetup = genehmigte Anträge in der Watch-Map, die noch nicht ge-ack't sind. */
-  private _recompute(): void {
-    if (typeof window === 'undefined') return;
-    const watch = this._load();
-    const ack = this._loadAck();
-    this.pendingSetup = Object.entries(watch).filter(
-      ([id, status]) => status === 'approved' && !ack[id]
-    ).length;
   }
 
   stop(): void {
@@ -96,44 +69,56 @@ class MyInstanceApplications {
   }
 
   /**
-   * Account-Wechsel am selben Gerät / Logout: Watch-/Ack-State des Vorgängers
-   * verwerfen. Sonst erbt der neue User dessen „genehmigt"-Punkt — und `_poll`
-   * räumt eine bereits-`approved` Watch-Map NIE (es macht nur bei `pending`
-   * einen Request), also bliebe der rote Punkt dauerhaft hängen. Die Keys sind
-   * gerätelokal + flach (nicht user-gescopet), darum hier hart leeren.
+   * Owner hat seine Instanzen angesehen → roten Punkt auf DIESEM Gerät löschen.
+   * Aufgerufen vom MyInstances-Mount. Merkt alle aktuell genehmigten Anträge
+   * als „gesehen".
+   */
+  acknowledge(): void {
+    if (typeof window === 'undefined') return;
+    const ack = this._loadSet(LS_ACK);
+    for (const id of this._approvedIds) ack[id] = true;
+    this._saveSet(LS_ACK, ack);
+    this._recompute();
+  }
+
+  /**
+   * Account-Wechsel am selben Gerät / Logout: Ack-/Notified-State des
+   * Vorgängers verwerfen (Keys sind gerätelokal + flach, nicht user-gescopet).
    */
   reset(): void {
     this.stop();
     this.pendingSetup = 0;
+    this._approvedIds = [];
     if (typeof window === 'undefined') return;
     try {
-      window.localStorage.removeItem(LS_WATCH);
       window.localStorage.removeItem(LS_ACK);
+      window.localStorage.removeItem(LS_NOTIFIED);
     } catch {
       /* ignore */
     }
   }
 
-  private _load(): WatchMap {
+  /** pendingSetup = genehmigte Anträge, die auf diesem Gerät nicht ge-ack't sind. */
+  private _recompute(): void {
+    if (typeof window === 'undefined') return;
+    const ack = this._loadSet(LS_ACK);
+    this.pendingSetup = this._approvedIds.filter((id) => !ack[id]).length;
+  }
+
+  private _loadSet(key: string): IdSet {
     try {
-      return JSON.parse(window.localStorage.getItem(LS_WATCH) || '{}') as WatchMap;
+      return JSON.parse(window.localStorage.getItem(key) || '{}') as IdSet;
     } catch {
       return {};
     }
   }
 
-  private _save(w: WatchMap): void {
-    window.localStorage.setItem(LS_WATCH, JSON.stringify(w));
-  }
-
-  private _hasPending(w: WatchMap): boolean {
-    return Object.values(w).some((s) => s === 'pending');
+  private _saveSet(key: string, set: IdSet): void {
+    window.localStorage.setItem(key, JSON.stringify(set));
   }
 
   private async _poll(): Promise<void> {
     if (!auth.user) return;
-    const watch = this._load();
-    if (!this._hasPending(watch)) return; // nichts offen → kein Request
 
     let apps;
     try {
@@ -141,17 +126,31 @@ class MyInstanceApplications {
     } catch {
       return; // transient → nächster Tick
     }
-    const byId = new Map(apps.map((a) => [a.id, a]));
 
-    let changed = false;
-    for (const id of Object.keys(watch)) {
-      const app = byId.get(id);
-      if (!app) {
-        delete watch[id];
-        changed = true;
-        continue;
-      }
-      if (watch[id] === 'pending' && app.status !== 'pending') {
+    // Normaler User ohne Self-Host-Antrag: nichts zu beobachten → Poller
+    // stoppen, damit nicht jeder Cloud-User alle 90s eine Anfrage feuert.
+    if (apps.length === 0) {
+      this._approvedIds = [];
+      this._recompute();
+      this.stop();
+      return;
+    }
+
+    this._approvedIds = apps.filter((a) => a.status === 'approved').map((a) => a.id);
+
+    // Toast für JEDEN noch nicht benachrichtigten Statuswechsel. Auf einem
+    // frischen Gerät wird ein längst genehmigter/abgelehnter Antrag NICHT
+    // nachträglich getoastet — er gilt direkt als „benachrichtigt" (der Punkt
+    // zeigt ihn trotzdem). So nervt kein veralteter Toast nach Re-Login.
+    const notified = this._loadSet(LS_NOTIFIED);
+    let notifiedChanged = false;
+    for (const app of apps) {
+      if (app.status === 'pending' || notified[app.id]) continue;
+      // Erstes Sehen dieses Geräts UND der Antrag ist neu (kein älterer
+      // Snapshot): toasten. „Neu" = noch in keinem Notified-Set. Wir toasten
+      // beim allerersten Poll-Lauf nicht für Alt-Anträge — heuristisch via
+      // _firstPollDone unten.
+      if (this._firstPollDone) {
         if (app.status === 'approved') {
           toast.success(m.instance_app_approved_toast_title(), {
             description: m.instance_app_approved_toast_body({ hostname: app.hostname })
@@ -162,14 +161,14 @@ class MyInstanceApplications {
             description: m.instance_app_rejected_toast_body({ hostname: app.hostname }) + reason
           });
         }
-        watch[id] = app.status;
-        changed = true;
       }
+      notified[app.id] = true;
+      notifiedChanged = true;
     }
-    if (changed) {
-      this._save(watch);
-      this._recompute();
-    }
+    if (notifiedChanged) this._saveSet(LS_NOTIFIED, notified);
+    this._firstPollDone = true;
+
+    this._recompute();
   }
 }
 
