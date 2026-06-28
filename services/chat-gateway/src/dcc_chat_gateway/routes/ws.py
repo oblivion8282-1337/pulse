@@ -49,6 +49,9 @@ import time
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 
 from dcc_chat_gateway import __version__
+from dcc_chat_gateway.config import get_settings
+from dcc_chat_gateway.credential_validator import CertClaims, resolve_user_identifier
+from dcc_chat_gateway.routes.cert_login import _safe_int_eq
 from dcc_chat_gateway.routes.ws_ops import run_session_op_loop
 from dcc_chat_gateway.routes.ws_ready import build_and_send_ready_frame
 from dcc_chat_gateway.security import AuthenticatedUser, decode_token
@@ -94,14 +97,48 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     try:
         payload = await decode_token(token)
         user_id = int(payload["sub"])
-        is_self_host = bool(payload.get("self_host", False))
-        identifier = (
-            str(payload.get("pairwise_sub") or user_id) if is_self_host else str(user_id)
+        settings = get_settings()
+        # Identische Identifier-Logik wie cert_login (Pairwise-Sub auf
+        # Self-Host, raw user_id auf Cloud) — sonst landet der WS-User
+        # unter einer anderen user_identifier als der Session-Token-User
+        # und findet seine lokalen Guilds/Memberships nicht.
+        # Pydantic CertClaims ist verlangt (resolve_user_identifier liest
+        # ``.user_id`` / ``.pairwise_seed`` als Attribute, nicht als dict-keys).
+        try:
+            cert_claims = CertClaims(**payload)
+        except Exception:
+            # Defensive: Token ohne Cert-Felder (z.B. abgelaufener Session-Token
+            # mit anderer Form) — fallback auf die alte Logik via
+            # ``payload["pairwise_sub"]`` wenn vorhanden, sonst ``user_id``.
+            cert_claims = None
+        if cert_claims is not None:
+            identifier = resolve_user_identifier(
+                cert_claims,
+                instance_mode=settings.pulse_instance_mode,
+                instance_id=settings.pulse_instance_id,
+            )
+        else:
+            # Fallback: nutze die rohen payload-Felder (alte Logik).
+            identifier = (
+                str(payload.get("pairwise_sub") or user_id)
+                if settings.pulse_instance_mode == "self-host"
+                else str(user_id)
+            )
+        is_self_host = settings.pulse_instance_mode == "self-host"
+        # Admin-Flag: cert-claim (Cloud) ODER owner-self-host-match. Vorher
+        # nur cert-claim → Self-Host-Owner kam mit is_admin=False rein, obwohl
+        # cert_login den Session-Token korrekt auf admin=True setzt. Folge:
+        # ready-frame zeigte is_admin=False, + Community war gegatet.
+        is_owner_admin = (
+            is_self_host
+            and bool(settings.pulse_instance_owner_id)
+            and _safe_int_eq(user_id, settings.pulse_instance_owner_id)
         )
+        is_admin = bool(payload.get("admin", False)) or is_owner_admin
         user = AuthenticatedUser(
             id=user_id,
             username=payload.get("username", ""),
-            is_admin=bool(payload.get("admin", False)),
+            is_admin=is_admin,
             payload=payload,
             user_identifier=identifier,
             is_self_host=is_self_host,
