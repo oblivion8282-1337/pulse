@@ -41,13 +41,21 @@ class HostStore {
     });
     void host.getStatus().then((e) => { this.phase = e.phase; this.detail = e.detail; });
     void host.getPairing().then((p) => { this.pairing = p; }).catch(() => {});
-    void instancesApi.listMyInstances()
-      .then((list) => {
-        this.instances = list
-          .filter((i) => i.status === 'active')
-          .map((i) => ({ id: i.id, hostname: i.hostname }));
-      })
-      .catch(() => {});
+    void this.refreshInstances();
+  }
+
+  /** Instanz-Liste neu laden (z.B. nachdem die App-Host-Genehmigung gerade eine
+   *  Instanz provisioniert hat — ``init`` selbst ist durch ``_wired`` gesperrt).
+   *  Best-effort. */
+  async refreshInstances(): Promise<void> {
+    try {
+      const list = await instancesApi.listMyInstances();
+      this.instances = list
+        .filter((i) => i.status === 'active')
+        .map((i) => ({ id: i.id, hostname: i.hostname }));
+    } catch {
+      /* transient */
+    }
   }
 
   async start(instanceId?: string): Promise<void> {

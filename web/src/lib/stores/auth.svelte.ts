@@ -77,6 +77,18 @@ class AuthStore {
     }
   }
 
+  /** Frisches ``/me`` ziehen, OHNE den vollen Hydrate-Pfad (der bei gesetztem
+   *  ``user`` früh zurückkehrt). Für In-Session-Updates serverseitiger Flags
+   *  (z.B. ``self_host_enabled`` nach App-Host-Genehmigung). Best-effort. */
+  async refreshUser(): Promise<void> {
+    if (!this.user) return;
+    try {
+      this.user = await me();
+    } catch {
+      /* transient — der nächste Refresh/Reload heilt */
+    }
+  }
+
   private async _doHydrate(): Promise<void> {
     this.loading = true;
     try {
