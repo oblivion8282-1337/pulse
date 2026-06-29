@@ -29,16 +29,51 @@ from redis.asyncio import Redis
 
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.streamkeys import (
-    ACTIVE_KEY,
     CHANNEL_STATE_KEY,
-    STOPPING_KEY,
     STREAM_EVENTS_CHANNEL,
+    active_key,
     parse_channel_user_path,
+    stopping_key,
+    streams_from_state,
 )
 
 log = structlog.get_logger(__name__)
 
 _CHANNEL_STATE_SCAN_MATCH = "stream:channel:*"
+
+# A live HQ stream is a ``(user_id, slot)`` pair — slot is a string here, as it
+# comes straight off the parsed MediaMTX path ("0" for the legacy slot).
+Pair = tuple[str, str]
+
+
+def _user_ids(pairs: set[Pair]) -> list[str]:
+    """Deduplicated, sorted set of streaming users (one entry per user)."""
+    return sorted({uid for uid, _slot in pairs})
+
+
+def _stream_descriptors(pairs: set[Pair]) -> list[dict[str, Any]]:
+    """``[{"user_id", "slot": int}]`` for the channel-state ``streams`` list,
+    sorted by (user, slot) for stable comparison + output."""
+    return [
+        {"user_id": uid, "slot": int(slot)}
+        for uid, slot in sorted(pairs, key=lambda p: (p[0], int(p[1])))
+    ]
+
+
+def _is_multi(pairs: set[Pair]) -> bool:
+    """True once any user runs slot ≥ 1 — only then is ``streams`` carried (it
+    adds nothing over ``user_ids`` when everyone is on slot 0)."""
+    return any(slot != "0" for _uid, slot in pairs)
+
+
+def _pairs_from_state(state: dict[str, Any]) -> set[Pair]:
+    """Reconstruct the ``(user_id, slot)`` set a previous channel-state stood
+    for. Slot-aware records use ``streams``; legacy records (no ``streams``) map
+    every user to slot "0"."""
+    streams = streams_from_state(state)
+    if streams:
+        return {(d["user_id"], str(d["slot"])) for d in streams}
+    return {(str(u), "0") for u in state.get("user_ids") or [] if u}
 
 
 def _path_has_publisher(path_obj: dict[str, Any]) -> bool:
@@ -62,9 +97,9 @@ def _path_has_publisher(path_obj: dict[str, Any]) -> bool:
 
 async def _fetch_channel_publishers(
     client: httpx.AsyncClient, url: str
-) -> tuple[dict[str, set[str]], bool]:
-    """``({channel_id: {user_id, ...}}, any_items_seen)`` for every
-    ``channel-<cid>-<uid>`` path that has a publisher.
+) -> tuple[dict[str, set[Pair]], bool]:
+    """``({channel_id: {(user_id, slot), ...}}, any_items_seen)`` for every
+    ``channel-<cid>-<uid>[-s<slot>]`` path that has a publisher.
     Raises on transport/HTTP error — the caller handles it.
 
     ``any_items_seen`` is True if at least one path object was returned across
@@ -74,7 +109,7 @@ async def _fetch_channel_publishers(
 
     MediaMTX paginates ``/v3/paths/list``; we walk every page so a backlog of
     >1000 paths never silently drops streamers from the presence snapshot."""
-    out: dict[str, set[str]] = {}
+    out: dict[str, set[Pair]] = {}
     any_items_seen = False
     page = 0
     items_per_page = 1000
@@ -93,8 +128,8 @@ async def _fetch_channel_publishers(
             if cu is None:
                 continue
             if _path_has_publisher(item):
-                cid, uid, _nonce = cu  # nonce is per-publish; presence not state
-                out.setdefault(cid, set()).add(uid)
+                cid, uid, slot, _nonce = cu  # nonce is per-publish; presence not state
+                out.setdefault(cid, set()).add((uid, slot))
         if len(items) < items_per_page:
             break
         page += 1
@@ -112,14 +147,20 @@ async def _list_known_channels(redis: Redis) -> set[str]:
     return out
 
 
-async def _publish_event(redis: Redis, channel_id: str, user_ids: list[str]) -> None:
+async def _publish_event(
+    redis: Redis,
+    channel_id: str,
+    user_ids: list[str],
+    streams: list[dict[str, Any]] | None = None,
+) -> None:
     from dcc_shared.events import StreamStateSnapshot
 
-    snapshot = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids)
-    await redis.publish(
-        STREAM_EVENTS_CHANNEL,
-        json.dumps(snapshot.model_dump(mode="json"), separators=(",", ":")),
-    )
+    snapshot = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
+    data = snapshot.model_dump(mode="json")
+    if not snapshot.streams:
+        # Single-stream channels keep the legacy {channel_id, user_ids} shape.
+        data.pop("streams", None)
+    await redis.publish(STREAM_EVENTS_CHANNEL, json.dumps(data, separators=(",", ":")))
 
 
 def _parse_state(raw: bytes | str | None) -> dict[str, Any] | None:
@@ -189,14 +230,16 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
     # departure. Drop suppressed (cid,uid) pairs; a channel left empty falls
     # through to the stale-cleanup below (which publishes the empty set).
     if publishers:
-        pairs = [(cid, uid) for cid, uids in publishers.items() for uid in sorted(uids)]
-        flags = await redis.mget(
-            *[STOPPING_KEY.format(channel_id=cid, user_id=uid) for cid, uid in pairs]
-        )
-        for (cid, uid), flag in zip(pairs, flags):
+        triples = [
+            (cid, uid, slot)
+            for cid, prs in publishers.items()
+            for (uid, slot) in sorted(prs)
+        ]
+        flags = await redis.mget(*[stopping_key(cid, uid, int(slot)) for cid, uid, slot in triples])
+        for (cid, uid, slot), flag in zip(triples, flags):
             if flag is not None:
-                publishers[cid].discard(uid)
-        publishers = {cid: uids for cid, uids in publishers.items() if uids}
+                publishers[cid].discard((uid, slot))
+        publishers = {cid: prs for cid, prs in publishers.items() if prs}
 
     known = await _list_known_channels(redis)
 
@@ -245,51 +288,57 @@ async def reconcile_once(redis: Redis, client: httpx.AsyncClient) -> None:
         prev_states = {}
 
     # --- Compute changes, then flush writes in one pipeline ---------------
+    ttl = settings.channel_state_ttl_s
     async with redis.pipeline(transaction=False) as pipe:
-        changed: list[tuple[str, list[str]]] = []  # (cid, new_uids) for PUBLISH
-        for cid, uids in publishers.items():
-            new_uids = sorted(uids)
+        # (cid, new_uids, streams|None) for PUBLISH — streams only when multi.
+        changed: list[tuple[str, list[str], list[dict[str, Any]] | None]] = []
+        for cid, prs in publishers.items():
+            new_uids = _user_ids(prs)
+            multi = _is_multi(prs)
             prev = prev_states.get(cid)
-            prev_uids = sorted(str(u) for u in (prev or {}).get("user_ids", []) if u)
-            if prev is not None and prev_uids == new_uids:
-                pipe.expire(CHANNEL_STATE_KEY.format(channel_id=cid), settings.channel_state_ttl_s)
-                for uid in uids:
-                    pipe.expire(
-                        ACTIVE_KEY.format(channel_id=cid, user_id=uid),
-                        settings.channel_state_ttl_s,
-                    )
+            prev_pairs = _pairs_from_state(prev) if prev else set()
+            if prev is not None and prev_pairs == prs:
+                pipe.expire(CHANNEL_STATE_KEY.format(channel_id=cid), ttl)
+                for uid, slot in prs:
+                    pipe.expire(active_key(cid, uid, int(slot)), ttl)
                 continue
             # Carry `since` forward only if at least one user from the previous
             # set is still present; if the entire set turned over, reset to now
             # so the UI doesn't show the new streamer as having started during
             # the old session.
-            prev_uid_set = set(prev_uids)
-            carry_since = bool(prev and prev_uid_set & set(new_uids))
+            prev_uids = {uid for uid, _slot in prev_pairs}
+            carry_since = bool(prev and prev_uids & set(new_uids))
             since = (prev or {}).get("since") if carry_since else None
-            new_state = {"user_ids": new_uids, "since": since or datetime.now(UTC).isoformat()}
+            new_state: dict[str, Any] = {
+                "user_ids": new_uids,
+                "since": since or datetime.now(UTC).isoformat(),
+            }
+            # ``streams`` is additive — only when a user runs slot ≥ 1, so a
+            # single-stream channel keeps the legacy {user_ids, since} record.
+            if multi:
+                new_state["streams"] = _stream_descriptors(prs)
             pipe.set(
                 CHANNEL_STATE_KEY.format(channel_id=cid),
                 json.dumps(new_state, separators=(",", ":")),
-                ex=settings.channel_state_ttl_s,
+                ex=ttl,
             )
-            for uid in uids:
-                pipe.expire(
-                    ACTIVE_KEY.format(channel_id=cid, user_id=uid),
-                    settings.channel_state_ttl_s,
-                )
-            # Clean up stream:active keys for users who left this channel while
-            # at least one other user is still streaming (partial-departure case).
+            for uid, slot in prs:
+                pipe.expire(active_key(cid, uid, int(slot)), ttl)
+            # Clean up stream:active keys for (user, slot) pairs that left this
+            # channel while at least one other stream stays (partial-departure).
             # The full-channel-gone path is handled below in the stale-channel
-            # self-heal; here we only touch users that are no longer in new_uids.
-            for uid in prev_uid_set - set(new_uids):
-                pipe.delete(ACTIVE_KEY.format(channel_id=cid, user_id=uid))
-            changed.append((cid, new_uids))
+            # self-heal; here we only touch pairs no longer present.
+            for uid, slot in prev_pairs - prs:
+                pipe.delete(active_key(cid, uid, int(slot)))
+            changed.append((cid, new_uids, new_state.get("streams")))
         await pipe.execute()
 
     # Publish change events after the pipeline flush (outside the pipeline so
     # subscribers see the new state already written).
-    await asyncio.gather(*[_publish_event(redis, cid, new_uids) for cid, new_uids in changed])
-    for cid, new_uids in changed:
+    await asyncio.gather(
+        *[_publish_event(redis, cid, new_uids, streams) for cid, new_uids, streams in changed]
+    )
+    for cid, new_uids, _streams in changed:
         log.info("stream_state_change", channel_id=cid, user_ids=new_uids)
 
     # --- Self-heal: channels no longer reported by MediaMTX ---------------

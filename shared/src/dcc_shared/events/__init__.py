@@ -116,7 +116,7 @@ from dcc_shared.events.presence import (
     PresenceStatusData,
     PresenceUpdateEvent,
 )
-from dcc_shared.events.stream import StreamStateSnapshot, WatchStateSnapshot
+from dcc_shared.events.stream import StreamDescriptor, StreamStateSnapshot, WatchStateSnapshot
 from dcc_shared.events.voice import (
     VoiceDisconnectEvent,
     VoiceMoveEvent,
@@ -240,6 +240,7 @@ __all__ = [
     "PresenceStatusData",
     "PresenceUpdateEvent",
     # stream + watch (bare snapshots)
+    "StreamDescriptor",
     "StreamStateSnapshot",
     "WatchStateSnapshot",
     # voice

@@ -6,7 +6,14 @@ import json
 import uuid
 
 import pytest
-from dcc_media_svc.streamkeys import ACTIVE_KEY, CHANNEL_STATE_KEY, STOPPING_KEY, TOKEN_KEY
+from dcc_media_svc.streamkeys import (
+    ACTIVE_KEY,
+    CHANNEL_STATE_KEY,
+    STOPPING_KEY,
+    TOKEN_KEY,
+    active_key,
+    stopping_key,
+)
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -68,6 +75,34 @@ async def test_stream_token_happy_path_rtmp(client, auth_signer, redis):
 
 
 @pytest.mark.asyncio
+async def test_stream_token_slot1_path_and_record(client, auth_signer, redis):
+    """A slot-1 token targets a slotted path ``…-s1-<nonce>`` and stamps ``slot``
+    into the record so the auth-hook can bind the publish to that slot."""
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    r = await client.post(f"/channels/{cid}/stream-token", json={"slot": 1}, headers=_auth(access))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    path = body["mediamtx_path"]
+    assert path.startswith(f"channel-{cid}-4242-s1-")
+    token = body["token"]
+    try:
+        rec = json.loads((await redis.get(TOKEN_KEY.format(token=token))).decode())
+        assert rec["slot"] == 1
+    finally:
+        await redis.delete(TOKEN_KEY.format(token=token))
+
+
+@pytest.mark.asyncio
+async def test_stream_token_rejects_out_of_range_slot(client, auth_signer):
+    """Slot is clamped to the N=2 range (0/1); slot 2 is rejected, not silently
+    accepted (which would mint an un-viewable path)."""
+    access = auth_signer.issue_access(7, "bob")
+    r = await client.post("/channels/1/stream-token", json={"slot": 2}, headers=_auth(access))
+    assert r.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_stream_token_srt_rejected(client, auth_signer):
     """SRT is disabled because UDP carries no TLS — the token would leak in cleartext."""
     access = auth_signer.issue_access(7, "bob")
@@ -98,7 +133,7 @@ async def test_get_stream_state_empty_by_default(client, auth_signer):
     cid = _unique_cid()
     r = await client.get(f"/channels/{cid}/stream", headers=_auth(access))
     assert r.status_code == 200
-    assert r.json() == {"channel_id": cid, "user_ids": [], "since": None}
+    assert r.json() == {"channel_id": cid, "user_ids": [], "streams": [], "since": None}
 
 
 @pytest.mark.asyncio
@@ -115,6 +150,7 @@ async def test_get_stream_state_reflects_redis(client, redis, auth_signer):
         assert r.json() == {
             "channel_id": cid,
             "user_ids": ["99", "100"],
+            "streams": [],
             "since": "2026-05-12T00:00:00+00:00",
         }
     finally:
@@ -150,6 +186,32 @@ async def test_get_whep_url_returns_active_path(client, redis, auth_signer):
     finally:
         await redis.delete(ACTIVE_KEY.format(channel_id=cid, user_id="42"))
         await redis.delete(TOKEN_KEY.format(token=read_token))
+
+
+@pytest.mark.asyncio
+async def test_get_whep_url_slot1_reads_slotted_active_key(client, redis, auth_signer):
+    """``?slot=1`` resolves the user's *second* stream — a distinct active record
+    and a distinct MediaMTX path from slot 0."""
+    access = auth_signer.issue_access(7, "bob")
+    cid = _unique_cid()
+    path0 = f"channel-{cid}-42-{'deadbeef' * 4}"
+    path1 = f"channel-{cid}-42-s1-{'cafebabe' * 4}"
+    await redis.set(
+        active_key(cid, "42", 0),
+        json.dumps({"user_id": "42", "started_at": "2026-05-14T00:00:00+00:00", "path": path0}),
+    )
+    await redis.set(
+        active_key(cid, "42", 1),
+        json.dumps({"user_id": "42", "started_at": "2026-05-14T00:00:00+00:00", "path": path1}),
+    )
+    try:
+        r0 = await client.get(f"/channels/{cid}/whep?user_id=42", headers=_auth(access))
+        r1 = await client.get(f"/channels/{cid}/whep?user_id=42&slot=1", headers=_auth(access))
+        assert r0.status_code == 200 and r1.status_code == 200
+        assert f"/{path0}/whep" in r0.json()["whep_url"]
+        assert f"/{path1}/whep" in r1.json()["whep_url"]
+    finally:
+        await redis.delete(active_key(cid, "42", 0), active_key(cid, "42", 1))
 
 
 @pytest.mark.asyncio
@@ -219,6 +281,38 @@ async def test_stop_stream_keeps_other_streamers(client, auth_signer, redis):
         assert state["user_ids"] == ["999"]
     finally:
         await redis.delete(ck, STOPPING_KEY.format(channel_id=cid, user_id="4242"))
+
+
+@pytest.mark.asyncio
+async def test_stop_specific_slot_keeps_users_other_stream(client, auth_signer, redis):
+    """Stopping only slot 1 leaves the caller's slot-0 stream live (and other
+    users untouched); the state falls back to the legacy shape once nobody runs
+    slot ≥ 1 any more."""
+    access = auth_signer.issue_access(4242, "alice")
+    cid = _unique_cid()
+    ck = CHANNEL_STATE_KEY.format(channel_id=cid)
+    state = {
+        "user_ids": ["4242", "999"],
+        "streams": [
+            {"user_id": "4242", "slot": 0},
+            {"user_id": "4242", "slot": 1},
+            {"user_id": "999", "slot": 0},
+        ],
+        "since": "2026-01-01T00:00:00+00:00",
+    }
+    await redis.set(ck, json.dumps(state))
+    await redis.set(active_key(cid, "4242", 1), json.dumps({"user_id": "4242", "path": "p"}))
+    try:
+        r = await client.delete(f"/channels/{cid}/stream?slot=1", headers=_auth(access))
+        assert r.status_code == 204, r.text
+        assert await redis.exists(active_key(cid, "4242", 1)) == 0  # slot-1 record gone
+        new = json.loads((await redis.get(ck)).decode())
+        assert sorted(new["user_ids"]) == ["4242", "999"]  # alice still present via slot 0
+        assert "streams" not in new  # only slot-0 left → legacy shape
+        assert await redis.get(stopping_key(cid, "4242", 1)) is not None  # slot-1 tombstone armed
+        assert await redis.get(stopping_key(cid, "4242", 0)) is None  # slot-0 untouched
+    finally:
+        await redis.delete(ck, active_key(cid, "4242", 1), stopping_key(cid, "4242", 1))
 
 
 @pytest.mark.asyncio

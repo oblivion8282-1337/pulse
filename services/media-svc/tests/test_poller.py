@@ -236,6 +236,37 @@ async def test_stale_cleanup_spares_fresh_publish_active_key(redis, pubsub):
 
 
 @pytest.mark.asyncio
+async def test_user_two_slots_emits_streams(redis, pubsub):
+    """One user publishing two slots (two monitors) appears once in ``user_ids``
+    but twice in the additive ``streams`` list — the data the viewer needs to
+    render two tiles for that user."""
+    cid = _unique_cid()
+    client = _FakeMediaMtxClient(
+        _paths(
+            (f"channel-{cid}-55-{'deadbeef' * 4}", True),  # slot 0
+            (f"channel-{cid}-55-s1-{'cafebabe' * 4}", True),  # slot 1
+        )
+    )
+    try:
+        await reconcile_once(redis, client)
+        state = json.loads((await redis.get(CHANNEL_STATE_KEY.format(channel_id=cid))).decode())
+        assert state["user_ids"] == ["55"]
+        assert state["streams"] == [
+            {"user_id": "55", "slot": 0},
+            {"user_id": "55", "slot": 1},
+        ]
+        ev = json.loads((await _drain_one(pubsub))["data"])
+        assert ev["channel_id"] == cid
+        assert ev["user_ids"] == ["55"]
+        assert ev["streams"] == [
+            {"user_id": "55", "slot": 0},
+            {"user_id": "55", "slot": 1},
+        ]
+    finally:
+        await redis.delete(CHANNEL_STATE_KEY.format(channel_id=cid))
+
+
+@pytest.mark.asyncio
 async def test_non_channel_paths_ignored(redis, pubsub):
     # Paths missing any segment (uid, nonce) or with non-numeric channel are
     # all ignored — must be `channel-<digits>-<digits>-<32 hex>`.
