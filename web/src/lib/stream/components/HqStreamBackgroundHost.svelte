@@ -38,7 +38,7 @@
       .filter(
         (e) =>
           e.userId !== myId &&
-          !detachedStreams.has(e.channelId, e.userId) &&
+          !detachedStreams.has(e.channelId, e.userId, e.slot) &&
           streamPresence
             .streamsIn(e.channelId)
             .some((s) => s.user_id === e.userId && s.slot === e.slot)
@@ -90,7 +90,7 @@
       userId={e.userId}
       streamSlot={e.slot}
       name={tileName(e.channelId, e.userId, e.slot)}
-      canDetach={e.slot === 0}
+      canDetach={true}
       canHide={true}
       compact={false}
       focused={streamFocus.isFocused(e.channelId, 'hq', e.tileId)}
