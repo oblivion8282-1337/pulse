@@ -103,7 +103,7 @@
   }
 
   function handleDetach(): void {
-    const opened = detachedStreams.open(channelId, userId);
+    const opened = detachedStreams.open(channelId, userId, streamSlot);
     if (!opened) {
       toast.error(m.whep_player_popup_blocked(), {
         description: m.whep_player_popup_blocked_description()

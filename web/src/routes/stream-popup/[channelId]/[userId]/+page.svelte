@@ -1,11 +1,11 @@
 <!--
   /stream-popup/[channelId]/[userId] — Entkoppelte HQ-Stream-Ansicht. Wird
-  vom Hauptfenster via `detachedStreams.open(cid, uid)` per `window.open()`
+  vom Hauptfenster via `detachedStreams.open(cid, uid, slot)` per `window.open()`
   gestartet, das Popup hat seinen eigenen JS-Context (eigene WHEP-Connection,
   eigene Gateway-WS, eigener Live-Chat-Subscribe).
 
   Sync mit dem Hauptfenster via BroadcastChannel:
-    * onCloseRequest('close', cid, uid) → wir schließen uns selbst
+    * onCloseRequest('close', cid, uid, slot) → wir schließen uns selbst
     * beforeunload                        → wir melden 'closed' damit das
                                             Hauptfenster den Player wieder
                                             inline anzeigt.
@@ -23,6 +23,9 @@
 
   let channelId = $derived(page.params.channelId ?? '');
   let userId = $derived(page.params.userId ?? '');
+  // Which of the user's streams this popup shows (0 = primary). Comes as a
+  // ?slot=N query so the route file stays [channelId]/[userId].
+  let streamSlot = $derived(Number(page.url.searchParams.get('slot') ?? '0') || 0);
   let streamerName = $derived(userId ? userCache.displayName(userId) : '');
 
   $effect(() => {
@@ -44,15 +47,16 @@
   $effect(() => {
     const cid = channelId;
     const uid = userId;
+    const slot = streamSlot;
     if (!cid || !uid) return;
-    return () => hqStreams.close(cid, uid);
+    return () => hqStreams.close(cid, uid, slot);
   });
 
   onMount(() => {
     // Hauptfenster fordert das Schließen an (z.B. Streamer offline, oder
     // User klickt "wieder andocken" im Hauptfenster) → wir schließen uns.
-    const offClose = detachedStreams.onCloseRequest((cid, uid) => {
-      if (cid === channelId && uid === userId) {
+    const offClose = detachedStreams.onCloseRequest((cid, uid, slot) => {
+      if (cid === channelId && uid === userId && slot === streamSlot) {
         try { window.close(); } catch {}
       }
     });
@@ -60,7 +64,7 @@
     // Wenn das Popup geschlossen wird (vom User per OS-X oder programmatisch),
     // melden wir das dem Hauptfenster damit es den Player wieder inline mountet.
     function onUnload(): void {
-      detachedStreams.notifyClosed(channelId, userId);
+      detachedStreams.notifyClosed(channelId, userId, streamSlot);
     }
     window.addEventListener('beforeunload', onUnload);
 
@@ -79,7 +83,14 @@
 
 <div class="relative h-full w-full" data-testid="stream-popup">
   {#if channelId && userId}
-    <WhepPlayer {channelId} {userId} name={streamerName} canDetach={false} canHide={false} />
+    <WhepPlayer
+      {channelId}
+      {userId}
+      {streamSlot}
+      name={streamerName}
+      canDetach={false}
+      canHide={false}
+    />
     <!-- Reattach button — closing the window via the OS X fires the same
          notifyClosed → Hauptfenster mountet das Tile inline wieder
          (sobald der Viewer das Sidebar-Symbol erneut klickt). -->

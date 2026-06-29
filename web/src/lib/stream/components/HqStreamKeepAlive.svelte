@@ -29,7 +29,7 @@
     const wanted = openedTiles
       .entriesOfKind('hq')
       .map((e) => ({ channelId: e.channelId, ...parseHqTileId(e.id) }))
-      .filter((e) => e.userId !== myId && !detachedStreams.has(e.channelId, e.userId));
+      .filter((e) => e.userId !== myId && !detachedStreams.has(e.channelId, e.userId, e.slot));
     hqStreams.reconcile(wanted);
   });
 </script>

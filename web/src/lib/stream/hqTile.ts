@@ -34,16 +34,16 @@ function slotsOf(channelId: string, userId: string): number[] {
 }
 
 /**
- * Open the HQ stream(s) of `userId` in `channelId` — a tile per live slot. If
- * the user already has a detached popup, focus that instead (popups are not yet
- * slot-aware; detach stays a follow-up).
+ * Open the HQ stream(s) of `userId` in `channelId` — a tile per live slot. A
+ * slot that's already detached into a popup focuses that popup instead of
+ * re-mounting inline.
  */
 export function openHqForUser(channelId: string, userId: string): void {
-  if (detachedStreams.has(channelId, userId)) {
-    detachedStreams.open(channelId, userId); // focuses the existing popup
-    return;
-  }
   for (const slot of slotsOf(channelId, userId)) {
-    openedTiles.open('hq', channelId, hqTileId(userId, slot));
+    if (detachedStreams.has(channelId, userId, slot)) {
+      detachedStreams.open(channelId, userId, slot); // focuses the existing popup
+    } else {
+      openedTiles.open('hq', channelId, hqTileId(userId, slot));
+    }
   }
 }

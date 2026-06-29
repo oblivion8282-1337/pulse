@@ -46,7 +46,7 @@
       .filter(
         (s) =>
           s.user_id !== myId &&
-          !detachedStreams.has(channel.id, s.user_id) &&
+          !detachedStreams.has(channel.id, s.user_id, s.slot) &&
           openedTiles.isOpen('hq', channel.id, hqTileId(s.user_id, s.slot))
       )
       .map((s) => hqTileId(s.user_id, s.slot))

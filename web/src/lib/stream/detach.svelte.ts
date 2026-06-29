@@ -4,9 +4,12 @@
  * Placeholder ersetzt — wichtig, damit die WHEP-Verbindung dort wirklich
  * abgebaut wird (kein doppeltes Subscriben + doppelte Bandbreite).
  *
+ * Pro *(channel, user, slot)* — ein User kann mehrere Streams (Slots) fahren,
+ * und jeder lässt sich einzeln in ein eigenes Fenster abkoppeln.
+ *
  * Sync zwischen Haupt- und Popup-Fenster läuft über `BroadcastChannel`:
- *   * main  → popup: `{ kind: 'close', cid, uid }`   (stream geht offline)
- *   * popup → main:  `{ kind: 'closed', cid, uid }`  (popup wurde geschlossen)
+ *   * main  → popup: `{ kind: 'close', cid, uid, slot }`   (stream geht offline)
+ *   * popup → main:  `{ kind: 'closed', cid, uid, slot }`  (popup wurde geschlossen)
  *
  * Wir verfolgen geöffnete Popup-Fensterreferenzen lokal (nur im
  * eigenen Tab gültig) damit „Fenster fokussieren" / „Schließen" funktioniert.
@@ -14,13 +17,13 @@
 const KEY_SEP = '::';
 const CHANNEL_NAME = 'pulse:stream-detach';
 
-function keyOf(cid: string, uid: string): string {
-  return `${cid}${KEY_SEP}${uid}`;
+function keyOf(cid: string, uid: string, slot: number): string {
+  return [cid, uid, slot].join(KEY_SEP);
 }
 
 type DetachMessage =
-  | { kind: 'closed'; cid: string; uid: string }
-  | { kind: 'close'; cid: string; uid: string };
+  | { kind: 'closed'; cid: string; uid: string; slot: number }
+  | { kind: 'close'; cid: string; uid: string; slot: number };
 
 class DetachedStreams {
   #set = $state<Set<string>>(new Set());
@@ -35,7 +38,7 @@ class DetachedStreams {
     this.#channel.onmessage = (ev: MessageEvent<DetachMessage>) => {
       const m = ev.data;
       if (!m || typeof m !== 'object') return;
-      if (m.kind === 'closed') this.#markAttached(m.cid, m.uid);
+      if (m.kind === 'closed') this.#markAttached(m.cid, m.uid, m.slot);
     };
   }
 
@@ -54,20 +57,21 @@ class DetachedStreams {
     }
   }
 
-  has(cid: string, uid: string): boolean {
-    return this.#set.has(keyOf(cid, uid));
+  has(cid: string, uid: string, slot: number): boolean {
+    return this.#set.has(keyOf(cid, uid, slot));
   }
 
   /** Öffnet das Popup-Fenster und markiert den Stream als entkoppelt.
    *  Wenn das Popup geblockt wird, wird nichts markiert und `false` zurückgegeben. */
-  open(cid: string, uid: string): boolean {
-    const k = keyOf(cid, uid);
+  open(cid: string, uid: string, slot: number): boolean {
+    const k = keyOf(cid, uid, slot);
     const existing = this.#windows.get(k);
     if (existing && !existing.closed) {
       existing.focus();
       return true;
     }
-    const url = `/stream-popup/${encodeURIComponent(cid)}/${encodeURIComponent(uid)}`;
+    const url =
+      `/stream-popup/${encodeURIComponent(cid)}/${encodeURIComponent(uid)}?slot=${slot}`;
     const w = 1100;
     const h = 680;
     const x = Math.round((window.screen.availWidth - w) / 2);
@@ -84,34 +88,34 @@ class DetachedStreams {
   /** Schließt das Popup-Fenster (falls offen, im eigenen Tab geöffnet) und
    *  räumt den Detached-State sofort auf. Popups aus anderen Tabs werden
    *  über die Broadcast-Channel-Message 'close' aufgefordert sich zu schließen. */
-  reattach(cid: string, uid: string): void {
-    const k = keyOf(cid, uid);
+  reattach(cid: string, uid: string, slot: number): void {
+    const k = keyOf(cid, uid, slot);
     const w = this.#windows.get(k);
     if (w && !w.closed) w.close();
     this.#windows.delete(k);
-    this.#channel?.postMessage({ kind: 'close', cid, uid } satisfies DetachMessage);
-    this.#markAttached(cid, uid);
+    this.#channel?.postMessage({ kind: 'close', cid, uid, slot } satisfies DetachMessage);
+    this.#markAttached(cid, uid, slot);
   }
 
   /** Vom Popup selbst aufgerufen wenn es geschlossen wird (`onbeforeunload`). */
-  notifyClosed(cid: string, uid: string): void {
-    this.#channel?.postMessage({ kind: 'closed', cid, uid } satisfies DetachMessage);
+  notifyClosed(cid: string, uid: string, slot: number): void {
+    this.#channel?.postMessage({ kind: 'closed', cid, uid, slot } satisfies DetachMessage);
   }
 
   /** Vom Popup abgefragt: soll ich mich schließen (z.B. Stream offline)? */
-  onCloseRequest(cb: (cid: string, uid: string) => void): () => void {
+  onCloseRequest(cb: (cid: string, uid: string, slot: number) => void): () => void {
     if (!this.#channel) return () => {};
     const ch = this.#channel;
     const handler = (ev: MessageEvent<DetachMessage>) => {
       const m = ev.data;
-      if (m && m.kind === 'close') cb(m.cid, m.uid);
+      if (m && m.kind === 'close') cb(m.cid, m.uid, m.slot);
     };
     ch.addEventListener('message', handler);
     return () => ch.removeEventListener('message', handler);
   }
 
-  #markAttached(cid: string, uid: string): void {
-    const k = keyOf(cid, uid);
+  #markAttached(cid: string, uid: string, slot: number): void {
+    const k = keyOf(cid, uid, slot);
     if (!this.#set.has(k)) return;
     const next = new Set(this.#set);
     next.delete(k);
