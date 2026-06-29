@@ -49,6 +49,9 @@ export interface Instance {
   worker_id_media: number;
   status: InstanceStatus;
   registered_at: string;
+  /** Geräteübergreifende Präferenzen aus der Membership (account-basiert). */
+  user_label: string | null;
+  notification_mode: 'all' | 'mentions' | 'none';
 }
 
 /** Spiegelt ApplicationOut (Admin-Route — trägt applicant_username). */
@@ -147,6 +150,22 @@ export const instancesApi = {
    */
   leaveInstanceMembership(instanceId: string): Promise<void> {
     return cookieFetch<void>(`/me/instances/${instanceId}/membership`, { method: 'DELETE' });
+  },
+
+  /**
+   * Geräteübergreifende Server-Präferenzen setzen (Anzeigename + Notification-
+   * Modus). Partiell: nur gesetzte Felder ändern; `label: null` setzt den Namen
+   * auf den Hostnamen zurück. So gelten Umbenennen/Stummschalten auf allen
+   * Geräten, nicht nur lokal.
+   */
+  updateInstancePreferences(
+    instanceId: string,
+    prefs: { label?: string | null; notification_mode?: 'all' | 'mentions' | 'none' }
+  ): Promise<void> {
+    return cookieFetch<void>(`/me/instances/${instanceId}/preferences`, {
+      method: 'PATCH',
+      body: prefs
+    });
   },
 
   /** One-Time-Bootstrap-Token für den Ein-Befehl-Installer minten. */

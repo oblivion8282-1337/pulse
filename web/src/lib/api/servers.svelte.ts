@@ -235,6 +235,19 @@ class ServersStore {
     );
     saveToStorage(this.servers);
     this._notifyChange();
+    // Label/Notification-Modus eines Self-Hosts zusätzlich in die Cloud
+    // spiegeln, damit Umbenennen/Stummschalten geräteübergreifend gilt (nicht
+    // nur lokal). Andere Felder (pairwise_sub etc.) lösen keinen Sync aus.
+    const entry = this.find(serverId);
+    if (entry && !entry.isCloud && entry.instance_id) {
+      const prefs: { label?: string | null; notification_mode?: ServerEntry['notification_mode'] } =
+        {};
+      if ('label' in patch) prefs.label = patch.label ?? null;
+      if ('notification_mode' in patch) prefs.notification_mode = patch.notification_mode;
+      if (Object.keys(prefs).length > 0) {
+        void instancesApi.updateInstancePreferences(entry.instance_id, prefs).catch(() => undefined);
+      }
+    }
   }
 
   find(serverId: string): ServerEntry | undefined {
@@ -277,10 +290,30 @@ class ServersStore {
         const normalized = normalizeHostname(inst.hostname);
         // Per Snowflake ODER per Hostname matchen — Vorgänger-Einträge ohne
         // instance_id (z.B. legacy localStorage) leben nur am Hostname.
-        const exists = this.servers.some(
+        const existing = this.servers.find(
           (s) => s.instance_id === inst.id || s.hostname === normalized,
         );
-        if (exists) continue;
+
+        if (existing) {
+          // Bereits gelistet → geräteübergreifende Präferenzen (Cloud ist
+          // Quelle der Wahrheit) nachziehen, falls sie hier abweichen. Label nur
+          // überschreiben, wenn die Cloud einen expliziten Namen hat (sonst
+          // bliebe ein legacy-lokaler Name erhalten).
+          const patch: Partial<ServerEntry> = {};
+          if (inst.user_label && existing.label !== inst.user_label) {
+            patch.label = inst.user_label;
+          }
+          if (existing.notification_mode !== inst.notification_mode) {
+            patch.notification_mode = inst.notification_mode;
+          }
+          if (Object.keys(patch).length > 0) {
+            this.servers = this.servers.map((s) =>
+              s.id === existing.id ? { ...s, ...patch } : s,
+            );
+            mutated = true;
+          }
+          continue;
+        }
 
         this.servers = [
           ...this.servers,
@@ -288,10 +321,10 @@ class ServersStore {
             id: crypto.randomUUID(),
             hostname: normalized,
             instance_id: inst.id,
-            label: inst.hostname,
+            label: inst.user_label ?? inst.hostname,
             pairwise_sub: null, // wird beim ersten Connect via Cert-Login gesetzt
             isCloud: false,
-            notification_mode: 'mentions',
+            notification_mode: inst.notification_mode,
             added_at: Date.now(),
           },
         ];

@@ -589,3 +589,98 @@ async def test_leave_membership_owner_forbidden(client, alice_cookie, alice_inst
         headers={"Cookie": alice_cookie},
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# PATCH /me/instances/{id}/preferences — geräteübergreifende Präferenzen
+# (Label + Notification-Modus aus user_instance_memberships)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_instance_out_defaults_for_owner(client, alice_cookie, alice_instance):
+    """Frische Membership → user_label None, notification_mode 'mentions'."""
+    r = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    assert r.status_code == 200
+    inst = next(i for i in r.json() if i["id"] == str(alice_instance.id))
+    assert inst["user_label"] is None
+    assert inst["notification_mode"] == "mentions"
+
+
+@pytest.mark.asyncio
+async def test_patch_preferences_label_and_mode_roundtrip(
+    client, alice_cookie, alice_instance
+):
+    """Label + Modus setzen → tauchen in GET /me/instances auf (geräteübergreifend)."""
+    r = await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences",
+        json={"label": "Mein Server", "notification_mode": "none"},
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 204, r.text
+    got = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    inst = next(i for i in got.json() if i["id"] == str(alice_instance.id))
+    assert inst["user_label"] == "Mein Server"
+    assert inst["notification_mode"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_patch_preferences_partial_keeps_other_field(
+    client, alice_cookie, alice_instance
+):
+    """Nur den Modus patchen lässt ein zuvor gesetztes Label stehen."""
+    await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences",
+        json={"label": "Behalten"},
+        headers={"Cookie": alice_cookie},
+    )
+    await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences",
+        json={"notification_mode": "all"},
+        headers={"Cookie": alice_cookie},
+    )
+    got = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    inst = next(i for i in got.json() if i["id"] == str(alice_instance.id))
+    assert inst["user_label"] == "Behalten"
+    assert inst["notification_mode"] == "all"
+
+
+@pytest.mark.asyncio
+async def test_patch_preferences_label_null_clears(
+    client, alice_cookie, alice_instance
+):
+    """label=null setzt den Anzeigenamen explizit zurück (Hostname anzeigen)."""
+    await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences",
+        json={"label": "Temp"},
+        headers={"Cookie": alice_cookie},
+    )
+    await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences",
+        json={"label": None},
+        headers={"Cookie": alice_cookie},
+    )
+    got = await client.get("/me/instances", headers={"Cookie": alice_cookie})
+    inst = next(i for i in got.json() if i["id"] == str(alice_instance.id))
+    assert inst["user_label"] is None
+
+
+@pytest.mark.asyncio
+async def test_patch_preferences_404_without_membership(
+    client, bob_cookie, alice_instance
+):
+    """Ohne eigene Membership → 404 (kein fremdes Schreiben)."""
+    r = await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences",
+        json={"label": "fremd"},
+        headers={"Cookie": bob_cookie},
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_patch_preferences_requires_cookie(client, alice_instance):
+    r = await client.patch(
+        f"/me/instances/{alice_instance.id}/preferences", json={"label": "x"}
+    )
+    assert r.status_code == 401

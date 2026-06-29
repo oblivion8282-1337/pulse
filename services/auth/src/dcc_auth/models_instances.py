@@ -116,6 +116,12 @@ class UserInstanceMembership(Base):
     role: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="owner"
     )
+    # Per-User-Server-Präferenzen (account-basiert statt gerätelokal, damit sie
+    # über Geräte hinweg gelten). ``user_label`` NULL → Hostname anzeigen.
+    user_label: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notification_mode: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="mentions"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
