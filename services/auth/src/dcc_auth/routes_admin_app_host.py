@@ -22,7 +22,7 @@ from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
 from dcc_auth.models import User
 from dcc_auth.models_app_host import AppHostApplication
-from dcc_auth.routes import _require_admin
+from dcc_auth.routes import _require_admin, _require_owner
 from dcc_auth.routes_admin import _audit
 
 
@@ -152,7 +152,7 @@ async def list_app_host_applications(
 async def approve_app_host_application(
     app_id: str,
     db: SessionDep,
-    actor: Annotated[User, Depends(_require_admin)],
+    actor: Annotated[User, Depends(_require_owner)],
 ) -> ApproveOut:
     """Antrag genehmigen → setzt self_host_enabled=true im selben Tx.
 
@@ -213,7 +213,7 @@ async def reject_app_host_application(
     app_id: str,
     payload: RejectPayload,
     db: SessionDep,
-    actor: Annotated[User, Depends(_require_admin)],
+    actor: Annotated[User, Depends(_require_owner)],
 ) -> AdminAppHostApplicationOut:
     """Antrag ablehnen — bleibt sichtbar mit reason, User kann erneut stellen.
 

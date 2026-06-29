@@ -33,7 +33,7 @@ from dcc_auth.models_instances import (
     UserInstanceMembership,
 )
 from dcc_auth.models import User
-from dcc_auth.routes import _require_admin
+from dcc_auth.routes import _require_admin, _require_owner
 from dcc_auth.routes_suspended_instances import (
     _get_redis,
     suspended_list_add,
@@ -226,7 +226,7 @@ async def list_applications(
 async def approve_application(
     app_id: int,
     session: SessionDep,
-    actor: Annotated[User, Depends(_require_admin)],
+    actor: Annotated[User, Depends(_require_owner)],
 ):
     """Approve an application, create the RegisteredInstance, allocate worker IDs."""
     # Secret is generated once — it's independent of worker IDs / DB row.
@@ -355,7 +355,7 @@ async def reject_application(
     app_id: int,
     body: RejectIn,
     session: SessionDep,
-    actor: Annotated[User, Depends(_require_admin)],
+    actor: Annotated[User, Depends(_require_owner)],
 ):
     """Reject a pending application. Idempotent: already-rejected → 409."""
     app_row = await session.get(InstanceApplication, app_id, with_for_update=True)

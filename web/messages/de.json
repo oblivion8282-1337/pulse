@@ -337,6 +337,7 @@
   "admin_users_actions_aria_label": "Aktionen",
   "admin_users_admin_status_updated": "Admin-Status aktualisiert",
   "admin_users_badge_admin": "Admin",
+  "admin_users_badge_owner": "Betreiber",
   "admin_users_badge_disabled": "Gesperrt",
   "admin_users_badge_self_host": "Hosting",
   "admin_users_ban": "Account sperren",

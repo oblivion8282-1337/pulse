@@ -20,6 +20,9 @@ export type AdminUser = {
   display_name: string | null;
   avatar_url: string | null;
   is_admin: boolean;
+  /** Owner (Betreiber): genehmigt Self-Host-/App-Host-Anträge, gegen
+   *  Demote/Ban geschützt. Nicht über die UI setzbar. */
+  is_owner?: boolean;
   disabled: boolean;
   created_at: string;
   self_host_enabled: boolean;

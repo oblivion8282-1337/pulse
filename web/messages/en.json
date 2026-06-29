@@ -337,6 +337,7 @@
   "admin_users_actions_aria_label": "Actions",
   "admin_users_admin_status_updated": "Admin status updated",
   "admin_users_badge_admin": "Admin",
+  "admin_users_badge_owner": "Owner",
   "admin_users_badge_disabled": "Banned",
   "admin_users_badge_self_host": "Hosting",
   "admin_users_ban": "Ban account",
