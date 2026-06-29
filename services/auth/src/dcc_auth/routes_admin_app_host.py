@@ -20,6 +20,10 @@ from sqlalchemy import select
 
 from dcc_auth.config import get_settings
 from dcc_auth.db import SessionDep
+from dcc_auth.instance_provisioning import (
+    provision_app_host_instance,
+    user_has_active_owner_instance,
+)
 from dcc_auth.models import User
 from dcc_auth.models_app_host import AppHostApplication
 from dcc_auth.routes import _require_admin, _require_owner
@@ -75,6 +79,9 @@ class ApproveOut(BaseModel):
     id: str  # Snowflake-String-API
     user_id: str
     self_host_enabled: bool
+    # Bei der Genehmigung auto-provisionierte App-Host-Instanz (Relay). NULL,
+    # wenn der User schon eine aktive Instanz hatte (Idempotenz).
+    instance_id: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -187,12 +194,24 @@ async def approve_app_host_application(
     was_enabled = target_user.self_host_enabled
     target_user.self_host_enabled = True
 
+    # App-Host-Provisionierung: dem User eine Relay-Instanz geben, damit er sofort
+    # aus der App hosten kann (ohne separaten VPS-Antrag). Idempotent — wenn er
+    # schon eine aktive Instanz besitzt (VPS oder früher provisioniert), nichts
+    # tun. Läuft in derselben Transaktion wie der Status-/Flag-Wechsel.
+    provisioned_instance_id: int | None = None
+    if not await user_has_active_owner_instance(db, target_user.id):
+        provisioned_instance_id = await provision_app_host_instance(db, target_user.id)
+
     _audit(
         db,
         actor_id=actor.id,
         action="app_host_application.approve",
         target_id=target_user.id,
-        payload={"application_id": app.id, "was_enabled": was_enabled},
+        payload={
+            "application_id": app.id,
+            "was_enabled": was_enabled,
+            "instance_id": provisioned_instance_id,
+        },
     )
 
     await db.commit()
@@ -202,6 +221,9 @@ async def approve_app_host_application(
         id=str(app.id),
         user_id=str(target_user.id),
         self_host_enabled=target_user.self_host_enabled,
+        instance_id=(
+            str(provisioned_instance_id) if provisioned_instance_id is not None else None
+        ),
     )
 
 
