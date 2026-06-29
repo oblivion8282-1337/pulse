@@ -16,7 +16,7 @@
   import PlusIcon from '@lucide/svelte/icons/plus';
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
-  import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
+  import { serversStore, serverDisplayName, type ServerEntry } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
@@ -53,7 +53,7 @@
 
   async function confirmRemove(): Promise<void> {
     if (!removeTarget) return;
-    const label = removeTarget.label;
+    const label = serverDisplayName(removeTarget);
     // Entfernen = echtes Austreten + Cloud-Membership-Cleanup + lokales
     // Aufräumen. Geteilt mit der GuildRail über leaveAndRemoveServer, damit
     // dieser zweite Einstieg nicht (wie zuvor) nur lokal entfernt und den
@@ -127,7 +127,7 @@
     <AlertDialog.Header>
       <AlertDialog.Title>{m.server_sidebar_remove_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {m.server_sidebar_remove_description({ name: removeTarget?.label ?? m.server_sidebar_this_server() })}
+        {m.server_sidebar_remove_description({ name: removeTarget ? serverDisplayName(removeTarget) : m.server_sidebar_this_server() })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>

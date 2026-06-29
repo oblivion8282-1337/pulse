@@ -49,8 +49,9 @@ export interface Instance {
   worker_id_media: number;
   status: InstanceStatus;
   registered_at: string;
-  /** Geräteübergreifende Präferenzen aus der Membership (account-basiert). */
-  user_label: string | null;
+  /** Geräteübergreifender Notification-Modus aus der Membership (account-basiert).
+   *  (Das Backend führt zusätzlich ein dormantes ``user_label`` — der
+   *  persönliche Server-Name wurde entfernt; den Namen bestimmt der Admin.) */
   notification_mode: 'all' | 'mentions' | 'none';
 }
 
@@ -153,14 +154,14 @@ export const instancesApi = {
   },
 
   /**
-   * Geräteübergreifende Server-Präferenzen setzen (Anzeigename + Notification-
-   * Modus). Partiell: nur gesetzte Felder ändern; `label: null` setzt den Namen
-   * auf den Hostnamen zurück. So gelten Umbenennen/Stummschalten auf allen
-   * Geräten, nicht nur lokal.
+   * Geräteübergreifenden Notification-Modus setzen, damit Stummschalten auf
+   * allen Geräten gilt (nicht nur lokal). Das Backend akzeptiert weiterhin ein
+   * dormantes ``label`` (persönlicher Server-Name entfernt) — der Client sendet
+   * es nicht mehr.
    */
   updateInstancePreferences(
     instanceId: string,
-    prefs: { label?: string | null; notification_mode?: 'all' | 'mentions' | 'none' }
+    prefs: { notification_mode?: 'all' | 'mentions' | 'none' }
   ): Promise<void> {
     return cookieFetch<void>(`/me/instances/${instanceId}/preferences`, {
       method: 'PATCH',
