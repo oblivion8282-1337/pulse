@@ -121,6 +121,19 @@ class InstanceOut(BaseModel):
     worker_id_media: int
     status: Literal["active", "suspended"]
     registered_at: datetime
+    # Per-User-Präferenzen aus user_instance_memberships (account-basiert →
+    # geräteübergreifend). NULL/Default, wenn keine Membership im Kontext.
+    user_label: str | None = None
+    notification_mode: Literal["all", "mentions", "none"] = "mentions"
+
+
+class InstancePreferencesIn(BaseModel):
+    """Partielles Update der geräteübergreifenden Server-Präferenzen. Nur
+    gesetzte Felder werden geändert (``model_fields_set``); ``label=None``
+    setzt den Anzeigenamen explizit zurück (= Hostname anzeigen)."""
+
+    label: str | None = Field(default=None, max_length=100)
+    notification_mode: Literal["all", "mentions", "none"] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +160,9 @@ def _app_to_out(app: InstanceApplication) -> InstanceApplicationOut:
     )
 
 
-def _instance_to_out(inst: RegisteredInstance) -> InstanceOut:
+def _instance_to_out(
+    inst: RegisteredInstance, membership: UserInstanceMembership | None = None
+) -> InstanceOut:
     return InstanceOut(
         id=str(inst.id),
         hostname=inst.hostname,
@@ -157,6 +172,10 @@ def _instance_to_out(inst: RegisteredInstance) -> InstanceOut:
         worker_id_media=inst.worker_id_media,
         status=inst.status,  # type: ignore[arg-type]
         registered_at=inst.registered_at,
+        user_label=membership.user_label if membership else None,
+        notification_mode=(
+            membership.notification_mode if membership else "mentions"  # type: ignore[arg-type]
+        ),
     )
 
 
@@ -275,7 +294,7 @@ async def list_my_instances(
     # erlaubt später auch eingeladene Nicht-Owner-User (Phase 4-6).
     # Soft-delete (routes_instance_delete) ausblenden.
     stmt = (
-        select(RegisteredInstance)
+        select(RegisteredInstance, UserInstanceMembership)
         .join(
             UserInstanceMembership,
             UserInstanceMembership.instance_id == RegisteredInstance.id,
@@ -286,8 +305,8 @@ async def list_my_instances(
         )
         .order_by(RegisteredInstance.registered_at.desc())
     )
-    rows = (await db.execute(stmt)).scalars().all()
-    return [_instance_to_out(r) for r in rows]
+    rows = (await db.execute(stmt)).all()
+    return [_instance_to_out(inst, membership) for inst, membership in rows]
 
 
 @router.post(
@@ -361,6 +380,36 @@ async def leave_instance_membership(
             status.HTTP_403_FORBIDDEN, detail="owner_cannot_leave_instance"
         )
     await db.delete(existing)
+    await db.commit()
+
+
+@router.patch(
+    "/me/instances/{instance_id}/preferences",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def update_instance_preferences(
+    instance_id: str,
+    payload: InstancePreferencesIn,
+    request: Request,
+    db: SessionDep,
+) -> None:
+    """Geräteübergreifende Server-Präferenzen (Anzeigename + Notification-Modus)
+    setzen. Damit gelten Umbenennung und Stummschaltung eines Self-Host-Servers
+    auf allen Geräten, nicht nur lokal. Partiell: nur gesetzte Felder ändern.
+    404, wenn der User keine Membership auf der Instanz hat."""
+    user = await _require_user(request, db)
+    try:
+        iid = int(instance_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    membership = await db.get(UserInstanceMembership, (user.id, iid))
+    if membership is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    fields = payload.model_fields_set
+    if "label" in fields:
+        membership.user_label = payload.label
+    if "notification_mode" in fields and payload.notification_mode is not None:
+        membership.notification_mode = payload.notification_mode
     await db.commit()
 
 
