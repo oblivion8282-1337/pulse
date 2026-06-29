@@ -169,7 +169,9 @@
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content side="top" align="start" class="min-w-[12rem]">
-            <DropdownMenu.GroupHeading>{m.screen_share_stop_pick()}</DropdownMenu.GroupHeading>
+            <div class="text-text-muted px-2 py-1.5 text-xs font-semibold">
+              {m.screen_share_stop_pick()}
+            </div>
             {#each runningSlots as slot (slot)}
               <DropdownMenu.Item onclick={() => stopSlot(slot)} class="flex items-center gap-2">
                 <SquareIcon class="size-3.5 shrink-0 text-red-400" />
