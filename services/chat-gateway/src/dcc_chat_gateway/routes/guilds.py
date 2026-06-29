@@ -2,8 +2,18 @@
 
 from __future__ import annotations
 
+from dcc_shared.events import (
+    GuildDeletedEvent,
+    GuildMemberAddedEvent,
+    GuildMemberRemovedEvent,
+    GuildMemberUpdatedEvent,
+    GuildUpdatedEvent,
+    _EventBase,
+)
+from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
 from fastapi import APIRouter, HTTPException, Query, Request, status
-from sqlalchemy import delete as sa_delete, select
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from dcc_chat_gateway import ratelimit
@@ -18,7 +28,6 @@ from dcc_chat_gateway.models import (
     PermissionOverwrite,
     Role,
 )
-from dcc_shared.permissions import DEFAULT_EVERYONE_PERMISSIONS
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
@@ -33,16 +42,12 @@ from dcc_chat_gateway.schemas import (
     MemberOut,
     TransferOwnershipIn,
 )
-from dcc_chat_gateway.voice_evict import evict_user_from_guild_voice
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-from dcc_shared.events import (
-    GuildDeletedEvent,
-    GuildMemberAddedEvent,
-    GuildMemberRemovedEvent,
-    GuildMemberUpdatedEvent,
-    GuildUpdatedEvent,
-    _EventBase,
+from dcc_chat_gateway.voice_evict import (
+    evict_all_from_voice_channels,
+    evict_user_from_guild_voice,
+    voice_channels_for_guild,
 )
 
 router = APIRouter()
@@ -264,6 +269,9 @@ async def delete_guild(
     # removes the rows — the cascade can't clean up object-store objects.
     channel_ids_stmt = select(Channel.id).where(Channel.guild_id == guild_id)
     channel_ids = list((await session.execute(channel_ids_stmt)).scalars())
+    # Voice-Channels jetzt erfassen (vor dem Cascade-Delete) — nach dem Commit
+    # werfen wir alle dort Anwesenden aus der Voice-Session.
+    voice_channel_ids = await voice_channels_for_guild(session, guild_id)
     s3_keys_to_purge: list[str] = []
     if channel_ids:
         att_ids_stmt = select(MessageAttachment.id).where(
@@ -288,6 +296,11 @@ async def delete_guild(
     await _publish_guild_event(
         request, GuildDeletedEvent(guild_id=str(guild_id))
     )
+    # Anwesende aus allen (jetzt gelöschten) Voice-Channels werfen — sonst
+    # hängen sie in Ghost-Sessions. Best-effort, nach dem Commit.
+    if voice_channel_ids:
+        mgr = getattr(request.app.state, "connection_manager", None)
+        await evict_all_from_voice_channels(getattr(mgr, "_redis", None), voice_channel_ids)
 
 
 @router.post(

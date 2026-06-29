@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Iterable
+from typing import Any
 
 import httpx
 from sqlalchemy import select
@@ -67,38 +69,69 @@ async def voice_channels_for_guild(
     return list((await session.execute(stmt)).scalars())
 
 
+async def _post_evict(
+    secret: str, channel_ids: list[int], user_id: str
+) -> None:
+    """Fire one POST /internal/evict-from-voice (one user, N channels).
+    Best-effort: logs + swallows transport errors, never raises."""
+    url = get_settings().voice_signaling_url.rstrip("/") + "/internal/evict-from-voice"
+    body = {
+        "channel_ids": [str(cid) for cid in channel_ids],
+        "user_id": user_id,
+    }
+    try:
+        http = await _ensure_client()
+        resp = await http.post(
+            url, json=body, headers={"X-Pulse-Internal-Secret": secret}
+        )
+        if resp.status_code >= 400:
+            log.warning(
+                "voice-evict %s/%s returned %s", channel_ids, user_id, resp.status_code
+            )
+    except httpx.HTTPError as exc:
+        log.warning("voice-evict %s/%s failed: %s", channel_ids, user_id, exc)
+
+
 async def evict_user_from_guild_voice(
     session: AsyncSession, guild_id: int, user_id: int
 ) -> None:
     """Fire-and-forget POST /internal/evict-from-voice on the voice-
     signaling service. No-op when ``internal_service_secret`` is unset
     (dev / no-voice-mod-config) or when no voice channels exist."""
-    settings = get_settings()
-    secret = settings.internal_service_secret
+    secret = get_settings().internal_service_secret
     if not secret:
         log.info("voice-evict skipped: internal_service_secret unset")
         return
     channel_ids = await voice_channels_for_guild(session, guild_id)
     if not channel_ids:
         return
-    url = settings.voice_signaling_url.rstrip("/") + "/internal/evict-from-voice"
-    body = {
-        "channel_ids": [str(cid) for cid in channel_ids],
-        "user_id": str(user_id),
-    }
-    try:
-        http = await _ensure_client()
-        resp = await http.post(
-            url,
-            json=body,
-            headers={"X-Pulse-Internal-Secret": secret},
-        )
-        if resp.status_code >= 400:
-            log.warning(
-                "voice-evict %s/%s returned %s",
-                guild_id,
-                user_id,
-                resp.status_code,
-            )
-    except httpx.HTTPError as exc:
-        log.warning("voice-evict %s/%s failed: %s", guild_id, user_id, exc)
+    await _post_evict(secret, channel_ids, str(user_id))
+
+
+async def evict_all_from_voice_channels(
+    redis: Any, channel_ids: Iterable[int]
+) -> None:
+    """Evict EVERY currently-present user from the given voice channels.
+
+    Fired when a voice channel — or its whole guild — is deleted: otherwise the
+    occupants linger in a LiveKit room whose channel no longer exists (the UI
+    shows them in a ghost channel and nothing self-heals it within a session).
+    Reads the ``voice:room:channel-<cid>`` presence sets (same key schema the
+    user-purge + reconcile paths use) and fires one per-user eviction each.
+
+    Best-effort: no-op when the secret is unset or redis is unavailable; never
+    raises (a failed eviction must not block the delete that triggered it)."""
+    secret = get_settings().internal_service_secret
+    if not secret or redis is None:
+        return
+    for cid in channel_ids:
+        try:
+            members = await redis.smembers(f"voice:room:channel-{cid}")
+        except Exception:  # noqa: BLE001 — best-effort, skip this channel
+            log.warning("voice-evict: smembers failed for channel %s", cid, exc_info=True)
+            continue
+        for raw in members:
+            uid = raw.decode() if isinstance(raw, (bytes, bytearray)) else str(raw)
+            # The evict endpoint validates ^\d+$; skip any non-numeric stray.
+            if uid.isdigit():
+                await _post_evict(secret, [cid], uid)

@@ -34,6 +34,7 @@ export type CertLoginReason =
   | 'rate-limited'
   | 'join-closed'
   | 'join-requires-invite'
+  | 'instance-banned'
   | 'network'
   | 'unknown';
 
@@ -98,6 +99,7 @@ function reasonForStatus(status: number, detail: string | null): CertLoginReason
   // `join_not_permitted` (kein gültiger Grant) statt der alten join_mode-Codes.
   if (detail === 'join_locked') return 'join-closed';
   if (detail === 'join_not_permitted') return 'join-requires-invite';
+  if (detail === 'instance banned') return 'instance-banned';
   if (status === 410) return 'challenge-expired';
   if (status === 429) return 'rate-limited';
   if (status === 401) return 'cert-invalid';

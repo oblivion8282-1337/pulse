@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import asyncio
 
+from dcc_shared.events import (
+    ChannelCreatedEvent,
+    ChannelDeletedEvent,
+    ChannelUpdatedEvent,
+    _EventBase,
+)
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
@@ -27,12 +33,7 @@ from dcc_chat_gateway.schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_chat_gateway.snowflake import next_id
-from dcc_shared.events import (
-    ChannelCreatedEvent,
-    ChannelDeletedEvent,
-    ChannelUpdatedEvent,
-    _EventBase,
-)
+from dcc_chat_gateway.voice_evict import evict_all_from_voice_channels
 
 router = APIRouter()
 
@@ -202,6 +203,7 @@ async def delete_channel(
         session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
     )
     guild_id = channel.guild_id
+    channel_is_voice = channel.type == CHANNEL_TYPE_VOICE
     # Collect attachment ids before deleting messages, then hard-delete them
     # (removes the MinIO objects too — Message bulk-delete can't cascade those).
     att_ids_stmt = (
@@ -230,6 +232,12 @@ async def delete_channel(
             guild_id=str(guild_id), channel_id=str(channel_id)
         ),
     )
+    # Voice-Channel gelöscht → anwesende Teilnehmer aus der jetzt verwaisten
+    # LiveKit-Session werfen, sonst hängen sie in einem Ghost-Channel (nichts
+    # heilt das innerhalb der Session). Best-effort, nach dem Commit.
+    if channel_is_voice:
+        mgr = getattr(request.app.state, "connection_manager", None)
+        await evict_all_from_voice_channels(getattr(mgr, "_redis", None), [channel_id])
 
 
 @router.patch("/channels/{channel_id}", response_model=ChannelOut)

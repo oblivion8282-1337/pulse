@@ -79,6 +79,12 @@ async function reauth(serverId: string): Promise<boolean> {
   } catch (err) {
     if (err instanceof CertLoginError) {
       console.warn(`[self-host-reauth] ${serverId}: ${err.reason}`);
+      // Auf dieser Instanz gebannt → die Cloud-Membership wegräumen, sonst
+      // zeigt der Server bei ``GET /me/instances`` weiter auf allen anderen
+      // Geräten. Best-effort.
+      if (err.reason === 'instance-banned' && server.instance_id) {
+        void instancesApi.leaveInstanceMembership(server.instance_id).catch(() => undefined);
+      }
     } else {
       console.warn(`[self-host-reauth] ${serverId}: unexpected`, err);
     }
