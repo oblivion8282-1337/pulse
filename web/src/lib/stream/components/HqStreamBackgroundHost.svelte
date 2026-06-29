@@ -17,6 +17,8 @@
   import { hqStreamBackground } from '$lib/stream/hqStreamBackground.svelte';
   import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { streamPresence } from '$lib/stores/streamPresence.svelte';
+  import { parseHqTileId } from '$lib/stream/hqTile';
+  import { userCache } from '$lib/stores/users.svelte';
   import { voiceState } from '$lib/voice/state.svelte';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
   import WatchBackgroundFrame from '$lib/watch/WatchBackgroundFrame.svelte';
@@ -24,20 +26,33 @@
 
   let myId = $derived(currentServerUserId());
 
-  // Every open, non-self, non-detached HQ stream whose publisher is currently
-  // live (otherwise the tile would sit as an error placeholder when the streamer
-  // goes offline). Source is `openedTiles` (opened via sidebar / voice-tile
-  // badges); `HqStreamKeepAlive` uses the same list to keep connections alive.
+  // Every open, non-self, non-detached HQ stream-tile whose (user, slot) is
+  // currently live (otherwise the tile would sit as an error placeholder when
+  // the streamer goes offline). Source is `openedTiles` (opened via sidebar /
+  // voice-tile badges); `HqStreamKeepAlive` uses the same list to keep
+  // connections alive. The tile id is `<userId>:<slot>`.
   let shown = $derived(
     openedTiles
       .entriesOfKind('hq')
+      .map((e) => ({ tileId: e.id, channelId: e.channelId, ...parseHqTileId(e.id) }))
       .filter(
         (e) =>
-          e.id !== myId &&
-          !detachedStreams.has(e.channelId, e.id) &&
-          streamPresence.streamersIn(e.channelId).includes(e.id)
+          e.userId !== myId &&
+          !detachedStreams.has(e.channelId, e.userId) &&
+          streamPresence
+            .streamsIn(e.channelId)
+            .some((s) => s.user_id === e.userId && s.slot === e.slot)
       )
   );
+
+  // "Name" for a tile — suffixed " (1)" / " (2)" only when the user runs more
+  // than one stream, so a single stream just shows the plain name.
+  function tileName(channelId: string, userId: string, slot: number): string {
+    const base = userCache.displayName(userId);
+    const multi =
+      streamPresence.streamsIn(channelId).filter((s) => s.user_id === userId).length > 1;
+    return multi ? `${base} (${slot + 1})` : base;
+  }
 
   // Close HQ tiles that lose their reason to stay when the connected voice
   // channel changes / drops — same rationale as WatchBackgroundHost: the
@@ -67,17 +82,19 @@
   }
 </script>
 
-{#each shown as e, i (e.channelId + '::' + e.id)}
-  {@const rect = hqStreamBackground.anchorRect(e.channelId, e.id)}
+{#each shown as e, i (e.channelId + '::' + e.tileId)}
+  {@const rect = hqStreamBackground.anchorRect(e.channelId, e.tileId)}
   <WatchBackgroundFrame {rect} index={i} onReturn={() => returnTo(e.channelId)}>
     <WhepPlayer
       channelId={e.channelId}
-      userId={e.id}
-      canDetach={true}
+      userId={e.userId}
+      streamSlot={e.slot}
+      name={tileName(e.channelId, e.userId, e.slot)}
+      canDetach={e.slot === 0}
       canHide={true}
       compact={false}
-      focused={streamFocus.isFocused(e.channelId, 'hq', e.id)}
-      onToggleFocus={() => streamFocus.toggle(e.channelId, 'hq', e.id)}
+      focused={streamFocus.isFocused(e.channelId, 'hq', e.tileId)}
+      onToggleFocus={() => streamFocus.toggle(e.channelId, 'hq', e.tileId)}
     />
   </WatchBackgroundFrame>
 {/each}

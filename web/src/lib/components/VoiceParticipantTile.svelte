@@ -11,7 +11,7 @@
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { voice } from '$lib/voice/livekit.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
-  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { openHqForUser } from '$lib/stream/hqTile';
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import UserProfilePopover from './UserProfilePopover.svelte';
   import VoiceUserVolumeControl from './VoiceUserVolumeControl.svelte';
@@ -98,14 +98,11 @@
   }
 
   function openLive(): void {
-    // Open whichever live source(s) this user actually has. HQ takes the
-    // user_id as key (snowflake), screen-share takes the LiveKit identity.
+    // Open whichever live source(s) this user actually has. HQ opens a tile per
+    // stream slot (handles the detach/popup case); screen-share takes the
+    // LiveKit identity.
     if (isHqStreaming && p.userId) {
-      if (detachedStreams.has(channelId, p.userId)) {
-        detachedStreams.open(channelId, p.userId); // focuses popup
-      } else {
-        openedTiles.open('hq', channelId, p.userId);
-      }
+      openHqForUser(channelId, p.userId);
     }
     if (isScreenSharing) {
       openedTiles.open('screen', channelId, p.identity);

@@ -134,6 +134,10 @@ export const streamSettings = $state({
   // Selections (persisted)
   profile_name: '',
   capture_source: 'portal' as 'portal' | string,
+  // Capture source for the optional SECOND stream (slot 1) — same shape as
+  // `capture_source`. Defaults to portal (Linux) / the second monitor
+  // (Windows+macOS, picked by resolveMonitorCaptureSource).
+  capture_source_1: 'portal' as 'portal' | string,
   // One of AUDIO_MODES, or `"App: <name>"` (capture a specific running app).
   audio_mode: 'Desktop' as string,
   // Remembers the last app picked for the "App: …" mode, so toggling away and
@@ -171,6 +175,7 @@ export const streamSettings = $state({
 const PERSIST_KEYS = [
   'profile_name',
   'capture_source',
+  'capture_source_1',
   'audio_mode',
   'audio_app',
   'excluded_apps',
@@ -324,7 +329,10 @@ export async function loadCatalogs(): Promise<void> {
     if (isWindows() || isMac()) {
       resolveMonitorCaptureSource();
     } else {
+      // Linux: both slots use the Wayland portal — each start opens its own
+      // portal dialog so the user picks a (different) screen per stream.
       streamSettings.capture_source = 'portal';
+      streamSettings.capture_source_1 = 'portal';
     }
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
@@ -358,27 +366,50 @@ export async function refreshAudioApps(): Promise<void> {
   }
 }
 
+/** The capture source for a given stream slot (0 = primary, 1 = second). */
+export function captureSourceForSlot(slot: number): string {
+  return slot === 1 ? streamSettings.capture_source_1 : streamSettings.capture_source;
+}
+
+/** Set the capture source for a given stream slot. */
+export function setCaptureSourceForSlot(slot: number, value: string): void {
+  if (slot === 1) streamSettings.capture_source_1 = value;
+  else streamSettings.capture_source = value;
+}
+
 /**
- * Windows + macOS: resolve `capture_source` to a concrete capture target from
+ * Windows + macOS: resolve one slot's capture source to a concrete target from
  * the enumerated sources. A persisted choice wins if it still matches a live
- * window (`window:<id>`) or monitor (`Monitor: <n>`); otherwise default to the
- * primary monitor. Falls back to `'portal'` (which the sidecar maps to the
- * primary monitor) when no monitor is enumerated.
+ * window (`window:<id>`) or monitor (`Monitor: <n>`); otherwise default to
+ * `fallback`. Falls back to `'portal'` when no monitor is enumerated.
  */
-function resolveMonitorCaptureSource(): void {
+function resolveSlotCaptureSource(slot: number, fallback: GsrMonitor | undefined): void {
+  const current = captureSourceForSlot(slot);
   // A still-valid window pick wins — don't snap a chosen app back to a monitor.
   const wins = streamSettings.available_windows;
-  if (wins.some((w) => `${WINDOW_CAPTURE_PREFIX}${w.id}` === streamSettings.capture_source)) return;
+  if (wins.some((w) => `${WINDOW_CAPTURE_PREFIX}${w.id}` === current)) return;
 
   const mons = streamSettings.available_monitors;
-  if (mons.length === 0) {
-    streamSettings.capture_source = 'portal';
+  if (mons.length === 0 || !fallback) {
+    setCaptureSourceForSlot(slot, 'portal');
     return;
   }
-  const m = /^Monitor: (\d+)$/.exec(streamSettings.capture_source);
+  const m = /^Monitor: (\d+)$/.exec(current);
   if (m && mons.some((mon) => mon.index === Number(m[1]))) return;
+  setCaptureSourceForSlot(slot, `${MONITOR_CAPTURE_PREFIX}${fallback.index}`);
+}
+
+/**
+ * Resolve BOTH slots' capture sources (Windows + macOS). Slot 0 defaults to the
+ * primary monitor; slot 1 defaults to a *different* monitor when one exists, so
+ * a two-monitor user gets one stream per screen out of the box.
+ */
+function resolveMonitorCaptureSource(): void {
+  const mons = streamSettings.available_monitors;
   const primary = mons.find((mon) => mon.primary) ?? mons[0];
-  streamSettings.capture_source = `${MONITOR_CAPTURE_PREFIX}${primary.index}`;
+  const second = mons.find((mon) => mon !== primary) ?? primary;
+  resolveSlotCaptureSource(0, primary);
+  resolveSlotCaptureSource(1, second);
 }
 
 /** Refresh the monitor list (Windows + macOS; called from the monitor picker).
@@ -434,7 +465,7 @@ export interface ChannelStreamArg {
  * `ServerProfile.from_channel(...)` from it (per-(channel,user) MediaMTX path,
  * the token used like a stream key, `push_url` taken verbatim when present).
  */
-export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
+export function buildStartArgs(channelArg: ChannelStreamArg, slot = 0): GsrStartArgs {
   const apply = streamSettings.use_overrides || streamSettings.profile_name === 'Custom';
 
   const args: GsrStartArgs = {
@@ -444,7 +475,9 @@ export function buildStartArgs(channelArg: ChannelStreamArg): GsrStartArgs {
       token: channelArg.token,
       ...(channelArg.pushUrl ? { push_url: channelArg.pushUrl } : {}),
     },
-    capture: streamSettings.capture_source,
+    // Each slot captures its own source (a different monitor); the rest of the
+    // settings — profile, audio, overrides — are shared across both streams.
+    capture: captureSourceForSlot(slot),
     audio: {
       mode: streamSettings.audio_mode,
       excluded_apps: streamSettings.excluded_apps.slice(),

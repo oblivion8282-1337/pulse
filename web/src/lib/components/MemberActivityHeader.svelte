@@ -19,7 +19,7 @@
   } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
   import { openPartyTile } from '$lib/watch/openParty.svelte';
-  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { openHqForUser } from '$lib/stream/hqTile';
   import { voice } from '$lib/voice/livekit.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { userCache } from '$lib/stores/users.svelte';
@@ -90,8 +90,7 @@
 
   function openStream(channelId: string, uid: string): void {
     if (streamPresence.streamersIn(channelId).includes(uid)) {
-      if (detachedStreams.has(channelId, uid)) detachedStreams.open(channelId, uid);
-      else openedTiles.open('hq', channelId, uid);
+      openHqForUser(channelId, uid);
     }
     if (voicePresence.streamingIn(channelId).includes(uid)) {
       const ident = voice.connected && voice.channelId === channelId

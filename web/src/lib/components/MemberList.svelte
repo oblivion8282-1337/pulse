@@ -14,7 +14,7 @@
   import { rolesApi } from '$lib/api/roles';
   import { Perm } from '$lib/permissions/bitfield';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
-  import { detachedStreams } from '$lib/stream/detach.svelte';
+  import { openHqForUser } from '$lib/stream/hqTile';
   import { watchPartyPicker, openPartyTile } from '$lib/watch/openParty.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { voice } from '$lib/voice/livekit.svelte';
@@ -199,8 +199,7 @@
       const matchScreen = voicePresence.streamingIn(c.id).includes(uid);
       if (!matchHq && !matchScreen) continue;
       if (matchHq) {
-        if (detachedStreams.has(c.id, uid)) detachedStreams.open(c.id, uid);
-        else openedTiles.open('hq', c.id, uid);
+        openHqForUser(c.id, uid);
       }
       if (matchScreen) {
         const ident = voice.connected && voice.channelId === c.id

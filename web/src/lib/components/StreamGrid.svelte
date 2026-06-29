@@ -22,6 +22,7 @@
   import { detachedWatchParties } from '$lib/stream/watchPartyDetach.svelte';
   import { watchBackground } from '$lib/watch/watchBackground.svelte';
   import { hqStreamBackground } from '$lib/stream/hqStreamBackground.svelte';
+  import { hqTileId } from '$lib/stream/hqTile';
   import { liveKitBackground } from '$lib/stream/liveKitBackground.svelte';
   import { streamFocus } from '$lib/stream/streamFocus.svelte';
   import { inVoiceChannel } from '$lib/voice/state.svelte';
@@ -37,15 +38,18 @@
 
   // What the viewer has actually opened, in this channel, per kind.
   // Detached tiles are excluded — they're showing in a separate window.
-  let openHqIds = $derived(
+  // One entry per OPEN, live, non-self, non-detached HQ tile — keyed by the
+  // composite `<userId>:<slot>` id so a user's two streams get two anchors.
+  let openHqTiles = $derived(
     streamPresence
-      .streamersIn(channel.id)
+      .streamsIn(channel.id)
       .filter(
-        (uid) =>
-          uid !== myId &&
-          openedTiles.isOpen('hq', channel.id, uid) &&
-          !detachedStreams.has(channel.id, uid)
+        (s) =>
+          s.user_id !== myId &&
+          !detachedStreams.has(channel.id, s.user_id) &&
+          openedTiles.isOpen('hq', channel.id, hqTileId(s.user_id, s.slot))
       )
+      .map((s) => hqTileId(s.user_id, s.slot))
   );
   let openScreens = $derived(
     voice.screenTracks.filter((s) => openedTiles.isOpen('screen', channel.id, s.identity))
@@ -154,7 +158,7 @@
   let tileKeys = $derived([
     ...openParties.map((p) => `party:${p.party_id}`),
     ...(showSelfCam ? ['selfcam'] : []),
-    ...openHqIds.map((u) => `hq:${u}`),
+    ...openHqTiles.map((id) => `hq:${id}`),
     ...openScreens.map((s) => `screen:${s.identity}`),
     ...openCameras.map((c) => `cam:${c.identity}`)
   ]);
@@ -234,12 +238,12 @@
         ></div>
       </div>
     {/if}
-    {#each openHqIds as uid (uid)}
-      {@const key = `hq:${uid}`}
+    {#each openHqTiles as tileId (tileId)}
+      {@const key = `hq:${tileId}`}
       <div class="min-h-0 min-w-0" style={cellStyle(key)}>
         <div
           class="h-full w-full"
-          use:hqAnchor={{ channelId: channel.id, key: uid }}
+          use:hqAnchor={{ channelId: channel.id, key: tileId }}
           data-testid="hq-anchor"
         ></div>
       </div>

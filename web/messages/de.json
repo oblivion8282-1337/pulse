@@ -866,6 +866,8 @@
   "hq_stream_button_open": "HQ-Stream öffnen",
   "hq_stream_button_stop": "HQ-Stream beenden",
   "hq_stream_button_tooltip": "HQ-Stream",
+  "hq_stream_button_second_open": "Zweiten Bildschirm streamen",
+  "hq_stream_button_second_stop": "Zweiten Stream beenden",
   "hq_stream_dialog_description": "GPU-Screen-Recorder-basierter Stream über MediaMTX (Pulse-T3/T4).",
   "hq_stream_dialog_title": "HQ-Stream",
   "incognito_banner_body": "Dein Geräte-Schlüssel wird im privaten Modus nach dem Schließen des Tabs gelöscht. Öffne Pulse in einem normalen Browser-Fenster, damit dein Geräte-Zertifikat erhalten bleibt.",

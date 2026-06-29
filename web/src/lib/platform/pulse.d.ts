@@ -41,9 +41,14 @@ export interface PulseGsrApi {
   listWindows(): Promise<unknown>;
   listApplicationAudio(): Promise<unknown>;
   buildArgv(args: unknown): Promise<unknown>;
-  start(args: unknown): Promise<unknown>;
-  stop(): Promise<unknown>;
-  /** Subscribe to sidecar events. Returns an unsubscribe function. */
+  /** Start a stream in the given slot (0 = primary, 1 = a second concurrent
+   *  stream e.g. a second monitor). Defaults to slot 0. */
+  start(args: unknown, slot?: number): Promise<unknown>;
+  /** Stop the stream in the given slot (default 0). */
+  stop(slot?: number): Promise<unknown>;
+  /** Subscribe to sidecar events. Each event carries a `slot` field tagged by
+   *  the main process so the renderer can route it to the right stream. Returns
+   *  an unsubscribe function. */
   onEvent(cb: (ev: PulseGsrEvent) => void): () => void;
 }
 

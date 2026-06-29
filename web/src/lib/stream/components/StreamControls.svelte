@@ -26,7 +26,7 @@
   import { chatApi } from '$lib/api/chat';
   import { ApiError } from '$lib/api/client';
   import { gsr } from '../gsr';
-  import { stream } from '../state.svelte';
+  import { stream, streamForSlot } from '../state.svelte';
   import {
     buildStartArgs,
     streamSettings,
@@ -36,8 +36,16 @@
 
   let {
     channelId = null,
+    // `slot` is a reserved attribute name in Svelte, so the prop is `streamSlot`
+    // on the outside; alias it back to the simpler `slot` inside.
+    streamSlot: slot = 0,
     onStarted,
-  }: { channelId?: string | null; onStarted?: () => void } = $props();
+  }: { channelId?: string | null; streamSlot?: number; onStarted?: () => void } = $props();
+
+  // This control drives ONE stream slot; `session` is that slot's live state
+  // (0 = primary `stream`, 1 = the second stream). The global bridge flag still
+  // lives on `stream`.
+  let session = $derived(streamForSlot(slot));
 
   let busy = $state(false);
   let localError = $state<string | null>(null);
@@ -49,13 +57,13 @@
   );
   let canStart = $derived(
     bridgeReady &&
-      !stream.running &&
+      !session.running &&
       !busy &&
       !!streamSettings.profile_name &&
       appAudioReady &&
       !!channelId,
   );
-  let canStop = $derived(bridgeReady && stream.running && !busy);
+  let canStop = $derived(bridgeReady && session.running && !busy);
 
   function formatUptime(s: number | null): string {
     if (s == null || s < 0) return '00:00';
@@ -64,9 +72,9 @@
     return `${m.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
   }
 
-  let uptimeLabel = $derived(formatUptime(stream.uptimeS));
+  let uptimeLabel = $derived(formatUptime(session.uptimeS));
   let stateLabel = $derived.by(() => {
-    switch (stream.state) {
+    switch (session.state) {
       case 'starting':
         return 'Connecting…';
       case 'live':
@@ -80,7 +88,7 @@
     }
   });
   let stateColor = $derived.by(() => {
-    switch (stream.state) {
+    switch (session.state) {
       case 'starting':
         return 'text-amber-400';
       case 'live':
@@ -99,7 +107,7 @@
     try {
       let tok;
       try {
-        tok = await chatApi.getStreamToken(channelId, 'rtmp');
+        tok = await chatApi.getStreamToken(channelId, 'rtmp', slot);
       } catch (e) {
         const msg =
           e instanceof ApiError
@@ -116,12 +124,15 @@
         toast.error(m.stream_controls_toast_start_failed(), { description: msg });
         return;
       }
-      const args = buildStartArgs({
-        channelId,
-        token: tok.token,
-        pushUrl: tok.push_url,
-      });
-      const r = await gsr.start(args);
+      const args = buildStartArgs(
+        {
+          channelId,
+          token: tok.token,
+          pushUrl: tok.push_url,
+        },
+        slot,
+      );
+      const r = await gsr.start(args, slot);
       if (r && !r.ok) {
         localError = r.error ?? m.stream_controls_error_start_failed();
         toast.error(m.stream_controls_toast_start_failed(), { description: localError });
@@ -142,7 +153,7 @@
       // emits its `stopped` event (see stream/state.svelte.ts) — that covers
       // every stop path (this dialog button, the rocket toggle, the hotkey,
       // a voice-channel switch), so there's nothing to notify here.
-      await gsr.stop();
+      await gsr.stop(slot);
     } catch (e) {
       localError = e instanceof Error ? e.message : String(e);
     } finally {
@@ -150,27 +161,27 @@
     }
   }
 
-  let displayError = $derived(localError ?? stream.error);
+  let displayError = $derived(localError ?? session.error);
 </script>
 
 <div class="flex flex-col gap-3" data-testid="stream-controls">
   <div class="flex items-center justify-between gap-3">
     <div class="flex items-center gap-2">
       <CircleIcon
-        class="size-2.5 fill-current {stateColor} {stream.state === 'live'
+        class="size-2.5 fill-current {stateColor} {session.state === 'live'
           ? 'animate-pulse'
           : ''}"
       />
       <span class="text-text-bright text-sm font-semibold {stateColor}">{stateLabel}</span>
     </div>
     <div class="text-text-muted flex items-center gap-3 font-mono text-xs">
-      <span data-testid="stream-fps">{stream.fps ?? '—'} fps</span>
+      <span data-testid="stream-fps">{session.fps ?? '—'} fps</span>
       <span data-testid="stream-uptime">{uptimeLabel}</span>
     </div>
   </div>
 
   <div class="flex items-center gap-2">
-    {#if stream.running}
+    {#if session.running}
       <Button
         type="button"
         variant="destructive"

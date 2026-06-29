@@ -37,6 +37,8 @@ export type StreamPhase = 'connecting' | 'playing' | 'retrying' | 'error';
 export class ManagedHqStream {
   readonly channelId: string;
   readonly userId: string;
+  /** Which of the user's streams this plays (0 = primary, 1 = a second one). */
+  readonly slot: number;
 
   phase = $state<StreamPhase>('connecting');
   detail = $state<string>('');
@@ -62,9 +64,10 @@ export class ManagedHqStream {
   // Letzte Nicht-Null-Lautstärke für den Mute-Toggle.
   #prevVolume = 100;
 
-  constructor(channelId: string, userId: string) {
+  constructor(channelId: string, userId: string, slot = 0) {
     this.channelId = channelId;
     this.userId = userId;
+    this.slot = slot;
     const v = getStreamVolume(userId);
     this.volume = v;
     this.#prevVolume = v > 0 ? v : 100;
@@ -202,7 +205,7 @@ export class ManagedHqStream {
     if (this.#disposed) return;
     if (this.#attempt === 0) this.phase = 'connecting';
     try {
-      const { whep_url } = await chatApi.getWhepUrl(this.channelId, this.userId);
+      const { whep_url } = await chatApi.getWhepUrl(this.channelId, this.userId, this.slot);
       if (this.#disposed) return;
       const s = await connectWhep(whep_url, (stream) => this.#onStream(stream));
       if (this.#disposed) {
@@ -275,26 +278,27 @@ export class ManagedHqStream {
 // ---- Registry -------------------------------------------------------------
 
 const registry = new Map<string, ManagedHqStream>();
-const keyOf = (channelId: string, userId: string) => `${channelId}:${userId}`;
+const keyOf = (channelId: string, userId: string, slot: number) =>
+  `${channelId}:${userId}:${slot}`;
 
 export const hqStreams = {
   /** Bestehenden Manager holen oder neu anlegen (idempotent). */
-  ensure(channelId: string, userId: string): ManagedHqStream {
-    const k = keyOf(channelId, userId);
+  ensure(channelId: string, userId: string, slot = 0): ManagedHqStream {
+    const k = keyOf(channelId, userId, slot);
     let m = registry.get(k);
     if (!m) {
-      m = new ManagedHqStream(channelId, userId);
+      m = new ManagedHqStream(channelId, userId, slot);
       registry.set(k, m);
     }
     return m;
   },
 
-  get(channelId: string, userId: string): ManagedHqStream | null {
-    return registry.get(keyOf(channelId, userId)) ?? null;
+  get(channelId: string, userId: string, slot = 0): ManagedHqStream | null {
+    return registry.get(keyOf(channelId, userId, slot)) ?? null;
   },
 
-  close(channelId: string, userId: string): void {
-    const k = keyOf(channelId, userId);
+  close(channelId: string, userId: string, slot = 0): void {
+    const k = keyOf(channelId, userId, slot);
     const m = registry.get(k);
     if (m) {
       m.close();
@@ -303,18 +307,18 @@ export const hqStreams = {
   },
 
   /**
-   * Soll-Zustand abgleichen: für jeden gewünschten Stream einen Manager
-   * sicherstellen, alle übrigen schließen. Treiber = `openedTiles` (siehe
-   * `HqStreamKeepAlive.svelte`).
+   * Soll-Zustand abgleichen: für jeden gewünschten Stream (channel, user, slot)
+   * einen Manager sicherstellen, alle übrigen schließen. Treiber = `openedTiles`
+   * (siehe `HqStreamKeepAlive.svelte`).
    */
-  reconcile(wanted: { channelId: string; userId: string }[]): void {
-    const wantedKeys = new Set(wanted.map((w) => keyOf(w.channelId, w.userId)));
+  reconcile(wanted: { channelId: string; userId: string; slot: number }[]): void {
+    const wantedKeys = new Set(wanted.map((w) => keyOf(w.channelId, w.userId, w.slot)));
     for (const k of [...registry.keys()]) {
       if (!wantedKeys.has(k)) {
         registry.get(k)!.close();
         registry.delete(k);
       }
     }
-    for (const w of wanted) this.ensure(w.channelId, w.userId);
+    for (const w of wanted) this.ensure(w.channelId, w.userId, w.slot);
   }
 };

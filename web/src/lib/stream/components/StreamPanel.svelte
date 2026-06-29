@@ -20,7 +20,7 @@
 
   import { isWindows, isMac } from '$lib/platform/runtime';
   import { gsr, type GsrHealth } from '../gsr';
-  import { loadCatalogs, streamSettings } from '../settings.svelte';
+  import { loadCatalogs, setCaptureSourceForSlot, streamSettings } from '../settings.svelte';
 
   import { m } from '$lib/paraglide/messages.js';
   import OverridesEditor from './OverridesEditor.svelte';
@@ -32,8 +32,10 @@
 
   let {
     channelId = null,
+    // `slot` is a reserved Svelte attribute name → prop is `streamSlot`.
+    streamSlot: slot = 0,
     onStarted,
-  }: { channelId?: string | null; onStarted?: () => void } = $props();
+  }: { channelId?: string | null; streamSlot?: number; onStarted?: () => void } = $props();
 
   let health = $state<GsrHealth | null>(null);
   let healthError = $state<string | null>(null);
@@ -44,7 +46,7 @@
     // the explicit values). Capture source: Linux uses the Wayland portal;
     // Windows + macOS resolve a concrete monitor in `loadCatalogs()` (a
     // persisted choice is honoured), so don't clobber it here.
-    if (!isWindows() && !isMac()) streamSettings.capture_source = 'portal';
+    if (!isWindows() && !isMac()) setCaptureSourceForSlot(slot, 'portal');
     streamSettings.profile_name = 'Custom';
     streamSettings.use_overrides = true;
     if (!gsr.available()) return;
@@ -90,7 +92,7 @@
     {:else}
       <div class="flex flex-col gap-4" data-testid="stream-panel-form">
         {#if isWindows() || isMac()}
-          <MonitorPicker />
+          <MonitorPicker streamSlot={slot} />
           <Separator />
         {/if}
         <OverridesEditor />
@@ -104,8 +106,8 @@
         {/if}
 
         <Separator />
-        <StreamControls {channelId} {onStarted} />
-        <StreamLog />
+        <StreamControls {channelId} streamSlot={slot} {onStarted} />
+        <StreamLog streamSlot={slot} />
       </div>
     {/if}
   </section>

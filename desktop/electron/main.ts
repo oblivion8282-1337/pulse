@@ -28,7 +28,7 @@ import { URL } from 'node:url';
 // Injected by esbuild's `--define` at build time (see `esbuild.mjs`) so only
 // the version string is baked in, not the whole `package.json` object.
 declare const __APP_VERSION__: string;
-import { getSidecar } from './sidecar';
+import { MAX_STREAM_SLOTS, allSidecars, getSidecar } from './sidecar';
 import { initStore, storeGet, storeGetAll, storeSet, storeSetBatch } from './store';
 import { createTray } from './tray';
 import { wireNotify } from './notify';
@@ -437,23 +437,35 @@ const ALLOWED_GSR_OPS = new Set([
   'stop',
 ]);
 
-function wireSidecar(): void {
-  getSidecar().onEvent((ev) => {
-    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
-      mainWindow.webContents.send('gsr:event', ev);
-    }
-  });
+/** Clamp a renderer-supplied slot to a valid stream slot (0..MAX_STREAM_SLOTS-1).
+ *  A bad/absent value falls back to the primary slot 0 — never throws. */
+function normaliseSlot(slot: unknown): number {
+  const n = typeof slot === 'number' ? slot : 0;
+  return Number.isInteger(n) && n >= 0 && n < MAX_STREAM_SLOTS ? n : 0;
+}
 
-  // Generic handler — the renderer calls `gsr:call` with an op name + params.
-  // Catch everything so a bad op / dead sidecar surfaces as `{ok:false}` in the
-  // renderer instead of an unhandled rejection.
-  ipcMain.handle('gsr:call', async (_e, op: string, params: unknown) => {
+function wireSidecar(): void {
+  // One sidecar manager per slot; tag each slot's events with its slot so the
+  // renderer can route them to the right stream's state. Registering the
+  // callback does NOT spawn the child (still lazy on the first `call()`).
+  for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
+    getSidecar(slot).onEvent((ev) => {
+      if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send('gsr:event', { ...ev, slot });
+      }
+    });
+  }
+
+  // Generic handler — the renderer calls `gsr:call` with an op name + params +
+  // an optional slot. Catch everything so a bad op / dead sidecar surfaces as
+  // `{ok:false}` in the renderer instead of an unhandled rejection.
+  ipcMain.handle('gsr:call', async (_e, op: string, params: unknown, slot?: unknown) => {
     // Validate op against the allowlist (finding 156).
     if (!ALLOWED_GSR_OPS.has(op)) {
       return { ok: false, error: 'unknown op' };
     }
     try {
-      return await getSidecar().call(op, params);
+      return await getSidecar(normaliseSlot(slot)).call(op, params);
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
@@ -742,7 +754,7 @@ app.on('before-quit', (event) => {
   didShutdownSidecar = true;
   const done = () => app.quit();
   void Promise.race([
-    getSidecar().shutdown(),
+    Promise.all(allSidecars().map((s) => s.shutdown())),
     new Promise<void>((r) => setTimeout(r, 3_000)),
   ]).then(done, done);
 });

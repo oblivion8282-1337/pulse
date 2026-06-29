@@ -1,5 +1,5 @@
 <!--
-  StreamLog — ausklappbares Log-Pane, gefüttert aus `stream.lastLog`
+  StreamLog — ausklappbares Log-Pane, gefüttert aus `session.lastLog`
   (GSR-stderr-Tail, gepushed via `gsr://event` "log"-Events).
 
   Auto-scroll-to-bottom wenn der User nicht hochgescrollt hat — Pattern:
@@ -13,8 +13,13 @@
   import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
   import CopyIcon from '@lucide/svelte/icons/copy';
   import CheckIcon from '@lucide/svelte/icons/check';
-  import { stream } from '../state.svelte';
+  import { streamForSlot } from '../state.svelte';
   import { m } from '$lib/paraglide/messages.js';
+
+  // Show the log of one stream slot (0 = primary, 1 = the second stream).
+  // `slot` is a reserved Svelte attribute name → prop is `streamSlot`.
+  let { streamSlot: slot = 0 }: { streamSlot?: number } = $props();
+  let session = $derived(streamForSlot(slot));
 
   let expanded = $state(false);
   let viewport = $state<HTMLDivElement | null>(null);
@@ -26,7 +31,7 @@
     // Toggle-Button drumherum nicht mit-aktivieren
     event.stopPropagation();
     try {
-      await navigator.clipboard.writeText(stream.lastLog.join('\n'));
+      await navigator.clipboard.writeText(session.lastLog.join('\n'));
       copied = true;
       if (copyResetTimer) clearTimeout(copyResetTimer);
       copyResetTimer = setTimeout(() => {
@@ -46,11 +51,11 @@
   }
 
   // Wenn ein neuer Eintrag reinkommt: bei Bedarf ans Ende scrollen.
-  // Wir leiten den Effekt aus `stream.lastLog.length` ab, damit Svelte ihn
+  // Wir leiten den Effekt aus `session.lastLog.length` ab, damit Svelte ihn
   // bei jeder Mutation triggert. Microtask weil das DOM erst nach dem
   // Re-Render aktualisiert ist.
   $effect(() => {
-    void stream.lastLog.length;
+    void session.lastLog.length;
     if (expanded && stickToBottom && viewport) {
       queueMicrotask(() => {
         if (viewport) viewport.scrollTop = viewport.scrollHeight;
@@ -83,10 +88,10 @@
       {#if expanded}<ChevronDownIcon class="size-3.5" />
       {:else}<ChevronRightIcon class="size-3.5" />{/if}
       Log
-      <span class="text-text-muted ml-1 text-xs">({stream.lastLog.length})</span>
+      <span class="text-text-muted ml-1 text-xs">({session.lastLog.length})</span>
     </Button>
 
-    {#if expanded && stream.lastLog.length > 0}
+    {#if expanded && session.lastLog.length > 0}
       <Button
         type="button"
         variant="ghost"
@@ -114,10 +119,10 @@
       class="bg-bg-input/60 text-text-base h-40 overflow-y-auto rounded-lg border border-border p-2 font-mono text-[11px] leading-snug"
       data-testid="stream-log-viewport"
     >
-      {#if stream.lastLog.length === 0}
+      {#if session.lastLog.length === 0}
         <p class="text-text-muted italic">{m.stream_log_empty()}</p>
       {:else}
-        {#each stream.lastLog as line, i (i)}
+        {#each session.lastLog as line, i (i)}
           <div class="whitespace-pre-wrap break-all">{line}</div>
         {/each}
       {/if}
