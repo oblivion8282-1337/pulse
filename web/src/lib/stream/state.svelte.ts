@@ -13,6 +13,11 @@ import { gsr, type GsrEvent } from './gsr';
 
 const MAX_LOG_LINES = 50;
 
+/** How many concurrent HQ streams one user may run (slots 0..MAX-1, e.g. one
+ *  per monitor). Keep in sync with the Electron `MAX_STREAM_SLOTS` and the
+ *  backend `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1). */
+export const MAX_STREAM_SLOTS = 4;
+
 /** Per-slot session fields — the live state of ONE of a user's HQ streams. */
 type StreamSession = {
   running: boolean;
@@ -44,27 +49,41 @@ export const stream = $state({
   lastLog: [] as string[],
 });
 
-/** The optional second stream (slot 1) — e.g. a second monitor as its own
- *  viewer tile. Session-only: the global flags live on `stream`. */
-export const streamExtra = $state({
-  running: false,
-  state: 'idle' as StreamSession['state'],
-  fps: null as number | null,
-  uptimeS: null as number | null,
-  error: null as string | null,
-  lastLog: [] as string[],
-});
+/** The additional streams (slots 1..MAX-1) — each a second/third/… monitor as
+ *  its own viewer tile. Session-only: the global flags live on `stream`.
+ *  Deep-`$state` array → mutating `extraSessions[i].running` is reactive. */
+const extraSessions = $state<StreamSession[]>(
+  Array.from({ length: MAX_STREAM_SLOTS - 1 }, () => ({
+    running: false,
+    state: 'idle' as StreamSession['state'],
+    fps: null,
+    uptimeS: null,
+    error: null,
+    lastLog: [],
+  }))
+);
 
-/** The session object for a given slot (0 = primary `stream`, 1 = `streamExtra`). */
+/** The session object for a slot (0 = primary `stream`, ≥1 = an extra stream). */
 export function streamForSlot(slot: number): StreamSession {
-  return slot === 1 ? streamExtra : stream;
+  return slot === 0 ? stream : extraSessions[slot - 1];
+}
+
+/** Slots that currently have a running stream (0 = primary). Reactive — call
+ *  inside a `$derived`. */
+export function runningStreamSlots(): number[] {
+  const out: number[] = [];
+  if (stream.running) out.push(0);
+  extraSessions.forEach((s, i) => {
+    if (s.running) out.push(i + 1);
+  });
+  return out;
 }
 
 let initialised = false;
 let unlisten: (() => void) | null = null;
 /** Tracks each slot's running→stopped edge so we notify the backend exactly
  *  once per slot when that stream ends, regardless of which path stopped it. */
-const wasRunning: Record<number, boolean> = { 0: false, 1: false };
+const wasRunning: Record<number, boolean> = {};
 
 /**
  * Tell the backend our HQ stream stopped so viewers' "live" badge clears at

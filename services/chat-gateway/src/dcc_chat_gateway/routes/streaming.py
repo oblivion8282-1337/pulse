@@ -38,8 +38,8 @@ log = logging.getLogger(__name__)
 router = APIRouter()
 
 # Highest per-user stream slot — kept in sync with media-svc's _SLOT_MAX. A
-# user may run slots 0.._SLOT_MAX concurrently (e.g. two monitors).
-_SLOT_MAX = 1
+# user may run slots 0.._SLOT_MAX concurrently (e.g. one per monitor).
+_SLOT_MAX = 3
 SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 
 

@@ -62,7 +62,7 @@ router = APIRouter()
 _ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
 # Highest per-user HQ stream slot (mirrors media-svc's _SLOT_MAX). Slots
 # 1.._STREAM_SLOT_MAX append a ``-s<slot>`` suffix to the active key.
-_STREAM_SLOT_MAX = 1
+_STREAM_SLOT_MAX = 3
 _VOICE_STREAMING_KEY = "voice:room:channel-{channel_id}:streaming"
 _CHAT_KEY = "stream:chat:channel-{channel_id}-{user_id}"
 

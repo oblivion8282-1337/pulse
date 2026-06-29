@@ -53,7 +53,7 @@ import { m } from '$lib/paraglide/messages.js';
 import { acquireWakeLock } from '$lib/platform/wakeLock';
 import { isMobile } from '$lib/platform/runtime';
 import { gsr } from '$lib/stream/gsr';
-import { stream as hqStream, streamExtra as hqStreamExtra } from '$lib/stream/state.svelte';
+import { runningStreamSlots } from '$lib/stream/state.svelte';
 
 export type { ScreenShareTrack, CameraTrack };
 
@@ -454,13 +454,10 @@ class VoiceRoom {
     // Verlassen wir den Voice-Channel, muss ein laufender HQ-Stream mit weg —
     // er ist an genau diesen Channel gebunden. Sonst pusht der Sidecar weiter
     // und der Stream taucht beim Wieder-Verbinden als „live" wieder auf.
-    // No-op im Browser (keine Sidecar-Bridge) und wenn nichts läuft. Beide
-    // Slots stoppen — ein zweiter Stream (Slot 1) hängt am selben Channel.
-    if (hqStream.running) {
-      void gsr.stop(0).catch(() => undefined);
-    }
-    if (hqStreamExtra.running) {
-      void gsr.stop(1).catch(() => undefined);
+    // No-op im Browser (keine Sidecar-Bridge) und wenn nichts läuft. ALLE
+    // laufenden Slots stoppen — jeder zusätzliche Stream hängt am selben Channel.
+    for (const slot of runningStreamSlots()) {
+      void gsr.stop(slot).catch(() => undefined);
     }
     if (opts.reason === 'user') {
       // Explizites Verlassen (Auflegen / Channel-Wechsel) → kein Auto-Rejoin
