@@ -35,6 +35,7 @@
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import { m } from '$lib/paraglide/messages.js';
+  import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
 
   // Self-Host-Instanzen verwalten (Anträge genehmigen/sperren) ist eine reine
   // Cloud-Funktion — nur howispulse.com entscheidet, wer self-hosten darf. Auf
@@ -81,7 +82,9 @@
   }
 
   $effect(() => {
-    if (ready && isAdminHere) {
+    // App-Hosting ist vorerst ausgeblendet → den Badge-Poll gar nicht erst
+    // starten (spart einen sinnlosen Hintergrund-Request).
+    if (APP_HOSTING_ENABLED && ready && isAdminHere) {
       pendingAppHostApplications.start();
       void refreshAppHostBadge();
     }
@@ -138,30 +141,32 @@
       <AdminPlugins />
       {#if isCloud}
         <AdminInstances />
-        <section
-          class="rounded-2xl border border-border bg-bg-input p-5"
-          data-testid="admin-app-host-applications"
-        >
-          <div class="mb-4 flex items-start gap-3">
-            <AppWindowIcon class="text-text-muted mt-0.5 size-5 shrink-0" />
-            <div class="min-w-0">
-              <h2 class="text-text-bright text-base font-semibold flex items-center gap-2">
-                {m.admin_app_host_heading()}
-                {#if pendingAppHostApplications.count > 0}
-                  <span
-                    class="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold text-black"
-                    title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
-                    data-testid="app-host-pending-badge"
-                  >
-                    {pendingAppHostApplications.count}
-                  </span>
-                {/if}
-              </h2>
-              <p class="text-text-muted text-xs mt-0.5">{m.admin_app_host_description()}</p>
+        {#if APP_HOSTING_ENABLED}
+          <section
+            class="rounded-2xl border border-border bg-bg-input p-5"
+            data-testid="admin-app-host-applications"
+          >
+            <div class="mb-4 flex items-start gap-3">
+              <AppWindowIcon class="text-text-muted mt-0.5 size-5 shrink-0" />
+              <div class="min-w-0">
+                <h2 class="text-text-bright text-base font-semibold flex items-center gap-2">
+                  {m.admin_app_host_heading()}
+                  {#if pendingAppHostApplications.count > 0}
+                    <span
+                      class="inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold text-black"
+                      title={m.admin_app_host_pending_badge({ count: pendingAppHostApplications.count })}
+                      data-testid="app-host-pending-badge"
+                    >
+                      {pendingAppHostApplications.count}
+                    </span>
+                  {/if}
+                </h2>
+                <p class="text-text-muted text-xs mt-0.5">{m.admin_app_host_description()}</p>
+              </div>
             </div>
-          </div>
-          <AdminAppHostApplications onchange={() => { void refreshAppHostBadge(); }} />
-        </section>
+            <AdminAppHostApplications onchange={() => { void refreshAppHostBadge(); }} />
+          </section>
+        {/if}
         <AdminComplaints />
         <AdminUsers />
       {:else}
