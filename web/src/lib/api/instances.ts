@@ -131,6 +131,24 @@ export const instancesApi = {
     return cookieFetch<Instance[]>('/me/instances');
   },
 
+  /**
+   * Membership auf einer Self-Host-Instanz in der Cloud eintragen — macht den
+   * per Einladung beigetretenen Server auch auf anderen Geräten (Browser)
+   * sichtbar. Idempotent; vom Client NUR nach erfolgreichem Cert-Login
+   * aufgerufen. Owner-Rolle wird nie herabgestuft.
+   */
+  joinInstanceMembership(instanceId: string): Promise<void> {
+    return cookieFetch<void>(`/me/instances/${instanceId}/membership`, { method: 'POST' });
+  },
+
+  /**
+   * Cloud-Membership wieder entfernen, wenn der User den Server entfernt
+   * (austritt). 403 für den Owner (der bleibt Mitglied). Idempotent.
+   */
+  leaveInstanceMembership(instanceId: string): Promise<void> {
+    return cookieFetch<void>(`/me/instances/${instanceId}/membership`, { method: 'DELETE' });
+  },
+
   /** One-Time-Bootstrap-Token für den Ein-Befehl-Installer minten. */
   mintBootstrapToken(instanceId: string): Promise<BootstrapToken> {
     return cookieFetch<BootstrapToken>(`/me/instances/${instanceId}/bootstrap-token`, {

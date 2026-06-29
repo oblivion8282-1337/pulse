@@ -26,6 +26,13 @@ import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
 import { serversStore } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError } from './cert-login';
+import { instancesApi } from './instances';
+
+// Pro App-Session einmal die Cloud-Membership backfillen — deckt Server ab, die
+// schon vor dem Membership-Sync (oder als Nicht-Owner-Invite) lokal hinzugefügt
+// wurden und daher im Browser fehlten. Idempotent serverseitig; das Set
+// verhindert nur eine Cloud-Anfrage bei jedem 5-Min-Reauth.
+const membershipSynced = new Set<string>();
 
 // Verhindert parallele Re-Auth-Stürme pro Server-ID. Wert speichert das
 // Resultat (ok=true bei erfolgreichem Re-Auth, false bei fail), damit
@@ -48,6 +55,16 @@ async function reauth(serverId: string): Promise<boolean> {
     // falls der Server-Eintrag noch keine hat (Backfill aus früheren Builds).
     if (!server.pairwise_sub) {
       serversStore.update(serverId, { pairwise_sub: result.pairwise_sub });
+    }
+    // Cloud-Membership-Backfill (einmal pro Session). So wird auch ein vor
+    // diesem Fix beigetretener Self-Host im Browser sichtbar, ohne ihn neu
+    // hinzufügen zu müssen. Best-effort.
+    const instanceId = result.instance_id ?? server.instance_id;
+    if (instanceId && !membershipSynced.has(serverId)) {
+      membershipSynced.add(serverId);
+      void instancesApi.joinInstanceMembership(instanceId).catch(() => {
+        membershipSynced.delete(serverId); // Retry beim nächsten Reauth.
+      });
     }
     // WS-Trigger: der Reauth-Hook wird oft vom _resolveToken() aufgerufen,
     // wenn die Connection mangels Token bereits ins ``closed``-Stadium

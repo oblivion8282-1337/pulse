@@ -15,8 +15,18 @@ import {
   markSelfHostContactConfirmed,
 } from '$lib/api/add-server-flow';
 import { certLogin } from '$lib/api/cert-login';
+import { instancesApi } from '$lib/api/instances';
 import { sessionTokens } from '$lib/api/session_tokens.svelte';
 import { joinedInvites } from '$lib/stores/joinedInvites.svelte';
+
+/** Trägt die Cloud-Membership ein, damit der per Einladung beigetretene
+ *  Self-Host-Server auch im Browser / auf anderen Geräten sichtbar wird.
+ *  Best-effort: ein Fehler darf den Beitritt nicht stören (der Reauth-Backfill
+ *  holt es nach). */
+function syncInstanceMembership(instanceId: string | null | undefined): void {
+  if (!instanceId) return;
+  void instancesApi.joinInstanceMembership(instanceId).catch(() => undefined);
+}
 
 // ---------------------------------------------------------------------------
 // Parse helpers
@@ -132,6 +142,7 @@ async function joinByPublicHandle(
     if (!existing.pairwise_sub) {
       serversStore.update(existing.id, { pairwise_sub: auth.pairwise_sub });
     }
+    syncInstanceMembership(auth.instance_id ?? existing.instance_id);
     const result = await chatApi.joinPublicCommunity(handle, { serverId: existing.id });
     activeServer.set(existing.id);
     await navigateAfterJoin(result.guild.id, result.channel_id);
@@ -203,6 +214,7 @@ export async function joinGuildByInvite(input: string, confirmed = false): Promi
       if (!existing.pairwise_sub) {
         serversStore.update(serverId, { pairwise_sub: auth.pairwise_sub });
       }
+      syncInstanceMembership(auth.instance_id ?? existing.instance_id);
       const result = await acceptInvite(code, { serverId });
       joinedInvites.markJoined(code, result.guild.id);
       // Aktiven Server auf den Self-Host umschalten BEVOR wir dorthin

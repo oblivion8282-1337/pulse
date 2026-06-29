@@ -16,6 +16,7 @@
 
 import { m } from '$lib/paraglide/messages.js';
 import { request, type RequestOpts } from './client';
+import { instancesApi } from './instances';
 import { serversStore, type ServerEntry } from './servers.svelte';
 import { sessionTokens } from './session_tokens.svelte';
 import { certLogin, CertLoginError, type CertLoginReason } from './cert-login';
@@ -109,6 +110,15 @@ export async function addServerWithCertLogin(args: {
       ? { instance_id: result.instance_id }
       : {}),
   });
+
+  // Cloud-Membership eintragen, damit dieser Self-Host-Server auch im Browser /
+  // auf anderen Geräten in der Server-Liste (``GET /me/instances``) auftaucht.
+  // Best-effort: ein Fehler darf das Hinzufügen NICHT abbrechen (der Server
+  // läuft lokal weiter, der nächste Reauth-Backfill holt es nach).
+  const instanceId = result.instance_id ?? args.instanceId ?? entry.instance_id;
+  if (instanceId) {
+    void instancesApi.joinInstanceMembership(instanceId).catch(() => undefined);
+  }
 
   // Optional: Invite-Code akzeptieren — gegen den NEUEN Server (per serverId-Route).
   let invite: AcceptInviteResult | null = null;
