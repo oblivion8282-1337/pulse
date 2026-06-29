@@ -124,10 +124,10 @@ def _check_token_rate(user_id: int) -> bool:
 
 router = APIRouter()
 
-# Highest per-user stream slot. N=2 (slots 0 and 1) — one user may run two HQ
-# streams at once (e.g. two monitors). Bump to widen; the path/key schema and
-# auth-hook already generalise to any slot, only this clamp limits it.
-_SLOT_MAX = 1
+# Highest per-user stream slot. Slots 0.._SLOT_MAX — one user may run that many
+# HQ streams at once (e.g. one per monitor). The path/key schema, auth-hook and
+# poller already generalise to any slot; only this clamp limits it.
+_SLOT_MAX = 3
 
 ChannelId = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
 UserIdQuery = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^\d+$")]

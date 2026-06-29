@@ -591,10 +591,10 @@ class SidecarManager {
 
 // ── Per-slot singletons ──────────────────────────────────────────────────────
 
-/** How many concurrent HQ streams one user may run (e.g. two monitors as
- *  separate viewer tiles). Slots are 0..MAX_STREAM_SLOTS-1; kept in sync with
- *  the backend's `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1). */
-export const MAX_STREAM_SLOTS = 2;
+/** How many concurrent HQ streams one user may run (e.g. one per monitor) as
+ *  separate viewer tiles. Slots are 0..MAX_STREAM_SLOTS-1; kept in sync with
+ *  the web `MAX_STREAM_SLOTS` and the backend's `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1). */
+export const MAX_STREAM_SLOTS = 4;
 
 const instances = new Map<number, SidecarManager>();
 

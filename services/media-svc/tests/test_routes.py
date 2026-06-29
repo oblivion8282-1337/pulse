@@ -95,10 +95,10 @@ async def test_stream_token_slot1_path_and_record(client, auth_signer, redis):
 
 @pytest.mark.asyncio
 async def test_stream_token_rejects_out_of_range_slot(client, auth_signer):
-    """Slot is clamped to the N=2 range (0/1); slot 2 is rejected, not silently
-    accepted (which would mint an un-viewable path)."""
+    """Slot is clamped to the 0.._SLOT_MAX range; a slot past it is rejected, not
+    silently accepted (which would mint an un-viewable path)."""
     access = auth_signer.issue_access(7, "bob")
-    r = await client.post("/channels/1/stream-token", json={"slot": 2}, headers=_auth(access))
+    r = await client.post("/channels/1/stream-token", json={"slot": 99}, headers=_auth(access))
     assert r.status_code == 422
 
 

@@ -230,7 +230,8 @@ async def test_stream_token_slot_forwarded(client, _auth_signer, mock_media_svc)
 
 @pytest.mark.asyncio
 async def test_stream_token_rejects_out_of_range_slot(client, _auth_signer, mock_media_svc):
-    """Slot is clamped at the gateway (N=2 → 0/1); slot 2 → 422, never forwarded."""
+    """Slot is clamped at the gateway (0.._SLOT_MAX); a slot past it → 422,
+    never forwarded."""
     token, _ = await _register(_auth_signer)
     g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
     vc = (
@@ -239,7 +240,7 @@ async def test_stream_token_rejects_out_of_range_slot(client, _auth_signer, mock
         )
     ).json()
     r = await client.post(
-        f"/channels/{vc['id']}/stream-token", json={"slot": 2}, headers=_auth(token)
+        f"/channels/{vc['id']}/stream-token", json={"slot": 99}, headers=_auth(token)
     )
     assert r.status_code == 422
     assert mock_media_svc.calls == []
