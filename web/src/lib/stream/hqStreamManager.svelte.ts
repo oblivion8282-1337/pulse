@@ -31,6 +31,13 @@ import { chatApi } from '$lib/api/chat';
 // Netz-Aussetzer. ICE-Watchdog wie zuvor im WhepPlayer.
 const RETRY_MS = [1000, 2000, 3000, 5000, 5000];
 const CONNECT_TIMEOUT_MS = 7000;
+// "Connected but black at startup": RTP arrives but the decoder never makes a
+// single frame — early connect to a just-started publish before MediaMTX has a
+// keyframe cached. If still zero decoded frames this long after connecting,
+// tear down + reconnect to pick up the now-cached keyframe. Disarms the moment
+// any frame decodes, so it never fights a brief mid-playback freeze (a black
+// *picture* still decodes black frames, so it's unaffected too).
+const STALL_RECONNECT_MS = 3500;
 
 export type StreamPhase = 'connecting' | 'playing' | 'retrying' | 'error';
 
@@ -61,6 +68,9 @@ export class ManagedHqStream {
   #attempt = 0;
   #disposed = false;
   #videoEl: HTMLVideoElement | null = null;
+  // Startup-black watchdog (see STALL_RECONNECT_MS): monotonic ms when "playing
+  // but still zero decoded frames" began (0 = not currently stalled).
+  #stalledSince = 0;
   // Letzte Nicht-Null-Lautstärke für den Mute-Toggle.
   #prevVolume = 100;
 
@@ -244,6 +254,7 @@ export class ManagedHqStream {
         }, CONNECT_TIMEOUT_MS);
       }
       this.#statsReader.reset();
+      this.#stalledSince = 0;
       this.#statsTimer = setInterval(async () => {
         const cur = this.#session;
         if (!cur) return;
@@ -253,6 +264,20 @@ export class ManagedHqStream {
         // dann gehören die Stats zum alten PC, nicht überschreiben.
         if (this.#disposed || this.#session !== cur) return;
         this.stats = next;
+        // Startup-black watchdog: while playing but no frame has EVER decoded,
+        // reconnect once the stall passes the threshold. Disarms permanently as
+        // soon as the first frame decodes (mid-stream stalls are the connection-
+        // state handler's job, not this).
+        if (this.phase === 'playing' && next) {
+          if (next.diagnostic.framesDecoded > 0) {
+            this.#stalledSince = 0;
+          } else if (this.#stalledSince === 0) {
+            this.#stalledSince = performance.now();
+          } else if (performance.now() - this.#stalledSince > STALL_RECONNECT_MS) {
+            this.#stalledSince = 0;
+            recycle();
+          }
+        }
       }, 1000);
     } catch (e) {
       if (this.#disposed) return;
