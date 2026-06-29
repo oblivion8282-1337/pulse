@@ -44,8 +44,8 @@ from redis.asyncio import Redis
 
 from dcc_mediamtx_auth_hook.config import get_settings
 from dcc_mediamtx_auth_hook.shared import (
-    ACTIVE_KEY,
     TOKEN_KEY,
+    active_key,
     parse_channel_user_path,
 )
 
@@ -155,7 +155,7 @@ return 1
 
 
 async def _consume_token_and_mark_active(
-    redis: Redis, token: str, channel_id: str, user_id: str, path: str
+    redis: Redis, token: str, channel_id: str, user_id: str, slot: str, path: str
 ) -> bool:
     """Atomically consume the token and write the publisher-active record.
 
@@ -165,10 +165,11 @@ async def _consume_token_and_mark_active(
     treat the auth as denied to enforce single-use semantics under concurrent
     retries.
 
-    The active record (``user_id``/``started_at``/``path``) is set with an EX
-    TTL so a re-publish refreshes the self-heal window and overwrites ``path``
-    — media-svc's WHEP-URL lookup then always returns the latest publish's path
-    (with its per-session nonce).
+    The active record (``user_id``/``started_at``/``path``) is keyed by
+    (channel, user, slot) so a user's two streams don't clobber each other's
+    record. It is set with an EX TTL so a re-publish refreshes the self-heal
+    window and overwrites ``path`` — media-svc's WHEP-URL lookup then always
+    returns that slot's latest publish path (with its per-session nonce).
     """
     settings = get_settings()
     payload = json.dumps(
@@ -179,7 +180,7 @@ async def _consume_token_and_mark_active(
         _LUA_CONSUME_AND_MARK,
         2,
         TOKEN_KEY.format(token=token),
-        ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id),
+        active_key(channel_id, user_id, int(slot)),
         payload,
         str(settings.publisher_ttl_seconds),
     )
@@ -192,12 +193,12 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
     if action in _EXCLUDED_ACTIONS:
         return  # 200
 
-    cu = parse_channel_user_path(req.path)  # (channel_id, user_id, nonce) or None
+    cu = parse_channel_user_path(req.path)  # (channel_id, user_id, slot, nonce) or None
 
     if action == "publish":
         if cu is None:
             raise _deny("publish_non_channel_path", path=req.path)
-        channel_id, path_user_id, path_nonce = cu
+        channel_id, path_user_id, path_slot, path_nonce = cu
         # Step 1 — GET the token record without consuming it so that validation
         # failures (wrong scope/channel/user/nonce) leave the token intact and
         # the publisher can retry with the same token after fixing the request.
@@ -224,22 +225,41 @@ async def _handle(req: AuthRequest, redis: Redis) -> None:
                 path=req.path,
                 token_nonce=rec.get("nonce"),
             )
+        # The slot binds the token to one of the user's stream paths. A legacy
+        # token (no ``slot`` field) and a legacy path (no ``-s<slot>`` segment)
+        # both resolve to "0", so single-stream publishes match as before; a
+        # slot-1 token may not publish on the slot-0 path or vice versa.
+        if str(rec.get("slot") or 0) != path_slot:
+            raise _deny(
+                "publish_slot_mismatch",
+                path=req.path,
+                token_slot=rec.get("slot"),
+            )
         # Step 2 — all checks passed; atomically consume the token AND write the
         # publisher-active record in one round-trip, so a Redis flap can't leave
         # a consumed token without an active record (which would 404 on WHEP).
         # A False return means a concurrent request already consumed the token
         # (single-use) → deny, with nothing written.
         if not await _consume_token_and_mark_active(
-            redis, req.credential, channel_id, path_user_id, req.path
+            redis, req.credential, channel_id, path_user_id, path_slot, req.path
         ):
             raise _deny("publish_token_already_consumed", path=req.path)
-        log.info("auth_publish_ok", channel_id=channel_id, user_id=path_user_id, protocol=req.protocol)
+        log.info(
+            "auth_publish_ok",
+            channel_id=channel_id,
+            user_id=path_user_id,
+            slot=path_slot,
+            protocol=req.protocol,
+        )
         return  # 200
 
     if action in _READ_ACTIONS:
         if cu is None:
             raise _deny("read_non_channel_path", path=req.path)
-        channel_id, path_user_id, _path_nonce = cu
+        # Reads are authorised per (channel, user) — a viewer cleared for the
+        # publisher may read any of that publisher's slots — so slot/nonce here
+        # are informational only.
+        channel_id, path_user_id, _path_slot, _path_nonce = cu
         if not get_settings().read_token_required:
             return  # 200 — anonymous reads (fallback / self-host)
         # Read tokens are validated but NOT consumed: a WHEP handshake triggers

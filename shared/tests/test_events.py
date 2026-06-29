@@ -327,9 +327,34 @@ def test_voice_state_snapshot_bare() -> None:
 
 def test_stream_state_snapshot_bare() -> None:
     snap = StreamStateSnapshot(channel_id="6", user_ids=["3", "4"])
+    # ``streams`` defaults to [] (additive); publishers drop the empty key on the
+    # wire so single-stream channels stay byte-identical to the pre-slot shape.
     assert snap.model_dump(mode="json") == {
         "channel_id": "6",
         "user_ids": ["3", "4"],
+        "streams": [],
+    }
+
+
+def test_stream_state_snapshot_with_slots() -> None:
+    # One user (3) running two streams (slots 0 + 1) plus a second user (4).
+    snap = StreamStateSnapshot(
+        channel_id="6",
+        user_ids=["3", "4"],
+        streams=[
+            {"user_id": "3", "slot": 0},
+            {"user_id": "3", "slot": 1},
+            {"user_id": "4", "slot": 0},
+        ],
+    )
+    assert snap.model_dump(mode="json") == {
+        "channel_id": "6",
+        "user_ids": ["3", "4"],
+        "streams": [
+            {"user_id": "3", "slot": 0},
+            {"user_id": "3", "slot": 1},
+            {"user_id": "4", "slot": 0},
+        ],
     }
 
 

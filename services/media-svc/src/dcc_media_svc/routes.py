@@ -25,34 +25,47 @@ import secrets
 import time
 from datetime import UTC, datetime
 from time import monotonic
-from typing import Annotated
+from typing import Annotated, Any
 
 import structlog
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from redis.asyncio import Redis
 
+from dcc_shared.events import StreamDescriptor
+
 from dcc_media_svc.config import get_settings
 from dcc_media_svc.security import CurrentUser
 from dcc_media_svc.streamkeys import (
-    ACTIVE_KEY,
     CHANNEL_STATE_KEY,
-    STOPPING_KEY,
     STREAM_EVENTS_CHANNEL,
     TOKEN_KEY,
+    active_key,
     path_for_channel_user,
+    stopping_key,
+    streams_from_state,
 )
 
 
-async def _publish_stream_event(redis: Redis, channel_id: str, user_ids: list[str]) -> None:
+async def _publish_stream_event(
+    redis: Redis,
+    channel_id: str,
+    user_ids: list[str],
+    streams: list[dict[str, Any]] | None = None,
+) -> None:
     """Publish the channel's *full* current streamer set on ``stream:events``
-    (same shape the poller emits) so chat-gateway re-broadcasts it at once."""
+    (same shape the poller emits) so chat-gateway re-broadcasts it at once.
+
+    ``streams`` (the additive ``[{user_id, slot}]`` list) is only put on the
+    wire when non-empty, so single-stream channels keep the legacy
+    ``{channel_id, user_ids}`` shape byte-for-byte."""
     from dcc_shared.events import StreamStateSnapshot
 
-    snap = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids)
-    await redis.publish(
-        STREAM_EVENTS_CHANNEL, json.dumps(snap.model_dump(mode="json"), separators=(",", ":"))
-    )
+    snap = StreamStateSnapshot(channel_id=channel_id, user_ids=user_ids, streams=streams or [])
+    data = snap.model_dump(mode="json")
+    if not snap.streams:
+        data.pop("streams", None)
+    await redis.publish(STREAM_EVENTS_CHANNEL, json.dumps(data, separators=(",", ":")))
 
 
 log = structlog.get_logger(__name__)
@@ -111,8 +124,14 @@ def _check_token_rate(user_id: int) -> bool:
 
 router = APIRouter()
 
+# Highest per-user stream slot. N=2 (slots 0 and 1) — one user may run two HQ
+# streams at once (e.g. two monitors). Bump to widen; the path/key schema and
+# auth-hook already generalise to any slot, only this clamp limits it.
+_SLOT_MAX = 1
+
 ChannelId = Annotated[str, Field(min_length=1, max_length=64, pattern=r"^\d+$")]
 UserIdQuery = Annotated[str, Query(min_length=1, max_length=64, pattern=r"^\d+$")]
+SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
 
 
 class StreamTokenIn(BaseModel):
@@ -121,6 +140,9 @@ class StreamTokenIn(BaseModel):
     # SRT is disabled: UDP has no TLS layer so the stream token would be
     # visible in cleartext in the SRT streamid field.  Use rtmps (the default).
     protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
+    # Which of the caller's stream slots this token publishes. 0 == the default
+    # single stream (legacy path/key shape); 1 == a second concurrent stream.
+    slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0
 
 
 class StreamTokenOut(BaseModel):
@@ -134,6 +156,9 @@ class StreamTokenOut(BaseModel):
 class StreamStateOut(BaseModel):
     channel_id: str
     user_ids: list[str] = []
+    # Additive per-slot descriptors. Only populated once a user runs slot ≥ 1;
+    # single-stream channels leave it empty and clients fall back to user_ids.
+    streams: list[StreamDescriptor] = []
     since: str | None = None
 
 
@@ -185,7 +210,8 @@ async def issue_stream_token(
     # ``streamkeys.py`` for why). 32 hex = 128 bits = offline path-guessing
     # infeasible even for a well-resourced attacker.
     nonce = secrets.token_hex(16)
-    path = path_for_channel_user(channel_id, user_id, nonce)
+    slot = payload.slot
+    path = path_for_channel_user(channel_id, user_id, nonce, slot=slot)
     record = {
         "channel_id": channel_id,
         "user_id": user_id,
@@ -194,16 +220,26 @@ async def issue_stream_token(
         "protocol": payload.protocol,
         "created_at": int(time.time()),
     }
+    # Slot 0 omits the field so the token record stays byte-identical to the
+    # legacy single-stream shape (the auth-hook reads a missing slot as 0).
+    if slot:
+        record["slot"] = slot
     await redis.set(
         TOKEN_KEY.format(token=token),
         json.dumps(record, separators=(",", ":")),
         ex=settings.token_ttl_s,
     )
     # A new publish intent cancels any pending explicit-stop suppression for this
-    # (channel, user) — otherwise a quick stop→restart would stay invisible until
-    # the tombstone's TTL lapsed (the poller would keep skipping the user).
-    await redis.delete(STOPPING_KEY.format(channel_id=channel_id, user_id=user_id))
-    log.info("stream_token_issued", channel_id=channel_id, user_id=user.id, protocol=payload.protocol)
+    # (channel, user, slot) — otherwise a quick stop→restart would stay invisible
+    # until the tombstone's TTL lapsed (the poller would keep skipping the slot).
+    await redis.delete(stopping_key(channel_id, user_id, slot))
+    log.info(
+        "stream_token_issued",
+        channel_id=channel_id,
+        user_id=user.id,
+        slot=slot,
+        protocol=payload.protocol,
+    )
     return StreamTokenOut(
         token=token,
         mediamtx_path=path,
@@ -230,7 +266,10 @@ async def get_stream_state(
     if not isinstance(data, dict):
         return StreamStateOut(channel_id=channel_id)
     uids = [str(u) for u in (data.get("user_ids") or []) if u]
-    return StreamStateOut(channel_id=channel_id, user_ids=uids, since=data.get("since"))
+    streams = [StreamDescriptor(**d) for d in streams_from_state(data)]
+    return StreamStateOut(
+        channel_id=channel_id, user_ids=uids, streams=streams, since=data.get("since")
+    )
 
 
 @router.get("/channels/{channel_id}/whep", response_model=WhepOut)
@@ -239,6 +278,7 @@ async def get_whep_url(
     user_id: UserIdQuery,
     user: CurrentUser,
     request: Request,
+    slot: SlotQuery = 0,
 ) -> WhepOut:
     """WHEP URL for ``user_id``'s live stream in ``channel_id``.
 
@@ -254,7 +294,7 @@ async def get_whep_url(
     URL to unauthenticated callers.
     """
     redis = _get_redis(request)
-    raw = await redis.get(ACTIVE_KEY.format(channel_id=channel_id, user_id=user_id))
+    raw = await redis.get(active_key(channel_id, user_id, slot))
     if raw is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="no active stream for this user")
     try:
@@ -282,7 +322,7 @@ async def get_whep_url(
     # minting a new one; both are channel+publisher-bound (not viewer-bound) by
     # design, so sharing them across reconnects from the same viewer is safe.
     viewer_id = str(user.id)
-    cache_key = f"stream:read-cache:{viewer_id}:{channel_id}:{user_id}"
+    cache_key = f"stream:read-cache:{viewer_id}:{channel_id}:{user_id}:{slot}"
     cached = await redis.get(cache_key)
     if cached is not None:
         read_token = cached.decode() if isinstance(cached, bytes) else cached
@@ -325,8 +365,13 @@ async def stop_stream(
     channel_id: ChannelId,
     user: CurrentUser,
     request: Request,
+    slot: Annotated[int | None, Query(ge=0, le=_SLOT_MAX)] = None,
 ) -> Response:
-    """Explicit stop of the *caller's own* HQ stream in ``channel_id``.
+    """Explicit stop of the *caller's own* HQ stream(s) in ``channel_id``.
+
+    ``slot`` omitted → stop *all* of the caller's slots (the normal "stop
+    streaming" click); ``slot=N`` → stop only that one stream, leaving the
+    caller's other slot live.
 
     The media plane (WebRTC) stalls the instant the GSR sidecar stops pushing,
     but presence is otherwise derived by polling MediaMTX every few seconds —
@@ -346,16 +391,17 @@ async def stop_stream(
     settings = get_settings()
     redis = _get_redis(request)
     uid = str(user.id)
+    targets = [slot] if slot is not None else list(range(_SLOT_MAX + 1))
 
-    await redis.set(
-        STOPPING_KEY.format(channel_id=channel_id, user_id=uid),
-        "1",
-        ex=settings.stop_suppression_s,
-    )
-    await redis.delete(ACTIVE_KEY.format(channel_id=channel_id, user_id=uid))
+    for s in targets:
+        await redis.set(
+            stopping_key(channel_id, uid, s), "1", ex=settings.stop_suppression_s
+        )
+        await redis.delete(active_key(channel_id, uid, s))
 
     raw = await redis.get(CHANNEL_STATE_KEY.format(channel_id=channel_id))
-    remaining: list[str] = []
+    remaining_uids: list[str] = []
+    remaining_streams: list[dict[str, Any]] = []
     since: str | None = None
     if raw is not None:
         try:
@@ -363,11 +409,35 @@ async def stop_stream(
         except (ValueError, TypeError, AttributeError):
             data = None
         if isinstance(data, dict):
-            remaining = sorted(str(u) for u in (data.get("user_ids") or []) if u and str(u) != uid)
             since = data.get("since")
+            old_streams = streams_from_state(data)
+            if old_streams:
+                # Slot-aware state: drop the targeted (uid, slot) descriptors and
+                # recompute the user set from what survives.
+                remaining_streams = [
+                    d
+                    for d in old_streams
+                    if not (d["user_id"] == uid and (slot is None or d["slot"] == slot))
+                ]
+                remaining_uids = sorted({d["user_id"] for d in remaining_streams})
+            else:
+                # Legacy single-stream state: no per-slot info, so any stop drops
+                # the whole user (matches the pre-slot behaviour).
+                remaining_uids = sorted(
+                    str(u) for u in (data.get("user_ids") or []) if u and str(u) != uid
+                )
 
-    if remaining:
-        new_state = {"user_ids": remaining, "since": since or datetime.now(UTC).isoformat()}
+    # ``streams`` is only meaningful while some user still runs slot ≥ 1; once
+    # everyone is back to a single stream we drop it and the legacy shape returns.
+    multi = any(d["slot"] >= 1 for d in remaining_streams)
+    publish_streams = remaining_streams if multi else None
+    if remaining_uids:
+        new_state: dict[str, Any] = {
+            "user_ids": remaining_uids,
+            "since": since or datetime.now(UTC).isoformat(),
+        }
+        if multi:
+            new_state["streams"] = remaining_streams
         await redis.set(
             CHANNEL_STATE_KEY.format(channel_id=channel_id),
             json.dumps(new_state, separators=(",", ":")),
@@ -376,6 +446,12 @@ async def stop_stream(
     else:
         await redis.delete(CHANNEL_STATE_KEY.format(channel_id=channel_id))
 
-    await _publish_stream_event(redis, channel_id, remaining)
-    log.info("stream_stopped", channel_id=channel_id, user_id=user.id, remaining=len(remaining))
+    await _publish_stream_event(redis, channel_id, remaining_uids, streams=publish_streams)
+    log.info(
+        "stream_stopped",
+        channel_id=channel_id,
+        user_id=user.id,
+        slot=slot,
+        remaining=len(remaining_uids),
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
