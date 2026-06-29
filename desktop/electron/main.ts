@@ -486,10 +486,17 @@ const ALLOWED_STORE_KEYS = new Set([
   'profile_name',
   'server_name',
   'capture_source',
+  // Capture source for the second HQ stream (slot 1).
+  'capture_source_1',
   'audio_mode',
+  // Persisted stream-settings that were missing from the allowlist (they are
+  // in the renderer's PERSIST_KEYS, so without these the store rejected them).
+  'audio_app',
   'excluded_apps',
   'overrides',
   'use_overrides',
+  'show_cursor',
+  'av_offset_ms',
   'custom_servers',
   // Multi-Server-Liste (vormals localStorage `pulse.servers`) — auf dem Desktop
   // in den chmod-600-Tresor verschoben statt im Klartext-Profil zu liegen.
