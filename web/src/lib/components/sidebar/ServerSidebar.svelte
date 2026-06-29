@@ -17,8 +17,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
+  import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
   import { activeServer } from '$lib/stores/active-server.svelte';
-  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import AddServerDialog from './AddServerDialog.svelte';
   import ServerInfoDialog from './ServerInfoDialog.svelte';
@@ -51,21 +51,16 @@
     removeConfirmOpen = true;
   }
 
-  function confirmRemove(): void {
+  async function confirmRemove(): Promise<void> {
     if (!removeTarget) return;
-    const id = removeTarget.id;
     const label = removeTarget.label;
+    // Entfernen = echtes Austreten + Cloud-Membership-Cleanup + lokales
+    // Aufräumen. Geteilt mit der GuildRail über leaveAndRemoveServer, damit
+    // dieser zweite Einstieg nicht (wie zuvor) nur lokal entfernt und den
+    // Server beim nächsten Login wieder auftauchen lässt.
     try {
-      // Connection schließen BEVOR der Entry weg ist (Pool dereferenced
-      // serversStore.find sonst zu undefined → spätere reconnects crashen).
-      gatewayPool.close(id);
-      serversStore.remove(id);
-      // Falls der entfernte Server gerade aktiv war → auf Cloud zurückfallen.
-      if (activeServer.serverId === id) {
-        const fallback = serversStore.servers.find((s) => s.isCloud);
-        if (fallback) activeServer.set(fallback.id);
-      }
-      toast.success(m.server_sidebar_removed({ label }));
+      const outcome = await leaveAndRemoveServer(removeTarget);
+      notifyLeaveOutcome(outcome, label);
     } catch (err) {
       toast.error(m.server_sidebar_remove_failed(), { description: (err as Error).message });
     } finally {
