@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-29.5",
+      "date": "2026-06-29",
+      "style": "Freundlich",
+      "title": "Rund um selbstgehostete Server aufgeräumt",
+      "items": [
+        "Entfernst du einen selbstgehosteten Server, bleibt er jetzt zuverlässig weg — auch wenn er gerade offline ist.",
+        "Sein Name und ob du ihn stummschaltest, gelten ab sofort auf all deinen Geräten.",
+        "Nach einem Eigentümer-Wechsel stimmen die Rechte sofort, und @-Erwähnungen schlagen keine ausgetretenen Mitglieder mehr vor.",
+        "Meldest du dich ab, bleiben keine Reste des vorigen Kontos zurück."
+      ]
+    },
+    {
       "id": "2026-06-29.4",
       "date": "2026-06-29",
       "style": "Freundlich",
