@@ -28,9 +28,6 @@
   import { onMount, onDestroy } from 'svelte';
   import { toast } from 'svelte-sonner';
   import { chatApi } from '$lib/api/chat';
-  import { ApiError } from '$lib/api/client';
-  import { leaveInstanceOn } from '$lib/api/add-server-flow';
-  import { instancesApi } from '$lib/api/instances';
   import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -44,10 +41,9 @@
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
-  import { removeServerLocally } from '$lib/api/server-removal';
+  import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
-  import { gatewayPool } from '$lib/ws/gateway-pool.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
@@ -256,45 +252,13 @@
 
   async function confirmServerRemove(): Promise<void> {
     if (!removeServerTarget) return;
-    const id = removeServerTarget.id;
     const label = removeServerTarget.label;
-    const isCloud = removeServerTarget.isCloud;
-    const instanceId = removeServerTarget.instance_id;
-    // Entfernen = echtes Austreten (User-Entscheidung 2026-06-10): erst die
-    // Instanz-Mitgliedschaft serverseitig beenden, dann lokal aufräumen.
-    // 403 = Instanz-Owner (bleibt Mitglied, nur Ansicht entfernt) · 409 =
-    // besitzt noch Communitys (Abbruch) · Netzfehler = lokal trotzdem
-    // entfernen, aber warnen (Mitgliedschaft besteht weiter).
-    let leaveResult: 'left' | 'owner' | 'unreachable' = 'left';
-    if (!isCloud) {
-      try {
-        await leaveInstanceOn({ serverId: id });
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 409) {
-          toast.error(m.guild_rail_leave_owns_communities());
-          removeServerConfirmOpen = false;
-          removeServerTarget = null;
-          return;
-        }
-        leaveResult = err instanceof ApiError && err.status === 403 ? 'owner' : 'unreachable';
-      }
-    }
-    // Cloud-Membership entfernen, sobald der Austritt geklappt hat — sonst
-    // taucht der Server beim nächsten ``GET /me/instances`` auf anderen Geräten
-    // wieder auf. Nur bei echtem Austritt (nicht Owner/unreachable); der Owner
-    // behält seine Membership bewusst (Backend würde mit 403 ablehnen).
-    if (!isCloud && leaveResult === 'left' && instanceId) {
-      void instancesApi.leaveInstanceMembership(instanceId).catch(() => undefined);
-    }
+    // Entfernen = echtes Austreten (User-Entscheidung 2026-06-10). Die gesamte
+    // Austritts-/Aufräumlogik liegt in leaveAndRemoveServer (geteilt mit der
+    // ServerSidebar, damit beide Einstiege nie divergieren).
     try {
-      removeServerLocally(id);
-      if (isCloud || leaveResult === 'left') {
-        toast.success(m.guild_rail_server_removed({ label }));
-      } else if (leaveResult === 'owner') {
-        toast.info(m.guild_rail_leave_owner_view_only({ label }));
-      } else {
-        toast.warning(m.guild_rail_leave_unreachable({ label }));
-      }
+      const outcome = await leaveAndRemoveServer(removeServerTarget);
+      notifyLeaveOutcome(outcome, label);
     } catch (err) {
       toast.error(m.guild_rail_server_remove_failed(), { description: (err as Error).message });
     } finally {

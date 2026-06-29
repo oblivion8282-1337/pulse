@@ -2186,7 +2186,7 @@
   "settings_notifications_permission_allow": "Allow notifications",
   "settings_notifications_permission_blocked": "Notifications are blocked in the browser. Allow them in your browser settings for this site.",
   "guild_rail_leave_owns_communities": "You still own communities on this server. Transfer or delete them first, then you can leave.",
-  "guild_rail_leave_owner_view_only": "As the host you stay a member — {label} was only removed from your view.",
+  "guild_rail_leave_owner_view_only": "As the host you can't remove {label} — delete the instance in its settings instead.",
   "guild_rail_leave_unreachable": "{label} removed — the leave could not be delivered (server unreachable). Your membership there still exists.",
   "downloads_get_apps": "Get the Pulse app:",
   "native_update_title": "A new app version is available",

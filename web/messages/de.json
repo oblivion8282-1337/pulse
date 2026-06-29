@@ -2186,7 +2186,7 @@
   "settings_notifications_permission_allow": "Benachrichtigungen erlauben",
   "settings_notifications_permission_blocked": "Benachrichtigungen sind im Browser blockiert. Erlaube sie in den Browser-Einstellungen für diese Seite.",
   "guild_rail_leave_owns_communities": "Du besitzt noch Communitys auf diesem Server. Übertrage oder lösche sie zuerst, dann kannst du austreten.",
-  "guild_rail_leave_owner_view_only": "Als Betreiber bleibst du Mitglied — {label} wurde nur aus deiner Ansicht entfernt.",
+  "guild_rail_leave_owner_view_only": "Als Betreiber kannst du {label} nicht entfernen — lösche dazu die Instanz in ihren Einstellungen.",
   "guild_rail_leave_unreachable": "{label} entfernt — der Austritt konnte nicht übermittelt werden (Server nicht erreichbar). Deine Mitgliedschaft dort besteht weiter.",
   "downloads_get_apps": "Pulse als App:",
   "native_update_title": "Neue App-Version verfügbar",
