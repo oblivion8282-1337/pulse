@@ -16,10 +16,11 @@
   import MonitorOffIcon from '@lucide/svelte/icons/monitor-off';
   import RocketIcon from '@lucide/svelte/icons/rocket';
   import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+  import PlusIcon from '@lucide/svelte/icons/plus';
   import CheckIcon from '@lucide/svelte/icons/check';
   import { toast } from 'svelte-sonner';
   import { voice } from '$lib/voice/livekit.svelte';
-  import { stream } from '$lib/stream/state.svelte';
+  import { stream, streamExtra } from '$lib/stream/state.svelte';
   import { gsr } from '$lib/stream/gsr';
   import { guilds } from '$lib/stores/guilds.svelte';
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
@@ -62,6 +63,18 @@
 
   // Aktiv-Status je Modus
   let isActive = $derived(mode === 'hq' ? stream.running : voice.isScreenSharing);
+
+  // Zweiter HQ-Stream (Slot 1): sobald ein HQ-Stream läuft, wird die Modus-
+  // Auswahl (▾) zum „+" — ein Klick öffnet den Stream-Dialog für einen zweiten
+  // Stream (z.B. ein zweiter Monitor). Bleibt sichtbar, solange irgendein
+  // HQ-Slot läuft (auch wenn Slot 0 schon gestoppt ist, damit man Slot 1 noch
+  // erreicht).
+  let secondRunning = $derived(streamExtra.running);
+  let showPlus = $derived(mode === 'hq' && (stream.running || secondRunning));
+  let secondDialogOpen = $state(false);
+  function openSecond() {
+    secondDialogOpen = true;
+  }
 
   // setScreenShare setzt isScreenSharing erst NACH dem await (getDisplayMedia);
   // ohne In-Flight-Guard startet ein Doppelklick zwei getDisplayMedia-Sessions,
@@ -159,38 +172,73 @@
         </Tooltip.Content>
       </Tooltip.Root>
 
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props })}
-            <Button
-              {...props}
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              class="h-8 w-5 rounded-l-none px-0"
-              aria-label={m.screen_share_mode_button_select_mode()}
-            >
-              <ChevronDownIcon class="size-3" />
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content side="top" align="start" class="min-w-[11rem]">
-          <DropdownMenu.Item onclick={() => setMode('normal')} class="flex items-center gap-2">
-            <MonitorIcon class="size-4 shrink-0" />
-            <span class="flex-1">{m.screen_share_mode_button_mode_standard()}</span>
-            {#if mode === 'normal'}<CheckIcon class="size-3.5 text-primary" />{/if}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onclick={() => setMode('hq')} class="flex items-center gap-2">
-            <RocketIcon class="size-4 shrink-0" />
-            <span class="flex-1">{m.screen_share_mode_button_mode_hq()}</span>
-            {#if mode === 'hq'}<CheckIcon class="size-3.5 text-primary" />{/if}
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
+      {#if showPlus}
+        <!-- HQ läuft → die Modus-Auswahl wird zum „+": öffnet den Dialog für
+             einen zweiten Stream (eigene Quelle/Monitor). -->
+        <Tooltip.Root>
+          <Tooltip.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                type="button"
+                variant={secondRunning ? 'default' : 'ghost'}
+                size="icon-sm"
+                class="relative h-8 w-5 rounded-l-none px-0"
+                onclick={openSecond}
+                aria-label={secondRunning
+                  ? m.hq_stream_button_second_stop()
+                  : m.hq_stream_button_second_open()}
+                data-testid="screenshare-second-btn"
+              >
+                <PlusIcon class="size-3" />
+                {#if secondRunning}
+                  <span
+                    class="absolute right-0.5 top-0.5 size-1.5 rounded-full bg-red-500 ring-1 ring-bg-input"
+                    aria-hidden="true"
+                  ></span>
+                {/if}
+              </Button>
+            {/snippet}
+          </Tooltip.Trigger>
+          <Tooltip.Content>
+            {secondRunning ? m.hq_stream_button_second_stop() : m.hq_stream_button_second_open()}
+          </Tooltip.Content>
+        </Tooltip.Root>
+      {:else}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger>
+            {#snippet child({ props })}
+              <Button
+                {...props}
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                class="h-8 w-5 rounded-l-none px-0"
+                aria-label={m.screen_share_mode_button_select_mode()}
+              >
+                <ChevronDownIcon class="size-3" />
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content side="top" align="start" class="min-w-[11rem]">
+            <DropdownMenu.Item onclick={() => setMode('normal')} class="flex items-center gap-2">
+              <MonitorIcon class="size-4 shrink-0" />
+              <span class="flex-1">{m.screen_share_mode_button_mode_standard()}</span>
+              {#if mode === 'normal'}<CheckIcon class="size-3.5 text-primary" />{/if}
+            </DropdownMenu.Item>
+            <DropdownMenu.Item onclick={() => setMode('hq')} class="flex items-center gap-2">
+              <RocketIcon class="size-4 shrink-0" />
+              <span class="flex-1">{m.screen_share_mode_button_mode_hq()}</span>
+              {#if mode === 'hq'}<CheckIcon class="size-3.5 text-primary" />{/if}
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      {/if}
     </div>
   </Tooltip.Provider>
 
   <HqStreamDialog bind:open={uiOverlays.hqStreamDialogOpen} channelId={voice.channelId} />
+  <HqStreamDialog bind:open={secondDialogOpen} channelId={voice.channelId} streamSlot={1} />
 
 {:else}
   <!-- Kein HQ: normaler Screenshare-Button -->
