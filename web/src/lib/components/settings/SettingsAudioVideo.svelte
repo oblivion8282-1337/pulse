@@ -237,8 +237,9 @@
     <!-- Eingabe-Verstärkung: Sendepegel im direkten Vergleich zum Eingangspegel. -->
     <MicGainControl />
 
-    <!-- Eigenen Ton hören (Loopback zum Ausgabegerät). Im Kanal = publizierter
-         Mic-Track (voice.selfMonitor), außerhalb = Test-Stream (micTest). -->
+    <!-- Eigenen Ton hören (Loopback zum Ausgabegerät). Beide Wege nutzen eine
+         EIGENE lokale Mic-Abzweigung (nie publiziert, überlebt Stummschalten):
+         im Kanal voice.selfMonitor, außerhalb micTest. -->
     <label class="flex cursor-pointer items-center justify-between gap-3" data-testid="settings-mic-monitor">
       <span class="text-text-base text-sm">{m.settings_audio_video_monitor_label()}</span>
       <input

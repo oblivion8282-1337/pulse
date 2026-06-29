@@ -30,7 +30,7 @@ import { settings, type SpatialMode } from '$lib/stores/settings.svelte';
 import { capabilities } from '$lib/stores/capabilities.svelte';
 import { clampNsResolution } from '$lib/settings-registry/sections/screenShare';
 import { AudioDevices } from './audioDevices.svelte';
-import { createSendProcessor, type SendProcessorMode } from './noiseFilter';
+import { createSendProcessor, type SendProcessorHandle, type SendProcessorMode } from './noiseFilter';
 import { LocalMicAnalyser } from './localMicAnalyser';
 import { SpeakingDetector } from './speakingDetector';
 import { RemoteSpeakingTracker } from './remoteSpeakingTracker';
@@ -145,11 +145,19 @@ class VoiceRoom {
   localSendPeak = $state(0);
   /** True while the post-gain send signal is clipping (~ -1 dBFS peak). */
   localSendClip = $state(false);
-  /** "Hear yourself" while in a channel — plays the published mic track back
-   *  through the chosen output. Feedback risk on speakers (headphones advised). */
+  /** "Hear yourself" while in a channel. Uses its OWN local mic capture (NOT the
+   *  published track), so it keeps working while you're muted to the channel and
+   *  never reaches the other people. Feedback risk on speakers (headphones
+   *  advised). */
   selfMonitor = $state(false);
   #monitorEl: HTMLAudioElement | null = null;
   #monitorOutputId = '';
+  // Dedicated local monitor capture + processor, independent of the published
+  // mic. `#monitorGen` invalidates an in-flight async start when a newer
+  // start/stop supersedes it (toggle, device swap, disconnect).
+  #monitorStream: MediaStream | null = null;
+  #monitorProc: SendProcessorHandle | null = null;
+  #monitorGen = 0;
 
   #screenShare = new ScreenShareTracks();
   #cameras = new CameraTracks();
@@ -165,28 +173,34 @@ class VoiceRoom {
   #room: Room | null = null;
   #audioEls = new RemoteAudioElements();
   #devices = new AudioDevices(this.#audioEls, () => this.applyNoiseFilter());
+  /** True when the raw mic IS the send signal: no send-processor installed AND
+   *  the self-monitor isn't running. In that mode the LocalMicAnalyser readings
+   *  drive the send-side meters/ring directly (see the callbacks below); otherwise
+   *  the post-processor tap (#feedSendMeter) owns them. */
+  get #rawMicIsSendSignal(): boolean {
+    return this.#sendProcessorMode === 'off' && !this.#monitorStream;
+  }
   #localMic = new LocalMicAnalyser(
     (n) => {
       this.localMicLevel = n;
-      // No send-side processor installed = raw mic IS the published track.
-      // Mirror the input level/peak into the send meters so the settings panel
-      // still shows sensible values and the clip lamp works in that mode too.
-      if (this.#sendProcessorMode === 'off') this.localSendLevel = n;
+      // Mirror the input level into the send meters too, so the settings panel
+      // shows sensible values and the clip lamp works in raw-mic mode.
+      if (this.#rawMicIsSendSignal) this.localSendLevel = n;
     },
     (s) => {
       // Raw mic only drives the speaking ring when there is no send-processor.
       // With a processor installed, the post-gain tap (#onSendLevel →
       // #sendSpeakingDetector) is the source of truth — what listeners
       // actually hear, not what hit the mic.
-      if (this.#sendProcessorMode === 'off') this.#setLocalSpeaking(s);
+      if (this.#rawMicIsSendSignal) this.#setLocalSpeaking(s);
     },
     (c) => {
       this.localMicClip = c;
-      if (this.#sendProcessorMode === 'off') this.localSendClip = c;
+      if (this.#rawMicIsSendSignal) this.localSendClip = c;
     },
     (p) => {
       this.localMicPeak = p;
-      if (this.#sendProcessorMode === 'off') this.localSendPeak = p;
+      if (this.#rawMicIsSendSignal) this.localSendPeak = p;
     }
   );
   /** Drives `localSpeaking` from the post-processor send-tap RMS. Only fed
@@ -490,9 +504,12 @@ class VoiceRoom {
         await this.applyNoiseFilter();
         this.#attachLocalAnalyser();
       } else {
-        this.#localMic.detach();
         this.#resetSendLevel();
-        this.#syncMonitor(); // mic off → no track to monitor
+        // If the self-monitor is running, re-point the meter onto its live
+        // capture so the level keeps moving while you're muted. With no monitor
+        // (the normal case) this stays EXACTLY as before — detach the meter.
+        if (this.#monitorStream) this.#bindLocalMeter();
+        else this.#localMic.detach();
       }
     } catch (e) {
       this.error = e instanceof Error ? e.message : m.livekit_microphone_access_failed();
@@ -903,8 +920,10 @@ class VoiceRoom {
 
   async setInputDevice(deviceId: string): Promise<void> {
     await this.#devices.setInput(this.#room, deviceId);
-    // switchActiveDevice swapped the underlying mic track — rebind the raw meter
-    // and the self-monitor loopback so neither points at the stopped old track.
+    // switchActiveDevice swapped the underlying mic track — rebind the raw meter.
+    // The self-monitor has its OWN capture, so re-open it on the new device too
+    // (tear down first → #syncMonitor restarts it from the now-current device).
+    this.#teardownMonitor();
     if (this.#room) this.#attachLocalAnalyser();
   }
 
@@ -995,17 +1014,21 @@ class VoiceRoom {
   }
 
   /** Live-update the post-RNNoise hard-gate open threshold (dB). No-op when
-   *  the filter is off. Persisting is the caller's job. */
+   *  the filter is off. Persisting is the caller's job. Mirrors onto the
+   *  self-monitor's processor so the loopback reflects the slider live. */
   setNoiseGateThresholdDb(openDb: number): void {
     this.#noiseGateSetter?.(openDb);
+    this.#monitorProc?.setGateThreshold(openDb);
   }
 
   /** Live-update the sender-side makeup gain on whatever processor is currently
    *  installed. If no processor is installed (NS off + previous gain was 1.0),
    *  the change won't be audible until applyNoiseFilter() reruns — typically
-   *  via the slider's onchange handler. Persisting is the caller's job. */
+   *  via the slider's onchange handler. Persisting is the caller's job. Mirrors
+   *  onto the self-monitor's processor so you HEAR the gain change while testing. */
   setInputMakeupGain(v: number): void {
     this.#makeupSetter?.(v);
+    this.#monitorProc?.setMakeupGain(v);
   }
 
   /** Drop every send-processor handle back to the raw-mic baseline (no
@@ -1131,7 +1154,7 @@ class VoiceRoom {
           this.#clearProcessorHandles();
           this.#localMic.detach();
           this.#resetSendLevel();
-          this.#syncMonitor(); // track gone → drop the monitor loopback
+          // Self-monitor is independent of the published track — leave it running.
         }
         this.#scheduleRefresh();
       })
@@ -1236,8 +1259,27 @@ class VoiceRoom {
   }
 
   #attachLocalAnalyser(): void {
+    if (!this.#room) return;
+    this.#bindLocalMeter();
+    this.#syncMonitor();
+  }
+
+  /** Point the raw input meter at the live mic. While the self-monitor runs it
+   *  owns the live capture (the published mic is muted/dead when you're muted to
+   *  the channel), so the meter follows the monitor; otherwise it taps the
+   *  published mic. Split from #attachLocalAnalyser so the monitor start/stop can
+   *  re-point the meter WITHOUT re-entering #syncMonitor. */
+  #bindLocalMeter(): void {
     const room = this.#room;
-    if (!room) return;
+    if (!room) {
+      this.#localMic.detach();
+      return;
+    }
+    const monTrack = this.#monitorStream?.getAudioTracks()[0] ?? null;
+    if (monTrack) {
+      this.#localMic.attach(monTrack);
+      return;
+    }
     const pub = room.localParticipant.getTrackPublication(Track.Source.Microphone);
     const audioTrack = pub?.audioTrack;
     // Prefer the raw source MediaStreamTrack over the public getter, which
@@ -1246,7 +1288,6 @@ class VoiceRoom {
     // `_mediaStreamTrack` is protected in livekit-client; accessed via cast.
     const raw = (audioTrack as { _mediaStreamTrack?: MediaStreamTrack } | undefined)?._mediaStreamTrack;
     this.#localMic.attach(raw ?? audioTrack?.mediaStreamTrack ?? null);
-    this.#syncMonitor();
   }
 
   /** Toggle "hear yourself" while in a channel + remember the output sink. */
@@ -1256,29 +1297,123 @@ class VoiceRoom {
     this.#syncMonitor();
   }
 
-  /** (Re)wire the monitor `<audio>` to the current published mic track, or tear
-   *  it down when monitoring is off / muted / disconnected. Called whenever the
-   *  mic track changes (publish, mute, device swap) so the loopback follows it.
-   *  Uses the published (post-processor) track — what listeners actually hear. */
+  /** Reconcile the local self-monitor with `selfMonitor` + connection state.
+   *  Idempotent and deliberately INDEPENDENT of the published mic: the monitor
+   *  has its own capture, so muting / publish changes don't tear it down — only
+   *  toggling the setting off or disconnecting does. (Device swaps restart it via
+   *  `setInputDevice`.) */
   #syncMonitor(): void {
-    const pub = this.#room?.localParticipant.getTrackPublication(Track.Source.Microphone);
-    const track = this.selfMonitor ? (pub?.audioTrack?.mediaStreamTrack ?? null) : null;
-    if (!track) {
-      if (this.#monitorEl) {
-        this.#monitorEl.pause();
-        this.#monitorEl.srcObject = null;
-        this.#monitorEl = null;
-      }
+    if (!(this.selfMonitor && this.#room)) {
+      this.#teardownMonitor();
       return;
     }
-    if (!this.#monitorEl) {
-      this.#monitorEl = new Audio();
-      this.#monitorEl.autoplay = true;
+    if (this.#monitorStream) {
+      void this.#applyMonitorSink(); // already running — just follow the output device
+      return;
     }
-    this.#monitorEl.srcObject = new MediaStream([track]);
-    const el = this.#monitorEl as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
-    if (el.setSinkId && this.#monitorOutputId) void el.setSinkId(this.#monitorOutputId).catch(() => { /* unsupported */ });
-    void this.#monitorEl.play().catch(() => { /* autoplay edge */ });
+    void this.#startMonitor();
+  }
+
+  /** Open a PRIVATE mic capture, run it through the same send processor (so you
+   *  hear the gate/gain/RNNoise-processed signal, exactly like the settings mic
+   *  test), and play it to the chosen output. Never published; survives mute. */
+  async #startMonitor(): Promise<void> {
+    const gen = ++this.#monitorGen;
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: settings.audio.inputDeviceId || undefined,
+          echoCancellation: settings.audio.echoCancellation,
+          autoGainControl: false, // Pulse regelt den Pegel selbst (Eingabe-Verstärker).
+          noiseSuppression: false // the send processor does RNNoise itself.
+        }
+      });
+    } catch {
+      return; // permission denied / device gone — no monitor, no crash.
+    }
+    // Superseded while awaiting getUserMedia (toggled off, disconnected, swap)?
+    if (gen !== this.#monitorGen || !this.selfMonitor || !this.#room) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const track = stream.getAudioTracks()[0] ?? null;
+    let outTrack: MediaStreamTrack | null = track;
+    if (track) {
+      try {
+        const mode: SendProcessorMode =
+          settings.audio.noiseSuppression !== 'off' ? 'rnnoise_gated' : 'gain_only';
+        const proc = createSendProcessor(
+          mode,
+          settings.audio.noiseGateThresholdDb,
+          settings.audio.inputMakeupGain
+        );
+        await proc.processor.init({ kind: Track.Kind.Audio, track });
+        if (gen !== this.#monitorGen) {
+          void proc.processor.destroy();
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        this.#monitorProc = proc;
+        outTrack = proc.processor.processedTrack ?? track;
+        // Drive the "Eingabe-Verstärkung" send meter from the monitor's own
+        // processed signal, so it moves while you test even when muted.
+        proc.setLevelTap(this.#feedSendMeter);
+      } catch {
+        /* worklet/WASM load failed → fall back to the raw mic */
+      }
+    }
+    this.#monitorStream = stream;
+    this.#monitorEl = new Audio();
+    this.#monitorEl.autoplay = true;
+    // Start MUTED, play, then unmute. The user gesture that opened the monitor
+    // was consumed by the awaits above, so Chrome would block play() of audible
+    // media — but muted media always autoplays, and unmuting an already-playing
+    // element needs no gesture. (Same trick micTest uses.)
+    this.#monitorEl.muted = true;
+    this.#monitorEl.srcObject = new MediaStream(outTrack ? [outTrack] : []);
+    await this.#applyMonitorSink();
+    try {
+      await this.#monitorEl.play();
+    } catch {
+      /* autoplay edge — plays once the stream delivers */
+    }
+    if (this.#monitorEl) this.#monitorEl.muted = false;
+    // The monitor now owns a live capture — point the settings input meter at it
+    // so the level moves while you test, even muted to the channel.
+    this.#bindLocalMeter();
+  }
+
+  #teardownMonitor(): void {
+    this.#monitorGen++; // invalidate any in-flight start
+    if (this.#monitorEl) {
+      this.#monitorEl.pause();
+      this.#monitorEl.srcObject = null;
+      this.#monitorEl = null;
+    }
+    if (this.#monitorProc) {
+      void this.#monitorProc.processor.destroy();
+      this.#monitorProc = null;
+    }
+    this.#monitorStream?.getTracks().forEach((t) => t.stop());
+    this.#monitorStream = null;
+    // Monitor gone — clear its send-meter values and fall back to the published
+    // mic for both meters (the live taps resume driving them).
+    this.#resetSendLevel();
+    this.#bindLocalMeter();
+  }
+
+  async #applyMonitorSink(): Promise<void> {
+    const el = this.#monitorEl as
+      | (HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> })
+      | null;
+    if (el?.setSinkId && this.#monitorOutputId) {
+      try {
+        await el.setSinkId(this.#monitorOutputId);
+      } catch {
+        /* unsupported — default sink */
+      }
+    }
   }
 
   /** RAF-callback from the processor's internal post-gain AnalyserNode tap.
@@ -1286,6 +1421,17 @@ class VoiceRoom {
    *  consistent. Clip flag is driven by raw peak amplitude > ~-1 dBFS with a
    *  300 ms hold so a single crackle stays visible. */
   #onSendLevel = (rms: number, peak: number): void => {
+    // While the self-monitor runs, ITS processor owns the send meter (the
+    // published processor reads silence when you're muted to the channel), so
+    // ignore the published tap here to avoid the two fighting over the meter.
+    if (this.#monitorStream) return;
+    this.#feedSendMeter(rms, peak);
+  };
+
+  /** Drive the send meter + speaking ring from a post-processor level tap —
+   *  shared by the published mic processor (#onSendLevel) and the self-monitor's
+   *  processor (so the meter still moves while you test, muted). */
+  #feedSendMeter = (rms: number, peak: number): void => {
     // Speaking ring tracks the post-processor signal — i.e. exactly what
     // other listeners receive. Above the gate's open-threshold (default
     // -45 dBFS at the gain node's input ⇒ louder at the tap after makeup)
