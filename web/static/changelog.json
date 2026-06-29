@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-29.10",
+      "date": "2026-06-29",
+      "style": "Freundlich",
+      "title": "Löse jeden Stream in ein eigenes Fenster",
+      "items": [
+        "Du kannst jetzt jeden deiner Streams einzeln in ein eigenes Fenster abkoppeln — nicht mehr nur den ersten. Die anderen bleiben dabei im Hauptfenster offen."
+      ]
+    },
+    {
       "id": "2026-06-29.9",
       "date": "2026-06-29",
       "style": "Freundlich",
