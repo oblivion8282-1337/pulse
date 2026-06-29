@@ -14,11 +14,16 @@ import { guildSounds } from '$lib/stores/guildSounds.svelte';
 import { roles } from '$lib/stores/roles.svelte';
 import { chatApi } from '$lib/api/chat';
 import { rolesApi } from '$lib/api/roles';
+import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
 import { registerWsHandler } from '../handler-registry';
 import type { HandlerContext } from './context';
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('guild_member_removed', (evt) => {
+    // Mitgliederliste dieser Guild hat sich geändert → den @-Mention-
+    // Autocomplete-Cache verwerfen, sonst schlägt er ausgetretene/neue/
+    // umbenannte Mitglieder bis zum nächsten Reconnect veraltet vor.
+    memberListCache.invalidate(evt.guild_id);
     if (evt.user_id === currentServerUserId()) {
       // The kicked user is us. Drop the guild locally — mirrors the
       // ``guild_deleted`` cleanup path (subscriptions, messages,
@@ -41,6 +46,7 @@ export function register(ctx: HandlerContext): void {
   });
 
   registerWsHandler('guild_member_added', (evt) => {
+    memberListCache.invalidate(evt.guild_id);
     if (evt.user_id === currentServerUserId()) {
       // We just joined a guild on another tab / via an invite — fetch it
       // so this WS session starts tracking it (voice presence, channel
@@ -74,5 +80,9 @@ export function register(ctx: HandlerContext): void {
   // "unknown op" warning doesn't fire.
   registerWsHandler('guild_ban_added', () => undefined);
   registerWsHandler('guild_ban_removed', () => undefined);
-  registerWsHandler('guild_member_updated', () => undefined);
+  // Nickname/Avatar-Änderung eines Mitglieds → Autocomplete-Cache verwerfen,
+  // damit @-Vorschläge den neuen Namen zeigen (sonst stale bis Reconnect).
+  registerWsHandler('guild_member_updated', (evt) => {
+    memberListCache.invalidate(evt.guild_id);
+  });
 }
