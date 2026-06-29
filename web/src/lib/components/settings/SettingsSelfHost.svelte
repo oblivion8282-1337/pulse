@@ -13,6 +13,7 @@
   import AppWindowIcon from '@lucide/svelte/icons/app-window';
   import ServerIcon from '@lucide/svelte/icons/server';
   import { m } from '$lib/paraglide/messages.js';
+  import { APP_HOSTING_ENABLED } from '$lib/featureFlags';
 
   const SECTION_CLASS =
     'border-border bg-bg-input/40 flex flex-col gap-3 rounded-2xl border p-4';
@@ -50,11 +51,15 @@
     <p class="text-text-muted text-sm">{m.settings_self_host_description()}</p>
   </div>
 
-  <!-- App-Hosting (Stufe 2): läuft auf dem Gerät, lebt nur solange die App offen ist. -->
-  <section class={SECTION_CLASS} data-testid="self-host-app-section">
-    {@render cardHeader(AppWindowIcon, m.local_host_title(), m.self_host_app_subtitle())}
-    {@render appBody()}
-  </section>
+  <!-- App-Hosting (Stufe 2): läuft auf dem Gerät, lebt nur solange die App offen
+       ist. Vorerst AUSGEBLENDET (APP_HOSTING_ENABLED), bis die Geräte-Paketierung
+       auslieferbar ist — sonst würden User etwas anfragen, das nicht läuft. -->
+  {#if APP_HOSTING_ENABLED}
+    <section class={SECTION_CLASS} data-testid="self-host-app-section">
+      {@render cardHeader(AppWindowIcon, m.local_host_title(), m.self_host_app_subtitle())}
+      {@render appBody()}
+    </section>
+  {/if}
 
   <!-- Eigener Server (Stufe 3): dauerhafter VPS, braucht Cloud-Freischaltung. -->
   <section class={SECTION_CLASS} data-testid="self-host-server-section">
