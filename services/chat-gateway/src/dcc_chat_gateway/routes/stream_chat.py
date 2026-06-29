@@ -60,6 +60,9 @@ router = APIRouter()
 # Duplicated rather than imported because the services share no code on purpose
 # (see CLAUDE.md / streamkeys.py note) — keep in sync if either key renames.
 _ACTIVE_KEY = "stream:active:channel-{channel_id}-{user_id}"
+# Highest per-user HQ stream slot (mirrors media-svc's _SLOT_MAX). Slots
+# 1.._STREAM_SLOT_MAX append a ``-s<slot>`` suffix to the active key.
+_STREAM_SLOT_MAX = 1
 _VOICE_STREAMING_KEY = "voice:room:channel-{channel_id}:streaming"
 _CHAT_KEY = "stream:chat:channel-{channel_id}-{user_id}"
 
@@ -131,15 +134,20 @@ async def post_stream_chat(
         # stream. Treat as 503 so the client retries instead of giving up.
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="storage unavailable")
 
-    # Streamer is "live" if either transport reports them. Pipeline so both
-    # round-trips share one RTT (chat is hot-path).
+    # Streamer is "live" if either transport reports them. A user may run
+    # several HQ slots (e.g. two monitors); the chat is per-streamer, so any
+    # live slot counts. Slot 0 is the legacy key; slots 1.._STREAM_SLOT_MAX add
+    # the ``-s<slot>`` suffix (mirrors media-svc's _SLOT_MAX). Pipeline so every
+    # check shares one RTT (chat is hot-path).
     active_key = _ACTIVE_KEY.format(channel_id=channel_id, user_id=streamer_id)
     voice_streaming_key = _VOICE_STREAMING_KEY.format(channel_id=channel_id)
     pipe = redis.pipeline(transaction=False)
     pipe.exists(active_key)
+    for slot in range(1, _STREAM_SLOT_MAX + 1):
+        pipe.exists(f"{active_key}-s{slot}")
     pipe.sismember(voice_streaming_key, str(streamer_id))
-    hq_live, ss_live = await pipe.execute()
-    if not (hq_live or ss_live):
+    *hq_live, ss_live = await pipe.execute()
+    if not (any(hq_live) or ss_live):
         raise HTTPException(status.HTTP_410_GONE, detail="streamer is not live")
 
     if not ratelimit.check("message", current.id):

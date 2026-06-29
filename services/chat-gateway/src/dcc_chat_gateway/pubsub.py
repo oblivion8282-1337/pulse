@@ -592,15 +592,21 @@ class ConnectionManager(
         channel_id: str, raw: bytes | str | None
     ) -> dict[str, Any] | None:
         """Parse a raw Redis value from ``stream:channel:<id>`` into the
-        standard ``{"channel_id": ..., "user_ids": [...]}`` shape, or
-        ``None`` when the key is absent / empty / malformed."""
+        standard ``{"channel_id": ..., "user_ids": [...], "streams"?: [...]}``
+        shape, or ``None`` when the key is absent / empty / malformed. The
+        additive ``streams`` list is echoed only when present (a user runs
+        slot ≥ 1), so single-stream re-syncs keep the legacy shape."""
         data = _loads_redis_dict(raw)
         if data is None:
             return None
         uids = [str(u) for u in (data.get("user_ids") or []) if u]
         if not uids:
             return None
-        return {"channel_id": channel_id, "user_ids": uids}
+        out: dict[str, Any] = {"channel_id": channel_id, "user_ids": uids}
+        streams = data.get("streams")
+        if streams:
+            out["streams"] = streams
+        return out
 
     async def stream_states_for(self, channel_ids: list[str]) -> list[dict[str, Any]]:
         """Return active stream-state entries for the given channels.
