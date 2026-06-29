@@ -51,6 +51,7 @@ from dcc_chat_gateway.friend_schemas import FriendRequestOut
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_VOICE,
     Channel,
+    ChatSettings,
     DirectMessageChannel,
     FriendRequest,
     Friendship,
@@ -395,6 +396,13 @@ async def build_and_send_ready_frame(
             )
             all_peer_ids.update(peer_id_rows)
 
+        # Instanzweiter Anzeigename (Self-Host) — vom Admin gesetzt, an ALLE
+        # Clients verteilt, damit sie den Server-Namen statt der URL zeigen.
+        # NULL auf Cloud / wenn nicht gesetzt. Singleton-Read im selben Session-
+        # Block, fail-soft (kein Name bei fehlender Row).
+        _settings_row = await session.get(ChatSettings, 1)
+        _instance_name = _settings_row.instance_name if _settings_row is not None else None
+
     # Hand the manager this socket's guild membership so precise cache
     # invalidation (on role mutations, guild_updated, etc.) only busts the
     # caches of sockets actually in the affected guild. Same list the
@@ -459,9 +467,12 @@ async def build_and_send_ready_frame(
     )
 
     # Build the base ready frame (guild + voice + stream + watch + presence).
+    # ``_instance_name`` (Self-Host-Anzeigename) wurde oben im Session-Block geladen.
     payload: dict = {
         "op": "ready",
         "user_id": str(user.id),
+        # Server-Anzeigename (s.o.); der Client nutzt ihn als Default-Label.
+        "instance_name": _instance_name,
         # Server clock at ready-send time. Lets the client calibrate its
         # clock offset immediately on connect so watch-party position
         # extrapolation uses the shared server clock from the first frame

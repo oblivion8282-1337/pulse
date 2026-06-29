@@ -4,7 +4,7 @@
 -->
 <script lang="ts">
   import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
-  import type { ServerEntry } from '$lib/api/servers.svelte';
+  import { serverDisplayName, type ServerEntry } from '$lib/api/servers.svelte';
   import { serverState } from '$lib/ws/server-state.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
@@ -20,7 +20,7 @@
 <AlertDialog.Root bind:open>
   <AlertDialog.Content data-testid="server-info-dialog">
     <AlertDialog.Header>
-      <AlertDialog.Title>{server?.label}</AlertDialog.Title>
+      <AlertDialog.Title>{server ? serverDisplayName(server) : ''}</AlertDialog.Title>
       <AlertDialog.Description>
         <span class="block">{m.server_info_dialog_hostname_label()} <span class="font-mono">{server?.hostname}</span></span>
         {#if server?.instance_id}

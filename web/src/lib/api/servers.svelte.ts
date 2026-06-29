@@ -27,12 +27,27 @@ export type ServerEntry = {
   id: string;                 // lokale UUID v4 (kein Cloud-Tracking)
   hostname: string;           // z.B. "https://chat.firma.de" (lowercase, kein trailing slash)
   instance_id: string | null; // Snowflake der Instanz (NULL für Cloud)
-  label: string;              // User-vergeben oder vom Server
+  label: string;              // User-vergeben (persönlich) — Default = hostname
+  server_name: string | null; // Vom Server-Admin gesetzter Instanz-Anzeigename (aus
+                              // dem ready-Frame); Default-Name, falls der User keinen
+                              // eigenen vergeben hat. NULL = keiner gesetzt.
   pairwise_sub: string | null;// Pro-Server-Pseudonym (NULL für Cloud — dort user_id direkt)
   isCloud: boolean;           // true für howispulse.com (Hard-Default)
   notification_mode: 'all' | 'mentions' | 'none';
   added_at: number;           // Date.now() ms
 };
+
+/**
+ * Anzuzeigender Server-Name. Vorrang:
+ *  1. persönlicher Name des Users (``label``, falls er bewusst umbenannt hat —
+ *     erkennbar daran, dass er vom Hostnamen abweicht),
+ *  2. sonst der vom Admin gesetzte Instanz-Name (``server_name``),
+ *  3. sonst der Hostname (URL).
+ */
+export function serverDisplayName(entry: ServerEntry): string {
+  if (entry.label && entry.label !== entry.hostname) return entry.label;
+  return entry.server_name || entry.hostname;
+}
 
 export const CLOUD_HOSTNAME = 'https://howispulse.com';
 export const CLOUD_LABEL = 'Pulse Cloud';
@@ -56,6 +71,7 @@ function buildCloudEntry(): ServerEntry {
     hostname: CLOUD_HOSTNAME,
     instance_id: null,
     label: CLOUD_LABEL,
+    server_name: null,
     pairwise_sub: null,
     isCloud: true,
     notification_mode: 'mentions',
@@ -72,6 +88,8 @@ function normalizeEntries(parsed: unknown): ServerEntry[] | null {
     const e = entry as ServerEntry;
     return {
       ...e,
+      // Default für Alt-Einträge ohne das Feld (vor diesem Build gespeichert).
+      server_name: e.server_name ?? null,
       isCloud: (e.hostname ?? '').toLowerCase() === CLOUD_HOSTNAME.toLowerCase(),
     };
   });
@@ -189,6 +207,7 @@ class ServersStore {
       hostname: normalized,
       instance_id: instance_id ?? null,
       label: label ?? (isCloud ? CLOUD_LABEL : normalized),
+      server_name: null,
       pairwise_sub: pairwise_sub ?? null,
       isCloud,
       notification_mode: 'mentions',
@@ -322,6 +341,7 @@ class ServersStore {
             hostname: normalized,
             instance_id: inst.id,
             label: inst.user_label ?? inst.hostname,
+            server_name: null, // kommt beim ersten Connect aus dem ready-Frame
             pairwise_sub: null, // wird beim ersten Connect via Cert-Login gesetzt
             isCloud: false,
             notification_mode: inst.notification_mode,

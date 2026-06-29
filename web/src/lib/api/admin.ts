@@ -56,6 +56,9 @@ export type Permissions = {
   allow_member_invites: boolean;
   /** Self-Host-only: Wenn true, können keine neuen Nutzer beitreten (auch nicht per Invite/öffentlicher Adresse). */
   locked: boolean;
+  /** Self-Host-only: instanzweiter Anzeigename, den alle verbundenen Clients
+   *  sehen (statt der URL). null = keiner gesetzt. */
+  instance_name: string | null;
   /** Per-file cap (bytes) for per-guild sound-override uploads. The
    * Sounds tab in guild settings reads the live value via the
    * capabilities store; this admin view edits it directly. */

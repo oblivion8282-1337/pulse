@@ -62,6 +62,8 @@ export type ReadyEvent = {
   user_id: string;
   /** Admin status on THIS server. Optional for back-compat with mocked frames. */
   is_admin?: boolean;
+  /** Instanzweiter Anzeigename (vom Server-Admin gesetzt); null/absent = keiner. */
+  instance_name?: string | null;
   guilds: ReadyGuild[];
   dm_channels?: DMChannel[];
   voice_states?: VoiceChannelState[];
