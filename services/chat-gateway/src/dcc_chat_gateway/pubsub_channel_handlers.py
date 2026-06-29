@@ -231,11 +231,17 @@ async def handle_stream_events(
         log.warning("stream:events malformed or missing channel_id: %r", payload)
         return
     stream_cid = str(payload.get("channel_id"))
-    envelope = {
+    envelope: dict[str, Any] = {
         "op": "stream_state",
         "channel_id": stream_cid,
         "user_ids": [str(u) for u in payload.get("user_ids", [])],
     }
+    # Additive per-slot descriptors — only present when a user runs slot ≥ 1.
+    # Forwarded verbatim (media-svc already stringified user_id) so the client
+    # can render a tile per (user, slot); absent → one tile per user as before.
+    streams = payload.get("streams")
+    if streams:
+        envelope["streams"] = streams
     async with manager._lock:
         raw_targets = list(manager._connections)
     targets = await manager._filter_by_view_channel(raw_targets, stream_cid)

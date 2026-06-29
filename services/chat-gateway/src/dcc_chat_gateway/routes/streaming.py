@@ -22,7 +22,7 @@ import logging
 from typing import Annotated
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
@@ -37,6 +37,11 @@ log = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Highest per-user stream slot — kept in sync with media-svc's _SLOT_MAX. A
+# user may run slots 0.._SLOT_MAX concurrently (e.g. two monitors).
+_SLOT_MAX = 1
+SlotQuery = Annotated[int, Query(ge=0, le=_SLOT_MAX)]
+
 
 class StreamTokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -46,6 +51,9 @@ class StreamTokenIn(BaseModel):
     # streamid field). Mirror its pattern so a caller passing ``srt`` gets a
     # clean 422 at this layer instead of a confusing forwarded one.
     protocol: Annotated[str, Field(default="rtmp", pattern=r"^rtmp$")] = "rtmp"
+    # Which of the caller's stream slots to publish (0 == the default single
+    # stream). Forwarded verbatim to media-svc, which owns the path/key shape.
+    slot: Annotated[int, Field(default=0, ge=0, le=_SLOT_MAX)] = 0
 
 
 class StreamTokenOut(BaseModel):
@@ -135,7 +143,7 @@ async def issue_stream_token(
             "POST",
             f"/channels/{channel_id}/stream-token",
             bearer=bearer,
-            json_body={"protocol": payload.protocol},
+            json_body={"protocol": payload.protocol, "slot": payload.slot},
             http=http,
         )
     except httpx.HTTPError as exc:
@@ -154,20 +162,24 @@ async def stop_stream(
     current: CurrentUser,
     authorization: Annotated[str | None, Header()] = None,
     request: Request = None,
+    slot: Annotated[int | None, Query(ge=0, le=_SLOT_MAX)] = None,
 ) -> Response:
-    """Explicit stop of the caller's own HQ stream — clears the "live" presence
-    immediately instead of waiting for the MediaMTX poll to notice. Membership
-    in the channel is enough: media-svc derives the streamer from the forwarded
-    bearer, so a caller can only ever stop their *own* stream (no STREAM perm
-    needed — they already had it to start). Best-effort from the client; the
-    media-svc poller stays the backstop if this call never lands."""
+    """Explicit stop of the caller's own HQ stream(s) — clears the "live"
+    presence immediately instead of waiting for the MediaMTX poll to notice.
+    ``slot`` omitted stops all of the caller's streams; ``slot=N`` stops just
+    that one. Membership in the channel is enough: media-svc derives the
+    streamer from the forwarded bearer, so a caller can only ever stop their
+    *own* stream (no STREAM perm needed — they already had it to start).
+    Best-effort from the client; the media-svc poller stays the backstop if
+    this call never lands."""
     await _require_voice_channel_member(session, channel_id, current.id)
     bearer = _bearer_from_header(authorization)
     http = getattr(request.app.state, "media_svc_http", None)
+    path = f"/channels/{channel_id}/stream"
+    if slot is not None:
+        path += f"?slot={slot}"
     try:
-        resp = await _media_svc_request(
-            "DELETE", f"/channels/{channel_id}/stream", bearer=bearer, http=http
-        )
+        resp = await _media_svc_request("DELETE", path, bearer=bearer, http=http)
     except httpx.HTTPError as exc:
         raise _media_svc_unavailable(exc) from exc
     if resp.status_code >= 400:
@@ -183,10 +195,11 @@ async def get_whep_url(
     current: CurrentUser,
     authorization: Annotated[str | None, Header()] = None,
     request: Request = None,
+    slot: SlotQuery = 0,
 ) -> WhepOut:
-    """WHEP playback URL for `user_id`'s HQ stream in `channel_id`. The caller
-    just has to be a member of the channel's guild (they're watching, not the
-    streamer)."""
+    """WHEP playback URL for `user_id`'s HQ stream in `channel_id` (``slot`` picks
+    which of that user's streams, default 0). The caller just has to be a member
+    of the channel's guild (they're watching, not the streamer)."""
     channel = await _require_voice_channel_member(session, channel_id, current.id)
     # VIEW_CHANNEL must not be overwrite-denied for this member — a member
     # explicitly excluded from a channel must not be able to watch streams
@@ -199,7 +212,10 @@ async def get_whep_url(
     http = getattr(request.app.state, "media_svc_http", None)
     try:
         resp = await _media_svc_request(
-            "GET", f"/channels/{channel_id}/whep?user_id={user_id}", bearer=bearer, http=http
+            "GET",
+            f"/channels/{channel_id}/whep?user_id={user_id}&slot={slot}",
+            bearer=bearer,
+            http=http,
         )
     except httpx.HTTPError as exc:
         raise _media_svc_unavailable(exc) from exc

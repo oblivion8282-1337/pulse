@@ -195,7 +195,54 @@ async def test_stream_token_member_proxies_media_svc(client, _auth_signer, mock_
     assert method == "POST"
     assert path == f"/channels/{vc['id']}/stream-token"
     assert bearer == token
-    assert json_body == {"protocol": "rtmp"}
+    # slot defaults to 0 (the single stream) and is forwarded to media-svc.
+    assert json_body == {"protocol": "rtmp", "slot": 0}
+
+
+@pytest.mark.asyncio
+async def test_stream_token_slot_forwarded(client, _auth_signer, mock_media_svc):
+    """A second-stream token request (slot 1) forwards slot to media-svc."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(
+            200,
+            {
+                "token": "tok123",
+                "mediamtx_path": f"channel-{vc['id']}-1-s1",
+                "push_protocol": "rtmp",
+                "push_url": "rtmps://localhost:1936/x",
+                "expires_in_s": 14400,
+            },
+        )
+    )
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={"slot": 1}, headers=_auth(token)
+    )
+    assert r.status_code == 200, r.text
+    assert mock_media_svc.calls[0][3] == {"protocol": "rtmp", "slot": 1}
+
+
+@pytest.mark.asyncio
+async def test_stream_token_rejects_out_of_range_slot(client, _auth_signer, mock_media_svc):
+    """Slot is clamped at the gateway (N=2 → 0/1); slot 2 → 422, never forwarded."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    r = await client.post(
+        f"/channels/{vc['id']}/stream-token", json={"slot": 2}, headers=_auth(token)
+    )
+    assert r.status_code == 422
+    assert mock_media_svc.calls == []
 
 
 @pytest.mark.asyncio
@@ -308,6 +355,26 @@ async def test_whep_proxy(client, _auth_signer, mock_media_svc):
     assert r.status_code == 200, r.text
     assert r.json()["whep_url"].endswith(f"channel-{vc['id']}-1/whep")
     assert mock_media_svc.calls[0][0] == "GET"
+    # user_id + slot (default 0) are forwarded to media-svc.
+    assert mock_media_svc.calls[0][1] == f"/channels/{vc['id']}/whep?user_id=1&slot=0"
+
+
+@pytest.mark.asyncio
+async def test_whep_proxy_slot_forwarded(client, _auth_signer, mock_media_svc):
+    """``?slot=1`` is forwarded so a viewer can fetch the user's second stream."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        _resp(200, {"whep_url": f"http://localhost:8889/channel-{vc['id']}-1-s1/whep"})
+    )
+    r = await client.get(f"/channels/{vc['id']}/whep?user_id=1&slot=1", headers=_auth(token))
+    assert r.status_code == 200, r.text
+    assert mock_media_svc.calls[0][1] == f"/channels/{vc['id']}/whep?user_id=1&slot=1"
 
 
 @pytest.mark.asyncio
@@ -464,8 +531,26 @@ async def test_stop_stream_member_proxies_media_svc(client, _auth_signer, mock_m
     assert r.status_code == 204, r.text
     method, path, bearer, json_body = mock_media_svc.calls[0]
     assert method == "DELETE"
-    assert path == f"/channels/{vc['id']}/stream"
+    assert path == f"/channels/{vc['id']}/stream"  # no slot → media-svc stops all of them
     assert bearer == token  # caller's bearer forwarded → media-svc stops *their* stream
+
+
+@pytest.mark.asyncio
+async def test_stop_stream_specific_slot_forwarded(client, _auth_signer, mock_media_svc):
+    """Stopping one slot forwards ``?slot=N`` so the user's other stream survives."""
+    token, _ = await _register(_auth_signer)
+    g = (await client.post("/guilds", json={"name": "g"}, headers=_auth(token))).json()
+    vc = (
+        await client.post(
+            f"/guilds/{g['id']}/channels", json={"name": "Voice", "type": 1}, headers=_auth(token)
+        )
+    ).json()
+    mock_media_svc.responses.append(
+        httpx.Response(204, request=httpx.Request("DELETE", "http://media-svc/x"))
+    )
+    r = await client.delete(f"/channels/{vc['id']}/stream?slot=1", headers=_auth(token))
+    assert r.status_code == 204, r.text
+    assert mock_media_svc.calls[0][1] == f"/channels/{vc['id']}/stream?slot=1"
 
 
 @pytest.mark.asyncio
