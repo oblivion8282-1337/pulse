@@ -28,6 +28,19 @@ type StreamSession = {
   lastLog: string[];
 };
 
+/** A fresh, idle session — the per-slot defaults shared by `stream` (slot 0)
+ *  and every entry of `extraSessions`. */
+function freshSession(): StreamSession {
+  return {
+    running: false,
+    state: 'idle',
+    fps: null,
+    uptimeS: null,
+    error: null,
+    lastLog: [],
+  };
+}
+
 /** The primary stream (slot 0). Also carries the GLOBAL bridge flags
  *  (`available`/`gsrAvailable`) since those describe the sidecar, not a slot —
  *  every existing component binds `stream`, so its shape is unchanged. */
@@ -41,26 +54,14 @@ export const stream = $state({
    *  voice-view HQ-Stream button can gate on real availability, not just
    *  "the bridge works". */
   gsrAvailable: false,
-  running: false,
-  state: 'idle' as StreamSession['state'],
-  fps: null as number | null,
-  uptimeS: null as number | null,
-  error: null as string | null,
-  lastLog: [] as string[],
+  ...freshSession(),
 });
 
 /** The additional streams (slots 1..MAX-1) — each a second/third/… monitor as
  *  its own viewer tile. Session-only: the global flags live on `stream`.
  *  Deep-`$state` array → mutating `extraSessions[i].running` is reactive. */
 const extraSessions = $state<StreamSession[]>(
-  Array.from({ length: MAX_STREAM_SLOTS - 1 }, () => ({
-    running: false,
-    state: 'idle' as StreamSession['state'],
-    fps: null,
-    uptimeS: null,
-    error: null,
-    lastLog: [],
-  }))
+  Array.from({ length: MAX_STREAM_SLOTS - 1 }, freshSession)
 );
 
 /** The session object for a slot (0 = primary `stream`, ≥1 = an extra stream). */
@@ -71,12 +72,11 @@ export function streamForSlot(slot: number): StreamSession {
 /** Slots that currently have a running stream (0 = primary). Reactive — call
  *  inside a `$derived`. */
 export function runningStreamSlots(): number[] {
-  const out: number[] = [];
-  if (stream.running) out.push(0);
-  extraSessions.forEach((s, i) => {
-    if (s.running) out.push(i + 1);
-  });
-  return out;
+  const slots: number[] = [];
+  for (let slot = 0; slot < MAX_STREAM_SLOTS; slot++) {
+    if (streamForSlot(slot).running) slots.push(slot);
+  }
+  return slots;
 }
 
 let initialised = false;
