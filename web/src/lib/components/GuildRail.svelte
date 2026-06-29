@@ -40,7 +40,11 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { viewport } from '$lib/stores/viewport.svelte';
   import { Perm } from '$lib/permissions/bitfield';
-  import { serversStore, type ServerEntry } from '$lib/api/servers.svelte';
+  import {
+    serversStore,
+    serverDisplayName as resolveServerName,
+    type ServerEntry
+  } from '$lib/api/servers.svelte';
   import { leaveAndRemoveServer, notifyLeaveOutcome } from '$lib/api/server-removal';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { serverAdmin } from '$lib/stores/serverAdmin.svelte';
@@ -233,10 +237,11 @@
     infoServerOpen = true;
   }
 
-  // Anzeigename für die Rail: das (umbenennbare) Label, bei Hostname-
-  // Fallback ohne https://-Präfix — Schema-Rauschen gehört nicht in die UI.
+  // Anzeigename für die Rail: persönlicher Name > Admin-Instanz-Name >
+  // Hostname (Letzteres ohne https://-Präfix — Schema-Rauschen gehört nicht
+  // in die UI).
   function serverDisplayName(server: ServerEntry): string {
-    return server.label.replace(/^https?:\/\//, '');
+    return resolveServerName(server).replace(/^https?:\/\//, '');
   }
 
   let renameServerTarget = $state<ServerEntry | null>(null);
@@ -402,7 +407,7 @@
                     data-active={isActiveServer}
                     onclick={() => activeServer.set(server.id)}
                     data-testid={`server-${server.id}`}
-                    aria-label={server.label}
+                    aria-label={serverDisplayName(server)}
                   >
                     <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
                          (immer da, kein Verbindungszustand nötig). Selbst-
@@ -535,7 +540,7 @@
                     guildId={g.id}
                     name={g.name}
                     serverId={server.id}
-                    serverLabel={isActiveServer ? null : server.label}
+                    serverLabel={isActiveServer ? null : serverDisplayName(server)}
                   />
                 </Tooltip.Content>
               </Tooltip.Root>

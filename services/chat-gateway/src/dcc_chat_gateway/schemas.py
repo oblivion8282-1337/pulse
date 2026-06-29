@@ -548,6 +548,8 @@ class PermissionsOut(BaseModel):
     # every new join (community-invite grant + public address alike). Surfaced so
     # the admin UI can show/set it. Cloud ignores it (no gated cert-join).
     locked: bool
+    # Instanzweiter Anzeigename (Self-Host) — NULL, wenn keiner gesetzt ist.
+    instance_name: str | None = None
     guild_sound_max_size_bytes: int
     # Global HQ-stream quality limits (best-effort, client-enforced).
     hq_bitrate_min_kbps: int
@@ -591,6 +593,9 @@ class PermissionsPatch(BaseModel):
     allow_member_invites: bool | None = None
     # Self-Host "Server gesperrt" not-aus toggle.
     locked: bool | None = None
+    # Instanzweiter Anzeigename. None = nicht ändern; Leerstring = zurücksetzen
+    # (→ NULL, Clients zeigen wieder den Hostnamen). Max 60 Zeichen.
+    instance_name: Annotated[str | None, Field(default=None, max_length=60)] = None
     # Bound: 4 KB floor (a 1-frame OGG is ~2 KB; below that = abuse),
     # 5 MB ceiling (anything larger isn't a "UI sound" anymore).
     guild_sound_max_size_bytes: Annotated[

@@ -125,3 +125,70 @@ async def test_invites_admin_not_special(
 
     r = await client.post(f"/guilds/{g['id']}/invites", json={}, headers=auth(admin_t))
     assert r.status_code == 403
+
+
+# ─── Instanzweiter Anzeigename (instance_name) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_instance_name_default_null(client, _auth_signer):
+    """Frisch → kein instance_name."""
+    token, _ = await _make_token(_auth_signer, is_admin=True)
+    r = await client.get("/admin/permissions", headers=auth(token))
+    assert r.status_code == 200
+    assert r.json()["instance_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_admin_sets_and_clears_instance_name(client, _auth_signer):
+    """Admin setzt den Namen; Leerstring setzt ihn wieder zurück."""
+    token, _ = await _make_token(_auth_signer, is_admin=True)
+    r = await client.patch(
+        "/admin/permissions",
+        json={"instance_name": "  Unicut Media  "},
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["instance_name"] == "Unicut Media"  # getrimmt
+
+    # Leerstring → zurücksetzen auf NULL.
+    r2 = await client.patch(
+        "/admin/permissions", json={"instance_name": "   "}, headers=auth(token)
+    )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["instance_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_instance_name_partial_patch_keeps_other_fields(client, _auth_signer):
+    """instance_name patchen lässt andere Flags unangetastet."""
+    token, _ = await _make_token(_auth_signer, is_admin=True)
+    await client.patch(
+        "/admin/permissions", json={"instance_name": "Server X"}, headers=auth(token)
+    )
+    # Nur locked patchen → Name bleibt.
+    r = await client.patch(
+        "/admin/permissions", json={"locked": True}, headers=auth(token)
+    )
+    assert r.json()["instance_name"] == "Server X"
+    assert r.json()["locked"] is True
+
+
+@pytest.mark.asyncio
+async def test_instance_name_patch_requires_admin(client, _auth_signer):
+    """Nicht-Admin darf den Namen nicht setzen."""
+    token, _ = await _make_token(_auth_signer, is_admin=False)
+    r = await client.patch(
+        "/admin/permissions", json={"instance_name": "Hack"}, headers=auth(token)
+    )
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_instance_name_too_long_rejected(client, _auth_signer):
+    """Über 60 Zeichen → 422 (Schema-Grenze)."""
+    token, _ = await _make_token(_auth_signer, is_admin=True)
+    r = await client.patch(
+        "/admin/permissions", json={"instance_name": "x" * 61}, headers=auth(token)
+    )
+    assert r.status_code == 422

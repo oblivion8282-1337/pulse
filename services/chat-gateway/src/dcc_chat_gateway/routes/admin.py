@@ -222,6 +222,13 @@ async def patch_permissions(
         changes["locked"] = {"from": row.locked, "to": payload.locked}
         row.locked = payload.locked
 
+    # Instanzweiter Anzeigename: Leerstring → NULL (zurücksetzen); None = unverändert.
+    if payload.instance_name is not None:
+        new_name = payload.instance_name.strip() or None
+        if new_name != row.instance_name:
+            changes["instance_name"] = {"from": row.instance_name, "to": new_name}
+            row.instance_name = new_name
+
     if (
         payload.guild_sound_max_size_bytes is not None
         and payload.guild_sound_max_size_bytes != row.guild_sound_max_size_bytes

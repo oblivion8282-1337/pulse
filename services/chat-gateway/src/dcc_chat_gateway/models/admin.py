@@ -13,6 +13,7 @@ from sqlalchemy import (
     JSON,
     SmallInteger,
     String,
+    Text,
     func,
     text,
 )
@@ -65,6 +66,11 @@ class ChatSettings(Base):
     locked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Instanzweiter Anzeigename (Self-Host). Vom Admin gesetzt, an ALLE
+    # verbundenen Clients im ``ready``-Frame verteilt → sie zeigen ihn statt der
+    # nackten URL. NULL = kein Name gesetzt (Client fällt auf den Hostnamen
+    # zurück). Rein kosmetisch; ändert keine Identität/Adresse.
+    instance_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Per-file cap (bytes) for per-guild sound-override uploads. Tunable
     # by the Pulse-instance admin via /admin/permissions; the route layer
     # in chat-gateway enforces it on PUT. 512 KB default = comfortable

@@ -16,7 +16,7 @@
   import BellRingIcon from '@lucide/svelte/icons/bell-ring';
   import Trash2Icon from '@lucide/svelte/icons/trash-2';
   import { m } from '$lib/paraglide/messages.js';
-  import type { ServerEntry } from '$lib/api/servers.svelte';
+  import { serverDisplayName, type ServerEntry } from '$lib/api/servers.svelte';
   import type { ConnectionState } from '$lib/ws/gateway-connection';
 
   let {
@@ -37,6 +37,9 @@
     /** Nur Self-Host bietet das an. */
     onRemove?: () => void;
   } = $props();
+
+  // Angezeigter Name: persönlicher Name > Admin-Instanz-Name > Hostname.
+  let displayName = $derived(serverDisplayName(server));
 
   function initials(label: string): string {
     return label
@@ -77,7 +80,7 @@
                   data-active={active}
                   data-testid={`server-${server.id}`}
                   onclick={onPick}
-                  aria-label={server.label}
+                  aria-label={displayName}
                 >
                   <CloudIcon class="size-5" />
                 </button>
@@ -91,9 +94,9 @@
                   data-active={active}
                   data-testid={`server-${server.id}`}
                   onclick={onPick}
-                  aria-label={server.label}
+                  aria-label={displayName}
                 >
-                  {initials(server.label)}
+                  {initials(displayName)}
                 </button>
                 <span
                   class="absolute -right-0.5 -top-0.5 size-2.5 rounded-full bg-accent ring-2 ring-bg-panel"
@@ -109,7 +112,7 @@
             </div>
           {/snippet}
         </Tooltip.Trigger>
-        <Tooltip.Content side="right">{server.label}</Tooltip.Content>
+        <Tooltip.Content side="right">{displayName}</Tooltip.Content>
       </Tooltip.Root>
     {/snippet}
   </ContextMenu.Trigger>
