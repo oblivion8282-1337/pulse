@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-30",
+      "date": "2026-06-30",
+      "style": "Freundlich",
+      "title": "Eigenen Ton jetzt auch im Voice-Channel testen",
+      "items": [
+        "Du kannst dich jetzt auch in einem Voice-Channel selbst abhören, um Mikrofon und Lautstärke zu testen — sogar wenn du stummgeschaltet bist. Niemand sonst hört dabei etwas, und die Pegelanzeigen sowie der Verstärkungsregler reagieren live."
+      ]
+    },
+    {
       "id": "2026-06-29.10",
       "date": "2026-06-29",
       "style": "Freundlich",
