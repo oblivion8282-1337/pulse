@@ -52,7 +52,6 @@
   import { serverGuilds } from '$lib/stores/serverGuilds.svelte';
   import { serverCapabilities } from '$lib/stores/serverCapabilities.svelte';
   import AddServerDialog from './sidebar/AddServerDialog.svelte';
-  import RenameServerDialog from './sidebar/RenameServerDialog.svelte';
   import ServerInfoDialog from './sidebar/ServerInfoDialog.svelte';
   import ServerIconButton from './sidebar/ServerIconButton.svelte';
   import RenameGuildDialog from './RenameGuildDialog.svelte';
@@ -237,14 +236,11 @@
     infoServerOpen = true;
   }
 
-  // Anzeigename für die Rail: persönlicher Name > Admin-Instanz-Name >
-  // Hostname (Letzteres ohne https://-Präfix — Schema-Rauschen gehört nicht
-  // in die UI).
+  // Anzeigename für die Rail: Admin-Instanz-Name > Hostname (Letzteres ohne
+  // https://-Präfix — Schema-Rauschen gehört nicht in die UI).
   function serverDisplayName(server: ServerEntry): string {
     return resolveServerName(server).replace(/^https?:\/\//, '');
   }
-
-  let renameServerTarget = $state<ServerEntry | null>(null);
 
   function setServerNotif(server: ServerEntry, mode: ServerEntry['notification_mode']): void {
     serversStore.update(server.id, { notification_mode: mode });
@@ -257,7 +253,7 @@
 
   async function confirmServerRemove(): Promise<void> {
     if (!removeServerTarget) return;
-    const label = removeServerTarget.label;
+    const label = serverDisplayName(removeServerTarget);
     // Entfernen = echtes Austreten (User-Entscheidung 2026-06-10). Die gesamte
     // Austritts-/Aufräumlogik liegt in leaveAndRemoveServer (geteilt mit der
     // ServerSidebar, damit beide Einstiege nie divergieren).
@@ -412,7 +408,7 @@
                     <!-- Cloud-Server: Marken-Label "PULSE" ohne Status-Dot
                          (immer da, kein Verbindungszustand nötig). Selbst-
                          gehostete Zusatz-Server zeigen den Anzeigenamen
-                         (umbenennbar via Kontextmenü; Fallback = Hostname,
+                         (vom Server-Admin gesetzt; Fallback = Hostname,
                          über bis zu 2 Zeilen umbrochen). Status-Dot nur im
                          Ausnahmezustand (gelb/rot/grau) — der grüne
                          „alles ok"-Dauerzustand wäre nur Rauschen. -->
@@ -451,11 +447,6 @@
           <ContextMenu.Item onSelect={() => openServerInfo(server)}>
             {m.guild_rail_server_info()}
           </ContextMenu.Item>
-          {#if !server.isCloud}
-            <ContextMenu.Item onSelect={() => (renameServerTarget = server)}>
-              <PencilIcon /> {m.guild_rail_rename_server()}
-            </ContextMenu.Item>
-          {/if}
           <ContextMenu.Sub>
             <ContextMenu.SubTrigger>{m.guild_rail_notifications()}</ContextMenu.SubTrigger>
             <ContextMenu.SubContent>
@@ -683,7 +674,7 @@
     <AlertDialog.Header>
       <AlertDialog.Title>{m.guild_rail_remove_server_title()}</AlertDialog.Title>
       <AlertDialog.Description>
-        {m.guild_rail_remove_server_description({ label: removeServerTarget?.label ?? m.guild_rail_this_server() })}
+        {m.guild_rail_remove_server_description({ label: removeServerTarget ? serverDisplayName(removeServerTarget) : m.guild_rail_this_server() })}
       </AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
@@ -696,12 +687,6 @@
 </AlertDialog.Root>
 
 <ServerInfoDialog bind:open={infoServerOpen} server={infoServerTarget} />
-
-<RenameServerDialog
-  open={renameServerTarget !== null}
-  server={renameServerTarget}
-  onClose={() => (renameServerTarget = null)}
-/>
 
 <RenameGuildDialog
   open={renameTarget !== null}

@@ -2,13 +2,13 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
-      "id": "2026-06-29.6",
+      "id": "2026-06-29.7",
       "date": "2026-06-29",
       "style": "Freundlich",
       "title": "Gib deinem Server einen Namen",
       "items": [
-        "Als Admin eines selbstgehosteten Servers kannst du ihm jetzt einen Namen geben (in den Server-Einstellungen). Alle verbundenen Nutzer sehen dann diesen Namen statt der Adresse.",
-        "Wer mag, kann sich den Server für sich selbst weiterhin anders benennen — das hat Vorrang."
+        "Als Admin eines selbstgehosteten Servers kannst du ihm einen Namen geben (in den Server-Einstellungen). Alle verbundenen Nutzer sehen dann diesen Namen statt der Adresse.",
+        "Den Namen legt allein der Server-Admin fest — er gilt einheitlich für alle."
       ]
     },
     {
