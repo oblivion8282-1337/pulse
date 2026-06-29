@@ -478,3 +478,114 @@ async def test_snippet_invalid_id_404(client, alice_cookie):
         headers={"Cookie": alice_cookie},
     )
     assert r.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# POST/DELETE /me/instances/{id}/membership — eingeladene Nicht-Owner-User
+# (Phase 4-6: Self-Host-Server taucht auch im Browser/auf anderen Geräten auf)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_join_membership_makes_instance_visible(
+    client, bob_cookie, alice_instance
+):
+    """Bob ist nicht Owner → sieht Alices Instanz erst NACH dem Membership-Join."""
+    before = await client.get("/me/instances", headers={"Cookie": bob_cookie})
+    assert before.status_code == 200
+    assert before.json() == []
+
+    join = await client.post(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": bob_cookie},
+    )
+    assert join.status_code == 204, join.text
+
+    after = await client.get("/me/instances", headers={"Cookie": bob_cookie})
+    assert after.status_code == 200
+    ids = [i["id"] for i in after.json()]
+    assert str(alice_instance.id) in ids
+
+
+@pytest.mark.asyncio
+async def test_join_membership_idempotent(client, bob_cookie, alice_instance):
+    """Zweimal joinen ändert nichts (kein 409, eine Zeile)."""
+    for _ in range(2):
+        r = await client.post(
+            f"/me/instances/{alice_instance.id}/membership",
+            headers={"Cookie": bob_cookie},
+        )
+        assert r.status_code == 204, r.text
+    after = await client.get("/me/instances", headers={"Cookie": bob_cookie})
+    assert [i["id"] for i in after.json()] == [str(alice_instance.id)]
+
+
+@pytest.mark.asyncio
+async def test_join_membership_does_not_downgrade_owner(
+    session_factory, client, alice_cookie, alice_instance
+):
+    """Ein Join des Owners lässt seine ``owner``-Rolle unverändert."""
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 204, r.text
+    async with session_factory() as session:
+        row = await session.get(
+            UserInstanceMembership,
+            (int(alice_instance.registered_by), alice_instance.id),
+        )
+        assert row is not None and row.role == "owner"
+
+
+@pytest.mark.asyncio
+async def test_join_membership_404_nonexistent(client, bob_cookie):
+    r = await client.post(
+        "/me/instances/9999999999999/membership",
+        headers={"Cookie": bob_cookie},
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_join_membership_requires_cookie(client, alice_instance):
+    r = await client.post(f"/me/instances/{alice_instance.id}/membership")
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_leave_membership_hides_instance(client, bob_cookie, alice_instance):
+    """Nach dem Austritt verschwindet die Instanz wieder aus Bobs Liste."""
+    await client.post(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": bob_cookie},
+    )
+    leave = await client.delete(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": bob_cookie},
+    )
+    assert leave.status_code == 204, leave.text
+    after = await client.get("/me/instances", headers={"Cookie": bob_cookie})
+    assert after.json() == []
+
+
+@pytest.mark.asyncio
+async def test_leave_membership_idempotent_when_absent(
+    client, bob_cookie, alice_instance
+):
+    """Austreten ohne Membership → 204 (idempotent), kein Fehler."""
+    r = await client.delete(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": bob_cookie},
+    )
+    assert r.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_leave_membership_owner_forbidden(client, alice_cookie, alice_instance):
+    """Der Owner kann seine Membership nicht per Austritt wegwerfen → 403."""
+    r = await client.delete(
+        f"/me/instances/{alice_instance.id}/membership",
+        headers={"Cookie": alice_cookie},
+    )
+    assert r.status_code == 403

@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-29.4",
+      "date": "2026-06-29",
+      "style": "Freundlich",
+      "title": "Eingeladene Server sind jetzt überall dabei",
+      "items": [
+        "Bist du per Einladung auf einem selbstgehosteten Server gelandet, findest du ihn ab sofort auf all deinen Geräten wieder — egal ob App oder Browser.",
+        "Magst du ihn nicht mehr? Einmal entfernen genügt, dann ist er überall weg."
+      ]
+    },
+    {
       "id": "2026-06-29.3",
       "date": "2026-06-29",
       "style": "Sachlich",

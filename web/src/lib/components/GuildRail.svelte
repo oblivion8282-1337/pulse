@@ -30,6 +30,7 @@
   import { chatApi } from '$lib/api/chat';
   import { ApiError } from '$lib/api/client';
   import { leaveInstanceOn } from '$lib/api/add-server-flow';
+  import { instancesApi } from '$lib/api/instances';
   import { guildIconSrc } from '$lib/guildIcon';
   import { guilds as guildsStore } from '$lib/stores/guilds.svelte';
   import { directMessages } from '$lib/stores/directMessages.svelte';
@@ -258,6 +259,7 @@
     const id = removeServerTarget.id;
     const label = removeServerTarget.label;
     const isCloud = removeServerTarget.isCloud;
+    const instanceId = removeServerTarget.instance_id;
     // Entfernen = echtes Austreten (User-Entscheidung 2026-06-10): erst die
     // Instanz-Mitgliedschaft serverseitig beenden, dann lokal aufräumen.
     // 403 = Instanz-Owner (bleibt Mitglied, nur Ansicht entfernt) · 409 =
@@ -276,6 +278,13 @@
         }
         leaveResult = err instanceof ApiError && err.status === 403 ? 'owner' : 'unreachable';
       }
+    }
+    // Cloud-Membership entfernen, sobald der Austritt geklappt hat — sonst
+    // taucht der Server beim nächsten ``GET /me/instances`` auf anderen Geräten
+    // wieder auf. Nur bei echtem Austritt (nicht Owner/unreachable); der Owner
+    // behält seine Membership bewusst (Backend würde mit 403 ablehnen).
+    if (!isCloud && leaveResult === 'left' && instanceId) {
+      void instancesApi.leaveInstanceMembership(instanceId).catch(() => undefined);
     }
     try {
       removeServerLocally(id);

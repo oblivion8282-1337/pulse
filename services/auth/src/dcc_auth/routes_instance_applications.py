@@ -291,6 +291,80 @@ async def list_my_instances(
 
 
 @router.post(
+    "/me/instances/{instance_id}/membership",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def join_instance_membership(
+    instance_id: str,
+    request: Request,
+    db: SessionDep,
+) -> None:
+    """Den eingeloggten Cloud-User als Mitglied einer Self-Host-Instanz
+    eintragen — so erscheint ein per Einladung beigetretener Server auch auf
+    anderen Geräten (Account-basierte Server-Liste, ``GET /me/instances``).
+
+    Bisher legte nur der Owner-Pfad (Approval/Bootstrap-Redeem) eine Membership
+    an; ein eingeladener Nicht-Owner hatte nur den gerätelokalen
+    ``pulse.servers``-Eintrag → im Browser unsichtbar. Dieser Endpoint schließt
+    die Lücke (die in ``UserInstanceMembership`` vorbereitete Phase-4-6-Rolle).
+
+    Idempotent. Eine bestehende ``owner``-Rolle wird NICHT herabgestuft. Die
+    Cloud verifiziert die Self-Host-seitige Mitgliedschaft bewusst NICHT
+    (Cert-Modell: Self-Hosts sind isolierte DB-Welten) — die Server-Liste war
+    immer nur eine schwache Tracking-Dimension, kein Zugriffsbeweis. Ohne echten
+    Cert-Grant kommt der User auf dem Self-Host trotzdem nicht rein; der Client
+    ruft den Endpoint ohnehin erst nach erfolgreichem Cert-Login auf.
+    """
+    user = await _require_user(request, db)
+    try:
+        iid = int(instance_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    inst = await db.get(RegisteredInstance, iid)
+    if inst is None or inst.status == "deleted":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    if await db.get(UserInstanceMembership, (user.id, iid)) is None:
+        db.add(
+            UserInstanceMembership(user_id=user.id, instance_id=iid, role="member")
+        )
+        await db.commit()
+
+
+@router.delete(
+    "/me/instances/{instance_id}/membership",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def leave_instance_membership(
+    instance_id: str,
+    request: Request,
+    db: SessionDep,
+) -> None:
+    """Cloud-seitige Membership entfernen, wenn der User einen Self-Host-Server
+    entfernt (= austritt). Gegenstück zu :func:`join_instance_membership` —
+    ohne das würde der Server beim nächsten ``GET /me/instances`` auf anderen
+    Geräten wieder auftauchen.
+
+    Der Owner kann seine Membership so NICHT wegwerfen (er bleibt Owner; zum
+    Loswerden dient ``DELETE /me/instances/{id}`` = Instanz löschen) → 403.
+    Idempotent: keine Membership → 204.
+    """
+    user = await _require_user(request, db)
+    try:
+        iid = int(instance_id)
+    except ValueError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
+    existing = await db.get(UserInstanceMembership, (user.id, iid))
+    if existing is None:
+        return
+    if existing.role == "owner":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="owner_cannot_leave_instance"
+        )
+    await db.delete(existing)
+    await db.commit()
+
+
+@router.post(
     "/me/instances/{instance_id}/env-file",
     response_class=Response,
 )
