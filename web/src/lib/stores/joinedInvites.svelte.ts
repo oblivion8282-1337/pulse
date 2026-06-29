@@ -40,6 +40,20 @@ class JoinedInvites {
     }
   }
 
+  /** Bei Sign-Out / Account-Switch aufrufen: den gerätelokalen Marker des
+   *  Vorgängers wegwerfen. Sonst zeigt die Invite-Karte dem nächsten User am
+   *  selben Gerät „Beigetreten" für Communitys, denen nur der vorige User
+   *  beigetreten ist. */
+  clear(): void {
+    this._map = {};
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(LS_KEY);
+    } catch {
+      /* Private-Browsing: nur der persistente Teil bleibt */
+    }
+  }
+
   private _load(): Record<string, string> {
     if (typeof window === 'undefined') return {};
     try {

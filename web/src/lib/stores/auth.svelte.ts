@@ -234,6 +234,15 @@ class AuthStore {
       void import('$lib/stores/myInstanceApplications.svelte').then((mod) =>
         mod.myInstanceApplications.reset(),
       );
+      // App-Host-Antrags-Beobachter + „Beigetreten"-Marker des Vorgängers —
+      // konsistent zu signOut, sonst erbt der neue User die App-Host-Liste bzw.
+      // ausgegraute Beitreten-Buttons.
+      void import('$lib/stores/myAppHostApplications.svelte').then((mod) =>
+        mod.myAppHostApplications.reset(),
+      );
+      void import('$lib/stores/joinedInvites.svelte').then((mod) =>
+        mod.joinedInvites.clear(),
+      );
       // Identitäts-Material des Vorgängers (IndexedDB) + Legacy-Stream-Keys
       // wischen — vollständig awaiten, BEVOR der nachfolgende Issue-Flow einen
       // frischen Cert für den neuen User anfordert (sonst läse er alte Keys).
@@ -295,6 +304,17 @@ class AuthStore {
     // „genehmigt"-Punkt des Vorgängers (dyn. Import gegen Circular-Import).
     void import('$lib/stores/myInstanceApplications.svelte').then((mod) =>
       mod.myInstanceApplications.reset(),
+    );
+    // App-Host-Antrags-Beobachter desselben Vorgängers (Liste + localStorage-
+    // Watch-Map) — analog myInstanceApplications, sonst bleibt die App-Host-
+    // Antragsliste des alten Users stehen.
+    void import('$lib/stores/myAppHostApplications.svelte').then((mod) =>
+      mod.myAppHostApplications.reset(),
+    );
+    // „Beigetreten"-Marker (gerätelokal) leeren — sonst graut die Invite-Karte
+    // dem nächsten User Beitreten-Buttons für Communitys des Vorgängers aus.
+    void import('$lib/stores/joinedInvites.svelte').then((mod) =>
+      mod.joinedInvites.clear(),
     );
     // Identity-Cleanup: Timer stoppen, Stores wischen
     stopProfileRefresh();

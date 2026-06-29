@@ -19,7 +19,13 @@ import type { HandlerContext } from './context';
 
 export function register(ctx: HandlerContext): void {
   registerWsHandler('guild_updated', (evt) => {
-    if (guilds.byId[evt.guild.id]) guilds.updateGuild(evt.guild);
+    if (!guilds.byId[evt.guild.id]) return;
+    guilds.updateGuild(evt.guild);
+    // Der Owner kann sich geändert haben (Owner-Transfer kommt als
+    // guild_updated). recomputeGuild() leitet den Owner-Status aus
+    // guild.owner_id ab — ohne diesen Aufruf sähen Alt- UND Neu-Owner bis zum
+    // nächsten Reconnect veraltete (aufgelöste) Rechte.
+    roles.recomputeGuild(evt.guild.id);
   });
 
   registerWsHandler('guild_deleted', (evt) => {
