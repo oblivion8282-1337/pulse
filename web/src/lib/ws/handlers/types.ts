@@ -10,7 +10,7 @@
 import type { DMChannel, Message } from '$lib/api/types';
 import type { Role as RolePayload, Overwrite as OverwritePayload } from '$lib/api/roles';
 import type { UserVoiceState, VoiceChannelState } from '$lib/stores/voicePresence.svelte';
-import type { StreamChannelState } from '$lib/stores/streamPresence.svelte';
+import type { StreamChannelState, StreamDescriptor } from '$lib/stores/streamPresence.svelte';
 import type { StreamChatMessage } from '$lib/stores/streamChat.svelte';
 import type { WatchChatMessage } from '$lib/stores/watchChat.svelte';
 import type { WatchChannelEntry, WatchPartyState } from '$lib/stores/watchPartyPresence.svelte';
@@ -161,7 +161,12 @@ export type ServerEvent =
       user_id: string;
       target_channel_id: string;
     }
-  | { op: 'stream_state'; channel_id: string; user_ids: string[] }
+  | {
+      op: 'stream_state';
+      channel_id: string;
+      user_ids: string[];
+      streams?: StreamDescriptor[];
+    }
   | { op: 'presence_update'; user_id: string; online: boolean }
   | {
       op: 'stream_chat_message';

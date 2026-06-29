@@ -12,8 +12,12 @@
   import StreamPanel from './StreamPanel.svelte';
   import { m } from '$lib/paraglide/messages.js';
 
-  let { open = $bindable(false), channelId = null }: { open?: boolean; channelId?: string | null } =
-    $props();
+  let {
+    open = $bindable(false),
+    channelId = null,
+    // `slot` is a reserved Svelte attribute name → prop is `streamSlot`.
+    streamSlot: slot = 0,
+  }: { open?: boolean; channelId?: string | null; streamSlot?: number } = $props();
 </script>
 
 <Dialog.Root bind:open>
@@ -27,6 +31,6 @@
         {m.hq_stream_dialog_description()}
       </Dialog.Description>
     </Dialog.Header>
-    <StreamPanel {channelId} onStarted={() => (open = false)} />
+    <StreamPanel {channelId} streamSlot={slot} onStarted={() => (open = false)} />
   </Dialog.Content>
 </Dialog.Root>

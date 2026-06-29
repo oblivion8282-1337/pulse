@@ -418,25 +418,32 @@ export const chatApi = {
    * must be a member of the channel's guild and the channel must be a voice
    * channel. The returned `push_url` already carries the token.
    */
-  getStreamToken(channelId: string, protocol: 'rtmp' = 'rtmp'): Promise<StreamTokenResponse> {
+  getStreamToken(
+    channelId: string,
+    protocol: 'rtmp' = 'rtmp',
+    slot = 0
+  ): Promise<StreamTokenResponse> {
     return request<StreamTokenResponse>(`/channels/${channelId}/stream-token`, {
       method: 'POST',
-      body: { protocol }
+      body: { protocol, slot }
     });
   },
   /**
-   * Explicitly stop our own HQ stream in `channelId` — clears the "live"
+   * Explicitly stop our own HQ stream(s) in `channelId` — clears the "live"
    * presence badge for viewers immediately instead of waiting for the MediaMTX
-   * poll (~10-16s lag). Best-effort: the sidecar is already stopped locally and
+   * poll (~10-16s lag). `slot` omitted stops all of our streams; pass a slot to
+   * stop just that one. Best-effort: the sidecar is already stopped locally and
    * the media-svc poller is the backstop, so callers fire-and-forget.
    */
-  stopStream(channelId: string): Promise<void> {
-    return request<void>(`/channels/${channelId}/stream`, { method: 'DELETE' });
+  stopStream(channelId: string, slot?: number): Promise<void> {
+    const q = slot === undefined ? '' : `?slot=${slot}`;
+    return request<void>(`/channels/${channelId}/stream${q}`, { method: 'DELETE' });
   },
-  /** WHEP playback URL for `userId`'s HQ stream in `channelId`. */
-  getWhepUrl(channelId: string, userId: string): Promise<{ whep_url: string }> {
+  /** WHEP playback URL for `userId`'s HQ stream in `channelId`. `slot` picks
+   *  which of that user's streams (0 = primary, default). */
+  getWhepUrl(channelId: string, userId: string, slot = 0): Promise<{ whep_url: string }> {
     return request<{ whep_url: string }>(
-      `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}`
+      `/channels/${channelId}/whep?user_id=${encodeURIComponent(userId)}&slot=${slot}`
     );
   },
   // Live-Chat pro HQ-Stream (Twitch-style, ephemer — Server-TTL 6h, Client-State

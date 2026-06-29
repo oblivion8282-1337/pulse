@@ -19,8 +19,11 @@ import { registerWsHandler } from '../handler-registry';
 export function register(): void {
   registerWsHandler('stream_state', (evt) => {
     const oldIds = streamPresence.streamersIn(evt.channel_id);
-    streamPresence.apply(evt.channel_id, evt.user_ids ?? []);
-    streamChat.pruneAbsent(evt.channel_id, evt.user_ids ?? []);
-    fireStreamDiff(evt.channel_id, oldIds, evt.user_ids ?? []);
+    const userIds = evt.user_ids ?? [];
+    // user_ids drive the per-user concerns (sound diff, chat prune); the
+    // additive `streams` carry the per-slot tiles.
+    streamPresence.apply(evt.channel_id, userIds, evt.streams);
+    streamChat.pruneAbsent(evt.channel_id, userIds);
+    fireStreamDiff(evt.channel_id, oldIds, userIds);
   });
 }

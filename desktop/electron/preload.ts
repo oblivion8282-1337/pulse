@@ -29,8 +29,8 @@
 
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
-const gsrCall = (op: string, params: unknown = {}): Promise<unknown> =>
-  ipcRenderer.invoke('gsr:call', op, params);
+const gsrCall = (op: string, params: unknown = {}, slot = 0): Promise<unknown> =>
+  ipcRenderer.invoke('gsr:call', op, params, slot);
 
 contextBridge.exposeInMainWorld('pulse', {
   platform: 'electron' as const,
@@ -76,8 +76,11 @@ contextBridge.exposeInMainWorld('pulse', {
     listWindows: () => gsrCall('list_windows'),
     listApplicationAudio: () => gsrCall('list_application_audio'),
     buildArgv: (args: unknown) => gsrCall('build_argv', args),
-    start: (args: unknown) => gsrCall('start', args),
-    stop: () => gsrCall('stop'),
+    // start/stop are per-slot — slot 0 is the primary stream, slot 1 a second
+    // concurrent one (e.g. a second monitor). The read-only catalog ops above
+    // stay on slot 0; they don't depend on which stream is running.
+    start: (args: unknown, slot = 0) => gsrCall('start', args, slot),
+    stop: (slot = 0) => gsrCall('stop', {}, slot),
 
     /** Subscribe to sidecar events (`{ev:..,...}`). Returns an unsubscribe fn.
      *  The renderer-supplied `cb` is invoked from inside this bridge function —

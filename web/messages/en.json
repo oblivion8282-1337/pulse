@@ -858,6 +858,8 @@
   "hq_stream_button_open": "Open HQ Stream",
   "hq_stream_button_stop": "Stop HQ Stream",
   "hq_stream_button_tooltip": "HQ Stream",
+  "hq_stream_button_second_open": "Stream a second screen",
+  "hq_stream_button_second_stop": "Stop second stream",
   "hq_stream_dialog_description": "GPU Screen Recorder-based stream via MediaMTX (Pulse T3/T4).",
   "hq_stream_dialog_title": "HQ Stream",
   "incognito_banner_body": "Your device key will be deleted when the tab is closed in private mode. Open Pulse in a normal browser window to keep your device certificate.",

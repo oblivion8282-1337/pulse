@@ -150,12 +150,18 @@ export interface GsrStopResult {
 
 // ── Event types (forwarded from the sidecar) ────────────────────────────────
 
-export type GsrEvent =
+export type GsrEventBody =
   | { ev: 'state'; state: 'idle' | 'starting' | 'live' | 'error' | 'stopped'; running: boolean; uptime_s: number }
   | { ev: 'fps'; fps: number; uptime_s: number }
   | { ev: 'log'; line: string }
   | { ev: 'error'; message: string }
   | { ev: 'stopped'; code?: number };
+
+/** A sidecar event, tagged by the Electron main process with the stream `slot`
+ *  it came from (0 = primary stream, 1 = a second concurrent stream). `slot` is
+ *  absent only when an older shell that predates multi-stream sends the event,
+ *  in which case consumers treat it as slot 0. */
+export type GsrEvent = GsrEventBody & { slot?: number };
 
 // ── Bridge helpers ──────────────────────────────────────────────────────────
 
@@ -205,13 +211,15 @@ export const gsr = {
     const b = bridge();
     return b ? ((await b.buildArgv(args)) as GsrBuildArgv) : null;
   },
-  async start(args: GsrStartArgs): Promise<GsrStartResult | null> {
+  /** Start a stream in `slot` (0 = primary, 1 = a second concurrent stream). */
+  async start(args: GsrStartArgs, slot = 0): Promise<GsrStartResult | null> {
     const b = bridge();
-    return b ? ((await b.start(args)) as GsrStartResult) : null;
+    return b ? ((await b.start(args, slot)) as GsrStartResult) : null;
   },
-  async stop(): Promise<GsrStopResult | null> {
+  /** Stop the stream in `slot` (default 0). */
+  async stop(slot = 0): Promise<GsrStopResult | null> {
     const b = bridge();
-    return b ? ((await b.stop()) as GsrStopResult) : null;
+    return b ? ((await b.stop(slot)) as GsrStopResult) : null;
   },
 
   /**

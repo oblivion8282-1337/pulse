@@ -589,15 +589,33 @@ class SidecarManager {
   }
 }
 
-// ── Singleton ───────────────────────────────────────────────────────────────
+// ── Per-slot singletons ──────────────────────────────────────────────────────
 
-let instance: SidecarManager | null = null;
+/** How many concurrent HQ streams one user may run (e.g. two monitors as
+ *  separate viewer tiles). Slots are 0..MAX_STREAM_SLOTS-1; kept in sync with
+ *  the backend's `_SLOT_MAX` (= MAX_STREAM_SLOTS - 1). */
+export const MAX_STREAM_SLOTS = 2;
 
-/** The process-wide sidecar manager (created on first access; the Python child
- *  is still spawned lazily on the first `call()`). */
-export function getSidecar(): SidecarManager {
-  if (!instance) instance = new SidecarManager();
-  return instance;
+const instances = new Map<number, SidecarManager>();
+
+/** The sidecar manager for one stream slot (0 = the primary stream, 1 = a
+ *  second concurrent stream). Each slot owns its OWN child process — running a
+ *  separate, unchanged single-stream manager per slot keeps the proven
+ *  pending/shutdown/respawn lifecycle intact rather than reworking it into a
+ *  multi-child manager. Created on first access; the Python/Rust child is still
+ *  spawned lazily on the first `call()`. */
+export function getSidecar(slot = 0): SidecarManager {
+  let m = instances.get(slot);
+  if (!m) {
+    m = new SidecarManager();
+    instances.set(slot, m);
+  }
+  return m;
+}
+
+/** Every sidecar manager that has been created (for fan-out shutdown on quit). */
+export function allSidecars(): SidecarManager[] {
+  return [...instances.values()];
 }
 
 export type { SidecarManager, SidecarMessage };

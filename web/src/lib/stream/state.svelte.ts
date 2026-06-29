@@ -13,6 +13,19 @@ import { gsr, type GsrEvent } from './gsr';
 
 const MAX_LOG_LINES = 50;
 
+/** Per-slot session fields — the live state of ONE of a user's HQ streams. */
+type StreamSession = {
+  running: boolean;
+  state: 'idle' | 'starting' | 'live' | 'error' | 'stopped';
+  fps: number | null;
+  uptimeS: number | null;
+  error: string | null;
+  lastLog: string[];
+};
+
+/** The primary stream (slot 0). Also carries the GLOBAL bridge flags
+ *  (`available`/`gsrAvailable`) since those describe the sidecar, not a slot —
+ *  every existing component binds `stream`, so its shape is unchanged. */
 export const stream = $state({
   /** True iff the desktop sidecar bridge can be reached (i.e. we're inside the
    *  Electron shell AND the sidecar replied to `health`): `isElectron()` plus a
@@ -24,18 +37,34 @@ export const stream = $state({
    *  "the bridge works". */
   gsrAvailable: false,
   running: false,
-  state: 'idle' as 'idle' | 'starting' | 'live' | 'error' | 'stopped',
+  state: 'idle' as StreamSession['state'],
   fps: null as number | null,
   uptimeS: null as number | null,
   error: null as string | null,
   lastLog: [] as string[],
 });
 
+/** The optional second stream (slot 1) — e.g. a second monitor as its own
+ *  viewer tile. Session-only: the global flags live on `stream`. */
+export const streamExtra = $state({
+  running: false,
+  state: 'idle' as StreamSession['state'],
+  fps: null as number | null,
+  uptimeS: null as number | null,
+  error: null as string | null,
+  lastLog: [] as string[],
+});
+
+/** The session object for a given slot (0 = primary `stream`, 1 = `streamExtra`). */
+export function streamForSlot(slot: number): StreamSession {
+  return slot === 1 ? streamExtra : stream;
+}
+
 let initialised = false;
 let unlisten: (() => void) | null = null;
-/** Tracks the running→stopped edge so we notify the backend exactly once when
- *  our own stream ends, regardless of which path stopped it. */
-let wasRunning = false;
+/** Tracks each slot's running→stopped edge so we notify the backend exactly
+ *  once per slot when that stream ends, regardless of which path stopped it. */
+const wasRunning: Record<number, boolean> = { 0: false, 1: false };
 
 /**
  * Tell the backend our HQ stream stopped so viewers' "live" badge clears at
@@ -46,13 +75,13 @@ let wasRunning = false;
  * stays the backstop if the call never lands (crash / offline / no channel).
  * Lazy imports avoid an import cycle with the voice store.
  */
-function notifyBackendStopped(): void {
+function notifyBackendStopped(slot: number): void {
   void (async () => {
     const { voice } = await import('$lib/voice/livekit.svelte');
     const channelId = voice.channelId;
     if (!channelId) return; // already left the voice channel → poller cleans up
     const { chatApi } = await import('$lib/api/chat');
-    chatApi.stopStream(channelId).catch(() => {});
+    chatApi.stopStream(channelId, slot).catch(() => {});
   })();
 }
 
@@ -102,48 +131,50 @@ export async function initStream(): Promise<() => void> {
   };
 }
 
-/** Project a single sidecar event into the reactive state. */
+/** Project a single sidecar event into the reactive state of its slot. */
 function applyEvent(ev: GsrEvent): void {
-  applyEventInner(ev);
-  // Fire on the running→stopped edge only (once per stream session).
-  if (wasRunning && !stream.running) {
-    wasRunning = false;
-    notifyBackendStopped();
-  } else if (stream.running) {
-    wasRunning = true;
+  const slot = ev.slot ?? 0;
+  const s = streamForSlot(slot);
+  applyEventInner(s, ev);
+  // Fire on the running→stopped edge only (once per stream session, per slot).
+  if (wasRunning[slot] && !s.running) {
+    wasRunning[slot] = false;
+    notifyBackendStopped(slot);
+  } else if (s.running) {
+    wasRunning[slot] = true;
   }
 }
 
-function applyEventInner(ev: GsrEvent): void {
+function applyEventInner(s: StreamSession, ev: GsrEvent): void {
   switch (ev.ev) {
     case 'state':
-      stream.state = ev.state;
-      stream.running = ev.running;
-      stream.uptimeS = ev.uptime_s;
+      s.state = ev.state;
+      s.running = ev.running;
+      s.uptimeS = ev.uptime_s;
       if (ev.state === 'live' || ev.state === 'starting') {
-        stream.error = null;
+        s.error = null;
       }
       break;
     case 'fps':
       // Ignore stale fps ticks that arrive after a terminal stop — otherwise a
       // late fps event would flip the UI from 'stopped' back to 'live'.
-      if (stream.state === 'stopped') break;
-      stream.fps = ev.fps;
-      stream.uptimeS = ev.uptime_s;
+      if (s.state === 'stopped') break;
+      s.fps = ev.fps;
+      s.uptimeS = ev.uptime_s;
       // FPS implies "live" even if the explicit state event hasn't landed.
-      if (stream.state !== 'live') stream.state = 'live';
-      stream.running = true;
+      if (s.state !== 'live') s.state = 'live';
+      s.running = true;
       break;
     case 'log':
-      stream.lastLog = [...stream.lastLog, ev.line].slice(-MAX_LOG_LINES);
+      s.lastLog = [...s.lastLog, ev.line].slice(-MAX_LOG_LINES);
       break;
     case 'error':
-      stream.error = ev.message;
+      s.error = ev.message;
       break;
     case 'stopped':
-      stream.running = false;
-      stream.state = 'stopped';
-      stream.fps = null;
+      s.running = false;
+      s.state = 'stopped';
+      s.fps = null;
       break;
   }
 }

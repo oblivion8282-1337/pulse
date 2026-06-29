@@ -28,14 +28,22 @@
     persistSettings,
     refreshMonitors,
     refreshWindows,
+    captureSourceForSlot,
+    setCaptureSourceForSlot,
     MONITOR_CAPTURE_PREFIX,
     WINDOW_CAPTURE_PREFIX,
   } from '../settings.svelte';
 
+  // Which stream slot this picker selects the source for (0 = primary stream,
+  // 1 = the second stream / second monitor). `slot` is a reserved Svelte
+  // attribute name, so the prop is `streamSlot`, aliased to `slot` inside.
+  let { streamSlot: slot = 0 }: { streamSlot?: number } = $props();
+
   let refreshing = $state(false);
+  let captureSource = $derived(captureSourceForSlot(slot));
 
   function pick(value: string) {
-    streamSettings.capture_source = value;
+    setCaptureSourceForSlot(slot, value);
     persistSettings();
   }
 
@@ -80,7 +88,7 @@
           <div class="grid grid-cols-2 gap-2">
             {#each streamSettings.available_monitors as mon (mon.index)}
               {@const value = `${MONITOR_CAPTURE_PREFIX}${mon.index}`}
-              {@const selected = streamSettings.capture_source === value}
+              {@const selected = captureSource === value}
               <button
                 type="button"
                 role="radio"
@@ -117,7 +125,7 @@
           <div class="grid max-h-44 grid-cols-2 gap-2 overflow-y-auto pr-1">
             {#each streamSettings.available_windows as w (w.id)}
               {@const value = `${WINDOW_CAPTURE_PREFIX}${w.id}`}
-              {@const selected = streamSettings.capture_source === value}
+              {@const selected = captureSource === value}
               <button
                 type="button"
                 role="radio"

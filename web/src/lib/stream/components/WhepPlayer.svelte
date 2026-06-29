@@ -28,6 +28,7 @@
   import TileShell from './TileShell.svelte';
   import { detachedStreams } from '../detach.svelte';
   import { openedTiles } from '../openedTiles.svelte';
+  import { hqTileId } from '../hqTile';
   import { toast } from 'svelte-sonner';
   import LoaderIcon from '@lucide/svelte/icons/loader-circle';
   import AlertTriangleIcon from '@lucide/svelte/icons/triangle-alert';
@@ -37,6 +38,7 @@
   let {
     channelId,
     userId,
+    streamSlot = 0,
     name,
     canDetach = true,
     canHide = true,
@@ -46,6 +48,8 @@
   }: {
     channelId: string;
     userId: string;
+    /** Which of the user's streams this tile plays (0 = primary, 1 = second). */
+    streamSlot?: number;
     name?: string;
     /** Wenn false, kein Detach-Button — z.B. im bereits entkoppelten Popup. */
     canDetach?: boolean;
@@ -67,7 +71,7 @@
   // Komponente hängt nur ihr Video-Bild an den (evtl. schon laufenden) Stream.
   let mgr = $state<ManagedHqStream | null>(null);
   $effect(() => {
-    mgr = hqStreams.ensure(channelId, userId);
+    mgr = hqStreams.ensure(channelId, userId, streamSlot);
   });
 
   // Video an den Manager-Stream binden — re-läuft, sobald der Stream (neu)
@@ -191,7 +195,7 @@
   {chatOpen}
   onToggleChat={() => (chatOpen = !chatOpen)}
   onDetach={canDetach ? handleDetach : undefined}
-  onHide={canHide ? () => openedTiles.close('hq', channelId, userId) : undefined}
+  onHide={canHide ? () => openedTiles.close('hq', channelId, hqTileId(userId, streamSlot)) : undefined}
   {compact}
   {focused}
   {onToggleFocus}
