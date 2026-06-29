@@ -120,6 +120,15 @@ async def patch_user(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="user not found")
 
+    # Owner-Schutz: der Betreiber kann von niemandem (auch keinem Zweit-Admin)
+    # entmachtet (is_admin→false) oder gesperrt (disabled→true) werden. Sonst
+    # könnte ein Admin den Owner ausschalten und sich selbst die Owner-Rechte
+    # (Self-Host-/App-Host-Genehmigung) verschaffen.
+    if user.is_owner and (payload.is_admin is False or payload.disabled is True):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="cannot demote or ban the owner"
+        )
+
     changes: dict[str, Any] = {}
 
     if payload.is_admin is not None and payload.is_admin != user.is_admin:

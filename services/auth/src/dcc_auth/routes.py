@@ -350,6 +350,9 @@ async def register(
     user_count = await session.scalar(select(func.count()).select_from(User))
     if user_count == 1:
         user.is_admin = True
+        # Erster User = Owner (Betreiber). Pendant zum Migrations-Backfill für
+        # bestehende Clouds; auf einer frischen DB greift dieser Pfad.
+        user.is_owner = True
 
     tokens = await _issue_tokens(
         session, user, signer=signer, user_agent=user_agent, ip_hash=_hash_ip(request)
@@ -694,6 +697,18 @@ async def _require_admin(current: User = Depends(_get_current_user)) -> User:
     """
     if not current.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="admin only")
+    return current
+
+
+async def _require_owner(current: User = Depends(_get_current_user)) -> User:
+    """Wie ``_require_admin``, aber 403 für Nicht-Owner.
+
+    Gated die „wer darf self-hosten"-Entscheidung (Self-Host-/App-Host-Anträge
+    genehmigen/ablehnen): die soll allein der Betreiber (Owner) treffen, nicht
+    jeder Cloud-Admin. Re-checkt die DB-Spalte (nicht den JWT-Claim).
+    """
+    if not current.is_owner:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="owner only")
     return current
 
 

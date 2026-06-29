@@ -140,9 +140,15 @@ async def test_patch_user_demote_last_admin_blocked(
     client, admin_token, session_factory
 ):
     async with session_factory() as s:
-        alice_id = (
-            await s.execute(select(User.id).where(User.username == "alice"))
+        alice = (
+            await s.execute(select(User).where(User.username == "alice"))
         ).scalar_one()
+        alice_id = alice.id
+        # alice ist Bootstrap-User → auch Owner; den Owner-Guard hier
+        # abschalten, damit dieser Test gezielt den „letzter Admin"-Pfad prüft
+        # (Owner-Schutz hat einen eigenen Test).
+        alice.is_owner = False
+        await s.commit()
     headers = {"Authorization": f"Bearer {admin_token}"}
     r = await client.patch(
         f"/admin/users/{alice_id}", json={"is_admin": False}, headers=headers
@@ -278,3 +284,43 @@ async def test_disabled_user_cant_login(client, admin_token, session_factory):
     assert r.status_code == 401
 
 
+
+
+# ─── Owner-Stufe: Schutz gegen Demote/Ban + is_owner im Admin-View ──────────
+
+
+@pytest.mark.asyncio
+async def test_owner_cannot_be_demoted_or_banned(
+    client, admin_token, session_factory
+):
+    """Ein Zweit-Admin (nicht Owner) kann den Owner weder entmachten noch sperren."""
+    # alice = Bootstrap-User → is_admin + is_owner. bob = zweiter, nur Admin.
+    await _register_user(client, username="bob", email="bob@example.com")
+    await _promote(session_factory, "bob")  # nur is_admin
+    bob_token = await _login(client, username_or_email="bob")
+    async with session_factory() as s:
+        alice_id = (
+            await s.execute(select(User.id).where(User.username == "alice"))
+        ).scalar_one()
+    headers = {"Authorization": f"Bearer {bob_token}"}
+
+    r = await client.patch(
+        f"/admin/users/{alice_id}", json={"is_admin": False}, headers=headers
+    )
+    assert r.status_code == 400
+    assert "owner" in r.json()["detail"]
+
+    r = await client.patch(
+        f"/admin/users/{alice_id}", json={"disabled": True}, headers=headers
+    )
+    assert r.status_code == 400
+    assert "owner" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_view_exposes_is_owner(client, admin_token):
+    """Der Admin-User-View liefert is_owner (true für den Bootstrap-Owner)."""
+    headers = {"Authorization": f"Bearer {admin_token}"}
+    rows = (await client.get("/admin/users", headers=headers)).json()
+    alice = next(u for u in rows if u["username"] == "alice")
+    assert alice["is_owner"] is True

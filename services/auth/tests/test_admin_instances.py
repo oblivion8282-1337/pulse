@@ -33,10 +33,14 @@ async def _register(client, *, username: str, email: str) -> str:
     return r.json()["access_token"]
 
 
-async def _promote(session_factory, username: str) -> None:
+async def _promote(session_factory, username: str, *, owner: bool = True) -> None:
     async with session_factory() as s:
         user = (await s.execute(select(User).where(User.username == username))).scalar_one()
         user.is_admin = True
+        # Instanz-Approve/Reject sind owner-gated (Owner-Stufe). Der Default-
+        # Admin-Token dieser Suite muss daher auch Owner sein; ``owner=False``
+        # erzeugt einen Nur-Admin für die Owner-Gate-403-Tests.
+        user.is_owner = owner
         await s.commit()
 
 
@@ -583,3 +587,27 @@ async def test_instance_admin_is_cloud_only(client, admin_token, monkeypatch):
     r = await client.get("/admin/instances", headers=h)
     assert r.status_code == 403
     assert "cloud-only" in r.text
+
+
+@pytest.mark.asyncio
+async def test_approve_reject_require_owner(
+    client, admin_token, session_factory, applicant_user_id
+):
+    """Owner-Stufe: ein Admin OHNE Owner-Recht darf weder genehmigen noch ablehnen."""
+    await _register(client, username="modonly", email="modonly@dcc-test.example.com")
+    await _promote(session_factory, "modonly", owner=False)  # Admin, aber kein Owner
+    mod_token = await _login(client, username="modonly")
+    app_id = await _seed_application(
+        session_factory, user_id=applicant_user_id, hostname="self9.example.com"
+    )
+    h = {"Authorization": f"Bearer {mod_token}"}
+    assert (
+        await client.post(f"/admin/instance-applications/{app_id}/approve", headers=h)
+    ).status_code == 403
+    assert (
+        await client.post(
+            f"/admin/instance-applications/{app_id}/reject",
+            json={"rejection_reason": "x"},
+            headers=h,
+        )
+    ).status_code == 403

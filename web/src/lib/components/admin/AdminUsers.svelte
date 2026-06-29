@@ -120,7 +120,14 @@
           </div>
 
           <div class="flex shrink-0 items-center gap-1">
-            {#if u.is_admin}
+            {#if u.is_owner}
+              <span
+                class="rounded-md bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-400"
+                data-testid="badge-owner"
+              >
+                {m.admin_users_badge_owner()}
+              </span>
+            {:else if u.is_admin}
               <span
                 class="bg-primary/15 text-primary rounded-md px-2 py-0.5 text-xs font-medium"
                 data-testid="badge-admin"
@@ -166,24 +173,28 @@
                 sideOffset={8}
                 class="ring-border bg-popover z-50 flex w-56 flex-col gap-1 rounded-xl p-2 shadow-xl ring-1 outline-none"
               >
-                <button
-                  type="button"
-                  class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
-                  onclick={() => toggle(u, 'is_admin', !u.is_admin)}
-                  data-testid="toggle-admin-btn"
-                >
-                  <ShieldIcon class="size-4" />
-                  {u.is_admin ? m.admin_users_revoke_admin() : m.admin_users_make_admin()}
-                </button>
-                <button
-                  type="button"
-                  class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
-                  onclick={() => toggle(u, 'disabled', !u.disabled)}
-                  data-testid="toggle-disabled-btn"
-                >
-                  <BanIcon class="size-4" />
-                  {u.disabled ? m.admin_users_unban() : m.admin_users_ban()}
-                </button>
+                <!-- Der Owner ist gegen Entmachten/Sperren geschützt (Backend
+                     400) → diese Aktionen für ihn gar nicht erst anbieten. -->
+                {#if !u.is_owner}
+                  <button
+                    type="button"
+                    class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+                    onclick={() => toggle(u, 'is_admin', !u.is_admin)}
+                    data-testid="toggle-admin-btn"
+                  >
+                    <ShieldIcon class="size-4" />
+                    {u.is_admin ? m.admin_users_revoke_admin() : m.admin_users_make_admin()}
+                  </button>
+                  <button
+                    type="button"
+                    class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"
+                    onclick={() => toggle(u, 'disabled', !u.disabled)}
+                    data-testid="toggle-disabled-btn"
+                  >
+                    <BanIcon class="size-4" />
+                    {u.disabled ? m.admin_users_unban() : m.admin_users_ban()}
+                  </button>
+                {/if}
                 <button
                   type="button"
                   class="hover:bg-bg-hover text-text-base flex items-center gap-2 rounded-lg px-3 py-2 text-left text-sm"

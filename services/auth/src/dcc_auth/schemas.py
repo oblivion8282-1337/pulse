@@ -66,6 +66,7 @@ class UserPublic(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     is_admin: bool = False
+    is_owner: bool = False
     disabled: bool = False
     self_host_enabled: bool = False
     # Account-recovery / 2FA state — the frontend needs both to drive the
@@ -129,6 +130,7 @@ class UserAdminOut(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
     is_admin: bool
+    is_owner: bool = False
     disabled: bool
     self_host_enabled: bool = False
     created_at: datetime

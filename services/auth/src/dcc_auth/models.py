@@ -100,6 +100,13 @@ class User(Base):
     self_host_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
+    # Owner-Stufe (Migration 0039): nur der Betreiber (Owner) darf Self-Host-/
+    # App-Host-Anträge GENEHMIGEN (über is_admin hinaus) und ist gegen
+    # Demote/Ban geschützt. Genau ein Owner pro Cloud (Bootstrap: erster User /
+    # Migrations-Backfill auf den ältesten Admin). Nie über die UI setzbar.
+    is_owner: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
     # Account-recovery / 2FA columns (migration 0006).
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
