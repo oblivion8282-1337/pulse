@@ -18,6 +18,8 @@
   import { voicePresence } from '$lib/stores/voicePresence.svelte';
   import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
   import { openedTiles } from '$lib/stream/openedTiles.svelte';
+  import { hqTileId } from '$lib/stream/hqTile';
+  import { currentServerUserId } from '$lib/stores/currentServerUser';
   import { watchBackground } from '$lib/watch/watchBackground.svelte';
   import { userIdFromIdentity } from '$lib/voice/identity';
   import { shortcut, type ShortcutEventDetail } from '@svelte-put/shortcut';
@@ -29,6 +31,12 @@
   // HQ stream presence for this channel — needed by the prune effect below
   // so that a publisher who stopped doesn't keep auto-mounting a tile.
   let hqStreamers = $derived(streamPresence.streamersIn(channel.id));
+  // The per-(user, slot) tile ids currently live — the open HQ tiles are keyed
+  // by `<userId>:<slot>`, so the prune/auto-open logic must compare against
+  // these composite ids, NOT the bare user ids (a user can have two streams).
+  let hqTiles = $derived(
+    streamPresence.streamsIn(channel.id).map((s) => hqTileId(s.user_id, s.slot))
+  );
   let screenSharerIds = $derived(voicePresence.streamingIn(channel.id));
   let livePartyIds = $derived(watchPartyPresence.partiesIn(channel.id).map((p) => p.party_id));
 
@@ -59,7 +67,7 @@
   // can't accidentally open their own stream.
   $effect(() => {
     const cid = channel.id;
-    const hqSet = new Set(hqStreamers);
+    const hqSet = new Set(hqTiles);
     const screenIdentities = new Set(voice.screenTracks.map((s) => s.identity));
     const camIdentities = new Set(voice.cameraTracks.map((c) => c.identity));
     const partySet = new Set(livePartyIds);
@@ -71,6 +79,31 @@
         party: partySet
       })
     );
+  });
+
+  // Wenn ein Streamer, den der Viewer bereits anschaut, einen WEITEREN Stream
+  // (zweiter Monitor = neuer Slot) startet, die neue Kachel automatisch daneben
+  // öffnen — statt dass der User raten muss, dass es einen zweiten gibt. Greift
+  // nur, wenn schon eine andere Kachel desselben Streamers offen ist (sonst
+  // bleibt es beim klick-zum-öffnen-Default). Reagiert auf `streamsIn`; die
+  // openedTiles-Reads laufen in `untrack`, damit das Öffnen keine Schleife baut.
+  $effect(() => {
+    const cid = channel.id;
+    const tiles = streamPresence.streamsIn(cid);
+    untrack(() => {
+      const me = currentServerUserId();
+      for (const s of tiles) {
+        if (s.user_id === me) continue;
+        const id = hqTileId(s.user_id, s.slot);
+        if (openedTiles.isOpen('hq', cid, id)) continue;
+        const alreadyWatchingStreamer = tiles.some(
+          (t) =>
+            t.user_id === s.user_id &&
+            openedTiles.isOpen('hq', cid, hqTileId(t.user_id, t.slot))
+        );
+        if (alreadyWatchingStreamer) openedTiles.open('hq', cid, id);
+      }
+    });
   });
 
   let memberListOpen = $state(false);
