@@ -180,6 +180,7 @@ export function mapCertLoginReason(reason: CertLoginReason): string {
   if (reason === 'rate-limited') return m.add_server_flow_rate_limited();
   if (reason === 'join-closed' || reason === 'join-requires-invite')
     return m.add_server_flow_join_closed();
+  if (reason === 'instance-banned') return m.add_server_flow_instance_banned();
   if (reason === 'network') return m.add_server_flow_network_error();
   return m.add_server_flow_cert_login_failed();
 }
