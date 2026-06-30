@@ -21,6 +21,7 @@ from dcc_chat_gateway.models.dropbox import (
     DROPBOX_KIND_FOLDER,
     DropboxConfig,
     DropboxFile,
+    DropboxPendingUpload,
 )
 from dcc_chat_gateway.models.friendships import (
     FriendRequest,
@@ -70,6 +71,7 @@ __all__ = [
     "DirectMessageChannel",
     "DropboxConfig",
     "DropboxFile",
+    "DropboxPendingUpload",
     "FriendRequest",
     "Friendship",
     "Guild",

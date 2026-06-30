@@ -567,6 +567,146 @@ async def test_finish_upload_missing_object_raises(
 # ─── Edge-case coverage (regression-guards for the 2026-06-30 review) ──────
 
 
+@pytest.mark.asyncio
+async def test_finish_upload_by_other_user_is_forbidden(
+    client, _auth_signer, mock_s3, second_member, session_factory, monkeypatch
+):
+    """Regression for finding #1 from the 2026-06-30 security review:
+    Member A mints an upload-url, hands the response to Member B,
+    B calls finish-upload with A's id. The pending-row check refuses
+    B with 403 so A's bytes don't get billed to B's quota and
+    uploaded_by_id doesn't lie.
+
+    Without the pending_uploads tracker the request would have
+    succeeded — ``require_member`` is the only auth check on the
+    finish-upload route, so any guild member could close anyone's
+    mint."""
+
+    from dcc_chat_gateway.models import DropboxPendingUpload
+
+    monkeypatch.setattr("dcc_chat_gateway.db.SessionLocal", session_factory)
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # A mints.
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "stolen.txt",
+            "content_type": "text/plain",
+            "size_bytes": 6,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    mock_s3.put[mint["storage_key"]] = b"stolen"
+
+    # B joins as a regular guild member.
+    other_token, other_uid = await _second_user(_auth_signer)
+    await second_member(int(gid), other_uid)
+
+    # B tries to finish A's mint. Must be refused with 403.
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "stolen.txt",
+            "size_bytes": 6,
+            "content_type": "text/plain",
+        },
+        headers=auth(other_token),
+    )
+    assert finish_r.status_code == 403, finish_r.text
+    assert "another user" in finish_r.text.lower()
+
+    # Sanity: the pending row is still in place (B's call didn't
+    # clear it) — A can still finish.
+    async with session_factory() as s:
+        row = await s.get(DropboxPendingUpload, int(mint["id"]))
+        assert row is not None
+        assert row.uploader_id == _uid
+
+    # A finishes the upload cleanly.
+    finish_a = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "stolen.txt",
+            "size_bytes": 6,
+            "content_type": "text/plain",
+        },
+        headers=auth(token),
+    )
+    assert finish_a.status_code == 200, finish_a.text
+
+
+@pytest.mark.asyncio
+async def test_finish_upload_expired_mint_is_refused(
+    client, _auth_signer, mock_s3, session_factory, monkeypatch
+):
+    """Regression: a mint that's older than the presigned TTL must
+    refuse the finish with 409 — even by the original minter — so
+    abandoned MinIO bytes get cleaned up by the orphan sweep
+    instead of leaking into the quota counter."""
+
+    from datetime import datetime, timedelta, timezone
+    from dcc_chat_gateway.models import DropboxPendingUpload
+
+    monkeypatch.setattr("dcc_chat_gateway.db.SessionLocal", session_factory)
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "old.txt",
+            "content_type": "text/plain",
+            "size_bytes": 3,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    mock_s3.put[mint["storage_key"]] = b"old"
+
+    # Backdate the pending row's expires_at past now. Use UTC-aware
+    # because the column is ``DateTime(timezone=True)`` and the
+    # server compares against ``utc_now()`` — local-time math
+    # (CEST/UTC+2 etc.) would put the backdate "in the future" from
+    # the server's perspective.
+    long_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    async with session_factory() as s:
+        row = await s.get(DropboxPendingUpload, int(mint["id"]))
+        assert row is not None
+        row.expires_at = long_ago
+        await s.commit()
+
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "old.txt",
+            "size_bytes": 3,
+            "content_type": "text/plain",
+        },
+        headers=auth(token),
+    )
+    assert finish_r.status_code == 409, finish_r.text
+    assert "expired" in finish_r.text.lower()
+
+
 async def _upload_finished_file(
     client, token: str, gid: str, name: str, body: bytes, mock_s3
 ) -> dict:
