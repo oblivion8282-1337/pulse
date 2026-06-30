@@ -18,7 +18,11 @@ from sqlalchemy import select
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep, SessionLocal
-from dcc_chat_gateway.models import DropboxConfig, DropboxFile
+from dcc_chat_gateway.models import (
+    DropboxConfig,
+    DropboxFile,
+    DropboxPendingUpload,
+)
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._dropbox_helpers import (
     normalize_parent_path,
@@ -263,6 +267,38 @@ async def _sweep_once(connection_manager) -> None:
         log.warning(
             "dropbox_orphan_sweep_failed",
             error=str(exc),
+        )
+
+    # ---- Expired pending-uploads reaper -----------------------------
+    # Closes the loop on the pending_uploads tracker. Mint rows whose
+    # ``expires_at`` is in the past mean the user never finished the
+    # upload — their MinIO object is already on the bucket
+    # (otherwise finish_upload would have 409'd), but the row keeps
+    # the id reserved. After ~10 min (presigned URL TTL) the id is
+    # effectively garbage. We DELETE here; the orphan half above
+    # cleans up the MinIO bytes on its next pass.
+    reaped_pending = 0
+    try:
+        now_naive = utc_now().replace(tzinfo=None)
+        async with SessionLocal() as session:
+            stmt = select(DropboxPendingUpload).where(
+                DropboxPendingUpload.expires_at < now_naive
+            )
+            expired = list((await session.execute(stmt)).scalars())
+            for row in expired:
+                await session.delete(row)
+                reaped_pending += 1
+            await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "dropbox_pending_reaper_failed",
+            error=str(exc),
+        )
+
+    if reaped_pending:
+        log.info(
+            "dropbox_pending_reaped",
+            reaped=reaped_pending,
         )
 
     if orphaned:
