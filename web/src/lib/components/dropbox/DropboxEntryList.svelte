@@ -112,6 +112,7 @@
               <button
                 class="rounded p-1 hover:bg-bg-hover"
                 onclick={() => onRestore(e)}
+                data-testid="dropbox-entry-restore-{e.id}"
               >
                 <Undo2Icon class="size-4" />
               </button>
@@ -141,6 +142,7 @@
               <button
                 class="rounded p-1 text-destructive hover:bg-destructive/20"
                 onclick={() => onTrash(e)}
+                data-testid="dropbox-entry-trash-{e.id}"
               >
                 <TrashIcon class="size-4" />
               </button>
