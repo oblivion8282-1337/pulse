@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from dcc_chat_gateway import s3
 from dcc_chat_gateway.config import get_settings
-from dcc_chat_gateway.db import SessionDep
+from dcc_chat_gateway.db import SessionDep, SessionLocal
 from dcc_chat_gateway.models import DropboxConfig, DropboxFile
 from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.routes._dropbox_helpers import (
@@ -157,12 +157,11 @@ async def _sweep_once(connection_manager) -> None:
     # Lazy import — these touch the app lifespan state; avoid at module
     # import time so tests that don't bootstrap the full app still load
     # the module.
-    from dcc_chat_gateway.db import async_session_maker
     from dcc_chat_gateway.routes._dropbox_helpers import utc_now
 
     now = utc_now()
     purged: list[tuple[int, int, int]] = []  # (guild_id, entry_id, kind)
-    async with async_session_maker() as session:
+    async with SessionLocal() as session:
         # All configs in one go — we need each row's
         # trash_retention_days. Inner loop reads + sweeps serially; per-
         # guild parallel sweeps would buy nothing because we're bounded
