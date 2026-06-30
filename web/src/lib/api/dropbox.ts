@@ -80,7 +80,7 @@ export const dropboxApi = {
   ): Promise<DropboxConfig> {
     return request<DropboxConfig>(`${BASE(guildId)}/settings`, {
       method: 'PATCH',
-      body: JSON.stringify(patch)
+      body: patch
     });
   },
 
@@ -106,7 +106,7 @@ export const dropboxApi = {
   ): Promise<DropboxEntry> {
     return request<DropboxEntry>(`${BASE(guildId)}/folders`, {
       method: 'POST',
-      body: JSON.stringify({ parent_path: parentPath, name })
+      body: { parent_path: parentPath, name }
     });
   },
 
@@ -117,7 +117,7 @@ export const dropboxApi = {
   ): Promise<DropboxEntry> {
     return request<DropboxEntry>(`${BASE(guildId)}/entries/${entryId}`, {
       method: 'PATCH',
-      body: JSON.stringify(patch)
+      body: patch
     });
   },
 
@@ -146,7 +146,7 @@ export const dropboxApi = {
   ): Promise<{ id: string; upload_url: string; storage_key: string }> {
     return request<{ id: string; upload_url: string; storage_key: string }>(
       `${BASE(guildId)}/upload-url`,
-      { method: 'POST', body: JSON.stringify(payload) }
+      { method: 'POST', body: payload }
     );
   },
 
@@ -167,7 +167,7 @@ export const dropboxApi = {
   ): Promise<DropboxEntry> {
     return request<DropboxEntry>(`${BASE(guildId)}/finish-upload`, {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: payload
     });
   }
 };
