@@ -17,6 +17,9 @@ from dcc_chat_gateway.routes import (
     channels,
     community_invites,
     dms,
+    dropbox,
+    dropbox_admin,
+    dropbox_uploads,
     friends,
     guild_icons,
     guild_plugins,
@@ -85,6 +88,12 @@ router.include_router(watch.router)
 router.include_router(attachments.router)
 router.include_router(capabilities.router)
 router.include_router(cert_login.router)
+# Dropbox / Ablage — split across three files to stay under the
+# 350-line soft cap. dropbox.py exposes ``admin_router`` so callers
+# don't need a separate include for the PATCH /settings endpoint.
+router.include_router(dropbox.router)
+router.include_router(dropbox_uploads.router)
+router.include_router(dropbox_admin.admin_router)
 router.include_router(notifications.router)
 router.include_router(presence.router)
 router.include_router(reports.router)

@@ -5,6 +5,7 @@
   import { Label } from '$lib/components/ui/label/index.js';
   import HashIcon from '@lucide/svelte/icons/hash';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import FolderIcon from '@lucide/svelte/icons/folder';
   import { m } from '$lib/paraglide/messages.js';
 
   let {
@@ -18,7 +19,10 @@
   } = $props();
 
   let name = $state('');
-  let type = $state(0); // 0 = text, 1 = voice
+  // 0 = text, 1 = voice, 2 = dropbox (per-guild file storage).
+  // The route page handles type=2 by routing to /dropbox/channel
+  // instead of POST /channels.
+  let type = $state<number>(0);
 
   function handleOpenChange(next: boolean) {
     if (!next) {
@@ -47,7 +51,7 @@
     <form class="space-y-4" onsubmit={submit}>
       <div class="space-y-1.5">
         <Label class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">{m.create_channel_dialog_type_label()}</Label>
-        <div class="grid grid-cols-2 gap-2">
+        <div class="grid grid-cols-3 gap-2">
           <Button
             type="button"
             variant={type === 0 ? 'default' : 'secondary'}
@@ -67,6 +71,16 @@
           >
             <Volume2Icon class="size-4" />
             {m.create_channel_dialog_type_voice()}
+          </Button>
+          <Button
+            type="button"
+            variant={type === 2 ? 'default' : 'secondary'}
+            class="justify-start gap-2"
+            onclick={() => (type = 2)}
+            data-testid="create-channel-type-dropbox"
+          >
+            <FolderIcon class="size-4" />
+            {m.create_channel_dialog_type_dropbox()}
           </Button>
         </div>
       </div>

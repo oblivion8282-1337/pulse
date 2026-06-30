@@ -9,12 +9,19 @@ here.
 from dcc_chat_gateway.models.admin import AdminAuditLog, ChatSettings
 from dcc_chat_gateway.models.moderation import CachedUserProfile, ModAuditLog, Report
 from dcc_chat_gateway.models.channels import (
+    CHANNEL_TYPE_DROPBOX,
     CHANNEL_TYPE_TEXT,
     CHANNEL_TYPE_VOICE,
     Channel,
     DirectMessageChannel,
 )
 from dcc_chat_gateway.models.community_invites import CommunityInvite
+from dcc_chat_gateway.models.dropbox import (
+    DROPBOX_KIND_FILE,
+    DROPBOX_KIND_FOLDER,
+    DropboxConfig,
+    DropboxFile,
+)
 from dcc_chat_gateway.models.friendships import (
     FriendRequest,
     Friendship,
@@ -47,8 +54,11 @@ __all__ = [
     "CachedUserProfile",
     "ModAuditLog",
     "Report",
+    "CHANNEL_TYPE_DROPBOX",
     "CHANNEL_TYPE_TEXT",
     "CHANNEL_TYPE_VOICE",
+    "DROPBOX_KIND_FILE",
+    "DROPBOX_KIND_FOLDER",
     "CommunityInvite",
     "MENTION_EVERYONE_TARGET_ID",
     "MENTION_TYPE_EVERYONE",
@@ -58,6 +68,8 @@ __all__ = [
     "Channel",
     "ChatSettings",
     "DirectMessageChannel",
+    "DropboxConfig",
+    "DropboxFile",
     "FriendRequest",
     "Friendship",
     "Guild",

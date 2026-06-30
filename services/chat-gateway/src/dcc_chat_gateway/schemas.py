@@ -131,7 +131,11 @@ class TransferOwnershipIn(BaseModel):
 
 class ChannelIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=64)]
-    type: Annotated[int, Field(ge=0, le=1)] = 0
+    # type=2 reserved for the per-guild dropbox channel (Ablage). Same id
+    # space as text + voice, lives in its own sidebar section. The dropbox
+    # route in routes/dropbox.py enforces SINGLETON semantics on create
+    # (one dropbox channel per guild, renames via PATCH instead).
+    type: Annotated[int, Field(ge=0, le=2)] = 0
     topic: Annotated[str | None, Field(default=None, max_length=1024)] = None
     position: int = 0
 

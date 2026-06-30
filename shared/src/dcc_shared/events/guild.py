@@ -191,3 +191,74 @@ class GuildPluginsChangedEvent(_EventBase):
     guild_id: str
     plugin_name: str
     enabled: bool
+
+
+# ---- Dropbox / Ablage ------------------------------------------------------
+#
+# Mutationen an Datei-/Ordner-Einträgen. Die ``entry`` dicts sind freiform-
+# shaped — die Wahrheit liegt in ``DropboxEntryOut`` (``routes/_dropbox_schemas.py``);
+# shared/events kennt SQLAlchemy nicht. Events sind nach Art der Mutation
+# getrennt (statt ein ``action: Literal[``...``]``-Sammelevent), weil jeder
+# Konsument genau eine Variante verarbeitet — Saves-Round-Trips beim
+# Listener-Validator und macht WS-Subscriptions per op lesbar.
+
+class DropboxEntryCreatedEvent(_EventBase):
+    """Neuer Eintrag (Datei ODER Ordner) angelegt — inklusive nach erfolgreichem
+    Direct-Upload (PUT zu MinIO via Presigned-URL)."""
+
+    op: Literal["dropbox_entry_created"] = "dropbox_entry_created"
+    guild_id: str
+    entry: dict[str, Any]
+
+
+class DropboxEntryUpdatedEvent(_EventBase):
+    """Eintrag verändert — rename, move (parent_path), pin/unpin, oder
+    overwrite (neue Version einer Datei)."""
+
+    op: Literal["dropbox_entry_updated"] = "dropbox_entry_updated"
+    guild_id: str
+    entry: dict[str, Any]
+
+
+class DropboxEntryDeletedEvent(_EventBase):
+    """Soft-Delete (Papierkorb) — die MinIO-Bytes sind noch da; Storage-Key
+    steht weiter auf der DB-Row. Hard-Purge erfolgt später durch den Sweep."""
+
+    op: Literal["dropbox_entry_deleted"] = "dropbox_entry_deleted"
+    guild_id: str
+    entry: dict[str, Any]
+
+
+class DropboxEntryRestoredEvent(_EventBase):
+    """Aus dem Papierkorb zurückgeholt — deleted_at wird NULL."""
+
+    op: Literal["dropbox_entry_restored"] = "dropbox_entry_restored"
+    guild_id: str
+    entry: dict[str, Any]
+
+
+class DropboxEntryPurgedEvent(_EventBase):
+    """Hard-Delete durch den Trash-Sweep nach ``trash_retention_days`` —
+    MinIO-Objekt ist weg, DB-Row weg. Clients droppen den Eintrag aus der
+    Papierkorb-Ansicht ohne Rückfrage."""
+
+    op: Literal["dropbox_entry_purged"] = "dropbox_entry_purged"
+    guild_id: str
+    # Die nackte ID reicht hier — der Eintrag verschwindet komplett. Client
+    # braucht keinen vollen Eintrag, nur den Index zum Entfernen.
+    entry_id: str
+    kind: int  # 0 = folder, 1 = file
+
+
+class DropboxQuotaUpdatedEvent(_EventBase):
+    """Quota-Snapshot — bei Settings-Änderung (Admin) oder wenn
+    ``used_bytes`` merklich wandert (Upload/Delete/Restore-Pfad). Client
+    lädt die Sidebar-Anzeige ohne Roundtrip zur API."""
+
+    op: Literal["dropbox_quota_updated"] = "dropbox_quota_updated"
+    guild_id: str
+    enabled: bool
+    total_quota_bytes: int
+    per_file_max_bytes: int
+    used_bytes: int
+    trash_retention_days: int

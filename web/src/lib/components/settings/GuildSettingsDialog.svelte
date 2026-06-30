@@ -18,6 +18,7 @@
   import CrownIcon from '@lucide/svelte/icons/crown';
   import BanIcon from '@lucide/svelte/icons/ban';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
+  import FolderIcon from '@lucide/svelte/icons/folder';
   import PuzzleIcon from '@lucide/svelte/icons/puzzle';
   import FlagIcon from '@lucide/svelte/icons/flag';
   import ScrollTextIcon from '@lucide/svelte/icons/scroll-text';
@@ -36,6 +37,7 @@
   import OwnerTransferSection from './OwnerTransferSection.svelte';
   import BansList from './BansList.svelte';
   import GuildSoundsEditor from './GuildSoundsEditor.svelte';
+  import GuildDropboxEditor from './GuildDropboxEditor.svelte';
   import GuildPluginsEditor from './GuildPluginsEditor.svelte';
   import GuildPublicAddressEditor from './GuildPublicAddressEditor.svelte';
   import GuildLimitsEditor from './GuildLimitsEditor.svelte';
@@ -54,7 +56,7 @@
     guild: Guild | null;
   } = $props();
 
-  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'plugins' | 'limits' | 'invites' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
+  type Tab = 'roles' | 'members' | 'bans' | 'sounds' | 'dropbox' | 'plugins' | 'limits' | 'invites' | 'modqueue' | 'auditlog' | 'ownership' | 'publicaddress';
   let tab = $state<Tab>('roles');
   let initialized = $state(false);
 
@@ -254,6 +256,15 @@
           <button
             type="button"
             class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
+            class:bg-bg-hover={tab === 'dropbox'}
+            onclick={() => selectTab('dropbox')}
+            data-testid="settings-tab-dropbox"
+          >
+            <FolderIcon class="size-4" /> {m.guild_settings_dialog_tab_dropbox()}
+          </button>
+          <button
+            type="button"
+            class="hover:bg-bg-hover mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm"
             class:bg-bg-hover={tab === 'plugins'}
             onclick={() => selectTab('plugins')}
             data-testid="settings-tab-plugins"
@@ -341,6 +352,8 @@
           <BansList {guildId} />
         {:else if tab === 'sounds' && canManageGuild}
           <GuildSoundsEditor {guildId} />
+        {:else if tab === 'dropbox' && canManageGuild}
+          <GuildDropboxEditor {guildId} />
         {:else if tab === 'plugins' && canManageGuild}
           <GuildPluginsEditor {guildId} />
         {:else if tab === 'publicaddress' && canManageGuild}

@@ -1,0 +1,139 @@
+"""Per-guild file-storage metadata (dropbox / Ablage).
+
+Mirror of the two new tables introduced in alembic migration
+``0041_dropbox_storage``. Folder rows carry ``size_bytes`` /
+``content_type`` / ``storage_key`` NULL; soft-delete via
+``deleted_at`` so the periodic sweep can hard-purge after the configured
+retention.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    SmallInteger,
+    Text,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column
+
+from dcc_chat_gateway.db import Base
+
+
+# kind values — kept here (next to the model) rather than in
+# models/channels.py because they're dropbox-domain.
+DROPBOX_KIND_FOLDER = 0
+DROPBOX_KIND_FILE = 1
+
+
+class DropboxConfig(Base):
+    """One per guild that has activated the dropbox channel.
+
+    The presence of this row doubles as "the dropbox channel exists and
+    is enabled" — no separate ``is_active`` flag needed. Routes use
+    ``get-or-create`` semantics: listing endpoints create the row
+    transparently the first time the dropbox is opened, if and only if
+    the corresponding dropbox channel has been provisioned (otherwise
+    they 404 the missing-channel case first).
+    """
+
+    __tablename__ = "dropbox_configs"
+
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat.guilds.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    total_quota_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="5368709120"  # 5 GiB
+    )
+    per_file_max_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="104857600"  # 100 MiB
+    )
+    used_bytes: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default="0"
+    )
+    trash_retention_days: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="30"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class DropboxFile(Base):
+    """One row per folder or file entry inside the dropbox.
+
+    Folder rows: ``size_bytes``/``content_type``/``storage_key`` are NULL.
+    Path is split across ``parent_path`` (always ends without a trailing
+    slash) and ``name`` (basename). For a top-level entry ``parent_path``
+    is the empty string. Uploads and overwrites share the row (kept in
+    ``version``); folder rows are version 1 forever.
+    """
+
+    __tablename__ = "dropbox_files"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat.guilds.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat.channels.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    parent_path: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=""
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    kind: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="0"
+    )
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    content_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    version: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, server_default="1"
+    )
+    uploaded_by_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    deleted_by_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+
+    __table_args__ = (
+        Index("ix_dropbox_files_guild_parent", "guild_id", "parent_path"),
+        Index("ix_dropbox_files_channel", "channel_id"),
+        Index("ix_dropbox_files_guild_uploaded_at", "guild_id", "uploaded_at"),
+        Index("ix_dropbox_files_name_trgm", "guild_id", "name"),
+        Index("ix_dropbox_files_trash_sweep", "deleted_at"),
+    )

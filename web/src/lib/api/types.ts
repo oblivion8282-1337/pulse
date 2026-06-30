@@ -61,7 +61,8 @@ export type Channel = {
   id: string;
   guild_id: string;
   name: string;
-  type: number; // 0 = text, 1 = voice
+  /** 0 = text, 1 = voice, 2 = dropbox (per-guild file storage channel). */
+  type: 0 | 1 | 2 | number;
   position: number;
   topic: string | null;
   created_at: string;

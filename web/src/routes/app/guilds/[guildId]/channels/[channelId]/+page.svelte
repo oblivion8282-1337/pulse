@@ -6,6 +6,7 @@
   import GuildRail from '$lib/components/GuildRail.svelte';
   import ChatView from '$lib/components/ChatView.svelte';
   import VoiceChannelView from '$lib/components/VoiceChannelView.svelte';
+  import DropboxView from '$lib/components/DropboxView.svelte';
   import MobileVoiceStack from '$lib/components/MobileVoiceStack.svelte';
   import { isPluginEnabledForGuild } from '$lib/plugins';
   import TamagotchiWidget from '../../../../../../../../plugins/tamagotchi/components/TamagotchiWidget.svelte';
@@ -25,6 +26,7 @@
   import { channelPermissions } from '$lib/stores/channelPermissions.svelte';
   import { Perm } from '$lib/permissions/bitfield';
   import { chatApi } from '$lib/api/chat';
+  import { dropboxApi } from '$lib/api/dropbox';
   import { rolesApi } from '$lib/api/roles';
   import { joinGuildByInvite } from '$lib/guilds/joinByInvite';
   import { gateway } from '$lib/ws/connection';
@@ -62,6 +64,7 @@
     channelsForGuild.find((c: Channel) => c.id === channelId) ?? null
   );
   let isVoiceChannel = $derived(activeChannel?.type === 1);
+  let isDropboxChannel = $derived(activeChannel?.type === 2);
   // Mobil + im Voice + Text-Kanal derselben Community angesehen → Karten-Stapel.
   let connectedVoiceChannel = $derived<Channel | null>(
     voice.connected && voice.channelId
@@ -354,6 +357,26 @@
 
   async function createChannel(name: string, type: number) {
     if (!activeGuild) return;
+    // Type=2 (Dropbox / Ablage) is special — there's at most one per
+    // guild, created lazily on first access via /guilds/{id}/dropbox/
+    // channel. POST /guilds/{id}/channels would also work in principle
+    // but the dedicated endpoint guarantees idempotency (a second call
+    // hands back the existing channel rather than rejecting).
+    if (type === 2) {
+      const ch = await dropboxApi.ensureChannel(activeGuild.id);
+      guilds.addChannel({
+        id: ch.id,
+        guild_id: ch.guild_id,
+        name: ch.name,
+        type: ch.type,
+        position: ch.position,
+        topic: null,
+        created_at: new Date().toISOString()
+      });
+      creatingChannel = false;
+      await goto(`/app/guilds/${activeGuild.id}/channels/${ch.id}`);
+      return;
+    }
     const ch = await chatApi.createChannel(activeGuild.id, { name, type });
     guilds.addChannel(ch);
     creatingChannel = false;
@@ -506,6 +529,10 @@
   {:else if isVoiceChannel && activeChannel}
     {#key activeChannel.id}
       <VoiceChannelView channel={activeChannel} />
+    {/key}
+  {:else if isDropboxChannel && activeChannel}
+    {#key activeChannel.id}
+      <DropboxView channel={activeChannel} />
     {/key}
   {:else if loadError}
     <section class="glass-panel flex h-full min-w-0 flex-1 flex-col items-center justify-center gap-4 rounded-none p-8 md:rounded-2xl">

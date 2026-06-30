@@ -262,6 +262,45 @@ _PAYLOADS: dict[str, dict[str, Any]] = {
         "muted": True,
         "deafened": False,
     },
+    # Dropbox / Ablage — minimal sample payloads for the round-trip
+    # contract. Mirrors a real publisher: every entry is a free-form
+    # dict (the listener doesn't introspect it — the FE does the shape
+    # validation against DropboxEntryOut).
+    "dropbox_entry_created": {
+        "op": "dropbox_entry_created",
+        "guild_id": "1",
+        "entry": {"id": "1", "name": "screenshots"},
+    },
+    "dropbox_entry_updated": {
+        "op": "dropbox_entry_updated",
+        "guild_id": "1",
+        "entry": {"id": "1", "name": "screenshots"},
+    },
+    "dropbox_entry_deleted": {
+        "op": "dropbox_entry_deleted",
+        "guild_id": "1",
+        "entry": {"id": "1", "name": "screenshots"},
+    },
+    "dropbox_entry_restored": {
+        "op": "dropbox_entry_restored",
+        "guild_id": "1",
+        "entry": {"id": "1", "name": "screenshots"},
+    },
+    "dropbox_entry_purged": {
+        "op": "dropbox_entry_purged",
+        "guild_id": "1",
+        "entry_id": "1",
+        "kind": 0,
+    },
+    "dropbox_quota_updated": {
+        "op": "dropbox_quota_updated",
+        "guild_id": "1",
+        "enabled": True,
+        "total_quota_bytes": 5368709120,
+        "per_file_max_bytes": 104857600,
+        "used_bytes": 0,
+        "trash_retention_days": 30,
+    },
 }
 
 
