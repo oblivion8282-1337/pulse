@@ -62,6 +62,7 @@ from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes._dropbox_helpers import (
     bump_used,
     fresh_entry_id,
+    locked_config,
     normalize_content_type,
     normalize_parent_path,
     publish_entry_event,
@@ -71,6 +72,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     storage_path_for,
     utc_now,
     validate_name,
+    with_quota_lock,
 )
 from dcc_chat_gateway.routes._dropbox_schemas import (
     DropboxEntryOut,
@@ -83,48 +85,9 @@ from dcc_chat_gateway.security import CurrentUser
 router = APIRouter(tags=["dropbox"])
 
 
-# Process-local per-guild locks. Lazily allocated on first use.
-_QUOTA_LOCKS: dict[int, asyncio.Lock] = {}
-
-
-def _guild_lock(guild_id: int) -> asyncio.Lock:
-    lock = _QUOTA_LOCKS.get(guild_id)
-    if lock is None:
-        lock = asyncio.Lock()
-        _QUOTA_LOCKS[guild_id] = lock
-    return lock
-
-
-@contextlib.asynccontextmanager
-async def _with_quota_lock(guild_id: int):
-    """Hold the per-guild application lock for the duration of the
-    caller block. Inside, ``_locked_config`` then adds the
-    row-level lock on Postgres for belt-and-braces. The
-    application lock is what closes the SQLite reader/writer gap
-    (the ``SELECT FOR UPDATE`` is a no-op there)."""
-
-    async with _guild_lock(guild_id):
-        yield
-
-
-async def _locked_config(
-    session: AsyncSession, guild_id: int
-) -> DropboxConfig | None:
-    """Read the quota row with a row-level lock so two concurrent
-    uploads can't both pass the ``used_bytes + size <= total`` check
-    before either commits the bump. Returns ``None`` if the dropbox
-    was never provisioned.
-
-    The per-guild ``asyncio.Lock`` is held for the *caller's* critical
-    section — see ``_with_quota_lock``. This bare helper does no
-    application-level locking on its own; it only opts into the DB
-    row-lock where the dialect supports it."""
-
-    bind = session.get_bind()
-    stmt = select(DropboxConfig).where(DropboxConfig.guild_id == guild_id)
-    if bind.dialect.name == "postgresql":
-        stmt = stmt.with_for_update()
-    return (await session.execute(stmt)).scalars().first()
+# Process-local per-guild locks + locked-config helper live in
+# ``_dropbox_helpers`` so every quota-mutating route (mint / finish /
+# delete / restore / settings-patch) shares the same locking primitives.
 
 
 @router.post(
@@ -150,8 +113,8 @@ async def mint_upload_url(
         raise HTTPException(
             429, detail="too many upload-url mints — slow down"
         )
-    async with _with_quota_lock(guild_id):
-        cfg = await _locked_config(session, guild_id)
+    async with with_quota_lock(guild_id):
+        cfg = await locked_config(session, guild_id)
         if cfg is None or not cfg.enabled:
             raise HTTPException(404, detail="dropbox disabled for this guild")
 
@@ -251,7 +214,7 @@ async def finish_upload(
     # path. Two parallel finishes can't both pass the
     # ``used + size <= total`` gate and double-bump — the
     # Postgres ``FOR UPDATE`` is belt-and-braces on top.
-    async with _with_quota_lock(guild_id):
+    async with with_quota_lock(guild_id):
         return await _finish_upload_locked(
             guild_id, payload, session, current, request
         )
@@ -268,7 +231,7 @@ async def _finish_upload_locked(
     Split into its own function so the lock-acquire / lock-release
     boundary is unambiguous."""
 
-    cfg = await _locked_config(session, guild_id)
+    cfg = await locked_config(session, guild_id)
     if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
 

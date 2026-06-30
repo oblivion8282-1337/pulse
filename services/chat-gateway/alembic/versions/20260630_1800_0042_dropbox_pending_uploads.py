@@ -82,8 +82,9 @@ def upgrade() -> None:
             "ix_dropbox_pending_uploads_uploader",
             "uploader_id",
         ),
+        schema=SCHEMA,
     )
 
 
 def downgrade() -> None:
-    op.drop_table("dropbox_pending_uploads")
+    op.drop_table("dropbox_pending_uploads", schema=SCHEMA)
