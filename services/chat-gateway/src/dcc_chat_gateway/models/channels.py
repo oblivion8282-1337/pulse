@@ -29,6 +29,12 @@ from dcc_chat_gateway.db import Base, snowflake_pk
 
 CHANNEL_TYPE_TEXT = 0
 CHANNEL_TYPE_VOICE = 1
+# Per-guild file-storage channel (dropbox / Ablage). Uses the same
+# snowflake-id space as text + voice channels, so it shows up in the same
+# sidebar list. Currently deployed as one-per-guild (singleton), but the
+# data model allows multiple — a future "per-project dropbox" feature
+# would only need a permission gate, no schema change.
+CHANNEL_TYPE_DROPBOX = 2
 
 
 class Channel(Base):

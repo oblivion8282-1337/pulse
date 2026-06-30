@@ -157,6 +157,13 @@ async def lifespan(app: FastAPI):
             ),
             name="dcc-cloud-policy-poller",
         )
+        # Dropbox / Ablage trash-retention sweep — fires once an hour to
+        # purge entries that have been in the trash longer than each
+        # guild's configured retention window. Best-effort: skips the
+        # row if MinIO delete fails (next pass retries).
+        from dcc_chat_gateway.routes.dropbox_admin import schedule_sweep
+
+        dropbox_sweep_task = schedule_sweep(asyncio.get_event_loop())
         # JWKS cold-start handling (Phase 3.1 Punkt 12): if Redis has no
         # cached JWKS at startup (cold cache + Cloud unreachable), mark
         # jwks_ready=False and launch a retry loop that polls every 30 s.
@@ -225,7 +232,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         if owns_manager:
-            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller, cloud_policy_task, jwks_retry):
+            for task in (supervisor, reaper, push_cleanup, idle_sweeper, crl_poller, cloud_policy_task, jwks_retry, dropbox_sweep_task):
                 if task is not None:
                     task.cancel()
                     try:

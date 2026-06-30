@@ -219,6 +219,44 @@ async def total_bucket_bytes() -> int | None:
         return None
 
 
+def dropbox_storage_path(guild_id: int, relative_path: str) -> str:
+    """Build the MinIO key for a dropbox object.
+
+    Namespace ``dropbox/<guild_id>/…`` keeps the bucket tidy (one prefix per
+    guild makes admin sweeps + per-guild quota checks cheap) and prevents
+    accidental collision with the existing ``attachments/`` prefix. The
+    trailing relative path is the file's location inside the dropbox —
+    folders and files share the same namespace since MinIO has no concept
+    of directories (we synthesise the tree from the DB).
+    """
+    # Strip leading slashes so we never end up with ``dropbox/<gid>//foo``.
+    cleaned = relative_path.lstrip("/")
+    return f"dropbox/{guild_id}/{cleaned}"
+
+
+async def guild_dropbox_bytes(guild_id: int) -> int | None:
+    """Sum the Size of every object under ``dropbox/<guild_id>/``.
+
+    Used by the quota-reconcile sweep to detect drift between the
+    ``dropbox_configs.used_bytes`` cached counter and the actual MinIO
+    reality (writes that crashed between PUT and DB-commit, orphans left
+    behind by a rollback, …). Returns ``None`` if MinIO is unreachable so
+    the sweep logs and continues instead of crashing.
+    """
+    s = get_settings()
+    prefix = f"dropbox/{guild_id}/"
+    total = 0
+    try:
+        client = await _ensure_internal_client()
+        paginator = client.get_paginator("list_objects_v2")
+        async for page in paginator.paginate(Bucket=s.s3_bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                total += obj.get("Size", 0)
+        return total
+    except Exception:  # noqa: BLE001
+        return None
+
+
 async def cluster_disk_info() -> tuple[int, int] | None:
     """Query MinIO's admin API for total + available disk space, summed across
     drives. Returns ``(total_bytes, free_bytes)`` or ``None`` if the call fails.

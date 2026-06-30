@@ -4,6 +4,7 @@
   import { Button } from '$lib/components/ui/button/index.js';
   import HashIcon from '@lucide/svelte/icons/hash';
   import LockIcon from '@lucide/svelte/icons/lock';
+  import FolderIcon from '@lucide/svelte/icons/folder';
   import Volume2Icon from '@lucide/svelte/icons/volume-2';
   import PlusIcon from '@lucide/svelte/icons/plus';
   import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -87,6 +88,13 @@
   let voiceChannels = $derived(
     channels.filter((c) => c.type === 1).sort((a, b) => a.position - b.position)
   );
+  // Per-guild dropbox / Ablage channel (type===2). One-per-guild by
+  // convention (see PLAN.md + 2026-06 design chat), but the data model
+  // allows multiple — the sidebar just renders whichever exist, sorted
+  // by position like text + voice.
+  let dropboxChannels = $derived(
+    channels.filter((c) => c.type === 2).sort((a, b) => a.position - b.position)
+  );
 
   // Pro-Guild Plugin-Aktivierungen laden, sobald wir wissen, welche Guild
   // aktiv ist. Idempotent — der Store fetched nur einmal pro Guild bis
@@ -157,6 +165,8 @@
 
   // Discord-style: clicking a voice channel joins it. connect() must run from
   // this user gesture so the browser allows the AudioContext to start.
+  // Clicking a dropbox channel is a normal navigate — DropboxView mounts
+  // on the channel route like ChatView, no side effects to schedule.
   function selectChannel(c: Channel) {
     if (c.type === 1 && voice.channelId !== c.id) {
       voice.connect(c.id, c.name).catch((e) => {
@@ -396,6 +406,62 @@
     {/each}
     {#if textChannels.length === 0}
       <p class="text-text-muted px-3 py-2 text-xs">{m.channel_list_no_text_channels()}</p>
+    {/if}
+
+    {#if dropboxChannels.length > 0}
+      <div class="text-text-muted flex items-center gap-2 px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">
+        {m.channel_list_dropbox_section()}
+      </div>
+      {#each dropboxChannels as c (c.id)}
+        {@const isUnread = activeChannelId !== c.id && readState.isUnread(c.id)}
+        <ContextMenu.Root>
+          <ContextMenu.Trigger>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                class="{CHANNEL_BTN_CLASS} {dragOverId === c.id
+                  ? 'border-t-2 border-primary'
+                  : ''} {dragId === c.id ? 'opacity-50' : ''}"
+                data-active={activeChannelId === c.id}
+                onclick={() => selectChannel(c)}
+                draggable={canManageChannels}
+                ondragstart={(e) => onChannelDragStart(e, c)}
+                ondragover={(e) => onChannelDragOver(e, c)}
+                ondrop={(e) => onChannelDrop(e, c)}
+                ondragend={onChannelDragEnd}
+                data-testid={`channel-${c.id}`}
+              >
+                <FolderIcon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
+                <span class="truncate" style={channelNameStyle(c)}>{c.name}</span>
+                <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                  {#if c.restricted}
+                    <LockIcon
+                      class="text-text-muted size-4 md:size-3.5"
+                      data-testid={`channel-lock-${c.id}`}
+                      aria-label={m.channel_list_restricted()}
+                    />
+                  {/if}
+                </span>
+              </button>
+            {/snippet}
+          </ContextMenu.Trigger>
+          <ContextMenu.Content>
+            {#if canCreate}
+              <ContextMenu.Item onSelect={() => openRename(c)}>
+                <PencilIcon />
+                {m.channel_list_rename_channel()}
+              </ContextMenu.Item>
+            {/if}
+            <ContextMenu.Item
+              onSelect={() => (reportChannel = c)}
+              data-testid={`channel-report-${c.id}`}
+            >
+              <FlagIcon />
+              {m.channel_list_report()}
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Root>
+      {/each}
     {/if}
 
     <div class="text-text-muted px-2.5 pb-1 pt-4 text-sm font-bold md:text-xs">{m.channel_list_voice_channels()}</div>

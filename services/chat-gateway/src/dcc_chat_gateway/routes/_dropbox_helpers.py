@@ -1,0 +1,221 @@
+"""Shared helpers for the dropbox feature — used across all dropbox route
+modules so we don't have to duplicate path-normalisation, quota mutation
+and event-publish logic.
+
+Split out from ``routes/dropbox.py`` to keep each file under the
+350-line soft cap (PLAN.md §12.1).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+
+from dcc_chat_gateway import s3
+from dcc_chat_gateway.models import DropboxConfig, DropboxFile
+from dcc_chat_gateway.snowflake import next_id
+from dcc_shared.events import (
+    DropboxEntryCreatedEvent,
+    DropboxEntryDeletedEvent,
+    DropboxEntryPurgedEvent,
+    DropboxEntryRestoredEvent,
+    DropboxEntryUpdatedEvent,
+    DropboxQuotaUpdatedEvent,
+)
+
+
+# Path + name validation -----------------------------------------------
+
+_FORBIDDEN_NAME_CHARS = set("/\\\x00")
+
+
+def normalize_parent_path(raw: str | None) -> str:
+    """Return the canonical ``parent_path`` representation.
+
+    * empty / None → ``""`` (root)
+    * leading + trailing ``/`` → stripped
+    * double slashes → collapsed
+    * backslashes normalised to forward-slashes (Windows-Pickup from the
+      ``webkitGetAsEntry`` API can hand us those)
+
+    Rejects empty components (the result of leading/trailing slashes
+    after stripping) so a "foo//bar" doesn't sneak through."""
+
+    if raw is None:
+        return ""
+    # Normalise Windows separators + collapse runs.
+    cleaned = raw.replace("\\", "/").strip("/")
+    if not cleaned:
+        return ""
+    parts = [p for p in cleaned.split("/") if p]
+    if any(p in ("",) for p in parts):
+        # Defensive — split+filter already drops empties, but a ".."
+        # would survive and let a user escape the dropbox root.
+        raise ValueError("parent_path contains empty component")
+    for p in parts:
+        if p in (".", ".."):
+            raise ValueError(
+                f"parent_path must not contain '{p}' components"
+            )
+    return "/".join(parts)
+
+
+def validate_name(name: str) -> str:
+    """Validate that ``name`` is a safe basename (no path separators,
+    no control chars, no leading/trailing dots/whitespace). Returns the
+    canonical form."""
+
+    if not name:
+        raise ValueError("name is empty")
+    if len(name) > 255:
+        raise ValueError("name longer than 255 chars")
+    if any(c in _FORBIDDEN_NAME_CHARS for c in name):
+        raise ValueError("name contains forbidden character (/ \\ \\0)")
+    if name in (".", ".."):
+        raise ValueError(f"name '{name}' is reserved")
+    if name != name.strip():
+        raise ValueError("name has leading or trailing whitespace")
+    if name.startswith("."):
+        # Hidden files on POSIX uploads are fine (``.env``, ``.gitignore``)
+        # — only a single leading dot at the start. Reject ``..`` already
+        # handled above.
+        pass
+    return name
+
+
+def full_path(parent_path: str, name: str) -> str:
+    """Combine a normalized parent path + validated name into the full
+    MinIO-relative path. Empty root → just the name."""
+
+    if not parent_path:
+        return name
+    return f"{parent_path}/{name}"
+
+
+# Quota mutation ------------------------------------------------------
+
+
+def bump_used(config: DropboxConfig, delta: int) -> None:
+    """Adjust the cached ``used_bytes`` by ``delta`` (positive on upload,
+    negative on delete / restore-from-trash → - used). The sweep task
+    reconciles against MinIO truth at startup.
+
+    Synchronous because we only mutate an attribute the session already
+    tracks — caller's own ``commit()`` makes the change durable."""
+
+    new_val = config.used_bytes + delta
+    # Guard against underflow — the cached counter must never go
+    # negative. The sweep will reconcile if a buggy path let this drift.
+    config.used_bytes = max(0, new_val)
+
+
+# Event helpers -------------------------------------------------------
+
+
+def entry_dict(entry: DropboxFile) -> dict[str, object]:
+    """Wire-shape of a dropbox entry — used everywhere an event fires.
+
+    Same field names + snowflake-as-string serialization as the
+    Pydantic ``DropboxEntryOut`` so the listener + FE can treat them
+    interchangeably."""
+
+    return {
+        "id": str(entry.id),
+        "guild_id": str(entry.guild_id),
+        "channel_id": str(entry.channel_id),
+        "parent_path": entry.parent_path,
+        "name": entry.name,
+        "kind": entry.kind,
+        "size_bytes": entry.size_bytes,
+        "content_type": entry.content_type,
+        "version": entry.version,
+        "uploaded_by_id": str(entry.uploaded_by_id),
+        "uploaded_at": entry.uploaded_at.isoformat()
+        if entry.uploaded_at is not None
+        else None,
+        "updated_at": entry.updated_at.isoformat()
+        if entry.updated_at is not None
+        else None,
+        "pinned": bool(entry.pinned),
+    }
+
+
+async def publish_entry_event(mgr, *, kind: str, guild_id: int, entry: DropboxFile) -> None:
+    """Fan out a dropbox-mutation event on the guild channel.
+
+    ``kind`` is one of ``created``, ``updated``, ``deleted``,
+    ``restored``. ``purged`` is handled separately because that one
+    doesn't carry a full entry (the row is gone by then)."""
+
+    if mgr is None:
+        return
+    payload = entry_dict(entry)
+    if kind == "created":
+        await mgr.publish_guild_event(
+            DropboxEntryCreatedEvent(guild_id=str(guild_id), entry=payload)
+        )
+    elif kind == "updated":
+        await mgr.publish_guild_event(
+            DropboxEntryUpdatedEvent(guild_id=str(guild_id), entry=payload)
+        )
+    elif kind == "deleted":
+        await mgr.publish_guild_event(
+            DropboxEntryDeletedEvent(guild_id=str(guild_id), entry=payload)
+        )
+    elif kind == "restored":
+        await mgr.publish_guild_event(
+            DropboxEntryRestoredEvent(guild_id=str(guild_id), entry=payload)
+        )
+
+
+async def publish_purge_event(mgr, *, guild_id: int, entry_id: int, kind: int) -> None:
+    if mgr is None:
+        return
+    await mgr.publish_guild_event(
+        DropboxEntryPurgedEvent(
+            guild_id=str(guild_id),
+            entry_id=str(entry_id),
+            kind=kind,
+        )
+    )
+
+
+async def publish_quota_event(mgr, config: DropboxConfig) -> None:
+    if mgr is None:
+        return
+    await mgr.publish_guild_event(
+        DropboxQuotaUpdatedEvent(
+            guild_id=str(config.guild_id),
+            enabled=bool(config.enabled),
+            total_quota_bytes=int(config.total_quota_bytes),
+            per_file_max_bytes=int(config.per_file_max_bytes),
+            used_bytes=int(config.used_bytes),
+            trash_retention_days=int(config.trash_retention_days),
+        )
+    )
+
+
+# Cold helpers --------------------------------------------------------
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def fresh_entry_id() -> int:
+    """Snowflake id for the next entry. Wraps ``next_id`` so the test
+    suite can monkeypatch here instead of chasing the snowflake worker
+    across modules."""
+
+    return next_id()
+
+
+def storage_path_for(guild_id: int, parent_path: str, name: str) -> str:
+    """Build the MinIO key for a file's primary storage (v1+).
+
+    Versioning puts historical versions under ``<base>_v<n>`` — see
+    ``routes/dropbox.py::finish_upload`` where v1 is the initial and v>=2
+    are kept around on overwrite. Only the *current* version's key is
+    referenced by the live row; old versions stay in place until the
+    trash-sweep purges the row."""
+
+    return s3.dropbox_storage_path(guild_id, full_path(parent_path, name))
