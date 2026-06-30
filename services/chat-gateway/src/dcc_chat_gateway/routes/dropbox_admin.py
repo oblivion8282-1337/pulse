@@ -277,17 +277,28 @@ async def _sweep_once(connection_manager) -> None:
     # the id reserved. After ~10 min (presigned URL TTL) the id is
     # effectively garbage. We DELETE here; the orphan half above
     # cleans up the MinIO bytes on its next pass.
+    #
+    # ``expires_at`` round-trips through SQLAlchemy/SQLite without
+    # tz info on the SQLite path even though the column declares
+    # ``DateTime(timezone=True)`` — promote each row's value to
+    # UTC-aware before the compare (same pattern as finish_upload)
+    # so we don't crash on the naive/aware mix.
     reaped_pending = 0
     try:
-        now_naive = utc_now().replace(tzinfo=None)
+        now = utc_now()
         async with SessionLocal() as session:
-            stmt = select(DropboxPendingUpload).where(
-                DropboxPendingUpload.expires_at < now_naive
+            all_pending = list(
+                (await session.execute(select(DropboxPendingUpload))).scalars()
             )
-            expired = list((await session.execute(stmt)).scalars())
-            for row in expired:
-                await session.delete(row)
-                reaped_pending += 1
+            for row in all_pending:
+                expires_at = (
+                    row.expires_at.replace(tzinfo=timezone.utc)
+                    if row.expires_at.tzinfo is None
+                    else row.expires_at
+                )
+                if expires_at < now:
+                    await session.delete(row)
+                    reaped_pending += 1
             await session.commit()
     except Exception as exc:  # noqa: BLE001
         log.warning(
@@ -341,6 +352,14 @@ async def purge_guild_dropbox_objects(guild_id: int) -> int:
     leaves orphans; a future sweep iteration cannot recover them
     (the DB rows are gone, so the row-driven sweep has nothing to
     match against) — they sit until a manual admin reaper runs."""
+
+    # Drop the per-guild app-level lock too so a long-running server
+    # doesn't accumulate one ``asyncio.Lock`` per guild that ever
+    # touched the dropbox.
+    from dcc_chat_gateway.routes._dropbox_helpers import (
+        evict_quota_lock,
+    )
+    evict_quota_lock(guild_id)
 
     s = get_settings()
     prefix = f"dropbox/{guild_id}/"

@@ -430,6 +430,10 @@ async def patch_entry(
     others' edits require MANAGE_CHANNELS."""
 
     await require_member(session, guild_id, current.id)
+    if not ratelimit.check("dropbox_patch", current.id):
+        raise HTTPException(
+            429, detail="too many patch requests — slow down"
+        )
     entry = (
         await session.execute(
             select(DropboxFile).where(
@@ -524,6 +528,10 @@ async def delete_entry(
     task purges after ``trash_retention_days``."""
 
     await require_member(session, guild_id, current.id)
+    if not ratelimit.check("dropbox_delete", current.id):
+        raise HTTPException(
+            429, detail="too many trash requests — slow down"
+        )
     entry = (
         await session.execute(
             select(DropboxFile).where(
@@ -582,6 +590,10 @@ async def restore_entry(
     community is over-full in the meantime."""
 
     await require_member(session, guild_id, current.id)
+    if not ratelimit.check("dropbox_restore", current.id):
+        raise HTTPException(
+            429, detail="too many restore requests — slow down"
+        )
     entry = (
         await session.execute(
             select(DropboxFile).where(

@@ -210,6 +210,10 @@ async def finish_upload(
     both refused at the pending-row lookup."""
 
     await require_member(session, guild_id, current.id)
+    if not ratelimit.check("dropbox_finish", current.id):
+        raise HTTPException(
+            429, detail="too many finish-upload calls — slow down"
+        )
     # Hold the per-guild application lock for the whole finish
     # path. Two parallel finishes can't both pass the
     # ``used + size <= total`` gate and double-bump — the
