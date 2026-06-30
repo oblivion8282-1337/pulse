@@ -122,6 +122,27 @@ async def handle_guild_events(
         targets = await manager._filter_by_view_channel(
             targets, str(payload.get("channel_id", ""))
         )
+    # Dropbox events carry entry payloads (incl. presigned GET URLs
+    # for files) — same VIEW_CHANNEL gate as ``channel_bump`` so a
+    # member without ``@everyone`` access to the dropbox channel
+    # can't sniff the URL out of their WS stream. The dropbox
+    # channel id lives inside the ``entry`` sub-dict for entry
+    # events and on the top-level event for the quota event.
+    elif op in (
+        "dropbox_entry_created",
+        "dropbox_entry_updated",
+        "dropbox_entry_deleted",
+        "dropbox_entry_restored",
+        "dropbox_entry_purged",
+        "dropbox_quota_updated",
+    ):
+        cid = (
+            str(payload.get("entry", {}).get("channel_id", ""))
+            if op != "dropbox_quota_updated"
+            else str(payload.get("channel_id", ""))
+        )
+        if cid:
+            targets = await manager._filter_by_view_channel(targets, cid)
     # ``dm_bump`` must only reach the two DM participants — broadcasting it to
     # all connected sockets would leak DM relationship metadata to unrelated
     # users (finding 25).  DMs have no guild-member scoping (the fan-out above
