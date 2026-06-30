@@ -4,6 +4,12 @@ We don't validate the emoji string against any allow-list — the frontend's
 picker is the only thing that selects them in practice, and storing
 arbitrary short UTF-8 is fine. We do cap length (32 bytes via the column)
 and reject anything that's empty after trim.
+
+``GET /messages/{id}/reactions`` exposes the per-emoji user list so the
+client can render "who reacted" popovers without bloating the regular
+message payload (which stays aggregated). User display info (name,
+avatar, color) is resolved client-side via ``GET /users?ids=...`` —
+kept out of this endpoint to avoid duplicating the profile-cache logic.
 """
 
 from __future__ import annotations
@@ -48,6 +54,42 @@ async def _load_for_reaction(
     # DirectMessageChannel rows. Raises the right 403/404 itself.
     await resolve_channel_or_raise(session, msg.channel_id, current_user_id)
     return msg
+
+
+@router.get("/messages/{message_id}/reactions")
+async def list_message_reactions(
+    message_id: int,
+    session: SessionDep,
+    current: CurrentUser,
+) -> list[dict]:
+    """Per-emoji user-id list for a single message — backs the "who reacted"
+    popover in the chat UI. The regular ``MessageOut.reactions`` field stays
+    aggregated (``{emoji, count, me}``) so message-sync payloads don't blow
+    up; this endpoint is the on-demand look-up the client fires when the
+    user actually opens a pill.
+
+    Returns ``[{emoji, user_ids: [str, ...]}, ...]`` ordered by emoji then
+    reaction time (first-reactor first, matching Discord convention). User
+    display info is resolved client-side via ``GET /users?ids=...`` —
+    keeping the endpoint small and reusing the existing profile-cache
+    path. Orphaned reactions (e.g. between user-purge and the FK cascade)
+    are returned as raw IDs; the client tombstones unknowns via its
+    user-cache, same as elsewhere.
+    """
+    await _load_for_reaction(session, message_id, current.id)
+    rows = (
+        await session.execute(
+            select(MessageReaction.emoji, MessageReaction.user_id)
+            .where(MessageReaction.message_id == message_id)
+            .order_by(
+                MessageReaction.emoji, MessageReaction.created_at, MessageReaction.user_id
+            )
+        )
+    ).all()
+    grouped: dict[str, list[str]] = {}
+    for emoji, user_id in rows:
+        grouped.setdefault(emoji, []).append(str(user_id))
+    return [{"emoji": emoji, "user_ids": ids} for emoji, ids in grouped.items()]
 
 
 @router.put(

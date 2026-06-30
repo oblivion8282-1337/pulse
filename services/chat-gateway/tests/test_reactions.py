@@ -153,3 +153,106 @@ async def test_add_reaction_blocked_without_add_reactions(client, _auth_signer):
     )
     assert r.status_code == 403
     assert "ADD_REACTIONS" in r.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_list_reactions_groups_by_emoji(client, _auth_signer):
+    """``GET /messages/{id}/reactions`` returns ``[{emoji, user_ids}]``
+    grouped by emoji, first-reactor first, regardless of the order the
+    toggles arrived in. Mirrors the regular ``MessageOut.reactions``
+    order so the popover matches the pill list.
+    """
+    t1, uid1, t2, uid2, cid = await _make_guild_with_channel(client, _auth_signer)
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages", json={"content": "hi"}, headers=auth(t1)
+        )
+    ).json()
+    # t2 reacts first with 👍, then t1 reacts with ❤️, then t2 adds 🎉.
+    for token, emoji in [
+        (t2, "%F0%9F%91%8D"),
+        (t1, "%E2%9D%A4%EF%B8%8F"),  # ❤️ = U+2764 + U+FE0F (variation selector)
+        (t2, "%F0%9F%8E%89"),
+    ]:
+        r = await client.put(
+            f"/messages/{msg['id']}/reactions/{emoji}/@me", headers=auth(token)
+        )
+        assert r.status_code == 204, r.text
+
+    r = await client.get(f"/messages/{msg['id']}/reactions", headers=auth(t1))
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    by_emoji = {entry["emoji"]: entry["user_ids"] for entry in payload}
+    assert by_emoji["👍"] == [str(uid2)]  # t2 only
+    assert by_emoji["❤️"] == [str(uid1)]  # t1 only
+    assert by_emoji["🎉"] == [str(uid2)]  # t2 only
+    # Response is sorted by emoji (alphabetical / codepoint).
+    assert [e["emoji"] for e in payload] == sorted(by_emoji.keys())
+
+
+@pytest.mark.asyncio
+async def test_list_reactions_excludes_deleted_message(client, _auth_signer):
+    """Deleted messages 404 on the list endpoint, same as on the
+    single-message GET."""
+    t1, _, _, _, cid = await _make_guild_with_channel(client, _auth_signer)
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages", json={"content": "hi"}, headers=auth(t1)
+        )
+    ).json()
+    r = await client.delete(
+        f"/messages/{msg['id']}", headers=auth(t1)
+    )
+    assert r.status_code == 204
+    r = await client.get(f"/messages/{msg['id']}/reactions", headers=auth(t1))
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_non_member_cannot_list_reactions(client, _auth_signer):
+    """Non-member of a guild gets 403 on the list endpoint (same gate
+    as reacting). Mirrors ``test_non_member_cannot_react_to_guild_message``."""
+    t1, _, _, _, cid = await _make_guild_with_channel(client, _auth_signer)
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages", json={"content": "hi"}, headers=auth(t1)
+        )
+    ).json()
+    t_other, _ = await _register_user(_auth_signer)
+    r = await client.get(f"/messages/{msg['id']}/reactions", headers=auth(t_other))
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_list_reactions_empty_message(client, _auth_signer):
+    """A message with zero reactions returns an empty list (200, not 404)."""
+    t1, _, _, _, cid = await _make_guild_with_channel(client, _auth_signer)
+    msg = (
+        await client.post(
+            f"/channels/{cid}/messages", json={"content": "hi"}, headers=auth(t1)
+        )
+    ).json()
+    r = await client.get(f"/messages/{msg['id']}/reactions", headers=auth(t1))
+    assert r.status_code == 200
+    assert r.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_reactions_dm_visible_to_member(client, _auth_signer, friend_pair, cloud_mode):
+    """DM participants can list reactions on a DM message — same gate
+    as the existing add/remove routes."""
+    t_a, _, t_b, _, dm_id = await _make_dm(client, _auth_signer, friend_pair)
+    msg = (
+        await client.post(
+            f"/channels/{dm_id}/messages", json={"content": "hi"}, headers=auth(t_a)
+        )
+    ).json()
+    r = await client.put(
+        f"/messages/{msg['id']}/reactions/%E2%9D%A4%EF%B8%8F/@me", headers=auth(t_b)
+    )
+    assert r.status_code == 204, r.text
+    r = await client.get(f"/messages/{msg['id']}/reactions", headers=auth(t_a))
+    assert r.status_code == 200, r.text
+    payload = r.json()
+    assert len(payload) == 1
+    assert payload[0]["emoji"] == "❤️"

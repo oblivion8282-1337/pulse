@@ -81,6 +81,15 @@ export type ReactionAggregate = {
   me: boolean;
 };
 
+/** One entry of `GET /messages/{id}/reactions` — the per-emoji user-id
+ *  list that backs the "who reacted" popover. Display info is resolved
+ *  separately via `GET /users?ids=...` (the `userCache` store does this
+ *  batched), so this shape stays minimal. */
+export type ReactionUserList = {
+  emoji: string;
+  user_ids: string[];
+};
+
 /**
  * One @-mention parsed out of a message's content at write time.
  * `type` is a numeric sentinel mirroring `dcc_chat_gateway/models/messages.py`:

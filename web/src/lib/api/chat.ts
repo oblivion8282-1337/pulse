@@ -9,7 +9,8 @@ import type {
   Invite,
   InvitePreview,
   Member,
-  Message
+  Message,
+  ReactionUserList
 } from './types';
 
 /** Response of `GET /guilds/{id}/settings` (MANAGE_GUILD-gated). */
@@ -334,6 +335,21 @@ export const chatApi = {
   },
   removeReaction(messageId: string, emoji: string, route: { serverId?: string } = {}): Promise<void> {
     return this._reactionRequest('DELETE', messageId, emoji, route);
+  },
+  /** Per-emoji user-id list for the "who reacted" popover. Backs
+   *  `MessageReactions` so the user list loads only when the pill is
+   *  opened, keeping the regular message payload aggregated. Display
+   *  info (name, avatar, color) is resolved client-side via
+   *  `GET /users?ids=...` (the userCache store does this batched). */
+  listMessageReactions(
+    messageId: string,
+    route: { serverId?: string } = {}
+  ): Promise<ReactionUserList[]> {
+    return request<ReactionUserList[]>(
+      `/messages/${messageId}/reactions`,
+      {},
+      route
+    );
   },
 
   // Direct messages — 1:1 DM channels. Polymorphic with guild channels at the
