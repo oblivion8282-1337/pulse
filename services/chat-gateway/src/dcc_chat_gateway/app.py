@@ -37,6 +37,48 @@ log = logging.getLogger(__name__)
 _SUPERVISOR_BACKOFF = [1.0, 2.0, 5.0, 10.0, 30.0]
 _SUPERVISOR_POLL_SECONDS = 5.0
 
+# Field-name blacklist for the 422 raw-body echo. Any key matching
+# one of these (case-insensitive, substring) gets redacted from
+# the logged payload so a future endpoint that carries a real
+# secret in the body doesn't leak it via the 422 path.
+_REDACT_KEY_SUBSTR = (
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "key",
+    "auth",
+    "session",
+    "cookie",
+    "bearer",
+    "csrf",
+    "pin",
+    "otp",
+    "2fa",
+    "mfa",
+    "recovery",
+    "credential",
+    "private",
+)
+
+
+def _redact(obj):
+    """Recursive redactor for the 422 raw-body echo. Module-level
+    so tests can import it directly (the handler itself is
+    closure-captured inside ``create_app``)."""
+    if isinstance(obj, dict):
+        return {
+            k: (
+                "[redacted]"
+                if any(s in k.lower() for s in _REDACT_KEY_SUBSTR)
+                else _redact(v)
+            )
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    return obj
+
 
 async def _supervise_pubsub(manager: ConnectionManager) -> None:
     """Restart the ConnectionManager's listener if it dies.
@@ -279,32 +321,6 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     import json as _json
     import structlog as _sl
     from fastapi.exceptions import RequestValidationError
-
-    # Field-name blacklist for the raw-body echo. Any key matching
-    # one of these (case-insensitive, substring) gets redacted from
-    # the logged payload so a future endpoint that carries a real
-    # secret in the body doesn't leak it via the 422 path.
-    _REDACT_KEY_SUBSTR = (
-        "token",
-        "secret",
-        "password",
-        "passwd",
-        "key",
-        "auth",
-        "session",
-        "credential",
-        "private",
-    )
-
-    def _redact(obj):
-        if isinstance(obj, dict):
-            return {
-                k: ("[redacted]" if any(s in k.lower() for s in _REDACT_KEY_SUBSTR) else _redact(v))
-                for k, v in obj.items()
-            }
-        if isinstance(obj, list):
-            return [_redact(v) for v in obj]
-        return obj
 
     @app.exception_handler(RequestValidationError)
     async def _log_422(request, exc: RequestValidationError):

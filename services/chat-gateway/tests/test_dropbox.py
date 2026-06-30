@@ -792,6 +792,36 @@ async def test_patch_entry_with_dotdot_parent_returns_422(
     assert "parent_path" in r.text.lower()
 
 
+def test_request_validation_redacts_cookie_bearer_csrf_keys():
+    """The 422 raw-body echo must redact the same auth-shaped
+    keys the access log already does — Cookie / Bearer / CSRF
+    substring matches all share the same redaction rule.
+
+    Direct unit-test of ``_redact`` from ``dcc_chat_gateway.app``,
+    which the security review flagged as closure-captured and
+    therefore untestable. Lifted to module level so a future
+    expansion of the blacklist can be regression-tested here."""
+
+    from dcc_chat_gateway.app import _redact  # noqa: PLC0415
+
+    assert _redact({"Cookie": "session=abc"}) == {"Cookie": "[redacted]"}
+    assert _redact({"Authorization": "Bearer xyz"}) == {
+        "Authorization": "[redacted]"
+    }
+    assert _redact({"csrf_token": "abc"}) == {"csrf_token": "[redacted]"}
+    # No-match keys pass through unchanged.
+    assert _redact({"name": "good.txt", "size_bytes": 12}) == {
+        "name": "good.txt",
+        "size_bytes": 12,
+    }
+    # Substring matches inside a larger field name also match.
+    assert _redact({"my_token_v2": "abc"}) == {"my_token_v2": "[redacted]"}
+    # Lists + nested dicts recurse.
+    assert _redact(
+        {"entries": [{"session_id": "x"}, {"name": "ok"}]}
+    ) == {"entries": [{"session_id": "[redacted]"}, {"name": "ok"}]}
+
+
 async def _upload_finished_file(
     client, token: str, gid: str, name: str, body: bytes, mock_s3
 ) -> dict:
