@@ -154,8 +154,7 @@ async def finish_upload(
     # the client retried with a stale id, we tell it now instead of
     # leaving an orphan row.
     storage_key = storage_path_for(guild_id, parent, name)
-    s = await s3._ensure_internal_client()  # internal HEAD — no signing
-    head = await s.head_object(Bucket=s.s3_bucket, Key=storage_key)
+    head = await s3.head_object(storage_key)
     actual_size = int(head.get("ContentLength") or 0)
     if actual_size <= 0:
         raise HTTPException(409, detail="uploaded object is empty")
@@ -163,7 +162,7 @@ async def finish_upload(
         # Should not happen (the presigned URL capped the size) but
         # belt-and-braces against a tampered request that bypassed the
         # URL signing.
-        await s.delete_object(Bucket=s.s3_bucket, Key=storage_key)
+        await s3.delete_object(storage_key)
         raise HTTPException(
             413,
             detail=(
@@ -172,7 +171,7 @@ async def finish_upload(
             ),
         )
     if cfg.used_bytes + actual_size > cfg.total_quota_bytes:
-        await s.delete_object(Bucket=s.s3_bucket, Key=storage_key)
+        await s3.delete_object(storage_key)
         raise HTTPException(
             413,
             detail="not enough free space in this community's dropbox",

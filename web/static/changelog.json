@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-30.4",
+      "date": "2026-06-30",
+      "style": "Sachlich",
+      "title": "Ablage-Upload funktioniert wieder",
+      "items": [
+        "Beim Hochladen einer Datei in die Ablage brach der Server den Upload mit einem internen Fehler ab, bevor die Datei gespeichert wurde. Die Ursache war eine fehlerhafte Speicher-Abfrage beim Abschluss des Uploads; sie ist behoben.",
+        "Hinweis: Wenn der Upload bei dir weiterhin fehlschlägt, lade die Seite einmal mit Strg+Shift+R neu, damit dein Browser das aktuelle Ablage-Bundle lädt."
+      ]
+    },
+    {
       "id": "2026-06-30.3",
       "date": "2026-06-30",
       "style": "Sachlich",

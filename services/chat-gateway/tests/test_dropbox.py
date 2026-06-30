@@ -6,11 +6,9 @@ Covers:
 - rename, move, pin
 - soft-delete + restore
 - admin quota settings
+- upload pipeline (presigned PUT mint + finish-upload HEAD)
 
 MinIO is mocked — real binary put/get would require docker-compose.
-The route's HEAD-on-finish-upload lives in dropbox_uploads.py and is
-exercised by a separate test (`test_dropbox_uploads.py`) once MinIO is
-stand-up-able in CI.
 """
 
 from __future__ import annotations
@@ -18,6 +16,7 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from botocore.exceptions import ClientError
 
 from dcc_chat_gateway import s3 as s3_mod
 
@@ -45,6 +44,14 @@ class _S3Mock:
     async def presigned_get_url(self, key, *, filename=None, inline=True):
         return f"https://mock/{key}?sig"
 
+    async def head_object(self, key):
+        if key not in self.put:
+            raise ClientError(
+                {"Error": {"Code": "NoSuchKey", "Message": "no"}},
+                "HeadObject",
+            )
+        return {"ContentLength": len(self.put[key]), "ContentType": "application/octet-stream"}
+
     async def delete_object(self, key):
         self.deleted.append(key)
         self.put.pop(key, None)
@@ -56,6 +63,7 @@ def mock_s3(monkeypatch):
     monkeypatch.setattr(s3_mod, "put_object", m.put_object)
     monkeypatch.setattr(s3_mod, "presigned_put_url", m.presigned_put_url)
     monkeypatch.setattr(s3_mod, "presigned_get_url", m.presigned_get_url)
+    monkeypatch.setattr(s3_mod, "head_object", m.head_object)
     monkeypatch.setattr(s3_mod, "delete_object", m.delete_object)
     return m
 
@@ -376,3 +384,115 @@ async def test_non_member_cannot_list(client, _auth_signer, mock_s3):
         headers=auth(other_token),
     )
     assert r.status_code == 403, r.text
+
+
+# ─── Upload pipeline (presigned PUT mint + finish-upload HEAD) ─────────────
+
+
+@pytest.mark.asyncio
+async def test_finish_upload_persists_row(client, _auth_signer, mock_s3):
+    """Full upload handshake: mint presigned PUT, simulate the PUT landing
+    in MinIO, finish-upload HEADs + persists the row."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+
+    # Auto-create the dropbox channel (also seeds the config row).
+    ch_r = await client.get(
+        f"/guilds/{gid}/dropbox/channel", headers=auth(token)
+    )
+    assert ch_r.status_code == 200, ch_r.text
+
+    # 1. Mint the presigned PUT URL.
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "hello.txt",
+            "content_type": "text/plain",
+            "size_bytes": 11,  # "hello world"
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    assert mint["upload_url"].startswith("https://mock/")
+    assert mint["storage_key"].startswith(f"dropbox/{gid}/")
+
+    # 2. Simulate the browser's PUT landing in MinIO so the HEAD on
+    # finish-upload finds the object.
+    mock_s3.put[mint["storage_key"]] = b"hello world"
+
+    # 3. Finish the upload.
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "hello.txt",
+            "size_bytes": 11,
+            "content_type": "text/plain",
+        },
+        headers=auth(token),
+    )
+    assert finish_r.status_code == 200, finish_r.text
+    body = finish_r.json()
+    assert body["name"] == "hello.txt"
+    assert body["size_bytes"] == 11
+    assert body["kind"] == 1  # file
+    assert body["url"] is not None  # presigned GET signed on success
+
+    # 4. Quota counter reflects the upload.
+    quota_r = await client.get(
+        f"/guilds/{gid}/dropbox/quota", headers=auth(token)
+    )
+    assert quota_r.json()["used_bytes"] == 11
+
+    # 5. The file now shows up in the root listing.
+    list_r = await client.get(
+        f"/guilds/{gid}/dropbox/entries?path=", headers=auth(token)
+    )
+    names = [e["name"] for e in list_r.json()["entries"]]
+    assert "hello.txt" in names
+
+
+@pytest.mark.asyncio
+async def test_finish_upload_missing_object_raises(
+    client, _auth_signer, mock_s3
+):
+    """PUT never landed → HEAD raises ClientError (bubbles as 500 today).
+    Invariant: never a silent 200 persisting a phantom row."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+
+    await client.get(f"/guilds/{gid}/dropbox/channel", headers=auth(token))
+
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "ghost.txt",
+            "content_type": "text/plain",
+            "size_bytes": 5,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    # Don't seed mock_s3.put — the HEAD will 404.
+
+    with pytest.raises(ClientError):
+        await client.post(
+            f"/guilds/{gid}/dropbox/finish-upload",
+            json={
+                "id": mint["id"],
+                "parent_path": "",
+                "name": "ghost.txt",
+                "size_bytes": 5,
+                "content_type": "text/plain",
+            },
+            headers=auth(token),
+        )
