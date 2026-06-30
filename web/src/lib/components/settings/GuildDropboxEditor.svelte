@@ -44,8 +44,12 @@
     try {
       cfg = await dropboxApi.getQuota(guildId);
       enabled = cfg.enabled;
-      quotaGb = Math.max(1, Math.round(cfg.total_quota_bytes / GB));
-      perFileMb = Math.max(1, Math.round(cfg.per_file_max_bytes / MB));
+      // Keep the byte-précise value — Math.round(4.5) = 5 silently
+      // drops 0.5 GB the next time the form rehydrates. Floor at the
+      // schema minimum (1 MiB / 1 KiB) instead of rounding to integer
+      // GB / MB.
+      quotaGb = Math.max(1024 * 1024 / GB, cfg.total_quota_bytes / GB);
+      perFileMb = Math.max(1024 / MB, cfg.per_file_max_bytes / MB);
       retentionDays = cfg.trash_retention_days;
     } catch {
       // 404 = no config row yet; defaults stand in.
@@ -61,8 +65,8 @@
 
   const dirty = $derived(
     enabled !== cfg.enabled ||
-      quotaGb * GB !== cfg.total_quota_bytes ||
-      perFileMb * MB !== cfg.per_file_max_bytes ||
+      Math.abs(quotaGb * GB - cfg.total_quota_bytes) > 0 ||
+      Math.abs(perFileMb * MB - cfg.per_file_max_bytes) > 0 ||
       retentionDays !== cfg.trash_retention_days
   );
 
@@ -72,14 +76,14 @@
     try {
       cfg = await dropboxApi.patchQuota(guildId, {
         enabled,
-        total_quota_bytes: quotaGb * GB,
-        per_file_max_bytes: perFileMb * MB,
+        total_quota_bytes: Math.round(quotaGb * GB),
+        per_file_max_bytes: Math.round(perFileMb * MB),
         trash_retention_days: retentionDays
       });
-      // Resync the form from the canonical (clamped) row.
+      // Resync the form from the canonical (clamped) row, byte-précise.
       enabled = cfg.enabled;
-      quotaGb = Math.max(1, Math.round(cfg.total_quota_bytes / GB));
-      perFileMb = Math.max(1, Math.round(cfg.per_file_max_bytes / MB));
+      quotaGb = Math.max(1024 * 1024 / GB, cfg.total_quota_bytes / GB);
+      perFileMb = Math.max(1024 / MB, cfg.per_file_max_bytes / MB);
       retentionDays = cfg.trash_retention_days;
       toast.success(m.dropbox_settings_saved());
     } catch (e) {

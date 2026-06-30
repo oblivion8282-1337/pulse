@@ -32,6 +32,7 @@ from dcc_chat_gateway.permissions import Permissions, check_permission
 from dcc_chat_gateway.role_hierarchy import assert_actor_outranks
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
+from dcc_chat_gateway.routes.dropbox_admin import purge_guild_dropbox_objects
 from dcc_chat_gateway.schemas import (
     GuildIn,
     GuildOut,
@@ -293,6 +294,12 @@ async def delete_guild(
     # Purge MinIO objects only after the commit succeeds — a rollback must not
     # leave the bytes deleted while rows still reference them.
     await purge_s3_keys(s3_keys_to_purge)
+    # Same pattern for dropbox objects: ON DELETE CASCADE on dropbox_configs
+    # / dropbox_files removes the DB rows, but MinIO holds the bytes under
+    # ``dropbox/<gid>/…`` and never knows about the cascade. Best-effort —
+    # a transient MinIO outage leaves a few orphans, picked up by the next
+    # sweep iteration.
+    await purge_guild_dropbox_objects(guild_id)
     await _publish_guild_event(
         request, GuildDeletedEvent(guild_id=str(guild_id))
     )
