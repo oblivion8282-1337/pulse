@@ -524,6 +524,66 @@ async def test_finish_upload_persists_row(client, _auth_signer, mock_s3):
 
 
 @pytest.mark.asyncio
+async def test_delete_dropbox_channel_purges_files_and_resets_quota(
+    client, _auth_signer, mock_s3
+):
+    """Deleting the dropbox channel cascades: the MinIO object is purged,
+    the dropbox_files rows vanish (FK CASCADE) and the surviving config's
+    used_bytes resets to 0 (config is guild-keyed, so it outlives the channel)."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+
+    # Provision + upload one file → storage_key + non-zero quota usage.
+    ch_r = await client.get(f"/guilds/{gid}/dropbox/channel", headers=auth(token))
+    assert ch_r.status_code == 200, ch_r.text
+    channel_id = ch_r.json()["id"]
+
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "hello.txt",
+            "content_type": "text/plain",
+            "size_bytes": 11,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    mock_s3.put[mint["storage_key"]] = b"hello world"
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "hello.txt",
+            "size_bytes": 11,
+            "content_type": "text/plain",
+        },
+        headers=auth(token),
+    )
+    assert finish_r.status_code == 200, finish_r.text
+    storage_key = mint["storage_key"]
+    quota_r = await client.get(f"/guilds/{gid}/dropbox/quota", headers=auth(token))
+    assert quota_r.json()["used_bytes"] == 11
+
+    # Delete the dropbox channel (owner holds MANAGE_CHANNELS).
+    del_r = await client.delete(f"/channels/{channel_id}", headers=auth(token))
+    assert del_r.status_code == 204, del_r.text
+
+    # MinIO object purged, quota counter reset, file rows gone.
+    assert storage_key in mock_s3.deleted
+    quota_after = await client.get(f"/guilds/{gid}/dropbox/quota", headers=auth(token))
+    assert quota_after.json()["used_bytes"] == 0
+    list_after = await client.get(
+        f"/guilds/{gid}/dropbox/entries?path=", headers=auth(token)
+    )
+    assert list_after.json()["entries"] == []
+
+
+@pytest.mark.asyncio
 async def test_finish_upload_missing_object_raises(
     client, _auth_signer, mock_s3
 ):

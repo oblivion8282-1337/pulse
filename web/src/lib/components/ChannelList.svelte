@@ -459,6 +459,13 @@
               <FlagIcon />
               {m.channel_list_report()}
             </ContextMenu.Item>
+            {#if canCreate}
+              <ContextMenu.Separator />
+              <ContextMenu.Item variant="destructive" onSelect={() => openDelete(c)}>
+                <Trash2Icon />
+                {m.channel_list_delete_channel()}
+              </ContextMenu.Item>
+            {/if}
           </ContextMenu.Content>
         </ContextMenu.Root>
       {/each}
