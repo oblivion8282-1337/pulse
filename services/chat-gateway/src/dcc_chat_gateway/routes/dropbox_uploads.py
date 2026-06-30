@@ -25,10 +25,22 @@ and ``size_bytes`` — i.e. exactly what the client declared. A
 The pending row is DELETEd in the same transaction as the file
 INSERT so a successful finish leaves no trace. Orphan rows
 (expired mints that never finished) are reaped by the sweep.
+
+Quota-race hardening
+--------------------
+``_locked_config`` opts into ``SELECT ... FOR UPDATE`` on Postgres
+(no-op on SQLite). Both routes wrap the read-then-bump critical
+section in ``_with_quota_lock`` — a per-guild ``asyncio.Lock``
+that's redundant on Postgres (the row lock is authoritative) but
+bridges the SQLite reader/writer gap. Process-local; doesn't
+share across worker processes (in prod those run on Postgres
+where the DB lock is enough).
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from datetime import timedelta, timezone
 from typing import Annotated
 
@@ -71,15 +83,42 @@ from dcc_chat_gateway.security import CurrentUser
 router = APIRouter(tags=["dropbox"])
 
 
+# Process-local per-guild locks. Lazily allocated on first use.
+_QUOTA_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+def _guild_lock(guild_id: int) -> asyncio.Lock:
+    lock = _QUOTA_LOCKS.get(guild_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _QUOTA_LOCKS[guild_id] = lock
+    return lock
+
+
+@contextlib.asynccontextmanager
+async def _with_quota_lock(guild_id: int):
+    """Hold the per-guild application lock for the duration of the
+    caller block. Inside, ``_locked_config`` then adds the
+    row-level lock on Postgres for belt-and-braces. The
+    application lock is what closes the SQLite reader/writer gap
+    (the ``SELECT FOR UPDATE`` is a no-op there)."""
+
+    async with _guild_lock(guild_id):
+        yield
+
+
 async def _locked_config(
     session: AsyncSession, guild_id: int
 ) -> DropboxConfig | None:
     """Read the quota row with a row-level lock so two concurrent
     uploads can't both pass the ``used_bytes + size <= total`` check
     before either commits the bump. Returns ``None`` if the dropbox
-    was never provisioned (read paths then 404, write paths refuse).
-    SQLite falls back to an unlocked SELECT — the dialect doesn't
-    emit FOR UPDATE, and aiosqlite serialises writes anyway."""
+    was never provisioned.
+
+    The per-guild ``asyncio.Lock`` is held for the *caller's* critical
+    section — see ``_with_quota_lock``. This bare helper does no
+    application-level locking on its own; it only opts into the DB
+    row-lock where the dialect supports it."""
 
     bind = session.get_bind()
     stmt = select(DropboxConfig).where(DropboxConfig.guild_id == guild_id)
@@ -102,83 +141,84 @@ async def mint_upload_url(
     the upload in ``dropbox_pending_uploads`` so a later ``finish``
     call can verify the minter.
 
-    Holds a row-level lock on the per-guild config so two members
-    uploading at the same instant can't both squeeze past the quota
-    check before either commits."""
+    Holds the per-guild quota lock for the full mint path so two
+    parallel mints can't both squeeze past the quota check before
+    either commits."""
 
     await require_member(session, guild_id, current.id)
-    cfg = await _locked_config(session, guild_id)
-    if cfg is None or not cfg.enabled:
-        raise HTTPException(404, detail="dropbox disabled for this guild")
+    async with _with_quota_lock(guild_id):
+        cfg = await _locked_config(session, guild_id)
+        if cfg is None or not cfg.enabled:
+            raise HTTPException(404, detail="dropbox disabled for this guild")
 
-    parent = normalize_parent_path(payload.parent_path)
-    try:
-        name = validate_name(payload.name)
-    except ValueError as exc:
-        raise HTTPException(422, detail=str(exc)) from exc
+        parent = normalize_parent_path(payload.parent_path)
+        try:
+            name = validate_name(payload.name)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
 
-    if payload.size_bytes > cfg.per_file_max_bytes:
-        raise HTTPException(
-            413,
-            detail=(
-                f"file too large ({payload.size_bytes} > "
-                f"{cfg.per_file_max_bytes} bytes cap)"
-            ),
+        if payload.size_bytes > cfg.per_file_max_bytes:
+            raise HTTPException(
+                413,
+                detail=(
+                    f"file too large ({payload.size_bytes} > "
+                    f"{cfg.per_file_max_bytes} bytes cap)"
+                ),
+            )
+        if cfg.used_bytes + payload.size_bytes > cfg.total_quota_bytes:
+            raise HTTPException(
+                413,
+                detail="not enough free space in this community's dropbox",
+            )
+
+        clash = await session.execute(
+            select(DropboxFile.id).where(
+                DropboxFile.guild_id == guild_id,
+                DropboxFile.parent_path == parent,
+                DropboxFile.name == name,
+                DropboxFile.deleted_at.is_(None),
+            )
         )
-    if cfg.used_bytes + payload.size_bytes > cfg.total_quota_bytes:
-        raise HTTPException(
-            413,
-            detail="not enough free space in this community's dropbox",
+        if clash.scalar_one_or_none() is not None:
+            raise HTTPException(409, detail=f"'{name}' already exists at this path")
+
+        new_id = fresh_entry_id()
+        storage_key = storage_path_for(guild_id, parent, name)
+
+        # Bind the reserved id to this minter + the declared upload
+        # context. finish_upload refuses any call that doesn't match
+        # this row, so a leaked id is unusable by another member.
+        settings = get_settings()
+        pending = DropboxPendingUpload(
+            id=new_id,
+            uploader_id=current.id,
+            guild_id=guild_id,
+            parent_path=parent,
+            name=name,
+            size_bytes=payload.size_bytes,
+            expires_at=utc_now() + timedelta(seconds=settings.s3_presigned_ttl_seconds),
         )
+        session.add(pending)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Snowflake collision — vanishingly rare with a 42-bit ms
+            # base, but the failure mode is "try again with a fresh id".
+            await session.rollback()
+            raise HTTPException(
+                409, detail="id collision — mint again"
+            )
 
-    clash = await session.execute(
-        select(DropboxFile.id).where(
-            DropboxFile.guild_id == guild_id,
-            DropboxFile.parent_path == parent,
-            DropboxFile.name == name,
-            DropboxFile.deleted_at.is_(None),
+        upload_url = await s3.presigned_put_url(
+            storage_key,
+            content_type=payload.content_type,
+            content_length=payload.size_bytes,
         )
-    )
-    if clash.scalar_one_or_none() is not None:
-        raise HTTPException(409, detail=f"'{name}' already exists at this path")
-
-    new_id = fresh_entry_id()
-    storage_key = storage_path_for(guild_id, parent, name)
-
-    # Bind the reserved id to this minter + the declared upload
-    # context. finish_upload refuses any call that doesn't match
-    # this row, so a leaked id is unusable by another member.
-    settings = get_settings()
-    pending = DropboxPendingUpload(
-        id=new_id,
-        uploader_id=current.id,
-        guild_id=guild_id,
-        parent_path=parent,
-        name=name,
-        size_bytes=payload.size_bytes,
-        expires_at=utc_now() + timedelta(seconds=settings.s3_presigned_ttl_seconds),
-    )
-    session.add(pending)
-    try:
-        await session.commit()
-    except IntegrityError:
-        # Snowflake collision — vanishingly rare with a 42-bit ms
-        # base, but the failure mode is "try again with a fresh id".
-        await session.rollback()
-        raise HTTPException(
-            409, detail="id collision — mint again"
+        return DropboxUploadUrlOut(
+            id=new_id,
+            upload_url=upload_url,
+            storage_key=storage_key,
         )
-
-    upload_url = await s3.presigned_put_url(
-        storage_key,
-        content_type=payload.content_type,
-        content_length=payload.size_bytes,
-    )
-    return DropboxUploadUrlOut(
-        id=new_id,
-        upload_url=upload_url,
-        storage_key=storage_key,
-    )
 
 
 @router.post(
@@ -203,6 +243,27 @@ async def finish_upload(
     both refused at the pending-row lookup."""
 
     await require_member(session, guild_id, current.id)
+    # Hold the per-guild application lock for the whole finish
+    # path. Two parallel finishes can't both pass the
+    # ``used + size <= total`` gate and double-bump — the
+    # Postgres ``FOR UPDATE`` is belt-and-braces on top.
+    async with _with_quota_lock(guild_id):
+        return await _finish_upload_locked(
+            guild_id, payload, session, current, request
+        )
+
+
+async def _finish_upload_locked(
+    guild_id: int,
+    payload: DropboxFinishUploadIn,
+    session: AsyncSession,
+    current: CurrentUser,
+    request: Request,
+) -> DropboxEntryOut:
+    """Finish-upload body, executed under the per-guild quota lock.
+    Split into its own function so the lock-acquire / lock-release
+    boundary is unambiguous."""
+
     cfg = await _locked_config(session, guild_id)
     if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
@@ -218,7 +279,9 @@ async def finish_upload(
     # anything that doesn't match.
     pending = (
         await session.execute(
-            select(DropboxPendingUpload).where(DropboxPendingUpload.id == payload.id)
+            select(DropboxPendingUpload).where(
+                DropboxPendingUpload.id == payload.id
+            )
         )
     ).scalars().first()
     if pending is None:
