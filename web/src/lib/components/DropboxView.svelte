@@ -128,7 +128,15 @@
     }
   }
 
+  // Stale-response guard: a fast-typing user (or a WS-driven refreshAll)
+// can fire multiple ``listEntries`` calls whose responses arrive out of
+// order. We track the last-request's token and drop any response whose
+// ``AbortError`` fired before its body landed. Mirrors the
+// ``switchGen`` pattern in the channel page.
+let entriesGen = 0;
+
   async function refreshEntries() {
+    const myGen = ++entriesGen;
     loading = true;
     error = null;
     try {
@@ -137,12 +145,14 @@
         q: searchQuery,
         includeTrash: viewTrash
       });
+      if (myGen !== entriesGen) return; // stale — a newer call won
       entries = r.entries;
     } catch (e) {
+      if (myGen !== entriesGen) return;
       error = (e as Error).message;
       entries = [];
     } finally {
-      loading = false;
+      if (myGen === entriesGen) loading = false;
     }
   }
 

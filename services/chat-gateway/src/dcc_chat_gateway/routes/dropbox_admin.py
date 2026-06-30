@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException, Path, Request, status
 from sqlalchemy import select
 
 from dcc_chat_gateway import s3
+from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import DropboxConfig, DropboxFile
 from dcc_chat_gateway.permissions import Permissions, check_permission
@@ -221,4 +222,51 @@ async def _sweep_once(connection_manager) -> None:
     )
 
 
-__all__ = ["admin_router", "schedule_sweep"]
+__all__ = ["admin_router", "schedule_sweep", "purge_guild_dropbox_objects"]
+
+
+async def purge_guild_dropbox_objects(guild_id: int) -> int:
+    """Hard-delete every MinIO object under ``dropbox/<guild_id>/``.
+
+    Called from ``routes.guilds.delete_guild`` after the DB cascade
+    wipes the dropbox rows. ``ondelete="CASCADE"`` on dropbox_configs
+    / dropbox_files cleans the SQL side, but MinIO has no equivalent —
+    without this hook the bucket accumulates bytes for every
+    deleted guild. Best-effort: a transient MinIO failure here
+    leaves orphans; a future sweep iteration cannot recover them
+    (the DB rows are gone, so the row-driven sweep has nothing to
+    match against) — they sit until a manual admin reaper runs."""
+
+    s = get_settings()
+    prefix = f"dropbox/{guild_id}/"
+    purged = 0
+    try:
+        client = await s3._ensure_internal_client()
+        paginator = client.get_paginator("list_objects_v2")
+        async for page in paginator.paginate(Bucket=s.s3_bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key")
+                if not key:
+                    continue
+                try:
+                    await s3.delete_object(key)
+                    purged += 1
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "dropbox_guild_purge_minio_delete_failed",
+                        guild_id=guild_id,
+                        storage_key=key,
+                        error=str(exc),
+                    )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "dropbox_guild_purge_list_failed",
+            guild_id=guild_id,
+            error=str(exc),
+        )
+    log.info(
+        "dropbox_guild_purge_completed",
+        guild_id=guild_id,
+        purged_objects=purged,
+    )
+    return purged
