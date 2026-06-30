@@ -8,6 +8,7 @@ Split out from ``routes/dropbox.py`` to keep each file under the
 
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, timezone
 
 from dcc_chat_gateway import s3
@@ -33,6 +34,48 @@ from dcc_shared.events import (
 # Path + name validation -----------------------------------------------
 
 _FORBIDDEN_NAME_CHARS = set("/\\\x00")
+
+# Unicode bidi-override / isolate characters. Stripping these denies
+# members the ``evil‮vbs.exe`` → ``vbsexe.exe.vbs`` trick. The
+# block is intentionally narrow — only the explicit bidi-formatting
+# controls; legitimate CJK filenames are unaffected.
+_BIDI_FORMAT = frozenset(
+    "‪‫‬‭‮⁦⁧⁨⁩"
+)
+
+# Content-Types we'll happily store with ``Content-Disposition: inline``
+# on the presigned GET. Anything else gets relabelled
+# ``application/octet-stream`` and served with ``attachment`` to defuse
+# the ``text/html`` → in-browser-XSS attack. Order matters: more
+# specific prefixes come first.
+_INLINE_PREFIXES = (
+    "image/",
+    "application/pdf",
+    "audio/",
+    "video/",
+    "text/plain",
+)
+
+
+def is_safe_inline_content_type(ct: str | None) -> bool:
+    """True if ``ct`` is in the inline-safe whitelist. None / empty
+    / unknown types default to False (will be re-labelled)."""
+
+    if not ct:
+        return False
+    c = ct.split(";", 1)[0].strip().lower()
+    return any(c.startswith(p) for p in _INLINE_PREFIXES)
+
+
+def normalize_content_type(ct: str | None) -> str:
+    """Return a safe content-type for the row. Anything not in the
+    inline-safe whitelist is relabelled to ``application/octet-stream``
+    so the presigned GET serves it with ``Content-Disposition: attachment``
+    — defuses storage-based XSS via ``text/html``."""
+
+    if is_safe_inline_content_type(ct):
+        return ct.split(";", 1)[0].strip().lower()
+    return "application/octet-stream"
 
 
 def normalize_parent_path(raw: str | None) -> str:
@@ -69,24 +112,35 @@ def normalize_parent_path(raw: str | None) -> str:
 def validate_name(name: str) -> str:
     """Validate that ``name`` is a safe basename (no path separators,
     no control chars, no leading/trailing dots/whitespace). Returns the
-    canonical form."""
+    canonical form.
+
+    Hardens against:
+      - Path-traversal / NUL injection (``/`` ``\\`` ``\\0``)
+      - Homograph attacks (NFKC-normalised so ``gоod.exe`` matches
+        ``good.exe`` for clash checks elsewhere)
+      - Bidirectional-override phishing (``evil\\u202Evbs.exe`` would
+        display as ``vbsexe.exe.vbs``) — control chars stripped.
+    """
 
     if not name:
         raise ValueError("name is empty")
     if len(name) > 255:
         raise ValueError("name longer than 255 chars")
-    if any(c in _FORBIDDEN_NAME_CHARS for c in name):
+    # Strip bidi-format chars BEFORE the forbidden-char check (which
+    # only catches a narrow set of bytes anyway).
+    cleaned = "".join(c for c in name if c not in _BIDI_FORMAT)
+    if any(c in _FORBIDDEN_NAME_CHARS for c in cleaned):
         raise ValueError("name contains forbidden character (/ \\ \\0)")
-    if name in (".", ".."):
-        raise ValueError(f"name '{name}' is reserved")
-    if name != name.strip():
+    if cleaned in (".", ".."):
+        raise ValueError(f"name '{cleaned}' is reserved")
+    if cleaned != cleaned.strip():
         raise ValueError("name has leading or trailing whitespace")
-    if name.startswith("."):
+    if cleaned.startswith("."):
         # Hidden files on POSIX uploads are fine (``.env``, ``.gitignore``)
         # — only a single leading dot at the start. Reject ``..`` already
         # handled above.
         pass
-    return name
+    return unicodedata.normalize("NFKC", cleaned)
 
 
 def full_path(parent_path: str, name: str) -> str:
@@ -170,12 +224,24 @@ async def serialize_entry(session, entry: DropboxFile) -> DropboxEntryOut:
     Single source of truth used by every dropbox route (list, folder,
     patch, delete, restore, finish-upload). The presigned URL is
     best-effort — transient MinIO outage degrades to ``url=None``
-    instead of failing the whole call."""
+    instead of failing the whole call.
+
+    The presigned URL is signed with ``inline=False`` when the row's
+    content-type is NOT in the inline-safe whitelist (set by
+    ``finish_upload`` via ``normalize_content_type``). That way the
+    browser downloads the file instead of rendering it — defuses the
+    ``text/html`` → in-browser-XSS vector. ``filename`` is the
+    row's display name so the saved file keeps its on-platform name."""
 
     out = DropboxEntryOut.model_validate(entry)
     if entry.kind == DROPBOX_KIND_FILE and entry.storage_key:
         try:
-            out.url = await s3.presigned_get_url(entry.storage_key, inline=True)
+            inline = is_safe_inline_content_type(entry.content_type)
+            out.url = await s3.presigned_get_url(
+                entry.storage_key,
+                filename=entry.name if not inline else None,
+                inline=inline,
+            )
         except Exception:  # noqa: BLE001 — transient MinIO outage
             out.url = None
     return out

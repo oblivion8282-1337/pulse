@@ -27,6 +27,7 @@ from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes._dropbox_helpers import (
     bump_used,
     fresh_entry_id,
+    normalize_content_type,
     normalize_parent_path,
     publish_entry_event,
     publish_quota_event,
@@ -194,6 +195,10 @@ async def finish_upload(
         )
 
     channel = await resolve_or_create_dropbox_channel(session, guild_id)
+    # Content-type is normalised server-side: anything not in the
+    # inline-safe whitelist (``text/html`` etc.) is relabelled to
+    # ``application/octet-stream`` so the presigned GET serves it with
+    # ``Content-Disposition: attachment`` — defuses storage-based XSS.
     entry = DropboxFile(
         id=payload.id,
         guild_id=guild_id,
@@ -202,8 +207,9 @@ async def finish_upload(
         name=name,
         kind=DROPBOX_KIND_FILE,
         size_bytes=actual_size,
-        # Take HEAD's content-type as truth — clients may lie.
-        content_type=head.get("ContentType") or payload.content_type,
+        content_type=normalize_content_type(
+            head.get("ContentType") or payload.content_type
+        ),
         storage_key=storage_key,
         version=1,
         uploaded_by_id=current.id,
