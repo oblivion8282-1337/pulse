@@ -71,7 +71,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "pulse-attachments"
     s3_access_key: str = "minioadmin"
     s3_secret_key: str = "minioadmin"
-    s3_presigned_ttl_seconds: int = 1800  # 30 min, auto-refreshed client-side
+    s3_presigned_ttl_seconds: int = 600  # 10 min, PUT and GET alike.
+    # Lowered from 30 min so a leaked PUT URL shrinks the orphan-
+    # upload DoS window. The orphan sweep on the trash cadence
+    # cleans up after the TTL anyway; clients mint fresh URLs on
+    # retry which still works inside the 10 min.
 
     cors_allow_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
