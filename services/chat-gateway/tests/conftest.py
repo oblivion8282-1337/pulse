@@ -332,6 +332,34 @@ async def friend_pair(session_factory):
     return _install
 
 
+@pytest_asyncio.fixture
+async def second_member(session_factory):
+    """Factory: install a GuildMember row for (guild_id, user_id).
+
+    For tests that need a user that's a regular guild member — neither
+    owner nor holder of MANAGE_CHANNELS — to assert that ownership-
+    gated mutations refuse the second user. The schema-flattening in
+    the ``engine`` fixture is what makes raw ``GuildMember(...)``
+    inserts land in the test DB without a ``chat.`` prefix."""
+
+    from datetime import datetime, timezone
+
+    from dcc_chat_gateway.models import GuildMember
+
+    async def _install(guild_id: int, user_id: int) -> None:
+        async with session_factory() as s:
+            s.add(
+                GuildMember(
+                    guild_id=guild_id,
+                    user_id=user_id,
+                    joined_at=datetime.now(timezone.utc),
+                )
+            )
+            await s.commit()
+
+    return _install
+
+
 @pytest.fixture
 def cloud_mode(_isolate_chat_settings):
     """Switch the test settings to cloud mode for the duration of one test.

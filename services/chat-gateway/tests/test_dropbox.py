@@ -770,14 +770,158 @@ async def test_finish_upload_oversize_object_triggers_413_and_s3_cleanup(
     assert storage_key in mock_s3.deleted
 
 
-# The non-owner permission tests need a way to add a second user as a
-# regular GuildMember. The conftest's session setup uses a schema-
-# flattened MetaData, so direct ORM inserts from a fresh
-# ``SessionLocal()`` reference the ``chat.`` schema that the test
-# engine doesn't have. Tracked in the punch list — the right path is
-# a ``second_member_in_guild`` fixture in conftest.py that goes
-# through the same flattened-metadata path the rest of the test
-# suite uses.
+# The non-owner permission tests are wired through the ``second_member``
+# conftest fixture, which inserts a GuildMember row via the
+# schema-flattened test session.
+
+
+@pytest.mark.asyncio
+async def test_non_owner_rename_returns_403(
+    client, _auth_signer, mock_s3, second_member
+):
+    """A second guild member (no MANAGE_CHANNELS) cannot rename someone
+    else's file. Member-of-guild + ownership check together close the
+    spam vector."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    entry = await _upload_finished_file(
+        client, token, gid, "victim.bin", b"hello", mock_s3
+    )
+
+    # Add a second user as a regular guild member (no MANAGE_CHANNELS).
+    other_token, other_uid = await _second_user(_auth_signer)
+    await second_member(int(gid), other_uid)
+
+    r = await client.patch(
+        f"/guilds/{gid}/dropbox/entries/{entry['id']}",
+        json={"name": "owned-by-me.bin"},
+        headers=auth(other_token),
+    )
+    assert r.status_code == 403, r.text
+    # Sanity: the victim row was never renamed.
+    list_r = await client.get(
+        f"/guilds/{gid}/dropbox/entries?path=", headers=auth(token)
+    )
+    names = {e["name"] for e in list_r.json()["entries"]}
+    assert "victim.bin" in names
+    assert "owned-by-me.bin" not in names
+
+
+@pytest.mark.asyncio
+async def test_non_owner_delete_returns_403(
+    client, _auth_signer, mock_s3, second_member
+):
+    """Same ownership rule for delete — non-owner without
+    MANAGE_CHANNELS is refused, not silently deleted."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+    entry = await _upload_finished_file(
+        client, token, gid, "victim.bin", b"hello", mock_s3
+    )
+
+    other_token, other_uid = await _second_user(_auth_signer)
+    await second_member(int(gid), other_uid)
+
+    r = await client.delete(
+        f"/guilds/{gid}/dropbox/entries/{entry['id']}",
+        headers=auth(other_token),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_non_owner_pin_returns_403(
+    client, _auth_signer, mock_s3, second_member
+):
+    """Pin is an edit on a foreign asset just like rename/delete —
+    a non-owner without MANAGE_CHANNELS is refused. Regression for
+    the bug where pin was the only mutation ungated on ownership."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+    entry = await _upload_finished_file(
+        client, token, gid, "victim.bin", b"hello", mock_s3
+    )
+
+    other_token, other_uid = await _second_user(_auth_signer)
+    await second_member(int(gid), other_uid)
+
+    r = await client.patch(
+        f"/guilds/{gid}/dropbox/entries/{entry['id']}",
+        json={"pinned": True},
+        headers=auth(other_token),
+    )
+    assert r.status_code == 403, r.text
+
+
+@pytest.mark.asyncio
+async def test_trash_sweep_purges_rows_past_retention(
+    client, _auth_signer, mock_s3, session_factory, monkeypatch
+):
+    """``_sweep_once`` removes rows whose ``deleted_at`` is older than
+    the guild's ``trash_retention_days``, deletes the MinIO objects,
+    and hands back a count of purged entries. Regression-guard for the
+    sweep-loop promise in the module docstring.
+
+    Direct call (no Sleep, no asyncio.create_task) so the retention
+    cutoff is the only variable. ``SessionLocal`` is monkey-patched to
+    the test session factory so the sweep hits the same DB the rest
+    of the test uses (the production SessionLocal carries the chat-
+    schema prefix that the test engine doesn't)."""
+
+    from dcc_chat_gateway.routes import dropbox_admin
+    from dcc_chat_gateway.models import DropboxFile
+    from datetime import datetime, timedelta, timezone
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+    entry = await _upload_finished_file(
+        client, token, gid, "old.bin", b"hello", mock_s3
+    )
+    storage_key = "dropbox/{}/old.bin".format(gid)
+
+    # Trash the entry, then backdate ``deleted_at`` past the default
+    # 30-day retention window so the next sweep picks it up. The
+    # DELETE /entries route stamps deleted_at = utc_now(); we want to
+    # test the *retention cutoff*, not the timestamp on delete.
+    del_r = await client.delete(
+        f"/guilds/{gid}/dropbox/entries/{entry['id']}", headers=auth(token)
+    )
+    assert del_r.status_code == 204
+
+    long_ago = datetime.now(timezone.utc) - timedelta(days=40)
+    async with session_factory() as s:
+        row = await s.get(DropboxFile, int(entry["id"]))
+        assert row is not None
+        row.deleted_at = long_ago
+        await s.commit()
+    assert storage_key in mock_s3.put
+
+    # Route the sweep's session factory through the schema-flattened
+    # test engine; restore on the way out.
+    monkeypatch.setattr(dropbox_admin, "SessionLocal", session_factory)
+
+    # ``connection_manager=None`` — publish_purge_event short-circuits
+    # to a no-op when there's nothing to publish into.
+    await dropbox_admin._sweep_once(connection_manager=None)
+
+    # Row hard-deleted + MinIO object cleaned up.
+    async with session_factory() as s:
+        gone = await s.get(DropboxFile, int(entry["id"]))
+        assert gone is None
+    assert storage_key not in mock_s3.put
+    assert storage_key in mock_s3.deleted
 
 
 @pytest.mark.asyncio
