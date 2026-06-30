@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-30.5",
+      "date": "2026-06-30",
+      "style": "Sachlich",
+      "title": "Ablage: Aufräumarbeiten im Hintergrund",
+      "items": [
+        "Mehrere Fehler rund um die Ablage wurden im Hintergrund behoben — beim Hochladen und Verwalten von Dateien weniger Fehlermeldungen, stabilere Quota-Anzeige.",
+        "Die Anzeige des belegten Ablage-Speichers aktualisiert sich jetzt zuverlässig bei jeder Änderung (Hochladen, Löschen, Wiederherstellen)."
+      ]
+    },
+    {
       "id": "2026-06-30.4",
       "date": "2026-06-30",
       "style": "Sachlich",
@@ -20,8 +30,7 @@
         "Jede Community hat jetzt eine eigene Ablage — eine Section zwischen Text- und Sprachkanälen, mit Dateien, Ordnern und einem Papierkorb.",
         "In der Server-Verwaltung legst du fest, wieviel Speicher die Community insgesamt nutzen darf, wie groß eine einzelne Datei höchstens sein darf und wie lange gelöschte Dateien im Papierkorb bleiben.",
         "Beim Upload siehst du oben in der Ablage, wieviel Speicher bereits belegt ist; die Anzeige wechselt die Farbe, sobald das Limit näher rückt.",
-        "Hochladen per Klick auf den Button im Ablage-Tab, mehrere Dateien auf einmal sind möglich. Ordner-Strukturen erkennt die Ablage automatisch und legt die Einträge an den passenden Stellen an.",
-        "Verschieben, Umbenennen, Anpinnen und Löschen findest du an jeder Datei und jedem Ordner. Wiederherstellen aus dem Papierkorb ist ebenfalls dort verfügbar."
+        "Hochladen per Klick auf den Button im Ablage-Tab, mehrere Dateien auf einmal sind möglich. Verschieben, Umbenennen, Anpinnen und Löschen findest du an jeder Datei und jedem Ordner. Wiederherstellen aus dem Papierkorb ist ebenfalls dort verfügbar. Ordner mit eigener Struktur (Unterordner, Leerzeichen im Pfad) lassen sich momentan nur über die Buttons im Ablage-Tab anlegen — ein komfortabler Datei-Picker folgt in einer späteren Version."
       ]
     },
     {

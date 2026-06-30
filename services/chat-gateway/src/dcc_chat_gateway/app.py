@@ -163,7 +163,9 @@ async def lifespan(app: FastAPI):
         # row if MinIO delete fails (next pass retries).
         from dcc_chat_gateway.routes.dropbox_admin import schedule_sweep
 
-        dropbox_sweep_task = schedule_sweep(asyncio.get_event_loop())
+        dropbox_sweep_task = schedule_sweep(
+            asyncio.get_event_loop(), manager
+        )
         # JWKS cold-start handling (Phase 3.1 Punkt 12): if Redis has no
         # cached JWKS at startup (cold cache + Cloud unreachable), mark
         # jwks_ready=False and launch a retry loop that polls every 30 s.

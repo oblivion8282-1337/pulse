@@ -148,12 +148,6 @@ class DropboxEntryPatchIn(BaseModel):
     pinned: bool | None = None
 
 
-class DropboxEntryMoveIn(BaseModel):
-    """Standalone-move payload used by drag-and-drop in the tree view."""
-
-    parent_path: Annotated[str, Field(max_length=2048)]
-
-
 # ---- Upload (presigned PUT) ------------------------------------------------
 
 
@@ -164,10 +158,12 @@ class DropboxUploadUrlIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=255)]
     content_type: Annotated[str, Field(min_length=1, max_length=128)]
     size_bytes: Annotated[int, Field(ge=1, le=4 * 1024**4)]
-    # Optional image/video dimensions — stored on the row so the FE can
-    # render the thumbnail at the right aspect-ratio before download.
-    width: int | None = None
-    height: int | None = None
+
+
+# Note: the original schema carried optional ``width``/``height`` for
+# image/video thumbnail aspect-ratio. The fields were never persisted
+# on ``DropboxFile``, so they were removed instead of accumulating as
+# dead columns in a future migration. Client side stops sending them.
 
 
 class DropboxUploadUrlOut(BaseModel):
@@ -201,18 +197,3 @@ class DropboxFinishUploadIn(BaseModel):
     # ContentLength as the truth and only uses size to fast-fail.
     size_bytes: Annotated[int, Field(ge=1, le=4 * 1024**4)]
     content_type: Annotated[str, Field(min_length=1, max_length=128)] = "application/octet-stream"
-
-
-# ---- Trash -----------------------------------------------------------------
-
-
-class DropboxTrashListOut(BaseModel):
-    entries: list[DropboxEntryOut]
-
-
-# ---- Search ----------------------------------------------------------------
-
-
-class DropboxSearchOut(BaseModel):
-    query: str
-    entries: list[DropboxEntryOut]

@@ -74,6 +74,20 @@ async def _create_guild(client, token: str) -> dict:
     return r.json()
 
 
+async def _provision_dropbox(client, token: str, gid: str) -> None:
+    """Allocate the dropbox channel + config row for a freshly created
+    guild. Required by every endpoint that reads or mutates the config,
+    because ``GET /quota`` / ``GET /entries`` / upload routes are now
+    read-only and 404 when the dropbox was never provisioned
+    (regression-guard for the bug where a sidebar ping auto-enabled the
+    dropbox for every guild)."""
+
+    r = await client.get(
+        f"/guilds/{gid}/dropbox/channel", headers=auth(token)
+    )
+    assert r.status_code == 200, r.text
+
+
 # ─── Channel + config auto-provision ────────────────────────────────────────
 
 
@@ -111,6 +125,7 @@ async def test_quota_defaults_then_patch(client, _auth_signer, mock_s3):
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
+    await _provision_dropbox(client, token, gid)
 
     r = await client.get(f"/guilds/{gid}/dropbox/quota", headers=auth(token))
     assert r.status_code == 200, r.text
@@ -177,6 +192,7 @@ async def test_folder_create_list_rename(client, _auth_signer, mock_s3):
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
+    await _provision_dropbox(client, token, gid)
 
     r = await client.post(
         f"/guilds/{gid}/dropbox/folders",
@@ -213,6 +229,7 @@ async def test_duplicate_folder_409(client, _auth_signer, mock_s3):
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
+    await _provision_dropbox(client, token, gid)
 
     r1 = await client.post(
         f"/guilds/{gid}/dropbox/folders",
@@ -237,6 +254,7 @@ async def test_invalid_name_rejected(client, _auth_signer, mock_s3):
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
+    await _provision_dropbox(client, token, gid)
 
     for bad in ("", "foo/bar", "..", "../escape"):
         r = await client.post(
@@ -258,6 +276,7 @@ async def test_search_and_trash_and_restore(client, _auth_signer, mock_s3):
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
+    await _provision_dropbox(client, token, gid)
 
     # Two folders at root
     for n in ("designs", "designs-archive", "clips"):
@@ -335,6 +354,7 @@ async def test_pin_toggle(client, _auth_signer, mock_s3):
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
+    await _provision_dropbox(client, token, gid)
 
     # Two folders
     for n in ("alpha", "beta"):
@@ -461,14 +481,13 @@ async def test_finish_upload_persists_row(client, _auth_signer, mock_s3):
 async def test_finish_upload_missing_object_raises(
     client, _auth_signer, mock_s3
 ):
-    """PUT never landed → HEAD raises ClientError (bubbles as 500 today).
+    """PUT never landed → finish-upload cleans up + 409s with no row.
     Invariant: never a silent 200 persisting a phantom row."""
 
     token, _uid = await _user(_auth_signer)
     g = await _create_guild(client, token)
     gid = g["id"]
-
-    await client.get(f"/guilds/{gid}/dropbox/channel", headers=auth(token))
+    await _provision_dropbox(client, token, gid)
 
     mint_r = await client.post(
         f"/guilds/{gid}/dropbox/upload-url",
@@ -484,15 +503,16 @@ async def test_finish_upload_missing_object_raises(
     mint = mint_r.json()
     # Don't seed mock_s3.put — the HEAD will 404.
 
-    with pytest.raises(ClientError):
-        await client.post(
-            f"/guilds/{gid}/dropbox/finish-upload",
-            json={
-                "id": mint["id"],
-                "parent_path": "",
-                "name": "ghost.txt",
-                "size_bytes": 5,
-                "content_type": "text/plain",
-            },
-            headers=auth(token),
-        )
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "ghost.txt",
+            "size_bytes": 5,
+            "content_type": "text/plain",
+        },
+        headers=auth(token),
+    )
+    assert finish_r.status_code == 409, finish_r.text
+    assert "not found" in finish_r.json()["detail"].lower()

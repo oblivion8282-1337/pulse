@@ -10,6 +10,7 @@
   import { Input } from '$lib/components/ui/input/index.js';
   import { Label } from '$lib/components/ui/label/index.js';
   import { dropboxApi, type DropboxConfig } from '$lib/api/dropbox';
+  import { formatBytes } from '$lib/utils/formatBytes';
   import { m } from '$lib/paraglide/messages.js';
 
   let { guildId }: { guildId: string } = $props();
@@ -25,13 +26,6 @@
     trash_retention_days: 30,
     updated_at: ''
   };
-
-  function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
 
   let cfg = $state<DropboxConfig>(DEFAULT_CFG);
   let loading = $state(true);
