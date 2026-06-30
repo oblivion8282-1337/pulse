@@ -174,7 +174,7 @@
       <LinkEmbed url={embed.url} provider={embed.provider} />
     {/each}
     <MessageAttachments {attachments} />
-    <MessageReactions reactions={reactions} onToggle={handleToggle} />
+    <MessageReactions messageId={message.id} {reactions} onToggle={handleToggle} />
   {/if}
 {/snippet}
 

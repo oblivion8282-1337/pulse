@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-06-30.2",
+      "date": "2026-06-30",
+      "style": "Freundlich",
+      "title": "Sieh jetzt, wer auf eine Nachricht reagiert hat",
+      "items": [
+        "Wenn du auf ein Emoji unter einer Nachricht klickst, siehst du eine Liste aller, die damit reagiert haben — mit Avatar und Name.",
+        "Bist du selbst einer davon, kannst du deine Reaktion direkt aus der Liste wieder entfernen.",
+        "Bei mehr als fünfzig Reaktoren zeigen wir die ersten fünfzig und dahinter, wie viele weitere es sind."
+      ]
+    },
+    {
       "id": "2026-06-30",
       "date": "2026-06-30",
       "style": "Freundlich",
