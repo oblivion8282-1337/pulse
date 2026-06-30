@@ -268,6 +268,35 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     from dcc_chat_gateway.log_filters import install_access_log_redaction
     install_access_log_redaction()
     app = FastAPI(title="dcc-chat-gateway", version="0.1.0", lifespan=lifespan)
+
+    # Validation-error log: every 422 carries away the offending body
+    # so a future bug report can read it from the container log without
+    # reproducing. Bound to 1 KiB to avoid log floods from abusive
+    # clients; the FastAPI ``RequestValidationError`` fires before the
+    # route handler runs, so we still see the unmodified raw payload.
+    import json as _json
+    import structlog as _sl
+    from fastapi.exceptions import RequestValidationError
+
+    @app.exception_handler(RequestValidationError)
+    async def _log_422(request, exc: RequestValidationError):
+        try:
+            raw = (await request.body()).decode(errors="replace")[:1024]
+        except Exception:  # noqa: BLE001
+            raw = "<unreadable>"
+        _sl.get_logger("dcc_chat_gateway").warning(
+            "request_validation_error",
+            method=request.method,
+            path=request.url.path,
+            errors=_json.loads(_json.dumps(exc.errors(), default=str))[:6],
+            raw_body=raw,
+        )
+        # Re-raise as the default 422 — FastAPI's own handler takes over.
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=422,
+            content={"detail": _json.loads(_json.dumps(exc.errors(), default=str))},
+        )
     app.state.skip_redis = skip_redis
     # Default-Snapshot, damit Tests ohne Lifespan (REST-only-Fixture)
     # ein definiertes ``plugin_allowlist`` lesen können. Die Lifespan
