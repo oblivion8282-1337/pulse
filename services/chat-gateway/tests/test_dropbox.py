@@ -925,6 +925,47 @@ async def test_trash_sweep_purges_rows_past_retention(
 
 
 @pytest.mark.asyncio
+async def test_sweep_purges_orphan_minio_objects(
+    client, _auth_signer, mock_s3, session_factory, monkeypatch
+):
+    """PUT-after-mint-but-before-finish leaks a MinIO object with no
+    DB row. The trash sweep's orphan half walks the bucket and hard-
+    deletes those keys.
+
+    Regression for the bug where browser-close-after-mint, expired
+    JWT, network drop, etc. left bytes in the bucket forever."""
+
+    from dcc_chat_gateway.routes import dropbox_admin
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Two legitimate files (live, with rows) + one orphan (no row).
+    await _upload_finished_file(
+        client, token, gid, "legit.bin", b"alive", mock_s3
+    )
+    await _upload_finished_file(
+        client, token, gid, "also-legit.bin", b"also-alive", mock_s3
+    )
+    orphan_key = f"dropbox/{gid}/never-finished.bin"
+    mock_s3.put[orphan_key] = b"never-called-finish-upload"
+
+    # Run the full sweep (which now includes the orphan half).
+    monkeypatch.setattr(dropbox_admin, "SessionLocal", session_factory)
+    await dropbox_admin._sweep_once(connection_manager=None)
+
+    # Orphans gone, live files preserved.
+    assert orphan_key not in mock_s3.put
+    assert orphan_key in mock_s3.deleted
+    assert any(
+        k.startswith(f"dropbox/{gid}/") and "legit.bin" in k
+        for k in mock_s3.put
+    ), "live file should NOT be deleted by orphan sweep"
+
+
+@pytest.mark.asyncio
 async def test_guild_delete_purges_dropbox_objects(
     client, _auth_signer, mock_s3
 ):

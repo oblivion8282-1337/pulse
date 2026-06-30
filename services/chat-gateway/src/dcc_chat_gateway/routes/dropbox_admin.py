@@ -146,13 +146,23 @@ async def _sweep_loop(connection_manager) -> None:
 
 
 async def _sweep_once(connection_manager) -> None:
-    """One pass of the trash-retention sweep.
+    """One pass of the trash-retention sweep + orphan-upload purge.
 
-    For each row whose ``deleted_at`` is older than the guild's
-    retention window, hard-delete the MinIO object and the DB row, then
-    fire ``dropbox_entry_purged`` so connected clients drop the entry
-    from their trash view without a re-fetch (the same pattern the
-    in-band mutation routes use)."""
+    Two halves:
+
+    1. Trash retention — for each row whose ``deleted_at`` is older than
+       the guild's retention window, hard-delete the MinIO object and
+       the DB row, then fire ``dropbox_entry_purged`` so connected
+       clients drop the entry from their trash view without a
+       re-fetch.
+
+    2. Orphan-upload purge — every ``dropbox/<guild_id>/`` MinIO object
+       whose key has no matching ``DropboxFile.storage_key`` (live or
+       in-trash) is treated as an abandoned upload and hard-deleted.
+       This catches the PUT-after-mint-but-before-finish case (browser
+       closed, network failed, JWT expired, …) which would otherwise
+       leak bytes until guild-delete fires ``purge_guild_dropbox_objects``.
+    """
 
     # Lazy import — these touch the app lifespan state; avoid at module
     # import time so tests that don't bootstrap the full app still load
@@ -200,6 +210,66 @@ async def _sweep_once(connection_manager) -> None:
                 await session.delete(entry)
             await session.flush()
         await session.commit()
+
+    # ---- Orphan-upload purge -----------------------------------------
+    # Walk MinIO under every ``dropbox/<gid>/`` prefix; any object whose
+    # storage_key has no matching ``DropboxFile.storage_key`` (live OR
+    # in-trash — the trash list already purged the live path) is an
+    # abandoned upload. Hard-delete it.
+    orphaned: list[str] = []
+    try:
+        s = get_settings()
+        async with SessionLocal() as session:
+            cfg_rows = (await session.execute(select(DropboxConfig))).scalars().all()
+            client = await s3._ensure_internal_client()
+            paginator = client.get_paginator("list_objects_v2")
+            for cfg in cfg_rows:
+                prefix = f"dropbox/{cfg.guild_id}/"
+                try:
+                    async for page in paginator.paginate(
+                        Bucket=s.s3_bucket, Prefix=prefix
+                    ):
+                        for obj in page.get("Contents", []):
+                            key = obj.get("Key")
+                            if not key:
+                                continue
+                            row = (
+                                await session.execute(
+                                    select(DropboxFile.id).where(
+                                        DropboxFile.storage_key == key
+                                    )
+                                )
+                            ).scalar_one_or_none()
+                            if row is not None:
+                                continue
+                            try:
+                                await s3.delete_object(key)
+                                orphaned.append(key)
+                            except Exception as exc:  # noqa: BLE001
+                                log.warning(
+                                    "dropbox_orphan_purge_failed",
+                                    storage_key=key,
+                                    guild_id=cfg.guild_id,
+                                    error=str(exc),
+                                )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "dropbox_orphan_list_failed",
+                        guild_id=cfg.guild_id,
+                        error=str(exc),
+                    )
+    except Exception as exc:  # noqa: BLE001
+        # Top-level guard: a MinIO outage must NOT kill the trash loop.
+        log.warning(
+            "dropbox_orphan_sweep_failed",
+            error=str(exc),
+        )
+
+    if orphaned:
+        log.info(
+            "dropbox_orphan_purged",
+            purged_objects=len(orphaned),
+        )
 
     if not purged:
         return
