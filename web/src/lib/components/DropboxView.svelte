@@ -64,7 +64,7 @@
     viewTrash={v.viewTrash}
     isGridView={v.isGridView}
     onSearchInput={(s) => (v.searchQuery = s)}
-    onOpenPicker={v.openFilePicker}
+    onOpenPicker={() => v.openFilePicker()}
     onToggleCreateFolder={() => (v.creatingFolder = !v.creatingFolder)}
     onToggleGridView={() => (v.isGridView = !v.isGridView)}
     onToggleTrash={() => (v.viewTrash = !v.viewTrash)}
@@ -74,7 +74,7 @@
     <DropboxCreateFolderBanner
       name={v.newFolderName}
       onInput={(s) => (v.newFolderName = s)}
-      onCommit={v.createFolder}
+      onCommit={() => v.createFolder()}
       onCancel={() => {
         v.creatingFolder = false;
         v.newFolderName = '';
@@ -122,11 +122,11 @@
         entries={v.entries}
         viewTrash={v.viewTrash}
         onOpen={openOrEnter}
-        onTogglePin={v.togglePin}
-        onRename={v.startRename}
-        onMove={v.startMove}
-        onTrash={v.trashEntry}
-        onRestore={v.restore}
+        onTogglePin={(e) => v.togglePin(e)}
+        onRename={(e) => v.startRename(e)}
+        onMove={(e) => v.startMove(e)}
+        onTrash={(e) => v.trashEntry(e)}
+        onRestore={(e) => v.restore(e)}
       />
     {/if}
   </div>
@@ -135,7 +135,7 @@
     type="file"
     multiple
     bind:this={v.fileInput}
-    onchange={v.onFileChange}
+    onchange={(e) => v.onFileChange(e)}
     class="hidden"
   />
 </section>

@@ -14,7 +14,16 @@ from fastapi import APIRouter, HTTPException, Query, Request, status
 from sqlalchemy import delete, select
 
 from dcc_chat_gateway.db import SessionDep
-from dcc_chat_gateway.models import CHANNEL_TYPE_VOICE, Channel, Guild, Message, MessageAttachment
+from dcc_chat_gateway.models import (
+    CHANNEL_TYPE_DROPBOX,
+    CHANNEL_TYPE_VOICE,
+    Channel,
+    DropboxConfig,
+    DropboxFile,
+    Guild,
+    Message,
+    MessageAttachment,
+)
 from dcc_chat_gateway.permissions import (
     Permissions,
     check_permission,
@@ -204,6 +213,7 @@ async def delete_channel(
     )
     guild_id = channel.guild_id
     channel_is_voice = channel.type == CHANNEL_TYPE_VOICE
+    channel_is_dropbox = channel.type == CHANNEL_TYPE_DROPBOX
     # Collect attachment ids before deleting messages, then hard-delete them
     # (removes the MinIO objects too — Message bulk-delete can't cascade those).
     att_ids_stmt = (
@@ -222,6 +232,28 @@ async def delete_channel(
         await hard_delete_attachments(
             session, attachment_ids=att_ids, defer_s3=s3_keys_to_purge
         )
+    # Dropbox channel → reap its MinIO objects + reset the guild's quota
+    # counter before the channel row vanishes. ``dropbox_files.channel_id``
+    # CASCADE wipes the rows, but MinIO has no FK — collect keys now and
+    # purge post-commit (same defer pattern as attachments above). Trashed
+    # entries are included: their objects linger until the sweep otherwise.
+    if channel_is_dropbox:
+        db_keys = await session.execute(
+            select(DropboxFile.storage_key).where(
+                DropboxFile.channel_id == channel_id,
+                DropboxFile.storage_key.is_not(None),
+            )
+        )
+        s3_keys_to_purge.extend(k for k in db_keys.scalars() if k)
+        # Explicit row removal — don't rely on FK ON DELETE CASCADE
+        # (SQLite in tests doesn't enforce FKs, and a missing constraint
+        # would silently orphan rows in any backend).
+        await session.execute(
+            delete(DropboxFile).where(DropboxFile.channel_id == channel_id)
+        )
+        cfg = await session.get(DropboxConfig, guild_id)
+        if cfg is not None:
+            cfg.used_bytes = 0
     await session.execute(delete(Message).where(Message.channel_id == channel_id))
     await session.delete(channel)
     await session.commit()
