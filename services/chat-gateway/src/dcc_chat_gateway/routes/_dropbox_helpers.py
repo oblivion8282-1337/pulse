@@ -8,6 +8,8 @@ Split out from ``routes/dropbox.py`` to keep each file under the
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import unicodedata
 from datetime import datetime, timezone
 
@@ -18,6 +20,8 @@ from dcc_chat_gateway.models import (
     DropboxConfig,
     DropboxFile,
 )
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from dcc_chat_gateway.routes._dropbox_schemas import DropboxEntryOut
 from dcc_chat_gateway.snowflake import next_id
 from sqlalchemy import select
@@ -47,13 +51,30 @@ _BIDI_FORMAT = frozenset(
 # on the presigned GET. Anything else gets relabelled
 # ``application/octet-stream`` and served with ``attachment`` to defuse
 # the ``text/html`` → in-browser-XSS attack. Order matters: more
-# specific prefixes come first.
+# specific prefixes come first. ``image/svg+xml`` is intentionally
+# excluded from the ``image/`` prefix — SVG can carry inline
+# ``<script>`` and ``<foreignObject>`` and would re-introduce the
+# XSS vector we're trying to close. Matched explicitly below.
 _INLINE_PREFIXES = (
-    "image/",
+    "image/",  # matched; ``image/svg+xml`` is blocked separately
     "application/pdf",
     "audio/",
     "video/",
     "text/plain",
+)
+
+# Specific types that share an otherwise-allowed prefix but must
+# still be relabelled to ``application/octet-stream``. Matched
+# case-insensitively against the bare type (no ``;charset=``).
+_DENY_INLINE_TYPES = frozenset(
+    {
+        "image/svg+xml",
+        # Belt-and-braces: rare text subtypes that some browsers
+        # still render in-document even with ``Content-Disposition:
+        # inline`` would be sniffed here. None today; the set is
+        # empty on purpose — explicit denylist only, never deny by
+        # omission.
+    }
 )
 
 
@@ -64,6 +85,8 @@ def is_safe_inline_content_type(ct: str | None) -> bool:
     if not ct:
         return False
     c = ct.split(";", 1)[0].strip().lower()
+    if c in _DENY_INLINE_TYPES:
+        return False
     return any(c.startswith(p) for p in _INLINE_PREFIXES)
 
 
@@ -168,6 +191,26 @@ def bump_used(config: DropboxConfig, delta: int) -> None:
     # Guard against underflow — the cached counter must never go
     # negative. The sweep will reconcile if a buggy path let this drift.
     config.used_bytes = max(0, new_val)
+
+
+async def locked_config(
+    session: AsyncSession, guild_id: int
+) -> DropboxConfig | None:
+    """Read the quota row with a row-level lock so two concurrent
+    quota-mutating requests can't both pass the check before either
+    commits the bump. Returns ``None`` if the dropbox was never
+    provisioned.
+
+    The per-guild ``asyncio.Lock`` (``with_quota_lock``) is the
+    caller-side synchronisation; this bare helper only adds the DB
+    row-lock where the dialect supports it (Postgres). On SQLite the
+    app-level lock alone closes the reader/writer gap."""
+
+    bind = session.get_bind()
+    stmt = select(DropboxConfig).where(DropboxConfig.guild_id == guild_id)
+    if bind.dialect.name == "postgresql":
+        stmt = stmt.with_for_update()
+    return (await session.execute(stmt)).scalars().first()
 
 
 # Event helpers -------------------------------------------------------
@@ -327,3 +370,37 @@ def storage_path_for(guild_id: int, parent_path: str, name: str) -> str:
     trash-sweep purges the row."""
 
     return s3.dropbox_storage_path(guild_id, full_path(parent_path, name))
+
+
+# Per-guild application-level locks for quota-mutating endpoints.
+# Process-local: redundant on Postgres where ``SELECT FOR UPDATE``
+# is authoritative, but closes the SQLite reader/writer gap (the
+# ``FOR UPDATE`` is a no-op on SQLite). Entries are evicted in
+# ``purge_guild_dropbox_objects``'s caller path when a guild is
+# hard-deleted (TODO tracked separately); the dict is bounded by the
+# number of *currently active* guilds, which the platform caps.
+_QUOTA_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+def _guild_lock(guild_id: int) -> asyncio.Lock:
+    lock = _QUOTA_LOCKS.get(guild_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _QUOTA_LOCKS[guild_id] = lock
+    return lock
+
+
+@contextlib.asynccontextmanager
+async def with_quota_lock(guild_id: int):
+    """Hold the per-guild app-level lock for the duration of the
+    caller block. Use around any read-then-bump on
+    ``DropboxConfig.used_bytes`` so two parallel quota-mutating
+    requests can't both pass the check before either commits.
+
+    Belt-and-braces: ``_locked_config`` inside the locked block also
+    opts into the Postgres row-level ``SELECT ... FOR UPDATE``. On
+    SQLite that ``FOR UPDATE`` is a no-op, so this app-level lock is
+    the only synchronisation between requests in one process."""
+
+    async with _guild_lock(guild_id):
+        yield

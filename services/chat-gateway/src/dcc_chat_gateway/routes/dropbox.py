@@ -33,12 +33,14 @@ from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes._dropbox_helpers import (
     bump_used,
     fresh_entry_id,
+    locked_config,
     normalize_parent_path,
     publish_entry_event,
     publish_quota_event,
     serialize_entry,
     utc_now,
     validate_name,
+    with_quota_lock,
 )
 from dcc_chat_gateway.routes._dropbox_schemas import (
     DropboxChannelOut,
@@ -355,8 +357,8 @@ async def create_folder(
             429, detail="too many folder creates — slow down"
         )
 
-    parent = normalize_parent_path(payload.parent_path)
     try:
+        parent = normalize_parent_path(payload.parent_path)
         name = validate_name(payload.name)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
@@ -455,12 +457,12 @@ async def patch_entry(
     if payload.pinned is not None and payload.pinned != entry.pinned:
         entry.pinned = bool(payload.pinned)
 
-    new_parent = (
-        normalize_parent_path(payload.parent_path)
-        if payload.parent_path is not None
-        else entry.parent_path
-    )
     try:
+        new_parent = (
+            normalize_parent_path(payload.parent_path)
+            if payload.parent_path is not None
+            else entry.parent_path
+        )
         new_name = (
             validate_name(payload.name)
             if payload.name is not None
@@ -541,15 +543,16 @@ async def delete_entry(
             Permissions.MANAGE_CHANNELS,
         )
 
-    cfg = await _get_or_create_config_locked(session, guild_id)
-    now = utc_now()
-    entry.deleted_at = now
-    entry.deleted_by_id = current.id
-    entry.updated_at = now
-    is_file = entry.kind == DROPBOX_KIND_FILE
-    if is_file and entry.size_bytes:
-        bump_used(cfg, -int(entry.size_bytes))
-    await session.commit()
+    async with with_quota_lock(guild_id):
+        cfg = await locked_config(session, guild_id)
+        now = utc_now()
+        entry.deleted_at = now
+        entry.deleted_by_id = current.id
+        entry.updated_at = now
+        is_file = entry.kind == DROPBOX_KIND_FILE
+        if is_file and entry.size_bytes:
+            bump_used(cfg, -int(entry.size_bytes))
+        await session.commit()
     await session.refresh(entry)
 
     await publish_entry_event(
@@ -598,24 +601,25 @@ async def restore_entry(
             Permissions.MANAGE_CHANNELS,
         )
 
-    cfg = await _get_or_create_config_locked(session, guild_id)
-    is_file = entry.kind == DROPBOX_KIND_FILE
-    if is_file and entry.size_bytes:
-        projected = cfg.used_bytes + int(entry.size_bytes)
-        if projected > cfg.total_quota_bytes:
-            raise HTTPException(
-                409,
-                detail=(
-                    "restore would exceed the community's quota "
-                    f"(free: {cfg.total_quota_bytes - cfg.used_bytes} bytes)"
-                ),
-            )
-        cfg.used_bytes = projected
+    async with with_quota_lock(guild_id):
+        cfg = await locked_config(session, guild_id)
+        is_file = entry.kind == DROPBOX_KIND_FILE
+        if is_file and entry.size_bytes:
+            projected = cfg.used_bytes + int(entry.size_bytes)
+            if projected > cfg.total_quota_bytes:
+                raise HTTPException(
+                    409,
+                    detail=(
+                        "restore would exceed the community's quota "
+                        f"(free: {cfg.total_quota_bytes - cfg.used_bytes} bytes)"
+                    ),
+                )
+            cfg.used_bytes = projected
 
-    entry.deleted_at = None
-    entry.deleted_by_id = None
-    entry.updated_at = utc_now()
-    await session.commit()
+        entry.deleted_at = None
+        entry.deleted_by_id = None
+        entry.updated_at = utc_now()
+        await session.commit()
     await session.refresh(entry)
 
     await publish_entry_event(

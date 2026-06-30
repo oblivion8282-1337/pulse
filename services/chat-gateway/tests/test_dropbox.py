@@ -707,6 +707,91 @@ async def test_finish_upload_expired_mint_is_refused(
     assert "expired" in finish_r.text.lower()
 
 
+@pytest.mark.asyncio
+async def test_content_type_text_html_relabeled_to_octet_stream():
+    """A member uploading ``evil.html`` with content_type ``text/html``
+    must land in the DB as ``application/octet-stream`` — the
+    presigned GET is signed with ``inline=False``, the browser is
+    forced to download, and the inline-XSS vector is closed.
+    Regression for the 2026-06-30 finding #3."""
+
+    from dcc_chat_gateway.routes._dropbox_helpers import (
+        is_safe_inline_content_type,
+        normalize_content_type,
+    )
+
+    assert normalize_content_type("text/html") == "application/octet-stream"
+    assert (
+        normalize_content_type("text/html; charset=utf-8")
+        == "application/octet-stream"
+    )
+    assert (
+        normalize_content_type("application/javascript")
+        == "application/octet-stream"
+    )
+    # The safe-inline whitelist keeps the listed prefixes.
+    assert is_safe_inline_content_type("image/png") is True
+    assert is_safe_inline_content_type("application/pdf") is True
+    assert is_safe_inline_content_type("text/plain") is True
+    assert is_safe_inline_content_type("TEXT/PLAIN") is True
+    # SVG is the lone denied type — it can carry inline <script>.
+    assert is_safe_inline_content_type("image/svg+xml") is False
+    assert normalize_content_type("image/svg+xml") == "application/octet-stream"
+
+
+@pytest.mark.asyncio
+async def test_create_folder_with_dotdot_parent_returns_422(
+    client, _auth_signer, mock_s3
+):
+    """``parent_path = "foo/.."`` must surface as 422 (path-traversal
+    rejected by ``normalize_parent_path``), not the bare 500 that
+    the un-caught ``ValueError`` would produce. Regression for the
+    bug found by the post-fix review."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/folders",
+        json={"name": "evil", "parent_path": "foo/.."},
+        headers=auth(token),
+    )
+    assert r.status_code == 422, r.text
+    assert "parent_path" in r.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_patch_entry_with_dotdot_parent_returns_422(
+    client, _auth_signer, mock_s3
+):
+    """Same path-traversal guard for ``patch_entry`` when the
+    ``parent_path`` field carries an escape."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Seed a folder to patch against.
+    seed = await client.post(
+        f"/guilds/{gid}/dropbox/folders",
+        json={"name": "src", "parent_path": ""},
+        headers=auth(token),
+    )
+    assert seed.status_code == 201, seed.text
+    folder_id = seed.json()["id"]
+
+    r = await client.patch(
+        f"/guilds/{gid}/dropbox/entries/{folder_id}",
+        json={"parent_path": "foo/../etc"},
+        headers=auth(token),
+    )
+    assert r.status_code == 422, r.text
+    assert "parent_path" in r.text.lower()
+
+
 async def _upload_finished_file(
     client, token: str, gid: str, name: str, body: bytes, mock_s3
 ) -> dict:
