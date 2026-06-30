@@ -198,6 +198,15 @@ async def delete_object(key: str) -> None:
     await client.delete_object(Bucket=s.s3_bucket, Key=key)
 
 
+async def head_object(key: str) -> dict:
+    """HEAD an object via the internal client. Returns the raw response
+    dict so callers can pull ``ContentLength`` / ``ContentType`` without
+    a wrapper type. Raises ``ClientError`` (bubbles as 500) on miss."""
+    s = get_settings()
+    client = await _ensure_internal_client()
+    return await client.head_object(Bucket=s.s3_bucket, Key=key)
+
+
 async def total_bucket_bytes() -> int | None:
     """Sum the Size of every object in the attachments bucket.
 
