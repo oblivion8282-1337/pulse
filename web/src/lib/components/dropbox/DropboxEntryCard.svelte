@@ -97,6 +97,7 @@
         class="rounded p-1 hover:bg-bg-hover"
         title={pm.dropbox_restore_title()}
         onclick={onRestore}
+        data-testid="dropbox-entry-restore-{entry.id}"
       >
         <Undo2Icon class="size-3.5" />
       </button>
@@ -119,6 +120,7 @@
         class="rounded p-1 text-destructive hover:bg-destructive/20"
         title={pm.dropbox_delete_title()}
         onclick={onTrash}
+        data-testid="dropbox-entry-trash-{entry.id}"
       >
         <TrashIcon class="size-3.5" />
       </button>

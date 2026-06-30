@@ -1,14 +1,16 @@
 /**
  * End-to-end smoke for the Dropbox / Ablage feature (Channel.type=2).
  *
- * Flow:
+ * Full round-trip:
  *  - register alice (bootstrap-admin)
- *  - create a guild, then a dropbox channel via the CreateChannelDialog
+ *  - create a guild + dropbox channel via the CreateChannelDialog
  *  - upload a file via the Ablage toolbar
  *  - confirm the file shows up in the file grid
- *  - trash it
- *  - confirm the trash listing contains it
- *  - restore and confirm the root listing has it back
+ *  - trash it via the per-card trash button (DOM click, not REST)
+ *  - confirm the file vanishes from the root listing
+ *  - open the trash view and confirm the file is there
+ *  - restore via the per-row restore button
+ *  - confirm the file is back in the root listing
  *
  * Requires the dev stack + MinIO to be live (uses the same global
  * setup as the rest of the e2e suite). Skipped automatically if
@@ -54,15 +56,18 @@ async function registerAndLogin(page: Page, suffix: string) {
   await page.fill('input[name="password"]', 'CorrectHorseBatteryStaple!2026');
   await page.fill('input[name="password2"]', 'CorrectHorseBatteryStaple!2026');
   await page.click('button[type="submit"]');
-  // Allow registration gate / email-verify detour to settle.
   await page.waitForLoadState('networkidle');
   return uname;
 }
 
 test.describe('Dropbox / Ablage', () => {
-  test('create dropbox channel, upload, trash, restore', async ({ page }) => {
+  test('create dropbox channel, upload, trash via DOM, restore via DOM', async ({
+    page
+  }) => {
+    // Confirm/alert dialogs spawned by trashing a file must be accepted.
+    page.on('dialog', (d) => void d.accept());
+
     const uname = await registerAndLogin(page, 'alice');
-    // Ensure alice is admin via container exec (bootstrap, see admin.spec).
     const userId = containerExec('pulse_postgres', [
       'psql',
       '-U',
@@ -81,7 +86,6 @@ test.describe('Dropbox / Ablage', () => {
       '-c',
       `UPDATE auth.users SET is_admin=true WHERE id=${userId}`
     ]);
-    // Re-login so the new is_admin lands in the JWT.
     await page.context().clearCookies();
     await page.goto('/login');
     await page.fill('input[name="username"]', uname);
@@ -89,24 +93,22 @@ test.describe('Dropbox / Ablage', () => {
     await page.click('button[type="submit"]');
     await page.waitForLoadState('networkidle');
 
-    // Create a guild.
+    // Guild + dropbox channel.
     await page.goto('/app');
     await page.click('[data-testid="create-guild"]');
     await page.fill('[data-testid="guild-name-input"]', 'Dropbox Test Guild');
     await page.click('[data-testid="guild-create-submit"]');
     await page.waitForLoadState('networkidle');
 
-    // Open CreateChannelDialog and pick Ablage.
     await page.click('[data-testid="channel-create"]');
     await page.click('[data-testid="create-channel-type-dropbox"]');
     await page.fill('[data-testid="create-channel-name"]', 'ablage');
     await page.click('[data-testid="create-channel-submit"]');
 
-    // The DropboxView should render.
     await expect(page.getByTestId('dropbox-view')).toBeVisible();
     await expect(page.getByTestId('dropbox-quota-fill')).toBeVisible();
 
-    // Upload a file via the hidden input.
+    // Upload.
     const fileChooserPromise = page.waitForEvent('filechooser');
     await page.click('[data-testid="dropbox-upload-btn"]');
     const fileChooser = await fileChooserPromise;
@@ -115,31 +117,43 @@ test.describe('Dropbox / Ablage', () => {
       mimeType: 'text/plain',
       buffer: Buffer.from('hello dropbox')
     });
+    const uploaded = page.getByText('hello.txt');
+    await expect(uploaded).toBeVisible({ timeout: 10_000 });
 
-    // The upload should complete and the file grid should display it.
-    await expect(page.getByText('hello.txt')).toBeVisible({ timeout: 10_000 });
+    // Grab the entry id out of the data-testid on its enclosing card.
+    const card = page
+      .locator('[data-testid^="dropbox-entry-"]:not([data-testid^="dropbox-entry-open-"])')
+      .filter({ hasText: 'hello.txt' })
+      .first();
+    const cardTestId = await card.getAttribute('data-testid');
+    const entryId = cardTestId?.replace('dropbox-entry-', '');
+    expect(entryId, 'entry card testid must contain the snowflake id').toBeTruthy();
 
-    // Trash it (the per-row trash button shows on hover; use the list view).
-    // For a deterministic click we can use the entry-card action.
-    const entry = page.locator('[data-testid^="dropbox-entry-"]').first();
-    await entry.hover();
-    // Trash button gets its testid when hovered/visible.
-    await page.locator('[data-testid="dropbox-entry-open-"]').first().waitFor();
-    // Direct API call would be more stable than DOM-against-hover; we use
-    // page.request to mirror what the row-trash button does.
-    const ctx = page.context();
-    const guildId = page.url().match(/guilds\/(\d+)/)?.[1];
-    await ctx.request.delete(`/api/chat/guilds/${guildId}/dropbox/entries`, {
-      failOnStatusCode: false
-    });
-    // The above is intentionally a no-op placeholder — the actual delete
-    // needs the entry id. Real users hit the trash button; this spec
-    // is a skeleton that exercises the round-trip in combination with
-    // manual API checks.
+    // Trash via the DOM — click the per-card trash button.
+    const trashBtn = page.getByTestId(`dropbox-entry-trash-${entryId}`);
+    await trashBtn.click();
 
-    // Open trash view and confirm hello.txt is there.
+    // File vanishes from the root listing.
+    await expect(uploaded).toBeHidden({ timeout: 5_000 });
+
+    // Open trash view, file is there with the same id.
     await page.click('[data-testid="dropbox-trash-toggle"]');
-    // Restore it.
-    // (skeleton — flesh out once file picker + DOM-trash are stable)
+    const trashCard = page
+      .locator(`[data-testid="dropbox-entry-${entryId}"]`)
+      .first();
+    await expect(trashCard).toBeVisible({ timeout: 5_000 });
+
+    // Restore via DOM.
+    await page.getByTestId(`dropbox-entry-restore-${entryId}`).click();
+    // WS pushes ``dropbox_entry_restored`` → parent calls refreshAll.
+    // The root listing has the file again; trash view no longer does.
+    await expect(page.getByText('hello.txt')).toBeVisible({ timeout: 5_000 });
+    // Switch back to root: the trash-toggle button is now showing
+    // "View trash" (because we're in root view) — click it once more
+    // is a no-op; we instead toggle back if needed.
+    await page.click('[data-testid="dropbox-trash-toggle"]');
+    await expect(
+      page.locator(`[data-testid="dropbox-entry-${entryId}"]`)
+    ).toBeVisible();
   });
 });
