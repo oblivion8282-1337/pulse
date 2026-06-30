@@ -230,6 +230,20 @@ class _PermFilterMixin:
             # ``guild-activation``-Cache invalidieren; Outsider haben
             # gar keinen Slot für die Guild.
             "guild_plugins_changed",
+            # Dropbox / Ablage events carry entry metadata + presigned
+            # GET URLs (for files). The bandwidth cost is negligible
+            # but the privacy cost matters — a member with
+            # ``@everyone`` ``VIEW_CHANNEL`` denied on the dropbox
+            # channel must not receive presigned URLs for files they
+            # can't see in the sidebar. Same channel-scope as
+            # ``channel_bump`` (see the gate below in
+            # pubsub_channel_guild.handle_guild_events).
+            "dropbox_entry_created",
+            "dropbox_entry_updated",
+            "dropbox_entry_deleted",
+            "dropbox_entry_restored",
+            "dropbox_entry_purged",
+            "dropbox_quota_updated",
         }
     )
 
