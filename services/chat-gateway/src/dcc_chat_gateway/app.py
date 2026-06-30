@@ -280,18 +280,55 @@ def create_app(*, skip_redis: bool = False) -> FastAPI:
     import structlog as _sl
     from fastapi.exceptions import RequestValidationError
 
+    # Field-name blacklist for the raw-body echo. Any key matching
+    # one of these (case-insensitive, substring) gets redacted from
+    # the logged payload so a future endpoint that carries a real
+    # secret in the body doesn't leak it via the 422 path.
+    _REDACT_KEY_SUBSTR = (
+        "token",
+        "secret",
+        "password",
+        "passwd",
+        "key",
+        "auth",
+        "session",
+        "credential",
+        "private",
+    )
+
+    def _redact(obj):
+        if isinstance(obj, dict):
+            return {
+                k: ("[redacted]" if any(s in k.lower() for s in _REDACT_KEY_SUBSTR) else _redact(v))
+                for k, v in obj.items()
+            }
+        if isinstance(obj, list):
+            return [_redact(v) for v in obj]
+        return obj
+
     @app.exception_handler(RequestValidationError)
     async def _log_422(request, exc: RequestValidationError):
         try:
             raw = (await request.body()).decode(errors="replace")[:1024]
         except Exception:  # noqa: BLE001
             raw = "<unreadable>"
+        # Try to redact sensitive fields before logging. The body
+        # might not be JSON (e.g. multipart upload-url cancel) — in
+        # that case we fall back to a truncated raw echo. The 1 KiB
+        # cap from before is preserved so abusive clients can't
+        # flood the log.
+        logged_body: str | dict | list = "<non-json>"
+        try:
+            parsed = _json.loads(raw)
+            logged_body = _redact(parsed)
+        except Exception:  # noqa: BLE001 — not JSON, keep raw
+            logged_body = raw
         _sl.get_logger("dcc_chat_gateway").warning(
             "request_validation_error",
             method=request.method,
             path=request.url.path,
             errors=_json.loads(_json.dumps(exc.errors(), default=str))[:6],
-            raw_body=raw,
+            raw_body=logged_body,
         )
         # Re-raise as the default 422 — FastAPI's own handler takes over.
         from fastapi.responses import JSONResponse
