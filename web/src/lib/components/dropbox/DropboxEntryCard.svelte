@@ -6,13 +6,7 @@
    * layout); that path lives in DropboxView for now — splitting
    * would need its own Row component without much savings.
    */
-  import type { Component } from 'svelte';
-  import ArchiveIcon from '@lucide/svelte/icons/archive';
-  import FileIcon from '@lucide/svelte/icons/file';
   import FolderIcon from '@lucide/svelte/icons/folder';
-  import ImageIcon from '@lucide/svelte/icons/image';
-  import MusicIcon from '@lucide/svelte/icons/music';
-  import VideoIcon from '@lucide/svelte/icons/video';
   import PinIcon from '@lucide/svelte/icons/pin';
   import PinOffIcon from '@lucide/svelte/icons/pin-off';
   import PencilIcon from '@lucide/svelte/icons/pencil';
@@ -21,6 +15,7 @@
   import { formatBytes } from '$lib/utils/formatBytes';
   import { isFile, isFolder, type DropboxEntry } from '$lib/api/dropbox';
   import { m as pm } from '$lib/paraglide/messages.js';
+  import { fileIcon } from './fileIcon';
 
   type Props = {
     entry: DropboxEntry;
@@ -43,16 +38,6 @@
     onTrash,
     onRestore
   }: Props = $props();
-
-  function fileIcon(e: DropboxEntry): Component {
-    if (isFolder(e)) return FolderIcon;
-    const t = (e.content_type || '').toLowerCase();
-    if (t.startsWith('image/')) return ImageIcon;
-    if (t.startsWith('video/')) return VideoIcon;
-    if (t.startsWith('audio/')) return MusicIcon;
-    if (t.includes('zip') || t.includes('archive')) return ArchiveIcon;
-    return FileIcon;
-  }
 
   const Icon = $derived(fileIcon(entry));
 </script>
