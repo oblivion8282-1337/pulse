@@ -56,6 +56,51 @@ class _S3Mock:
         self.deleted.append(key)
         self.put.pop(key, None)
 
+    async def _ensure_internal_client(self):
+        """Stand-in for the aiobotocore client the production
+        ``_ensure_internal_client`` would hand out. The purge path
+        iterates ``list_objects_v2`` over a single page; we hand back
+        a stub that paginates the in-memory ``put`` dict."""
+
+        outer = self
+
+        class _Paginator:
+            def paginate(self, *, Bucket, Prefix=""):
+                return _AsyncIter(
+                    [
+                        {
+                            "Contents": [
+                                {"Key": k, "Size": len(v)}
+                                for k, v in outer.put.items()
+                                if k.startswith(Prefix)
+                            ]
+                        }
+                    ]
+                )
+
+        return _Client(_Paginator())
+
+
+class _AsyncIter:
+    def __init__(self, pages: list[dict]) -> None:
+        self._pages = pages
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self._pages:
+            raise StopAsyncIteration
+        return self._pages.pop(0)
+
+
+class _Client:
+    def __init__(self, paginator) -> None:
+        self._paginator = paginator
+
+    def get_paginator(self, _name):
+        return self._paginator
+
 
 @pytest.fixture
 def mock_s3(monkeypatch):
@@ -65,6 +110,7 @@ def mock_s3(monkeypatch):
     monkeypatch.setattr(s3_mod, "presigned_get_url", m.presigned_get_url)
     monkeypatch.setattr(s3_mod, "head_object", m.head_object)
     monkeypatch.setattr(s3_mod, "delete_object", m.delete_object)
+    monkeypatch.setattr(s3_mod, "_ensure_internal_client", m._ensure_internal_client)
     return m
 
 
@@ -516,3 +562,256 @@ async def test_finish_upload_missing_object_raises(
     )
     assert finish_r.status_code == 409, finish_r.text
     assert "not found" in finish_r.json()["detail"].lower()
+
+
+# ─── Edge-case coverage (regression-guards for the 2026-06-30 review) ──────
+
+
+async def _upload_finished_file(
+    client, token: str, gid: str, name: str, body: bytes, mock_s3
+) -> dict:
+    """Helper: mint → seed mock_s3 → finish-upload. Returns the entry dict."""
+
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": name,
+            "content_type": "text/plain",
+            "size_bytes": len(body),
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    mock_s3.put[mint["storage_key"]] = body
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": name,
+            "size_bytes": len(body),
+            "content_type": "text/plain",
+        },
+        headers=auth(token),
+    )
+    assert finish_r.status_code == 200, finish_r.text
+    return finish_r.json()
+
+
+async def _second_user(_auth_signer) -> tuple[str, int]:
+    """A second user that's NOT a guild member — used to assert
+    non-member is rejected and (after adding them) to assert non-owner
+    is rejected for mutations."""
+
+    uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
+    return _auth_signer.issue_access(uid, f"user{uid}"), uid
+
+
+@pytest.mark.asyncio
+async def test_settings_shrink_below_used_returns_409(
+    client, _auth_signer, mock_s3
+):
+    """Coherence check: an admin cannot shrink total_quota_bytes below
+    the current used_bytes — silent 500s on every future upload would
+    be a worse outcome than a deliberate 409."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Use ~100 MiB so we can shrink below it without touching the
+    # per-file 100 MiB cap.
+    await _upload_finished_file(
+        client, token, gid, "big.bin", b"x" * 100 * 1024 * 1024, mock_s3
+    )
+
+    r = await client.patch(
+        f"/guilds/{gid}/dropbox/settings",
+        json={"total_quota_bytes": 50 * 1024 * 1024},  # 50 MiB
+        headers=auth(token),
+    )
+    assert r.status_code == 409, r.text
+    assert "smaller than current used_bytes" in r.text
+
+
+@pytest.mark.asyncio
+async def test_upload_url_too_large_returns_413(
+    client, _auth_signer, mock_s3
+):
+    """Per-file cap is checked at mint — refuse before the user burns
+    bandwidth uploading a 100 MiB file when the cap is 50 MiB."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Tighten the per-file cap to 1 MiB.
+    await client.patch(
+        f"/guilds/{gid}/dropbox/settings",
+        json={"per_file_max_bytes": 1024 * 1024},
+        headers=auth(token),
+    )
+
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "big.bin",
+            "content_type": "application/octet-stream",
+            "size_bytes": 2 * 1024 * 1024,  # 2 MiB > 1 MiB cap
+        },
+        headers=auth(token),
+    )
+    assert r.status_code == 413, r.text
+    assert "too large" in r.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_upload_url_quota_exhausted_returns_413(
+    client, _auth_signer, mock_s3
+):
+    """Quota-cap is checked at mint: refuse when used_bytes + size
+    would overshoot total.  The reverse direction (size fits the
+    per-file cap but not the community's free space) is the case
+    users actually hit."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Shrink total quota to 2 MiB (above the 1 MiB floor).
+    await client.patch(
+        f"/guilds/{gid}/dropbox/settings",
+        json={"total_quota_bytes": 2 * 1024 * 1024},
+        headers=auth(token),
+    )
+    # Use 1 MiB.
+    await _upload_finished_file(
+        client, token, gid, "used.bin", b"x" * 1024 * 1024, mock_s3
+    )
+
+    # Now any non-empty file won't fit (1 MiB free, but the schema
+    # requires size_bytes >= 1 byte, and we want a 2 MiB file that
+    # would blow the 2 MiB total).
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "more.bin",
+            "content_type": "application/octet-stream",
+            "size_bytes": 2 * 1024 * 1024,  # 2 MiB > 1 MiB free
+        },
+        headers=auth(token),
+    )
+    assert r.status_code == 413, r.text
+    assert "free space" in r.text.lower()
+
+
+@pytest.mark.asyncio
+async def test_finish_upload_oversize_object_triggers_413_and_s3_cleanup(
+    client, _auth_signer, mock_s3
+):
+    """A client that bypasses the presigned URL's content-length and
+    pushes a larger body must be cleaned up — the row never lands,
+    the MinIO object is deleted, and a 413 is returned so the user
+    can see what happened."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Tighten the per-file cap so the seeded larger body actually
+    # exceeds it. Default is 100 MiB; 2 MiB would slip past.
+    await client.patch(
+        f"/guilds/{gid}/dropbox/settings",
+        json={"per_file_max_bytes": 1024 * 1024},  # 1 MiB
+        headers=auth(token),
+    )
+
+    # Mint for a 100-byte file.
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "sneaky.bin",
+            "content_type": "application/octet-stream",
+            "size_bytes": 100,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200, mint_r.text
+    mint = mint_r.json()
+    storage_key = mint["storage_key"]
+    # But seed MinIO with a much larger body (simulates a tampered PUT).
+    mock_s3.put[storage_key] = b"x" * (2 * 1024 * 1024)  # 2 MiB
+
+    finish_r = await client.post(
+        f"/guilds/{gid}/dropbox/finish-upload",
+        json={
+            "id": mint["id"],
+            "parent_path": "",
+            "name": "sneaky.bin",
+            "size_bytes": 100,
+            "content_type": "application/octet-stream",
+        },
+        headers=auth(token),
+    )
+    assert finish_r.status_code == 413, finish_r.text
+    assert "exceeds per-file cap" in finish_r.text
+    # Cleanup: MinIO object must be gone so the bucket doesn't
+    # accumulate orphans from every tampered upload.
+    assert storage_key not in mock_s3.put
+    assert storage_key in mock_s3.deleted
+
+
+# The non-owner permission tests need a way to add a second user as a
+# regular GuildMember. The conftest's session setup uses a schema-
+# flattened MetaData, so direct ORM inserts from a fresh
+# ``SessionLocal()`` reference the ``chat.`` schema that the test
+# engine doesn't have. Tracked in the punch list — the right path is
+# a ``second_member_in_guild`` fixture in conftest.py that goes
+# through the same flattened-metadata path the rest of the test
+# suite uses.
+
+
+@pytest.mark.asyncio
+async def test_guild_delete_purges_dropbox_objects(
+    client, _auth_signer, mock_s3
+):
+    """When the guild is deleted, the dropbox/<gid>/ MinIO prefix
+    must be cleaned up — ``ondelete='CASCADE'`` cleans the SQL side,
+    MinIO has no equivalent."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+    await _upload_finished_file(
+        client, token, gid, "to-delete.bin", b"x" * 32, mock_s3
+    )
+
+    # Seed one extra orphan (simulating a PUT that aborted between
+    # mint and finish) so the test also covers objects that have no
+    # corresponding DB row at all.
+    orphan_key = f"dropbox/{gid}/orphan.bin"
+    mock_s3.put[orphan_key] = b"orphan"
+
+    # Mint a second user who is admin (global admin bypasses the
+    # owner-only check on delete_guild).
+    admin_uid = abs(hash(uuid.uuid4())) & ((1 << 31) - 1)
+    admin_token = _auth_signer.issue_access(
+        admin_uid, f"admin{admin_uid}", is_admin=True
+    )
+
+    r = await client.delete(f"/guilds/{gid}", headers=auth(admin_token))
+    assert r.status_code == 204, r.text
+
+    # Every MinIO object under dropbox/<gid>/ must be gone.
+    dropbox_keys = [k for k in mock_s3.put if k.startswith(f"dropbox/{gid}/")]
+    assert dropbox_keys == [], f"leftover dropbox objects: {dropbox_keys}"
