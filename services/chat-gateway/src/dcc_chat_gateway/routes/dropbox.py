@@ -17,7 +17,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
 from sqlalchemy import and_, func, select
 
-from dcc_chat_gateway import s3
+from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
     CHANNEL_TYPE_DROPBOX,
@@ -349,6 +349,11 @@ async def create_folder(
     cfg = await _get_config_unlocked(session, guild_id)
     if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
+
+    if not ratelimit.check("dropbox_folder_create", current.id):
+        raise HTTPException(
+            429, detail="too many folder creates — slow down"
+        )
 
     parent = normalize_parent_path(payload.parent_path)
     try:
