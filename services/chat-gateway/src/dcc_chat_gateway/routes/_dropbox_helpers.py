@@ -47,6 +47,14 @@ _BIDI_FORMAT = frozenset(
     "‪‫‬‭‮⁦⁧⁨⁩"
 )
 
+# Zero-width / invisible characters. None of these have a
+# legitimate use inside a file basename — ``vi​cus`` and
+# ``.env​`` are display-spoofing tricks that pass the
+# bidi-strip but still confuse the user reading the sidebar.
+_ZW_INVISIBLE = frozenset(
+    "​‌‍⁠﻿"
+)
+
 # Content-Types we'll happily store with ``Content-Disposition: inline``
 # on the presigned GET. Anything else gets relabelled
 # ``application/octet-stream`` and served with ``attachment`` to defuse
@@ -149,9 +157,13 @@ def validate_name(name: str) -> str:
         raise ValueError("name is empty")
     if len(name) > 255:
         raise ValueError("name longer than 255 chars")
-    # Strip bidi-format chars BEFORE the forbidden-char check (which
-    # only catches a narrow set of bytes anyway).
-    cleaned = "".join(c for c in name if c not in _BIDI_FORMAT)
+    # Strip bidi-format + zero-width-invisible chars BEFORE the
+    # forbidden-char check (which only catches a narrow set of
+    # bytes anyway).
+    cleaned = "".join(
+        c for c in name
+        if c not in _BIDI_FORMAT and c not in _ZW_INVISIBLE
+    )
     if any(c in _FORBIDDEN_NAME_CHARS for c in cleaned):
         raise ValueError("name contains forbidden character (/ \\ \\0)")
     if cleaned in (".", ".."):
@@ -404,3 +416,18 @@ async def with_quota_lock(guild_id: int):
 
     async with _guild_lock(guild_id):
         yield
+
+
+def evict_quota_lock(guild_id: int) -> None:
+    """Drop the per-guild lock from ``_QUOTA_LOCKS``.
+
+    Called from ``purge_guild_dropbox_objects`` (run at guild-delete
+    time, both directly and via the orphan-sweep cascade) so a
+    long-running server doesn't accumulate one lock per guild that
+    ever touched the dropbox. Safe to call from outside the lock —
+    the entry may be in-use by an in-flight request; that request
+    will release the lock as usual, the next caller on the
+    (newly-deleted) guild id will allocate a fresh ``asyncio.Lock``
+    that's never contended."""
+
+    _QUOTA_LOCKS.pop(guild_id, None)
