@@ -36,6 +36,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     normalize_parent_path,
     publish_entry_event,
     publish_quota_event,
+    serialize_entry,
     utc_now,
     validate_name,
 )
@@ -84,16 +85,33 @@ async def _get_or_create_dropbox_channel(
     return channel, True
 
 
-async def _get_or_create_config(session, guild_id: int) -> DropboxConfig:
-    """Per-guild config (quota, retention, enabled). Same idempotency contract."""
+async def _get_or_create_config_locked(
+    session, guild_id: int
+) -> DropboxConfig:
+    """Read-or-create the per-guild config with a row-level lock.
 
-    cfg = await session.get(DropboxConfig, guild_id)
+    Used by quota-mutating endpoints so concurrent uploads can't both
+    pass the ``used_bytes + size <= total`` check (the classic
+    check-then-act on a cached counter). Read-only endpoints use
+    ``_get_config_unlocked`` instead."""
+    cfg = (
+        await session.execute(
+            select(DropboxConfig)
+            .where(DropboxConfig.guild_id == guild_id)
+            .with_for_update()
+        )
+    ).scalars().first()
     if cfg is not None:
         return cfg
     cfg = DropboxConfig(guild_id=guild_id)
     session.add(cfg)
     await session.flush()
     return cfg
+
+
+async def _get_config_unlocked(session, guild_id: int) -> DropboxConfig | None:
+    """Cheap, unlocked read for endpoints that don't mutate quota."""
+    return await session.get(DropboxConfig, guild_id)
 
 
 # ---------------------------------------------------------------------------
@@ -123,12 +141,16 @@ async def ensure_dropbox_channel(
     )
 
     channel, created = await _get_or_create_dropbox_channel(session, guild_id)
-    cfg = await _get_or_create_config(session, guild_id)
-    await session.commit()
-    await session.refresh(channel)
-    await session.refresh(cfg)
-
+    # Only the channel-creation path may need to allocate a config row.
+    # Reading the channel must NOT auto-create a config (that would
+    # silently re-enable dropbox for every guild that ever touched this
+    # endpoint).
     if created:
+        cfg = await _get_or_create_config_locked(session, guild_id)
+        await session.commit()
+        await session.refresh(channel)
+        await session.refresh(cfg)
+
         mgr = getattr(request.app.state, "connection_manager", None)
         if mgr is not None:
             await mgr.publish_guild_event(
@@ -148,6 +170,8 @@ async def ensure_dropbox_channel(
                 )
             )
             await publish_quota_event(mgr, cfg)
+    else:
+        await session.commit()
 
     return DropboxChannelOut(
         id=channel.id,
@@ -168,11 +192,17 @@ async def get_quota(
     session: SessionDep,
     current: CurrentUser,
 ) -> DropboxConfigOut:
-    """Public read — every guild member can see how full the dropbox is."""
+    """Public read — every guild member can see how full the dropbox is.
+
+    Read-only: returns 404 instead of silently creating a config row
+    when the dropbox was never provisioned. Otherwise a quota ping
+    would re-enable the feature for every guild (DB side-effect on
+    a pure GET)."""
 
     await require_member(session, guild_id, current.id)
-    cfg = await _get_or_create_config(session, guild_id)
-    await session.commit()
+    cfg = await _get_config_unlocked(session, guild_id)
+    if cfg is None:
+        raise HTTPException(404, detail="dropbox not provisioned for this guild")
     return DropboxConfigOut.model_validate(cfg)
 
 
@@ -201,8 +231,8 @@ async def list_entries(
     """
 
     await require_member(session, guild_id, current.id)
-    cfg = await _get_or_create_config(session, guild_id)
-    if not cfg.enabled:
+    cfg = await _get_config_unlocked(session, guild_id)
+    if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
 
     if include_trash:
@@ -217,7 +247,7 @@ async def list_entries(
         )
         rows = list((await session.execute(stmt)).scalars())
         return DropboxEntriesOut(
-            entries=[await _serialize_entry(session, e) for e in rows],
+            entries=[await serialize_entry(session, e) for e in rows],
             parent_path="",
             truncated=len(rows) >= 500,
         )
@@ -239,7 +269,7 @@ async def list_entries(
         )
         rows = list((await session.execute(stmt)).scalars())
         return DropboxEntriesOut(
-            entries=[await _serialize_entry(session, e) for e in rows],
+            entries=[await serialize_entry(session, e) for e in rows],
             parent_path="",
             truncated=len(rows) >= 200,
         )
@@ -257,37 +287,41 @@ async def list_entries(
     )
     rows = list((await session.execute(stmt)).scalars())
     return DropboxEntriesOut(
-        entries=[await _serialize_entry(session, e) for e in rows],
+        entries=[await serialize_entry(session, e) for e in rows],
         parent_path=parent,
         truncated=len(rows) >= 500,
     )
 
 
-async def _serialize_entry(session, entry: DropboxFile) -> DropboxEntryOut:
-    """DB-row → wire dict, with a fresh presigned GET URL for files."""
+async def _parent_path_exists(
+    session, guild_id: int, parent_path: str
+) -> bool:
+    """True if every segment of ``parent_path`` exists as a live folder.
 
-    url: str | None = None
-    if entry.kind == DROPBOX_KIND_FILE and entry.storage_key:
-        try:
-            url = await s3.presigned_get_url(entry.storage_key, inline=True)
-        except Exception:  # noqa: BLE001 — transient MinIO outage
-            url = None
-    return DropboxEntryOut(
-        id=entry.id,
-        guild_id=entry.guild_id,
-        channel_id=entry.channel_id,
-        parent_path=entry.parent_path,
-        name=entry.name,
-        kind=entry.kind,
-        size_bytes=entry.size_bytes,
-        content_type=entry.content_type,
-        version=entry.version,
-        uploaded_by_id=entry.uploaded_by_id,
-        uploaded_at=entry.uploaded_at,
-        updated_at=entry.updated_at,
-        pinned=bool(entry.pinned),
-        url=url,
-    )
+    Root (``""``) trivially exists. Otherwise each segment must match a
+    folder row whose own ``parent_path`` extends the previous. Catches
+    the "create folder under non-existent parent" bug — without this
+    the row lands in DB but is unreachable from any UI listing."""
+    if not parent_path:
+        return True
+    parts = parent_path.split("/")
+    cursor = ""
+    for seg in parts:
+        exists = (
+            await session.execute(
+                select(DropboxFile.id).where(
+                    DropboxFile.guild_id == guild_id,
+                    DropboxFile.parent_path == cursor,
+                    DropboxFile.name == seg,
+                    DropboxFile.kind == DROPBOX_KIND_FOLDER,
+                    DropboxFile.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if exists is None:
+            return False
+        cursor = f"{cursor}/{seg}" if cursor else seg
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -312,8 +346,8 @@ async def create_folder(
     BEFORE the INSERT, so we can hand back a clean 409."""
 
     await require_member(session, guild_id, current.id)
-    cfg = await _get_or_create_config(session, guild_id)
-    if not cfg.enabled:
+    cfg = await _get_config_unlocked(session, guild_id)
+    if cfg is None or not cfg.enabled:
         raise HTTPException(404, detail="dropbox disabled for this guild")
 
     parent = normalize_parent_path(payload.parent_path)
@@ -321,6 +355,11 @@ async def create_folder(
         name = validate_name(payload.name)
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
+
+    if not await _parent_path_exists(session, guild_id, parent):
+        raise HTTPException(
+            404, detail=f"parent path '{parent}' does not exist"
+        )
 
     clash = await session.execute(
         select(DropboxFile.id).where(
@@ -360,7 +399,7 @@ async def create_folder(
         guild_id=guild_id,
         entry=entry,
     )
-    return await _serialize_entry(session, entry)
+    return await serialize_entry(session, entry)
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +420,7 @@ async def patch_entry(
     request: Request,
 ) -> DropboxEntryOut:
     """Rename / move / pin-toggle. Members can edit their own uploads;
-    others' require MANAGE_CHANNELS."""
+    others' edits require MANAGE_CHANNELS."""
 
     await require_member(session, guild_id, current.id)
     entry = (
@@ -396,8 +435,11 @@ async def patch_entry(
     if entry is None:
         raise HTTPException(404, detail="entry not found")
 
-    rename_or_move = payload.name is not None or payload.parent_path is not None
-    if rename_or_move and entry.uploaded_by_id != current.id:
+    # Pin is an edit on a foreign asset just like rename/move — gate
+    # both on ownership *or* MANAGE_CHANNELS. Without this, any
+    # member can toggle the pinned flag on files they don't own.
+    is_foreign = entry.uploaded_by_id != current.id
+    if is_foreign:
         await check_permission(
             session,
             current,
@@ -423,6 +465,12 @@ async def patch_entry(
         raise HTTPException(422, detail=str(exc)) from exc
 
     if new_parent != entry.parent_path or new_name != entry.name:
+        if new_parent != entry.parent_path and not await _parent_path_exists(
+            session, guild_id, new_parent
+        ):
+            raise HTTPException(
+                404, detail=f"parent path '{new_parent}' does not exist"
+            )
         clash = await session.execute(
             select(DropboxFile.id).where(
                 DropboxFile.guild_id == guild_id,
@@ -450,7 +498,7 @@ async def patch_entry(
         guild_id=guild_id,
         entry=entry,
     )
-    return await _serialize_entry(session, entry)
+    return await serialize_entry(session, entry)
 
 
 @router.delete(
@@ -488,7 +536,7 @@ async def delete_entry(
             Permissions.MANAGE_CHANNELS,
         )
 
-    cfg = await _get_or_create_config(session, guild_id)
+    cfg = await _get_or_create_config_locked(session, guild_id)
     now = utc_now()
     entry.deleted_at = now
     entry.deleted_by_id = current.id
@@ -545,7 +593,7 @@ async def restore_entry(
             Permissions.MANAGE_CHANNELS,
         )
 
-    cfg = await _get_or_create_config(session, guild_id)
+    cfg = await _get_or_create_config_locked(session, guild_id)
     is_file = entry.kind == DROPBOX_KIND_FILE
     if is_file and entry.size_bytes:
         projected = cfg.used_bytes + int(entry.size_bytes)
@@ -574,10 +622,4 @@ async def restore_entry(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await publish_quota_event(mgr, cfg)
-    return await _serialize_entry(session, entry)
-
-
-# Wire the admin-side router into the same module path so callers don't
-# have to know that admin lives in a separate file. The admin router's
-# own prefix lives there (see dropbox_admin.py).
-from dcc_chat_gateway.routes.dropbox_admin import admin_router  # noqa: E402
+    return await serialize_entry(session, entry)

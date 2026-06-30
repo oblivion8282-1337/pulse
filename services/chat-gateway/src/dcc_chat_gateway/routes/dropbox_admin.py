@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Path, Request, status
+from fastapi import APIRouter, HTTPException, Path, Request, status
 from sqlalchemy import select
 
 from dcc_chat_gateway import s3
@@ -72,8 +72,6 @@ async def patch_settings(
         cfg.trash_retention_days = int(payload.trash_retention_days)
     if payload.total_quota_bytes is not None:
         if int(payload.total_quota_bytes) < cfg.used_bytes:
-            from fastapi import HTTPException
-
             raise HTTPException(
                 409,
                 detail=(
@@ -113,23 +111,28 @@ async def patch_settings(
 _SWEEP_INTERVAL_SECONDS = 60 * 60  # hourly
 
 
-def schedule_sweep(loop_task: asyncio.AbstractEventLoop) -> asyncio.Task:
+def schedule_sweep(
+    loop_task: asyncio.AbstractEventLoop, connection_manager
+) -> asyncio.Task:
     """Spawn the background sweep task; returns the Task handle so the
     FastAPI lifespan can cancel it on shutdown.
 
-    Called from the lifespan startup (see ``dcc_chat_gateway.app``)."""
+    ``connection_manager`` is forwarded into the sweep so we can publish
+    ``dropbox_entry_purged`` after the DB commit. None is a no-op for
+    the publish path (matches the in-band routes' ``getattr(...,
+    None)`` pattern)."""
 
-    return loop_task.create_task(_sweep_loop())
+    return loop_task.create_task(_sweep_loop(connection_manager))
 
 
-async def _sweep_loop() -> None:
+async def _sweep_loop(connection_manager) -> None:
     """Periodically call ``_sweep_once``. Sleeps via ``asyncio.sleep`` so
     the loop stays responsive; logs but swallows exceptions so a transient
     DB or S3 outage doesn't kill the task permanently."""
 
     while True:
         try:
-            await _sweep_once()
+            await _sweep_once(connection_manager)
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — keep running
@@ -141,8 +144,14 @@ async def _sweep_loop() -> None:
         await asyncio.sleep(_SWEEP_INTERVAL_SECONDS)
 
 
-async def _sweep_once() -> None:
-    """One pass of the trash-retention sweep."""
+async def _sweep_once(connection_manager) -> None:
+    """One pass of the trash-retention sweep.
+
+    For each row whose ``deleted_at`` is older than the guild's
+    retention window, hard-delete the MinIO object and the DB row, then
+    fire ``dropbox_entry_purged`` so connected clients drop the entry
+    from their trash view without a re-fetch (the same pattern the
+    in-band mutation routes use)."""
 
     # Lazy import — these touch the app lifespan state; avoid at module
     # import time so tests that don't bootstrap the full app still load
@@ -151,6 +160,7 @@ async def _sweep_once() -> None:
     from dcc_chat_gateway.routes._dropbox_helpers import utc_now
 
     now = utc_now()
+    purged: list[tuple[int, int, int]] = []  # (guild_id, entry_id, kind)
     async with async_session_maker() as session:
         # All configs in one go — we need each row's
         # trash_retention_days. Inner loop reads + sweeps serially; per-
@@ -160,7 +170,6 @@ async def _sweep_once() -> None:
             await session.execute(select(DropboxConfig))
         ).scalars().all()
 
-        total_purged = 0
         for cfg in cfg_rows:
             cutoff = now - timedelta(days=int(cfg.trash_retention_days))
             stmt = select(DropboxFile).where(
@@ -187,16 +196,29 @@ async def _sweep_once() -> None:
                         # retry the MinIO delete. Bytes may be
                         # temporarily orphaned; bandwidth-safe.
                         continue
+                purged.append((entry.guild_id, entry.id, entry.kind))
                 await session.delete(entry)
-                total_purged += 1
             await session.flush()
         await session.commit()
 
-    if total_purged:
-        log.info(
-            "dropbox_sweep_completed",
-            purged_entries=total_purged,
-        )
+    if not purged:
+        return
+
+    # Publish after commit so listeners only see rows that actually
+    # vanished (otherwise a rollback would leak a ghost to the FE).
+    if connection_manager is not None:
+        for guild_id, entry_id, kind in purged:
+            await publish_purge_event(
+                connection_manager,
+                guild_id=guild_id,
+                entry_id=entry_id,
+                kind=kind,
+            )
+
+    log.info(
+        "dropbox_sweep_completed",
+        purged_entries=len(purged),
+    )
 
 
 __all__ = ["admin_router", "schedule_sweep"]

@@ -11,8 +11,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from dcc_chat_gateway import s3
-from dcc_chat_gateway.models import DropboxConfig, DropboxFile
+from dcc_chat_gateway.models import (
+    DROPBOX_KIND_FILE,
+    Channel,
+    DropboxConfig,
+    DropboxFile,
+)
+from dcc_chat_gateway.routes._dropbox_schemas import DropboxEntryOut
 from dcc_chat_gateway.snowflake import next_id
+from sqlalchemy import select
 from dcc_shared.events import (
     DropboxEntryCreatedEvent,
     DropboxEntryDeletedEvent,
@@ -84,7 +91,8 @@ def validate_name(name: str) -> str:
 
 def full_path(parent_path: str, name: str) -> str:
     """Combine a normalized parent path + validated name into the full
-    MinIO-relative path. Empty root → just the name."""
+    MinIO-relative path. Empty root → just the name. Public so the
+    upload route can build the storage key without redefining it."""
 
     if not parent_path:
         return name
@@ -118,25 +126,59 @@ def entry_dict(entry: DropboxFile) -> dict[str, object]:
     Pydantic ``DropboxEntryOut`` so the listener + FE can treat them
     interchangeably."""
 
-    return {
-        "id": str(entry.id),
-        "guild_id": str(entry.guild_id),
-        "channel_id": str(entry.channel_id),
-        "parent_path": entry.parent_path,
-        "name": entry.name,
-        "kind": entry.kind,
-        "size_bytes": entry.size_bytes,
-        "content_type": entry.content_type,
-        "version": entry.version,
-        "uploaded_by_id": str(entry.uploaded_by_id),
-        "uploaded_at": entry.uploaded_at.isoformat()
-        if entry.uploaded_at is not None
-        else None,
-        "updated_at": entry.updated_at.isoformat()
-        if entry.updated_at is not None
-        else None,
-        "pinned": bool(entry.pinned),
-    }
+    return DropboxEntryOut.model_validate(entry).model_dump(mode="json")
+
+
+async def resolve_or_create_dropbox_channel(
+    session, guild_id: int, *, name: str = "ablage"
+) -> Channel:
+    """Lazy-resolve the dropbox channel — re-creates on the
+    finish-upload path if the row was deleted between mint and finish.
+    ``routes.dropbox._get_or_create_dropbox_channel`` is the equivalent
+    for the routes-side first-access path; this one lives here so the
+    upload module doesn't need to import the route module."""
+
+    from dcc_chat_gateway.models import CHANNEL_TYPE_DROPBOX  # avoid cycle
+
+    stmt = (
+        select(Channel)
+        .where(
+            Channel.guild_id == guild_id,
+            Channel.type == CHANNEL_TYPE_DROPBOX,
+        )
+        .order_by(Channel.position.desc())
+        .limit(1)
+    )
+    channel = (await session.execute(stmt)).scalars().first()
+    if channel is not None:
+        return channel
+    channel = Channel(
+        id=fresh_entry_id(),
+        guild_id=guild_id,
+        name=name,
+        type=CHANNEL_TYPE_DROPBOX,
+        position=0,
+    )
+    session.add(channel)
+    await session.flush()
+    return channel
+
+
+async def serialize_entry(session, entry: DropboxFile) -> DropboxEntryOut:
+    """DB-row → wire dict, with a fresh presigned GET URL for files.
+
+    Single source of truth used by every dropbox route (list, folder,
+    patch, delete, restore, finish-upload). The presigned URL is
+    best-effort — transient MinIO outage degrades to ``url=None``
+    instead of failing the whole call."""
+
+    out = DropboxEntryOut.model_validate(entry)
+    if entry.kind == DROPBOX_KIND_FILE and entry.storage_key:
+        try:
+            out.url = await s3.presigned_get_url(entry.storage_key, inline=True)
+        except Exception:  # noqa: BLE001 — transient MinIO outage
+            out.url = None
+    return out
 
 
 async def publish_entry_event(mgr, *, kind: str, guild_id: int, entry: DropboxFile) -> None:

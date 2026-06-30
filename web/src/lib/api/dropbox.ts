@@ -10,6 +10,13 @@ import { request } from './client';
 
 export type DropboxEntryKind = 0 | 1; // 0 = folder, 1 = file
 
+/** Folder entry — kind === 0. Local narrow helper to avoid magic-number
+ *  comparisons at every usage site (matches backend ``DROPBOX_KIND_*``). */
+export const isFolder = (e: DropboxEntry): boolean => e.kind === 0;
+
+/** File entry — kind === 1. */
+export const isFile = (e: DropboxEntry): boolean => e.kind === 1;
+
 export interface DropboxConfig {
   guild_id: string;
   enabled: boolean;

@@ -40,8 +40,15 @@
   import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
   import Rows3Icon from '@lucide/svelte/icons/rows-3';
   import type { Channel } from '$lib/api/types';
-  import { dropboxApi, type DropboxConfig, type DropboxEntry } from '$lib/api/dropbox';
+  import {
+    dropboxApi,
+    type DropboxConfig,
+    type DropboxEntry,
+    isFolder,
+    isFile,
+  } from '$lib/api/dropbox';
   import { currentServerUserId } from '$lib/stores/currentServerUser';
+  import { formatBytes } from '$lib/utils/formatBytes';
   import { m as pm } from '$lib/paraglide/messages.js';
 
   let { channel }: { channel: Channel } = $props();
@@ -66,7 +73,16 @@
     if (!browser) return;
     import('$lib/ws/connection').then(({ gateway }) => {
       unsub = gateway.on((evt) => {
-        const e = evt as unknown as { op?: string; guild_id?: string; payload?: unknown };
+        const e = evt as unknown as {
+          op?: string;
+          guild_id?: string;
+          // Dropbox quota event uses the flat fields directly on the
+          // event (see DropboxQuotaUpdatedEvent in
+          // shared/src/dcc_shared/events/guild.py) — no ``payload``
+          // wrapper. Earlier we read ``evt.payload`` and got ``undefined``,
+          // which collapsed the gauge to ``{#if quota}`` and made it
+          // disappear on every quota update.
+        } & Partial<DropboxConfig>;
         // Filter for this guild's dropbox events; the backend publishes
         // the same op-codes with a guild_id discriminator. Anything
         // outside this guild is filtered server-side; the check here
@@ -82,10 +98,15 @@
             void refreshAll();
             break;
           case 'dropbox_quota_updated':
-            // Event payload IS the new quota snapshot — see
-            // shared/src/dcc_shared/events/guild.py. The listener-typed
-            // event is available but we trust the inline shape.
-            quota = (evt as unknown as { payload: DropboxConfig }).payload;
+            quota = {
+              guild_id: e.guild_id ?? guildId,
+              enabled: Boolean(e.enabled),
+              total_quota_bytes: Number(e.total_quota_bytes ?? 0),
+              per_file_max_bytes: Number(e.per_file_max_bytes ?? 0),
+              used_bytes: Number(e.used_bytes ?? 0),
+              trash_retention_days: Number(e.trash_retention_days ?? 0),
+              updated_at: new Date().toISOString()
+            } as DropboxConfig;
             break;
         }
       });
@@ -133,21 +154,20 @@
   });
 
   // ----- Quota formatting -----
-  function formatBytes(n: number): string {
-    if (n < 1024) return `${n} B`;
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-    if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  }
+  // (formatBytes lives in $lib/utils/formatBytes — imported above)
 
   function pct(b: number, t: number): number {
     if (t <= 0) return 0;
     return Math.min(100, Math.round((b / t) * 100));
   }
 
+  const quotaPct = $derived(
+    quota ? pct(quota.used_bytes, quota.total_quota_bytes) : 0
+  );
+
   // ----- Folder navigation -----
   function enterFolder(entry: DropboxEntry) {
-    if (entry.kind !== 0) return;
+    if (!isFolder(entry)) return;
     currentPath = entry.parent_path ? `${entry.parent_path}/${entry.name}` : entry.name;
     searchQuery = '';
     viewTrash = false;
@@ -157,7 +177,7 @@
     if (!seg) {
       currentPath = '';
     } else {
-      const parts = currentPath.split('/');
+      const parts = pathSegments(currentPath);
       const idx = parts.indexOf(seg);
       currentPath = parts.slice(0, idx).join('/');
     }
@@ -167,9 +187,7 @@
 
   function navigateUp() {
     if (!currentPath) return;
-    const parts = currentPath.split('/');
-    parts.pop();
-    currentPath = parts.join('/');
+    currentPath = pathSegments(currentPath).slice(0, -1).join('/');
   }
 
   function pathSegments(p: string): string[] {
@@ -345,12 +363,12 @@
   }
 
   function openFile(e: DropboxEntry) {
-    if (e.kind !== 1 || !e.url) return;
+    if (!isFile(e) || !e.url) return;
     window.open(e.url, '_blank', 'noopener,noreferrer');
   }
 
   function fileIcon(e: DropboxEntry) {
-    if (e.kind === 0) return FolderIcon;
+    if (isFolder(e)) return FolderIcon;
     const t = (e.content_type || '').toLowerCase();
     if (t.startsWith('image/')) return ImageIcon;
     if (t.startsWith('video/')) return VideoIcon;
@@ -410,21 +428,21 @@
           })}
         </span>
         <span class="font-mono tabular-nums text-text-bright">
-          {pct(quota.used_bytes, quota.total_quota_bytes)} %
+          {quotaPct} %
         </span>
       </div>
       <div
         class="mt-2 h-2 overflow-hidden rounded-full bg-bg-hover"
         role="progressbar"
-        aria-valuenow={pct(quota.used_bytes, quota.total_quota_bytes)}
+        aria-valuenow={quotaPct}
         aria-valuemin="0"
         aria-valuemax="100"
       >
         <div
           class="h-full rounded-full transition-all"
-          style="width: {pct(quota.used_bytes, quota.total_quota_bytes)}%; background: {pct(quota.used_bytes, quota.total_quota_bytes) >= 95
+          style="width: {quotaPct}%; background: {quotaPct >= 95
             ? 'var(--destructive)'
-            : pct(quota.used_bytes, quota.total_quota_bytes) >= 80
+            : quotaPct >= 80
               ? 'var(--chart-3, #f59e0b)'
               : 'var(--brand)'}"
           data-testid="dropbox-quota-fill"
@@ -549,21 +567,21 @@
             <button
               class="flex aspect-square w-full items-center justify-center rounded-lg bg-bg-hover/40 text-text-dim group-hover:bg-primary/5"
               onclick={() =>
-                e.kind === 0 ? enterFolder(e) : openFile(e)}
+                isFolder(e) ? enterFolder(e) : openFile(e)}
               data-testid="dropbox-entry-open-{e.id}"
             >
-              <Icon class="size-12 {e.kind === 0 ? 'text-primary' : ''}" />
+              <Icon class="size-12 {isFolder(e) ? 'text-primary' : ''}" />
             </button>
             <p class="truncate text-sm font-medium" title={e.name}>{e.name}</p>
             <p class="text-text-faint text-xs">
-              {#if e.kind === 1 && e.size_bytes != null}
+              {#if isFile(e) && e.size_bytes != null}
                 {formatBytes(e.size_bytes)}
-              {:else if e.kind === 0}
+              {:else if isFolder(e)}
                 {pm.dropbox_folder_label()}
               {/if}
             </p>
             <div class="absolute right-1 top-1 flex gap-0.5 opacity-0 transition group-hover:opacity-100">
-              {#if !viewTrash && e.kind === 1}
+              {#if !viewTrash && isFile(e)}
                 <button
                   class="rounded p-1 hover:bg-bg-hover"
                   title={e.pinned ? pm.dropbox_unpin() : pm.dropbox_pin()}
@@ -636,9 +654,9 @@
                 <button
                   class="flex items-center gap-2"
                   onclick={() =>
-                    e.kind === 0 ? enterFolder(e) : openFile(e)}
+                    isFolder(e) ? enterFolder(e) : openFile(e)}
                 >
-                  <Icon class="size-4 {e.kind === 0 ? 'text-primary' : 'text-text-dim'}" />
+                  <Icon class="size-4 {isFolder(e) ? 'text-primary' : 'text-text-dim'}" />
                   <span class="font-medium">{e.name}</span>
                   {#if e.pinned}
                     <PinIcon class="text-primary size-3" />
@@ -646,7 +664,7 @@
                 </button>
               </td>
               <td class="text-text-dim">
-                {e.kind === 1 && e.size_bytes != null
+                {isFile(e) && e.size_bytes != null
                   ? formatBytes(e.size_bytes)
                   : '—'}
               </td>
