@@ -1,13 +1,10 @@
 """Per-guild file-storage metadata (dropbox / Ablage).
 
-Mirror of the two new tables introduced in alembic migration
-``0041_dropbox_storage``. Folder rows carry ``size_bytes`` /
-``content_type`` / ``storage_key`` NULL; soft-delete via
-``deleted_at`` so the periodic sweep can hard-purge after the configured
-retention.
+Mirror of the tables introduced in alembic migrations 0041 +
+0042. Folder rows carry ``size_bytes`` / ``content_type`` /
+``storage_key`` NULL; soft-delete via ``deleted_at`` so the
+periodic sweep can hard-purge after the configured retention.
 """
-
-from __future__ import annotations
 
 from datetime import datetime
 
@@ -136,4 +133,50 @@ class DropboxFile(Base):
         Index("ix_dropbox_files_guild_uploaded_at", "guild_id", "uploaded_at"),
         Index("ix_dropbox_files_name_trgm", "guild_id", "name"),
         Index("ix_dropbox_files_trash_sweep", "deleted_at"),
+        # Covering index for the orphan-sweep ``WHERE storage_key = ?``
+        # probe — small per row, but worth having since the bucket walk
+        # does one lookup per object.
+        Index("ix_dropbox_files_storage_key", "storage_key"),
+    )
+
+
+class DropboxPendingUpload(Base):
+    """Server-side state that ties a presigned-PUT mint to its minter.
+
+    ``id`` doubles as the future ``DropboxFile.id`` once the upload
+    commits — no extra Snowflake allocation, and the foreign-key
+    closure is a clean drop-on-cascade when the guild goes away.
+
+    The row is INSERTed by ``mint_upload_url`` and DELETEd by
+    ``finish_upload`` (or by the orphan sweep, whichever comes first
+    for an abandoned mint). ``finish_upload`` validates ``uploader_id
+    == current.id`` so a leaked ``id`` cannot be used by another
+    member to consume the minter's storage or pollute the audit
+    trail (``uploaded_by_id`` would otherwise lie).
+    """
+
+    __tablename__ = "dropbox_pending_uploads"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    uploader_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    guild_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat.guilds.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    parent_path: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=""
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_dropbox_pending_uploads_expires", "expires_at"),
+        Index("ix_dropbox_pending_uploads_uploader", "uploader_id"),
     )

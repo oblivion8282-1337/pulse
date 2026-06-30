@@ -114,7 +114,27 @@ async def _auth_signer(_isolate_chat_settings) -> JwtSigner:
 
 @pytest_asyncio.fixture
 async def engine():
-    eng = create_async_engine(_TEST_SETTINGS.effective_database_url, future=True)
+    # Import every model + route module so its ``Base`` table is
+    # registered *before* ``create_all`` walks the registry. ``models``
+    # ``__init__`` already re-exports them, but new tables added in
+    # the same test session can land there too late if the engine
+    # fixture fires first — and pytest fixture order doesn't
+    # guarantee a module's top-level imports have run by the time
+    # the engine is built.
+    from dcc_chat_gateway import models as _models  # noqa: F401
+    from dcc_chat_gateway import routes as _routes  # noqa: F401
+    # :memory: SQLite needs StaticPool so every connection shares
+    # the same in-memory DB — otherwise the test's direct
+    # ``session_factory()`` writes go to one DB and the ServerDep
+    # session inside the FastAPI route reads from a sibling DB.
+    from sqlalchemy.pool import StaticPool
+
+    eng = create_async_engine(
+        _TEST_SETTINGS.effective_database_url,
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     async with eng.begin() as conn:
         for table in Base.metadata.tables.values():
             table.schema = None
