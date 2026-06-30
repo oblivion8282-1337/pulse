@@ -1191,6 +1191,68 @@ async def test_sweep_purges_orphan_minio_objects(
 
 
 @pytest.mark.asyncio
+async def test_sweep_reaps_expired_pending_uploads(
+    client, _auth_signer, mock_s3, session_factory, monkeypatch
+):
+    """The sweep's pending-row half reaps rows whose ``expires_at``
+    is in the past. Regression for the doc-lied claim in
+    migration 0042 (``Orphan rows are purged on the same hourly
+    cadence as the trash sweep``) — without the explicit reaper
+    the rows just sit there."""
+
+    from datetime import datetime, timedelta, timezone
+    from dcc_chat_gateway.models import DropboxPendingUpload
+    from dcc_chat_gateway.routes import dropbox_admin
+
+    monkeypatch.setattr(dropbox_admin, "SessionLocal", session_factory)
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Mint a fresh, non-expired row.
+    mint_r = await client.post(
+        f"/guilds/{gid}/dropbox/upload-url",
+        json={
+            "parent_path": "",
+            "name": "fresh.txt",
+            "content_type": "text/plain",
+            "size_bytes": 5,
+        },
+        headers=auth(token),
+    )
+    assert mint_r.status_code == 200
+    fresh_id = int(mint_r.json()["id"])
+
+    # Plant a separately-expired row in the table (no mint flow).
+    long_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    expired_row = DropboxPendingUpload(
+        id=next(iter([int(datetime.now().timestamp() * 1000) * 1000])),
+        uploader_id=_uid,
+        guild_id=int(gid),
+        parent_path="",
+        name="abandoned.bin",
+        size_bytes=10,
+        expires_at=long_ago,
+    )
+    async with session_factory() as s:
+        s.add(expired_row)
+        await s.commit()
+    expired_id = expired_row.id
+
+    await dropbox_admin._sweep_once(connection_manager=None)
+
+    async with session_factory() as s:
+        # Fresh row survives (expires_at is in the future).
+        fresh = await s.get(DropboxPendingUpload, fresh_id)
+        assert fresh is not None
+        # Expired row is gone.
+        gone = await s.get(DropboxPendingUpload, expired_id)
+        assert gone is None
+
+
+@pytest.mark.asyncio
 async def test_guild_delete_purges_dropbox_objects(
     client, _auth_signer, mock_s3
 ):
