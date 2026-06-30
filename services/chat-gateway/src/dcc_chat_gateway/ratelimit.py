@@ -23,6 +23,8 @@ _RULES: dict[str, tuple[int, float]] = {
     "community_invite": (30, 3600.0), # 30 community invites / hour (per inviter)
     "report": (10, 3600.0),         # 10 reports / hour
     "attach": (20, 60.0),           # 20 upload-URL requests / minute
+    "dropbox_mint": (30, 60.0),     # 30 dropbox upload-URL mints / minute
+    "dropbox_folder_create": (20, 60.0), # 20 folder creates / minute
 }
 
 

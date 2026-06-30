@@ -49,7 +49,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dcc_chat_gateway import s3
+from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.config import get_settings
 from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.models import (
@@ -146,6 +146,10 @@ async def mint_upload_url(
     either commits."""
 
     await require_member(session, guild_id, current.id)
+    if not ratelimit.check("dropbox_mint", current.id):
+        raise HTTPException(
+            429, detail="too many upload-url mints — slow down"
+        )
     async with _with_quota_lock(guild_id):
         cfg = await _locked_config(session, guild_id)
         if cfg is None or not cfg.enabled:
