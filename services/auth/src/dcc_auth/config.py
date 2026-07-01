@@ -36,6 +36,23 @@ class Settings(BaseSettings):
     jwt_access_ttl_seconds: int = 900
     jwt_refresh_ttl_seconds: int = 60 * 60 * 24 * 30
     jwt_key_id: str = "auth-1"
+    # Self-signed x509-Cert (PEM), das das jwt_private.pem-Keypair WRAPPT — nur
+    # für die Docker-Registry-Token-Auth. registry:2's ``rootcertbundle`` parst
+    # ausschließlich CERTIFICATE-Blöcke (ein roher PUBLIC KEY wird still
+    # ignoriert → Registry startet nicht); die Tokens tragen das Cert über den
+    # ``x5c``-JOSE-Header, damit die Registry die RS256-Signatur prüfen kann.
+    # Liegt ops-seitig neben den Keys; bei JWT-Key-Rotation neu erzeugen.
+    jwt_cert_file: Path = Path("./secrets/jwt_public.crt")
+    # ``aud``-Claim der Registry-Tokens == registry:2 ``auth.token.service``.
+    # Der Realm-Endpoint (routes_registry_auth) mintet Tokens exakt dafür; die
+    # Registry verwirft Tokens mit abweichendem aud.
+    registry_service: str = "registry.howispulse.com"
+    # CI-Push-Secret für die Self-Host-allinone-Registry. Der ``pulse-ci``-User
+    # authentifiziert sich im Realm-Endpoint damit und bekommt ein Pull+Push-
+    # scoped Token (Instanzen erhalten nur Pull). Identisch mit dem
+    # REGISTRY_PUSH_TOKEN-GitHub-Secret im allinone-Workflow. ``None`` → CI-Push
+    # wird 401 (Registry läuft weiter, nur CI kann nicht publishen).
+    registry_push_token: str | None = None
     # Public OIDC issuer used for Identity-Certs (DE 11). Deliberately distinct
     # from jwt_issuer so the chat-gateway's cert validator can tell a cert apart
     # from an access token by `iss`. MUST equal chat-gateway's PULSE_OIDC_ISSUER
@@ -117,6 +134,10 @@ class Settings(BaseSettings):
     # ``users.discoverable`` (opt-out) so the limit is the second line of
     # defence, not the first.
     rate_limit_user_search: str = "30/minute"
+    # Docker-Registry-Token-Realm (``GET /registry/token``). Der Docker-Daemon
+    # holt pro Pull ein frisches Token (TTL 5 min) — 30/min/Instanz deckt
+    # Pull-Spikes locker, blockt aber Brute-Force auf client_secrets.
+    rate_limit_registry_token: str = "30/minute"
 
     # Redis -- optional for CRL (auth:revoked_certs ZSET)
     redis_url: str = "redis://localhost:6380/0"
@@ -213,6 +234,7 @@ class Settings(BaseSettings):
         "rate_limit_bootstrap_redeem",
         "rate_limit_relay_tls_check",
         "rate_limit_reachability_probe",
+        "rate_limit_registry_token",
     )
     @classmethod
     def _validate_rate_format(cls, v: str) -> str:

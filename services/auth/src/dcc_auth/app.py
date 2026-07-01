@@ -34,6 +34,7 @@ from dcc_auth.routes_search import router as search_router
 from dcc_auth.routes_selfhost_bootstrap import router as selfhost_bootstrap_router
 from dcc_auth.routes_selfhost_relay import router as selfhost_relay_router
 from dcc_auth.routes_reachability import router as reachability_router
+from dcc_auth.routes_registry_auth import router as registry_auth_router
 from dcc_auth.routes_sessions import router as sessions_router
 from dcc_auth.routes_totp import router as totp_router
 from dcc_auth.routes_webauthn import router as webauthn_router
@@ -109,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(selfhost_bootstrap_router)
     app.include_router(selfhost_relay_router)
     app.include_router(reachability_router)
+    app.include_router(registry_auth_router)
 
     @app.get("/health")
     async def health() -> dict[str, str]:

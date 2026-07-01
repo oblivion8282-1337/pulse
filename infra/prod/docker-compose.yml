@@ -423,6 +423,23 @@ services:
       - ./livekit.yaml:/livekit.yaml:ro
     labels: *pinned-labels
 
+  # ── Self-Host-allinone-Registry ─────────────────────────────────────────────
+  # Verteilt das ``pulse-allinone``-Image an Self-Host-User hinter per-Instance-
+  # Credentials (Token-Auth via auth-svc /registry/token). Caddy frontet
+  # registry.howispulse.com. CI (allinone.yml) pusht hierher als ``pulse-ci``
+  # (REGISTRY_PUSH_TOKEN); Instanzen pullen mit client_id/client_secret.
+  # Config ist self-contained (registry-config.yml) → kein env_file nötig.
+  # GC läuft wöchentlich via Host-Cron (DEPLOY.md).
+  registry:
+    image: registry:2.8.3
+    container_name: pulse_registry
+    restart: unless-stopped
+    volumes:
+      - pulse_registry:/var/lib/registry
+      - ./registry-config.yml:/etc/docker/registry/config.yml:ro
+      - ./secrets/jwt_public.crt:/certs/jwt_public.crt:ro
+    networks: [pulse-net]
+
   # ── auto-update ────────────────────────────────────────────────────────────
   # NO Watchtower here (deliberately): it mounted the Docker socket = root on
   # the host. Auto-update runs from a USER CRONTAB calling
@@ -440,6 +457,7 @@ volumes:
   pulse_backups:
   pulse_chat_data:
   pulse_minio_stage:
+  pulse_registry:
 
 networks:
   pulse-net:

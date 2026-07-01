@@ -1,0 +1,32 @@
+# Docker-Distribution (registry:2.8.3) Config für die Self-Host-allinone-Registry.
+#
+# Verteilt ``pulse-allinone`` an Self-Host-User hinter per-Instance-Credentials:
+# Token-Auth-Realm = auth-svc (``GET /registry/token``), der die Instanz-Creds
+# (client_id/client_secret, Argon2id) prüft und scoped RS256-Tokens mintet.
+#
+# ⚠️ registry:2.8.3 ist GEPINNT: das Token-Auth-Verhalten (rootcertbundle parst
+# nur CERTIFICATE-PEM-Blöcke; Token-Signatur wird via ``x5c``-Header +
+# self-signed-Cert verifiziert) ist gegen den distribution-Source verifiziert.
+# Vor einem Bump auf :3 das Token-Auth-Verhalten re-verifizieren.
+#
+# Das self-signed Cert (``jwt_public.crt``) wrapt dasselbe RSA-Keypair wie die
+# JWT-Signatur und wird ops-seitig neben die Keys gelegt:
+#   openssl req -x509 -new -key secrets/jwt_private.pem -days 3650 \
+#     -subj "/CN=pulse-registry-auth" -out secrets/jwt_public.crt
+# Bei JWT-Key-Rotation muss das Cert neu erzeugt + die Registry redeployt werden.
+version: 0.1
+http:
+  addr: :5000
+  debug:
+    addr: 127.0.0.1:5001
+auth:
+  token:
+    realm: https://howispulse.com/api/auth/registry/token
+    service: registry.howispulse.com
+    issuer: dcc-auth
+    rootcertbundle: /certs/jwt_public.crt
+storage:
+  filesystem:
+    rootdirectory: /var/lib/registry
+  delete:
+    enabled: true # nötig für `garbage-collect --delete-untagged` (wöchentlicher Host-Cron)

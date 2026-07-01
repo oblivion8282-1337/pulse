@@ -50,6 +50,12 @@ jobs:
   build-publish:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      # Self-Host-allinone-Registry (registry.howispulse.com). Leerer Secret →
+      # Mirror-Schritte skippen (GHCR bleibt Source-of-Truth, CI bricht nicht).
+      # Setzen als Repository Secret, identisch zum REGISTRY_PUSH_TOKEN in der
+      # prod-.env auf dem netcup.
+      REGISTRY_PUSH_TOKEN: ${{ secrets.REGISTRY_PUSH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -169,3 +175,44 @@ jobs:
           # kritisch — Fehler dabei nicht mehr fatal.
           cache-to: type=gha,mode=max,scope=allinone,ignore-error=true
           provenance: false
+
+      # --- Mirror zur Self-Host-Registry (best-effort) ──────────────────────────
+      # GHCR oben ist Source-of-Truth (MUST grün). Zusätzlich wird das Multi-Arch-
+      # Manifest (amd64+arm64) nach registry.howispulse.com kopiert — dort
+      # pullen Self-Host-User mit per-Instance-Credentials (token-auth via
+      # auth-svc). ``imagetools create`` kopiert Manifest+Blobs OHNE Rebuild.
+      # continue-on-error: bei netcup-Ausfall bleiben die GHCR-Tags trotzdem
+      # aktuell; Self-Host-User ziehen dann (solange der netcup down ist) nichts.
+      - name: Login to self-hosted registry
+        if: ${{ env.REGISTRY_PUSH_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: registry.howispulse.com
+          username: pulse-ci
+          password: ${{ secrets.REGISTRY_PUSH_TOKEN }}
+
+      - name: Mirror to registry.howispulse.com
+        if: ${{ env.REGISTRY_PUSH_TOKEN != '' }}
+        continue-on-error: true
+        env:
+          # Via env statt Inline-${{ }} — Runner expandiert die Meta-Outputs in
+          # Env-Vars, das Skript liest Shell-Vars → keine Script-Injection.
+          GHCR_TAGS: ${{ steps.meta.outputs.tags }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          SRC="ghcr.io/oblivion8282-1337/pulse-allinone:sha-${SHORT_SHA}"
+          # Registry-Tags aus den GHCR-Tags ableiten (nur der Image-Prefix ändert
+          # sich; die Tags selbst bleiben identisch).
+          REG_TAGS="$(printf '%s\n' "${GHCR_TAGS}" \
+            | sed 's|^ghcr.io/oblivion8282-1337/pulse-allinone|registry.howispulse.com/pulse-allinone|')"
+          ARGS=()
+          while IFS= read -r t; do [ -n "$t" ] && ARGS+=(-t "$t"); done <<< "$REG_TAGS"
+          TAG_COUNT=$(( ${#ARGS[@]} / 2 ))
+          echo "::notice::Mirror ${TAG_COUNT} tag(s) → registry.howispulse.com"
+          echo "Source: $SRC"
+          echo "$REG_TAGS" | sed '/^$/d; s/^/  → /'
+          docker buildx imagetools create "${ARGS[@]}" "$SRC" || {
+            echo "::warning::registry.howispulse.com mirror fehlgeschlagen — GHCR-Tags trotzdem gelandet."
+            exit 0
+          }

@@ -79,6 +79,19 @@ class JwtSigner:
             self._private_pem, password=None
         )
         self._public_key: RSAPublicKey = serialization.load_pem_public_key(self._public_pem)
+        # Registry-Token-Auth: self-signed x509-Cert (PEM), das dasselbe
+        # RSA-Keypair wrapt. ``_cert_b64`` (Standard-base64 des DER-Certs)
+        # landet als ``x5c``-Header in Registry-Tokens; None (Cert fehlt) →
+        # issue_registry_token() lehnt ab. Lazy + fehlertolerant: nur die Cloud
+        # (mit provisioniertem Cert) mintet Registry-Tokens, der Endpoint ist
+        # ohnehin _require_cloud-gated.
+        self._cert_b64: str | None = None
+        cert_path = s.jwt_cert_file
+        if cert_path.exists():
+            from cryptography import x509
+
+            cert = x509.load_pem_x509_certificate(cert_path.read_bytes())
+            self._cert_b64 = base64.b64encode(cert.public_bytes(serialization.Encoding.DER)).decode()
 
     @property
     def public_pem(self) -> bytes:
@@ -103,12 +116,17 @@ class JwtSigner:
             ]
         }
 
-    def _sign(self, payload: dict[str, Any]) -> str:
+    def _sign(
+        self, payload: dict[str, Any], *, extra_headers: dict[str, Any] | None = None
+    ) -> str:
+        headers: dict[str, Any] = {"kid": self._settings.jwt_key_id}
+        if extra_headers:
+            headers.update(extra_headers)
         return jwt.encode(
             payload,
             self._private_key,
             algorithm="RS256",
-            headers={"kid": self._settings.jwt_key_id},
+            headers=headers,
         )
 
     def issue_access(
@@ -156,6 +174,41 @@ class JwtSigner:
             "typ": "refresh",
         }
         return self._sign(payload), jti, exp
+
+    def issue_registry_token(
+        self,
+        *,
+        sub: str,
+        actions: list[str],
+        repo: str = "pulse-allinone",
+        ttl: int = 300,
+    ) -> str:
+        """Docker-Registry-v2-Token (RS256) für die Self-Host-allinone-Registry.
+
+        ``aud`` ist bewusst ``registry_service`` (NICHT der access-default
+        ``dcc``), damit registry:2 den Token akzeptiert (aud == service). Das
+        self-signed-Cert wandert als ``x5c``-Header in den Token — registry:2
+        verifiziert die Signatur darüber (rootcertbundle parst nur
+        CERTIFICATE-Blöcke, ein roher PUBLIC KEY wird still ignoriert).
+        ``access`` folgt der Distribution-Spec: ``[{type, name, actions}]``.
+        """
+        if self._cert_b64 is None:
+            raise RuntimeError(
+                "jwt_cert_file fehlt/unlesbar — Registry-Token-Issuance deaktiviert "
+                "(ops muss das self-signed Cert neben den JWT-Keys provisionieren)"
+            )
+        now = int(time.time())
+        payload: dict[str, Any] = {
+            "iss": self._settings.jwt_issuer,
+            "aud": self._settings.registry_service,
+            "sub": sub,
+            "iat": now,
+            "nbf": now,
+            "exp": now + ttl,
+            "jti": str(uuid.uuid4()),
+            "access": [{"type": "repository", "name": repo, "actions": actions}],
+        }
+        return self._sign(payload, extra_headers={"x5c": [self._cert_b64]})
 
     def decode(self, token: str, *, expected_type: str | None = None) -> dict[str, Any]:
         payload = jwt.decode(

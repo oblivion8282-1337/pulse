@@ -22,7 +22,11 @@
 
 services:
   pulse:
-    image: ghcr.io/oblivion8282-1337/pulse-allinone:stable
+    # Self-Host-Registry (per-Instance-Credentials). Vor dem ersten
+    # `docker compose pull` einmalig einloggen:
+    #   docker login registry.howispulse.com -u <client_id> -p <client_secret>
+    # (Credentials aus dem Bootstrap- bzw. Env-Download).
+    image: registry.howispulse.com/pulse-allinone:stable
     container_name: pulse
     restart: unless-stopped
     env_file: .env
