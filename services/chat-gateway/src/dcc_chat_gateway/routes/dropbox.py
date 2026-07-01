@@ -45,6 +45,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     with_quota_lock,
 )
 from dcc_chat_gateway.routes._dropbox_schemas import (
+    DropboxChannelCreateIn,
     DropboxChannelOut,
     DropboxConfigOut,
     DropboxEntriesOut,
@@ -179,6 +180,62 @@ async def ensure_dropbox_channel(
     else:
         await session.commit()
 
+    return DropboxChannelOut(
+        id=channel.id,
+        guild_id=channel.guild_id,
+        name=channel.name,
+        type=channel.type,
+        position=channel.position,
+        created=created,
+    )
+
+
+@router.post(
+    "/guilds/{guild_id}/dropbox/channel",
+    response_model=DropboxChannelOut,
+)
+async def create_dropbox_channel(
+    guild_id: Annotated[int, Path(ge=1)],
+    payload: DropboxChannelCreateIn,
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+) -> DropboxChannelOut:
+    """Idempotent dropbox-channel create. Used by the frontend's
+    "Create channel → Ablage" flow, which needs to honour the user-typed
+    name. If a dropbox channel already exists, returns it unchanged
+    (singleton — admins rename via PATCH, not by creating a new one)."""
+
+    await check_permission(
+        session, current, guild_id, Permissions.MANAGE_CHANNELS
+    )
+
+    name = (payload.name or "ablage").strip()
+    channel, created = await _get_or_create_dropbox_channel(
+        session, guild_id, name=name
+    )
+    if created:
+        cfg = await _get_or_create_config_locked(session, guild_id)
+        await session.commit()
+        await session.refresh(channel)
+        await session.refresh(cfg)
+
+        mgr = getattr(request.app.state, "connection_manager", None)
+        if mgr is not None:
+            await mgr.publish_guild_event(
+                ChannelCreatedEvent(
+                    channel={
+                        "id": str(channel.id),
+                        "guild_id": str(channel.guild_id),
+                        "name": channel.name,
+                        "type": channel.type,
+                        "position": channel.position,
+                        "topic": channel.topic,
+                        "restricted": False,
+                        "name_color": None,
+                    }
+                )
+            )
     return DropboxChannelOut(
         id=channel.id,
         guild_id=channel.guild_id,

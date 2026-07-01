@@ -136,6 +136,16 @@ class DropboxFolderCreateIn(BaseModel):
     name: Annotated[str, Field(min_length=1, max_length=255)]
 
 
+class DropboxChannelCreateIn(BaseModel):
+    """Body for ``POST /guilds/{id}/dropbox/channel``.
+
+    Optional ``name``: applied on creation only. If a dropbox channel
+    already exists for the guild the existing one is returned unchanged
+    (singleton semantics — admins rename via PATCH instead)."""
+
+    name: Annotated[str | None, Field(default=None, min_length=1, max_length=64)] = None
+
+
 class DropboxEntryPatchIn(BaseModel):
     """Entry mutation: rename, move, pin toggle. All optional — partial.
 

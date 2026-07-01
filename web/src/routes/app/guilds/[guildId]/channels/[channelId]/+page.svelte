@@ -358,12 +358,12 @@
   async function createChannel(name: string, type: number) {
     if (!activeGuild) return;
     // Type=2 (Dropbox / Ablage) is special — there's at most one per
-    // guild, created lazily on first access via /guilds/{id}/dropbox/
-    // channel. POST /guilds/{id}/channels would also work in principle
-    // but the dedicated endpoint guarantees idempotency (a second call
-    // hands back the existing channel rather than rejecting).
+    // guild. POST /guilds/{id}/dropbox/channel is idempotent: it
+    // creates with the user-supplied name on first call, hands back
+    // the existing channel on subsequent calls (admin renames via
+    // PATCH instead of creating a new one).
     if (type === 2) {
-      const ch = await dropboxApi.ensureChannel(activeGuild.id);
+      const ch = await dropboxApi.createDropboxChannel(activeGuild.id, name);
       guilds.addChannel({
         id: ch.id,
         guild_id: ch.guild_id,
