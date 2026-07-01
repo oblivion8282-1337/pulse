@@ -124,7 +124,7 @@
         <div class="flex gap-2">
           <button
             type="button"
-            onclick={() => { approveTarget = app; approveConfirmOpen = true; }}
+            onclick={() => { approveError = null; approveTarget = app; approveConfirmOpen = true; }}
             disabled={!!busy[app.id]}
             class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs text-white font-medium hover:bg-emerald-500 disabled:opacity-60 transition-colors"
           >
@@ -132,7 +132,7 @@
           </button>
           <button
             type="button"
-            onclick={() => { rejectTarget = app; rejectOpen = true; }}
+            onclick={() => { rejectError = null; rejectTarget = app; rejectOpen = true; }}
             disabled={!!busy[app.id]}
             class="rounded-lg bg-red-600/80 px-3 py-1.5 text-xs text-white font-medium hover:bg-red-500 disabled:opacity-60 transition-colors"
           >
