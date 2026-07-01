@@ -58,16 +58,17 @@
     }
   }
 
-  /** Toggle expansion + lazy-load on first open. */
-  async function toggle(path: string): Promise<void> {
+  /** Select a folder as the destination + auto-expand (lazy-load on
+   *  first open) so the user can drill into a sub-folder by clicking
+   *  the next row. Selecting is independent of expansion state: the
+   *  chevron still flips between down/up as the tree opens. */
+  async function select(path: string): Promise<void> {
+    onSelect(path);
+    if (expanded.has(path) || loading.has(path)) return;
     const next = new Set(expanded);
-    if (next.has(path)) {
-      next.delete(path);
-    } else {
-      next.add(path);
-      await loadChildren(path);
-    }
+    next.add(path);
     expanded = next;
+    await loadChildren(path);
   }
 
   // Pre-expand the currently-selected path so the user lands on a
@@ -154,20 +155,19 @@
   </button>
 
   {#each rows as r (r.path)}
-    <div
-      class="flex items-center gap-1 text-sm hover:bg-bg-hover {r.isSelected
+    <!-- One target per row: click selects the destination and auto-expands
+         (lazy load) so the user can drill deeper by clicking the next row. -->
+    <button
+      type="button"
+      class="flex w-full items-center gap-2 py-1.5 pr-2 text-left text-sm hover:bg-bg-hover {r.isSelected
         ? 'bg-primary/10 text-primary'
         : ''}"
       style="padding-left: {r.depth * 16 + 4}px"
       data-testid="dropbox-folder-picker-row"
       data-path={r.path}
+      onclick={() => select(r.path)}
     >
-      <button
-        type="button"
-        class="flex h-7 w-7 shrink-0 items-center justify-center rounded hover:bg-bg-hover/80"
-        onclick={() => toggle(r.path)}
-        aria-label={r.isExpanded ? pm.dropbox_move_collapse() : pm.dropbox_move_expand()}
-      >
+      <span class="flex h-7 w-7 shrink-0 items-center justify-center">
         {#if r.isLoading}
           <span class="text-text-faint text-xs">…</span>
         {:else if r.isExpanded}
@@ -175,16 +175,10 @@
         {:else}
           <ChevronRightIcon class="h-3.5 w-3.5" />
         {/if}
-      </button>
-      <button
-        type="button"
-        class="flex flex-1 items-center gap-2 truncate py-1.5 text-left"
-        onclick={() => onSelect(r.path)}
-      >
-        <FolderIcon class="h-4 w-4 shrink-0" />
-        <span class="truncate">{r.name}</span>
-      </button>
-    </div>
+      </span>
+      <FolderIcon class="h-4 w-4 shrink-0" />
+      <span class="truncate">{r.name}</span>
+    </button>
   {/each}
 
   {#if rows.length === 0 && !loading.has('')}
