@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.6",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: leichterer Weg zurück nach oben",
+      "items": [
+        "In der Ablage gibt es jetzt mehrere sichtbare Wege, in einen übergeordneten Ordner zurückzukehren: ein Zurück-Pfeil in der Symbolleiste, klickbare Ordner-Crumbs im Header und der Kanalname selbst führt zur Wurzel.",
+        "Lange Pfade werden in der Mitte verkürzt, damit die Crumbs im Blick bleiben."
+      ]
+    },
+    {
       "id": "2026-07-01.5",
       "date": "2026-07-01",
       "style": "Sachlich",

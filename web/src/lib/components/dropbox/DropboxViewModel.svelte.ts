@@ -240,16 +240,24 @@ class DropboxViewModel {
     this.viewTrash = false;
   }
 
-  navigateTo(seg: string) {
-    if (!seg) {
-      this.currentPath = '';
-    } else {
-      const parts = this.currentPath.split('/');
-      const idx = parts.indexOf(seg);
-      this.currentPath = parts.slice(0, idx).join('/');
-    }
+  /** Navigate to ancestor at position ``i`` (0 = root, segments.length =
+   *  current). Index-based avoids the duplicate-name footgun of the old
+   *  ``indexOf(seg)`` lookup (e.g. on path ``a/b/a`` the second ``a``
+   *  crumb would otherwise jump to root). */
+  navigateToIndex(i: number) {
+    if (i < 0) return;
+    const parts = this.currentPath.split('/');
+    this.currentPath = parts.slice(0, i).join('/');
     this.searchQuery = '';
     this.viewTrash = false;
+  }
+
+  /** Go up one level. No-op at root so the toolbar arrow doesn't
+   *  visually promise movement it can't deliver. */
+  goUp() {
+    if (!this.currentPath) return;
+    const parts = this.currentPath.split('/');
+    this.navigateToIndex(parts.length - 1);
   }
 
   openFile(e: DropboxEntry) {
