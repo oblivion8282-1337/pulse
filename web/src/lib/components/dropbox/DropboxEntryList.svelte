@@ -76,9 +76,9 @@
       {@const Icon = fileIcon(e)}
       {@const selected = selectedIds.has(e.id)}
       <tr
-        class="border-b border-border/20 {selected
+        class="border-b border-border/40 {selected
           ? 'bg-primary/5'
-          : 'hover:bg-bg-hover/40'}"
+          : 'hover:bg-bg-hover/60'}"
         data-testid="dropbox-row-{e.id}"
       >
         {#if !viewTrash}

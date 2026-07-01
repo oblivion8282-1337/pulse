@@ -2372,6 +2372,7 @@
   "dropbox_toggle_view": "Toggle view",
   "dropbox_view_trash": "Trash",
   "dropbox_view_root": "Dropbox",
+  "dropbox_trash_count_label": "Trash · {count} item(s)",
   "dropbox_back": "Back",
   "dropbox_back_root": "Back to dropbox root",
   "dropbox_used_of_total": "{used} of {total} used",
