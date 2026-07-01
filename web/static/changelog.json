@@ -2,6 +2,19 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.1",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Korrekturen: Freundesanfragen, Nachrichten-Reaktionen und weitere Bedienelemente",
+      "items": [
+        "Freundesanfragen lassen sich aus dem Profil-Popover jetzt zuverlässig verwalten: Senden, Zurückziehen und Ablehnen wechseln sofort in den passenden Zustand, ohne dass die Seite neu geladen werden muss.",
+        "Reaktionen auf Direktnachrichten werden auf einem selbst gehosteten Server wieder korrekt als eigene Reaktion markiert — vorher ließ sich die eigene Reaktion dort nicht wieder entfernen.",
+        "Wenn das Kopieren des Server-Links aus dem App-Hosting fehlschlägt, gibt es jetzt eine Rückmeldung statt keiner Reaktion.",
+        "Bei der Lautstärke-Regelung einzelner Sprach-Teilnehmer steht der Wert jetzt nur noch einmal; die zusätzliche Skala darunter ist entfallen.",
+        "Im Admin-Bereich für App-Hosting-Anträge zeigt ein Bestätigungs- oder Ablehnungs-Dialog nach einem früheren Fehler nicht mehr den alten Fehlertext eines anderen Antrags."
+      ]
+    },
+    {
       "id": "2026-07-01.12",
       "date": "2026-07-01",
       "style": "Sachlich",
