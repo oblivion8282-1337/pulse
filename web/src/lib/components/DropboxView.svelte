@@ -53,7 +53,7 @@
   <DropboxBreadcrumb
     channelName={channel.name}
     currentPath={v.currentPath}
-    navigate={v.navigateTo}
+    navigate={(i) => v.navigateToIndex(i)}
   />
 
   <DropboxQuotaGauge quota={v.quota} />
@@ -64,6 +64,8 @@
     searchQuery={v.searchQuery}
     viewTrash={v.viewTrash}
     isGridView={v.isGridView}
+    canGoBack={v.currentPath !== ''}
+    onGoBack={() => v.goUp()}
     onSearchInput={(s) => (v.searchQuery = s)}
     onOpenPicker={() => v.openFilePicker()}
     onToggleCreateFolder={() => (v.creatingFolder = !v.creatingFolder)}

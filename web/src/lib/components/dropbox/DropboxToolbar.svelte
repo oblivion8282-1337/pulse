@@ -7,6 +7,7 @@
    * out of here so we don't have to thread FileList across the
    * boundary).
    */
+  import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
   import Rows3Icon from '@lucide/svelte/icons/rows-3';
   import TrashIcon from '@lucide/svelte/icons/trash-2';
@@ -20,6 +21,9 @@
     searchQuery: string;
     viewTrash: boolean;
     isGridView: boolean;
+    /** Show a back arrow when the user has navigated into a folder. */
+    canGoBack: boolean;
+    onGoBack: () => void;
     onSearchInput: (v: string) => void;
     onOpenPicker: () => void;
     onToggleCreateFolder: () => void;
@@ -33,6 +37,8 @@
     searchQuery,
     viewTrash,
     isGridView,
+    canGoBack,
+    onGoBack,
     onSearchInput,
     onOpenPicker,
     onToggleCreateFolder,
@@ -44,6 +50,23 @@
 <div
   class="flex flex-wrap items-center gap-2 border-b border-border/40 px-5 py-2.5"
 >
+  <!--
+    Back arrow goes one level up. Hidden at root (canGoBack=false)
+    so the toolbar stays compact and the button never lies about
+    being actionable.
+  -->
+  {#if canGoBack}
+    <button
+      type="button"
+      class="flex items-center gap-1 rounded-md border border-border/40 bg-bg-hover/40 px-2 py-1.5 text-sm hover:bg-bg-hover"
+      onclick={onGoBack}
+      title={pm.dropbox_back()}
+      data-testid="dropbox-back-btn"
+    >
+      <ArrowLeftIcon class="size-3.5" />
+      {pm.dropbox_back()}
+    </button>
+  {/if}
   <button
     class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
     onclick={onOpenPicker}
