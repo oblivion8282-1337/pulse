@@ -65,12 +65,19 @@
     viewTrash={v.viewTrash}
     isGridView={v.isGridView}
     canGoBack={v.currentPath !== ''}
+    trashCount={v.trashCount}
     onGoBack={() => v.goUp()}
     onSearchInput={(s) => (v.searchQuery = s)}
     onOpenPicker={() => v.openFilePicker()}
     onToggleCreateFolder={() => (v.creatingFolder = !v.creatingFolder)}
     onToggleGridView={() => (v.isGridView = !v.isGridView)}
     onToggleTrash={() => (v.viewTrash = !v.viewTrash)}
+    onEmptyTrash={async () => {
+      if (!confirm(pm.dropbox_empty_trash_confirm({ count: v.trashCount }))) {
+        return;
+      }
+      await v.emptyTrash();
+    }}
   />
 
   {#if v.creatingFolder}

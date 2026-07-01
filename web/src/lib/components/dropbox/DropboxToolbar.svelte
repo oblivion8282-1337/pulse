@@ -23,12 +23,16 @@
     isGridView: boolean;
     /** Show a back arrow when the user has navigated into a folder. */
     canGoBack: boolean;
+    /** Number of entries currently in trash (0 = button disabled). */
+    trashCount: number;
     onGoBack: () => void;
     onSearchInput: (v: string) => void;
     onOpenPicker: () => void;
     onToggleCreateFolder: () => void;
     onToggleGridView: () => void;
     onToggleTrash: () => void;
+    /** Manual empty-trash (admin only on the server). */
+    onEmptyTrash: () => void;
   };
 
   let {
@@ -38,12 +42,14 @@
     viewTrash,
     isGridView,
     canGoBack,
+    trashCount,
     onGoBack,
     onSearchInput,
     onOpenPicker,
     onToggleCreateFolder,
     onToggleGridView,
-    onToggleTrash
+    onToggleTrash,
+    onEmptyTrash
   }: Props = $props();
 </script>
 
@@ -114,4 +120,17 @@
     <TrashIcon class="mr-1 inline size-3.5" />
     {viewTrash ? pm.dropbox_view_root() : pm.dropbox_view_trash()}
   </button>
+  {#if viewTrash}
+    <button
+      type="button"
+      class="flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"
+      onclick={onEmptyTrash}
+      disabled={trashCount === 0}
+      title={pm.dropbox_empty_trash_title()}
+      data-testid="dropbox-empty-trash-btn"
+    >
+      <TrashIcon class="size-3.5" />
+      {pm.dropbox_empty_trash()}
+    </button>
+  {/if}
 </div>

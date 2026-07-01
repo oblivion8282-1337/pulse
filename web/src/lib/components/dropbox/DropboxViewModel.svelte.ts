@@ -482,6 +482,29 @@ class DropboxViewModel {
       });
     }
   }
+
+  /** Number of trashed entries currently loaded. The trash listing
+   *  is the same as ``entries`` when ``viewTrash=true``. Only
+   *  accurate while in trash view. */
+  get trashCount(): number {
+    return this.viewTrash ? this.entries.length : 0;
+  }
+
+  /** Manual empty-trash. Admin-only on the server (MANAGE_CHANNELS);
+   *  if a non-admin triggers it the API returns 403 and the toast
+   *  surfaces the message. Confirm dialog is owned by the toolbar
+   *  call-site. */
+  async emptyTrash() {
+    try {
+      const r = await dropboxApi.emptyTrash(this.channel.guild_id);
+      await this.refreshAll();
+      toast.success(pm.dropbox_empty_trash_success({ count: r.purged }));
+    } catch (err) {
+      toast.error(pm.dropbox_empty_trash_failed(), {
+        description: (err as Error).message
+      });
+    }
+  }
 }
 
 export function useDropboxView(channel: Channel): DropboxViewModel {

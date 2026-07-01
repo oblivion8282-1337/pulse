@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.8",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: Papierkorb auf Wunsch leeren",
+      "items": [
+        "In der Papierkorb-Ansicht der Ablage gibt es jetzt einen Button „Papierkorb leeren", der alle gelöschten Einträge dauerhaft entfernt — Dateien und Ordner samt aller Bytes.",
+        "Die Aktion lässt sich nicht rückgängig machen und ist nur sichtbar, wenn Einträge im Papierkorb sind."
+      ]
+    },
+    {
       "id": "2026-07-01.7",
       "date": "2026-07-01",
       "style": "Sachlich",

@@ -141,6 +141,17 @@ export const dropboxApi = {
     );
   },
 
+  /** Hard-delete every trashed entry in this guild. Admin-only on
+   *  the server side (MANAGE_CHANNELS). */
+  emptyTrash(
+    guildId: string
+  ): Promise<{ purged: number; bytes_reclaimed: number }> {
+    return request<{ purged: number; bytes_reclaimed: number }>(
+      `${BASE(guildId)}/trash/empty`,
+      { method: 'POST' }
+    );
+  },
+
   /** Mint a presigned GET URL that forces an attachment download
    *  (``Content-Disposition: attachment``) for a single file. */
   getDownloadUrl(guildId: string, entryId: string): Promise<{ url: string }> {
