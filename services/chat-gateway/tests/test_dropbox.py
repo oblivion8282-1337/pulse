@@ -405,6 +405,104 @@ async def test_move_folder_into_descendant_rejected(client, _auth_signer, mock_s
 
 
 @pytest.mark.asyncio
+async def test_empty_trash_hard_deletes_and_reclaims_bytes(
+    client, _auth_signer, mock_s3
+):
+    """Admin-only manual empty: trashed files vanish from the DB,
+    their MinIO objects get deleted, and the trash list comes back
+    empty afterwards. Permission gating is exercised separately."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    async def upload_and_trash(name: str, payload: bytes) -> dict:
+        mint = (
+            await client.post(
+                f"/guilds/{gid}/dropbox/upload-url",
+                json={
+                    "parent_path": "",
+                    "name": name,
+                    "content_type": "application/octet-stream",
+                    "size_bytes": len(payload),
+                },
+                headers=auth(token),
+            )
+        ).json()
+        mock_s3.put[mint["storage_key"]] = payload
+        fin = (
+            await client.post(
+                f"/guilds/{gid}/dropbox/finish-upload",
+                json={
+                    "id": mint["id"],
+                    "parent_path": "",
+                    "name": name,
+                    "size_bytes": len(payload),
+                    "content_type": "application/octet-stream",
+                },
+                headers=auth(token),
+            )
+        ).json()
+        # Trash it
+        await client.delete(
+            f"/guilds/{gid}/dropbox/entries/{fin['id']}",
+            headers=auth(token),
+        )
+        return fin
+
+    a = await upload_and_trash("a.bin", b"a" * 50)
+    b = await upload_and_trash("b.bin", b"b" * 80)
+
+    # MinIO had both objects pre-empty
+    leftover_pre = [k for k in mock_s3.put if k.startswith(f"dropbox/{gid}/")]
+    assert len(leftover_pre) == 2
+
+    # Empty trash
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/trash/empty",
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["purged"] == 2
+    # Bytes_reclaimed counts the size_bytes of the purged entries
+    # (= MinIO bytes freed). Quota was already debited on trash via
+    # bump_used(-size), so the quota counter doesn't change again
+    # here — the variable reports the MinIO-side cleanup, not the
+    # quota delta.
+    assert body["bytes_reclaimed"] == 130
+
+    # Trash list is now empty
+    trash_r = await client.get(
+        f"/guilds/{gid}/dropbox/entries?include_trash=true",
+        headers=auth(token),
+    )
+    assert trash_r.json()["entries"] == []
+
+    # MinIO objects are gone
+    leftover_post = [k for k in mock_s3.put if k.startswith(f"dropbox/{gid}/")]
+    assert leftover_post == [], f"MinIO still has: {leftover_post}"
+
+
+@pytest.mark.asyncio
+async def test_empty_trash_empty_when_no_trash(client, _auth_signer, mock_s3):
+    """Empty trash on an empty trash is a no-op (200, purged=0)."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/trash/empty",
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json() == {"purged": 0, "bytes_reclaimed": 0}
+
+
+@pytest.mark.asyncio
 async def test_duplicate_folder_409(client, _auth_signer, mock_s3):
     """Two folders with the same parent+name → 409."""
 

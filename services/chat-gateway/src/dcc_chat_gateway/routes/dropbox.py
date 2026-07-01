@@ -12,6 +12,7 @@ soft cap (PLAN.md §12.1).
 
 from __future__ import annotations
 
+import structlog
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
@@ -36,6 +37,7 @@ from dcc_chat_gateway.routes._dropbox_helpers import (
     locked_config,
     normalize_parent_path,
     publish_entry_event,
+    publish_purge_event,
     publish_quota_event,
     serialize_entry,
     utc_now,
@@ -52,6 +54,8 @@ from dcc_chat_gateway.routes._dropbox_schemas import (
 )
 from dcc_chat_gateway.security import CurrentUser
 from dcc_shared.events import ChannelCreatedEvent
+
+log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["dropbox"])
 
@@ -624,6 +628,91 @@ async def delete_entry(
     mgr = getattr(request.app.state, "connection_manager", None)
     if mgr is not None:
         await publish_quota_event(mgr, cfg)
+
+
+@router.post(
+    "/guilds/{guild_id}/dropbox/trash/empty",
+    response_model=None,
+)
+async def empty_trash(
+    guild_id: Annotated[int, Path(ge=1)],
+    session: SessionDep,
+    current: CurrentUser,
+    request: Request,
+) -> dict:
+    """Hard-delete every trashed entry in this guild.
+
+    Skips the ``trash_retention_days`` window — admin's choice. Members
+    cannot wipe the trash; gated on MANAGE_CHANNELS so a stray member
+    can't erase something their team is about to restore.
+
+    Mirrors the retention sweep in ``dropbox_admin._sweep_once``:
+    MinIO delete per row (best-effort — failures keep the row in
+    place, same as the sweep), then session.delete + commit, then
+    ``dropbox_entry_purged`` per id + ``dropbox_quota_updated`` if any
+    bytes were reclaimed.
+    """
+
+    await require_member(session, guild_id, current.id)
+    await check_permission(
+        session, current, guild_id, Permissions.MANAGE_CHANNELS,
+    )
+
+    # ponytail: 10k cap mirrors the sweep. A guild that genuinely has
+    # more trash than that needs a paginated variant — but that's a
+    # future iteration, not a today problem.
+    rows = list(
+        (
+            await session.execute(
+                select(DropboxFile).where(
+                    DropboxFile.guild_id == guild_id,
+                    DropboxFile.deleted_at.is_not(None),
+                ).limit(10_000)
+            )
+        ).scalars()
+    )
+    if not rows:
+        return {"purged": 0, "bytes_reclaimed": 0}
+
+    purged: list[tuple[int, int]] = []
+    bytes_reclaimed = 0
+    for entry in rows:
+        if entry.storage_key:
+            try:
+                await s3.delete_object(entry.storage_key)
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "dropbox_empty_trash_minio_delete_failed",
+                    guild_id=guild_id,
+                    entry_id=entry.id,
+                    storage_key=entry.storage_key,
+                    error=str(exc),
+                )
+                # Leave the row in place — next sweep retries. Bytes
+                # may be temporarily orphaned; bandwidth-safe.
+                continue
+        purged.append((entry.id, entry.kind))
+        if entry.size_bytes:
+            bytes_reclaimed += int(entry.size_bytes)
+        await session.delete(entry)
+    await session.flush()
+
+    cfg = await _get_config_unlocked(session, guild_id)
+    if cfg is not None and bytes_reclaimed:
+        cfg.used_bytes = max(0, int(cfg.used_bytes) - bytes_reclaimed)
+        cfg.updated_at = utc_now()
+
+    await session.commit()
+
+    mgr = getattr(request.app.state, "connection_manager", None)
+    for entry_id, kind in purged:
+        await publish_purge_event(
+            mgr, guild_id=guild_id, entry_id=entry_id, kind=kind,
+        )
+    if cfg is not None and bytes_reclaimed:
+        await publish_quota_event(mgr, cfg)
+
+    return {"purged": len(purged), "bytes_reclaimed": bytes_reclaimed}
 
 
 @router.post(
