@@ -186,7 +186,7 @@
     value={v.renameValue}
     onInput={(s) => (v.renameValue = s)}
     onCancel={() => (v.renameTarget = null)}
-    onCommit={v.commitRename}
+    onCommit={() => v.commitRename()}
   />
 {/if}
 
@@ -199,6 +199,6 @@
     excludeEntryId={v.moveTarget.id}
     onInput={(s) => (v.moveValue = s)}
     onCancel={() => v.cancelMove()}
-    onCommit={v.commitMove}
+    onCommit={() => v.commitMove()}
   />
 {/if}
