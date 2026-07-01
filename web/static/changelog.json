@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.9",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: frei wählbarer Name beim Anlegen",
+      "items": [
+        "Beim Erstellen einer Ablage wird der eingegebene Name jetzt übernommen — vorher hieß jede neue Ablage intern automatisch „Ablage", unabhängig vom Wunschnamen."
+      ]
+    },
+    {
       "id": "2026-07-01.8",
       "date": "2026-07-01",
       "style": "Sachlich",

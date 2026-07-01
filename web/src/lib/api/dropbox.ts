@@ -72,6 +72,19 @@ export const dropboxApi = {
     });
   },
 
+  /** Idempotent create-or-return for the per-guild dropbox channel.
+   *  ``name`` is applied on first creation only; if a dropbox already
+   *  exists the server returns it unchanged (rename via PATCH). */
+  createDropboxChannel(
+    guildId: string,
+    name?: string
+  ): Promise<DropboxChannel> {
+    return request<DropboxChannel>(`${BASE(guildId)}/channel`, {
+      method: 'POST',
+      body: { name }
+    });
+  },
+
   getQuota(guildId: string): Promise<DropboxConfig> {
     return request<DropboxConfig>(`${BASE(guildId)}/quota`, { method: 'GET' });
   },

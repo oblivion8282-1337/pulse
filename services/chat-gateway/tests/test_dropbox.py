@@ -171,6 +171,43 @@ async def test_dropbox_channel_create_idempotent(client, _auth_signer, mock_s3):
 
 
 @pytest.mark.asyncio
+async def test_create_dropbox_channel_honours_user_name(
+    client, _auth_signer, mock_s3
+):
+    """Regression: ``POST /dropbox/channel`` must apply the user-supplied
+    name on creation. The frontend's create-channel dialog used to call
+    the GET endpoint (which hard-codes ``"ablage"``) for type=2,
+    discarding whatever the admin typed."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+
+    r1 = await client.post(
+        f"/guilds/{gid}/dropbox/channel",
+        json={"name": "dropbox"},
+        headers=auth(token),
+    )
+    assert r1.status_code == 200, r1.text
+    body1 = r1.json()
+    assert body1["created"] is True
+    assert body1["name"] == "dropbox"
+
+    # Second POST with a different name must NOT rename — singleton,
+    # admin renames via PATCH.
+    r2 = await client.post(
+        f"/guilds/{gid}/dropbox/channel",
+        json={"name": "files"},
+        headers=auth(token),
+    )
+    assert r2.status_code == 200, r2.text
+    body2 = r2.json()
+    assert body2["created"] is False
+    assert body2["id"] == body1["id"]
+    assert body2["name"] == "dropbox"
+
+
+@pytest.mark.asyncio
 async def test_quota_defaults_then_patch(client, _auth_signer, mock_s3):
     """Quotas default to 5 GiB total / 100 MiB per file. Admin can
     shrink the per-file cap and the change sticks."""
