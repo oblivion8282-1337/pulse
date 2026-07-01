@@ -8,6 +8,7 @@ hermetic — production migrations still target Postgres.
 from __future__ import annotations
 
 import os
+import datetime as _dt
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -37,8 +38,40 @@ from dcc_auth.routes import _invalidate_smtp_cache, _reset_rate  # noqa: E402
 from dcc_auth.security import reset_signer  # noqa: E402
 
 
+@pytest.fixture(scope="session")
+def _registry_cert():
+    """Self-signed x509-Cert (PEM) aus dem Test-JWT-Keypair — damit der
+    JwtSigner Registry-Tokens mit ``x5c``-Header minten kann (prod provisioniert
+    ops dasselbe Cert neben den Keys). Session-scoped: einmal erzeugt."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.x509.oid import NameOID
+
+    priv = serialization.load_pem_private_key(
+        (SECRETS / "jwt_private.pem").read_bytes(), password=None
+    )
+    now = _dt.datetime.now(_dt.timezone.utc)
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "pulse-registry-test")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(priv.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now)
+        .not_valid_after(now + _dt.timedelta(days=3650))
+        .sign(priv, hashes.SHA256())
+    )
+    import tempfile
+
+    fd, path = tempfile.mkstemp(suffix=".crt")
+    os.close(fd)
+    Path(path).write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    return Path(path)
+
+
 @pytest.fixture(autouse=True)
-def _isolate_settings():
+def _isolate_settings(_registry_cert):
     get_settings.cache_clear()
     reset_signer()
     # The SMTP-config cache is a module-level global with a 60s TTL; flush it
@@ -51,6 +84,7 @@ def _isolate_settings():
         database_url="sqlite+aiosqlite:///:memory:",
         jwt_private_key_file=SECRETS / "jwt_private.pem",
         jwt_public_key_file=SECRETS / "jwt_public.pem",
+        jwt_cert_file=_registry_cert,
         database_schema="main",  # sqlite default schema
     )
 

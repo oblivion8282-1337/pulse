@@ -49,3 +49,15 @@ howispulse.com {
 		header_up X-Forwarded-For {remote_host}
 	}
 }
+
+# --- Self-Host-allinone-Registry ---
+# VOR dem ersten `caddy reload` einen DNS-A-Record
+# registry.howispulse.com → 159.195.150.54 anlegen, sonst schlägt ACME fehl.
+# Caddy terminiert nur TLS und proxyt an den registry:2.8.3-Container auf
+# pulse-net — die Token-Auth läuft INSIDE der Registry (auth.token.realm →
+# auth-svc /registry/token), Caddy macht reines Passthrough.
+registry.howispulse.com {
+	reverse_proxy registry:5000 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

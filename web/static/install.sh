@@ -24,7 +24,7 @@ set -euo pipefail
 
 # --- Konfiguration (per Env überschreibbar) --------------------------------
 CLOUD_ORIGIN="${PULSE_CLOUD_ORIGIN:-https://howispulse.com}"
-IMAGE="${PULSE_IMAGE:-ghcr.io/oblivion8282-1337/pulse-allinone:edge}"
+IMAGE="${PULSE_IMAGE:-registry.howispulse.com/pulse-allinone:edge}"
 CONTAINER="${PULSE_CONTAINER:-pulse}"
 VOLUME="${PULSE_VOLUME:-pulse-data}"
 # Config-Verzeichnis: root → /opt/pulse, sonst ins Home (Docker-Gruppen-User
@@ -241,8 +241,21 @@ HEADER
     printf 'RUN_ARGS=('
     printf '%q ' "${RUN_ARGS[@]}"
     printf ')\n'
+    # Registry-Credentials einbacken (chmod 700, gleicher Schutz wie pulse.env).
+    # Nur wenn IMAGE von der eigenen Registry kommt — der GHCR-Fallback via
+    # PULSE_IMAGE braucht kein Login.
+    case "$IMAGE" in
+      registry.howispulse.com/*)
+        printf 'REGISTRY=%q\n' "registry.howispulse.com"
+        printf 'REG_USER=%q\n' "$CLIENT_ID"
+        printf 'REG_PASS=%q\n' "$CLIENT_SECRET" ;;
+    esac
     cat <<'BODY'
 
+if [ -n "${REG_PASS:-}" ]; then
+  docker login "$REGISTRY" -u "$REG_USER" -p "$REG_PASS" >/dev/null 2>&1 \
+    || { echo "pulse-update: registry login failed, will retry next run" >&2; exit 0; }
+fi
 docker pull "$IMAGE" >/dev/null 2>&1 \
   || { echo "pulse-update: pull failed (network/registry?), will retry next run" >&2; exit 0; }
 new_id="$(docker image inspect --format '{{.Id}}' "$IMAGE" 2>/dev/null || true)"
@@ -378,6 +391,12 @@ chmod 600 "$ENV_FILE"
 log "Configuration written: ${ENV_FILE} (readable by root only)"
 
 # 4) Container starten.
+case "$IMAGE" in
+  registry.howispulse.com/*)
+    log "Logging in to Pulse registry (instance credentials)…"
+    docker login registry.howispulse.com -u "$CLIENT_ID" -p "$CLIENT_SECRET" \
+      || die "Registry login failed — instance credentials rejected (suspended or wrong instance?)." ;;
+esac
 log "Pulling image ${IMAGE}…"
 docker pull "$IMAGE"
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
