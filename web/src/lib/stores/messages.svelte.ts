@@ -1,5 +1,5 @@
 import type { Message, ReactionAggregate } from '$lib/api/types';
-import { currentServerUserId } from './currentServerUser';
+import { dispatchingUserId } from './currentServerUser';
 import { compareSnowflakeId } from '$lib/utils/snowflake';
 
 class MessageStore {
@@ -168,8 +168,8 @@ class MessageStore {
   }
 
   /** Apply a delta to a message's reactions list. `delta` is +1 for add, -1
-   *  for remove. `me` is computed from auth.user.id so the optimistic and
-   *  remote paths converge on the same shape. */
+   *  for remove. `me` is set when this account is the reactor (see the
+   *  ``dispatchingUserId`` note below). */
   applyReaction(
     evt: { message_id: string; channel_id: string; user_id: string; emoji: string },
     delta: 1 | -1
@@ -180,7 +180,13 @@ class MessageStore {
     if (idx < 0) return;
     const msg = list[idx];
     const reactions: ReactionAggregate[] = msg.reactions ? msg.reactions.map((r) => ({ ...r })) : [];
-    const isMe = evt.user_id === currentServerUserId();
+    // dispatchingUserId (not currentServerUserId): reaction_add/remove for a
+    // DM arrive over the Cloud-background connection while a self-host may be
+    // the active server — currentServerUserId() would return the self-host
+    // pairwise id and never match the event's Cloud user_id, so the actor's
+    // own reaction never flipped to "me". applyReaction runs synchronously in
+    // the WS handler, so the dispatching connection is still in flight here.
+    const isMe = evt.user_id === dispatchingUserId();
     const rIdx = reactions.findIndex((r) => r.emoji === evt.emoji);
     if (delta === 1) {
       if (rIdx < 0) reactions.push({ emoji: evt.emoji, count: 1, me: isMe });
