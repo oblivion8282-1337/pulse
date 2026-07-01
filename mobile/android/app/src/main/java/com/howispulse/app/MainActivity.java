@@ -42,7 +42,7 @@ public class MainActivity extends BridgeActivity {
         // kennt, bevor die WebView lädt (Capacitor-Konvention).
         registerPlugin(AudioRoutePlugin.class);
         super.onCreate(savedInstanceState);
-        speakerRouter = new SpeakerphoneRouter(this, ContextCompat.getMainExecutor(this));
+        speakerRouter = new SpeakerphoneRouter(this, this, ContextCompat.getMainExecutor(this));
         speakerRouter.start();
         ensurePermissionsThenStartMicService();
     }
@@ -103,11 +103,8 @@ public class MainActivity extends BridgeActivity {
                 != PackageManager.PERMISSION_GRANTED) {
             return;
         }
-        Intent i = new Intent(this, MicForegroundService.class);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(i);
-        } else {
-            startService(i);
-        }
+        // ContextCompat wählt intern startForegroundService (API 26+) bzw.
+        // startService (darunter) — entspricht der bisherigen Version-Branch.
+        ContextCompat.startForegroundService(this, new Intent(this, MicForegroundService.class));
     }
 }
