@@ -1012,6 +1012,7 @@
   "local_host_help_step3": "Speichere die Einstellung und kehre hierher zurück.",
   "local_host_help_title": "Kurze Hilfe nötig",
   "local_host_link_copied": "Link kopiert",
+  "local_host_copy_failed": "Link konnte nicht kopiert werden.",
   "local_host_locked_body": "Sobald dein Konto fürs Hosting freigeschaltet ist, kannst du hier direkt aus der App heraus deinen eigenen Server starten. Wenn du lieber einen dauerhaft laufenden Server willst, kannst du unten einen beantragen.",
   "local_host_locked_pending_body": "Dein Antrag wird gerade vom Pulse-Team geprüft. Du kannst hier weiterarbeiten — wir melden uns, sobald er freigegeben ist.",
   "local_host_locked_pending_title": "App-Hosting-Antrag ist eingereicht",

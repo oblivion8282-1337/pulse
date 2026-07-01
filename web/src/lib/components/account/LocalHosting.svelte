@@ -57,8 +57,12 @@
 
   async function copyLink() {
     if (hostStore.detail?.relayUrl) {
-      await navigator.clipboard.writeText(hostStore.detail.relayUrl);
-      toast.success(m.local_host_link_copied());
+      try {
+        await navigator.clipboard.writeText(hostStore.detail.relayUrl);
+        toast.success(m.local_host_link_copied());
+      } catch {
+        toast.error(m.local_host_copy_failed());
+      }
     }
   }
 
