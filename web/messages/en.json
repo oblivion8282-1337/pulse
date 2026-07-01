@@ -1004,6 +1004,7 @@
   "local_host_help_step3": "Save the setting and come back here.",
   "local_host_help_title": "A little help needed",
   "local_host_link_copied": "Link copied",
+  "local_host_copy_failed": "Couldn't copy the link.",
   "local_host_locked_body": "Once your account is enabled for hosting, you can start your own server right here. If you would rather have a permanently running server, you can apply for one below.",
   "local_host_locked_pending_body": "Your application is being reviewed by the Pulse team. You can keep working here — we'll let you know as soon as it's approved.",
   "local_host_locked_pending_title": "App hosting application submitted",
