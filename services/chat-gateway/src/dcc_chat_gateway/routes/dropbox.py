@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, Query, Request, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 
 from dcc_chat_gateway import ratelimit, s3
 from dcc_chat_gateway.db import SessionDep
@@ -476,11 +476,37 @@ async def patch_entry(
         raise HTTPException(422, detail=str(exc)) from exc
 
     if new_parent != entry.parent_path or new_name != entry.name:
+        # Snapshot the old self-path BEFORE we mutate the row. We need
+        # it both for the descendant rewrite (folders only) and the
+        # cycle-prevention check below.
+        old_self_path = (
+            f"{entry.parent_path}/{entry.name}"
+            if entry.parent_path
+            else entry.name
+        )
+        is_folder_move = (
+            entry.kind == DROPBOX_KIND_FOLDER
+            and new_parent != entry.parent_path
+        )
+
         if new_parent != entry.parent_path and not await _parent_path_exists(
             session, guild_id, new_parent
         ):
             raise HTTPException(
                 404, detail=f"parent path '{new_parent}' does not exist"
+            )
+        # Cycle guard: a folder can't be moved under itself or any of
+        # its descendants, or the parent_path graph becomes a cycle
+        # and descendants land at paths that no longer exist
+        # (the orphan bug — child's parent_path remained pointing at
+        # the old self-path after the move).
+        if is_folder_move and (
+            new_parent == old_self_path
+            or new_parent.startswith(f"{old_self_path}/")
+        ):
+            raise HTTPException(
+                422,
+                detail="cannot move a folder into itself or a descendant",
             )
         clash = await session.execute(
             select(DropboxFile.id).where(
@@ -499,6 +525,32 @@ async def patch_entry(
         entry.parent_path = new_parent
         entry.name = new_name
         entry.updated_at = utc_now()
+
+        if is_folder_move:
+            # Rewrite every descendant's parent_path: drop the old
+            # prefix, prepend the new one. The OR covers direct
+            # children (parent_path == old_self_path, no trailing
+            # slash) and deeper descendants (LIKE prefix/%). LIKE
+            # with trailing '/%' is safe against '/A' matching
+            # '/A1' because '%' must be preceded by '/'.
+            new_self_path = (
+                f"{new_parent}/{entry.name}"
+                if new_parent
+                else entry.name
+            )
+            desc_stmt = select(DropboxFile).where(
+                DropboxFile.guild_id == guild_id,
+                DropboxFile.id != entry.id,
+                or_(
+                    DropboxFile.parent_path == old_self_path,
+                    DropboxFile.parent_path.like(f"{old_self_path}/%"),
+                ),
+            )
+            for d in (await session.execute(desc_stmt)).scalars():
+                d.parent_path = (
+                    new_self_path + d.parent_path[len(old_self_path):]
+                )
+                d.updated_at = utc_now()
 
     await session.commit()
     await session.refresh(entry)
