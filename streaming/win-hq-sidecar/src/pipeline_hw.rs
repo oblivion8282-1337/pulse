@@ -53,17 +53,36 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
     // NVENC-In-Flight-Tiefe. Im Downscale-Pfad hat der Scaler einen eigenen
     // Ziel-Pool, dann muss dieser hier nur Capture-Queue + Scaler-Input-Halt
     // bedienen — 24 ist für beide Fälle robust.
-    let capture = WgcHwCapture::start(
+    let mut capture = WgcHwCapture::start(
         params.capture.clone(),
         CaptureConfig { max_fps: fps, include_cursor: params.show_cursor, ..Default::default() },
         24,
     )?;
 
-    // Setup-Item warten (mit erstem Pool-Frame).
-    let setup = capture
-        .items
-        .recv_timeout(Duration::from_secs(5))
-        .map_err(|e| anyhow!("never got setup item from hw capture: {e}"))?;
+    // Setup-Item warten (mit erstem Pool-Frame). Bei Disconnect den echten
+    // Capture-Fehler aus dem Worker-JoinHandle ziehen (`join_error`) — sonst
+    // geht die Root-Cause (WGC-Close ohne Frame / HwContext::new-Fehler / …)
+    // verloren und nur „channel disconnected" bleibt übrig. Timeout vs.
+    // Disconnected trennen: Ersteres = WGC liefert nie (Target/Permission/HDR),
+    // Zweiteres = Capture-Thread ist tatsächlich gecrasht/zu Ende.
+    let setup = match capture.items.recv_timeout(Duration::from_secs(5)) {
+        Ok(item) => item,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            return Err(anyhow!(
+                "hw capture lieferte innerhalb von 5 s keinen ersten Frame \
+                 (WGC-Capture startete, aber lieferte nichts — Target/Permission/HDR-Verdacht)"
+            ));
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            let worker_err = capture.join_error();
+            return Err(anyhow!(
+                "hw capture exit vor dem ersten Frame{}",
+                worker_err
+                    .map(|s| format!(": {s}"))
+                    .unwrap_or_else(|| " (Thread clean beendet, nie ein Frame geliefert)".into())
+            ));
+        }
+    };
     let (hw, width, height, first, first_qpc) = match setup {
         HwCaptureItem::Setup { hw, width, height, first, first_qpc } => {
             (hw, width, height, first, first_qpc)
@@ -258,7 +277,13 @@ pub fn run(adapter: Adapter, params: StartParams, stop_rx: Receiver<()>) -> Resu
                 }
                 Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    return Err(anyhow!("hw capture channel disconnected"));
+                    let worker_err = capture.join_error();
+                    return Err(anyhow!(
+                        "hw capture channel disconnected mid-stream{}",
+                        worker_err
+                            .map(|s| format!(": {s}"))
+                            .unwrap_or_else(|| " (clean exit, keine Fehlermeldung)".into())
+                    ));
                 }
             }
         }

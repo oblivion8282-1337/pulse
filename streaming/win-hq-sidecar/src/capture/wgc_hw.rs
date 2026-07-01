@@ -103,6 +103,20 @@ impl WgcHwCapture {
             let _ = h.join();
         }
     }
+
+    /// Worker-Thread joinen und dessen Ergebnis-String liefern: `Some(msg)`
+    /// bei Fehler/Panic, `None` bei cleanem Exit oder wenn der Handle schon
+    /// genommen wurde. Idempotent. Die Pipeline ruft das bei Channel-Disconnect
+    /// auf, damit die echte Root-Cause (WGC-Close ohne Frame / HwContext-Fehler
+    /// / Panic) nicht im JoinHandle verlorengeht — `recv_timeout`/`try_recv`
+    /// liefern sonst nur die wertlose „channel disconnected"-Meldung.
+    pub fn join_error(&mut self) -> Option<String> {
+        self.worker.take().and_then(|h| match h.join() {
+            Ok(Ok(())) => None,
+            Ok(Err(s)) => Some(s),
+            Err(_) => Some("capture thread panicked".into()),
+        })
+    }
 }
 
 impl Drop for WgcHwCapture {
