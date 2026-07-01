@@ -1,7 +1,7 @@
 <!--
   Per-guild Dropbox / Ablage settings. Edits ``dropbox_configs`` via
   PATCH /guilds/{id}/dropbox/settings. Gates the master toggle, total
-  quota (GB), per-file size cap (MB), and trash-retention (days). All
+  quota (MB), per-file size cap (MB), and trash-retention (days). All
   values are clamped by the backend — see routes/_dropbox_schemas.py.
 -->
 <script lang="ts">
@@ -32,7 +32,7 @@
   let busy = $state(false);
   // Local form buffers (in human-readable units); commit on save.
   let enabled = $state(true);
-  let quotaGb = $state(5);
+  let quotaMb = $state(5 * 1024);
   let perFileMb = $state(100);
   let retentionDays = $state(30);
 
@@ -44,18 +44,17 @@
     try {
       cfg = await dropboxApi.getQuota(guildId);
       enabled = cfg.enabled;
-      // Keep the byte-précise value — Math.round(4.5) = 5 silently
-      // drops 0.5 GB the next time the form rehydrates. Floor at the
-      // schema minimum (1 MiB / 1 KiB) instead of rounding to integer
-      // GB / MB.
-      quotaGb = Math.max(1024 * 1024 / GB, cfg.total_quota_bytes / GB);
+      // Keep the byte-précise value — Math.round on fractional MB would
+      // silently drop remainder the next time the form rehydrates. Floor
+      // at the schema minimum (1 MiB / 1 KiB) instead of rounding.
+      quotaMb = Math.max(1, cfg.total_quota_bytes / MB);
       perFileMb = Math.max(1024 / MB, cfg.per_file_max_bytes / MB);
       retentionDays = cfg.trash_retention_days;
     } catch {
       // 404 = no config row yet; defaults stand in.
       cfg = { ...DEFAULT_CFG, guild_id: guildId };
       enabled = true;
-      quotaGb = 5;
+      quotaMb = 5 * 1024;
       perFileMb = 100;
       retentionDays = 30;
     } finally {
@@ -65,7 +64,7 @@
 
   const dirty = $derived(
     enabled !== cfg.enabled ||
-      Math.abs(quotaGb * GB - cfg.total_quota_bytes) > 0 ||
+      Math.abs(quotaMb * MB - cfg.total_quota_bytes) > 0 ||
       Math.abs(perFileMb * MB - cfg.per_file_max_bytes) > 0 ||
       retentionDays !== cfg.trash_retention_days
   );
@@ -76,13 +75,13 @@
     try {
       cfg = await dropboxApi.patchQuota(guildId, {
         enabled,
-        total_quota_bytes: Math.round(quotaGb * GB),
+        total_quota_bytes: Math.round(quotaMb * MB),
         per_file_max_bytes: Math.round(perFileMb * MB),
         trash_retention_days: retentionDays
       });
       // Resync the form from the canonical (clamped) row, byte-précise.
       enabled = cfg.enabled;
-      quotaGb = Math.max(1024 * 1024 / GB, cfg.total_quota_bytes / GB);
+      quotaMb = Math.max(1, cfg.total_quota_bytes / MB);
       perFileMb = Math.max(1024 / MB, cfg.per_file_max_bytes / MB);
       retentionDays = cfg.trash_retention_days;
       toast.success(m.dropbox_settings_saved());
@@ -136,13 +135,13 @@
           <Input
             type="number"
             min="1"
-            max="10240"
-            bind:value={quotaGb}
+            max="10485760"
+            bind:value={quotaMb}
             class="font-mono"
             disabled={!enabled}
-            data-testid="dropbox-quota-gb"
+            data-testid="dropbox-quota-mb"
           />
-          <span class="text-text-faint text-sm">GB</span>
+          <span class="text-text-faint text-sm">MB</span>
         </div>
       </div>
       <div class="space-y-1.5">
