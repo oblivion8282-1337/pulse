@@ -44,6 +44,15 @@ class DropboxViewModel {
   renameValue = $state('');
   moveTarget = $state<DropboxEntry | null>(null);
   moveValue = $state('');
+  /** Bulk-move flag — when true, ``commitMove`` iterates over
+   *  ``selectedIds`` instead of patching only ``moveTarget``. */
+  bulkMoveActive = $state(false);
+
+  /** Number of entries that will be moved when the dialog commits.
+   *  Used by the dialog for the hint line + footer count. */
+  get moveCount(): number {
+    return this.bulkMoveActive ? this.selectedIds.size : 1;
+  }
   fileInput = $state<HTMLInputElement | null>(null);
   selectedIds = $state<Set<string>>(new Set());
   /** Mehrfachauswahl-Limit, das zum Backend-Passt (MAX_MULTI_IDS). */
@@ -349,19 +358,79 @@ class DropboxViewModel {
   startMove(e: DropboxEntry) {
     this.moveTarget = e;
     this.moveValue = e.parent_path;
+    this.bulkMoveActive = false;
   }
+
+  /** Open the move dialog with the current selection as the targets.
+   *  ``moveTarget`` is set to the first selected entry — its id is
+   *  used to exclude that subtree from the folder picker (the picker
+   *  only filters one entry; nested exclusions are an honest TODO if
+   *  the bulk selection contains multiple folders). */
+  startBulkMove() {
+    if (this.selectedIds.size === 0) return;
+    const rep = this.entries.find((e) => this.selectedIds.has(e.id));
+    if (!rep) return;
+    this.moveTarget = rep;
+    this.moveValue = '';
+    this.bulkMoveActive = true;
+  }
+
+  /** Close the move dialog and reset both single + bulk state. */
+  cancelMove() {
+    this.moveTarget = null;
+    this.bulkMoveActive = false;
+  }
+
   async commitMove() {
     if (!this.moveTarget) return;
     const v = this.moveValue.trim();
+    if (this.bulkMoveActive) {
+      // ponytail: sequential PATCH loop. A batch endpoint would be nicer
+      // once we see this hot; until then the simplicity beats a new route.
+      const ids = Array.from(this.selectedIds);
+      const skipSame = (id: string) => {
+        const e = this.entries.find((x) => x.id === id);
+        return e ? e.parent_path !== v : true;
+      };
+      const targets = ids.filter(skipSame);
+      if (targets.length === 0) {
+        this.cancelMove();
+        return;
+      }
+      let ok = 0;
+      let failed = 0;
+      for (const id of targets) {
+        try {
+          await dropboxApi.patchEntry(this.channel.guild_id, id, {
+            parent_path: v
+          });
+          ok++;
+        } catch (e) {
+          failed++;
+          toast.error(pm.dropbox_move_failed(), {
+            description: (e as Error).message
+          });
+        }
+      }
+      this.cancelMove();
+      await this.refreshAll();
+      // ponytail: combined toast so a 50-file move doesn't spam 50
+      // success toasts on top of the per-entry failures above.
+      if (ok > 0 && failed === 0) {
+        toast.success(pm.dropbox_move_success({ count: ok }));
+      }
+      return;
+    }
+
     if (v === this.moveTarget.parent_path) {
-      this.moveTarget = null;
+      this.cancelMove();
       return;
     }
     try {
       await dropboxApi.patchEntry(this.channel.guild_id, this.moveTarget.id, {
         parent_path: v
       });
-      this.moveTarget = null;
+      this.cancelMove();
       await this.refreshEntries();
     } catch (e) {
       toast.error(pm.dropbox_move_failed(), {
