@@ -19,14 +19,18 @@
   type Crumb = {
     /** Display label. */
     label: string;
-    /** Ancestor index (0 = root). ``-1`` for the ellipsis placeholder. */
+    /** Ancestor index: ``1`` = first segment, ``2`` = second, etc.
+     *  The channel-name button passes ``0`` directly to ``navigate``
+     *  for the root, so it stays out of the ``crumbs`` array. ``-1``
+     *  marks the ellipsis placeholder. */
     idx: number;
   };
 
   type Props = {
     channelName: string;
     currentPath: string;
-    /** Navigate to ancestor at this index (0 = root). */
+    /** Navigate to ancestor at this index (0 = root, 1 = first
+     *  segment, 2 = second, …). */
     navigate: (idx: number) => void;
   };
 
@@ -36,18 +40,19 @@
 
   // Keep root + last two segments when the path is long enough to
   // overflow; middle segments collapse to a non-clickable ellipsis.
+  // Crumb idx is 1-based so it lines up with ``navigateToIndex(i)``,
+  // which means "go to ancestor at position i" (0 = root, 1 = first
+  // segment, …). 0-based idx would clash with the channel-name
+  // button's root-jump and route the user to the wrong folder.
   const crumbs = $derived.by((): Crumb[] => {
     if (segments.length <= 3) {
-      return segments.map((s, i) => ({ label: s, idx: i }));
+      return segments.map((s, i) => ({ label: s, idx: i + 1 }));
     }
     return [
-      { label: segments[0], idx: 0 },
+      { label: segments[0], idx: 1 },
       { label: '…', idx: -1 },
-      {
-        label: segments[segments.length - 2],
-        idx: segments.length - 2
-      },
-      { label: segments[segments.length - 1], idx: segments.length - 1 }
+      { label: segments[segments.length - 2], idx: segments.length - 1 },
+      { label: segments[segments.length - 1], idx: segments.length }
     ];
   });
 </script>
