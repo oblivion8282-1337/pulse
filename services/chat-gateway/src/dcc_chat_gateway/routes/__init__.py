@@ -19,6 +19,7 @@ from dcc_chat_gateway.routes import (
     dms,
     dropbox,
     dropbox_admin,
+    dropbox_downloads,
     dropbox_uploads,
     friends,
     guild_icons,
@@ -93,6 +94,7 @@ router.include_router(cert_login.router)
 # don't need a separate include for the PATCH /settings endpoint.
 router.include_router(dropbox.router)
 router.include_router(dropbox_uploads.router)
+router.include_router(dropbox_downloads.router)
 router.include_router(dropbox_admin.admin_router)
 router.include_router(notifications.router)
 router.include_router(presence.router)

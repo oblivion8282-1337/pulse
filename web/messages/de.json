@@ -2403,5 +2403,13 @@
   "dropbox_create": "Anlegen",
   "dropbox_cancel": "Abbrechen",
   "dropbox_save": "Speichern",
-  "dropbox_new_folder_placeholder": "Ordnername"
+  "dropbox_new_folder_placeholder": "Ordnername",
+  "dropbox_download_title": "Herunterladen",
+  "dropbox_download_failed": "Download fehlgeschlagen.",
+  "dropbox_download_selection": "Auswahl herunterladen",
+  "dropbox_download_too_many": "Es lassen sich maximal {count} Dateien gleichzeitig herunterladen.",
+  "dropbox_no_files_selected": "Keine Dateien ausgewählt.",
+  "dropbox_clear_selection": "Auswahl aufheben",
+  "dropbox_selection_count": "{count} ausgewählt",
+  "dropbox_select_entry": "Auswählen"
 }

@@ -12,7 +12,9 @@
    *  - inline preview (images, video, audio waveform)
    */
   import type { Channel } from '$lib/api/types';
-  import type { DropboxEntry } from '$lib/api/dropbox';
+  import { isFile, isFolder, type DropboxEntry } from '$lib/api/dropbox';
+  import DownloadIcon from '@lucide/svelte/icons/download';
+  import XIcon from '@lucide/svelte/icons/x';
   import { m as pm } from '$lib/paraglide/messages.js';
   import DropboxBreadcrumb from './dropbox/DropboxBreadcrumb.svelte';
   import DropboxQuotaGauge from './dropbox/DropboxQuotaGauge.svelte';
@@ -33,15 +35,13 @@
   // svelte-ignore state_referenced_locally
   const v = useDropboxView(channel);
 
-  function isFileEntry(e: DropboxEntry) {
-    return e.kind === 1;
-  }
-  function isFolderEntry(e: DropboxEntry) {
-    return e.kind === 0;
-  }
   function openOrEnter(e: DropboxEntry) {
-    if (isFolderEntry(e)) v.enterFolder(e);
+    if (isFolder(e)) v.enterFolder(e);
     else v.openFile(e);
+  }
+  function downloadEntry(e: DropboxEntry) {
+    if (isFolder(e)) void v.downloadFolder(e);
+    else void v.downloadFile(e);
   }
 </script>
 
@@ -84,6 +84,31 @@
 
   <!-- File grid / list -->
   <div class="flex-1 overflow-y-auto px-5 py-4">
+    {#if v.hasSelection && !v.viewTrash}
+      <div
+        class="mb-3 flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 px-3 py-2 text-sm"
+        data-testid="dropbox-selection-bar"
+      >
+        <span class="font-medium">
+          {pm.dropbox_selection_count({ count: v.selectionCount })}
+        </span>
+        <button
+          class="ml-auto flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+          onclick={() => v.downloadSelection()}
+          data-testid="dropbox-download-selection"
+        >
+          <DownloadIcon class="size-3.5" />
+          {pm.dropbox_download_selection()}
+        </button>
+        <button
+          class="flex items-center gap-1 rounded-md border border-border/40 px-2 py-1.5 text-xs hover:bg-bg-hover"
+          onclick={() => v.clearSelection()}
+          title={pm.dropbox_clear_selection()}
+        >
+          <XIcon class="size-3.5" />
+        </button>
+      </div>
+    {/if}
     {#if v.loading && v.entries.length === 0}
       <p class="text-text-faint text-center text-sm">{pm.dropbox_loading()}</p>
     {:else if v.error}
@@ -108,12 +133,15 @@
           <DropboxEntryCard
             entry={e}
             viewTrash={v.viewTrash}
+            selected={v.isSelected(e.id)}
             onOpen={() => openOrEnter(e)}
             onTogglePin={() => v.togglePin(e)}
             onRename={() => v.startRename(e)}
             onMove={() => v.startMove(e)}
             onTrash={() => v.trashEntry(e)}
             onRestore={() => v.restore(e)}
+            onDownload={() => downloadEntry(e)}
+            onToggleSelect={() => v.toggleSelect(e.id)}
           />
         {/each}
       </div>
@@ -121,12 +149,15 @@
       <DropboxEntryList
         entries={v.entries}
         viewTrash={v.viewTrash}
+        selectedIds={v.selectedIds}
         onOpen={openOrEnter}
         onTogglePin={(e) => v.togglePin(e)}
         onRename={(e) => v.startRename(e)}
         onMove={(e) => v.startMove(e)}
         onTrash={(e) => v.trashEntry(e)}
         onRestore={(e) => v.restore(e)}
+        onDownload={(e) => downloadEntry(e)}
+        onToggleSelect={(e) => v.toggleSelect(e.id)}
       />
     {/if}
   </div>

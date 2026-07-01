@@ -27,6 +27,7 @@ doesn't race to create N clients.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Literal
 
 import aiobotocore.session
@@ -205,6 +206,22 @@ async def head_object(key: str) -> dict:
     s = get_settings()
     client = await _ensure_internal_client()
     return await client.head_object(Bucket=s.s3_bucket, Key=key)
+
+
+async def stream_object(key: str) -> AsyncIterator[bytes]:
+    """Yield an object's bytes in chunks from MinIO (internal client).
+
+    Async generator consumed by the dropbox ZIP streamer (``AioZipStream``
+    feeds an async generator straight into an archive entry). The
+    ``get_object`` context stays open for the lifetime of the generator
+    and is released when the consumer stops iterating (or on GC), so the
+    underlying connection is held only while a file is actively streamed.
+    """
+    s = get_settings()
+    client = await _ensure_internal_client()
+    async with client.get_object(Bucket=s.s3_bucket, Key=key) as resp:
+        async for chunk in resp["Body"].iter_chunks():
+            yield chunk
 
 
 async def total_bucket_bytes() -> int | None:

@@ -361,6 +361,32 @@ export function currentAccessToken(): string | null {
   return loadTokens()?.access_token ?? null;
 }
 
+/**
+ * Baue eine vollständige Browser-Navigations-URL für einen Download-Endpoint,
+ * dessen Auth via ``?token=`` query-Param läuft. ``window.location.href`` /
+ * ``<a download>`` können keinen ``Authorization``-Header mitsenden, daher
+ * hängen wir den Bearer (gleiche Auflösung wie ``request`` inkl. Refresh/
+ * Re-Auth) als Query-Parameter an — derselbe Pattern wie der WS-Endpoint.
+ *
+ * ``path`` ist der Endpoint-relative Pfad inkl. eigener Query-Params
+ * (z.B. ``/guilds/123/download-archive?entry_ids=1,2``); das ``token`` wird
+ * ergänzt.
+ */
+export async function chatDownloadUrl(
+  endpoint: ApiEndpoint,
+  path: string,
+  route: RequestRoute = {}
+): Promise<string> {
+  const { server, url, isSelfHost } = resolveRoute(endpoint, path, route);
+  const bearer = await bearerWithReauth(server, isSelfHost);
+  if (!bearer) {
+    if (isSelfHost) throw new SessionExpiredError(server!.id);
+    throw new ApiError(401, null, 'not authenticated');
+  }
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(bearer)}`;
+}
+
 /** Same auth + refresh + 401-retry handling as `request`, but for
  * multipart/form-data uploads (avatar, guild icon, etc.). Letting the browser
  * pick the boundary requires *not* setting Content-Type.

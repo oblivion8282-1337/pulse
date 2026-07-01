@@ -42,7 +42,13 @@ class _S3Mock:
         return f"https://mock/{key}?put"
 
     async def presigned_get_url(self, key, *, filename=None, inline=True):
-        return f"https://mock/{key}?sig"
+        suffix = "att" if (not inline and filename) else "sig"
+        return f"https://mock/{key}?{suffix}"
+
+    async def stream_object(self, key):
+        body = self.put.get(key, b"")
+        for i in range(0, len(body), 4096):
+            yield body[i : i + 4096]
 
     async def head_object(self, key):
         if key not in self.put:
@@ -110,6 +116,7 @@ def mock_s3(monkeypatch):
     monkeypatch.setattr(s3_mod, "presigned_get_url", m.presigned_get_url)
     monkeypatch.setattr(s3_mod, "head_object", m.head_object)
     monkeypatch.setattr(s3_mod, "delete_object", m.delete_object)
+    monkeypatch.setattr(s3_mod, "stream_object", m.stream_object)
     monkeypatch.setattr(s3_mod, "_ensure_internal_client", m._ensure_internal_client)
     return m
 

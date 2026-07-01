@@ -29,6 +29,7 @@ _RULES: dict[str, tuple[int, float]] = {
     "dropbox_patch": (30, 60.0),     # 30 entry patches / minute
     "dropbox_delete": (30, 60.0),    # 30 entry trash / minute
     "dropbox_restore": (20, 60.0),   # 20 entry restores / minute
+    "dropbox_download": (20, 60.0),  # 20 archive/download-url mints / minute
 }
 
 
