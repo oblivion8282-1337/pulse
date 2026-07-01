@@ -49,11 +49,6 @@
     aria-label={m.voice_user_volume_label({ name })}
     data-testid="voice-participant-volume-slider"
   />
-  <div class="text-text-muted mt-1 flex justify-between font-mono text-[10px]">
-    <span>0%</span>
-    <span class="opacity-60">100%</span>
-    <span>{SLIDER_MAX}%</span>
-  </div>
   <button
     type="button"
     disabled={volumePct === 100}
