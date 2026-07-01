@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.11",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Sprach-Ton über Bluetooth verbessert (Android-App)",
+      "intro": "In der Android-App kommt der Ton in Sprach-Channels über Bluetooth — etwa im Auto — jetzt lauter an.",
+      "items": [
+        "Die Lautstärketasten regeln im Sprach-Channel den Anruf-Pegel statt der Medien-Lautstärke.",
+        "Verbundene Bluetooth-Geräte werden zuverlässiger für die Wiedergabe genutzt."
+      ]
+    },
+    {
       "id": "2026-07-01.10",
       "date": "2026-07-01",
       "style": "Sachlich",
@@ -9,7 +20,7 @@
       "items": [
         "Die Schaltflächen in der Ablage-Werkzeugleiste zeigen jetzt nur noch Symbole statt Beschriftungen — Werkzeuge wie in einem Datei-Manager.",
         "Ein neuer Ordner wird jetzt in einem eigenen Dialog angelegt, nicht mehr in einer eingeblendeten Zeile unter der Werkzeugleiste.",
-        "Im Papierkorb-Modus zeigt eine rote Leiste oberhalb der Liste, dass man gerade gelöschte Einträge sieht, und enthält direkt die Schaltfläche „Papierkorb leeren".",
+        "Im Papierkorb-Modus zeigt eine rote Leiste oberhalb der Liste, dass man gerade gelöschte Einträge sieht, und enthält direkt die Schaltfläche „Papierkorb leeren“.",
         "Ordner-Karten und Listen-Zeilen haben jetzt deutlichere Umrandungen, damit sie besser voneinander abgegrenzt sind."
       ]
     },
@@ -19,7 +30,7 @@
       "style": "Sachlich",
       "title": "Ablage: frei wählbarer Name beim Anlegen",
       "items": [
-        "Beim Erstellen einer Ablage wird der eingegebene Name jetzt übernommen — vorher hieß jede neue Ablage intern automatisch „Ablage", unabhängig vom Wunschnamen."
+        "Beim Erstellen einer Ablage wird der eingegebene Name jetzt übernommen — vorher hieß jede neue Ablage intern automatisch „Ablage“, unabhängig vom Wunschnamen."
       ]
     },
     {
@@ -28,7 +39,7 @@
       "style": "Sachlich",
       "title": "Ablage: Papierkorb auf Wunsch leeren",
       "items": [
-        "In der Papierkorb-Ansicht der Ablage gibt es jetzt einen Button „Papierkorb leeren", der alle gelöschten Einträge dauerhaft entfernt — Dateien und Ordner samt aller Bytes.",
+        "In der Papierkorb-Ansicht der Ablage gibt es jetzt einen Button „Papierkorb leeren“, der alle gelöschten Einträge dauerhaft entfernt — Dateien und Ordner samt aller Bytes.",
         "Die Aktion lässt sich nicht rückgängig machen und ist nur sichtbar, wenn Einträge im Papierkorb sind."
       ]
     },
