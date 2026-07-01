@@ -210,7 +210,14 @@ async def create_dropbox_channel(
         session, current, guild_id, Permissions.MANAGE_CHANNELS
     )
 
-    name = (payload.name or "ablage").strip()
+    # Display-string sink — same hardening as patch_entry / create_folder
+    # (validate_name rejects path-traversal, bidi-spoof, homograph chars
+    # and strips zero-width-invisible / bidi-format).
+    raw = payload.name or "ablage"
+    try:
+        name = validate_name(raw)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     channel, created = await _get_or_create_dropbox_channel(
         session, guild_id, name=name
     )

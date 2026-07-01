@@ -139,8 +139,57 @@ async def test_patch_channel_clear_color_independent_of_name(client, _auth_signe
 
 
 @pytest.mark.asyncio
+async def test_create_channel_rejects_forbidden_name(client, _auth_signer):
+    """Display-string sink: names with path-traversal chars are 422,
+    matching the hardening dropbox routes already apply."""
+
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    r = await client.post(
+        f"/guilds/{g['id']}/channels",
+        json={"name": "../etc/passwd", "type": 0},
+        headers=auth(t_owner),
+    )
+    assert r.status_code == 422, r.text
+
+
+@pytest.mark.asyncio
+async def test_patch_channel_rejects_forbidden_name(client, _auth_signer):
+    """The dropbox POST endpoint advertises 'rename via PATCH instead'
+    as the singleton-mitigation; that mitigation only defends if PATCH
+    rejects spoofable names."""
+
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    # Rejected outright (forbidden chars / empty / reserved).
+    for forbidden in ("../etc/passwd", "", "."):
+        r = await client.patch(
+            f"/channels/{c['id']}",
+            json={"name": forbidden},
+            headers=auth(t_owner),
+        )
+        assert r.status_code == 422, (forbidden, r.text)
+    # Bidi-override chars are STRIPPED, not rejected — the protection
+    # is that ``evil‮vbs.exe`` lands in the DB as ``evilvbs.exe``,
+    # so the rendered channel name can't impersonate something else.
+    r_bidi = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name": "evil‮vbs.exe"},
+        headers=auth(t_owner),
+    )
+    assert r_bidi.status_code == 200, r_bidi.text
+    assert r_bidi.json()["name"] == "evilvbs.exe"
+    # Valid names still go through.
+    r_ok = await client.patch(
+        f"/channels/{c['id']}",
+        json={"name": "renamed"},
+        headers=auth(t_owner),
+    )
+    assert r_ok.status_code == 200, r_ok.text
+    assert r_ok.json()["name"] == "renamed"
+
+
+@pytest.mark.asyncio
 async def test_patch_channel_rejects_bad_hex(client, _auth_signer):
-    """A non-hex color string is rejected (no CSS injection)."""
     t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
     c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
     r = await client.patch(

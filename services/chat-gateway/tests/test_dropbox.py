@@ -208,6 +208,39 @@ async def test_create_dropbox_channel_honours_user_name(
 
 
 @pytest.mark.asyncio
+async def test_create_dropbox_channel_rejects_forbidden_name(
+    client, _auth_signer, mock_s3
+):
+    """Display-string sink: dropbox channel name is a phishing surface
+    — same ``validate_name`` hardening as entry basenames."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+
+    # Hard-rejected: path-traversal, empty, "..".
+    for bad in ("../etc/passwd", "", "."):
+        r = await client.post(
+            f"/guilds/{gid}/dropbox/channel",
+            json={"name": bad},
+            headers=auth(token),
+        )
+        assert r.status_code == 422, (bad, r.text)
+    # Bidi-override chars are STRIPPED (not rejected) — the rendered
+    # channel name is what the user sees, so stripping neutralises
+    # the spoof rather than 422-ing. Same hardening as entry names.
+    r_bidi = await client.post(
+        f"/guilds/{gid}/dropbox/channel",
+        json={"name": "evil‮vbs.exe"},
+        headers=auth(token),
+    )
+    assert r_bidi.status_code == 200, r_bidi.text
+    assert r_bidi.json()["name"] == "evilvbs.exe"
+    # Singleton: the second call returns the same channel unchanged.
+    assert r_bidi.json()["created"] is True
+
+
+@pytest.mark.asyncio
 async def test_quota_defaults_then_patch(client, _auth_signer, mock_s3):
     """Quotas default to 5 GiB total / 100 MiB per file. Admin can
     shrink the per-file cap and the change sticks."""

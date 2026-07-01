@@ -32,6 +32,11 @@ from dcc_chat_gateway.permissions import (
     resolve_permissions,
     restricted_channel_ids,
 )
+# ponytail: validate_name lives in dropbox-helpers for now (only dropbox
+# routes used it). If a second non-dropbox consumer appears, lift it
+# into shared/dcc_shared/text.py. Importing across route modules is
+# intentional here — same package, no cycle.
+from dcc_chat_gateway.routes._dropbox_helpers import validate_name
 from dcc_chat_gateway.routes._deps import require_member
 from dcc_chat_gateway.routes.attachments import hard_delete_attachments, purge_s3_keys
 from dcc_chat_gateway.schemas import (
@@ -91,10 +96,16 @@ async def create_channel(
     if guild is None:
         raise HTTPException(404, detail="guild not found")
     await check_permission(session, current, guild_id, Permissions.MANAGE_CHANNELS)
+    # Display-string sink: must go through validate_name to harden
+    # against path-traversal / bidi-spoofing / homograph phishing.
+    try:
+        clean_name = validate_name(payload.name)
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
     channel = Channel(
         id=next_id(),
         guild_id=guild_id,
-        name=payload.name,
+        name=clean_name,
         type=payload.type,
         position=payload.position,
         topic=payload.topic,
@@ -291,7 +302,14 @@ async def patch_channel(
         session, current, channel.guild_id, Permissions.MANAGE_CHANNELS
     )
     if payload.name is not None:
-        channel.name = payload.name
+        # Display-string sink: validate_name is the same hardening
+        # every dropbox route already applies. The "rename via PATCH"
+        # mitigation advertised by the dropbox POST endpoint only
+        # defends against name-spoofing if this PATCH is also hardened.
+        try:
+            channel.name = validate_name(payload.name)
+        except ValueError as exc:
+            raise HTTPException(422, detail=str(exc)) from exc
     if payload.topic is not None:
         channel.topic = payload.topic
     # Styling uses the default=... sentinel: an omitted field is left untouched,
