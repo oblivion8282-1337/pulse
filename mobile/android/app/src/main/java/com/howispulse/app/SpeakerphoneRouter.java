@@ -1,5 +1,6 @@
 package com.howispulse.app;
 
+import android.app.Activity;
 import android.content.Context;
 import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
@@ -12,26 +13,36 @@ import java.util.List;
 import java.util.concurrent.Executor;
 
 /**
- * Routet die WebRTC-/Stream-Wiedergabe auf das gewünschte Ausgabegerät.
+ * Routet die WebRTC-/Stream-Wiedergabe auf das gewünschte Ausgabegerät und lenkt
+ * die Hardware-Lautstärketasten auf den Voice-Call-Stream.
  *
- * Das Problem: Sobald die WebView eine {@code RTCPeerConnection} / {@code
- * getUserMedia} öffnet, schaltet Chromium den System-Audio-Modus auf
- * {@link AudioManager#MODE_IN_COMMUNICATION}. In diesem Modus routet Android per
- * Default auf die HÖRMUSCHEL (earpiece, Telefonie) statt auf den lauten Medien-
- * Lautsprecher — der Ton kommt „wie aus dem Telefon-Hörer".
+ * Zwei Probleme, die Android im {@link AudioManager#MODE_IN_COMMUNICATION} macht
+ * (den Chromium bei aktivem WebRTC setzt):
+ *  1. Default-Routing auf die HÖRMUSCHEL (earpiece) statt den lauten Medien-
+ *     Lautsprecher — der Ton kommt „wie aus dem Telefon-Hörer".
+ *  2. Die Hardware-Lautstärketasten steuern {@link AudioManager#STREAM_MUSIC},
+ *     während der Voice-Ton über {@link AudioManager#STREAM_VOICE_CALL} läuft —
+ *     der User dreht „voll auf" und hört kaum etwas, weil er den falschen Stream
+ *     regelt (klassischer „Bluetooth im Auto zu leise"-Bug; vgl. Jitsi Meet
+ *     {@code AudioModeModule}, {@code setVolumeControlStream(STREAM_VOICE_CALL)}).
  *
- * Zwei Betriebsarten:
- *  - {@link #ROUTE_AUTO} (Default): erzwingt den Lautsprecher, solange KEIN
- *    Headset/Bluetooth steckt (dann bleibt der Ton dort).
+ * Drei Betriebsarten ({@link #route}):
+ *  - {@link #ROUTE_AUTO} (Default): Lautsprecher, sofern KEIN Headset steckt;
+ *    ist Bluetooth verbunden, wird das BT-SCO-Gerät aktiv als Communication-Device
+ *    gesetzt (deterministisch, statt dem OS das Routing zu überlassen).
  *  - {@link #ROUTE_SPEAKER}/{@link #ROUTE_EARPIECE}: manueller Override aus dem
- *    UI-Umschalter — die explizite User-Wahl gewinnt, auch über ein Headset.
+ *    UI-Umschalter — die explizite User-Wahl gewinnt, auch über ein Headset/BT.
+ *
+ * Kabel-/USB-Headsets werden in AUTO bewusst in Ruhe gelassen (OS-Default), BT
+ * dagegen aktiv geroutet — das ist der Unterschied zum früheren pauschalen
+ * „Externe-Gerät-early-return", der im Auto den Router komplett lahmlegte.
  *
  * Robustheit gegen den Chromium-Race (das war der Bug der reinen Mode-Gate-
  * Variante): {@code setCommunicationDevice} wirkt nur in
  * {@code MODE_IN_COMMUNICATION}, und Chromium wählt unmittelbar nach dem
  * Mode-Switch SELBST ein Ausgabegerät. Deshalb:
  *  1. {@link AudioManager.OnModeChangedListener} → bei Wechsel auf COMMUNICATION
- *     sofort anwenden.
+ *     sofort anwenden (+ Volume-Stream setzen), bei anderem Mode Stream reseten.
  *  2. verzögertes Re-Apply (150/500 ms), um einen direkt folgenden Chromium-
  *     Override zu übersteuern.
  *  3. {@link AudioManager.OnCommunicationDeviceChangedListener} → holt unsere
@@ -47,6 +58,8 @@ public class SpeakerphoneRouter {
     private static final String TAG = "PulseAudio";
 
     private final AudioManager audioManager;
+    /** Für {@link Activity#setVolumeControlStream}: nur null im diagnostic-only Pfad. */
+    private final Activity activity;
     private final Executor mainExecutor;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -56,20 +69,26 @@ public class SpeakerphoneRouter {
     private AudioManager.OnModeChangedListener modeListener;
     private AudioManager.OnCommunicationDeviceChangedListener commDeviceListener;
 
-    public SpeakerphoneRouter(Context context, Executor mainExecutor) {
+    public SpeakerphoneRouter(Context context, Activity activity, Executor mainExecutor) {
         this.audioManager = (AudioManager) context.getApplicationContext()
                 .getSystemService(Context.AUDIO_SERVICE);
+        this.activity = activity;
         this.mainExecutor = mainExecutor;
     }
 
     /** Einmalig nach Activity-Create: registriert (ab API 31) die Listener und
-     *  wendet einmal an. */
+     *  wendet einmal an. Setzt den Volume-Stream (API-unabhängig). */
     public void start() {
         if (audioManager == null) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (modeListener == null) {
                 modeListener = (mode) -> {
-                    if (mode == AudioManager.MODE_IN_COMMUNICATION) apply();
+                    if (mode == AudioManager.MODE_IN_COMMUNICATION) {
+                        setVoiceVolumeStream();
+                        apply();
+                    } else {
+                        resetVolumeStream();
+                    }
                 };
                 try {
                     audioManager.addOnModeChangedListener(mainExecutor, modeListener);
@@ -87,12 +106,17 @@ public class SpeakerphoneRouter {
                 }
             }
         }
+        // Falls Chromium den Mode schon vor start() auf COMMUNICATION gestellt hat.
+        if (audioManager.getMode() == AudioManager.MODE_IN_COMMUNICATION) {
+            setVoiceVolumeStream();
+        }
         apply();
     }
 
-    /** Beim Activity-Destroy: Listener abmelden. */
+    /** Beim Activity-Destroy: Listener abmelden, Volume-Stream zurücksetzen. */
     public void stop() {
         if (audioManager == null) return;
+        resetVolumeStream();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (modeListener != null) {
                 try { audioManager.removeOnModeChangedListener(modeListener); }
@@ -109,7 +133,7 @@ public class SpeakerphoneRouter {
     }
 
     /** Manueller Umschalter aus dem UI (AudioRoute-Plugin). ``ROUTE_AUTO`` stellt
-     *  das automatische Verhalten (Lautsprecher, sofern kein Headset) wieder her. */
+     *  das automatische Verhalten wieder her. */
     public void setRoute(int newRoute) {
         this.route = newRoute;
         apply();
@@ -140,25 +164,34 @@ public class SpeakerphoneRouter {
 
     /**
      * Wendet die aktuelle Routing-Wahl an. Idempotent, jederzeit gefahrlos
-     * aufrufbar (onResume, Mode-/Device-Change, verzögertes Re-Apply).
+     * aufrufbar (onResume, Mode-/device-Change, verzögertes Re-Apply).
+     *
+     * Priorität in AUTO: BT-Headset/Car → aktiv als Communication-Device setzen;
+     * kabel-/USB-Headset → OS-Default (in Ruhe lassen); sonst Lautsprecher.
+     * Override (SPEAKER/EARPIECE) gewinnt immer, auch über BT.
      */
     public void apply() {
         if (audioManager == null) return;
-        // Nur im AUTO-Modus ein Headset/Bluetooth respektieren; ein MANUELLER
-        // Override ist die explizite User-Entscheidung und gewinnt auch dann.
-        if (route == ROUTE_AUTO && hasExternalAudioRoute()) {
+        // Nur kabel-/USB-Headsets (ohne Audio-Möglichkeit-Verwechslung) in AUTO
+        // dem OS überlassen — BT wird bewusst ACTIV geroutet (früher early-return
+        // für ALLE externen Geräte, was BT im Auto sich selbst überließ).
+        if (route == ROUTE_AUTO && hasWiredHeadsetRoute()) {
             return;
         }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // setCommunicationDevice wirkt NUR in MODE_IN_COMMUNICATION; sonst
-                // ist es wirkungslos. Der Mode-/Device-Listener triggert apply()
-                // erneut, sobald der Modus tatsächlich auf COMMUNICATION kippt.
+                // setCommunicationDevice wirkt NUR in MODE_IN_COMMUNICATION.
                 if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
-                applyApi31(targetDeviceType());
+                AudioDeviceInfo target = pickTargetDevice();
+                if (target != null) {
+                    boolean ok = audioManager.setCommunicationDevice(target);
+                    if (!ok) {
+                        Log.w(TAG, "setCommunicationDevice returned false for type " + target.getType());
+                    }
+                }
             } else {
                 // API 24–30: deprecated, aber der einzige Weg. setSpeakerphoneOn
-                // deckt nur Speaker/earpiece ab (kein explizites Earpiece-Device).
+                // deckt nur Speaker/earpiece ab; BT läuft hier ohnehin OS-gesteuert.
                 audioManager.setSpeakerphoneOn(targetDeviceType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
             }
         } catch (Exception e) {
@@ -166,20 +199,22 @@ public class SpeakerphoneRouter {
         }
     }
 
-    private void applyApi31(int deviceType) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
-        AudioDeviceInfo target = null;
-        List<AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
-        for (AudioDeviceInfo d : devices) {
-            if (d.getType() == deviceType) {
-                target = d;
-                break;
-            }
+    /** Wählt das Ziel-Gerät für API 31+: Override → speaker/earpiece; AUTO+BT →
+     *  das verbundene BT-SCO-Gerät; AUTO sonst → speaker/earpiece. {@code null},
+     *  wenn (AUTO + BT gemeldet, aber SCO-Gerät noch nicht als comm-Gerät verfügbar). */
+    private AudioDeviceInfo pickTargetDevice() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null;
+        int type = targetDeviceType();
+        if (route == ROUTE_AUTO && type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                && hasBluetoothAudioRoute()) {
+            AudioDeviceInfo bt = findBluetoothCommDevice();
+            if (bt != null) return bt;
+            // BT gemeldet, aber noch kein comm-fähiges SCO-Gerät → OS-Default
+            // nicht anrühren (race beim BT-Verbinden).
+            return null;
         }
-        if (target != null) {
-            boolean ok = audioManager.setCommunicationDevice(target);
-            if (!ok) Log.w(TAG, "setCommunicationDevice returned false for type " + deviceType);
-        }
+        // Explizite speaker/earpiece-Wahl oder AUTO ohne BT.
+        return findDeviceByType(type);
     }
 
     /** Re-Assert, wenn ein anderer (Chromium) das Kommunikationsgerät umgestellt
@@ -187,31 +222,40 @@ public class SpeakerphoneRouter {
     private void onCommDeviceChanged() {
         if (audioManager == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
         if (audioManager.getMode() != AudioManager.MODE_IN_COMMUNICATION) return;
-        if (route == ROUTE_AUTO && hasExternalAudioRoute()) return;
+        if (route == ROUTE_AUTO && hasWiredHeadsetRoute()) return;
         AudioDeviceInfo cur = audioManager.getCommunicationDevice();
-        if (cur != null && cur.getType() == targetDeviceType()) return; // schon korrekt → kein Loop
+        AudioDeviceInfo target = pickTargetDevice();
+        if (target == null) return;
+        if (cur != null && cur.getType() == target.getType()
+                && cur.getId() == target.getId()) {
+            return; // schon korrekt → kein Loop
+        }
         apply();
     }
 
-    /**
-     * True, wenn ein echtes externes Audio-AUSGABEGERÄT (kabelgebundenes
-     * Headset/Kopfhörer, USB-Headset, Bluetooth A2DP/SCO, Hörgerät) angeschlossen
-     * ist. Nur im AUTO-Modus relevant.
-     *
-     * BEWUSST OHNE {@code TYPE_USB_DEVICE}: dieser generische Typ taucht je nach
-     * OEM auch für USB-Peripherie OHNE Audiofunktion auf (OTG-Adapter, Lade-Hubs).
-     */
-    private boolean hasExternalAudioRoute() {
+    private AudioDeviceInfo findDeviceByType(int deviceType) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null;
+        for (AudioDeviceInfo d : audioManager.getAvailableCommunicationDevices()) {
+            if (d.getType() == deviceType) return d;
+        }
+        return null;
+    }
+
+    /** Das verbundene BT-SCO-Gerät unter den verfügbaren Communication-Devices.
+     *  {@code null}, wenn BT (noch) nicht als comm-Gerät gemeldet ist. */
+    private AudioDeviceInfo findBluetoothCommDevice() {
+        return findDeviceByType(AudioDeviceInfo.TYPE_BLUETOOTH_SCO);
+    }
+
+    /** True, wenn ein kabelgebundenes/USB-Headset angeschlossen ist (in AUTO
+     *  OS-Default respektieren). Bewusst OHNE USB-Device (generischer OEM-Typ). */
+    private boolean hasWiredHeadsetRoute() {
         if (audioManager == null) return false;
-        AudioDeviceInfo[] outs = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
-        if (outs == null) return false;
-        for (AudioDeviceInfo d : outs) {
+        for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
             switch (d.getType()) {
                 case AudioDeviceInfo.TYPE_WIRED_HEADSET:
                 case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
                 case AudioDeviceInfo.TYPE_USB_HEADSET:
-                case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
-                case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:
                 case AudioDeviceInfo.TYPE_HEARING_AID:
                     return true;
                 default:
@@ -219,5 +263,41 @@ public class SpeakerphoneRouter {
             }
         }
         return false;
+    }
+
+    /** True, wenn ein Bluetooth-Audio-Ausgabegerät (A2DP Media oder SCO Telefonie)
+     *  verbunden ist. */
+    private boolean hasBluetoothAudioRoute() {
+        if (audioManager == null) return false;
+        for (AudioDeviceInfo d : audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            if (d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                    || d.getType() == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Hardware-Lautstärketasten auf den Voice-Call-Stream lenken (statt MEDIA).
+     *  Das ist der Hebel gegen „volles Aufdrehen, kaum Ton" — der User regelt
+     *  sonst den falschen Stream. */
+    private void setVoiceVolumeStream() {
+        if (activity != null) {
+            try {
+                activity.setVolumeControlStream(AudioManager.STREAM_VOICE_CALL);
+            } catch (Exception e) {
+                Log.w(TAG, "setVolumeControlStream failed", e);
+            }
+        }
+    }
+
+    private void resetVolumeStream() {
+        if (activity != null) {
+            try {
+                activity.setVolumeControlStream(AudioManager.USE_DEFAULT_STREAM_TYPE);
+            } catch (Exception e) {
+                Log.w(TAG, "resetVolumeControlStream failed", e);
+            }
+        }
     }
 }

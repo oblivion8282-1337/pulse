@@ -9,6 +9,7 @@ from dcc_chat_gateway.routes import (
     admin_backups,
     admin_members,
     admin_plugins,
+    audio_diagnostic,
     attachments,
     bans,
     blocks,
@@ -73,6 +74,7 @@ router.include_router(community_invites.router)
 router.include_router(blocks.router)
 router.include_router(privacy.router)
 router.include_router(preferences.router)
+router.include_router(audio_diagnostic.router)
 router.include_router(invites.router)
 router.include_router(public_community.router)
 router.include_router(roles.router)
