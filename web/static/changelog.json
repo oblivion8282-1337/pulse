@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.2",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: Dateien herunterladen",
+      "items": [
+        "Dateien aus der Ablage lassen sich jetzt gezielt herunterladen statt nur zu öffnen.",
+        "Ganze Ordner werden als ZIP-Datei heruntergeladen, inklusive aller Unterordner.",
+        "Mehrere Dateien lassen sich gleichzeitig auswählen und gemeinsam als ZIP herunterladen."
+      ]
+    },
+    {
       "id": "2026-07-01",
       "date": "2026-07-01",
       "style": "Sachlich",

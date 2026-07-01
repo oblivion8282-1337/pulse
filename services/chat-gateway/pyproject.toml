@@ -20,6 +20,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "aiobotocore>=2.13",
     "pywebpush>=2.0,<3",
+    "aiozipstream>=0.4",
     "dcc-shared",
 ]
 

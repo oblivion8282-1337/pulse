@@ -39,7 +39,7 @@ import jwt
 # (``from dcc_chat_gateway.security import synthesize_self_host_user_id``) keep
 # working unchanged.
 from dcc_shared.session_tokens import synthesize_self_host_user_id  # noqa: F401
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Query, status
 from jwt.algorithms import RSAAlgorithm
 
 from dcc_chat_gateway.config import get_settings
@@ -286,12 +286,16 @@ class AuthenticatedUser:
     is_self_host: bool = field(default=False)
 
 
-async def get_current_user(
-    authorization: str | None = Header(default=None),
-) -> AuthenticatedUser:
-    if not authorization or not authorization.lower().startswith("bearer "):
+async def _user_from_token(token: str | None) -> AuthenticatedUser:
+    """Shared verify-and-build path for the auth dependencies.
+
+    Takes an already-extracted bearer token (from header or query) and
+    returns the authenticated user. Both call-sites share the same
+    email-verification gate + admin-derivation so behaviour can't drift
+    between header- and query-authenticated routes.
+    """
+    if not token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="missing bearer token")
-    token = authorization.split(" ", 1)[1].strip()
     payload = await decode_token(token)
     # Email-verification gate: auth-svc stamps ``email_blocked`` on tokens of
     # unverified accounts once SMTP is configured. The whole chat-gateway is
@@ -335,7 +339,36 @@ async def get_current_user(
     )
 
 
+def _extract_bearer(authorization: str | None) -> str | None:
+    """Pull the token out of an ``Authorization: Bearer …`` header (case-
+    insensitive prefix). Returns ``None`` if the header is missing or shaped
+    differently — the caller decides whether that's fatal or falls back to a
+    query-param token."""
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization.split(" ", 1)[1].strip()
+    return None
+
+
+async def get_current_user(
+    authorization: str | None = Header(default=None),
+) -> AuthenticatedUser:
+    return await _user_from_token(_extract_bearer(authorization))
+
+
+async def get_current_user_token_query(
+    authorization: str | None = Header(default=None),
+    token: str | None = Query(default=None),
+) -> AuthenticatedUser:
+    """Accept the bearer token from the ``Authorization`` header **or** a
+    ``?token=`` query param. The query form exists for browser-initiated
+    downloads (``window.location.href`` / ``<a href>`` can't attach a header)
+    and mirrors the WS endpoint's ``token`` query param. Same verification +
+    gates as the header path — just an extra intake channel."""
+    return await _user_from_token(_extract_bearer(authorization) or token)
+
+
 CurrentUser = Annotated[AuthenticatedUser, Depends(get_current_user)]
+CurrentUserQuery = Annotated[AuthenticatedUser, Depends(get_current_user_token_query)]
 
 
 async def require_admin(current: CurrentUser) -> AuthenticatedUser:

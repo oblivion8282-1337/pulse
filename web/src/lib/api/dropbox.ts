@@ -6,7 +6,7 @@
  * JS Number can't represent >2^53 without precision loss).
  */
 
-import { request } from './client';
+import { chatDownloadUrl, request } from './client';
 
 export type DropboxEntryKind = 0 | 1; // 0 = folder, 1 = file
 
@@ -138,6 +138,35 @@ export const dropboxApi = {
     return request<DropboxEntry>(
       `${BASE(guildId)}/entries/${entryId}/restore`,
       { method: 'POST' }
+    );
+  },
+
+  /** Mint a presigned GET URL that forces an attachment download
+   *  (``Content-Disposition: attachment``) for a single file. */
+  getDownloadUrl(guildId: string, entryId: string): Promise<{ url: string }> {
+    return request<{ url: string }>(
+      `${BASE(guildId)}/entries/${entryId}/download-url`,
+      { method: 'GET' }
+    );
+  },
+
+  /** Full browser-navigation URL for the ZIP archive endpoint (folder or
+   *  multi-select). Auth rides as ``?token=`` because the navigation can't
+   *  attach an Authorization header. Exactly one of ``path`` / ``entryIds``
+   *  must be set. */
+  archiveUrl(
+    guildId: string,
+    opts: { path?: string } | { entryIds?: string[] }
+  ): Promise<string> {
+    const params = new URLSearchParams();
+    if ('path' in opts && opts.path) {
+      params.set('path', opts.path);
+    } else if ('entryIds' in opts && opts.entryIds?.length) {
+      params.set('entry_ids', opts.entryIds.join(','));
+    }
+    return chatDownloadUrl(
+      'chat',
+      `${BASE(guildId)}/download-archive?${params.toString()}`
     );
   },
 

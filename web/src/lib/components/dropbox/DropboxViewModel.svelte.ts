@@ -45,6 +45,17 @@ class DropboxViewModel {
   moveTarget = $state<DropboxEntry | null>(null);
   moveValue = $state('');
   fileInput = $state<HTMLInputElement | null>(null);
+  selectedIds = $state<Set<string>>(new Set());
+  /** Mehrfachauswahl-Limit, das zum Backend-Passt (MAX_MULTI_IDS). */
+  static readonly MAX_SELECTION = 100;
+
+  get hasSelection(): boolean {
+    return this.selectedIds.size > 0;
+  }
+
+  get selectionCount(): number {
+    return this.selectedIds.size;
+  }
 
   // Stale-response token — see comment on ``refreshEntries``.
   #entriesGen = 0;
@@ -103,8 +114,77 @@ class DropboxViewModel {
       this.currentPath;
       this.searchQuery;
       this.viewTrash;
+      // A path/search/trash switch invalidates any stale selection — the
+      // entry rows the selection referred to are no longer on screen.
+      this.selectedIds = new Set();
       void this.refreshEntries();
     });
+  }
+
+  // ----- Selection -----
+  toggleSelect(id: string) {
+    const next = new Set(this.selectedIds);
+    if (next.has(id)) next.delete(id);
+    else if (next.size < DropboxViewModel.MAX_SELECTION) next.add(id);
+    this.selectedIds = next;
+  }
+
+  clearSelection() {
+    this.selectedIds = new Set();
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.has(id);
+  }
+
+  // ----- Downloads -----
+  /** Mint a download URL and hand it to the browser. Content-Disposition is
+   *  ``attachment`` on both paths so the browser downloads without navigating
+   *  away — failures surface as a toast instead of a half-started navigation. */
+  async #download(urlPromise: Promise<string>): Promise<void> {
+    try {
+      window.location.href = await urlPromise;
+    } catch (err) {
+      toast.error(pm.dropbox_download_failed(), {
+        description: (err as Error).message
+      });
+    }
+  }
+
+  async downloadFile(e: DropboxEntry) {
+    if (!isFile(e)) return;
+    void this.#download(
+      dropboxApi
+        .getDownloadUrl(this.channel.guild_id, e.id)
+        .then((r) => r.url)
+    );
+  }
+
+  async downloadFolder(e: DropboxEntry) {
+    if (!isFolder(e)) return;
+    const path = e.parent_path ? `${e.parent_path}/${e.name}` : e.name;
+    void this.#download(dropboxApi.archiveUrl(this.channel.guild_id, { path }));
+  }
+
+  async downloadSelection() {
+    const files = this.entries.filter(
+      (e) => isFile(e) && this.selectedIds.has(e.id)
+    );
+    if (files.length === 0) {
+      toast.error(pm.dropbox_no_files_selected());
+      return;
+    }
+    if (this.selectedIds.size > DropboxViewModel.MAX_SELECTION) {
+      toast.error(
+        pm.dropbox_download_too_many({ count: DropboxViewModel.MAX_SELECTION })
+      );
+      return;
+    }
+    void this.#download(
+      dropboxApi.archiveUrl(this.channel.guild_id, {
+        entryIds: files.map((f) => f.id)
+      })
+    );
   }
 
   // ----- Refresh -----
