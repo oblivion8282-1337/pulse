@@ -646,71 +646,70 @@ async def empty_trash(
     cannot wipe the trash; gated on MANAGE_CHANNELS so a stray member
     can't erase something their team is about to restore.
 
-    Mirrors the retention sweep in ``dropbox_admin._sweep_once``:
-    MinIO delete per row (best-effort — failures keep the row in
-    place, same as the sweep), then session.delete + commit, then
-    ``dropbox_entry_purged`` per id + ``dropbox_quota_updated`` if any
-    bytes were reclaimed.
+    Quota is **not** touched here: ``delete_entry`` already debited
+    ``cfg.used_bytes`` at trash time via ``bump_used(-size)``,
+    ``restore_entry`` re-credits. Subtracting again here would drift
+    the counter negative. MinIO bytes freed are reported back for the
+    toast, no quota event needed.
+
+    Wrapped in ``with_quota_lock`` to serialize against concurrent
+    uploads / restores — same pattern as ``delete_entry`` /
+    ``restore_entry``.
     """
 
+    if not ratelimit.check("dropbox_empty_trash", current.id):
+        raise HTTPException(
+            429, detail="too many empty-trash requests — slow down"
+        )
     await require_member(session, guild_id, current.id)
     await check_permission(
         session, current, guild_id, Permissions.MANAGE_CHANNELS,
     )
 
-    # ponytail: 10k cap mirrors the sweep. A guild that genuinely has
-    # more trash than that needs a paginated variant — but that's a
-    # future iteration, not a today problem.
-    rows = list(
-        (
-            await session.execute(
-                select(DropboxFile).where(
-                    DropboxFile.guild_id == guild_id,
-                    DropboxFile.deleted_at.is_not(None),
-                ).limit(10_000)
-            )
-        ).scalars()
-    )
-    if not rows:
-        return {"purged": 0, "bytes_reclaimed": 0}
-
     purged: list[tuple[int, int]] = []
     bytes_reclaimed = 0
-    for entry in rows:
-        if entry.storage_key:
-            try:
-                await s3.delete_object(entry.storage_key)
-            except Exception as exc:  # noqa: BLE001
-                log.warning(
-                    "dropbox_empty_trash_minio_delete_failed",
-                    guild_id=guild_id,
-                    entry_id=entry.id,
-                    storage_key=entry.storage_key,
-                    error=str(exc),
-                )
-                # Leave the row in place — next sweep retries. Bytes
-                # may be temporarily orphaned; bandwidth-safe.
-                continue
-        purged.append((entry.id, entry.kind))
-        if entry.size_bytes:
-            bytes_reclaimed += int(entry.size_bytes)
-        await session.delete(entry)
-    await session.flush()
-
-    cfg = await _get_config_unlocked(session, guild_id)
-    if cfg is not None and bytes_reclaimed:
-        cfg.used_bytes = max(0, int(cfg.used_bytes) - bytes_reclaimed)
-        cfg.updated_at = utc_now()
-
-    await session.commit()
-
     mgr = getattr(request.app.state, "connection_manager", None)
+    async with with_quota_lock(guild_id):
+        # ponytail: 10k cap mirrors the sweep. A guild that genuinely
+        # has more trash than that needs a paginated variant — but
+        # that's a future iteration, not a today problem.
+        rows = list(
+            (
+                await session.execute(
+                    select(DropboxFile).where(
+                        DropboxFile.guild_id == guild_id,
+                        DropboxFile.deleted_at.is_not(None),
+                    ).limit(10_000)
+                )
+            ).scalars()
+        )
+        if not rows:
+            return {"purged": 0, "bytes_reclaimed": 0}
+        for entry in rows:
+            if entry.storage_key:
+                try:
+                    await s3.delete_object(entry.storage_key)
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "dropbox_empty_trash_minio_delete_failed",
+                        guild_id=guild_id,
+                        entry_id=entry.id,
+                        storage_key=entry.storage_key,
+                        error=str(exc),
+                    )
+                    # Leave the row in place — next sweep retries.
+                    # Bytes may be temporarily orphaned; bandwidth-safe.
+                    continue
+            purged.append((entry.id, entry.kind))
+            if entry.size_bytes:
+                bytes_reclaimed += int(entry.size_bytes)
+            await session.delete(entry)
+        await session.commit()
+
     for entry_id, kind in purged:
         await publish_purge_event(
             mgr, guild_id=guild_id, entry_id=entry_id, kind=kind,
         )
-    if cfg is not None and bytes_reclaimed:
-        await publish_quota_event(mgr, cfg)
 
     return {"purged": len(purged), "bytes_reclaimed": bytes_reclaimed}
 

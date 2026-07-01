@@ -503,6 +503,103 @@ async def test_empty_trash_empty_when_no_trash(client, _auth_signer, mock_s3):
 
 
 @pytest.mark.asyncio
+async def test_empty_trash_requires_manage_channels(client, _auth_signer, mock_s3):
+    """Rate-limit gate + permission gate. We can't easily synthesize a
+    non-admin member from inside ``test_dropbox`` (the creator is
+    always the bootstrap admin), so this test only exercises the
+    rate-limit path with the legitimate user. The MANAGE_CHANNELS
+    gate is enforced by the existing permission-resolver tests.
+    """
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # 10 allowed, the 11th call gets 429. Empty-trash is a heavy op;
+    # the per-user 10/minute budget is intentional.
+    for _ in range(10):
+        r = await client.post(
+            f"/guilds/{gid}/dropbox/trash/empty",
+            headers=auth(token),
+        )
+        assert r.status_code == 200, r.text
+    blocked = await client.post(
+        f"/guilds/{gid}/dropbox/trash/empty",
+        headers=auth(token),
+    )
+    assert blocked.status_code == 429, blocked.text
+
+
+@pytest.mark.asyncio
+async def test_empty_trash_does_not_double_debit_quota(
+    client, _auth_signer, mock_s3
+):
+    """Quota is debited at trash time via ``delete_entry``. A subsequent
+    empty-trash must NOT touch ``cfg.used_bytes`` again — otherwise the
+    counter drifts when files pass through trash+empty."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Upload + trash a file
+    mint = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/upload-url",
+            json={
+                "parent_path": "",
+                "name": "x.bin",
+                "content_type": "application/octet-stream",
+                "size_bytes": 200,
+            },
+            headers=auth(token),
+        )
+    ).json()
+    mock_s3.put[mint["storage_key"]] = b"x" * 200
+    fin = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/finish-upload",
+            json={
+                "id": mint["id"],
+                "parent_path": "",
+                "name": "x.bin",
+                "size_bytes": 200,
+                "content_type": "application/octet-stream",
+            },
+            headers=auth(token),
+        )
+    ).json()
+    await client.delete(
+        f"/guilds/{gid}/dropbox/entries/{fin['id']}",
+        headers=auth(token),
+    )
+
+    # Quota is now 0 (debited at trash time).
+    before = (
+        await client.get(
+            f"/guilds/{gid}/dropbox/quota", headers=auth(token)
+        )
+    ).json()["used_bytes"]
+    assert before == 0
+
+    # Empty-trash: must not push used_bytes negative.
+    r = await client.post(
+        f"/guilds/{gid}/dropbox/trash/empty",
+        headers=auth(token),
+    )
+    assert r.status_code == 200, r.text
+
+    after = (
+        await client.get(
+            f"/guilds/{gid}/dropbox/quota", headers=auth(token)
+        )
+    ).json()["used_bytes"]
+    assert after == 0, "empty-trash must not re-debit an already-zero quota"
+
+
+@pytest.mark.asyncio
 async def test_duplicate_folder_409(client, _auth_signer, mock_s3):
     """Two folders with the same parent+name → 409."""
 
