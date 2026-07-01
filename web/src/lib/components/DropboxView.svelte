@@ -14,6 +14,7 @@
   import type { Channel } from '$lib/api/types';
   import { isFile, isFolder, type DropboxEntry } from '$lib/api/dropbox';
   import DownloadIcon from '@lucide/svelte/icons/download';
+  import FolderInputIcon from '@lucide/svelte/icons/folder-input';
   import XIcon from '@lucide/svelte/icons/x';
   import { m as pm } from '$lib/paraglide/messages.js';
   import DropboxBreadcrumb from './dropbox/DropboxBreadcrumb.svelte';
@@ -102,6 +103,15 @@
         </button>
         <button
           class="flex items-center gap-1 rounded-md border border-border/40 px-2 py-1.5 text-xs hover:bg-bg-hover"
+          onclick={() => v.startBulkMove()}
+          title={pm.dropbox_move_title()}
+          data-testid="dropbox-move-selection"
+        >
+          <FolderInputIcon class="size-3.5" />
+          {pm.dropbox_move_title()}
+        </button>
+        <button
+          class="flex items-center gap-1 rounded-md border border-border/40 px-2 py-1.5 text-xs hover:bg-bg-hover"
           onclick={() => v.clearSelection()}
           title={pm.dropbox_clear_selection()}
         >
@@ -182,10 +192,13 @@
 
 {#if v.moveTarget}
   <DropboxMoveDialog
+    guildId={channel.guild_id}
     name={v.moveTarget.name}
+    count={v.moveCount}
     value={v.moveValue}
+    excludeEntryId={v.moveTarget.id}
     onInput={(s) => (v.moveValue = s)}
-    onCancel={() => (v.moveTarget = null)}
+    onCancel={() => v.cancelMove()}
     onCommit={v.commitMove}
   />
 {/if}
