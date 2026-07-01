@@ -14,6 +14,7 @@ import { setVoiceOverride, disconnectFromVoice, moveToVoiceChannel } from '$lib/
 import { directMessages } from '$lib/stores/directMessages.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { friends } from '$lib/stores/friends.svelte';
+import { friendRequests } from '$lib/stores/friendRequests.svelte';
 import { blocks } from '$lib/stores/blocks.svelte';
 import { m } from '$lib/paraglide/messages.js';
 
@@ -182,12 +183,21 @@ export async function sendFriendRequest(ctx: ActionCtx): Promise<void> {
   ctx.setWorking(true);
   try {
     const res = await friendsApi.sendFriendRequest(ctx.userId);
-    if ('auto_accepted' in res && res.auto_accepted) {
-      friends.add(ctx.userId, res.friendship.since);
-      toast.success(m.popover_actions_friend_added({ displayName: ctx.displayName }));
-    } else {
+    // Pending request path. The backend fans friend_request_received to the
+    // receiver only — no WS echo to the sender (the REST response is our only
+    // signal) — so mirror it locally: the popover switches to "withdraw" and
+    // the Pending tab shows the row without waiting for a reconnect reseed.
+    // Negated ``in`` (rather than ``in && prop``) so TS narrows res to the
+    // pending variant here without a cast.
+    if (!('auto_accepted' in res)) {
+      friendRequests.addOutgoing(res);
       toast.success(m.popover_actions_friend_request_sent({ displayName: ctx.displayName }));
+      return;
     }
+    // Auto-accept path: a reverse request was already pending, the backend
+    // installs the friendship and returns auto_accepted.
+    friends.add(ctx.userId, res.friendship.since);
+    toast.success(m.popover_actions_friend_added({ displayName: ctx.displayName }));
   } catch (err) {
     toast.error(m.popover_actions_friend_request_send_failed(), {
       description: err instanceof Error ? err.message : String(err)
@@ -202,6 +212,10 @@ export async function cancelFriendRequest(ctx: ActionCtx, reqId: string): Promis
   ctx.setWorking(true);
   try {
     await friendsApi.cancelRequest(reqId);
+    // Backend fans friend_request_cancelled to the RECEIVER only (no echo to
+    // the actor) — mirror locally so the popover swaps back to "send" and the
+    // Pending tab drops the row without waiting for a reconnect reseed.
+    friendRequests.removeOutgoing(reqId);
     toast.success(m.popover_actions_friend_request_cancelled());
   } catch (err) {
     toast.error(m.popover_actions_friend_request_cancel_failed(), {
@@ -233,6 +247,10 @@ export async function declineFriendRequest(ctx: ActionCtx, reqId: string): Promi
   ctx.setWorking(true);
   try {
     await friendsApi.declineRequest(reqId);
+    // Backend fans friend_request_declined to the SENDER only (no echo to the
+    // declining actor) — mirror locally so the popover swaps back to "send"
+    // and the Pending tab drops the row without waiting for a reconnect reseed.
+    friendRequests.removeIncoming(reqId);
     toast.success(m.popover_actions_friend_request_declined());
   } catch (err) {
     toast.error(m.popover_actions_friend_request_decline_failed(), {
