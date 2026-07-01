@@ -159,6 +159,103 @@ Voraussetzung: Tasks 1–3 (auth-Endpoint, frps-Container, CI-Env) sind bereits 
 
 6. **Smoke-Test:** Ein Heim-Host (frpc konfiguriert) verbindet sich mit `howispulse.com:7000`. Ein entferntes Mitglied öffnet `https://<slug>.relay.howispulse.com` — Caddy holt das Cert on-demand (nur wenn `/selfhost/relay/tls-check` 200 antwortet) und der Tunnel ist aktiv.
 
+## Self-Host-Registry (registry.howispulse.com) aktivieren
+
+Verteilt das `pulse-allinone`-Image an Self-Host-User hinter per-Instance-Credentials
+(`client_id`/`client_secret`, Argon2id) — nötig geworden, weil das Repo auf **private**
+gestellt wurde und GHCR die Sichtbarkeit erbt (ein verlinktes Package kann bei
+private Repo nicht public sein). GHCR bleibt Source-of-Truth für die Cloud-Service-
+Images; nur das All-in-one (Self-Host) läuft über die eigene Registry. Architektur +
+Token-Auth-Spec: `infra/prod/registry-config.yml` + `services/auth/src/dcc_auth/routes_registry_auth.py`.
+
+Manuelle Checkliste — einmalig, wenn die Registry erstmals in Prod geht.
+Voraussetzung: Branch `feat/registry-token-auth` ist auf `main` deployed (auth-svc
+hat die `/registry/token`-Route, compose kennt den `registry`-Service).
+
+1. **Signier-Cert:** im Prod-Dir (neben `secrets/jwt_private.pem`) ein self-signed-
+   x509-Cert erzeugen, das **dasselbe RSA-Keypair** wrapt:
+   ```sh
+   cd ~/pulse/infra/prod
+   openssl req -x509 -new -key secrets/jwt_private.pem -days 3650 \
+     -subj "/CN=pulse-registry-auth" -out secrets/jwt_public.crt
+   ```
+   Die Registry braucht es als `rootcertbundle` (parst nur CERTIFICATE-PEM — ein
+   roher PUBLIC KEY wird still ignoriert → Registry startet nicht); die Tokens
+   tragen es als `x5c`-Header. **Bei JWT-Key-Rotation Cert neu erzeugen + Registry
+   redeployen**, sonst schlägt die Token-Verifikation still fehl.
+
+2. **DNS:** A-Record `registry.howispulse.com → 159.195.150.54` (beim DNS-Provider).
+   Propagation abwarten bevor Caddy ACME auslöst.
+
+3. **`REGISTRY_PUSH_TOKEN`** (für CI-Push als `pulse-ci`): generieren und **identisch**
+   an zwei Stellen setzen:
+   ```sh
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+   - GitHub → Repo Settings → Secrets → `REGISTRY_PUSH_TOKEN`
+   - Server `~/pulse/infra/prod/.env` → `REGISTRY_PUSH_TOKEN=<selber Wert>`
+   Ohne Secret skippt der CI-Mirror (GHCR bleibt aktuell); die Registry läuft, bekommt
+   aber keine neuen Images.
+
+4. **Deploy:** neuer `registry`-Service → infra übertragen + hochfahren:
+   ```sh
+   rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
+   cd ~/pulse/infra/prod && docker compose up -d registry
+   ```
+   Der Cron-Updater zieht nur App-`:latest`-Images — neue Services brauchen diesen
+   manuellen Schritt.
+
+5. **Caddy:** `registry.howispulse.com`-Site-Block einfügen (Vorlage
+   `Caddyfile.pulse.snippet`), Caddy im `pulse-net`, reload:
+   ```sh
+   cp ~/caddy/Caddyfile ~/caddy/Caddyfile.bak.$(date +%s)
+   $EDITOR ~/caddy/Caddyfile   # registry.howispulse.com-Block ans Ende
+   docker network connect pulse-net caddy 2>/dev/null || true
+   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+   ```
+
+6. **Smoke-Test** (von einer Test-Maschine mit einer aktiven Instanz):
+   ```sh
+   docker login registry.howispulse.com -u <client_id> -p <client_secret>   # Login OK
+   docker pull registry.howispulse.com/pulse-allinone:edge                  # klappt
+   ```
+   - Anonymer Pull → **401** (Token-Auth wirkt).
+   - Instanz suspendieren (`/admin/instances/{id}`) → nach 5 min (Token-TTL) schlägt
+     der Pull fehl → **403/401**; un-suspenden → Pull wieder ok.
+
+7. **CI-Mirror:** sobald das GitHub-Secret steht, mirrort der nächste `allinone`-Build
+   das Image per `imagetools create` nach `registry.howispulse.com` (Workflow-Log →
+   „Mirror to registry.howispulse.com"). GHCR bleibt Source-of-Truth — schlägt der
+   Mirror fehl, laufen die GHCR-Tags trotzdem.
+
+8. **GC-Cron** (wöchentlich, Host-Crontab): `registry:2` GC't nicht selbst; alte
+   ungetaggte Blobs aufräumen (kurze Downtime, ok für `:edge`/`:stable`):
+   ```sh
+   17 4 * * 0  docker stop pulse_registry; docker run --rm \
+     -v pulse_registry:/var/lib/registry \
+     -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
+     registry:2.8.3 garbage-collect --delete-untagged /etc/docker/registry/config.yml; \
+     docker start pulse_registry
+   ```
+
+9. **Hetzner-Test umstellen** (`pulse.unicutmedia.com`, einzelner allinone hinter
+   Host-Caddy): mit den vorhandenen Instanz-Creds einloggen + Container auf die neue
+   Image-Source umstellen (gleiche Run-Args wie bisher, nur Image anders):
+   ```sh
+   docker login registry.howispulse.com -u <hetzner_client_id> -p <client_secret>
+   docker stop pulse && docker rm pulse
+   docker run -d --name pulse --restart unless-stopped --env-file …/pulse.env \
+     -v pulse-data:/data <…restliche Ports/Args…> registry.howispulse.com/pulse-allinone:edge
+   ```
+   Creds vergessen? Bootstrap-Token minten (`/me/instances/{id}/bootstrap-token`) +
+   redeemen → rotiert das `client_secret`. Danach Health-Check
+   (`https://pulse.unicutmedia.com/api/chat/health`).
+
+> **Phase 3 (aufgeschoben):** Stripe-Billing + ein cloud-seitiger Lizenzcheck über
+> den bestehenden cert/phone-home-Kanal werden später an den `status=="active"`-Check
+> im Realm-Endpoint gekoppelt (Stelle im Code markiert). Diese Registry ist Verteilung
+> + Honest-User-Gate, **kein** Kopierschutz — Image/Code bleiben extrahierbar (AGPL).
+
 ## Operating
 
 ```sh
