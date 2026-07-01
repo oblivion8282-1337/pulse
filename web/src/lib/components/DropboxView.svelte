@@ -20,7 +20,8 @@
   import DropboxBreadcrumb from './dropbox/DropboxBreadcrumb.svelte';
   import DropboxQuotaGauge from './dropbox/DropboxQuotaGauge.svelte';
   import DropboxToolbar from './dropbox/DropboxToolbar.svelte';
-  import DropboxCreateFolderBanner from './dropbox/DropboxCreateFolderBanner.svelte';
+  import DropboxCreateFolderDialog from './dropbox/DropboxCreateFolderDialog.svelte';
+  import DropboxTrashBanner from './dropbox/DropboxTrashBanner.svelte';
   import DropboxEntryCard from './dropbox/DropboxEntryCard.svelte';
   import DropboxEntryList from './dropbox/DropboxEntryList.svelte';
   import DropboxRenameDialog from './dropbox/DropboxRenameDialog.svelte';
@@ -65,23 +66,28 @@
     viewTrash={v.viewTrash}
     isGridView={v.isGridView}
     canGoBack={v.currentPath !== ''}
-    trashCount={v.trashCount}
     onGoBack={() => v.goUp()}
     onSearchInput={(s) => (v.searchQuery = s)}
     onOpenPicker={() => v.openFilePicker()}
     onToggleCreateFolder={() => (v.creatingFolder = !v.creatingFolder)}
     onToggleGridView={() => (v.isGridView = !v.isGridView)}
     onToggleTrash={() => (v.viewTrash = !v.viewTrash)}
-    onEmptyTrash={async () => {
-      if (!confirm(pm.dropbox_empty_trash_confirm({ count: v.trashCount }))) {
-        return;
-      }
-      await v.emptyTrash();
-    }}
   />
 
+  {#if v.viewTrash}
+    <DropboxTrashBanner
+      trashCount={v.trashCount}
+      onEmptyTrash={async () => {
+        if (!confirm(pm.dropbox_empty_trash_confirm({ count: v.trashCount }))) {
+          return;
+        }
+        await v.emptyTrash();
+      }}
+    />
+  {/if}
+
   {#if v.creatingFolder}
-    <DropboxCreateFolderBanner
+    <DropboxCreateFolderDialog
       name={v.newFolderName}
       onInput={(s) => (v.newFolderName = s)}
       onCommit={() => v.createFolder()}

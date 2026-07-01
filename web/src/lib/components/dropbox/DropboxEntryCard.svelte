@@ -51,9 +51,9 @@
 </script>
 
 <div
-  class="glass-2 group relative flex flex-col gap-1.5 rounded-xl border p-3 hover:border-primary/40 {selected
+  class="glass-2 group relative flex flex-col gap-1.5 rounded-xl border-2 p-3 transition-colors hover:border-primary/60 {selected
     ? 'border-primary bg-primary/5'
-    : 'border-border/40'}"
+    : 'border-border/60'}"
   data-testid="dropbox-entry-{entry.id}"
 >
   <button

@@ -1,11 +1,16 @@
 <script lang="ts">
   /**
-   * Dropbox toolbar — Upload / New-Folder / Search / View-Toggle /
-   * Trash-Toggle. Owns the visible chrome but no business logic:
-   * each control surfaces its intent as a callback; the parent
-   * decides what happens (and keeps the file-input + onFileChange
-   * out of here so we don't have to thread FileList across the
-   * boundary).
+   * Dropbox toolbar — icon-only after the 2026-07-01 cleanup.
+   *
+   * Each control is an icon button with a `title=` tooltip (a proper
+   * shadcn Tooltip would be nicer on touch, but desktop covers the
+   * primary use case and matches the "icon-only file-manager" pattern
+   * the user asked for). The Empty-Trash button used to live here; it
+   * moved to DropboxTrashBanner so it can carry the live count and
+   * double as the "you are in trash" indicator.
+   *
+   * Search input stays as-is — a magnifier icon that expands to a
+   * full input on click is a possible follow-up but cuts discoverability.
    */
   import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
   import LayoutGridIcon from '@lucide/svelte/icons/layout-grid';
@@ -23,16 +28,12 @@
     isGridView: boolean;
     /** Show a back arrow when the user has navigated into a folder. */
     canGoBack: boolean;
-    /** Number of entries currently in trash (0 = button disabled). */
-    trashCount: number;
     onGoBack: () => void;
     onSearchInput: (v: string) => void;
     onOpenPicker: () => void;
     onToggleCreateFolder: () => void;
     onToggleGridView: () => void;
     onToggleTrash: () => void;
-    /** Manual empty-trash (admin only on the server). */
-    onEmptyTrash: () => void;
   };
 
   let {
@@ -42,67 +43,77 @@
     viewTrash,
     isGridView,
     canGoBack,
-    trashCount,
     onGoBack,
     onSearchInput,
     onOpenPicker,
     onToggleCreateFolder,
     onToggleGridView,
-    onToggleTrash,
-    onEmptyTrash
+    onToggleTrash
   }: Props = $props();
+
+  /**
+   * Single Tailwind class string for every icon button so future
+   * sizing/padding tweaks land in one place. `data-testid` is the
+   * only attribute that varies.
+   */
+  const ICON_BTN =
+    'flex items-center justify-center rounded-md border border-border/40 bg-bg-hover/40 p-2 text-text-muted hover:bg-bg-hover hover:text-text-base disabled:opacity-40';
+  const ICON_BTN_ACTIVE =
+    'flex items-center justify-center rounded-md border border-primary/40 bg-primary/10 p-2 text-primary hover:bg-primary/15';
 </script>
 
 <div
   class="flex flex-wrap items-center gap-2 border-b border-border/40 px-5 py-2.5"
 >
-  <!--
-    Back arrow goes one level up. Hidden at root (canGoBack=false)
-    so the toolbar stays compact and the button never lies about
-    being actionable.
-  -->
   {#if canGoBack}
     <button
       type="button"
-      class="flex items-center gap-1 rounded-md border border-border/40 bg-bg-hover/40 px-2 py-1.5 text-sm hover:bg-bg-hover"
+      class={ICON_BTN}
       onclick={onGoBack}
       title={pm.dropbox_back()}
+      aria-label={pm.dropbox_back()}
       data-testid="dropbox-back-btn"
     >
-      <ArrowLeftIcon class="size-3.5" />
-      {pm.dropbox_back()}
+      <ArrowLeftIcon class="size-4" />
     </button>
   {/if}
   <button
-    class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+    type="button"
+    class={ICON_BTN}
     onclick={onOpenPicker}
     disabled={uploading || !enabled}
+    title={pm.dropbox_upload()}
+    aria-label={pm.dropbox_upload()}
     data-testid="dropbox-upload-btn"
   >
-    <UploadIcon class="mr-1 inline size-3.5" />
-    {pm.dropbox_upload()}
+    <UploadIcon class="size-4" />
   </button>
   <button
-    class="rounded-md border border-border/40 bg-bg-hover/40 px-3 py-1.5 text-sm font-medium hover:bg-bg-hover disabled:opacity-50"
+    type="button"
+    class={ICON_BTN}
     onclick={onToggleCreateFolder}
     disabled={!enabled}
+    title={pm.dropbox_new_folder()}
+    aria-label={pm.dropbox_new_folder()}
     data-testid="dropbox-new-folder-btn"
   >
-    <FolderPlusIcon class="mr-1 inline size-3.5" />
-    {pm.dropbox_new_folder()}
+    <FolderPlusIcon class="size-4" />
   </button>
   <input
     type="text"
     placeholder={pm.dropbox_search_placeholder()}
+    aria-label={pm.dropbox_search_placeholder()}
     class="flex-1 rounded-md border border-border/40 bg-bg-hover/40 px-3 py-1.5 text-sm placeholder:text-text-faint focus:border-primary focus:outline-none"
     value={searchQuery}
     oninput={(e) => onSearchInput((e.currentTarget as HTMLInputElement).value)}
     data-testid="dropbox-search"
   />
   <button
-    class="rounded-md p-1.5 hover:bg-bg-hover"
+    type="button"
+    class={ICON_BTN}
     onclick={onToggleGridView}
     title={pm.dropbox_toggle_view()}
+    aria-label={pm.dropbox_toggle_view()}
   >
     {#if isGridView}
       <Rows3Icon class="size-4" />
@@ -111,26 +122,13 @@
     {/if}
   </button>
   <button
-    class="rounded-md border px-3 py-1.5 text-sm font-medium transition {viewTrash
-      ? 'border-primary bg-primary/10 text-primary'
-      : 'border-border/40 bg-bg-hover/40 hover:bg-bg-hover'}"
+    type="button"
+    class={viewTrash ? ICON_BTN_ACTIVE : ICON_BTN}
     onclick={onToggleTrash}
+    title={viewTrash ? pm.dropbox_view_root() : pm.dropbox_view_trash()}
+    aria-label={viewTrash ? pm.dropbox_view_root() : pm.dropbox_view_trash()}
     data-testid="dropbox-trash-toggle"
   >
-    <TrashIcon class="mr-1 inline size-3.5" />
-    {viewTrash ? pm.dropbox_view_root() : pm.dropbox_view_trash()}
+    <TrashIcon class="size-4" />
   </button>
-  {#if viewTrash}
-    <button
-      type="button"
-      class="flex items-center gap-1 rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1.5 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:opacity-50"
-      onclick={onEmptyTrash}
-      disabled={trashCount === 0}
-      title={pm.dropbox_empty_trash_title()}
-      data-testid="dropbox-empty-trash-btn"
-    >
-      <TrashIcon class="size-3.5" />
-      {pm.dropbox_empty_trash()}
-    </button>
-  {/if}
 </div>

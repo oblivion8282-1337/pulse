@@ -2372,6 +2372,7 @@
   "dropbox_toggle_view": "Ansicht wechseln",
   "dropbox_view_trash": "Papierkorb",
   "dropbox_view_root": "Ablage",
+  "dropbox_trash_count_label": "Papierkorb · {count} Element(e)",
   "dropbox_back": "Zurück",
   "dropbox_back_root": "Zurück zur Ablage-Wurzel",
   "dropbox_used_of_total": "{used} von {total} belegt",

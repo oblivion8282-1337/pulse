@@ -2,6 +2,18 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.10",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: Toolbar aufgeräumt, Trash-Modus deutlich",
+      "items": [
+        "Die Schaltflächen in der Ablage-Werkzeugleiste zeigen jetzt nur noch Symbole statt Beschriftungen — Werkzeuge wie in einem Datei-Manager.",
+        "Ein neuer Ordner wird jetzt in einem eigenen Dialog angelegt, nicht mehr in einer eingeblendeten Zeile unter der Werkzeugleiste.",
+        "Im Papierkorb-Modus zeigt eine rote Leiste oberhalb der Liste, dass man gerade gelöschte Einträge sieht, und enthält direkt die Schaltfläche „Papierkorb leeren".",
+        "Ordner-Karten und Listen-Zeilen haben jetzt deutlichere Umrandungen, damit sie besser voneinander abgegrenzt sind."
+      ]
+    },
+    {
       "id": "2026-07-01.9",
       "date": "2026-07-01",
       "style": "Sachlich",
