@@ -276,6 +276,135 @@ async def test_folder_create_list_rename(client, _auth_signer, mock_s3):
 
 
 @pytest.mark.asyncio
+async def test_move_folder_rewrites_descendant_parent_paths(
+    client, _auth_signer, mock_s3
+):
+    """Regression: moving a folder must rewrite every descendant's
+    parent_path. Otherwise the descendants stay anchored at the old
+    path, become unreachable from any UI listing, and only resurface
+    via the global name search.
+
+    Setup: ``A`` and ``B`` are siblings at root, with a file
+    ``hello.txt`` inside ``A``. After moving ``A`` into ``B`` the
+    file must show up at ``B/A/`` — not at the now-orphan ``A/``.
+    """
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    # Two sibling folders at root
+    folder_a = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/folders",
+            json={"name": "A", "parent_path": ""},
+            headers=auth(token),
+        )
+    ).json()
+    folder_b = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/folders",
+            json={"name": "B", "parent_path": ""},
+            headers=auth(token),
+        )
+    ).json()
+
+    # Upload a file inside A
+    mint = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/upload-url",
+            json={
+                "parent_path": "A",
+                "name": "hello.txt",
+                "content_type": "text/plain",
+                "size_bytes": 5,
+            },
+            headers=auth(token),
+        )
+    ).json()
+    mock_s3.put[mint["storage_key"]] = b"hello"
+    file_row = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/finish-upload",
+            json={
+                "id": mint["id"],
+                "parent_path": "A",
+                "name": "hello.txt",
+                "size_bytes": 5,
+                "content_type": "text/plain",
+            },
+            headers=auth(token),
+        )
+    ).json()
+    assert file_row["parent_path"] == "A"
+
+    # Move A into B → A.parent_path becomes /B (normalized to "B"),
+    # file should follow
+    move_r = await client.patch(
+        f"/guilds/{gid}/dropbox/entries/{folder_a['id']}",
+        json={"parent_path": "B"},
+        headers=auth(token),
+    )
+    assert move_r.status_code == 200, move_r.text
+    assert move_r.json()["parent_path"] == "B"
+
+    # File must now be reachable at B/A, not at the orphan A
+    list_b_a = await client.get(
+        f"/guilds/{gid}/dropbox/entries?path=B/A", headers=auth(token)
+    )
+    assert list_b_a.status_code == 200, list_b_a.text
+    names = [e["name"] for e in list_b_a.json()["entries"]]
+    assert "hello.txt" in names, (
+        "file disappeared after the containing folder was moved — "
+        "descendants were not rewritten"
+    )
+
+    # And the old A path is unreachable (it no longer exists)
+    list_old_a = await client.get(
+        f"/guilds/{gid}/dropbox/entries?path=A", headers=auth(token)
+    )
+    # Either empty listing or 404 — both mean the path is gone.
+    assert list_old_a.status_code in (200, 404)
+
+
+@pytest.mark.asyncio
+async def test_move_folder_into_descendant_rejected(client, _auth_signer, mock_s3):
+    """Cycle guard: ``A`` cannot be moved under one of its own
+    descendants — that would orphan ``A``'s own children and turn
+    the parent_path graph into a cycle."""
+
+    token, _uid = await _user(_auth_signer)
+    g = await _create_guild(client, token)
+    gid = g["id"]
+    await _provision_dropbox(client, token, gid)
+
+    folder_a = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/folders",
+            json={"name": "A", "parent_path": ""},
+            headers=auth(token),
+        )
+    ).json()
+    # Nested folder A/sub exists, so the move target is a real path
+    folder_sub = (
+        await client.post(
+            f"/guilds/{gid}/dropbox/folders",
+            json={"name": "sub", "parent_path": "/A"},
+            headers=auth(token),
+        )
+    ).json()
+
+    # Try to move /A into /A/sub — should be rejected as a cycle
+    move_r = await client.patch(
+        f"/guilds/{gid}/dropbox/entries/{folder_a['id']}",
+        json={"parent_path": "/A/sub"},
+        headers=auth(token),
+    )
+    assert move_r.status_code == 422, move_r.text
+
+
+@pytest.mark.asyncio
 async def test_duplicate_folder_409(client, _auth_signer, mock_s3):
     """Two folders with the same parent+name → 409."""
 

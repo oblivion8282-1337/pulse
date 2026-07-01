@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-01.7",
+      "date": "2026-07-01",
+      "style": "Sachlich",
+      "title": "Ablage: Inhalte bleiben beim Verschieben eines Ordners erhalten",
+      "items": [
+        "Wenn ein Ordner in einen anderen Ordner verschoben wird, folgen alle darin enthaltenen Dateien und Unterordner automatisch mit — sie bleiben sichtbar und auffindbar.",
+        "Es ist jetzt nicht mehr möglich, einen Ordner in sich selbst oder in einen seiner Unterordner zu verschieben."
+      ]
+    },
+    {
       "id": "2026-07-01.6",
       "date": "2026-07-01",
       "style": "Sachlich",
