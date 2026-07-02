@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.6",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Dateiablage: Download beendet nicht mehr den Voice-Chat",
+      "items": [
+        "Ein Download wirft dich nicht mehr aus dem Voice-Channel — Dateien und ZIP-Archive laden jetzt im Hintergrund, ohne die laufende Verbindung anzufassen."
+      ]
+    },
+    {
       "id": "2026-07-02.5",
       "date": "2026-07-02",
       "style": "Sachlich",
