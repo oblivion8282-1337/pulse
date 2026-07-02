@@ -324,3 +324,63 @@ test('local-hosting: self_host_enabled false → local-host-locked sichtbar, kei
   // Start-Knopf darf NICHT sichtbar sein.
   await expect(page.getByTestId('local-host-start')).not.toBeVisible();
 });
+
+// ---------------------------------------------------------------------------
+// Test 5: Bootstrap verbraucht → „Zugang übertragen"-Pfad (Mint mit reset=true)
+// ---------------------------------------------------------------------------
+
+test('local-hosting: Bootstrap verbraucht → Übertragen-Karte + reset-Mint', async ({ page }) => {
+  await addPulseMock(page);
+
+  await page.route('**/api/auth/me/instances', (route) => {
+    if (route.request().method() === 'GET') {
+      void route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([ACTIVE_INSTANCE]),
+      });
+    } else {
+      void route.continue();
+    }
+  });
+
+  // Mint: ohne reset → 403 (schon eingelöst = Gerätewechsel-Fall);
+  // mit reset:true → frischer Token wie beim Erst-Pairing.
+  await page.route('**/api/auth/me/instances/*/bootstrap-token', (route) => {
+    if (route.request().method() !== 'POST') return void route.continue();
+    const raw = route.request().postData();
+    const body = raw ? (JSON.parse(raw) as { reset?: boolean }) : null;
+    if (body?.reset === true) {
+      void route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(BOOTSTRAP_TOKEN_RESPONSE),
+      });
+    } else {
+      void route.fulfill({
+        status: 403,
+        contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Bootstrap bereits eingelöst' }),
+      });
+    }
+  });
+
+  await registerAndLoad(page);
+  await grantSelfHostEntitlement(page);
+  await openSelfHostSettings(page);
+
+  // Start → Mint 403 → Übertragen-Karte statt generischem Fehler.
+  await page.getByTestId('local-host-start').click();
+  await expect(page.getByTestId('local-host-consumed')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByTestId('local-host-pair-error')).not.toBeVisible();
+
+  // Zweistufige Bestätigung → reset-Mint + Pairing laufen durch.
+  await page.getByTestId('local-host-reset').click();
+  await page.getByTestId('local-host-reset-confirm').click();
+  await page.waitForFunction(
+    () => (window as unknown as Record<string, unknown>).__pairCalled === true,
+    undefined,
+    { timeout: 5_000 }
+  );
+  await expect(page.getByTestId('local-host-consumed')).not.toBeVisible();
+});

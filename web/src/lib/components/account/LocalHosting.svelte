@@ -47,6 +47,12 @@
 
   let chosenId = $state(hostStore.instances[0]?.id ?? '');
   let anchorFired = $state(false);
+  let confirmReset = $state(false);
+
+  async function doReset() {
+    confirmReset = false;
+    await hostStore.start(chosenId || undefined, { reset: true });
+  }
 
   $effect(() => {
     if (hostStore.phase === 'live' && !anchorFired) {
@@ -147,6 +153,30 @@
         <p class="text-text-muted text-sm" data-testid="local-host-pair-error">
           {m.local_host_pair_failed()}
         </p>
+      {/if}
+
+      {#if hostStore.pairConsumed}
+        <div class="flex flex-col gap-2" data-testid="local-host-consumed">
+          <p class="text-text-bright text-sm font-medium">{m.local_host_consumed_title()}</p>
+          <p class="text-text-muted text-sm">{m.local_host_consumed_body()}</p>
+          {#if confirmReset}
+            <p class="text-text-muted text-sm">{m.local_host_reset_confirm_body()}</p>
+            <div class="flex gap-2">
+              <Button size="sm" onclick={doReset} data-testid="local-host-reset-confirm">
+                {m.local_host_reset_confirm_yes()}
+              </Button>
+              <Button variant="ghost" size="sm" onclick={() => (confirmReset = false)}>
+                {m.local_host_cancel()}
+              </Button>
+            </div>
+          {:else}
+            <div>
+              <Button size="sm" onclick={() => (confirmReset = true)} data-testid="local-host-reset">
+                {m.local_host_reset_button()}
+              </Button>
+            </div>
+          {/if}
+        </div>
       {/if}
 
     {:else if running}

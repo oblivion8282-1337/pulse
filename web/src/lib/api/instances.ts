@@ -172,10 +172,14 @@ export const instancesApi = {
     });
   },
 
-  /** One-Time-Bootstrap-Token für den Ein-Befehl-Installer minten. */
-  mintBootstrapToken(instanceId: string): Promise<BootstrapToken> {
+  /** One-Time-Bootstrap-Token für den Ein-Befehl-Installer minten.
+   *  `reset: true` = bewusster Recovery-Pfad nach eingelöstem Bootstrap
+   *  (Gerätewechsel/Creds-Verlust) — das spätere Einlösen rotiert die
+   *  Credentials, ein alter Server verliert sofort den Zugang. */
+  mintBootstrapToken(instanceId: string, opts?: { reset?: boolean }): Promise<BootstrapToken> {
     return cookieFetch<BootstrapToken>(`/me/instances/${instanceId}/bootstrap-token`, {
-      method: 'POST'
+      method: 'POST',
+      body: opts?.reset ? { reset: true } : undefined
     });
   },
 
