@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.8",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Angefangene Nachrichten bleiben beim Kanalwechsel stehen",
+      "items": [
+        "Wer mitten im Tippen den Kanal oder Tab wechselt, findet den Text bei der Rückkehr genau dort wieder — angefangene Nachrichten gehen nicht mehr verloren.",
+        "Das gilt pro Kanal und auch für Direktnachrichten; ein Neuladen der App ändert daran nichts."
+      ]
+    },
+    {
       "id": "2026-07-02.7",
       "date": "2026-07-02",
       "style": "Sachlich",
