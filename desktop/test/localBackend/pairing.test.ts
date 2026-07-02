@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  redeemBootstrap, credsToIdentity, credsToRelay, probeUrl, sanitize,
+  redeemBootstrap, probeUrl, sanitize,
   loadCreds, saveCreds, clearCreds, HOST_CREDS_KEY, type BootstrapCreds,
 } from '../../electron/localBackend/pairing.ts';
 
@@ -31,23 +31,13 @@ test('redeemBootstrap throws on non-ok', async () => {
   await assert.rejects(() => redeemBootstrap('t', 'https://x', fakeFetch(401, { detail: 'consumed' })));
 });
 
-test('credsToIdentity / credsToRelay / probeUrl', () => {
-  const c = { ...SAMPLE } as unknown as BootstrapCreds;
-  // build a real camelCase creds via redeem-shape:
+test('probeUrl builds the cloud reachability probe URL', () => {
   const creds: BootstrapCreds = {
     instanceId: '123', ownerId: '7', hostname: 'mein-pc', clientId: 'cid',
     clientSecret: 'S', cloudOrigin: 'https://howispulse.com',
     relaySubdomain: 'sub.relay.x', relayServerAddr: 'relay.x:2333', relayTunnelToken: 'plse_relay_x',
   };
-  assert.deepEqual(credsToIdentity(creds), { hostname: 'mein-pc', instanceId: '123', ownerId: '7', relaySubdomain: 'sub.relay.x' });
-  assert.deepEqual(credsToRelay(creds), { serverAddr: 'relay.x:2333', authToken: 'plse_relay_x', subdomain: 'sub.relay.x' });
   assert.equal(probeUrl(creds), 'https://howispulse.com/api/auth/selfhost/reachability/probe');
-  void c;
-});
-
-test('credsToRelay returns undefined without relay fields', () => {
-  const creds = { instanceId: '1', ownerId: '2', hostname: 'h', clientId: 'c', clientSecret: 'S', cloudOrigin: 'https://x', relaySubdomain: null, relayServerAddr: null, relayTunnelToken: null } as BootstrapCreds;
-  assert.equal(credsToRelay(creds), undefined);
 });
 
 test('sanitize never leaks secrets', () => {

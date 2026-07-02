@@ -31,6 +31,9 @@ ARG MEDIAMTX_VERSION=1.17.1
 # SAME release the prod stack runs (infra/prod/docker-compose.yml) for parity.
 # Format is the upstream RELEASE.<timestamp> tag, used verbatim in the URL.
 ARG MINIO_VERSION=RELEASE.2025-09-07T16-13-09Z
+# frp-Client für den Steuerungs-Relay-Tunnel (App-Hosting). Version passend
+# zum frps auf dem Cloud-Server (infra/prod: snowdreamtech/frps:0.69.1).
+ARG FRP_VERSION=0.69.1
 ARG TARGETARCH=amd64
 
 # SHA-256 checksums for all bundled binaries. Pinned to a specific upstream
@@ -56,6 +59,9 @@ ARG SHA256_MEDIAMTX_AMD64=ee1cbcf8108dcb5fccf4c4e5a746846ea1c2055c099dd2fdb03391
 ARG SHA256_MEDIAMTX_ARM64=389e5bd330eb93d6a96e329a3cf567a41c8d2e7cc187bfad9db04c7ad905a97b
 ARG SHA256_MINIO_AMD64=7c5bd8512c6e966455b1d198209358b2d191c77a83ab377c4073281065fb855f
 ARG SHA256_MINIO_ARM64=5c83cd2cf151717ba0243f73e1c7802ff36e272b67144bdd7f1f7d684fd6f03d
+# frp: upstream publiziert keine Checksums-Datei — re-hashed vom offiziellen Tarball.
+ARG SHA256_FRP_AMD64=7be257b72dbbc60bcb3e0e25a5afd1dfac7b63f897084864d3c956dd3d5674e1
+ARG SHA256_FRP_ARM64=bbc0c75e896af3f292fb46ba09c844a04fa9b5ea3530c039c7af20637f836355
 
 # ── Stage 1 ────────────────────────────────────────────────────────────────
 # Python-Services: build the uv workspace, produce a self-contained .venv
@@ -126,6 +132,7 @@ ARG S6_OVERLAY_VERSION
 ARG CADDY_VERSION
 ARG LIVEKIT_VERSION
 ARG MEDIAMTX_VERSION
+ARG FRP_VERSION
 ARG TARGETARCH
 ARG SHA256_S6_NOARCH
 ARG SHA256_S6_X86_64
@@ -139,6 +146,8 @@ ARG SHA256_MEDIAMTX_ARM64
 ARG MINIO_VERSION
 ARG SHA256_MINIO_AMD64
 ARG SHA256_MINIO_ARM64
+ARG SHA256_FRP_AMD64
+ARG SHA256_FRP_ARM64
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl xz-utils tar \
@@ -206,6 +215,21 @@ RUN set -eux; \
     echo "${SHA256_MEDIAMTX}  mediamtx.tar.gz" | sha256sum -c -; \
     mkdir -p /opt/mediamtx; \
     tar -C /opt/mediamtx -xzf mediamtx.tar.gz mediamtx
+
+# frpc — Tunnel-Client für den Steuerungs-Relay (App-Hosting). Upstream
+# publiziert keine Checksums-Datei; SHA-256 re-hashed vom offiziellen Tarball.
+# Nur frpc wird installiert (frps aus dem Tarball wird verworfen).
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) FRP_ARCH=linux_amd64; SHA256_FRP="${SHA256_FRP_AMD64}" ;; \
+        arm64) FRP_ARCH=linux_arm64; SHA256_FRP="${SHA256_FRP_ARM64}" ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o frp.tar.gz \
+        "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${FRP_ARCH}.tar.gz"; \
+    echo "${SHA256_FRP}  frp.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/frp; \
+    tar -C /opt/frp --strip-components=1 -xzf frp.tar.gz "frp_${FRP_VERSION}_${FRP_ARCH}/frpc"
 
 # MinIO — single static binary (not a tarball). Upstream ships a .sha256sum
 # sidecar per release; we pin the hash via the top-level ARGs. The "archive"
@@ -283,7 +307,8 @@ COPY --from=binaries /opt/caddy/caddy            /usr/local/bin/caddy
 COPY --from=binaries /opt/livekit/livekit-server /usr/local/bin/livekit-server
 COPY --from=binaries /opt/mediamtx/mediamtx      /usr/local/bin/mediamtx
 COPY --from=binaries /opt/minio/minio            /usr/local/bin/minio
-RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/minio
+COPY --from=binaries /opt/frp/frpc               /usr/local/bin/frpc
+RUN chmod +x /usr/local/bin/caddy /usr/local/bin/livekit-server /usr/local/bin/mediamtx /usr/local/bin/minio /usr/local/bin/frpc
 
 # Python venv + service source from stage 1 — already at /opt/pulse, no path
 # rewrite needed (UV_PROJECT_ENVIRONMENT made the venv live at /opt/pulse/venv

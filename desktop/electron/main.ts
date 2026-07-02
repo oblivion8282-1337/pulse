@@ -39,10 +39,10 @@ import { wireGlobalShortcuts } from './shortcuts';
 import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
-import { LocalBackendManager } from './localBackend/localBackendManager';
+import { ContainerBackendManager } from './localBackend/containerBackendManager';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
-  credsToIdentity, credsToRelay, probeUrl, sanitize,
+  probeUrl, sanitize,
 } from './localBackend/pairing';
 import { checkReachability } from './localBackend/reachability';
 import { mapMediaPorts } from './localBackend/portMapper';
@@ -353,23 +353,22 @@ function _openExternalIfWebUrl(url: string): void {
 }
 
 // ── Host-Lifecycle bridge (③a/③c) ──────────────────────────────────────────
-// Verdrahtet HostLifecycle (hostLifecycle.ts) + LocalBackendManager + Reachability
-// + PortMapper mit dem Renderer über host:* IPC-Kanäle.
-// ③c: Identität/Relay/probeUrl kommen aus dem Cloud-Pairing (pairing.ts).
+// Verdrahtet HostLifecycle (hostLifecycle.ts) + ContainerBackendManager +
+// Reachability + PortMapper mit dem Renderer über host:* IPC-Kanäle.
+// ③c: Identität/Relay/probeUrl kommen aus dem Cloud-Pairing (pairing.ts);
+// der ganze Server-Stack läuft als EIN allinone-Container (inkl. frpc-Tunnel).
 
 function wireHost(getWin: () => Electron.BrowserWindow | null): void {
-  const manager = new LocalBackendManager();
+  const manager = new ContainerBackendManager();
   const hostStore = { get: storeGet, set: (k: string, v: unknown) => storeSet(k, v) };
   let creds = loadCreds(hostStore);
 
   const deps: HostDeps = {
-    startBackend: async ({ media }) => {
+    startBackend: async () => {
       if (!creds) throw new Error('host not paired yet');
       await manager.start({
         userData: app.getPath('userData'),
-        identity: credsToIdentity(creds),
-        relay: credsToRelay(creds),
-        media,
+        creds,
       });
     },
     stopBackend: () => manager.stop(),
@@ -389,6 +388,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   ipcMain.handle('host:start', () => hl.start());
   ipcMain.handle('host:stop', () => hl.stop());
   ipcMain.handle('host:status', () => hl.getStatus());
+  // UI-Gating: gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die
+  // zeigt die App-Hosting-Karte den Setup-Hinweis statt des Start-Knopfs.
+  ipcMain.handle('host:runtime', () => manager.runtimeAvailable());
   ipcMain.handle('host:pair', async (_e, token: unknown) => {
     if (typeof token !== 'string' || !token) return { paired: false, error: 'invalid token' };
     try {

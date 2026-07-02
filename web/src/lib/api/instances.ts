@@ -48,6 +48,9 @@ export interface Instance {
   worker_id_voice: number;
   worker_id_media: number;
   status: InstanceStatus;
+  /** vps = klassischer Self-Host (erscheint in "Meine Instanzen"),
+   *  app_host = Ein-Knopf-Container aus der App (nur App-Hosting-Karte). */
+  origin: 'vps' | 'app_host';
   registered_at: string;
   /** Geräteübergreifender Notification-Modus aus der Membership (account-basiert).
    *  (Das Backend führt zusätzlich ein dormantes ``user_label`` — der

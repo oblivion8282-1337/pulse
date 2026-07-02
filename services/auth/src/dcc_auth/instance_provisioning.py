@@ -30,11 +30,13 @@ from dcc_auth.snowflake import next_id
 
 
 async def user_has_active_owner_instance(session: AsyncSession, user_id: int) -> bool:
-    """True, wenn der User bereits eine aktive Instanz besitzt (Owner-Membership).
+    """True, wenn der User bereits eine aktive App-Host-Instanz besitzt.
 
-    Dann gibt es schon etwas zum Hosten (VPS *oder* früher provisioniert) → kein
-    zweites App-Host-Provisioning nötig. Das ist die Idempotenz-Sperre des
-    Approve-Pfads (zusätzlich zum Pending-Status-Guard)."""
+    Idempotenz-Sperre des Approve-Pfads (zusätzlich zum Pending-Status-Guard).
+    VPS-Instanzen zählen seit Migration 0040 NICHT mehr: die App-Hosting-Karte
+    bietet nur ``origin == 'app_host'`` an (Pairing rotiert das client_secret —
+    das darf eine laufende VPS-Instanz nie treffen), also braucht ein
+    VPS-Besitzer mit App-Host-Genehmigung eine eigene App-Host-Instanz."""
     row = (
         await session.execute(
             select(RegisteredInstance.id)
@@ -46,6 +48,7 @@ async def user_has_active_owner_instance(session: AsyncSession, user_id: int) ->
                 UserInstanceMembership.user_id == user_id,
                 UserInstanceMembership.role == "owner",
                 RegisteredInstance.status == "active",
+                RegisteredInstance.origin == "app_host",
             )
             .limit(1)
         )
@@ -80,6 +83,7 @@ async def provision_app_host_instance(session: AsyncSession, owner_user_id: int)
                         worker_id_voice=wid_voice,
                         worker_id_media=wid_media,
                         status="active",
+                        origin="app_host",
                         registered_by=owner_user_id,
                     )
                 )

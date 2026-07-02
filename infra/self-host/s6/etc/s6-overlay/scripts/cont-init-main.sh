@@ -36,6 +36,9 @@ echo "[cont-init] starting Pulse self-host bootstrap (v$(cat /opt/pulse/VERSION 
 # or provided-cert mode if PULSE_TLS_MODE=provided).
 "${SCRIPT_DIR}/09-init-caddy.sh"
 
+# frpc-Tunnel-Config (nur wenn PULSE_RELAY_* gesetzt — App-Hosting via Relay)
+"${SCRIPT_DIR}/11-render-frpc.sh"
+
 # Ensure postgres is up, then run the Alembic migrations
 "${SCRIPT_DIR}/06-run-migrations.sh"
 
