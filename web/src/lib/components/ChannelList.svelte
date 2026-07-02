@@ -372,7 +372,7 @@
         </ContextMenu.Trigger>
         <ContextMenu.Content>
           {#if canCreate}
-            <ContextMenu.Item onSelect={() => openRename(c)}>
+            <ContextMenu.Item onSelect={() => openRename(c)} data-testid="channel-context-settings">
               <PencilIcon />
               {m.channel_list_rename_channel()}
             </ContextMenu.Item>
@@ -447,7 +447,7 @@
           </ContextMenu.Trigger>
           <ContextMenu.Content>
             {#if canCreate}
-              <ContextMenu.Item onSelect={() => openRename(c)}>
+              <ContextMenu.Item onSelect={() => openRename(c)} data-testid="channel-context-settings">
                 <PencilIcon />
                 {m.channel_list_rename_channel()}
               </ContextMenu.Item>
@@ -552,7 +552,7 @@
           {/if}
           {#if canCreate}
             <ContextMenu.Separator />
-            <ContextMenu.Item onSelect={() => openRename(c)}>
+            <ContextMenu.Item onSelect={() => openRename(c)} data-testid="channel-context-settings">
               <PencilIcon />
               {m.channel_list_rename_channel()}
             </ContextMenu.Item>
