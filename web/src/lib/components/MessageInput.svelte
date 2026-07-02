@@ -16,6 +16,8 @@
   import { applyComposerAction } from '$lib/shortcuts/composerActions';
   import { isElectron } from '$lib/platform/runtime';
   import { canRecoverDroppedFiles, recoverDroppedFiles } from '$lib/platform/electronFiles';
+  import { drafts } from '$lib/stores/drafts.svelte';
+  import { untrack } from 'svelte';
 
   // `channelId` null → watch-party / stream-chat composer: attachments
   // (paperclip / paste / drop) are wired off, mention popup still works.
@@ -58,6 +60,23 @@
 
   let text = $state('');
   let pickerOpen = $state(false);
+
+  // Entwurf je Channel (auch DMs): beim Mount/Channel-Wechsel wiederherstellen …
+  // (untrack: der Effect soll nur auf channelId reagieren, nicht auf spätere
+  // Draft-Schreibvorgänge — sonst würde jeder Tastendruck ihn re-triggern.)
+  $effect(() => {
+    const id = channelId;
+    text = id ? untrack(() => drafts.get(id)) : '';
+  });
+  // … und laufend sichern. Leerer Text löscht den Entwurf — damit räumt auch
+  // das `text = ''` nach dem Senden den Entwurf automatisch weg. Deklaration
+  // NACH dem Restore-Effect: beim Channel-Wechsel läuft erst der Restore,
+  // dann sichert dieser Effect den frisch geladenen (unveränderten) Text.
+  $effect(() => {
+    const id = channelId;
+    const t = text;
+    if (id) untrack(() => drafts.set(id, t));
+  });
   let textarea: HTMLTextAreaElement | undefined = $state();
   let fileInput: HTMLInputElement | undefined = $state();
 
