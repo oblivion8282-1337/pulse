@@ -71,15 +71,19 @@ Kernstücke (Datei-Wegweiser):
    deinen persönlichen Pulse-Server auf deinem Gerät — erreichbar für Freunde über eine
    sichere Relay-Adresse. Braucht Podman oder Docker auf dem Gerät; die App sagt dir,
    wenn etwas fehlt.").
-2. **GUI-E2E lokal** (vor Merge!): `scripts/dev-up.fish`, dann in der Desktop-App
-   Account-Einstellungen → App-Hosting: Antrag → als Owner genehmigen → Start-Knopf.
-   Achtung: früherer Versuch (2026-06-23, alte Architektur) hing am Reachability-Gate
-   (`unknown→paused`) — falls das wieder auftritt, liegt es an der STUN/Probe-Diagnose
-   (`reachability.ts`), nicht am Container-Pfad. Dev-Pairing läuft gegen die lokale Cloud
-   (`PULSE_DEV_URL`), das Image kommt aber von `registry.howispulse.com` (echte Instanz-Creds
-   nötig) — für reine Container-Tests ohne Cloud: Image lokal bauen
-   (`docker build -f infra/self-host/Dockerfile -t pulse-allinone:dev .`) und in
-   `containerBackendManager.ts` `IMAGE` temporär umbiegen.
+2. ~~GUI-E2E lokal~~ **ERLEDIGT 2026-07-02**: zweifach bewiesen — (a) Headless-E2E
+   (Antrag→Approve→Mint→Redeem mit Relay-Subdomain → echter Container → healthy in
+   10s → Stop) und (b) wiederholbarer Playwright-Electron-GUI-Test
+   `web/tests/e2e/electron-apphost.spec.ts` (Opt-in `PULSE_ELECTRON_E2E=1`; echtes
+   Fenster, echtes Pairing, echter Container, Live-Karte mit Relay-URL; vorher
+   `docker stop streaming-mediamtx` wegen Port 1936). Dev-Seams:
+   `PULSE_HOST_IMAGE=<lokales Image>` (skippt Registry-Login+Pull) und
+   `PULSE_HOST_ASSUME_REACHABLE=1` (Diagnose-Skip; der Reachability-Hänger vom
+   2026-06-23 war die geblockte STUN/UDP-Probe). Zusätzlich: Pull-Fortschritt
+   läuft jetzt als `preparing`-Detail (login/pull/run/health) in die Karte.
+   **UX-Fund offen:** Bootstrap-Token ist One-Shot — nach `unpair()` ist die
+   Instanz nie wieder pairbar (Re-Mint → 403). Braucht Entscheidung
+   (Re-Mint für Owner erlauben vs. neuen Antrag verlangen).
 3. **Merge = Deploy-Effekte:** allinone.yml baut das Image mit frpc (kein paths-Filter,
    läuft bei jedem main-Push) und mirrort zur Registry; die Web-App zeigt die
    App-Hosting-Karte (Flag an). Self-Host-VPS-Bestand ist unberührt (Relay-Vars fehlen dort).

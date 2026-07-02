@@ -17,7 +17,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { BootstrapCreds } from './pairing.ts';
-import { detectRuntime, rtExec, type ContainerRuntime } from './containerRuntime.ts';
+import { detectRuntime, ensureMachine, rtExec, type ContainerRuntime } from './containerRuntime.ts';
 import { waitFor, httpHealth } from './health.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
@@ -105,6 +105,9 @@ export class ContainerBackendManager {
     if (!rt) {
       throw new Error('no container runtime found (podman/docker)');
     }
+
+    // 0. Win/Mac + Podman: Linux-VM hochfahren (Linux/Docker: No-op).
+    await ensureMachine(rt, progress);
 
     // 1. Env-Datei (0600) — einzige Stelle mit Klartext-Secrets auf der Platte.
     const dir = join(userData, 'pulse-host');

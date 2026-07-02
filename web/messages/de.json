@@ -1005,6 +1005,8 @@
   "local_host_no_instance_body": "Du brauchst zuerst einen eigenen Server. Den beantragst du gleich hier unten.",
   "local_host_no_instance_title": "Noch kein Server zugewiesen",
   "local_host_pair_failed": "Das hat gerade nicht geklappt — versuch es noch einmal.",
+  "local_host_step_machine_init": "Einmalige Einrichtung der Container-Umgebung — das kann beim ersten Mal einige Minuten dauern …",
+  "local_host_step_machine_start": "Container-Umgebung wird gestartet …",
   "local_host_step_login": "Zugang wird geprüft …",
   "local_host_step_pull": "Server-Paket wird geladen — beim ersten Mal kann das ein paar Minuten dauern …",
   "local_host_step_run": "Server wird gestartet …",

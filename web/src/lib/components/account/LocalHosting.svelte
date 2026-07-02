@@ -32,6 +32,8 @@
         // Feinschritt aus dem Container-Manager — der erste Pull lädt mehrere
         // hundert MB, das soll nicht wie ein Hänger aussehen.
         switch (hostStore.detail?.step) {
+          case 'machine-init': return m.local_host_step_machine_init();
+          case 'machine-start': return m.local_host_step_machine_start();
           case 'login': return m.local_host_step_login();
           case 'pull': return m.local_host_step_pull();
           case 'run': return m.local_host_step_run();

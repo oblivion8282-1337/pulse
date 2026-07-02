@@ -70,7 +70,10 @@ export async function rtExec(
 
 async function probe(argv: string[]): Promise<boolean> {
   try {
-    const r = await rtExec(argv, ['version'], { timeoutMs: 15_000 });
+    // `--version` (Client-only): auf Win/Mac schlägt `version` ohne laufende
+    // podman machine fehl — Verfügbarkeit heißt hier "Binary da", das Hochfahren
+    // der Machine übernimmt ensureMachine() beim Start.
+    const r = await rtExec(argv, ['--version'], { timeoutMs: 15_000 });
     return r.code === 0;
   } catch {
     return false;
@@ -101,4 +104,42 @@ export async function detectRuntime(): Promise<ContainerRuntime | null> {
     if (await probe(cand.argv)) return cand;
   }
   return null;
+}
+
+export type MachineAction = 'none' | 'init' | 'start';
+
+/** Reine Entscheidung aus `podman machine inspect`: fehlt die Machine → init,
+ *  steht sie → start, läuft sie → none. Exit != 0 heißt "keine Machine". */
+export function machineAction(inspectExitCode: number, inspectStdout: string): MachineAction {
+  if (inspectExitCode !== 0) return 'init';
+  try {
+    const arr = JSON.parse(inspectStdout) as Array<{ State?: string }>;
+    return arr?.[0]?.State?.toLowerCase() === 'running' ? 'none' : 'start';
+  } catch {
+    return 'init';
+  }
+}
+
+/** Win/Mac + Podman: die Linux-VM (`podman machine`) sicherstellen. Linux und
+ *  Docker (Desktop verwaltet seine VM selbst) sind No-ops. `init --now` lädt
+ *  beim allerersten Mal das Machine-Image (mehrere hundert MB) und startet
+ *  direkt; auf Windows setzt es aktiviertes WSL2 voraus — fehlt das, schlägt
+ *  init mit Podmans eigener Anleitung fehl (Erststart-Assistent = Phase 2). */
+export async function ensureMachine(
+  rt: ContainerRuntime,
+  onProgress?: (step: string) => void,
+): Promise<void> {
+  if (rt.kind !== 'podman') return;
+  if (process.platform !== 'win32' && process.platform !== 'darwin') return;
+
+  const insp = await rtExec(rt.argv, ['machine', 'inspect'], { timeoutMs: 30_000 });
+  const action = machineAction(insp.code, insp.stdout);
+  if (action === 'none') return;
+
+  onProgress?.(action === 'init' ? 'machine-init' : 'machine-start');
+  const args = action === 'init' ? ['machine', 'init', '--now'] : ['machine', 'start'];
+  const r = await rtExec(rt.argv, args, { timeoutMs: 20 * 60_000 });
+  if (r.code !== 0) {
+    throw new Error(`podman machine ${action} failed (exit ${r.code}): ${r.stderr.slice(0, 400)}`);
+  }
 }

@@ -77,6 +77,24 @@ jobs:
       - name: Dependencies
         run: pnpm install --frozen-lockfile
 
+      # App-Hosting (Phase 2): Podman SHA-gepinnt für den Installer bündeln.
+      # Nur die drei Binaries (podman.exe = Remote-Client, gvproxy + win-sshproxy
+      # = Machine-Netzwerk) — das WSL2-Machine-Image lädt `podman machine init`
+      # beim Erststart auf dem Zielgerät. Version zusammen mit dem SHA bumpen
+      # (re-hashen vom offiziellen Release-Zip).
+      - name: Podman für App-Hosting bündeln
+        shell: pwsh
+        run: |
+          $ver = '5.8.4'
+          $sha = 'dce234b1810d1cbe3ce2562cf961294f942b0fa886a61897a2926aab17885f90'
+          $zip = "$env:RUNNER_TEMP\podman-win.zip"
+          Invoke-WebRequest -Uri "https://github.com/containers/podman/releases/download/v$ver/podman-remote-release-windows_amd64.zip" -OutFile $zip
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $sha) { throw "podman zip SHA mismatch: $actual" }
+          Expand-Archive $zip -DestinationPath "$env:RUNNER_TEMP\podman-extract"
+          Copy-Item "$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\podman.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\gvproxy.exe","$env:RUNNER_TEMP\podman-extract\podman-$ver\usr\bin\win-sshproxy.exe" -Destination desktop\resources-podman\
+          Get-ChildItem desktop\resources-podman\
+
       # esbuild-Bundle + electron-builder → desktop/release/:
       #   Pulse-Setup-<version>.exe  (NSIS-Installer)
       #   latest.yml                 (electron-updater-Feed: Version + SHA512)
@@ -100,6 +118,10 @@ jobs:
       # flatpak.yml). nginx serviert ~/pulse/updates-win unter /updates/win/
       # (siehe infra/prod/web-nginx.conf + docker-compose.yml).
       - name: SSH für scp einrichten
+        # NUR von main aus in den Live-Feed — ein workflow_dispatch auf einem
+        # Branch (CI-Validierung) baut + archiviert nur, published aber nie:
+        # latest.yml würde sonst ALLE Windows-Clients auf den Branch-Build updaten.
+        if: github.ref == 'refs/heads/main'
         shell: bash
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
@@ -120,6 +142,7 @@ jobs:
       # fahren kann. Das Zielverzeichnis ~/pulse/updates-win/ muss auf dem Server
       # existieren (einmalig anlegen; scp legt es nicht an).
       - name: Update-Feed nach howispulse hochladen
+        if: github.ref == 'refs/heads/main'
         shell: bash
         run: |
           EXE=$(ls desktop/release/Pulse-Setup-*.exe)
