@@ -87,10 +87,19 @@ Kernstücke (Datei-Wegweiser):
 3. **Merge = Deploy-Effekte:** allinone.yml baut das Image mit frpc (kein paths-Filter,
    läuft bei jedem main-Push) und mirrort zur Registry; die Web-App zeigt die
    App-Hosting-Karte (Flag an). Self-Host-VPS-Bestand ist unberührt (Relay-Vars fehlen dort).
-4. **Phase 2 Windows:** podman.exe + gvproxy in den NSIS-Installer, WSL2-Erststart-Assistent
-   (`wsl --install`, Admin+Reboot-Pfad), `podman machine init/start`; `containerRuntime.ts`
-   hat den Bundled-Seam schon (`resources/podman/`). Braucht Windows-Maschine.
-5. **Phase 3 Mac:** podman + applehv/vfkit bündeln, Signierung/Notarisierung. Braucht Mac.
+4. **Phase 2 Windows — Vorbereitung ERLEDIGT 2026-07-02, CI-validiert:**
+   podman.exe/gvproxy/win-sshproxy 5.8.4 SHA-gepinnt im NSIS-Installer
+   (win-build.yml-Step + `desktop/resources-podman/` + extraResources→`resources/podman/`);
+   `ensureMachine()` in containerRuntime.ts (inspect→init --now/start, Steps
+   machine-init/machine-start in der Karte; probe auf `--version`, weil `version`
+   ohne laufende Machine fehlschlägt). win-build-Branch-Lauf 28581359128 grün,
+   Upload-Steps korrekt geskippt — **NEU: scp-Upload ist auf main gegated**
+   (vorher hätte ein Branch-Dispatch den Live-Update-Feed überschrieben!).
+   **Auf der Windows-Maschine bleibt:** Installer-Artefakt aus dem Run testen,
+   WSL2-Erststart-Assistent (heute zeigt der init-Fehlerpfad Podmans eigene
+   Anleitung via something-paused), Klick-E2E.
+5. **Phase 3 Mac:** podman bündeln + Signierung/Notarisierung. Die Machine-Glue
+   (`ensureMachine`, win32+darwin) ist schon da. Braucht Mac.
 6. **v1.1-Idee (vertagt):** CGNAT = heute „not-possible-here"; der Relay-Tunnel ist aber
    outbound → „Chat-only-Hosting hinter CGNAT" wäre machbar (Voice/Streams bleiben aus).
 
