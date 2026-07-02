@@ -139,6 +139,48 @@ async def test_patch_channel_clear_color_independent_of_name(client, _auth_signe
 
 
 @pytest.mark.asyncio
+async def test_patch_voice_channel_sets_user_limit(client, _auth_signer):
+    """Owner setzt ein Benutzerlimit auf einem Voice-Channel; es round-trippt."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    v = await _make_channel(client, t_owner, g["id"], "voice", 1)
+    r = await client.patch(
+        f"/channels/{v['id']}", json={"user_limit": 5}, headers=auth(t_owner)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["user_limit"] == 5
+    # 0 = wieder unbegrenzt.
+    r = await client.patch(
+        f"/channels/{v['id']}", json={"user_limit": 0}, headers=auth(t_owner)
+    )
+    assert r.json()["user_limit"] == 0
+
+
+@pytest.mark.asyncio
+async def test_patch_text_channel_ignores_user_limit(client, _auth_signer):
+    """user_limit auf einem Text-Channel wird still ignoriert (bleibt 0),
+    kein 422 — der Settings-Dialog rendert das Feld nur bei Voice."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    c = await _make_channel(client, t_owner, g["id"], "alpha", 0)
+    r = await client.patch(
+        f"/channels/{c['id']}", json={"user_limit": 9}, headers=auth(t_owner)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["user_limit"] == 0
+
+
+@pytest.mark.asyncio
+async def test_patch_user_limit_rejects_out_of_range(client, _auth_signer):
+    """>99 bzw. <0 → 422 (Pydantic ge/le)."""
+    t_owner, _, _, g = await _make_guild_with_member(client, _auth_signer)
+    v = await _make_channel(client, t_owner, g["id"], "voice", 1)
+    for bad in (-1, 100):
+        r = await client.patch(
+            f"/channels/{v['id']}", json={"user_limit": bad}, headers=auth(t_owner)
+        )
+        assert r.status_code == 422, f"{bad}: {r.text}"
+
+
+@pytest.mark.asyncio
 async def test_create_channel_rejects_forbidden_name(client, _auth_signer):
     """Display-string sink: names with path-traversal chars are 422,
     matching the hardening dropbox routes already apply."""

@@ -53,6 +53,12 @@ class Channel(Base):
     name_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     name_color_secondary: Mapped[str | None] = mapped_column(String(32), nullable=True)
     name_gradient_angle: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # Voice-Channel-Benutzerlimit (Discord "User Limit"): 0 = unbegrenzt,
+    # 1..99 = max. gleichzeitige Teilnehmer. Nur für Voice-Channels relevant;
+    # voice-signaling setzt es beim Token-Mint durch (MOVE_MEMBERS bypasst).
+    user_limit: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

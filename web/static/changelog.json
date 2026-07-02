@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.7",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Sprachkanäle: Teilnehmerzahl begrenzen",
+      "items": [
+        "Auf Sprachkanälen lässt sich jetzt ein Limit setzen — zum Beispiel maximal 5 gleichzeitige Teilnehmer. Wer einen vollen Kanal betreten will, bekommt eine klare Rückmeldung.",
+        "Die aktuelle und maximale Teilnehmerzahl steht direkt am Kanal (z.B. 2/5).",
+        "Moderatoren dürfen volle Kanäle weiterhin betreten."
+      ]
+    },
+    {
       "id": "2026-07-02.6",
       "date": "2026-07-02",
       "style": "Sachlich",

@@ -87,10 +87,12 @@ def _bearer_from_header(authorization: str | None) -> str:
 _membership_warning_emitted = False
 
 
-async def _require_voice_channel_member(channel_id: str, bearer: str) -> None:
+async def _require_voice_channel_member(channel_id: str, bearer: str) -> int:
     """Ensure the caller is a member of `channel_id`'s guild and that the
-    channel is a voice channel. No-op in dev/test setups where
-    ``chat_gateway_url`` is unset (a one-shot warning is logged)."""
+    channel is a voice channel. Returns the channel's ``user_limit``
+    (0 = unbegrenzt) so the token route can enforce it. No-op in dev/test
+    setups where ``chat_gateway_url`` is unset (a one-shot warning is
+    logged) → returns 0 (kein Limit)."""
     global _membership_warning_emitted
     settings = voice_routes.get_settings()
     if settings.chat_gateway_url is None:
@@ -100,7 +102,7 @@ async def _require_voice_channel_member(channel_id: str, bearer: str) -> None:
                 "channel-membership check. Set CHAT_GATEWAY_URL in production."
             )
             _membership_warning_emitted = True
-        return
+        return 0
     try:
         resp = await voice_routes._chat_gateway_request(
             "GET", f"/channels/{channel_id}", bearer=bearer
@@ -128,16 +130,22 @@ async def _require_voice_channel_member(channel_id: str, bearer: str) -> None:
             status.HTTP_502_BAD_GATEWAY, detail="membership check unavailable"
         )
     try:
-        channel_type = int(resp.json().get("type", -1))
+        body = resp.json()
+        channel_type = int(body.get("type", -1))
     except (ValueError, TypeError, AttributeError):
         # ``resp.json()`` can raise on a non-JSON body too; treat that the same
         # way as a missing/invalid type field.
         channel_type = -1
+        body = {}
     if channel_type != _CHAT_GW_CHANNEL_TYPE_VOICE:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail="channel is not a voice channel",
         )
+    try:
+        return max(0, int(body.get("user_limit", 0)))
+    except (ValueError, TypeError):
+        return 0
 
 
 async def _resolve_channel_permissions(channel_id: str, bearer: str) -> int:
