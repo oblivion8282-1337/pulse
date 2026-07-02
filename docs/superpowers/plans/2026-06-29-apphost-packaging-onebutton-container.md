@@ -1,8 +1,13 @@
 # Umsetzungsplan: App-Hosting auslieferbar machen — „ein Knopf, der Rest passiert von selbst"
 
-**Status:** Plan / noch nicht gebaut (2026-06-29). App-Hosting ist in der UI ausgeblendet
-(`web/src/lib/featureFlags.ts` → `APP_HOSTING_ENABLED = false`). Dieser Plan beschreibt, wie wir es
-auslieferbar machen und den Flag wieder einschalten.
+**Status:** Phase 0 + 1 GEBAUT (2026-07-02, Branch `feat/apphost-container`): frpc im
+allinone-Image (§5.2 → „ins Image" umgesetzt), `origin`-Spalte (§5.5 → Marker-Spalte),
+`containerRuntime.ts`/`containerBackendManager.ts` ersetzen den nativen Prozess-Manager,
+`APP_HOSTING_ENABLED = true` mit Runtime-Gate (fehlende Runtime → Setup-Hinweis).
+Überholt: §5.1 Multi-Arch war schon gebaut; §5.3 Distribution läuft über
+`registry.howispulse.com` (Instanz-Creds vom Pairing), nicht GHCR (seit private).
+OFFEN: Phase 2 (Windows: Podman bündeln + WSL2-Assistent) + Phase 3 (Mac) — bis dahin
+nutzen Win/Mac ein vorhandenes Podman/Docker via Runtime-Detection.
 
 **Verwandt:**
 - `docs/superpowers/specs/2026-06-17-selfhost-control-plane-relay-design.md` — Relay-Grunddesign.
