@@ -13,13 +13,17 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 export interface ContainerRuntime {
   kind: 'podman' | 'docker';
   /** argv-Präfix, z.B. ['flatpak-spawn', '--host', 'podman'] oder ['podman']. */
   argv: string[];
   viaFlatpak: boolean;
+  /** Zusätzliche Env für jeden Aufruf — das gebündelte Podman (Win/Mac) braucht
+   *  CONTAINERS_HELPER_BINARY_DIR, damit `podman machine` gvproxy/vfkit bzw.
+   *  win-sshproxy neben dem Binary findet statt in Systempfaden zu suchen. */
+  env?: Record<string, string>;
 }
 
 export interface ExecResult {
@@ -42,14 +46,16 @@ function bundledPodman(): string | null {
 }
 
 export async function rtExec(
-  argv: string[],
+  rt: Pick<ContainerRuntime, 'argv' | 'env'>,
   args: string[],
   opts: { stdin?: string; timeoutMs?: number } = {},
 ): Promise<ExecResult> {
+  const { argv } = rt;
   return new Promise((resolve, reject) => {
     const child = spawn(argv[0], [...argv.slice(1), ...args], {
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
+      ...(rt.env ? { env: { ...process.env, ...rt.env } } : {}),
     });
     let stdout = '';
     let stderr = '';
@@ -68,12 +74,12 @@ export async function rtExec(
   });
 }
 
-async function probe(argv: string[]): Promise<boolean> {
+async function probe(rt: ContainerRuntime): Promise<boolean> {
   try {
     // `--version` (Client-only): auf Win/Mac schlägt `version` ohne laufende
     // podman machine fehl — Verfügbarkeit heißt hier "Binary da", das Hochfahren
     // der Machine übernimmt ensureMachine() beim Start.
-    const r = await rtExec(argv, ['--version'], { timeoutMs: 15_000 });
+    const r = await rtExec(rt, ['--version'], { timeoutMs: 15_000 });
     return r.code === 0;
   } catch {
     return false;
@@ -92,7 +98,14 @@ export function runtimeCandidates(
     return out;
   }
   const bundled = bundledPodman();
-  if (bundled) out.push({ kind: 'podman', argv: [bundled], viaFlatpak: false });
+  if (bundled) {
+    out.push({
+      kind: 'podman',
+      argv: [bundled],
+      viaFlatpak: false,
+      env: { CONTAINERS_HELPER_BINARY_DIR: dirname(bundled) },
+    });
+  }
   out.push({ kind: 'podman', argv: ['podman'], viaFlatpak: false });
   out.push({ kind: 'docker', argv: ['docker'], viaFlatpak: false });
   return out;
@@ -101,7 +114,7 @@ export function runtimeCandidates(
 /** Erste funktionierende Runtime oder null (UI zeigt dann den Setup-Hinweis). */
 export async function detectRuntime(): Promise<ContainerRuntime | null> {
   for (const cand of runtimeCandidates()) {
-    if (await probe(cand.argv)) return cand;
+    if (await probe(cand)) return cand;
   }
   return null;
 }
@@ -132,13 +145,13 @@ export async function ensureMachine(
   if (rt.kind !== 'podman') return;
   if (process.platform !== 'win32' && process.platform !== 'darwin') return;
 
-  const insp = await rtExec(rt.argv, ['machine', 'inspect'], { timeoutMs: 30_000 });
+  const insp = await rtExec(rt, ['machine', 'inspect'], { timeoutMs: 30_000 });
   const action = machineAction(insp.code, insp.stdout);
   if (action === 'none') return;
 
   onProgress?.(action === 'init' ? 'machine-init' : 'machine-start');
   const args = action === 'init' ? ['machine', 'init', '--now'] : ['machine', 'start'];
-  const r = await rtExec(rt.argv, args, { timeoutMs: 20 * 60_000 });
+  const r = await rtExec(rt, args, { timeoutMs: 20 * 60_000 });
   if (r.code !== 0) {
     throw new Error(`podman machine ${action} failed (exit ${r.code}): ${r.stderr.slice(0, 400)}`);
   }

@@ -124,7 +124,7 @@ export class ContainerBackendManager {
       progress('login');
       const registry = image.split('/', 1)[0];
       const login = await rtExec(
-        rt.argv,
+        rt,
         ['login', registry, '-u', creds.clientId, '--password-stdin'],
         { stdin: creds.clientSecret, timeoutMs: 30_000 },
       );
@@ -134,7 +134,7 @@ export class ContainerBackendManager {
 
       // 3. Pull — beim Erststart mehrere hundert MB, danach Digest-Check (= Update).
       progress('pull');
-      const pull = await rtExec(rt.argv, ['pull', image], { timeoutMs: 15 * 60_000 });
+      const pull = await rtExec(rt, ['pull', image], { timeoutMs: 15 * 60_000 });
       if (pull.code !== 0) {
         throw new Error(`image pull failed (exit ${pull.code})`);
       }
@@ -143,8 +143,8 @@ export class ContainerBackendManager {
     // 4. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
     //    gepullte Images + Env-Änderungen mit; /data lebt im Named Volume).
     progress('run');
-    await rtExec(rt.argv, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 });
-    const run = await rtExec(rt.argv, [
+    await rtExec(rt, ['rm', '-f', CONTAINER_NAME], { timeoutMs: 60_000 });
+    const run = await rtExec(rt, [
       'run', '-d',
       '--name', CONTAINER_NAME,
       '--restart', 'unless-stopped',
@@ -172,7 +172,7 @@ export class ContainerBackendManager {
     const rt = await this.ensureRuntime();
     if (!rt) return;
     // -t 20: Postgres im Container sauber runterfahren lassen.
-    await rtExec(rt.argv, ['stop', '-t', '20', CONTAINER_NAME], {
+    await rtExec(rt, ['stop', '-t', '20', CONTAINER_NAME], {
       timeoutMs: 60_000,
     }).catch(() => {});
   }

@@ -112,3 +112,8 @@ Pulse-*-*.zip
 .cache/
 .superpowers/
 graphify-out/
+# App-Hosting: gebündelte Podman-Binaries (CI/dist lädt sie, nie committen)
+desktop/resources-podman/*
+!desktop/resources-podman/README.md
+desktop/resources-podman-mac/*
+!desktop/resources-podman-mac/README.md

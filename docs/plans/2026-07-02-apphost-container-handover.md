@@ -98,8 +98,18 @@ Kernstücke (Datei-Wegweiser):
    **Auf der Windows-Maschine bleibt:** Installer-Artefakt aus dem Run testen,
    WSL2-Erststart-Assistent (heute zeigt der init-Fehlerpfad Podmans eigene
    Anleitung via something-paused), Klick-E2E.
-5. **Phase 3 Mac:** podman bündeln + Signierung/Notarisierung. Die Machine-Glue
-   (`ensureMachine`, win32+darwin) ist schon da. Braucht Mac.
+5. **Phase 3 Mac — Bundling GEBAUT 2026-07-02** (Branch `feat/apphost-mac-podman`):
+   `desktop/scripts/fetch-mac-podman.sh` lädt podman 5.8.4 + gvproxy 0.8.9 +
+   vfkit 0.6.3 SHA-gepinnt (arm64) nach `resources-podman-mac/`; `dist:mac`
+   ruft es auf, extraResources packt nach `Resources/podman/`. Gebündeltes
+   Podman läuft mit `CONTAINERS_HELPER_BINARY_DIR` (Runtime-Env in
+   containerRuntime.ts), damit machine init gvproxy/vfkit findet. WICHTIG:
+   vfkit = das SIGNIERTE Release-Asset (trägt das Virtualization-Entitlement);
+   afterPacks `--deep`-Ad-hoc-Sign fasst lose Resources-Binaries nicht an
+   (hq-sidecar-Präzedenz), Signatur bleibt erhalten. **Auf dem Mac bleibt:**
+   `dist:mac` bauen, Klick-E2E (machine init via applehv), später Stufe B
+   (Developer-ID + Notarisierung, dann müssen die gebündelten Binaries mit
+   signiert/notarisiert werden).
 6. **v1.1-Idee (vertagt):** CGNAT = heute „not-possible-here"; der Relay-Tunnel ist aber
    outbound → „Chat-only-Hosting hinter CGNAT" wäre machbar (Voice/Streams bleiben aus).
 
