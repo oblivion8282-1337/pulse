@@ -2,6 +2,17 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.2",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Eigenen Server direkt aus der App hosten",
+      "items": [
+        "Ein Knopf startet deinen persönlichen Pulse-Server auf deinem Gerät — erreichbar für Freunde über eine sichere Relay-Adresse.",
+        "Braucht Podman oder Docker auf dem Gerät; die App sagt dir, wenn etwas fehlt.",
+        "Während der Einrichtung zeigt die App jeden Schritt an — der erste Start lädt einmalig das Server-Paket und kann ein paar Minuten dauern."
+      ]
+    },
+    {
       "id": "2026-07-02.1",
       "date": "2026-07-02",
       "style": "Sachlich",
