@@ -87,3 +87,19 @@ test('Backend-Fehler → something-paused (kein throw)', async () => {
   }));
   assert.equal(phases.at(-1), 'something-paused');
 });
+
+test('checkPrereqs needs-windows-setup → eigene Phase, Backend startet NICHT', async () => {
+  let backendStarted = false;
+  const deps = fakeDeps({
+    checkPrereqs: async () => 'needs-windows-setup',
+    startBackend: async () => { backendStarted = true; },
+  });
+  const phases = await phasesOf(deps);
+  assert.deepEqual(phases, ['needs-windows-setup']);
+  assert.equal(backendStarted, false);
+});
+
+test('checkPrereqs ok → normaler Ablauf bis live', async () => {
+  const phases = await phasesOf(fakeDeps({ checkPrereqs: async () => 'ok' }));
+  assert.ok(phases.includes('live'));
+});

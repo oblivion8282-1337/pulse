@@ -40,6 +40,7 @@ import { handleDeepLink, extractPulseUrl, takePendingInvite } from './deeplink';
 import { HostLifecycle } from './hostLifecycle';
 import type { HostDeps } from './hostLifecycle';
 import { ContainerBackendManager } from './localBackend/containerBackendManager';
+import { wslReady, installWsl } from './localBackend/containerRuntime';
 import {
   redeemBootstrap, loadCreds, saveCreds, clearCreds,
   probeUrl, sanitize,
@@ -364,6 +365,14 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   let creds = loadCreds(hostStore);
 
   const deps: HostDeps = {
+    // Windows + Podman: podman machine braucht WSL2. Docker Desktop verwaltet
+    // seine WSL-Umgebung selbst → Check nur für den Podman-Pfad.
+    checkPrereqs: async () => {
+      if (process.platform !== 'win32') return 'ok';
+      const rt = await manager.runtime();
+      if (rt?.kind !== 'podman') return 'ok';
+      return (await wslReady()) ? 'ok' : 'needs-windows-setup';
+    },
     startBackend: async ({ onProgress }) => {
       if (!creds) throw new Error('host not paired yet');
       await manager.start({
@@ -397,6 +406,9 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   // UI-Gating: gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die
   // zeigt die App-Hosting-Karte den Setup-Hinweis statt des Start-Knopfs.
   ipcMain.handle('host:runtime', () => manager.runtimeAvailable());
+  // Windows-Erststart-Assistent: WSL2 mit UAC-Elevation installieren. Nach
+  // Erfolg ist meist ein Neustart nötig — die Karte erklärt das.
+  ipcMain.handle('host:setupWindows', async () => ({ ok: await installWsl() }));
   ipcMain.handle('host:pair', async (_e, token: unknown) => {
     if (typeof token !== 'string' || !token) return { paired: false, error: 'invalid token' };
     try {

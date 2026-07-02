@@ -10,6 +10,8 @@
   import { auth } from '$lib/stores/auth.svelte';
   import { myAppHostApplications } from '$lib/stores/myAppHostApplications.svelte';
   import AppHostApplicationDialog from './AppHostApplicationDialog.svelte';
+  import LocalHostingWinSetup from './LocalHostingWinSetup.svelte';
+  import LocalHostingReset from './LocalHostingReset.svelte';
 
   // Neuesten Antrag ableiten, damit wir pending/rejected-Zustände anzeigen
   // können, ohne den User auf das Admin-Panel vertrösten zu müssen.
@@ -47,12 +49,6 @@
 
   let chosenId = $state(hostStore.instances[0]?.id ?? '');
   let anchorFired = $state(false);
-  let confirmReset = $state(false);
-
-  async function doReset() {
-    confirmReset = false;
-    await hostStore.start(chosenId || undefined, { reset: true });
-  }
 
   $effect(() => {
     if (hostStore.phase === 'live' && !anchorFired) {
@@ -156,27 +152,7 @@
       {/if}
 
       {#if hostStore.pairConsumed}
-        <div class="flex flex-col gap-2" data-testid="local-host-consumed">
-          <p class="text-text-bright text-sm font-medium">{m.local_host_consumed_title()}</p>
-          <p class="text-text-muted text-sm">{m.local_host_consumed_body()}</p>
-          {#if confirmReset}
-            <p class="text-text-muted text-sm">{m.local_host_reset_confirm_body()}</p>
-            <div class="flex gap-2">
-              <Button size="sm" onclick={doReset} data-testid="local-host-reset-confirm">
-                {m.local_host_reset_confirm_yes()}
-              </Button>
-              <Button variant="ghost" size="sm" onclick={() => (confirmReset = false)}>
-                {m.local_host_cancel()}
-              </Button>
-            </div>
-          {:else}
-            <div>
-              <Button size="sm" onclick={() => (confirmReset = true)} data-testid="local-host-reset">
-                {m.local_host_reset_button()}
-              </Button>
-            </div>
-          {/if}
-        </div>
+        <LocalHostingReset chosenId={chosenId} />
       {/if}
 
     {:else if running}
@@ -238,6 +214,9 @@
           <p class="mt-2">{m.local_host_cgnat_alt()}</p>
         </Alert.Description>
       </Alert.Root>
+
+    {:else if hostStore.phase === 'needs-windows-setup'}
+      <LocalHostingWinSetup />
 
     {:else if hostStore.phase === 'something-paused'}
       <Alert.Root data-testid="local-host-paused">

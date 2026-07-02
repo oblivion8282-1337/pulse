@@ -3,7 +3,8 @@
 
 export type HostPhase =
   | 'idle' | 'checking-network' | 'opening-door' | 'preparing'
-  | 'going-live' | 'live' | 'needs-your-help' | 'not-possible-here' | 'something-paused';
+  | 'going-live' | 'live' | 'needs-your-help' | 'not-possible-here' | 'something-paused'
+  | 'needs-windows-setup';
 
 export interface HostPhaseEvent {
   phase: HostPhase;
@@ -30,6 +31,10 @@ export interface ReachResult { verdict: ReachVerdict; publicIp: string | null }
 export interface MapResult { verdict: MapVerdict; openPorts: number[]; failedPorts: number[] }
 
 export interface HostDeps {
+  /** Optionale Plattform-Voraussetzung VOR allem anderen (Windows: WSL2 für
+   *  podman machine). 'needs-windows-setup' → eigene Karte mit dem
+   *  Erststart-Assistenten statt einer generischen Fehlerphase. */
+  checkPrereqs?(): Promise<'ok' | 'needs-windows-setup'>;
   startBackend(opts: { media: boolean; onProgress?: (step: string) => void }): Promise<void>;
   stopBackend(): Promise<void>;
   checkReachability(): Promise<ReachResult>;
@@ -53,6 +58,11 @@ export class HostLifecycle {
 
   async start(): Promise<void> {
     try {
+      const pre = (await this.deps.checkPrereqs?.()) ?? 'ok';
+      if (pre !== 'ok') {
+        this._emit(pre);
+        return;
+      }
       this._emit('checking-network');
       const reach = await this.deps.checkReachability();
 
