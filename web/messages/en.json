@@ -997,6 +997,8 @@
   "local_host_no_instance_body": "You need your own server first. You can apply for one right below.",
   "local_host_no_instance_title": "No server assigned yet",
   "local_host_pair_failed": "That did not work just now — please try again.",
+  "local_host_step_machine_init": "One-time setup of the container environment — the first time can take a few minutes …",
+  "local_host_step_machine_start": "Starting the container environment …",
   "local_host_step_login": "Checking access …",
   "local_host_step_pull": "Downloading the server package — the first time can take a few minutes …",
   "local_host_step_run": "Starting the server …",

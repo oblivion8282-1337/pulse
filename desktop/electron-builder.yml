@@ -60,6 +60,15 @@ win:
       filter:
         - pulse-win-hq-sidecar.exe
         - "*.dll"
+    # App-Hosting: gebündeltes Podman (podman.exe + gvproxy + win-sshproxy) —
+    # CI lädt es SHA-gepinnt nach resources-podman/ (win-build.yml), lokal ist
+    # der Ordner leer (Runtime-Detection fällt dann auf PATH-podman/-docker
+    # zurück). containerRuntime.ts sucht unter resourcesPath/podman/podman.exe;
+    # das Machine-Image (WSL2-Distro) lädt `podman machine init` beim Erststart.
+    - from: resources-podman
+      to: podman
+      filter:
+        - "*.exe"
   # Echtes Multi-Size-.ico (16–256px, aus electron/icon.png generiert) — wird in die
   # .exe eingebettet UND als App-Icon genutzt. WICHTIG: ein PNG hier reicht NICHT fürs
   # exe-Embedding via rcedit; es muss ein .ico sein.

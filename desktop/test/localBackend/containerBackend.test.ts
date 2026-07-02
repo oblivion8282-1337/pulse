@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { renderContainerEnv } from '../../electron/localBackend/containerBackendManager.ts';
-import { runtimeCandidates, inFlatpak } from '../../electron/localBackend/containerRuntime.ts';
+import { runtimeCandidates, inFlatpak, machineAction } from '../../electron/localBackend/containerRuntime.ts';
 import type { BootstrapCreds } from '../../electron/localBackend/pairing.ts';
 
 const CREDS: BootstrapCreds = {
@@ -35,6 +35,13 @@ test('renderContainerEnv: ohne Relay-Felder keine PULSE_RELAY_-Zeilen, Hostname 
 test('renderContainerEnv: adminEmail-Override und Platzhalter', () => {
   assert.match(renderContainerEnv(CREDS, 'ich@example.org'), /^PULSE_ADMIN_EMAIL=ich@example\.org$/m);
   assert.match(renderContainerEnv(CREDS), /^PULSE_ADMIN_EMAIL=admin@brave-otter-4f2a\.relay\.howispulse\.com$/m);
+});
+
+test('machineAction: inspect-Ergebnis → init/start/none', () => {
+  assert.equal(machineAction(125, ''), 'init');                                  // keine Machine
+  assert.equal(machineAction(0, 'kein json'), 'init');                           // kaputte Ausgabe
+  assert.equal(machineAction(0, JSON.stringify([{ State: 'stopped' }])), 'start');
+  assert.equal(machineAction(0, JSON.stringify([{ State: 'Running' }])), 'none'); // case-tolerant
 });
 
 test('runtimeCandidates: Flatpak → flatpak-spawn --host, sonst podman vor docker', () => {
