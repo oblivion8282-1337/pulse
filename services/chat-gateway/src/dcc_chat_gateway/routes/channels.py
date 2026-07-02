@@ -69,6 +69,7 @@ def _channel_dict(channel: Channel) -> dict[str, object]:
         "name_color": channel.name_color,
         "name_color_secondary": channel.name_color_secondary,
         "name_gradient_angle": channel.name_gradient_angle,
+        "user_limit": channel.user_limit,
     }
 
 
@@ -321,6 +322,10 @@ async def patch_channel(
         channel.name_color_secondary = payload.name_color_secondary
     if "name_gradient_angle" in fields_set:
         channel.name_gradient_angle = payload.name_gradient_angle
+    # Nur für Voice-Channels sinnvoll — für Text/Dropbox ignorieren, statt
+    # 422 (der Settings-Dialog rendert das Feld ohnehin nur bei Voice).
+    if payload.user_limit is not None and channel.type == CHANNEL_TYPE_VOICE:
+        channel.user_limit = payload.user_limit
     await session.commit()
     await session.refresh(channel)
     restricted = await restricted_channel_ids(

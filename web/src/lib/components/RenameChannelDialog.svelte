@@ -24,14 +24,18 @@
       | {
           id: string;
           name: string;
+          type?: number;
           topic?: string | null;
           name_color?: string | null;
           name_color_secondary?: string | null;
           name_gradient_angle?: number | null;
+          user_limit?: number;
         }
       | null;
     onClose: () => void;
   } = $props();
+
+  const isVoice = $derived(channel?.type === 1);
 
   const DEFAULT_COLOR = '#3b82f6';
   const DEFAULT_SECONDARY = '#a78bfa';
@@ -44,11 +48,13 @@
   let useGradient = $state(false);
   let color2 = $state(DEFAULT_SECONDARY);
   let angle = $state(DEFAULT_GRADIENT_ANGLE);
+  let userLimit = $state(0);
 
   $effect(() => {
     if (open && channel) {
       name = channel.name;
       topic = channel.topic ?? '';
+      userLimit = channel.user_limit ?? 0;
       const safe1 = sanitizeProfileColor(channel.name_color);
       useColor = !!safe1;
       color1 = safe1 ?? DEFAULT_COLOR;
@@ -82,7 +88,13 @@
     const secondaryChanged =
       desiredSecondary !== sanitizeProfileColor(channel.name_color_secondary);
     const angleChanged = desiredAngle !== (channel.name_gradient_angle ?? null);
-    if (!nameChanged && !topicChanged && !colorChanged && !secondaryChanged && !angleChanged) {
+    // Nur Voice-Channels tragen ein Limit; clampen (0..99) gegen Tipp-Unfug.
+    const desiredLimit = isVoice ? Math.max(0, Math.min(99, Math.round(userLimit || 0))) : 0;
+    const limitChanged = isVoice && desiredLimit !== (channel.user_limit ?? 0);
+    if (
+      !nameChanged && !topicChanged && !colorChanged &&
+      !secondaryChanged && !angleChanged && !limitChanged
+    ) {
       onClose();
       return;
     }
@@ -92,12 +104,14 @@
       name_color?: string | null;
       name_color_secondary?: string | null;
       name_gradient_angle?: number | null;
+      user_limit?: number;
     } = {};
     if (nameChanged) patch.name = trimmedName;
     if (topicChanged) patch.topic = newTopic;
     if (colorChanged) patch.name_color = desiredColor;
     if (secondaryChanged) patch.name_color_secondary = desiredSecondary;
     if (angleChanged) patch.name_gradient_angle = desiredAngle;
+    if (limitChanged) patch.user_limit = desiredLimit;
     busy = true;
     try {
       const updated = await chatApi.patchChannel(channel.id, patch);
@@ -147,6 +161,24 @@
           data-testid="rename-channel-topic"
         />
       </div>
+      {#if isVoice}
+        <div class="space-y-1.5">
+          <Label for="rename-channel-user-limit" class="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+            {m.rename_channel_dialog_user_limit_label()}
+          </Label>
+          <Input
+            id="rename-channel-user-limit"
+            type="number"
+            min={0}
+            max={99}
+            step={1}
+            bind:value={userLimit}
+            disabled={busy}
+            data-testid="rename-channel-user-limit"
+          />
+          <p class="text-muted-foreground text-xs">{m.rename_channel_dialog_user_limit_hint()}</p>
+        </div>
+      {/if}
       <NameColorEditor
         bind:useColor
         bind:color1

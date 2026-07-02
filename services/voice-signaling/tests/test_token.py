@@ -240,3 +240,66 @@ def test_bit_constants_match_shared():
     assert voice_routes._PERM_SPEAK == int(Permissions.SPEAK)
     assert voice_routes._PERM_STREAM == int(Permissions.STREAM)
     assert voice_routes._PERM_USE_VIDEO == int(Permissions.USE_VIDEO)
+
+
+# ---------------------------------------------------------------------------
+# Voice-Benutzerlimit (_enforce_user_limit)
+# ---------------------------------------------------------------------------
+
+from fastapi import HTTPException  # noqa: E402
+
+from dcc_voice_signaling.routes.token import _enforce_user_limit  # noqa: E402
+
+_MOVE = voice_routes._PERM_MOVE_MEMBERS
+_CONNECT = voice_routes._PERM_CONNECT
+
+
+class _FakeRedis:
+    """Minimaler Presence-Set-Stub: ein Set pro Key."""
+
+    def __init__(self, members: set[str]):
+        self._m = set(members)
+
+    async def sismember(self, key, member):  # noqa: ANN001
+        return member in self._m
+
+    async def scard(self, key):  # noqa: ANN001
+        return len(self._m)
+
+
+async def _enforce(members, user_id, limit, perms=_CONNECT, redis="use"):
+    r = _FakeRedis(set(members)) if redis == "use" else redis
+    await _enforce_user_limit(r, "channel-1", user_id, limit, perms)
+
+
+@pytest.mark.asyncio
+async def test_limit_off_never_blocks():
+    await _enforce({"1", "2", "3"}, "9", 0)  # limit 0 → no check even if "full"
+
+
+@pytest.mark.asyncio
+async def test_limit_blocks_when_full():
+    with pytest.raises(HTTPException) as exc:
+        await _enforce({"1", "2"}, "9", 2)
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_limit_allows_when_space_left():
+    await _enforce({"1"}, "9", 2)  # 1 < 2 → ok
+
+
+@pytest.mark.asyncio
+async def test_limit_ignores_already_present_user():
+    # User "1" ist schon im vollen Channel (Reconnect) → darf zurück.
+    await _enforce({"1", "2"}, "1", 2)
+
+
+@pytest.mark.asyncio
+async def test_limit_bypassed_by_move_members():
+    await _enforce({"1", "2"}, "9", 2, perms=_CONNECT | _MOVE)  # voll, aber Mod
+
+
+@pytest.mark.asyncio
+async def test_limit_fail_open_without_redis():
+    await _enforce({"1", "2"}, "9", 2, redis=None)  # kein Redis → nicht durchsetzen

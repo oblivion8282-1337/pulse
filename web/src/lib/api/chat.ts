@@ -216,6 +216,7 @@ export const chatApi = {
       name_color?: string | null;
       name_color_secondary?: string | null;
       name_gradient_angle?: number | null;
+      user_limit?: number;
     }
   ): Promise<Channel> {
     return request<Channel>(`/channels/${channelId}`, { method: 'PATCH', body: payload });

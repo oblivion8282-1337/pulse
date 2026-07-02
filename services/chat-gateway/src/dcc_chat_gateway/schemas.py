@@ -157,6 +157,8 @@ class ChannelOut(BaseModel):
     name_color: str | None = None
     name_color_secondary: str | None = None
     name_gradient_angle: int | None = None
+    # Voice-Benutzerlimit: 0 = unbegrenzt, 1..99 = max. Teilnehmer.
+    user_limit: int = 0
 
     @field_serializer("id", "guild_id")
     def _ser_ids(self, v: int) -> str:
@@ -175,6 +177,9 @@ class ChannelPatchIn(BaseModel):
     name_color: Annotated[str | None, Field(default=..., pattern=_HEX_COLOR)] = None
     name_color_secondary: Annotated[str | None, Field(default=..., pattern=_HEX_COLOR)] = None
     name_gradient_angle: Annotated[int | None, Field(default=..., ge=0, le=360)] = None
+    # Voice-Benutzerlimit (0 = unbegrenzt, 1..99). Nur bei Voice-Channels
+    # wirksam; die Route ignoriert es für Nicht-Voice-Channels.
+    user_limit: Annotated[int | None, Field(default=None, ge=0, le=99)] = None
 
 
 class ChannelPositionIn(BaseModel):

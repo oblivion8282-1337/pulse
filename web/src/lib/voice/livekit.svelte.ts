@@ -21,6 +21,7 @@ import type {
   VideoResolution
 } from 'livekit-client';
 import { getVoiceToken } from '$lib/api/voice';
+import { ApiError } from '$lib/api/client';
 import { voiceState } from './state.svelte';
 import { voicePresence } from '$lib/stores/voicePresence.svelte';
 import { watchPartyPresence } from '$lib/stores/watchPartyPresence.svelte';
@@ -357,7 +358,15 @@ class VoiceRoom {
         this.state = ConnectionState.Disconnected;
         this.channelId = null;
         this.channelName = null;
-        this.error = e instanceof Error ? e.message : m.livekit_token_request_failed();
+        // 409 = Channel voll (Benutzerlimit erreicht) → klare Meldung statt
+        // des rohen "voice channel is full"-Detail-Strings vom Server.
+        if (e instanceof ApiError && e.status === 409) {
+          this.error = m.voice_channel_full();
+        } else if (e instanceof Error) {
+          this.error = e.message;
+        } else {
+          this.error = m.livekit_token_request_failed();
+        }
       }
       throw e;
     }

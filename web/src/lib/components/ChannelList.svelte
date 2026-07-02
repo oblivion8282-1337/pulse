@@ -493,6 +493,13 @@
               <Volume2Icon class="text-text-muted size-6 shrink-0 md:size-[17px] group-data-[active=true]:text-primary" />
               <span class="truncate" style={channelNameStyle(c)}>{c.name}</span>
               <span class="ml-auto flex shrink-0 items-center gap-1.5">
+                {#if c.user_limit && c.user_limit > 0}
+                  <span
+                    class="text-text-muted text-[11px] tabular-nums md:text-[10px]"
+                    title={m.channel_list_user_limit_title({ limit: c.user_limit })}
+                    data-testid={`channel-user-limit-${c.id}`}
+                  >{voicePresence.usersIn(c.id).length}/{c.user_limit}</span>
+                {/if}
                 {#if c.restricted}
                   <LockIcon
                     class="text-text-muted size-4 md:size-3.5"

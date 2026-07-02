@@ -74,6 +74,9 @@ export type Channel = {
   name_color?: string | null;
   name_color_secondary?: string | null;
   name_gradient_angle?: number | null;
+  /** Voice-Benutzerlimit: 0 = unbegrenzt, 1..99 = max. Teilnehmer. Nur bei
+   *  Voice-Channels (type 1) relevant. */
+  user_limit?: number;
 };
 
 export type ReactionAggregate = {

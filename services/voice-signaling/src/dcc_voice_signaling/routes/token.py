@@ -17,6 +17,42 @@ from dcc_voice_signaling.security import CurrentUser
 
 router = APIRouter()
 
+# Presence-Set-Key — synchron halten mit webhook.VOICE_ROOM_KEY
+# ("voice:room:{room}"), das die Join/Leave-Sets pflegt.
+_VOICE_ROOM_KEY = "voice:room:{room}"
+
+
+async def _enforce_user_limit(
+    redis,  # noqa: ANN001 — redis.asyncio.Redis | None
+    room: str,
+    user_id: str,
+    user_limit: int,
+    perms: int,
+) -> None:
+    """Voice-Benutzerlimit durchsetzen. 409, wenn der Channel voll ist.
+
+    Kein Limit (0), MOVE_MEMBERS-Inhaber (Mod-Bypass) oder fehlender Redis
+    (fail-open) → keine Prüfung. Ein bereits im Set anwesender User (Reconnect)
+    zählt nicht neu. Der SCARD/SISMEMBER-Check ist bewusst NICHT atomar —
+    zwei exakt gleichzeitige Joins könnten das Limit um eins überschreiten;
+    das ist für ein weiches Limit akzeptabel (Discord verhält sich ähnlich).
+    ponytail: soft check, per-room-Lock nur falls exaktes Limit je gefordert.
+    """
+    if user_limit <= 0 or perms & voice_routes._PERM_MOVE_MEMBERS or redis is None:
+        return
+    key = _VOICE_ROOM_KEY.format(room=room)
+    try:
+        if await redis.sismember(key, user_id):
+            return  # schon drin (Reconnect / zweites Gerät) → nicht neu zählen
+        occupied = await redis.scard(key)
+    except Exception:  # noqa: BLE001 — Redis-Transportfehler → fail-open
+        return
+    if occupied >= user_limit:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="voice channel is full",
+        )
+
 
 class TokenIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -54,9 +90,10 @@ async def issue_token(
 
     bearer = voice_routes._bearer_from_header(authorization)
     # Fire both chat-gateway calls concurrently — they are independent GETs.
-    # _require_voice_channel_member raises on membership/type failure;
-    # _resolve_channel_permissions returns 0 on any error (never raises).
-    _, perms = await asyncio.gather(
+    # _require_voice_channel_member raises on membership/type failure and
+    # returns the channel's user_limit; _resolve_channel_permissions returns 0
+    # on any error (never raises).
+    user_limit, perms = await asyncio.gather(
         voice_routes._require_voice_channel_member(payload.channel_id, bearer),
         voice_routes._resolve_channel_permissions(payload.channel_id, bearer),
     )
@@ -69,12 +106,21 @@ async def issue_token(
             status.HTTP_403_FORBIDDEN,
             detail="cannot connect to this voice channel",
         )
+
+    room = voice_routes._room_for_channel(payload.channel_id)
+    redis = voice_routes._get_redis(request)
+    # Benutzerlimit durchsetzen (0 = aus). MOVE_MEMBERS bypasst (Discord-
+    # Semantik: Mods dürfen in volle Channels). Ein bereits Anwesender (Reconnect
+    # / zweites Gerät) zählt nicht neu — sonst würde ein Verbindungswackler ihn
+    # aussperren. Redis offline → nicht durchsetzen (fail-open, wie die übrige
+    # Presence-Schicht: lieber jemand zu viel als niemand kann joinen).
+    await _enforce_user_limit(redis, room, str(user.id), user_limit, perms)
+
     can_publish, sources = voice_routes._publish_sources_for(perms)
 
     # Force-mute overrides are persistent in Redis so a kicked-and-re-joined
     # user stays muted on reconnect. Cleared by an explicit unmute call from
-    # an admin.
-    redis = voice_routes._get_redis(request)
+    # an admin. (redis wurde oben schon für die Limit-Prüfung geholt.)
     # Cache the resolved sources BEFORE the override is applied, so a
     # later unmute knows what to restore (without granting strictly
     # more than the user's token actually permitted). Skipping the
@@ -84,7 +130,6 @@ async def issue_token(
     override = await voice_routes._load_override(redis, payload.channel_id, str(user.id))
     can_publish, sources = voice_routes._apply_override(sources, can_publish, override)
 
-    room = voice_routes._room_for_channel(payload.channel_id)
     grants = lk.VideoGrants(
         room_join=True,
         room=room,
