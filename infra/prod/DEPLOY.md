@@ -169,6 +169,8 @@ Images; nur das All-in-one (Self-Host) läuft über die eigene Registry. Archite
 Token-Auth-Spec: `infra/prod/registry-config.yml` + `services/auth/src/dcc_auth/routes_registry_auth.py`.
 
 Manuelle Checkliste — einmalig, wenn die Registry erstmals in Prod geht.
+**Erledigt 2026-07-02** (alle Schritte live verifiziert); bleibt als Referenz für
+Re-Provisionierung und JWT-Key-Rotation.
 Voraussetzung: Branch `feat/registry-token-auth` ist auf `main` deployed (auth-svc
 hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 
@@ -183,6 +185,12 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    roher PUBLIC KEY wird still ignoriert → Registry startet nicht); die Tokens
    tragen es als `x5c`-Header. **Bei JWT-Key-Rotation Cert neu erzeugen + Registry
    redeployen**, sonst schlägt die Token-Verifikation still fehl.
+   Zusätzlich in `~/pulse/infra/prod/.env`: `JWT_CERT_FILE=/secrets/jwt_public.crt` —
+   der auth-svc-Default ist ein **relativer** Pfad und zeigt im Container ins Leere
+   → Realm-Endpoint wirft 500 (`jwt_cert_file fehlt/unlesbar`).
+   Hinweis: `jwt_private.pem` gehört uid 10001 (0600) — wenn der SSH-User es nicht
+   lesen darf, openssl in einem Container laufen lassen
+   (`docker run --rm -v ~/pulse/infra/prod/secrets:/s alpine/openssl req …`).
 
 2. **DNS:** A-Record `registry.howispulse.com → 159.195.150.54` (beim DNS-Provider).
    Propagation abwarten bevor Caddy ACME auslöst.
@@ -200,10 +208,11 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
 4. **Deploy:** neuer `registry`-Service → infra übertragen + hochfahren:
    ```sh
    rsync -av --exclude .env --exclude secrets infra/ michael@159.195.150.54:~/pulse/infra/
-   cd ~/pulse/infra/prod && docker compose up -d registry
+   cd ~/pulse/infra/prod && docker compose up -d registry auth
    ```
    Der Cron-Updater zieht nur App-`:latest`-Images — neue Services brauchen diesen
-   manuellen Schritt.
+   manuellen Schritt. `auth` muss mit recreatet werden, damit es die neuen Env-Vars
+   (`REGISTRY_PUSH_TOKEN`, `JWT_CERT_FILE`) aufnimmt.
 
 5. **Caddy:** `registry.howispulse.com`-Site-Block einfügen (Vorlage
    `Caddyfile.pulse.snippet`), Caddy im `pulse-net`, reload:
@@ -232,11 +241,13 @@ hat die `/registry/token`-Route, compose kennt den `registry`-Service).
    ungetaggte Blobs aufräumen (kurze Downtime, ok für `:edge`/`:stable`):
    ```sh
    17 4 * * 0  docker stop pulse_registry; docker run --rm \
-     -v pulse_registry:/var/lib/registry \
+     -v pulse_pulse_registry:/var/lib/registry \
      -v ~/pulse/infra/prod/registry-config.yml:/etc/docker/registry/config.yml:ro \
      registry:2.8.3 garbage-collect --delete-untagged /etc/docker/registry/config.yml; \
      docker start pulse_registry
    ```
+   Das Volume heißt `pulse_pulse_registry`, nicht `pulse_registry` — Compose prefixt
+   mit dem Projektnamen (`name: pulse`); der falsche Name GC't ein leeres Frisch-Volume.
 
 9. **Hetzner-Test umstellen** (`pulse.unicutmedia.com`, einzelner allinone hinter
    Host-Caddy): mit den vorhandenen Instanz-Creds einloggen + Container auf die neue
