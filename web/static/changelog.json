@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.9",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Kanal-Menü: „Einstellungen“ statt „Kanal umbenennen“",
+      "items": [
+        "Der Menüpunkt heißt jetzt „Einstellungen“ — passend dazu, dass sich dort nicht nur der Name ändern lässt, sondern auch Thema, Farbe und bei Sprachkanälen das Teilnehmerlimit."
+      ]
+    },
+    {
       "id": "2026-07-02.8",
       "date": "2026-07-02",
       "style": "Sachlich",

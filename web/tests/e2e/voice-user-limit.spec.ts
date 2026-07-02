@@ -64,9 +64,9 @@ test('Voice-Channel-Benutzerlimit: setzen und Anzeige', async ({ page }) => {
   // Ohne Limit keine Anzeige.
   await expect(page.getByTestId(`channel-user-limit-${channel.id}`)).toHaveCount(0);
 
-  // Kontextmenü → Umbenennen öffnet den Channel-Dialog.
+  // Kontextmenü → Einstellungen öffnet den Channel-Dialog.
   await row.click({ button: 'right' });
-  await page.getByText('Kanal umbenennen', { exact: false }).click();
+  await page.getByTestId('channel-context-settings').click();
   await expect(page.getByTestId('rename-channel-dialog')).toBeVisible();
 
   // Limit setzen + speichern.
