@@ -19,29 +19,31 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-function detectExec(): string {
-  if (process.env.DOCKER_CMD) return process.env.DOCKER_CMD;
-  try {
-    execFileSync('docker', ['--version'], { stdio: 'ignore' });
-    return 'docker';
-  } catch {
-    return 'podman';
-  }
-}
-
-const DOCKER = detectExec();
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /**
- * Run a command inside a named container via the runtime exec API.
- * Uses ``execFileSync`` (no shell) — interpolating the username into a
- * shell command would let a malicious uname break out via quoting.
+ * Direktes psql gegen die E2E-DB (localhost:5434/dcc_test, Passwort aus
+ * der Repo-``.env``) — KEIN ``docker exec``: der Container-Name ist pro
+ * Maschine verschieden (hier hieß er hart ``pulse_postgres`` und die Spec
+ * fragte sogar die Dev-DB ``dcc`` statt ``dcc_test`` ab). ``execFileSync``
+ * ohne Shell; die SQL-Interpolation bleibt auf generierte Usernamen begrenzt.
  */
-function containerExec(container: string, args: string[]): string {
-  return execFileSync(DOCKER, ['exec', container, ...args], {
-    encoding: 'utf-8',
-    stdio: ['ignore', 'pipe', 'pipe']
-  }).trim();
+function testDbSql(sql: string): string {
+  const envFile = readFileSync(resolve(ROOT, '.env'), 'utf-8');
+  const pgPass = envFile.match(/^POSTGRES_PASSWORD=(.*)$/m)?.[1] ?? '';
+  return execFileSync(
+    'psql',
+    ['-h', 'localhost', '-p', '5434', '-U', 'dcc', '-d', 'dcc_test', '-tAc', sql],
+    {
+      encoding: 'utf-8',
+      env: { ...process.env, PGPASSWORD: pgPass },
+      stdio: ['ignore', 'pipe', 'pipe']
+    }
+  ).trim();
 }
 
 const usernameFor = (suffix: string) =>
@@ -50,13 +52,19 @@ const usernameFor = (suffix: string) =>
 async function registerAndLogin(page: Page, suffix: string) {
   const uname = usernameFor(suffix);
   await page.goto('/register');
-  await page.fill('input[name="username"]', uname);
+  // Testid-Selektoren wie in chat.spec.ts — das Formular trägt keine
+  // name-Attribute (die alten input[name=…]-Selektoren fanden nie etwas).
+  await page.getByTestId('reg-username').fill(uname);
   // email-validator rejects special-use TLDs (.test), so use .example.com
-  await page.fill('input[name="email"]', `${uname}@dcc-test.example.com`);
-  await page.fill('input[name="password"]', 'CorrectHorseBatteryStaple!2026');
-  await page.fill('input[name="password2"]', 'CorrectHorseBatteryStaple!2026');
-  await page.click('button[type="submit"]');
-  await page.waitForLoadState('networkidle');
+  await page.getByTestId('reg-email').fill(`${uname}@dcc-test.example.com`);
+  await page.getByTestId('reg-password').fill('CorrectHorseBatteryStaple!2026');
+  await page.getByTestId('reg-submit').click();
+  await page.waitForURL(/\/app/);
+  // BackupSetupStep-Dialog blockiert sonst Folge-Klicks — best-effort skippen.
+  await page
+    .getByTestId('backup-onboarding-skip-btn')
+    .click({ timeout: 2500 })
+    .catch(() => undefined);
   return uname;
 }
 
@@ -68,36 +76,23 @@ test.describe('Dropbox / Ablage', () => {
     page.on('dialog', (d) => void d.accept());
 
     const uname = await registerAndLogin(page, 'alice');
-    const userId = containerExec('pulse_postgres', [
-      'psql',
-      '-U',
-      'chat',
-      '-d',
-      'dcc',
-      '-tAc',
-      `SELECT id FROM auth.users WHERE username='${uname}'`
-    ]);
-    containerExec('pulse_postgres', [
-      'psql',
-      '-U',
-      'chat',
-      '-d',
-      'dcc',
-      '-c',
-      `UPDATE auth.users SET is_admin=true WHERE id=${userId}`
-    ]);
+    // Admin-Flag für die Guild-Erstellung (allow_guild_creation ist default
+    // false) — direkt in der E2E-DB, dann frisch einloggen damit es greift.
+    testDbSql(`UPDATE auth.users SET is_admin=true WHERE username='${uname}'`);
     await page.context().clearCookies();
     await page.goto('/login');
-    await page.fill('input[name="username"]', uname);
-    await page.fill('input[name="password"]', 'CorrectHorseBatteryStaple!2026');
-    await page.click('button[type="submit"]');
-    await page.waitForLoadState('networkidle');
+    await page.getByTestId('login-identifier').fill(uname);
+    await page.getByTestId('login-password').fill('CorrectHorseBatteryStaple!2026');
+    await page.getByTestId('login-submit').click();
+    await page.waitForURL(/\/app/);
 
-    // Guild + dropbox channel.
+    // Guild + dropbox channel — Testids wie in chat.spec.ts (frischer User
+    // ohne Guilds → Empty-State-Knopf).
     await page.goto('/app');
-    await page.click('[data-testid="create-guild"]');
-    await page.fill('[data-testid="guild-name-input"]', 'Dropbox Test Guild');
-    await page.click('[data-testid="guild-create-submit"]');
+    await page.getByTestId('empty-create-guild').click();
+    await page.getByTestId('create-guild-choice').click();
+    await page.getByTestId('create-guild-name').fill('Dropbox Test Guild');
+    await page.getByTestId('create-guild-submit').click();
     await page.waitForLoadState('networkidle');
 
     await page.click('[data-testid="channel-create"]');
@@ -106,7 +101,9 @@ test.describe('Dropbox / Ablage', () => {
     await page.click('[data-testid="create-channel-submit"]');
 
     await expect(page.getByTestId('dropbox-view')).toBeVisible();
-    await expect(page.getByTestId('dropbox-quota-fill')).toBeVisible();
+    // toBeAttached statt toBeVisible: bei leerer Ablage ist der Füllbalken
+    // 0 px breit und gilt für Playwright als "hidden".
+    await expect(page.getByTestId('dropbox-quota-fill')).toBeAttached();
 
     // Upload.
     const fileChooserPromise = page.waitForEvent('filechooser');
@@ -128,6 +125,29 @@ test.describe('Dropbox / Ablage', () => {
     const cardTestId = await card.getAttribute('data-testid');
     const entryId = cardTestId?.replace('dropbox-entry-', '');
     expect(entryId, 'entry card testid must contain the snowflake id').toBeTruthy();
+
+    // Download (Auswahl-ZIP, same-origin → <a download>-Pfad): die Datei kommt
+    // an, OHNE dass eine Top-Level-Navigation versucht wird. Regression:
+    // window.location.href feuerte beforeunload, worauf livekit-client
+    // (disconnectOnPageLeave) die Voice-Verbindung kappte — ein Download warf
+    // einen also aus dem Voice-Channel.
+    await page.evaluate(() => {
+      (window as unknown as Record<string, unknown>).__navAttempted = false;
+      window.addEventListener('beforeunload', () => {
+        (window as unknown as Record<string, unknown>).__navAttempted = true;
+      });
+    });
+    await page.getByTestId(`dropbox-entry-select-${entryId}`).click();
+    const downloadPromise = page.waitForEvent('download', { timeout: 15_000 });
+    await page.getByTestId('dropbox-download-selection').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.zip$/);
+    const navAttempted = await page.evaluate(
+      () => (window as unknown as Record<string, unknown>).__navAttempted
+    );
+    expect(navAttempted, 'Download darf keine Navigation (beforeunload) auslösen').toBe(false);
+    // Auswahl aufheben, damit der Trash-Schritt den Normal-Zustand sieht.
+    await page.getByTestId(`dropbox-entry-select-${entryId}`).click();
 
     // Trash via the DOM — click the per-card trash button.
     const trashBtn = page.getByTestId(`dropbox-entry-trash-${entryId}`);
