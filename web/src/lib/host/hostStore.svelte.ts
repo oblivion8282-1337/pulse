@@ -3,6 +3,7 @@
 import { isElectron } from '$lib/platform/runtime';
 import type { HostPhase, HostPhaseEvent, PairingStatus } from '$lib/platform/pulse';
 import { instancesApi } from '$lib/api/instances';
+import { ApiError } from '$lib/api/client';
 import { serversStore } from '$lib/api/servers.svelte';
 
 class HostStore {
@@ -13,6 +14,10 @@ class HostStore {
   /** true, wenn der letzte Pairing-Versuch (Mint/Redeem) fehlschlug — die UI
    *  zeigt dann eine ruhige Fehlerzeile. Wird bei jedem neuen start() geräumt. */
   pairError = $state(false);
+  /** true, wenn der Mint mit 403 scheiterte = Bootstrap wurde schon einmal
+   *  eingelöst (anderes Gerät / Store-Verlust). Die Karte bietet dann den
+   *  bewussten „Zugang übertragen"-Pfad an (Mint mit reset=true). */
+  pairConsumed = $state(false);
   /** null = noch nicht geprüft; false = keine Container-Runtime (Podman/Docker)
    *  gefunden → UI zeigt den Setup-Hinweis statt des Start-Knopfs. */
   runtimeOk = $state<boolean | null>(null);
@@ -66,20 +71,24 @@ class HostStore {
     }
   }
 
-  async start(instanceId?: string): Promise<void> {
+  async start(instanceId?: string, opts?: { reset?: boolean }): Promise<void> {
     if (!this.available) return;
     const host = window.pulse!.host!;
     this.pairError = false;
+    this.pairConsumed = false;
     if (!this.paired) {
       const id = instanceId ?? this.instances[0]?.id;
       if (!id) return;
       try {
-        const { token } = await instancesApi.mintBootstrapToken(id);
+        const { token } = await instancesApi.mintBootstrapToken(id, opts);
         const res = await host.pair(token);
         if (!res.paired) { this.pairError = true; return; }
         this.pairing = res.status ?? await host.getPairing();
-      } catch {
-        this.pairError = true;
+      } catch (e) {
+        // 403 = Bootstrap bereits eingelöst → statt generisch zu scheitern
+        // bietet die Karte den bewussten Übertragen-Pfad an (reset=true).
+        if (e instanceof ApiError && e.status === 403) this.pairConsumed = true;
+        else this.pairError = true;
         return;
       }
     }

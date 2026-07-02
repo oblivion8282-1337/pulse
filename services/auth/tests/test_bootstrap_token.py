@@ -212,6 +212,55 @@ async def test_mint_blocked_after_successful_redeem(
 
 
 @pytest.mark.asyncio
+async def test_mint_reset_allows_remint_after_redeem(
+    client, alice, alice_instance, session_factory
+):
+    """Expliziter Recovery-Pfad: ``reset=true`` erlaubt den Re-Mint nach
+    eingelöstem Bootstrap (Gerätewechsel/Creds-Verlust beim App-Host). Der
+    neue Token ist einlösbar; das Redeem rotiert die Credentials, alte
+    sterben also sofort — es entstehen nie zwei lebende Server."""
+    token = await _mint(client, alice, alice_instance.id)
+    rr = await client.post(
+        "/selfhost/bootstrap", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert rr.status_code == 200, rr.text
+    old_client_secret = rr.json()["client_secret"]
+
+    # Ohne reset bleibt der Guard (Hijack-Härtung).
+    blocked = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice["cookie"]},
+        json={},
+    )
+    assert blocked.status_code == 403
+
+    # Mit reset=true: neuer Token, einlösbar, Secret rotiert.
+    r2 = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": alice["cookie"]},
+        json={"reset": True},
+    )
+    assert r2.status_code == 201, r2.text
+    rr2 = await client.post(
+        "/selfhost/bootstrap",
+        headers={"Authorization": f"Bearer {r2.json()['token']}"},
+    )
+    assert rr2.status_code == 200, rr2.text
+    assert rr2.json()["client_secret"] != old_client_secret
+
+
+@pytest.mark.asyncio
+async def test_mint_reset_requires_owner(client, bob, alice_instance):
+    """reset=true hebelt den Owner-Check NICHT aus — fremde Instanz bleibt 404."""
+    r = await client.post(
+        f"/me/instances/{alice_instance.id}/bootstrap-token",
+        headers={"Cookie": bob["cookie"]},
+        json={"reset": True},
+    )
+    assert r.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_mint_allowed_when_previous_expired_without_redeem(
     client, alice, alice_instance, session_factory
 ):

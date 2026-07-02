@@ -515,6 +515,15 @@ class BootstrapTokenOut(BaseModel):
     ttl_seconds: int
 
 
+class BootstrapTokenMintIn(BaseModel):
+    """Optionaler Body: ``reset=true`` erlaubt den Re-Mint nach bereits
+    eingelöstem Bootstrap — der bewusste „Zugang zurücksetzen"-Pfad für
+    App-Hosts nach Gerätewechsel/Store-Verlust. Das Einlösen rotiert wie
+    immer client_secret + Tunnel-Token, alte Credentials sterben also sofort."""
+
+    reset: bool = False
+
+
 @router.post(
     "/me/instances/{instance_id}/bootstrap-token",
     response_model=BootstrapTokenOut,
@@ -524,14 +533,19 @@ async def mint_bootstrap_token(
     instance_id: str,
     request: Request,
     db: SessionDep,
+    payload: BootstrapTokenMintIn | None = None,
 ) -> BootstrapTokenOut:
     """Mintet einen One-Time-Bootstrap-Token für den Ein-Befehl-Installer.
 
     Nur der Owner der Instanz (404 statt 403 gegen Existence-Leak). Räumt alle
     vorherigen, nicht-eingelösten Tokens dieser Instanz weg — ein „neu
     generieren" entwertet den alten sofort. Nach erfolgreichem Redeem sind
-    weitere Mints geblockt: User muss für jeden weiteren Server einen neuen
-    Antrag stellen. Token-Verlust vor Redeem (TTL abgelaufen) erlaubt weiteres
+    weitere Mints geblockt (Hijack-Härtung: eine gekaperte Session kann keine
+    laufende Instanz still übernehmen) — AUSSER der Owner setzt explizit
+    ``reset=true``: der bewusste Recovery-Pfad nach Gerätewechsel/Creds-Verlust.
+    Das Einlösen rotiert client_secret + Tunnel-Token, ein alter Server verliert
+    damit sofort seinen Cloud-Zugang — es entstehen nie zwei lebende Server aus
+    einer Instanz. Token-Verlust vor Redeem (TTL abgelaufen) erlaubt weiteres
     Mint.
     """
     user = await _require_user(request, db)
@@ -548,8 +562,9 @@ async def mint_bootstrap_token(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instanz nicht gefunden")
 
     # One-shot nach erfolgreichem Setup: ein bereits eingelöstes Token
-    # blockiert weitere Mints. Audit-Spur bleibt in der Token-Tabelle
-    # (Redeem setzt nur consumed_at, löscht nicht).
+    # blockiert weitere Mints — außer beim expliziten Reset (s. Docstring).
+    # Audit-Spur bleibt in der Token-Tabelle (Redeem setzt nur consumed_at,
+    # löscht nicht; auch der Reset löscht nur uneingelöste Tokens).
     already_consumed = (
         await db.execute(
             select(InstanceBootstrapToken.id)
@@ -560,7 +575,7 @@ async def mint_bootstrap_token(
             .limit(1)
         )
     ).scalar_one_or_none()
-    if already_consumed is not None:
+    if already_consumed is not None and not (payload and payload.reset):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail="Bootstrap bereits eingelöst — für weitere Server neuen Antrag stellen",
