@@ -22,7 +22,19 @@ import { waitFor, httpHealth } from './health.ts';
 
 export const CONTAINER_NAME = 'pulse-host';
 export const DATA_VOLUME = 'pulse-host-data';
-export const IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
+export const DEFAULT_IMAGE = 'registry.howispulse.com/pulse-allinone:edge';
+
+/** Dev/Test-Seam: `PULSE_HOST_IMAGE` zeigt auf ein lokal gebautes Image —
+ *  dann entfallen Registry-Login + Pull (Dev-Instanz-Creds existieren im
+ *  Prod-Registry-Realm nicht). Prod-Pfad bleibt der Default. */
+export function resolveImage(env: Record<string, string | undefined> = process.env): {
+  image: string;
+  local: boolean;
+} {
+  const override = env.PULSE_HOST_IMAGE;
+  return override ? { image: override, local: true } : { image: DEFAULT_IMAGE, local: false };
+}
+
 /** Host-Port für den behind-proxy-HTTP des Containers (nur 127.0.0.1 —
  *  öffentlicher Zugang läuft über den Relay-Tunnel im Container). Bewusst
  *  hoch/ephemer, analog zu den alten nativen Default-Ports. */
@@ -103,23 +115,26 @@ export class ContainerBackendManager {
       mode: 0o600,
     });
 
-    // 2. Registry-Login mit den Instanz-Creds (Pull-Gate der eigenen Registry).
-    progress('login');
-    const registry = IMAGE.split('/', 1)[0];
-    const login = await rtExec(
-      rt.argv,
-      ['login', registry, '-u', creds.clientId, '--password-stdin'],
-      { stdin: creds.clientSecret, timeoutMs: 30_000 },
-    );
-    if (login.code !== 0) {
-      throw new Error(`registry login failed (exit ${login.code})`);
-    }
+    const { image, local } = resolveImage();
+    if (!local) {
+      // 2. Registry-Login mit den Instanz-Creds (Pull-Gate der eigenen Registry).
+      progress('login');
+      const registry = image.split('/', 1)[0];
+      const login = await rtExec(
+        rt.argv,
+        ['login', registry, '-u', creds.clientId, '--password-stdin'],
+        { stdin: creds.clientSecret, timeoutMs: 30_000 },
+      );
+      if (login.code !== 0) {
+        throw new Error(`registry login failed (exit ${login.code})`);
+      }
 
-    // 3. Pull — beim Erststart mehrere hundert MB, danach Digest-Check (= Update).
-    progress('pull');
-    const pull = await rtExec(rt.argv, ['pull', IMAGE], { timeoutMs: 15 * 60_000 });
-    if (pull.code !== 0) {
-      throw new Error(`image pull failed (exit ${pull.code})`);
+      // 3. Pull — beim Erststart mehrere hundert MB, danach Digest-Check (= Update).
+      progress('pull');
+      const pull = await rtExec(rt.argv, ['pull', image], { timeoutMs: 15 * 60_000 });
+      if (pull.code !== 0) {
+        throw new Error(`image pull failed (exit ${pull.code})`);
+      }
     }
 
     // 4. Alten Container ersetzen (Recreate statt Restart → nimmt frisch
@@ -134,7 +149,7 @@ export class ContainerBackendManager {
       '-v', `${DATA_VOLUME}:/data`,
       '-p', `127.0.0.1:${HOST_HTTP_PORT}:8080`,
       ...MEDIA_PORT_ARGS,
-      IMAGE,
+      image,
     ], { timeoutMs: 120_000 });
     if (run.code !== 0) {
       throw new Error(`container start failed (exit ${run.code}): ${run.stderr.slice(0, 400)}`);

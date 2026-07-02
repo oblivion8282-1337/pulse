@@ -7,7 +7,9 @@ export type HostPhase =
 
 export interface HostPhaseEvent {
   phase: HostPhase;
-  detail?: { relayUrl?: string; ports?: number[] };
+  /** step: Fortschritts-Schritt innerhalb von 'preparing' (login/pull/run/health)
+   *  — der erste Pull lädt mehrere hundert MB, die UI soll das benennen können. */
+  detail?: { relayUrl?: string; ports?: number[]; step?: string };
 }
 
 export type ReachVerdict = 'reachable' | 'needs-forwarding' | 'cgnat' | 'unknown';
@@ -28,7 +30,7 @@ export interface ReachResult { verdict: ReachVerdict; publicIp: string | null }
 export interface MapResult { verdict: MapVerdict; openPorts: number[]; failedPorts: number[] }
 
 export interface HostDeps {
-  startBackend(opts: { media: boolean }): Promise<void>;
+  startBackend(opts: { media: boolean; onProgress?: (step: string) => void }): Promise<void>;
   stopBackend(): Promise<void>;
   checkReachability(): Promise<ReachResult>;
   mapPorts(stunIp: string | null): Promise<MapResult>;
@@ -73,7 +75,10 @@ export class HostLifecycle {
           return;
         case 'go':
           this._emit('preparing');
-          await this.deps.startBackend({ media: true });
+          await this.deps.startBackend({
+            media: true,
+            onProgress: (step) => this._emit('preparing', { step }),
+          });
           this._emit('going-live');
           this._emit('live', { relayUrl: this.deps.relayUrl() ?? undefined });
           return;

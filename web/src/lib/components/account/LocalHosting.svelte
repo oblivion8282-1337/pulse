@@ -28,7 +28,16 @@
     switch (hostStore.phase) {
       case 'checking-network': return m.local_host_phase_checking_network();
       case 'opening-door': return m.local_host_phase_opening_door();
-      case 'preparing': return m.local_host_phase_preparing();
+      case 'preparing':
+        // Feinschritt aus dem Container-Manager — der erste Pull lädt mehrere
+        // hundert MB, das soll nicht wie ein Hänger aussehen.
+        switch (hostStore.detail?.step) {
+          case 'login': return m.local_host_step_login();
+          case 'pull': return m.local_host_step_pull();
+          case 'run': return m.local_host_step_run();
+          case 'health': return m.local_host_step_health();
+          default: return m.local_host_phase_preparing();
+        }
       case 'going-live': return m.local_host_phase_going_live();
       default: return '';
     }

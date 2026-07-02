@@ -36,6 +36,8 @@ const ACTIVE_INSTANCE = {
   worker_id_voice: 101,
   worker_id_media: 102,
   status: 'active',
+  // hostStore bietet nur App-Host-Instanzen an (origin-Filter seit 0040).
+  origin: 'app_host',
   registered_at: '2026-06-18T00:00:00Z',
 };
 
