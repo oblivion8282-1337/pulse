@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-02.5",
+      "date": "2026-07-02",
+      "style": "Sachlich",
+      "title": "Windows richtet sich fürs Server-Hosting selbst ein",
+      "items": [
+        "Fehlt die nötige Windows-Funktion (WSL 2), führt dich die App jetzt mit einem Knopf durch die einmalige Einrichtung — inklusive klarer Ansage, wann ein Neustart nötig ist."
+      ]
+    },
+    {
       "id": "2026-07-02.4",
       "date": "2026-07-02",
       "style": "Sachlich",
