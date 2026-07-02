@@ -147,12 +147,33 @@ class DropboxViewModel {
   }
 
   // ----- Downloads -----
-  /** Mint a download URL and hand it to the browser. Content-Disposition is
-   *  ``attachment`` on both paths so the browser downloads without navigating
-   *  away — failures surface as a toast instead of a half-started navigation. */
+  /** Mint a download URL and hand it to the browser — NICHT via
+   *  ``window.location.href``: Eine Top-Level-Navigation feuert
+   *  ``beforeunload`` (auch wenn die Antwort per Content-Disposition
+   *  ``attachment`` nie wirklich navigiert), und livekit-client trennt darauf
+   *  die Voice-Verbindung (``disconnectOnPageLeave``, Default true) — der
+   *  Download warf einen also aus dem Voice-Channel.
+   *
+   *  Same-Origin (Prod-Presigned via nginx, Archiv-Endpoint überall): ein
+   *  ``<a download>``-Klick lädt ganz ohne Navigation → kein beforeunload,
+   *  streamt direkt auf die Platte. Cross-Origin (nur Dev-MinIO auf :9000,
+   *  dort wird das download-Attribut ignoriert und iframe-Downloads blockt
+   *  Chrome ohne User-Activation): eigenes Fenster, das der Browser nach
+   *  Download-Start selbst schließt — beforeunload des Hauptfensters bleibt
+   *  unberührt. Mint-Fehler surfacen als Toast. */
   async #download(urlPromise: Promise<string>): Promise<void> {
     try {
-      window.location.href = await urlPromise;
+      const url = await urlPromise;
+      if (new URL(url, window.location.href).origin === window.location.origin) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } else {
+        window.open(url, '_blank', 'noopener');
+      }
     } catch (err) {
       toast.error(pm.dropbox_download_failed(), {
         description: (err as Error).message
