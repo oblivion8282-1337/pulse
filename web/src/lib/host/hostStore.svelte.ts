@@ -18,6 +18,9 @@ class HostStore {
    *  eingelöst (anderes Gerät / Store-Verlust). Die Karte bietet dann den
    *  bewussten „Zugang übertragen"-Pfad an (Mint mit reset=true). */
   pairConsumed = $state(false);
+  /** Zustand des Windows-Erststart-Assistenten (Phase 'needs-windows-setup'):
+   *  running = UAC/Installation läuft, done = fertig (Neustart-Hinweis). */
+  winSetupState = $state<'idle' | 'running' | 'done' | 'failed'>('idle');
   /** null = noch nicht geprüft; false = keine Container-Runtime (Podman/Docker)
    *  gefunden → UI zeigt den Setup-Hinweis statt des Start-Knopfs. */
   runtimeOk = $state<boolean | null>(null);
@@ -76,6 +79,7 @@ class HostStore {
     const host = window.pulse!.host!;
     this.pairError = false;
     this.pairConsumed = false;
+    this.winSetupState = 'idle';
     if (!this.paired) {
       const id = instanceId ?? this.instances[0]?.id;
       if (!id) return;
@@ -98,6 +102,20 @@ class HostStore {
   async stop(): Promise<void> {
     if (!this.available) return;
     await window.pulse!.host!.stop();
+  }
+
+  /** Windows-Erststart-Assistent (WSL2-Installation mit Admin-Abfrage). */
+  async windowsSetup(): Promise<void> {
+    if (!this.available) return;
+    const host = window.pulse!.host!;
+    if (!host.setupWindows) { this.winSetupState = 'failed'; return; } // ältere Shell
+    this.winSetupState = 'running';
+    try {
+      const r = await host.setupWindows();
+      this.winSetupState = r.ok ? 'done' : 'failed';
+    } catch {
+      this.winSetupState = 'failed';
+    }
   }
 
   async anchorLive(): Promise<void> {

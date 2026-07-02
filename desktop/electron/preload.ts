@@ -242,5 +242,6 @@ contextBridge.exposeInMainWorld('pulse', {
     getPairing: (): Promise<unknown> => ipcRenderer.invoke('host:getPairing'),
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
+    setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),
   },
 });

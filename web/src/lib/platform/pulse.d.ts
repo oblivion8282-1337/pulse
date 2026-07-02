@@ -170,7 +170,8 @@ export type HostPhase =
   | 'live'
   | 'needs-your-help'
   | 'not-possible-here'
-  | 'something-paused';
+  | 'something-paused'
+  | 'needs-windows-setup';
 
 /** Phasen-Ereignis, das HostLifecycle via host:phase an den Renderer pusht. */
 export interface HostPhaseEvent {
@@ -220,6 +221,9 @@ export interface PulseHostApi {
   /** Gibt es eine Container-Runtime (Host-Podman/Docker)? Ohne die zeigt die
    *  App-Hosting-Karte den Setup-Hinweis statt des Start-Knopfs. */
   runtimeAvailable(): Promise<boolean>;
+  /** Windows-Erststart-Assistent: WSL2 mit Admin-Abfrage installieren
+   *  (Phase 'needs-windows-setup'). Nach ok ist meist ein Neustart nötig. */
+  setupWindows(): Promise<{ ok: boolean }>;
 }
 
 /** OS-global keyboard shortcuts (background toggles). The renderer hands main
@@ -234,20 +238,6 @@ export interface PulseShortcutsApi {
    *  Returns an unsubscribe function. */
   onTrigger(cb: (id: string) => void): () => void;
 }
-
-// ── Host-Lifecycle types (③a) ────────────────────────────────────────────────
-
-/** Zustand des lokalen Self-Host-Stacks (Phasen-Modell). */
-export type HostPhase =
-  | 'idle'
-  | 'checking-network'
-  | 'opening-door'
-  | 'preparing'
-  | 'going-live'
-  | 'live'
-  | 'needs-your-help'
-  | 'not-possible-here'
-  | 'something-paused';
 
 export interface PulseApi {
   platform: 'electron';

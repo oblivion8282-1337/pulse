@@ -92,6 +92,11 @@ export class ContainerBackendManager {
     return (await this.ensureRuntime()) !== null;
   }
 
+  /** Erkannte Runtime (lazy) — für Plattform-Prereq-Checks (WSL-Assistent). */
+  async runtime(): Promise<ContainerRuntime | null> {
+    return this.ensureRuntime();
+  }
+
   async start(opts: {
     userData: string;
     creds: BootstrapCreds;

@@ -119,6 +119,41 @@ export async function detectRuntime(): Promise<ContainerRuntime | null> {
   return null;
 }
 
+/** Windows: ist WSL2 einsatzbereit? `wsl --status` liefert 0 nur, wenn die
+ *  Funktion installiert ist — genau die Voraussetzung von `podman machine init`.
+ *  Auf allen anderen Plattformen immer true (kein Windows-Prereq). */
+export async function wslReady(): Promise<boolean> {
+  if (process.platform !== 'win32') return true;
+  try {
+    const r = await rtExec({ argv: ['wsl.exe'] }, ['--status'], { timeoutMs: 15_000 });
+    return r.code === 0;
+  } catch {
+    return false; // wsl.exe fehlt (sehr alte Windows-10-Builds)
+  }
+}
+
+/** Windows-Erststart-Assistent: WSL2 mit UAC-Elevation installieren
+ *  (`wsl --install --no-distribution` — die Distro braucht podman machine nicht,
+ *  es importiert sein eigenes Image). Start-Process -Verb RunAs zeigt die
+ *  Admin-Abfrage; -Wait/-PassThru reichen den ExitCode des elevierten Prozesses
+ *  durch (UAC abgebrochen → PowerShell wirft → Exit != 0). Nach Erfolg ist
+ *  meist ein Windows-Neustart nötig — das sagt die Karte dem User. */
+export async function installWsl(): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  const cmd =
+    "$p = Start-Process -FilePath 'wsl.exe' -ArgumentList '--install','--no-distribution' -Verb RunAs -Wait -PassThru; exit $p.ExitCode";
+  try {
+    const r = await rtExec(
+      { argv: ['powershell.exe'] },
+      ['-NoProfile', '-NonInteractive', '-Command', cmd],
+      { timeoutMs: 30 * 60_000 },
+    );
+    return r.code === 0;
+  } catch {
+    return false;
+  }
+}
+
 export type MachineAction = 'none' | 'init' | 'start';
 
 /** Reine Entscheidung aus `podman machine inspect`: fehlt die Machine → init,
