@@ -997,6 +997,8 @@
   "local_host_no_instance_body": "You need your own server first. You can apply for one right below.",
   "local_host_no_instance_title": "No server assigned yet",
   "local_host_pair_failed": "That did not work just now — please try again.",
+  "local_host_runtime_missing_title": "One small thing is missing on this device",
+  "local_host_runtime_missing_body": "Hosting runs in a small container and needs Podman or Docker on this device. Install one of them, then come back here — everything else is automatic.",
   "local_host_server_added": "Your server is now in your list.",
   "local_host_help_body": "Your router cannot open itself automatically. Here is how to allow it once:",
   "local_host_help_step1": "Open your router settings in a browser.",

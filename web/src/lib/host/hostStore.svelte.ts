@@ -13,6 +13,9 @@ class HostStore {
   /** true, wenn der letzte Pairing-Versuch (Mint/Redeem) fehlschlug — die UI
    *  zeigt dann eine ruhige Fehlerzeile. Wird bei jedem neuen start() geräumt. */
   pairError = $state(false);
+  /** null = noch nicht geprüft; false = keine Container-Runtime (Podman/Docker)
+   *  gefunden → UI zeigt den Setup-Hinweis statt des Start-Knopfs. */
+  runtimeOk = $state<boolean | null>(null);
   private _wired = false;
 
   get available(): boolean {
@@ -41,6 +44,9 @@ class HostStore {
     });
     void host.getStatus().then((e) => { this.phase = e.phase; this.detail = e.detail; });
     void host.getPairing().then((p) => { this.pairing = p; }).catch(() => {});
+    // Ältere Shells haben runtimeAvailable noch nicht → optimistisch true
+    // (der Start-Pfad meldet einen echten Fehler dann selbst).
+    void host.runtimeAvailable?.().then((ok) => { this.runtimeOk = ok; }).catch(() => {});
     void this.refreshInstances();
   }
 
@@ -50,8 +56,10 @@ class HostStore {
   async refreshInstances(): Promise<void> {
     try {
       const list = await instancesApi.listMyInstances();
+      // Nur App-Host-Instanzen anbieten: ein Pairing rotiert das client_secret —
+      // auf einer laufenden VPS-Instanz wäre das ein Betriebs-Killer.
       this.instances = list
-        .filter((i) => i.status === 'active')
+        .filter((i) => i.status === 'active' && i.origin === 'app_host')
         .map((i) => ({ id: i.id, hostname: i.hostname }));
     } catch {
       /* transient */

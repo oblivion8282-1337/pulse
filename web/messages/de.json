@@ -1005,6 +1005,8 @@
   "local_host_no_instance_body": "Du brauchst zuerst einen eigenen Server. Den beantragst du gleich hier unten.",
   "local_host_no_instance_title": "Noch kein Server zugewiesen",
   "local_host_pair_failed": "Das hat gerade nicht geklappt — versuch es noch einmal.",
+  "local_host_runtime_missing_title": "Auf diesem Gerät fehlt noch eine Kleinigkeit",
+  "local_host_runtime_missing_body": "Das Hosting läuft in einem kleinen Container und braucht dafür Podman oder Docker auf diesem Gerät. Installiere eines davon und komm dann hierher zurück — alles Weitere passiert automatisch.",
   "local_host_server_added": "Dein Server ist jetzt in deiner Liste.",
   "local_host_help_body": "Dein Router lässt sich nicht von allein öffnen. So erlaubst du es einmalig:",
   "local_host_help_step1": "Öffne die Einstellungen deines Routers in einem Browser.",

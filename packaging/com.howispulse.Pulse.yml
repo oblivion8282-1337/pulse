@@ -75,6 +75,11 @@ finish-args:
   # falls back to nothing on Wayland sessions. Notifications use the same
   # portal that's already mounted above.
   - --talk-name=org.kde.StatusNotifierWatcher
+  # App-Hosting: der Server-Container läuft im HOST-Podman (nested Podman im
+  # Sandbox ist fragil). `flatpak-spawn --host podman …` braucht diesen Bus-Namen
+  # (Boxbuddy-Muster, Flathub-akzeptiert). containerRuntime.ts nutzt ihn nur,
+  # wenn der User App-Hosting startet.
+  - --talk-name=org.freedesktop.Flatpak
   # The sidecar's stderr is read line-by-line by the Electron bridge — flush promptly
   - --env=PYTHONUNBUFFERED=1
 

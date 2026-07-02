@@ -64,7 +64,9 @@
     // Owner hat seine Instanzen geöffnet → roten „einrichten"-Punkt löschen.
     myInstanceApplications.acknowledge();
     try {
-      instances = await instancesApi.listMyInstances();
+      // App-Host-Instanzen leben in der App-Hosting-Karte — der VPS-Flow
+      // ("Server einrichten"-Anleitung) ergibt für sie keinen Sinn.
+      instances = (await instancesApi.listMyInstances()).filter((i) => i.origin !== 'app_host');
     } catch {
       // Nicht kritisch
     } finally {

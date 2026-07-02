@@ -120,6 +120,9 @@ class InstanceOut(BaseModel):
     worker_id_voice: int
     worker_id_media: int
     status: Literal["active", "suspended"]
+    # vps = klassischer Self-Host, app_host = Ein-Knopf-Container aus der App.
+    # Das Frontend blendet app_host-Instanzen aus "Meine Instanzen" aus.
+    origin: Literal["vps", "app_host"] = "vps"
     registered_at: datetime
     # Per-User-Präferenzen aus user_instance_memberships (account-basiert →
     # geräteübergreifend). NULL/Default, wenn keine Membership im Kontext.
@@ -171,6 +174,7 @@ def _instance_to_out(
         worker_id_voice=inst.worker_id_voice,
         worker_id_media=inst.worker_id_media,
         status=inst.status,  # type: ignore[arg-type]
+        origin=inst.origin,  # type: ignore[arg-type]
         registered_at=inst.registered_at,
         user_label=membership.user_label if membership else None,
         notification_mode=(

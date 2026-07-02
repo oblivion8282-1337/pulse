@@ -56,6 +56,11 @@ class RegisteredInstance(Base):
     worker_id_media: Mapped[int] = mapped_column(SmallInteger, nullable=False, unique=True)
     # active | suspended
     status: Mapped[str] = mapped_column(Text, nullable=False, server_default="active")
+    # vps | app_host — Herkunft der Instanz. App-Host-Instanzen (Ein-Knopf-
+    # Container aus der Desktop-App, synthetischer Hostname) erscheinen nur in
+    # der App-Hosting-Karte, nicht in "Meine Instanzen". Explizites Feld statt
+    # Hostname-Heuristik (Migration 0040).
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default="vps")
     # ②a Relay-Provisionierung: stabile Subdomain (Slug) + Tunnel-Token-Hash.
     # Der Token-Klartext wird NIE persistiert (nur via Bootstrap-Response geliefert).
     relay_subdomain: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)

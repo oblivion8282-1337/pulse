@@ -9,12 +9,11 @@
 /**
  * App-Hosting (Pulse-Server lokal aus der Desktop-App heraus hosten, Relay-basiert).
  *
- * AUS, bis die Geräte-Seite wirklich auslieferbar ist. Cloud-Seite (Antrag →
- * Genehmigung → Auto-Instanz → Owner-Stufe → Relay → Pairing) ist fertig + live,
- * aber der lokale Server-Stack läuft heute nur im Dev-Setup (per `uv run` gegen
- * den Quellcode); die Binaries/Container sind in keinem ausgelieferten Build.
- * Richtung/Plan: `docs/superpowers/specs/2026-06-29-apphost-direct-chat-webrtc-datachannel.md`
- * + die Container-All-in-One-Idee (siehe Gespräch). Self-Hosting (eigener VPS)
- * ist davon UNBERÜHRT und bleibt sichtbar.
+ * AN seit 2026-07-02: die Geräte-Seite startet den allinone-Container über die
+ * Container-Runtime des Systems (Linux-Flatpak: Host-Podman via flatpak-spawn;
+ * sonst Podman/Docker im PATH; frpc-Tunnel läuft im Image). Fehlt eine Runtime,
+ * zeigt die Karte einen ruhigen Setup-Hinweis (hostStore.runtimeOk) — gebündeltes
+ * Podman für Win/Mac folgt (Phase 2/3, docs/superpowers/plans/2026-06-29-…).
+ * Self-Hosting (eigener VPS) ist davon UNBERÜHRT.
  */
-export const APP_HOSTING_ENABLED = false;
+export const APP_HOSTING_ENABLED = true;

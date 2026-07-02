@@ -91,6 +91,12 @@
             <div><AppHostApplicationDialog /></div>
           {/if}
         </div>
+      {:else if hostStore.runtimeOk === false}
+        <div class="flex flex-col gap-2" data-testid="local-host-no-runtime">
+          <p class="text-text-bright text-sm font-medium">{m.local_host_runtime_missing_title()}</p>
+          <p class="text-text-muted text-sm">{m.local_host_runtime_missing_body()}</p>
+        </div>
+
       {:else if hostStore.instances.length === 0 && !hostStore.paired}
         <div class="flex flex-col gap-2" data-testid="local-host-no-instance">
           <p class="text-text-bright text-sm font-medium">{m.local_host_no_instance_title()}</p>

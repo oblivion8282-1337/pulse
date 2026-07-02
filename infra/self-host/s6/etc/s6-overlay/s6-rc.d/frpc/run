@@ -1,0 +1,10 @@
+#!/bin/sh
+# frpc — Steuerungs-Relay-Tunnel zum Cloud-frps (App-Hosting, ②a).
+# Ohne gerenderte Config (kein Relay konfiguriert) schläft die Unit —
+# gleicher Opt-out-Stil wie coturn (s6 hält sie "up" ohne Restart-Spam).
+exec 2>&1
+if [ ! -f /etc/pulse/frpc.toml ]; then
+    echo "[frpc] kein Relay konfiguriert — sleeping" >&2
+    exec sleep infinity
+fi
+exec /usr/sbin/gosu pulse /usr/local/bin/frpc -c /etc/pulse/frpc.toml

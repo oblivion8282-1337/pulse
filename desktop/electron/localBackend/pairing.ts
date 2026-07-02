@@ -3,15 +3,12 @@
  *
  * Redeems a one-time bootstrap token issued by the cloud (POST /api/auth/selfhost/bootstrap)
  * and maps the snake_case response into typed camelCase BootstrapCreds.
- * Provides helpers to derive FixtureIdentity and TunnelRelay from those creds,
- * plus sanitized status (no secrets) and a simple Store-I/O interface.
+ * Provides sanitized status (no secrets) and a simple Store-I/O interface;
+ * der ContainerBackendManager konsumiert die Creds direkt.
  *
  * No Electron imports — safe for node:test.
  * Never logs. Secrets (clientSecret, relayTunnelToken) never appear in sanitize().
  */
-
-import type { FixtureIdentity } from './renderConfig.ts';
-import type { TunnelRelay } from './tunnel.ts';
 
 export interface BootstrapCreds {
   instanceId: string;
@@ -77,22 +74,6 @@ export async function redeemBootstrap(
     relayServerAddr: body.relay_server_addr != null ? String(body.relay_server_addr) : null,
     relayTunnelToken: body.relay_tunnel_token != null ? String(body.relay_tunnel_token) : null,
   };
-}
-
-export function credsToIdentity(c: BootstrapCreds): FixtureIdentity {
-  return {
-    hostname: c.hostname,
-    instanceId: c.instanceId,
-    ownerId: c.ownerId,
-    ...(c.relaySubdomain != null ? { relaySubdomain: c.relaySubdomain } : {}),
-  };
-}
-
-export function credsToRelay(c: BootstrapCreds): TunnelRelay | undefined {
-  if (c.relaySubdomain == null || c.relayServerAddr == null || c.relayTunnelToken == null) {
-    return undefined;
-  }
-  return { serverAddr: c.relayServerAddr, authToken: c.relayTunnelToken, subdomain: c.relaySubdomain };
 }
 
 export function probeUrl(c: BootstrapCreds): string {

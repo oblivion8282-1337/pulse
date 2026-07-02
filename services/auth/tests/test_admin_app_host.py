@@ -106,6 +106,9 @@ async def test_approve_provisions_relay_instance(
         # Synthetischer Hostname + Relay-Subdomain noch NULL (kommt beim Pairing).
         assert inst.hostname.startswith("app-")
         assert inst.relay_subdomain is None
+        # Herkunfts-Marker: App-Host-Instanzen erscheinen nur in der
+        # App-Hosting-Karte, nicht in "Meine Instanzen" (Migration 0040).
+        assert inst.origin == "app_host"
         membership = await s.get(
             UserInstanceMembership, (applicant_id, inst.id)
         )
@@ -147,6 +150,49 @@ async def test_approve_idempotent_when_user_has_instance(
             ).scalars().all()
         )
         assert count == 1
+
+
+@pytest.mark.asyncio
+async def test_approve_provisions_despite_vps_instance(
+    client, owner_token, applicant_id, session_factory
+):
+    """Eine bestehende VPS-Instanz blockt das App-Host-Provisioning NICHT.
+
+    Die App-Hosting-Karte bietet nur origin=='app_host' an (Pairing rotiert
+    das client_secret) — ohne diese Ausnahme säße ein VPS-Besitzer nach der
+    Genehmigung im "no-instance"-Zustand fest."""
+    async with session_factory() as s:
+        vps = RegisteredInstance(
+            id=next_id(),
+            hostname="vps.example.org",
+            client_id="vps-client-id",
+            client_secret="x",
+            worker_id_chat=901,
+            worker_id_voice=902,
+            worker_id_media=903,
+            status="active",
+            origin="vps",
+            registered_by=applicant_id,
+        )
+        s.add(vps)
+        s.add(
+            UserInstanceMembership(
+                user_id=applicant_id, instance_id=vps.id, role="owner"
+            )
+        )
+        await s.commit()
+
+    app_id = await _seed_app_host(session_factory, user_id=applicant_id)
+    r = await client.post(
+        f"/admin/app-host-applications/{app_id}/approve", headers=_auth(owner_token)
+    )
+    assert r.status_code == 200, r.text
+    new_id = r.json()["instance_id"]
+    assert new_id is not None
+
+    async with session_factory() as s:
+        inst = await s.get(RegisteredInstance, int(new_id))
+        assert inst is not None and inst.origin == "app_host"
 
 
 @pytest.mark.asyncio
