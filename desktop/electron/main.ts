@@ -364,15 +364,21 @@ function wireHost(getWin: () => Electron.BrowserWindow | null): void {
   let creds = loadCreds(hostStore);
 
   const deps: HostDeps = {
-    startBackend: async () => {
+    startBackend: async ({ onProgress }) => {
       if (!creds) throw new Error('host not paired yet');
       await manager.start({
         userData: app.getPath('userData'),
         creds,
+        onProgress,
       });
     },
     stopBackend: () => manager.stop(),
     checkReachability: async () => {
+      // Test-Seam: Diagnose überspringen (E2E electron-apphost.spec + Maschinen,
+      // deren Firewall die STUN/UDP-Probe blockt und die Diagnose 'unknown' liefert).
+      if (process.env.PULSE_HOST_ASSUME_REACHABLE === '1') {
+        return { verdict: 'reachable' as const, publicIp: null };
+      }
       const r = await checkReachability({ probeUrl: creds ? probeUrl(creds) : '' });
       return { verdict: r.verdict, publicIp: r.publicIp };
     },

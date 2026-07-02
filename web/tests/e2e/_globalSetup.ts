@@ -281,7 +281,11 @@ export default async function globalSetup() {
     RATE_LIMIT_LOGIN: '1000/minute',
     // Host-disconnect grace: 30s in prod, 1s in E2E so the "party ends after a
     // host disconnect" assertion resolves fast.
-    WATCH_HOST_GRACE_S: '1'
+    WATCH_HOST_GRACE_S: '1',
+    // Relay aktiv wie in Prod: Bootstrap-Redeems allozieren eine Relay-Subdomain
+    // (electron-apphost.spec assert'et die Relay-URL in der Live-Karte). Reiner
+    // String-Wert — getunnelt wird in Tests nichts Echtes.
+    PULSE_RELAY_SERVER_ADDR: 'howispulse.com:7000'
   };
 
   // Apply migrations + truncate so every test run starts clean.

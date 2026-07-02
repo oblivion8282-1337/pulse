@@ -175,7 +175,8 @@ export type HostPhase =
 /** Phasen-Ereignis, das HostLifecycle via host:phase an den Renderer pusht. */
 export interface HostPhaseEvent {
   phase: HostPhase;
-  detail?: { relayUrl?: string; ports?: number[] };
+  /** step: Fortschritts-Schritt innerhalb von 'preparing' (login/pull/run/health). */
+  detail?: { relayUrl?: string; ports?: number[]; step?: string };
 }
 
 /** Optionen für window.pulse.host.start(). */
