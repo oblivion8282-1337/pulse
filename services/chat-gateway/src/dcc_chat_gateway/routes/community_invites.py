@@ -40,7 +40,7 @@ from dcc_chat_gateway.db import SessionDep
 from dcc_chat_gateway.friend_helpers import block_exists_either_way, friendship_exists
 from dcc_chat_gateway.message_helpers import broadcast as _broadcast
 from dcc_chat_gateway.message_helpers import serialize_message
-from dcc_chat_gateway.models import CommunityInvite, Message
+from dcc_chat_gateway.models import CommunityInvite, GuildMember, Message
 from dcc_chat_gateway.ratelimit import check as ratelimit_check
 from dcc_chat_gateway.routes._deps import CloudOnly
 from dcc_chat_gateway.routes.dms import ensure_dm_channel
@@ -252,6 +252,20 @@ async def create_community_invite(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, detail="not_friends"
         )
+
+    # Cloud-Guild-Mitgliedschaft: wer bereits in der Ziel-Community ist, braucht
+    # keine Einladung — eine weitere Beitreten-Karte wäre nur verwirrend. Greift
+    # nur für Cloud-Ziele (``target_instance_id`` None); Self-Host-Guild-Tabellen
+    # leben auf dem Self-Host und sind vom Cloud-Broker aus nicht erreichbar,
+    # dort prüft der Host beim Beitritt live (``invites.py::accept_invite``).
+    if payload.target_instance_id is None:
+        already = await session.get(
+            GuildMember, (payload.target_guild_id, payload.invitee_id)
+        )
+        if already is not None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, detail="already_member"
+            )
 
     expires_at: datetime | None = None
     if payload.expires_in_seconds is not None:
