@@ -113,8 +113,13 @@ export interface PulseInviteApi {
  *  fires in dev / browser / on Linux (main gates the updater on app.isPackaged
  *  && win32). Optional on `PulseApi` — only present under Electron. */
 export interface PulseUpdatesApi {
-  /** Fires when an update is downloaded and ready to install. Returns unsubscribe. */
-  onReady(cb: (data: { version: string }) => void): () => void;
+  /** An update was found on the server (download in progress). Returns an unsubscribe function. */
+  onAvailable(cb: (data: { version: string }) => void): () => void;
+  /** Download progress of the current update (0–100). Returns an unsubscribe function. */
+  onProgress(cb: (data: { percent: number }) => void): () => void;
+  /** Update downloaded and ready to install. `autoRestart=true` ⇒ main installs +
+   *  restarts automatically (only within the start-up window). Returns an unsubscribe function. */
+  onReady(cb: (data: { version: string; autoRestart: boolean }) => void): () => void;
   /** Install the downloaded update and restart now (banner button). */
   restartNow(): Promise<void>;
   /** Manually re-trigger an update check (the start-up check runs automatically). */
@@ -262,6 +267,35 @@ export interface PulseApi {
   files?: PulseFilesApi;
   /** Host-Lifecycle-Bridge (③a). Nur unter Electron vorhanden. */
   host?: PulseHostApi;
+  /** Tray-Status overlay: Renderer pusht Status + gerendertes Badge-Image;
+   *  Main setzt Tooltip-Text + OS-Badge-Counter (macOS/Windows; Linux
+   *  ignoriert den Counter, der Tooltip zeigt die Zahl trotzdem). */
+  tray?: PulseTrayApi;
+}
+
+/** Payload für `pulse.tray.setStatus()`. Alle Felder optional — main filtert
+ *  ungültige Typen und wendet den letzten gültigen Zustand an. */
+export interface PulseTrayStatus {
+  /** Mic ist aus (kein Audio-Send). PTT-off zählt NICHT — PTT ist semantisch
+   *  keine Stummschaltung, sondern Hold-to-Talk. */
+  muted?: boolean;
+  /** Deaf (alle Remote-Audio gemutet). Impliziert visuell „mute" — gewinnt
+   *  bei aktiver Auswahl gegen `muted`. */
+  deafened?: boolean;
+  /** Anzahl ungelesener Nachrichten. Treibt den OS-Badge-Counter (falls > 0)
+   *  und den Tooltip-Text. */
+  unread?: number;
+  /** Anzahl @-Erwähnungen. Hat Vorrang vor `unread` für den Badge (Erwähnungen
+   *  sind dringender); beide sind tooltipsichtbar. */
+  mentions?: number;
+}
+
+export interface PulseTrayApi {
+  setStatus(s: PulseTrayStatus): void;
+  /** Ersetzt das Tray-Icon durch ein im Renderer gerendertes PNG (Canvas →
+   *  data: URL). Trägt den dynamischen Badge (Counter / @). Main validiert
+   *  das `data:image/`-Präfix. Liefert false bei ungültigem Input, sonst true. */
+  setImage(dataUrl: string): Promise<boolean>;
 }
 
 declare global {

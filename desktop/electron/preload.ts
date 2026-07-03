@@ -167,13 +167,36 @@ contextBridge.exposeInMainWorld('pulse', {
   // triggert den Sofort-Neustart. In dev / im Browser / auf Linux feuert
   // `onReady` nie (main gated den Updater auf app.isPackaged && win32).
   updates: {
-    /** Update wurde heruntergeladen + ist installierbereit. Returns unsubscribe-fn. */
-    onReady(cb: (data: { version: string }) => void): () => void {
+    /** Update auf dem Server gefunden (lädt noch). Returns unsubscribe-fn. */
+    onAvailable(cb: (data: { version: string }) => void): () => void {
       const handler = (_e: unknown, data: unknown): void => {
         if (!data || typeof data !== 'object') return;
         const d = data as Record<string, unknown>;
         if (typeof d.version !== 'string') return;
         cb({ version: d.version });
+      };
+      ipcRenderer.on('updates:available', handler);
+      return () => ipcRenderer.removeListener('updates:available', handler);
+    },
+    /** Download-Fortschritt des aktuellen Updates (0–100 %). Returns unsubscribe-fn. */
+    onProgress(cb: (data: { percent: number }) => void): () => void {
+      const handler = (_e: unknown, data: unknown): void => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        if (typeof d.percent !== 'number') return;
+        cb({ percent: d.percent });
+      };
+      ipcRenderer.on('updates:progress', handler);
+      return () => ipcRenderer.removeListener('updates:progress', handler);
+    },
+    /** Update fertig geladen + installierbereit. `autoRestart=true` ⇒ main
+     *  installiert + startet automatisch neu (nur im Start-Fenster). */
+    onReady(cb: (data: { version: string; autoRestart: boolean }) => void): () => void {
+      const handler = (_e: unknown, data: unknown): void => {
+        if (!data || typeof data !== 'object') return;
+        const d = data as Record<string, unknown>;
+        if (typeof d.version !== 'string') return;
+        cb({ version: d.version, autoRestart: d.autoRestart === true });
       };
       ipcRenderer.on('updates:ready', handler);
       return () => ipcRenderer.removeListener('updates:ready', handler);
@@ -243,5 +266,21 @@ contextBridge.exposeInMainWorld('pulse', {
     unpair: (): Promise<void> => ipcRenderer.invoke('host:unpair'),
     runtimeAvailable: (): Promise<boolean> => ipcRenderer.invoke('host:runtime'),
     setupWindows: (): Promise<{ ok: boolean }> => ipcRenderer.invoke('host:setupWindows'),
+  },
+
+  // Tray-Status overlay (Mute/Deaf → Icon, Unread/Mentions → Tooltip + OS-Badge +
+  // dynamisch vom Renderer gerendertes Badge-Image via data: URL).
+  tray: {
+    setStatus: (s: {
+      muted?: boolean;
+      deafened?: boolean;
+      unread?: number;
+      mentions?: number;
+    }): void =>
+      ipcRenderer.send('tray:setStatus', s),
+    /** Tray-Icon aus vom Renderer gerendertem PNG (Canvas → data: URL) mit
+     *  dynamischem Badge. Main validiert das `data:image/`-Präfix. */
+    setImage: (dataUrl: string): Promise<boolean> =>
+      ipcRenderer.invoke('tray:setImage', dataUrl),
   },
 });

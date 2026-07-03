@@ -40,6 +40,14 @@ export function wireUpdater(getWindow: () => BrowserWindow | null): void {
   // 'electron-updater'" crashen, bevor das Gate überhaupt greift.
   const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
 
+  // Auto-Restart nur im Start-Fenster: ein fertiges Update beim initialen
+  // Start-Check installiert sich selbst (Discord-Stil, „bombensicher" auch
+  // unter close-to-tray, wo autoInstallOnAppQuit nie greift). Updates, die
+  // erst später per manuellem check() fertig werden, bleiben Banner+Button —
+  // respektiert aktive Nutzung. 60 s decken Start-Check + Download zuverlässig.
+  const bootedAt = Date.now();
+  const STARTUP_WINDOW_MS = 60_000;
+
   const send = (channel: string, payload?: unknown): void => {
     const win = getWindow();
     if (win && !win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -61,7 +69,15 @@ export function wireUpdater(getWindow: () => BrowserWindow | null): void {
 
   autoUpdater.on('update-available', (info) => send('updates:available', { version: info.version }));
   autoUpdater.on('download-progress', (p) => send('updates:progress', { percent: p.percent }));
-  autoUpdater.on('update-downloaded', (info) => send('updates:ready', { version: info.version }));
+  autoUpdater.on('update-downloaded', (info) => {
+    const autoRestart = Date.now() - bootedAt < STARTUP_WINDOW_MS;
+    send('updates:ready', { version: info.version, autoRestart });
+    if (autoRestart) {
+      // 2,5 s Sichtbarkeit für das „wird installiert"-Banner, dann silent
+      // install + restart (true,true-Signatur begründet bei updates:restart).
+      setTimeout(() => autoUpdater.quitAndInstall(true, true), 2500);
+    }
+  });
   // Nur loggen — ein nicht erreichbarer Feed / fehlende Berechtigung darf den
   // Start nicht stören (kein Renderer-Event, sonst nervt es den User bei
   // Offline-Start).

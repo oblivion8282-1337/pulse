@@ -10,6 +10,7 @@
   import { loadAll as loadPlugins } from '$lib/plugins';
   import ShortcutHost from '$lib/components/ShortcutHost.svelte';
   import ChangelogGate from '$lib/components/ChangelogGate.svelte';
+  import TraySync from '$lib/tray/TraySync.svelte';
   import { serversStore } from '$lib/api/servers.svelte';
   import { activeServer } from '$lib/stores/active-server.svelte';
   import { initSelfHostReauth } from '$lib/api/self-host-reauth';
@@ -170,30 +171,52 @@
       });
     }
 
-    // Auto-Update-Banner (Windows-Desktop). Main (electron-updater) lädt das
-    // Update selbst und feuert `updates:ready`, sobald es installierbereit ist.
-    // Wir zeigen einen persistenten sonner-Toast mit „Neu starten"-Button
-    // (quitAndInstall via main). Ignoriert der User ihn, installiert das Update
-    // automatisch beim nächsten App-Beenden (autoInstallOnAppQuit). `onReady`
-    // feuert außerhalb gepackter Windows-Builds nie → kein Guard nötig.
-    let disposeUpdate: (() => void) | undefined;
+    // Auto-Update-Banner (Windows-Desktop). Main (electron-updater) feuert beim
+    // Start: `updates:available` (gefunden), `updates:progress` (lädt X %),
+    // `updates:ready` (installierbereit). Im Start-Fenster (`autoRestart=true`)
+    // installiert + startet main nach 2,5 s selbst — dann nur „wird installiert"-
+    // Toast. Später (manueller check()) → „Neu starten"-Button. Außerhalb
+    // gepackter Windows-Builds feuern die Events nie.
+    let disposeUpdateAvailable: (() => void) | undefined;
+    let disposeUpdateProgress: (() => void) | undefined;
+    let disposeUpdateReady: (() => void) | undefined;
     if (isElectron()) {
-      disposeUpdate = window.pulse?.updates?.onReady((data) => {
-        toast('Update bereit', {
-          description: `Version ${data.version} wird installiert, sobald du neu startest.`,
+      disposeUpdateAvailable = window.pulse?.updates?.onAvailable(() => {
+        toast('Update wird geladen', { id: 'win-update', duration: Infinity });
+      });
+      disposeUpdateProgress = window.pulse?.updates?.onProgress((data) => {
+        toast('Update wird geladen', {
+          id: 'win-update',
+          description: `${Math.round(data.percent)} %`,
           duration: Infinity,
-          action: {
-            label: 'Neu starten',
-            onClick: () => void window.pulse?.updates?.restartNow(),
-          },
         });
+      });
+      disposeUpdateReady = window.pulse?.updates?.onReady((data) => {
+        toast.dismiss('win-update');
+        if (data.autoRestart) {
+          toast('Update wird installiert', {
+            description: `Version ${data.version} — die App startet gleich neu.`,
+            duration: Infinity,
+          });
+        } else {
+          toast('Update bereit', {
+            description: `Version ${data.version} wird installiert, sobald du neu startest.`,
+            duration: Infinity,
+            action: {
+              label: 'Neu starten',
+              onClick: () => void window.pulse?.updates?.restartNow(),
+            },
+          });
+        }
       });
     }
 
     return () => {
       disposeStream?.();
       disposeInvite?.();
-      disposeUpdate?.();
+      disposeUpdateReady?.();
+      disposeUpdateProgress?.();
+      disposeUpdateAvailable?.();
     };
   });
 </script>
@@ -211,6 +234,10 @@
 <ShortcutHost />
 
 <ChangelogGate />
+
+<!-- Renderloser Side-effect-Container: pusht Voice + Chat-Status in den
+     Electron-Tray. No-op im Browser. -->
+<TraySync />
 
 <SelfHostContactConfirmDialog
   open={inviteConfirmOpen}

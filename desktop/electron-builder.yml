@@ -46,6 +46,17 @@ files:
   - electron/dist/**/*
   - electron/icon.png
   - package.json
+# Tray-Status-Icons (grün/rot/blau × 22+44 px, plattformneutral als PNG) —
+# `nativeImage.createFromPath` braucht eine echte Datei, also extraResources
+# statt asar. Der Resolver in `tray.ts` versucht zuerst `process.resourcesPath/
+# tray/…`, dann den Dev-Cwd-Fallback. Landet für alle Plattformen unter
+# `<resourcesPath>/tray/` (Win: neben app.asar im Install-Verz., macOS: in
+# Pulse.app/Contents/Resources/tray/, Linux: appDir/resources/tray/).
+extraResources:
+  - from: build-resources/tray
+    to: tray
+    filter:
+      - "*.png"
 # Der HQ-Streaming-Sidecar ist plattform-spezifisch (Windows = Rust-.exe + FFmpeg-
 # DLLs, macOS = Rust-Binary + dylibs) und wird daher per `<platform>.extraResources`
 # gebündelt — NICHT top-level, sonst zöge electron-builder den Windows-Sidecar auch
