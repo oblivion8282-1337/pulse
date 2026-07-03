@@ -1099,9 +1099,9 @@ class VoiceRoom {
 
   /** Opus-Publish-Defaults (Encoder-Seite): Bitrate, Stereo, DTX, RED.
    *  Zentral, damit der Room-Connect und der DTX-Live-Re-Publish identische
-   *  Optionen sehen. DTX ist ein User-Setting (default off): aus = konstanter
-   *  Opus-Stream mit echtem Room-Tone (+~50 % Bandbreite), an = sparsam in
-   *  Sprechpausen. */
+   *  Optionen sehen. DTX ist ein User-Setting (default on, siehe
+   *  DEFAULTS_AUDIO.dtxEnabled): aus = konstanter Opus-Stream mit echtem
+   *  Room-Tone (+~50 % Bandbreite), an = sparsam in Sprechpausen. */
   #audioPublishDefaults(): Pick<
     TrackPublishOptions,
     'audioPreset' | 'forceStereo' | 'dtx' | 'red'
