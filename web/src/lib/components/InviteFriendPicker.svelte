@@ -27,6 +27,7 @@
   import { safeAvatarUrl } from '$lib/avatar';
   import { toast } from 'svelte-sonner';
   import { m } from '$lib/paraglide/messages.js';
+  import { memberListCache } from '$lib/components/MentionAutocomplete.svelte';
 
   let {
     guildId,
@@ -44,17 +45,39 @@
     for (const f of friends.list) userCache.queue(f.user_id);
   });
 
+  // Bereits in dieser Community befindliche Freunde verbergen — sie erneut
+  // einzuladen ist sinnlos und verwirrend. memberListCache teilt sich den
+  // Fetch mit MentionAutocomplete/MemberList (ein Call pro Guild, deduped).
+  let memberIds = $state<Set<string>>(new Set());
+
+  $effect(() => {
+    if (!guildId) return;
+    let cancelled = false;
+    memberListCache
+      .get(guildId)
+      .then((list) => {
+        if (!cancelled) memberIds = new Set(list.map((m) => m.user_id));
+      })
+      // Cache-Fehler nicht blockieren — der Backend-Guard fängt Cloud-Guilds ab.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  });
+
   let filtered = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    const out = friends.list.map((f) => {
-      const u = userCache.get(f.user_id);
-      return {
-        id: f.user_id,
-        name: u?.display_name ?? u?.username ?? '…',
-        handle: u?.username ?? '',
-        avatar: safeAvatarUrl(u?.avatar_url ?? null)
-      };
-    });
+    const out = friends.list
+      .filter((f) => !memberIds.has(f.user_id))
+      .map((f) => {
+        const u = userCache.get(f.user_id);
+        return {
+          id: f.user_id,
+          name: u?.display_name ?? u?.username ?? '…',
+          handle: u?.username ?? '',
+          avatar: safeAvatarUrl(u?.avatar_url ?? null)
+        };
+      });
     if (!q) return out;
     return out.filter(
       (o) => o.name.toLowerCase().includes(q) || o.handle.toLowerCase().includes(q)

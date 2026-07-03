@@ -250,6 +250,51 @@ async def test_create_self_invite_rejected(client, _auth_signer):
 
 
 @pytest.mark.asyncio
+async def test_create_to_existing_cloud_member_rejected(
+    client, _auth_signer, friend_pair, session_factory
+):
+    """Invitee already a member of the target CLOUD community → 409.
+
+    ``target_instance_id`` None == Cloud → the broker can reach the Cloud
+    ``guild_members`` table and refuses a pointless re-invite (the invitee
+    would just see a "Beitreten"-card for a community they're already in).
+    """
+    from dcc_chat_gateway.models import Guild, GuildMember
+
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    # Cloud guild 4242, uid_b bereits Mitglied.
+    async with session_factory() as s:
+        s.add(Guild(id=4242, name="G", owner_id=uid_a))
+        s.add(GuildMember(guild_id=4242, user_id=uid_b))
+        await s.commit()
+    r = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, target_instance_id=None, target_guild_id="4242"),
+        headers=auth(t_a),
+    )
+    assert r.status_code == 409
+    assert r.json()["detail"] == "already_member"
+
+
+@pytest.mark.asyncio
+async def test_create_to_non_member_cloud_passes(
+    client, _auth_signer, friend_pair
+):
+    """Cloud target, invitee NOT a member → 201 (guard prüft, überschießt nicht)."""
+    t_a, uid_a = await _register(_auth_signer)
+    _, uid_b = await _register(_auth_signer)
+    await friend_pair(uid_a, uid_b)
+    r = await client.post(
+        "/community-invites",
+        json=_payload(uid_b, target_instance_id=None, target_guild_id="4242"),
+        headers=auth(t_a),
+    )
+    assert r.status_code == 201, r.text
+
+
+@pytest.mark.asyncio
 async def test_create_requires_auth(client, _auth_signer):
     _, uid_b = await _register(_auth_signer)
     r = await client.post("/community-invites", json=_payload(uid_b))
