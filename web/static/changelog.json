@@ -2,6 +2,16 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-03.3",
+      "date": "2026-07-03",
+      "style": "Sachlich",
+      "title": "Sprach-Datensparmodus (DTX) + schnellere Desktop-App",
+      "items": [
+        "Unter „Sprache und Video" lässt sich DTX aktivieren: In Sprechpausen wird weniger gesendet und spart Upload-Bandbreite.",
+        "Die Desktop-App nutzt eine neue Electron-Version (43). Damit funktioniert DTX ohne Knacksen beim Wiedereinstieg; zudem startet die App schneller."
+      ]
+    },
+    {
       "id": "2026-07-03.2",
       "date": "2026-07-03",
       "style": "Sachlich",
