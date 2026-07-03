@@ -7,6 +7,18 @@
   import { m } from '$lib/paraglide/messages.js';
   import { changeLocale, currentLocale, availableLocales, localeLabels } from '$lib/i18n';
   import type { Locale } from '$lib/paraglide/runtime';
+  import { isElectron } from '$lib/platform/runtime';
+
+  // „Beim Schließen beenden" (nur Desktop): lebt im Electron-Store, nicht im
+  // settings-registry — der Main-Prozess liest ihn synchron im close-Handler.
+  let quitOnClose = $state(false);
+  $effect(() => {
+    const store = isElectron() ? window.pulse?.store : undefined;
+    if (!store) return;
+    void store.get('quitOnClose').then((v) => {
+      quitOnClose = v === true;
+    });
+  });
 
   const options: { value: ThemePreference; label: () => string; hint: () => string; icon: typeof SunIcon }[] = [
     { value: 'light', label: () => m.settings_appearance_theme_light_label(), hint: () => m.settings_appearance_theme_light_hint(), icon: SunIcon },
@@ -73,4 +85,25 @@
       {/each}
     </div>
   </div>
+
+  {#if isElectron()}
+    <div class="flex flex-col gap-2">
+      <button
+        type="button"
+        onclick={() => {
+          const next = !quitOnClose;
+          quitOnClose = next;
+          window.pulse?.store?.set('quitOnClose', next);
+        }}
+        class="rounded-2xl border p-3 text-center text-sm font-medium transition-colors {quitOnClose
+          ? 'border-primary bg-bg-hover text-text-bright'
+          : 'border-border text-text-base hover:bg-bg-hover'}"
+        data-testid="appearance-quit-on-close"
+        aria-pressed={quitOnClose}
+      >
+        {m.settings_app_quit_on_close_enable()}
+      </button>
+      <p class="text-text-muted text-xs">{m.settings_app_quit_on_close_description()}</p>
+    </div>
+  {/if}
 </div>
