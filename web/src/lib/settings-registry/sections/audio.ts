@@ -59,7 +59,7 @@ export const DEFAULTS_AUDIO: AudioSettings = {
   stereo: false,
   inputMakeupGain: INPUT_MAKEUP_DEFAULT,
   limiterEnabled: true,
-  dtxEnabled: false,
+  dtxEnabled: true,
   spatialMode: 'off'
 };
 

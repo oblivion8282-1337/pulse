@@ -2,13 +2,22 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-03.5",
+      "date": "2026-07-03",
+      "style": "Sachlich",
+      "title": "DTX für neue Konten standardmäßig aktiv",
+      "items": [
+        "Der Datensparmodus für die Stimme (DTX — überträgt in Sprechpausen weniger) ist für neue Konten standardmäßig eingeschaltet. Bestehende Konten behalten ihre bisherige Einstellung."
+      ]
+    },
+    {
       "id": "2026-07-03.4",
       "date": "2026-07-03",
       "style": "Sachlich",
-      "title": "Beim Schließen beenden (optional) + Reiter „App"",
+      "title": "Beim Schließen beenden (optional) + Reiter „App“",
       "items": [
-        "Neu in den Einstellungen unter „App" (vormals „Erscheinungsbild"): ein Schalter legt fest, ob die Desktop-App beim Schließen des Fensters wirklich beendet wird oder weiterläuft. Standard: weiterlaufen (wie bisher).",
-        "Der Reiter „Erscheinungsbild" heißt jetzt „App"."
+        "Neu in den Einstellungen unter „App“ (vormals „Erscheinungsbild“): ein Schalter legt fest, ob die Desktop-App beim Schließen des Fensters wirklich beendet wird oder weiterläuft. Standard: weiterlaufen (wie bisher).",
+        "Der Reiter „Erscheinungsbild“ heißt jetzt „App“."
       ]
     },
     {
@@ -17,7 +26,7 @@
       "style": "Sachlich",
       "title": "Sprach-Datensparmodus (DTX) + schnellere Desktop-App",
       "items": [
-        "Unter „Sprache und Video" lässt sich DTX aktivieren: In Sprechpausen wird weniger gesendet und spart Upload-Bandbreite.",
+        "Unter „Sprache und Video“ lässt sich DTX aktivieren: In Sprechpausen wird weniger gesendet und spart Upload-Bandbreite.",
         "Die Desktop-App nutzt eine neue Electron-Version (43). Damit funktioniert DTX ohne Knacksen beim Wiedereinstieg; zudem startet die App schneller."
       ]
     },
