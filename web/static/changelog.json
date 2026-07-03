@@ -2,6 +2,15 @@
   "_comment": "Pulse-Changelog. Neuester Eintrag zuerst. Wird beim Update-Reload einmalig als nicht-blockierender Toast unten rechts gezeigt, sobald der User eingeloggt ist (siehe web/src/lib/components/ChangelogGate.svelte + ChangelogToast.svelte). Pflege-Regeln: CLAUDE.md → 'Changelog'. Stil pro Eintrag wird vor jedem Push mit dem User abgestimmt. KEINE Emojis, nirgends.",
   "entries": [
     {
+      "id": "2026-07-03.2",
+      "date": "2026-07-03",
+      "style": "Sachlich",
+      "title": "Empfangs-Lautstärke-Limiter ab Werk aktiv",
+      "items": [
+        "Der Lautstärke-Limiter, der plötzlich laute Mitspieler im Empfang dämpft, ist für neue Konten standardmäßig eingeschaltet. Bestehende Konten behalten ihre bisherige Einstellung."
+      ]
+    },
+    {
       "id": "2026-07-03.1",
       "date": "2026-07-03",
       "style": "Sachlich",
