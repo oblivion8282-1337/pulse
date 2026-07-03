@@ -40,12 +40,12 @@ Genaue Versionen in `uv.lock` / `pnpm-lock.yaml` / `package.json`. Runtimes: **P
 - Tests: `@playwright/test` E2E (`web/tests/e2e/`) + `svelte-check` (`pnpm check`). Kein Vitest/Unit.
 
 **Desktop** (`desktop/`, Electron — `@dcc/desktop`, pnpm-Member):
-- electron 42.0.1 (gepinnt) bundlet Node 22.x. **Kein `postinstall`** — Binary wird beim ersten `require('electron')` lazy gezogen.
+- electron 43.0.0 (gepinnt; Upgrade 2026-07-03 von 42.0.1 — bringt Chromium 150 + den Opus-DTX-Fix webrtc #42233214) bundlet Node 24.x. **DTX-Sprachschalter** (`settings.audio.dtxEnabled`, default off) + Live-Re-Publish beim Toggeln (`setDtxEnabled` in `livekit.svelte.ts`, weil `publishDefaults` beim Connect eingefroren sind) brauchen diesen Fix — ohne knackst der Wiedereinstieg nach Stille. **Kein `postinstall`** — Binary wird beim ersten `require('electron')` lazy gezogen.
 - esbuild bundlet `electron/{main,preload}.ts` (zieht `sidecar.ts`+`store.ts` mit) → `electron/dist/*.cjs` (`build:electron`).
 - `desktop/package.json` ist CJS (**ohne** `"type":"module"`), `"main":"electron/dist/main.cjs"`.
 - Scripts: `dev` (build + `PULSE_DEV_URL=:5173 electron .` gegen Vite) · `prod` (lädt `https://howispulse.com`) · `start` (ohne Rebuild). DevTools nur bei `PULSE_DEVTOOLS=1`/Strg+Shift+I. Build-Check ohne GUI: `cd desktop && pnpm run build:electron`.
 - Voice funktioniert im Electron-Fenster (Chromium-WebRTC) — Grund für den Tauri→Electron-Pivot.
-- **Windows-Distribution = NSIS-Installer + electron-updater-Auto-Update** (`dist:win`): pollt `https://howispulse.com/updates/win/latest.yml`, verifiziert per SHA512, unsigniert (SmartScreen nur beim Erst-Download). Logik `electron/updater.ts` (gated `app.isPackaged && win32`), Bridge `window.pulse.updates.*`, Banner via sonner. CI `.github/workflows/win-build.yml` scpt den Feed (kein `--delete` → Delta). Voll-Doku: `docs/plans/2026-05-31-windows-auto-update.md`. **Globaler PTT-Shortcut fehlt** (Electrons `globalShortcut` kann nur Press, kein Hold) — `lib/platform/ptt.ts::initDesktopPtt()` ist No-op-Stub; In-Window-PTT ist der aktive Pfad. TODO auch: Notifications-IPC in `main.ts`.
+- **Windows-Distribution = NSIS-Installer + electron-updater-Auto-Update** (`dist:win`): pollt `https://howispulse.com/updates/win/latest.yml`, verifiziert per SHA512, unsigniert (SmartScreen nur beim Erst-Download). `autoUpdater.allowDowngrade = true` in `updater.ts` — Notfall-Netz: bei einer kaputten Version kann `latest.yml` auf eine ältere Version zurückgesetzt werden und der Updater nimmt sie trotzdem (Default wäre forward-only; Voraussetzung: `store.ts`/Config bleibt abwärtskompatibel). Logik `electron/updater.ts` (gated `app.isPackaged && win32`), Bridge `window.pulse.updates.*`, Banner via sonner. CI `.github/workflows/win-build.yml` scpt den Feed (kein `--delete` → Delta); **win-build + flatpak triggern nur auf `main` (deployen direkt auf den Prod-Feed) → nicht als PR-Check verifizierbar**, erst nach Merge sichtbar. Voll-Doku: `docs/plans/2026-05-31-windows-auto-update.md`. **Globaler PTT-Shortcut fehlt** (Electrons `globalShortcut` kann nur Press, kein Hold) — `lib/platform/ptt.ts::initDesktopPtt()` ist No-op-Stub; In-Window-PTT ist der aktive Pfad. TODO auch: Notifications-IPC in `main.ts`.
 
 **Infra (Dev):** `docker-compose.yml` — Postgres `postgres:16-alpine`, Redis `redis:7-alpine`, LiveKit (`--profile voice`, **`network_mode: host`**). MediaMTX *separat* via `streaming/server/docker-compose.yml` (`network_mode: host`).
 
@@ -140,7 +140,7 @@ Top-Level `plugins/` (Referenz: `hello` + `tamagotchi`). Manifest = `plugin.toml
 
 ## Flatpak-Packaging — `packaging/`
 
-`com.howispulse.Pulse` (`flatpak-builder`-Manifest). Bündelt Electron-42 + Python-GSR-Sidecar + custom `gpu-screen-recorder`. **Web wird NICHT mitgepackt** (lädt remote) → nur native Änderungen brauchen Rebuild. Lokal: `packaging/build.fish`. Auto-Publish ins OSTree-Repo bei nativen `main`-Pushes (`.github/workflows/flatpak.yml`).
+`com.howispulse.Pulse` (`flatpak-builder`-Manifest). Bündelt Electron-43 + Python-GSR-Sidecar + custom `gpu-screen-recorder`. **Web wird NICHT mitgepackt** (lädt remote) → nur native Änderungen brauchen Rebuild. Lokal: `packaging/build.fish`. Auto-Publish ins OSTree-Repo bei nativen `main`-Pushes (`.github/workflows/flatpak.yml`).
 **Häufigster Crash**: Electron-Binary muss mit `strip-components: 0` entpackt werden — Default `1` plättet `locales/`+`resources/` → `default_app.asar` fehlt → Exit 1 vor `main.cjs`. Voll-Doku + Memory `flatpak-electron-startup-failures` → `packaging/README.md`.
 
 ## Produktiv-Deployment (netcup-VPS) — Voll-Doku `infra/prod/DEPLOY.md`
