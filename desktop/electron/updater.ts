@@ -1,52 +1,163 @@
 /**
  * Pulse desktop shell — Auto-Update (electron-updater, generic feed).
  *
- * Prüft beim Start gegen https://howispulse.com/updates/win/latest.yml (die
- * Feed-URL kommt aus electron-builder.yml `publish:` → electron-builder backt sie
- * als `app-update.yml` in resources/, electron-updater liest sie selbst). Bei
- * `autoDownload=true` (Default) lädt der Updater das Update sofort herunter; ist
- * es fertig (`update-downloaded`), schicken wir ein `updates:ready`-Event an den
- * Renderer, der ein „Update bereit – neu starten"-Banner zeigt (sonner). Klickt
- * der User den Button → `updates:restart` → `quitAndInstall()`. Tut er nichts,
- * installiert `autoInstallOnAppQuit` (Default true) beim nächsten App-Beenden.
+ * UPDATE-SPLASH-VARIANTE:
+ * - Beim App-Start wird VOR der Haupt-App ein Splash-Popup angezeigt
+ * - Das Splash zeigt Update-Progress (Check → Download → Install)
+ * - Erst wenn Update fertig (oder kein Update verfügbar) wird die Haupt-App gestartet
+ * - In-App-Toasts für später entdeckte Updates (manueller Check) bleiben bestehen
  *
+ * Prüft beim Start gegen https://howispulse.com/updates/win/latest.yml.
  * Läuft NUR in gepackten Builds (`app.isPackaged`) — in dev ist electron-updater
- * inert und würde nur „No published versions"/„dev-app-update.yml not found"
- * werfen. Der Feed ist Windows-spezifisch (NSIS); auf Linux deckt Flatpak/OSTree
- * die Updates ab, daher zusätzlich auf win32 gaten. Pattern wie `notify.ts`:
- * `wireUpdater(() => mainWindow)` in `app.whenReady()`.
- *
- * macOS ist hier BEWUSST (noch) nicht freigeschaltet: electron-updater verifiziert
- * auf macOS die Code-Signatur des heruntergeladenen .zip (anders als Windows, das
- * nur SHA512 aus latest.yml prüft) — ein unsignierter Build (Stufe A in
- * `docs/plans/2026-06-15-macos-client.md`) kann sich also nicht selbst updaten.
- * Sobald der Mac-Build signiert + notarisiert ist (Stufe B), das Gate auf
- * `process.platform !== 'win32' && process.platform !== 'darwin'` erweitern,
- * `latest-mac.yml`/`.zip` über win-build-analoge CI nach /updates/mac/ pushen und
- * die nginx-Route ergänzen.
+ * inert. Windows-only (NSIS); Linux = Flatpak, macOS = unsigniert (DMG-Download).
  */
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow } from 'electron';
+import * as path from 'node:path';
 
-export function wireUpdater(getWindow: () => BrowserWindow | null): void {
+/** Progress-Callback für Splash-Screen. Wird aufgerufen während des Update-Prozesses. */
+export type UpdateProgress =
+  | { type: 'checking' }
+  | { type: 'downloading'; version?: string; percent?: number }
+  | { type: 'installing'; version?: string }
+  | { type: 'ready'; version: string }
+  | { type: 'no-update' }
+  | { type: 'error'; message?: string };
+
+export type UpdateProgressCallback = (progress: UpdateProgress) => void;
+
+/**
+ * Führt einen vollständigen Update-Check durch und installiert wenn nötig.
+ * Gibt ein Promise zurück, das resolved wenn:
+ * - Kein Update verfügbar
+ * - Update heruntergeladen + installiert wurde (incl. Auto-Restart)
+ *
+ * Während des Prozesses wird `onProgress` mit Status-Updates aufgerufen.
+ */
+export async function checkAndInstallUpdate(onProgress: UpdateProgressCallback): Promise<void> {
+  // TEST-MODUS: Simuliert ein Update wenn PULSE_TEST_UPDATE=1
+  if (process.env.PULSE_TEST_UPDATE === '1') {
+    console.log('[updater] TEST MODE: simulating update');
+    onProgress({ type: 'checking' });
+    await new Promise(r => setTimeout(r, 500));
+
+    onProgress({ type: 'downloading', version: '0.1.26-test', percent: 0 });
+    for (let i = 10; i <= 100; i += 10) {
+      await new Promise(r => setTimeout(r, 200));
+      onProgress({ type: 'downloading', version: '0.1.26-test', percent: i });
+    }
+
+    onProgress({ type: 'installing', version: '0.1.26-test' });
+    await new Promise(r => setTimeout(r, 2000));
+
+    onProgress({ type: 'ready', version: '0.1.26-test' });
+    await new Promise(r => setTimeout(r, 1000));
+    // Nicht wirklich installieren im Test-Modus
+    return;
+  }
+
   // Nur gepackt + Windows: dev = kein Feed, Linux = Flatpak.
-  if (!app.isPackaged || process.platform !== 'win32') return;
+  if (!app.isPackaged || process.platform !== 'win32') {
+    onProgress({ type: 'no-update' });
+    return;
+  }
 
-  // electron-updater wird NUR in den Windows-Builds mitgeliefert (electron-builder
-  // zieht es als Production-Dep in die asar). Das Flatpak/Linux-Bundle enthält es
-  // bewusst NICHT (kein node_modules, esbuild-`--external`). Deshalb erst HIER —
-  // nach dem win32-Gate — lazy requiren: ein Top-Level-Import würde beim Laden des
-  // Moduls ausgeführt und ließe die App auf Linux mit "Cannot find module
-  // 'electron-updater'" crashen, bevor das Gate überhaupt greift.
+  // Lazy require (siehe orginales updater.ts — Linux würde sonst crashen)
   const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
 
-  // Auto-Restart nur im Start-Fenster: ein fertiges Update beim initialen
-  // Start-Check installiert sich selbst (Discord-Stil, „bombensicher" auch
-  // unter close-to-tray, wo autoInstallOnAppQuit nie greift). Updates, die
-  // erst später per manuellem check() fertig werden, bleiben Banner+Button —
-  // respektiert aktive Nutzung. 60 s decken Start-Check + Download zuverlässig.
-  const bootedAt = Date.now();
-  const STARTUP_WINDOW_MS = 60_000;
+  // Defaults
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.allowDowngrade = true;
+
+  let resolvePromise: (() => void) | null = null;
+  let rejected = false;
+
+  const cleanup = () => {
+    // Alle Listener entfernen
+    autoUpdater.removeAllListeners('update-available');
+    autoUpdater.removeAllListeners('update-downloaded');
+    autoUpdater.removeAllListeners('download-progress');
+    autoUpdater.removeAllListeners('error');
+  };
+
+  return new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+
+    onProgress({ type: 'checking' });
+
+    // Update verfügbar → Download startet automatisch (autoDownload=true)
+    autoUpdater.once('update-available', (info) => {
+      if (rejected) return;
+      console.log('[updater] update available', info.version);
+    });
+
+    // Download-Progress
+    autoUpdater.on('download-progress', (p) => {
+      if (rejected) return;
+      onProgress({
+        type: 'downloading',
+        percent: p.percent,
+        version: p.version ?? undefined,
+      });
+    });
+
+    // Download fertig → installieren
+    autoUpdater.once('update-downloaded', (info) => {
+      if (rejected) return;
+      console.log('[updater] update downloaded', info.version);
+      cleanup();
+
+      onProgress({ type: 'installing', version: info.version });
+
+      // 2s Sichtbarkeit für "Update wird installiert"
+      setTimeout(() => {
+        onProgress({ type: 'ready', version: info.version });
+
+        // Noch 1s warten, dann quitAndInstall
+        setTimeout(() => {
+          autoUpdater.quitAndInstall(true, true);
+          // Wird nicht reached, weil App quitet
+        }, 1000);
+      }, 2000);
+    });
+
+    // Fehler
+    autoUpdater.once('error', (err) => {
+      if (rejected) return;
+      console.error('[updater] error', err);
+      rejected = true;
+      cleanup();
+      onProgress({ type: 'error', message: err?.message ?? 'Unbekannter Fehler' });
+      resolve();
+    });
+
+    // Kein Update verfügbar
+    autoUpdater.once('update-not-available', () => {
+      if (rejected) return;
+      console.log('[updater] no update available');
+      cleanup();
+      onProgress({ type: 'no-update' });
+      resolve();
+    });
+
+    // Check starten
+    void autoUpdater.checkForUpdates().catch((e) => {
+      if (rejected) return;
+      console.error('[updater] check failed', e);
+      rejected = true;
+      cleanup();
+      onProgress({ type: 'error', message: e?.message ?? 'Check fehlgeschlagen' });
+      resolve();
+    });
+  });
+}
+
+/** Alte In-App-Update-Logic (Toasts im Hauptfenster für später entdeckte Updates). */
+export function wireInAppUpdater(getWindow: () => BrowserWindow | null): void {
+  if (!app.isPackaged || process.platform !== 'win32') return;
+
+  const { autoUpdater } = require('electron-updater') as typeof import('electron-updater');
 
   const send = (channel: string, payload?: unknown): void => {
     const win = getWindow();
@@ -55,49 +166,15 @@ export function wireUpdater(getWindow: () => BrowserWindow | null): void {
     }
   };
 
-  // Defaults explizit gesetzt: herunterladen sobald verfügbar, beim Quit
-  // installieren (Discord-Stil-Fallback, falls der User das Banner ignoriert).
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  // Auto-Downgrade erlauben: falls ein Build (z. B. ein Electron-Major-Sprung)
-  // nach dem Shippen kritisch problemt, können wir `latest.yml` auf eine ältere
-  // Version zurücksetzen und der Updater nimmt sie trotzdem. Default ist false
-  // (Schutz vor Downgrade-Schleifen + Reverse-Migration-Risiko); wir setzen es
-  // bewusst — Voraussetzung: `store.ts`/Config bleibt abwärtskompatibel (keine
-  // Schema-Migrationen, die ein älterer Build nicht versteht).
   autoUpdater.allowDowngrade = true;
 
+  // Für spätere manuelle Checks — Progress an Haupt-App senden
   autoUpdater.on('update-available', (info) => send('updates:available', { version: info.version }));
   autoUpdater.on('download-progress', (p) => send('updates:progress', { percent: p.percent }));
   autoUpdater.on('update-downloaded', (info) => {
-    const autoRestart = Date.now() - bootedAt < STARTUP_WINDOW_MS;
-    send('updates:ready', { version: info.version, autoRestart });
-    if (autoRestart) {
-      // 2,5 s Sichtbarkeit für das „wird installiert"-Banner, dann silent
-      // install + restart (true,true-Signatur begründet bei updates:restart).
-      setTimeout(() => autoUpdater.quitAndInstall(true, true), 2500);
-    }
+    send('updates:ready', { version: info.version, autoRestart: false });
   });
-  // Nur loggen — ein nicht erreichbarer Feed / fehlende Berechtigung darf den
-  // Start nicht stören (kein Renderer-Event, sonst nervt es den User bei
-  // Offline-Start).
   autoUpdater.on('error', (err) => console.error('[updater]', err));
-
-  // Renderer-getriggerter Sofort-Neustart aus dem Banner-Button.
-  // isSilent=true → der NSIS-Installer läuft mit /S durch (kein Wizard, keine
-  // Klicks), isForceRunAfter=true → App danach automatisch wieder hochfahren.
-  // Wichtig seit der Umstellung auf den assistierten Wizard (electron-builder.yml
-  // nsis.oneClick=false): mit isSilent=false würde hier beim Auto-Update der VOLLE
-  // Wizard mit Weiter-Klicks aufgehen — unerwünscht. Der gebrandete Wizard ist nur
-  // für den manuellen Erst-Install gedacht; In-App-Updates bleiben nahtlos (Discord-
-  // Stil). Der Install-beim-Beenden-Pfad (autoInstallOnAppQuit) ist ohnehin still.
-  ipcMain.handle('updates:restart', () => {
-    autoUpdater.quitAndInstall(true, true);
-  });
-  // Optionaler manueller Re-Check aus dem Renderer (der Start-Check unten läuft
-  // ohnehin automatisch).
-  ipcMain.handle('updates:check', () => autoUpdater.checkForUpdates());
-
-  // Initialer Check kurz nach Start — das Fenster ist via whenReady bereits da.
-  void autoUpdater.checkForUpdates().catch((e) => console.error('[updater] initial check', e));
 }

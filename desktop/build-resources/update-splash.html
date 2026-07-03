@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pulse Update</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      color: #f1f5f9;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .container {
+      text-align: center;
+      padding: 40px;
+      max-width: 400px;
+    }
+
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 24px;
+      background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+      font-weight: bold;
+      box-shadow: 0 10px 40px rgba(59, 130, 246, 0.3);
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .status {
+      font-size: 14px;
+      color: #94a3b8;
+      margin-bottom: 32px;
+    }
+
+    .progress-container {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      height: 8px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6 0%, #60a5fa 100%);
+      border-radius: 8px;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      font-size: 13px;
+      color: #64748b;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .indeterminate .progress-bar {
+      animation: pulse 1.5s ease-in-out infinite;
+      width: 60%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">P</div>
+    <h1 id="title">Update wird geladen</h1>
+    <p class="status" id="status">Bitte warten...</p>
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <p class="progress-text" id="progressText">0%</p>
+  </div>
+
+  <script>
+    const title = document.getElementById('title');
+    const status = document.getElementById('status');
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const progressContainer = document.getElementById('progressContainer');
+
+    // Status updates from main process
+    window.addEventListener('message', (event) => {
+      const { type, data } = event.data;
+
+      switch (type) {
+        case 'checking':
+          title.textContent = 'Update wird geprüft';
+          status.textContent = 'Bitte warten...';
+          progressContainer.classList.add('indeterminate');
+          progressText.textContent = '';
+          break;
+
+        case 'downloading':
+          title.textContent = 'Update wird geladen';
+          status.textContent = `Version ${data.version || ''}`;
+          progressContainer.classList.remove('indeterminate');
+          if (data.percent !== undefined) {
+            const percent = Math.round(data.percent);
+            progressBar.style.width = `${percent}%`;
+            progressText.textContent = `${percent}%`;
+          }
+          break;
+
+        case 'installing':
+          title.textContent = 'Update wird installiert';
+          status.textContent = 'Die App startet gleich neu...';
+          progressContainer.classList.add('indeterminate');
+          progressText.textContent = '';
+          break;
+
+        case 'ready':
+          title.textContent = 'Update bereit';
+          status.textContent = `Version ${data.version || ''} — die App startet gleich`;
+          progressBar.style.width = '100%';
+          progressText.textContent = '100%';
+          break;
+
+        case 'no-update':
+          title.textContent = 'Starte Pulse...';
+          status.textContent = 'Kein Update verfügbar';
+          progressContainer.classList.add('indeterminate');
+          progressText.textContent = '';
+          break;
+
+        case 'error':
+          title.textContent = 'Fehler';
+          status.textContent = data?.message || 'Update fehlgeschlagen';
+          progressBar.style.background = '#ef4444';
+          progressContainer.classList.remove('indeterminate');
+          progressText.textContent = '';
+          break;
+      }
+    });
+  </script>
+</body>
+</html>
