@@ -527,6 +527,40 @@ class VoiceRoom {
     this.#publishSelfState();
   }
 
+  /** DTX (Opus Discontinuous Transmission) zur Laufzeit umschalten, während
+   *  das Mic aktiv gesendet wird. DTX steckt in den Publish-Optionen, die beim
+   *  Connect eingefroren werden → ein Wechsel braucht einen Mic-Re-Publish
+   *  (kein Room-Reconnect). Ohne aktiven Room/Mic übernimmt #roomOptions den
+   *  neuen Wert beim nächsten Connect. */
+  async setDtxEnabled(on: boolean): Promise<void> {
+    const room = this.#room;
+    if (!room || !this.micEnabled) return;
+    const lp = room.localParticipant;
+    const pub = lp.getTrackPublication(Track.Source.Microphone);
+    const track = pub?.audioTrack;
+    if (!track) return;
+    try {
+      // stopOnUnpublish=false: MediaStreamTrack lebendig halten → kein
+      // getUserMedia-Re-Acquire/Blip. Publish-Optionen explizit mitgeben, sonst
+      // zieht LiveKit den beim Connect eingefrorenen publishDefault.
+      await lp.unpublishTrack(track, false);
+      await lp.publishTrack(track, {
+        source: Track.Source.Microphone,
+        ...this.#audioPublishDefaults()
+      });
+      // Neue Publication-Instanz → Send-Prozessor + lokalen Analyser neu
+      // andocken (LocalTrackPublished installiert bewusst keinen Processor).
+      await this.applyNoiseFilter();
+      this.#attachLocalAnalyser();
+    } catch (e) {
+      console.error('[voice] dtx re-publish failed', e);
+      // Re-Publish fehlgeschlagen → Setting auf den vorherigen Wert
+      // zurückrollen und Mic best-effort wieder aktivieren.
+      settings.setDtxEnabled(!on);
+      void this.setMicEnabled(true);
+    }
+  }
+
   /** Hold a screen wake-lock while connected on mobile so the phone's auto-lock
    *  can't blank the screen and suspend the outgoing mic. Idempotent; mobile-only
    *  (no point forcing a desktop monitor awake during a call). */
@@ -1052,23 +1086,33 @@ class VoiceRoom {
   // --- internals -----------------------------------------------------
 
   #roomOptions(): RoomOptions {
-    const a = settings.audio;
-    const customProcessor = a.noiseSuppression !== 'off';
     return {
       adaptiveStream: true,
       dynacast: true,
       audioCaptureDefaults: this.#audioCaptureDefaults(),
-      publishDefaults: {
-        audioPreset: { maxBitrate: a.voiceBitrateKbps * 1000 },
-        forceStereo: a.stereo && !customProcessor,
-        // DTX off: keep a constant Opus stream even in speech gaps so the
-        // listener gets real room tone (and any noise-suppressor-fed near-
-        // silent signal still flows through). Costs ~+50 % audio bandwidth
-        // per user; acceptable for small Pulse channels. RED stays on for
-        // packet-loss resilience.
-        dtx: false,
-        red: true
-      }
+      // Opus-Publish-Optionen (Bitrate/Stereo/DTX/RED) zentral gebaut — genutzt
+      // beim Room-Connect UND vom DTX-Live-Re-Publish (setDtxEnabled), damit
+      // beide Pfade dieselben Optionen sehen.
+      publishDefaults: this.#audioPublishDefaults()
+    };
+  }
+
+  /** Opus-Publish-Defaults (Encoder-Seite): Bitrate, Stereo, DTX, RED.
+   *  Zentral, damit der Room-Connect und der DTX-Live-Re-Publish identische
+   *  Optionen sehen. DTX ist ein User-Setting (default off): aus = konstanter
+   *  Opus-Stream mit echtem Room-Tone (+~50 % Bandbreite), an = sparsam in
+   *  Sprechpausen. */
+  #audioPublishDefaults(): Pick<
+    TrackPublishOptions,
+    'audioPreset' | 'forceStereo' | 'dtx' | 'red'
+  > {
+    const a = settings.audio;
+    const customProcessor = a.noiseSuppression !== 'off';
+    return {
+      audioPreset: { maxBitrate: a.voiceBitrateKbps * 1000 },
+      forceStereo: a.stereo && !customProcessor,
+      dtx: a.dtxEnabled,
+      red: true
     };
   }
 

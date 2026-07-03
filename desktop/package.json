@@ -1,6 +1,6 @@
 {
   "name": "@dcc/desktop",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "description": "Pulse desktop wrapper (Electron)",
   "main": "electron/dist/main.cjs",
@@ -20,7 +20,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.7.5",
-    "electron": "42.0.1",
+    "electron": "43.0.0",
     "electron-builder": "26.0.12",
     "esbuild": "0.28.0"
   }

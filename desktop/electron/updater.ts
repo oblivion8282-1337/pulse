@@ -51,6 +51,13 @@ export function wireUpdater(getWindow: () => BrowserWindow | null): void {
   // installieren (Discord-Stil-Fallback, falls der User das Banner ignoriert).
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
+  // Auto-Downgrade erlauben: falls ein Build (z. B. ein Electron-Major-Sprung)
+  // nach dem Shippen kritisch problemt, können wir `latest.yml` auf eine ältere
+  // Version zurücksetzen und der Updater nimmt sie trotzdem. Default ist false
+  // (Schutz vor Downgrade-Schleifen + Reverse-Migration-Risiko); wir setzen es
+  // bewusst — Voraussetzung: `store.ts`/Config bleibt abwärtskompatibel (keine
+  // Schema-Migrationen, die ein älterer Build nicht versteht).
+  autoUpdater.allowDowngrade = true;
 
   autoUpdater.on('update-available', (info) => send('updates:available', { version: info.version }));
   autoUpdater.on('download-progress', (p) => send('updates:progress', { percent: p.percent }));

@@ -1,7 +1,7 @@
 # Flatpak manifest for the Pulse desktop app (T6).
 #
 # What's inside the Flatpak:
-#   - the Electron 42 runtime (bundled binary from the GitHub release)
+#   - the Electron 43 runtime (bundled binary from the GitHub release)
 #   - electron/dist/{main,preload}.cjs  (esbuild-bundled — run `pnpm --filter @dcc/desktop build:electron` first)
 #   - the pure-stdlib Python GSR sidecar (streaming/gsr-sidecar/*.py) → /app/share/pulse/gsr-sidecar/
 #   - a custom-built `gpu-screen-recorder` (FFmpeg-with-NVENC + GSR-from-source + the FLV-Opus / Vulkan-stub patches),
@@ -187,7 +187,7 @@ modules:
   - name: pulse
     buildsystem: simple
     build-commands:
-      # Electron 42 runtime (bundled binary). chrome-sandbox is useless in a Flatpak
+      # Electron 43 runtime (bundled binary). chrome-sandbox is useless in a Flatpak
       # (setuid won't stick) — zypak handles sandboxing, so drop it.
       - install -d /app/electron
       - cp -a electron/. /app/electron/
@@ -219,8 +219,8 @@ modules:
       - install -Dm644 packaging/com.howispulse.Pulse.metainfo.xml /app/share/metainfo/com.howispulse.Pulse.metainfo.xml
     sources:
       - type: archive
-        url: https://github.com/electron/electron/releases/download/v42.0.1/electron-v42.0.1-linux-x64.zip
-        sha256: e1b8b5b86d3fff69e2b3502586363d384085ee0578bd041fa5915fd0b557c4f1
+        url: https://github.com/electron/electron/releases/download/v43.0.0/electron-v43.0.0-linux-x64.zip
+        sha256: 53b5562e17ed87b728e01318fa4e7f9040709eafa8f2e09b327362e6abaf961c
         dest: electron
         # The Electron release zip is a *flat* tree (electron, locales/, resources/,
         # *.pak, *.so, …). flatpak-builder defaults `strip-components` to 1 for
